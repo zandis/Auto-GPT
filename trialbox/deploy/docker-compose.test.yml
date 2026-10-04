@@ -1,0 +1,40 @@
+# Test/dev override: mail test servers and localhost-only port publishing for the test harness.
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml --profile stub --profile test up -d
+services:
+  greenmail:
+    image: ${GREENMAIL_IMAGE:-greenmail/standalone:2.1.3@sha256:d6db42a4fc258fec0948b1ae7b579fd06947cc92087c162ec0597972a6c36850}
+    profiles: [test]
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.auth.disabled -Dgreenmail.users=trialbox:trialbox@hospa.test -Dgreenmail.verbose=false
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:3025:3025", "127.0.0.1:3143:3143"]
+  mailhog:
+    image: ${MAILHOG_IMAGE:-mailhog/mailhog:v1.0.1@sha256:8d76a3d4ffa32a3661311944007a415332c4bb855657f4f6c57996405c009bea}
+    profiles: [test]
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:8025:8025"]
+  orchestrator:
+    networks: [trialbox-net, egress-net, host-net]
+    ports: ["127.0.0.1:8010:8010"]
+  fhir-store:
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:8080:8080"]
+  lake:
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:8013:8013"]
+  minio:
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:9000:9000"]
+  criteria-compiler:
+    networks: [trialbox-net, egress-net, host-net]
+    ports: ["127.0.0.1:8012:8012"]
+  llm-stub:
+    networks:
+      trialbox-net: {aliases: [llm-service]}
+      host-net: {}
+    ports: ["127.0.0.1:8000:8000"]
+networks:
+  host-net:
+    name: trialbox-hostnet

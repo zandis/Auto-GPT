@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/candidate_list.schema.json",
+  "title": "CandidateList",
+  "description": "SPEC 3.6 candidate_list (tag phi). Schema version 1.0.0.",
+  "type": "object",
+  "required": ["ruleset", "version", "snapshot", "scope", "rows", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "ruleset": {"type": "string"},
+    "version": {"type": "string"},
+    "snapshot": {"type": "string", "format": "date"},
+    "run_date": {"type": "string", "format": "date"},
+    "scope": {"$ref": "#/$defs/screen_run_scope"},
+    "rows": {"type": "array", "items": {"$ref": "#/$defs/candidate_row"}},
+    "summary": {"$ref": "#/$defs/tier_summary"}
+  },
+  "$defs": {
+    "screen_run_scope": {
+      "title": "ScreenRunScope",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "practitioners": {"type": "array", "items": {"type": "string"}},
+        "departments": {"type": "array", "items": {"type": "string"}},
+        "window_days": {"type": "integer"},
+        "n_scoped": {"type": "integer"}
+      }
+    },
+    "evidence": {
+      "title": "Evidence",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resource_refs": {"type": "array", "items": {"type": "string"}},
+        "quote": {"type": ["string", "null"]},
+        "quote_date": {"type": ["string", "null"]},
+        "confidence": {"type": ["number", "null"]},
+        "reason": {"type": ["string", "null"]}
+      }
+    },
+    "criterion_verdict": {
+      "title": "CriterionVerdict",
+      "type": "object",
+      "required": ["id", "verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string"},
+        "verdict": {"enum": ["pass", "fail", "unknown", "pending_human"]},
+        "evidence": {"$ref": "#/$defs/evidence"}
+      }
+    },
+    "candidate_row": {
+      "title": "CandidateRow",
+      "type": "object",
+      "required": ["pid", "tier", "criteria", "actions"],
+      "additionalProperties": false,
+      "properties": {
+        "pid": {"type": "string"},
+        "tier": {"enum": ["high", "review", "excluded"]},
+        "next_appointment": {"type": ["string", "null"], "format": "date-time"},
+        "practitioner_id": {"type": ["string", "null"]},
+        "department": {"type": ["string", "null"]},
+        "criteria": {"type": "array", "items": {"$ref": "#/$defs/criterion_verdict"}},
+        "actions": {"type": "array", "items": {"type": "string"}},
+        "n_unknown": {"type": "integer", "default": 0},
+        "last_evaluated": {"type": ["string", "null"], "format": "date-time"},
+        "changed": {"type": "array", "items": {"type": "string"}, "description": "microbatch: criterion ids whose verdict changed"}
+      }
+    },
+    "tier_summary": {
+      "title": "TierSummary",
+      "type": "object",
+      "required": ["high", "review", "excluded"],
+      "additionalProperties": false,
+      "properties": {
+        "high": {"type": "integer"},
+        "review": {"type": "integer"},
+        "excluded": {"type": "integer"}
+      }
+    }
+  }
+}

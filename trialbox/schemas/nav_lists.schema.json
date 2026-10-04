@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/nav_lists.schema.json",
+  "title": "NavLists",
+  "description": "SPEC 3.6 nav_lists (tag phi). Schema version 1.0.0.",
+  "type": "object",
+  "required": ["ruleset", "version", "snapshot", "department", "lists"],
+  "additionalProperties": false,
+  "properties": {
+    "ruleset": {"type": "string"},
+    "version": {"type": "string"},
+    "snapshot": {"type": "string", "format": "date"},
+    "run_date": {"type": "string", "format": "date"},
+    "department": {"type": "string"},
+    "lists": {
+      "title": "NavListSet",
+      "type": "object",
+      "required": ["likely_eligible", "renewal_due", "doc_gaps", "maybe_ineligible"],
+      "additionalProperties": false,
+      "properties": {
+        "likely_eligible": {"type": "array", "items": {"$ref": "#/$defs/nav_row"}},
+        "renewal_due": {"type": "array", "items": {"$ref": "#/$defs/nav_row"}},
+        "doc_gaps": {"type": "array", "items": {"$ref": "#/$defs/nav_row"}},
+        "maybe_ineligible": {"type": "array", "items": {"$ref": "#/$defs/nav_row"}}
+      }
+    }
+  },
+  "$defs": {
+    "missing_item": {
+      "title": "MissingItem",
+      "type": "object",
+      "required": ["item"],
+      "additionalProperties": false,
+      "properties": {
+        "item": {"type": "string"},
+        "suggested_order": {"type": ["string", "null"]},
+        "criterion_id": {"type": ["string", "null"]}
+      }
+    },
+    "precheck": {
+      "title": "Precheck",
+      "type": "object",
+      "required": ["passed", "issues"],
+      "additionalProperties": false,
+      "properties": {
+        "passed": {"type": ["boolean", "null"]},
+        "issues": {"type": "array", "items": {"type": "string"}},
+        "validator_errors": {"type": "integer", "default": 0}
+      }
+    },
+    "nav_row": {
+      "title": "NavRow",
+      "type": "object",
+      "required": ["pid", "criteria", "missing"],
+      "additionalProperties": false,
+      "properties": {
+        "pid": {"type": "string"},
+        "next_appointment": {"type": ["string", "null"], "format": "date-time"},
+        "practitioner_id": {"type": ["string", "null"]},
+        "approval_end": {"type": ["string", "null"], "format": "date"},
+        "criteria": {"type": "array", "items": {"$ref": "candidate_list.schema.json#/$defs/criterion_verdict"}},
+        "missing": {"type": "array", "items": {"$ref": "#/$defs/missing_item"}},
+        "draft_doc_key": {"type": ["string", "null"]},
+        "twpas_bundle_key": {"type": ["string", "null"]},
+        "precheck": {"anyOf": [{"$ref": "#/$defs/precheck"}, {"type": "null"}]}
+      }
+    }
+  }
+}

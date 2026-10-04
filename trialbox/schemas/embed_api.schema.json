@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/embed_api.schema.json",
+  "title": "EmbedRequest",
+  "description": "embed-service POST /embed (SPEC 4.7). Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "texts"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "texts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "embed_response": {
+      "title": "EmbedResponse",
+      "type": "object",
+      "required": [
+        "vectors",
+        "model",
+        "dim"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "vectors": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "model": {
+          "type": "string"
+        },
+        "dim": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

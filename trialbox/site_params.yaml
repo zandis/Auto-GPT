@@ -1,0 +1,19 @@
+# site_params.yaml — SPEC §12.1. Filled with SYNTHETIC values for the demo site (no real hospital data).
+his:
+  source_type: csv            # cgrd_sql | csv | fhir_bulk | ssmix2  (demo also ships a SQLite cgrd_sql export)
+  dsn: "sqlite:////data/source/site-a/cgrd.sqlite"
+  tables: {patient: patient, encounter: encounter, appointment: appointment, diagnosis: diagnosis, lab: lab,
+           medication: medication, procedure: procedure, note: note, claim: claim, report: report, practitioner: practitioner}
+  code_systems: {diagnosis: ICD10CM-TW, drug: NHI, lab_local_to_loinc: "mapping/tw_core/lab_local_to_loinc.csv", order: NHI}
+  note_types_available: ["progress", "admission", "discharge", "consult", "nursing"]
+  height_weight_source: "lab (local codes HT/WT, vital-signs)"
+mail: {imap_host: greenmail, smtp_host: mailhog, intake_addr: trialbox@hospa.test, from_addr: trialbox@hospa.test}
+people:
+  reviewers: ["crc1@hospa.test", "pi@hospa.test"]
+  physicians: ["pi@hospa.test", "rheu-dr@hospa.test"]
+  practitioner_ids_by_name: {"示範醫師甲": "P12345", "示範醫師乙": "P23456", "示範醫師丙": "P34567"}
+nhi:
+  twpas_enabled: true
+  twpas_test_env: "http://twpas-mock:8090/fhir"
+  rule_documents: ["RA生物製劑給付規定_2026.pdf", "附表十五.pdf"]
+hardware: {gpu: "RTX 5090 32GB", ram_gb: 128, disk_tb: 4}

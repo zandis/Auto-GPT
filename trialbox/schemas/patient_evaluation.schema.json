@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/patient_evaluation.schema.json",
+  "title": "PatientEvaluation",
+  "description": "Per-patient structured evaluation (fhir-store $evaluate or lake SQL) at one index date. Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "pid",
+    "index_date",
+    "engine",
+    "results"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "pid": {
+      "type": "string"
+    },
+    "index_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "engine": {
+      "enum": [
+        "cql",
+        "sql"
+      ]
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "boolean",
+          "null"
+        ]
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

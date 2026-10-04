@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/lake_api.schema.json",
+  "title": "LakeQuery",
+  "description": "lake POST /query: parameterized SELECT only; response is an Arrow IPC stream. Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "sql"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "sql": {
+      "type": "string"
+    },
+    "params": {
+      "type": "array",
+      "items": {}
+    },
+    "snapshot": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "timeout_s": {
+      "type": "integer",
+      "default": 300
+    }
+  },
+  "$defs": {
+    "chunk_search_request": {
+      "title": "ChunkSearchRequest",
+      "type": "object",
+      "required": [
+        "pid",
+        "query"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "pid": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "k": {
+          "type": "integer",
+          "default": 5
+        },
+        "date_from": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "date_to": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "snapshot": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      }
+    },
+    "chunk_hit": {
+      "title": "ChunkHit",
+      "type": "object",
+      "required": [
+        "did",
+        "chunk_no",
+        "text",
+        "date",
+        "score"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "did": {
+          "type": "string"
+        },
+        "chunk_no": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "score": {
+          "type": "number"
+        },
+        "note_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "chunk_search_result": {
+      "title": "ChunkSearchResult",
+      "type": "object",
+      "required": [
+        "hits"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "hits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/chunk_hit"
+          }
+        }
+      }
+    },
+    "rebuild_request": {
+      "title": "RebuildRequest",
+      "type": "object",
+      "required": [
+        "snapshot"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "snapshot": {
+          "type": "string",
+          "format": "date"
+        },
+        "ndjson_dir": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "rebuild_result": {
+      "title": "RebuildResult",
+      "type": "object",
+      "required": [
+        "snapshot",
+        "tables",
+        "chunks",
+        "embedded_new"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "snapshot": {
+          "type": "string"
+        },
+        "tables": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "chunks": {
+          "type": "integer"
+        },
+        "embedded_new": {
+          "type": "integer"
+        },
+        "seconds": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}

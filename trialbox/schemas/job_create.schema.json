@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/job_create.schema.json",
+  "title": "JobCreate",
+  "description": "POST /jobs body (mail-gateway and scheduler -> orchestrator). Schema version 1.0.0.",
+  "type": "object",
+  "required": ["type", "requested_by"],
+  "additionalProperties": false,
+  "properties": {
+    "type": {"$ref": "job.schema.json#/$defs/job_type"},
+    "ruleset": {"type": ["string", "null"]},
+    "options": {"type": "object", "additionalProperties": {"type": "string"}},
+    "comment": {"type": ["string", "null"]},
+    "requested_by": {"type": "string"},
+    "message_id": {"type": ["string", "null"]},
+    "in_reply_to": {"type": ["string", "null"]},
+    "job_id": {"type": ["string", "null"], "description": "pre-allocated id (idempotency key); generated when absent"},
+    "inputs": {"type": "array", "items": {"$ref": "job.schema.json#/$defs/job_file"}}
+  }
+}

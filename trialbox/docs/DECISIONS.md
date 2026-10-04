@@ -1,0 +1,108 @@
+# Decisions log
+
+Each entry: decision, reason, consequence. Entries are appended per phase; nothing is silently dropped.
+
+## Phase 0
+
+**D-01 Repository location.** TrialBox lives in `trialbox/` inside this repository (the host repo's existing content is
+untouched). The spec's monorepo root `trialbox/` is that directory. `rulesets/` is a plain directory in the monorepo
+(not a submodule) holding the checked-in rulesets; at runtime the compiler works on a git repository initialised from it
+in the `rulesets` volume (`TB_RULESETS_DIR`).
+
+**D-02 Docling vs marker (§12.2).** Docling. Production `doc-parser` image installs `docling` and bakes its layout/table
+models at build time. CI and the sandbox cannot download Docling models (Hugging Face is unreachable), so
+`doc_parser` has a deterministic *lite* backend (pypdf + python-docx + heading heuristics) that is selected
+automatically when Docling is not importable (`TB_PARSER=auto|docling|lite`). Both return the same `ParsedDoc`
+contract. The 5-Chinese-PDF table-recall comparison is scripted in `tools/parser_compare.py` for site runs.
+
+**D-03 `$evaluate` vs `$evaluate-measure` (§12.2).** `Library/$evaluate` (HAPI JPA starter 8.12, CR module,
+cql-to-elm 5.4.0). Spike result in this sandbox: ~77 ms per patient per library after warm-up, so 1,000 patients ×
+1 call at 8-way concurrency ≈ 10 s of server time — well inside §11.3. `Measure/$evaluate-measure` is kept behind
+`TB_CQL_EVAL_MODE=measure` (one cohort Measure per ruleset, individual report per subject).
+
+**D-04 7z vs S/MIME (§12.2).** `ATTACH_PASSWORD_MODE=zip` (7z AES-256 via py7zr, password mailed separately) is the
+default because it needs no recipient certificates; `smime` (CMS sign + encrypt with `cryptography`) is selectable.
+
+**D-05 Python packaging and images.** One `pyproject.toml`; packages are discovered from `libs/` and `services/`.
+All Python services share one base image (`trialbox-py`, multi-arch `python:3.12-slim`) and differ by command.
+Heavy extras get their own images built FROM it: `doc-parser` (+docling), `embed-service` (+sentence-transformers,
+CPU torch on arm64 and amd64), `criteria-compiler` (+JRE 17 + cql-to-elm jars). No x86-only wheels are used
+(verified: duckdb, duckdb-extension-fts, pyarrow, cryptography, numpy, matplotlib all ship manylinux aarch64 wheels).
+
+**D-06 FHIR ids for ValueSets.** FHIR ids may not contain `_`, so ValueSet resource ids are `<RULESET>-<NAME>` with
+`_` → `-` (e.g. `GZQO-VS-URATE`); canonical url `http://trialbox.local/fhir/ValueSet/<id>`. CQL keeps the
+`valueset "VS_URATE"` local name, and the IR keeps `"valueset": "VS_URATE"`.
+
+**D-07 Reserved ValueSet id `NONE`.** The IR schema requires `valueset` on every atom; demographic atoms (age/sex)
+have no codes and use the reserved id `NONE`. Derived atoms reference a ValueSet listing their component codes
+(e.g. `VS_BMI_COMPONENTS`).
+
+**D-08 Tag naming.** One git repository holds all rulesets, so `v{version}` would collide; tags are
+`<RULESET>/v<version>` and draft branches are `draft/<job_id>`.
+
+**D-09 Pseudonymous patient id.** `pid = hex(HMAC-SHA256(site_key, MRN))[:32]` (128 bits). Full 64-hex ids exceed
+the subject-grammar value limit (32 chars) used by `SUBMIT ... pid=<pid>`; 128 bits keeps collision probability
+negligible (< 1e-25 for 10^7 patients).
+
+**D-10 pid map encryption.** SQLCipher has no maintained linux/arm64 wheel, which would break the GB10 build.
+`secrets/pid_map.sqlite` stores `pid → AES-256-GCM(MRN)` using `cryptography`; the 32-byte key file is sealed by the
+TPM (`systemd-creds encrypt --with-key=tpm2`) and unsealed into tmpfs at boot (RUNBOOK §Secrets).
+
+**D-11 FHIR model library.** `fhir.resources` ≥ 7 ships R5 + R4B + STU3 only (no R4 4.0.1). TWPAS bundles are built
+with the R4B models (identical for the resources used: Bundle, Claim, Patient, Coverage, Practitioner, Organization,
+MedicationRequest, Condition, Observation, DiagnosticReport, DocumentReference) and validated as R4 by the HL7 validator.
+
+**D-12 Embeddings in CI.** Hugging Face is unreachable from CI, so `embed-service` has `TB_EMBED_MODE=bge-m3|hash`.
+`hash` is a deterministic 1024-d signed feature-hash of CJK bigrams and Latin tokens (L2-normalised). Same API,
+same dimension; retrieval quality is lower but sufficient for synthetic fixtures. Production uses bge-m3.
+
+**D-13 LLM modes.** `TB_LLM_MODE=vllm|llamacpp|stub`. `stub` (`services/llm_stub`) is an OpenAI-compatible server that
+replays cassettes keyed by `(prompt_id, input_sha)` and otherwise answers with deterministic rules (judge: pattern
+rules over excerpts that always quote an exact excerpt sentence; concept_map: exact/synonym match; draft_doc:
+template sentence over the input facts; ir_extract: cassette or "every line is a `human` criterion"). It exercises the
+exact same `chat_json` code path, schemas and post-processing. LLM-quality tests (`-m llm`) need a real model.
+
+**D-14 DuckDB FTS offline.** DuckDB downloads extensions at runtime, which the deny-by-default egress forbids. The FTS
+extension is installed from the `duckdb-extension-fts` wheel (version-locked to `duckdb`), amd64 and arm64.
+Chinese/Japanese text is pre-tokenised into character bigrams (Latin words kept whole) before indexing because the FTS
+tokenizer splits on whitespace.
+
+**D-15 Subject grammar extensions.** The spec uses `SUBMIT` (§8.4), CRC feedback CSV (§8.2) and `COHORT MERGE` (§8.3)
+but the ABNF omits them. Added: `cmd += "SUBMIT" / "FEEDBACK"`, `key += "pid" / "bundle" / "site"`; `COHORT MERGE`
+is `COHORT` with the reserved ruleset token `MERGE`. Job `type` enum gains `SUBMIT`, `FEEDBACK`, `CANCEL`,
+`RETENTION`, `CALIBRATION` (all scheduled/command jobs are first-class jobs so they are audited).
+
+**D-16 Mail servers in test.** MailHog has no IMAP, so the test profile runs GreenMail (intake IMAP + SMTP) and
+MailHog (sink for the box's outbound SMTP, inspected over its HTTP API).
+
+**D-17 Shared date semantics (CQL ≡ SQL).** All windows are inclusive day windows on the hospital-local calendar date
+of the event (`date from` in CQL, `::DATE` in DuckDB). Missing window ⇒ `(-∞, IndexDate]`. `latest` ties are broken by
+resource id. Code-presence atoms (condition, medication, procedure, encounter, claim, report, observation without
+`value`) are never null (absence = false); value atoms (`observation` with `value`, `derived`, `demographic`) are null
+when the needed data is absent. Medication exposure clips each validity period to the window, merges periods whose gap
+≤ `gap_days`, and returns the longest island in days (inclusive).
+
+**D-18 Unknowns in FEAS funnels.** Funnel `remaining` counts patients for whom every applied inclusion is `true` and no
+applied exclusion is `true` (unknown inclusion ⇒ not remaining; unknown exclusion ⇒ not excluded). The count of
+patients dropped only because of unknowns is reported per step in `notes`, and an automatic sensitivity variant
+`unknown_as_pass` is always included.
+
+**D-19 Bounded LLM extract schema.** `llm_extract_output.schema.json` limits boolean nesting to depth 3 (no recursive
+`$ref`) so regex-based guided-decoding backends (outlines) can compile it; the Criterion IR schema itself stays
+recursive.
+
+**D-20 Criterion id pattern.** The spec's id pattern `^[A-Z0-9]+-(INC|EXC|REN|DOC)-…` cannot express its own
+`RA-BIO` ruleset; it is widened to `^[A-Z0-9]+(-[A-Z0-9]+)*-(INC|EXC|REN|DOC)-[0-9]{2,3}$` (strict superset).
+
+**D-21 MinIO image.** `minio/minio` is no longer pullable from Docker Hub (and quay.io/cgr.dev are unreachable from the
+build network). The `minio` service runs the multi-arch community MinIO build `pgsty/minio` (amd64 + arm64, MinIO
+RELEASE.2026-08-04), pinned by digest; the S3 API and the `minio` Python client are unchanged. Sites with a licensed
+MinIO image override `MINIO_IMAGE`.
+
+**D-22 Small-cell zero.** Counts 1–4 are suppressed to `<5`; 0 is shown (it identifies nobody and keeps funnels readable).
+
+**D-23 No OS packages in Python images.** Debian mirrors are unreachable from the build network used for this
+implementation and every OS package is extra attack surface on the appliance. Images therefore install wheels only:
+git operations use `dulwich` (pure Python), 7z AES-256 uses `py7zr`, PID 1 is compose `init: true` (tini), PDF fonts
+are copied from the repository's `deploy/fonts/` (fetched by `tools/fetch_fonts.sh`), and the compiler's JRE 17 is
+copied from the multi-arch `eclipse-temurin:17-jre` image in a multi-stage build.

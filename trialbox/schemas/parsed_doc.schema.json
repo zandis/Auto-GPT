@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/parsed_doc.schema.json",
+  "title": "ParsedDoc",
+  "description": "doc-parser POST /parse response (SPEC 4.2). Deterministic: same file gives the same JSON bytes. Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "source_sha256",
+    "filename",
+    "parser",
+    "language",
+    "sections",
+    "tables",
+    "ie_block"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source_sha256": {
+      "type": "string"
+    },
+    "filename": {
+      "type": "string"
+    },
+    "parser": {
+      "enum": [
+        "docling",
+        "lite"
+      ]
+    },
+    "language": {
+      "type": "string"
+    },
+    "pages": {
+      "type": "integer"
+    },
+    "ocr_used": {
+      "type": "boolean",
+      "default": false
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/section"
+      }
+    },
+    "tables": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/table"
+      }
+    },
+    "ie_block": {
+      "$ref": "#/$defs/ie_block"
+    },
+    "ie_source": {
+      "enum": [
+        "heuristic",
+        "llm",
+        "none"
+      ]
+    }
+  },
+  "$defs": {
+    "section": {
+      "title": "DocSection",
+      "type": "object",
+      "required": [
+        "title",
+        "level",
+        "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "level": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "table": {
+      "title": "DocTable",
+      "type": "object",
+      "required": [
+        "rows"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "caption": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "ie_block": {
+      "title": "IEBlock",
+      "type": "object",
+      "required": [
+        "inclusion",
+        "exclusion"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "inclusion": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclusion": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "parse_request": {
+      "title": "ParseRequest",
+      "type": "object",
+      "required": [
+        "minio_key"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "minio_key": {
+          "type": "string"
+        },
+        "job_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "language_hint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

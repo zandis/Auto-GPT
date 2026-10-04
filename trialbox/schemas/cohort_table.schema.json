@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/cohort_table.schema.json",
+  "title": "CohortTable",
+  "description": "Alliance schema v1 (SPEC 8.3): site_id, disease, quarter, criterion_id, criterion_label, n, n_contactable, definition_version. Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "rows"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "alliance-v1"
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/cohort_row"
+      }
+    }
+  },
+  "$defs": {
+    "cohort_row": {
+      "title": "CohortRow",
+      "type": "object",
+      "required": [
+        "site_id",
+        "disease",
+        "quarter",
+        "criterion_id",
+        "criterion_label",
+        "n",
+        "n_contactable",
+        "definition_version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "site_id": {
+          "type": "string"
+        },
+        "disease": {
+          "type": "string"
+        },
+        "quarter": {
+          "type": "string",
+          "pattern": "^[0-9]{4}Q[1-4]$"
+        },
+        "criterion_id": {
+          "type": "string"
+        },
+        "criterion_label": {
+          "type": "string"
+        },
+        "n": {
+          "$ref": "feasibility_result.schema.json#/$defs/count"
+        },
+        "n_contactable": {
+          "$ref": "feasibility_result.schema.json#/$defs/count"
+        },
+        "definition_version": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

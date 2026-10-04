@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/llm_extract_output.schema.json",
+  "title": "LlmExtractOutput",
+  "description": "Output of prompt ir_extract (SPEC 7.1): CriterionIR without ids/valueset ids plus concept_candidates. Logic nesting is bounded to depth 3 so that regex-based guided decoding backends can compile it. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["criteria"],
+  "additionalProperties": false,
+  "properties": {
+    "criteria": {"type": "array", "items": {"$ref": "#/$defs/extracted_criterion"}}
+  },
+  "$defs": {
+    "concept_candidate": {
+      "title": "ConceptCandidate",
+      "type": "object",
+      "required": ["domain", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "domain": {"enum": ["condition", "observation", "medication", "procedure", "encounter", "demographic", "claim", "report"]},
+        "name": {"type": "string"},
+        "synonyms": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "extracted_atom": {
+      "title": "ExtractedAtom",
+      "type": "object",
+      "required": ["domain"],
+      "additionalProperties": false,
+      "properties": {
+        "domain": {"enum": ["condition", "observation", "medication", "procedure", "encounter", "demographic", "claim", "report"]},
+        "concept": {"type": "string", "description": "name of a concept in concept_candidates; omitted for demographic"},
+        "quantifier": {"enum": ["any", "none", "count>=", "latest", "all"]},
+        "count": {"type": "integer"},
+        "value": {"$ref": "criterion_ir.schema.json#/$defs/value"},
+        "window": {"$ref": "criterion_ir.schema.json#/$defs/window"},
+        "duration": {"$ref": "criterion_ir.schema.json#/$defs/duration"},
+        "age": {"$ref": "criterion_ir.schema.json#/$defs/age"},
+        "sex": {"enum": ["male", "female"]},
+        "derived": {"enum": ["bmi", "egfr", "das28", "basdai", "asdas"]}
+      }
+    },
+    "extracted_bool3": {
+      "title": "ExtractedBool3",
+      "type": "object",
+      "required": ["op", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"enum": ["and", "or", "not"]},
+        "args": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/extracted_atom"}}
+      }
+    },
+    "extracted_bool2": {
+      "title": "ExtractedBool2",
+      "type": "object",
+      "required": ["op", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"enum": ["and", "or", "not"]},
+        "args": {"type": "array", "minItems": 1, "items": {"anyOf": [{"$ref": "#/$defs/extracted_atom"}, {"$ref": "#/$defs/extracted_bool3"}]}}
+      }
+    },
+    "extracted_bool1": {
+      "title": "ExtractedBool1",
+      "type": "object",
+      "required": ["op", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"enum": ["and", "or", "not"]},
+        "args": {"type": "array", "minItems": 1, "items": {"anyOf": [{"$ref": "#/$defs/extracted_atom"}, {"$ref": "#/$defs/extracted_bool2"}]}}
+      }
+    },
+    "extracted_criterion": {
+      "title": "ExtractedCriterion",
+      "type": "object",
+      "required": ["text", "kind", "class", "concept_candidates"],
+      "additionalProperties": false,
+      "properties": {
+        "text": {"type": "string"},
+        "label": {"type": "string"},
+        "source_ref": {"type": "string"},
+        "kind": {"enum": ["inclusion", "exclusion", "renewal", "documentation"]},
+        "class": {"enum": ["structured", "note", "human"]},
+        "time_sensitive": {"type": "boolean"},
+        "logic": {"anyOf": [{"$ref": "#/$defs/extracted_atom"}, {"$ref": "#/$defs/extracted_bool1"}]},
+        "fallback": {"type": "string"},
+        "note_question": {"type": "string"},
+        "human_question": {"type": "string"},
+        "action": {"type": "string"},
+        "suggested_order": {"type": "string"},
+        "concept_candidates": {"type": "array", "items": {"$ref": "#/$defs/concept_candidate"}}
+      }
+    }
+  }
+}

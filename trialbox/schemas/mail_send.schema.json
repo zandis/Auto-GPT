@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/mail_send.schema.json",
+  "title": "SendRequest",
+  "description": "POST mail-gateway:8015/send (orchestrator -> mail-gateway). Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "to",
+    "subject",
+    "body_md",
+    "tag"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "job_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "to": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "subject": {
+      "type": "string"
+    },
+    "body_md": {
+      "type": "string"
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/attachment"
+      }
+    },
+    "encrypt": {
+      "type": "boolean",
+      "default": false
+    },
+    "tag": {
+      "enum": [
+        "aggregate",
+        "phi"
+      ]
+    },
+    "in_reply_to": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "$defs": {
+    "attachment": {
+      "title": "SendAttachment",
+      "type": "object",
+      "required": [
+        "minio_key",
+        "filename"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "minio_key": {
+          "type": "string"
+        },
+        "filename": {
+          "type": "string"
+        },
+        "tag": {
+          "enum": [
+            "aggregate",
+            "phi"
+          ]
+        }
+      }
+    },
+    "send_result": {
+      "title": "SendResult",
+      "type": "object",
+      "required": [
+        "message_id",
+        "sent_to",
+        "encrypted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "message_id": {
+          "type": "string"
+        },
+        "sent_to": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "encrypted": {
+          "type": "boolean"
+        },
+        "password_sent": {
+          "type": "boolean",
+          "default": false
+        },
+        "rejected": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

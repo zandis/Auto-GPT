@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/criterion_ir.schema.json",
+  "title": "CriterionIR",
+  "description": "One eligibility criterion (SPEC 3.3). Schema version 1.0.0.",
+  "type": "object",
+  "required": ["id", "ruleset", "text", "kind", "class", "logic"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "pattern": "^[A-Z0-9]+(-[A-Z0-9]+)*-(INC|EXC|REN|DOC)-[0-9]{2,3}$"},
+    "ruleset": {"type": "string"},
+    "text": {"type": "string"},
+    "label": {"type": "string", "description": "short display label for funnels and spreadsheets"},
+    "source_ref": {"type": "string", "description": "section/page in source document"},
+    "kind": {"enum": ["inclusion", "exclusion", "renewal", "documentation"]},
+    "class": {"enum": ["structured", "note", "human"]},
+    "time_sensitive": {"type": "boolean", "default": false},
+    "logic": {"$ref": "#/$defs/expr"},
+    "fallback": {"type": "string"},
+    "note_question": {"type": "string", "description": "for class=note: the yes/no question put to the LLM"},
+    "human_question": {"type": "string"},
+    "action": {"type": "string", "description": "suggested action when unknown/pending (e.g. 'order creatinine')"},
+    "suggested_order": {"type": "string", "description": "for documentation criteria: order code/name that closes the gap"},
+    "flags": {"type": "array", "items": {"type": "string"}, "description": "e.g. needs_review, equivalence_fail, concept_unmapped"},
+    "review": {"$ref": "#/$defs/review"}
+  },
+  "$defs": {
+    "review": {
+      "title": "CriterionReview",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {"enum": ["draft", "approved", "rejected"]},
+        "by": {"type": "string"},
+        "at": {"type": "string", "format": "date-time"},
+        "comment": {"type": "string"}
+      }
+    },
+    "expr": {"title": "Expr", "oneOf": [{"$ref": "#/$defs/atom"}, {"$ref": "#/$defs/bool"}]},
+    "bool": {
+      "title": "BoolExpr",
+      "type": "object",
+      "required": ["op", "args"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {"enum": ["and", "or", "not"]},
+        "args": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/expr"}}
+      }
+    },
+    "value": {
+      "title": "AtomValue",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "op": {"enum": [">", ">=", "<", "<=", "=", "between", "in"]},
+        "num": {"type": "number"},
+        "num2": {"type": "number"},
+        "unit": {"type": "string"},
+        "codes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "window": {
+      "title": "Window",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from_days": {"type": "integer"},
+        "to_days": {"type": "integer"},
+        "anchor": {"enum": ["index", "event"], "default": "index"}
+      }
+    },
+    "duration": {
+      "title": "Duration",
+      "description": "for medication: continuous exposure",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min_days": {"type": "integer"},
+        "gap_days": {"type": "integer", "default": 30}
+      }
+    },
+    "age": {
+      "title": "AgeRange",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"min": {"type": "number"}, "max": {"type": "number"}}
+    },
+    "atom": {
+      "title": "Atom",
+      "type": "object",
+      "required": ["domain", "valueset"],
+      "additionalProperties": false,
+      "properties": {
+        "domain": {"enum": ["condition", "observation", "medication", "procedure", "encounter", "demographic", "claim", "report"]},
+        "valueset": {"type": "string", "description": "ValueSet id in ruleset/valuesets; reserved 'NONE' for demographic atoms"},
+        "quantifier": {"enum": ["any", "none", "count>=", "latest", "all"], "default": "any"},
+        "count": {"type": "integer"},
+        "value": {"$ref": "#/$defs/value"},
+        "window": {"$ref": "#/$defs/window"},
+        "duration": {"$ref": "#/$defs/duration"},
+        "age": {"$ref": "#/$defs/age"},
+        "sex": {"enum": ["male", "female"]},
+        "derived": {"enum": ["bmi", "egfr", "das28", "basdai", "asdas"], "description": "computed observation"}
+      }
+    }
+  }
+}

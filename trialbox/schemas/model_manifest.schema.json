@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/model_manifest.schema.json",
+  "title": "ModelManifest",
+  "description": "models/manifest.yaml (SPEC 4.7). Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "models"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "models": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/model_entry"
+      }
+    }
+  },
+  "$defs": {
+    "model_entry": {
+      "title": "ModelEntry",
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "role"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "judge",
+            "extract",
+            "embed",
+            "draft"
+          ]
+        },
+        "quant": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_model_len": {
+          "type": "integer",
+          "default": 32768
+        },
+        "gpu_memory_utilization": {
+          "type": "number",
+          "default": 0.85
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "license": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,173 @@
+"""Generate ``libs/tb_contracts/generated/models.py`` from ``schemas/*.schema.json``.
+
+All schema files are merged into one bundle (every file root and every ``$defs`` entry becomes a top-level
+definition named by its ``title``), ``$ref`` pointers are rewritten into the bundle, and
+datamodel-code-generator is run once so each contract is generated exactly once.
+
+Usage::
+
+    python tools/gen_contracts.py          # regenerate
+    python tools/gen_contracts.py --check  # exit 1 if the committed models are stale
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+SCHEMAS = ROOT / "schemas"
+OUT = ROOT / "libs" / "tb_contracts" / "generated" / "models.py"
+
+
+def _pascal(name: str) -> str:
+    return "".join(p[:1].upper() + p[1:] for p in re.split(r"[^A-Za-z0-9]", name) if p)
+
+
+def _def_name(file_stem: str, key: str, node: dict[str, Any]) -> str:
+    title = node.get("title")
+    return str(title) if title else _pascal(f"{file_stem}_{key}")
+
+
+def build_bundle() -> dict[str, Any]:
+    files = sorted(SCHEMAS.glob("*.schema.json"))
+    loaded: dict[str, dict[str, Any]] = {f.name: json.loads(f.read_text(encoding="utf-8")) for f in files}
+    names: dict[tuple[str, str], str] = {}  # (file, pointer) -> bundle name
+    for fname, doc in loaded.items():
+        stem = fname.removesuffix(".schema.json")
+        names[(fname, "")] = str(doc["title"])
+        for key, node in doc.get("$defs", {}).items():
+            names[(fname, f"/$defs/{key}")] = _def_name(stem, key, node)
+    seen: dict[str, tuple[str, str]] = {}
+    for k, v in names.items():
+        if v in seen and seen[v] != k:
+            raise SystemExit(f"duplicate contract name {v}: {seen[v]} and {k}")
+        seen[v] = k
+
+    def rewrite(node: Any, fname: str) -> Any:
+        if isinstance(node, dict):
+            out: dict[str, Any] = {}
+            for k, v in node.items():
+                if k == "$ref" and isinstance(v, str):
+                    target_file, _, pointer = v.partition("#")
+                    target_file = target_file or fname
+                    key = (target_file, pointer)
+                    if key not in names:
+                        raise SystemExit(f"unresolvable $ref {v!r} in {fname}")
+                    out[k] = f"#/$defs/{names[key]}"
+                elif k in ("$schema", "$id", "$defs"):
+                    continue
+                else:
+                    out[k] = rewrite(v, fname)
+            return out
+        if isinstance(node, list):
+            return [rewrite(x, fname) for x in node]
+        return node
+
+    defs: dict[str, Any] = {}
+    for fname, doc in loaded.items():
+        defs[names[(fname, "")]] = rewrite(doc, fname)
+        for key, node in doc.get("$defs", {}).items():
+            defs[names[(fname, f"/$defs/{key}")]] = rewrite(node, fname)
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "TrialBoxContracts",
+        "type": "object",
+        "$defs": dict(sorted(defs.items())),
+    }
+
+
+def schemas_digest() -> str:
+    h = hashlib.sha256()
+    for f in sorted(SCHEMAS.glob("*.schema.json")):
+        h.update(f.name.encode())
+        h.update(f.read_bytes())
+    return h.hexdigest()
+
+
+def generate() -> str:
+    bundle = build_bundle()
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "bundle.json"
+        dst = Path(td) / "models.py"
+        src.write_text(json.dumps(bundle, indent=1, ensure_ascii=False), encoding="utf-8")
+        cmd = [
+            sys.executable,
+            "-m",
+            "datamodel_code_generator",
+            "--input",
+            str(src),
+            "--input-file-type",
+            "jsonschema",
+            "--output",
+            str(dst),
+            "--output-model-type",
+            "pydantic_v2.BaseModel",
+            "--target-python-version",
+            "3.12",
+            "--use-standard-collections",
+            "--use-union-operator",
+            "--enum-field-as-literal",
+            "all",
+            "--use-double-quotes",
+            "--disable-timestamp",
+            "--field-constraints",
+            "--use-title-as-name",
+            "--use-schema-description",
+            "--use-default",
+            "--strict-nullable",
+            "--capitalise-enum-members",
+            "--use-field-description",
+            "--allow-population-by-field-name",
+            "--collapse-root-models",
+            "--extra-fields",
+            "forbid",
+            "--formatters",
+            "black",
+            "isort",
+            "--output-datetime-class",
+            "AwareDatetime",
+        ]
+        subprocess.run(cmd, check=True)
+        body = dst.read_text(encoding="utf-8")
+    header = (
+        "# GENERATED by tools/gen_contracts.py from schemas/*.schema.json -- DO NOT EDIT.\n"
+        f"# schemas sha256: {schemas_digest()}\n"
+        '# mypy: disable-error-code="misc"\n'
+    )
+    body = re.sub(r"^#   filename:.*\n", "", body, flags=re.M)
+    body = re.sub(r"\nclass TrialBoxContracts\(BaseModel\):\n(?:    .*\n|\n(?=    ))*", "\n", body)
+    body = re.sub(r"\n{4,}", "\n\n\n", body)
+    return header + body
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--check", action="store_true")
+    args = ap.parse_args()
+    code = generate()
+    if args.check:
+        current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
+        if current != code:
+            print("tb_contracts is stale: run `make contracts`", file=sys.stderr)
+            return 1
+        print("tb_contracts up to date")
+        return 0
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    OUT.write_text(code, encoding="utf-8")
+    (OUT.parent / "__init__.py").write_text(
+        '"""Generated pydantic models (do not edit)."""\n', encoding="utf-8"
+    )
+    print(f"wrote {OUT.relative_to(ROOT)} ({code.count(chr(10))} lines)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

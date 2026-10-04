@@ -1,0 +1,40 @@
+# TrialBox settings.yaml (SPEC §10.4) — synthetic demo site A.
+# Validated against schemas/settings.schema.json at service start-up; services refuse to start on error.
+# Generate a site-specific file with:  python -m tools.settings_wizard
+site: {id: DEMO-A, name: "示範醫院A (synthetic)", tz: Asia/Taipei, locale: zh-TW, contact: "crc1@hospa.test"}
+internal_domains: ["hospa.test"]
+allowlist:
+  senders: ["crc1@hospa.test", "pi@hospa.test", "rheu-dr@hospa.test", "nurse-rheu@hospa.test"]
+  physicians: ["pi@hospa.test", "rheu-dr@hospa.test"]
+  alliance_sites: ["trialbox@hospb.test"]
+permissions:
+  FEAS: [senders]
+  SCREEN: [senders]
+  NAV: [senders]
+  COHORT: [senders, alliance_sites]
+  APPROVE: [reviewers]
+  STATUS: [senders, reviewers]
+  CANCEL: [senders]
+  FEEDBACK: [senders]
+  SUBMIT: [physicians]
+reviewers: ["crc1@hospa.test", "pi@hospa.test"]
+require_spf_dkim: true
+rate_limit_per_sender_per_day: 20
+data_source: {type: csv, path: /data/source/site-a, mapping: mapping/tw_core/demo_his.yaml, nightly_at: "02:00"}
+mrn_regex: "^\\d{8}$"
+profiles: {tw_core: "1.0.0", twpas_version: "1.2.5"}
+models: {judge: qwen3.5-35b-a3b-q4, extract_local: gpt-oss-120b-mxfp4, embed: bge-m3, cloud_enabled: false}
+thresholds: {tier_high_confidence: 0.75, small_cell: 5, equivalence_min_pct: 98, validation_error_max_pct: 0.5}
+schedule: {ingest: "02:00", microbatch: "MON 03:00", nav: "MON 03:30", cohort: "1st 04:00", retention: "05:00", calibration: "1st 05:30"}
+site_capabilities: {fundus_photography: true, injection_training: true, cold_chain: true, ediary_support: true}
+registry_source: {type: csv, path: /data/source/site-a/registry.csv}
+attachment_encryption: zip
+departments: {RHEU: "風濕免疫科", META: "新陳代謝科", NEPH: "腎臟科", CARD: "心臟內科", FM: "家庭醫學科", ONC: "腫瘤科", ORTH: "骨科"}
+practitioners:
+  P12345: {name: "Dr. A (synthetic)", department: RHEU, email: "pi@hospa.test", capacity_per_month: 4}
+  P23456: {name: "Dr. B (synthetic)", department: RHEU, email: "rheu-dr@hospa.test", capacity_per_month: 3}
+  P34567: {name: "Dr. C (synthetic)", department: META, capacity_per_month: 2}
+retention: {attachments_days: 90, outputs_days: 365, logs_days: 180, nightly_snapshots: 3, month_end_snapshots_months: 36, pool_months_after_ruleset: 24, audit_years: 10}
+calibration_defaults: {reach_rate: 0.6, accept_rate: 0.35}
+twpas: {enabled: true, dry_run: true, org_id: "1132070011", org_name: "示範醫院A"}
+cohort: {alliance_root: true, root_address: "trialbox@hospa.test", rulesets: ["GOUT-COH", "RA-COH"], ctgov_cache_days: 30}

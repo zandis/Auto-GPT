@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/llm_ie_locate_output.schema.json",
+  "title": "LlmIeLocateOutput",
+  "description": "Output of prompt ie_locate (SPEC 4.2): verbatim inclusion/exclusion criteria lines. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["inclusion", "exclusion"],
+  "additionalProperties": false,
+  "properties": {
+    "inclusion": {"type": "array", "items": {"type": "string"}},
+    "exclusion": {"type": "array", "items": {"type": "string"}}
+  }
+}
