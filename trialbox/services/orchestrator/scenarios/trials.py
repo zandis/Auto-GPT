@@ -52,7 +52,7 @@ def _rates(ctx: Ctx, rs_id: str) -> tuple[float, float]:
     return reach, accept
 
 
-def _compiled(ctx: Ctx, s: CtgovStudy, run_date: date) -> tuple[Ruleset, float | None, bool]:
+def _compiled(ctx: Ctx, s: CtgovStudy, run_date: date) -> tuple[Ruleset, float | None, date]:
     """Draft ruleset for one study (cache hit or a fresh automatic compile)."""
     from orchestrator.scenarios.cohort import load_draft
 
@@ -60,7 +60,7 @@ def _compiled(ctx: Ctx, s: CtgovStudy, run_date: date) -> tuple[Ruleset, float |
     days = int(cs.ctgov_cache_days if cs and cs.ctgov_cache_days else 30)
     hit = ctx.orch.db.trial_cache_get(s.nct_id, str(s.last_update))
     if hit and datetime.fromisoformat(hit["compiled_at"]).date() >= run_date - timedelta(days=days):
-        return load_draft(ctx.store.get(hit["draft_zip_key"])), hit["equivalence_pct"], True
+        return load_draft(ctx.store.get(hit["draft_zip_key"])), hit["equivalence_pct"], _day(hit["compiled_at"])
     base = f"ctgov/{s.nct_id}/{s.last_update}"
     text_key = f"{base}/{s.nct_id}_eligibility.txt"
     ctx.store.put(text_key, s.eligibility_text.encode("utf-8"), "text/plain")
@@ -83,6 +83,7 @@ def _compiled(ctx: Ctx, s: CtgovStudy, run_date: date) -> tuple[Ruleset, float |
     if not res.draft_zip_key:
         raise StepFailed("compiling", f"{s.nct_id}: compiler returned no draft package")
     pct = res.tests.overall_pct if res.tests else None
+    compiled_at = ctx.orch._now().isoformat(timespec="seconds")
     ctx.orch.db.trial_cache_put(
         {
             "nct_id": s.nct_id,
@@ -90,14 +91,18 @@ def _compiled(ctx: Ctx, s: CtgovStudy, run_date: date) -> tuple[Ruleset, float |
             "version": res.version,
             "draft_zip_key": res.draft_zip_key,
             "equivalence_pct": pct,
-            "compiled_at": ctx.orch._now().isoformat(timespec="seconds"),
+            "compiled_at": compiled_at,
         }
     )
-    return load_draft(ctx.store.get(res.draft_zip_key)), pct, False
+    return load_draft(ctx.store.get(res.draft_zip_key)), pct, _day(compiled_at)
+
+
+def _day(iso: str) -> date:
+    return datetime.fromisoformat(iso).date()
 
 
 def simulate_one(ctx: Ctx, s: CtgovStudy, run_date: date, snapshot: str, sc: int) -> TrialSimRow:
-    rs, pct, cached = _compiled(ctx, s, run_date)
+    rs, pct, compiled_on = _compiled(ctx, s, run_date)
     reach, accept = _rates(ctx, rs.id)
     p = fc.FeasParams(
         run_date=run_date,
@@ -146,7 +151,7 @@ def simulate_one(ctx: Ctx, s: CtgovStudy, run_date: date, snapshot: str, sc: int
         enrol_12m_low=None if small else sim["low"],
         enrol_12m_mid=None if small else sim["mid"],
         enrol_12m_high=None if small else sim["high"],
-        cached=cached,
+        draft_compiled_on=compiled_on,
         steps=[
             TrialSimStep(
                 criterion_id=st.id,

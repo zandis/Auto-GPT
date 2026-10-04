@@ -11,7 +11,7 @@ from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionVerdict
 
 from orchestrator.clients import StepFailed
-from orchestrator.core import Ctx, Delivery, Outcome
+from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.reports import screen_summary_pdf
 from orchestrator.reports.candidate_xlsx import Change
 from orchestrator.scenarios.evaluate import row, sort_key, tier
@@ -83,7 +83,7 @@ def run(ctx: Ctx) -> Outcome:
     t = threshold(ctx, rs)
     rows: list[CandidateRow] = []
     changes: list[Change] = []
-    stamp = ctx.orch._now().isoformat(timespec="seconds")
+    stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
     for p, s in zip(week, scoped, strict=True):
         old = {v["id"]: CriterionVerdict.model_validate(v) for v in p["verdicts"]}
         new = dict(old)

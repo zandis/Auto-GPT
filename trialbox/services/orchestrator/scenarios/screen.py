@@ -18,7 +18,7 @@ from tb_common.timeutil import add_months
 from tb_contracts import CandidateList, CandidateRow, Routing, ScreenRunScope, TierSummary, dump
 
 from orchestrator.clients import StepFailed
-from orchestrator.core import Ctx, Delivery, Outcome
+from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.reports import candidate_xlsx, screen_summary_pdf
 from orchestrator.reports.common import ReportMeta
 from orchestrator.scenarios.evaluate import (
@@ -237,7 +237,7 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
     ctx.metrics(patients_scoped=len(scoped))
     results = evaluate_scope(ctx, rs, run_date, snapshot, scoped)
     by_pid = {s.pid: s for s in scoped}
-    stamp = ctx.orch._now().isoformat(timespec="seconds")
+    stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
     rows = [
         row(pv, by_pid[p].next_appointment, by_pid[p].practitioner_id, by_pid[p].department, stamp)
         for p, pv in results.items()

@@ -127,7 +127,8 @@ class Ctx:
         return self.orch.data_dir
 
     def today(self) -> date:
-        return self.orch.today()
+        """The job's run date: fixed when the job starts, so a run across midnight and any re-run use one date."""
+        return self._job.run_date or self.orch.today()
 
     def state(self, state: str) -> None:
         if self.orch.db.cancel_requested(self._job.job_id):
@@ -332,6 +333,9 @@ class Orchestrator:
         if job.state in TERMINAL:
             return job
         t0 = time.perf_counter()
+        if job.run_date is None:  # not a state change: no audit event; the "running" transition follows
+            job = job.model_copy(update={"run_date": self.today()})
+            self.db.put(job)
         ctx = Ctx(self, job)
         scenario = self.scenarios.get(job.type)
         try:
@@ -474,6 +478,14 @@ class Orchestrator:
                 return
             self.run(jid)
         raise TimeoutError("queue not drained")
+
+
+def job_stamp(ctx: Ctx) -> str:
+    """The timestamp written into evaluation outputs: the job's receipt in the site zone (not the wall clock), so a
+    re-run of the same job on the same snapshot is byte-identical (SPEC §11.2 reproducibility)."""
+    from zoneinfo import ZoneInfo
+
+    return ctx.job.received_at.astimezone(ZoneInfo(ctx.cfg.env.tz)).isoformat(timespec="seconds")
 
 
 def _title(job: Job) -> str:

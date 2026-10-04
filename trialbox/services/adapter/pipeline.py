@@ -142,7 +142,8 @@ def run_ingest(
                     src, src_name = make_source("csv", str(Path(where).parent)), Path(where).stem
                 else:
                     src = make_source("cgrd_sql", where)
-            rows = list(src.rows(table, src_name, tspec.get("delta"), since))
+            delta = mapping.source_column(table, tspec.get("delta"))
+            rows = [mapping.normalize(table, r) for r in src.rows(table, src_name, delta, since)]
             if table == "patient":
                 patient_pairs = [(pid_for_mrn(key, str(r[tspec["key"]])), str(r[tspec["key"]])) for r in rows]
                 ident = tspec.get("identity") or {}

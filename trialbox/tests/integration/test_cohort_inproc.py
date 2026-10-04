@@ -105,7 +105,7 @@ def test_cohort_site_a(boxes: dict[str, Box], synth_dir: Path) -> None:
     for values in trials[1:]:
         row: dict[str, Any] = dict(zip([str(h) for h in trials[0]], values, strict=True))
         assert row["criteria_total"] >= 7 and 0 < row["criteria_counted"] <= row["criteria_total"]
-        assert row["cached"] == "no"
+        assert row["draft_compiled_on"]  # compiled by this run
         if isinstance(row["eligible_now"], int):
             assert row["enrol_12m_P10"] <= row["enrol_12m_P50"] <= row["enrol_12m_P90"]
     steps = list(wb["steps"].iter_rows(values_only=True))
@@ -113,7 +113,10 @@ def test_cohort_site_a(boxes: dict[str, Box], synth_dir: Path) -> None:
     # second run: compiles come from the cache (NCT id + last update)
     _, mail2 = _done(box, "COHORT GOUT-COH lookback=1")
     wb2 = load_workbook(io.BytesIO(next(v for k, v in mail2.attachments().items() if k.startswith("trial_sim_"))))
-    assert {r[16] for r in list(wb2["trials"].iter_rows(values_only=True))[1:]} == {"yes"}
+    first = {r[0]: r[16] for r in trials[1:]}
+    second = {r[0]: r[16] for r in list(wb2["trials"].iter_rows(values_only=True))[1:]}
+    assert second == first  # the same drafts: no recompile
+    assert len(box.orch.db.trial_cache_all()) == 3
 
 
 def test_member_shares_and_root_merges(boxes: dict[str, Box], synth_dir: Path) -> None:
@@ -146,6 +149,30 @@ def test_member_shares_and_root_merges(boxes: dict[str, Box], synth_dir: Path) -
     assert int(pop["ALLIANCE"]["n"]) == len(pop_a) + len(pop_b)
     assert int(pop["DEMO-A"]["n"]) == len(pop_a) and int(pop["DEMO-B"]["n"]) == len(pop_b)
     assert {r["definition_version"] for r in merged} == {"GOUT-COH@1.0.0"}
+
+
+def test_merge_rerun_uses_the_tables_as_they_were(boxes: dict[str, Box]) -> None:
+    """D-82: re-running a merge replays the alliance tables stored before it, not the live (later replaced) ones."""
+    from orchestrator.rerun import rerun
+    from orchestrator.scenarios.cohort import to_csv
+
+    a = boxes["a"]
+    first = a.orch.db.find(type_="COHORT", ruleset="MERGE")[0]
+    rows = [r for r in a.orch.db.cohort_rows("gout", "2026Q3") if r["site_id"] == "DEMO-B"]
+    fixed = [{**r, "n": r["n"] + 1} if r["criterion_id"] == "GOUT-COH-INC-01" else r for r in rows]
+    a.mail(
+        "COHORT MERGE",
+        attachments=(("cohort_table_GOUT-COH_DEMO-B_2026Q3.csv", to_csv(fixed)),),
+        sender="trialbox@hospb.test",
+        auth=AUTH_A_FROM_B,
+    )
+    a.orch.drain()
+    second = a.orch.db.find(type_="COHORT", ruleset="MERGE")[0]
+    assert second.job_id != first.job_id and second.state == "done", second.error
+    assert {o.sha256 for o in second.outputs or []} != {o.sha256 for o in first.outputs or []}
+    for job in (first, second):
+        res = rerun(a.orch, job.job_id)
+        assert res.identical, (res.error, [f for f in res.files if not f["same"]])
 
 
 def test_merge_rejects_bad_tables_and_non_root(boxes: dict[str, Box]) -> None:

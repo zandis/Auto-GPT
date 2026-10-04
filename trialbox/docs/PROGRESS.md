@@ -292,3 +292,68 @@ make test-e2e      # GreenMail -> TrialBox -> MailHog
 - `make lint` clean; `make test` 252 passed; `make test-integration` 43 passed; `make test-egress` 1 passed;
   `make test-e2e` 6 passed (the test stack now uses its own settings with a higher per-sender limit after the daily
   limit of 20 correctly refused the 21st e2e mail); the audit chain verifies (1,342 events).
+
+## Phase 9 — Onboarding kit, acceptance, documentation (done)
+
+**Delivered**
+- Site onboarding without code changes (D-84):
+  - `tools/settings_wizard.py` (interactive or `--answers`) writes a validated `settings.yaml` and a 0600 `.env` with
+    generated secrets, and cross-checks departments, recipients, MRN regex, mapping and TWPAS org.
+  - Mapping templates in `services/adapter/mapping/templates/`: `csv_site.yaml`, `cgrd_sql_site.yaml`, and
+    `CANONICAL.md` with every canonical column. A site mapping `extends` the shared TW Core mapping and declares only
+    its tables, with `rename` (local → canonical columns) and `values` (local → canonical codes).
+  - `tools/mapping_check.py` reports required and optional columns and unmapped codes against a real export.
+- Go-live acceptance runner `tools/acceptance.py` for every §11.2 row (D-83). The SCREEN part draws a stratified,
+  blinded CRC sample and computes weighted sensitivity and specificity, criterion agreement and CRC minutes.
+- Reproducibility (D-82):
+  - `python -m orchestrator.rerun <job ids>` re-executes finished read-only jobs in a sandbox (pinned snapshot, same
+    run date) and compares every output hash with the audit chain.
+  - Supporting changes: job schema 1.1.0 (`run_date`), receipt-time evaluation stamps, ctgov schema 2.0.0
+    (`draft_compiled_on`).
+- Tools: `tools/export_spec.py` (approved ruleset → human-readable specification with artifact hashes) and
+  `tools/parser_compare.py` (D-02 parser backend comparison) (D-85).
+- LLM-layer tests (`pytest -m llm`, real model, D-85):
+  - `ir_extract` on 5 eligibility texts against gold IR;
+  - `concept_map` on 200 concepts;
+  - the existing 300-item judge set.
+- Documentation: `README.md` (10-minute quickstart, repository map), `docs/RUNBOOK.md` (install, onboarding,
+  operations, incidents, updates, backup/restore, go-live), and `docs/ARCHITECTURE.md` (as built).
+
+**DoD evidence**
+- A new site can be configured without code changes (`tests/integration/test_onboarding.py`). Site C exports
+  hospital B's data with other file names, column names, codes (sex 1/2, visit O/I/E, NHI Y/N/P) and MRN format.
+  - Configured with only the wizard answers and the unchanged csv template.
+  - `mapping_check` passes.
+  - The ingest gives the same resource counts and lake contents as site B with the demo mapping.
+  - `FEAS GZQO` by mail from site C's CRC returns the PDF and XLSX.
+- Re-runs are byte-identical: FEAS, SCREEN, MICROBATCH, NAV and COHORT re-execute with every output hash equal
+  to the audited original; a changed output is detected; side-effecting jobs are refused
+  (`tests/integration/test_rerun.py`).
+- Reproducible on the compose stack. `python -m orchestrator.rerun` re-ran every finished read-only job made by
+  this version, across two rounds of e2e mail plus a scheduler-style MICROBATCH: 13 jobs (FEAS, SCREEN, MICROBATCH,
+  NAV RA-BIO and ONC-OSI, COHORT, COHORT MERGE) and 98 files, all byte-identical. The first compose round caught a merge re-run that read the live
+  alliance table; fixed by replaying the earlier tables (D-82).
+- Runbook, README and architecture document were checked against the code: every command, make target and
+  module they name exists, as do all paths apart from the two files a site creates at install
+  (`deploy/settings.yaml`, the vendor public key).
+- `make lint` clean; `make test` 272 passed (2 skipped); `make test-integration` 55 passed; `make test-e2e` 6
+  passed; `make test-egress` 1 passed; the audit chain verifies (2,703 events).
+
+## v1.0 completion checklist
+
+| Criterion | Evidence |
+| --- | --- |
+| Compose healthy on x86 | `make up-test`: every service healthy (each phase, last after phase 9) |
+| … and with the GB10 override | `docker-compose.gb10.yml` with pinned arm64 digests; arm64 images built and smoke-tested under QEMU. Running vLLM needs GB10 hardware (platform fallback, D-79) |
+| `FEAS GZQO` → PDF + XLSX | `make test-e2e` `test_feas_email_to_pdf` |
+| `APPROVE` round trip | `make test-e2e` `test_approve_loop_by_email` (review.xlsx reply → approved → FEAS resumed) |
+| `SCREEN GZQO version=1.0.0` → candidate workbook | `make test-e2e` `test_screen_email_to_encrypted_list` |
+| Monday microbatch → `this_week_visit1.xlsx` | scheduler Mon 03:00; in process `test_screen_inproc`; on compose, a scheduler-style job produced `this_week_visit1_GZQO_2026-10-04.xlsx` (phase 9) |
+| `NAV RA-BIO dept=RHEU` → four lists, docx drafts, validator-clean TWPAS bundles | `make test-e2e` `test_nav_email_to_lists_and_drafts`; HL7 validator 0 errors on every bundle (phase 6, `test_nav_onc_twpas_then_submit_dry_run`) |
+| `COHORT` merges two sites | `make test-e2e` `test_cohort_and_alliance_merge`; in process `test_cohort_inproc` |
+| `tools/make_fixtures.py` ≥ 500 patients | site A 600, site B 520 |
+| Both rulesets checked in | `rulesets/GZQO`, `rulesets/RA-BIO` (plus ONC-OSI, GOUT-COH, RA-COH) |
+| `tools/bench.py` | phase 8, `docs/BENCH.md` |
+| RUNBOOK, README quickstart, ARCHITECTURE | `docs/RUNBOOK.md`, `README.md`, `docs/ARCHITECTURE.md` (phase 9) |
+| Compile gate ≥ 98 % | every shipped ruleset at 100 % CQL≡SQL; approval refused below the gate |
+| `tools/audit_verify.py` passes | on the compose stack after the full e2e run (2,703 events) |

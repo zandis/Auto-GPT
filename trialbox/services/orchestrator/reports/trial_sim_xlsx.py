@@ -38,7 +38,7 @@ def render(sims: TrialSimResult, meta: ReportMeta) -> bytes:
         "enrol_12m_P10",
         "enrol_12m_P50",
         "enrol_12m_P90",
-        "cached",
+        "draft_compiled_on",
         "note",
     ]
     ws.append(head)
@@ -61,7 +61,7 @@ def render(sims: TrialSimResult, meta: ReportMeta) -> bytes:
                 r.enrol_12m_low,
                 r.enrol_12m_mid,
                 r.enrol_12m_high,
-                "yes" if r.cached else "no",
+                str(r.draft_compiled_on or ""),
                 r.note or "",
             ]
         )

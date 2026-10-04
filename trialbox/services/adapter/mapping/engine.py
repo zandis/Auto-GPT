@@ -17,6 +17,12 @@ Value expressions (one key per element)::
 
 ``type`` is one of ``str|int|decimal|date|datetime|instant|bool``. Datetimes are interpreted in the mapping's
 ``tz`` and emitted with offset. ``when`` (element) / ``where`` (resource) filter on columns or lookups.
+
+Site mappings (onboarding kit, D-84) usually ``extends`` a shared profile mapping (e.g. ``tw_core/demo_his.yaml``)
+and only declare their ``tables``: each table's ``rename`` (local column → canonical column) and ``values``
+(canonical column → {local code: canonical code}) are applied to every source row before the shared resource
+definitions run; ``key`` / ``delta`` / ``identity`` name canonical columns. Resources of tables the site does not
+declare are dropped; lookups resolve relative to the file that declares them.
 """
 
 from __future__ import annotations
@@ -87,13 +93,39 @@ class Mapping:
     static: list[Resource]
     path: Path
 
-    @classmethod
-    def load(cls, path: Path) -> Mapping:
+    @staticmethod
+    def _read(path: Path) -> dict[str, Any]:
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(doc, dict) or doc.get("version") != 1:
             raise MappingError(f"{path}: expected a mapping document with version: 1")
+        return doc
+
+    @classmethod
+    def load(cls, path: Path) -> Mapping:
+        doc = cls._read(path)
+        lookup_dirs = {name: path.parent for name in (doc.get("lookups") or {})}
+        if doc.get("extends"):
+            base_path = Path(doc["extends"])
+            base_path = base_path if base_path.is_absolute() else (path.parent / base_path).resolve()
+            if not base_path.exists():
+                raise MappingError(f"{path}: extends {doc['extends']} not found")
+            base = cls._read(base_path)
+            if base.get("extends"):
+                raise MappingError(f"{base_path}: a base mapping cannot extend another one")
+            site_tables = doc.get("tables") or {}
+            merged = {**base, **{k: v for k, v in doc.items() if k != "extends"}}
+            merged["systems"] = {**(base.get("systems") or {}), **(doc.get("systems") or {})}
+            merged["lookups"] = {**(base.get("lookups") or {}), **(doc.get("lookups") or {})}
+            lookup_dirs = {
+                **{n: base_path.parent for n in (base.get("lookups") or {})},
+                **{n: path.parent for n in (doc.get("lookups") or {})},
+            }
+            merged["tables"] = site_tables  # the site declares what it exports
+            merged["resources"] = [r for r in base.get("resources") or [] if r["table"] in site_tables]
+            merged["static"] = doc.get("static", base.get("static"))
+            doc = merged
         lookups = {
-            name: Lookup.load(name, path.parent / spec["file"], spec["key"])
+            name: Lookup.load(name, lookup_dirs[name] / spec["file"], spec["key"])
             for name, spec in (doc.get("lookups") or {}).items()
         }
         resources = [
@@ -120,6 +152,25 @@ class Mapping:
             static=doc.get("static") or [],
             path=path,
         )
+
+    def normalize(self, table: str, row: Row) -> Row:
+        """Source row → canonical row: ``rename`` local columns, then translate ``values`` codes."""
+        spec = self.tables.get(table) or {}
+        rename: dict[str, str] = spec.get("rename") or {}
+        out = {rename.get(k, k): v for k, v in row.items()} if rename else dict(row)
+        for col, codes in (spec.get("values") or {}).items():
+            v = out.get(col)
+            table_codes = {str(k): c for k, c in codes.items()}  # YAML may load 1: M with an int key
+            if v is not None and str(v) in table_codes:
+                out[col] = table_codes[str(v)]
+        return out
+
+    def source_column(self, table: str, canonical: str | None) -> str | None:
+        """The local name of a canonical column (for source-side filters such as ``delta``)."""
+        if canonical is None:
+            return None
+        rename: dict[str, str] = (self.tables.get(table) or {}).get("rename") or {}
+        return next((local for local, canon in rename.items() if canon == canonical), canonical)
 
 
 class Mapper:

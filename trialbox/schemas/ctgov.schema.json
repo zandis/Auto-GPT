@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/ctgov.schema.json",
   "title": "CtgovSearchRequest",
-  "description": "criteria-compiler POST /ctgov/search: recruiting studies from ClinicalTrials.gov API v2 for COHORT trial simulation (SPEC 8.3), and the trial simulation result. Schema version 1.0.0.",
+  "description": "criteria-compiler POST /ctgov/search: recruiting studies from ClinicalTrials.gov API v2 for COHORT trial simulation (SPEC 8.3), and the trial simulation result. Schema version 2.0.0 (2.0.0: draft_compiled_on replaces cached; breaking, trial_sim_row forbids extra properties).",
   "type": "object",
   "required": ["condition"],
   "additionalProperties": false,
@@ -68,7 +68,7 @@
         "enrol_12m_low": {"type": ["number", "null"]},
         "enrol_12m_mid": {"type": ["number", "null"]},
         "enrol_12m_high": {"type": ["number", "null"]},
-        "cached": {"type": "boolean", "default": false},
+        "draft_compiled_on": {"type": ["string", "null"], "format": "date", "description": "date the registry text was compiled (cache entry); identical on a re-run"},
         "steps": {
           "type": "array",
           "items": {

@@ -575,3 +575,61 @@ Two findings from the bench run (docs/BENCH.md):
 AES-GCM under `pid_map.key` (D-10, D-66), which avoids a native SQLCipher build. That key and the site HMAC key are
 TPM-sealed at rest with `systemd-creds --with-key=tpm2` and decrypted into the secrets volume at start. The disk is
 LUKS2 with TPM2 unlock, and swap is off (docs/HARDENING.md; checked by `deploy/check_host.sh`).
+
+**D-82 Reproducibility.** §11.2 asks that the same inputs and versions give identical output hashes.
+- The job fixes its `run_date` when it starts (job schema 1.1.0). `Ctx.today()` returns it, so a job that runs
+  across midnight, or a re-run, uses one date.
+- Evaluation stamps in candidate rows use the job's receipt time, not the wall clock.
+- The trial simulation reports `draft_compiled_on` instead of a cache flag that depended on cache state (ctgov
+  schema 2.0.0: removing a field is a breaking change).
+
+`python -m orchestrator.rerun <job ids>` re-executes finished FEAS, SCREEN, MICROBATCH, NAV, COHORT and CALIBRATION
+jobs in a sandbox:
+- same job id, inputs, options, run date and lake snapshot (queries pinned);
+- a scratch object store, no mail, a temporary job DB (pool and trial cache copied);
+- a `COHORT MERGE` gets the alliance tables as they stood when it ran: the sandbox replays, in job order, every
+  earlier merge's attached tables and every root COHORT run's published table (all immutable objects). A site
+  that re-submits later therefore cannot change an old merge's re-run (found on the compose stack, where the
+  first version compared against the live table);
+- it compares every output's sha256 with the audited original and audits a `rerun.checked` event.
+
+Jobs with side effects are never re-run: SUBMIT, APPROVE, and FEAS with an attached protocol (which compiles). In
+process, all five read-only scenarios re-run byte-identically and a changed output is detected.
+
+**D-83 Acceptance runner.** `tools/acceptance.py` has one subcommand per §11.2 row; each writes `<check>.json`, and
+`report` writes `acceptance_report.md`.
+
+SCREEN has two parts:
+- `screen-sample` draws a seeded, shuffled, blinded set of ≥ 100 patients from four strata (high, review, excluded,
+  scoped but not listed): proportional allocation, at least 10 per stratum. The CRC workbook and the key are kept
+  apart.
+- `screen` unblinds and computes trial-level sensitivity and specificity, weighted by each stratum's inverse
+  sampling fraction (the default tier is `high`; the review tier is `high` + `review`), criterion agreement
+  (structured and note separately, against the CRC's per-criterion columns) and median CRC minutes.
+
+The other rows reuse existing tools: FEAS (`funnel_compare`), NAV (`nav_retro`), reproducibility (`orchestrator.rerun`)
+and audit (`tb_common.audit.verify`). TWPAS requires the real HL7 validator and a pre-check pass for every bundle.
+
+**D-84 Site onboarding without code changes.**
+- `tools/settings_wizard.py`, interactive or `--answers`, writes a schema-valid `settings.yaml` plus a 0600 `.env`
+  with generated secrets. It also cross-checks what the schema cannot express: practitioner departments, recipients
+  inside the internal domains, the MRN regex, the mapping file, and the TWPAS org code.
+- Site mappings `extends` the shared TW Core mapping and declare only their `tables`. `rename` maps local to
+  canonical columns, `values` maps local to canonical codes, `key`/`delta`/`identity` name canonical columns
+  (`delta` is translated back to the local name for the source filter), and resources of undeclared tables are
+  dropped.
+- Templates (`csv_site.yaml`, `cgrd_sql_site.yaml`) and `CANONICAL.md` list every canonical column.
+- `tools/mapping_check.py` distinguishes required columns (ids, keys, `where`, the patient link) from optional
+  element columns, and reports unmapped codes.
+- The DoD test: site C, with other file and column names, other codes and another MRN format, is onboarded with
+  the wizard answers and the template only. Its lake is identical to site B's, and `FEAS GZQO` by mail succeeds.
+
+**D-85 LLM layer and supporting tools.**
+- §11.1's `ir_extract` set ("5 public protocols") uses five English eligibility texts with gold IR: the four
+  synthetic registry records and GZQO. Real registry texts cannot be fetched into the repository, which is
+  synthetic-only. `concept_map` uses 200 concepts from the terminology tables; the judge set has 300 items.
+- These tests (`pytest -m llm`) need a real model.
+- `tools/export_spec.py` renders an approved ruleset as a human-readable specification, with the sha256 of its
+  CQL/ELM/SQL, for sponsor and IRB files.
+- `tools/parser_compare.py` is the D-02 backend comparison: I/E and table-cell recall against optional gold files;
+  Docling runs in the production image.

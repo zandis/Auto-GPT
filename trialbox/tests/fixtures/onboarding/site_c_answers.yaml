@@ -1,0 +1,32 @@
+# Wizard answers for the onboarding test site C (synthetic). `python -m tools.settings_wizard --answers <this file>`
+site_id: DEMO-C
+site_name: 示範醫院C (synthetic)
+tz: Asia/Taipei
+locale: zh-TW
+contact: it-ops@hospc.test
+internal_domains: [hospc.test]
+intake_address: trialbox@hospc.test
+senders: [crc@hospc.test, pi@hospc.test]
+physicians: [pi@hospc.test]
+reviewers: [crc@hospc.test, pi@hospc.test]
+alliance_sites: []
+data_source_type: csv
+data_source_path: /data/source/site-c
+mapping: mapping/tw_core/site_c.yaml
+mrn_regex: '^C\d{7}$'
+registry_type: none
+departments: {RHEU: 風濕免疫科, META: 新陳代謝科, FM: 家庭醫學科, ONC: 腫瘤科, CARD: 心臟內科, NEPH: 腎臟科, ORTH: 骨科}
+practitioners:
+  P12345: {name: Dr. C1 (synthetic), department: RHEU, email: pi@hospc.test, capacity_per_month: 3}
+llm_mode: stub
+cloud_enabled: no
+attachment_encryption: zip
+twpas_enabled: no
+alliance_root: no
+alliance_root_address: trialbox@hospa.test
+cohort_rulesets: [GOUT-COH]
+smtp_host: smtp.hospc.test
+smtp_port: "587"
+imap_host: imap.hospc.test
+imap_port: "993"
+imap_user: trialbox
