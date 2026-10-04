@@ -18,7 +18,11 @@ from tb_common.timeutil import month_ends, quarter_of
 from tb_common.ulid import is_ulid, new_ulid, ulid_timestamp_ms
 
 
-def test_ulid_monotonic_and_valid() -> None:
+def test_ulid_monotonic_and_valid(monkeypatch: pytest.MonkeyPatch) -> None:
+    import tb_common.ulid as u
+
+    monkeypatch.setattr(u, "_last_ms", -1)  # independent of ULIDs other tests created in this process
+    monkeypatch.setattr(u, "_last_rand", 0)
     ids = [new_ulid(now_ms=1_700_000_000_000) for _ in range(1000)]
     assert all(is_ulid(i) for i in ids)
     assert ids == sorted(ids) and len(set(ids)) == 1000

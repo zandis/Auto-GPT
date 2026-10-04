@@ -107,7 +107,7 @@ warn_unused_ignores = true
 module = [
   "docxtpl.*", "docx.*", "py7zr.*", "apscheduler.*", "minio.*", "sqlglot.*", "duckdb.*",
   "pyarrow.*", "matplotlib.*", "fhir.*", "docling.*", "sentence_transformers.*", "pypdf.*",
-  "uvicorn.*", "numpy.*", "duckdb_extension_fts.*", "paddleocr.*",
+  "uvicorn.*", "numpy.*", "duckdb_extension_fts.*", "paddleocr.*", "fontTools.*", "markdown.*",
 ]
 ignore_missing_imports = true
 

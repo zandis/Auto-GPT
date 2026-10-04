@@ -8,7 +8,7 @@ CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),
 comma := ,
 
 
-.PHONY: jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e images up up-test down logs fixtures audit-verify bench clean
+.PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e images up up-test down logs fixtures audit-verify bench clean
 
 venv:
 	uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
@@ -24,7 +24,14 @@ lint: contracts-check
 	$(PY) -m ruff format --check .
 	$(PY) -m mypy libs services tools tests
 
-test:
+FONTS := .cache/fonts/NotoSansTC-Regular.ttf
+
+$(FONTS):
+	$(PY) tools/fetch_fonts.py
+
+fonts: $(FONTS)
+
+test: $(FONTS)
 	$(PY) -m pytest -q -m "not integration and not e2e and not llm and not perf"
 
 HL7_ENV := TB_HL7_VALIDATOR_JAR=$(CURDIR)/.cache/jvm/validator_cli.jar TB_FHIR_PACKAGE_HOME=$(CURDIR)/.cache/jvm/fhir-home
@@ -41,7 +48,7 @@ deploy/.env:
 jvm-deps:
 	tools/fetch_jvm_deps.sh
 
-images: jvm-deps
+images: jvm-deps $(FONTS)
 	docker build $(BUILD_ARGS) $(CA_SECRET) -f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
 	docker build -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
 

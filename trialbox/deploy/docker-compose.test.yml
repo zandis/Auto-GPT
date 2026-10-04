@@ -15,6 +15,11 @@ services:
     profiles: [test]
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:8025:8025"]
+  mail-gateway:
+    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway, TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail,
+                  TB_MAIL_POLL_SECONDS: "5"}
+    networks: [trialbox-net, egress-net, host-net]
+    ports: ["127.0.0.1:8015:8015"]
   orchestrator:
     networks: [trialbox-net, egress-net, host-net]
     ports: ["127.0.0.1:8010:8010"]

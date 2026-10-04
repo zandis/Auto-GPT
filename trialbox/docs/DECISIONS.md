@@ -192,3 +192,61 @@ re-extracts that line; `edited_class` alone switches the class (and creates a de
 `<ID>-<suffix>`), matching criteria by normalised text; unseen lines go through a small pattern extractor
 (BMI/eGFR/DAS28/HbA1c/urate/age) and otherwise become `human` criteria. Gold extractions double as the LLM-layer
 gold set (`services/llm_stub/cassettes/ir_extract/`).
+
+## Phase 3
+
+**D-40 FEAS funnel semantics.** The approved ruleset SQL is evaluated at every month-end of the lookback (default 36)
+and reduced per patient inside the lake in one query. Population = patients with ≥1 encounter in the lookback
+(optionally restricted to departments: `dept=` option or `scopes.feas.population=department`). A patient *remains*
+after step *k* when inclusions 1..k are `TRUE` and exclusions 1..k are not `TRUE` at **some** month-end (D-18).
+`note`/`human` criteria are listed with `applied=false` ("not applied in counts"). The `unknown` column counts, for an
+inclusion, patients who reached the step, never passed and never had a known value there; for an exclusion, patients
+kept only because no value was recorded. Monthly new-eligible = first eligible month-end per patient, shown for the
+last 24 months after a 12-month wash-out (so prevalent cases do not inflate month 1).
+
+**D-41 Sensitivity variants and simulation.** Threshold variants (`variant=bmi:24,25,27`, manifest `variants:`; the
+subject option replaces the manifest entry with the same key) are applied to modified IR copies rendered by the *same*
+SQL template generator and joined to the approved SQL (no LLM, no hand SQL); keys are a derived value (`bmi`, `egfr`,
+`das28`, …) or a criterion id (`INC-08`). `unknown_as_pass` is always added. Enrolment simulation (1,000 seeded
+iterations; seed = sha of ruleset|version|snapshot|run date|lookback): reach ~ Beta(r·κ, (1−r)·κ), accept ~
+Beta(a·κ, (1−a)·κ) with κ = 20 (default rates) or the number of contacted patients (calibrated); prevalent eligible
+patients present uniformly over 12 months, new eligible arrive Poisson(mean of the last 12 months); enrolment capped
+by the summed investigator capacity with carry-over; low/mid/high = P10/P50/P90.
+
+**D-42 Unsuppressed counts stay inside.** The FEAS job also writes `<stem>.raw.json` (unsuppressed counts), tagged
+`phi` and never mailed, so the manual-vs-system harness (`tools/funnel_compare.py`) can compare exact numbers. It is
+hashed and audited like every output.
+
+**D-43 Reports.** PDFs are built with reportlab (`rl_config.invariant=1`) and embedded Noto Sans TC/JP static
+instances generated from the OFL variable fonts by `tools/fetch_fonts.py` (copied into the image at
+`/opt/trialbox/fonts`); charts are matplotlib PNGs without metadata; XLSX/DOCX are re-zipped with fixed timestamps
+(`tb_common.deterministic`). Re-rendering a job is byte-identical; `feasibility_result.json` is identical across jobs
+with the same inputs (PDF/XLSX differ only by the job id in the footer). Suppressed months are drawn as an open marker
+with a 1..t−1 range bar, never as a value.
+
+**D-44 Review mails carry a valid command.** The review mail subject is `APPROVE <ID> version=<v> -- review round n,
+job <id>`, so a plain reply (`Re: …`) parses; a reply with any other subject is matched through `In-Reply-To` against
+the gateway's sent-message index. `APPROVE` without `version=` targets the newest draft awaiting approval.
+
+**D-45 Mail authentication and replies.** The top-most `Authentication-Results` header must show `spf=pass` or
+`dkim=pass` and no `dmarc=fail`; with `TB_MAIL_AUTHSERV_ID` set, headers from other servers are ignored (forged
+headers). Unknown senders get a generic reply only when their domain authenticated (no backscatter). Allowlisted
+senders get the precise reason (grammar, permission, rate limit). Gateway and orchestrator both enforce permissions and
+the 20 jobs/sender/day limit. Received/Failed/Status mails never go outside internal domains.
+
+**D-46 Attachment encryption mode.** `settings.attachment_encryption` (site policy) wins over `ATTACH_PASSWORD_MODE`.
+`zip`: one 7z (AES-256, encrypted headers) per message, a fresh random password per message, mailed separately to
+each recipient. `smime`: CMS signed with `secrets/smime/site.{crt,key}` and enveloped (AES-256-CBC) for every
+recipient certificate in `settings.smime_certs`; a recipient without a certificate fails the send. Any `phi`
+attachment forces encryption; `phi` to an address outside `internal_domains` is refused by the gateway (422) and by
+the orchestrator before anything is sent (routes are checked for all deliveries first).
+
+**D-47 Job execution.** SQLite job store (`jobs` mirrors the Job contract; `queued`/`cancel` flags), 4 worker threads,
+FIFO. `STATUS`/`CANCEL` run in a fast lane at creation (never queued behind long jobs). A job interrupted by a restart
+is re-run from the start (scenarios are idempotent: outputs are keyed by job id). Jobs waiting for approval are
+re-queued by the `APPROVE` that approves their ruleset version; a rejection or the 3-round limit fails them.
+Scheduled runs are jobs requested by `scheduler` (no Received/Done mails; failures go to `settings.site.contact`);
+types whose scenario is not yet implemented are not scheduled.
+
+**D-48 GreenMail login.** GreenMail's login for `trialbox:trialbox@hospa.test` is the local part (`IMAP_USER=trialbox`);
+production uses the mailbox's real login name.

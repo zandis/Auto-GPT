@@ -103,3 +103,44 @@ make images && make up-test && curl -X POST localhost:8016/run -H 'content-type:
 .venv/bin/python tools/build_rulesets.py --ruleset GZQO --doc tests/fixtures/protocols/GZQO_protocol_v3.pdf
 make test-integration
 ```
+
+## Phase 3 — FEAS (done)
+
+**Delivered**
+- `mail-gateway`: IMAP intake loop (UNSEEN, BODY.PEEK, COPY to `Processed`/`Rejected`, idempotent by Message-ID),
+  sender allowlist + SPF/DKIM via `Authentication-Results` (D-45), subject grammar (§5 + D-15; Re:/回覆 prefixes,
+  case-insensitive ids), reply-to-thread approval via `In-Reply-To` (D-44), permissions + 20 jobs/sender/day,
+  raw `.eml` + attachments to MinIO with sha256, `POST /send` (Markdown → text + HTML, routing enforcement, 7z
+  AES-256 + separate password mail or S/MIME sign+encrypt, D-46), audit `mail.received` / `mail.rejected` /
+  `mail.sent`.
+- `orchestrator`: SQLite job queue mirroring the Job contract, 4 workers, restart recovery, fast lane for
+  STATUS/CANCEL, every state change audited, every output stored under `outputs/<job>/`, hashed and audited before
+  delivery, routing check of all deliveries before any send, Received/Done/Failed replies, APScheduler plan from
+  `settings.schedule` (daily/weekly/monthly/quarterly), `POST/GET /jobs`, cancel.
+- Scenarios: `FEAS` (parse → diff/compile → review mail → `awaiting_approval` → resume on approval → funnel,
+  sensitivity, monthly new, simulation → PDF + XLSX + JSON), `APPROVE` (review.xlsx → compiler `/approve`, resume /
+  re-send review / fail waiting jobs), `STATUS`, `CANCEL`, `INGEST`.
+- `feas_compute`: one in-lake query over all month-ends with cumulative step flags, unknown attribution, template-
+  rendered threshold variants + `unknown_as_pass`, monthly new with wash-out, seeded Beta/Poisson simulation with
+  capacity (D-40, D-41); small-cell suppression on every count.
+- Reports: feasibility PDF (§9.1 sections 1–8, footer on every page, embedded Noto Sans TC/JP, matplotlib charts) and
+  XLSX (`funnel`, `sensitivity`, `monthly`, `criteria`, `assumptions`), byte-reproducible (D-43).
+- Harness: `tools/funnel_compare.py` (±15 % and "every difference explained") + `tools/manual_funnel.py`
+  (analyst-style period counts on `cgrd.sqlite`).
+
+**DoD evidence**
+- Compose E2E (`tests/e2e/test_mail_compose.py`): email `FEAS GZQO` sent to GreenMail → `Done <job>` with
+  `feasibility_GZQO_v1.0.0_2026-10-04.pdf` in MailHog after **7 s** (DoD ≤ 30 min); email `FEAS GZQO-E<n>` with the
+  protocol PDF → review mail → reply with `review.xlsx` (free-text subject, In-Reply-To) → `Ruleset … approved` →
+  FEAS resumed → PDF, **41 s** including the HAPI equivalence gate. `tools/audit_verify.py` PASS in the stack.
+- Manual-vs-system harness on synthetic site A: START 600/600, INC-01 570/570, INC-02 168/168, INC-03 92 vs 91
+  (+1.1 %), INC-04 63 vs 73 (−13.7 %), all within ±15 % with the definition differences documented → PASS.
+- `make lint` clean; `make test` 184 passed (in-process email → FEAS → APPROVE loop, routing/encryption, simulation,
+  reports, harness).
+
+**Run**
+```bash
+make fonts images up-test
+.venv/bin/python tools/send_test_mail.py "FEAS GZQO variant=bmi:25,27"   # replies: http://127.0.0.1:8025
+make test-e2e      # GreenMail -> TrialBox -> MailHog
+```

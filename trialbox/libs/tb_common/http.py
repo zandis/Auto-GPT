@@ -28,10 +28,12 @@ class ServiceError(RuntimeError):
         self.detail = detail
 
 
-def make_app(service: str, checks: list[HealthCheck] | None = None, level: str = "INFO") -> FastAPI:
-    """Create a FastAPI app with ``GET /healthz`` and structured logging."""
+def make_app(
+    service: str, checks: list[HealthCheck] | None = None, level: str = "INFO", lifespan: Any = None
+) -> FastAPI:
+    """Create a FastAPI app with ``GET /healthz`` and structured logging (optional ``lifespan`` context)."""
     log = setup_logging(service, level)
-    app = FastAPI(title=f"trialbox-{service}", version=VERSION)
+    app = FastAPI(title=f"trialbox-{service}", version=VERSION, lifespan=lifespan)
     health_checks = list(checks or [])
     app.state.health_checks = health_checks
 
