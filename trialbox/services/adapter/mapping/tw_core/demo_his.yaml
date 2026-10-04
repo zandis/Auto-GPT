@@ -27,7 +27,7 @@ systems:
   v2_0203: http://terminology.hl7.org/CodeSystem/v2-0203
 # logical table -> source table; `delta` = change-tracking column used by `adapter run --since`
 tables:
-  patient: {source: patient, key: mrn}
+  patient: {source: patient, key: mrn, identity: {name: name, national_id: id_no}}  # identity: pid map only
   practitioner: {source: practitioner, key: staff_id}
   encounter: {source: encounter, key: enc_no, delta: visit_datetime}
   appointment: {source: appointment, key: appt_no}

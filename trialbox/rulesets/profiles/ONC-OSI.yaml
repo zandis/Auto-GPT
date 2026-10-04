@@ -1,0 +1,19 @@
+# Site profile for ruleset ONC-OSI (merged into manifest.yaml at compile time; not generated).
+kind: nhi
+title: "Osimertinib 健保事前審查（EGFR 突變非小細胞肺癌第一線）"
+trial_alias: "ONC-OSI"
+sponsor: "全民健康保險（合成範例）"
+protocol_version: "2026"
+index_date_rule: run_date
+scopes:
+  nav: {departments: ["ONC"], appointment_window_days: 21, renewal_lead_days: 42, application_lookback_days: 90}
+routing:
+  aggregate_to: ["onc-dr@hospa.test"]
+  list_to: ["onc-dr@hospa.test", "nurse-onc@hospa.test"]
+thresholds: {tier_high_confidence: 0.75, small_cell: 5}
+twpas:
+  enabled: true
+  program: "ONC-OSI"
+  apply_type: "1"
+  drug_codes: ["BC26968100", "BC26969100"]
+  precheck_library: "TWPAS_Precheck_OSI"

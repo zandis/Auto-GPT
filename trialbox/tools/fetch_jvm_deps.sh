@@ -20,5 +20,9 @@ if [ -z "$(ls -A "$OUT/cql-translator/lib")" ]; then
     dependency:copy-dependencies -DoutputDirectory="$OUT/cql-translator/lib"
 fi
 "$PY" "$ROOT/tools/fetch_fhir_packages.py" --cache "$OUT/fhir-home/.fhir/packages"
-"$PY" "$ROOT/tools/fetch_fhir_packages.py" --cache "$OUT/fhir-home/.fhir/packages" "tw.gov.mohw.nhi.pas#1.2.0"
+# TWPAS 1.2.0 (the only version on the npm mirror; settings default 1.2.5, DECISIONS D-63) and its dependencies
+"$PY" "$ROOT/tools/fetch_fhir_packages.py" --cache "$OUT/fhir-home/.fhir/packages" "tw.gov.mohw.nhi.pas#1.2.0" \
+  "tw.gov.mohw.emr#0.2.0" "tw.gov.mohw.twcore#1.0.0=0.3.2" "hl7.terminology.r4#7.0.1=6.2.0,6.5.0,7.0.0,6.1.0" \
+  "hl7.fhir.uv.extensions.r4#5.3.0-ballot-tc1=5.2.0,5.1.0" \
+  --subset "hl7.fhir.us.davinci-pas#2.2.0-ballot=2.1.0:StructureDefinition-extension-diagnosisRecordedDate.json"
 echo "JVM dependencies ready in $OUT"

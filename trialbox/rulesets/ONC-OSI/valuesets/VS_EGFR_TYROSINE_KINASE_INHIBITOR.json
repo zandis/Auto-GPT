@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "L01EB04",
+      "display": "osimertinib"
+     }
+    ],
+    "system": "http://www.whocc.no/atc"
+   }
+  ]
+ },
+ "id": "ONC-OSI-VS-EGFR-TYROSINE-KINASE-INHIBITOR",
+ "name": "VS_EGFR_TYROSINE_KINASE_INHIBITOR",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "egfr tyrosine kinase inhibitor",
+ "url": "http://trialbox.local/fhir/ValueSet/ONC-OSI-VS-EGFR-TYROSINE-KINASE-INHIBITOR",
+ "version": "1.0.0-v59fbf260"
+}

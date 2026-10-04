@@ -1,0 +1,26 @@
+{
+ "class": "structured",
+ "id": "ONC-OSI-DOC-02",
+ "kind": "documentation",
+ "label": "EGFR 檢測報告",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "any",
+  "valueset": "VS_EGFR_MUTATION",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:31:44.293650+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "ONC-OSI",
+ "source_ref": "9.20.3 申請應檢附資料 #2",
+ "suggested_order": "12191B EGFR 基因突變檢測",
+ "text": "一年內 EGFR 基因檢測報告。",
+ "time_sensitive": false
+}

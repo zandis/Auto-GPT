@@ -24,6 +24,7 @@ from orchestrator.core import Ctx, Delivery, Outcome
 from orchestrator.reports import docx_draft, nav_xlsx
 from orchestrator.reports.common import ReportMeta
 from orchestrator.scenarios import facts as factmod
+from orchestrator.scenarios import twpas
 from orchestrator.scenarios.evaluate import PatientVerdicts, evaluate_patients
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
@@ -199,12 +200,22 @@ def run(ctx: Ctx) -> Outcome:
     outputs: list[JobOutput] = []
     files: dict[str, str] = {}
     issues: list[str] = []
+    facts = {r.pid: factmod.collect(lake, rs, r.pid, run_date) for r in all_rows}
     for r in all_rows:
-        draft = _draft(ctx, rs, r, meta, mrns.get(r.pid, ""), names, issues, run_date)
+        draft = _draft(ctx, rs, r, facts[r.pid], meta, mrns.get(r.pid, ""), names, issues)
         if draft is not None:
             outputs.append(draft)
             files[f"draft:{r.pid}"] = draft.filename
             r.draft_doc_key = draft.minio_key
+    if twpas.enabled(ctx, rs) and all_rows:
+        built = [
+            twpas.build_one(ctx, rs, r, facts[r.pid], run_date, renewal=r.approval_end is not None) for r in all_rows
+        ]
+        for out in twpas.attach(ctx, rs, built, list_to):
+            outputs.append(out)
+        for b in built:
+            if b.row.twpas_bundle_key:
+                files[f"bundle:{b.row.pid}"] = b.row.twpas_bundle_key.rsplit("/", 1)[-1]
     for dept, sets in lists.items():
         stem = f"nav_lists_{rs.id}_{dept}_{run_date.isoformat()}"
         for name in ("likely_eligible", "renewal_due", "doc_gaps", "maybe_ineligible"):
@@ -269,15 +280,14 @@ def _draft(
     ctx: Ctx,
     rs: Ruleset,
     row: NavRow,
+    f: factmod.Facts,
     meta: ReportMeta,
     mrn: str,
     names: dict[str, str],
     issues: list[str],
-    run_date: date,
 ) -> JobOutput | None:
     if not rs.manifest.docx_template:
         return None
-    f = factmod.collect(ctx.services.lake, rs, row.pid, run_date)
     course: str | None = None
     if ctx.services.llm is not None:
         cf = factmod.course_facts(f)

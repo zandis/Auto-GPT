@@ -206,6 +206,13 @@ def judge(inp: dict[str, Any]) -> dict[str, Any]:
                     return found("pass", s, ex, "acute flare documented within 14 days")
                 if "目前無急性痛風發作" in s:
                     return found("fail", s, ex, "no current flare documented within 14 days")
+    elif "ecog" in q:
+        for ex in excerpts:
+            for s in _sentences(str(ex.get("text", ""))):
+                m = re.search(r"ECOG\s*體能狀態\s*(\d)\s*分", s)
+                if m:
+                    ok = int(m.group(1)) <= 1
+                    return found("pass" if ok else "fail", s, ex, f"ECOG {m.group(1)} documented")
     elif "das28" in q or "response" in q:
         for ex in excerpts:
             for s in _sentences(str(ex.get("text", ""))):

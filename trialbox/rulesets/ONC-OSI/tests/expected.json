@@ -1,0 +1,1609 @@
+{
+ "engine": "hapi-cr 8.12 $evaluate",
+ "index_date": "2026-10-05",
+ "patients": {
+  "10000002": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000018": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000021": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000025": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000026": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000030": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000033": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000035": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000038": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000042": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000043": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000045": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000048": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000053": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000054": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000056": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000057": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000060": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000063": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000065": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000076": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000081": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000083": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000085": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000086": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000087": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000089": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000090": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000091": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000092": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000093": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000094": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000095": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000099": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000100": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000101": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000102": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000110": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000111": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": true,
+   "ONC-OSI-EXC-01": true,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": true,
+   "ONC-OSI-INC-03": true
+  },
+  "10000116": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000120": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000125": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000128": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000130": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000131": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000132": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000133": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000134": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000139": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000141": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000143": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000144": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000147": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000149": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000150": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000152": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000153": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000155": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000156": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000161": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000162": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000163": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000167": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000169": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000172": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000173": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000176": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000178": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000179": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000185": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000188": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": false,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000191": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000194": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000199": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000203": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000205": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000207": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000213": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000217": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000218": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": true,
+   "ONC-OSI-EXC-01": true,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": true,
+   "ONC-OSI-INC-03": true
+  },
+  "10000219": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000222": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000231": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000235": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000238": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000239": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000249": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000251": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000252": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000258": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000264": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000272": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000273": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000274": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000275": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000278": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000279": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000281": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000283": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000284": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000285": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000288": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000291": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": true,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": true,
+   "ONC-OSI-INC-03": true
+  },
+  "10000292": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000294": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000296": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000300": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000301": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000304": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000313": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": true,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": true,
+   "ONC-OSI-INC-03": false
+  },
+  "10000315": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000326": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000333": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000335": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000340": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000341": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000347": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000348": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000349": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000353": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": true,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": true,
+   "ONC-OSI-INC-03": true
+  },
+  "10000354": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000356": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000358": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000364": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000365": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000367": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000371": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000374": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000378": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000380": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000384": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000385": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000389": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000390": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000393": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000398": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000401": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000404": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000405": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000410": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000412": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000417": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000418": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000420": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000421": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000427": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000431": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000435": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000437": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000446": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000452": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000455": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000457": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000460": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000464": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000465": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000468": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000471": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000477": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000478": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000480": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000483": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": false,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000485": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000490": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000494": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000496": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000499": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000504": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000505": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000508": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000509": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": false,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000511": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000518": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000519": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000521": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000525": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000531": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000534": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000538": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000540": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": false,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000541": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000542": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": false,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000547": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000548": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000551": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000553": {
+   "ONC-OSI-DOC-01": true,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000554": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000560": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": false,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000561": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000567": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000574": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000576": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000578": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000580": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000581": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000583": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000587": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000589": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000592": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  },
+  "10000594": {
+   "ONC-OSI-DOC-01": false,
+   "ONC-OSI-DOC-02": false,
+   "ONC-OSI-EXC-01": false,
+   "ONC-OSI-INC-01": true,
+   "ONC-OSI-INC-02": false,
+   "ONC-OSI-INC-03": null
+  }
+ },
+ "ruleset": "ONC-OSI",
+ "source": "tests/fixtures/synthetic_patients/site-a (tools/make_fixtures.py defaults)",
+ "version": "1.0.0"
+}

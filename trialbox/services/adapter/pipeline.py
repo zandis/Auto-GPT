@@ -115,6 +115,7 @@ def run_ingest(
     errors: list[str] = []
     by_type: dict[str, list[Resource]] = {}
     patient_pairs: list[tuple[str, str]] = []
+    identities: list[tuple[str, dict[str, str]]] = []
     if source_kind == "fhir_bulk":
         from adapter.sources.fhir_bulk.source import FhirBulkSource
 
@@ -130,6 +131,12 @@ def run_ingest(
             rows = list(source.rows(table, tspec["source"], tspec.get("delta"), since))
             if table == "patient":
                 patient_pairs = [(pid_for_mrn(key, str(r[tspec["key"]])), str(r[tspec["key"]])) for r in rows]
+                ident = tspec.get("identity") or {}
+                if ident:  # e.g. {name: name, national_id: id_no}: kept encrypted in the pid map only
+                    identities = [
+                        (pid, {k: str(r.get(col) or "") for k, col in ident.items()})
+                        for (pid, _), r in zip(patient_pairs, rows, strict=True)
+                    ]
             try:
                 for res in mapper.map_table(table, iter(rows)):
                     by_type.setdefault(res["resourceType"], []).append(res)
@@ -144,6 +151,8 @@ def run_ingest(
     if patient_pairs:
         pm = cfg.pidmap()
         pm.upsert_many(patient_pairs)
+        if identities:
+            pm.upsert_identity(identities)
         pm.close()
     # NDJSON snapshot (delta runs merge over the previous snapshot)
     out_dir = snapshot_dir(cfg.lake_dir, snap)

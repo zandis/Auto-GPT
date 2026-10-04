@@ -196,7 +196,8 @@
  },
  "10000020": {
   "archetype": "onc",
-  "egfr_mut": "neg"
+  "egfr_mut": "neg",
+  "osi": "on"
  },
  "10000021": {
   "archetype": "general"
@@ -254,7 +255,8 @@
  },
  "10000028": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000029": {
   "approval": "pending_recent",
@@ -403,7 +405,8 @@
  },
  "10000037": {
   "archetype": "onc",
-  "egfr_mut": "neg"
+  "egfr_mut": "neg",
+  "osi": "on"
  },
  "10000038": {
   "archetype": "general"
@@ -1326,7 +1329,8 @@
  },
  "10000111": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "10000112": {
   "archetype": "general"
@@ -1785,7 +1789,8 @@
  },
  "10000146": {
   "archetype": "onc",
-  "egfr_mut": "neg"
+  "egfr_mut": "neg",
+  "osi": "on"
  },
  "10000147": {
   "archetype": "general"
@@ -2808,7 +2813,8 @@
  },
  "10000218": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "10000219": {
   "approval": "none",
@@ -3418,7 +3424,8 @@
  },
  "10000262": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "10000263": {
   "approval": "none",
@@ -3597,7 +3604,8 @@
  },
  "10000276": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000277": {
   "alt": "good",
@@ -3741,7 +3749,8 @@
  },
  "10000289": {
   "archetype": "onc",
-  "egfr_mut": "neg"
+  "egfr_mut": "neg",
+  "osi": "on"
  },
  "10000290": {
   "alt": "bad",
@@ -3766,7 +3775,8 @@
  },
  "10000291": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000292": {
   "approval": "expired",
@@ -3979,7 +3989,8 @@
  },
  "10000310": {
   "archetype": "onc",
-  "egfr_mut": "neg"
+  "egfr_mut": "neg",
+  "osi": "on"
  },
  "10000311": {
   "approval": "none",
@@ -4005,7 +4016,8 @@
  },
  "10000313": {
   "archetype": "onc",
-  "egfr_mut": "neg"
+  "egfr_mut": "neg",
+  "osi": "none"
  },
  "10000314": {
   "alt": "bad",
@@ -4076,14 +4088,16 @@
  },
  "10000318": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000319": {
   "archetype": "general"
  },
  "10000320": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000321": {
   "archetype": "general"
@@ -4224,7 +4238,8 @@
  },
  "10000332": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "10000333": {
   "alt": "missing",
@@ -4518,7 +4533,8 @@
  },
  "10000353": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000354": {
   "alt": "missing",
@@ -4631,7 +4647,8 @@
  },
  "10000362": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000363": {
   "archetype": "general"
@@ -4989,7 +5006,8 @@
  },
  "10000392": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000393": {
   "archetype": "general"
@@ -5024,7 +5042,8 @@
  },
  "10000397": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000398": {
   "archetype": "general"
@@ -5149,7 +5168,8 @@
  },
  "10000409": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000410": {
   "alt": "good",
@@ -5931,7 +5951,8 @@
  },
  "10000470": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000471": {
   "alt": "good",
@@ -7181,7 +7202,8 @@
  },
  "10000563": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "10000564": {
   "archetype": "general"
@@ -7236,7 +7258,8 @@
  },
  "10000569": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000570": {
   "approval": "active_far",
@@ -7285,7 +7308,8 @@
  },
  "10000573": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "10000574": {
   "archetype": "general"

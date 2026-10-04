@@ -36,13 +36,19 @@ DROP_DEPENDENCIES = {
     # TW Core profiles used by TrialBox derive from base R4; IPS/SDC are only needed for document/questionnaire
     # profiles TrialBox never claims.
     "tw.gov.mohw.twcore": ["hl7.fhir.uv.ips", "hl7.fhir.uv.sdc"],
+    "tw.gov.mohw.emr": ["hl7.fhir.uv.ips", "hl7.fhir.uv.sdc"],
 }
+# Code systems whose published resource states it is only an extract ("此處…僅擷取部分代碼") but is labelled
+# content=complete: the cache relabels them content=fragment so unknown (real) codes are warnings, not errors
+# (DECISIONS D-64). The full code systems live on the national terminology service.
+FRAGMENT_MARKERS = ("僅擷取部分代碼",)
+
 # The packages the HL7 validator 6.x needs to validate R4 + TW Core + TWPAS offline.
 DEFAULT_PACKAGES = [
     "hl7.fhir.r4.core#4.0.1",
     "hl7.fhir.xver-extensions#0.1.0",
-    "hl7.terminology.r4#7.0.1=6.2.0,6.5.0,7.0.0",
-    "hl7.fhir.uv.extensions.r4#5.3.0-ballot-tc1=5.2.0",
+    "hl7.terminology.r4#7.0.1=6.2.0,6.5.0,7.0.0,6.1.0",
+    "hl7.fhir.uv.extensions.r4#5.3.0-ballot-tc1=5.2.0,5.1.0",
     "hl7.fhir.uv.tools.r4#1.1.0",
     "hl7.terminology#7.0.1",
     "hl7.fhir.uv.extensions#5.3.0-ballot-tc1",
@@ -115,9 +121,46 @@ def install(cache: Path, spec: str, registry: str, force: bool = False) -> Path:
     for dep in DROP_DEPENDENCIES.get(name, []):
         data.get("dependencies", {}).pop(dep, None)
     pkg_json.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    for cs_path in sorted((tmp / "package").glob("CodeSystem-*.json")):
+        text = cs_path.read_text(encoding="utf-8")
+        if any(m in text for m in FRAGMENT_MARKERS):
+            cs = json.loads(text)
+            if cs.get("content") == "complete":
+                cs["content"] = "fragment"
+                cs_path.write_text(json.dumps(cs, ensure_ascii=False), encoding="utf-8")
+                print(f"  {cs_path.name}: content=fragment (published extract)")
     shutil.rmtree(target, ignore_errors=True)
     os.replace(tmp, target)
     print(f"+ {spec} ({len(blob) // 1024} KiB)")
+    return target
+
+
+def install_subset(cache: Path, spec: str, registry: str) -> Path:
+    """``name#version=alias:File1.json,File2.json`` -> a package ``name#alias`` holding only those resources (and no
+    dependencies). TWPAS 1.2.0 needs a single Da Vinci PAS extension definition; davinci-pas 2.1.0 is not on the npm
+    mirror and 2.2.0-ballot drags in the US Core chain (DECISIONS D-63)."""
+    head, _, files = spec.partition(":")
+    pkg, _, alias = head.partition("=")
+    name, _, version = pkg.partition("#")
+    target = cache / f"{name}#{alias or version}"
+    blob = npm_tarball(registry, name, version)
+    shutil.rmtree(target, ignore_errors=True)
+    (target / "package").mkdir(parents=True)
+    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
+        for f in files.split(","):
+            member = tar.extractfile(f"package/{f}")
+            if member is None:
+                raise SystemExit(f"{f} not in {name}#{version}")
+            (target / "package" / f).write_bytes(member.read())
+    meta = {
+        "name": name,
+        "version": alias or version,
+        "fhirVersions": ["4.0.1"],
+        "dependencies": {"hl7.fhir.r4.core": "4.0.1"},
+        "description": f"TrialBox subset of {name}#{version}: {files}",
+    }
+    (target / "package" / "package.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    print(f"+ {name}#{alias or version} (subset of {version}: {files})")
     return target
 
 
@@ -127,8 +170,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--registry", default=os.environ.get("TB_NPM_REGISTRY", DEFAULT_REGISTRY))
     ap.add_argument("--force", action="store_true")
     ap.add_argument("packages", nargs="*", help="name#version (default: validator R4 base set)")
+    ap.add_argument("--subset", action="append", default=[], help="name#version=alias:File.json,... (resource subset)")
     args = ap.parse_args(argv)
     args.cache.mkdir(parents=True, exist_ok=True)
+    for spec in args.subset:
+        install_subset(args.cache, spec, args.registry)
+    if args.subset and not args.packages:
+        return 0
     for spec in args.packages or DEFAULT_PACKAGES:
         try:
             install(args.cache, spec, args.registry, args.force)

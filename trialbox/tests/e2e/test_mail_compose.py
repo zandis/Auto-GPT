@@ -189,3 +189,43 @@ def test_nav_email_to_lists_and_drafts() -> None:
     assert "附表十五" in text and "[待補]" in text
     final = httpx.get(f"{ORCH}/jobs/{job['job_id']}", timeout=30).json()
     assert final["state"] == "done"
+
+
+def _job_by_tag(jtype: str, tag: str, timeout: float = 300) -> dict[str, object]:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        jobs = httpx.get(f"{ORCH}/jobs", params={"type": jtype, "limit": 50}, timeout=30).json()
+        job: dict[str, object] = next((j for j in jobs if j.get("comment") == tag), {})
+        if job:
+            return job
+        time.sleep(2)
+    raise AssertionError(f"no {jtype} job tagged {tag}")
+
+
+def test_nav_onc_twpas_then_submit_dry_run() -> None:
+    """Phase 6 on compose: ``NAV ONC-OSI`` -> TWPAS bundles validated by the HL7 validator (0 errors) and pre-checked
+    on HAPI; the physician's ``SUBMIT`` reply -> dry-run ClaimResponse, nothing leaves the box."""
+    import json
+
+    tag = f"onc-{os.getpid()}"
+    send(f"NAV ONC-OSI dept=ONC -- {tag}", sender="nurse-onc@hospa.test")
+    job = _job_by_tag("NAV", tag)
+    lst = wait_for(lambda m: str(m["Subject"]) == f"NAV ONC-OSI ONC — job {job['job_id']}", 1800)
+    files = _unzip(lst)
+    rep = json.loads(files["twpas_validation_ONC-OSI.json"])
+    assert rep["validator"] == "hl7-validator" and rep["ig"].startswith("tw.gov.mohw.nhi.pas#")
+    built = [b for b in rep["bundles"] if b.get("file")]
+    assert len(built) >= 10 and all(b["file"] in files for b in built)
+    assert all(not b["validator_errors"] for b in built), [b["validator_errors"] for b in built][:3]
+    assert all(b["precheck"]["passed"] is True for b in built), [b["precheck"] for b in built][:3]
+    pid = str(built[0]["pid"])
+    tag2 = f"submit-{os.getpid()}"
+    send(f"SUBMIT ONC-OSI pid={pid} bundle={job['job_id']} -- {tag2}", sender="onc-dr@hospa.test")
+    sub = _job_by_tag("SUBMIT", tag2)
+    done = wait_for(lambda m: str(m["Subject"]).startswith(f"Done {sub['job_id']}") and bool(attachments(m)), 600)
+    assert "onc-dr@hospa.test" in str(done["To"])
+    receipt = json.loads(_unzip(done)[f"twpas_claimresponse_ONC-OSI_{pid[:12]}.json"])
+    assert receipt["resourceType"] == "ClaimResponse" and receipt["outcome"] == "queued"
+    assert "DRY RUN" in receipt["disposition"]
+    final = httpx.get(f"{ORCH}/jobs/{sub['job_id']}", timeout=30).json()
+    assert final["state"] == "done"

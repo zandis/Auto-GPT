@@ -1,0 +1,20 @@
+{
+ "class": "structured",
+ "id": "ONC-OSI-INC-02",
+ "kind": "inclusion",
+ "label": "NSCLC 診斷",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_NON_SMALL_CELL_LUNG_CANCER"
+ },
+ "review": {
+  "at": "2026-10-04T18:31:44.293650+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "ONC-OSI",
+ "source_ref": "9.20.1 給付條件 #2",
+ "text": "經病理或細胞學診斷為非小細胞肺癌。",
+ "time_sensitive": false
+}

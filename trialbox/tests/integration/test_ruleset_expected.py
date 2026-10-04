@@ -39,7 +39,9 @@ def test_sql_matches_recorded_cql(ingested: dict[str, Any], ruleset: str) -> Non
                 agree += 1
             else:
                 mismatches.append((mrn, cid, v, row.get(cid)))
-    assert total >= 200 * 10
+    assert len(expected["patients"]) >= 200 and total >= 200 * len(
+        {c for v in expected["patients"].values() for c in v}
+    )
     assert 100.0 * agree / total >= 98.0, mismatches[:10]
     assert rs.manifest.status == "approved" and rs.manifest.equivalence is not None
     assert (rs.manifest.equivalence.overall_pct or 0) >= 98.0
@@ -140,3 +142,31 @@ def test_ra_bio_planted_state_oracle(ingested: dict[str, Any], synth_dir: Path) 
                 assert row[crit] == rule[st[attr]], (mrn, attr, st[attr], crit, row[crit])
                 checked[crit] = checked.get(crit, 0) + 1
     assert len(checked) == len(rules) and sum(checked.values()) > 1500, checked
+
+
+def test_onc_osi_planted_state_oracle(ingested: dict[str, Any], synth_dir: Path) -> None:
+    """ONC-OSI structured criteria against the planted states: NSCLC only in the onc archetype, the EGFR result
+    decides INC-03 (no test → null), the planted osimertinib course decides EXC-01 (first-line program)."""
+    rs = Ruleset.load(ROOT / "rulesets" / "ONC-OSI")
+    got = _results(ingested, rs, "2026-10-05")
+    states = json.loads((synth_dir / "site-a" / "states.json").read_text(encoding="utf-8"))
+    seen = {"onc": 0, "pos": 0, "neg": 0, "other": 0, "on": 0, "none": 0}
+    for mrn, st in states.items():
+        row = got.get(pid_for_mrn(ingested["key"], mrn))
+        if row is None:
+            continue
+        if st.get("archetype") == "onc":
+            seen["onc"] += 1
+            assert row["ONC-OSI-INC-02"] is True, mrn
+            assert row["ONC-OSI-INC-03"] is {"pos": True, "neg": False}[st["egfr_mut"]], (mrn, st)
+            seen[st["egfr_mut"]] += 1
+            assert row["ONC-OSI-EXC-01"] is (st["osi"] == "on"), (mrn, st)
+            seen[st["osi"]] += 1
+        else:
+            seen["other"] += 1
+            if st.get("malignancy") != "recent":  # a recent malignancy may be lung_ca (C34.90) — not planted per type
+                assert row["ONC-OSI-INC-02"] is False, (mrn, st)
+            assert row["ONC-OSI-INC-03"] is None, (mrn, st)
+            assert row["ONC-OSI-EXC-01"] is False, mrn
+    assert seen["pos"] >= 10 and seen["neg"] >= 2 and seen["on"] >= 5 and seen["none"] >= 5, seen
+    assert seen["other"] >= 400, seen

@@ -63,8 +63,38 @@ def validate(name: str, data: Any) -> None:
 
 
 def dump(model: BaseModel) -> dict[str, Any]:
-    """Serialize a contract model to JSON-compatible data (aliases such as ``class``; no ``None``)."""
-    return model.model_dump(mode="json", by_alias=True, exclude_none=True)
+    """Serialize a contract model to JSON-compatible data (aliases such as ``class``). ``None`` is dropped except for
+    required fields, whose ``null`` is part of the contract (e.g. ``Precheck.passed``, ``FunnelStep.pct``)."""
+    data = model.model_dump(mode="json", by_alias=True)
+    _drop_optional_none(model, data)
+    return data
+
+
+def _drop_optional_none(obj: Any, data: Any) -> None:
+    if isinstance(obj, BaseModel) and isinstance(data, dict):
+        root = getattr(obj, "root", None) if "root" in type(obj).model_fields else None
+        if root is not None:
+            _drop_optional_none(root, data)
+            return
+        for name, f in type(obj).model_fields.items():
+            key = f.alias or name
+            if key not in data:
+                continue
+            value = getattr(obj, name)
+            if value is None and not f.is_required():
+                del data[key]
+            else:
+                _drop_optional_none(value, data[key])
+    elif isinstance(obj, BaseModel) and "root" in type(obj).model_fields:
+        _drop_optional_none(getattr(obj, "root", None), data)
+    elif isinstance(obj, (list, tuple)) and isinstance(data, list):
+        for o, d in zip(obj, data, strict=False):
+            _drop_optional_none(o, d)
+    elif isinstance(obj, dict) and isinstance(data, dict):
+        for k, o in obj.items():
+            key = k.value if hasattr(k, "value") else k
+            if key in data:
+                _drop_optional_none(o, data[key])
 
 
 def dump_json(model: BaseModel) -> str:

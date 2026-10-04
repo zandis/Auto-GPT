@@ -22,6 +22,8 @@ class PidMap:
             "CREATE TABLE IF NOT EXISTS pid_map "
             "(pid TEXT PRIMARY KEY, mrn BLOB NOT NULL, first_seen TEXT, last_seen TEXT)"
         )
+        # identity for NHI submissions (name, national id), AES-GCM like the MRN; read only to build TWPAS bundles
+        self.con.execute("CREATE TABLE IF NOT EXISTS identity (pid TEXT PRIMARY KEY, blob BLOB NOT NULL)")
         db_path.chmod(0o600)
 
     def upsert_many(self, pairs: list[tuple[str, str]]) -> int:
@@ -38,6 +40,27 @@ class PidMap:
         )
         self.con.commit()
         return len(new)
+
+    def upsert_identity(self, rows: list[tuple[str, dict[str, str]]]) -> None:
+        import json
+
+        self.con.executemany(
+            "INSERT OR REPLACE INTO identity VALUES (?,?)",
+            [
+                (pid, aes_encrypt(self.key, json.dumps(v, ensure_ascii=False, sort_keys=True).encode(), pid.encode()))
+                for pid, v in rows
+            ],
+        )
+        self.con.commit()
+
+    def identity(self, pid: str) -> dict[str, str] | None:
+        import json
+
+        row = self.con.execute("SELECT blob FROM identity WHERE pid=?", (pid,)).fetchone()
+        if row is None:
+            return None
+        data: dict[str, str] = json.loads(aes_decrypt(self.key, bytes(row[0]), pid.encode()))
+        return data
 
     def resolve(self, pid: str) -> str | None:
         row = self.con.execute("SELECT mrn FROM pid_map WHERE pid=?", (pid,)).fetchone()

@@ -63,6 +63,18 @@ CREATE TABLE IF NOT EXISTS feedback (
   received_at TEXT NOT NULL,
   PRIMARY KEY (ruleset, pid)
 );
+CREATE TABLE IF NOT EXISTS submissions (
+  job_id TEXT PRIMARY KEY,
+  ruleset TEXT NOT NULL,
+  pid TEXT NOT NULL,
+  nav_job_id TEXT NOT NULL,
+  bundle_sha TEXT NOT NULL,
+  dry_run INTEGER NOT NULL,
+  outcome TEXT NOT NULL,
+  submitted_by TEXT NOT NULL,
+  submitted_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS submissions_bundle ON submissions(bundle_sha, dry_run);
 """
 
 TERMINAL = ("done", "failed")
@@ -284,6 +296,32 @@ class JobDB:
     def feedback_rulesets(self) -> list[str]:
         with self._lock:
             return [str(r[0]) for r in self._con.execute("SELECT DISTINCT ruleset FROM feedback ORDER BY 1")]
+
+    def submission_add(self, row: dict[str, Any]) -> None:
+        with self.tx() as con:
+            con.execute(
+                """INSERT INTO submissions (job_id, ruleset, pid, nav_job_id, bundle_sha, dry_run, outcome,
+                     submitted_by, submitted_at) VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    row["job_id"],
+                    row["ruleset"],
+                    row["pid"],
+                    row["nav_job_id"],
+                    row["bundle_sha"],
+                    int(bool(row["dry_run"])),
+                    row["outcome"],
+                    row["submitted_by"],
+                    row["submitted_at"],
+                ),
+            )
+
+    def submissions(self, bundle_sha: str | None = None, live_only: bool = False) -> list[dict[str, Any]]:
+        sql = "SELECT job_id, ruleset, pid, nav_job_id, bundle_sha, dry_run, outcome, submitted_by, submitted_at "
+        sql += "FROM submissions WHERE (? IS NULL OR bundle_sha = ?)" + (" AND dry_run = 0" if live_only else "")
+        cols = ("job_id", "ruleset", "pid", "nav_job_id", "bundle_sha", "dry_run", "outcome", "submitted_by", "at")
+        with self._lock:
+            rows = self._con.execute(sql + " ORDER BY submitted_at", (bundle_sha, bundle_sha)).fetchall()
+        return [dict(zip(cols, r, strict=True)) for r in rows]
 
     def close(self) -> None:
         with self._lock:

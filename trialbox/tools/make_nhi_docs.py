@@ -293,18 +293,119 @@ SECTIONS = {
     "documentation": "8.2.4.4 申請應檢附資料",
 }
 
+# --- ONC-OSI: osimertinib for EGFR-mutated NSCLC (TWPAS cancer-drug program, phase 6) -------------------------------
+ONC_TITLE = "全民健康保險藥品給付規定 9.20 非小細胞肺癌 EGFR 酪胺酸激酶抑制劑 osimertinib（合成範例）"
+ONC_FRONT = [
+    ("9 抗癌瘤藥物", "本文件為 TrialBox 測試用之虛構範例，依公開給付規定之結構撰寫，並非健保署正式公告內容。"),
+    (
+        "9.20 osimertinib",
+        "限用於 EGFR 基因突變之局部晚期或轉移性非小細胞肺癌第一線治療，須經事前審查（TWPAS）核准後使用。",
+    ),
+]
+ONC_SECTIONS = {
+    "inclusion": "9.20.1 給付條件",
+    "exclusion": "9.20.2 不得申請情形",
+    "documentation": "9.20.3 申請應檢附資料",
+}
+ONC_RULES: list[tuple[str, str, str, dict[str, Any], dict[str, Any]]] = [
+    ("inclusion", "病患年齡須滿十八歲。", "年齡≥18", {"domain": "demographic", "age": {"min": 18}}, {}),
+    (
+        "inclusion",
+        "經病理或細胞學診斷為非小細胞肺癌。",
+        "NSCLC 診斷",
+        {"domain": "condition", "concept": "non-small cell lung cancer", "quantifier": "any"},
+        {"cand": ("condition", "non-small cell lung cancer", ["非小細胞肺癌"])},
+    ),
+    (
+        "inclusion",
+        "腫瘤組織檢測證實具 EGFR 基因突變（exon 19 deletion 或 L858R）。",
+        "EGFR 突變陽性",
+        {
+            "domain": "observation",
+            "concept": "egfr mutation",
+            "quantifier": "latest",
+            "value": {"op": "in", "codes": ["LA9633-4"]},
+        },
+        {"cand": ("observation", "egfr mutation", ["EGFR基因突變"]), "action": "安排 EGFR 基因檢測"},
+    ),
+    (
+        "inclusion",
+        "ECOG 體能狀態為 0 至 1 分。",
+        "ECOG 0–1",
+        {"domain": "demographic", "quantifier": "any"},
+        {
+            "class": "note",
+            "note_question": "病歷是否記載 ECOG 體能狀態為 0 或 1 分？",
+            "fallback": "無結構化替代；由醫師於門診確認",
+            "action": "醫師記錄 ECOG 體能狀態",
+        },
+    ),
+    (
+        "exclusion",
+        "申請前一年內已使用 EGFR 酪胺酸激酶抑制劑者（本申請限第一線治療）。",
+        "已用 EGFR-TKI",
+        {
+            "domain": "medication",
+            "concept": "egfr tyrosine kinase inhibitor",
+            "quantifier": "any",
+            "window": {"from_days": -365, "to_days": 0},
+        },
+        {"cand": ("medication", "egfr tyrosine kinase inhibitor", ["osimertinib", "gefitinib", "erlotinib"])},
+    ),
+    (
+        "documentation",
+        "二個月內胸部影像檢查報告。",
+        "胸部影像報告",
+        {"domain": "report", "concept": "chest x-ray", "quantifier": "any", "window": {"from_days": -60, "to_days": 0}},
+        {"cand": ("report", "chest x-ray", ["胸部X光"]), "suggested_order": "32001C 胸部X光 或 33070B 胸部電腦斷層"},
+    ),
+    (
+        "documentation",
+        "一年內 EGFR 基因檢測報告。",
+        "EGFR 檢測報告",
+        {
+            "domain": "observation",
+            "concept": "egfr mutation",
+            "quantifier": "any",
+            "window": {"from_days": -365, "to_days": 0},
+        },
+        {"cand": ("observation", "egfr mutation", []), "suggested_order": "12191B EGFR 基因突變檢測"},
+    ),
+]
 
-def by_section() -> dict[str, list[str]]:
-    out: dict[str, list[str]] = {k: [] for k in SECTIONS}
-    for sec, text, *_ in RULES:
+SPECS: dict[str, dict[str, Any]] = {
+    "RA-BIO": {
+        "title": TITLE,
+        "front": FRONT,
+        "sections": SECTIONS,
+        "rules": RULES,
+        "pdf": "RA-BIO_給付規定_2026.pdf",
+        "template": "RA-BIO/附表十五.docx",
+    },
+    "ONC-OSI": {
+        "title": ONC_TITLE,
+        "front": ONC_FRONT,
+        "sections": ONC_SECTIONS,
+        "rules": ONC_RULES,
+        "pdf": "ONC-OSI_給付規定_2026.pdf",
+        "template": None,
+    },
+}
+
+
+def by_section(spec: dict[str, Any] | None = None) -> dict[str, list[str]]:
+    spec = spec or SPECS["RA-BIO"]
+    out: dict[str, list[str]] = {k: [] for k in spec["sections"]}
+    for sec, text, *_ in spec["rules"]:
         out[sec].append(text)
     return out
 
 
-def cassette() -> dict[str, Any]:
+def cassette(spec: dict[str, Any] | None = None) -> dict[str, Any]:
+    spec = spec or SPECS["RA-BIO"]
     crit = []
     counts: dict[str, int] = {}
-    for sec, text, label, logic, ex in RULES:
+    for sec, text, label, logic, ex in spec["rules"]:
         counts[sec] = counts.get(sec, 0) + 1
         cands = ex.get("cand") or []
         if isinstance(cands, tuple):
@@ -312,7 +413,7 @@ def cassette() -> dict[str, Any]:
         c: dict[str, Any] = {
             "text": text,
             "label": label,
-            "source_ref": f"{SECTIONS[sec]} #{counts[sec]}",
+            "source_ref": f"{spec['sections'][sec]} #{counts[sec]}",
             "kind": sec,
             "class": ex.get("class", "structured"),
             "time_sensitive": bool(ex.get("time_sensitive", False)),
@@ -335,7 +436,8 @@ def _fonts() -> tuple[str, str]:
     return "NotoTC", "NotoTC-Bold"
 
 
-def write_pdf(path: Path) -> None:
+def write_pdf(path: Path, spec: dict[str, Any] | None = None) -> None:
+    spec = spec or SPECS["RA-BIO"]
     from reportlab import rl_config
 
     rl_config.invariant = 1
@@ -348,29 +450,35 @@ def write_pdf(path: Path) -> None:
     h1 = ParagraphStyle("h1", parent=body, fontName=bold, fontSize=13, leading=18, spaceBefore=8)
     h2 = ParagraphStyle("h2", parent=body, fontName=bold, fontSize=11.5, leading=16, spaceBefore=6)
     title = ParagraphStyle("t", parent=body, fontName=bold, fontSize=15, leading=21)
-    story = [Paragraph(TITLE, title), Spacer(1, 10)]
-    for head, text in FRONT:
+    story = [Paragraph(spec["title"], title), Spacer(1, 10)]
+    for head, text in spec["front"]:
         story += [Paragraph(head, h1), Paragraph(text, body)]
-    for sec, items in by_section().items():
-        story.append(Paragraph(SECTIONS[sec], h2))
+    for sec, items in by_section(spec).items():
+        story.append(Paragraph(spec["sections"][sec], h2))
         story += [Paragraph(f"{i}. {t}", body) for i, t in enumerate(items, start=1)]
     SimpleDocTemplate(
-        str(path), pagesize=A4, title=TITLE, author="TrialBox synthetic", creator="TrialBox", producer="TrialBox"
+        str(path),
+        pagesize=A4,
+        title=spec["title"],
+        author="TrialBox synthetic",
+        creator="TrialBox",
+        producer="TrialBox",
     ).build(story)
 
 
-def write_docx(path: Path) -> None:
+def write_docx(path: Path, spec: dict[str, Any] | None = None) -> None:
+    spec = spec or SPECS["RA-BIO"]
     import docx
     from tb_common.deterministic import normalize_ooxml
 
     d = docx.Document()
     d.core_properties.author = "TrialBox synthetic"
-    d.add_heading(TITLE, 0)
-    for head, text in FRONT:
+    d.add_heading(spec["title"], 0)
+    for head, text in spec["front"]:
         d.add_heading(head, 1)
         d.add_paragraph(text)
-    for sec, items in by_section().items():
-        d.add_heading(SECTIONS[sec], 2)
+    for sec, items in by_section(spec).items():
+        d.add_heading(spec["sections"][sec], 2)
         for i, t in enumerate(items, start=1):
             d.add_paragraph(f"{i}. {t}")
     import io
@@ -446,19 +554,21 @@ def write_template(path: Path) -> None:
     path.write_bytes(normalize_ooxml(buf.getvalue()))
 
 
-def check(pdf: Path) -> int:
+def check(pdf: Path, spec: dict[str, Any] | None = None) -> int:
+    spec = spec or SPECS["RA-BIO"]
     from doc_parser.parser import parse
     from llm_stub.handlers import norm
 
     parsed = parse(pdf.read_bytes(), pdf.name)
     got = parsed.ie_block
     bad = 0
-    for sec, want in by_section().items():
+    for sec, want in by_section(spec).items():
         have = getattr(got, sec) or []
         if [norm(x) for x in have] != [norm(x) for x in want]:
             bad += 1
             print(f"{sec}: parsed {have!r}\n  want {want!r}")
-    print(f"language={parsed.language}; sections ok: {4 - bad}/4")
+    n = len(spec["sections"])
+    print(f"{pdf.name}: language={parsed.language}; sections ok: {n - bad}/{n}")
     return 1 if bad else 0
 
 
@@ -466,17 +576,19 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--check", action="store_true")
     args = ap.parse_args(argv)
-    pdf = ROOT / "tests/fixtures/protocols/RA-BIO_給付規定_2026.pdf"
-    if args.check:
-        return check(pdf)
-    write_pdf(pdf)
-    write_docx(pdf.with_suffix(".docx"))
-    (ROOT / "services/llm_stub/cassettes/ir_extract/RA-BIO.json").write_text(
-        json.dumps(cassette(), ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
-    )
-    write_template(ROOT / "services/orchestrator/reports/templates/RA-BIO/附表十五.docx")
-    print("wrote RA-BIO rule documents, cassette and 附表十五 template")
-    return check(pdf)
+    rc = 0
+    for rid, spec in SPECS.items():
+        pdf = ROOT / "tests/fixtures/protocols" / spec["pdf"]
+        if not args.check:
+            write_pdf(pdf, spec)
+            write_docx(pdf.with_suffix(".docx"), spec)
+            (ROOT / f"services/llm_stub/cassettes/ir_extract/{rid}.json").write_text(
+                json.dumps(cassette(spec), ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+            )
+            if spec["template"]:
+                write_template(ROOT / "services/orchestrator/reports/templates" / spec["template"])
+        rc |= check(pdf, spec)
+    return rc
 
 
 if __name__ == "__main__":

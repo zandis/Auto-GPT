@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -87,6 +88,7 @@ class ValidationResult:
     sampled: int
     errors: int  # resources with >= 1 error/fatal issue
     messages: list[str] = field(default_factory=list)
+    per_file: dict[int, list[str]] = field(default_factory=dict)  # resource index -> error messages
 
     @property
     def error_pct(self) -> float:
@@ -151,6 +153,7 @@ class Hl7Validator:
     @staticmethod
     def _parse(doc: Resource, n: int) -> ValidationResult:
         oos = [e["resource"] for e in doc.get("entry", [])] if doc["resourceType"] == "Bundle" else [doc]
+        per_file: dict[int, list[str]] = {}
         errors = 0
         messages: list[str] = []
         for oo in oos:
@@ -163,13 +166,20 @@ class Hl7Validator:
                 "?",
             )
             errs = [i for i in oo.get("issue", []) if i.get("severity") in ("error", "fatal")]
+            m = re.search(r"(?:^|[\\/])r(\d{5})-[A-Za-z]+\.json$", fname)
+            if m:
+                per_file[int(m.group(1))] = [
+                    f"{(i.get('expression') or i.get('location') or [''])[0]}: "
+                    f"{((i.get('details') or {}).get('text') or i.get('diagnostics', ''))[:300]}"
+                    for i in errs
+                ]
             if errs:
                 errors += 1
                 for i in errs[:3]:
                     text = (i.get("details") or {}).get("text") or i.get("diagnostics", "")
                     loc = (i.get("expression") or i.get("location") or [""])[0]
                     messages.append(f"{fname} {loc}: {text[:300]}")
-        return ValidationResult("hl7-validator", n, errors, messages[:200])
+        return ValidationResult("hl7-validator", n, errors, messages[:200], per_file)
 
 
 class StructuralValidator:

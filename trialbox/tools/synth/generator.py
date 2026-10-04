@@ -818,7 +818,7 @@ class Generator:
         self.anthropometrics(mrn, sex, self.rng.choice(["<24", "24-25", "25-27"]))
         self.series(mrn, "ALT", "good", "alt", (8, 95), (130, 420), 180)
         self.creatinine(mrn, sex, "normal")
-        if self.rng.random() < 0.5:
+        if self.state(mrn, "osi", "on" if self.rng.random() < 0.5 else "none") == "on":  # renewal-type patient
             self.rx_course(mrn, "osimertinib", self.days_ago(30, 200), 90, 0, "ONC")
         self.note(mrn, self.days_ago(3, 40), "ONC", ["ECOG體能狀態1分，可自理日常生活。"])
         self.appointment(mrn, self.rng.randint(0, 20), "ONC")

@@ -191,3 +191,36 @@ make test-e2e      # GreenMail -> TrialBox -> MailHog
   nurse-rheu@ → encrypted 7z with the RHEU workbook, NavLists JSON and 16 drafts to nurse-rheu@ + rheu-dr@, summary to
   rheu-dr@, 42 s (137 patients scoped, 130 judge calls).
 - In process: list semantics checked against the planted approval states; `make lint` clean, `make test` 195 passed.
+
+## Phase 6 — TWPAS (done)
+
+**Delivered**
+- `twpas_bundle` builder for one cancer-drug program, ONC-OSI. ONC-OSI is a fictional NHI 9.20 osimertinib rule:
+  document, gold extraction, 7 criteria compiled and approved through the pipeline, CQL≡SQL 100 % on HAPI, plus a
+  planted-state oracle (D-67).
+  - Each bundle holds Claim, Encounter, Patient, Practitioner, Organizations, Coverage, MedicationRequest-apply,
+    the gene test (lab, Specimen, Observation) and ECOG.
+  - Name and national id come from an encrypted identity table in the pid map, never from the lake (D-66).
+  - Settings schema 1.1.0 adds the practitioner licence.
+- Validator integration: one HL7 validator run per NAV job against `tw.gov.mohw.nhi.pas#1.2.0` (offline package
+  cache with TW Core/EMR aliases, the Da Vinci subset and fragment relabelling; D-63–D-65).
+  - Results are mapped back per bundle; R4B structural checks are the CPU fallback.
+- NHI pre-check loader: a stand-in CQL library translated once and evaluated on HAPI against the bundle itself
+  (`Library/$evaluate`, `useServerData=false`; D-68).
+- NAV attaches bundles, `twpas_validation_<RS>.json` and the pre-check status to each listed row.
+- `SUBMIT <RS> pid=… bundle=<NAV job>`, physicians only. Before anything is sent it checks: routing, bundle age,
+  audited bundle hash, validator/pre-check status, and repeat submission. It then either returns a dry-run
+  ClaimResponse or POSTs to `NHI_TWPAS_BASE_URL`, and audits a `twpas.submit` event (D-69).
+- Contract fix: `dump()` keeps required nulls (D-70).
+
+**DoD evidence**
+- 13 synthetic ONC bundles (site A, NAV ONC-OSI) validate with **0 errors** against the TWPAS IG with the HL7
+  validator 6.10.4 offline (`make test-integration`, `test_nav_onc_builds_bundles`).
+  - A deliberately broken bundle yields 25 errors.
+- Compose: email `NAV ONC-OSI dept=ONC` → ≥10 bundles, 0 validator errors, pre-check passed on HAPI for every
+  bundle; reply `SUBMIT ONC-OSI pid=… bundle=<job>` from onc-dr@ → dry-run ClaimResponse in an encrypted 7z
+  (97 s for both).
+  - The audit chain verifies: 660 events.
+- `make lint` clean; `make test` 213 passed (1 skipped without the jar); `make test-integration` 38 passed;
+  `make test-e2e` 5 passed.
+- Deviation: SPEC names IG 1.2.5, which is not published; the box validates against 1.2.0 (D-63).

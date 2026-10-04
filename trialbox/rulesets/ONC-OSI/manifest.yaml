@@ -1,0 +1,64 @@
+id: ONC-OSI
+kind: nhi
+title: Osimertinib 健保事前審查（EGFR 突變非小細胞肺癌第一線）
+trial_alias: ONC-OSI
+sponsor: 全民健康保險（合成範例）
+version: 1.0.0
+status: approved
+source_documents:
+- ONC-OSI_給付規定_2026.pdf
+protocol_version: '2026'
+language: zh-TW
+index_date_rule: run_date
+library: TB_ONC_OSI_v1_0
+criteria:
+- ONC-OSI-INC-01
+- ONC-OSI-INC-02
+- ONC-OSI-INC-03
+- ONC-OSI-INC-04
+- ONC-OSI-EXC-01
+- ONC-OSI-DOC-01
+- ONC-OSI-DOC-02
+scopes:
+  nav:
+    departments:
+    - ONC
+    appointment_window_days: 21
+    renewal_lead_days: 42
+    application_lookback_days: 90
+routing:
+  aggregate_to:
+  - onc-dr@hospa.test
+  list_to:
+  - onc-dr@hospa.test
+  - nurse-onc@hospa.test
+thresholds:
+  tier_high_confidence: 0.75
+  small_cell: 5
+models:
+  judge: qwen3.5-35b-a3b-q4
+  judge_prompt: judge_v3
+review:
+  approved_by: crc1@hospa.test
+  approved_at: '2026-10-04T18:31:44.293650+08:00'
+  rounds: 1
+equivalence:
+  overall_pct: 100.0
+  sample_size: 200
+  per_criterion:
+    ONC-OSI-DOC-01: 100.0
+    ONC-OSI-DOC-02: 100.0
+    ONC-OSI-EXC-01: 100.0
+    ONC-OSI-INC-01: 100.0
+    ONC-OSI-INC-02: 100.0
+    ONC-OSI-INC-03: 100.0
+  failing: []
+  evaluated_at: '2026-10-04T18:31:44.293650+08:00'
+twpas:
+  enabled: true
+  program: ONC-OSI
+  apply_type: '1'
+  drug_codes:
+  - BC26968100
+  - BC26969100
+  precheck_library: TWPAS_Precheck_OSI

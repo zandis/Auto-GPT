@@ -1,0 +1,23 @@
+{
+ "class": "structured",
+ "id": "ONC-OSI-INC-01",
+ "kind": "inclusion",
+ "label": "年齡≥18",
+ "logic": {
+  "age": {
+   "min": 18.0
+  },
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-10-04T18:31:44.293650+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "ONC-OSI",
+ "source_ref": "9.20.1 給付條件 #1",
+ "text": "病患年齡須滿十八歲。",
+ "time_sensitive": false
+}

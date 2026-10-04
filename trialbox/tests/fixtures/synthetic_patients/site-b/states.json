@@ -426,7 +426,8 @@
  },
  "20000034": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "20000035": {
   "approval": "renewal_due",
@@ -619,7 +620,8 @@
  },
  "20000051": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "20000052": {
   "archetype": "general"
@@ -778,7 +780,8 @@
  },
  "20000064": {
   "archetype": "onc",
-  "egfr_mut": "neg"
+  "egfr_mut": "neg",
+  "osi": "on"
  },
  "20000065": {
   "alt": "good",
@@ -822,7 +825,8 @@
  },
  "20000067": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "20000068": {
   "approval": "none",
@@ -903,14 +907,16 @@
  },
  "20000076": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "20000077": {
   "archetype": "general"
  },
  "20000078": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "20000079": {
   "alt": "good",
@@ -1022,7 +1028,8 @@
  },
  "20000085": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "20000086": {
   "alt": "missing",
@@ -1223,7 +1230,8 @@
  },
  "20000104": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "20000105": {
   "archetype": "general"
@@ -1784,7 +1792,8 @@
  },
  "20000144": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "20000145": {
   "approval": "pending_recent",
@@ -1827,7 +1836,8 @@
  },
  "20000147": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "20000148": {
   "archetype": "general"
@@ -2043,7 +2053,8 @@
  },
  "20000166": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "20000167": {
   "approval": "renewal_due",
@@ -2261,7 +2272,8 @@
  },
  "20000186": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "20000187": {
   "alt": "good",
@@ -3125,7 +3137,8 @@
  },
  "20000252": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "20000253": {
   "approval": "none",
@@ -3238,7 +3251,8 @@
  },
  "20000260": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "20000261": {
   "approval": "none",
@@ -4343,7 +4357,8 @@
  },
  "20000346": {
   "archetype": "onc",
-  "egfr_mut": "neg"
+  "egfr_mut": "neg",
+  "osi": "none"
  },
  "20000347": {
   "archetype": "general"
@@ -5098,14 +5113,16 @@
  },
  "20000403": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "20000404": {
   "archetype": "general"
  },
  "20000405": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "20000406": {
   "approval": "none",
@@ -5908,7 +5925,8 @@
  },
  "20000462": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "20000463": {
   "approval": "active_far",
@@ -6036,7 +6054,8 @@
  },
  "20000471": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "20000472": {
   "approval": "none",
@@ -6250,7 +6269,8 @@
  },
  "20000489": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "on"
  },
  "20000490": {
   "archetype": "general"
@@ -6498,7 +6518,8 @@
  },
  "20000506": {
   "archetype": "onc",
-  "egfr_mut": "pos"
+  "egfr_mut": "pos",
+  "osi": "none"
  },
  "20000507": {
   "alt": "good",

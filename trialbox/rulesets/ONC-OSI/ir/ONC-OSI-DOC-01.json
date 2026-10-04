@@ -1,0 +1,26 @@
+{
+ "class": "structured",
+ "id": "ONC-OSI-DOC-01",
+ "kind": "documentation",
+ "label": "胸部影像報告",
+ "logic": {
+  "domain": "report",
+  "quantifier": "any",
+  "valueset": "VS_CHEST_X_RAY",
+  "window": {
+   "anchor": "index",
+   "from_days": -60,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:31:44.293650+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "ONC-OSI",
+ "source_ref": "9.20.3 申請應檢附資料 #1",
+ "suggested_order": "32001C 胸部X光 或 33070B 胸部電腦斷層",
+ "text": "二個月內胸部影像檢查報告。",
+ "time_sensitive": false
+}

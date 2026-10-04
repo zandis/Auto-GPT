@@ -1,0 +1,166 @@
+{
+ "criteria": [
+  {
+   "text": "病患年齡須滿十八歲。",
+   "label": "年齡≥18",
+   "source_ref": "9.20.1 給付條件 #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "age": {
+     "min": 18
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "經病理或細胞學診斷為非小細胞肺癌。",
+   "label": "NSCLC 診斷",
+   "source_ref": "9.20.1 給付條件 #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "non-small cell lung cancer",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "non-small cell lung cancer",
+     "synonyms": [
+      "非小細胞肺癌"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "腫瘤組織檢測證實具 EGFR 基因突變（exon 19 deletion 或 L858R）。",
+   "label": "EGFR 突變陽性",
+   "source_ref": "9.20.1 給付條件 #3",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "egfr mutation",
+    "quantifier": "latest",
+    "value": {
+     "op": "in",
+     "codes": [
+      "LA9633-4"
+     ]
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "egfr mutation",
+     "synonyms": [
+      "EGFR基因突變"
+     ]
+    }
+   ],
+   "action": "安排 EGFR 基因檢測"
+  },
+  {
+   "text": "ECOG 體能狀態為 0 至 1 分。",
+   "label": "ECOG 0–1",
+   "source_ref": "9.20.1 給付條件 #4",
+   "kind": "inclusion",
+   "class": "note",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "quantifier": "any"
+   },
+   "concept_candidates": [],
+   "note_question": "病歷是否記載 ECOG 體能狀態為 0 或 1 分？",
+   "fallback": "無結構化替代；由醫師於門診確認",
+   "action": "醫師記錄 ECOG 體能狀態"
+  },
+  {
+   "text": "申請前一年內已使用 EGFR 酪胺酸激酶抑制劑者（本申請限第一線治療）。",
+   "label": "已用 EGFR-TKI",
+   "source_ref": "9.20.2 不得申請情形 #1",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "egfr tyrosine kinase inhibitor",
+    "quantifier": "any",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "egfr tyrosine kinase inhibitor",
+     "synonyms": [
+      "osimertinib",
+      "gefitinib",
+      "erlotinib"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "二個月內胸部影像檢查報告。",
+   "label": "胸部影像報告",
+   "source_ref": "9.20.3 申請應檢附資料 #1",
+   "kind": "documentation",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "report",
+    "concept": "chest x-ray",
+    "quantifier": "any",
+    "window": {
+     "from_days": -60,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "report",
+     "name": "chest x-ray",
+     "synonyms": [
+      "胸部X光"
+     ]
+    }
+   ],
+   "suggested_order": "32001C 胸部X光 或 33070B 胸部電腦斷層"
+  },
+  {
+   "text": "一年內 EGFR 基因檢測報告。",
+   "label": "EGFR 檢測報告",
+   "source_ref": "9.20.3 申請應檢附資料 #2",
+   "kind": "documentation",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "egfr mutation",
+    "quantifier": "any",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "egfr mutation",
+     "synonyms": []
+    }
+   ],
+   "suggested_order": "12191B EGFR 基因突變檢測"
+  }
+ ]
+}
