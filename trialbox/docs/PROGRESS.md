@@ -144,3 +144,28 @@ make fonts images up-test
 .venv/bin/python tools/send_test_mail.py "FEAS GZQO variant=bmi:25,27"   # replies: http://127.0.0.1:8025
 make test-e2e      # GreenMail -> TrialBox -> MailHog
 ```
+
+## Phase 4 — SCREEN (done)
+
+**Delivered**
+- `scenarios/evaluate.py`: CQL engine (fhir-store `$evaluate`, library auto-load) and lake SQL engine behind one
+  interface, RAG over `/chunks/search` with zh-TW/ja keyword expansion, `judge` via `chat_json` (local only),
+  verbatim-quote check, full-record fallback, eligibility-perspective verdicts, tiers and actions (D-49–D-51).
+- `SCREEN`: practitioner appointment scope ∪ recent encounters → structured → notes for structured candidates →
+  candidate workbook (MRN, tier, next appointment, practitioner, per-criterion verdict with evidence comments,
+  conditional formatting, `criteria` and `feedback` sheets), `candidate_list.json`, referral workbooks per routed
+  department, aggregate summary PDF; candidate pool persisted (D-52).
+- `MICROBATCH`: time-sensitive re-evaluation for pool patients booked in the next 14 days → `this_week_visit1`
+  workbook with highlighted changes + `changes` sheet; monthly incident patients (D-53).
+- `FEEDBACK` (CSV or the workbook's feedback sheet, validated against the pool) and `CALIBRATION`
+  (`calibration.json` → FEAS simulation) (D-54); scheduler jobs per ruleset.
+- Judge test set (300 items) + `tools/judge_eval.py` (D-55); lake connection fix for concurrent readers (D-56).
+
+**DoD evidence**
+- E2E on synthetic data: compose — email `SCREEN GZQO version=1.0.0` → `Candidates GZQO v1.0.0` 7z (password in a
+  separate mail) to pi@/crc1@ + summary PDF, 40 s, CQL engine in HAPI; in process — structured verdicts agree with the
+  recorded CQL verdicts ≥ 98 % and note verdicts with the planted truth (16/16).
+- Judge set agreement: 300/300 with the stub (plumbing); real-model run is `pytest -m llm` (target ≥ 90 %).
+- Microbatch: seeded GLP-1 starts (EXC-04) and current-flare notes (EXC-11) for four pool patients → the `changes`
+  sheet lists exactly those four (pid, criterion, before → after) and their tier becomes `excluded`.
+- `make lint` clean; `make test` 191 passed.

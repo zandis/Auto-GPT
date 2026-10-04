@@ -13,7 +13,9 @@ from fastapi import FastAPI, HTTPException
 from lake.client import LakeHttp
 from tb_common.audit import AuditLog
 from tb_common.config import get_config
+from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
+from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
 from tb_contracts import Job, JobCreate
 
@@ -30,18 +32,21 @@ def orch() -> Orchestrator:
     if _orch is None:
         cfg = get_config()
         data = Path(os.environ.get("TB_ORCH_DIR", str(Path(cfg.env.data_dir) / "orchestrator")))
+        audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
         services = Services(
             lake=LakeHttp(cfg.env.lake_url),
             parser=ParserHttp(cfg.env.doc_parser_url),
             compiler=CompilerHttp(cfg.env.compiler_url),
             mail=MailHttp(cfg.env.mail_gateway_url),
             adapter=AdapterHttp(cfg.env.adapter_url),
+            fhir=FhirEvaluator(cfg.env.fhir_base_url, workers=int(os.environ.get("TB_FHIR_WORKERS", "8"))),
+            llm=LlmClient.from_config(audit),
         )
         _orch = Orchestrator(
             cfg,
             JobDB(data / "jobs.sqlite"),
             from_config(),
-            AuditLog(cfg.env.audit_path, cfg.env.tz),
+            audit,
             services,
             registry(),
             cfg.env.rulesets_path,

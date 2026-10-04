@@ -127,3 +127,42 @@ def test_approve_loop_by_email() -> None:
     feas_id = str(review["Subject"]).rsplit("job ", 1)[1].strip()
     done = wait_for(lambda m: str(m["Subject"]).startswith(f"Done {feas_id}"), 1800)
     assert any(k.endswith(".pdf") for k in attachments(done))
+
+
+def _unzip(m: EmailMessage) -> dict[str, bytes]:
+    import tempfile
+
+    import py7zr
+
+    ((name, data),) = attachments(m).items()
+    assert name.endswith(".7z")
+    pw = wait_for(lambda x: str(x["Subject"]).startswith("Password") and str(m["Subject"]) in str(x["Subject"]), 120)
+    body = pw.get_body(("plain",))
+    assert body is not None
+    password = next(ln.strip() for ln in str(body.get_content()).splitlines() if ln.startswith("    "))
+    with tempfile.TemporaryDirectory() as td, py7zr.SevenZipFile(io.BytesIO(data), password=password) as z:
+        z.extractall(td)
+        return {p.name: p.read_bytes() for p in Path(td).rglob("*") if p.is_file()}
+
+
+def test_screen_email_to_encrypted_list() -> None:
+    import json
+
+    tag = f"screen-{os.getpid()}"
+    send(f"SCREEN GZQO version=1.0.0 -- {tag}")
+    job: dict[str, object] = {}
+    deadline = time.monotonic() + 300
+    while not job and time.monotonic() < deadline:
+        jobs = httpx.get(f"{ORCH}/jobs", params={"type": "SCREEN", "limit": 50}, timeout=30).json()
+        job = next((j for j in jobs if j.get("comment") == tag), {})
+        time.sleep(2)
+    assert job
+    done = wait_for(lambda m: str(m["Subject"]).startswith(f"Done {job['job_id']}"), 1800)
+    assert any(k.endswith(".pdf") for k in attachments(done))
+    lst = wait_for(lambda m: str(m["Subject"]) == f"Candidates GZQO v1.0.0 — job {job['job_id']}", 300)
+    assert "pi@hospa.test" in str(lst["To"]) and "sponsor" not in str(lst["To"])
+    files = _unzip(lst)
+    cl = json.loads(next(v for k, v in files.items() if k.endswith(".json")))
+    assert cl["rows"] and cl["summary"]["high"] + cl["summary"]["review"] == len(cl["rows"])
+    final = httpx.get(f"{ORCH}/jobs/{job['job_id']}", timeout=30).json()
+    assert final["state"] == "done" and final["metrics"]["patients_scoped"] > 50

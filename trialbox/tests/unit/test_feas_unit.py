@@ -219,3 +219,19 @@ def test_funnel_compare_harness() -> None:
     assert "FAIL" in report and "| A | 100 | 95 | +5.3 | ok |" in report
     assert system_counts(json.loads(_result().model_dump_json()))["GZQO-INC-02"] == 168
     _ = date  # imported for readability of fixtures
+
+
+def test_calibration_compute() -> None:
+    pool = [{"pid": f"p{i}"} for i in range(20)]
+    outcomes = ["enrolled"] * 3 + ["screen_fail"] * 4 + ["declined"] * 5 + ["not_contacted"] * 4
+    fb = [
+        {"pid": f"p{i}", "outcome": o, "reason_code": "GZQO-INC-05" if o == "screen_fail" else None}
+        for i, o in enumerate(outcomes)
+    ]
+    body = calibration.compute("GZQO", pool, fb, "2026-11-01T05:30:00+08:00")
+    assert (body["reach_rate"], body["accept_rate"], body["screen_fail_rate"]) == (0.75, 0.25, round(4 / 12, 4))
+    assert body["screen_fail_reasons"] == {"GZQO-INC-05": 4} and body["used_by_feas"]
+    few = calibration.compute("GZQO", pool, fb[:5], "x")
+    assert few["reach_rate"] is None and not few["used_by_feas"]
+    shown = calibration.suppressed(body, 5)
+    assert shown["enrolled"] == "<5" and shown["declined"] == 5

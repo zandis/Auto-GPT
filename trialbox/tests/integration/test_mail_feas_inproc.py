@@ -5,172 +5,25 @@ from __future__ import annotations
 
 import io
 import json
-import shutil
-from dataclasses import dataclass, field
-from datetime import date
-from email import message_from_bytes, policy
-from email.message import EmailMessage
-from email.utils import make_msgid
 from pathlib import Path
 from typing import Any
 
 import pytest
 import tb_contracts as c
-from criteria_compiler.repo import RulesetRepo
-from criteria_compiler.service import Compiler, CompilerDeps
-from criteria_compiler.terminology.mapper import Terminology
-from doc_parser.parser import parse
-from embed_service.embedder import HashEmbedder
-from fastapi.testclient import TestClient
-from lake.client import LakeLocal
-from llm_stub.app import app as stub
-from mail_gateway.gateway import Gateway
-from mail_gateway.store import MailDB
 from openpyxl import load_workbook
-from orchestrator.core import Orchestrator, Services
-from orchestrator.db import JobDB
-from orchestrator.scenarios import registry
 from pypdf import PdfReader
-from tb_common.audit import AuditLog, verify
-from tb_common.config import Config, load_env, load_settings
-from tb_common.llm import LlmClient
-from tb_common.objstore import FsStore
+from tb_common.audit import verify
 
-from tests.unit.test_compiler_service import FakeGate, FakeTranslator
+from tests.inproc_box import Box, make_box
 
 ROOT = Path(__file__).resolve().parents[2]
 PDF = ROOT / "tests/fixtures/protocols/GZQO_protocol_v3.pdf"
 AUTH = "mx.hospa.test; spf=pass smtp.mailfrom=hospa.test; dkim=pass header.d=hospa.test; dmarc=pass"
 
 
-@dataclass
-class Sent:
-    to: list[str]
-    msg: EmailMessage
-
-    @property
-    def subject(self) -> str:
-        return str(self.msg["Subject"])
-
-    def attachments(self) -> dict[str, bytes]:
-        out = {}
-        for part in self.msg.iter_attachments():
-            data = part.get_payload(decode=True)
-            assert isinstance(data, bytes)
-            out[str(part.get_filename())] = data
-        return out
-
-    def text(self) -> str:
-        body = self.msg.get_body(("plain",))
-        return str(body.get_content()) if body is not None else ""
-
-
-@dataclass
-class Box:
-    gw: Gateway
-    orch: Orchestrator
-    store: FsStore
-    audit_dir: Path
-    sent: list[Sent] = field(default_factory=list)
-
-    def mail(
-        self,
-        subject: str,
-        attachments: tuple[tuple[str, bytes], ...] = (),
-        sender: str = "crc1@hospa.test",
-        in_reply_to: str | None = None,
-        auth: str = AUTH,
-    ) -> str:
-        m = EmailMessage()
-        m["From"] = f"CRC <{sender}>"
-        m["To"] = "trialbox@hospa.test"
-        m["Subject"] = subject
-        m["Message-ID"] = make_msgid(domain="hospa.test")
-        if auth:
-            m["Authentication-Results"] = auth
-        if in_reply_to:
-            m["In-Reply-To"] = in_reply_to
-        m.set_content("Request from the CRC office.")
-        for name, data in attachments:
-            m.add_attachment(data, maintype="application", subtype="octet-stream", filename=name)
-        folder = self.gw.handle(m.as_bytes(policy=policy.SMTP))
-        assert folder is not None
-        return folder
-
-    def find(self, prefix: str) -> list[Sent]:
-        return [s for s in self.sent if s.subject.startswith(prefix)]
-
-
-class InprocParser:
-    def __init__(self, store: FsStore) -> None:
-        self.store = store
-
-    def parse(self, req: c.ParseRequest) -> c.ParsedDoc:
-        return parse(self.store.get(req.minio_key), req.minio_key.rsplit("/", 1)[-1])
-
-
 @pytest.fixture
-def box(ingested: dict[str, Any], tmp_path: Path) -> Box:
-    env = load_env(
-        dotenv=tmp_path / "none.env",
-        environ={"MAIL_FROM_ADDR": "trialbox@hospa.test", "MAIL_INTAKE_ADDR": "trialbox@hospa.test"},
-    )
-    cfg = Config(env=env, settings=load_settings(ROOT / "deploy/settings.example.yaml"))
-    store = FsStore(tmp_path / "obj")
-    audit_dir = tmp_path / "audit"
-    audit = AuditLog(audit_dir)
-    seed = tmp_path / "seed"
-    shutil.copytree(ROOT / "rulesets", seed, ignore=shutil.ignore_patterns("tests"))
-    llm = LlmClient("http://stub/v1", "stub", audit=audit)
-    llm.http = TestClient(stub)
-    comp = Compiler(
-        CompilerDeps(
-            store=store,
-            repo=RulesetRepo(tmp_path / "repo", seed),
-            llm=llm,
-            term=Terminology(),
-            settings_thresholds={"equivalence_min_pct": 98.0},
-            translator=FakeTranslator(),  # type: ignore[arg-type]
-            audit=audit,
-            equivalence=FakeGate(),
-            mrn_regex=r"^\d{8}$",
-        )
-    )
-    holder: dict[str, Orchestrator] = {}
-    sent: list[Sent] = []
-
-    def transport(_frm: str, to: list[str], data: bytes) -> None:
-        msg = message_from_bytes(data, policy=policy.default)
-        assert isinstance(msg, EmailMessage)
-        sent.append(Sent(to, msg))
-
-    gw = Gateway(
-        cfg,
-        store,
-        MailDB(tmp_path / "mail.sqlite"),
-        audit,
-        transport,
-        jobs=lambda req: holder["o"].create(req),  # noqa: PLW0108 - orchestrator is created below
-        secrets_dir=tmp_path,
-    )
-    services = Services(
-        lake=LakeLocal(ingested["lake_dir"], HashEmbedder()), parser=InprocParser(store), compiler=comp, mail=gw
-    )
-    orch = Orchestrator(
-        cfg,
-        JobDB(tmp_path / "jobs.sqlite"),
-        store,
-        audit,
-        services,
-        registry(),
-        tmp_path / "repo",
-        tmp_path / "orch",
-        today=lambda: date(2026, 10, 5),
-        workers=0,
-        async_notify=False,
-    )
-    holder["o"] = orch
-    return Box(gw, orch, store, audit_dir, sent)
+def box(ingested: dict[str, Any], site_key_dir: Path, tmp_path: Path) -> Box:
+    return make_box(tmp_path, ingested["lake_dir"], site_key_dir)
 
 
 def test_feas_email_round_trip(box: Box) -> None:

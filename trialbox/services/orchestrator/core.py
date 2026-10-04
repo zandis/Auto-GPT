@@ -27,7 +27,9 @@ from tb_common.audit import AuditLog
 from tb_common.authz import allowed, norm
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
+from tb_common.fhir import FhirEvaluator
 from tb_common.http import ServiceError
+from tb_common.llm import LlmClient
 from tb_common.objstore import ObjectStore
 from tb_common.routing import RoutingViolation, check, is_internal
 from tb_common.ruleset import RulesetNotApproved
@@ -86,6 +88,8 @@ class Services:
     compiler: CompilerAPI
     mail: MailAPI
     adapter: AdapterAPI | None = None
+    fhir: FhirEvaluator | None = None
+    llm: LlmClient | None = None
 
 
 Scenario = Callable[["Ctx"], Outcome]

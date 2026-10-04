@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from tb_contracts import Job
 
@@ -37,6 +39,30 @@ CREATE TABLE IF NOT EXISTS mails (
   sent_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mails_job ON mails(job_id);
+CREATE TABLE IF NOT EXISTS pool (
+  ruleset TEXT NOT NULL,
+  pid TEXT NOT NULL,
+  version TEXT NOT NULL,
+  tier TEXT NOT NULL,
+  next_appointment TEXT,
+  practitioner_id TEXT,
+  department TEXT,
+  verdicts TEXT NOT NULL,
+  added_at TEXT NOT NULL,
+  last_eval TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  PRIMARY KEY (ruleset, pid)
+);
+CREATE TABLE IF NOT EXISTS feedback (
+  ruleset TEXT NOT NULL,
+  pid TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  reason_code TEXT,
+  note TEXT,
+  job_id TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  PRIMARY KEY (ruleset, pid)
+);
 """
 
 TERMINAL = ("done", "failed")
@@ -177,6 +203,87 @@ class JobDB:
                 "SELECT job_id, kind, subject FROM mails WHERE message_id = ?", (message_id,)
             ).fetchone()
         return (str(row[0]), str(row[1]), str(row[2])) if row else None
+
+    # ------------------------------------------------------------------ candidate pool (SPEC §8.2)
+    def pool_upsert(self, ruleset: str, version: str, rows: list[dict[str, Any]], job_id: str, at: str) -> None:
+        with self.tx() as con:
+            for r in rows:
+                con.execute(
+                    """INSERT INTO pool (ruleset, pid, version, tier, next_appointment, practitioner_id, department,
+                                         verdicts, added_at, last_eval, job_id)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(ruleset, pid) DO UPDATE SET version=excluded.version, tier=excluded.tier,
+                         next_appointment=excluded.next_appointment, practitioner_id=excluded.practitioner_id,
+                         department=excluded.department, verdicts=excluded.verdicts, last_eval=excluded.last_eval,
+                         job_id=excluded.job_id""",
+                    (
+                        ruleset,
+                        r["pid"],
+                        version,
+                        r["tier"],
+                        r.get("next_appointment"),
+                        r.get("practitioner_id"),
+                        r.get("department"),
+                        json.dumps(r["verdicts"], sort_keys=True),
+                        at,
+                        at,
+                        job_id,
+                    ),
+                )
+
+    def pool(self, ruleset: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._con.execute(
+                "SELECT pid, version, tier, next_appointment, practitioner_id, department, verdicts, added_at, "
+                "last_eval, job_id FROM pool WHERE ruleset = ? ORDER BY pid",
+                (ruleset,),
+            ).fetchall()
+        keys = (
+            "pid",
+            "version",
+            "tier",
+            "next_appointment",
+            "practitioner_id",
+            "department",
+            "verdicts",
+            "added_at",
+            "last_eval",
+            "job_id",
+        )
+        out = []
+        for r in rows:
+            d = dict(zip(keys, r, strict=True))
+            d["verdicts"] = json.loads(d["verdicts"])
+            out.append(d)
+        return out
+
+    def pool_rulesets(self) -> list[str]:
+        with self._lock:
+            return [str(r[0]) for r in self._con.execute("SELECT DISTINCT ruleset FROM pool ORDER BY 1")]
+
+    def feedback_upsert(self, ruleset: str, rows: list[dict[str, Any]], job_id: str, at: str) -> None:
+        with self.tx() as con:
+            for r in rows:
+                con.execute(
+                    """INSERT INTO feedback (ruleset, pid, outcome, reason_code, note, job_id, received_at)
+                       VALUES (?,?,?,?,?,?,?)
+                       ON CONFLICT(ruleset, pid) DO UPDATE SET outcome=excluded.outcome,
+                         reason_code=excluded.reason_code, note=excluded.note, job_id=excluded.job_id,
+                         received_at=excluded.received_at""",
+                    (ruleset, r["pid"], r["outcome"], r.get("reason_code"), r.get("note"), job_id, at),
+                )
+
+    def feedback(self, ruleset: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._con.execute(
+                "SELECT pid, outcome, reason_code, note, received_at FROM feedback WHERE ruleset = ? ORDER BY pid",
+                (ruleset,),
+            ).fetchall()
+        return [dict(zip(("pid", "outcome", "reason_code", "note", "received_at"), r, strict=True)) for r in rows]
+
+    def feedback_rulesets(self) -> list[str]:
+        with self._lock:
+            return [str(r[0]) for r in self._con.execute("SELECT DISTINCT ruleset FROM feedback ORDER BY 1")]
 
     def close(self) -> None:
         with self._lock:

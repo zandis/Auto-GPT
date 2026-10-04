@@ -250,3 +250,48 @@ types whose scenario is not yet implemented are not scheduled.
 
 **D-48 GreenMail login.** GreenMail's login for `trialbox:trialbox@hospa.test` is the local part (`IMAP_USER=trialbox`);
 production uses the mailbox's real login name.
+
+## Phase 4
+
+**D-49 Structured engine for screening.** SCREEN/MICROBATCH evaluate structured criteria with CQL
+`Library/$evaluate` per patient in fhir-store (8 concurrent calls), loading the approved Library/ValueSets first when
+fhir-store lacks that exact content-addressed version. `TB_SCREEN_ENGINE=sql` (and in-process tests without
+fhir-store) evaluates the *same approved ruleset SQL* in the lake; the §6.4 gate guarantees ≥98 % agreement. Every
+evaluation is audited (`screen.evaluated`: engine, index date, patients, tiers, judge model/prompt).
+
+**D-50 Tiers.** Per D-25 verdicts are from the eligibility perspective. `excluded`: any structured criterion fails or a
+note criterion fails with confidence ≥ `tier_high_confidence`; `high`: every structured and note criterion passes
+(note confidence ≥ t), only `human` criteria pending; `review`: everything else (unknowns, low-confidence notes, a
+low-confidence note *fail*). Actions = the IR `action` of every unknown / pending / low-confidence criterion.
+Excluded patients are not listed (counted in the summary). Rows sort by next appointment, then tier.
+
+**D-51 Note retrieval.** Query = `note_question` + zh-TW/ja equivalents of the criterion's English keywords
+(`scenarios/terms.py`); window `[index−365 d, index]` narrowed to the IR window; k = 5; ≤ 2,500 tokens (CJK ≈ 1
+token/char, Latin ≈ 4 chars/token), newest first. When the structured candidate set is ≤ 100, an `unknown` verdict is
+retried on the full record (all notes in the window, ≤ 28k tokens, newest first).
+
+**D-52 Lists and referrals.** The candidate workbook (+ `candidate_list.json`) goes to `routing.list_to`; patients whose
+scoped department has a `routing.referral_to[dept]` entry also go, in a separate workbook, to that address; the
+aggregate summary PDF goes to `aggregate_to` + requester. All three are separate mails; PHI ones are encrypted. MRNs
+are resolved from the in-box pid map only while rendering.
+
+**D-53 Pool and microbatch.** The pool keeps the full per-criterion verdicts (with evidence) of every listed patient.
+MICROBATCH re-evaluates only `time_sensitive` criteria for pool patients with a booked appointment in the next
+`microbatch_window_days` (14), recomputes the tier from old + new verdicts, highlights changed cells and lists them in
+`changes`; on the first Monday of a month (or `incident=1`) new in-scope patients are screened and appended.
+Scheduler: one MICROBATCH job per ruleset with a pool, one CALIBRATION job per ruleset with feedback.
+
+**D-54 Calibration.** `reach = reached / (reached + not_contacted)`, `accept = enrolled / reached` (the per-reached
+enrolment probability the FEAS simulation multiplies), screen-fail reasons counted by `reason_code` (criterion id).
+Rates are used by FEAS only from 10 reached patients on (Beta concentration = reached); the mailed
+`calibration_<ID>.json` is small-cell suppressed, the in-box copy is not.
+
+**D-55 Judge test set.** `tools/make_judge_set.py` builds 300 labelled items (100 each for GZQO-INC-05, GZQO-EXC-11,
+RA-BIO-REN-02) from the synthetic sites (full-record excerpts in the criterion window, gold = planted note truth);
+`tools/judge_eval.py` runs them through `chat_json` + the production quote check. CPU CI runs the stub (rules written
+for the synthetic sentence templates, so 100 % says only that the plumbing works); `pytest -m llm` with
+`TB_JUDGE_LLM_URL` measures a real model against the ≥ 90 % target.
+
+**D-56 DuckDB connections.** DuckDB shares one database instance per file within a process; the lake hardens a fresh
+instance (FTS, no external access, locked configuration) under a process lock and skips hardening when it is already
+locked (found by concurrent note retrieval).

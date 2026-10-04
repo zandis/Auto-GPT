@@ -39,6 +39,9 @@ _ARROW = {
 }
 
 
+_CONNECT_LOCK = threading.Lock()
+
+
 def fts_extension_path() -> str:
     import duckdb_extension_fts as ext
 
@@ -193,10 +196,15 @@ class Lake:
     # ------------------------------------------------------------------ query
     def connect(self, snapshot: str | None = None) -> duckdb.DuckDBPyConnection:
         """Read-only connection with FTS loaded, external file access disabled and configuration locked."""
-        con = duckdb.connect(str(self.db_path(snapshot)), read_only=True)
-        con.execute(f"LOAD '{fts_extension_path()}'")
-        con.execute("SET enable_external_access = false")
-        con.execute("SET lock_configuration = true")
+        # DuckDB shares one database instance per file inside a process: a concurrent connection finds the
+        # instance already hardened (FTS loaded, external access off, configuration locked) and must not re-set it.
+        with _CONNECT_LOCK:
+            con = duckdb.connect(str(self.db_path(snapshot)), read_only=True)
+            row = con.execute("SELECT current_setting('lock_configuration')").fetchone()
+            if not (row and row[0]):
+                con.execute(f"LOAD '{fts_extension_path()}'")
+                con.execute("SET enable_external_access = false")
+                con.execute("SET lock_configuration = true")
         return con
 
     def query(

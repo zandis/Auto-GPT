@@ -75,7 +75,15 @@ def start(orch: Orchestrator) -> Any:
 
     sched = BackgroundScheduler(timezone=orch.cfg.env.tz)
     for jtype, kw in plan(orch.cfg.settings):
-        if jtype == "NAV":
+        if jtype in ("MICROBATCH", "CALIBRATION"):
+
+            def per_ruleset(jt: str = jtype) -> None:
+                db = orch.db
+                for rid in db.pool_rulesets() if jt == "MICROBATCH" else db.feedback_rulesets():
+                    _submit(orch, jt, rid)
+
+            sched.add_job(per_ruleset, "cron", id=jtype.lower(), **kw)
+        elif jtype == "NAV":
 
             def nav() -> None:
                 for rid in list_rulesets(orch.rulesets_dir):
