@@ -1,0 +1,25 @@
+{
+ "class": "structured",
+ "id": "RA-BIO-EXC-06",
+ "kind": "exclusion",
+ "label": "30日內嚴重感染",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_SERIOUS_INFECTION",
+  "window": {
+   "anchor": "index",
+   "from_days": -30,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.2 不得申請情形 #6",
+ "text": "三十日內有嚴重感染（敗血症、肺炎）。",
+ "time_sensitive": true
+}

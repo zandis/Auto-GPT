@@ -295,3 +295,43 @@ for the synthetic sentence templates, so 100 % says only that the plumbing works
 **D-56 DuckDB connections.** DuckDB shares one database instance per file within a process; the lake hardens a fresh
 instance (FTS, no external access, locked configuration) under a process lock and skips hardening when it is already
 locked (found by concurrent note retrieval).
+
+## Phase 5
+
+**D-57 RA-BIO source and design.** `tools/make_nhi_docs.py` writes, from one definition, a fictional zh-TW rule
+document modelled on the structure of the NHI RA-biologic benefit rule (sections 初次申請給付條件 / 不得申請情形 /
+續用條件 / 申請應檢附資料), the stub's gold extraction and the 附表十五 template. The ruleset is then compiled and
+approved through the real pipeline (`tools/build_rulesets.py`, CQL≡SQL 100 % on HAPI). 19 criteria: 6 inclusion
+(age, RA ≥ 6 months, MTX ≥ 180 d and another csDMARD ≥ 180 d with gaps ≤ 30 d, DAS28 > 5.1 in [−90, 0] and in
+[−180, −90] — two separate assessments), 7 exclusion (active TB, IGRA+ without prophylaxis, HBsAg+ without antiviral,
+malignancy ≤ 5 y, pregnancy, serious infection ≤ 30 d, heart failure), 2 renewal (DAS28 assessed ≤ 90 d; response
+judged from notes with a structured fallback), 4 documentation (HBsAg, anti-HBc, TB screening, ESR/CRP, each with a
+suggested order code). Claims are matched by the ruleset's `twpas.drug_codes`.
+
+**D-58 NAV lists.** Active approval = an approved claim whose `approval_end ≥ run date`; an application in the last
+`application_lookback_days` (90) suppresses `likely_eligible`. With an active approval, any failing renewal criterion
+(note: confidence ≥ t) → `maybe_ineligible` (precedence), else ending within `renewal_lead_days` → `renewal_due`.
+Without one: all inclusions pass and no exclusion fails → `likely_eligible` (unknown exclusions are listed as
+"確認：…" missing items). `doc_gaps` = rows of the first two lists with a missing documentation criterion. Every
+scoped patient's note criteria are judged (`all_candidates`).
+
+**D-59 Application drafts.** docxtpl template per ruleset (`manifest.docx_template` under
+`orchestrator/reports/templates/`); every field is a RichText `{{r …}}` so values are escaped and unknowns render as
+bold, yellow-shaded `[待補]`; tables loop with `{%tr %}` rows. Facts are read from the lake with the ruleset's own
+ValueSets (diagnosis, DMARD courses with dose text, corticosteroids, DAS28 components and scores per required
+window, HBsAg/anti-HBc/IGRA/CXR, current approval). The `draft_doc` paragraph receives de-identified facts only and
+is replaced by `[待補]` when it contains a number absent from them. Draft file names carry a pid prefix (never an
+MRN) because file names are audited. Drafts are never signed.
+
+**D-60 Lake medication columns.** `medication` gains `name` and `dose` (dosage text) for drafts and bundles.
+
+**D-61 Retrospective harness.** `tools/nav_retro.py` evaluates the approved SQL at each application date in the last
+12 months (pending skipped) and compares "eligible" (structured inclusions TRUE, no exclusion TRUE) with the NHI
+outcome; the safety metric re-checks coded exclusion conditions with an independent code-presence query. On the
+synthetic claims the harness runs with 0 safety violations but low agreement (≈ 23 %), because the generator plants
+clinical data relative to the reference date, not to past application dates (most inclusions are unknown there);
+the ≥ 85 % acceptance target applies to a site's real claims.
+
+**D-62 Ruleset repository at start-up.** The compiler initialises the git ruleset repository in its lifespan hook,
+so a fresh box materialises the vendor-shipped approved rulesets (and their tags) before the orchestrator reads them
+(found when the NAV E2E ran on a new volume).

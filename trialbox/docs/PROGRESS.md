@@ -169,3 +169,25 @@ make test-e2e      # GreenMail -> TrialBox -> MailHog
 - Microbatch: seeded GLP-1 starts (EXC-04) and current-flare notes (EXC-11) for four pool patients → the `changes`
   sheet lists exactly those four (pid, criterion, before → after) and their tier becomes `excluded`.
 - `make lint` clean; `make test` 191 passed.
+
+## Phase 5 — NAV (done)
+
+**Delivered**
+- RA-BIO ruleset: fictional zh-TW NHI rule document + 附表十五 template + gold extraction from one definition
+  (`tools/make_nhi_docs.py`), compiled and approved through the pipeline (19 criteria incl. renewal and
+  documentation kinds; CQL≡SQL 100 % on HAPI), planted-state oracle for all 16 structured criteria (D-57).
+- `NAV`: appointment scope per department, claims → active approval / recent application, structured + note
+  evaluation of all criterion kinds, four lists with missing items and suggested orders (D-58), NavLists JSON,
+  department workbook (`likely_eligible`, `renewal_due`, `doc_gaps`, `maybe_ineligible`), aggregate summary PDF;
+  scheduler runs NAV for every approved NHI ruleset.
+- Application drafts: facts from the lake, docxtpl rendering with highlighted `[待補]`, `draft_doc` paragraph with
+  the number check (D-59); lake medication `name`/`dose` (D-60).
+- Retrospective harness `tools/nav_retro.py` (D-61); compiler seeds the ruleset repository at start-up (D-62).
+
+**DoD evidence**
+- Retrospective harness runs on the synthetic claims: 91 applications in 12 months, 75 decided, 0 eligible verdicts
+  with a coded hard exclusion (agreement is not meaningful on synthetic claims, D-61).
+- Drafts open in Word (python-docx) with bold yellow `[待補]` markers; in compose `NAV RA-BIO dept=RHEU` from
+  nurse-rheu@ → encrypted 7z with the RHEU workbook, NavLists JSON and 16 drafts to nurse-rheu@ + rheu-dr@, summary to
+  rheu-dr@, 42 s (137 patients scoped, 130 judge calls).
+- In process: list semantics checked against the planted approval states; `make lint` clean, `make test` 195 passed.

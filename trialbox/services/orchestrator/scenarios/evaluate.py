@@ -339,9 +339,11 @@ def evaluate_patients(
     full_record_fallback: bool = True,
     workers: int = 4,
     all_candidates: bool = False,
+    kinds: tuple[str, ...] = ("inclusion", "exclusion"),
 ) -> dict[str, PatientVerdicts]:
-    """Structured screen of every pid, then note criteria for structured candidates only (SPEC §8.2)."""
-    active = [c for c in rs.active() if c.kind in ("inclusion", "exclusion") and (only is None or c.id in only)]
+    """Structured screen of every pid, then note criteria for structured candidates only (SPEC §8.2). NAV passes
+    ``kinds`` with renewal/documentation criteria and ``all_candidates`` (every scoped patient is judged)."""
+    active = [c for c in rs.active() if c.kind in kinds and (only is None or c.id in only)]
     structured_ids = [c.id for c in active if c.class_ == "structured"]
     evals = engine.evaluate(rs, pids, index_date, structured_ids) if structured_ids else {}
     if not structured_ids:

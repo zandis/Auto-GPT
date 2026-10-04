@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "1988-5",
+      "display": "C reactive protein [Mass/volume] in Serum or Plasma"
+     },
+     {
+      "code": "4537-7",
+      "display": "Erythrocyte sedimentation rate by Westergren method"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "RA-BIO-VS-ESR-OR-CRP",
+ "name": "VS_ESR_OR_CRP",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "esr or crp",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-BIO-VS-ESR-OR-CRP",
+ "version": "1.0.0-v647267d1"
+}

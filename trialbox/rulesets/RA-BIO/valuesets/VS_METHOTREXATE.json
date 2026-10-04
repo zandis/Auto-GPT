@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "L04AX03",
+      "display": "methotrexate"
+     }
+    ],
+    "system": "http://www.whocc.no/atc"
+   }
+  ]
+ },
+ "id": "RA-BIO-VS-METHOTREXATE",
+ "name": "VS_METHOTREXATE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "methotrexate",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-BIO-VS-METHOTREXATE",
+ "version": "1.0.0-v972d8650"
+}

@@ -90,3 +90,53 @@ def test_gzqo_planted_state_oracle(ingested: dict[str, Any], synth_dir: Path) ->
                 assert row[rule["crit"]] == rule[st[attr]], (mrn, attr, st[attr], row[rule["crit"]])
                 checked += 1
     assert checked > 1000
+
+
+def test_ra_bio_planted_state_oracle(ingested: dict[str, Any], synth_dir: Path) -> None:
+    """Every structured RA-BIO criterion against the generator's planted states (true / false / null cases)."""
+    rs = Ruleset.load(ROOT / "rulesets" / "RA-BIO")
+    got = _results(ingested, rs, "2026-10-05")
+    states = json.loads((synth_dir / "site-a" / "states.json").read_text(encoding="utf-8"))
+    p = "RA-BIO-"
+    rules: list[tuple[str, str, dict[str, Any]]] = [
+        ("ra_dx", p + "INC-02", {"long": True, "recent": False, "none": False}),
+        ("mtx", p + "INC-03", {"long": True, "short": False, "gappy_bad": False, "none": False}),
+        ("csdmard2", p + "INC-04", {"long": True, "short": False, "gappy_bad": False, "none": False}),
+        (
+            "das28_recent",
+            p + "INC-05",
+            {"high": True, "moderate": False, "low": False, "missing_component": None, "none": None},
+        ),
+        ("das28_earlier", p + "INC-06", {"high": True, "low": False, "none": None}),
+        (
+            "tb",
+            p + "EXC-01",
+            {"active": True, "igra_pos_untreated": False, "igra_pos_treated": False, "igra_neg": False, "none": False},
+        ),
+        ("tb", p + "EXC-02", {"igra_pos_untreated": True, "igra_pos_treated": False, "igra_neg": False}),
+        ("hbv", p + "EXC-03", {"pos_no_av": True, "pos_av": False, "neg": False}),
+        ("malignancy", p + "EXC-04", {"recent": True, "old": False, "no": False}),
+        ("pregnancy", p + "EXC-05", {"dx": True, "no": False}),
+        ("infection", p + "EXC-06", {"recent": True, "mid": False, "old": False, "no": False}),
+        ("hf", p + "EXC-07", {"yes": True, "no": False}),
+        (
+            "das28_recent",
+            p + "REN-01",
+            {"high": True, "moderate": True, "low": True, "missing_component": None, "none": None},
+        ),
+        ("doc_hbsag", p + "DOC-01", {"yes": True}),
+        ("doc_ahbc", p + "DOC-02", {"yes": True, "no": False}),
+        ("doc_tb", p + "DOC-03", {"cxr": True}),
+    ]
+    checked: dict[str, int] = {}
+    for mrn, st in states.items():
+        if st.get("archetype") != "ra":
+            continue
+        row = got.get(pid_for_mrn(ingested["key"], mrn))
+        if row is None:
+            continue
+        for attr, crit, rule in rules:
+            if attr in st and st[attr] in rule:
+                assert row[crit] == rule[st[attr]], (mrn, attr, st[attr], crit, row[crit])
+                checked[crit] = checked.get(crit, 0) + 1
+    assert len(checked) == len(rules) and sum(checked.values()) > 1500, checked

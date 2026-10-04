@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "71774-4",
+      "display": "Mycobacterium tuberculosis stimulated gamma interferon [Presence] in Blood"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "RA-BIO-VS-IGRA",
+ "name": "VS_IGRA",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "igra",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-BIO-VS-IGRA",
+ "version": "1.0.0-v9f490be4"
+}

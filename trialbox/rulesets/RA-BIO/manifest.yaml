@@ -1,0 +1,89 @@
+id: RA-BIO
+kind: nhi
+title: RA 生物製劑健保給付（adalimumab、etanercept、tocilizumab）
+trial_alias: RA-BIO
+sponsor: 全民健康保險（合成範例）
+version: 1.0.0
+status: approved
+source_documents:
+- RA-BIO_給付規定_2026.pdf
+protocol_version: '2026'
+language: zh-TW
+index_date_rule: run_date
+library: TB_RA_BIO_v1_0
+criteria:
+- RA-BIO-INC-01
+- RA-BIO-INC-02
+- RA-BIO-INC-03
+- RA-BIO-INC-04
+- RA-BIO-INC-05
+- RA-BIO-INC-06
+- RA-BIO-EXC-01
+- RA-BIO-EXC-02
+- RA-BIO-EXC-03
+- RA-BIO-EXC-04
+- RA-BIO-EXC-05
+- RA-BIO-EXC-06
+- RA-BIO-EXC-07
+- RA-BIO-REN-01
+- RA-BIO-REN-02
+- RA-BIO-DOC-01
+- RA-BIO-DOC-02
+- RA-BIO-DOC-03
+- RA-BIO-DOC-04
+scopes:
+  nav:
+    departments:
+    - RHEU
+    appointment_window_days: 14
+    renewal_lead_days: 60
+    application_lookback_days: 90
+routing:
+  aggregate_to:
+  - rheu-dr@hospa.test
+  list_to:
+  - nurse-rheu@hospa.test
+  - rheu-dr@hospa.test
+thresholds:
+  tier_high_confidence: 0.75
+  small_cell: 5
+models:
+  judge: qwen3.5-35b-a3b-q4
+  judge_prompt: judge_v3
+review:
+  approved_by: crc1@hospa.test
+  approved_at: '2026-10-04T18:05:33.792711+08:00'
+  rounds: 1
+equivalence:
+  overall_pct: 100.0
+  sample_size: 200
+  per_criterion:
+    RA-BIO-DOC-01: 100.0
+    RA-BIO-DOC-02: 100.0
+    RA-BIO-DOC-03: 100.0
+    RA-BIO-DOC-04: 100.0
+    RA-BIO-EXC-01: 100.0
+    RA-BIO-EXC-02: 100.0
+    RA-BIO-EXC-03: 100.0
+    RA-BIO-EXC-04: 100.0
+    RA-BIO-EXC-05: 100.0
+    RA-BIO-EXC-06: 100.0
+    RA-BIO-EXC-07: 100.0
+    RA-BIO-INC-01: 100.0
+    RA-BIO-INC-02: 100.0
+    RA-BIO-INC-03: 100.0
+    RA-BIO-INC-04: 100.0
+    RA-BIO-INC-05: 100.0
+    RA-BIO-INC-06: 100.0
+    RA-BIO-REN-01: 100.0
+  failing: []
+  evaluated_at: '2026-10-04T18:05:33.792711+08:00'
+twpas:
+  enabled: false
+  program: RA-BIO
+  apply_type: '1'
+  drug_codes:
+  - KC00017248
+  - KC00018248
+  - KC00019248
+docx_template: RA-BIO/附表十五.docx

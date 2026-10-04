@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "5196-1",
+      "display": "Hepatitis B virus surface Ag [Presence] in Serum or Plasma by Immunoassay"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "RA-BIO-VS-HBSAG",
+ "name": "VS_HBSAG",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "hbsag",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-BIO-VS-HBSAG",
+ "version": "1.0.0-v938b5ad3"
+}

@@ -63,6 +63,8 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
         ("start", "DATE"),
         ("end", "DATE"),
         ("status", "VARCHAR"),
+        ("name", "VARCHAR"),
+        ("dose", "VARCHAR"),
     ],
     "procedure": [
         ("prid", "VARCHAR"),
@@ -232,6 +234,8 @@ class Flattener:
             "start": self.d(period.get("start") or r.get("authoredOn")),
             "end": self.d(period.get("end")),
             "status": r.get("status"),
+            "name": cc.get("text"),
+            "dose": ((r.get("dosageInstruction") or [{}])[0] or {}).get("text"),
         }
 
     def procedure(self, r: Resource) -> Row:

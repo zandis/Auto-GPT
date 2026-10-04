@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "Z33.1",
+      "display": "Pregnant state incidental"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "RA-BIO-VS-PREGNANCY",
+ "name": "VS_PREGNANCY",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "pregnancy",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-BIO-VS-PREGNANCY",
+ "version": "1.0.0-v298a4f9e"
+}

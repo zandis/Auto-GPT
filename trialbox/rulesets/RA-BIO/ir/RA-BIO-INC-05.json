@@ -1,0 +1,31 @@
+{
+ "action": "安排 DAS28 評估（關節數、ESR/CRP、病人整體評估）",
+ "class": "structured",
+ "id": "RA-BIO-INC-05",
+ "kind": "inclusion",
+ "label": "DAS28>5.1（90日內）",
+ "logic": {
+  "derived": "das28",
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 5.1,
+   "op": ">"
+  },
+  "valueset": "VS_DAS28_COMPONENTS",
+  "window": {
+   "anchor": "index",
+   "from_days": -90,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.1 初次申請給付條件 #5",
+ "text": "申請前九十日內之疾病活動度 DAS28 大於5.1。",
+ "time_sensitive": true
+}

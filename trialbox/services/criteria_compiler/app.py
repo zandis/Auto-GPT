@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from lake.client import LakeHttp
 from tb_common.audit import AuditLog
 from tb_common.config import get_config
@@ -20,7 +22,6 @@ from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.service import CompileFailed, Compiler, CompilerDeps
 from criteria_compiler.terminology.mapper import Terminology
 
-app = make_app("criteria-compiler")
 _compiler: Compiler | None = None
 SEED = Path(__file__).resolve().parents[2] / "rulesets"
 
@@ -51,6 +52,17 @@ def compiler() -> Compiler:
         )
         _compiler = Compiler(deps)
     return _compiler
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Initialise the ruleset repository at start-up: a fresh box seeds and materialises the vendor-shipped approved
+    rulesets (with their approval tags) before any other service reads them."""
+    compiler()
+    yield
+
+
+app = make_app("criteria-compiler", lifespan=lifespan)
 
 
 def _fail(exc: CompileFailed) -> HTTPException:

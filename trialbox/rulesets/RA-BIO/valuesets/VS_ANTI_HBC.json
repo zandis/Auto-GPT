@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "16933-4",
+      "display": "Hepatitis B virus core Ab [Presence] in Serum"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "RA-BIO-VS-ANTI-HBC",
+ "name": "VS_ANTI_HBC",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "anti-hbc",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-BIO-VS-ANTI-HBC",
+ "version": "1.0.0-v5504f43f"
+}

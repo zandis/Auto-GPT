@@ -1,0 +1,47 @@
+{
+ "action": "會診肝膽科評估預防性抗病毒治療",
+ "class": "structured",
+ "id": "RA-BIO-EXC-03",
+ "kind": "exclusion",
+ "label": "HBsAg陽性未預防",
+ "logic": {
+  "args": [
+   {
+    "domain": "observation",
+    "quantifier": "latest",
+    "value": {
+     "codes": [
+      "LA6576-8"
+     ],
+     "op": "in"
+    },
+    "valueset": "VS_HBSAG"
+   },
+   {
+    "args": [
+     {
+      "domain": "medication",
+      "quantifier": "any",
+      "valueset": "VS_HBV_ANTIVIRAL_PROPHYLAXIS",
+      "window": {
+       "anchor": "index",
+       "from_days": -180,
+       "to_days": 0
+      }
+     }
+    ],
+    "op": "not"
+   }
+  ],
+  "op": "and"
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.2 不得申請情形 #3",
+ "text": "B型肝炎表面抗原（HBsAg）陽性而半年內未併用抗病毒藥物預防。",
+ "time_sensitive": false
+}

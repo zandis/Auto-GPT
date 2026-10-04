@@ -1,0 +1,41 @@
+{
+ "class": "structured",
+ "id": "RA-BIO-DOC-03",
+ "kind": "documentation",
+ "label": "結核篩檢",
+ "logic": {
+  "args": [
+   {
+    "domain": "observation",
+    "quantifier": "any",
+    "valueset": "VS_IGRA",
+    "window": {
+     "anchor": "index",
+     "from_days": -180,
+     "to_days": 0
+    }
+   },
+   {
+    "domain": "report",
+    "quantifier": "any",
+    "valueset": "VS_CHEST_X_RAY",
+    "window": {
+     "anchor": "index",
+     "from_days": -180,
+     "to_days": 0
+    }
+   }
+  ],
+  "op": "or"
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.4 申請應檢附資料 #3",
+ "suggested_order": "12184C 丙型干擾素釋放試驗 或 32001C 胸部X光",
+ "text": "六個月內結核篩檢：丙型干擾素釋放試驗（IGRA）或胸部X光報告。",
+ "time_sensitive": false
+}

@@ -1,0 +1,25 @@
+{
+ "class": "structured",
+ "id": "RA-BIO-EXC-04",
+ "kind": "exclusion",
+ "label": "五年內惡性腫瘤",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_MALIGNANCY",
+  "window": {
+   "anchor": "index",
+   "from_days": -1825,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.2 不得申請情形 #4",
+ "text": "五年內有惡性腫瘤病史。",
+ "time_sensitive": false
+}

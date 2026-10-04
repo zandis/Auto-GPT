@@ -1,0 +1,27 @@
+{
+ "disagreements": [],
+ "engine": "hapi-cr $evaluate vs duckdb",
+ "failing": [],
+ "overall_pct": 100.0,
+ "per_criterion": {
+  "RA-BIO-DOC-01": 100.0,
+  "RA-BIO-DOC-02": 100.0,
+  "RA-BIO-DOC-03": 100.0,
+  "RA-BIO-DOC-04": 100.0,
+  "RA-BIO-EXC-01": 100.0,
+  "RA-BIO-EXC-02": 100.0,
+  "RA-BIO-EXC-03": 100.0,
+  "RA-BIO-EXC-04": 100.0,
+  "RA-BIO-EXC-05": 100.0,
+  "RA-BIO-EXC-06": 100.0,
+  "RA-BIO-EXC-07": 100.0,
+  "RA-BIO-INC-01": 100.0,
+  "RA-BIO-INC-02": 100.0,
+  "RA-BIO-INC-03": 100.0,
+  "RA-BIO-INC-04": 100.0,
+  "RA-BIO-INC-05": 100.0,
+  "RA-BIO-INC-06": 100.0,
+  "RA-BIO-REN-01": 100.0
+ },
+ "sample_size": 200
+}

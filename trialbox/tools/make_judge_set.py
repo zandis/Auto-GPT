@@ -22,12 +22,7 @@ PER_CRITERION = 100
 CRITERIA: dict[str, dict[str, object]] = {
     "GZQO-INC-05": {"window": 365},
     "GZQO-EXC-11": {"window": 14},
-    "RA-BIO-REN-02": {
-        "window": 180,
-        "text": "Good response to the current biologic at renewal: DAS28 decreased by at least 1.2 (or to ≤ 3.2).",
-        "note_question": "Do the clinical notes document a good treatment response (DAS28 improvement of at least "
-        "1.2) to the current biologic?",
-    },
+    "RA-BIO-REN-02": {"window": 180},
 }
 
 

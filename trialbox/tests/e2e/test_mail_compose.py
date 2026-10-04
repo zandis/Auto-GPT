@@ -166,3 +166,26 @@ def test_screen_email_to_encrypted_list() -> None:
     assert cl["rows"] and cl["summary"]["high"] + cl["summary"]["review"] == len(cl["rows"])
     final = httpx.get(f"{ORCH}/jobs/{job['job_id']}", timeout=30).json()
     assert final["state"] == "done" and final["metrics"]["patients_scoped"] > 50
+
+
+def test_nav_email_to_lists_and_drafts() -> None:
+    import docx
+
+    tag = f"nav-{os.getpid()}"
+    send(f"NAV RA-BIO dept=RHEU -- {tag}", sender="nurse-rheu@hospa.test")
+    job: dict[str, object] = {}
+    deadline = time.monotonic() + 300
+    while not job and time.monotonic() < deadline:
+        jobs = httpx.get(f"{ORCH}/jobs", params={"type": "NAV", "limit": 50}, timeout=30).json()
+        job = next((j for j in jobs if j.get("comment") == tag), {})
+        time.sleep(2)
+    assert job
+    lst = wait_for(lambda m: str(m["Subject"]) == f"NAV RA-BIO RHEU — job {job['job_id']}", 1800)
+    files = _unzip(lst)
+    assert any(k.startswith("nav_lists_RA-BIO_RHEU") and k.endswith(".xlsx") for k in files)
+    drafts = [v for k, v in files.items() if k.endswith(".docx")]
+    assert drafts
+    text = "\n".join(p.text for p in docx.Document(io.BytesIO(drafts[0])).paragraphs)
+    assert "附表十五" in text and "[待補]" in text
+    final = httpx.get(f"{ORCH}/jobs/{job['job_id']}", timeout=30).json()
+    assert final["state"] == "done"
