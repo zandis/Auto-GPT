@@ -1,0 +1,22 @@
+{
+ "action": "ask about planned surgery",
+ "class": "human",
+ "human_question": "Does the participant plan to undergo surgery during the study period?",
+ "id": "GZQO-EXC-12",
+ "kind": "exclusion",
+ "label": "Planned surgery",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #12",
+ "text": "Planned surgery during the study period.",
+ "time_sensitive": false
+}

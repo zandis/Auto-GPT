@@ -159,3 +159,13 @@ def from_env(
         _, _, path = object_store.partition(":")
         return FsStore(Path(path) if path else Path(data_dir) / "objects")
     raise ValueError(f"unknown TB_OBJECT_STORE {object_store!r}")
+
+
+def from_config() -> ObjectStore:
+    """Object store configured by the environment (``TB_OBJECT_STORE``, ``MINIO_*``)."""
+    from tb_common.config import load_env
+
+    env = load_env()
+    return from_env(
+        env.object_store, env.minio_endpoint, env.minio_access_key, env.minio_secret_key, env.minio_secure, env.data_dir
+    )

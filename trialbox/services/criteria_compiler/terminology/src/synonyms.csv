@@ -1,0 +1,92 @@
+domain,name,table,code,match
+condition,gout,icd10cm,M10,prefix
+condition,gout,icd10cm,M1A,prefix
+condition,gouty arthritis,icd10cm,M10,prefix
+condition,痛風,icd10cm,M10,prefix
+condition,痛風,icd10cm,M1A,prefix
+condition,rheumatoid arthritis,icd10cm,M05,prefix
+condition,rheumatoid arthritis,icd10cm,M06,prefix
+condition,類風濕性關節炎,icd10cm,M05,prefix
+condition,類風濕性關節炎,icd10cm,M06,prefix
+condition,type 1 diabetes mellitus,icd10cm,E10,prefix
+condition,type 1 diabetes,icd10cm,E10,prefix
+condition,第一型糖尿病,icd10cm,E10,prefix
+condition,pancreatitis,icd10cm,K85,prefix
+condition,pancreatitis,icd10cm,K86.0,exact
+condition,pancreatitis,icd10cm,K86.1,exact
+condition,acute or chronic pancreatitis,icd10cm,K85,prefix
+condition,acute or chronic pancreatitis,icd10cm,K86.0,exact
+condition,acute or chronic pancreatitis,icd10cm,K86.1,exact
+condition,medullary thyroid carcinoma,icd10cm,C73,exact
+condition,multiple endocrine neoplasia type 2,icd10cm,E31.22,exact
+condition,multiple endocrine neoplasia type 2,icd10cm,E31.23,exact
+condition,malignancy,icd10cm,C0,prefix
+condition,malignancy,icd10cm,C1,prefix
+condition,malignancy,icd10cm,C2,prefix
+condition,malignancy,icd10cm,C3,prefix
+condition,malignancy,icd10cm,C40,prefix
+condition,malignancy,icd10cm,C41,prefix
+condition,malignancy,icd10cm,C43,prefix
+condition,malignancy,icd10cm,C45,prefix
+condition,malignancy,icd10cm,C46,prefix
+condition,malignancy,icd10cm,C47,prefix
+condition,malignancy,icd10cm,C48,prefix
+condition,malignancy,icd10cm,C49,prefix
+condition,malignancy,icd10cm,C5,prefix
+condition,malignancy,icd10cm,C6,prefix
+condition,malignancy,icd10cm,C7,prefix
+condition,malignancy,icd10cm,C8,prefix
+condition,malignancy,icd10cm,C9,prefix
+condition,pregnancy,icd10cm,Z33.1,exact
+condition,pregnancy,icd10cm,O,prefix
+condition,myocardial infarction,icd10cm,I21,prefix
+condition,stroke,icd10cm,I63,prefix
+condition,active tuberculosis,icd10cm,A15,prefix
+condition,active tuberculosis,icd10cm,A16,prefix
+condition,active tuberculosis,icd10cm,A17,prefix
+condition,active tuberculosis,icd10cm,A18,prefix
+condition,active tuberculosis,icd10cm,A19,prefix
+condition,serious infection,icd10cm,A41,prefix
+condition,serious infection,icd10cm,J18,prefix
+condition,heart failure,icd10cm,I50,prefix
+condition,chronic hepatitis b,icd10cm,B18.0,exact
+condition,chronic hepatitis b,icd10cm,B18.1,exact
+condition,non-small cell lung cancer,icd10cm,C34,prefix
+medication,urate-lowering therapy,atc,M04AA,prefix
+medication,urate-lowering therapy,atc,M04AB,prefix
+medication,glp-1 receptor agonist,atc,A10BJ,prefix
+medication,glp-1 receptor agonist,atc,A10BX16,exact
+medication,colchicine,atc,M04AC01,exact
+medication,methotrexate,atc,L04AX03,exact
+medication,conventional synthetic dmard other than methotrexate,atc,P01BA02,exact
+medication,conventional synthetic dmard other than methotrexate,atc,A07EC01,exact
+medication,conventional synthetic dmard other than methotrexate,atc,L04AA13,exact
+medication,tb preventive therapy,atc,J04AC01,exact
+medication,tb preventive therapy,atc,J04AB05,exact
+medication,hbv antiviral prophylaxis,atc,J05AF10,exact
+medication,hbv antiviral prophylaxis,atc,J05AF07,exact
+medication,ra biologic,atc,L04AB,prefix
+medication,ra biologic,atc,L04AC07,exact
+medication,egfr tyrosine kinase inhibitor,atc,L01EB,prefix
+procedure,bariatric surgery,nhi_order,75614B,exact
+procedure,bariatric surgery,nhi_order,75613B,exact
+observation,serum urate,loinc,3084-1,exact
+observation,uric acid,loinc,3084-1,exact
+observation,hba1c,loinc,4548-4,exact
+observation,alt,loinc,1742-6,exact
+observation,alanine aminotransferase,loinc,1742-6,exact
+observation,systolic blood pressure,loinc,8480-6,exact
+observation,pregnancy test,loinc,2106-3,exact
+observation,hbsag,loinc,5196-1,exact
+observation,anti-hbc,loinc,16933-4,exact
+observation,igra,loinc,71774-4,exact
+observation,esr or crp,loinc,4537-7,exact
+observation,esr or crp,loinc,1988-5,exact
+observation,egfr mutation,loinc,EGFR-MUT,exact
+report,chest x-ray,loinc,36643-5,exact
+encounter,rheumatology or metabolism clinic visit,department,RHEU,exact
+encounter,rheumatology or metabolism clinic visit,department,META,exact
+encounter,rheumatology clinic visit,department,RHEU,exact
+claim,ra biologic,nhi_drug,KC00017248,exact
+claim,ra biologic,nhi_drug,KC00018248,exact
+claim,ra biologic,nhi_drug,KC00019248,exact

@@ -1,0 +1,46 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "M10.00",
+      "display": "Idiopathic gout unspecified site"
+     },
+     {
+      "code": "M10.071",
+      "display": "Idiopathic gout right ankle and foot"
+     },
+     {
+      "code": "M10.072",
+      "display": "Idiopathic gout left ankle and foot"
+     },
+     {
+      "code": "M10.9",
+      "display": "Gout unspecified"
+     },
+     {
+      "code": "M1A.00X0",
+      "display": "Idiopathic chronic gout unspecified site without tophus"
+     },
+     {
+      "code": "M1A.9XX0",
+      "display": "Chronic gout unspecified without tophus"
+     },
+     {
+      "code": "M1A.9XX1",
+      "display": "Chronic gout unspecified with tophus"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "GZQO-VS-GOUT",
+ "name": "VS_GOUT",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "gout",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-GOUT",
+ "version": "1.0.0-v4ecba8ef"
+}

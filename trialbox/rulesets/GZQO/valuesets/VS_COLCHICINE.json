@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "M04AC01",
+      "display": "colchicine"
+     }
+    ],
+    "system": "http://www.whocc.no/atc"
+   }
+  ]
+ },
+ "id": "GZQO-VS-COLCHICINE",
+ "name": "VS_COLCHICINE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "colchicine",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-COLCHICINE",
+ "version": "1.0.0-vb4d2624c"
+}

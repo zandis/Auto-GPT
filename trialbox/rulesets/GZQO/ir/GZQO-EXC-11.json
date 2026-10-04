@@ -1,0 +1,28 @@
+{
+ "action": "confirm current flare status at visit",
+ "class": "note",
+ "fallback": "Structured proxy: colchicine prescribed within 14 days.",
+ "id": "GZQO-EXC-11",
+ "kind": "exclusion",
+ "label": "Current flare",
+ "logic": {
+  "domain": "medication",
+  "quantifier": "any",
+  "valueset": "VS_COLCHICINE",
+  "window": {
+   "anchor": "index",
+   "from_days": -14,
+   "to_days": 0
+  }
+ },
+ "note_question": "Do the notes document an acute gout flare that is ongoing within the 14 days before the index date?",
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #11",
+ "text": "Acute gout flare ongoing at screening (within 14 days).",
+ "time_sensitive": true
+}

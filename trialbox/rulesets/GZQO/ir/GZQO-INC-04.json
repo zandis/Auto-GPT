@@ -1,0 +1,66 @@
+{
+ "action": "order serum urate",
+ "class": "structured",
+ "id": "GZQO-INC-04",
+ "kind": "inclusion",
+ "label": "sUA ≥6.8 (≥6.0 on ULT)",
+ "logic": {
+  "args": [
+   {
+    "domain": "observation",
+    "quantifier": "latest",
+    "value": {
+     "num": 6.8,
+     "op": ">=",
+     "unit": "mg/dL"
+    },
+    "valueset": "VS_SERUM_URATE",
+    "window": {
+     "anchor": "index",
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   {
+    "args": [
+     {
+      "domain": "medication",
+      "quantifier": "any",
+      "valueset": "VS_URATE_LOWERING_THERAPY",
+      "window": {
+       "anchor": "index",
+       "from_days": -90,
+       "to_days": 0
+      }
+     },
+     {
+      "domain": "observation",
+      "quantifier": "latest",
+      "value": {
+       "num": 6.0,
+       "op": ">=",
+       "unit": "mg/dL"
+      },
+      "valueset": "VS_SERUM_URATE",
+      "window": {
+       "anchor": "index",
+       "from_days": -365,
+       "to_days": 0
+      }
+     }
+    ],
+    "op": "and"
+   }
+  ],
+  "op": "or"
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.1 Inclusion Criteria #4",
+ "text": "Serum urate ≥6.8 mg/dL at screening, or ≥6.0 mg/dL if receiving urate-lowering therapy.",
+ "time_sensitive": false
+}

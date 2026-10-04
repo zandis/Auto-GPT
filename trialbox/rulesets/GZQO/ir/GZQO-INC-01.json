@@ -1,0 +1,23 @@
+{
+ "class": "structured",
+ "id": "GZQO-INC-01",
+ "kind": "inclusion",
+ "label": "Age ≥18",
+ "logic": {
+  "age": {
+   "min": 18.0
+  },
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.1 Inclusion Criteria #1",
+ "text": "Male or female participants aged 18 years or older at screening.",
+ "time_sensitive": false
+}

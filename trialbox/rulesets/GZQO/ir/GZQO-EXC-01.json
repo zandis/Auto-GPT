@@ -1,0 +1,20 @@
+{
+ "class": "structured",
+ "id": "GZQO-EXC-01",
+ "kind": "exclusion",
+ "label": "T1DM",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_TYPE_1_DIABETES_MELLITUS"
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #1",
+ "text": "Type 1 diabetes mellitus.",
+ "time_sensitive": false
+}

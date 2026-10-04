@@ -1,0 +1,22 @@
+{
+ "action": "ask about other studies",
+ "class": "human",
+ "human_question": "Has the participant taken part in another interventional study in the last 30 days?",
+ "id": "GZQO-EXC-14",
+ "kind": "exclusion",
+ "label": "Other trial ≤30 d",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #14",
+ "text": "Participation in another interventional study within 30 days before screening.",
+ "time_sensitive": false
+}

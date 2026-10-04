@@ -1,0 +1,40 @@
+{
+ "class": "structured",
+ "id": "GZQO-EXC-10",
+ "kind": "exclusion",
+ "label": "MI/stroke ≤90 d",
+ "logic": {
+  "args": [
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_MYOCARDIAL_INFARCTION",
+    "window": {
+     "anchor": "index",
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_STROKE",
+    "window": {
+     "anchor": "index",
+     "from_days": -90,
+     "to_days": 0
+    }
+   }
+  ],
+  "op": "or"
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #10",
+ "text": "Myocardial infarction or stroke within 90 days before screening.",
+ "time_sensitive": true
+}

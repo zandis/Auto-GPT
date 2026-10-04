@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "75613B",
+      "display": "Laparoscopic gastric bypass"
+     },
+     {
+      "code": "75614B",
+      "display": "Laparoscopic sleeve gastrectomy"
+     }
+    ],
+    "system": "https://trialbox.local/fhir/CodeSystem/nhi-order"
+   }
+  ]
+ },
+ "id": "GZQO-VS-BARIATRIC-SURGERY",
+ "name": "VS_BARIATRIC_SURGERY",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "bariatric surgery",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-BARIATRIC-SURGERY",
+ "version": "1.0.0-v07823d63"
+}

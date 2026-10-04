@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "I63.50",
+      "display": "Cerebral infarction due to unspecified occlusion of cerebral artery"
+     },
+     {
+      "code": "I63.9",
+      "display": "Cerebral infarction unspecified"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "GZQO-VS-STROKE",
+ "name": "VS_STROKE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "stroke",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-STROKE",
+ "version": "1.0.0-v9744fdd4"
+}

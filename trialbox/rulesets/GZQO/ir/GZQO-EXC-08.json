@@ -1,0 +1,57 @@
+{
+ "class": "structured",
+ "id": "GZQO-EXC-08",
+ "kind": "exclusion",
+ "label": "Pregnancy",
+ "logic": {
+  "args": [
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_PREGNANCY",
+    "window": {
+     "anchor": "index",
+     "from_days": -280,
+     "to_days": 0
+    }
+   },
+   {
+    "args": [
+     {
+      "domain": "demographic",
+      "quantifier": "any",
+      "sex": "female",
+      "valueset": "NONE"
+     },
+     {
+      "domain": "observation",
+      "quantifier": "latest",
+      "value": {
+       "codes": [
+        "LA6576-8"
+       ],
+       "op": "in"
+      },
+      "valueset": "VS_PREGNANCY_TEST",
+      "window": {
+       "anchor": "index",
+       "from_days": -30,
+       "to_days": 0
+      }
+     }
+    ],
+    "op": "and"
+   }
+  ],
+  "op": "or"
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #8",
+ "text": "Pregnant or breastfeeding, or positive pregnancy test.",
+ "time_sensitive": true
+}

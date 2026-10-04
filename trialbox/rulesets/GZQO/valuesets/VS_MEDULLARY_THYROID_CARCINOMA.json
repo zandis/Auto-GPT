@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "C73",
+      "display": "Malignant neoplasm of thyroid gland"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "GZQO-VS-MEDULLARY-THYROID-CARCINOMA",
+ "name": "VS_MEDULLARY_THYROID_CARCINOMA",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "medullary thyroid carcinoma",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-MEDULLARY-THYROID-CARCINOMA",
+ "version": "1.0.0-v6fdcbeb1"
+}

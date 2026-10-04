@@ -39,6 +39,9 @@ services:
       - lake-data:/data/lake
       - audit-data:/data/audit
       - ../.cache/test-secrets:/run/secrets/trialbox
+  doc-parser:
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:8011:8011"]
   minio:
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:9000:9000"]

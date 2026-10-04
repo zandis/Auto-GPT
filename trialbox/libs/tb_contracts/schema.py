@@ -70,3 +70,47 @@ def dump(model: BaseModel) -> dict[str, Any]:
 def dump_json(model: BaseModel) -> str:
     """Canonical JSON text of a contract model (sorted keys, UTF-8, no spaces) — stable for hashing."""
     return json.dumps(dump(model), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def inline_schema(name: str) -> dict[str, Any]:
+    """Self-contained copy of schema ``name``: cross-file ``$ref`` targets are copied into local ``$defs``.
+
+    Used for ``response_format`` (guided decoding needs one document without external references).
+    """
+    root = load_schema(name)
+    defs: dict[str, Any] = {}
+
+    def resolve(node: Any, current: str) -> Any:
+        if isinstance(node, dict):
+            out: dict[str, Any] = {}
+            for k, v in node.items():
+                if k == "$ref" and isinstance(v, str):
+                    target_file, _, pointer = v.partition("#")
+                    target_file = target_file or current
+                    key = f"{target_file.removesuffix('.schema.json')}{pointer.replace('/$defs/', '__')}".replace(
+                        "/", "_"
+                    )
+                    if key not in defs:
+                        defs[key] = {}
+                        doc = load_schema(target_file)
+                        sub: Any = doc
+                        for part in [p for p in pointer.split("/") if p]:
+                            sub = sub[part]
+                        defs[key] = resolve(
+                            {kk: vv for kk, vv in sub.items() if kk not in ("$defs", "$schema", "$id")}, target_file
+                        )
+                    out[k] = f"#/$defs/{key}"
+                elif k in ("$defs", "$schema", "$id"):
+                    continue
+                else:
+                    out[k] = resolve(v, current)
+            return out
+        if isinstance(node, list):
+            return [resolve(x, current) for x in node]
+        return node
+
+    fname = name if name.endswith(".schema.json") else f"{name}.schema.json"
+    body: dict[str, Any] = resolve(root, fname)
+    if defs:
+        body["$defs"] = defs
+    return body

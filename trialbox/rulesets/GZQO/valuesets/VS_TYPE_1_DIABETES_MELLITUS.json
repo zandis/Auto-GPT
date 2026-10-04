@@ -1,0 +1,30 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "E10.10",
+      "display": "Type 1 diabetes mellitus with ketoacidosis without coma"
+     },
+     {
+      "code": "E10.65",
+      "display": "Type 1 diabetes mellitus with hyperglycemia"
+     },
+     {
+      "code": "E10.9",
+      "display": "Type 1 diabetes mellitus without complications"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "GZQO-VS-TYPE-1-DIABETES-MELLITUS",
+ "name": "VS_TYPE_1_DIABETES_MELLITUS",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "type 1 diabetes mellitus",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-TYPE-1-DIABETES-MELLITUS",
+ "version": "1.0.0-v0ed2790f"
+}

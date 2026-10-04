@@ -1,0 +1,28 @@
+code,display,display_zh,unit,component_of,system
+3084-1,Urate [Mass/volume] in Serum or Plasma,尿酸,mg/dL,,http://loinc.org
+2160-0,Creatinine [Mass/volume] in Serum or Plasma,肌酸酐,mg/dL,,http://loinc.org
+4548-4,Hemoglobin A1c/Hemoglobin.total in Blood,糖化血色素,%,,http://loinc.org
+1742-6,Alanine aminotransferase [Enzymatic activity/volume] in Serum or Plasma,丙胺酸轉胺酶,U/L,,http://loinc.org
+4537-7,Erythrocyte sedimentation rate by Westergren method,紅血球沉降速率,mm/h,,http://loinc.org
+1988-5,C reactive protein [Mass/volume] in Serum or Plasma,C反應蛋白,mg/L,,http://loinc.org
+5196-1,Hepatitis B virus surface Ag [Presence] in Serum or Plasma by Immunoassay,B肝表面抗原,,,http://loinc.org
+16933-4,Hepatitis B virus core Ab [Presence] in Serum,B肝核心抗體,,,http://loinc.org
+71774-4,Mycobacterium tuberculosis stimulated gamma interferon [Presence] in Blood,丙型干擾素釋放試驗,,,http://loinc.org
+2106-3,Choriogonadotropin (pregnancy test) [Presence] in Urine,尿液驗孕,,,http://loinc.org
+8302-2,Body height,身高,cm,,http://loinc.org
+29463-7,Body weight,體重,kg,,http://loinc.org
+39156-5,Body mass index (BMI) [Ratio],身體質量指數,kg/m2,,http://loinc.org
+85354-9,Blood pressure panel with all children optional,血壓,,,http://loinc.org
+8480-6,Systolic blood pressure,收縮壓,mm[Hg],85354-9,http://loinc.org
+8462-4,Diastolic blood pressure,舒張壓,mm[Hg],85354-9,http://loinc.org
+36643-5,XR Chest 2 Views,胸部X光,,,http://loinc.org
+TJC28,Tender joint count (28 joints),壓痛關節數,,,https://trialbox.local/fhir/CodeSystem/clinical-score
+SJC28,Swollen joint count (28 joints),腫脹關節數,,,https://trialbox.local/fhir/CodeSystem/clinical-score
+PTGA,Patient global assessment of disease activity,病人整體評估,mm,,https://trialbox.local/fhir/CodeSystem/clinical-score
+EGFR-MUT,EGFR gene mutation,EGFR基因突變,,,https://trialbox.local/fhir/CodeSystem/clinical-score
+BASDAI-Q1,BASDAI fatigue,BASDAI疲倦,,,https://trialbox.local/fhir/CodeSystem/clinical-score
+BASDAI-Q2,BASDAI spinal pain,BASDAI脊椎痛,,,https://trialbox.local/fhir/CodeSystem/clinical-score
+BASDAI-Q3,BASDAI peripheral joint pain/swelling,BASDAI周邊關節痛,,,https://trialbox.local/fhir/CodeSystem/clinical-score
+BASDAI-Q4,BASDAI enthesitis,BASDAI附著點炎,,,https://trialbox.local/fhir/CodeSystem/clinical-score
+BASDAI-Q5,BASDAI morning stiffness severity,BASDAI晨僵程度,,,https://trialbox.local/fhir/CodeSystem/clinical-score
+BASDAI-Q6,BASDAI morning stiffness duration,BASDAI晨僵時間,,,https://trialbox.local/fhir/CodeSystem/clinical-score

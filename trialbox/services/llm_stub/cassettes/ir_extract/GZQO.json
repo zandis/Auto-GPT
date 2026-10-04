@@ -1,0 +1,654 @@
+{
+ "criteria": [
+  {
+   "text": "Male or female participants aged 18 years or older at screening.",
+   "label": "Age ≥18",
+   "source_ref": "§5.1 #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "age": {
+     "min": 18
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "Diagnosis of gout according to the 2015 ACR/EULAR gout classification criteria.",
+   "label": "Gout diagnosis",
+   "source_ref": "§5.1 #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "gout",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "gout",
+     "synonyms": [
+      "gouty arthritis",
+      "痛風"
+     ]
+    }
+   ],
+   "fallback": "If uncoded, CRC confirms gout diagnosis from the clinic letter."
+  },
+  {
+   "text": "Body mass index (BMI) ≥27 kg/m² at screening.",
+   "label": "BMI ≥27",
+   "source_ref": "§5.1 #3",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "bmi",
+    "quantifier": "latest",
+    "value": {
+     "op": ">=",
+     "num": 27,
+     "unit": "kg/m2"
+    },
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [],
+   "action": "measure height and weight"
+  },
+  {
+   "text": "Serum urate ≥6.8 mg/dL at screening, or ≥6.0 mg/dL if receiving urate-lowering therapy.",
+   "label": "sUA ≥6.8 (≥6.0 on ULT)",
+   "source_ref": "§5.1 #4",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "op": "or",
+    "args": [
+     {
+      "domain": "observation",
+      "concept": "serum urate",
+      "quantifier": "latest",
+      "value": {
+       "op": ">=",
+       "num": 6.8,
+       "unit": "mg/dL"
+      },
+      "window": {
+       "from_days": -365,
+       "to_days": 0
+      }
+     },
+     {
+      "op": "and",
+      "args": [
+       {
+        "domain": "medication",
+        "concept": "urate-lowering therapy",
+        "quantifier": "any",
+        "window": {
+         "from_days": -90,
+         "to_days": 0
+        }
+       },
+       {
+        "domain": "observation",
+        "concept": "serum urate",
+        "quantifier": "latest",
+        "value": {
+         "op": ">=",
+         "num": 6.0,
+         "unit": "mg/dL"
+        },
+        "window": {
+         "from_days": -365,
+         "to_days": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "serum urate",
+     "synonyms": [
+      "uric acid"
+     ]
+    },
+    {
+     "domain": "medication",
+     "name": "urate-lowering therapy",
+     "synonyms": [
+      "allopurinol",
+      "febuxostat"
+     ]
+    }
+   ],
+   "action": "order serum urate"
+  },
+  {
+   "text": "At least 2 gout flares within the 12 months before screening.",
+   "label": "≥2 flares /12 mo",
+   "source_ref": "§5.1 #5",
+   "kind": "inclusion",
+   "class": "note",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "gout",
+    "quantifier": "count>=",
+    "count": 2,
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "gout",
+     "synonyms": []
+    }
+   ],
+   "note_question": "Do the clinical notes document at least two separate acute gout flares in the 12 months before the index date?",
+   "fallback": "Structured proxy: ≥2 gout-coded visits in 12 months.",
+   "action": "confirm flare dates with patient"
+  },
+  {
+   "text": "Receiving stable urate-lowering therapy for at least 3 months (continuous within the past 6 months, gaps ≤30 days).",
+   "label": "ULT ≥3 months",
+   "source_ref": "§5.1 #6",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "urate-lowering therapy",
+    "duration": {
+     "min_days": 90,
+     "gap_days": 30
+    },
+    "window": {
+     "from_days": -180,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "urate-lowering therapy",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Willing and able to self-inject study intervention once weekly.",
+   "label": "Willing to self-inject",
+   "source_ref": "§5.1 #7",
+   "kind": "inclusion",
+   "class": "human",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic"
+   },
+   "concept_candidates": [],
+   "human_question": "Is the participant willing and able to self-inject the study drug once weekly?",
+   "action": "ask injection willingness"
+  },
+  {
+   "text": "Estimated GFR ≥30 mL/min/1.73 m² (CKD-EPI 2021) at screening.",
+   "label": "eGFR ≥30",
+   "source_ref": "§5.1 #8",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "egfr",
+    "quantifier": "latest",
+    "value": {
+     "op": ">=",
+     "num": 30,
+     "unit": "mL/min/{1.73_m2}"
+    },
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [],
+   "action": "order creatinine"
+  },
+  {
+   "text": "Followed at the rheumatology or metabolism clinic with at least one visit in the past 12 months.",
+   "label": "Clinic visit /12 mo",
+   "source_ref": "§5.1 #9",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "encounter",
+    "concept": "rheumatology or metabolism clinic visit",
+    "quantifier": "count>=",
+    "count": 1,
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "encounter",
+     "name": "rheumatology or metabolism clinic visit",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Type 1 diabetes mellitus.",
+   "label": "T1DM",
+   "source_ref": "§5.2 #1",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "type 1 diabetes mellitus",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "type 1 diabetes mellitus",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "History of acute or chronic pancreatitis.",
+   "label": "Pancreatitis",
+   "source_ref": "§5.2 #2",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "acute or chronic pancreatitis",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "acute or chronic pancreatitis",
+     "synonyms": [
+      "pancreatitis"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Personal history of medullary thyroid carcinoma or multiple endocrine neoplasia type 2.",
+   "label": "MTC / MEN2",
+   "source_ref": "§5.2 #3",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "op": "or",
+    "args": [
+     {
+      "domain": "condition",
+      "concept": "medullary thyroid carcinoma",
+      "quantifier": "any"
+     },
+     {
+      "domain": "condition",
+      "concept": "multiple endocrine neoplasia type 2",
+      "quantifier": "any"
+     }
+    ]
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "medullary thyroid carcinoma",
+     "synonyms": []
+    },
+    {
+     "domain": "condition",
+     "name": "multiple endocrine neoplasia type 2",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Use of a GLP-1 receptor agonist or GIP/GLP-1 receptor agonist within 90 days before screening.",
+   "label": "GLP-1 RA ≤90 d",
+   "source_ref": "§5.2 #4",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": true,
+   "logic": {
+    "domain": "medication",
+    "concept": "glp-1 receptor agonist",
+    "quantifier": "any",
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "glp-1 receptor agonist",
+     "synonyms": [
+      "semaglutide",
+      "tirzepatide"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "Prior or planned bariatric surgery.",
+   "label": "Bariatric surgery",
+   "source_ref": "§5.2 #5",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "procedure",
+    "concept": "bariatric surgery",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "procedure",
+     "name": "bariatric surgery",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "HbA1c >10% at screening.",
+   "label": "HbA1c >10%",
+   "source_ref": "§5.2 #6",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "hba1c",
+    "quantifier": "latest",
+    "value": {
+     "op": ">",
+     "num": 10,
+     "unit": "%"
+    },
+    "window": {
+     "from_days": -180,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "hba1c",
+     "synonyms": []
+    }
+   ],
+   "action": "order HbA1c"
+  },
+  {
+   "text": "Malignancy within the past 5 years, except non-melanoma skin cancer.",
+   "label": "Malignancy ≤5 y",
+   "source_ref": "§5.2 #7",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "malignancy",
+    "quantifier": "any",
+    "window": {
+     "from_days": -1825,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "malignancy",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Pregnant or breastfeeding, or positive pregnancy test.",
+   "label": "Pregnancy",
+   "source_ref": "§5.2 #8",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": true,
+   "logic": {
+    "op": "or",
+    "args": [
+     {
+      "domain": "condition",
+      "concept": "pregnancy",
+      "quantifier": "any",
+      "window": {
+       "from_days": -280,
+       "to_days": 0
+      }
+     },
+     {
+      "op": "and",
+      "args": [
+       {
+        "domain": "demographic",
+        "sex": "female"
+       },
+       {
+        "domain": "observation",
+        "concept": "pregnancy test",
+        "quantifier": "latest",
+        "value": {
+         "op": "in",
+         "codes": [
+          "LA6576-8"
+         ]
+        },
+        "window": {
+         "from_days": -30,
+         "to_days": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "pregnancy",
+     "synonyms": []
+    },
+    {
+     "domain": "observation",
+     "name": "pregnancy test",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Uncontrolled hypertension (systolic blood pressure ≥160 mmHg) at screening.",
+   "label": "SBP ≥160",
+   "source_ref": "§5.2 #9",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": true,
+   "logic": {
+    "domain": "observation",
+    "concept": "systolic blood pressure",
+    "quantifier": "latest",
+    "value": {
+     "op": ">=",
+     "num": 160,
+     "unit": "mm[Hg]"
+    },
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "systolic blood pressure",
+     "synonyms": []
+    }
+   ],
+   "action": "measure blood pressure"
+  },
+  {
+   "text": "Myocardial infarction or stroke within 90 days before screening.",
+   "label": "MI/stroke ≤90 d",
+   "source_ref": "§5.2 #10",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": true,
+   "logic": {
+    "op": "or",
+    "args": [
+     {
+      "domain": "condition",
+      "concept": "myocardial infarction",
+      "quantifier": "any",
+      "window": {
+       "from_days": -90,
+       "to_days": 0
+      }
+     },
+     {
+      "domain": "condition",
+      "concept": "stroke",
+      "quantifier": "any",
+      "window": {
+       "from_days": -90,
+       "to_days": 0
+      }
+     }
+    ]
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "myocardial infarction",
+     "synonyms": []
+    },
+    {
+     "domain": "condition",
+     "name": "stroke",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Acute gout flare ongoing at screening (within 14 days).",
+   "label": "Current flare",
+   "source_ref": "§5.2 #11",
+   "kind": "exclusion",
+   "class": "note",
+   "time_sensitive": true,
+   "logic": {
+    "domain": "medication",
+    "concept": "colchicine",
+    "quantifier": "any",
+    "window": {
+     "from_days": -14,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "colchicine",
+     "synonyms": []
+    }
+   ],
+   "note_question": "Do the notes document an acute gout flare that is ongoing within the 14 days before the index date?",
+   "fallback": "Structured proxy: colchicine prescribed within 14 days.",
+   "action": "confirm current flare status at visit"
+  },
+  {
+   "text": "Planned surgery during the study period.",
+   "label": "Planned surgery",
+   "source_ref": "§5.2 #12",
+   "kind": "exclusion",
+   "class": "human",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic"
+   },
+   "concept_candidates": [],
+   "human_question": "Does the participant plan to undergo surgery during the study period?",
+   "action": "ask about planned surgery"
+  },
+  {
+   "text": "ALT >3× upper limit of normal (>120 U/L) at screening.",
+   "label": "ALT >3×ULN",
+   "source_ref": "§5.2 #13",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "alt",
+    "quantifier": "latest",
+    "value": {
+     "op": ">",
+     "num": 120,
+     "unit": "U/L"
+    },
+    "window": {
+     "from_days": -180,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "alt",
+     "synonyms": [
+      "alanine aminotransferase"
+     ]
+    }
+   ],
+   "action": "order ALT"
+  },
+  {
+   "text": "Participation in another interventional study within 30 days before screening.",
+   "label": "Other trial ≤30 d",
+   "source_ref": "§5.2 #14",
+   "kind": "exclusion",
+   "class": "human",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic"
+   },
+   "concept_candidates": [],
+   "human_question": "Has the participant taken part in another interventional study in the last 30 days?",
+   "action": "ask about other studies"
+  }
+ ]
+}

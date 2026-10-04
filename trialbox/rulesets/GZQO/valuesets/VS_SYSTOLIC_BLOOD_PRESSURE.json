@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "8480-6",
+      "display": "Systolic blood pressure"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "GZQO-VS-SYSTOLIC-BLOOD-PRESSURE",
+ "name": "VS_SYSTOLIC_BLOOD_PRESSURE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "systolic blood pressure",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-SYSTOLIC-BLOOD-PRESSURE",
+ "version": "1.0.0-v62ab933f"
+}

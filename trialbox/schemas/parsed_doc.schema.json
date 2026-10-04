@@ -58,6 +58,12 @@
         "llm",
         "none"
       ]
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "$defs": {
@@ -127,6 +133,25 @@
           "items": {
             "type": "string"
           }
+        },
+        "renewal": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "documentation": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "refs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "criterion text -> source reference (section/page)"
         }
       }
     },

@@ -1,0 +1,20 @@
+{
+ "class": "structured",
+ "id": "GZQO-EXC-02",
+ "kind": "exclusion",
+ "label": "Pancreatitis",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_ACUTE_OR_CHRONIC_PANCREATITIS"
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #2",
+ "text": "History of acute or chronic pancreatitis.",
+ "time_sensitive": false
+}

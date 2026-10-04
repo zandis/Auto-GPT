@@ -1,0 +1,22 @@
+{
+ "action": "ask injection willingness",
+ "class": "human",
+ "human_question": "Is the participant willing and able to self-inject the study drug once weekly?",
+ "id": "GZQO-INC-07",
+ "kind": "inclusion",
+ "label": "Willing to self-inject",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.1 Inclusion Criteria #7",
+ "text": "Willing and able to self-inject study intervention once weekly.",
+ "time_sensitive": false
+}

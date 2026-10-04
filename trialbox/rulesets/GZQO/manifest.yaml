@@ -1,0 +1,96 @@
+id: GZQO
+kind: trial
+title: J1I-MC-GZQO retatrutide gout phase 3
+trial_alias: GZQO
+sponsor: Sponsor (synthetic)
+version: 1.0.0
+status: approved
+source_documents:
+- GZQO_protocol_v3.pdf
+protocol_version: '3.0'
+language: en
+index_date_rule: run_date
+library: TB_GZQO_v1_0
+criteria:
+- GZQO-INC-01
+- GZQO-INC-02
+- GZQO-INC-03
+- GZQO-INC-04
+- GZQO-INC-05
+- GZQO-INC-06
+- GZQO-INC-07
+- GZQO-INC-08
+- GZQO-INC-09
+- GZQO-EXC-01
+- GZQO-EXC-02
+- GZQO-EXC-03
+- GZQO-EXC-04
+- GZQO-EXC-05
+- GZQO-EXC-06
+- GZQO-EXC-07
+- GZQO-EXC-08
+- GZQO-EXC-09
+- GZQO-EXC-10
+- GZQO-EXC-11
+- GZQO-EXC-12
+- GZQO-EXC-13
+- GZQO-EXC-14
+scopes:
+  feas:
+    population: hospital
+    lookback_months: 36
+  screen:
+    practitioners:
+    - P12345
+    - P23456
+    - P34567
+    appointment_window_days: 180
+    departments:
+    - RHEU
+    - META
+    recent_encounter_months: 12
+    microbatch_window_days: 14
+routing:
+  aggregate_to:
+  - crc1@hospa.test
+  list_to:
+  - pi@hospa.test
+  - crc1@hospa.test
+  referral_to:
+    META: meta-head@hospa.test
+thresholds:
+  tier_high_confidence: 0.75
+  small_cell: 5
+models:
+  judge: qwen3.5-35b-a3b-q4
+  judge_prompt: judge_v3
+review:
+  approved_by: crc1@hospa.test
+  approved_at: '2026-10-04T16:42:05.672033+08:00'
+  rounds: 1
+equivalence:
+  overall_pct: 100.0
+  sample_size: 200
+  per_criterion:
+    GZQO-EXC-01: 100.0
+    GZQO-EXC-02: 100.0
+    GZQO-EXC-03: 100.0
+    GZQO-EXC-04: 100.0
+    GZQO-EXC-05: 100.0
+    GZQO-EXC-06: 100.0
+    GZQO-EXC-07: 100.0
+    GZQO-EXC-08: 100.0
+    GZQO-EXC-09: 100.0
+    GZQO-EXC-10: 100.0
+    GZQO-EXC-13: 100.0
+    GZQO-INC-01: 100.0
+    GZQO-INC-02: 100.0
+    GZQO-INC-03: 100.0
+    GZQO-INC-04: 100.0
+    GZQO-INC-06: 100.0
+    GZQO-INC-08: 100.0
+    GZQO-INC-09: 100.0
+  failing: []
+  evaluated_at: '2026-10-04T16:42:05.672033+08:00'
+variants:
+  bmi: 24,25,27

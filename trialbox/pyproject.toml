@@ -87,7 +87,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "PLR", "N802", "B018"]
+"tests/**" = ["S", "PLR", "N802", "B018", "E501"]
+"services/criteria_compiler/compile_*/generator.py" = ["E501"]
+"services/criteria_compiler/review.py" = ["E501"]
+"services/criteria_compiler/compile_cql/generator.py" = ["E501", "S701"]
 "tools/**" = ["PLR", "S"]
 
 [tool.mypy]
@@ -104,7 +107,7 @@ warn_unused_ignores = true
 module = [
   "docxtpl.*", "docx.*", "py7zr.*", "apscheduler.*", "minio.*", "sqlglot.*", "duckdb.*",
   "pyarrow.*", "matplotlib.*", "fhir.*", "docling.*", "sentence_transformers.*", "pypdf.*",
-  "uvicorn.*", "numpy.*", "duckdb_extension_fts.*",
+  "uvicorn.*", "numpy.*", "duckdb_extension_fts.*", "paddleocr.*",
 ]
 ignore_missing_imports = true
 

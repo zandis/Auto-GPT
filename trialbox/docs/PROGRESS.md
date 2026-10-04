@@ -63,3 +63,43 @@ make fixtures && make images && make up-test
 curl -X POST localhost:8016/run -H 'content-type: application/json' -d '{"source":"csv"}'
 make test-integration
 ```
+
+## Phase 2 — Compiler (done)
+
+**Works**
+- `doc_parser`: Docling backend (production image) or deterministic lite backend (pypdf / python-docx / openpyxl /
+  text) -> one heading/I-E heuristic (EN/zh-TW/ja headings, numbered + wrapped items, renewal/documentation sections),
+  `ie_locate` LLM fallback, OCR hook; `POST /parse`. Synthetic protocol PDF/DOCX/XLSX: all 23 criteria extracted
+  verbatim from each format; byte-deterministic output.
+- `tb_common.llm.chat_json`: versioned prompt files (`services/*/prompts/*_v<n>.md`), `response_format` JSON schema,
+  validation + one retry, cloud routing only from criteria-compiler with a PHI-guard clearance for the exact input,
+  audit `llm.call`. `tb_common.phi_guard` (TW ID, MRN regex, phones, keywords, ROC/JP surname heuristics, DOB near
+  name). `llm_stub`: OpenAI-compatible deterministic server (cassettes + rule-based judge/concept_map/draft_doc).
+- `criteria_compiler`: IR post-processing (ids, ValueSets), terminology tables + mapping steps + ValueSets with
+  explicit concepts, IR->CQL templates + `TB_Common` helpers (BMI, eGFR CKD-EPI 2021, DAS28, BASDAI, ASDAS, continuous
+  exposure) + cql-to-elm 5.4.0 translation (semantic warnings fail), IR->DuckDB SQL templates with identical
+  semantics, equivalence gate on HAPI `$evaluate` vs lake, git ruleset repo (draft branches, approval tags,
+  materialized copy), review package (HTML, XLSX with decisions, reproducible zip), `/compile`, `/diff`
+  (incremental: only changed criteria re-extracted, ids kept), `/approve` (max 3 rounds).
+- `rulesets/GZQO` built **by the pipeline** (`tools/build_rulesets.py`): 23 criteria (18 structured, 2 note,
+  3 human), approved, tagged `GZQO/v1.0.0`, with `tests/patients.ndjson` and `tests/expected.json`.
+
+**DoD evidence**
+- GZQO protocol compiles to **23 criteria** (≥ 20) via `POST /parse` + `POST /compile` in compose.
+- Equivalence CQL (HAPI) vs SQL (DuckDB): **100 %** for all 18 structured GZQO criteria on the 200-patient sample;
+  the all-templates `ATOMS` test ruleset (25 criteria, every atom/quantifier/bool form) is 100 % on all 600 patients
+  (15,000 comparisons).
+- `review.xlsx` round-trips through `/approve` (in compose, and in unit tests with an edit round, rejection, blocking
+  and the 3-round limit).
+- CPU CI: checked-in SQL vs recorded CQL ≥ 98 % (100 %), planted-state oracle > 1,000 checks; `make lint` clean,
+  `make test` 146 passed.
+
+**Stubbed / limits** — Docling and PaddleOCR are installed only in the production doc-parser image (D-02);
+the LLM-quality layer needs a real model (`pytest -m llm`).
+
+**Run**
+```bash
+make images && make up-test && curl -X POST localhost:8016/run -H 'content-type: application/json' -d '{"source":"csv"}'
+.venv/bin/python tools/build_rulesets.py --ruleset GZQO --doc tests/fixtures/protocols/GZQO_protocol_v3.pdf
+make test-integration
+```

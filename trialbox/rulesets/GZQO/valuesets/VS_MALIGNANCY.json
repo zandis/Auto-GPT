@@ -1,0 +1,50 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "C16.9",
+      "display": "Malignant neoplasm of stomach unspecified"
+     },
+     {
+      "code": "C18.9",
+      "display": "Malignant neoplasm of colon unspecified"
+     },
+     {
+      "code": "C22.0",
+      "display": "Liver cell carcinoma"
+     },
+     {
+      "code": "C34.11",
+      "display": "Malignant neoplasm of upper lobe right bronchus or lung"
+     },
+     {
+      "code": "C34.90",
+      "display": "Malignant neoplasm of unspecified part of unspecified bronchus or lung"
+     },
+     {
+      "code": "C50.911",
+      "display": "Malignant neoplasm of unspecified site of right female breast"
+     },
+     {
+      "code": "C61",
+      "display": "Malignant neoplasm of prostate"
+     },
+     {
+      "code": "C73",
+      "display": "Malignant neoplasm of thyroid gland"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "GZQO-VS-MALIGNANCY",
+ "name": "VS_MALIGNANCY",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "malignancy",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-MALIGNANCY",
+ "version": "1.0.0-vae2fcb7d"
+}

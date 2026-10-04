@@ -151,3 +151,44 @@ national ID; names, phone numbers and national IDs in the source are dropped.
 
 **D-31 Volumes.** Compose uses one named volume per concern (lake, audit, orchestrator, rulesets, mail, secrets) mounted
 only into the services that need them; mount points are pre-created in the image with the service uid (10001).
+
+## Phase 2
+
+**D-32 What is compiled.** Only `class=structured` criteria are compiled to CQL/SQL. `note` criteria are decided by the
+`judge` prompt over retrieved excerpts and `human` criteria are asked; their `logic` (required by the IR schema)
+documents the structured proxy used in `fallback` text and is never evaluated. Reviewer-rejected criteria stay in
+`ir/` with `review.status=rejected` and are excluded from the compiled artifacts.
+
+**D-33 Equivalence population.** The §6.4 gate samples 200 patients (100 random + 100 with any hit, seeded by
+ruleset|version) from the current lake snapshot and evaluates the same patients in fhir-store (the two are loaded from
+the same NDJSON snapshot). For vendor-shipped rulesets `tools/build_rulesets.py` additionally records the synthetic
+sample as `tests/patients.ndjson` and the CQL verdicts as `tests/expected.json` (keyed by synthetic MRN); CPU CI
+replays the checked-in SQL against `expected.json` on every run (`tests/integration/test_ruleset_expected.py`), so
+CQL≡SQL is regression-tested without a JVM.
+
+**D-34 Content-addressed CQL versions.** HAPI CR caches compiled libraries by name+version and ValueSet expansions by
+url+version. Library versions are `<semver>-b<sha8(cql)>` and ValueSet versions `<semver>-v<sha8(compose)>`, and the
+CQL `valueset` declarations pin the version, so any content change is evaluated fresh (found when a stale expansion
+made the gate fail).
+
+**D-35 Terminology mapping order.** (1) exact match on the concept name; (2) curated synonym/grouper table on the
+concept name, then on the model's synonyms; (3) exact match on the synonyms (flagged `needs_review`); (4) LLM
+`concept_map` over the top-20 lexical candidates (`needs_review`). Groupers must win over example drugs listed as
+synonyms (the planted-state oracle caught "urate-lowering therapy" losing benzbromarone).
+
+**D-36 Ruleset profiles.** Site configuration of a ruleset (title, sponsor, scopes, routing, variants, TWPAS program)
+lives in `rulesets/profiles/<ID>.yaml` and is merged into the manifest at compile time; compiled artifacts are never
+hand-edited.
+
+**D-37 Review decisions.** `review.xlsx` pre-fills `decision=approve`. An explicit approve resolves
+concept-mapping review flags; equivalence failures and missing ELM always block. `edit` with `edited_text`
+re-extracts that line; `edited_class` alone switches the class (and creates a default question). Max 3 rounds
+(`max_rounds` status). Changed criteria keep their id across versions; new criteria get the next id per kind.
+
+**D-38 ParsedDoc extensions.** `ie_block` also carries `renewal` and `documentation` lists (NHI rules) and `refs`
+(text -> section reference); `ParsedDoc.warnings` reports OCR/density issues.
+
+**D-39 Stub cassettes.** The stub's `ir_extract` returns the gold extraction for known ruleset ids (and test aliases
+`<ID>-<suffix>`), matching criteria by normalised text; unseen lines go through a small pattern extractor
+(BMI/eGFR/DAS28/HbA1c/urate/age) and otherwise become `human` criteria. Gold extractions double as the LLM-layer
+gold set (`services/llm_stub/cassettes/ir_extract/`).

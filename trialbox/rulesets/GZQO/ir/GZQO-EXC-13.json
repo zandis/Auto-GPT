@@ -1,0 +1,31 @@
+{
+ "action": "order ALT",
+ "class": "structured",
+ "id": "GZQO-EXC-13",
+ "kind": "exclusion",
+ "label": "ALT >3×ULN",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 120.0,
+   "op": ">",
+   "unit": "U/L"
+  },
+  "valueset": "VS_ALT",
+  "window": {
+   "anchor": "index",
+   "from_days": -180,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #13",
+ "text": "ALT >3× upper limit of normal (>120 U/L) at screening.",
+ "time_sensitive": false
+}

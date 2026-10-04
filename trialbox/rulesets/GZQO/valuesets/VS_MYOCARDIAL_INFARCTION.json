@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "I21.4",
+      "display": "Non-ST elevation myocardial infarction"
+     },
+     {
+      "code": "I21.9",
+      "display": "Acute myocardial infarction unspecified"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "GZQO-VS-MYOCARDIAL-INFARCTION",
+ "name": "VS_MYOCARDIAL_INFARCTION",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "myocardial infarction",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-MYOCARDIAL-INFARCTION",
+ "version": "1.0.0-vbf6fa844"
+}
