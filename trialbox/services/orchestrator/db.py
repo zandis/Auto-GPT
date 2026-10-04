@@ -75,6 +75,28 @@ CREATE TABLE IF NOT EXISTS submissions (
   submitted_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS submissions_bundle ON submissions(bundle_sha, dry_run);
+CREATE TABLE IF NOT EXISTS cohort_tables (
+  site_id TEXT NOT NULL,
+  disease TEXT NOT NULL,
+  quarter TEXT NOT NULL,
+  criterion_id TEXT NOT NULL,
+  definition_version TEXT NOT NULL,
+  criterion_label TEXT NOT NULL,
+  n TEXT NOT NULL,
+  n_contactable TEXT NOT NULL,
+  received_from TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  PRIMARY KEY (site_id, disease, quarter, criterion_id, definition_version)
+);
+CREATE TABLE IF NOT EXISTS trial_cache (
+  nct_id TEXT NOT NULL,
+  last_update TEXT NOT NULL,
+  version TEXT NOT NULL,
+  draft_zip_key TEXT NOT NULL,
+  equivalence_pct REAL,
+  compiled_at TEXT NOT NULL,
+  PRIMARY KEY (nct_id, last_update)
+);
 """
 
 TERMINAL = ("done", "failed")
@@ -322,6 +344,84 @@ class JobDB:
         with self._lock:
             rows = self._con.execute(sql + " ORDER BY submitted_at", (bundle_sha, bundle_sha)).fetchall()
         return [dict(zip(cols, r, strict=True)) for r in rows]
+
+    # ------------------------------------------------------------------ alliance cohort tables (COHORT MERGE)
+    _COHORT_COLS = (
+        "site_id",
+        "disease",
+        "quarter",
+        "criterion_id",
+        "criterion_label",
+        "n",
+        "n_contactable",
+        "definition_version",
+    )
+
+    def cohort_store(self, rows: list[dict[str, Any]], job_id: str, received_from: str) -> None:
+        """Replace a site's table for each (disease, quarter, definition) it contains, then insert the rows."""
+        with self.tx() as con:
+            for site, disease, quarter, version in {
+                (r["site_id"], r["disease"], r["quarter"], r["definition_version"]) for r in rows
+            }:
+                con.execute(
+                    "DELETE FROM cohort_tables WHERE site_id=? AND disease=? AND quarter=? AND definition_version=?",
+                    (site, disease, quarter, version),
+                )
+            for r in rows:
+                con.execute(
+                    """INSERT INTO cohort_tables (site_id, disease, quarter, criterion_id, definition_version,
+                         criterion_label, n, n_contactable, received_from, job_id) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        r["site_id"],
+                        r["disease"],
+                        r["quarter"],
+                        r["criterion_id"],
+                        r["definition_version"],
+                        r["criterion_label"],
+                        json.dumps(r["n"]),
+                        json.dumps(r["n_contactable"]),
+                        received_from,
+                        job_id,
+                    ),
+                )
+
+    def cohort_rows(self, disease: str, quarter: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._con.execute(
+                f"SELECT {', '.join(self._COHORT_COLS)} FROM cohort_tables WHERE disease=? AND quarter=? "
+                "ORDER BY site_id, rowid",
+                (disease, quarter),
+            ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(zip(self._COHORT_COLS, r, strict=True))
+            d["n"], d["n_contactable"] = json.loads(d["n"]), json.loads(d["n_contactable"])
+            out.append(d)
+        return out
+
+    # ------------------------------------------------------------------ CT.gov compile cache (COHORT trial sim)
+    def trial_cache_put(self, row: dict[str, Any]) -> None:
+        with self.tx() as con:
+            con.execute(
+                """INSERT OR REPLACE INTO trial_cache (nct_id, last_update, version, draft_zip_key, equivalence_pct,
+                     compiled_at) VALUES (?,?,?,?,?,?)""",
+                (
+                    row["nct_id"],
+                    row["last_update"],
+                    row["version"],
+                    row["draft_zip_key"],
+                    row.get("equivalence_pct"),
+                    row["compiled_at"],
+                ),
+            )
+
+    def trial_cache_get(self, nct_id: str, last_update: str) -> dict[str, Any] | None:
+        cols = ("nct_id", "last_update", "version", "draft_zip_key", "equivalence_pct", "compiled_at")
+        with self._lock:
+            r = self._con.execute(
+                f"SELECT {', '.join(cols)} FROM trial_cache WHERE nct_id=? AND last_update=?", (nct_id, last_update)
+            ).fetchone()
+        return dict(zip(cols, r, strict=True)) if r else None
 
     def close(self) -> None:
         with self._lock:

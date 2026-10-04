@@ -98,6 +98,14 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
         ("approval_start", "DATE"),
         ("approval_end", "DATE"),
     ],
+    # research-contact consent from the site registry (FHIR Consent, scope research; COHORT n_contactable, D-72)
+    "consent": [
+        ("consid", "VARCHAR"),
+        ("pid", "VARCHAR"),
+        ("status", "VARCHAR"),
+        ("contact_ok", "BOOLEAN"),
+        ("date", "DATE"),
+    ],
 }
 
 
@@ -162,6 +170,15 @@ class Flattener:
             "dept": dept,
             "practitioner_id": _ref_id(part.get("individual")),
             "class": (r.get("class") or {}).get("code"),
+        }
+
+    def consent(self, r: Resource) -> Row:
+        return {
+            "consid": r["id"],
+            "pid": _ref_id(r.get("patient")),
+            "status": r.get("status"),
+            "contact_ok": (r.get("provision") or {}).get("type") == "permit",
+            "date": self.d(r.get("dateTime")),
         }
 
     def appointment(self, r: Resource) -> Row:
@@ -305,6 +322,7 @@ class Flattener:
             "Procedure": ("procedure", self.procedure),
             "DiagnosticReport": ("report", self.report),
             "DocumentReference": ("document", self.document),
+            "Consent": ("consent", self.consent),
         }
         out: dict[str, list[Row]] = {name: [] for name in SCHEMAS}
         for rtype, (table, fn) in m.items():

@@ -43,6 +43,7 @@ LAKE_TABLES = {
     "report",
     "document",
     "claim",
+    "consent",
     "document_chunk",
     "lake_meta",
 }

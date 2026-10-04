@@ -15,7 +15,16 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
-from tb_contracts import ApproveRequest, ApproveResult, CompileRequest, CompileResult, DiffRequest, DiffResult
+from tb_contracts import (
+    ApproveRequest,
+    ApproveResult,
+    CompileRequest,
+    CompileResult,
+    CtgovSearchRequest,
+    CtgovSearchResult,
+    DiffRequest,
+    DiffResult,
+)
 
 from criteria_compiler.compile_cql.translator import Translator, available
 from criteria_compiler.repo import RulesetRepo
@@ -73,6 +82,14 @@ def _fail(exc: CompileFailed) -> HTTPException:
 def compile_(req: CompileRequest) -> CompileResult:
     try:
         return compiler().compile(req)
+    except CompileFailed as exc:
+        raise _fail(exc) from exc
+
+
+@app.post("/ctgov/search")
+def ctgov_search(req: CtgovSearchRequest) -> CtgovSearchResult:
+    try:
+        return compiler().ctgov_search(req)
     except CompileFailed as exc:
         raise _fail(exc) from exc
 

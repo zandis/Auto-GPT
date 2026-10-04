@@ -4,14 +4,17 @@
 from __future__ import annotations
 
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from email import message_from_bytes, policy
 from email.message import EmailMessage
 from email.utils import make_msgid
 from pathlib import Path
+from typing import Any
 
 import tb_contracts as c
+from criteria_compiler.ctgov import CtGov
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.service import Compiler, CompilerDeps
 from criteria_compiler.terminology.mapper import Terminology
@@ -103,16 +106,36 @@ class InprocParser:
         return parse(self.store.get(req.minio_key), req.minio_key.rsplit("/", 1)[-1])
 
 
-def make_box(tmp_path: Path, lake_dir: Path, secrets_dir: Path, today: date = date(2026, 10, 5)) -> Box:
+SITE_B: dict[str, Any] = {  # the alliance member box (synthetic hospital B) for COHORT MERGE tests
+    "site": {"id": "DEMO-B", "name": "示範醫院B (synthetic)", "tz": "Asia/Taipei", "contact": "crc1@hospb.test"},
+    "internal_domains": ["hospb.test"],
+    "allowlist": {"senders": ["crc1@hospb.test"], "physicians": [], "alliance_sites": []},
+    "reviewers": ["crc1@hospb.test"],
+    "cohort": {"alliance_root": False, "root_address": "trialbox@hospa.test", "rulesets": ["GOUT-COH"]},
+}
+
+
+def make_box(
+    tmp_path: Path,
+    lake_dir: Path,
+    secrets_dir: Path,
+    today: date = date(2026, 10, 5),
+    settings_update: Mapping[str, Any] | None = None,
+) -> Box:
+    upd = settings_update or {}
+    domain = str((upd.get("internal_domains") or ["hospa.test"])[0])
     env = load_env(
         dotenv=tmp_path / "none.env",
         environ={
-            "MAIL_FROM_ADDR": "trialbox@hospa.test",
-            "MAIL_INTAKE_ADDR": "trialbox@hospa.test",
+            "MAIL_FROM_ADDR": f"trialbox@{domain}",
+            "MAIL_INTAKE_ADDR": f"trialbox@{domain}",
             "TB_SECRETS_DIR": str(secrets_dir),
         },
     )
-    cfg = Config(env=env, settings=load_settings(ROOT / "deploy/settings.example.yaml"))
+    settings = load_settings(ROOT / "deploy/settings.example.yaml")
+    if upd:
+        settings = c.Settings.model_validate({**settings.model_dump(mode="json", exclude_none=True), **upd})
+    cfg = Config(env=env, settings=settings)
     store = FsStore(tmp_path / "obj")
     audit_dir = tmp_path / "audit"
     audit = AuditLog(audit_dir)
@@ -131,6 +154,7 @@ def make_box(tmp_path: Path, lake_dir: Path, secrets_dir: Path, today: date = da
             audit=audit,
             equivalence=FakeGate(),
             mrn_regex=r"^\d{8}$",
+            ctgov=CtGov(mode="cassette"),
         )
     )
     holder: dict[str, Orchestrator] = {}
@@ -171,7 +195,7 @@ def make_box(tmp_path: Path, lake_dir: Path, secrets_dir: Path, today: date = da
     return Box(gw, orch, store, audit_dir, sent, box_today)
 
 
-def ingest_site(src: Path, lake_dir: Path, secrets_dir: Path, snapshot: str) -> c.IngestReport:
+def ingest_site(src: Path, lake_dir: Path, secrets_dir: Path, snapshot: str, site_id: str = "DEMO-A") -> c.IngestReport:
     """CSV source -> NDJSON -> lake snapshot (hash embedder), as the nightly adapter run does (no fhir-store)."""
     from adapter.pipeline import AdapterConfig, run_ingest
     from lake.store import Lake
@@ -186,7 +210,7 @@ def ingest_site(src: Path, lake_dir: Path, secrets_dir: Path, snapshot: str) -> 
         lake_dir=lake_dir,
         secrets_dir=secrets_dir,
         mapping_path=ROOT / "services/adapter/mapping/tw_core/demo_his.yaml",
-        site_id="DEMO-A",
+        site_id=site_id,
         audit_dir=lake_dir / "audit",
         rebuild=rebuild,
     )

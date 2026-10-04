@@ -53,6 +53,7 @@ services:
   criteria-compiler:
     networks: [trialbox-net, egress-net, host-net]
     ports: ["127.0.0.1:8012:8012"]
+    environment: {TB_CTGOV_MODE: cassette}   # synthetic ClinicalTrials.gov studies (tools/make_ctgov_cassettes.py)
   llm-stub:
     networks:
       trialbox-net: {aliases: [llm-service]}

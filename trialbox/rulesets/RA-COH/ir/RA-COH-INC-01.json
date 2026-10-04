@@ -1,0 +1,20 @@
+{
+ "class": "structured",
+ "id": "RA-COH-INC-01",
+ "kind": "inclusion",
+ "label": "RA 診斷",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_RHEUMATOID_ARTHRITIS"
+ },
+ "review": {
+  "at": "2026-10-04T19:20:45.613966+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-COH",
+ "source_ref": "1 世代定義 #1",
+ "text": "曾經診斷類風濕性關節炎（ICD-10-CM M05 或 M06）之病人。",
+ "time_sensitive": false
+}

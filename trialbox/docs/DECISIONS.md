@@ -414,3 +414,78 @@ Each submission is audited as `twpas.submit` with the bundle hash, mode, endpoin
 **D-70 Required nulls in contract JSON.** `tb_contracts.dump` used `exclude_none`, which dropped required-but-nullable
 fields (`Precheck.passed`, `FunnelStep.pct`, `Disagreement.cql/sql`), so the JSON no longer validated against its own
 schema. `dump` now drops `None` only for optional fields.
+
+**D-71 Cohort rulesets.** A cohort definition document has two sections, both parsed as inclusion criteria (the
+parser headings gain `世代定義|計數條件`):
+- `世代定義`: the population.
+- `計數條件`: the characteristics counted inside it.
+
+`manifest.cohort.population_criterion` names the population. Every other structured criterion, plus each configured
+combination (AND), is counted inside that population; note and human criteria are not counted.
+
+GOUT-COH (7 criteria, 2 combinations) and RA-COH (6 criteria, 1 combination) come from
+`tools/make_cohort_docs.py` and are compiled and approved with `tools/build_rulesets.py --kind cohort`
+(CQL≡SQL 100 % on HAPI). Supporting change: the terminology gains a type 2 diabetes synonym (E11).
+
+**D-72 Consent registry.** `settings.registry_source` becomes FHIR R4 Consent at ingest:
+- scope `research`, category LOINC 59284-0, policyRule `OPTIN`;
+- `provision.type` = permit/deny;
+- `dateTime` = the consent date.
+
+How the source is chosen:
+- unset: the data source's own `registry` table (the demo mapping);
+- `csv` / `sql`: a separate source;
+- `none`: skipped.
+
+The lake gets a `consent` table (pid, status, contact_ok, date), which the SQL guard allows. `n_contactable` counts
+the population whose latest active consent dated on or before the quarter end permits contact. Without a registry
+the value is `n/a`.
+
+**D-73 Alliance exchange and merge.** The CSV has exactly the v1 columns, with
+`definition_version = <ruleset>@<version>`.
+
+Producing a table:
+- Quarters are the last N completed quarter ends on or before min(today, snapshot): `lookback=N`, default 4, max 12.
+- Small cells are suppressed before anything leaves the box.
+- A member box (`cohort.root_address` set, `alliance_root` false) mails its table to the root as an aggregate
+  attachment with subject `COHORT MERGE -- <site> <ruleset> <quarter>`.
+
+Accepting tables at the root (`alliance_root`):
+- Only senders allowed by `permissions.COHORT` (the `alliance_sites` group); one site per file.
+- The header and each row are validated against `cohort_table.schema.json`.
+- Tables are stored per (site, disease, quarter, definition), each replacing the previous one.
+- The root's own COHORT runs are stored as its own site.
+
+The merged CSV holds the site rows plus an `ALLIANCE` total per (disease, quarter, definition, criterion).
+Different definition versions are never summed. Suppressed cells are handled as follows:
+- all site counts exact: the plain sum, suppressed again if small;
+- otherwise compute a range in which each `<k` counts as 1..k−1:
+  - publish `lo-hi` when lo ≥ k;
+  - publish `<hi+1` when the total could itself be small;
+  - publish `<k` when even hi is below k.
+
+The merged table goes to the sending site and to the root's site contact.
+
+**D-74 Trial simulation.** Recruiting studies are fetched through the criteria-compiler's `/ctgov/search`
+(contract `ctgov.schema.json` 1.0.0): ClinicalTrials.gov API v2 `/studies` with `query.cond`,
+`query.locn=Taiwan OR Japan` and `filter.overallStatus=RECRUITING`.
+- The compiler fetches because it is the service with egress. This is public data and no PHI is sent.
+- `TB_CTGOV_MODE=cassette` replays fictional studies (`NCT990000xx`, titles `[SYNTHETIC]`) in CI and the test stack.
+- Studies without eligibility text or an exact last-update date are skipped.
+- Ranking: a Taiwan site first, then later phase, larger target, newer update, NCT id. `top_n_trials` come from the
+  manifest.
+
+Each study's eligibility text goes through doc-parser (plain text) and the compiler (kind `trial`, ruleset id = NCT
+id, not incremental).
+- The result is an unapproved draft, labelled as an automatic compile in every output.
+- SQL is still template-generated, so the determinism rule holds.
+- Drafts are cached in the orchestrator's `trial_cache` by NCT id + last update for `ctgov_cache_days`.
+
+Counting and simulation:
+- Counts are FEAS counts over 12 months at the run date. The simulation uses `calibration_defaults`, seeded by NCT
+  id + update + snapshot.
+- Human and note criteria are not counted, and the workbook reports them as not counted.
+- A suppressed eligible count publishes no simulation figures.
+
+**D-75 COHORT schedule.** Quarterly, on the 1st of January, April, July and October at `settings.schedule.cohort`,
+for `settings.cohort.rulesets` (else every approved cohort ruleset).

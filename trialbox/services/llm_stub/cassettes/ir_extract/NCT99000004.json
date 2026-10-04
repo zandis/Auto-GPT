@@ -1,0 +1,214 @@
+{
+ "criteria": [
+  {
+   "text": "Aged 18 to 75 years.",
+   "label": "Age 18–75",
+   "source_ref": "Inclusion Criteria #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "age": {
+     "min": 18,
+     "max": 75
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "Rheumatoid arthritis diagnosed at least 6 months before screening.",
+   "label": "RA ≥6 months",
+   "source_ref": "Inclusion Criteria #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "rheumatoid arthritis",
+    "quantifier": "any",
+    "window": {
+     "to_days": -180
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "rheumatoid arthritis",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Methotrexate for at least 3 months.",
+   "label": "MTX ≥3 months",
+   "source_ref": "Inclusion Criteria #3",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "methotrexate",
+    "duration": {
+     "min_days": 90,
+     "gap_days": 30
+    },
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "methotrexate",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "DAS28 greater than 5.1 within 90 days.",
+   "label": "DAS28 >5.1",
+   "source_ref": "Inclusion Criteria #4",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "das28",
+    "quantifier": "latest",
+    "value": {
+     "op": ">",
+     "num": 5.1
+    },
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "Active tuberculosis within 1 year.",
+   "label": "Active TB",
+   "source_ref": "Exclusion Criteria #1",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "active tuberculosis",
+    "quantifier": "any",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "active tuberculosis",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Positive hepatitis B surface antigen.",
+   "label": "HBsAg positive",
+   "source_ref": "Exclusion Criteria #2",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "hbsag",
+    "quantifier": "latest",
+    "value": {
+     "op": "in",
+     "codes": [
+      "LA6576-8"
+     ]
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "hbsag",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Malignancy within the past 5 years.",
+   "label": "Malignancy ≤5 y",
+   "source_ref": "Exclusion Criteria #3",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "malignancy",
+    "quantifier": "any",
+    "window": {
+     "from_days": -1825,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "malignancy",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Serious infection within 30 days.",
+   "label": "Serious infection ≤30 d",
+   "source_ref": "Exclusion Criteria #4",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "serious infection",
+    "quantifier": "any",
+    "window": {
+     "from_days": -30,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "serious infection",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Prior biologic DMARD within 1 year.",
+   "label": "Biologic ≤1 y",
+   "source_ref": "Exclusion Criteria #5",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "ra biologic",
+    "quantifier": "any",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "ra biologic",
+     "synonyms": []
+    }
+   ]
+  }
+ ]
+}

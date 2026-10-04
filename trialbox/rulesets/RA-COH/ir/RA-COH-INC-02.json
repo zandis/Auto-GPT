@@ -1,0 +1,25 @@
+{
+ "class": "structured",
+ "id": "RA-COH-INC-02",
+ "kind": "inclusion",
+ "label": "MTX 使用",
+ "logic": {
+  "domain": "medication",
+  "quantifier": "any",
+  "valueset": "VS_METHOTREXATE",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T19:20:45.613966+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-COH",
+ "source_ref": "2 計數條件 #1",
+ "text": "一年內曾使用 methotrexate。",
+ "time_sensitive": false
+}

@@ -1,0 +1,30 @@
+{
+ "class": "structured",
+ "id": "GOUT-COH-INC-02",
+ "kind": "inclusion",
+ "label": "尿酸≥6.0",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 6.0,
+   "op": ">=",
+   "unit": "mg/dL"
+  },
+  "valueset": "VS_SERUM_URATE",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T19:20:12.638153+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GOUT-COH",
+ "source_ref": "2 計數條件 #1",
+ "text": "一年內最近一次血清尿酸值大於或等於 6.0 mg/dL。",
+ "time_sensitive": false
+}

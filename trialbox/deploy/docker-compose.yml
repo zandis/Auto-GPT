@@ -108,8 +108,10 @@ services:
     <<: *py
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
     command: ["uvicorn", "criteria_compiler.app:app", "--host", "0.0.0.0", "--port", "8012"]
-    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler, TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit}
-    networks: [trialbox-net, egress-net]   # only service allowed to reach CLOUD_LLM_BASE_URL (network.sh)
+    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler, TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit,
+                  TB_CTGOV_MODE: "${TB_CTGOV_MODE:-live}"}
+    # only service allowed to reach CLOUD_LLM_BASE_URL and clinicaltrials.gov (public registry, COHORT; network.sh)
+    networks: [trialbox-net, egress-net]
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - rulesets-data:/data/rulesets

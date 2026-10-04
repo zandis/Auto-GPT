@@ -39,6 +39,7 @@ tables:
   report: {source: report, key: rpt_no, delta: exam_date}
   note: {source: note, key: note_no, delta: note_datetime}
   claim: {source: claim, key: claim_no, delta: created_date}
+  registry: {source: registry, key: mrn}  # research-contact consent; settings.registry_source may point elsewhere
 lookups:
   lab: {file: lab_local_to_loinc.csv, key: local_code}
 static:
@@ -265,3 +266,14 @@ resources:
       outcome: {column: outcome, map: {approved: complete, denied: complete, pending: queued}, default: queued}
       disposition: {column: outcome}
       preAuthPeriod: {builder: period, start: approval_start, end: approval_end, type: date}
+  - type: Consent
+    table: registry
+    id: {hid: mrn}
+    elements:
+      status: {const: active}
+      scope.coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/consentscope", code: research}}
+      category[0].coding[0]: {const: {system: "http://loinc.org", code: "59284-0"}}
+      patient.reference: {ref: {type: Patient, pid: mrn}}
+      dateTime: {column: consent_date, type: date}
+      policyRule.coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/v3-ActCode", code: OPTIN}}
+      provision.type: {column: consent_contact, map: {Y: permit, N: deny}, default: deny}

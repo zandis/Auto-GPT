@@ -1,0 +1,25 @@
+{
+ "class": "structured",
+ "id": "GOUT-COH-INC-03",
+ "kind": "inclusion",
+ "label": "降尿酸藥物",
+ "logic": {
+  "domain": "medication",
+  "quantifier": "any",
+  "valueset": "VS_URATE_LOWERING_THERAPY",
+  "window": {
+   "anchor": "index",
+   "from_days": -180,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T19:20:12.638153+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GOUT-COH",
+ "source_ref": "2 計數條件 #2",
+ "text": "六個月內曾使用降尿酸藥物。",
+ "time_sensitive": false
+}

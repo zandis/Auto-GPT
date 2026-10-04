@@ -1,0 +1,59 @@
+/* TB_Common: TrialBox shared CQL helpers. Rendered from libs/tb_common/derived.py constants (do not edit the
+   generated .cql). Semantics mirror the DuckDB SQL templates (DECISIONS D-17). */
+library TB_Common version '1.0.0'
+
+using FHIR version '4.0.1'
+
+include FHIRHelpers version '4.0.1' called FHIRHelpers
+
+/* local calendar date of an Observation (effectiveDateTime) */
+define function "ObsDate"(O FHIR.Observation):
+  date from FHIRHelpers.ToDateTime(O.effective as FHIR.dateTime)
+
+/* numeric value of an Observation (null unless valueQuantity) */
+define function "ObsValue"(O FHIR.Observation):
+  FHIRHelpers.ToQuantity(O.value as FHIR.Quantity).value
+
+/* first coding code of a valueCodeableConcept (null otherwise) */
+define function "ObsCode"(O FHIR.Observation):
+  First((O.value as FHIR.CodeableConcept).coding).code.value
+
+define function "CompValue"(C FHIR.Observation.Component):
+  FHIRHelpers.ToQuantity(C.value as FHIR.Quantity).value
+
+/* most recent observation; ties broken by resource id (same as SQL ORDER BY effective, id) */
+define function "LatestObs"(obs List<FHIR.Observation>):
+  Last(obs O sort by (effective as FHIR.dateTime).value asc, id.value asc)
+
+define function "LatestValue"(obs List<FHIR.Observation>):
+  "ObsValue"("LatestObs"(obs))
+
+define function "IsFemale"(P FHIR.Patient):
+  if P.gender is null then null else P.gender.value = 'female'
+
+define function "BMI"(weightKg System.Decimal, heightCm System.Decimal):
+  weightKg / Power(heightCm / 100.0, 2.0)
+
+/* CKD-EPI 2021, race-free */
+define function "EGFR2021"(scr System.Decimal, age System.Integer, female System.Boolean):
+  if scr is null or age is null or female is null then null
+  else 142.0 * Power(Min({ scr / (if female then 0.7 else 0.9), 1.0 }),
+                         if female then -0.241 else -0.302)
+       * Power(Max({ scr / (if female then 0.7 else 0.9), 1.0 }), -1.2)
+       * Power(0.9938, age)
+       * (if female then 1.012 else 1.0)
+
+/* DAS28-ESR if ESR available, else DAS28-CRP (CRP mg/L) */
+define function "DAS28"(tjc System.Decimal, sjc System.Decimal, ptga System.Decimal, esr System.Decimal, crp System.Decimal):
+  if tjc is null or sjc is null or ptga is null then null
+  else if esr is not null then
+    0.56 * Power(tjc, 0.5) + 0.28 * Power(sjc, 0.5) + 0.7 * Ln(esr) + 0.014 * ptga
+  else if crp is not null then
+    0.56 * Power(tjc, 0.5) + 0.28 * Power(sjc, 0.5) + 0.36 * Ln(crp + 1.0) + 0.014 * ptga + 0.96
+  else null
+
+define function "BASDAI"(q1 System.Decimal, q2 System.Decimal, q3 System.Decimal, q4 System.Decimal, q5 System.Decimal, q6 System.Decimal):
+  (q1 + q2 + q3 + q4 + (q5 + q6) / 2.0) / 5.0
+
+define function "ASDAS"(back System.Decimal, stiff System.Decimal, ptga System.Decimal, periph System.Decimal, crp System.Decimal):
+  0.12 * back + 0.06 * stiff + 0.11 * (ptga / 10.0) + 0.07 * periph + 0.58 * Ln(crp + 1.0)

@@ -229,3 +229,61 @@ def test_nav_onc_twpas_then_submit_dry_run() -> None:
     assert "DRY RUN" in receipt["disposition"]
     final = httpx.get(f"{ORCH}/jobs/{sub['job_id']}", timeout=30).json()
     assert final["state"] == "done"
+
+
+def test_cohort_and_alliance_merge(tmp_path: Path) -> None:
+    """Phase 7 on compose: ``COHORT GOUT-COH`` on the root box (site A) -> alliance CSV, report PDF and the trial
+    simulation for the three recruiting gout trials; site B's table (an in-process member box on the site-B export)
+    arrives by email as ``COHORT MERGE`` from trialbox@hospb.test -> merged table with both sites."""
+    import csv
+    from datetime import date
+
+    from openpyxl import load_workbook
+
+    from tests.inproc_box import SITE_B, ingest_site, make_box
+
+    tag = f"cohort-{os.getpid()}"
+    send(f"COHORT GOUT-COH -- {tag}")
+    job = _job_by_tag("COHORT", tag)
+    done = wait_for(lambda m: str(m["Subject"]).startswith(f"Done {job['job_id']}") and bool(attachments(m)), 1800)
+    files = attachments(done)
+    table = next(v for k, v in files.items() if k.startswith("cohort_table_GOUT-COH_DEMO-A_"))
+    rows = list(csv.DictReader(io.StringIO(table.decode("utf-8"))))
+    assert {r["quarter"] for r in rows} == {"2025Q4", "2026Q1", "2026Q2", "2026Q3"}
+    wb = load_workbook(io.BytesIO(next(v for k, v in files.items() if k.startswith("trial_sim_"))))
+    ncts = [r[0] for r in list(wb["trials"].iter_rows(values_only=True))[1:]]
+    assert ncts == ["NCT99000001", "NCT99000002", "NCT99000003"]
+    pdf = next(v for k, v in files.items() if k.endswith(".pdf"))
+    assert "Cohort report" in "".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
+    # member box B (in process) produces and mails its table to the root
+    sec = tmp_path / "sec"
+    sec.mkdir()
+    (sec / "site_hmac.key").write_bytes(b"trialbox-test-site-key-B-0123456789abcd")
+    ingest_site(ROOT / "tests/fixtures/synthetic_patients/site-b", tmp_path / "lake", sec, "2026-10-04", "DEMO-B")
+    box_b = make_box(tmp_path / "box", tmp_path / "lake", sec, date.today(), settings_update=SITE_B)
+    box_b.mail(
+        "COHORT GOUT-COH lookback=1",
+        sender="crc1@hospb.test",
+        auth="mx.hospb.test; spf=pass smtp.mailfrom=hospb.test; dkim=pass header.d=hospb.test; dmarc=pass",
+    )
+    box_b.orch.drain()
+    share = next(s for s in box_b.sent if s.subject.startswith("COHORT MERGE"))
+    ((name, data),) = share.attachments().items()
+    tag2 = f"merge-{os.getpid()}"
+    m = EmailMessage()
+    m["From"] = "trialbox@hospb.test"
+    m["To"] = "trialbox@hospa.test"
+    m["Subject"] = f"COHORT MERGE -- {tag2}"
+    m["Message-ID"] = make_msgid(domain="hospb.test")
+    m["Authentication-Results"] = "mx.hospa.test; spf=pass smtp.mailfrom=hospb.test; dkim=pass header.d=hospb.test"
+    m.set_content(share.text())
+    m.add_attachment(data, maintype="text", subtype="csv", filename=name)
+    with smtplib.SMTP("127.0.0.1", 3025, timeout=30) as s:
+        s.send_message(m)
+    merge = _job_by_tag("COHORT", tag2)
+    out = wait_for(lambda x: str(x["Subject"]).startswith(f"Done {merge['job_id']}") and bool(attachments(x)), 600)
+    assert "trialbox@hospb.test" in str(out["To"])
+    merged = list(csv.DictReader(io.StringIO(next(iter(attachments(out).values())).decode("utf-8"))))
+    pop = {r["site_id"]: r for r in merged if r["criterion_id"] == "GOUT-COH-INC-01" and r["quarter"] == "2026Q3"}
+    assert set(pop) == {"DEMO-A", "DEMO-B", "ALLIANCE"}
+    assert int(pop["ALLIANCE"]["n"]) == int(pop["DEMO-A"]["n"]) + int(pop["DEMO-B"]["n"])

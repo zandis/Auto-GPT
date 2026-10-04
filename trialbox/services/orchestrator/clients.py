@@ -11,6 +11,8 @@ from tb_contracts import (
     ApproveResult,
     CompileRequest,
     CompileResult,
+    CtgovSearchRequest,
+    CtgovSearchResult,
     DiffRequest,
     DiffResult,
     IngestReport,
@@ -42,6 +44,8 @@ class CompilerAPI(Protocol):
     def diff(self, req: DiffRequest) -> DiffResult: ...
 
     def approve(self, req: ApproveRequest) -> ApproveResult: ...
+
+    def ctgov_search(self, req: CtgovSearchRequest) -> CtgovSearchResult: ...
 
 
 class MailAPI(Protocol):
@@ -99,6 +103,12 @@ class CompilerHttp:
             return self.c.post("/approve", req, ApproveResult)
         except ServiceError as exc:
             raise _step_error(exc, "approve") from exc
+
+    def ctgov_search(self, req: CtgovSearchRequest) -> CtgovSearchResult:
+        try:
+            return self.c.post("/ctgov/search", req, CtgovSearchResult)
+        except ServiceError as exc:
+            raise _step_error(exc, "ctgov") from exc
 
 
 class MailHttp:

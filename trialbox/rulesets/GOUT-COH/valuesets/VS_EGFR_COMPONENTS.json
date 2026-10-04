@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "2160-0",
+      "display": "Creatinine [Mass/volume] in Serum or Plasma"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "GOUT-COH-VS-EGFR-COMPONENTS",
+ "name": "VS_EGFR_COMPONENTS",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "EGFR components",
+ "url": "http://trialbox.local/fhir/ValueSet/GOUT-COH-VS-EGFR-COMPONENTS",
+ "version": "1.0.0-v2c66b79e"
+}

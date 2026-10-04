@@ -1,0 +1,68 @@
+{
+ "studies": [
+  {
+   "protocolSection": {
+    "identificationModule": {
+     "nctId": "NCT99000004",
+     "briefTitle": "[SYNTHETIC] JAK Inhibitor Versus Placebo in Rheumatoid Arthritis With Inadequate Response to MTX"
+    },
+    "statusModule": {
+     "overallStatus": "RECRUITING",
+     "lastUpdatePostDateStruct": {
+      "date": "2026-09-01",
+      "type": "ACTUAL"
+     }
+    },
+    "sponsorCollaboratorsModule": {
+     "leadSponsor": {
+      "name": "Synthetic Immunology Inc. (fictional)",
+      "class": "INDUSTRY"
+     }
+    },
+    "conditionsModule": {
+     "conditions": [
+      "Rheumatoid Arthritis"
+     ]
+    },
+    "designModule": {
+     "studyType": "INTERVENTIONAL",
+     "phases": [
+      "PHASE3"
+     ],
+     "enrollmentInfo": {
+      "count": 300,
+      "type": "ESTIMATED"
+     }
+    },
+    "eligibilityModule": {
+     "eligibilityCriteria": "Inclusion Criteria:\n\n* Aged 18 to 75 years.\n* Rheumatoid arthritis diagnosed at least 6 months before screening.\n* Methotrexate for at least 3 months.\n* DAS28 greater than 5.1 within 90 days.\n\nExclusion Criteria:\n\n* Active tuberculosis within 1 year.\n* Positive hepatitis B surface antigen.\n* Malignancy within the past 5 years.\n* Serious infection within 30 days.\n* Prior biologic DMARD within 1 year.",
+     "healthyVolunteers": false,
+     "sex": "ALL",
+     "minimumAge": "18 Years",
+     "stdAges": [
+      "ADULT",
+      "OLDER_ADULT"
+     ],
+     "maximumAge": "75 Years"
+    },
+    "contactsLocationsModule": {
+     "locations": [
+      {
+       "facility": "Synthetic General Hospital",
+       "status": "RECRUITING",
+       "city": "Kaohsiung",
+       "country": "Taiwan"
+      },
+      {
+       "facility": "Synthetic RA Clinic",
+       "status": "RECRUITING",
+       "city": "Nagoya",
+       "country": "Japan"
+      }
+     ]
+    }
+   },
+   "hasResults": false
+  }
+ ]
+}

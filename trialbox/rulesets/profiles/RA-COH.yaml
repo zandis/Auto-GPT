@@ -1,0 +1,17 @@
+# Site profile for ruleset RA-COH (merged into manifest.yaml at compile time; not generated).
+kind: cohort
+title: "類風濕性關節炎聯盟世代（季度主要條件人數）"
+trial_alias: "RA-COH"
+sponsor: "台灣風濕免疫聯盟（合成範例）"
+protocol_version: "v1"
+index_date_rule: month_end   # quarter ends (COHORT)
+routing:
+  aggregate_to: ["rheu-dr@hospa.test", "crc1@hospa.test"]
+thresholds: {small_cell: 5}
+cohort:
+  disease: rheumatoid_arthritis
+  disease_label: "類風濕性關節炎"
+  population_criterion: RA-COH-INC-01
+  combinations: [["RA-COH-INC-02", "RA-COH-INC-03"]]
+  ctgov_condition: "Rheumatoid Arthritis"
+  top_n_trials: 3

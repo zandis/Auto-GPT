@@ -36,6 +36,7 @@ _ARROW = {
     "DATE": pa.date32(),
     "TIMESTAMP": pa.timestamp("us"),
     "DOUBLE": pa.float64(),
+    "BOOLEAN": pa.bool_(),
 }
 
 

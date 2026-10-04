@@ -14,6 +14,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from tb_common.config import ConfigError, load
 from tb_common.logging import setup_logging
@@ -22,6 +23,17 @@ from tb_contracts import RebuildResult, dump
 from adapter.pipeline import AdapterConfig, run_ingest
 
 MAPPING_ROOT = Path(__file__).resolve().parent
+
+
+def _registry(reg: Any) -> tuple[str, str] | None:
+    """settings.registry_source -> AdapterConfig.registry (unset: the data source's own registry table)."""
+    if reg is None or reg.type is None:
+        return None
+    if reg.type == "none":
+        return ("none", "")
+    if reg.type == "csv":
+        return ("csv", reg.path or "")
+    return ("sql", os.environ.get(reg.dsn_env, "") if reg.dsn_env else (reg.path or ""))
 
 
 def build_config() -> tuple[AdapterConfig, str, str]:
@@ -64,6 +76,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         audit_dir=cfg.env.audit_path,
         validation_max_pct=cfg.settings.thresholds.validation_error_max_pct,
         rebuild=rebuild,
+        registry=_registry(cfg.settings.registry_source),
     )
     default_path = ds.path or (os.environ.get(ds.dsn_env, "") if ds.dsn_env else "")
     return ac, ds.type, default_path

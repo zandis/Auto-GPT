@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "29463-7",
+      "display": "Body weight"
+     },
+     {
+      "code": "8302-2",
+      "display": "Body height"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "GOUT-COH-VS-BMI-COMPONENTS",
+ "name": "VS_BMI_COMPONENTS",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "BMI components",
+ "url": "http://trialbox.local/fhir/ValueSet/GOUT-COH-VS-BMI-COMPONENTS",
+ "version": "1.0.0-vf214f08f"
+}

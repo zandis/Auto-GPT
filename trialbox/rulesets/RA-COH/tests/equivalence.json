@@ -1,0 +1,15 @@
+{
+ "disagreements": [],
+ "engine": "hapi-cr $evaluate vs duckdb",
+ "failing": [],
+ "overall_pct": 100.0,
+ "per_criterion": {
+  "RA-COH-INC-01": 100.0,
+  "RA-COH-INC-02": 100.0,
+  "RA-COH-INC-03": 100.0,
+  "RA-COH-INC-04": 100.0,
+  "RA-COH-INC-05": 100.0,
+  "RA-COH-INC-06": 100.0
+ },
+ "sample_size": 200
+}

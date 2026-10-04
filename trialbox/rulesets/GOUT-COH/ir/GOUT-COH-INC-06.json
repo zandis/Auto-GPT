@@ -1,0 +1,31 @@
+{
+ "class": "structured",
+ "id": "GOUT-COH-INC-06",
+ "kind": "inclusion",
+ "label": "BMI≥27",
+ "logic": {
+  "derived": "bmi",
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 27.0,
+   "op": ">=",
+   "unit": "kg/m2"
+  },
+  "valueset": "VS_BMI_COMPONENTS",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T19:20:12.638153+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GOUT-COH",
+ "source_ref": "2 計數條件 #5",
+ "text": "一年內最近一次身體質量指數大於或等於 27 kg/m²。",
+ "time_sensitive": false
+}

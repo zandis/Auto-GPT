@@ -27,6 +27,8 @@ from tb_contracts import (
     CompileResult,
     CriterionIR,
     CriterionReview,
+    CtgovSearchRequest,
+    CtgovSearchResult,
     DiffRequest,
     DiffResult,
     EquivalenceReport,
@@ -40,6 +42,7 @@ from tb_contracts import (
 from criteria_compiler.compile_cql.generator import CqlGenerator, render_common
 from criteria_compiler.compile_cql.translator import TranslationError, Translator, fhirhelpers_source
 from criteria_compiler.compile_sql.generator import SqlGenerator
+from criteria_compiler.ctgov import CtGov, CtgovError
 from criteria_compiler.equivalence.gate import run_gate
 from criteria_compiler.ir_extract.postprocess import KIND_CODE, postprocess
 from criteria_compiler.repo import RulesetRepo
@@ -87,11 +90,25 @@ class CompilerDeps:
     audit: AuditLog | None = None
     judge_model: str = ""
     equivalence: EquivalenceFn | None = None  # override for tests
+    ctgov: CtGov | None = None  # ClinicalTrials.gov client (COHORT trial simulation); default from TB_CTGOV_MODE
 
 
 class Compiler:
     def __init__(self, deps: CompilerDeps) -> None:
         self.d = deps
+
+    def ctgov_search(self, req: CtgovSearchRequest) -> CtgovSearchResult:
+        """Recruiting studies for COHORT trial simulation (public registry data; no PHI is sent)."""
+        client = self.d.ctgov or CtGov()
+        try:
+            res = client.search(req)
+        except CtgovError as exc:
+            raise CompileFailed("ctgov", str(exc)) from exc
+        self._audit(
+            "ctgov.search",
+            detail={"condition": req.condition, "source": res.source, "studies": [s.nct_id for s in res.studies]},
+        )
+        return res
 
     # ------------------------------------------------------------------ helpers
     def _audit(self, event: str, **kw: Any) -> None:

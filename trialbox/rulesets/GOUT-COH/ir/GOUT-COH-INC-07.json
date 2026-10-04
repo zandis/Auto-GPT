@@ -1,0 +1,20 @@
+{
+ "class": "structured",
+ "id": "GOUT-COH-INC-07",
+ "kind": "inclusion",
+ "label": "第二型糖尿病",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_TYPE_2_DIABETES_MELLITUS"
+ },
+ "review": {
+  "at": "2026-10-04T19:20:12.638153+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GOUT-COH",
+ "source_ref": "2 計數條件 #6",
+ "text": "合併第二型糖尿病診斷。",
+ "time_sensitive": false
+}

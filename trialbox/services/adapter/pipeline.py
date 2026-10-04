@@ -40,6 +40,9 @@ class AdapterConfig:
     validation_max_pct: float = 0.5
     sample_fraction: float = 0.01
     rebuild: Callable[[str, Path], RebuildResult] | None = None
+    # settings.registry_source: None = the data source's own ``registry`` table; ("none", "") = no registry;
+    # ("csv", "/path/registry.csv") or ("sql", dsn) = a separate consent registry
+    registry: tuple[str, str] | None = None
 
     def site_key(self) -> bytes:
         return load_or_create_key(self.secrets_dir / "site_hmac.key")
@@ -128,7 +131,16 @@ def run_ingest(
         for res in mapper.static_resources():
             by_type.setdefault(res["resourceType"], []).append(res)
         for table, tspec in mapping.tables.items():
-            rows = list(source.rows(table, tspec["source"], tspec.get("delta"), since))
+            src, src_name = source, tspec["source"]
+            if table == "registry" and cfg.registry is not None:
+                kind, where = cfg.registry
+                if kind == "none" or not where:
+                    continue
+                if kind == "csv":
+                    src, src_name = make_source("csv", str(Path(where).parent)), Path(where).stem
+                else:
+                    src = make_source("cgrd_sql", where)
+            rows = list(src.rows(table, src_name, tspec.get("delta"), since))
             if table == "patient":
                 patient_pairs = [(pid_for_mrn(key, str(r[tspec["key"]])), str(r[tspec["key"]])) for r in rows]
                 ident = tspec.get("identity") or {}

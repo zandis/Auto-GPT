@@ -1,0 +1,26 @@
+{
+ "class": "structured",
+ "id": "RA-COH-INC-05",
+ "kind": "inclusion",
+ "label": "HBsAg 陽性",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "codes": [
+    "LA6576-8"
+   ],
+   "op": "in"
+  },
+  "valueset": "VS_HBSAG"
+ },
+ "review": {
+  "at": "2026-10-04T19:20:45.613966+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-COH",
+ "source_ref": "2 計數條件 #4",
+ "text": "最近一次 B 型肝炎表面抗原（HBsAg）陽性。",
+ "time_sensitive": false
+}

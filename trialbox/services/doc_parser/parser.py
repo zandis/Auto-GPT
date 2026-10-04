@@ -24,7 +24,9 @@ from tb_common.crypto import sha256_bytes
 from tb_contracts import DocSection, DocTable, IEBlock, ParsedDoc
 
 HEADINGS = {
-    "inclusion": re.compile(r"inclusion criteria|納入條件|納入標準|收案條件|選択基準|適用條件|給付條件|申請條件", re.I),
+    "inclusion": re.compile(
+        r"inclusion criteria|納入條件|納入標準|收案條件|選択基準|適用條件|給付條件|申請條件|世代定義|計數條件", re.I
+    ),  # 世代定義 / 計數條件: alliance cohort definitions (population + counted characteristics, D-71)
     "exclusion": re.compile(r"exclusion criteria|排除條件|排除標準|除外基準|不予給付|不得申請", re.I),
     "renewal": re.compile(r"renewal|continuation criteria|續用條件|續用|繼續使用|延長使用|継続基準", re.I),
     "documentation": re.compile(

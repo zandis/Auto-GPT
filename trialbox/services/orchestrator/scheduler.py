@@ -70,6 +70,19 @@ def plan(settings: Settings) -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
+def cohort_rulesets(orch: Orchestrator) -> list[str]:
+    """``settings.cohort.rulesets`` when given, else every approved cohort ruleset."""
+    cs = orch.cfg.settings.cohort
+    if cs and cs.rulesets:
+        return list(cs.rulesets)
+    out = []
+    for rid in list_rulesets(orch.rulesets_dir):
+        body = yaml.safe_load((orch.rulesets_dir / rid / "manifest.yaml").read_text(encoding="utf-8"))
+        if (body or {}).get("kind") == "cohort" and body.get("status") == "approved":
+            out.append(rid)
+    return out
+
+
 def start(orch: Orchestrator) -> Any:
     from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -92,6 +105,13 @@ def start(orch: Orchestrator) -> Any:
                         _submit(orch, "NAV", rid)
 
             sched.add_job(nav, "cron", id="nav", **kw)
+        elif jtype == "COHORT":
+
+            def cohort() -> None:
+                for rid in cohort_rulesets(orch):
+                    _submit(orch, "COHORT", rid)
+
+            sched.add_job(cohort, "cron", id="cohort", **kw)
         else:
             sched.add_job(_submit, "cron", id=jtype.lower(), args=[orch, jtype], **kw)
     sched.start()

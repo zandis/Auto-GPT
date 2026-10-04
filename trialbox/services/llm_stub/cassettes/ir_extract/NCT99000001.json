@@ -1,0 +1,234 @@
+{
+ "criteria": [
+  {
+   "text": "Male or female aged 20 to 75 years.",
+   "label": "Age 20–75",
+   "source_ref": "Inclusion Criteria #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "age": {
+     "min": 20,
+     "max": 75
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "Diagnosis of gout according to the 2015 ACR/EULAR classification criteria.",
+   "label": "Gout",
+   "source_ref": "Inclusion Criteria #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "gout",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "gout",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Serum urate of 7.0 mg/dL or higher within 90 days before screening.",
+   "label": "sUA ≥7.0",
+   "source_ref": "Inclusion Criteria #3",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "serum urate",
+    "quantifier": "latest",
+    "value": {
+     "op": ">=",
+     "num": 7.0,
+     "unit": "mg/dL"
+    },
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "serum urate",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Receiving urate-lowering therapy for at least 3 months.",
+   "label": "ULT ≥3 months",
+   "source_ref": "Inclusion Criteria #4",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "urate-lowering therapy",
+    "duration": {
+     "min_days": 90,
+     "gap_days": 30
+    },
+    "window": {
+     "from_days": -180,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "urate-lowering therapy",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "At least 2 gout flares in the past 12 months.",
+   "label": "≥2 flares / 12 mo",
+   "source_ref": "Inclusion Criteria #5",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "gout",
+    "quantifier": "count>=",
+    "count": 2,
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "gout",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Estimated GFR below 30 mL/min/1.73 m2.",
+   "label": "eGFR <30",
+   "source_ref": "Exclusion Criteria #1",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "egfr",
+    "quantifier": "latest",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    },
+    "value": {
+     "op": "<",
+     "num": 30,
+     "unit": "mL/min/{1.73_m2}"
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "ALT greater than 3 times the upper limit of normal.",
+   "label": "ALT >3×ULN",
+   "source_ref": "Exclusion Criteria #2",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "alt",
+    "quantifier": "latest",
+    "value": {
+     "op": ">",
+     "num": 120,
+     "unit": "U/L"
+    },
+    "window": {
+     "from_days": -180,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "alt",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Malignancy within the past 5 years.",
+   "label": "Malignancy ≤5 y",
+   "source_ref": "Exclusion Criteria #3",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "malignancy",
+    "quantifier": "any",
+    "window": {
+     "from_days": -1825,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "malignancy",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Pregnant or breastfeeding women.",
+   "label": "Pregnancy",
+   "source_ref": "Exclusion Criteria #4",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "pregnancy",
+    "quantifier": "any",
+    "window": {
+     "from_days": -280,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "pregnancy",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Participation in another interventional study within 30 days.",
+   "label": "Other trial ≤30 d",
+   "source_ref": "Exclusion Criteria #5",
+   "kind": "exclusion",
+   "class": "human",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic"
+   },
+   "concept_candidates": [],
+   "human_question": "Has the patient joined another interventional study in the last 30 days?"
+  }
+ ]
+}

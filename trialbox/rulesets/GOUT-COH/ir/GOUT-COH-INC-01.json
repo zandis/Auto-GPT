@@ -1,0 +1,20 @@
+{
+ "class": "structured",
+ "id": "GOUT-COH-INC-01",
+ "kind": "inclusion",
+ "label": "痛風診斷",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_GOUT"
+ },
+ "review": {
+  "at": "2026-10-04T19:20:12.638153+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GOUT-COH",
+ "source_ref": "1 世代定義 #1",
+ "text": "曾經診斷痛風（ICD-10-CM M10 或 M1A）之病人。",
+ "time_sensitive": false
+}
