@@ -43,6 +43,8 @@ class AdapterConfig:
     # settings.registry_source: None = the data source's own ``registry`` table; ("none", "") = no registry;
     # ("csv", "/path/registry.csv") or ("sql", dsn) = a separate consent registry
     registry: tuple[str, str] | None = None
+    keep_nightly: int = 3  # settings.retention.nightly_snapshots
+    keep_month_end_months: int = 36  # settings.retention.month_end_snapshots_months
 
     def site_key(self) -> bytes:
         return load_or_create_key(self.secrets_dir / "site_hmac.key")
@@ -217,13 +219,38 @@ def run_ingest(
     )
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     (out_dir / "ingest_report.json").write_bytes(body)
+    pruned = prune_snapshots(cfg, date.fromisoformat(snap)) if passed and rebuild_lake else []
     if cfg.audit_dir:
         AuditLog(cfg.audit_dir, cfg.tz).append(
             "ingest.done" if passed else "ingest.failed",
             snapshot=snap,
             output_sha=sha256_bytes(body),
             actor="adapter",
-            detail={"source": source_kind, "counts": counts, "validation_error_pct": vsum.error_pct},
+            detail={
+                "source": source_kind,
+                "counts": counts,
+                "validation_error_pct": vsum.error_pct,
+                "snapshots_pruned": pruned,
+            },
         )
     log.info("ingest finished", extra={"snapshot": snap, "passed": passed, "resources": sum(counts.values())})
     return report
+
+
+def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
+    """SPEC §10.3: keep the last N nightly snapshots and each month's last snapshot for M months (NDJSON, parquet,
+    DuckDB); the current snapshot is always kept."""
+    import shutil
+
+    from tb_common.retention import snapshots_to_keep
+
+    current = (cfg.lake_dir / "CURRENT").read_text().strip() if (cfg.lake_dir / "CURRENT").exists() else None
+    snaps = set(list_snapshots(cfg.lake_dir)) | {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb")}
+    keep = snapshots_to_keep(snaps, today, cfg.keep_nightly, cfg.keep_month_end_months) | {current or ""}
+    gone = sorted(s for s in snaps if s not in keep)
+    for s in gone:
+        shutil.rmtree(cfg.lake_dir / "ndjson" / s, ignore_errors=True)
+        shutil.rmtree(cfg.lake_dir / "parquet" / f"snapshot={s}", ignore_errors=True)
+        for f in (cfg.lake_dir / "db").glob(f"{s}.duckdb*"):
+            f.unlink(missing_ok=True)
+    return gone

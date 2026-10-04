@@ -252,3 +252,43 @@ make test-e2e      # GreenMail -> TrialBox -> MailHog
   criteria-compiler, CQL≡SQL 100 % on HAPI; the second run uses the compile cache.
 - `make lint` clean; `make test` 233 passed (1 skipped); `make test-integration` 43 passed; `make test-e2e` 6 passed;
   the audit chain verifies (1,024 events).
+
+## Phase 8 — Hardening (done)
+
+**Delivered**
+- `deploy/network.sh` / `deploy/egress.py`: an nftables default-deny table for every TrialBox network. It allows
+  only mail-gateway → SMTP/IMAP, criteria-compiler → cloud LLM (when set) and ClinicalTrials.gov (live mode), and
+  orchestrator → NHI TWPAS (when set); `EGRESS_EXTRA` adds site entries (D-76).
+- Signed offline updates (D-77):
+  - `tools/sign_bundle.py` creates the vendor's Ed25519 keys and bundles.
+  - `tools/verify_update.py` verifies signature, schema, sizes and hashes, and rejects unsafe members.
+  - `tools/apply_update.sh` does the network-less verification, staging and apply by kind, and audits an
+    `update.applied` event.
+  - The ruleset importer only installs approved rulesets at or above the gate, with immutable tags.
+- Retention: a daily `RETENTION` job for objects (audited with hashes) and retired pools; the adapter prunes
+  snapshots (3 nightly + 36 month-ends); container logs rotate by size (D-78).
+- Hardening notes: `docs/HARDENING.md` (LUKS2 + TPM2 unlock, swap off, TPM-sealed keys via systemd-creds, egress unit,
+  update and backup procedure) and `deploy/check_host.sh [--gb10]` (read-only PASS/WARN/FAIL checks) (D-81).
+- `deploy/docker-compose.gb10.yml`: arm64 on every service, spark-vllm pinned by digest, driver 580.142 pinned and
+  checked, unified-memory settings; `make images-multiarch` (D-79).
+- `tools/bench.py` (§11.3, D-80), plus a lake memory cap (`TB_LAKE_MEMORY_LIMIT`, spill to disk) found by the bench.
+
+**DoD evidence**
+- Egress test: all blocked except the allowlist. With `make test-egress` on the running stack, a fake outside host
+  (network namespace) is reachable from every routed container before the rules. After `network.sh apply`, only
+  orchestrator → :8443 (NHI) and mail-gateway → :2525 (SMTP) connect. All other container/port pairs (compiler,
+  adapter, lake, …) are dropped; traffic inside the box is unaffected; the rules and namespace are removed afterwards.
+- `apply_update.sh` rejects tampered bundles. Nine tampering variants are rejected and nothing is staged: payload
+  edits (including same-size), manifest edit, forged signature, foreign key, extra/missing file, `..` path, symlink.
+  The shell entry point exits 1 and leaves no staging; a good bundle verifies and stages.
+- Bench meets §11.3 for the deterministic share on this CPU-only host (docs/BENCH.md):
+  - ingest 15k → 16.6 min projected for 50k (target 2 h);
+  - FEAS 100k → 11.7 min projected for 300k (target 30 min);
+  - SCREEN CQL 1.1 min, NAV 6.2 min, compile 0.4 min.
+  - LLM time is not measurable without the reference GPU; `--llm-url` runs the same tasks against the model.
+- GB10: the arm64 trialbox-py and trialbox-jvm images build under QEMU. On arm64, scenarios import, a service
+  answers `/healthz`, and Java 17 runs the validator jar. The pinned third-party digests include arm64. vLLM on GB10
+  itself needs the hardware (platform fallback).
+- `make lint` clean; `make test` 252 passed; `make test-integration` 43 passed; `make test-egress` 1 passed;
+  `make test-e2e` 6 passed (the test stack now uses its own settings with a higher per-sender limit after the daily
+  limit of 20 correctly refused the 21st e2e mail); the audit chain verifies (1,342 events).

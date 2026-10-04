@@ -125,6 +125,7 @@ markers = [
   "e2e: end-to-end through email against the compose test profile",
   "llm: requires a real LLM endpoint (GPU or cloud)",
   "perf: performance benchmarks",
+  "egress: host nftables egress test (root, nft, iproute2, running compose stack; TB_EGRESS_TEST=1)",
   "slow: slow tests",
 ]
 timeout = 900

@@ -3,7 +3,12 @@
 # Profiles: "stub" (CPU / macOS: deterministic LLM stub), "gpu" (vLLM), "test" (GreenMail + MailHog).
 name: trialbox
 
+x-logging: &logging   # no PHI in logs (pids only); size-based rotation keeps well under the 180-day retention
+  driver: json-file
+  options: {max-size: "50m", max-file: "5"}
+
 x-py: &py
+  logging: *logging
   image: ${TB_IMAGE:-trialbox-py:1.0.0}
   build:
     context: ..
@@ -23,6 +28,7 @@ x-py: &py
 
 services:
   minio:
+    logging: *logging
     # Official minio/minio images are no longer published on Docker Hub (DECISIONS D-21): community fork, multi-arch.
     image: ${MINIO_IMAGE:-pgsty/minio:latest@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372}
     command: ["server", "/data", "--console-address", ":9001"]
@@ -39,6 +45,7 @@ services:
       retries: 10
 
   fhir-db:
+    logging: *logging
     image: ${POSTGRES_IMAGE:-postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}
     environment:
       POSTGRES_DB: hapi
@@ -54,6 +61,7 @@ services:
       retries: 10
 
   fhir-store:
+    logging: *logging
     image: ${HAPI_IMAGE:-hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e}
     depends_on:
       fhir-db: {condition: service_healthy}
@@ -164,6 +172,7 @@ services:
         aliases: [llm-service]
 
   llm-service:
+    logging: *logging
     profiles: [gpu]
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.11.0}
     command:

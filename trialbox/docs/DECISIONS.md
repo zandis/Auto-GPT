@@ -489,3 +489,89 @@ Counting and simulation:
 
 **D-75 COHORT schedule.** Quarterly, on the 1st of January, April, July and October at `settings.schedule.cohort`,
 for `settings.cohort.rulesets` (else every approved cohort ruleset).
+
+**D-76 Egress allowlist.** `deploy/network.sh` (a wrapper around the standard-library `deploy/egress.py`) renders
+one nftables table, `inet trialbox_egress`, from `docker inspect` of the compose project. Its forward hook runs at
+priority −10, before Docker's own chains.
+- It allows established traffic, traffic between the box's own subnets, and the allowlisted source-container →
+  destination-IP:port pairs.
+- It drops everything else leaving any TrialBox subnet.
+- Host names are resolved when the rules are applied. Re-applying after a restart is the operator's job (a systemd
+  unit; docs/HARDENING.md).
+- The compose network `trialbox-net` is also `internal: true`, so services that are not on `trialbox-egress` have
+  no route out at all.
+
+The allowlist follows §10.1. On top of it:
+- criteria-compiler → clinicaltrials.gov:443 when `TB_CTGOV_MODE=live`, because §8.3 needs the public registry;
+- `EGRESS_EXTRA` for site-specific additions.
+
+`make test-egress` (root) builds a fake outside host in a network namespace, shows it is reachable without the
+rules, and asserts that with the rules only orchestrator → NHI and mail-gateway → SMTP connect.
+
+**D-77 Offline update bundles.** A bundle is an uncompressed tar with exactly `manifest.json` (UpdateManifest),
+`manifest.json.sig` (base64 Ed25519 over the manifest bytes) and `files/<path>` per entry.
+- `tools/verify_update.py` rejects: links, absolute or `..` paths, duplicate, extra or missing members, a bad
+  signature or wrong key, a schema violation, and a size or sha256 mismatch.
+- It stages payloads re-hashed as `.part` files and removes them all on any rejection.
+- `tools/apply_update.sh` runs verification in a network-less trialbox-py container, or with the host's Python
+  when `cryptography` is present.
+- It applies by kind: images with `docker load`, models into `TB_MODELS_DIR`, rulesets through
+  `criteria_compiler.import_ruleset`. Imported rulesets must be approved and at or above the equivalence gate;
+  existing tags are immutable and the same content is idempotent.
+- It writes an `update.applied` audit event. `--dry-run` verifies and stages only.
+
+The box ships no vendor key: the site installs `deploy/keys/vendor_ed25519.pub` at commissioning. Tests use
+ephemeral keys.
+
+**D-78 Retention.** The daily `RETENTION` job deletes objects by `last_modified`:
+- `attachments/` after `attachments_days`;
+- `outputs/` and `ctgov/` after `outputs_days`.
+
+One `retention.deleted` audit event per job lists each key with the sha256 recorded when it was created.
+
+Pools and feedback are deleted for rulesets that are no longer approved on the box and untouched for
+`pool_months_after_ruleset`. The box does not record a retirement date, so the last evaluation stands in for it.
+
+After each successful ingest the adapter prunes NDJSON, parquet and DuckDB snapshots. It keeps the last
+`nightly_snapshots`, the last snapshot of each of the `month_end_snapshots_months` completed months, and always
+`CURRENT`.
+
+Containers log through json-file with 5 × 50 MB rotation; logs hold no PHI. The audit chain is never deleted by the
+box.
+
+**D-79 GB10.** `deploy/docker-compose.gb10.yml` sets `platform: linux/arm64` on every service.
+- vLLM is `eugr/spark-vllm` station 2026-10-01, pinned by its arm64 manifest digest, run with `vllm serve`, memory
+  fraction 0.60 (unified memory).
+- HAPI gets an explicit heap.
+- The embedder runs on CUDA (`TB_EMBED_DEVICE`).
+- The pinned third-party digests (MinIO, Postgres, HAPI, Temurin) are multi-arch indexes that include arm64. MailHog,
+  used only by the test profile, is amd64-only.
+- NVIDIA driver 580.142 is pinned and held; `deploy/check_host.sh --gb10` fails otherwise.
+
+Verified here:
+- every lock entry resolves to an aarch64 wheel;
+- the trialbox-py and trialbox-jvm images build for linux/arm64 under QEMU emulation;
+- the arm64 image imports and serves.
+
+Not possible here: running vLLM on a GB10, since the host has no GPU (platform fallback).
+
+**D-80 Bench method.** `tools/bench.py` runs the real code path of each §11.3 job at a size the host can hold,
+then projects linearly to the target size by patients and criteria.
+- FEAS runs on a lake amplified to 300k patients (DuckDB copies with suffixed ids) with GZQO over 36 month-ends.
+- SCREEN measures CQL `$evaluate` on fhir-store for every loaded patient.
+- NAV, MICROBATCH and compile run in process or against the compose stack.
+
+The LLM share (judge, ir_extract, draft_doc) needs the reference GPU. With the stub it is reported as not
+measured, so here the bench covers the deterministic share only. `--llm-url` points the same tasks at a real model.
+
+Two findings from the bench run (docs/BENCH.md):
+- **Lake memory cap.** DuckDB had no `memory_limit`, and a 300k-patient FEAS OOM-killed the host. Lake connections
+  now set `memory_limit` (`TB_LAKE_MEMORY_LIMIT`, default 40 % of RAM) and spill to `/data/lake/tmp`.
+- **Ingest memory.** Ingest is in-memory, about 0.33 GB per 1,000 patients. A 50k nightly delta needs the reference
+  box's RAM; smaller hosts must ingest in `--since` chunks. Streaming the mapping is the improvement to make if a
+  site's delta outgrows its RAM.
+
+**D-81 Secrets at rest.** SPEC mentions SQLCipher for the pid map. TrialBox encrypts each pid-map row with
+AES-GCM under `pid_map.key` (D-10, D-66), which avoids a native SQLCipher build. That key and the site HMAC key are
+TPM-sealed at rest with `systemd-creds --with-key=tpm2` and decrypted into the secrets volume at start. The disk is
+LUKS2 with TPM2 unlock, and swap is off (docs/HARDENING.md; checked by `deploy/check_host.sh`).

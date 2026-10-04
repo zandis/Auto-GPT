@@ -23,6 +23,10 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    egress = pytest.mark.skip(reason="host egress test: run `make test-egress` as root with the stack up")
+    for item in items:
+        if item.get_closest_marker("egress") and os.environ.get("TB_EGRESS_TEST") != "1":
+            item.add_marker(egress)
     if os.environ.get("TB_INTEGRATION") == "1":
         return
     skip = pytest.mark.skip(reason="needs compose services (set TB_INTEGRATION=1, run `make up-test`)")

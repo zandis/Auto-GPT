@@ -345,6 +345,19 @@ class JobDB:
             rows = self._con.execute(sql + " ORDER BY submitted_at", (bundle_sha, bundle_sha)).fetchall()
         return [dict(zip(cols, r, strict=True)) for r in rows]
 
+    def prune_inactive(self, approved: set[str], cutoff_iso: str) -> dict[str, int]:
+        """Retention (SPEC §10.3): pool / feedback rows of rulesets no longer approved here, untouched since cutoff."""
+        keep = sorted(approved) or [""]
+        marks = ",".join("?" for _ in keep)
+        with self.tx() as con:
+            pool = con.execute(
+                f"DELETE FROM pool WHERE ruleset NOT IN ({marks}) AND last_eval < ?", (*keep, cutoff_iso)
+            ).rowcount
+            feedback = con.execute(
+                f"DELETE FROM feedback WHERE ruleset NOT IN ({marks}) AND received_at < ?", (*keep, cutoff_iso)
+            ).rowcount
+        return {"pool": int(pool), "feedback": int(feedback)}
+
     # ------------------------------------------------------------------ alliance cohort tables (COHORT MERGE)
     _COHORT_COLS = (
         "site_id",
@@ -414,6 +427,12 @@ class JobDB:
                     row["compiled_at"],
                 ),
             )
+
+    def trial_cache_all(self) -> list[dict[str, Any]]:
+        cols = ("nct_id", "last_update", "version", "draft_zip_key", "equivalence_pct", "compiled_at")
+        with self._lock:
+            rows = self._con.execute(f"SELECT {', '.join(cols)} FROM trial_cache ORDER BY nct_id").fetchall()
+        return [dict(zip(cols, r, strict=True)) for r in rows]
 
     def trial_cache_get(self, nct_id: str, last_update: str) -> dict[str, Any] | None:
         cols = ("nct_id", "last_update", "version", "draft_zip_key", "equivalence_pct", "compiled_at")

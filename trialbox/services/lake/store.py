@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -59,6 +60,16 @@ class RebuildStats:
     chunks: int
     embedded_new: int
     seconds: float
+
+
+def memory_limit() -> str:
+    """``TB_LAKE_MEMORY_LIMIT`` (e.g. ``8GB``) or 40 % of physical memory — the lake shares the host with HAPI,
+    MinIO and (on GB10) the model in unified memory."""
+    env = os.environ.get("TB_LAKE_MEMORY_LIMIT")
+    if env:
+        return env
+    total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    return f"{max(1, int(total * 0.4 / 2**30))}GB"
 
 
 class Lake:
@@ -204,6 +215,11 @@ class Lake:
             row = con.execute("SELECT current_setting('lock_configuration')").fetchone()
             if not (row and row[0]):
                 con.execute(f"LOAD '{fts_extension_path()}'")
+                # bounded memory, spill to the lake volume: a hospital-scale FEAS must not take the host down (D-80)
+                (self.dir / "tmp").mkdir(exist_ok=True)
+                con.execute(f"SET memory_limit = '{memory_limit()}'")
+                con.execute(f"SET temp_directory = '{self.dir / 'tmp'}'")
+                con.execute("SET preserve_insertion_order = false")
                 con.execute("SET enable_external_access = false")
                 con.execute("SET lock_configuration = true")
         return con

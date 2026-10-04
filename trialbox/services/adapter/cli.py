@@ -66,6 +66,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         resp.raise_for_status()
         return RebuildResult.model_validate(resp.json())
 
+    ret = cfg.settings.retention
     ac = AdapterConfig(
         lake_dir=lake_dir,
         secrets_dir=Path(cfg.env.secrets_dir),
@@ -77,6 +78,10 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         validation_max_pct=cfg.settings.thresholds.validation_error_max_pct,
         rebuild=rebuild,
         registry=_registry(cfg.settings.registry_source),
+        keep_nightly=int(ret.nightly_snapshots if ret and ret.nightly_snapshots is not None else 3),
+        keep_month_end_months=int(
+            ret.month_end_snapshots_months if ret and ret.month_end_snapshots_months is not None else 36
+        ),
     )
     default_path = ds.path or (os.environ.get(ds.dsn_env, "") if ds.dsn_env else "")
     return ac, ds.type, default_path

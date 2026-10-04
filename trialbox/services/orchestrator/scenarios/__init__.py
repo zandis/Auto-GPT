@@ -15,6 +15,7 @@ def registry() -> dict[str, Scenario]:
         feedback,
         microbatch,
         nav,
+        retention,
         screen,
         submit,
     )
@@ -31,5 +32,6 @@ def registry() -> dict[str, Scenario]:
         "STATUS": admin.status,
         "CANCEL": admin.cancel,
         "INGEST": admin.ingest,
+        "RETENTION": retention.run,
         "SUBMIT": submit.run,
     }
