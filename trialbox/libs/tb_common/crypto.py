@@ -72,9 +72,7 @@ def ed25519_generate() -> tuple[bytes, bytes]:
     priv = key.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
     )
-    pub = key.public_key().public_bytes(
-        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-    )
+    pub = key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
     return priv, pub
 
 

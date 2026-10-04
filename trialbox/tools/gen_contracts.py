@@ -162,9 +162,7 @@ def main() -> int:
         return 0
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(code, encoding="utf-8")
-    (OUT.parent / "__init__.py").write_text(
-        '"""Generated pydantic models (do not edit)."""\n', encoding="utf-8"
-    )
+    (OUT.parent / "__init__.py").write_text('"""Generated pydantic models (do not edit)."""\n', encoding="utf-8")
     print(f"wrote {OUT.relative_to(ROOT)} ({code.count(chr(10))} lines)")
     return 0
 

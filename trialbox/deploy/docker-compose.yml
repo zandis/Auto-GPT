@@ -12,9 +12,8 @@ x-py: &py
   init: true
   restart: unless-stopped
   networks: [trialbox-net]
-  volumes:
+  volumes: &settings_vol
     - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
-    - tb-data:/data
   healthcheck: &pyhealth
     test: ["CMD", "python", "-c", "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"PORT\"]}/healthz', timeout=4).status==200 else 1)"]
     interval: 15s
@@ -84,14 +83,20 @@ services:
 
   lake:
     <<: *py
-    command: ["uvicorn", "lake.app:app", "--host", "0.0.0.0", "--port", "8013"]
-    environment: {PORT: "8013", TB_SERVICE_NAME: lake}
+    command: ["uvicorn", "lake.app:app", "--host", "0.0.0.0", "--port", "8013", "--workers", "2"]
+    environment: {PORT: "8013", TB_SERVICE_NAME: lake, TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http}
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - lake-data:/data/lake
 
   embed-service:
     <<: *py
     image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
     command: ["uvicorn", "embed_service.app:app", "--host", "0.0.0.0", "--port", "8014"]
-    environment: {PORT: "8014", TB_SERVICE_NAME: embed-service}
+    environment: {PORT: "8014", TB_SERVICE_NAME: embed-service, TB_EMBED_MODEL_PATH: /models/bge-m3}
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - "${TB_MODELS_DIR:-./models}:/models:ro"
 
   doc-parser:
     <<: *py
@@ -101,27 +106,51 @@ services:
 
   criteria-compiler:
     <<: *py
-    image: ${TB_COMPILER_IMAGE:-trialbox-py:1.0.0}
+    image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
     command: ["uvicorn", "criteria_compiler.app:app", "--host", "0.0.0.0", "--port", "8012"]
-    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler}
+    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler, TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit}
     networks: [trialbox-net, egress-net]   # only service allowed to reach CLOUD_LLM_BASE_URL (network.sh)
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - rulesets-data:/data/rulesets
+      - audit-data:/data/audit
 
   adapter:
     <<: *py
+    image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
     command: ["uvicorn", "adapter.app:app", "--host", "0.0.0.0", "--port", "8016"]
-    environment: {PORT: "8016", TB_SERVICE_NAME: adapter}
+    environment: {PORT: "8016", TB_SERVICE_NAME: adapter, TB_LAKE_DIR: /data/lake, TB_ADAPTER_LAKE: http,
+                  TB_AUDIT_DIR: /data/audit, TB_SECRETS_DIR: /run/secrets/trialbox, TB_VALIDATOR_XMX: 3g}
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ${TB_SOURCE_DIR:-../tests/fixtures/synthetic_patients/site-a}:/data/source/site-a:ro
+      - lake-data:/data/lake
+      - audit-data:/data/audit
+      - tb-secrets:/run/secrets/trialbox
 
   orchestrator:
     <<: *py
+    image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
     command: ["uvicorn", "orchestrator.app:app", "--host", "0.0.0.0", "--port", "8010"]
-    environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator}
+    environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator, TB_AUDIT_DIR: /data/audit, TB_RULESETS_DIR: /data/rulesets,
+                  TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox}
     networks: [trialbox-net, egress-net]   # only service allowed to reach NHI_TWPAS_BASE_URL (network.sh)
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - orch-data:/data/orchestrator
+      - audit-data:/data/audit
+      - rulesets-data:/data/rulesets:ro
+      - tb-secrets:/run/secrets/trialbox
 
   mail-gateway:
     <<: *py
     command: ["uvicorn", "mail_gateway.app:app", "--host", "0.0.0.0", "--port", "8015"]
-    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway}
+    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway, TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail}
     networks: [trialbox-net, egress-net]   # only service allowed to reach IMAP/SMTP (network.sh)
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - audit-data:/data/audit
+      - mail-data:/data/mail
 
   llm-stub:
     <<: *py
@@ -168,6 +197,11 @@ networks:
     name: trialbox-egress  # host-level nftables (network.sh) restricts destinations per container
 
 volumes:
-  tb-data:
   minio-data:
   fhir-pg:
+  lake-data:
+  audit-data:
+  orch-data:
+  rulesets-data:
+  mail-data:
+  tb-secrets:

@@ -74,7 +74,7 @@ include = [
 "*" = ["*.json", "*.yaml", "*.yml", "*.md", "*.cql", "*.sql", "*.j2", "*.html", "*.docx", "*.csv", "*.parquet", "*.ttf"]
 
 [tool.ruff]
-line-length = 110
+line-length = 120
 target-version = "py312"
 extend-exclude = ["libs/tb_contracts/generated"]
 
@@ -83,7 +83,7 @@ select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PL", "S"]
 ignore = [
   "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "PLC0415",
   "S101", "S603", "S607", "S608", "S311", "RUF001", "RUF002", "RUF003",
-  "N815", "SIM108", "PLW2901", "S104", "S324", "S105", "S106", "PLR0917", "PLW0603",
+  "N815", "SIM108", "PLW2901", "S104", "S324", "S105", "S106", "PLR0917", "PLW0603", "N818", "N812", "RUF043",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -104,7 +104,7 @@ warn_unused_ignores = true
 module = [
   "docxtpl.*", "docx.*", "py7zr.*", "apscheduler.*", "minio.*", "sqlglot.*", "duckdb.*",
   "pyarrow.*", "matplotlib.*", "fhir.*", "docling.*", "sentence_transformers.*", "pypdf.*",
-  "uvicorn.*", "numpy.*",
+  "uvicorn.*", "numpy.*", "duckdb_extension_fts.*",
 ]
 ignore_missing_imports = true
 
@@ -125,3 +125,4 @@ markers = [
   "slow: slow tests",
 ]
 timeout = 900
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]

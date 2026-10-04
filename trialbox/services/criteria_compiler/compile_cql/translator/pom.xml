@@ -1,0 +1,16 @@
+<!-- Dependency manifest for the CQL-to-ELM translator CLI (cqframework 5.4.0 = the engine in HAPI 8.12 CR).
+     tools/fetch_jvm_deps.sh runs `mvn dependency:copy-dependencies` on this file; nothing is compiled. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>trialbox</groupId>
+  <artifactId>cql-translator</artifactId>
+  <version>1.0.0</version>
+  <packaging>pom</packaging>
+  <dependencies>
+    <dependency>
+      <groupId>org.cqframework</groupId>
+      <artifactId>cql-to-elm-cli</artifactId>
+      <version>5.4.0</version>
+    </dependency>
+  </dependencies>
+</project>

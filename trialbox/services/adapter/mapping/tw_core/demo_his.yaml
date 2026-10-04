@@ -1,0 +1,267 @@
+# Site mapping: synthetic CGRD-like HIS export -> FHIR R4 (TW Core 1.0.0 profiles where they exist).
+# Used by both source types: csv (one <table>.csv per table) and cgrd_sql (one SQL table per table).
+# Copy this file to onboard a site; only table/column names, code-system URIs and lookups should change.
+version: 1
+name: demo_his
+tz: Asia/Taipei
+systems:
+  icd10cm: http://hl7.org/fhir/sid/icd-10-cm
+  loinc: http://loinc.org
+  ucum: http://unitsofmeasure.org
+  atc: http://www.whocc.no/atc
+  snomed: http://snomed.info/sct
+  nhi_drug: https://trialbox.local/fhir/CodeSystem/nhi-drug
+  nhi_order: https://trialbox.local/fhir/CodeSystem/nhi-order
+  department: https://trialbox.local/fhir/CodeSystem/department
+  score: https://trialbox.local/fhir/CodeSystem/clinical-score
+  lab_local: https://hospa.test/fhir/CodeSystem/lab-local
+  exam_local: https://hospa.test/fhir/CodeSystem/exam-local
+  pid: https://trialbox.local/fhir/sid/pid
+  apply_type: https://trialbox.local/fhir/CodeSystem/nhi-apply-type
+  staff: https://hospa.test/fhir/sid/staff-id
+  encounter_id: https://trialbox.local/fhir/sid/encounter
+  actcode: http://terminology.hl7.org/CodeSystem/v3-ActCode
+  obs_category: http://terminology.hl7.org/CodeSystem/observation-category
+  condition_category: http://terminology.hl7.org/CodeSystem/condition-category
+  condition_clinical: http://terminology.hl7.org/CodeSystem/condition-clinical
+  v2_0203: http://terminology.hl7.org/CodeSystem/v2-0203
+# logical table -> source table; `delta` = change-tracking column used by `adapter run --since`
+tables:
+  patient: {source: patient, key: mrn}
+  practitioner: {source: practitioner, key: staff_id}
+  encounter: {source: encounter, key: enc_no, delta: visit_datetime}
+  appointment: {source: appointment, key: appt_no}
+  diagnosis: {source: diagnosis, key: diag_no, delta: recorded_date}
+  lab: {source: lab, key: lab_no, delta: sample_datetime}
+  vital: {source: vital, key: vital_no, delta: measure_datetime}
+  medication: {source: medication, key: rx_no, delta: order_date}
+  procedure: {source: procedure, key: proc_no, delta: proc_date}
+  report: {source: report, key: rpt_no, delta: exam_date}
+  note: {source: note, key: note_no, delta: note_datetime}
+  claim: {source: claim, key: claim_no, delta: created_date}
+lookups:
+  lab: {file: lab_local_to_loinc.csv, key: local_code}
+static:
+  - resourceType: Organization
+    id: hospital
+    identifier: [{system: "https://trialbox.local/fhir/sid/site", value: "{site_id}"}]
+    name: "{site_id}"
+  - resourceType: Organization
+    id: nhi
+    name: National Health Insurance Administration
+resources:
+  - type: Patient
+    table: patient
+    id: {pid: mrn}
+    profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Patient-twcore
+    elements:
+      identifier[0].system: {template: "{sys.pid}/{site_id}"}
+      identifier[0].value: {pid: mrn}
+      gender: {column: sex, map: {M: male, F: female}, default: unknown}
+      birthDate: {column: birth_date, type: date}
+      deceasedDateTime: {column: death_date, type: datetime}
+  - type: Coverage
+    table: patient
+    id: {hid: mrn}
+    elements:
+      status: {const: active}
+      beneficiary.reference: {ref: {type: Patient, pid: mrn}}
+      payor[0].reference: {const: Organization/nhi}
+  - type: Practitioner
+    table: practitioner
+    id: {column: staff_id}
+    profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Practitioner-twcore
+    elements:
+      identifier[0].system: {template: "{sys.staff}"}
+      identifier[0].value: {column: staff_id}
+      identifier[0].type.coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: EI}}
+  - type: Encounter
+    table: encounter
+    id: {hid: enc_no}
+    profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Encounter-twcore
+    elements:
+      identifier[0].system: {template: "{sys.encounter_id}"}
+      identifier[0].value: {hid: enc_no}
+      status: {const: finished}
+      class.system: {template: "{sys.actcode}"}
+      class.code: {column: enc_type, map: {OPD: AMB, IPD: IMP, ER: EMER}, default: AMB}
+      serviceType.coding[0]: {builder: coding, column: dept_code, system: department}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      participant[0].individual.reference: {ref: {type: Practitioner, column: staff_id}}
+      period.start: {column: visit_datetime, type: datetime}
+  - type: Appointment
+    table: appointment
+    id: {hid: appt_no}
+    elements:
+      status: {column: status, map: {B: booked, A: arrived, C: cancelled, N: noshow}, default: booked}
+      serviceType[0].coding[0]: {builder: coding, column: dept_code, system: department}
+      start: {column: appt_datetime, type: instant}
+      end: {column: appt_datetime, type: instant, add_minutes: duration_min}
+      participant[0].actor.reference: {ref: {type: Patient, pid: mrn}}
+      participant[0].status: {const: accepted}
+      participant[1].actor.reference: {ref: {type: Practitioner, column: staff_id}}
+      participant[1].status: {const: accepted}
+  - type: Condition
+    table: diagnosis
+    id: {hid: diag_no}
+    profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Condition-twcore
+    elements:
+      clinicalStatus.coding[0].system: {template: "{sys.condition_clinical}"}
+      clinicalStatus.coding[0].code: {column: status, map: {A: active, R: resolved}, default: active}
+      category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/condition-category", code: encounter-diagnosis}}
+      code.coding[0]: {builder: coding, column: icd10, system: icd10cm}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      encounter.reference: {ref: {type: Encounter, hid: enc_no}}
+      onsetDateTime: {column: diag_date, type: date}
+      recordedDate: {column: recorded_date, type: date}
+  - type: Observation
+    table: lab
+    id: {hid: lab_no}
+    where: [{lookup: {name: lab, key: local_code, field: code}, not_empty: true}]
+    profile: {lookup: {name: lab, key: local_code, field: profile}}
+    elements:
+      status: {const: final}
+      category[0].coding[0].system: {template: "{sys.obs_category}"}
+      category[0].coding[0].code: {lookup: {name: lab, key: local_code, field: category}}
+      code.coding[0].system: {template: "{sys.loinc}", when: {lookup: {name: lab, key: local_code, field: system}, equals: loinc}}
+      code.coding[0].code: {lookup: {name: lab, key: local_code, field: code}, when: {lookup: {name: lab, key: local_code, field: system}, equals: loinc}}
+      code.coding[0].display: {lookup: {name: lab, key: local_code, field: display}, when: {lookup: {name: lab, key: local_code, field: system}, equals: loinc}}
+      code.coding[1].system: {template: "{sys.score}", when: {lookup: {name: lab, key: local_code, field: system}, equals: score}}
+      code.coding[1].code: {lookup: {name: lab, key: local_code, field: code}, when: {lookup: {name: lab, key: local_code, field: system}, equals: score}}
+      code.coding[1].display: {lookup: {name: lab, key: local_code, field: display}, when: {lookup: {name: lab, key: local_code, field: system}, equals: score}}
+      code.coding[2]: {builder: coding, column: local_code, system: lab_local, display_column: item_name}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      effectiveDateTime: {column: sample_datetime, type: datetime}
+      $merge: {builder: lab_value, lookup: lab, key: local_code, column: result_value}
+  - type: Observation
+    table: vital
+    id: {hid: vital_no, suffix: "-HT"}
+    where: [{column: height_cm, not_empty: true}]
+    profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-body-height-twcore
+    elements:
+      status: {const: final}
+      category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/observation-category", code: vital-signs}}
+      code.coding[0]: {const: {system: "http://loinc.org", code: 8302-2, display: Body height}}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      effectiveDateTime: {column: measure_datetime, type: datetime}
+      valueQuantity.value: {column: height_cm, type: decimal}
+      valueQuantity.unit: {const: cm}
+      valueQuantity.system: {template: "{sys.ucum}"}
+      valueQuantity.code: {const: cm}
+  - type: Observation
+    table: vital
+    id: {hid: vital_no, suffix: "-WT"}
+    where: [{column: weight_kg, not_empty: true}]
+    profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-body-weight-twcore
+    elements:
+      status: {const: final}
+      category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/observation-category", code: vital-signs}}
+      code.coding[0]: {const: {system: "http://loinc.org", code: 29463-7, display: Body weight}}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      effectiveDateTime: {column: measure_datetime, type: datetime}
+      valueQuantity.value: {column: weight_kg, type: decimal}
+      valueQuantity.unit: {const: kg}
+      valueQuantity.system: {template: "{sys.ucum}"}
+      valueQuantity.code: {const: kg}
+  - type: Observation
+    table: vital
+    id: {hid: vital_no, suffix: "-BP"}
+    where: [{column: sbp, not_empty: true}, {column: dbp, not_empty: true}]
+    profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-bloodPressure-twcore
+    elements:
+      status: {const: final}
+      category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/observation-category", code: vital-signs}}
+      code.coding[0]: {const: {system: "http://loinc.org", code: 85354-9, display: Blood pressure panel with all children optional}}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      effectiveDateTime: {column: measure_datetime, type: datetime}
+      component[0].code.coding[0]: {const: {system: "http://loinc.org", code: 8480-6, display: Systolic blood pressure}}
+      component[0].valueQuantity.value: {column: sbp, type: decimal}
+      component[0].valueQuantity.unit: {const: mmHg}
+      component[0].valueQuantity.system: {template: "{sys.ucum}"}
+      component[0].valueQuantity.code: {const: "mm[Hg]"}
+      component[1].code.coding[0]: {const: {system: "http://loinc.org", code: 8462-4, display: Diastolic blood pressure}}
+      component[1].valueQuantity.value: {column: dbp, type: decimal}
+      component[1].valueQuantity.unit: {const: mmHg}
+      component[1].valueQuantity.system: {template: "{sys.ucum}"}
+      component[1].valueQuantity.code: {const: "mm[Hg]"}
+  - type: MedicationRequest
+    table: medication
+    id: {hid: rx_no}
+    profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/MedicationRequest-twcore
+    elements:
+      status: {column: status, map: {active: active, completed: completed, stopped: stopped}, default: active}
+      intent: {const: order}
+      medicationCodeableConcept.coding[0]: {builder: coding, column: nhi_drug_code, system: nhi_drug, display_column: drug_name}
+      medicationCodeableConcept.coding[1]: {builder: coding, column: atc, system: atc}
+      medicationCodeableConcept.text: {column: drug_name}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      encounter.reference: {ref: {type: Encounter, hid: enc_no}}
+      authoredOn: {column: order_date, type: date}
+      dosageInstruction[0].text: {template: "{daily_dose} {dose_unit}"}
+      dispenseRequest.validityPeriod: {builder: period, start: start_date, end: end_date, type: date}
+  - type: Procedure
+    table: procedure
+    id: {hid: proc_no}
+    profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Procedure-twcore
+    elements:
+      status: {const: completed}
+      code.coding[0]: {builder: coding, column: order_code, system: nhi_order, display_column: proc_name}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      performedDateTime: {column: proc_date, type: date}
+  - type: DiagnosticReport
+    table: report
+    id: {hid: rpt_no}
+    profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/DiagnosticReport-twcore
+    elements:
+      status: {const: final}
+      category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/v2-0074", code: RAD}}
+      code.coding[0]: {const: {system: "http://loinc.org", code: 36643-5, display: "XR Chest 2 Views"}, when: {column: exam_code, equals: RAD-CXR}}
+      code.coding[1]: {builder: coding, column: exam_code, system: exam_local, display_column: exam_name}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      effectiveDateTime: {column: exam_date, type: date}
+      conclusion: {column: conclusion}
+  - type: DocumentReference
+    table: note
+    id: {hid: note_no}
+    profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/DocumentReference-twcore
+    elements:
+      status: {const: current}
+      type.coding[0].system: {template: "{sys.loinc}"}
+      type.coding[0].code: {column: note_type, map: {progress: 11506-3, admission: 34117-2, discharge: 18842-5, consult: 11488-4, nursing: 34746-8}, default: 11506-3}
+      type.text: {column: note_type}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      date: {column: note_datetime, type: instant}
+      context.encounter[0].reference: {ref: {type: Encounter, hid: enc_no}}
+      content[0].attachment.contentType: {const: "text/plain; charset=utf-8"}
+      content[0].attachment.data: {base64: text}
+  - type: Claim
+    table: claim
+    id: {hid: claim_no}
+    elements:
+      status: {const: active}
+      type.coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/claim-type", code: pharmacy}}
+      use: {const: preauthorization}
+      patient.reference: {ref: {type: Patient, pid: mrn}}
+      created: {column: created_date, type: date}
+      provider.reference: {const: Organization/hospital}
+      priority.coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/processpriority", code: normal}}
+      insurance[0].sequence: {const: 1}
+      insurance[0].focal: {const: true}
+      insurance[0].coverage.reference: {ref: {type: Coverage, hid: mrn}}
+      item[0].sequence: {const: 1}
+      item[0].productOrService.coding[0]: {builder: coding, column: product_code, system: nhi_drug}
+      subType.coding[0]: {builder: coding, column: apply_type, system: apply_type}
+  - type: ClaimResponse
+    table: claim
+    id: {hid: claim_no}
+    elements:
+      status: {const: active}
+      type.coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/claim-type", code: pharmacy}}
+      use: {const: preauthorization}
+      patient.reference: {ref: {type: Patient, pid: mrn}}
+      created: {column: created_date, type: date}
+      insurer.reference: {const: Organization/nhi}
+      request.reference: {ref: {type: Claim, hid: claim_no}}
+      outcome: {column: outcome, map: {approved: complete, denied: complete, pending: queued}, default: queued}
+      disposition: {column: outcome}
+      preAuthPeriod: {builder: period, start: approval_start, end: approval_end, type: date}

@@ -7,7 +7,9 @@ ARG PYTHON_IMAGE=python:3.12-slim
 FROM ${PYTHON_IMAGE}
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONPATH=/app/libs:/app/services:/app MPLBACKEND=Agg TB_DATA_DIR=/data MPLCONFIGDIR=/tmp/mpl
-RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin tb && mkdir -p /data /app && chown tb:tb /data
+RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin tb \
+    && mkdir -p /app /data/lake /data/audit /data/orchestrator /data/rulesets /data/mail /run/secrets/trialbox \
+    && chown -R tb:tb /data /run/secrets/trialbox && chmod 700 /run/secrets/trialbox
 COPY deploy/requirements.lock /tmp/requirements.lock
 RUN --mount=type=secret,id=extra_ca,required=false \
     set -eux; CERT=""; if [ -f /run/secrets/extra_ca ]; then CERT="--cert /run/secrets/extra_ca"; fi; \

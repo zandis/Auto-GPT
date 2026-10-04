@@ -18,12 +18,27 @@ services:
   orchestrator:
     networks: [trialbox-net, egress-net, host-net]
     ports: ["127.0.0.1:8010:8010"]
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - orch-data:/data/orchestrator
+      - audit-data:/data/audit
+      - rulesets-data:/data/rulesets:ro
+      - ../.cache/test-secrets:/run/secrets/trialbox
   fhir-store:
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:8080:8080"]
   lake:
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:8013:8013"]
+  adapter:
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:8016:8016"]
+    volumes:  # test-only: a known site key so the harness can compute pids (production: TPM-sealed, in-box only)
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ${TB_SOURCE_DIR:-../tests/fixtures/synthetic_patients/site-a}:/data/source/site-a:ro
+      - lake-data:/data/lake
+      - audit-data:/data/audit
+      - ../.cache/test-secrets:/run/secrets/trialbox
   minio:
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:9000:9000"]

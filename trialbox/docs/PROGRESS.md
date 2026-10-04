@@ -28,3 +28,38 @@
 make venv && make lint test
 make images && make up-test          # stub LLM + GreenMail/MailHog, ports on 127.0.0.1
 ```
+
+## Phase 1 — Data (done)
+
+**Works**
+- `tools/make_fixtures.py` + `tools/synth/`: deterministic synthetic hospitals — site A 600 patients, site B 520 —
+  as HIS-like CSV and a SQLite `cgrd_sql` export (13 tables incl. vitals, zh-TW notes, claims, consent registry).
+  Per-patient planted states cover pass/fail/null for every GZQO and RA-BIO criterion (designed for phases 2/5),
+  note ground truth (`note_truth.json`), 20 retrieval needles (`needles.json`). Values are kept away from rule
+  thresholds so CQL decimal vs SQL double cannot disagree by rounding.
+- `services/adapter`: declarative mapping engine (`mapping/engine.py`; YAML expressions: const/column/template/pid/
+  hid/ref/lookup/base64/builders) + `mapping/tw_core/demo_his.yaml` (TW Core 1.0.0 profiles), sources `csv`,
+  `cgrd_sql` (SQLAlchemy), `fhir_bulk` (pseudonymising), `ssmix2` (explicit v1.1 error), deterministic NDJSON writer
+  with delta merge, HAPI loader (transactions of 500, 4 workers), encrypted pid map, 1 % deterministic validation
+  sample through the **HL7 validator 6.10.4 running offline** (structural fallback when no JRE), `ingest_report.json`,
+  audit event; CLI `adapter run` and `POST /run`.
+- `services/lake`: Parquet per snapshot + per-snapshot DuckDB with FTS (offline wheel) over CJK-bigram tokens,
+  `/query` (sqlglot SELECT-only + table allowlist + read-only, external access disabled, 300 s interrupt, Arrow IPC),
+  `/chunks/search` (BM25 ∪ cosine, RRF, pid + date window), `/rebuild` with a sha-keyed embedding cache.
+- `services/embed_service`: `/embed` (bge-m3 via sentence-transformers in production, `hash` mode in CPU CI).
+- `trialbox-jvm` image (JRE 17 + validator + cql-to-elm 5.4.0 + offline FHIR package cache), `tools/fetch_jvm_deps.sh`.
+
+**DoD evidence**
+- 600 synthetic patients ingested (18,206 FHIR resources) through `POST adapter:8016/run` in compose; HAPI holds them.
+- HL7 validator sample (≈196 resources, every type) **0 errors** (R4 + TW Core 1.0.0).
+- `/chunks/search` returns the planted chunk at rank 1 for **20/20** seeded queries (in-process and over HTTP).
+- `make lint` clean; `make test` 100 passed; `make test-integration` (compose) 4 + 11 passed.
+
+**Stubbed / limits** — `ssmix2` reader (v1.1, D-28); terminology bindings unchecked without a terminology server (D-26).
+
+**Run**
+```bash
+make fixtures && make images && make up-test
+curl -X POST localhost:8016/run -H 'content-type: application/json' -d '{"source":"csv"}'
+make test-integration
+```

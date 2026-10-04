@@ -106,3 +106,48 @@ implementation and every OS package is extra attack surface on the appliance. Im
 git operations use `dulwich` (pure Python), 7z AES-256 uses `py7zr`, PID 1 is compose `init: true` (tini), PDF fonts
 are copied from the repository's `deploy/fonts/` (fetched by `tools/fetch_fonts.sh`), and the compiler's JRE 17 is
 copied from the multi-arch `eclipse-temurin:17-jre` image in a multi-stage build.
+
+## Phase 1
+
+**D-24 Synthetic codes.** ICD-10-CM and ATC codes in fixtures are real classification codes; NHI drug codes and NHI
+order codes are synthetic placeholders in the NHI format (the site loads its own tables). LOINC codes marked
+`verify` in `lab_local_to_loinc.csv` (anti-HBc 16933-4, IGRA 71774-4) must be confirmed by the site laboratory.
+DAS28 components (TJC28, SJC28, patient global) use the TrialBox local system
+`https://trialbox.local/fhir/CodeSystem/clinical-score` because no LOINC code was confirmed for them.
+
+**D-25 Verdict semantics.** `C_<ID>` is always the criterion *predicate* (for exclusions: "the excluded condition is
+present"). The `judge` prompt answers the criterion's yes/no `note_question` (`pass` = yes, `fail` = no). Candidate
+lists show verdicts from the eligibility perspective: inclusion pass = predicate true; exclusion pass = predicate
+false. Note ground truth in fixtures is stored as yes/no/unknown of the predicate.
+
+**D-26 Offline FHIR package cache.** packages.fhir.org is unreachable from the build network and the appliance has no
+egress, so `tools/fetch_fhir_packages.py` builds the HL7 validator cache from the npm mirror of HL7 packages
+(`@hl7/hl7.fhir.r4.core`, `hl7.terminology.r4`, `hl7.fhir.uv.extensions.r4`, `tw.gov.mohw.twcore`, ...). The validator
+pins some dependency versions the mirror does not carry; those are installed as version aliases (relative
+symlinks) of the nearest available release, and two cyclic/unused dependencies are dropped (terminology ↔ extensions;
+TW Core → IPS/SDC, used only by profiles TrialBox never claims). The validator runs with `-tx n/a -no-http-access`,
+so terminology bindings are reported as warnings, not errors (documented limitation; sites with a local terminology
+server can pass `-tx`).
+
+**D-27 Code-system URIs.** TW Core 1.0.0 publishes its local code systems (ICD-10-CM-TW, NHI medication, ...) as
+`content: complete` with example-sized concept lists, so emitting those URIs makes the validator reject real codes.
+TrialBox emits `http://hl7.org/fhir/sid/icd-10-cm`, `http://www.whocc.no/atc`, LOINC/UCUM, and
+`https://trialbox.local/fhir/CodeSystem/{nhi-drug,nhi-order,department}` for NHI lists; TWPAS bundles re-code to the
+IG's required systems at build time (phase 6).
+
+**D-28 `ssmix2` source.** Not in v1.0 for Taiwan sites; the reader raises an explicit `NotImplementedError` pointing to
+the CSV route with a JP Core mapping (`services/adapter/mapping/jp_core/README.md`). `fhir_bulk` is implemented
+(pseudonymises ids/references and drops direct identifiers).
+
+**D-29 Vital signs as panels.** The HL7 validator enforces the R4 vital-signs profiles: blood pressure is emitted as a
+85354-9 panel with 8480-6/8462-4 components (TW Core `Observation-bloodPressure-twcore`), body height/weight with
+exactly one LOINC coding. The lake flattens components into their own `observation` rows (`oid = <id>.<code>`), and
+the CQL compiler retrieves component codes through the panel (phase 2).
+
+**D-30 Resource ids.** All non-Patient resource ids are `HMAC-SHA256(site_key, "<Type>|<source key>")[:32]`, so no HIS
+key (encounter number, order number) leaves the adapter; Practitioner ids stay the staff id (needed for scoping).
+Patient resources carry one pseudonymous identifier (`https://trialbox.local/fhir/sid/pid/<site>`), never MRN or
+national ID; names, phone numbers and national IDs in the source are dropped.
+
+**D-31 Volumes.** Compose uses one named volume per concern (lake, audit, orchestrator, rulesets, mail, secrets) mounted
+only into the services that need them; mount points are pre-created in the image with the service uid (10001).

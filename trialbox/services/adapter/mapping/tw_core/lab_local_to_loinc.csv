@@ -1,0 +1,15 @@
+local_code,system,code,display,ucum,factor,category,value_type,answers,profile,verified
+UA,loinc,3084-1,Urate [Mass/volume] in Serum or Plasma,mg/dL,1,laboratory,quantity,,https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-laboratoryResult-twcore,yes
+CRE,loinc,2160-0,Creatinine [Mass/volume] in Serum or Plasma,mg/dL,1,laboratory,quantity,,https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-laboratoryResult-twcore,yes
+HBA1C,loinc,4548-4,Hemoglobin A1c/Hemoglobin.total in Blood,%,1,laboratory,quantity,,https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-laboratoryResult-twcore,yes
+ALT,loinc,1742-6,Alanine aminotransferase [Enzymatic activity/volume] in Serum or Plasma,U/L,1,laboratory,quantity,,https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-laboratoryResult-twcore,yes
+ESR,loinc,4537-7,Erythrocyte sedimentation rate by Westergren method,mm/h,1,laboratory,quantity,,https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-laboratoryResult-twcore,yes
+CRP,loinc,1988-5,C reactive protein [Mass/volume] in Serum or Plasma,mg/L,10,laboratory,quantity,,https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-laboratoryResult-twcore,yes
+HBSAG,loinc,5196-1,Hepatitis B virus surface Ag [Presence] in Serum or Plasma by Immunoassay,,1,laboratory,coded,POS:LA6576-8|Positive;NEG:LA6577-6|Negative,https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-laboratoryResult-twcore,yes
+AHBC,loinc,16933-4,Hepatitis B virus core Ab [Presence] in Serum,,1,laboratory,coded,POS:LA6576-8|Positive;NEG:LA6577-6|Negative,https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-laboratoryResult-twcore,verify
+IGRA,loinc,71774-4,Mycobacterium tuberculosis stimulated gamma interferon [Presence] in Blood,,1,laboratory,coded,POS:LA6576-8|Positive;NEG:LA6577-6|Negative,https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-laboratoryResult-twcore,verify
+HCGU,loinc,2106-3,Choriogonadotropin (pregnancy test) [Presence] in Urine,,1,laboratory,coded,POS:LA6576-8|Positive;NEG:LA6577-6|Negative,https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-laboratoryResult-twcore,yes
+TJC28,score,TJC28,Tender joint count (28 joints),,1,survey,quantity,,,local
+SJC28,score,SJC28,Swollen joint count (28 joints),,1,survey,quantity,,,local
+PTGA,score,PTGA,Patient global assessment of disease activity (VAS 0-100 mm),mm,1,survey,quantity,,,local
+EGFRT,score,EGFR-MUT,EGFR gene mutation (exon 19 del / L858R),,1,laboratory,coded,POS:LA9633-4|Present;NEG:LA9634-2|Absent,,local

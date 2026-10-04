@@ -1,0 +1,10 @@
+.venv
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+data
+deploy/.env
+deploy/models
+tests/fixtures/synthetic_patients/site-*
+*.egg-info

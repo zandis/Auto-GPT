@@ -78,9 +78,7 @@ class FsStore:
                 rel = p.relative_to(base).as_posix()
                 if rel.startswith(rest):
                     st = p.stat()
-                    out.append(
-                        ObjectInfo(f"{bucket}/{rel}", st.st_size, datetime.fromtimestamp(st.st_mtime, UTC))
-                    )
+                    out.append(ObjectInfo(f"{bucket}/{rel}", st.st_size, datetime.fromtimestamp(st.st_mtime, UTC)))
         return out
 
 
@@ -102,9 +100,7 @@ class MinioStore:
 
     def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
         bucket, name = _split(key)
-        self.client.put_object(
-            self._bucket(bucket), name, io.BytesIO(data), len(data), content_type=content_type
-        )
+        self.client.put_object(self._bucket(bucket), name, io.BytesIO(data), len(data), content_type=content_type)
 
     def get(self, key: str) -> bytes:
         from minio.error import S3Error
@@ -139,9 +135,7 @@ class MinioStore:
         out: list[ObjectInfo] = []
         for obj in self.client.list_objects(self._bucket(bucket), prefix=rest, recursive=True):
             out.append(
-                ObjectInfo(
-                    f"{bucket}/{obj.object_name}", int(obj.size or 0), obj.last_modified or datetime.now(UTC)
-                )
+                ObjectInfo(f"{bucket}/{obj.object_name}", int(obj.size or 0), obj.last_modified or datetime.now(UTC))
             )
         return out
 

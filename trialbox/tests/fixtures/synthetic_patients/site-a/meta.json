@@ -1,0 +1,19 @@
+{
+ "counts": {
+  "appointment": 368,
+  "claim": 95,
+  "diagnosis": 1746,
+  "encounter": 4070,
+  "lab": 2837,
+  "medication": 5438,
+  "note": 1040,
+  "patient": 600,
+  "practitioner": 8,
+  "procedure": 8,
+  "registry": 374,
+  "report": 70,
+  "vital": 1213
+ },
+ "ref_date": "2026-10-05",
+ "site_id": "DEMO-A"
+}
