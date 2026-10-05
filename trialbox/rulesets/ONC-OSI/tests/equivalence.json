@@ -1,0 +1,15 @@
+{
+ "disagreements": [],
+ "engine": "hapi-cr $evaluate vs duckdb",
+ "failing": [],
+ "overall_pct": 100.0,
+ "per_criterion": {
+  "ONC-OSI-DOC-01": 100.0,
+  "ONC-OSI-DOC-02": 100.0,
+  "ONC-OSI-EXC-01": 100.0,
+  "ONC-OSI-INC-01": 100.0,
+  "ONC-OSI-INC-02": 100.0,
+  "ONC-OSI-INC-03": 100.0
+ },
+ "sample_size": 200
+}

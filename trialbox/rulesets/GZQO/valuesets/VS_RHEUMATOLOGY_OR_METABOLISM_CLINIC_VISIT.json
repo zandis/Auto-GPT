@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "META",
+      "display": "Endocrinology and Metabolism"
+     },
+     {
+      "code": "RHEU",
+      "display": "Rheumatology"
+     }
+    ],
+    "system": "https://trialbox.local/fhir/CodeSystem/department"
+   }
+  ]
+ },
+ "id": "GZQO-VS-RHEUMATOLOGY-OR-METABOLISM-CLINIC-VISIT",
+ "name": "VS_RHEUMATOLOGY_OR_METABOLISM_CLINIC_VISIT",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "rheumatology or metabolism clinic visit",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-RHEUMATOLOGY-OR-METABOLISM-CLINIC-VISIT",
+ "version": "1.0.0-vc969c56e"
+}

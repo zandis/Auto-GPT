@@ -1,0 +1,31 @@
+{
+ "action": "measure blood pressure",
+ "class": "structured",
+ "id": "GZQO-EXC-09",
+ "kind": "exclusion",
+ "label": "SBP ≥160",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 160.0,
+   "op": ">=",
+   "unit": "mm[Hg]"
+  },
+  "valueset": "VS_SYSTOLIC_BLOOD_PRESSURE",
+  "window": {
+   "anchor": "index",
+   "from_days": -90,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #9",
+ "text": "Uncontrolled hypertension (systolic blood pressure ≥160 mmHg) at screening.",
+ "time_sensitive": true
+}

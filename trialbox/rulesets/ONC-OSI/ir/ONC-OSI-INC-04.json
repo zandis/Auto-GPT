@@ -1,0 +1,23 @@
+{
+ "action": "醫師記錄 ECOG 體能狀態",
+ "class": "note",
+ "fallback": "無結構化替代；由醫師於門診確認",
+ "id": "ONC-OSI-INC-04",
+ "kind": "inclusion",
+ "label": "ECOG 0–1",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "note_question": "病歷是否記載 ECOG 體能狀態為 0 或 1 分？",
+ "review": {
+  "at": "2026-10-04T18:31:44.293650+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "ONC-OSI",
+ "source_ref": "9.20.1 給付條件 #4",
+ "text": "ECOG 體能狀態為 0 至 1 分。",
+ "time_sensitive": false
+}

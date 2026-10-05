@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/screen_feedback.schema.json",
+  "title": "ScreenFeedback",
+  "description": "CRC reply CSV screen_feedback.csv (SPEC 3.6): columns pid,outcome,reason_code,note. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["ruleset", "rows"],
+  "additionalProperties": false,
+  "properties": {
+    "ruleset": {"type": "string"},
+    "rows": {"type": "array", "items": {"$ref": "#/$defs/feedback_row"}}
+  },
+  "$defs": {
+    "feedback_row": {
+      "title": "ScreenFeedbackRow",
+      "type": "object",
+      "required": ["pid", "outcome"],
+      "additionalProperties": false,
+      "properties": {
+        "pid": {"type": "string"},
+        "outcome": {"enum": ["enrolled", "screen_fail", "declined", "not_contacted"]},
+        "reason_code": {"type": ["string", "null"], "description": "criterion id for screen_fail or free code"},
+        "note": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

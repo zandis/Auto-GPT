@@ -1,0 +1,26 @@
+{
+ "class": "structured",
+ "id": "RA-BIO-DOC-01",
+ "kind": "documentation",
+ "label": "HBsAg 報告",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "any",
+  "valueset": "VS_HBSAG",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.4 申請應檢附資料 #1",
+ "suggested_order": "14032C B型肝炎表面抗原",
+ "text": "一年內B型肝炎表面抗原（HBsAg）檢驗報告。",
+ "time_sensitive": false
+}

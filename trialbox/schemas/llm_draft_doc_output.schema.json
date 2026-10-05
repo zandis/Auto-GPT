@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/llm_draft_doc_output.schema.json",
+  "title": "LlmDraftDocOutput",
+  "description": "Output of prompt draft_doc (SPEC 7.6). Schema version 1.0.0.",
+  "type": "object",
+  "required": ["paragraph"],
+  "additionalProperties": false,
+  "properties": {"paragraph": {"type": "string", "maxLength": 1200}}
+}

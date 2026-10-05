@@ -1,0 +1,69 @@
+id: RA-COH
+kind: cohort
+title: 類風濕性關節炎聯盟世代（季度主要條件人數）
+trial_alias: RA-COH
+sponsor: 台灣風濕免疫聯盟（合成範例）
+version: 1.0.0
+status: approved
+source_documents:
+- RA-COH_世代定義_v1.pdf
+protocol_version: v1
+language: zh-TW
+index_date_rule: month_end
+library: TB_RA_COH_v1_0
+criteria:
+- RA-COH-INC-01
+- RA-COH-INC-02
+- RA-COH-INC-03
+- RA-COH-INC-04
+- RA-COH-INC-05
+- RA-COH-INC-06
+scopes:
+  feas:
+    population: hospital
+    lookback_months: 36
+  screen:
+    practitioners: []
+    appointment_window_days: 180
+    recent_encounter_months: 12
+    microbatch_window_days: 14
+  nav:
+    departments: []
+    appointment_window_days: 14
+    renewal_lead_days: 42
+    application_lookback_days: 90
+routing:
+  aggregate_to:
+  - rheu-dr@hospa.test
+  - crc1@hospa.test
+thresholds:
+  tier_high_confidence: 0.75
+  small_cell: 5
+models:
+  judge: qwen3.5-35b-a3b-q4
+  judge_prompt: judge_v3
+review:
+  approved_by: crc1@hospa.test
+  approved_at: '2026-10-04T19:20:45.613966+08:00'
+  rounds: 1
+equivalence:
+  overall_pct: 100.0
+  sample_size: 200
+  per_criterion:
+    RA-COH-INC-01: 100.0
+    RA-COH-INC-02: 100.0
+    RA-COH-INC-03: 100.0
+    RA-COH-INC-04: 100.0
+    RA-COH-INC-05: 100.0
+    RA-COH-INC-06: 100.0
+  failing: []
+  evaluated_at: '2026-10-04T19:20:45.613966+08:00'
+cohort:
+  disease: rheumatoid_arthritis
+  disease_label: 類風濕性關節炎
+  population_criterion: RA-COH-INC-01
+  combinations:
+  - - RA-COH-INC-02
+    - RA-COH-INC-03
+  ctgov_condition: Rheumatoid Arthritis
+  top_n_trials: 3

@@ -1,0 +1,25 @@
+{
+ "class": "structured",
+ "id": "GZQO-EXC-04",
+ "kind": "exclusion",
+ "label": "GLP-1 RA ≤90 d",
+ "logic": {
+  "domain": "medication",
+  "quantifier": "any",
+  "valueset": "VS_GLP_1_RECEPTOR_AGONIST",
+  "window": {
+   "anchor": "index",
+   "from_days": -90,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #4",
+ "text": "Use of a GLP-1 receptor agonist or GIP/GLP-1 receptor agonist within 90 days before screening.",
+ "time_sensitive": true
+}

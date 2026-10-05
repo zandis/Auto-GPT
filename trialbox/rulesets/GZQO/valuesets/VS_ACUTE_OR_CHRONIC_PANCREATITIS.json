@@ -1,0 +1,34 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "K85.20",
+      "display": "Alcohol induced acute pancreatitis without necrosis or infection"
+     },
+     {
+      "code": "K85.90",
+      "display": "Acute pancreatitis without necrosis or infection unspecified"
+     },
+     {
+      "code": "K86.0",
+      "display": "Alcohol-induced chronic pancreatitis"
+     },
+     {
+      "code": "K86.1",
+      "display": "Other chronic pancreatitis"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "GZQO-VS-ACUTE-OR-CHRONIC-PANCREATITIS",
+ "name": "VS_ACUTE_OR_CHRONIC_PANCREATITIS",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "acute or chronic pancreatitis",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-ACUTE-OR-CHRONIC-PANCREATITIS",
+ "version": "1.0.0-v6d81dc5d"
+}

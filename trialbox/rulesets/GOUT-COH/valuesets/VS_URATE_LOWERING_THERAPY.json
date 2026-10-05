@@ -1,0 +1,30 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "M04AA01",
+      "display": "allopurinol"
+     },
+     {
+      "code": "M04AA03",
+      "display": "febuxostat"
+     },
+     {
+      "code": "M04AB03",
+      "display": "benzbromarone"
+     }
+    ],
+    "system": "http://www.whocc.no/atc"
+   }
+  ]
+ },
+ "id": "GOUT-COH-VS-URATE-LOWERING-THERAPY",
+ "name": "VS_URATE_LOWERING_THERAPY",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "urate-lowering therapy",
+ "url": "http://trialbox.local/fhir/ValueSet/GOUT-COH-VS-URATE-LOWERING-THERAPY",
+ "version": "1.0.0-v6cea9eec"
+}

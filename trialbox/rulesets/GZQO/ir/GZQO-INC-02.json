@@ -1,0 +1,21 @@
+{
+ "class": "structured",
+ "fallback": "If uncoded, CRC confirms gout diagnosis from the clinic letter.",
+ "id": "GZQO-INC-02",
+ "kind": "inclusion",
+ "label": "Gout diagnosis",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_GOUT"
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.1 Inclusion Criteria #2",
+ "text": "Diagnosis of gout according to the 2015 ACR/EULAR gout classification criteria.",
+ "time_sensitive": false
+}

@@ -1,0 +1,542 @@
+{
+ "10000007": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000011": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000030": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000035": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000040": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000041": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000043": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000046": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000047": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000059": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000063": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000067": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000069": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000081": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000082": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000083": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000086": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000087": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000094": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000099": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000103": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000106": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000107": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000108": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000109": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000115": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000116": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000117": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000120": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000123": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000124": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000125": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000127": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000129": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000130": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000142": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000145": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000149": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000150": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000153": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000155": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000156": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000158": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000160": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000163": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000165": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000173": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000176": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000181": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000182": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000183": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000185": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000189": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000196": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000200": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000201": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000203": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000206": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000208": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000209": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000211": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000212": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000214": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000215": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000222": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000224": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000225": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000227": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000228": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000232": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000233": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000235": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000239": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000241": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000243": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000247": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000249": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000251": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000252": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000254": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000257": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000258": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000261": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000268": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000269": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000273": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000277": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000281": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000290": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000294": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000295": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000297": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000314": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000316": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000317": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000323": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000327": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000333": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000335": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000338": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000339": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000349": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000350": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000351": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000354": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000360": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000364": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000367": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000368": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000369": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000374": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000375": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000378": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000381": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000382": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000384": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000386": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000396": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000401": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000405": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000406": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000410": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000411": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000415": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000418": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000419": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000421": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000422": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000423": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000424": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000428": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000430": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000432": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000436": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000440": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000445": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000448": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000450": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000457": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000461": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000463": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000466": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000471": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000474": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000477": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000490": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000491": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000493": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000498": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000499": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000507": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000511": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000514": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000521": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000527": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000533": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000535": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000536": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000541": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000546": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000548": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000551": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000552": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000556": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000558": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000561": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000565": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000567": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000571": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000575": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000576": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000584": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000588": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000589": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000590": {
+  "GZQO-INC-07": "willing"
+ },
+ "10000592": {
+  "GZQO-INC-07": "unwilling"
+ },
+ "10000594": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000595": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000599": {
+  "GZQO-INC-07": "no_info"
+ },
+ "10000600": {
+  "GZQO-INC-07": "no_info"
+ }
+}

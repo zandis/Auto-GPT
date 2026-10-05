@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "J04AB05",
+      "display": "rifapentine"
+     },
+     {
+      "code": "J04AC01",
+      "display": "isoniazid"
+     }
+    ],
+    "system": "http://www.whocc.no/atc"
+   }
+  ]
+ },
+ "id": "RA-BIO-VS-TB-PREVENTIVE-THERAPY",
+ "name": "VS_TB_PREVENTIVE_THERAPY",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "tb preventive therapy",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-BIO-VS-TB-PREVENTIVE-THERAPY",
+ "version": "1.0.0-v51a12a37"
+}

@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "E31.22",
+      "display": "Multiple endocrine neoplasia type IIA"
+     },
+     {
+      "code": "E31.23",
+      "display": "Multiple endocrine neoplasia type IIB"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "GZQO-VS-MULTIPLE-ENDOCRINE-NEOPLASIA-TYPE-2",
+ "name": "VS_MULTIPLE_ENDOCRINE_NEOPLASIA_TYPE_2",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "multiple endocrine neoplasia type 2",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-MULTIPLE-ENDOCRINE-NEOPLASIA-TYPE-2",
+ "version": "1.0.0-v5b918b61"
+}

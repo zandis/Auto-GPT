@@ -1,0 +1,43 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "1988-5",
+      "display": "C reactive protein [Mass/volume] in Serum or Plasma"
+     },
+     {
+      "code": "4537-7",
+      "display": "Erythrocyte sedimentation rate by Westergren method"
+     }
+    ],
+    "system": "http://loinc.org"
+   },
+   {
+    "concept": [
+     {
+      "code": "PTGA",
+      "display": "Patient global assessment of disease activity"
+     },
+     {
+      "code": "SJC28",
+      "display": "Swollen joint count (28 joints)"
+     },
+     {
+      "code": "TJC28",
+      "display": "Tender joint count (28 joints)"
+     }
+    ],
+    "system": "https://trialbox.local/fhir/CodeSystem/clinical-score"
+   }
+  ]
+ },
+ "id": "RA-BIO-VS-DAS28-COMPONENTS",
+ "name": "VS_DAS28_COMPONENTS",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "DAS28 components",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-BIO-VS-DAS28-COMPONENTS",
+ "version": "1.0.0-vffe99776"
+}

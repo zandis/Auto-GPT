@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/ruleset_manifest.schema.json",
+  "title": "RulesetManifest",
+  "description": "rulesets/<ID>/manifest.yaml (SPEC 3.4). Schema version 1.0.0.",
+  "type": "object",
+  "required": ["id", "kind", "title", "version", "index_date_rule", "scopes", "routing", "thresholds", "criteria"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,16}$"},
+    "kind": {"enum": ["trial", "nhi", "cohort"]},
+    "title": {"type": "string"},
+    "trial_alias": {"type": "string"},
+    "sponsor": {"type": "string"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "status": {"enum": ["draft", "approved"], "default": "draft"},
+    "source_documents": {"type": "array", "items": {"type": "string"}},
+    "protocol_version": {"type": "string"},
+    "language": {"type": "string"},
+    "index_date_rule": {"enum": ["run_date", "month_end"]},
+    "library": {"type": "string", "description": "CQL library name TB_<RULESET>_v<major>_<minor>"},
+    "criteria": {"type": "array", "items": {"type": "string"}, "description": "criterion ids in funnel/report order"},
+    "scopes": {"$ref": "#/$defs/scopes"},
+    "routing": {"$ref": "#/$defs/routing"},
+    "thresholds": {"$ref": "#/$defs/thresholds"},
+    "models": {"$ref": "#/$defs/models"},
+    "review": {"$ref": "#/$defs/manifest_review"},
+    "equivalence": {"$ref": "#/$defs/equivalence_summary"},
+    "variants": {"type": "object", "additionalProperties": {"type": "string"}, "description": "named default sensitivity variants, e.g. bmi: '24,25,27'"},
+    "twpas": {"$ref": "#/$defs/twpas_config"},
+    "docx_template": {"type": "string", "description": "relative path of the Jinja2 docx application template"},
+    "cohort": {"$ref": "#/$defs/cohort_config"},
+    "nct_id": {"type": "string"},
+    "source_last_update": {"type": "string"}
+  },
+  "$defs": {
+    "scopes": {
+      "title": "Scopes",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "feas": {"$ref": "#/$defs/feas_scope"},
+        "screen": {"$ref": "#/$defs/screen_scope"},
+        "nav": {"$ref": "#/$defs/nav_scope"}
+      }
+    },
+    "feas_scope": {
+      "title": "FeasScope",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "population": {"enum": ["hospital", "department"], "default": "hospital"},
+        "departments": {"type": "array", "items": {"type": "string"}},
+        "lookback_months": {"type": "integer", "minimum": 1, "maximum": 120, "default": 36}
+      }
+    },
+    "screen_scope": {
+      "title": "ScreenScope",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "practitioners": {"type": "array", "items": {"type": "string"}},
+        "appointment_window_days": {"type": "integer", "default": 180},
+        "departments": {"type": "array", "items": {"type": "string"}},
+        "recent_encounter_months": {"type": "integer", "default": 12},
+        "microbatch_window_days": {"type": "integer", "default": 14}
+      }
+    },
+    "nav_scope": {
+      "title": "NavScope",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "departments": {"type": "array", "items": {"type": "string"}},
+        "appointment_window_days": {"type": "integer", "default": 14},
+        "renewal_lead_days": {"type": "integer", "default": 42},
+        "application_lookback_days": {"type": "integer", "default": 90}
+      }
+    },
+    "routing": {
+      "title": "Routing",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "aggregate_to": {"type": "array", "items": {"type": "string"}},
+        "list_to": {"type": "array", "items": {"type": "string"}},
+        "referral_to": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "thresholds": {
+      "title": "RulesetThresholds",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tier_high_confidence": {"type": "number", "default": 0.75},
+        "small_cell": {"type": "integer", "default": 5}
+      }
+    },
+    "models": {
+      "title": "RulesetModels",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "judge": {"type": "string"},
+        "judge_prompt": {"type": "string"},
+        "extract": {"type": "string"}
+      }
+    },
+    "manifest_review": {
+      "title": "ManifestReview",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "approved_by": {"type": "string"},
+        "approved_at": {"type": "string", "format": "date-time"},
+        "rounds": {"type": "integer"}
+      }
+    },
+    "equivalence_summary": {
+      "title": "EquivalenceSummary",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "overall_pct": {"type": "number"},
+        "sample_size": {"type": "integer"},
+        "per_criterion": {"type": "object", "additionalProperties": {"type": "number"}},
+        "failing": {"type": "array", "items": {"type": "string"}},
+        "evaluated_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "twpas_config": {
+      "title": "TwpasConfig",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean", "default": false},
+        "program": {"type": "string"},
+        "apply_type": {"type": "string", "description": "TWPAS application category (e.g. 1=new, 2=renewal)"},
+        "drug_codes": {"type": "array", "items": {"type": "string"}},
+        "precheck_library": {"type": "string"}
+      }
+    },
+    "cohort_config": {
+      "title": "CohortConfig",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "disease": {"type": "string"},
+        "disease_label": {"type": "string"},
+        "population_criterion": {"type": "string", "description": "criterion id that defines the disease cohort"},
+        "combinations": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+        "ctgov_condition": {"type": "string"},
+        "top_n_trials": {"type": "integer", "default": 3}
+      }
+    }
+  }
+}

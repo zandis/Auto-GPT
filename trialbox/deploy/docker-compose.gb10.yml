@@ -1,0 +1,56 @@
+# NVIDIA GB10 (DGX Spark class, aarch64, 128 GB unified memory) override — SPEC §2, §7.1; DECISIONS D-79.
+#
+#   cd deploy && docker compose -f docker-compose.yml -f docker-compose.gb10.yml --profile gpu up -d --wait
+#
+# Host prerequisites (deploy/check_host.sh --gb10 checks them):
+#   * NVIDIA driver 580.142 exactly. Hold the package (apt-mark hold); the later 580.x builds regress vLLM on GB10
+#     (see the SPEC reference "GB10 driver regression note"). Do not take driver updates outside a signed update bundle.
+#   * nvidia-container-toolkit; Docker Engine 27+; cgroup v2.
+#   * TrialBox images built multi-arch (make images-multiarch) or arm64 (make images PLATFORM=linux/arm64).
+#
+# Every third-party image is pinned by digest. The pins below are multi-arch indexes (arm64 included) or arm64
+# manifests. Unified memory is shared with HAPI, DuckDB and the embedder, so vLLM takes a smaller fraction than on
+# a discrete 32 GB GPU.
+x-arm: &arm
+  platform: linux/arm64
+
+services:
+  llm-service:
+    <<: *arm
+    # GB10 build of vLLM (aarch64, CUDA 13, sm_121). Station release 2026-10-01, arm64 manifest digest.
+    image: ${VLLM_GB10_IMAGE:-eugr/spark-vllm:station-20261001@sha256:f5700fdbb43e1bb254d8a559505ce95e4f8c0b8ba9d666f7ed1b5e25bf8c4d82}
+    entrypoint: ["vllm", "serve"]
+    command:
+      - /models/${LLM_MODEL_DIR:-qwen3.5-35b-a3b-q4}
+      - --served-model-name=${LLM_MODEL:-qwen3.5-35b-a3b-q4}
+      - --max-model-len=32768
+      - --max-num-seqs=64
+      - --gpu-memory-utilization=${GPU_MEM_UTIL:-0.60}
+      - --guided-decoding-backend=${GUIDED_BACKEND:-outlines}
+    environment:
+      HF_HUB_OFFLINE: "1"
+      VLLM_NO_USAGE_STATS: "1"
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    healthcheck:
+      start_period: 900s  # first load of a 35B MoE from NVMe into unified memory
+
+  # TrialBox services: the same images, arm64 variant (multi-arch tag or the local arm64 build).
+  mail-gateway: *arm
+  orchestrator: *arm
+  criteria-compiler: *arm
+  adapter: *arm
+  lake: *arm
+  embed-service:
+    <<: *arm
+    environment:
+      TB_EMBED_DEVICE: ${TB_EMBED_DEVICE:-cuda}  # bge-m3 on the GPU; falls back to CPU when CUDA is absent
+  doc-parser: *arm
+  llm-stub: *arm
+  # Third-party services: multi-arch digests from docker-compose.yml resolve to their arm64 manifests here.
+  minio: *arm
+  fhir-db: *arm
+  fhir-store:
+    <<: *arm
+    environment:
+      # same flags as the base file; explicit heap so HAPI does not size itself from the 128 GB of unified memory
+      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-6g} -Duser.timezone=${TB_TZ:-Asia/Taipei}"

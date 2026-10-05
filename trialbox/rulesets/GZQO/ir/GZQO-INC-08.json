@@ -1,0 +1,32 @@
+{
+ "action": "order creatinine",
+ "class": "structured",
+ "id": "GZQO-INC-08",
+ "kind": "inclusion",
+ "label": "eGFR ≥30",
+ "logic": {
+  "derived": "egfr",
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 30.0,
+   "op": ">=",
+   "unit": "mL/min/{1.73_m2}"
+  },
+  "valueset": "VS_EGFR_COMPONENTS",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.1 Inclusion Criteria #8",
+ "text": "Estimated GFR ≥30 mL/min/1.73 m² (CKD-EPI 2021) at screening.",
+ "time_sensitive": false
+}

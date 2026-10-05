@@ -1,0 +1,38 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "M05.79",
+      "display": "Rheumatoid arthritis with rheumatoid factor of multiple sites"
+     },
+     {
+      "code": "M05.9",
+      "display": "Rheumatoid arthritis with rheumatoid factor unspecified"
+     },
+     {
+      "code": "M06.00",
+      "display": "Rheumatoid arthritis without rheumatoid factor unspecified site"
+     },
+     {
+      "code": "M06.4",
+      "display": "Inflammatory polyarthropathy"
+     },
+     {
+      "code": "M06.9",
+      "display": "Rheumatoid arthritis unspecified"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "RA-COH-VS-RHEUMATOID-ARTHRITIS",
+ "name": "VS_RHEUMATOID_ARTHRITIS",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "rheumatoid arthritis",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-COH-VS-RHEUMATOID-ARTHRITIS",
+ "version": "1.0.0-v7848f1fa"
+}

@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "4548-4",
+      "display": "Hemoglobin A1c/Hemoglobin.total in Blood"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "GZQO-VS-HBA1C",
+ "name": "VS_HBA1C",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "hba1c",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-HBA1C",
+ "version": "1.0.0-v3fb74353"
+}

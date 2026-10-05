@@ -1,0 +1,30 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "A07EC01",
+      "display": "sulfasalazine"
+     },
+     {
+      "code": "L04AA13",
+      "display": "leflunomide"
+     },
+     {
+      "code": "P01BA02",
+      "display": "hydroxychloroquine"
+     }
+    ],
+    "system": "http://www.whocc.no/atc"
+   }
+  ]
+ },
+ "id": "RA-BIO-VS-CONVENTIONAL-SYNTHETIC-DMARD-OTHER-THAN-METHOTREXATE",
+ "name": "VS_CONVENTIONAL_SYNTHETIC_DMARD_OTHER_THAN_METHOTREXATE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "conventional synthetic dmard other than methotrexate",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-BIO-VS-CONVENTIONAL-SYNTHETIC-DMARD-OTHER-THAN-METHOTREXATE",
+ "version": "1.0.0-vb732f6f7"
+}

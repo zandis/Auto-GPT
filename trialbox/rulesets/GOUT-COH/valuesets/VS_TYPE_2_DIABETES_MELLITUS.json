@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "E11.65",
+      "display": "Type 2 diabetes mellitus with hyperglycemia"
+     },
+     {
+      "code": "E11.9",
+      "display": "Type 2 diabetes mellitus without complications"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "GOUT-COH-VS-TYPE-2-DIABETES-MELLITUS",
+ "name": "VS_TYPE_2_DIABETES_MELLITUS",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "type 2 diabetes mellitus",
+ "url": "http://trialbox.local/fhir/ValueSet/GOUT-COH-VS-TYPE-2-DIABETES-MELLITUS",
+ "version": "1.0.0-vb3509b59"
+}

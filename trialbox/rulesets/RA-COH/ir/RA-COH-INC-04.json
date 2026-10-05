@@ -1,0 +1,30 @@
+{
+ "class": "structured",
+ "id": "RA-COH-INC-04",
+ "kind": "inclusion",
+ "label": "DAS28≤3.2",
+ "logic": {
+  "derived": "das28",
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 3.2,
+   "op": "<="
+  },
+  "valueset": "VS_DAS28_COMPONENTS",
+  "window": {
+   "anchor": "index",
+   "from_days": -90,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T19:20:45.613966+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-COH",
+ "source_ref": "2 計數條件 #3",
+ "text": "九十日內最近一次 DAS28 小於或等於 3.2（低疾病活動度）。",
+ "time_sensitive": false
+}

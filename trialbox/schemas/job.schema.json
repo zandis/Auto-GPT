@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/job.schema.json",
+  "title": "Job",
+  "description": "A job record (SPEC 3.5). Schema version 1.1.0 (1.1.0: run_date).",
+  "type": "object",
+  "required": ["job_id", "type", "requested_by", "received_at", "state"],
+  "additionalProperties": false,
+  "properties": {
+    "job_id": {"type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"},
+    "type": {"$ref": "#/$defs/job_type"},
+    "ruleset": {"type": ["string", "null"]},
+    "ruleset_version": {"type": ["string", "null"]},
+    "requested_by": {"type": "string"},
+    "received_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": ["string", "null"], "format": "date-time"},
+    "state": {"$ref": "#/$defs/job_state"},
+    "snapshot_date": {"type": ["string", "null"], "format": "date"},
+    "run_date": {"type": ["string", "null"], "format": "date", "description": "index/run date fixed when the job starts; reruns reuse it (reproducibility)"},
+    "options": {"type": "object", "additionalProperties": {"type": "string"}},
+    "comment": {"type": ["string", "null"]},
+    "message_id": {"type": ["string", "null"], "description": "RFC 5322 Message-ID of the request mail"},
+    "in_reply_to": {"type": ["string", "null"]},
+    "parent_job_id": {"type": ["string", "null"]},
+    "inputs": {"type": "array", "items": {"$ref": "#/$defs/job_file"}},
+    "outputs": {"type": "array", "items": {"$ref": "#/$defs/job_output"}},
+    "error": {"anyOf": [{"$ref": "#/$defs/job_error"}, {"type": "null"}]},
+    "metrics": {"$ref": "#/$defs/job_metrics"}
+  },
+  "$defs": {
+    "job_type": {"title": "JobType", "enum": ["FEAS", "SCREEN", "COHORT", "NAV", "APPROVE", "STATUS", "MICROBATCH", "INGEST", "SUBMIT", "FEEDBACK", "CANCEL", "RETENTION", "CALIBRATION"]},
+    "job_state": {"title": "JobState", "enum": ["received", "parsing", "compiling", "awaiting_approval", "running", "reporting", "done", "failed"]},
+    "job_file": {
+      "title": "JobFile",
+      "type": "object",
+      "required": ["filename", "sha256", "minio_key"],
+      "additionalProperties": false,
+      "properties": {
+        "filename": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "minio_key": {"type": "string"},
+        "content_type": {"type": "string"}
+      }
+    },
+    "job_output": {
+      "title": "JobOutput",
+      "type": "object",
+      "required": ["filename", "sha256", "minio_key", "recipients", "tag"],
+      "additionalProperties": false,
+      "properties": {
+        "filename": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "minio_key": {"type": "string"},
+        "recipients": {"type": "array", "items": {"type": "string"}},
+        "tag": {"enum": ["aggregate", "phi"]}
+      }
+    },
+    "job_error": {
+      "title": "JobError",
+      "type": "object",
+      "required": ["step", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "step": {"type": "string"},
+        "message": {"type": "string"},
+        "detail": {"type": "string"}
+      }
+    },
+    "job_metrics": {
+      "title": "JobMetrics",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "patients_scoped": {"type": "integer", "default": 0},
+        "llm_calls": {"type": "integer", "default": 0},
+        "tokens_in": {"type": "integer", "default": 0},
+        "tokens_out": {"type": "integer", "default": 0},
+        "wall_seconds": {"type": "number", "default": 0}
+      }
+    }
+  }
+}

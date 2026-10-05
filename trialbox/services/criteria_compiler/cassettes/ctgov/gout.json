@@ -1,0 +1,182 @@
+{
+ "studies": [
+  {
+   "protocolSection": {
+    "identificationModule": {
+     "nctId": "NCT99000001",
+     "briefTitle": "[SYNTHETIC] Phase 3 Study of a URAT1 Inhibitor in Gout With Inadequate Response to Allopurinol"
+    },
+    "statusModule": {
+     "overallStatus": "RECRUITING",
+     "lastUpdatePostDateStruct": {
+      "date": "2026-08-15",
+      "type": "ACTUAL"
+     }
+    },
+    "sponsorCollaboratorsModule": {
+     "leadSponsor": {
+      "name": "Synthetic Pharma Co. (fictional)",
+      "class": "INDUSTRY"
+     }
+    },
+    "conditionsModule": {
+     "conditions": [
+      "Gout"
+     ]
+    },
+    "designModule": {
+     "studyType": "INTERVENTIONAL",
+     "phases": [
+      "PHASE3"
+     ],
+     "enrollmentInfo": {
+      "count": 240,
+      "type": "ESTIMATED"
+     }
+    },
+    "eligibilityModule": {
+     "eligibilityCriteria": "Inclusion Criteria:\n\n* Male or female aged 20 to 75 years.\n* Diagnosis of gout according to the 2015 ACR/EULAR classification criteria.\n* Serum urate of 7.0 mg/dL or higher within 90 days before screening.\n* Receiving urate-lowering therapy for at least 3 months.\n* At least 2 gout flares in the past 12 months.\n\nExclusion Criteria:\n\n* Estimated GFR below 30 mL/min/1.73 m2.\n* ALT greater than 3 times the upper limit of normal.\n* Malignancy within the past 5 years.\n* Pregnant or breastfeeding women.\n* Participation in another interventional study within 30 days.",
+     "healthyVolunteers": false,
+     "sex": "ALL",
+     "minimumAge": "20 Years",
+     "stdAges": [
+      "ADULT",
+      "OLDER_ADULT"
+     ],
+     "maximumAge": "75 Years"
+    },
+    "contactsLocationsModule": {
+     "locations": [
+      {
+       "facility": "Synthetic Medical Center Taipei",
+       "status": "RECRUITING",
+       "city": "Taipei",
+       "country": "Taiwan"
+      },
+      {
+       "facility": "Synthetic Clinic",
+       "status": "RECRUITING",
+       "city": "Tokyo",
+       "country": "Japan"
+      }
+     ]
+    }
+   },
+   "hasResults": false
+  },
+  {
+   "protocolSection": {
+    "identificationModule": {
+     "nctId": "NCT99000002",
+     "briefTitle": "[SYNTHETIC] Interleukin-1 Beta Antibody for Flare Prophylaxis When Starting Urate-Lowering Therapy"
+    },
+    "statusModule": {
+     "overallStatus": "RECRUITING",
+     "lastUpdatePostDateStruct": {
+      "date": "2026-07-01",
+      "type": "ACTUAL"
+     }
+    },
+    "sponsorCollaboratorsModule": {
+     "leadSponsor": {
+      "name": "Synthetic Biologics (fictional)",
+      "class": "INDUSTRY"
+     }
+    },
+    "conditionsModule": {
+     "conditions": [
+      "Gout"
+     ]
+    },
+    "designModule": {
+     "studyType": "INTERVENTIONAL",
+     "phases": [
+      "PHASE2"
+     ],
+     "enrollmentInfo": {
+      "count": 120,
+      "type": "ESTIMATED"
+     }
+    },
+    "eligibilityModule": {
+     "eligibilityCriteria": "Inclusion Criteria:\n\n* Adults 18 years of age or older.\n* Documented diagnosis of gout.\n* Serum urate of 6.8 mg/dL or higher.\n* At least one gout flare in the past 6 months.\n\nExclusion Criteria:\n\n* Active tuberculosis.\n* Chronic hepatitis B infection.\n* Serious infection within 30 days before randomization.\n* Estimated GFR below 30 mL/min/1.73 m2.\n* History of heart failure.",
+     "healthyVolunteers": false,
+     "sex": "ALL",
+     "minimumAge": "18 Years",
+     "stdAges": [
+      "ADULT",
+      "OLDER_ADULT"
+     ]
+    },
+    "contactsLocationsModule": {
+     "locations": [
+      {
+       "facility": "Synthetic University Hospital",
+       "status": "RECRUITING",
+       "city": "Taichung",
+       "country": "Taiwan"
+      }
+     ]
+    }
+   },
+   "hasResults": false
+  },
+  {
+   "protocolSection": {
+    "identificationModule": {
+     "nctId": "NCT99000003",
+     "briefTitle": "[SYNTHETIC] Febuxostat Dose Titration in Gout With Chronic Kidney Disease Stage 3"
+    },
+    "statusModule": {
+     "overallStatus": "RECRUITING",
+     "lastUpdatePostDateStruct": {
+      "date": "2026-06-20",
+      "type": "ACTUAL"
+     }
+    },
+    "sponsorCollaboratorsModule": {
+     "leadSponsor": {
+      "name": "Synthetic Kidney Research Group (fictional)",
+      "class": "INDUSTRY"
+     }
+    },
+    "conditionsModule": {
+     "conditions": [
+      "Gout"
+     ]
+    },
+    "designModule": {
+     "studyType": "INTERVENTIONAL",
+     "phases": [
+      "PHASE4"
+     ],
+     "enrollmentInfo": {
+      "count": 80,
+      "type": "ESTIMATED"
+     }
+    },
+    "eligibilityModule": {
+     "eligibilityCriteria": "Inclusion Criteria:\n\n* Age 20 years or older.\n* Gout diagnosed by a physician.\n* Estimated GFR between 30 and 59 mL/min/1.73 m2.\n* Serum urate of 8.0 mg/dL or higher.\n\nExclusion Criteria:\n\n* Myocardial infarction or stroke within 6 months.\n* Malignancy within the past 5 years.\n* ALT greater than 3 times the upper limit of normal.",
+     "healthyVolunteers": false,
+     "sex": "ALL",
+     "minimumAge": "20 Years",
+     "stdAges": [
+      "ADULT",
+      "OLDER_ADULT"
+     ]
+    },
+    "contactsLocationsModule": {
+     "locations": [
+      {
+       "facility": "Synthetic Kidney Center",
+       "status": "RECRUITING",
+       "city": "Osaka",
+       "country": "Japan"
+      }
+     ]
+    }
+   },
+   "hasResults": false
+  }
+ ]
+}

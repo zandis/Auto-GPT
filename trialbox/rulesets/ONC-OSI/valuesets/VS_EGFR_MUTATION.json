@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "EGFR-MUT",
+      "display": "EGFR gene mutation"
+     }
+    ],
+    "system": "https://trialbox.local/fhir/CodeSystem/clinical-score"
+   }
+  ]
+ },
+ "id": "ONC-OSI-VS-EGFR-MUTATION",
+ "name": "VS_EGFR_MUTATION",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "egfr mutation",
+ "url": "http://trialbox.local/fhir/ValueSet/ONC-OSI-VS-EGFR-MUTATION",
+ "version": "1.0.0-v00c19089"
+}

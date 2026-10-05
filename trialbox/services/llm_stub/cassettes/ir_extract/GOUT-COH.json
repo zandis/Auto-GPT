@@ -1,0 +1,180 @@
+{
+ "criteria": [
+  {
+   "text": "曾經診斷痛風（ICD-10-CM M10 或 M1A）之病人。",
+   "label": "痛風診斷",
+   "source_ref": "1 世代定義 #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "gout",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "gout",
+     "synonyms": [
+      "痛風"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "一年內最近一次血清尿酸值大於或等於 6.0 mg/dL。",
+   "label": "尿酸≥6.0",
+   "source_ref": "2 計數條件 #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "serum urate",
+    "quantifier": "latest",
+    "value": {
+     "op": ">=",
+     "num": 6.0,
+     "unit": "mg/dL"
+    },
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "serum urate",
+     "synonyms": [
+      "尿酸"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "六個月內曾使用降尿酸藥物。",
+   "label": "降尿酸藥物",
+   "source_ref": "2 計數條件 #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "urate-lowering therapy",
+    "quantifier": "any",
+    "window": {
+     "from_days": -180,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "urate-lowering therapy",
+     "synonyms": [
+      "allopurinol",
+      "febuxostat",
+      "benzbromarone"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "一年內因痛風就診二次以上。",
+   "label": "一年痛風就診≥2",
+   "source_ref": "2 計數條件 #3",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "gout",
+    "quantifier": "count>=",
+    "count": 2,
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "gout",
+     "synonyms": [
+      "痛風"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "一年內最近一次 eGFR 小於 60 mL/min/1.73m²（慢性腎臟病第三期以上）。",
+   "label": "eGFR<60",
+   "source_ref": "2 計數條件 #4",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "egfr",
+    "quantifier": "latest",
+    "value": {
+     "op": "<",
+     "num": 60,
+     "unit": "mL/min/{1.73_m2}"
+    },
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "一年內最近一次身體質量指數大於或等於 27 kg/m²。",
+   "label": "BMI≥27",
+   "source_ref": "2 計數條件 #5",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "bmi",
+    "quantifier": "latest",
+    "value": {
+     "op": ">=",
+     "num": 27,
+     "unit": "kg/m2"
+    },
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "合併第二型糖尿病診斷。",
+   "label": "第二型糖尿病",
+   "source_ref": "2 計數條件 #6",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "type 2 diabetes mellitus",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "type 2 diabetes mellitus",
+     "synonyms": [
+      "第二型糖尿病"
+     ]
+    }
+   ]
+  }
+ ]
+}

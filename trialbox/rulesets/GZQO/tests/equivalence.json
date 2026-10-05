@@ -1,0 +1,27 @@
+{
+ "disagreements": [],
+ "engine": "hapi-cr $evaluate vs duckdb",
+ "failing": [],
+ "overall_pct": 100.0,
+ "per_criterion": {
+  "GZQO-EXC-01": 100.0,
+  "GZQO-EXC-02": 100.0,
+  "GZQO-EXC-03": 100.0,
+  "GZQO-EXC-04": 100.0,
+  "GZQO-EXC-05": 100.0,
+  "GZQO-EXC-06": 100.0,
+  "GZQO-EXC-07": 100.0,
+  "GZQO-EXC-08": 100.0,
+  "GZQO-EXC-09": 100.0,
+  "GZQO-EXC-10": 100.0,
+  "GZQO-EXC-13": 100.0,
+  "GZQO-INC-01": 100.0,
+  "GZQO-INC-02": 100.0,
+  "GZQO-INC-03": 100.0,
+  "GZQO-INC-04": 100.0,
+  "GZQO-INC-06": 100.0,
+  "GZQO-INC-08": 100.0,
+  "GZQO-INC-09": 100.0
+ },
+ "sample_size": 200
+}

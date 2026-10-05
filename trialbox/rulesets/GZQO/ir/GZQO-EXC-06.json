@@ -1,0 +1,31 @@
+{
+ "action": "order HbA1c",
+ "class": "structured",
+ "id": "GZQO-EXC-06",
+ "kind": "exclusion",
+ "label": "HbA1c >10%",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 10.0,
+   "op": ">",
+   "unit": "%"
+  },
+  "valueset": "VS_HBA1C",
+  "window": {
+   "anchor": "index",
+   "from_days": -180,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #6",
+ "text": "HbA1c >10% at screening.",
+ "time_sensitive": false
+}

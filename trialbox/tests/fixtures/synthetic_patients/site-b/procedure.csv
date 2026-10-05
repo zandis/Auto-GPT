@@ -1,0 +1,7 @@
+proc_no,mrn,order_code,proc_name,proc_date
+P20000001,20000095,75613B,Laparoscopic gastric bypass (SYN),2021-03-14
+P20000002,20000097,75613B,Laparoscopic gastric bypass (SYN),2022-05-01
+P20000003,20000116,75614B,Laparoscopic sleeve gastrectomy (SYN),2021-09-11
+P20000004,20000378,75613B,Laparoscopic gastric bypass (SYN),2019-12-08
+P20000005,20000451,75614B,Laparoscopic sleeve gastrectomy (SYN),2025-02-11
+P20000006,20000500,75614B,Laparoscopic sleeve gastrectomy (SYN),2020-08-07

@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "3084-1",
+      "display": "Urate [Mass/volume] in Serum or Plasma"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "GZQO-VS-SERUM-URATE",
+ "name": "VS_SERUM_URATE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "serum urate",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-SERUM-URATE",
+ "version": "1.0.0-v8c6936e7"
+}

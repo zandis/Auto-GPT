@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "1742-6",
+      "display": "Alanine aminotransferase [Enzymatic activity/volume] in Serum or Plasma"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "GZQO-VS-ALT",
+ "name": "VS_ALT",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "alt",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-ALT",
+ "version": "1.0.0-vd4a7b18f"
+}

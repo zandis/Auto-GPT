@@ -1,0 +1,23 @@
+{
+ "class": "structured",
+ "id": "RA-BIO-INC-01",
+ "kind": "inclusion",
+ "label": "年齡≥18",
+ "logic": {
+  "age": {
+   "min": 18.0
+  },
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.1 初次申請給付條件 #1",
+ "text": "病患年齡須滿十八歲。",
+ "time_sensitive": false
+}

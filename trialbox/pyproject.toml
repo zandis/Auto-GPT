@@ -1,0 +1,132 @@
+[project]
+name = "trialbox"
+version = "1.0.0"
+description = "TrialBox: on-prem, email-driven eligibility compiler and patient-finding appliance"
+requires-python = ">=3.12,<3.13"
+readme = "README.md"
+license = { text = "Proprietary" }
+dependencies = [
+  "pydantic>=2.9,<3",
+  "pyyaml>=6.0",
+  "jsonschema>=4.23",
+  "jinja2>=3.1",
+  "httpx>=0.27",
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "python-multipart>=0.0.9",
+  "duckdb==1.5.5",
+  "duckdb-extension-fts==1.5.5",
+  "pyarrow>=17",
+  "sqlglot>=25",
+  "sqlalchemy>=2.0",
+  "openpyxl>=3.1",
+  "reportlab>=4.2",
+  "matplotlib>=3.9",
+  "docxtpl>=0.18",
+  "python-docx>=1.1",
+  "pypdf>=5.0",
+  "py7zr>=0.22",
+  "cryptography>=43",
+  "apscheduler>=3.10,<4",
+  "minio>=7.2",
+  "numpy>=1.26",
+  "fhir.resources>=8.0,<9",
+  "python-dateutil>=2.9",
+  "tzdata>=2024.1",
+  "markdown>=3.7",
+  "dulwich>=0.22",
+]
+
+[project.optional-dependencies]
+# Heavy, image-specific extras. Installed only in the doc-parser / embed-service images.
+docling = ["docling>=2.10"]
+embed = ["sentence-transformers>=3.0"]
+dev = [
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "pytest>=8.3",
+  "pytest-timeout>=2.3",
+  "datamodel-code-generator>=0.26",
+  "types-PyYAML",
+  "types-openpyxl",
+  "types-reportlab",
+  "types-python-dateutil",
+  "types-jsonschema",
+  "types-Markdown",
+]
+
+[project.scripts]
+adapter = "adapter.cli:main"
+trialbox-settings = "tools.settings_wizard:main"
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["libs", "services", "."]
+include = [
+  "tb_contracts*", "tb_common*", "mail_gateway*", "doc_parser*", "criteria_compiler*",
+  "adapter*", "lake*", "orchestrator*", "llm_stub*", "embed_service*", "tools*",
+]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.yaml", "*.yml", "*.md", "*.cql", "*.sql", "*.j2", "*.html", "*.docx", "*.csv", "*.parquet", "*.ttf"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["libs/tb_contracts/generated"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PL", "S"]
+ignore = [
+  "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "PLC0415",
+  "S101", "S603", "S607", "S608", "S311", "RUF001", "RUF002", "RUF003",
+  "N815", "SIM108", "PLW2901", "S104", "S324", "S105", "S106", "PLR0917", "PLW0603", "N818", "N812", "RUF043",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "PLR", "N802", "B018", "E501"]
+"services/criteria_compiler/compile_*/generator.py" = ["E501"]
+"services/criteria_compiler/review.py" = ["E501"]
+"services/criteria_compiler/compile_cql/generator.py" = ["E501", "S701"]
+"tools/**" = ["PLR", "S"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = ["libs", "services", "."]
+explicit_package_bases = true
+namespace_packages = true
+exclude = ["build/", "\\.venv/"]
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = [
+  "docxtpl.*", "docx.*", "py7zr.*", "apscheduler.*", "minio.*", "sqlglot.*", "duckdb.*",
+  "pyarrow.*", "matplotlib.*", "fhir.*", "docling.*", "sentence_transformers.*", "pypdf.*",
+  "uvicorn.*", "numpy.*", "duckdb_extension_fts.*", "paddleocr.*", "fontTools.*", "markdown.*",
+]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "libs", "services"]
+addopts = "-ra --strict-markers"
+markers = [
+  "integration: needs docker compose services (fhir-store, minio, mail)",
+  "e2e: end-to-end through email against the compose test profile",
+  "llm: requires a real LLM endpoint (GPU or cloud)",
+  "perf: performance benchmarks",
+  "egress: host nftables egress test (root, nft, iproute2, running compose stack; TB_EGRESS_TEST=1)",
+  "slow: slow tests",
+]
+timeout = 900
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]

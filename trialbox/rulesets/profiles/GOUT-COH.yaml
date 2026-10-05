@@ -1,0 +1,17 @@
+# Site profile for ruleset GOUT-COH (merged into manifest.yaml at compile time; not generated).
+kind: cohort
+title: "痛風聯盟世代（季度主要條件人數）"
+trial_alias: "GOUT-COH"
+sponsor: "台灣風濕免疫聯盟（合成範例）"
+protocol_version: "v1"
+index_date_rule: month_end   # quarter ends (COHORT)
+routing:
+  aggregate_to: ["pi@hospa.test", "crc1@hospa.test"]
+thresholds: {small_cell: 5}
+cohort:
+  disease: gout
+  disease_label: "痛風"
+  population_criterion: GOUT-COH-INC-01
+  combinations: [["GOUT-COH-INC-02", "GOUT-COH-INC-03"], ["GOUT-COH-INC-04", "GOUT-COH-INC-05"]]
+  ctgov_condition: "Gout"
+  top_n_trials: 3

@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "2106-3",
+      "display": "Choriogonadotropin (pregnancy test) [Presence] in Urine"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "GZQO-VS-PREGNANCY-TEST",
+ "name": "VS_PREGNANCY_TEST",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "pregnancy test",
+ "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-PREGNANCY-TEST",
+ "version": "1.0.0-vd356303d"
+}

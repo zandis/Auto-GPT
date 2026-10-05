@@ -1,0 +1,204 @@
+{
+ "criteria": [
+  {
+   "text": "Adults 18 years of age or older.",
+   "label": "Age ≥18",
+   "source_ref": "Inclusion Criteria #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "age": {
+     "min": 18
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "Documented diagnosis of gout.",
+   "label": "Gout",
+   "source_ref": "Inclusion Criteria #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "gout",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "gout",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Serum urate of 6.8 mg/dL or higher.",
+   "label": "sUA ≥6.8",
+   "source_ref": "Inclusion Criteria #3",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "serum urate",
+    "quantifier": "latest",
+    "value": {
+     "op": ">=",
+     "num": 6.8,
+     "unit": "mg/dL"
+    },
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "serum urate",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "At least one gout flare in the past 6 months.",
+   "label": "≥1 flare / 6 mo",
+   "source_ref": "Inclusion Criteria #4",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "gout",
+    "quantifier": "count>=",
+    "count": 1,
+    "window": {
+     "from_days": -180,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "gout",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Active tuberculosis.",
+   "label": "Active TB",
+   "source_ref": "Exclusion Criteria #1",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "active tuberculosis",
+    "quantifier": "any",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "active tuberculosis",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Chronic hepatitis B infection.",
+   "label": "Chronic HBV",
+   "source_ref": "Exclusion Criteria #2",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "chronic hepatitis b",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "chronic hepatitis b",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Serious infection within 30 days before randomization.",
+   "label": "Serious infection ≤30 d",
+   "source_ref": "Exclusion Criteria #3",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "serious infection",
+    "quantifier": "any",
+    "window": {
+     "from_days": -30,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "serious infection",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Estimated GFR below 30 mL/min/1.73 m2.",
+   "label": "eGFR <30",
+   "source_ref": "Exclusion Criteria #4",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "egfr",
+    "quantifier": "latest",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    },
+    "value": {
+     "op": "<",
+     "num": 30,
+     "unit": "mL/min/{1.73_m2}"
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "History of heart failure.",
+   "label": "Heart failure",
+   "source_ref": "Exclusion Criteria #5",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "heart failure",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "heart failure",
+     "synonyms": []
+    }
+   ]
+  }
+ ]
+}

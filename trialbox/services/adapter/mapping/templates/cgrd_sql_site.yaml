@@ -1,0 +1,79 @@
+# Site mapping template — source type `cgrd_sql` (one table or view per logical table; DSN from settings.data_source.dsn_env).
+# 1. Copy to services/adapter/mapping/tw_core/<site>.yaml (keep `extends`: the TW Core resources are shared).
+# 2. For every table: set `source` (table or view name), `rename` local -> canonical columns (CANONICAL.md),
+#    `values` local -> canonical codes. `source` may name a view the DBA creates for TrialBox (read-only account).
+# 3. Copy lab_local_to_loinc.csv next to it and replace the local lab codes (local_code -> LOINC).
+# 4. python tools/mapping_check.py --mapping <file> --source cgrd_sql --dsn "$HIS_DSN"
+# 5. settings.yaml: data_source: {type: cgrd_sql, dsn_env: HIS_DSN, mapping: mapping/tw_core/<site>.yaml}
+version: 1
+name: SITE_his
+extends: ../tw_core/demo_his.yaml
+tz: Asia/Taipei
+tables:
+  patient:
+    source: PATIENT_VIEW
+    key: mrn
+    rename: {CHART_NO: mrn, PT_NAME: name, ID_NO: id_no, BIRTH_DATE: birth_date, SEX: sex, DEATH_DATE: death_date}
+    values: {sex: {"1": M, "2": F}}
+    identity: {name: name, national_id: id_no}
+  practitioner:
+    source: STAFF_VIEW
+    key: staff_id
+    rename: {DOC_ID: staff_id, DOC_NAME: name, DEPT: dept_code}
+  encounter:
+    source: VISIT_VIEW
+    key: enc_no
+    delta: visit_datetime
+    rename: {VISIT_NO: enc_no, CHART_NO: mrn, VISIT_TIME: visit_datetime, DEPT: dept_code, DOC_ID: staff_id, VISIT_TYPE: enc_type}
+    values: {enc_type: {O: OPD, I: IPD, E: ER}}
+  appointment:
+    source: BOOKING_VIEW
+    key: appt_no
+    rename: {BOOK_NO: appt_no, CHART_NO: mrn, BOOK_TIME: appt_datetime, MINUTES: duration_min, DOC_ID: staff_id, DEPT: dept_code, BOOK_STATUS: status}
+  diagnosis:
+    source: DIAG_VIEW
+    key: diag_no
+    delta: recorded_date
+    rename: {DIAG_ID: diag_no, VISIT_NO: enc_no, CHART_NO: mrn, ICD10_CODE: icd10, DIAG_DATE: diag_date, KEYIN_DATE: recorded_date, DIAG_STATUS: status}
+  lab:
+    source: LAB_VIEW
+    key: lab_no
+    delta: sample_datetime
+    rename: {LAB_ID: lab_no, CHART_NO: mrn, ITEM_CODE: local_code, ITEM_NAME: item_name, RESULT: result_value, UNIT: unit, SAMPLE_TIME: sample_datetime}
+  vital:
+    source: VITAL_VIEW
+    key: vital_no
+    delta: measure_datetime
+    rename: {VS_ID: vital_no, CHART_NO: mrn, MEASURE_TIME: measure_datetime, HEIGHT: height_cm, WEIGHT: weight_kg, SBP: sbp, DBP: dbp}
+  medication:
+    source: RX_VIEW
+    key: rx_no
+    delta: order_date
+    rename: {RX_ID: rx_no, CHART_NO: mrn, NHI_CODE: nhi_drug_code, ATC_CODE: atc, DRUG_NAME: drug_name, ORDER_DATE: order_date, START_DATE: start_date, END_DATE: end_date, DOSE: daily_dose, DOSE_UNIT: dose_unit, RX_STATUS: status, DEPT: dept_code}
+  procedure:
+    source: PROC_VIEW
+    key: proc_no
+    delta: proc_date
+    rename: {PROC_ID: proc_no, CHART_NO: mrn, ORDER_CODE: order_code, PROC_NAME: proc_name, PROC_DATE: proc_date}
+  report:
+    source: EXAM_VIEW
+    key: rpt_no
+    delta: exam_date
+    rename: {EXAM_ID: rpt_no, CHART_NO: mrn, EXAM_CODE: exam_code, EXAM_NAME: exam_name, EXAM_DATE: exam_date, IMPRESSION: conclusion}
+  note:
+    source: NOTE_VIEW
+    key: note_no
+    delta: note_datetime
+    rename: {NOTE_ID: note_no, CHART_NO: mrn, VISIT_NO: enc_no, NOTE_TIME: note_datetime, NOTE_TYPE: note_type, NOTE_TEXT: text}
+  claim:
+    source: NHI_APPLY_VIEW
+    key: claim_no
+    delta: created_date
+    rename: {APPLY_NO: claim_no, CHART_NO: mrn, APPLY_DATE: created_date, DRUG_CODE: product_code, APPLY_TYPE: apply_type, RESULT: outcome, APPROVE_FROM: approval_start, APPROVE_TO: approval_end}
+    values: {outcome: {Y: approved, N: denied, P: pending}}
+  registry:
+    source: CONSENT_VIEW
+    key: mrn
+    rename: {CHART_NO: mrn, CONTACT_OK: consent_contact, SIGN_DATE: consent_date}
+lookups:
+  lab: {file: lab_local_to_loinc.csv, key: local_code}

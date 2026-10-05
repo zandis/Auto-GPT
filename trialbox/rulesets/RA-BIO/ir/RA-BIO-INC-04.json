@@ -1,0 +1,29 @@
+{
+ "class": "structured",
+ "id": "RA-BIO-INC-04",
+ "kind": "inclusion",
+ "label": "另一 csDMARD≥6月",
+ "logic": {
+  "domain": "medication",
+  "duration": {
+   "gap_days": 30,
+   "min_days": 180
+  },
+  "quantifier": "any",
+  "valueset": "VS_CONVENTIONAL_SYNTHETIC_DMARD_OTHER_THAN_METHOTREXATE",
+  "window": {
+   "anchor": "index",
+   "from_days": -730,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.1 初次申請給付條件 #4",
+ "text": "曾使用 methotrexate 以外之另一種傳統型疾病修飾抗風濕藥物至少六個月（中斷不超過三十日）而療效不彰。",
+ "time_sensitive": false
+}

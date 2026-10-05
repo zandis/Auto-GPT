@@ -1,0 +1,461 @@
+[
+ {
+  "id": "ATOMS-INC-01",
+  "ruleset": "ATOMS",
+  "text": "age 18-75",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "demographic",
+   "valueset": "NONE",
+   "age": {
+    "min": 18,
+    "max": 75
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-02",
+  "ruleset": "ATOMS",
+  "text": "female",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "demographic",
+   "valueset": "NONE",
+   "sex": "female"
+  }
+ },
+ {
+  "id": "ATOMS-INC-03",
+  "ruleset": "ATOMS",
+  "text": "gout ever",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "condition",
+   "valueset": "VS_GOUT"
+  }
+ },
+ {
+  "id": "ATOMS-INC-04",
+  "ruleset": "ATOMS",
+  "text": "no gout dx in 30d",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "condition",
+   "valueset": "VS_GOUT",
+   "quantifier": "none",
+   "window": {
+    "from_days": -30,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-05",
+  "ruleset": "ATOMS",
+  "text": ">=2 gout dx in 2y",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "condition",
+   "valueset": "VS_GOUT",
+   "quantifier": "count>=",
+   "count": 2,
+   "window": {
+    "from_days": -730,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-06",
+  "ruleset": "ATOMS",
+  "text": "any urate >= 8 in 1y",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "observation",
+   "valueset": "VS_SERUM_URATE",
+   "quantifier": "any",
+   "value": {
+    "op": ">=",
+    "num": 8
+   },
+   "window": {
+    "from_days": -365,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-07",
+  "ruleset": "ATOMS",
+  "text": "all urate < 9 in 2y",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "observation",
+   "valueset": "VS_SERUM_URATE",
+   "quantifier": "all",
+   "value": {
+    "op": "<",
+    "num": 9
+   },
+   "window": {
+    "from_days": -730,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-08",
+  "ruleset": "ATOMS",
+  "text": "no urate > 10 in 2y",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "observation",
+   "valueset": "VS_SERUM_URATE",
+   "quantifier": "none",
+   "value": {
+    "op": ">",
+    "num": 10
+   },
+   "window": {
+    "from_days": -730,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-09",
+  "ruleset": "ATOMS",
+  "text": ">=2 urate >= 6 in 2y",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "observation",
+   "valueset": "VS_SERUM_URATE",
+   "quantifier": "count>=",
+   "count": 2,
+   "value": {
+    "op": ">=",
+    "num": 6
+   },
+   "window": {
+    "from_days": -730,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-10",
+  "ruleset": "ATOMS",
+  "text": "latest urate between 5 and 9",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "observation",
+   "valueset": "VS_SERUM_URATE",
+   "quantifier": "latest",
+   "value": {
+    "op": "between",
+    "num": 5,
+    "num2": 9
+   },
+   "window": {
+    "from_days": -365,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-11",
+  "ruleset": "ATOMS",
+  "text": "latest HBsAg negative",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "observation",
+   "valueset": "VS_HBSAG",
+   "quantifier": "latest",
+   "value": {
+    "op": "in",
+    "codes": [
+     "LA6577-6"
+    ]
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-12",
+  "ruleset": "ATOMS",
+  "text": "urate tested in 6 months",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "observation",
+   "valueset": "VS_SERUM_URATE",
+   "quantifier": "any",
+   "window": {
+    "from_days": -180,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-13",
+  "ruleset": "ATOMS",
+  "text": "SBP any >= 150 in 1y (component)",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "observation",
+   "valueset": "VS_SYSTOLIC_BLOOD_PRESSURE",
+   "quantifier": "any",
+   "value": {
+    "op": ">=",
+    "num": 150
+   },
+   "window": {
+    "from_days": -365,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-14",
+  "ruleset": "ATOMS",
+  "text": "BMI computable",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "observation",
+   "valueset": "VS_BMI_COMPONENTS",
+   "derived": "bmi"
+  }
+ },
+ {
+  "id": "ATOMS-INC-15",
+  "ruleset": "ATOMS",
+  "text": "DAS28 > 3.2 in 180 days",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "observation",
+   "valueset": "VS_DAS28_COMPONENTS",
+   "derived": "das28",
+   "quantifier": "latest",
+   "value": {
+    "op": ">",
+    "num": 3.2
+   },
+   "window": {
+    "from_days": -180,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-16",
+  "ruleset": "ATOMS",
+  "text": "eGFR between 30 and 90",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "observation",
+   "valueset": "VS_EGFR_COMPONENTS",
+   "derived": "egfr",
+   "value": {
+    "op": "between",
+    "num": 30,
+    "num2": 90
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-17",
+  "ruleset": "ATOMS",
+  "text": "MTX >=180 days gap 0 in 2y",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "medication",
+   "valueset": "VS_METHOTREXATE",
+   "duration": {
+    "min_days": 180,
+    "gap_days": 0
+   },
+   "window": {
+    "from_days": -730,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-18",
+  "ruleset": "ATOMS",
+  "text": "colchicine Rx in 1y",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "medication",
+   "valueset": "VS_COLCHICINE",
+   "window": {
+    "from_days": -365,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-19",
+  "ruleset": "ATOMS",
+  "text": "CXR report in 180 d",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "report",
+   "valueset": "VS_CHEST_X_RAY",
+   "window": {
+    "from_days": -180,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-20",
+  "ruleset": "ATOMS",
+  "text": "biologic application in 365 d",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "claim",
+   "valueset": "VS_RA_BIOLOGIC",
+   "window": {
+    "from_days": -365,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-INC-21",
+  "ruleset": "ATOMS",
+  "text": ">=3 RHEU visits in 1y",
+  "kind": "inclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "encounter",
+   "valueset": "VS_RHEUMATOLOGY_CLINIC_VISIT",
+   "quantifier": "count>=",
+   "count": 3,
+   "window": {
+    "from_days": -365,
+    "to_days": 0
+   }
+  }
+ },
+ {
+  "id": "ATOMS-EXC-22",
+  "ruleset": "ATOMS",
+  "text": "bariatric surgery ever",
+  "kind": "exclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "procedure",
+   "valueset": "VS_BARIATRIC_SURGERY"
+  }
+ },
+ {
+  "id": "ATOMS-EXC-23",
+  "ruleset": "ATOMS",
+  "text": "IGRA positive and not on TB prophylaxis",
+  "kind": "exclusion",
+  "class": "structured",
+  "logic": {
+   "op": "and",
+   "args": [
+    {
+     "domain": "observation",
+     "valueset": "VS_IGRA",
+     "quantifier": "latest",
+     "value": {
+      "op": "in",
+      "codes": [
+       "LA6576-8"
+      ]
+     }
+    },
+    {
+     "op": "not",
+     "args": [
+      {
+       "domain": "medication",
+       "valueset": "VS_TB_PREVENTIVE_THERAPY",
+       "window": {
+        "from_days": -365,
+        "to_days": 0
+       }
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "id": "ATOMS-EXC-24",
+  "ruleset": "ATOMS",
+  "text": "T1DM or (male and HbA1c > 10)",
+  "kind": "exclusion",
+  "class": "structured",
+  "logic": {
+   "op": "or",
+   "args": [
+    {
+     "domain": "condition",
+     "valueset": "VS_TYPE_1_DIABETES_MELLITUS"
+    },
+    {
+     "op": "and",
+     "args": [
+      {
+       "domain": "demographic",
+       "valueset": "NONE",
+       "sex": "male"
+      },
+      {
+       "domain": "observation",
+       "valueset": "VS_HBA1C",
+       "quantifier": "latest",
+       "value": {
+        "op": ">",
+        "num": 10
+       },
+       "window": {
+        "from_days": -180,
+        "to_days": 0
+       }
+      }
+     ]
+    }
+   ]
+  }
+ },
+ {
+  "id": "ATOMS-EXC-25",
+  "ruleset": "ATOMS",
+  "text": "future window: appointment-independent, med in [-10,+10]",
+  "kind": "exclusion",
+  "class": "structured",
+  "logic": {
+   "domain": "medication",
+   "valueset": "VS_COLCHICINE",
+   "window": {
+    "from_days": -10,
+    "to_days": 10
+   }
+  }
+ }
+]

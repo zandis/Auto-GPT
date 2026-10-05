@@ -1,0 +1,30 @@
+{
+ "class": "structured",
+ "id": "GZQO-EXC-03",
+ "kind": "exclusion",
+ "label": "MTC / MEN2",
+ "logic": {
+  "args": [
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_MEDULLARY_THYROID_CARCINOMA"
+   },
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_MULTIPLE_ENDOCRINE_NEOPLASIA_TYPE_2"
+   }
+  ],
+  "op": "or"
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #3",
+ "text": "Personal history of medullary thyroid carcinoma or multiple endocrine neoplasia type 2.",
+ "time_sensitive": false
+}

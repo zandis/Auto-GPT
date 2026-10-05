@@ -1,0 +1,26 @@
+{
+ "class": "structured",
+ "id": "GZQO-INC-09",
+ "kind": "inclusion",
+ "label": "Clinic visit /12 mo",
+ "logic": {
+  "count": 1,
+  "domain": "encounter",
+  "quantifier": "count>=",
+  "valueset": "VS_RHEUMATOLOGY_OR_METABOLISM_CLINIC_VISIT",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.1 Inclusion Criteria #9",
+ "text": "Followed at the rheumatology or metabolism clinic with at least one visit in the past 12 months.",
+ "time_sensitive": false
+}

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/ctgov.schema.json",
+  "title": "CtgovSearchRequest",
+  "description": "criteria-compiler POST /ctgov/search: recruiting studies from ClinicalTrials.gov API v2 for COHORT trial simulation (SPEC 8.3), and the trial simulation result. Schema version 2.0.0 (2.0.0: draft_compiled_on replaces cached; breaking, trial_sim_row forbids extra properties).",
+  "type": "object",
+  "required": ["condition"],
+  "additionalProperties": false,
+  "properties": {
+    "condition": {"type": "string", "minLength": 1},
+    "locations": {"type": "array", "items": {"type": "string"}, "default": ["Taiwan", "Japan"]},
+    "status": {"type": "string", "default": "RECRUITING"},
+    "max_studies": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}
+  },
+  "$defs": {
+    "ctgov_study": {
+      "title": "CtgovStudy",
+      "type": "object",
+      "required": ["nct_id", "title", "overall_status", "last_update", "eligibility_text"],
+      "additionalProperties": false,
+      "properties": {
+        "nct_id": {"type": "string", "pattern": "^NCT[0-9]{8}$"},
+        "title": {"type": "string"},
+        "phases": {"type": "array", "items": {"type": "string"}},
+        "conditions": {"type": "array", "items": {"type": "string"}},
+        "overall_status": {"type": "string"},
+        "last_update": {"type": "string", "format": "date"},
+        "enrollment": {"type": ["integer", "null"]},
+        "sponsor": {"type": ["string", "null"]},
+        "countries": {"type": "array", "items": {"type": "string"}},
+        "eligibility_text": {"type": "string"},
+        "minimum_age": {"type": ["string", "null"]},
+        "maximum_age": {"type": ["string", "null"]},
+        "sex": {"type": ["string", "null"]}
+      }
+    },
+    "ctgov_search_result": {
+      "title": "CtgovSearchResult",
+      "type": "object",
+      "required": ["condition", "source", "fetched_at", "studies"],
+      "additionalProperties": false,
+      "properties": {
+        "condition": {"type": "string"},
+        "source": {"enum": ["api", "cassette"]},
+        "fetched_at": {"type": "string", "format": "date-time"},
+        "studies": {"type": "array", "items": {"$ref": "#/$defs/ctgov_study"}}
+      }
+    },
+    "trial_sim_row": {
+      "title": "TrialSimRow",
+      "type": "object",
+      "required": ["nct_id", "title", "last_update", "criteria_total", "criteria_applied", "eligible_now"],
+      "additionalProperties": false,
+      "properties": {
+        "nct_id": {"type": "string"},
+        "title": {"type": "string"},
+        "phases": {"type": "array", "items": {"type": "string"}},
+        "countries": {"type": "array", "items": {"type": "string"}},
+        "sponsor": {"type": ["string", "null"]},
+        "last_update": {"type": "string", "format": "date"},
+        "target_enrollment": {"type": ["integer", "null"]},
+        "ruleset_version": {"type": ["string", "null"], "description": "unapproved automatic compile of the eligibility text"},
+        "criteria_total": {"type": "integer"},
+        "criteria_applied": {"type": "integer", "description": "structured criteria counted in the lake (others are not applied)"},
+        "equivalence_pct": {"type": ["number", "null"]},
+        "eligible_now": {"$ref": "feasibility_result.schema.json#/$defs/count"},
+        "new_per_month": {"type": ["number", "null"]},
+        "enrol_12m_low": {"type": ["number", "null"]},
+        "enrol_12m_mid": {"type": ["number", "null"]},
+        "enrol_12m_high": {"type": ["number", "null"]},
+        "draft_compiled_on": {"type": ["string", "null"], "format": "date", "description": "date the registry text was compiled (cache entry); identical on a re-run"},
+        "steps": {
+          "type": "array",
+          "items": {
+            "title": "TrialSimStep",
+            "type": "object",
+            "required": ["criterion_id", "label", "applied"],
+            "additionalProperties": false,
+            "properties": {
+              "criterion_id": {"type": "string"},
+              "label": {"type": "string"},
+              "applied": {"type": "boolean"},
+              "remaining": {"$ref": "feasibility_result.schema.json#/$defs/count"}
+            }
+          }
+        },
+        "note": {"type": ["string", "null"]}
+      }
+    },
+    "trial_sim_result": {
+      "title": "TrialSimResult",
+      "type": "object",
+      "required": ["ruleset", "condition", "run_date", "snapshot", "source", "rows"],
+      "additionalProperties": false,
+      "properties": {
+        "ruleset": {"type": "string"},
+        "condition": {"type": "string"},
+        "run_date": {"type": "string", "format": "date"},
+        "snapshot": {"type": "string", "format": "date"},
+        "source": {"enum": ["api", "cassette"]},
+        "reach_rate": {"type": "number"},
+        "accept_rate": {"type": "number"},
+        "rows": {"type": "array", "items": {"$ref": "#/$defs/trial_sim_row"}}
+      }
+    }
+  }
+}

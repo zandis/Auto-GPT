@@ -1,0 +1,567 @@
+{
+ "criteria": [
+  {
+   "text": "病患年齡須滿十八歲。",
+   "label": "年齡≥18",
+   "source_ref": "8.2.4.1 初次申請給付條件 #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "age": {
+     "min": 18
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "經診斷為類風濕關節炎且病程達六個月以上。",
+   "label": "RA 病程≥6月",
+   "source_ref": "8.2.4.1 初次申請給付條件 #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "rheumatoid arthritis",
+    "quantifier": "any",
+    "window": {
+     "to_days": -180
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "rheumatoid arthritis",
+     "synonyms": [
+      "類風濕關節炎"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "曾使用 methotrexate 治療至少六個月（連續使用，中斷不超過三十日）而療效不彰。",
+   "label": "MTX≥6月",
+   "source_ref": "8.2.4.1 初次申請給付條件 #3",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "methotrexate",
+    "duration": {
+     "min_days": 180,
+     "gap_days": 30
+    },
+    "window": {
+     "from_days": -730,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "methotrexate",
+     "synonyms": [
+      "MTX"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "曾使用 methotrexate 以外之另一種傳統型疾病修飾抗風濕藥物至少六個月（中斷不超過三十日）而療效不彰。",
+   "label": "另一 csDMARD≥6月",
+   "source_ref": "8.2.4.1 初次申請給付條件 #4",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "conventional synthetic dmard other than methotrexate",
+    "duration": {
+     "min_days": 180,
+     "gap_days": 30
+    },
+    "window": {
+     "from_days": -730,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "conventional synthetic dmard other than methotrexate",
+     "synonyms": [
+      "hydroxychloroquine",
+      "sulfasalazine",
+      "leflunomide"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "申請前九十日內之疾病活動度 DAS28 大於5.1。",
+   "label": "DAS28>5.1（90日內）",
+   "source_ref": "8.2.4.1 初次申請給付條件 #5",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": true,
+   "logic": {
+    "domain": "observation",
+    "derived": "das28",
+    "quantifier": "latest",
+    "value": {
+     "op": ">",
+     "num": 5.1
+    },
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [],
+   "action": "安排 DAS28 評估（關節數、ESR/CRP、病人整體評估）"
+  },
+  {
+   "text": "申請前九十日至一百八十日間另有一次 DAS28 評估大於5.1（與最近一次評估間隔至少一個月）。",
+   "label": "前次 DAS28>5.1",
+   "source_ref": "8.2.4.1 初次申請給付條件 #6",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "das28",
+    "quantifier": "latest",
+    "value": {
+     "op": ">",
+     "num": 5.1
+    },
+    "window": {
+     "from_days": -180,
+     "to_days": -90
+    }
+   },
+   "concept_candidates": [],
+   "action": "調閱前次 DAS28 評估紀錄"
+  },
+  {
+   "text": "一年內有活動性結核病。",
+   "label": "活動性結核",
+   "source_ref": "8.2.4.2 不得申請情形 #1",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "active tuberculosis",
+    "quantifier": "any",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "active tuberculosis",
+     "synonyms": [
+      "肺結核"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "一年內丙型干擾素釋放試驗（IGRA）陽性而未接受潛伏結核預防性治療。",
+   "label": "IGRA陽性未治療",
+   "source_ref": "8.2.4.2 不得申請情形 #2",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "op": "and",
+    "args": [
+     {
+      "domain": "observation",
+      "concept": "igra",
+      "quantifier": "latest",
+      "value": {
+       "op": "in",
+       "codes": [
+        "LA6576-8"
+       ]
+      },
+      "window": {
+       "from_days": -365,
+       "to_days": 0
+      }
+     },
+     {
+      "op": "not",
+      "args": [
+       {
+        "domain": "medication",
+        "concept": "tb preventive therapy",
+        "quantifier": "any",
+        "window": {
+         "from_days": -365,
+         "to_days": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "igra",
+     "synonyms": [
+      "丙型干擾素釋放試驗"
+     ]
+    },
+    {
+     "domain": "medication",
+     "name": "tb preventive therapy",
+     "synonyms": [
+      "isoniazid"
+     ]
+    }
+   ],
+   "action": "確認潛伏結核治療計畫"
+  },
+  {
+   "text": "B型肝炎表面抗原（HBsAg）陽性而半年內未併用抗病毒藥物預防。",
+   "label": "HBsAg陽性未預防",
+   "source_ref": "8.2.4.2 不得申請情形 #3",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "op": "and",
+    "args": [
+     {
+      "domain": "observation",
+      "concept": "hbsag",
+      "quantifier": "latest",
+      "value": {
+       "op": "in",
+       "codes": [
+        "LA6576-8"
+       ]
+      }
+     },
+     {
+      "op": "not",
+      "args": [
+       {
+        "domain": "medication",
+        "concept": "hbv antiviral prophylaxis",
+        "quantifier": "any",
+        "window": {
+         "from_days": -180,
+         "to_days": 0
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "hbsag",
+     "synonyms": [
+      "B肝表面抗原"
+     ]
+    },
+    {
+     "domain": "medication",
+     "name": "hbv antiviral prophylaxis",
+     "synonyms": [
+      "entecavir"
+     ]
+    }
+   ],
+   "action": "會診肝膽科評估預防性抗病毒治療"
+  },
+  {
+   "text": "五年內有惡性腫瘤病史。",
+   "label": "五年內惡性腫瘤",
+   "source_ref": "8.2.4.2 不得申請情形 #4",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "malignancy",
+    "quantifier": "any",
+    "window": {
+     "from_days": -1825,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "malignancy",
+     "synonyms": [
+      "惡性腫瘤",
+      "癌症"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "懷孕中（二百八十日內有懷孕診斷）。",
+   "label": "懷孕",
+   "source_ref": "8.2.4.2 不得申請情形 #5",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": true,
+   "logic": {
+    "domain": "condition",
+    "concept": "pregnancy",
+    "quantifier": "any",
+    "window": {
+     "from_days": -280,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "pregnancy",
+     "synonyms": [
+      "懷孕"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "三十日內有嚴重感染（敗血症、肺炎）。",
+   "label": "30日內嚴重感染",
+   "source_ref": "8.2.4.2 不得申請情形 #6",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": true,
+   "logic": {
+    "domain": "condition",
+    "concept": "serious infection",
+    "quantifier": "any",
+    "window": {
+     "from_days": -30,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "serious infection",
+     "synonyms": [
+      "敗血症",
+      "肺炎"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "有心衰竭（NYHA 第三或第四級）病史。",
+   "label": "心衰竭",
+   "source_ref": "8.2.4.2 不得申請情形 #7",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "heart failure",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "heart failure",
+     "synonyms": [
+      "心衰竭"
+     ]
+    }
+   ],
+   "fallback": "NYHA 分級由醫師確認"
+  },
+  {
+   "text": "續用申請前九十日內須有完整之 DAS28 評估。",
+   "label": "續用 DAS28 評估",
+   "source_ref": "8.2.4.3 續用條件 #1",
+   "kind": "renewal",
+   "class": "structured",
+   "time_sensitive": true,
+   "logic": {
+    "domain": "observation",
+    "derived": "das28",
+    "quantifier": "latest",
+    "value": {
+     "op": ">=",
+     "num": 0
+    },
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [],
+   "action": "安排 DAS28 評估"
+  },
+  {
+   "text": "續用時療效良好：DAS28 較治療前下降至少1.2，或降至3.2以下。",
+   "label": "療效良好",
+   "source_ref": "8.2.4.3 續用條件 #2",
+   "kind": "renewal",
+   "class": "note",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "das28",
+    "quantifier": "latest",
+    "value": {
+     "op": "<=",
+     "num": 3.2
+    },
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [],
+   "note_question": "病歷是否記載目前生物製劑治療反應良好（DAS28 較治療前下降至少 1.2 或降至 3.2 以下）？",
+   "fallback": "結構化近似：九十日內最近一次 DAS28 ≤ 3.2",
+   "action": "醫師確認療效（DAS28 變化）"
+  },
+  {
+   "text": "一年內B型肝炎表面抗原（HBsAg）檢驗報告。",
+   "label": "HBsAg 報告",
+   "source_ref": "8.2.4.4 申請應檢附資料 #1",
+   "kind": "documentation",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "hbsag",
+    "quantifier": "any",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "hbsag",
+     "synonyms": []
+    }
+   ],
+   "suggested_order": "14032C B型肝炎表面抗原"
+  },
+  {
+   "text": "一年內B型肝炎核心抗體（anti-HBc）檢驗報告。",
+   "label": "anti-HBc 報告",
+   "source_ref": "8.2.4.4 申請應檢附資料 #2",
+   "kind": "documentation",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "anti-hbc",
+    "quantifier": "any",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "anti-hbc",
+     "synonyms": [
+      "B肝核心抗體"
+     ]
+    }
+   ],
+   "suggested_order": "14035C B型肝炎核心抗體"
+  },
+  {
+   "text": "六個月內結核篩檢：丙型干擾素釋放試驗（IGRA）或胸部X光報告。",
+   "label": "結核篩檢",
+   "source_ref": "8.2.4.4 申請應檢附資料 #3",
+   "kind": "documentation",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "op": "or",
+    "args": [
+     {
+      "domain": "observation",
+      "concept": "igra",
+      "quantifier": "any",
+      "window": {
+       "from_days": -180,
+       "to_days": 0
+      }
+     },
+     {
+      "domain": "report",
+      "concept": "chest x-ray",
+      "quantifier": "any",
+      "window": {
+       "from_days": -180,
+       "to_days": 0
+      }
+     }
+    ]
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "igra",
+     "synonyms": []
+    },
+    {
+     "domain": "report",
+     "name": "chest x-ray",
+     "synonyms": [
+      "胸部X光"
+     ]
+    }
+   ],
+   "suggested_order": "12184C 丙型干擾素釋放試驗 或 32001C 胸部X光"
+  },
+  {
+   "text": "九十日內紅血球沉降速率（ESR）或C反應蛋白（CRP）檢驗報告。",
+   "label": "ESR/CRP 報告",
+   "source_ref": "8.2.4.4 申請應檢附資料 #4",
+   "kind": "documentation",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "esr or crp",
+    "quantifier": "any",
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "esr or crp",
+     "synonyms": [
+      "ESR",
+      "CRP"
+     ]
+    }
+   ],
+   "suggested_order": "09032C CRP 或 08005C ESR"
+  }
+ ]
+}

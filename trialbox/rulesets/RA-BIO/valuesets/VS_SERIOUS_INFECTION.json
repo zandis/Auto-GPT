@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "A41.9",
+      "display": "Sepsis unspecified organism"
+     },
+     {
+      "code": "J18.9",
+      "display": "Pneumonia unspecified organism"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "RA-BIO-VS-SERIOUS-INFECTION",
+ "name": "VS_SERIOUS_INFECTION",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "serious infection",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-BIO-VS-SERIOUS-INFECTION",
+ "version": "1.0.0-v83a6c490"
+}

@@ -1,0 +1,32 @@
+{
+ "action": "measure height and weight",
+ "class": "structured",
+ "id": "GZQO-INC-03",
+ "kind": "inclusion",
+ "label": "BMI ≥27",
+ "logic": {
+  "derived": "bmi",
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 27.0,
+   "op": ">=",
+   "unit": "kg/m2"
+  },
+  "valueset": "VS_BMI_COMPONENTS",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.1 Inclusion Criteria #3",
+ "text": "Body mass index (BMI) ≥27 kg/m² at screening.",
+ "time_sensitive": false
+}

@@ -1,0 +1,150 @@
+{
+ "criteria": [
+  {
+   "text": "曾經診斷類風濕性關節炎（ICD-10-CM M05 或 M06）之病人。",
+   "label": "RA 診斷",
+   "source_ref": "1 世代定義 #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "rheumatoid arthritis",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "rheumatoid arthritis",
+     "synonyms": [
+      "類風濕性關節炎"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "一年內曾使用 methotrexate。",
+   "label": "MTX 使用",
+   "source_ref": "2 計數條件 #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "methotrexate",
+    "quantifier": "any",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "methotrexate",
+     "synonyms": [
+      "MTX"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "九十日內最近一次 DAS28 大於 5.1（高疾病活動度）。",
+   "label": "DAS28>5.1",
+   "source_ref": "2 計數條件 #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "das28",
+    "quantifier": "latest",
+    "value": {
+     "op": ">",
+     "num": 5.1
+    },
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "九十日內最近一次 DAS28 小於或等於 3.2（低疾病活動度）。",
+   "label": "DAS28≤3.2",
+   "source_ref": "2 計數條件 #3",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "das28",
+    "quantifier": "latest",
+    "value": {
+     "op": "<=",
+     "num": 3.2
+    },
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "最近一次 B 型肝炎表面抗原（HBsAg）陽性。",
+   "label": "HBsAg 陽性",
+   "source_ref": "2 計數條件 #4",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "concept": "hbsag",
+    "quantifier": "latest",
+    "value": {
+     "op": "in",
+     "codes": [
+      "LA6576-8"
+     ]
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "observation",
+     "name": "hbsag",
+     "synonyms": [
+      "B型肝炎表面抗原"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "一年內曾使用生物製劑。",
+   "label": "生物製劑",
+   "source_ref": "2 計數條件 #5",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "medication",
+    "concept": "ra biologic",
+    "quantifier": "any",
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "ra biologic",
+     "synonyms": [
+      "生物製劑"
+     ]
+    }
+   ]
+  }
+ ]
+}

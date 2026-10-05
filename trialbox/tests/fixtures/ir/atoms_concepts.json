@@ -1,0 +1,58 @@
+{
+ "VS_GOUT": [
+  "condition",
+  "gout"
+ ],
+ "VS_SERUM_URATE": [
+  "observation",
+  "serum urate"
+ ],
+ "VS_HBSAG": [
+  "observation",
+  "hbsag"
+ ],
+ "VS_SYSTOLIC_BLOOD_PRESSURE": [
+  "observation",
+  "systolic blood pressure"
+ ],
+ "VS_METHOTREXATE": [
+  "medication",
+  "methotrexate"
+ ],
+ "VS_COLCHICINE": [
+  "medication",
+  "colchicine"
+ ],
+ "VS_CHEST_X_RAY": [
+  "report",
+  "chest x-ray"
+ ],
+ "VS_RA_BIOLOGIC": [
+  "claim",
+  "ra biologic"
+ ],
+ "VS_RHEUMATOLOGY_CLINIC_VISIT": [
+  "encounter",
+  "rheumatology clinic visit"
+ ],
+ "VS_BARIATRIC_SURGERY": [
+  "procedure",
+  "bariatric surgery"
+ ],
+ "VS_IGRA": [
+  "observation",
+  "igra"
+ ],
+ "VS_TB_PREVENTIVE_THERAPY": [
+  "medication",
+  "tb preventive therapy"
+ ],
+ "VS_TYPE_1_DIABETES_MELLITUS": [
+  "condition",
+  "type 1 diabetes mellitus"
+ ],
+ "VS_HBA1C": [
+  "observation",
+  "hba1c"
+ ]
+}

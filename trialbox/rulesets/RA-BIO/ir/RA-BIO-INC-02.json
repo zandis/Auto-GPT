@@ -1,0 +1,24 @@
+{
+ "class": "structured",
+ "id": "RA-BIO-INC-02",
+ "kind": "inclusion",
+ "label": "RA 病程≥6月",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_RHEUMATOID_ARTHRITIS",
+  "window": {
+   "anchor": "index",
+   "to_days": -180
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.1 初次申請給付條件 #2",
+ "text": "經診斷為類風濕關節炎且病程達六個月以上。",
+ "time_sensitive": false
+}

@@ -1,0 +1,52 @@
+{
+ "action": "確認潛伏結核治療計畫",
+ "class": "structured",
+ "id": "RA-BIO-EXC-02",
+ "kind": "exclusion",
+ "label": "IGRA陽性未治療",
+ "logic": {
+  "args": [
+   {
+    "domain": "observation",
+    "quantifier": "latest",
+    "value": {
+     "codes": [
+      "LA6576-8"
+     ],
+     "op": "in"
+    },
+    "valueset": "VS_IGRA",
+    "window": {
+     "anchor": "index",
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   {
+    "args": [
+     {
+      "domain": "medication",
+      "quantifier": "any",
+      "valueset": "VS_TB_PREVENTIVE_THERAPY",
+      "window": {
+       "anchor": "index",
+       "from_days": -365,
+       "to_days": 0
+      }
+     }
+    ],
+    "op": "not"
+   }
+  ],
+  "op": "and"
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.2 不得申請情形 #2",
+ "text": "一年內丙型干擾素釋放試驗（IGRA）陽性而未接受潛伏結核預防性治療。",
+ "time_sensitive": false
+}

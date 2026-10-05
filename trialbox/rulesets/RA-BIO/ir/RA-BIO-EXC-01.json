@@ -1,0 +1,25 @@
+{
+ "class": "structured",
+ "id": "RA-BIO-EXC-01",
+ "kind": "exclusion",
+ "label": "活動性結核",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_ACTIVE_TUBERCULOSIS",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.2 不得申請情形 #1",
+ "text": "一年內有活動性結核病。",
+ "time_sensitive": false
+}

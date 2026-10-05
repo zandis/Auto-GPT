@@ -1,0 +1,218 @@
+# TrialBox single-host deployment (SPEC §2). x86_64 default; GB10 overrides in docker-compose.gb10.yml.
+#   cd deploy && cp ../.env.example .env && docker compose up -d
+# Profiles: "stub" (CPU / macOS: deterministic LLM stub), "gpu" (vLLM), "test" (GreenMail + MailHog).
+name: trialbox
+
+x-logging: &logging   # no PHI in logs (pids only); size-based rotation keeps well under the 180-day retention
+  driver: json-file
+  options: {max-size: "50m", max-file: "5"}
+
+x-py: &py
+  logging: *logging
+  image: ${TB_IMAGE:-trialbox-py:1.0.0}
+  build:
+    context: ..
+    dockerfile: deploy/docker/python.Dockerfile
+  env_file: [.env]
+  init: true
+  restart: unless-stopped
+  networks: [trialbox-net]
+  volumes: &settings_vol
+    - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+  healthcheck: &pyhealth
+    test: ["CMD", "python", "-c", "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"PORT\"]}/healthz', timeout=4).status==200 else 1)"]
+    interval: 15s
+    timeout: 5s
+    retries: 10
+    start_period: 20s
+
+services:
+  minio:
+    logging: *logging
+    # Official minio/minio images are no longer published on Docker Hub (DECISIONS D-21): community fork, multi-arch.
+    image: ${MINIO_IMAGE:-pgsty/minio:latest@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372}
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes: [minio-data:/data]
+    networks: [trialbox-net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  fhir-db:
+    logging: *logging
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}
+    environment:
+      POSTGRES_DB: hapi
+      POSTGRES_USER: hapi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: [fhir-pg:/var/lib/postgresql/data]
+    networks: [trialbox-net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hapi -d hapi"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  fhir-store:
+    logging: *logging
+    image: ${HAPI_IMAGE:-hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e}
+    depends_on:
+      fhir-db: {condition: service_healthy}
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://fhir-db:5432/hapi
+      SPRING_DATASOURCE_USERNAME: hapi
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATASOURCE_DRIVERCLASSNAME: org.postgresql.Driver
+      SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
+      HAPI_FHIR_FHIR_VERSION: R4
+      HAPI_FHIR_CR_ENABLED: "true"
+      HAPI_FHIR_MAX_PAGE_SIZE: "1000"
+      HAPI_FHIR_DEFAULT_PAGE_SIZE: "200"
+      HAPI_FHIR_ENFORCE_REFERENTIAL_INTEGRITY_ON_WRITE: "false"
+      HAPI_FHIR_ALLOW_MULTIPLE_DELETE: "true"
+      HAPI_FHIR_BULK_EXPORT_ENABLED: "false"
+      HAPI_FHIR_TESTER_HOME_ENABLED: "false"
+      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-3g} -Duser.timezone=${TB_TZ:-Asia/Taipei}"
+    networks: [trialbox-net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "java", "-cp", "/app", "HealthCheck"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
+
+  lake:
+    <<: *py
+    command: ["uvicorn", "lake.app:app", "--host", "0.0.0.0", "--port", "8013", "--workers", "2"]
+    environment: {PORT: "8013", TB_SERVICE_NAME: lake, TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http}
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - lake-data:/data/lake
+
+  embed-service:
+    <<: *py
+    image: ${TB_EMBED_IMAGE:-trialbox-py:1.0.0}
+    command: ["uvicorn", "embed_service.app:app", "--host", "0.0.0.0", "--port", "8014"]
+    environment: {PORT: "8014", TB_SERVICE_NAME: embed-service, TB_EMBED_MODEL_PATH: /models/bge-m3}
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - "${TB_MODELS_DIR:-./models}:/models:ro"
+
+  doc-parser:
+    <<: *py
+    image: ${TB_DOCPARSER_IMAGE:-trialbox-py:1.0.0}
+    command: ["uvicorn", "doc_parser.app:app", "--host", "0.0.0.0", "--port", "8011"]
+    environment: {PORT: "8011", TB_SERVICE_NAME: doc-parser}
+
+  criteria-compiler:
+    <<: *py
+    image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
+    command: ["uvicorn", "criteria_compiler.app:app", "--host", "0.0.0.0", "--port", "8012"]
+    environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler, TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit,
+                  TB_CTGOV_MODE: "${TB_CTGOV_MODE:-live}"}
+    # only service allowed to reach CLOUD_LLM_BASE_URL and clinicaltrials.gov (public registry, COHORT; network.sh)
+    networks: [trialbox-net, egress-net]
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - rulesets-data:/data/rulesets
+      - audit-data:/data/audit
+
+  adapter:
+    <<: *py
+    image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
+    command: ["uvicorn", "adapter.app:app", "--host", "0.0.0.0", "--port", "8016"]
+    environment: {PORT: "8016", TB_SERVICE_NAME: adapter, TB_LAKE_DIR: /data/lake, TB_ADAPTER_LAKE: http,
+                  TB_AUDIT_DIR: /data/audit, TB_SECRETS_DIR: /run/secrets/trialbox, TB_VALIDATOR_XMX: 3g}
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ${TB_SOURCE_DIR:-../tests/fixtures/synthetic_patients/site-a}:/data/source/site-a:ro
+      - lake-data:/data/lake
+      - audit-data:/data/audit
+      - tb-secrets:/run/secrets/trialbox
+
+  orchestrator:
+    <<: *py
+    image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
+    command: ["uvicorn", "orchestrator.app:app", "--host", "0.0.0.0", "--port", "8010"]
+    environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator, TB_AUDIT_DIR: /data/audit, TB_RULESETS_DIR: /data/rulesets,
+                  TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox}
+    networks: [trialbox-net, egress-net]   # only service allowed to reach NHI_TWPAS_BASE_URL (network.sh)
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - orch-data:/data/orchestrator
+      - audit-data:/data/audit
+      - rulesets-data:/data/rulesets:ro
+      - tb-secrets:/run/secrets/trialbox
+
+  mail-gateway:
+    <<: *py
+    command: ["uvicorn", "mail_gateway.app:app", "--host", "0.0.0.0", "--port", "8015"]
+    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway, TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail}
+    networks: [trialbox-net, egress-net]   # only service allowed to reach IMAP/SMTP (network.sh)
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - audit-data:/data/audit
+      - mail-data:/data/mail
+
+  llm-stub:
+    <<: *py
+    profiles: [stub]
+    command: ["uvicorn", "llm_stub.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: {PORT: "8000", TB_SERVICE_NAME: llm-stub}
+    networks:
+      trialbox-net:
+        aliases: [llm-service]
+
+  llm-service:
+    logging: *logging
+    profiles: [gpu]
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.11.0}
+    command:
+      - --model=/models/${LLM_MODEL_DIR:-qwen3.5-35b-a3b-q4}
+      - --served-model-name=${LLM_MODEL:-qwen3.5-35b-a3b-q4}
+      - --max-model-len=32768
+      - --max-num-seqs=64
+      - --gpu-memory-utilization=${GPU_MEM_UTIL:-0.85}
+      - --guided-decoding-backend=${GUIDED_BACKEND:-outlines}
+    environment:
+      HF_HUB_OFFLINE: "1"
+      VLLM_NO_USAGE_STATS: "1"
+    volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
+    ipc: host
+    networks: [trialbox-net]
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      interval: 30s
+      timeout: 10s
+      retries: 40
+      start_period: 300s
+
+networks:
+  trialbox-net:
+    name: trialbox-net
+    internal: true        # no default route: deny-by-default egress at the compose level
+  egress-net:
+    name: trialbox-egress  # host-level nftables (network.sh) restricts destinations per container
+
+volumes:
+  minio-data:
+  fhir-pg:
+  lake-data:
+  audit-data:
+  orch-data:
+  rulesets-data:
+  mail-data:
+  tb-secrets:

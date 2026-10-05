@@ -1,0 +1,25 @@
+{
+ "class": "structured",
+ "id": "RA-BIO-EXC-05",
+ "kind": "exclusion",
+ "label": "懷孕",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_PREGNANCY",
+  "window": {
+   "anchor": "index",
+   "from_days": -280,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.2 不得申請情形 #5",
+ "text": "懷孕中（二百八十日內有懷孕診斷）。",
+ "time_sensitive": true
+}

@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/audit_event.schema.json",
+  "title": "AuditEvent",
+  "description": "One line of audit/YYYY-MM-DD.jsonl (SPEC 10.2). hash = sha256(prev_hash + canonical JSON of the line without hash). Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "ts",
+    "event",
+    "prev_hash",
+    "hash"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "event": {
+      "type": "string"
+    },
+    "job_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ruleset": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ruleset_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "prompt_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "snapshot": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "actor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "input_sha": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "output_sha": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "recipients": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "detail": {
+      "type": "object"
+    },
+    "prev_hash": {
+      "type": "string"
+    },
+    "hash": {
+      "type": "string"
+    }
+  }
+}

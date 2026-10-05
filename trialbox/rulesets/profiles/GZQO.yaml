@@ -1,0 +1,17 @@
+# Site profile for ruleset GZQO (merged into manifest.yaml at compile time; not generated).
+kind: trial
+title: "J1I-MC-GZQO retatrutide gout phase 3"
+trial_alias: "GZQO"
+sponsor: "Sponsor (synthetic)"
+protocol_version: "3.0"
+index_date_rule: run_date
+scopes:
+  feas: {population: hospital, lookback_months: 36}
+  screen: {practitioners: ["P12345", "P23456", "P34567"], appointment_window_days: 180, departments: ["RHEU", "META"],
+           recent_encounter_months: 12, microbatch_window_days: 14}
+routing:
+  aggregate_to: ["crc1@hospa.test"]
+  list_to: ["pi@hospa.test", "crc1@hospa.test"]
+  referral_to: {"META": "meta-head@hospa.test"}
+thresholds: {tier_high_confidence: 0.75, small_cell: 5}
+variants: {bmi: "24,25,27"}

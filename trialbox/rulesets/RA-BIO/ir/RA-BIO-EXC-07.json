@@ -1,0 +1,21 @@
+{
+ "class": "structured",
+ "fallback": "NYHA 分級由醫師確認",
+ "id": "RA-BIO-EXC-07",
+ "kind": "exclusion",
+ "label": "心衰竭",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_HEART_FAILURE"
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.2 不得申請情形 #7",
+ "text": "有心衰竭（NYHA 第三或第四級）病史。",
+ "time_sensitive": false
+}

@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "36643-5",
+      "display": "XR Chest 2 Views"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "ONC-OSI-VS-CHEST-X-RAY",
+ "name": "VS_CHEST_X_RAY",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "chest x-ray",
+ "url": "http://trialbox.local/fhir/ValueSet/ONC-OSI-VS-CHEST-X-RAY",
+ "version": "1.0.0-vdd39bb1a"
+}

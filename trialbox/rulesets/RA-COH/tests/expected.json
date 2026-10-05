@@ -1,0 +1,1609 @@
+{
+ "engine": "hapi-cr 8.12 $evaluate",
+ "index_date": "2026-10-05",
+ "patients": {
+  "10000001": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000005": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000008": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000010": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000012": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000015": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000016": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000023": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": true
+  },
+  "10000025": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000027": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000029": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000031": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000032": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": true
+  },
+  "10000033": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000034": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000039": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000045": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000048": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000049": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000050": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000054": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000055": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": true
+  },
+  "10000058": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000061": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000066": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000070": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000075": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000079": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000080": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": true
+  },
+  "10000084": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000088": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000091": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000097": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000101": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000112": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000113": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000118": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000119": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000120": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000122": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000126": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000128": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000132": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000134": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000136": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000140": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000144": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000146": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000148": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000157": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000160": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000161": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000162": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000163": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000164": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000170": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000174": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000179": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000182": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000184": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000186": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000188": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000199": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000209": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000210": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000213": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": true
+  },
+  "10000215": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000217": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000220": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000221": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000223": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000226": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000236": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000237": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000241": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000248": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000255": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000259": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000262": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000263": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000264": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000266": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000270": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000271": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000272": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": true
+  },
+  "10000278": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000280": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000283": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000286": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000287": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000288": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000289": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000290": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000292": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": true
+  },
+  "10000296": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000297": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000298": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000304": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000305": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000306": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000308": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000309": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000312": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000318": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000322": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": true
+  },
+  "10000324": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000325": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000329": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000331": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000335": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000337": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000338": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000340": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": true
+  },
+  "10000341": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000344": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000348": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000355": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000371": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000380": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000381": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000382": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000386": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000387": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000393": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000396": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000398": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000400": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000402": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000403": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000407": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000408": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000413": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000416": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000420": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000431": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000432": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000438": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000441": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000442": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000443": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000445": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000446": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": true
+  },
+  "10000449": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": true
+  },
+  "10000450": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000451": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000452": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000457": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000458": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000460": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000464": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000466": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000472": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000479": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000481": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000482": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000484": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": true
+  },
+  "10000489": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": true
+  },
+  "10000496": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000497": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000500": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000501": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000502": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000503": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000505": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000508": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000509": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000513": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000518": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": true
+  },
+  "10000519": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000522": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000524": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000528": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000529": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000530": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000531": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000537": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000538": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000540": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000548": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000549": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": true
+  },
+  "10000550": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000553": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000555": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000556": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000557": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000558": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000561": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000562": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  },
+  "10000570": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000575": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000576": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000577": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000579": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": true,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": false
+  },
+  "10000586": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": true
+  },
+  "10000587": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000589": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000593": {
+   "RA-COH-INC-01": false,
+   "RA-COH-INC-02": false,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": null,
+   "RA-COH-INC-06": false
+  },
+  "10000596": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": true,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": true
+  },
+  "10000597": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": null,
+   "RA-COH-INC-04": null,
+   "RA-COH-INC-05": true,
+   "RA-COH-INC-06": true
+  },
+  "10000598": {
+   "RA-COH-INC-01": true,
+   "RA-COH-INC-02": true,
+   "RA-COH-INC-03": false,
+   "RA-COH-INC-04": false,
+   "RA-COH-INC-05": false,
+   "RA-COH-INC-06": false
+  }
+ },
+ "ruleset": "RA-COH",
+ "source": "tests/fixtures/synthetic_patients/site-a (tools/make_fixtures.py defaults)",
+ "version": "1.0.0"
+}

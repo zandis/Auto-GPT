@@ -1,0 +1,25 @@
+nhi_code,atc,name,name_zh,synthetic
+AC00001100,M04AA01,Allopurinol 100mg,安樂普諾,yes
+BC00002100,M04AA03,Febuxostat 80mg,福避痛,yes
+AC00003100,M04AB03,Benzbromarone 50mg,本補麻隆,yes
+AC00004100,M04AC01,Colchicine 0.5mg,秋水仙素,yes
+KC00005209,A10BJ06,Semaglutide 1mg/pen,司美格魯肽,yes
+KC00006209,A10BJ02,Liraglutide 18mg/3mL,利拉魯肽,yes
+KC00007209,A10BJ05,Dulaglutide 1.5mg,度拉糖肽,yes
+KC00008209,A10BX16,Tirzepatide 5mg,替爾泊肽,yes
+AC00009100,A10BA02,Metformin 500mg,二甲雙胍,yes
+AC00010100,C08CA01,Amlodipine 5mg,脈優,yes
+AC00011100,C10AA05,Atorvastatin 20mg,立普妥,yes
+AC00012100,L04AX03,Methotrexate 2.5mg,甲氨蝶呤,yes
+AC00013100,P01BA02,Hydroxychloroquine 200mg,奎寧,yes
+AC00014100,A07EC01,Sulfasalazine 500mg,斯樂腸溶錠,yes
+BC00015100,L04AA13,Leflunomide 20mg,艾炎寧,yes
+AC00016100,H02AB06,Prednisolone 5mg,普賴松,yes
+KC00017248,L04AB04,Adalimumab 40mg/0.4mL,復邁,yes
+KC00018248,L04AB01,Etanercept 50mg,恩博,yes
+KC00019248,L04AC07,Tocilizumab 162mg,安挺樂,yes
+AC00020100,J04AC01,Isoniazid 300mg,異菸鹼醯胺,yes
+AC00021100,J04AB05,Rifapentine 150mg,利福噴丁,yes
+BC00022100,J05AF10,Entecavir 0.5mg,貝樂克,yes
+BC00023100,J05AF07,Tenofovir DF 300mg,惠立妥,yes
+KC00024238,L01EB04,Osimertinib 80mg,泰格莎,yes

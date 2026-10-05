@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/llm_concept_map_output.schema.json",
+  "title": "LlmConceptMapOutput",
+  "description": "Output of prompt concept_map (SPEC 7.2). Schema version 1.0.0.",
+  "type": "object",
+  "required": ["choices", "needs_review"],
+  "additionalProperties": false,
+  "properties": {
+    "choices": {
+      "type": "array",
+      "items": {
+        "title": "ConceptChoice",
+        "type": "object",
+        "required": ["code", "system", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "code": {"type": "string"},
+          "system": {"type": "string"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "needs_review": {"type": "boolean"}
+  }
+}

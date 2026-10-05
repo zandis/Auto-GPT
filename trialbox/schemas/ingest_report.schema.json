@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/ingest_report.schema.json",
+  "title": "IngestReport",
+  "description": "adapter ingest_report.json (SPEC 4.6). Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "snapshot",
+    "source",
+    "started_at",
+    "counts",
+    "validation",
+    "passed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "snapshot": {
+      "type": "string",
+      "format": "date"
+    },
+    "source": {
+      "type": "string"
+    },
+    "since": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finished_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "missing_required": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "validation": {
+      "$ref": "#/$defs/validation_summary"
+    },
+    "fhir_loaded": {
+      "type": "integer",
+      "default": 0
+    },
+    "lake": {
+      "anyOf": [
+        {
+          "$ref": "lake_api.schema.json#/$defs/rebuild_result"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "passed": {
+      "type": "boolean"
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "validation_summary": {
+      "title": "ValidationSummary",
+      "type": "object",
+      "required": [
+        "sampled",
+        "errors",
+        "error_pct",
+        "validator"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sampled": {
+          "type": "integer"
+        },
+        "errors": {
+          "type": "integer"
+        },
+        "error_pct": {
+          "type": "number"
+        },
+        "validator": {
+          "type": "string"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ingest_request": {
+      "title": "IngestRequest",
+      "type": "object",
+      "required": [
+        "source"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "enum": [
+            "cgrd_sql",
+            "csv",
+            "fhir_bulk",
+            "ssmix2"
+          ]
+        },
+        "since": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "snapshot": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "load_fhir": {
+          "type": "boolean",
+          "default": true
+        },
+        "rebuild_lake": {
+          "type": "boolean",
+          "default": true
+        },
+        "validate": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  }
+}

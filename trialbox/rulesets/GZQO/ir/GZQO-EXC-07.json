@@ -1,0 +1,25 @@
+{
+ "class": "structured",
+ "id": "GZQO-EXC-07",
+ "kind": "exclusion",
+ "label": "Malignancy ≤5 y",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_MALIGNANCY",
+  "window": {
+   "anchor": "index",
+   "from_days": -1825,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.2 Exclusion Criteria #7",
+ "text": "Malignancy within the past 5 years, except non-melanoma skin cancer.",
+ "time_sensitive": false
+}

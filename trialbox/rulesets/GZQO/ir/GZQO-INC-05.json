@@ -1,0 +1,29 @@
+{
+ "action": "confirm flare dates with patient",
+ "class": "note",
+ "fallback": "Structured proxy: ≥2 gout-coded visits in 12 months.",
+ "id": "GZQO-INC-05",
+ "kind": "inclusion",
+ "label": "≥2 flares /12 mo",
+ "logic": {
+  "count": 2,
+  "domain": "condition",
+  "quantifier": "count>=",
+  "valueset": "VS_GOUT",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "note_question": "Do the clinical notes document at least two separate acute gout flares in the 12 months before the index date?",
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.1 Inclusion Criteria #5",
+ "text": "At least 2 gout flares within the 12 months before screening.",
+ "time_sensitive": false
+}

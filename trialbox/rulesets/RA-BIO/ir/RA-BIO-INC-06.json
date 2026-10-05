@@ -1,0 +1,31 @@
+{
+ "action": "調閱前次 DAS28 評估紀錄",
+ "class": "structured",
+ "id": "RA-BIO-INC-06",
+ "kind": "inclusion",
+ "label": "前次 DAS28>5.1",
+ "logic": {
+  "derived": "das28",
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 5.1,
+   "op": ">"
+  },
+  "valueset": "VS_DAS28_COMPONENTS",
+  "window": {
+   "anchor": "index",
+   "from_days": -180,
+   "to_days": -90
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.1 初次申請給付條件 #6",
+ "text": "申請前九十日至一百八十日間另有一次 DAS28 評估大於5.1（與最近一次評估間隔至少一個月）。",
+ "time_sensitive": false
+}

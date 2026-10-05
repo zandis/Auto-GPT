@@ -1,0 +1,464 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/compile.schema.json",
+  "title": "CompileRequest",
+  "description": "criteria-compiler POST /compile (SPEC 4.3). Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "ruleset",
+    "parsed_doc_key"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "job_id": {
+      "type": "string"
+    },
+    "ruleset": {
+      "type": "string"
+    },
+    "parsed_doc_key": {
+      "type": "string"
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "kind": {
+      "enum": [
+        "trial",
+        "nhi",
+        "cohort"
+      ]
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "requested_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_text": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "$defs": {
+    "equivalence_report": {
+      "title": "EquivalenceReport",
+      "type": "object",
+      "required": [
+        "overall_pct",
+        "per_criterion",
+        "failing",
+        "sample_size"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "overall_pct": {
+          "type": "number"
+        },
+        "per_criterion": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "failing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sample_size": {
+          "type": "integer"
+        },
+        "disagreements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/disagreement"
+          }
+        },
+        "engine": {
+          "type": "string"
+        }
+      }
+    },
+    "disagreement": {
+      "title": "Disagreement",
+      "type": "object",
+      "required": [
+        "criterion_id",
+        "pid",
+        "cql",
+        "sql"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "criterion_id": {
+          "type": "string"
+        },
+        "pid": {
+          "type": "string"
+        },
+        "index_date": {
+          "type": "string"
+        },
+        "cql": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "sql": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "evidence_cql": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence_sql": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "compile_result": {
+      "title": "CompileResult",
+      "type": "object",
+      "required": [
+        "ruleset",
+        "version",
+        "criteria",
+        "tests",
+        "manifest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ruleset": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "criteria": {
+          "type": "array",
+          "items": {
+            "$ref": "criterion_ir.schema.json"
+          }
+        },
+        "tests": {
+          "$ref": "#/$defs/equivalence_report"
+        },
+        "manifest": {
+          "$ref": "ruleset_manifest.schema.json"
+        },
+        "review_html_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "review_xlsx_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "draft_zip_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "needs_review": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "phi_guard_hit": {
+          "type": "boolean",
+          "default": false
+        },
+        "round": {
+          "type": "integer",
+          "default": 1
+        }
+      }
+    },
+    "diff_request": {
+      "title": "DiffRequest",
+      "type": "object",
+      "required": [
+        "ruleset",
+        "new_doc_key"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ruleset": {
+          "type": "string"
+        },
+        "new_doc_key": {
+          "type": "string"
+        },
+        "job_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "diff_result": {
+      "title": "DiffResult",
+      "type": "object",
+      "required": [
+        "ruleset",
+        "base_version",
+        "changed",
+        "added",
+        "removed",
+        "unchanged"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ruleset": {
+          "type": "string"
+        },
+        "base_version": {
+          "type": "string"
+        },
+        "changed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unchanged": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "review_decision": {
+      "title": "ReviewDecision",
+      "type": "object",
+      "required": [
+        "id",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "approve",
+            "reject",
+            "edit"
+          ]
+        },
+        "edited_text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "edited_class": {
+          "enum": [
+            "structured",
+            "note",
+            "human",
+            null
+          ]
+        },
+        "edited_ir": {
+          "anyOf": [
+            {
+              "$ref": "criterion_ir.schema.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "comment": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "approve_request": {
+      "title": "ApproveRequest",
+      "type": "object",
+      "required": [
+        "ruleset",
+        "version",
+        "by",
+        "decisions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ruleset": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "job_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "decisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/review_decision"
+          }
+        }
+      }
+    },
+    "approve_result": {
+      "title": "ApproveResult",
+      "type": "object",
+      "required": [
+        "ruleset",
+        "version",
+        "status",
+        "round"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ruleset": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "approved",
+            "needs_review",
+            "rejected",
+            "max_rounds"
+          ]
+        },
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "round": {
+          "type": "integer"
+        },
+        "manifest": {
+          "anyOf": [
+            {
+              "$ref": "ruleset_manifest.schema.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "criteria": {
+          "type": "array",
+          "items": {
+            "$ref": "criterion_ir.schema.json"
+          }
+        },
+        "tests": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/equivalence_report"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "review_html_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "review_xlsx_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "draft_zip_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "blocking": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

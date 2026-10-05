@@ -1,0 +1,29 @@
+{
+ "class": "structured",
+ "id": "GZQO-INC-06",
+ "kind": "inclusion",
+ "label": "ULT ≥3 months",
+ "logic": {
+  "domain": "medication",
+  "duration": {
+   "gap_days": 30,
+   "min_days": 90
+  },
+  "quantifier": "any",
+  "valueset": "VS_URATE_LOWERING_THERAPY",
+  "window": {
+   "anchor": "index",
+   "from_days": -180,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T16:42:05.672033+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "GZQO",
+ "source_ref": "5.1 Inclusion Criteria #6",
+ "text": "Receiving stable urate-lowering therapy for at least 3 months (continuous within the past 6 months, gaps ≤30 days).",
+ "time_sensitive": false
+}

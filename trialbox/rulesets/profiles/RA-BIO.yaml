@@ -1,0 +1,15 @@
+# Site profile for ruleset RA-BIO (merged into manifest.yaml at compile time; not generated).
+kind: nhi
+title: "RA 生物製劑健保給付（adalimumab、etanercept、tocilizumab）"
+trial_alias: "RA-BIO"
+sponsor: "全民健康保險（合成範例）"
+protocol_version: "2026"
+index_date_rule: run_date
+scopes:
+  nav: {departments: ["RHEU"], appointment_window_days: 14, renewal_lead_days: 60, application_lookback_days: 90}
+routing:
+  aggregate_to: ["rheu-dr@hospa.test"]
+  list_to: ["nurse-rheu@hospa.test", "rheu-dr@hospa.test"]
+thresholds: {tier_high_confidence: 0.75, small_cell: 5}
+docx_template: "RA-BIO/附表十五.docx"
+twpas: {enabled: false, program: "RA-BIO", apply_type: "1", drug_codes: ["KC00017248", "KC00018248", "KC00019248"]}

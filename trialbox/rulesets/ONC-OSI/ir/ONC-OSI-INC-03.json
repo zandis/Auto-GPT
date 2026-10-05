@@ -1,0 +1,27 @@
+{
+ "action": "安排 EGFR 基因檢測",
+ "class": "structured",
+ "id": "ONC-OSI-INC-03",
+ "kind": "inclusion",
+ "label": "EGFR 突變陽性",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "codes": [
+    "LA9633-4"
+   ],
+   "op": "in"
+  },
+  "valueset": "VS_EGFR_MUTATION"
+ },
+ "review": {
+  "at": "2026-10-04T18:31:44.293650+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "ONC-OSI",
+ "source_ref": "9.20.1 給付條件 #3",
+ "text": "腫瘤組織檢測證實具 EGFR 基因突變（exon 19 deletion 或 L858R）。",
+ "time_sensitive": false
+}

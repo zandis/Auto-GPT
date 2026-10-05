@@ -1,0 +1,64 @@
+# Test/dev override: mail test servers and localhost-only port publishing for the test harness.
+#   docker compose -f docker-compose.yml -f docker-compose.test.yml --profile stub --profile test up -d
+services:
+  greenmail:
+    image: ${GREENMAIL_IMAGE:-greenmail/standalone:2.1.3@sha256:d6db42a4fc258fec0948b1ae7b579fd06947cc92087c162ec0597972a6c36850}
+    profiles: [test]
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.smtp -Dgreenmail.setup.test.imap -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.auth.disabled -Dgreenmail.users=trialbox:trialbox@hospa.test -Dgreenmail.verbose=false
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:3025:3025", "127.0.0.1:3143:3143"]
+  mailhog:
+    image: ${MAILHOG_IMAGE:-mailhog/mailhog:v1.0.1@sha256:8d76a3d4ffa32a3661311944007a415332c4bb855657f4f6c57996405c009bea}
+    profiles: [test]
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:8025:8025"]
+  mail-gateway:
+    environment: {PORT: "8015", TB_SERVICE_NAME: mail-gateway, TB_AUDIT_DIR: /data/audit, TB_MAIL_DIR: /data/mail,
+                  TB_MAIL_POLL_SECONDS: "5"}
+    networks: [trialbox-net, egress-net, host-net]
+    ports: ["127.0.0.1:8015:8015"]
+  orchestrator:
+    networks: [trialbox-net, egress-net, host-net]
+    ports: ["127.0.0.1:8010:8010"]
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - orch-data:/data/orchestrator
+      - audit-data:/data/audit
+      - rulesets-data:/data/rulesets:ro
+      - ../.cache/test-secrets:/run/secrets/trialbox
+  fhir-store:
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:8080:8080"]
+  lake:
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:8013:8013"]
+  adapter:
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:8016:8016"]
+    volumes:  # test-only: a known site key so the harness can compute pids (production: TPM-sealed, in-box only)
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ${TB_SOURCE_DIR:-../tests/fixtures/synthetic_patients/site-a}:/data/source/site-a:ro
+      - lake-data:/data/lake
+      - audit-data:/data/audit
+      - ../.cache/test-secrets:/run/secrets/trialbox
+  doc-parser:
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:8011:8011"]
+  minio:
+    networks: [trialbox-net, host-net]
+    ports: ["127.0.0.1:9000:9000"]
+  criteria-compiler:
+    networks: [trialbox-net, egress-net, host-net]
+    ports: ["127.0.0.1:8012:8012"]
+    environment: {TB_CTGOV_MODE: cassette}   # synthetic ClinicalTrials.gov studies (tools/make_ctgov_cassettes.py)
+  llm-stub:
+    networks:
+      trialbox-net: {aliases: [llm-service]}
+      host-net: {}
+    ports: ["127.0.0.1:8000:8000"]
+networks:
+  host-net:
+    name: trialbox-hostnet

@@ -1,0 +1,31 @@
+{
+ "action": "安排 DAS28 評估",
+ "class": "structured",
+ "id": "RA-BIO-REN-01",
+ "kind": "renewal",
+ "label": "續用 DAS28 評估",
+ "logic": {
+  "derived": "das28",
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 0.0,
+   "op": ">="
+  },
+  "valueset": "VS_DAS28_COMPONENTS",
+  "window": {
+   "anchor": "index",
+   "from_days": -90,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.3 續用條件 #1",
+ "text": "續用申請前九十日內須有完整之 DAS28 評估。",
+ "time_sensitive": true
+}

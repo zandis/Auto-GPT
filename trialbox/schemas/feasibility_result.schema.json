@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/feasibility_result.schema.json",
+  "title": "FeasibilityResult",
+  "description": "SPEC 3.6 feasibility_result. Counts are integers or a suppressed string like '<5'. Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "ruleset",
+    "version",
+    "snapshot",
+    "population",
+    "funnel",
+    "sensitivity",
+    "monthly_new",
+    "simulation",
+    "notes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "ruleset": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "snapshot": {
+      "type": "string",
+      "format": "date"
+    },
+    "population": {
+      "type": "string"
+    },
+    "lookback_months": {
+      "type": "integer"
+    },
+    "run_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "start_n": {
+      "$ref": "#/$defs/count"
+    },
+    "funnel": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/funnel_step"
+      }
+    },
+    "sensitivity": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sensitivity_row"
+      }
+    },
+    "monthly_new": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/monthly_count"
+      }
+    },
+    "simulation": {
+      "$ref": "#/$defs/simulation"
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "count": {
+      "title": "Count",
+      "description": "non-negative integer, or a small-cell suppressed string such as '<5'",
+      "type": [
+        "integer",
+        "string"
+      ]
+    },
+    "funnel_step": {
+      "title": "FunnelStep",
+      "type": "object",
+      "required": [
+        "criterion_id",
+        "label",
+        "remaining",
+        "dropped",
+        "pct"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "criterion_id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "remaining": {
+          "$ref": "#/$defs/count"
+        },
+        "dropped": {
+          "$ref": "#/$defs/count"
+        },
+        "pct": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "remaining as % of start; null when suppressed"
+        },
+        "unknown": {
+          "$ref": "#/$defs/count"
+        },
+        "applied": {
+          "type": "boolean",
+          "default": true,
+          "description": "false for note/human criteria (not applied in counts)"
+        }
+      }
+    },
+    "sensitivity_row": {
+      "title": "SensitivityRow",
+      "type": "object",
+      "required": [
+        "criterion_id",
+        "variant",
+        "remaining"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "criterion_id": {
+          "type": "string"
+        },
+        "variant": {
+          "type": "string"
+        },
+        "remaining": {
+          "$ref": "#/$defs/count"
+        },
+        "delta": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "monthly_count": {
+      "title": "MonthlyCount",
+      "type": "object",
+      "required": [
+        "month",
+        "n"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "month": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}$"
+        },
+        "n": {
+          "$ref": "#/$defs/count"
+        }
+      }
+    },
+    "simulation": {
+      "title": "Simulation",
+      "type": "object",
+      "required": [
+        "reach_rate",
+        "accept_rate",
+        "months",
+        "low",
+        "mid",
+        "high"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "reach_rate": {
+          "type": "number"
+        },
+        "accept_rate": {
+          "type": "number"
+        },
+        "capacity_per_month": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "months": {
+          "type": "integer"
+        },
+        "low": {
+          "type": "number"
+        },
+        "mid": {
+          "type": "number"
+        },
+        "high": {
+          "type": "number"
+        },
+        "source": {
+          "enum": [
+            "calibrated",
+            "default"
+          ],
+          "default": "default"
+        },
+        "iterations": {
+          "type": "integer",
+          "default": 1000
+        },
+        "monthly_eligible_mean": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}

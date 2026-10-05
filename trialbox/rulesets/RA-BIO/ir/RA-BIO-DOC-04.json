@@ -1,0 +1,26 @@
+{
+ "class": "structured",
+ "id": "RA-BIO-DOC-04",
+ "kind": "documentation",
+ "label": "ESR/CRP 報告",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "any",
+  "valueset": "VS_ESR_OR_CRP",
+  "window": {
+   "anchor": "index",
+   "from_days": -90,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-10-04T18:05:33.792711+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-BIO",
+ "source_ref": "8.2.4.4 申請應檢附資料 #4",
+ "suggested_order": "09032C CRP 或 08005C ESR",
+ "text": "九十日內紅血球沉降速率（ESR）或C反應蛋白（CRP）檢驗報告。",
+ "time_sensitive": false
+}

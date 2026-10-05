@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/update_manifest.schema.json",
+  "title": "UpdateManifest",
+  "description": "Offline update bundle manifest (SPEC 10.1), signed with the vendor Ed25519 key. Schema version 1.0.0.",
+  "type": "object",
+  "required": [
+    "bundle_id",
+    "created_at",
+    "signer",
+    "files"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "bundle_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "signer": {
+      "type": "string"
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/update_file"
+      }
+    }
+  },
+  "$defs": {
+    "update_file": {
+      "title": "UpdateFile",
+      "type": "object",
+      "required": [
+        "path",
+        "sha256",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "kind": {
+          "enum": [
+            "model",
+            "ruleset",
+            "image",
+            "other"
+          ]
+        },
+        "size": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}
