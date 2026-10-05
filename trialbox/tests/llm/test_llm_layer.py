@@ -62,17 +62,18 @@ def _shape(c: dict[str, Any]) -> Any:
 
 
 def test_ir_extract_against_gold(llm: Any) -> None:
-    from tb_common.phi_guard import scan
+    from tb_common.phi_guard import scan, variables_text
 
     agree = total = 0
     misses: list[str] = []
     for rid in GOLD:
         gold = json.loads((CASSETTES / f"{rid}.json").read_text(encoding="utf-8"))["criteria"]
         lines = [{"text": c["text"], "kind": c["kind"], "source_ref": c["source_ref"]} for c in gold]
-        guard = scan("\n".join(x["text"] for x in lines), None)
+        variables = {"ruleset": rid, "language": "en", "criteria": lines}
+        guard = scan(variables_text(variables), None)
         out = llm.chat_json(
             "ir_extract",
-            {"ruleset": rid, "language": "en", "criteria": lines},
+            variables,
             job_id="LLM-EVAL",
             clearance=guard.clearance,
             phi_guard_hit=guard.hit,
@@ -112,7 +113,7 @@ def _concepts() -> list[tuple[str, str, str]]:
 
 def test_concept_map_200(llm: Any) -> None:
     from criteria_compiler.terminology.mapper import Terminology
-    from tb_common.phi_guard import scan
+    from tb_common.phi_guard import scan, variables_text
 
     term = Terminology()
     items = _concepts()
@@ -127,7 +128,7 @@ def test_concept_map_200(llm: Any) -> None:
             "domain": domain,
             "candidates": [{"code": c.code, "system": c.system, "display": c.display} for c in cands],
         }
-        guard = scan(json.dumps(variables, ensure_ascii=False), None)
+        guard = scan(variables_text(variables), None)
         res = llm.chat_json("concept_map", variables, job_id="LLM-EVAL", clearance=guard.clearance)
         choices = res.data.get("choices") or []
         asked += 1

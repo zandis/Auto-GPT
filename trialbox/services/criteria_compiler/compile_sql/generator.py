@@ -63,6 +63,12 @@ def cmp_sql(atom: Atom, value: str = "o.value_num", code: str = "o.value_code") 
     return f"({value} {op} {fmt_num(v.num)})"
 
 
+def _comment(text: str) -> str:
+    """Criterion text for a ``--`` line comment: all whitespace (newlines from a reviewer's Alt+Enter or the model
+    included) collapsed, so nothing after it can become SQL."""
+    return " ".join(text.split())[:150]
+
+
 class SqlGenerator:
     def __init__(self, ruleset: str, version: str, valuesets: ValueSets) -> None:
         self.ruleset = ruleset
@@ -248,6 +254,8 @@ class SqlGenerator:
                 f"{name}_p AS (\n  SELECT b.pid, b.index_date, m.mid, greatest(coalesce(m.start, m.authored), {lo}) AS s,\n"
                 f'         least(coalesce(m."end", m.start, m.authored), {hi}) AS e\n'
                 f"  FROM base b JOIN medication m ON m.pid = b.pid\n  WHERE {match}\n"
+                # greatest/least skip NULLs: an order without any date would span the whole window
+                f"    AND coalesce(m.start, m.authored) IS NOT NULL\n"
                 f'    AND greatest(coalesce(m.start, m.authored), {lo}) <= least(coalesce(m."end", m.start, m.authored), '
                 f"{hi}))"
             ),
@@ -324,7 +332,7 @@ class SqlGenerator:
                 evs.append(ev)
             crit = f"c_{ident(c.id)}".lower()
             ctes.append(
-                f"-- {c.id} ({c.kind}): {c.text.strip()[:150]}\n{crit} AS (\n"
+                f"-- {c.id} ({c.kind}): {_comment(c.text)}\n{crit} AS (\n"
                 f"  SELECT b.pid, b.index_date, {self._bool(c.logic, names)} AS v,\n"
                 f"         concat_ws(';', {', '.join(evs)}) AS ev\n  FROM base b\n  "
                 + ("\n  ".join(joins) if joins else "")

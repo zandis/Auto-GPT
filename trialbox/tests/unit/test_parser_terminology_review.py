@@ -107,3 +107,75 @@ def test_repo_seed_tags_and_promote(tmp_path: Path) -> None:
     assert (tmp_path / "repo" / "NEW" / "manifest.yaml").read_text() == "id: NEW\n"
     with pytest.raises(ValueError):
         repo.tag("NEW/v1.0.0", "main", "dup")
+
+
+def test_concepts_never_share_a_valueset() -> None:
+    """zh/ja concept names used to collapse to one VS_CONCEPT, the second mapping overwriting the first (gout
+    evaluated against CKD codes, with CQL and SQL agreeing); different Latin names with one slug likewise."""
+    from criteria_compiler.ir_extract.postprocess import postprocess
+    from criteria_compiler.terminology.mapper import vs_name_for
+    from tb_contracts import LlmExtractOutput
+
+    assert vs_name_for("痛風") != vs_name_for("慢性腎臟病") and vs_name_for("痛風") == vs_name_for(" 痛風")
+    assert vs_name_for("Gout") == "VS_GOUT"  # ASCII names keep their names: shipped rulesets recompile unchanged
+
+    def crit(concept: str, domain: str = "condition") -> dict[str, object]:
+        return {
+            "text": f"{concept} 病史",
+            "kind": "inclusion",
+            "class": "structured",
+            "logic": {"domain": domain, "concept": concept, "quantifier": "any"},
+            "concept_candidates": [{"domain": domain, "name": concept}],
+        }
+
+    out = LlmExtractOutput.model_validate(
+        {"criteria": [crit("痛風"), crit("慢性腎臟病"), crit("Type 2 diabetes"), crit("type-2 diabetes")]}
+    )
+    post = postprocess("ZH-TEST", out, Terminology())
+    names = [c.logic.valueset for c in post.criteria]  # type: ignore[union-attr]
+    assert len(set(names)) == 4 and set(names) <= set(post.valuesets)
+    titles = {post.valuesets[n]["title"] for n in names}
+    assert {"痛風", "慢性腎臟病"} <= titles
+
+
+def test_wrapped_numeric_lines_stay_in_their_criterion() -> None:
+    """PDF text wraps criteria at arbitrary points: a continuation starting with a decimal ("1.5 mg/dL …") is not a
+    new item, and one starting with a number ("18 years …", "1.5 mg/dL …") is not a heading that would close the
+    Inclusion/Exclusion section and silently drop the remaining criteria."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    assert items("1. Serum creatinine greater than\n1.5 mg/dL at screening\n2. Next") == [
+        "Serum creatinine greater than 1.5 mg/dL at screening",
+        "Next",
+    ]
+    lines = [
+        "1 Introduction",
+        "This is a synthetic protocol.",
+        "5 Study Population",
+        "5.1 Inclusion Criteria",
+        "1. Age ≥",
+        "18 years or older at screening",
+        "2. Serum creatinine greater than",
+        "1.5 mg/dL at screening",
+        "3. BMI ≥ 27 kg/m2",
+        "5.2 Exclusion Criteria",
+        "1. Pregnancy",
+        "6.1 Study Intervention",
+        "Retatrutide weekly.",
+    ]
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    y = 800
+    for line in lines:
+        c.drawString(72, y, line.replace("≥", ">="))
+        y -= 18
+    c.save()
+    doc = parse(buf.getvalue(), "wrapped.pdf", backend="lite")
+    assert doc.ie_block.inclusion == [
+        "Age >= 18 years or older at screening",
+        "Serum creatinine greater than 1.5 mg/dL at screening",
+        "BMI >= 27 kg/m2",
+    ]
+    assert doc.ie_block.exclusion == ["Pregnancy"]
+    assert [s.title for s in doc.sections][-1] == "6.1 Study Intervention"

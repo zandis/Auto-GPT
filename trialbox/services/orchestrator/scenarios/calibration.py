@@ -82,13 +82,28 @@ def compute(
 
 
 def suppressed(body: dict[str, Any], t: int) -> dict[str, Any]:
-    from tb_common.smallcell import suppress
+    """The aggregate (published) calibration: counts small-cell suppressed, and a rate withheld when it would reveal
+    a small count (accept 5 % of 20 contacted = 1 enrolled). The exact file stays in the box for FEAS."""
+    from tb_common.smallcell import rate_publishable, suppress
 
     out = dict(body)
     for k in ("listed", "with_feedback", "contacted", "not_contacted", "enrolled", "screen_fail", "declined"):
         out[k] = suppress(int(body[k]), t)
     out["screen_fail_reasons"] = {k: suppress(int(v), t) for k, v in body["screen_fail_reasons"].items()}
+    parts = {
+        "reach_rate": (body["contacted"], body["with_feedback"]),
+        "accept_rate": (body["enrolled"], body["contacted"]),
+        "screen_fail_rate": (body["screen_fail"], body["contacted"]),
+    }
+    withheld = [k for k, (num, den) in parts.items() if out[k] is not None and not rate_publishable(num, den, t)]
+    for k in withheld:
+        out[k] = None
+    out["rates_withheld"] = withheld
     return out
+
+
+def _pct(rate: float | None) -> str:
+    return f"{rate:.0%}" if rate is not None else "withheld (small cells)"
 
 
 def run(ctx: Any) -> Any:
@@ -110,16 +125,18 @@ def run(ctx: Any) -> Any:
         routing = rs.manifest.routing if rs else None
         to = recipients(routing, "" if ctx.job.requested_by == "scheduler" else ctx.job.requested_by)
         t = int(ctx.cfg.settings.thresholds.small_cell if ctx.cfg.settings.thresholds else 5) or 5
+        pub = suppressed(body, t)
         out = ctx.publish(
             f"calibration_{rid}.json",
-            (json.dumps(suppressed(body, t), indent=1, sort_keys=True) + "\n").encode(),
+            (json.dumps(pub, indent=1, sort_keys=True) + "\n").encode(),
             "aggregate",
             to,
         )
+
         rates = (
-            f"reach {body['reach_rate']:.0%}, accept {body['accept_rate']:.0%}"
+            f"reach {_pct(pub['reach_rate'])}, accept {_pct(pub['accept_rate'])}"
             if body["used_by_feas"]
-            else f"too few contacts ({body['contacted']} < {body['min_contacted']}); FEAS keeps default rates"
+            else f"too few contacts ({pub['contacted']} < {body['min_contacted']}); FEAS keeps default rates"
         )
         lines.append(f"{rid}: {rates}")
         if to:

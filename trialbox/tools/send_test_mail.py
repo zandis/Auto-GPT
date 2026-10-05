@@ -33,7 +33,8 @@ def main(argv: list[str] | None = None) -> int:
     m["Subject"] = args.subject
     m["Message-ID"] = make_msgid(domain=args.sender.rsplit("@", 1)[-1])
     domain = args.sender.rsplit("@", 1)[-1]
-    m["Authentication-Results"] = f"mx.{domain}; spf=pass smtp.mailfrom={domain}; dkim=pass header.d={domain}"
+    mta = "mx." + args.to.rsplit("@", 1)[-1]  # the receiving hospital's MTA writes it (TB_MAIL_AUTHSERV_ID)
+    m["Authentication-Results"] = f"{mta}; spf=pass smtp.mailfrom={domain}; dkim=pass header.d={domain}"
     if args.in_reply_to:
         m["In-Reply-To"] = args.in_reply_to
     m.set_content("Sent by tools/send_test_mail.py")

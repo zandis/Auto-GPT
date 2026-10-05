@@ -33,11 +33,38 @@ HEADINGS = {
         r"required documents|documentation requirements|應檢附|檢附資料|申請文件|應附資料", re.I
     ),
 }
-_ENUM = re.compile(r"^\s*(?:\(?(\d{1,3})[.)、．]|\((\d{1,3})\)|（(\d{1,3})）|[一二三四五六七八九十]+[、.]|[•\-*‧])\s*")
+# an enumerator is never followed by a digit: "1.5 mg/dL at screening" on a wrapped line is not item 1 + "5 mg/dL"
+_ENUM = re.compile(
+    r"^\s*(?:\(?(\d{1,3})[.)、．](?!\d)|\((\d{1,3})\)|（(\d{1,3})）|[一二三四五六七八九十]+[、.]|[•\-*‧])\s*"
+)
 _NUM_HEADING = re.compile(r"^(\d+(?:\.\d+){0,3})\.?\s+(\S.{0,80})$")
 _ZH_HEADING = re.compile(r"^(?:第?[一二三四五六七八九十]+[章節、]|[（(][一二三四五六七八九十]+[)）])\s*\S.{0,40}$")
 _CJK = re.compile(r"[一-鿿]")
 _KANA = re.compile(r"[぀-ヿ]")
+
+
+def _criteria_heading(title: str) -> bool:
+    return any(p.search(title) for p in HEADINGS.values())
+
+
+def _heading_like(m: re.Match[str], last: tuple[int, ...] | None, in_ie: bool) -> bool:
+    """A numbered PDF line is a heading only if it reads like a title (capital letter or CJK first). Inside an
+    Inclusion/Exclusion section it must also be a criteria heading itself or continue the numbering of that section's
+    heading (next sibling at some level, possibly at its first sub-heading, or a first child; small gaps allowed).
+    A wrapped criterion line such as "18 years or older at screening" or "1.5 mg/dL at screening" would otherwise
+    close the section and silently drop the remaining criteria."""
+    title = m.group(2)
+    if not (title[:1].isupper() or _CJK.match(title)):
+        return False
+    if not in_ie or last is None or _criteria_heading(title):
+        return True
+    num = tuple(int(x) for x in m.group(1).split("."))
+    for depth in range(1, min(len(last), len(num)) + 1):
+        step = num[depth - 1] - last[depth - 1]
+        if num[: depth - 1] == last[: depth - 1] and 1 <= step <= 3 and all(x == 1 for x in num[depth:]):
+            return True
+    return len(num) == len(last) + 1 and num[:-1] == last and num[-1] <= 3  # first child (x.y -> x.y.1)
+
 
 IeLocator = Callable[[list[dict[str, Any]]], dict[str, list[str]]]
 
@@ -70,6 +97,8 @@ def _lite_pdf(data: bytes) -> _Doc:
     reader = PdfReader(io.BytesIO(data))
     lines: list[str] = []
     chars = 0
+    last: tuple[int, ...] | None = None  # number of the last numbered heading
+    in_ie = False  # the current section is an Inclusion/Exclusion (renewal, documentation) section
     for page in reader.pages:
         text = page.extract_text() or ""
         chars += len(text.strip())
@@ -80,10 +109,12 @@ def _lite_pdf(data: bytes) -> _Doc:
             m = _NUM_HEADING.match(line)
             # "5.1 Inclusion Criteria" / "6 Study Intervention" are headings; "1. text" is an enumerated item
             numbered_item = m is not None and "." not in m.group(1) and line[len(m.group(1)) :].startswith(".")
-            if m and not numbered_item and not line.endswith((".", "。", ",", ";")):
-                level = m.group(1).count(".") + 1
-                lines.append("#" * level + " " + line)
+            if m and not numbered_item and not line.endswith((".", "。", ",", ";")) and _heading_like(m, last, in_ie):
+                last = tuple(int(x) for x in m.group(1).split("."))
+                in_ie = _criteria_heading(m.group(2))
+                lines.append("#" * len(last) + " " + line)
             elif _ZH_HEADING.match(line) or any(p.fullmatch(line.strip(" ：:")) for p in HEADINGS.values()):
+                in_ie = _criteria_heading(line)
                 lines.append("## " + line)
             else:
                 lines.append(line)

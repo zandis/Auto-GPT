@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -153,3 +154,55 @@ def test_demo_mapping_loads(repo_root: Path) -> None:
         "Coverage",
     ]:
         assert t in types
+
+
+def test_fhir_store_follows_the_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """fhir-store mirrors each snapshot: resources that left the source are deleted (dependents first), from a ledger
+    of loaded ids that survives a failed run (CQL and SQL must see the same data)."""
+    import httpx
+    from adapter import load_fhir
+    from adapter.ndjson import write_snapshot
+
+    sent: list[tuple[str, str]] = []
+    fail = {"on": False}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if fail["on"]:
+            return httpx.Response(500, text="down")
+        for e in json.loads(req.content)["entry"]:
+            sent.append((e["request"]["method"], e["request"]["url"]))
+        return httpx.Response(200, json={"resourceType": "Bundle", "type": "transaction-response"})
+
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+
+    def snap(name: str, conds: list[str], pats: list[str]) -> Path:
+        d = tmp_path / name
+        write_snapshot(
+            d,
+            {
+                "Patient": [{"resourceType": "Patient", "id": p} for p in pats],
+                "Condition": [{"resourceType": "Condition", "id": c} for c in conds],
+            },
+        )
+        return d
+
+    ledger = tmp_path / "ledger"
+    assert load_fhir.sync_snapshot("http://hapi/fhir", snap("s1", ["c1", "c2"], ["p1", "p2"]), ledger) == (4, 0)
+    sent.clear()
+    # c2 (a diagnosis deleted in the HIS) and p2 with it disappear; the Condition goes before the Patient
+    assert load_fhir.sync_snapshot("http://hapi/fhir", snap("s2", ["c1", "c3"], ["p1"]), ledger) == (3, 2)
+    assert [x for x in sent if x[0] == "DELETE"] == [("DELETE", "Condition/c2"), ("DELETE", "Patient/p2")]
+    # a load that fails half way still remembers c4, so the next run removes it
+    fail["on"] = True
+    with pytest.raises(RuntimeError):
+        load_fhir.sync_snapshot("http://hapi/fhir", snap("s3", ["c1", "c4"], ["p1"]), ledger)
+    fail["on"] = False
+    sent.clear()
+    assert load_fhir.sync_snapshot("http://hapi/fhir", snap("s4", ["c1"], ["p1"]), ledger)[1] == 2
+    assert sorted(x[1] for x in sent if x[0] == "DELETE") == ["Condition/c3", "Condition/c4"]
+    # without a ledger yet (first run after the upgrade) the previous snapshot stands in for it
+    sent.clear()
+    fresh = tmp_path / "ledger2"
+    load_fhir.sync_snapshot("http://hapi/fhir", snap("s5", ["c1"], ["p1"]), fresh, previous=tmp_path / "s2")
+    assert sorted(x[1] for x in sent if x[0] == "DELETE") == ["Condition/c3"]

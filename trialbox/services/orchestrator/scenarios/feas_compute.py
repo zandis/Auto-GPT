@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 from lake.client import LakeAPI
 from tb_common.ruleset import Ruleset
-from tb_common.smallcell import suppress
+from tb_common.smallcell import round_count
 from tb_common.timeutil import add_months, month_ends
 from tb_contracts import (
     CriterionIR,
@@ -306,9 +306,20 @@ def _months_shown(idx: list[date]) -> list[str]:
 
 
 def _result(rs: Ruleset, p: FeasParams, st: list[Step], variants: list[Variant], raw: FeasRaw) -> FeasibilityResult:
+    """Published (aggregate) feasibility: every count goes through controlled rounding (``round_count``: <t, else
+    the nearest multiple of t) and dropped / % / deltas are derived from the published counts, so no small cell can
+    be recomputed from neighbouring rows (DECISIONS D-86). The exact counts stay in the box (raw JSON)."""
     t = p.small_cell
+
+    def pub(n: int) -> int | str:
+        return round_count(n, t)
+
+    def diff(a: int | str, b: int | str, exact: int) -> int | str:
+        return a - b if isinstance(a, int) and isinstance(b, int) else pub(exact)
+
+    start_pub = pub(raw.start_n)
     funnel: list[FunnelStep] = []
-    prev = raw.start_n
+    prev, prev_pub = raw.start_n, start_pub
     for s in st:
         label = s.criterion.label or s.criterion.text[:60]
         if not s.applied:
@@ -316,43 +327,46 @@ def _result(rs: Ruleset, p: FeasParams, st: list[Step], variants: list[Variant],
                 FunnelStep(
                     criterion_id=s.id,
                     label=label,
-                    remaining=suppress(prev, t),
+                    remaining=prev_pub,
                     dropped=0,
-                    pct=_pct(prev, raw.start_n, t),
+                    pct=_pct(prev_pub, start_pub),
                     applied=False,
                 )
             )
             continue
         rem = raw.remaining[s.id]
+        rem_pub = pub(rem)
         funnel.append(
             FunnelStep(
                 criterion_id=s.id,
                 label=label,
-                remaining=suppress(rem, t),
-                dropped=suppress(prev - rem, t),
-                pct=_pct(rem, raw.start_n, t),
-                unknown=suppress(raw.unknown[s.id], t),
+                remaining=rem_pub,
+                dropped=diff(prev_pub, rem_pub, prev - rem),
+                pct=_pct(rem_pub, start_pub),
+                unknown=pub(raw.unknown[s.id]),
                 applied=True,
             )
         )
-        prev = rem
-    final = prev
+        prev, prev_pub = rem, rem_pub
+    final_pub = prev_pub
     sens: list[SensitivityRow] = []
     for v in variants:
-        r = raw.variants[v.name]
+        r_pub = pub(raw.variants[v.name])
         sens.append(
-            SensitivityRow(
-                criterion_id=v.criterion_id, variant=v.name, remaining=suppress(r, t), delta=_delta(r, final, t)
-            )
+            SensitivityRow(criterion_id=v.criterion_id, variant=v.name, remaining=r_pub, delta=_delta(r_pub, final_pub))
         )
-    r = raw.variants[UNKNOWN_AS_PASS]
+    r_pub = pub(raw.variants[UNKNOWN_AS_PASS])
     sens.append(
-        SensitivityRow(criterion_id="*", variant=UNKNOWN_AS_PASS, remaining=suppress(r, t), delta=_delta(r, final, t))
+        SensitivityRow(criterion_id="*", variant=UNKNOWN_AS_PASS, remaining=r_pub, delta=_delta(r_pub, final_pub))
     )
     shown = _months_shown(raw.index_dates)
-    monthly = [MonthlyCount(month=m, n=suppress(raw.first_eligible.get(m, 0), t)) for m in shown]
+    monthly = [MonthlyCount(month=m, n=pub(raw.first_eligible.get(m, 0))) for m in shown]
     recent = [raw.first_eligible.get(m, 0) for m in shown[-12:]]
-    lam = float(np.mean(recent)) if recent else 0.0
+    lam = float(np.mean(recent)) if recent else 0.0  # exact: drives the simulation inside the box
+    recent_pub = [x for x in (pub(n) for n in recent) if isinstance(x, int)]
+    lam_pub = (  # published mean from published counts only (an exact mean of small counts reveals their sum)
+        round(sum(recent_pub) / len(recent), 1) if recent and len(recent_pub) == len(recent) else None
+    )
     seed_src = f"{rs.id}|{rs.version}|{p.snapshot}|{p.run_date.isoformat()}|{p.lookback_months}"
     sim = simulate(
         prevalent=raw.prevalent,
@@ -375,15 +389,16 @@ def _result(rs: Ruleset, p: FeasParams, st: list[Step], variants: list[Variant],
         high=sim["high"],
         source="calibrated" if p.rate_source == "calibrated" else "default",
         iterations=p.iterations,
-        monthly_eligible_mean=round(lam, 2),
+        monthly_eligible_mean=lam_pub,
     )
     notes = [
         f"Counts are distinct patients eligible at one or more of {len(raw.index_dates)} month-ends "
-        f"({raw.index_dates[0].isoformat()} … {raw.index_dates[-1].isoformat()}); cells 1–{t - 1} are shown as '<{t}'.",
+        f"({raw.index_dates[0].isoformat()} … {raw.index_dates[-1].isoformat()}); cells 1–{t - 1} are shown as '<{t}' "
+        f"and all other counts are rounded to the nearest {t}, so that no small cell can be derived from the others.",
         "Unknown inclusion values (no data in the window) do not count as eligible; unknown exclusions do not exclude "
         f"(variant '{UNKNOWN_AS_PASS}' counts unknown inclusions as met).",
-        f"Eligible at the latest month-end: {suppress(raw.prevalent, t)}; mean new eligible per month (last 12 "
-        f"months): {lam:.1f}.",
+        f"Eligible at the latest month-end: {pub(raw.prevalent)}; mean new eligible per month (last 12 "
+        f"months): {lam_pub if lam_pub is not None else f'<{t}'}.",
         f"Monthly new-eligible counts use a {WASHOUT_MONTHS}-month wash-out at the start of the lookback.",
     ]
     for s in st:
@@ -393,7 +408,7 @@ def _result(rs: Ruleset, p: FeasParams, st: list[Step], variants: list[Variant],
                 if s.inclusion
                 else "not excluded only because no value was recorded"
             )
-            notes.append(f"{s.id}: {suppress(raw.unknown[s.id], t)} patients {what}.")
+            notes.append(f"{s.id}: {pub(raw.unknown[s.id])} patients {what}.")
     not_applied = [s.id for s in st if not s.applied]
     if not_applied:
         notes.append(
@@ -406,7 +421,7 @@ def _result(rs: Ruleset, p: FeasParams, st: list[Step], variants: list[Variant],
         population=population_label(p),
         lookback_months=p.lookback_months,
         run_date=p.run_date,
-        start_n=suppress(raw.start_n, t),
+        start_n=start_pub,
         funnel=funnel,
         sensitivity=sens,
         monthly_new=monthly,
@@ -420,16 +435,15 @@ def population_label(p: FeasParams) -> str:
     return f"{where}: patients with ≥1 encounter in the last {p.lookback_months} months"
 
 
-def _pct(n: int, start: int, t: int) -> float | None:
-    if start <= 0 or 0 < n < t:
+def _pct(n: int | str, start: int | str) -> float | None:
+    """% of start from published counts only (a 0.1 % precision on exact counts would pin the exact count)."""
+    if not isinstance(n, int) or not isinstance(start, int) or start <= 0:
         return None
     return round(100.0 * n / start, 1)
 
 
-def _delta(n: int, base: int, t: int) -> int | None:
-    if 0 < n < t or 0 < base < t:
-        return None
-    return n - base
+def _delta(n: int | str, base: int | str) -> int | None:
+    return n - base if isinstance(n, int) and isinstance(base, int) else None
 
 
 # ---------------------------------------------------------------------------------------------- simulation

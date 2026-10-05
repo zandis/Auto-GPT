@@ -14,6 +14,9 @@ models at build time. CI and the sandbox cannot download Docling models (Hugging
 `doc_parser` has a deterministic *lite* backend (pypdf + python-docx + heading heuristics) that is selected
 automatically when Docling is not importable (`TB_PARSER=auto|docling|lite`). Both return the same `ParsedDoc`
 contract. The 5-Chinese-PDF table-recall comparison is scripted in `tools/parser_compare.py` for site runs.
+*Correction (D-86):* no Docling image is shipped in v1.0. Compose runs doc-parser on `trialbox-py`, so the lite
+backend is the production parser; its heuristics were hardened for wrapped PDF lines. A site that builds an image
+with Docling and its models (Hugging Face access needed) selects it with `TB_DOCPARSER_IMAGE` and `TB_PARSER=docling`.
 
 **D-03 `$evaluate` vs `$evaluate-measure` (§12.2).** `Library/$evaluate` (HAPI JPA starter 8.12, CR module,
 cql-to-elm 5.4.0). Spike result in this sandbox: ~77 ms per patient per library after warm-up, so 1,000 patients ×
@@ -25,8 +28,8 @@ default because it needs no recipient certificates; `smime` (CMS sign + encrypt 
 
 **D-05 Python packaging and images.** One `pyproject.toml`; packages are discovered from `libs/` and `services/`.
 All Python services share one base image (`trialbox-py`, multi-arch `python:3.12-slim`) and differ by command.
-Heavy extras get their own images built FROM it: `doc-parser` (+docling), `embed-service` (+sentence-transformers,
-CPU torch on arm64 and amd64), `criteria-compiler` (+JRE 17 + cql-to-elm jars). No x86-only wheels are used
+Heavy extras get their own images built FROM it: `doc-parser` (+docling; not shipped, see D-02), `embed-service`
+(+sentence-transformers, CPU torch on arm64 and amd64), `criteria-compiler` (+JRE 17 + cql-to-elm jars). No x86-only wheels are used
 (verified: duckdb, duckdb-extension-fts, pyarrow, cryptography, numpy, matplotlib all ship manylinux aarch64 wheels).
 
 **D-06 FHIR ids for ValueSets.** FHIR ids may not contain `_`, so ValueSet resource ids are `<RULESET>-<NAME>` with
@@ -633,3 +636,58 @@ and audit (`tb_common.audit.verify`). TWPAS requires the real HL7 validator and 
   CQL/ELM/SQL, for sponsor and IRB files.
 - `tools/parser_compare.py` is the D-02 backend comparison: I/E and table-cell recall against optional gold files;
   Docling runs in the production image.
+
+**D-86 Fixes from the post-merge deep review.** A max-effort correctness review of the merged code reported 15
+findings. Each was confirmed (by running code where possible) and fixed with a test that fails on the old code.
+- **SUBMIT is once per bundle.**
+  - A live submission reserves the bundle atomically before the POST (DB lock plus a partial unique index on live
+    `bundle_sha`).
+  - The reservation is released only when the bundle provably never reached NHI: no connection, or HTTP 4xx.
+  - A lost answer (read timeout, 5xx) keeps it as `uncertain`. A re-run after a restart never POSTs again.
+  - The physician is told to check the NHI system.
+  - The dry-run record is idempotent per job.
+- **APPROVE after a restart.** If the version is already tagged, APPROVE resumes the waiting jobs instead of failing
+  with "no draft" (the same happens for a duplicate approval mail).
+- **Mail authentication alignment.** A command needs `dmarc=pass`, or an SPF/DKIM pass whose domain is aligned with
+  the From: domain (equal or a parent/subdomain). Each result clause is parsed on its own.
+  `TB_MAIL_AUTHSERV_ID` is asked by the wizard, set in `.env.example`, and the gateway warns at start when it is
+  empty.
+- **Audit chain across midnight.** An event stamped before midnight but written after an event of the next day goes
+  into the newest day file. The files read in name order are the chain order; the event keeps its timestamp.
+- **ValueSet names.** Concept names with non-ASCII letters (zh/ja) get a stable hash suffix instead of all
+  collapsing into `VS_CONCEPT`, and postprocess never lets two concepts share one ValueSet. ASCII names are
+  unchanged, so the shipped rulesets recompile identically.
+- **Cloud routing.** The PHI clearance covers exactly the call's variables (`phi_guard.variables_text`: every
+  scalar, unescaped, which the prompt templates embed). The LLM client checks the clearance against that text, so
+  cloud routing, which could never trigger before, now works when enabled.
+- **SQL comments.** Criterion text in a SQL `--` comment has its whitespace collapsed, so a newline cannot turn the
+  rest of the text into SQL.
+- **Medication duration.** An order with neither start nor authored date no longer counts as exposure over the whole
+  window: CQL `Max`/`Min` and SQL `greatest`/`least` skip nulls. The generators require a start.
+  - Approved rulesets keep their compiled artifacts: GZQO INC-06 and RA-BIO INC-03/04 v1.0.0.
+  - The adapter therefore drops undated orders and reports them in `missing_required`. Neither engine sees them,
+    whatever the ruleset version.
+- **PDF parsing (lite backend).**
+  - An enumerator is never followed by a digit: `1.5 mg/dL` on a wrapped line is not item 1.
+  - A numbered line is a heading only if it reads like a title (capital letter or CJK first).
+  - Inside an I/E section, a heading must also be a criteria heading or continue that section's numbering. Wrapped
+    lines therefore no longer close the section and drop criteria.
+- **fhir-store mirrors the snapshot.** A ledger of loaded ids (`<lake>/fhir_ledger`) drives the deletion of resources
+  that left the source, dependents first.
+  - The ledger is widened before loading.
+  - HAPI no longer enforces referential integrity on delete.
+  - Ingest report 1.1.0 adds `fhir_deleted`.
+- **Small cells in aggregate outputs.**
+  - SCREEN and MICROBATCH summaries (mail and PDF) suppress every count.
+  - FEAS publishes controlled-rounded counts (`round_count`: `<5`, else the nearest multiple of 5). Dropped counts,
+    percentages, deltas and the monthly mean are derived from the published counts, so a suppressed cell can no longer
+    be recomputed from its neighbours. The exact counts stay in the box (raw JSON, simulation).
+  - Calibration withholds a published rate whose numerator, complement or denominator is a small cell.
+- **`POST /send` is not retried** once it may have reached the gateway (5xx, read timeout); only a refused connection
+  is retried. A retry would mail the PHI archive again with a new password.
+- **COHORT MERGE ownership.** A table may not claim the root's own site, and a site's tables come only from the
+  address that first contributed them. The re-run replay applies the same rule.
+- **Acceptance.** Criterion classes and labels come from the ruleset's IR (`--ruleset`). Candidate rows carry only
+  id and verdict, so the criterion check could never pass before. The unit test now validates its rows against the
+  contract.
+
