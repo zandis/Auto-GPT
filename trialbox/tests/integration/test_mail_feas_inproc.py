@@ -46,6 +46,11 @@ def test_feas_email_round_trip(box: Box) -> None:
     assert b"/FontFile2" in pdf  # CJK font embedded
     result = c.FeasibilityResult.model_validate_json(next(v for k, v in atts.items() if k.endswith(".json")))
     assert result.start_n == 600 and result.funnel[0].criterion_id == "GZQO-INC-01"
+    # aggregate output: no small cell is derivable from neighbouring counts (controlled rounding, D-86)
+    counts = [result.start_n, *(f.remaining for f in result.funnel), *(f.dropped for f in result.funnel)]
+    counts += [s.remaining for s in result.sensitivity] + [m.n for m in result.monthly_new]
+    assert all(x == "<5" or (isinstance(x, int) and x % 5 == 0) for x in counts), counts
+    assert all(s.delta is None or s.delta % 5 == 0 for s in result.sensitivity)
     variants = {s.variant for s in result.sensitivity}
     assert variants == {"bmi=25", "unknown_as_pass"}  # the subject option replaces the manifest's bmi variants
     wb = load_workbook(io.BytesIO(next(v for k, v in atts.items() if k.endswith(".xlsx"))))
@@ -104,6 +109,22 @@ def test_compile_approve_loop_by_email(box: Box) -> None:
     assert feas is not None and feas.state == "done", feas.error
     done = box.find(f"Done {feas.job_id}")
     assert done and any(n.endswith(".pdf") for n in done[0].attachments())
+    # restart recovery re-runs an APPROVE interrupted after the compiler tagged the version but before the waiting
+    # jobs were resumed: the re-run must not fail on "no draft awaiting approval" and must resume them
+    from tb_common.ulid import new_ulid
+
+    stuck = feas.model_copy(
+        update={"job_id": new_ulid(), "state": "awaiting_approval", "outputs": None, "error": None, "run_date": None}
+    )
+    box.orch.db.put(stuck, queued=False)
+    box.orch.set_state(appr, "received")
+    again = box.orch.run(appr.job_id)
+    assert again.state == "done", again.error
+    assert any("already approved" in s.text() for s in box.find("Ruleset GZQO-IT v1.0.0 approved"))
+    box.orch.drain()
+    resumed = box.orch.db.get(stuck.job_id)
+    assert resumed is not None
+    assert resumed.state == "done", resumed.error
 
 
 def test_rejections_status_cancel(box: Box) -> None:

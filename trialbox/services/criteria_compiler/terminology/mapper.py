@@ -84,9 +84,16 @@ def vs_resource_id(ruleset: str, vs_name: str) -> str:
     return f"{ruleset}-{vs_name}".replace("_", "-")
 
 
-def vs_name_for(concept: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9]+", "_", unicodedata.normalize("NFKC", concept)).strip("_").upper()
-    return f"VS_{slug or 'CONCEPT'}"[:60]
+def vs_name_for(concept: str, unique: bool = False) -> str:
+    """``VS_<SLUG>`` from the concept name. A name with non-ASCII letters (zh/ja, accents) would lose them in the slug
+    and collide (every CJK name used to become ``VS_CONCEPT``), so it gets a stable hash suffix; ``unique`` forces the
+    suffix (two different concepts with the same Latin slug)."""
+    norm = unicodedata.normalize("NFKC", concept).strip()
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", norm).strip("_").upper()
+    if unique or not slug or any(ch.isalpha() and not ch.isascii() for ch in norm):
+        tag = hashlib.sha256(norm.lower().encode("utf-8")).hexdigest()[:8].upper()
+        return f"VS_{slug[:47]}_{tag}" if slug else f"VS_C_{tag}"
+    return f"VS_{slug}"[:60]
 
 
 class Terminology:

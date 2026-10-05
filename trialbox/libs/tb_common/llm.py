@@ -5,8 +5,9 @@
 * Output is constrained with ``response_format: json_schema`` (vLLM guided decoding), validated with jsonschema,
   retried once with the violations; a second violation raises :class:`LlmSchemaError`.
 * Routing: ``model_class: cloud`` prompts go to ``CLOUD_LLM_BASE_URL`` only when (a) the calling service is
-  ``criteria-compiler``, (b) ``settings.models.cloud_enabled``, (c) a :class:`PhiClearance` for exactly the rendered
-  input is supplied. Everything else goes to the local endpoint (``LLM_BASE_URL``).
+  ``criteria-compiler``, (b) ``settings.models.cloud_enabled``, (c) a :class:`PhiClearance` for exactly the call's
+  variables (``phi_guard.variables_text``, everything that is not fixed template text) is supplied. Everything else
+  goes to the local endpoint (``LLM_BASE_URL``).
 * Every call appends ``llm.call`` to the audit chain with prompt id/version, model, input/output sha.
 """
 
@@ -28,7 +29,7 @@ from tb_contracts import PromptMeta, inline_schema, schema_errors
 
 from tb_common.audit import AuditLog
 from tb_common.crypto import sha256_text
-from tb_common.phi_guard import PhiClearance
+from tb_common.phi_guard import PhiClearance, variables_text
 
 REPO = Path(__file__).resolve().parents[2]
 _FM = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.S)
@@ -158,12 +159,14 @@ class LlmClient:
             audit=audit or AuditLog(cfg.env.audit_path, cfg.env.tz),
         )
 
-    def _target(self, meta: PromptMeta, input_text: str, clearance: PhiClearance | None) -> str:
+    def _target(self, meta: PromptMeta, variables: dict[str, Any], clearance: PhiClearance | None) -> str:
+        """Cloud only for a cloud-class, non-PHI prompt, from the one service allowed out, with a clearance that
+        :func:`tb_common.phi_guard.scan` issued for exactly these variables (``variables_text``)."""
         if meta.model_class != "cloud" or meta.phi:
             return "local"
         if not (self.cloud_enabled and self.cloud_base_url and self.service_name == CLOUD_SERVICE):
             return "local"
-        if clearance is None or clearance.text_sha != sha256_text(input_text):
+        if clearance is None or clearance.text_sha != sha256_text(variables_text(variables)):
             return "local"
         return "cloud"
 
@@ -183,7 +186,7 @@ class LlmClient:
         messages = render(prompt, variables)
         input_text = "\n".join(m["content"] for m in messages)
         input_sha = sha256_text(input_text)
-        target = self._target(prompt.meta, input_text, clearance)
+        target = self._target(prompt.meta, variables, clearance)
         base, model = (self.cloud_base_url, self.cloud_model) if target == "cloud" else (self.base_url, self.model)
         headers = {"X-TB-Prompt-Id": prompt.meta.id, "X-TB-Prompt-Version": str(prompt.meta.version)}
         if target == "cloud" and self.cloud_api_key:

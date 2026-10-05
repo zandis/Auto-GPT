@@ -17,7 +17,7 @@ from tb_common.audit import AuditLog
 from tb_common.crypto import load_or_create_key, pid_for_mrn, sha256_bytes
 from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
 
-from adapter.load_fhir import load_snapshot
+from adapter.load_fhir import sync_snapshot
 from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import list_snapshots, snapshot_dir, write_snapshot
 from adapter.pidmap import PidMap
@@ -101,6 +101,11 @@ def pseudonymise_bulk(resources: Iterator[Resource], key: bytes) -> Iterator[Res
         yield r
 
 
+def _undated_order(r: dict[str, Any]) -> bool:
+    period = (r.get("dispenseRequest") or {}).get("validityPeriod") or {}
+    return not r.get("authoredOn") and not period.get("start")
+
+
 def run_ingest(
     cfg: AdapterConfig,
     source_kind: str,
@@ -157,8 +162,13 @@ def run_ingest(
                     by_type.setdefault(res["resourceType"], []).append(res)
             except ValueError as exc:
                 errors.append(f"{table}: {exc}")
+    undated = [r for r in by_type.get("MedicationRequest", []) if _undated_order(r)]
+    if undated:  # no authoredOn and no validity start: CQL Max/Min and SQL greatest/least would treat it as exposure
+        by_type["MedicationRequest"] = [r for r in by_type["MedicationRequest"] if not _undated_order(r)]
     counts = {t: len(v) for t, v in sorted(by_type.items())}
     missing: Counter[str] = Counter()
+    if undated:
+        missing["MedicationRequest.authoredOn (no date at all: dropped)"] = len(undated)
     for rtype, items in by_type.items():
         for r in items:
             for p in missing_required(r):
@@ -174,10 +184,16 @@ def run_ingest(
     prev = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
     base = snapshot_dir(cfg.lake_dir, prev[-1]) if (since and prev) else None
     full_counts = write_snapshot(out_dir, by_type, base)
-    fhir_loaded = 0
+    fhir_loaded = fhir_deleted = 0
     if load_fhir and cfg.fhir_base_url:
         try:
-            fhir_loaded = load_snapshot(cfg.fhir_base_url, out_dir)
+            older = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
+            fhir_loaded, fhir_deleted = sync_snapshot(
+                cfg.fhir_base_url,
+                out_dir,
+                cfg.lake_dir / "fhir_ledger",
+                snapshot_dir(cfg.lake_dir, older[-1]) if older else None,
+            )
         except Exception as exc:
             errors.append(f"fhir-store load failed: {exc}")
     lake_result: RebuildResult | None = None
@@ -214,6 +230,7 @@ def run_ingest(
         missing_required=dict(missing),
         validation=vsum,
         fhir_loaded=fhir_loaded,
+        fhir_deleted=fhir_deleted,
         lake=lake_result,
         passed=passed,
         errors=errors,

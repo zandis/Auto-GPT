@@ -64,6 +64,7 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("imap_host", "Intake IMAP host", "imap.example.org", "str"),
     ("imap_port", "IMAP port", "993", "str"),
     ("imap_user", "Intake mailbox user", "trialbox", "str"),
+    ("mta_authserv_id", "authserv-id your MTA writes first in Authentication-Results (e.g. mx.hospital.tw)", "", "str"),
 ]
 
 
@@ -185,6 +186,11 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
     root_addr = str(a.get("alliance_root_address", "") or "")
     if not alliance_root and _split(a.get("cohort_rulesets")) and not root_addr:
         warnings.append("cohort rulesets without an alliance root address: tables stay on this box")
+    if not str(a.get("mta_authserv_id") or "").strip():
+        warnings.append(
+            "mta_authserv_id is empty: the top-most Authentication-Results header is trusted whoever wrote it; set it "
+            "unless the MTA always adds its own header in front of the intake mailbox"
+        )
     twpas = _bool(a.get("twpas_enabled", "no"))
     if twpas and not a.get("twpas_org_id"):
         errors.append("TWPAS needs the NHI hospital code (twpas_org_id)")
@@ -283,6 +289,7 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         "SMTP_PASS": str(a.get("smtp_pass", "")),
         "MAIL_INTAKE_ADDR": intake,
         "MAIL_FROM_ADDR": intake,
+        "TB_MAIL_AUTHSERV_ID": str(a.get("mta_authserv_id") or "").strip(),
         "FHIR_BASE_URL": "http://fhir-store:8080/fhir",
         "LAKE_URL": "http://lake:8013",
         "EMBED_URL": "http://embed-service:8014",

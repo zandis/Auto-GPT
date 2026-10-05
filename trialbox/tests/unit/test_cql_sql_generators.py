@@ -114,3 +114,16 @@ def test_not_requires_one_argument() -> None:
     )
     with pytest.raises(CompileError):
         CqlGenerator("ATOMS", "1.0.0", vsi).render([bad])
+
+
+def test_sql_comment_cannot_break_out() -> None:
+    """Criterion text goes into a ``--`` comment: a newline in it (reviewer's Alt+Enter in review.xlsx, model output)
+    must not turn the rest of the text into SQL."""
+    import sqlglot
+
+    crit, _, vsi = atoms_ruleset()
+    evil = crit[0].model_copy(update={"text": "Age ≥ 18\nyears) AS x; DROP TABLE patient; --\r\n end"})
+    sql = SqlGenerator("ATOMS", "1.0.0", vsi).render([evil])
+    assert all(line.lstrip().startswith("--") for line in sql.splitlines() if "DROP TABLE" in line)
+    stmts = [s for s in sqlglot.parse(sql, read="duckdb") if s is not None]
+    assert len(stmts) == 1 and stmts[0].key == "select"

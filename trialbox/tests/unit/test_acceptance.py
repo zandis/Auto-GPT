@@ -9,21 +9,28 @@ from typing import Any
 
 from tools import acceptance as acc
 
+CRITERIA = {"X-INC-01": {"class": "structured", "label": "age"}, "X-INC-02": {"class": "note", "label": "note"}}
+
 
 def _cands(n_high: int, n_review: int, n_excl: int) -> dict[str, Any]:
+    """Rows exactly as candidate_list.json carries them (CandidateRow): verdicts have id + verdict only — the
+    criterion class and label come from the ruleset (they were once read from the rows, where they never exist)."""
+    from tb_contracts import CandidateRow
+
     rows = []
     for tier, n in (("high", n_high), ("review", n_review), ("excluded", n_excl)):
         for i in range(n):
-            rows.append(
-                {
-                    "pid": f"{tier}-{i:03d}",
-                    "tier": tier,
-                    "criteria": [
-                        {"id": "X-INC-01", "label": "age", "class": "structured", "verdict": "pass"},
-                        {"id": "X-INC-02", "label": "note", "class": "note", "verdict": "pass" if i % 2 else "fail"},
-                    ],
-                }
-            )
+            row = {
+                "pid": f"{tier}-{i:03d}",
+                "tier": tier,
+                "criteria": [
+                    {"id": "X-INC-01", "verdict": "pass"},
+                    {"id": "X-INC-02", "verdict": "pass" if i % 2 else "fail"},
+                ],
+                "actions": [],
+            }
+            CandidateRow.model_validate(row)
+            rows.append(row)
     return {"rows": rows}
 
 
@@ -51,7 +58,7 @@ def test_screen_metrics_weighted(tmp_path: Path) -> None:
         if p == "high-001":
             crit["X-INC-02"] = "unknown"
         adjudication.append({"pid": p, "eligible": eligible, "minutes": 6.0, "criteria": crit})
-    res = acc.check_screen(cands, adjudication, key)
+    res = acc.check_screen(cands, adjudication, key, CRITERIA)
     t = res["trial"]
     conf = t["confusion_weighted"]
     assert conf["default"]["fp"] == 0 and conf["review"]["fn"] == 0  # every eligible patient is high or review
@@ -100,3 +107,9 @@ def test_twpas_ingest_reproduce_and_report(tmp_path: Path) -> None:
     md = acc.report(out)
     assert "| ingest |" in md and "PASS" in md and "not run" in md and "Overall: NOT YET" in md
     assert json.loads((out / "ingest.json").read_text())["target"].startswith("nightly run")
+
+
+def test_ruleset_criteria_from_ir() -> None:
+    info = acc.ruleset_criteria(Path(__file__).resolve().parents[2] / "rulesets" / "GZQO")
+    assert info["GZQO-INC-03"] == {"class": "structured", "label": "BMI ≥27"}
+    assert {v["class"] for v in info.values()} >= {"structured", "note"}

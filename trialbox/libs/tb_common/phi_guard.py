@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from tb_common.crypto import sha256_text
 
@@ -125,6 +126,26 @@ def _cjk_names(text: str) -> list[str]:
     jp = "|".join(sorted(JP_SURNAMES, key=len, reverse=True))
     hits.extend(m.group(0) for m in re.finditer(rf"(?:{jp})[一-鿿぀-ヿ]{{0,3}}{HONORIFIC}", text))
     return hits
+
+
+def variables_text(variables: Any) -> str:
+    """The dynamic content of a prompt: every scalar value of its variables (keys sorted, list order kept), one per
+    line, unescaped — what :func:`scan` must clear before a call may leave the box. The prompt templates around it
+    are fixed, reviewed text; a JSON dump would not do (``\\n`` escapes hide an MRN at the start of a line)."""
+    out: list[str] = []
+
+    def walk(v: Any) -> None:
+        if isinstance(v, dict):
+            for k in sorted(v, key=str):
+                walk(v[k])
+        elif isinstance(v, list | tuple):
+            for x in v:
+                walk(x)
+        elif v is not None:
+            out.append(str(v))
+
+    walk(variables)
+    return "\n".join(out)
 
 
 def scan(text: str, mrn_regex: str | None = None) -> PhiScan:

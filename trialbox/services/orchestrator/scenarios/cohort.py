@@ -26,12 +26,14 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from tb_common.authz import norm
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
 from tb_contracts import CohortTable, schema_errors
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome
+from orchestrator.db import JobDB
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import report_meta, small_cell
 
@@ -313,6 +315,19 @@ def run_cohort(ctx: Ctx) -> Outcome:
     return Outcome(summary_md=text, deliveries=deliveries)
 
 
+def merge_refusal(db: JobDB, rows: list[dict[str, Any]], sender: str, own_site: str) -> str | None:
+    """A merged table replaces its site's rows, so the site must be the sender's: never the root's own (that comes
+    only from its own COHORT run) and bound to the address that first contributed it. Otherwise anyone allowed to
+    mail COHORT could overwrite another site's counts."""
+    site = rows[0]["site_id"]
+    if site == own_site:
+        return f"site_id {site} is this box's own table; it comes only from its own COHORT run"
+    bound = db.cohort_senders(site) - {sender}
+    if bound:
+        return f"site {site} contributes from {', '.join(sorted(bound))}, not {sender}"
+    return None
+
+
 def run_merge(ctx: Ctx) -> Outcome:
     job = ctx.job
     cs = ctx.cfg.settings.cohort
@@ -324,13 +339,17 @@ def run_merge(ctx: Ctx) -> Outcome:
     ctx.state("running")
     accepted: list[dict[str, Any]] = []
     problems: list[str] = []
+    sender = norm(job.requested_by)
     for f in files:
         rows, errors = parse_csv(ctx.input_bytes(f))
+        if not errors and rows:
+            refused = merge_refusal(ctx.orch.db, rows, sender, ctx.cfg.settings.site.id)
+            errors = [refused] if refused else []
         if errors:
             problems.extend(f"{f.filename}: {e}" for e in errors[:10])
             continue
         accepted.extend(rows)
-        ctx.orch.db.cohort_store(rows, job.job_id, job.requested_by)
+        ctx.orch.db.cohort_store(rows, job.job_id, sender)
     if not accepted:
         raise StepFailed("running", "No valid alliance table:\n" + "\n".join(f"- {p}" for p in problems[:20]))
     keys = sorted({(r["disease"], r["quarter"]) for r in accepted})

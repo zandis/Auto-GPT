@@ -70,15 +70,17 @@ FHIR R4 NDJSON snapshot (pseudonymised: pid = HMAC(site key, MRN); name / nation
         queries: SELECT-only (sqlglot guard), read-only, memory-capped with spill, snapshot-pinned
 ```
 
-The nightly ingest adds two checks:
+The nightly ingest adds these steps:
 - an HL7 validator sample (1 %, TW Core); the ingest report fails above 0.5 % errors;
+- fhir-store mirrors the snapshot: resources that left the source are deleted, from a ledger of loaded ids (D-86);
+- medication orders without any date are dropped and reported (D-86);
 - snapshot pruning (3 nightly + 36 month-ends, D-78).
 
 ## 4. Rule path (determinism)
 
 ```
 protocol / NHI rule / cohort definition / CT.gov text
-   │ doc-parser: Docling (prod) or lite → ParsedDoc (sections, I/E block)
+   │ doc-parser: lite (pypdf / python-docx heuristics; Docling when installed, D-02) → ParsedDoc (sections, I/E)
    │ criteria-compiler:
    │   ir_extract (LLM, schema-constrained; local model, or cloud only after the PHI guard)
    │   → CriterionIR → terminology (concept_map) → ValueSets
@@ -129,7 +131,8 @@ are never decided by the box.
 
 ## 6. Mail gateway
 
-IMAP poll → `Authentication-Results` SPF/DKIM check (top-most header) → sender allowlist + per-command
+IMAP poll → `Authentication-Results` check (the MTA's header, `TB_MAIL_AUTHSERV_ID`; DMARC pass or an SPF/DKIM pass
+aligned with the From: domain, D-86) → sender allowlist + per-command
 permissions → per-sender daily rate limit → subject grammar → attachments to MinIO → `JobCreate` to the
 orchestrator.
 

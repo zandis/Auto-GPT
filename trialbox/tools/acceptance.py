@@ -3,8 +3,9 @@
 
     python tools/acceptance.py ingest     --report <lake>/ndjson/<snapshot>/ingest_report.json
     python tools/acceptance.py feas       --system <feasibility …raw.json> --manual manual_counts.csv
-    python tools/acceptance.py screen-sample --candidates <candidates.json> --scoped scoped_pids.txt --n 120
-    python tools/acceptance.py screen     --candidates <candidates.json> --adjudication adjudication.xlsx --key key.json
+    python tools/acceptance.py screen-sample --candidates <candidates.json> --ruleset rulesets/GZQO --scoped scoped.txt
+    python tools/acceptance.py screen     --candidates <candidates.json> --ruleset rulesets/GZQO \
+                                          --adjudication adjudication.xlsx --key key.json
     python tools/acceptance.py nav        --lake <dir|url> --ruleset rulesets/RA-BIO
     python tools/acceptance.py twpas      twpas_validation_ONC-OSI.json [...]
     python tools/acceptance.py reproduce  --results rerun.jsonl     # from `python -m orchestrator.rerun <job ids>`
@@ -154,7 +155,23 @@ def read_adjudication(data: bytes) -> list[dict[str, Any]]:
     return out
 
 
-def check_screen(candidates: dict[str, Any], adjudication: list[dict[str, Any]], key: dict[str, Any]) -> dict[str, Any]:
+def ruleset_criteria(ruleset_dir: Path) -> dict[str, dict[str, str]]:
+    """Criterion id -> {class, label} from the approved ruleset's IR (candidate rows carry only id + verdict)."""
+    out: dict[str, dict[str, str]] = {}
+    for path in sorted((ruleset_dir / "ir").glob("*.json")):
+        ir = json.loads(path.read_text(encoding="utf-8"))
+        out[ir["id"]] = {"class": str(ir.get("class") or ""), "label": str(ir.get("label") or ir["text"][:40])}
+    if not out:
+        raise SystemExit(f"{ruleset_dir}: no ir/*.json (give the approved ruleset directory)")
+    return out
+
+
+def check_screen(
+    candidates: dict[str, Any],
+    adjudication: list[dict[str, Any]],
+    key: dict[str, Any],
+    criteria: dict[str, dict[str, str]],
+) -> dict[str, Any]:
     rows = {r["pid"]: r for r in candidates["rows"]}
     stratum_of = {p: s for s, v in key["strata"].items() for p in v["sampled"]}
     weight = {s: (v["population"] / len(v["sampled"])) if v["sampled"] else 0.0 for s, v in key["strata"].items()}
@@ -184,8 +201,8 @@ def check_screen(candidates: dict[str, Any], adjudication: list[dict[str, Any]],
             v = verdicts.get(cid)
             if v is None or crc not in ("pass", "fail", "unknown"):
                 continue
-            klass = "note" if v.get("class") == "note" else "structured" if v.get("class") == "structured" else None
-            if klass is None:
+            klass = (criteria.get(cid) or {}).get("class")
+            if klass not in ("structured", "note"):  # human criteria are never decided by the box
                 continue
             agree[klass][1] += 1
             agree[klass][0] += int(v["verdict"] == crc)
@@ -275,8 +292,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--scoped", type=Path, help="text file: one scoped pid per line")
     s.add_argument("--mrns", type=Path, help="CSV pid,mrn for the CRC workbook (internal only)")
     s.add_argument("--n", type=int, default=120)
+    s.add_argument("--ruleset", type=Path, required=True, help="approved ruleset directory (criterion labels)")
     s = sub.add_parser("screen")
     s.add_argument("--candidates", type=Path, required=True)
+    s.add_argument("--ruleset", type=Path, required=True, help="approved ruleset directory (criterion classes)")
     s.add_argument("--adjudication", type=Path, required=True)
     s.add_argument("--key", type=Path, required=True)
     s = sub.add_parser("nav")
@@ -305,7 +324,8 @@ def main(argv: list[str] | None = None) -> int:
             import csv
 
             mrns = {r["pid"]: r["mrn"] for r in csv.DictReader(a.mrns.open(encoding="utf-8"))}
-        crit = sorted({(v["id"], v.get("label") or "") for r in cands["rows"] for v in r["criteria"]})
+        info = ruleset_criteria(a.ruleset)
+        crit = sorted({(v["id"], info.get(v["id"], {}).get("label", "")) for r in cands["rows"] for v in r["criteria"]})
         out.mkdir(parents=True, exist_ok=True)
         (out / "adjudication.xlsx").write_bytes(write_adjudication(pids, crit, mrns))
         (out / "adjudication_key.json").write_text(json.dumps(key, indent=1) + "\n", encoding="utf-8")
@@ -316,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
             json.loads(a.candidates.read_text(encoding="utf-8")),
             read_adjudication(a.adjudication.read_bytes()),
             json.loads(a.key.read_text(encoding="utf-8")),
+            ruleset_criteria(a.ruleset),
         )
         rc = _save(out, "screen_trial", scr["trial"])
         rc |= _save(out, "screen_criterion", scr["criterion"])

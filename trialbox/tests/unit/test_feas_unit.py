@@ -235,3 +235,20 @@ def test_calibration_compute() -> None:
     assert few["reach_rate"] is None and not few["used_by_feas"]
     shown = calibration.suppressed(body, 5)
     assert shown["enrolled"] == "<5" and shown["declined"] == 5
+    # 3 enrolled / 12 reached: accept 25 % would reveal the suppressed 3; reach 12/16 reveals 4 not contacted
+    assert shown["accept_rate"] is None and shown["reach_rate"] is None and shown["screen_fail_rate"] is None
+    assert shown["rates_withheld"] == ["reach_rate", "accept_rate", "screen_fail_rate"]
+    assert body["accept_rate"] == 0.25  # the exact file kept in the box (FEAS) is unchanged
+    big = calibration.compute(
+        "GZQO", pool * 3, [{**f, "pid": f"{f['pid']}-{k}"} for k in range(3) for f in fb], "2026-11-01T05:30:00+08:00"
+    )
+    assert calibration.suppressed(big, 5)["accept_rate"] == 0.25  # 9 of 36: nothing small, published
+
+
+def test_controlled_rounding() -> None:
+    from tb_common.smallcell import rate_publishable, round_count
+
+    assert [round_count(n) for n in (0, 1, 4, 5, 7, 8, 97, 98, 100)] == [0, "<5", "<5", 5, 5, 10, 95, 100, 100]
+    assert round_count(12, 10) == 10 and round_count(3, 10) == "<10"
+    assert rate_publishable(10, 40) and rate_publishable(0, 40) and rate_publishable(40, 40)
+    assert not rate_publishable(1, 40) and not rate_publishable(39, 40) and not rate_publishable(2, 4)

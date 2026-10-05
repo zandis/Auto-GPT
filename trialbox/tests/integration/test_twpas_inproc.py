@@ -190,3 +190,125 @@ def test_submit_live_posts_audited_bundle(world: dict[str, Any], monkeypatch: py
         else:
             assert job.state == "failed" and job.error is not None
             assert "already submitted" in job.error.message and len(posted) == 1
+
+
+def _live_ready(box: Box, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """A NAV run whose bundles count as validated + pre-checked, in live mode: (pid, bundle sha) not yet live."""
+    from orchestrator.precheck import PrecheckResult, PrecheckRunner
+    from orchestrator.scenarios import twpas
+
+    monkeypatch.setattr(twpas, "validate", lambda ctx, built: ("hl7-validator", {}))
+    monkeypatch.setattr(PrecheckRunner, "run", lambda self, name, bundle: PrecheckResult(True, [], name))
+    nav, _files = _nav(box)
+    _live(box, monkeypatch)
+    out = []
+    for o in nav.outputs or []:
+        if o.filename.startswith("twpas_ONC-OSI_") and not box.orch.db.submissions(o.sha256, live_only=True):
+            pid = next(p for p in world["patient"] if o.filename == f"twpas_ONC-OSI_{p[:12]}.json")
+            out.append((pid, o.sha256))
+    world["nav_live"] = nav
+    return out
+
+
+def _submit_job(box: Box, nav: c.Job, pid: str) -> str:
+    """Queue a SUBMIT by mail without running it; returns its job id."""
+    before = {j.job_id for j in box.orch.db.find(type_="SUBMIT", limit=1000)}
+    assert box.mail(f"SUBMIT ONC-OSI pid={pid} bundle={nav.job_id}", sender="onc-dr@hospa.test") == "Processed"
+    (jid,) = {j.job_id for j in box.orch.db.find(type_="SUBMIT", limit=1000)} - before
+    return jid
+
+
+def test_live_submit_is_once_under_concurrency_and_restart(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two SUBMITs of one bundle racing on two workers POST once; a SUBMIT re-run after a restart that interrupted
+    it mid-POST never POSTs again (SPEC §8.4: one NHI submission per audited bundle)."""
+    import threading
+    import time
+
+    import httpx
+
+    box: Box = world["box"]
+    ready = _live_ready(box, world, monkeypatch)
+    assert len(ready) >= 3
+    nav = world["nav_live"]
+    posted: list[bytes] = []
+
+    def slow_post(url: str, content: bytes, headers: dict[str, str], timeout: float) -> httpx.Response:
+        posted.append(content)
+        time.sleep(0.3)  # widen the window between the duplicate check and the record
+        cr = {"resourceType": "ClaimResponse", "id": "nhi-2", "status": "active", "outcome": "complete"}
+        return httpx.Response(200, json=cr)
+
+    monkeypatch.setattr(httpx, "post", slow_post)
+    pid, sha = ready[0]
+    jobs = [_submit_job(box, nav, pid), _submit_job(box, nav, pid)]
+    threads = [threading.Thread(target=box.orch.run, args=(j,)) for j in jobs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    states = sorted((box.orch.db.get(j) or pytest.fail(j)).state for j in jobs)
+    assert states == ["done", "failed"] and len(posted) == 1
+    (row,) = box.orch.db.submissions(sha, live_only=True)
+    assert row["outcome"] == "complete"
+    # restart recovery: the job had reserved the bundle and was killed during the POST
+    pid, sha = ready[1]
+    jid = _submit_job(box, nav, pid)
+    reserved = box.orch.db.submission_reserve(
+        {
+            "job_id": jid,
+            "ruleset": "ONC-OSI",
+            "pid": pid,
+            "nav_job_id": nav.job_id,
+            "bundle_sha": sha,
+            "dry_run": False,
+            "outcome": "pending",
+            "submitted_by": "onc-dr@hospa.test",
+            "submitted_at": "2026-10-05T09:00:00+08:00",
+        }
+    )
+    assert reserved is None
+    box.orch.drain()
+    job = box.orch.db.get(jid)
+    assert job is not None and job.state == "failed" and job.error is not None
+    assert "interrupted" in job.error.message and len(posted) == 1
+
+
+def test_live_submit_failure_classification(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """No connection → nothing was sent, the bundle may be submitted again; a lost answer → the claim may exist at
+    NHI, so the bundle stays reserved ('uncertain') and a new SUBMIT is refused without posting."""
+    import httpx
+
+    box: Box = world["box"]
+    ready = _live_ready(box, world, monkeypatch)
+    nav = world["nav_live"]
+    pid, sha = ready[0]
+    calls: list[str] = []
+
+    def failing(exc: Exception) -> Any:
+        def post(url: str, content: bytes, headers: dict[str, str], timeout: float) -> httpx.Response:
+            calls.append(type(exc).__name__)
+            raise exc
+
+        return post
+
+    monkeypatch.setattr(httpx, "post", failing(httpx.ConnectError("refused")))
+    jid = _submit_job(box, nav, pid)
+    box.orch.drain()
+    job = box.orch.db.get(jid)
+    assert job is not None and job.state == "failed" and job.error is not None
+    assert "nothing was submitted" in job.error.message and not box.orch.db.submissions(sha, live_only=True)
+    monkeypatch.setattr(httpx, "post", failing(httpx.ReadTimeout("no answer")))
+    jid = _submit_job(box, nav, pid)
+    box.orch.drain()
+    job = box.orch.db.get(jid)
+    assert job is not None and job.state == "failed" and job.error is not None
+    assert "may have been received" in job.error.message
+    (row,) = box.orch.db.submissions(sha, live_only=True)
+    assert row["outcome"] == "uncertain" and row["job_id"] == jid
+    jid = _submit_job(box, nav, pid)
+    box.orch.drain()
+    job = box.orch.db.get(jid)
+    assert job is not None and job.state == "failed" and job.error is not None
+    assert "already submitted" in job.error.message and calls == ["ConnectError", "ReadTimeout"]

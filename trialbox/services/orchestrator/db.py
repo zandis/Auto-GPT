@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   submitted_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS submissions_bundle ON submissions(bundle_sha, dry_run);
+CREATE UNIQUE INDEX IF NOT EXISTS submissions_live_once ON submissions(bundle_sha) WHERE dry_run = 0;
 CREATE TABLE IF NOT EXISTS cohort_tables (
   site_id TEXT NOT NULL,
   disease TEXT NOT NULL,
@@ -319,31 +320,65 @@ class JobDB:
         with self._lock:
             return [str(r[0]) for r in self._con.execute("SELECT DISTINCT ruleset FROM feedback ORDER BY 1")]
 
-    def submission_add(self, row: dict[str, Any]) -> None:
+    _SUB_COLS = ("job_id", "ruleset", "pid", "nav_job_id", "bundle_sha", "dry_run", "outcome", "submitted_by", "at")
+
+    def submission_reserve(self, row: dict[str, Any]) -> dict[str, Any] | None:
+        """Claim a bundle for one live NHI submission before it is sent: inserts ``row`` (outcome ``pending``) and
+        returns None, or returns the existing live submission of the same bundle and inserts nothing. Atomic under
+        the DB lock; the partial unique index ``submissions_live_once`` backs it up."""
+        with self.tx() as con:
+            prior = con.execute(
+                "SELECT job_id, ruleset, pid, nav_job_id, bundle_sha, dry_run, outcome, submitted_by, submitted_at "
+                "FROM submissions WHERE bundle_sha = ? AND dry_run = 0",
+                (row["bundle_sha"],),
+            ).fetchone()
+            if prior is not None:
+                return dict(zip(self._SUB_COLS, prior, strict=True))
+            self._submission_insert(con, {**row, "dry_run": False}, replace=False)
+        return None
+
+    def submission_update(self, job_id: str, outcome: str, submitted_at: str | None = None) -> None:
         with self.tx() as con:
             con.execute(
-                """INSERT INTO submissions (job_id, ruleset, pid, nav_job_id, bundle_sha, dry_run, outcome,
-                     submitted_by, submitted_at) VALUES (?,?,?,?,?,?,?,?,?)""",
-                (
-                    row["job_id"],
-                    row["ruleset"],
-                    row["pid"],
-                    row["nav_job_id"],
-                    row["bundle_sha"],
-                    int(bool(row["dry_run"])),
-                    row["outcome"],
-                    row["submitted_by"],
-                    row["submitted_at"],
-                ),
+                "UPDATE submissions SET outcome = ?, submitted_at = coalesce(?, submitted_at) WHERE job_id = ?",
+                (outcome, submitted_at, job_id),
             )
+
+    def submission_release(self, job_id: str) -> None:
+        """Drop a live reservation whose bundle provably never reached NHI (connection refused, HTTP 4xx)."""
+        with self.tx() as con:
+            con.execute("DELETE FROM submissions WHERE job_id = ? AND dry_run = 0", (job_id,))
+
+    def submission_add(self, row: dict[str, Any]) -> None:
+        """Record a dry run (idempotent per job: a re-run after a restart replaces the row)."""
+        with self.tx() as con:
+            self._submission_insert(con, row, replace=True)
+
+    @staticmethod
+    def _submission_insert(con: sqlite3.Connection, row: dict[str, Any], replace: bool) -> None:
+        verb = "INSERT OR REPLACE" if replace else "INSERT"
+        con.execute(
+            f"""{verb} INTO submissions (job_id, ruleset, pid, nav_job_id, bundle_sha, dry_run, outcome,
+                 submitted_by, submitted_at) VALUES (?,?,?,?,?,?,?,?,?)""",
+            (
+                row["job_id"],
+                row["ruleset"],
+                row["pid"],
+                row["nav_job_id"],
+                row["bundle_sha"],
+                int(bool(row["dry_run"])),
+                row["outcome"],
+                row["submitted_by"],
+                row["submitted_at"],
+            ),
+        )
 
     def submissions(self, bundle_sha: str | None = None, live_only: bool = False) -> list[dict[str, Any]]:
         sql = "SELECT job_id, ruleset, pid, nav_job_id, bundle_sha, dry_run, outcome, submitted_by, submitted_at "
         sql += "FROM submissions WHERE (? IS NULL OR bundle_sha = ?)" + (" AND dry_run = 0" if live_only else "")
-        cols = ("job_id", "ruleset", "pid", "nav_job_id", "bundle_sha", "dry_run", "outcome", "submitted_by", "at")
         with self._lock:
             rows = self._con.execute(sql + " ORDER BY submitted_at", (bundle_sha, bundle_sha)).fetchall()
-        return [dict(zip(cols, r, strict=True)) for r in rows]
+        return [dict(zip(self._SUB_COLS, r, strict=True)) for r in rows]
 
     def prune_inactive(self, approved: set[str], cutoff_iso: str) -> dict[str, int]:
         """Retention (SPEC §10.3): pool / feedback rows of rulesets no longer approved here, untouched since cutoff."""
@@ -397,6 +432,14 @@ class JobDB:
                         job_id,
                     ),
                 )
+
+    def cohort_senders(self, site_id: str) -> set[str]:
+        """Who has contributed tables for ``site_id`` (``self:<site>`` for the root's own runs)."""
+        with self._lock:
+            rows = self._con.execute(
+                "SELECT DISTINCT received_from FROM cohort_tables WHERE site_id = ?", (site_id,)
+            ).fetchall()
+        return {str(r[0]) for r in rows}
 
     def cohort_rows(self, disease: str, quarter: str) -> list[dict[str, Any]]:
         with self._lock:
