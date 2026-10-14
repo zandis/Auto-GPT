@@ -80,7 +80,7 @@ def select(
     seed: int = 11,
 ) -> None:
     src = Source(db, load_mapping(mapping))
-    mrns = mrns_file.read_text().split() if mrns_file else src.mrns()
+    mrns = mrns_file.read_text(encoding="utf-8").split() if mrns_file else src.mrns()
     notes = compose_notes(src, mrns, index_date)
     pseud = {m: pseudonym(m) for m in mrns}
     docs = [{"_id": pseud[m], "title": "", "text": n, "metadata": {"diseases_list": []}} for m, n in notes.items()]

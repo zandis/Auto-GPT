@@ -77,6 +77,7 @@ def test_llm_client_options_cache_and_overflow(isolated: Path, monkeypatch: pyte
     r1 = c.chat_json(msgs)
     body = CALLS[-1]
     assert body["format"] == "json" and body["options"]["num_ctx"] == 4096 and body["options"]["temperature"] == 0
+    assert body["think"] is False
     r2 = c.chat_json(msgs)
     assert r2.cached and r2.text == r1.text and len(CALLS) == 1
     nocache = LLMClient(cache=False)

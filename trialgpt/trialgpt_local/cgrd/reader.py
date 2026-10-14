@@ -93,7 +93,7 @@ class Source:
     def _query(self, sql: str, params: list[Any]) -> list[dict[str, Any]]:
         if self.url.endswith((".sqlite", ".db")) or self.url.startswith("sqlite:"):
             path = self.url.removeprefix("sqlite:///")
-            con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)  # read only
+            con = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True)  # read only, any OS
             con.row_factory = sqlite3.Row
             try:
                 return [dict(r) for r in con.execute(sql, params)]

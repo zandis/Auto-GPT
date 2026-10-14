@@ -115,6 +115,8 @@ class LLMClient:
         opts: dict[str, Any] = {"temperature": 0, "seed": self.cfg.llm_seed}
         if self.cfg.llm_backend == "ollama":
             opts["num_ctx"] = self.cfg.llm_num_ctx
+            if self.cfg.llm_think:  # only when on, so cache keys of earlier runs stay valid
+                opts["think"] = True
         return opts
 
     def chat_json(self, messages: Messages, *, json_mode: bool = True) -> LLMResult:
@@ -167,6 +169,7 @@ class LLMClient:
             "model": self.cfg.llm_model,
             "messages": messages,
             "stream": False,
+            "think": self.cfg.llm_think,  # false is accepted by models without a thinking mode too
             "options": {
                 "temperature": 0,
                 "seed": self.cfg.llm_seed,

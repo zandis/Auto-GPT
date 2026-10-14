@@ -90,18 +90,24 @@ class HybridIndex:
         nctids = [d["_id"] for d in items]
         cache = settings().data_dir / "index" / name if name else None
         sig = hashlib.sha256("\n".join(nctids).encode()).hexdigest()[:16]
-        if cache and (cache / "meta.json").exists() and json.loads((cache / "meta.json").read_text())["sig"] == sig:
-            tokens = json.loads((cache / "bm25_tokens.json").read_text())
+        if (
+            cache
+            and (cache / "meta.json").exists()
+            and json.loads((cache / "meta.json").read_text(encoding="utf-8"))["sig"] == sig
+        ):
+            tokens = json.loads((cache / "bm25_tokens.json").read_text(encoding="utf-8"))
             embeds = np.load(cache / "medcpt.npy") if dense else np.zeros((len(items), 768), dtype=np.float32)
         else:
             tokens = [bm25_tokens(d) for d in items]
             embeds = encode_articles(items) if dense else np.zeros((len(items), 768), dtype=np.float32)
             if cache:
                 cache.mkdir(parents=True, exist_ok=True)
-                (cache / "bm25_tokens.json").write_text(json.dumps(tokens))
+                (cache / "bm25_tokens.json").write_text(json.dumps(tokens), encoding="utf-8")
                 if dense:
                     np.save(cache / "medcpt.npy", embeds)
-                (cache / "meta.json").write_text(json.dumps({"sig": sig, "n": len(items), "dense": dense}))
+                (cache / "meta.json").write_text(
+                    json.dumps({"sig": sig, "n": len(items), "dense": dense}), encoding="utf-8"
+                )
         return cls(nctids, BM25Okapi(tokens), embeds, {d["_id"]: d for d in items})
 
     def search(

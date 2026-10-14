@@ -34,7 +34,7 @@ eps = 1e-9
 def render() -> str:
     parts = []
     for rel, names in SOURCES:
-        src = (V / rel).read_text()
+        src = (V / rel).read_text(encoding="utf-8")
         found = {n.name: ast.get_source_segment(src, n) for n in ast.parse(src).body if isinstance(n, ast.FunctionDef)}
         parts += [str(found[n]) for n in names]
     return HEADER + "\n\n\n".join(parts) + "\n"
@@ -44,10 +44,10 @@ def main(argv: list[str]) -> int:
     target = ROOT / "trialgpt_local" / "prompts.py"
     text = render()
     if "--check" in argv:
-        ok = target.read_text() == text
+        ok = target.read_text(encoding="utf-8") == text
         print("prompts.py is in sync" if ok else "prompts.py differs from the vendored sources")
         return 0 if ok else 1
-    target.write_text(text)
+    target.write_text(text, encoding="utf-8", newline="\n")
     return 0
 
 

@@ -26,6 +26,9 @@ class Settings:
     llm_num_ctx: int = field(default_factory=lambda: int(_env("TG_LLM_NUM_CTX", "16384")))
     llm_timeout: float = field(default_factory=lambda: float(_env("TG_LLM_TIMEOUT", "900")))
     llm_seed: int = field(default_factory=lambda: int(_env("TG_LLM_SEED", "42")))
+    # Ollama "thinking" models (gemma4, qwen3, ...) reason at length before answering when not told otherwise: 15-20x
+    # slower per call. NCBI's prompts already ask for the reasoning inside the JSON, so it is off unless set to true.
+    llm_think: bool = field(default_factory=lambda: _env("TG_LLM_THINK", "false").lower() in ("1", "true", "yes"))
     # live | cassette (tests: replay recorded responses, fail on a miss) | record (live + save)
     llm_mode: str = field(default_factory=lambda: _env("TG_LLM_MODE", "live"))
     cassette_dir: Path = field(default_factory=lambda: Path(_env("TG_CASSETTE_DIR", str(ROOT / "tests" / "cassettes"))))
