@@ -240,9 +240,14 @@ def report(model_tag: str) -> str:
             "|---|---|---|---|---|---|---|---|---|",
         ]
         for e in evals:
-            m, dg, sl = e["metrics"]["combined"], e["diagnostics"], e["run"].get("slice", {})
+            m, dg, sl = e["metrics"]["combined"], e["diagnostics"], e["run"].get("slice") or {}
+            sl_txt = (
+                f"{sl.get('patients') or 'all'} pts x {sl.get('trials') or 'all'} trials"
+                if any(sl.values())
+                else "full"
+            )
             lines.append(
-                f"| {e['cohort']} | {e['patients']} | {e['pairs']} | {sl} | {_f(m['ndcg@10'])} | {_f(m['p@10'])} | "
+                f"| {e['cohort']} | {e['patients']} | {e['pairs']} | {sl_txt} | {_f(m['ndcg@10'])} | {_f(m['p@10'])} | "
                 f"{_f(m['auroc'])} | {_f(dg['criterion_parse_error_rate'], pct=True)} | "
                 f"{_f(dg['mean_seconds_per_pair'], 1)} |"
             )
