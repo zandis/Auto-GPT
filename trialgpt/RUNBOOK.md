@@ -30,6 +30,10 @@ is private, git asks you to sign in to GitHub the first time.
 | ≥ 16 GB | `gemma4:12b` | 8.0 GB | on 10–12 GB it also runs: Ollama moves some layers to the CPU, slower |
 | 24 GB+ | pass `gemma4:26b` / `gemma4:31b` yourself | 18.7 / 20.4 GB | |
 
+When speed does not matter, pass the largest model your GPU + RAM can hold (`-Model gemma4:31b` needs about 32 GB of
+system RAM next to a 10–12 GB GPU). Ollama splits it between GPU and CPU; the launcher allows 3600 s per call
+(`-Timeout` / `TIMEOUT=`).
+
 Sizes are the Ollama registry's (October 2026). Whichever you choose, compare on your own GPU with
 `make bench-slice MODEL=...` before trusting it.
 

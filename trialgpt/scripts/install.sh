@@ -11,6 +11,7 @@ set -euo pipefail
 DIR="${DIR:-$HOME/TrialGPT}"
 BRANCH="${BRANCH:-claude/trialgpt-local-lcvm9p}"
 NUM_CTX="${NUM_CTX:-16384}"
+TIMEOUT="${TIMEOUT:-3600}"   # seconds per LLM call: big models partly on the CPU are slow
 MODEL="${MODEL:-}"
 
 command -v git >/dev/null || { echo "git is required (apt install git / xcode-select --install)"; exit 1; }
@@ -59,7 +60,7 @@ uv pip install --python "$PY" -e .
 # 5. Launcher
 cat > start-trialgpt.sh <<EOF
 #!/usr/bin/env bash
-export TG_LLM_MODEL="$MODEL" TG_LLM_NUM_CTX="$NUM_CTX" TG_LLM_THINK=false
+export TG_LLM_MODEL="$MODEL" TG_LLM_NUM_CTX="$NUM_CTX" TG_LLM_THINK=false TG_LLM_TIMEOUT="$TIMEOUT"
 cd "$PWD"
 ( sleep 6; (xdg-open http://127.0.0.1:8090 || open http://127.0.0.1:8090 || true) >/dev/null 2>&1 ) &
 exec "$PY" -m trialgpt_local.app

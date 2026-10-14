@@ -10,12 +10,14 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File install.ps1
   powershell -ExecutionPolicy Bypass -File install.ps1 -Model gemma4:12b
+  powershell -ExecutionPolicy Bypass -File install.ps1 -Model gemma4:31b   # best quality; slow on a 10 GB GPU
 #>
 param(
     [string]$Model = "",                                # default: chosen from GPU memory
     [string]$Dir = "$HOME\TrialGPT",
     [string]$Branch = "claude/trialgpt-local-lcvm9p",
     [int]$NumCtx = 16384,
+    [int]$Timeout = 3600,                               # seconds per LLM call: big models partly on the CPU are slow
     [switch]$NoStart
 )
 $ErrorActionPreference = "Stop"
@@ -80,6 +82,7 @@ $start = Join-Path $app "start-trialgpt.ps1"
 `$env:TG_LLM_MODEL = "$Model"
 `$env:TG_LLM_NUM_CTX = "$NumCtx"
 `$env:TG_LLM_THINK = "false"
+`$env:TG_LLM_TIMEOUT = "$Timeout"
 Set-Location "$app"
 Start-Process powershell -WindowStyle Hidden -ArgumentList "-Command", "Start-Sleep 6; Start-Process http://127.0.0.1:8090"
 & "$py" -m trialgpt_local.app
