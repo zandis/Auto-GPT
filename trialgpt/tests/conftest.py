@@ -81,6 +81,7 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
         monkeypatch.setenv(k, str(tmp_path / sub))
     monkeypatch.setenv("TG_LLM_MODEL", "mock-model")
     monkeypatch.setenv("TG_LLM_NUM_CTX", "4096")
+    monkeypatch.setattr("trialgpt_local.ctgov.MIN_INTERVAL", 0.0)
     monkeypatch.setattr(httpx, "Client", lambda **kw: REAL_CLIENT(**{"transport": httpx.MockTransport(handler), **kw}))
     CALLS.clear()
     yield tmp_path

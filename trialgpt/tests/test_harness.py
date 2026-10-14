@@ -121,6 +121,19 @@ def test_live_search_falls_back_to_full_text() -> None:
     assert len(pool) == 20 + 20  # 0..19 from the condition searches, 100..119 from full text, de-duplicated
 
 
+def test_registry_requests_retry_429(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from tests.conftest import REAL_CLIENT
+
+    sleeps: list[float] = []
+    monkeypatch.setattr("trialgpt_local.ctgov.time.sleep", sleeps.append)
+    replies = iter([httpx.Response(429, headers={"Retry-After": "7"}), httpx.Response(200, json={"studies": []})])
+    client = REAL_CLIENT(transport=httpx.MockTransport(lambda request: next(replies)))
+    assert ctgov.get(["NCT00000001"], http=client) == {}
+    assert 7.0 in sleeps
+
+
 def test_split_criteria_free_form_headings() -> None:
     text = (
         "Patients are eligible to be included in the study only if all the following criteria apply:\n\n"

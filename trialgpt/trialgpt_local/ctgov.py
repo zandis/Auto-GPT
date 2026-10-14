@@ -9,6 +9,8 @@ The registry writes eligibility as Markdown with free-form headings ("Inclusion 
 from __future__ import annotations
 
 import re
+import threading
+import time
 from typing import Any
 
 import httpx
@@ -106,6 +108,27 @@ def to_corpus_entry(trial: dict[str, Any]) -> dict[str, Any]:
 
 
 MIN_COND_HITS = 10
+MIN_INTERVAL = 1.5  # seconds between registry requests (the API rate-limits bursts with 429)
+_last = [0.0]
+_pace = threading.Lock()
+
+
+def _get(client: httpx.Client, params: dict[str, Any], attempts: int = 5) -> dict[str, Any]:
+    """GET /studies, paced, retrying 429 and 5xx with the server's Retry-After (else exponential backoff)."""
+    for attempt in range(attempts):
+        with _pace:
+            wait = _last[0] + MIN_INTERVAL - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            _last[0] = time.monotonic()
+        r = client.get(f"{settings().ctgov_base}/studies", params=params)
+        if (r.status_code == 429 or r.status_code >= 500) and attempt < attempts - 1:
+            ra = r.headers.get("Retry-After", "")
+            time.sleep(min(float(ra), 120.0) if ra.replace(".", "", 1).isdigit() else 5.0 * 2**attempt)
+            continue
+        r.raise_for_status()
+        return dict(r.json())
+    raise AssertionError("unreachable")
 
 
 def search(
@@ -131,9 +154,7 @@ def search(
                 params["filter.overallStatus"] = "RECRUITING|NOT_YET_RECRUITING"
             if country:
                 params["query.locn"] = country
-            r = client.get(f"{settings().ctgov_base}/studies", params=params)
-            r.raise_for_status()
-            studies = r.json().get("studies", [])
+            studies = _get(client, params).get("studies", [])
             for s in studies:
                 t = to_trial(s)
                 if t["NCTID"] and t["NCTID"] not in seen and (t["inclusion_criteria"] or t["exclusion_criteria"]):
@@ -149,11 +170,7 @@ def get(nct_ids: list[str], http: httpx.Client | None = None) -> dict[str, dict[
     out = {}
     for i in range(0, len(nct_ids), 50):
         chunk = nct_ids[i : i + 50]
-        r = client.get(
-            f"{settings().ctgov_base}/studies", params={"filter.ids": ",".join(chunk), "pageSize": 50, "format": "json"}
-        )
-        r.raise_for_status()
-        for s in r.json().get("studies", []):
+        for s in _get(client, {"filter.ids": ",".join(chunk), "pageSize": 50, "format": "json"}).get("studies", []):
             t = to_trial(s)
             out[t["NCTID"]] = t
     return out
