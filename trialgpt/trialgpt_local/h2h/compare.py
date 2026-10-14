@@ -270,8 +270,13 @@ def report(adjudicated: Path | None) -> str:
             "",
             "## 3. Physician adjudication",
             "",
-            "Not yet: `python -m trialgpt_local.h2h.compare workbook`, have physicians fill `results/h2h/pooled.xlsx`, "
-            "then `report --adjudicated results/h2h/pooled.xlsx`.",
+            (
+                "Not yet: the blinded workbook `results/h2h/pooled.xlsx` is ready for the physicians"
+                if (settings().results_dir / "h2h" / "pooled.xlsx").exists()
+                else "Not yet: `python -m trialgpt_local.h2h.compare workbook`, have physicians fill "
+                "`results/h2h/pooled.xlsx`"
+            )
+            + "; then `report --adjudicated results/h2h/pooled.xlsx`.",
         ]
     text = "\n".join(lines) + "\n"
     (h2h_dir() / "report.md").write_text(text, encoding="utf-8")
