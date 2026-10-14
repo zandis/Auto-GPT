@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrialGPT Local</title>
+<style>
+:root{--bg:#f7f7f5;--panel:#fff;--ink:#1d1f23;--muted:#5d636e;--line:#e2e3e0;--accent:#2457c5;--accent-ink:#fff;
+--ok:#1f7a4d;--ok-bg:#e3f3ea;--bad:#b42318;--bad-bg:#fbe7e5;--warn:#8a5a00;--warn-bg:#fdf1d8;--na:#5d636e;--na-bg:#eceeef;--mark:#fff2b3}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15171a;--panel:#1d2024;--ink:#e8e9eb;--muted:#a1a7b0;--line:#30343a;
+--accent:#7aa2ff;--accent-ink:#0d1117;--ok:#6fd3a0;--ok-bg:#16382a;--bad:#ff8a80;--bad-bg:#43201d;--warn:#f0c46b;--warn-bg:#3d3015;--na:#a1a7b0;--na-bg:#2a2e33;--mark:#5a4d12}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans TC",sans-serif}
+header{display:flex;align-items:center;gap:16px;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+header h1{font-size:18px;margin:0}header .status{font-size:13px;color:var(--muted)}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--bad)}.dot.on{background:var(--ok)}
+nav{margin-left:auto;display:flex;gap:4px}nav button{background:none;border:1px solid transparent;color:var(--ink);padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
+nav button[aria-selected="true"]{border-color:var(--line);background:var(--bg)}
+main{max-width:1180px;margin:0 auto;padding:20px 16px}.grid{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:20px}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}textarea,select,input{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px}
+textarea{min-height:240px;resize:vertical}.row{display:flex;gap:10px}.row>div{flex:1}
+.btn{margin-top:14px;width:100%;background:var(--accent);color:var(--accent-ink);border:0;border-radius:6px;padding:10px;font:inherit;font-weight:600;cursor:pointer}.btn:disabled{opacity:.5;cursor:default}
+.ghost{background:none;border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:6px 10px;font:inherit;cursor:pointer}
+.note{font-size:12px;color:var(--muted);margin-top:10px}
+.log{font:12px/1.6 ui-monospace,Menlo,Consolas,monospace;color:var(--muted);max-height:160px;overflow:auto;margin-top:12px}
+.chips span{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin:3px 4px 0 0;font-size:13px}
+.trial{border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:12px;background:var(--panel)}
+.trial h3{margin:0 0 4px;font-size:16px}.meta{font-size:13px;color:var(--muted)}.meta a{color:var(--accent)}
+.scores{display:flex;gap:16px;margin:10px 0;flex-wrap:wrap}.scores div{font-size:13px;color:var(--muted)}.scores b{display:block;font-size:20px;color:var(--ink);font-variant-numeric:tabular-nums}
+.counts span{font-size:12px;border-radius:4px;padding:2px 7px;margin-right:6px}
+.b-ok{background:var(--ok-bg);color:var(--ok)}.b-bad{background:var(--bad-bg);color:var(--bad)}.b-warn{background:var(--warn-bg);color:var(--warn)}.b-na{background:var(--na-bg);color:var(--na)}
+details{margin-top:10px}summary{cursor:pointer;color:var(--accent);font-size:14px}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}th,td{text-align:left;vertical-align:top;padding:7px 6px;border-top:1px solid var(--line)}th{color:var(--muted);font-weight:600}
+td .lab{white-space:nowrap;font-size:12px;border-radius:4px;padding:1px 6px}.ev{color:var(--muted);font-size:12px;margin-top:4px}.ev mark{background:var(--mark);color:inherit}
+.empty{color:var(--muted);text-align:center;padding:40px 10px}.err{color:var(--bad)}
+pre.report{white-space:pre-wrap;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto}
+.sr{position:absolute;left:-9999px}
+</style>
+</head>
+<body>
+<header>
+  <h1>TrialGPT <span style="font-weight:400;color:var(--muted)">local</span></h1>
+  <div class="status" id="status"><span class="dot"></span>checking local LLM…</div>
+  <nav role="tablist">
+    <button role="tab" aria-selected="true" data-tab="match">Match a patient</button>
+    <button role="tab" aria-selected="false" data-tab="reports">Benchmark &amp; head-to-head</button>
+  </nav>
+</header>
+<main>
+  <section id="tab-match" class="grid">
+    <div class="card">
+      <label for="note">Patient note</label>
+      <textarea id="note" placeholder="Paste a patient summary (history, diagnoses, labs, medications)…"></textarea>
+      <div class="row" style="margin-top:8px">
+        <label class="ghost" style="margin:0;text-align:center;flex:1" for="file">Upload PDF / text</label>
+        <input id="file" class="sr" type="file" accept=".pdf,.txt,.md">
+        <button class="ghost" id="example" style="flex:1" type="button">Example (SIGIR)</button>
+      </div>
+      <div class="row">
+        <div><label for="source">Trial source</label><select id="source"></select></div>
+        <div><label for="topk">Trials to match</label><input id="topk" type="number" min="1" max="50" value="10"></div>
+      </div>
+      <label for="country">Country filter (live only, optional)</label>
+      <input id="country" placeholder="e.g. Taiwan">
+      <button class="btn" id="run">Find and match trials</button>
+      <p class="note">The note goes only to your local LLM; ClinicalTrials.gov receives just the generated search keywords. Nothing is stored on disk.</p>
+      <div class="log" id="log" aria-live="polite"></div>
+    </div>
+    <div id="results"><div class="card empty">Ranked trials with criterion-by-criterion explanations appear here.</div></div>
+  </section>
+  <section id="tab-reports" hidden>
+    <div class="card"><h2 style="margin-top:0;font-size:17px">Benchmark on the NCBI cohorts</h2><div id="bench" class="empty">No benchmark run yet — <code>make bench</code>.</div></div>
+    <div class="card" style="margin-top:16px"><h2 style="margin-top:0;font-size:17px">Head-to-head with trialgpt.app</h2><div id="h2h" class="empty">No head-to-head yet — <code>make h2h</code>.</div></div>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const EXAMPLE = "A 58-year-old African-American woman presents to the ER with episodic pressing/burning anterior chest pain that began two days earlier for the first time in her life. The pain started while she was walking, radiates to the back, and is accompanied by nausea, diaphoresis and mild dyspnea, but is not increased on inspiration. The latest episode of pain ended half an hour prior to her arrival. She is known to have hypertension and obesity. She denies smoking, diabetes, hypercholesterolemia, or a family history of heart disease. She currently takes no medications. Physical examination is normal. The EKG shows nonspecific changes.";
+const CLS = {"included":"b-ok","not excluded":"b-ok","not included":"b-bad","excluded":"b-bad","not enough information":"b-warn","not applicable":"b-na","parse error":"b-na"};
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.setAttribute("aria-selected", x === b));
+  $("#tab-match").hidden = b.dataset.tab !== "match"; $("#tab-reports").hidden = b.dataset.tab !== "reports";
+  if (b.dataset.tab === "reports") loadReports();
+});
+$("#example").onclick = () => { $("#note").value = EXAMPLE; };
+$("#file").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const fd = new FormData(); fd.append("file", f);
+  const r = await fetch("/api/upload", {method:"POST", body:fd}); const j = await r.json();
+  if (r.ok) $("#note").value = j.text; else alert(j.detail || "upload failed");
+};
+
+async function loadConfig(){
+  try{
+    const c = await (await fetch("/api/config")).json();
+    const ok = c.llm_reachable && c.model_available;
+    $("#status").innerHTML = `<span class="dot ${ok?"on":""}"></span>${esc(c.model)} via ${esc(c.backend)} · context ${c.num_ctx}` +
+      (c.llm_reachable ? (c.model_available ? "" : ` · <span class="err">model not pulled (ollama pull ${esc(c.model)})</span>`) : ` · <span class="err">LLM not reachable at ${esc(c.base_url)}</span>`);
+    $("#source").innerHTML = c.sources.map(s => `<option value="${s}">${s === "live" ? "ClinicalTrials.gov (recruiting, live)" : "NCBI corpus: " + s}</option>`).join("");
+  }catch(e){ $("#status").textContent = "server not reachable"; }
+}
+
+$("#run").onclick = async () => {
+  const note = $("#note").value.trim();
+  if (note.length < 20) { alert("Paste a patient note first."); return; }
+  $("#run").disabled = true; $("#log").textContent = ""; $("#results").innerHTML = '<div class="card empty">Working… local LLM calls take a while on CPU.</div>';
+  const body = {note, source:$("#source").value, top_k:+$("#topk").value || 10, country:$("#country").value.trim() || null};
+  const r = await fetch("/api/match", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  const j = await r.json();
+  if (!r.ok) { $("#results").innerHTML = `<div class="card err">${esc(JSON.stringify(j.detail))}</div>`; $("#run").disabled = false; return; }
+  poll(j.id);
+};
+
+async function poll(id){
+  const j = await (await fetch(`/api/jobs/${id}`)).json();
+  $("#log").innerHTML = j.log.map(l => `${l.t.toFixed(1)}s  ${esc(l.msg)}`).join("<br>");
+  $("#log").scrollTop = 1e9;
+  if (j.state === "running") { setTimeout(() => poll(id), 1500); return; }
+  $("#run").disabled = false;
+  if (j.state === "failed") { $("#results").innerHTML = `<div class="card err">${esc(j.error)}</div>`; return; }
+  render(j.result);
+}
+
+function render(res){
+  const kw = res.keywords || {};
+  let html = `<div class="card"><div class="meta">Patient summary (local LLM)</div><div>${esc(kw.summary)}</div>
+    <div class="chips" style="margin-top:8px">${(kw.conditions||[]).map(c => `<span>${esc(c)}</span>`).join("")}</div>
+    <div class="meta" style="margin-top:8px">${res.candidates} candidate trials · ${res.ranked.length} matched · keywords ${res.seconds.keywords}s, retrieval ${res.seconds.retrieval}s, matching ${res.seconds.matching}s</div></div>`;
+  if (!res.ranked.length) html += '<div class="card empty">No candidate trials found.</div>';
+  res.ranked.forEach((m, i) => {
+    const t = res.trials[m.nct_id] || {}; const agg = m.aggregation || {};
+    const cnt = {}; m.criteria.forEach(c => cnt[c.label] = (cnt[c.label]||0) + 1);
+    html += `<article class="trial"><h3>${i+1}. ${esc(t.brief_title)}</h3>
+      <div class="meta"><a href="https://clinicaltrials.gov/study/${esc(m.nct_id)}" target="_blank" rel="noopener">${esc(m.nct_id)}</a>
+      ${t.phase ? " · " + esc(t.phase) : ""}${t.status ? " · " + esc(t.status) : ""}${(t.diseases_list||[]).length ? " · " + esc(t.diseases_list.slice(0,4).join(", ")) : ""}</div>
+      <div class="scores"><div><b>${m.score.toFixed(2)}</b>TrialGPT score</div><div><b>${esc(agg.relevance_score_R ?? "—")}</b>Relevance R</div>
+      <div><b>${esc(agg.eligibility_score_E ?? "—")}</b>Eligibility E</div><div><b>${m.matching_score.toFixed(2)}</b>Criteria score</div></div>
+      <div class="counts">${Object.entries(cnt).map(([k,v]) => `<span class="${CLS[k]||"b-na"}">${v} ${esc(k)}</span>`).join("")}</div>
+      ${agg.eligibility_explanation ? `<p style="margin:10px 0 0">${esc(agg.eligibility_explanation)}</p>` : ""}
+      <details><summary>Criteria (${m.criteria.length})</summary><table><thead><tr><th>Criterion</th><th>Verdict</th><th>Reasoning and evidence</th></tr></thead><tbody>
+      ${m.criteria.map(c => `<tr><td><span class="meta">${c.kind === "inclusion" ? "Inc" : "Exc"} ${esc(c.idx)}</span> ${esc(c.criterion)}</td>
+        <td><span class="lab ${CLS[c.label]||"b-na"}">${esc(c.label)}</span></td>
+        <td>${esc(c.reasoning)}${c.evidence.length ? `<div class="ev">${c.evidence.map(k => res.sentences[k] !== undefined ? `<mark>${esc(res.sentences[k])}</mark>` : "").join(" ")}</div>` : ""}</td></tr>`).join("")}
+      </tbody></table></details>${m.errors.length ? `<div class="meta err">${esc(m.errors.join("; "))}</div>` : ""}</article>`;
+  });
+  $("#results").innerHTML = html;
+}
+
+async function loadReports(){
+  const r = await (await fetch("/api/reports")).json();
+  const b = Object.entries(r.benchmark);
+  $("#bench").className = b.length ? "" : "empty";
+  if (b.length) $("#bench").innerHTML = b.map(([m, md]) => `<h3 style="font-size:15px">${esc(m)}</h3><pre class="report">${esc(md)}</pre>`).join("");
+  if (r.head_to_head) { $("#h2h").className = ""; $("#h2h").innerHTML = `<pre class="report">${esc(r.head_to_head)}</pre>`; }
+}
+loadConfig();
+</script>
+</body>
+</html>
