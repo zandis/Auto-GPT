@@ -37,9 +37,17 @@ from trialgpt_local.retrieval import HybridIndex
 
 
 def run_dir(run: str) -> Path:
+    """The run folder holds patient notes (and so do its workbooks): owner-only, 0700 / files 0600."""
     d = settings().results_dir / "cgrd" / run
     d.mkdir(parents=True, exist_ok=True)
+    d.chmod(0o700)
     return d
+
+
+def _seal(d: Path) -> None:
+    for p in d.iterdir():
+        if p.is_file():
+            p.chmod(0o600)
 
 
 def _save(path: Path, data: Any) -> None:
@@ -199,6 +207,7 @@ def workbooks(run: str, criteria_pairs: int, seed: int = 5) -> None:
     annotate.write_workbook(
         crit_items, d / "criteria.xlsx", title="CGRD validation — criterion-level (PHI: internal use only)"
     )
+    _seal(d)
     print(f"trial.xlsx: {len(items)} rows; criteria.xlsx: {len(crit_items)} rows from {len(chosen)} pairs -> {d}")
 
 
@@ -290,6 +299,7 @@ def score(run: str) -> str:
         lines.append("No physician answers yet: fill trial.xlsx / criteria.xlsx in the run folder.")
     text = "\n".join(lines) + "\n"
     (d / "report.md").write_text(text, encoding="utf-8")
+    _seal(d)
     return text
 
 

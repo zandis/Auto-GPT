@@ -284,10 +284,14 @@ def test_cgrd_notes_and_validation_loop(isolated: Path) -> None:
     pairs = json.loads((d / "pairs.json").read_text())
     assert [p["pool"] for p in pairs] == ["likely", "control"] and pairs[0]["patient_id"] == pseudonym("C001")
     assert oct((d / "notes.json").stat().st_mode & 0o777) == "0o600"
+    assert oct(d.stat().st_mode & 0o777) == "0o700"
     validate.run_matching("t1")
     before = list((isolated / "cache").rglob("*.json"))
     assert before == []  # CGRD prompts never reach the disk cache
     validate.workbooks("t1", criteria_pairs=2)
+    assert {f.name: oct(f.stat().st_mode & 0o777) for f in d.iterdir()} == {
+        f.name: "0o600" for f in d.iterdir()
+    }  # the workbooks carry the notes too
     ws = load_workbook(d / "trial.xlsx")["judge"]
     for row in range(2, ws.max_row + 1):
         pid = ws.cell(row, 2).value
