@@ -145,6 +145,14 @@ def test_split_criteria_free_form_headings() -> None:
     assert exc.split("\n\n") == ["Pregnant", "Dialysis"]
     inc2, exc2 = ctgov.split_criteria("Inclusion Criteria:\n\n1. Age 20-75\n2. RA\n\nKey Exclusion Criteria:\n\n- TB")
     assert inc2.split("\n\n") == ["Age 20-75", "RA"] and exc2 == "TB"
+    groups = (
+        "Group A\n\nInclusion Criteria:\n\n* chest pain\n\nExclusion Criteria:\n\n* pregnant\n"
+        "* Inclusion in another trial within 30 days\n\nGroup B\n\nInclusion Criteria:\n\n* obstructive CAD\n\n"
+        "Exclusion Criteria:\n\n* dialysis"
+    )
+    inc3, exc3 = ctgov.split_criteria(groups)
+    assert "obstructive CAD" in inc3.split("\n\n") and "obstructive CAD" not in exc3
+    assert exc3.split("\n\n") == ["pregnant", "Inclusion in another trial within 30 days", "Group B", "dialysis"]
 
 
 def test_blinded_workbook_round_trip(tmp_path: Path) -> None:

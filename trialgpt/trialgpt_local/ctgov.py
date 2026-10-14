@@ -53,8 +53,12 @@ def _blocks(lines: list[str]) -> str:
     return "\n\n".join(i for i in items if i)
 
 
+_INCL_HEADING = re.compile(r"^\W*(key\s+)?(inclusion|eligibility) criteria\W*$", re.I)
+
+
 def split_criteria(text: str) -> tuple[str, str]:
-    """Registry eligibility text -> (inclusion, exclusion), each a blank-line separated list of criteria."""
+    """Registry eligibility text -> (inclusion, exclusion), each a blank-line separated list of criteria. Multi-arm
+    trials repeat "Inclusion Criteria:" / "Exclusion Criteria:" per group; each heading switches the list."""
     lines = _unescape(text or "").splitlines()
     inc: list[str] = []
     exc: list[str] = []
@@ -64,8 +68,12 @@ def split_criteria(text: str) -> tuple[str, str]:
         if _EXCL.search(stripped) and len(stripped) < 160:
             cur = exc
             continue
-        if _INCL.search(stripped) and len(stripped) < 160 and cur is inc:
-            continue
+        if _INCL.search(stripped) and len(stripped) < 160:
+            if cur is inc:
+                continue
+            if _INCL_HEADING.match(stripped) or stripped.endswith(":"):  # next arm group: back to inclusion
+                cur = inc
+                continue
         cur.append(line)
     return _blocks(inc), _blocks(exc)
 
