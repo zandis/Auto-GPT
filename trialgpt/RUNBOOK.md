@@ -3,6 +3,36 @@
 Run all commands from `trialgpt/`. `MODEL` is any Ollama tag; output folders are named after it
 (`qwen2.5:7b` → `results/qwen2.5-7b/`).
 
+## Quick install on your own PC
+
+One command installs what is missing (git, Ollama, uv), picks a Gemma 4 size from your GPU memory, pulls it, sets
+up Python 3.12 and opens the interface at http://127.0.0.1:8090. Run it again to update.
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/zandis/Auto-GPT/claude/trialgpt-local-lcvm9p/trialgpt/scripts/install.ps1 -OutFile install.ps1
+powershell -ExecutionPolicy Bypass -File install.ps1            # -Model gemma4:12b to override
+```
+
+```bash
+# Linux / WSL / macOS
+curl -fsSL https://raw.githubusercontent.com/zandis/Auto-GPT/claude/trialgpt-local-lcvm9p/trialgpt/scripts/install.sh -o install.sh
+bash install.sh                                                  # MODEL=gemma4:12b bash install.sh to override
+```
+
+Afterwards start it with `start-trialgpt.ps1` / `start-trialgpt.sh` in `~/TrialGPT/trialgpt`. If the repository
+is private, git asks you to sign in to GitHub the first time.
+
+| GPU memory | model the installer picks | download | notes |
+|---|---|---|---|
+| < 6 GB | `gemma4:e2b` | 4.6 GB | try-out only |
+| 6–15 GB (RTX 3080 10/12 GB, 4070, …) | `gemma4:e4b` | 6.6 GB | fits with a 16k context |
+| ≥ 16 GB | `gemma4:12b` | 8.0 GB | on 10–12 GB it also runs: Ollama moves some layers to the CPU, slower |
+| 24 GB+ | pass `gemma4:26b` / `gemma4:31b` yourself | 18.7 / 20.4 GB | |
+
+Sizes are the Ollama registry's (October 2026). Whichever you choose, compare on your own GPU with
+`make bench-slice MODEL=...` before trusting it.
+
 ## 0. Local LLM (Ollama)
 
 ```bash
@@ -18,6 +48,10 @@ export TG_LLM_NUM_CTX=16384              # REQUIRED headroom: matching prompts a
   model runs the whole pipeline but parrots the instructions instead of reasoning (seen in this repo's smoke run).
   Use 7B or larger to try it out; 14–32B (qwen2.5, llama3.1/3.3, gemma) or a 70B for numbers you would publish.
   The paper's reference is GPT-4.
+* **Thinking models.** Gemma 4, Qwen3 and similar "think" before answering unless told not to: in Ollama a short
+  Gemma 4 call took 98–166 s thinking vs 7 s without, for the same JSON. NCBI's prompts already ask for the reasoning
+  inside the JSON, so `TG_LLM_THINK` is off by default (`think: false` is sent; models without a thinking mode
+  accept it). `TG_LLM_THINK=true` to let them think.
 * **Determinism.** temperature 0, `TG_LLM_SEED` (default 42), and `format: json`. Responses are cached on disk by
   request hash (`data/cache/`), so benchmark reruns are free. Interactive and CGRD runs never use the cache.
 * **Other servers** (vLLM, llama.cpp server, LM Studio, a hospital gateway): `TG_LLM_BACKEND=openai`
@@ -32,6 +66,7 @@ export TG_LLM_NUM_CTX=16384              # REQUIRED headroom: matching prompts a
 | `TG_LLM_MODEL` | `qwen2.5:7b` | |
 | `TG_LLM_NUM_CTX` | `16384` | |
 | `TG_LLM_TIMEOUT` | `900` | seconds per call |
+| `TG_LLM_THINK` | `false` | let thinking models (gemma4, qwen3) reason before answering: much slower |
 | `TG_LLM_MODE` | `live` | `record` / `cassette` for replayable runs |
 | `TG_JUDGE_MODEL` | = `TG_LLM_MODEL` | head-to-head cross-evaluation judge |
 | `TG_DEVICE` | `cpu` | `cuda` for MedCPT on a GPU |
@@ -165,5 +200,6 @@ make cgrd-demo MODEL=qwen2.5:14b          # TRIALS=NCT...,NCT... to change; buil
 | many `parse error` labels | model too small or not instruction-tuned; try a bigger one. `--strict-labels` makes it worse on purpose |
 | `LLMError: ... connect` | `ollama serve` not running, or wrong `TG_LLM_BASE_URL` |
 | retrieval very slow the first time | MedCPT encoding of the corpus (cached afterwards); `TG_DEVICE=cuda` if you have a GPU |
+| `nltk` refuses to download behind a proxy | `NLTK_ALLOW_PROXIED_URLOPEN=1` if the proxy is trusted, then rerun the installer |
 | capture: `ERR_CERT_AUTHORITY_INVALID` behind a TLS-inspecting proxy | import the proxy CA into Chromium's NSS DB (`certutil -d sql:$HOME/.pki/nssdb -A -t C,, -n proxy -i ca.crt`); never disable verification |
 | capture stops at a step | the app changed; see the screenshot and update the selector in `h2h/capture.py` |
