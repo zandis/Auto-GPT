@@ -105,6 +105,9 @@ def to_corpus_entry(trial: dict[str, Any]) -> dict[str, Any]:
     return {"_id": trial["NCTID"], "title": trial["brief_title"], "text": text, "metadata": trial}
 
 
+MIN_COND_HITS = 10
+
+
 def search(
     conditions: list[str],
     *,
@@ -114,21 +117,29 @@ def search(
     country: str | None = None,
     http: httpx.Client | None = None,
 ) -> list[dict[str, Any]]:
-    """Candidate pool: the registry's own search for each of the top keywords (by priority), de-duplicated."""
+    """Candidate pool: the registry's own search for each of the top keywords (by priority), de-duplicated.
+
+    ``query.cond`` matches a phrase against the conditions field strictly ("progressive dysphagia" finds 3 studies,
+    "dysphagia" 50+), so a keyword with fewer than ``MIN_COND_HITS`` hits is also run as a full-text ``query.term``
+    search; the hybrid ranking that follows orders the pool."""
     client = http or httpx.Client(timeout=60)
     seen: dict[str, dict[str, Any]] = {}
     for cond in conditions[:max_conditions]:
-        params: dict[str, Any] = {"query.cond": cond, "pageSize": per_condition, "format": "json"}
-        if recruiting_only:
-            params["filter.overallStatus"] = "RECRUITING|NOT_YET_RECRUITING"
-        if country:
-            params["query.locn"] = country
-        r = client.get(f"{settings().ctgov_base}/studies", params=params)
-        r.raise_for_status()
-        for s in r.json().get("studies", []):
-            t = to_trial(s)
-            if t["NCTID"] and t["NCTID"] not in seen and (t["inclusion_criteria"] or t["exclusion_criteria"]):
-                seen[t["NCTID"]] = t
+        for field in ("query.cond", "query.term"):
+            params: dict[str, Any] = {field: cond, "pageSize": per_condition, "format": "json"}
+            if recruiting_only:
+                params["filter.overallStatus"] = "RECRUITING|NOT_YET_RECRUITING"
+            if country:
+                params["query.locn"] = country
+            r = client.get(f"{settings().ctgov_base}/studies", params=params)
+            r.raise_for_status()
+            studies = r.json().get("studies", [])
+            for s in studies:
+                t = to_trial(s)
+                if t["NCTID"] and t["NCTID"] not in seen and (t["inclusion_criteria"] or t["exclusion_criteria"]):
+                    seen[t["NCTID"]] = t
+            if len(studies) >= MIN_COND_HITS:
+                break
     return list(seen.values())
 
 

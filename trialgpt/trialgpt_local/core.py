@@ -145,7 +145,7 @@ def match_trial(
         res = client.chat_json([{"role": "system", "content": system}, {"role": "user", "content": user}])
         clean, rows = normalise(res.data, inc_exc, criteria_list(trial, inc_exc), strict_labels)
         if res.data is None:
-            out.errors.append(f"{inc_exc}: output is not JSON")
+            out.errors.append(f"{inc_exc}: {res.error or 'output is not JSON'}")
         out.raw[inc_exc] = clean
         out.criteria += rows
     out.matching_score = matching_score(out.raw)
@@ -160,7 +160,7 @@ def aggregate(client: LLMClient, match: TrialMatch, trial: dict[str, Any], patie
         match.aggregation = res.data
         match.aggregation_score = aggregation_score(res.data)
     else:
-        match.errors.append("aggregation: output is not JSON")
+        match.errors.append(f"aggregation: {res.error or 'output is not JSON'}")
         match.aggregation_score = 0.0  # NCBI rank_results: missing aggregation counts 0
     return match
 

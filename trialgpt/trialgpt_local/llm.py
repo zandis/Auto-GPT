@@ -34,6 +34,14 @@ class ContextOverflow(LLMError):
     """The prompt does not fit in ``num_ctx``: the model would have seen a truncated prompt."""
 
 
+class DegenerateOutput(LLMError):
+    """The server aborted the generation (e.g. Ollama's "token repeat limit reached" when a model loops). Deterministic
+    at temperature 0, so it is not retried: the call yields no output, like an unparseable answer."""
+
+
+_DEGENERATE = ("prediction aborted", "repeat limit")
+
+
 @dataclass
 class LLMResult:
     text: str
@@ -43,6 +51,7 @@ class LLMResult:
     completion_tokens: int = 0
     seconds: float = 0.0
     cached: bool = False
+    error: str | None = None  # why there is no output (degenerate generation), None otherwise
 
 
 def extract_json(text: str) -> Any:
@@ -126,10 +135,14 @@ class LLMClient:
         if self.cfg.llm_mode == "cassette":
             raise LLMError(f"cassette miss {key[:12]} (record it with TG_LLM_MODE=record)")
         t0 = time.perf_counter()
-        if self.cfg.llm_backend == "ollama":
-            text, pt, ct = self._ollama(messages, json_mode)
-        else:
-            text, pt, ct = self._openai(messages, json_mode)
+        try:
+            if self.cfg.llm_backend == "ollama":
+                text, pt, ct = self._ollama(messages, json_mode)
+            else:
+                text, pt, ct = self._openai(messages, json_mode)
+        except DegenerateOutput as exc:  # not cached: a later model or setting may answer
+            self.calls += 1
+            return LLMResult("", None, self.cfg.llm_model, seconds=time.perf_counter() - t0, error=str(exc))
         secs = time.perf_counter() - t0
         self.calls += 1
         if not self.cache and self.cfg.llm_mode != "record":
@@ -198,14 +211,16 @@ class LLMClient:
         for attempt in range(3):
             try:
                 r = self.http.post(url, json=body, headers=headers)
+                if r.status_code >= 500 and any(s in r.text for s in _DEGENERATE):
+                    raise DegenerateOutput(f"generation aborted by the server: {r.text[:300]}")
                 if r.status_code >= 500:
                     raise LLMError(f"LLM server {r.status_code}: {r.text[:300]}")
                 if r.status_code >= 400:
                     raise LLMError(f"LLM request refused {r.status_code}: {r.text[:300]}")
                 return dict(r.json())
             except (httpx.TransportError, LLMError) as exc:
-                if isinstance(exc, LLMError) and "refused" in str(exc):
+                if isinstance(exc, DegenerateOutput) or (isinstance(exc, LLMError) and "refused" in str(exc)):
                     raise
                 last = exc
                 time.sleep(2**attempt)
-        raise LLMError(f"LLM unreachable at {url}: {last}")
+        raise LLMError(f"LLM call to {url} failed 3 times: {last}")

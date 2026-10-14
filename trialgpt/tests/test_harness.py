@@ -88,6 +88,39 @@ def test_live_pipeline_prefers_country(monkeypatch: pytest.MonkeyPatch) -> None:
     assert run.retrieved[0] == "NCT11"
 
 
+def test_live_search_falls_back_to_full_text() -> None:
+    import httpx
+
+    from tests.conftest import REAL_CLIENT
+
+    seen: list[tuple[str, str]] = []
+
+    def study(n: int) -> dict[str, Any]:
+        return {
+            "protocolSection": {
+                "identificationModule": {"nctId": f"NCT{n:08d}", "briefTitle": f"T{n}"},
+                "eligibilityModule": {"eligibilityCriteria": "Inclusion Criteria:\n\n* adult"},
+            }
+        }
+
+    def registry(request: httpx.Request) -> httpx.Response:
+        field = "query.cond" if "query.cond" in request.url.params else "query.term"
+        seen.append((field, request.url.params[field]))
+        n = 3 if field == "query.cond" and request.url.params[field] == "progressive dysphagia" else 20
+        base = 100 if field == "query.term" else 0
+        return httpx.Response(200, json={"studies": [study(base + i) for i in range(n)]})
+
+    pool = ctgov.search(
+        ["dysphagia", "progressive dysphagia"], http=REAL_CLIENT(transport=httpx.MockTransport(registry))
+    )
+    assert seen == [
+        ("query.cond", "dysphagia"),
+        ("query.cond", "progressive dysphagia"),
+        ("query.term", "progressive dysphagia"),
+    ]
+    assert len(pool) == 20 + 20  # 0..19 from the condition searches, 100..119 from full text, de-duplicated
+
+
 def test_split_criteria_free_form_headings() -> None:
     text = (
         "Patients are eligible to be included in the study only if all the following criteria apply:\n\n"

@@ -92,6 +92,20 @@ def test_llm_client_options_cache_and_overflow(isolated: Path, monkeypatch: pyte
         tight.chat_json([msgs[0], {"role": "user", "content": "a very long note"}])
 
 
+def test_degenerate_generation_is_a_failed_output_not_a_crash() -> None:
+    hits: list[int] = []
+
+    def looping(request: httpx.Request) -> httpx.Response:
+        hits.append(1)
+        return httpx.Response(500, json={"error": "prediction aborted, token repeat limit reached"})
+
+    c = LLMClient(http=REAL_CLIENT(transport=httpx.MockTransport(looping)))
+    m = core.match_trial(c, trial("NCT1", ["adult"], ["pregnant"]), "0. A 50-year-old man.")
+    assert len(hits) == 2  # one call each for inclusion and exclusion: never retried
+    assert m.raw == {"inclusion": {}, "exclusion": {}} and "repeat limit" in m.errors[0]
+    assert not list(settings().cache_dir.rglob("*.json"))  # not cached
+
+
 def test_openai_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TG_LLM_BACKEND", "openai")
     monkeypatch.setenv("TG_LLM_BASE_URL", "http://vllm:8000/v1")
