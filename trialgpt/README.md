@@ -11,7 +11,9 @@
 | 4 | a head-to-head with [trialgpt.app](https://trialgpt.app) on the public synthetic patients | `trialgpt_local/h2h/` |
 | 5 | a validation harness for CGRD (Chang Gung Research Database) judged by blinded physicians | `trialgpt_local/cgrd/` |
 
-Step-by-step operations, including the real-CGRD setup: [RUNBOOK.md](RUNBOOK.md).
+Step-by-step operations, including the real-CGRD setup: [RUNBOOK.md](RUNBOOK.md). One-command install on your own
+PC: `scripts/install.ps1` / `scripts/install.sh`. Cloud GPU server behind HTTPS and a login:
+[deploy/DEPLOY_CLOUD.md](deploy/DEPLOY_CLOUD.md).
 
 ```bash
 make venv                                  # Python 3.12 venv (CPU torch), nltk punkt

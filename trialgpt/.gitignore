@@ -9,3 +9,6 @@ data/
 # run outputs (CGRD runs contain patient notes: never commit)
 results/*
 !results/.gitkeep
+# installer launchers and cloud secrets
+start-trialgpt.*
+deploy/.env
