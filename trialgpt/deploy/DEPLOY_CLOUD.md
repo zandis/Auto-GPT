@@ -14,6 +14,44 @@ Everything runs on your own server. Notes go to your own model, not to an AI com
 > approval (IRB, information security, data-protection officer) and a cloud region they accept. For identifiable
 > CGRD data, use the on-prem setup (`RUNBOOK.md`).
 
+## Google Cloud: one command
+
+Open **Cloud Shell** in the Google Cloud console (the `>_` button, top right). It is already signed in to your
+account, so no keys are shared with anyone. Select your project, then run:
+
+```bash
+gcloud config set project YOUR_PROJECT_ID
+curl -fsSL https://raw.githubusercontent.com/zandis/Auto-GPT/claude/trialgpt-local-lcvm9p/trialgpt/deploy/gcp_deploy.sh -o gcp_deploy.sh
+ALLOW=YOUR.HOSPITAL.IP.RANGE/24 bash gcp_deploy.sh        # without ALLOW the site is reachable from anywhere (login still required)
+```
+
+`gcp_deploy.sh` does sections 1–4 below for you:
+- picks a zone in `asia-east1` (Taiwan) with an NVIDIA L4 (24 GB);
+- reserves a static IP and opens 80 to all (HTTPS redirect and certificate check) and 443 to `ALLOW`;
+- creates a `g2-standard-8` VM with Ubuntu 24.04, whose first boot installs the driver, Docker and the NVIDIA toolkit;
+- starts the stack with `gemma4:26b`;
+- prints the address (`https://<ip>.sslip.io`, or `DOMAIN=...`), the user name and a generated password, once.
+
+Allow 20–30 minutes for the first start.
+
+| variable | default | |
+|---|---|---|
+| `REGION` | `asia-east1` | e.g. `us-central1` if the region has no L4 |
+| `MODEL` | `gemma4:26b` | `gemma4:31b` also fits the L4, tightly |
+| `ALLOW` | `0.0.0.0/0` | who may open the site |
+| `DOMAIN` | `<ip>.sslip.io` | your own name after you add a DNS A record |
+| `SKIP_QUOTA_CHECK` | | `1` if the quota check misreads a granted GPU quota |
+
+- **GPU quota.** New projects often have 0 GPU quota. The script stops and prints the quota page link: request
+  `NVIDIA_L4_GPUS` = 1 in the region (and `GPUS_ALL_REGIONS` ≥ 1), then run it again.
+- **Billing.** The GPU VM bills by the hour while running. Stop it when idle with
+  `gcloud compute instances stop trialgpt --zone ZONE`; the disk and data stay. `bash gcp_deploy.sh --delete`
+  removes the VM, the IP and the firewall rules.
+- **Re-running** the script reuses everything, restarts the VM and issues a **new** password.
+
+The script was syntax-checked and its parts (password hashing, `.env` writing, compose stack) were tested in a Linux
+sandbox. It has not yet been run against a real Google Cloud project; if a step fails, send the message it prints.
+
 ## 1. Choose a server
 
 Any provider works (AWS, Google Cloud, Azure, or smaller GPU clouds). You need Ubuntu 24.04, an NVIDIA GPU, at least
