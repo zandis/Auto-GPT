@@ -22,6 +22,7 @@ services:
     ports: ["127.0.0.1:8015:8015"]
   orchestrator:
     networks: [trialbox-net, egress-net, host-net]
+    environment: {TB_TODAY: "2026-10-05"}   # the synthetic fixtures' reference date (tools/synth/generator.py)
     ports: ["127.0.0.1:8010:8010"]
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro

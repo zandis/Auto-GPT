@@ -4,8 +4,9 @@ scheduler start with the app."""
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,17 @@ from orchestrator.db import JobDB
 from orchestrator.scenarios import registry
 
 _orch: Orchestrator | None = None
+
+
+def _pinned_today() -> Callable[[], date] | None:
+    """``TB_TODAY=YYYY-MM-DD`` pins the orchestrator's clock. Test stack only (docker-compose.test.yml): the synthetic
+    fixtures are generated relative to a fixed reference date, so date-windowed scenarios (NAV's 14-day appointment
+    window) must not drift with the wall clock."""
+    raw = os.environ.get("TB_TODAY", "").strip()
+    if not raw:
+        return None
+    pinned = date.fromisoformat(raw)
+    return lambda: pinned
 
 
 def orch() -> Orchestrator:
@@ -52,6 +64,7 @@ def orch() -> Orchestrator:
             cfg.env.rulesets_path,
             data,
             workers=int(os.environ.get("TB_WORKERS", "4")),
+            today=_pinned_today(),
         )
     return _orch
 

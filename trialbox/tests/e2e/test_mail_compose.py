@@ -16,6 +16,7 @@ from email import message_from_bytes, policy
 from email.message import EmailMessage
 from email.utils import make_msgid
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -70,6 +71,17 @@ def wait_for(pred: Callable[[EmailMessage], bool], timeout: float = 1800) -> Ema
     raise AssertionError("expected mail did not arrive")
 
 
+def final_job(job_id: object, timeout: float = 60) -> dict[str, Any]:
+    """The job once it is ``done`` or ``failed``: the orchestrator delivers the result mail, then sets the state, so
+    the mail can land a moment before the state flips."""
+    deadline = time.monotonic() + timeout
+    while True:
+        job: dict[str, Any] = httpx.get(f"{ORCH}/jobs/{job_id}", timeout=30).json()
+        if job["state"] in ("done", "failed") or time.monotonic() > deadline:
+            return job
+        time.sleep(1)
+
+
 def attachments(m: EmailMessage) -> dict[str, bytes]:
     out = {}
     for part in m.iter_attachments():
@@ -112,7 +124,7 @@ def test_feas_email_to_pdf() -> None:
     text = "".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
     assert "Eligibility funnel" in text and f"job {job['job_id']}" in text
     assert any(k.endswith(".xlsx") for k in atts) and any(k.endswith(".json") for k in atts)
-    final = httpx.get(f"{ORCH}/jobs/{job['job_id']}", timeout=30).json()
+    final = final_job(job["job_id"])
     assert final["state"] == "done" and len(final["outputs"]) == 4
 
 
@@ -164,7 +176,7 @@ def test_screen_email_to_encrypted_list() -> None:
     files = _unzip(lst)
     cl = json.loads(next(v for k, v in files.items() if k.endswith(".json")))
     assert cl["rows"] and cl["summary"]["high"] + cl["summary"]["review"] == len(cl["rows"])
-    final = httpx.get(f"{ORCH}/jobs/{job['job_id']}", timeout=30).json()
+    final = final_job(job["job_id"])
     assert final["state"] == "done" and final["metrics"]["patients_scoped"] > 50
 
 
@@ -187,7 +199,7 @@ def test_nav_email_to_lists_and_drafts() -> None:
     assert drafts
     text = "\n".join(p.text for p in docx.Document(io.BytesIO(drafts[0])).paragraphs)
     assert "附表十五" in text and "[待補]" in text
-    final = httpx.get(f"{ORCH}/jobs/{job['job_id']}", timeout=30).json()
+    final = final_job(job["job_id"])
     assert final["state"] == "done"
 
 
@@ -227,7 +239,7 @@ def test_nav_onc_twpas_then_submit_dry_run() -> None:
     receipt = json.loads(_unzip(done)[f"twpas_claimresponse_ONC-OSI_{pid[:12]}.json"])
     assert receipt["resourceType"] == "ClaimResponse" and receipt["outcome"] == "queued"
     assert "DRY RUN" in receipt["disposition"]
-    final = httpx.get(f"{ORCH}/jobs/{sub['job_id']}", timeout=30).json()
+    final = final_job(sub["job_id"])
     assert final["state"] == "done"
 
 

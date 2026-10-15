@@ -4,22 +4,22 @@
 - **Branch:** `claude/trialbox-e2e-build-lcvm9p`. This is draft PR #2. `master` already contains phases 0–9 through
   PR #1; this branch adds the D-86 review fixes on top.
 - **Code:** the `trialbox/` folder. The rest of the repository is the upstream Auto-GPT project and is not used.
-- **Target folder:** `I:\trialbox`, which WSL sees as `/mnt/i/trialbox`. The project folder is
-  `I:\trialbox\trialbox`.
+- **Target folder:** `~/trialbox` **inside WSL** (Windows Explorer: `\\wsl$\<distro>\home\<user>\trialbox`). The
+  project folder is `~/trialbox/trialbox`. Do not work from a Windows drive such as `I:\` (`/mnt/i`); see §5.
 
 TrialBox is a Linux appliance: its Makefile uses bash, `install`, `chmod` and `sha256sum`, and the services run in
 Docker. On Windows you run everything from PowerShell, while the work itself happens in **WSL2 (Ubuntu) + Docker
-Desktop**. Native Windows Python is not supported. These steps were written from the Linux build; they have not been
-run on Windows yet. If a step fails, the fallback at the end works the same way with the code inside WSL.
+Desktop**. Native Windows Python is not supported. These steps were run on Windows 11 with WSL2 (Ubuntu) and Docker
+Desktop: lint, unit, integration and e2e tests, `make images`, `make up-test` and the e-mail FEAS round trip.
 
 ## 1. Required runtimes
 
 | what | version | where |
 |---|---|---|
 | Windows | 10 22H2+ or 11, virtualization on | |
-| WSL2 + Ubuntu | Ubuntu 24.04 | Windows |
-| Docker Desktop | Docker Engine 27+ with Compose v2, WSL integration on for Ubuntu | Windows |
-| git | any recent | Windows (clone) |
+| WSL2 + Ubuntu | Ubuntu 24.04 or newer | Windows |
+| Docker Desktop | Docker Engine 27+ with Compose v2, **WSL integration on for your distro** | Windows |
+| git | any recent | WSL (clone) |
 | Python | 3.12 (exactly: `>=3.12,<3.13`), installed by uv | WSL |
 | uv | latest | WSL |
 | make, curl, coreutils | distro | WSL |
@@ -63,20 +63,19 @@ choose your own model before enabling a real LLM.
 
 ```powershell
 wsl --install -d Ubuntu-24.04            # reboot if asked, then open Ubuntu once to create the user
+wsl -l -v                                # the distro's exact name, e.g. "Ubuntu-24.04" or just "Ubuntu"
+$D = "Ubuntu-24.04"                      # <- set to that name; every command below uses it
 winget install -e --id Docker.DockerDesktop
-# Docker Desktop -> Settings -> Resources -> WSL integration -> enable Ubuntu-24.04
-winget install -e --id Git.Git
+# Docker Desktop -> Settings -> Resources -> WSL integration -> enable $D, then Apply & restart (required, see §5)
 
-# keep LF line endings: the bash scripts break with CRLF
-git clone -c core.autocrlf=false --branch claude/trialbox-e2e-build-lcvm9p https://github.com/zandis/Auto-GPT.git I:\trialbox
-
-wsl -d Ubuntu-24.04 -- bash -lc "sudo apt-get update && sudo apt-get install -y make curl git openjdk-17-jdk-headless maven && curl -LsSf https://astral.sh/uv/install.sh | sh"
+wsl -d $D -- bash -lc "sudo apt-get update && sudo apt-get install -y make curl git openjdk-17-jdk-headless maven && curl -LsSf https://astral.sh/uv/install.sh | sh"
+wsl -d $D -- bash -lc "git clone --branch claude/trialbox-e2e-build-lcvm9p https://github.com/zandis/Auto-GPT.git ~/trialbox"
 ```
 
 ## 4. Build, run, test (PowerShell)
 
 ```powershell
-function tb([string]$cmd) { wsl -d Ubuntu-24.04 --cd /mnt/i/trialbox/trialbox -- bash -lc $cmd }
+function tb([string]$cmd) { wsl -d $D --cd ~/trialbox/trialbox -- bash -lc $cmd }
 
 tb "make venv"                 # .venv with Python 3.12 and the pinned dependencies
 tb "make lint test"            # ruff, mypy --strict, unit + in-process tests (no services needed)
@@ -96,13 +95,17 @@ tb "make down"                 # stop the stack
 The other scenarios are in `trialbox/README.md` (SCREEN, NAV, COHORT). Real-site deployment (hardening, settings
 wizard, mapping, `--profile gpu`) is in `trialbox/docs/RUNBOOK.md`; that part targets a Linux host, not Windows.
 
-## 5. If something fails on `I:\`
+## 5. If something fails
 
-- **Builds are slow or file permissions look wrong.** WSL on a Windows drive (`/mnt/i`) is slow and ignores
-  `chmod`. Clone inside WSL instead: `tb` becomes
-  `wsl -d Ubuntu-24.04 --cd ~/trialbox/trialbox -- bash -lc $cmd`, after
-  `wsl -d Ubuntu-24.04 -- bash -lc "git clone --branch claude/trialbox-e2e-build-lcvm9p https://github.com/zandis/Auto-GPT.git ~/trialbox"`.
-- **`bash\r: No such file or directory`.** The checkout has CRLF line endings. Re-clone with
-  `-c core.autocrlf=false`. `trialbox/.gitattributes` now forces LF for clones made after this commit.
+- **Tests stall for many minutes, or `chmod` has no effect.** The code is on a Windows drive (`/mnt/i`, `/mnt/c`,
+  ...). WSL reaches those drives over a slow file-sharing protocol (9P), and the test suite reads many small files
+  (DuckDB imports pandas lazily on every query, which scans the Python path); unit tests that take seconds inside WSL
+  stalled for over 30 minutes on `/mnt/i`. Clone inside WSL as in §3.
+- **`criteria-compiler` restarts in a loop with `IsADirectoryError`, or mounted files are empty folders.** Docker
+  Desktop's WSL integration is off for your distro, so bind mounts such as `settings.yaml` arrive as empty directories.
+  Turn it on (§3), restart Docker Desktop, then `tb "make down && make up-test"`.
+- **`There is no distribution with the supplied name`.** `$D` does not match `wsl -l -v` (it may be just `Ubuntu`).
+- **`bash\r: No such file or directory`.** The checkout has CRLF line endings, usually from a clone made with Windows
+  git. Clone inside WSL (§3); `trialbox/.gitattributes` forces LF for clones made after commit 5d1671d.
 - **Ports already in use.** Free 3025, 3143, 8000, 8010–8016, 8025, 8080 and 9000, or stop the other program.
 - **`make test-egress` fails.** Expected: it needs root and nftables on a Linux host.
