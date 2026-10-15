@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import shutil
 import tempfile
 from datetime import date
@@ -49,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--kind", default="trial")
     ap.add_argument("--version", default="1.0.0")
     ap.add_argument("--index-date", default="2026-10-05")
-    ap.add_argument("--fhir", default="http://127.0.0.1:8080/fhir")
+    ap.add_argument("--fhir", default=f"http://127.0.0.1:{os.environ.get('TB_HOST_FHIR_PORT', '8080')}/fhir")
     ap.add_argument("--lake", default="http://127.0.0.1:8013")
     ap.add_argument("--llm-url", default="", help="OpenAI-compatible endpoint; default = in-process stub")
     ap.add_argument("--key", type=Path, default=ROOT / ".cache" / "test-secrets" / "site_hmac.key")

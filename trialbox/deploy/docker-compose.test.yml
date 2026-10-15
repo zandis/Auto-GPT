@@ -32,7 +32,7 @@ services:
       - ../.cache/test-secrets:/run/secrets/trialbox
   fhir-store:
     networks: [trialbox-net, host-net]
-    ports: ["127.0.0.1:8080:8080"]
+    ports: ["127.0.0.1:${TB_HOST_FHIR_PORT:-8080}:8080"]   # host port movable (tests/hostports.py)
   lake:
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:8013:8013"]
@@ -59,7 +59,7 @@ services:
     networks:
       trialbox-net: {aliases: [llm-service]}
       host-net: {}
-    ports: ["127.0.0.1:8000:8000"]
+    ports: ["127.0.0.1:${TB_HOST_LLM_PORT:-8000}:8000"]
 networks:
   host-net:
     name: trialbox-hostnet

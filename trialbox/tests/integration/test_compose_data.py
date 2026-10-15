@@ -9,10 +9,12 @@ import httpx
 import pytest
 from tb_common.crypto import pid_for_mrn
 
+from tests.hostports import FHIR_URL
+
 pytestmark = pytest.mark.integration
 ADAPTER = "http://127.0.0.1:8016"
 LAKE = "http://127.0.0.1:8013"
-FHIR = "http://127.0.0.1:8080/fhir"
+FHIR = FHIR_URL
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "synthetic_patients" / "site-a"
 
 

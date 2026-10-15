@@ -14,13 +14,15 @@ from openpyxl import load_workbook
 from tb_common.config import _read_dotenv
 from tb_common.objstore import MinioStore
 
+from tests.hostports import FHIR_URL
+
 pytestmark = pytest.mark.integration
 ROOT = Path(__file__).resolve().parents[2]
 PARSER, COMPILER, LAKE, FHIR = (
     "http://127.0.0.1:8011",
     "http://127.0.0.1:8012",
     "http://127.0.0.1:8013",
-    "http://127.0.0.1:8080/fhir",
+    FHIR_URL,
 )
 
 

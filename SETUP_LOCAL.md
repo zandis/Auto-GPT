@@ -47,6 +47,7 @@ choose your own model before enabling a real LLM.
 - Images: `TB_IMAGE`, `TB_JVM_IMAGE`, `TB_DOCPARSER_IMAGE`, `TB_EMBED_IMAGE`, `HAPI_IMAGE`, `POSTGRES_IMAGE`,
   `MINIO_IMAGE`, `GREENMAIL_IMAGE`, `MAILHOG_IMAGE`, `VLLM_IMAGE`.
 - Paths and settings: `TB_SETTINGS_FILE`, `TB_SOURCE_DIR`, `TB_MODELS_DIR`, `LLM_MODEL_DIR`.
+- Test-stack host ports: `TB_HOST_FHIR_PORT` (8080), `TB_HOST_LLM_PORT` (8000).
 - Tuning: `HAPI_XMX`, `GPU_MEM_UTIL`, `GUIDED_BACKEND`, `VLLM_GB`, `TB_CTGOV_MODE`, `TB_EMBED_DEVICE`.
 
 **Secrets** are files, never environment variables. The `tb-secrets` Docker volume is mounted at
@@ -107,5 +108,8 @@ wizard, mapping, `--profile gpu`) is in `trialbox/docs/RUNBOOK.md`; that part ta
 - **`There is no distribution with the supplied name`.** `$D` does not match `wsl -l -v` (it may be just `Ubuntu`).
 - **`bash\r: No such file or directory`.** The checkout has CRLF line endings, usually from a clone made with Windows
   git. Clone inside WSL (§3); `trialbox/.gitattributes` forces LF for clones made after commit 5d1671d.
-- **Ports already in use.** Free 3025, 3143, 8000, 8010–8016, 8025, 8080 and 9000, or stop the other program.
+- **Ports already in use.** 8080 (FHIR) and 8000 (LLM stub) are the usual clashes: move them by setting
+  `TB_HOST_FHIR_PORT` and `TB_HOST_LLM_PORT` in `trialbox/deploy/.env` (e.g. `18080`, `18000`), then
+  `tb "make down && make up-test"`; the tests read the same file. The other ports (3025, 3143, 8010–8016, 8025,
+  9000) are fixed: free them or stop the other program.
 - **`make test-egress` fails.** Expected: it needs root and nftables on a Linux host.
