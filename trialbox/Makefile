@@ -7,10 +7,13 @@ TEST_SETTINGS := .cache/test-settings.yaml
 COMPOSE_TEST := TB_SETTINGS_FILE=../$(TEST_SETTINGS) $(COMPOSE) -f deploy/docker-compose.test.yml --profile stub --profile test
 BUILD_ARGS := $(if $(HTTPS_PROXY),--network host --build-arg HTTPS_PROXY=$(HTTPS_PROXY) --build-arg https_proxy=$(HTTPS_PROXY),)
 comma := ,
+# test-stack host ports moved in deploy/.env reach every tool and test run from make (the shell environment wins)
+HOST_PORTS := $(shell grep -hE '^TB_HOST_[A-Z_]+_PORT=[0-9]+$$' deploy/.env 2>/dev/null)
+$(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test down logs fixtures audit-verify bench clean
+.PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench clean
 
 venv:
 	uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
@@ -80,6 +83,10 @@ $(TEST_SETTINGS): deploy/settings.example.yaml
 
 up-test: deploy/.env .cache/test-secrets/site_hmac.key $(TEST_SETTINGS)
 	$(COMPOSE_TEST) up -d --wait
+
+# load synthetic site A into the running test stack (adapter -> lake + FHIR store)
+ingest-test:
+	$(PY) -m tests.stack
 
 down:
 	$(COMPOSE_TEST) down

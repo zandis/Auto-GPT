@@ -14,22 +14,22 @@ from openpyxl import load_workbook
 from tb_common.config import _read_dotenv
 from tb_common.objstore import MinioStore
 
-from tests.hostports import FHIR_URL
+from tests.stack import ensure_ingested, host_port, url
 
 pytestmark = pytest.mark.integration
 ROOT = Path(__file__).resolve().parents[2]
-PARSER, COMPILER, LAKE, FHIR = (
-    "http://127.0.0.1:8011",
-    "http://127.0.0.1:8012",
-    "http://127.0.0.1:8013",
-    FHIR_URL,
-)
+PARSER, COMPILER, LAKE, FHIR = url("PARSER"), url("COMPILER"), url("LAKE"), url("FHIR", "/fhir")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def lake_has_data() -> None:
+    ensure_ingested()  # the compile gates read the lake; do not depend on test_compose_data running first
 
 
 @pytest.fixture(scope="module")
 def minio() -> MinioStore:
     env = _read_dotenv(ROOT / "deploy" / ".env")
-    return MinioStore("127.0.0.1:9000", env["MINIO_ACCESS_KEY"], env["MINIO_SECRET_KEY"])
+    return MinioStore(f"127.0.0.1:{host_port('MINIO')}", env["MINIO_ACCESS_KEY"], env["MINIO_SECRET_KEY"])
 
 
 def test_compile_and_approve_round_trip(minio: MinioStore) -> None:

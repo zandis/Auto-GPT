@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections import defaultdict
 from datetime import date, timedelta
@@ -118,7 +119,11 @@ def main(argv: list[str] | None = None) -> int:
     from tb_common.ruleset import Ruleset
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--lake", default="http://127.0.0.1:8013", help="lake directory or lake service URL")
+    ap.add_argument(
+        "--lake",
+        default=f"http://127.0.0.1:{os.environ.get('TB_HOST_LAKE_PORT', '8013')}",
+        help="lake directory or lake service URL",
+    )
     ap.add_argument("--ruleset", type=Path, default=ROOT / "rulesets" / "RA-BIO")
     ap.add_argument("--until", default="")
     ap.add_argument("--months", type=int, default=12)

@@ -30,7 +30,7 @@ cd trialbox
 make venv                      # .venv with the pinned dependencies
 make images                    # fetches fonts + HL7 validator + CQL translator + FHIR packages, builds 2 images
 make up-test                   # whole box + stub LLM + GreenMail (IMAP 3143/SMTP 3025) + MailHog (8025)
-curl -s -X POST localhost:8016/run -H 'Content-Type: application/json' -d '{"source":"csv"}'   # ingest site A
+make ingest-test               # ingest synthetic site A (adapter -> lake + FHIR store)
 .venv/bin/python tools/send_test_mail.py "FEAS GZQO"
 ```
 

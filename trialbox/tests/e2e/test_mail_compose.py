@@ -22,10 +22,12 @@ import httpx
 import pytest
 from pypdf import PdfReader
 
+from tests.stack import ensure_ingested, host_port, url
+
 pytestmark = pytest.mark.e2e
 ROOT = Path(__file__).resolve().parents[2]
-MAILHOG = "http://127.0.0.1:8025"
-ORCH = "http://127.0.0.1:8010"
+MAILHOG = url("MAILHOG")
+ORCH = url("ORCH")
 AUTH = "mx.hospa.test; spf=pass smtp.mailfrom=hospa.test; dkim=pass header.d=hospa.test; dmarc=pass"
 
 
@@ -46,7 +48,7 @@ def send(
     m.set_content("TrialBox E2E")
     for name, data in attachments:
         m.add_attachment(data, maintype="application", subtype="octet-stream", filename=name)
-    with smtplib.SMTP("127.0.0.1", 3025, timeout=30) as s:
+    with smtplib.SMTP("127.0.0.1", host_port("SMTP"), timeout=30) as s:
         s.send_message(m)
     return mid
 
@@ -102,6 +104,7 @@ def stack() -> None:
         httpx.get(f"{MAILHOG}/api/v2/messages", timeout=5).raise_for_status()
     except (httpx.HTTPError, AssertionError):
         pytest.skip("compose test stack not running (make up-test)")
+    ensure_ingested()  # the scenarios need patients in the lake and FHIR store
 
 
 def test_feas_email_to_pdf() -> None:
@@ -290,7 +293,7 @@ def test_cohort_and_alliance_merge(tmp_path: Path) -> None:
     m["Authentication-Results"] = "mx.hospa.test; spf=pass smtp.mailfrom=hospb.test; dkim=pass header.d=hospb.test"
     m.set_content(share.text())
     m.add_attachment(data, maintype="text", subtype="csv", filename=name)
-    with smtplib.SMTP("127.0.0.1", 3025, timeout=30) as s:
+    with smtplib.SMTP("127.0.0.1", host_port("SMTP"), timeout=30) as s:
         s.send_message(m)
     merge = _job_by_tag("COHORT", tag2)
     out = wait_for(lambda x: str(x["Subject"]).startswith(f"Done {merge['job_id']}") and bool(attachments(x)), 600)
