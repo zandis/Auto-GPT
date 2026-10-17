@@ -16,7 +16,7 @@ CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),
 .PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench clean
 
 venv:
-	uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
+	uv venv --allow-existing --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
 
 contracts:
 	$(PY) tools/gen_contracts.py
