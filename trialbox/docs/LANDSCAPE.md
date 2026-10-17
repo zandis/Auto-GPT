@@ -1,6 +1,6 @@
 # TrialBox v2 — Landscape, Literature and Brainstorm
 
-Oct 17, 2026 · companion to `SPEC_v3.md`. Public sources only; tags: [V] verified against a primary source, [R] reported by
+Oct 17, 2026 · companion to `spec/v4/`. **Corrections (Oct 2026):** see `docs/research/2026-10_literature_competitors.md` §0, which supersedes this file where they differ. Public sources only; tags: [V] verified against a primary source, [R] reported by
 trade press or a secondary source, [U] unverified. Funding and product statements are as of the dates given.
 
 ## 1. Summary
@@ -49,14 +49,14 @@ trade press or a secondary source, [U] unverified. Funding and product statement
 
 | Company | What it does | Deployment | Evidence / funding (public) | Limits for a Taiwanese hospital |
 | --- | --- | --- | --- | --- |
-| Lind / Lind Asia | Screens every patient against every open study with criterion-level evidence; feasibility; accrual tracking | EHR-embedded, FHIR-native SaaS; on-prem option offered in Asia | TRIAGE study (*JCO Oncology Practice*, June 2026): 94.2 % criterion agreement, retrospective [V]; Lind Asia JV with PREMIA announced 27 May 2026 for Taiwan, Japan, Korea, Singapore, Australia [V]; seed $5.5 M [V] | Oncology-first; vendor-operated; revenue shared with partners |
+| Lind / Lind Asia | Screens every patient against every open study with criterion-level evidence; feasibility; accrual tracking | EHR-embedded, FHIR-native SaaS; on-prem option offered in Asia | ">94 % agreement" on >1,700 criteria, retrospective (press release only; the journal claim could not be verified) [Unverified]; Lind Asia JV with PREMIA announced 27 May 2026 for Taiwan, Japan, Korea, Singapore, Australia [V]; seed $5.5 M [V] | Oncology-first; vendor-operated; revenue shared with partners |
 | Triomics | Oncology agents over full records with cited answers; matching (PRISM), pre-charting, registry abstraction | Epic/OncoEMR marketplace; no stated on-prem | $22 M Series B (May 2026) [V]; MSK, MD Anderson, Yale [V] | Oncology only; US-EHR-centric |
 | Tempus (Deep 6 AI, TIME) | Just-in-time trial network; EHR mining across ~750 provider sites | Cloud | Acquired Deep 6 (March 2025) [V] | Tied to Tempus ecosystem; US |
 | BEKhealth | NLP over EHR; site–sponsor matching | Cloud | AWS Marketplace from ~$6 k/yr for 1–10 practices [V] | US-only |
 | Trially | Matching, feasibility and an agentic recruiter (voice/text/email) | Cloud; Epic, athena, Oracle integrations | $4.7 M seed (2025) [V] | US |
 | Realyze (Carta Healthcare) | UPMC spin-out matching | Cloud | Acquired December 2024 [V] | US |
 | Inato | Site marketplace with AI pre-screening | Cloud | ~$35 M raised [R]; free to sites | Community-site focus; a competitor for site attention |
-| Epic | AI chart-vs-criteria checks (Nov 2025), Cosmos feasibility, Forward CTMS (early adopters Nov 2026) | Hospital-hosted EHR + Cosmos | [R] | Only for Epic hospitals |
+| Epic | "Evaluate patients for clinical trials" in development, target 2026, not shipped (corrected Oct 2026), Cosmos feasibility, Forward CTMS (early adopters Nov 2026) | Hospital-hosted EHR + Cosmos | [R] | Only for Epic hospitals |
 | Oracle Health / Life Sciences | Natural-language cohorting over 122 M+ de-identified records; recruitment services | Cloud | 23 Sep 2026 release [V] | Cloud; US |
 | Open baselines | TrialGPT 2.0 (preprint), local TrialGPT (JAMIA 2026), Yale CTPM, TrialMatchAI (*Nat Commun* 2026) | Local | §6 | Need integration, governance and workflow |
 

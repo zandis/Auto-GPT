@@ -29,8 +29,7 @@ It is a United States Government Work in the public domain (`LICENSE.NCBI`). Ple
 *Matching patients to clinical trials with large language models.* Nat Commun 15, 9074 (2024).
 
 The zh-TW, ja and mixed notes are machine translations made for TrialBox (Oct 2026) and checked by the counts above. They
-are **not** clinician-verified, so use them for model comparison and parity checks, not as clinical ground truth. A
-clinician review of a stratified sample is planned before go-live (SPEC_v4 §11.5).
+are **not** clinician-verified, so use them for model comparison and parity checks, not as clinical ground truth. A clinician review of all 326 sentences per language is required before these sets gate anything (SPEC_v4 §16.5, §16.8).
 
 ## The `training` flag
 

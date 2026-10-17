@@ -23,7 +23,11 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
-GRID = 2001  # candidate rates m in [0, 1]
+# candidate rates m in [0, 1]: fine steps near zero, where elusion rates live (0.00005 below 5 %), coarse above
+GRID_POINTS: tuple[float, ...] = tuple(0.05 * i / 1000 for i in range(1001)) + tuple(
+    0.05 + 0.95 * i / 1000 for i in range(1, 1001)
+)
+GRID = len(GRID_POINTS)
 
 
 def _binom_cdf(x: int, n: int, p: float) -> float:
@@ -55,8 +59,10 @@ def cp_lower(successes: int, n: int, alpha: float = 0.05) -> float:
 class ConfidenceSequence:
     """Anytime-valid upper confidence sequence for a Bernoulli rate, updated one observation at a time.
 
-    Each observation is 1 (an excluded patient who was in fact a candidate) or 0. State is a few floats per grid
-    point, so it can be stored in the recall ledger and resumed. ``upper`` never increases (running intersection)."""
+    Each observation is 1 (an excluded patient who was in fact a candidate) or 0; any value in [0, 1] is accepted,
+    so importance-weighted contributions rescaled to [0, 1] can be used (the betting construction holds for bounded
+    observations). State is a few floats per grid point, so it can be stored in the recall ledger and resumed.
+    ``upper`` never increases (running intersection)."""
 
     alpha: float = 0.05
     log_capital: list[float] = field(default_factory=lambda: [0.0] * GRID)
@@ -68,7 +74,7 @@ class ConfidenceSequence:
 
     @staticmethod
     def grid(i: int) -> float:
-        return i / (GRID - 1)
+        return GRID_POINTS[i]
 
     def _lambda(self, m: float) -> float:
         # predictable plug-in bet (WSR 2024, eq. 26), truncated to keep 1 + lambda (m - x) >= 0.5
@@ -78,9 +84,9 @@ class ConfidenceSequence:
         cap = 0.5 / (1 - m) if m < 1 else math.inf  # keeps 1 + lambda (m - x) >= 0.5 when x = 1
         return min(lam, cap)
 
-    def update(self, x: int) -> float:
-        if x not in (0, 1):
-            raise ValueError("observations are 0 or 1")
+    def update(self, x: float) -> float:
+        if not 0.0 <= x <= 1.0:
+            raise ValueError("observations must lie in [0, 1]")
         threshold = math.log(1 / self.alpha)
         for i in range(GRID):
             if self.rejected[i]:
@@ -99,7 +105,7 @@ class ConfidenceSequence:
         self.upper = min(self.upper, bound)
         return self.upper
 
-    def extend(self, xs: Sequence[int]) -> float:
+    def extend(self, xs: Sequence[float]) -> float:
         for x in xs:
             self.update(x)
         return self.upper
@@ -130,10 +136,14 @@ def certificate(
     alpha: float = 0.05,
     anytime: bool = True,
     observations: Mapping[str, Sequence[int]] | None = None,
+    known_positive_sequence: Sequence[int] | None = None,
 ) -> Certificate:
-    """Combine strata into a certificate. With ``anytime`` and the per-stratum 0/1 observation sequences, each stratum
-    bound is a confidence sequence at alpha/K (Bonferroni over K strata); otherwise Clopper–Pearson at alpha/K, which
-    is valid only for a single, pre-planned look. ``known_positive`` is (r, missed) for the recall lower bound."""
+    """Combine strata into a certificate.
+
+    With ``anytime`` and the per-stratum 0/1 observation sequences, each stratum bound is a confidence sequence at
+    alpha/K (Bonferroni over K strata); otherwise Clopper–Pearson at alpha/K, valid only for a single, pre-planned look.
+    The recall line uses ``known_positive_sequence`` (anytime-valid, for a cumulative chart-review set) or
+    ``known_positive`` = (r, missed) for a single planned look."""
     k = max(1, len(strata))
     per: dict[str, float] = {}
     point = upper = 0.0
@@ -153,7 +163,12 @@ def certificate(
     excluded = sum(s.excluded for s in strata)
     recall = None
     r = 0
-    if known_positive is not None:
+    if known_positive_sequence is not None:
+        # cumulative, looked at every month: anytime-valid (1 = a known positive the cascade missed)
+        r = len(known_positive_sequence)
+        recall = recall_lower_sequence(known_positive_sequence, alpha)
+    elif known_positive is not None:
+        # a single pre-planned look (e.g. one validation replay)
         r, missed = known_positive
         recall = cp_lower(r - missed, r, alpha)
     return Certificate(
@@ -166,3 +181,10 @@ def certificate(
         method=("confidence sequence (WSR 2024 betting)" if anytime else "Clopper–Pearson")
         + f", alpha {alpha} split over {k} strata (Bonferroni)",
     )
+
+
+def recall_lower_sequence(outcomes: Sequence[float], alpha: float = 0.05) -> float:
+    """Anytime-valid lower bound on recall from a sequence of known positives (1 = the cascade missed this known
+    positive, 0 = it kept it): one minus the upper confidence sequence on the miss rate. Use for the cumulative
+    blinded chart-review line of the certificate, which is looked at every month."""
+    return 1.0 - ConfidenceSequence(alpha=alpha).extend(outcomes)

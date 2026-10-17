@@ -1,5 +1,7 @@
 # SPEC — TrialBox v3: The Inbox-Native Trial Agent
 
+> **Superseded** by [`spec/v4/`](spec/v4/README.md) (4.0-draft, Oct 17, 2026). Kept for traceability: v4 cites v3 sections and requirement IDs.
+
 Version 3.0-rc1 · Oct 17, 2026 · @Changfu · Supersedes `SPEC_v2.md` (2.0-draft, same day), which failed an adversarial
 review (`docs/reviews/SPEC_v2_review.md`). This version incorporates a second review round (`docs/reviews/SPEC_v3_review.md`,
 "approvable with fixes"; all fixes applied, Appendix G). `SPEC.md` (v1.0, Oct 4, 2026) stays the build contract for the code that exists

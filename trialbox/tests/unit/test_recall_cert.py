@@ -62,3 +62,22 @@ def test_certificate_combines_strata() -> None:
     assert "Bonferroni" in any_cert.method
     with pytest.raises(ValueError):
         recall.certificate(strata, observations={"S1": obs["S1"]})
+
+
+def test_recall_lower_sequence() -> None:
+    lb = recall.recall_lower_sequence([0] * 120)
+    assert 0.9 < lb < recall.cp_lower(120, 120)  # anytime-valid, so below the single-look bound
+    assert recall.recall_lower_sequence([1] * 5) < 0.5
+
+
+def test_weighted_observations_and_sequence_recall_line() -> None:
+    cs = recall.ConfidenceSequence()
+    cs.extend([0.0, 0.25, 0.0, 0.1] * 50)
+    assert 0.0 < cs.upper < 0.3
+    with pytest.raises(ValueError):
+        cs.update(1.5)
+    strata = [recall.Stratum("S1", 1000, 100, 0)]
+    cert = recall.certificate(strata, observations={"S1": [0] * 100}, known_positive_sequence=[0] * 120)
+    assert cert.known_positives == 120 and cert.recall_lower is not None
+    assert cert.recall_lower < recall.cp_lower(120, 120)
+    assert recall.GRID_POINTS[1] == pytest.approx(0.00005)
