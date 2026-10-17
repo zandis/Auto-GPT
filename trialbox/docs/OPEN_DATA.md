@@ -149,5 +149,6 @@ Mapping coverage on this run:
   test, not an estimate.
 - **Scale.** 100 patients, so most cells are small: the released funnel is mostly `<5`, which is the intended
   behaviour.
-- **Runtime.** About 1.5 min per ingest + FEAS on a 4-core VM, and the test does two independent runs. It is
-  marked `slow` and skipped when `.cache/open_data/mimic-iv-fhir-demo/` is absent, so CI without network passes.
+- **Runtime.** About 45 s per ingest + FEAS on an idle 4-core VM, and about 1.5 min for the test, which does two
+  independent runs. It is much longer under CPU contention, so the module timeout is 1 h. The test is marked `slow`
+  and skipped when `.cache/open_data/mimic-iv-fhir-demo/` is absent, so CI without network passes.

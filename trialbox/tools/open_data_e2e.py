@@ -127,7 +127,7 @@ def ingest(data_dir: Path, work: Path) -> Ingested:
         tz=TZ,
         rebuild=rebuild,
         validation_max_pct=100.0,  # MIMIC is not TW Core: the structural error rate is reported, not gated
-        sample_fraction=0.05,
+        sample_fraction=0.01,  # the adapter default (SPEC §3.1: 1 % sample)
     )
     report = run_ingest(
         cfg, "fhir_bulk", str(bulk), snapshot=SNAPSHOT, load_fhir=False, validator=StructuralValidator()

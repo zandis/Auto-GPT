@@ -186,7 +186,7 @@ def build_variants(rs: Ruleset, spec: dict[str, str], applied: list[Step]) -> li
                         "logic": logic,
                     }
                 )
-                label = key if "-" not in key else st.id.split("-", 1)[1]
+                label = key if "-" not in key else st.id.removeprefix(f"{rs.id}-")
                 out.append(Variant(f"{label}={num:g}", st.id, ir.id, ir))
     return out
 

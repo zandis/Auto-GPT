@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -71,6 +72,13 @@ def test_variants_and_steps() -> None:
     sql = funnel_query(GZQO, st, vs, ["RHEU"])
     check_select(sql)  # passes the lake's SELECT-only guard
     assert "$5" in sql and '"C_V1-GZQO-INC-03"' in sql
+
+
+def test_variant_label_with_dashed_ruleset_id() -> None:
+    aki = Ruleset.load(ROOT / "tests" / "fixtures" / "open_data" / "rulesets" / "STARRT-AKI")
+    st = [replace(s, applied=True) for s in steps(aki)]  # the fixture ships no approved SQL; e2e compiles at run time
+    vs = build_variants(aki, {"INC-04": "2,3"}, st)
+    assert [v.name for v in vs] == ["INC-04=2", "INC-04=3"]  # not "AKI-INC-04=2"
 
 
 def _result() -> FeasibilityResult:
