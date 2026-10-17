@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "Z66",
+      "display": "Do not resuscitate"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "STARRT-AKI-VS-DNR",
+ "name": "VS_DNR",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Do not resuscitate",
+ "url": "http://trialbox.local/fhir/ValueSet/STARRT-AKI-VS-DNR",
+ "version": "1.0.0-v6a1a3aa0"
+}

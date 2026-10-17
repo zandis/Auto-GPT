@@ -14,6 +14,10 @@ noted. Section references (§) are to `SPEC.md`; D-numbers are entries in `docs/
    questions, or pass `--answers site.yaml` (see `tests/fixtures/onboarding/site_c_answers.yaml`). The wizard
    validates everything the services check at start-up. Re-check an edited file with
    `python -m tools.settings_wizard --check deploy/settings.yaml`.
+   - Mail authentication. The hospital MTA must add an `Authentication-Results` header in front of the intake
+     mailbox. Answer `mta_authserv_id` with its first token (e.g. `mx.hospital.tw`; written to
+     `TB_MAIL_AUTHSERV_ID`), so that headers forged further down are ignored.
+   - A command is accepted on `dmarc=pass`, or on an SPF/DKIM pass for the From: domain (or a parent/subdomain).
 4. **Mapping.** Copy `services/adapter/mapping/templates/csv_site.yaml` (or `cgrd_sql_site.yaml`) to
    `services/adapter/mapping/tw_core/<site>.yaml`. Fill in its `tables:` block: `source`, `rename`
    (local → canonical columns, `templates/CANONICAL.md`) and `values` (local → canonical codes). Copy and edit the
@@ -97,9 +101,10 @@ requester as a "Failed" mail with a plain-language message.
 1. `ingest --report <ingest_report.json>`
 2. `feas --system <FEAS raw json kept in the box> --manual manual_counts.csv`: the CRC's manual CGRD funnel.
 3. SCREEN, in two steps:
-   - `screen-sample --candidates <candidates.json> --scoped scoped.txt --n 120` produces the blinded
-     `adjudication.xlsx` for the CRC (four strata).
-   - When it is filled in, run `screen --candidates … --adjudication adjudication.xlsx --key adjudication_key.json`.
+   - `screen-sample --candidates <candidates.json> --ruleset rulesets/<ID> --scoped scoped.txt --n 120` produces
+     the blinded `adjudication.xlsx` for the CRC (four strata; criterion labels from the ruleset).
+   - When it is filled in, run `screen --candidates … --ruleset rulesets/<ID> --adjudication adjudication.xlsx
+     --key adjudication_key.json` (criterion classes come from the ruleset's IR).
 4. `nav --lake <lake> --ruleset rulesets/RA-BIO`: the 12-month retrospective against the NHI outcomes.
 5. `twpas twpas_validation_*.json`
 6. `reproduce --results rerun.jsonl`, after

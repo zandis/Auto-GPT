@@ -1,0 +1,16 @@
+{
+ "class": "structured",
+ "fallback": "Structured proxy: CKD stage 5 / ESRD / dialysis dependence coded at any time; a pre-admission eGFR cannot be separated from the AKI creatinine in the demo.",
+ "id": "STARRT-AKI-EXC-07",
+ "kind": "exclusion",
+ "label": "Advanced CKD (eGFR <20)",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_ADVANCED_CKD"
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #7",
+ "text": "Known pre-hospitalisation advanced chronic kidney disease, defined by an eGFR < 20 mL/min/1.73 m².",
+ "time_sensitive": false
+}

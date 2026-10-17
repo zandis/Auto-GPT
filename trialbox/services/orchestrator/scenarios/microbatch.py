@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from tb_common.ruleset import Ruleset
+from tb_common.smallcell import suppress
 from tb_contracts import CandidateRow, CriterionVerdict
 
 from orchestrator.clients import StepFailed
@@ -139,10 +140,12 @@ def run(ctx: Ctx) -> Outcome:
     stem = f"this_week_visit1_{rs.id}_{run_date.isoformat()}"
     deliveries, _ = deliver_lists(ctx, rs, rows, meta, stem, changes=changes)
     agg_to = recipients(rs.manifest.routing, job.requested_by)
+    cell = small_cell(ctx, rs)  # summary PDF + mail are aggregate outputs: every count suppressed (SPEC §10.1)
     lines = [
-        f"Weekly microbatch {rs.id} v{rs.version}, run {run_date.isoformat()}: {len(week)} pool patients with an "
-        f"appointment in the next {window} days; time-sensitive criteria re-evaluated: {', '.join(sorted(ts))}.",
-        f"Verdict changes: {len(changes)}; new patients added to the pool: {added}.",
+        f"Weekly microbatch {rs.id} v{rs.version}, run {run_date.isoformat()}: {suppress(len(week), cell)} pool "
+        f"patients with an appointment in the next {window} days; time-sensitive criteria re-evaluated: "
+        f"{', '.join(sorted(ts))}.",
+        f"Verdict changes: {suppress(len(changes), cell)}; new patients added to the pool: {suppress(added, cell)}.",
     ]
     summary = ctx.publish(
         f"summary_{stem}.pdf",
@@ -152,7 +155,7 @@ def run(ctx: Ctx) -> Outcome:
             rs,
             meta,
             lines,
-            small_cell(ctx, rs),
+            cell,
             practitioner_names(ctx),
         ),
         "aggregate",

@@ -1,0 +1,21 @@
+{
+ "class": "structured",
+ "fallback": "Structured proxy: any loop-diuretic order in the window; dose and i.v. route are checked at screening.",
+ "id": "EMPULSE-INC-07",
+ "kind": "inclusion",
+ "label": "Loop diuretic for this episode",
+ "logic": {
+  "domain": "medication",
+  "quantifier": "any",
+  "valueset": "VS_LOOP_DIURETIC",
+  "window": {
+   "anchor": "index",
+   "from_days": -30,
+   "to_days": 0
+  }
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Inclusion #6",
+ "text": "HF episode treated with a minimum single dose of 40 mg i.v. furosemide (or equivalent i.v. loop diuretic: 20 mg torasemide or 1 mg bumetanide).",
+ "time_sensitive": true
+}

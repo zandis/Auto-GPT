@@ -1,0 +1,45 @@
+# Hand-written open-data test ruleset for NCT04157751 (docs/OPEN_DATA.md). Not reviewed/approved through the
+# APPROVE loop: the computable criteria are encoded by hand from the registry text in source_documents.
+id: EMPULSE
+kind: trial
+title: 'EMPULSE: empagliflozin in patients hospitalised for acute heart failure'
+trial_alias: EMPULSE
+version: 1.0.0
+status: draft
+nct_id: NCT04157751
+source_documents:
+- tests/fixtures/open_data/ctgov_NCT04157751.json
+source_last_update: '2022-07-19'
+protocol_version: ClinicalTrials.gov record
+language: en
+index_date_rule: month_end
+criteria:
+- EMPULSE-INC-01
+- EMPULSE-INC-02
+- EMPULSE-INC-03
+- EMPULSE-INC-04
+- EMPULSE-INC-05
+- EMPULSE-INC-06
+- EMPULSE-INC-07
+- EMPULSE-INC-08
+- EMPULSE-EXC-01
+- EMPULSE-EXC-02
+- EMPULSE-EXC-03
+- EMPULSE-EXC-04
+- EMPULSE-EXC-05
+- EMPULSE-EXC-06
+- EMPULSE-EXC-07
+- EMPULSE-EXC-08
+- EMPULSE-EXC-09
+- EMPULSE-EXC-10
+- EMPULSE-EXC-11
+scopes:
+  feas:
+    population: hospital
+    lookback_months: 36
+routing:
+  aggregate_to: []
+thresholds:
+  small_cell: 5
+variants:
+  egfr: 15,25

@@ -24,9 +24,12 @@ NOW = dt.datetime(2026, 10, 5, 9, 0, tzinfo=dt.UTC)
 def _msg(
     subject: str = "FEAS GZQO",
     sender: str = "crc1@hospa.test",
-    auth: str | None = "mx; spf=pass; dkim=pass",
+    auth: str | None = "aligned",
     **headers: str,
 ) -> bytes:
+    if auth == "aligned":  # what the hospital MTA records for an authenticated sender
+        dom = sender.rsplit("@", 1)[-1].strip(">")
+        auth = f"mx; spf=pass smtp.mailfrom={dom}; dkim=pass header.d={dom}"
     m = EmailMessage()
     m["From"] = sender
     m["To"] = "trialbox@hospa.test"
@@ -42,14 +45,27 @@ def _msg(
 
 
 def test_authentication_results() -> None:
-    def auth(h: str, server: str = "") -> bool:
-        return intake.authentication(message_from_bytes(_msg(auth=h), policy=policy.default), server)[0]
+    def auth(h: str, server: str = "", sender: str = "crc1@hospa.test") -> bool:
+        return intake.authentication(message_from_bytes(_msg(auth=h), policy=policy.default), server, sender)[0]
 
     assert auth("mx.hospa.test; spf=pass smtp.mailfrom=hospa.test")
+    assert auth("mx.hospa.test; spf=pass smtp.mailfrom=bounce@mail.hospa.test")  # subdomain: relaxed alignment
     assert auth("mx.hospa.test; spf=softfail; dkim=pass header.d=hospa.test")
+    assert auth("mx.hospa.test; dkim=fail header.d=hospa.test; dkim=pass header.d=hospa.test")
+    assert auth("mx.hospa.test; spf=none; dmarc=pass header.from=hospa.test")
     assert not auth("mx.hospa.test; spf=fail; dkim=none")
     assert not auth("mx.hospa.test; spf=pass; dmarc=fail")
     assert not auth("evil.example; spf=pass; dkim=pass", server="mx.hospa.test")  # forged by another server
+    # a pass for the attacker's own domain says nothing about From: pi@hospa.test (no enforcing DMARC)
+    assert not auth("mx.hospa.test; spf=pass smtp.mailfrom=evil.example; dmarc=none", sender="pi@hospa.test")
+    assert not auth("mx.hospa.test; dkim=pass header.d=hospa.test.evil.example", sender="pi@hospa.test")
+    assert not auth("mx.hospa.test; spf=pass", sender="pi@hospa.test")  # pass without a domain cannot be aligned
+    ok, detail = intake.authentication(
+        message_from_bytes(_msg(auth="mx.hospa.test; spf=pass smtp.mailfrom=evil.example"), policy=policy.default),
+        "",
+        "pi@hospa.test",
+    )
+    assert not ok and "no pass aligned with hospa.test" in detail
     assert not intake.authentication(message_from_bytes(_msg(auth=None), policy=policy.default), "")[0]
 
 

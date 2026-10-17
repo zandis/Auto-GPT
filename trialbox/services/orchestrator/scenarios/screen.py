@@ -14,6 +14,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from tb_common.ruleset import Ruleset
+from tb_common.smallcell import suppress
 from tb_common.timeutil import add_months
 from tb_contracts import CandidateList, CandidateRow, Routing, ScreenRunScope, TierSummary, dump
 
@@ -371,10 +372,14 @@ def run(ctx: Ctx) -> Outcome:
     persist_pool(ctx, rs, [r for r in srun.rows if r.tier in ("high", "review")])
     agg_to = recipients(rs.manifest.routing, job.requested_by)
     sc = small_cell(ctx, rs)
+
+    def n(v: int) -> int | str:  # aggregate outputs: every count small-cell suppressed (SPEC §10.1)
+        return suppress(v, sc)
+
     scope_lines = [
         f"Ruleset {rs.id} v{rs.version}, run {run_date.isoformat()}, snapshot {snapshot}.",
         f"Scope: practitioners {', '.join(srun.practitioners)}; appointments in the next {srun.window_days} days or "
-        f"an encounter in the last 12 months; {len(srun.scoped)} patients evaluated.",
+        f"an encounter in the last 12 months; {n(len(srun.scoped))} patients evaluated.",
     ]
     summary = ctx.publish(
         f"summary_{stem}.pdf",
@@ -392,10 +397,14 @@ def run(ctx: Ctx) -> Outcome:
     )
     s = cl.summary
     text = (
-        f"Screening **{rs.id} v{rs.version}** finished: {len(srun.scoped)} patients in scope, "
-        f"{s.high} high, {s.review} review, {s.excluded} excluded. The encrypted candidate list went to "
+        f"Screening **{rs.id} v{rs.version}** finished: {n(len(srun.scoped))} patients in scope, "
+        f"{n(s.high)} high, {n(s.review)} review, {n(s.excluded)} excluded. The encrypted candidate list went to "
         f"{', '.join(rs.manifest.routing.list_to or []) if rs.manifest.routing else ''}"
-        + (f"; referrals: {', '.join(f'{k} ({v})' for k, v in info['referrals'].items())}" if info["referrals"] else "")
+        + (
+            f"; referrals: {', '.join(f'{k} ({n(v)})' for k, v in info['referrals'].items())}"
+            if info["referrals"]
+            else ""
+        )
         + "."
     )
     deliveries.append(Delivery(to=agg_to, outputs=[summary], routing=rs.manifest.routing, body_md=text))

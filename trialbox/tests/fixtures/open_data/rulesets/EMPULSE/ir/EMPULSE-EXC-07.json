@@ -1,0 +1,16 @@
+{
+ "class": "human",
+ "human_question": "Is a valve surgery or intervention planned during the study?",
+ "id": "EMPULSE-EXC-07",
+ "kind": "exclusion",
+ "label": "Valve disease for intervention",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #7",
+ "text": "Haemodynamically significant uncorrected primary cardiac valvular disease planned for surgery or intervention during the study.",
+ "time_sensitive": false
+}

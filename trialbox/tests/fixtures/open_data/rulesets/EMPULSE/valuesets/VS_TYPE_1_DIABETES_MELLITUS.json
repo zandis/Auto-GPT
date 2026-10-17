@@ -1,0 +1,66 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "E10.10",
+      "display": "Type 1 diabetes mellitus with ketoacidosis without coma"
+     },
+     {
+      "code": "E10.11",
+      "display": "Type 1 diabetes mellitus with ketoacidosis with coma"
+     },
+     {
+      "code": "E10.21",
+      "display": "Type 1 diabetes mellitus with diabetic nephropathy"
+     },
+     {
+      "code": "E10.22",
+      "display": "Type 1 diabetes mellitus with diabetic chronic kidney disease"
+     },
+     {
+      "code": "E10.29",
+      "display": "Type 1 diabetes mellitus with other diabetic kidney complication"
+     },
+     {
+      "code": "E10.40",
+      "display": "Type 1 diabetes mellitus with diabetic neuropathy, unspecified"
+     },
+     {
+      "code": "E10.42",
+      "display": "Type 1 diabetes mellitus with diabetic polyneuropathy"
+     },
+     {
+      "code": "E10.649",
+      "display": "Type 1 diabetes mellitus with hypoglycemia without coma"
+     },
+     {
+      "code": "E10.65",
+      "display": "Type 1 diabetes mellitus with hyperglycemia"
+     },
+     {
+      "code": "E10.69",
+      "display": "Type 1 diabetes mellitus with other specified complication"
+     },
+     {
+      "code": "E10.8",
+      "display": "Type 1 diabetes mellitus with unspecified complications"
+     },
+     {
+      "code": "E10.9",
+      "display": "Type 1 diabetes mellitus without complications"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-TYPE-1-DIABETES-MELLITUS",
+ "name": "VS_TYPE_1_DIABETES_MELLITUS",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Type 1 diabetes mellitus",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-TYPE-1-DIABETES-MELLITUS",
+ "version": "1.0.0-v90602b06"
+}

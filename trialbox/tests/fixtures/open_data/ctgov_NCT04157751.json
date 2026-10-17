@@ -1,0 +1,88 @@
+{
+ "nct_id": "NCT04157751",
+ "retrieved": "2026-10-17",
+ "source_url": "https://clinicaltrials.gov/api/v2/studies/NCT04157751",
+ "study": {
+  "protocolSection": {
+   "conditionsModule": {
+    "conditions": [
+     "Heart Failure"
+    ]
+   },
+   "designModule": {
+    "phases": [
+     "PHASE3"
+    ]
+   },
+   "eligibilityModule": {
+    "eligibilityCriteria": "Inclusion Criteria:\n\n* Currently hospitalised for the primary diagnosis of acute heart failure (de novo or decompensated chronic HF), regardless of ejection fraction (EF). Patients with a diagnosis of hospitalized heart failure must have HF symptoms at the time of hospital admission\n* Evidence of left ventricular ejection fraction (LVEF, either reduced or preserved EF) as per local reading preferably measured during current hospitalisation or in the 12 months prior to randomisation\n* Patients must be randomised after at least 24 hours and no later than 5 days after admission, as early as possible after stabilization and while still in hospital\n* Patients must fulfil the following stabilisation criteria (while in the hospital):\n\n  * SBP ≥100mm Hg and no symptoms of hypotension in the preceding 6 hours,\n  * no increase in i.v. diuretic dose for 6 hours prior to randomisation,\n  * no i.v. vasodilators including nitrates within the last 6 hours prior to randomisation\n  * no i.v. inotropic drugs for 24 hours prior to randomisation.\n* Elevated NT-proBNP ≥ 1600pg/mL or BNP ≥400 pg/mL according to the local lab, for patients without atrial fibrillation (AF); or elevated NT-proBNP ≥ 2400pg/mL or BNP ≥600 pg/mL for patients with AF, measured during the current hospitalization or in the 72 hours prior to hospital admission,. For patients treated with an angiotensin receptor neprilysin inhibitor (ARNI) in the previous 4 weeks prior to randomisation, only NT-proBNP values should be used\n* HF episode leading to hospitalisation must have been treated with a minimum single dose of 40 mg of i.v. furosemide (or equivalent i.v. loop diuretic defined as 20 mg of torasemide or 1 mg of bumetanide)\n* Further Inclusion Criteria Apply\n\nExclusion Criteria:\n\n* Cardiogenic shock\n* Current hospitalisation for acute heart failure primarily triggered by pulmonary embolism, cerebrovascular accident, or acute myocardial infarction (AMI)\n* Current hospitalisation for acute heart failure not caused primarily by intravascular volume overload;\n* Below interventions in the past 30 days prior to randomisation or planned during the study:\n\n  * Major cardiac surgery, or TAVI (Transcatheter Aortic Valve Implantation), or PCI, or Mitraclip\n  * All other surgeries that are considered major according to investigator judgement\n  * Implantation of cardiac resynchronisation therapy (CRT) device\n  * cardiac mechanical support implantation\n  * Carotid artery disease revascularisation (stent or surgery)\n* Acute coronary syndrome / myocardial infarction, stroke or transient ischemic attack (TIA) in the past 90 days prior to randomisation\n* Heart transplant recipient, or listed for heart transplant with expectation to receive a transplant during the course of this trial (according to investigator judgement), or planned for palliative care for HF, or currently using left ventricular assist device (LVAD) or intra-aortic balloon pump (IABP) or any other type of mechanical circulatory support, or patients on mechanical ventilation, or patients with planned inotropic support in an outpatient setting\n* Haemodynamically significant (severe) uncorrected primary cardiac valvular disease planned for surgery or intervention during the course of the study (note: secondary mitral regurgitation or tricuspid regurgitation due to dilated cardiomyopathy is not excluded unless planned for surgery or intervention during the course of the study)\n* Impaired renal function, defined as eGFR \\< 20 mL/min/1.73 m2 as measured during hospitalization (latest local lab measurement before randomisation) or requiring dialysis\n* Type 1 Diabetes Mellitus (T1DM)\n* History of ketoacidosis, including diabetic ketoacidosis (DKA)\n* Further Exclusion Criteria Apply",
+    "healthyVolunteers": false,
+    "minimumAge": "18 Years",
+    "sex": "ALL",
+    "stdAges": [
+     "ADULT",
+     "OLDER_ADULT"
+    ]
+   },
+   "identificationModule": {
+    "briefTitle": "A Study to Test the Effect of Empagliflozin in Patients Who Are in Hospital for Acute Heart Failure",
+    "nctId": "NCT04157751",
+    "officialTitle": "A Multicentre, Randomised, Double-blind, 90-day Superiority Trial to Evaluate the Effect on Clinical Benefit, Safety and Tolerability of Once Daily Oral EMPagliflozin 10 mg Compared to Placebo, Initiated in Patients Hospitalised for acUte Heart faiLure (de Novo or Decompensated Chronic HF) Who Have Been StabilisEd (EMPULSE)",
+    "orgStudyIdInfo": {
+     "id": "1245-0204"
+    },
+    "organization": {
+     "class": "INDUSTRY",
+     "fullName": "Boehringer Ingelheim"
+    },
+    "secondaryIdInfos": [
+     {
+      "id": "2019-002946-19",
+      "type": "EUDRACT_NUMBER"
+     },
+     {
+      "id": "2019",
+      "link": "https://reporter.nih.gov/quickSearch/2019",
+      "type": "NIH"
+     }
+    ]
+   },
+   "statusModule": {
+    "completionDateStruct": {
+     "date": "2021-06-02",
+     "type": "ACTUAL"
+    },
+    "expandedAccessInfo": {
+     "hasExpandedAccess": false
+    },
+    "lastUpdatePostDateStruct": {
+     "date": "2022-07-19",
+     "type": "ACTUAL"
+    },
+    "lastUpdateSubmitDate": "2022-06-28",
+    "overallStatus": "COMPLETED",
+    "primaryCompletionDateStruct": {
+     "date": "2021-05-28",
+     "type": "ACTUAL"
+    },
+    "resultsFirstPostDateStruct": {
+     "date": "2022-06-06",
+     "type": "ACTUAL"
+    },
+    "resultsFirstSubmitDate": "2022-05-10",
+    "resultsFirstSubmitQcDate": "2022-05-10",
+    "startDateStruct": {
+     "date": "2020-05-18",
+     "type": "ACTUAL"
+    },
+    "statusVerifiedDate": "2022-06",
+    "studyFirstPostDateStruct": {
+     "date": "2019-11-08",
+     "type": "ACTUAL"
+    },
+    "studyFirstSubmitDate": "2019-11-04",
+    "studyFirstSubmitQcDate": "2019-11-06"
+   }
+  }
+ }
+}

@@ -113,7 +113,7 @@ class CompilerHttp:
 
 class MailHttp:
     def __init__(self, base_url: str) -> None:
-        self.c = ServiceClient(base_url, "mail-gateway", timeout=300)
+        self.c = ServiceClient(base_url, "mail-gateway", timeout=300, idempotent=False)  # a retry = a second mail
 
     def send(self, req: SendRequest) -> SendResult:
         try:

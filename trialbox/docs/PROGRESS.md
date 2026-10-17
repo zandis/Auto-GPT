@@ -357,3 +357,32 @@ make test-e2e      # GreenMail -> TrialBox -> MailHog
 | RUNBOOK, README quickstart, ARCHITECTURE | `docs/RUNBOOK.md`, `README.md`, `docs/ARCHITECTURE.md` (phase 9) |
 | Compile gate ≥ 98 % | every shipped ruleset at 100 % CQL≡SQL; approval refused below the gate |
 | `tools/audit_verify.py` passes | on the compose stack after the full e2e run (2,703 events) |
+
+## Post-merge deep review (D-86)
+
+A max-effort correctness review of the merged v1.0 code reported 15 findings. Every one was confirmed (by running
+code, or by reading the code against the contract) and fixed. Each fix has a test that fails on the old code and
+passes now.
+
+| Area | Finding | Fix (test) |
+| --- | --- | --- |
+| NHI SUBMIT | two SUBMITs of one bundle, or a restart mid-POST, could submit the claim twice | atomic reservation before the POST; release only when provably not sent; never re-POST on restart (`test_live_submit_is_once_under_concurrency_and_restart`, `test_live_submit_failure_classification`) |
+| APPROVE | a restarted APPROVE failed and left FEAS jobs waiting forever | an already-approved version resumes the waiting jobs (`test_compile_approve_loop_by_email`) |
+| Mail | a spoofed From: was accepted on any SPF/DKIM pass | DMARC-style alignment; authserv-id in the wizard and `.env`, warning when unset (`test_authentication_results`) |
+| Audit | an event stamped before midnight, written after, broke `verify()` | it stays in the newest day file (`test_event_stamped_before_midnight_written_after`) |
+| Compiler | zh/ja concepts shared `VS_CONCEPT`; the cloud LLM route never triggered; a newline in criterion text escaped the SQL comment; undated medication orders counted as full-window exposure | hashed names + collision guard; clearance over the prompt variables; whitespace collapsed; start required in CQL/SQL and undated orders dropped at ingest (four tests) |
+| Parser | wrapped `1.5 mg/dL` / `18 years …` lines became criteria or headings and dropped I/E items | enumerator lookahead; title and numbering checks for headings (`test_wrapped_numeric_lines_stay_in_their_criterion`) |
+| fhir-store | resources deleted in the HIS stayed in HAPI (CQL ≠ SQL) | ledger of loaded ids, stale ids deleted (`test_fhir_store_follows_the_snapshot`, plus DELETE transactions checked on the running HAPI) |
+| Small cells | SCREEN/MICROBATCH summaries unsuppressed; FEAS cells derivable from neighbours; calibration rates revealing small counts | suppression in summaries; controlled rounding for FEAS; rates withheld (`test_controlled_rounding`, FEAS invariant in the in-process round trip) |
+| Delivery | `POST /send` retried after it may have arrived (duplicate PHI mails) | non-idempotent client retries only refused connections (`test_non_idempotent_client_never_resends`) |
+| COHORT | any COHORT sender could overwrite another site's alliance table | own-site refusal and sender binding, also in the re-run replay (`test_merge_refuses_tables_for_other_sites`) |
+| Acceptance | the criterion check read a `class` that candidate rows never have | classes and labels come from the ruleset IR (`test_screen_metrics_weighted` on contract-valid rows) |
+
+Docs corrected: no Docling image is shipped in v1.0, and the lite parser is the production parser (D-02, D-05,
+ARCHITECTURE). Schemas: `ingest_report` 1.1.0 (`fhir_deleted`).
+
+**Evidence**
+- `make lint` clean; `make test` 285 passed (2 skipped); `make test-integration` 59 passed; `make test-e2e` 6
+  passed; `make test-egress` 1 passed.
+- Today's compose jobs re-run byte-identically (6 jobs, 49 files); the audit chain verifies across two day files
+  (3,246 events).

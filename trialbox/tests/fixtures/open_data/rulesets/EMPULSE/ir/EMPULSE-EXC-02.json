@@ -1,0 +1,46 @@
+{
+ "class": "structured",
+ "fallback": "Structured proxy: PE, ischaemic stroke or AMI coded in the same 30-day window; 'primarily triggered' is confirmed at screening.",
+ "id": "EMPULSE-EXC-02",
+ "kind": "exclusion",
+ "label": "AHF triggered by PE / stroke / AMI",
+ "logic": {
+  "args": [
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_PULMONARY_EMBOLISM",
+    "window": {
+     "anchor": "index",
+     "from_days": -30,
+     "to_days": 0
+    }
+   },
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_ISCHAEMIC_STROKE",
+    "window": {
+     "anchor": "index",
+     "from_days": -30,
+     "to_days": 0
+    }
+   },
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_ACUTE_MYOCARDIAL_INFARCTION",
+    "window": {
+     "anchor": "index",
+     "from_days": -30,
+     "to_days": 0
+    }
+   }
+  ],
+  "op": "or"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #2",
+ "text": "Current hospitalisation for acute heart failure primarily triggered by pulmonary embolism, cerebrovascular accident, or acute myocardial infarction.",
+ "time_sensitive": true
+}

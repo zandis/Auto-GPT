@@ -146,21 +146,26 @@ def _replay_alliance_tables(orch: Orchestrator, db: JobDB, job_id: str) -> None:
     an earlier ``COHORT MERGE`` stored its attached tables, an earlier own COHORT run on the root stored the table it
     published (``cohort_table_*.csv``). Later re-submissions that replaced a site's rows in the live table therefore
     do not leak into the re-run."""
-    from orchestrator.scenarios.cohort import parse_csv
+    from tb_common.authz import norm
+
+    from orchestrator.scenarios.cohort import merge_refusal, parse_csv
 
     jobs = orch.db.find(type_="COHORT", limit=1_000_000)
     earlier = sorted((j for j in jobs if j.job_id < job_id and j.state in ("done", "failed")), key=lambda j: j.job_id)
     site = orch.cfg.settings.site.id
     for j in earlier:
-        if (j.ruleset or "").upper() == "MERGE":
+        merge = (j.ruleset or "").upper() == "MERGE"
+        if merge:
             sources = [(f.filename, f.minio_key) for f in j.inputs or []]
-            received_from = j.requested_by
+            received_from = norm(j.requested_by)
         else:
             sources = [(o.filename, o.minio_key) for o in j.outputs or [] if o.filename.startswith("cohort_table_")]
             received_from = f"self:{site}"
         for name, key in sources:
             if name.lower().endswith(".csv"):
                 rows, errors = parse_csv(orch.store.get(key))
+                if not errors and rows and merge and merge_refusal(db, rows, received_from, site):
+                    continue  # refused by run_merge then, so not stored then either
                 if not errors:
                     db.cohort_store(rows, j.job_id, received_from)
 

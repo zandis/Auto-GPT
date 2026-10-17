@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "R57.0",
+      "display": "Cardiogenic shock"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-CARDIOGENIC-SHOCK",
+ "name": "VS_CARDIOGENIC_SHOCK",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Cardiogenic shock",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-CARDIOGENIC-SHOCK",
+ "version": "1.0.0-va647992f"
+}

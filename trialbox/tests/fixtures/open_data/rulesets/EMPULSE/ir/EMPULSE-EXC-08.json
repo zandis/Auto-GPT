@@ -1,0 +1,47 @@
+{
+ "action": "order creatinine",
+ "class": "structured",
+ "id": "EMPULSE-EXC-08",
+ "kind": "exclusion",
+ "label": "eGFR <20 or dialysis",
+ "logic": {
+  "args": [
+   {
+    "derived": "egfr",
+    "domain": "observation",
+    "quantifier": "latest",
+    "value": {
+     "num": 20,
+     "op": "<",
+     "unit": "mL/min/{1.73_m2}"
+    },
+    "valueset": "VS_EGFR_COMPONENTS",
+    "window": {
+     "anchor": "index",
+     "from_days": -30,
+     "to_days": 0
+    }
+   },
+   {
+    "domain": "procedure",
+    "quantifier": "any",
+    "valueset": "VS_DIALYSIS",
+    "window": {
+     "anchor": "index",
+     "from_days": -30,
+     "to_days": 0
+    }
+   },
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_DIALYSIS_DEPENDENCE"
+   }
+  ],
+  "op": "or"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #8",
+ "text": "Impaired renal function, eGFR <20 mL/min/1.73 m² (latest during hospitalisation) or requiring dialysis.",
+ "time_sensitive": true
+}

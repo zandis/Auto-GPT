@@ -1,0 +1,54 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "I63.00",
+      "display": "Cerebral infarction due to thrombosis of unspecified precerebral artery"
+     },
+     {
+      "code": "I63.10",
+      "display": "Cerebral infarction due to embolism of unspecified precerebral artery"
+     },
+     {
+      "code": "I63.20",
+      "display": "Cerebral infarction due to unspecified occlusion or stenosis of unspecified precerebral arteries"
+     },
+     {
+      "code": "I63.30",
+      "display": "Cerebral infarction due to thrombosis of unspecified cerebral artery"
+     },
+     {
+      "code": "I63.40",
+      "display": "Cerebral infarction due to embolism of unspecified cerebral artery"
+     },
+     {
+      "code": "I63.50",
+      "display": "Cerebral infarction due to unspecified occlusion or stenosis of unspecified cerebral artery"
+     },
+     {
+      "code": "I63.81",
+      "display": "Other cerebral infarction due to occlusion or stenosis of small artery"
+     },
+     {
+      "code": "I63.89",
+      "display": "Other cerebral infarction"
+     },
+     {
+      "code": "I63.9",
+      "display": "Cerebral infarction, unspecified"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-ISCHAEMIC-STROKE",
+ "name": "VS_ISCHAEMIC_STROKE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Ischaemic stroke",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-ISCHAEMIC-STROKE",
+ "version": "1.0.0-vdb4a97b2"
+}

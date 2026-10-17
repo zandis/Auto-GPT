@@ -1,0 +1,61 @@
+icd9,icd10cm,display,basis
+4280,I50.9,"Heart failure, unspecified",gem
+4281,I50.1,Left ventricular failure,gem
+42820,I50.20,Unspecified systolic (congestive) heart failure,gem
+42821,I50.21,Acute systolic (congestive) heart failure,gem
+42822,I50.22,Chronic systolic (congestive) heart failure,gem
+42823,I50.23,Acute on chronic systolic (congestive) heart failure,gem
+42830,I50.30,Unspecified diastolic (congestive) heart failure,gem
+42831,I50.31,Acute diastolic (congestive) heart failure,gem
+42832,I50.32,Chronic diastolic (congestive) heart failure,gem
+42833,I50.33,Acute on chronic diastolic (congestive) heart failure,gem
+42840,I50.40,Unspecified combined systolic and diastolic heart failure,gem
+42841,I50.41,Acute combined systolic and diastolic heart failure,gem
+42842,I50.42,Chronic combined systolic and diastolic heart failure,gem
+42843,I50.43,Acute on chronic combined systolic and diastolic heart failure,gem
+4289,I50.9,"Heart failure, unspecified",gem
+42731,I48.91,Unspecified atrial fibrillation,gem
+78551,R57.0,Cardiogenic shock,gem
+41001,I21.09,ST elevation myocardial infarction involving other coronary artery of anterior wall,gem
+41011,I21.09,ST elevation myocardial infarction involving other coronary artery of anterior wall,gem
+41021,I21.19,ST elevation myocardial infarction involving other coronary artery of inferior wall,gem
+41031,I21.19,ST elevation myocardial infarction involving other coronary artery of inferior wall,gem
+41041,I21.19,ST elevation myocardial infarction involving other coronary artery of inferior wall,gem
+41051,I21.29,ST elevation myocardial infarction involving other sites,gem
+41061,I21.29,ST elevation myocardial infarction involving other sites,gem
+41071,I21.4,Non-ST elevation (NSTEMI) myocardial infarction,gem
+41081,I21.29,ST elevation myocardial infarction involving other sites,gem
+41091,I21.3,ST elevation myocardial infarction of unspecified site,gem
+41513,I26.92,Saddle embolus of pulmonary artery without acute cor pulmonale,gem
+41519,I26.99,Other pulmonary embolism without acute cor pulmonale,gem
+43401,I63.30,Cerebral infarction due to thrombosis of unspecified cerebral artery,gem
+43411,I63.40,Cerebral infarction due to embolism of unspecified cerebral artery,gem
+43491,I63.50,Cerebral infarction due to unspecified occlusion or stenosis of unspecified cerebral artery,gem
+4358,G45.8,Other transient cerebral ischemic attacks and related syndromes,gem
+4359,G45.9,"Transient cerebral ischemic attack, unspecified",gem
+25001,E10.9,Type 1 diabetes mellitus without complications,gem
+25003,E10.65,Type 1 diabetes mellitus with hyperglycemia,gem
+25010,E11.10,Type 2 diabetes mellitus with ketoacidosis without coma,gem
+25011,E10.10,Type 1 diabetes mellitus with ketoacidosis without coma,gem
+25012,E11.10,Type 2 diabetes mellitus with ketoacidosis without coma,gem
+25013,E10.10,Type 1 diabetes mellitus with ketoacidosis without coma,gem
+5845,N17.0,Acute kidney failure with tubular necrosis,gem
+5846,N17.1,Acute kidney failure with acute cortical necrosis,gem
+5847,N17.2,Acute kidney failure with medullary necrosis,gem
+5848,N17.8,Other acute kidney failure,gem
+5849,N17.9,"Acute kidney failure, unspecified",gem
+5855,N18.5,"Chronic kidney disease, stage 5",gem
+5856,N18.6,End stage renal disease,gem
+V4511,Z99.2,Dependence on renal dialysis,gem
+V420,Z94.0,Kidney transplant status,gem
+V421,Z94.1,Heart transplant status,gem
+V4321,Z95.811,Presence of heart assist device,gem
+V667,Z51.5,Encounter for palliative care,gem
+V4986,Z66,Do not resuscitate,gem
+5804,N01.9,Rapidly progressive nephritic syndrome with unspecified morphologic changes,gem
+59960,N13.9,"Obstructive and reflux uropathy, unspecified",gem
+5910,N13.30,Unspecified hydronephrosis,gem
+591,N13.30,Unspecified hydronephrosis,gem
+4460,M30.0,Polyarteritis nodosa,gem
+4464,M31.30,Wegener's granulomatosis without renal involvement,gem
+4466,M31.1,Thrombotic microangiopathy,gem

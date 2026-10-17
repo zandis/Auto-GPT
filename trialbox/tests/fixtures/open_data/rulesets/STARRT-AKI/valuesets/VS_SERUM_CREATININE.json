@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "2160-0",
+      "display": "Creatinine [Mass/volume] in Serum or Plasma"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "STARRT-AKI-VS-SERUM-CREATININE",
+ "name": "VS_SERUM_CREATININE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Serum creatinine",
+ "url": "http://trialbox.local/fhir/ValueSet/STARRT-AKI-VS-SERUM-CREATININE",
+ "version": "1.0.0-v2c66b79e"
+}

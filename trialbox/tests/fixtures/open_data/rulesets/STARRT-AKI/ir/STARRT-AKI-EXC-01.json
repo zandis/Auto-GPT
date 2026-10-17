@@ -1,0 +1,26 @@
+{
+ "action": "order potassium",
+ "class": "structured",
+ "id": "STARRT-AKI-EXC-01",
+ "kind": "exclusion",
+ "label": "Potassium >5.5 mmol/L",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 5.5,
+   "op": ">",
+   "unit": "mmol/L"
+  },
+  "valueset": "VS_SERUM_POTASSIUM",
+  "window": {
+   "anchor": "index",
+   "from_days": -30,
+   "to_days": 0
+  }
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #1",
+ "text": "Serum potassium > 5.5 mmol/L.",
+ "time_sensitive": true
+}

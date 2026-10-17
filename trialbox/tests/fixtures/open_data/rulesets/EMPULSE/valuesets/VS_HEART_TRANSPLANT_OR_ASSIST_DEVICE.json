@@ -1,0 +1,30 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "Z94.1",
+      "display": "Heart transplant status"
+     },
+     {
+      "code": "Z95.811",
+      "display": "Presence of heart assist device"
+     },
+     {
+      "code": "Z95.812",
+      "display": "Presence of fully implantable artificial heart"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-HEART-TRANSPLANT-OR-ASSIST-DEVICE",
+ "name": "VS_HEART_TRANSPLANT_OR_ASSIST_DEVICE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Heart transplant status or mechanical circulatory support",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-HEART-TRANSPLANT-OR-ASSIST-DEVICE",
+ "version": "1.0.0-vda0dfb53"
+}

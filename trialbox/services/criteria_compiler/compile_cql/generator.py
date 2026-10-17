@@ -238,7 +238,8 @@ class CqlGenerator:
                 f"FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), date from X.authoredOn), {lo} }}),\n"
                 f"        e: Min({{ Coalesce(date from end of FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), "
                 f"date from start of FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), date from X.authoredOn), "
-                f"{hi} }})\n    where s <= e\n    return Interval[s, e]"
+                f"{hi} }})\n    where Coalesce(date from start of FHIRHelpers.ToInterval(X.dispenseRequest.validityPeriod), "
+                f"date from X.authoredOn) is not null and s <= e\n    return Interval[s, e]"
             ),
             (
                 f"define {dn}:\n  Coalesce(Max((collapse ({pn} I return Interval[start of I, end of I + {gap} days]) "

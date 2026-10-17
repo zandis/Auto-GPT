@@ -1,0 +1,16 @@
+{
+ "class": "note",
+ "id": "EMPULSE-EXC-03",
+ "kind": "exclusion",
+ "label": "Not volume overload",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "note_question": "Do the notes state that this heart-failure admission was not caused primarily by intravascular volume overload?",
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #3",
+ "text": "Current hospitalisation for acute heart failure not caused primarily by intravascular volume overload.",
+ "time_sensitive": false
+}

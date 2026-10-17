@@ -7,8 +7,9 @@
 
 ``hash = sha256(prev_hash + canonical_json(line_without_hash))`` where canonical JSON has sorted keys, no
 whitespace and UTF-8 text. The first line of a day file chains to the last hash of the previous day file;
-the very first line of the log uses ``GENESIS`` (64 zeros). Writers serialise through ``flock`` on
-``audit/.lock`` so several processes/containers sharing the volume keep one chain.
+the very first line of the log uses ``GENESIS`` (64 zeros). An event goes to the file of its own date, or to the
+newest file when that is later (a timestamp taken before midnight, written after the next day began). Writers
+serialise through ``flock`` on ``audit/.lock`` so several processes/containers sharing the volume keep one chain.
 """
 
 from __future__ import annotations
@@ -91,8 +92,7 @@ class AuditLog:
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
-    def _prev_hash(self) -> str:
-        files = _day_files(self.directory)
+    def _prev_hash(self, files: list[Path]) -> str:
         for path in reversed(files):
             last = _last_line(path)
             if last:
@@ -115,10 +115,16 @@ class AuditLog:
         if detail:
             body["detail"] = detail
         with self._locked():
-            prev = self._prev_hash()
+            files = _day_files(self.directory)
+            prev = self._prev_hash(files)
             body["prev_hash"] = prev
             body["hash"] = line_hash(prev, body)
             day = now.astimezone(self.zone).date().isoformat()
+            if files and files[-1].stem > day:
+                # stamped before midnight but written after an event of the next day (e.g. the gateway's
+                # mail.received after the orchestrator's job events): stay on the newest file, so that the files
+                # read in name order remain the chain order; the event keeps its own timestamp
+                day = files[-1].stem
             path = self.directory / f"{day}.jsonl"
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(canonical(body) + "\n")

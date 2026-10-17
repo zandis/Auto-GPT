@@ -128,3 +128,16 @@ def test_restart_recovery(make: Any, tmp_path: Path) -> None:
     orch2.start()
     orch2.drain()
     assert calls == [job.job_id] and db.get(job.job_id).state == "done"  # type: ignore[union-attr]
+
+
+def test_tb_today_pins_the_clock_for_the_test_stack(monkeypatch: pytest.MonkeyPatch) -> None:
+    from orchestrator.app import _pinned_today
+
+    monkeypatch.delenv("TB_TODAY", raising=False)
+    assert _pinned_today() is None  # production: wall clock
+    monkeypatch.setenv("TB_TODAY", "2026-10-05")
+    pinned = _pinned_today()
+    assert pinned is not None and pinned() == date(2026, 10, 5)
+    monkeypatch.setenv("TB_TODAY", "10/05/2026")
+    with pytest.raises(ValueError):
+        _pinned_today()

@@ -1,0 +1,20 @@
+{
+ "class": "structured",
+ "id": "STARRT-AKI-EXC-05",
+ "kind": "exclusion",
+ "label": "RRT ≤2 months",
+ "logic": {
+  "domain": "procedure",
+  "quantifier": "any",
+  "valueset": "VS_DIALYSIS",
+  "window": {
+   "anchor": "index",
+   "from_days": -60,
+   "to_days": 0
+  }
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #5",
+ "text": "Any RRT within the previous 2 months (either acute or chronic RRT).",
+ "time_sensitive": true
+}

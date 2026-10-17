@@ -1,0 +1,50 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "I48.0",
+      "display": "Paroxysmal atrial fibrillation"
+     },
+     {
+      "code": "I48.1",
+      "display": "Persistent atrial fibrillation (FY2019 and earlier)"
+     },
+     {
+      "code": "I48.11",
+      "display": "Longstanding persistent atrial fibrillation"
+     },
+     {
+      "code": "I48.19",
+      "display": "Other persistent atrial fibrillation"
+     },
+     {
+      "code": "I48.2",
+      "display": "Chronic atrial fibrillation (FY2019 and earlier)"
+     },
+     {
+      "code": "I48.20",
+      "display": "Chronic atrial fibrillation, unspecified"
+     },
+     {
+      "code": "I48.21",
+      "display": "Permanent atrial fibrillation"
+     },
+     {
+      "code": "I48.91",
+      "display": "Unspecified atrial fibrillation"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-ATRIAL-FIBRILLATION",
+ "name": "VS_ATRIAL_FIBRILLATION",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Atrial fibrillation",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-ATRIAL-FIBRILLATION",
+ "version": "1.0.0-v372ab6d7"
+}

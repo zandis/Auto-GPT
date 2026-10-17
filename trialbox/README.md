@@ -30,7 +30,7 @@ cd trialbox
 make venv                      # .venv with the pinned dependencies
 make images                    # fetches fonts + HL7 validator + CQL translator + FHIR packages, builds 2 images
 make up-test                   # whole box + stub LLM + GreenMail (IMAP 3143/SMTP 3025) + MailHog (8025)
-curl -s -X POST localhost:8016/run -H 'Content-Type: application/json' -d '{"source":"csv"}'   # ingest site A
+make ingest-test               # ingest synthetic site A (adapter -> lake + FHIR store)
 .venv/bin/python tools/send_test_mail.py "FEAS GZQO"
 ```
 
@@ -68,7 +68,7 @@ No code changes are needed for a new site.
 | Path | What |
 | --- | --- |
 | `SPEC.md` | the specification (v1.0) |
-| `docs/` | `PLAN.md`, `ARCHITECTURE.md` (as built), `DECISIONS.md` (every choice and deviation), `PROGRESS.md` (phase log + evidence), `RUNBOOK.md`, `HARDENING.md`, `BENCH.md` |
+| `docs/` | `PLAN.md`, `ARCHITECTURE.md` (as built), `DECISIONS.md` (every choice and deviation), `PROGRESS.md` (phase log + evidence), `RUNBOOK.md`, `HARDENING.md`, `BENCH.md`, `OPEN_DATA.md` (open-data end-to-end test; MIMIC-IV demo ODbL notice) |
 | `schemas/` → `libs/tb_contracts` | JSON Schemas (the contracts) → generated pydantic v2 models (`make contracts`) |
 | `libs/tb_common` | config, audit chain, LLM gateway, PHI guard, routing, crypto, deterministic outputs, … |
 | `services/` | mail_gateway, orchestrator (scenarios + reports), criteria_compiler, doc_parser, adapter, lake, embed_service, llm_stub |

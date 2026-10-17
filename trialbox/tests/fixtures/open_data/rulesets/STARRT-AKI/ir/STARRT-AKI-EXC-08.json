@@ -1,0 +1,21 @@
+{
+ "class": "structured",
+ "fallback": "Coded diagnoses only; clinical suspicion is checked at screening.",
+ "id": "STARRT-AKI-EXC-08",
+ "kind": "exclusion",
+ "label": "Obstruction / RPGN / vasculitis / TMA / AIN",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_RENAL_EXCLUSION_DIAGNOSES",
+  "window": {
+   "anchor": "index",
+   "from_days": -30,
+   "to_days": 0
+  }
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #8",
+ "text": "Presence or clinical suspicion of renal obstruction, rapidly progressive glomerulonephritis, vasculitis, thrombotic microangiopathy or acute interstitial nephritis.",
+ "time_sensitive": true
+}

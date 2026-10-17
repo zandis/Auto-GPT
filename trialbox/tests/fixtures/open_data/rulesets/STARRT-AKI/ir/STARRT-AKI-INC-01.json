@@ -1,0 +1,18 @@
+{
+ "class": "structured",
+ "id": "STARRT-AKI-INC-01",
+ "kind": "inclusion",
+ "label": "Age ≥18",
+ "logic": {
+  "age": {
+   "min": 18
+  },
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Inclusion #1",
+ "text": "Age ≥ 18 years.",
+ "time_sensitive": false
+}

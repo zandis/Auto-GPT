@@ -1,0 +1,16 @@
+{
+ "class": "human",
+ "human_question": "Does any of the protocol's further exclusion criteria apply?",
+ "id": "EMPULSE-EXC-11",
+ "kind": "exclusion",
+ "label": "Further exclusion criteria",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #11",
+ "text": "Further exclusion criteria apply (not published in the registry).",
+ "time_sensitive": false
+}

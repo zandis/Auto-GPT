@@ -1,0 +1,22 @@
+{
+ "class": "note",
+ "fallback": "Structured hint only: a DNR code (Z66) does not by itself exclude.",
+ "id": "STARRT-AKI-EXC-04",
+ "kind": "exclusion",
+ "label": "No commitment to life support",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_DNR",
+  "window": {
+   "anchor": "index",
+   "from_days": -30,
+   "to_days": 0
+  }
+ },
+ "note_question": "Do the notes document a decision against ongoing life support or renal replacement therapy (e.g. comfort measures, DNR with limits on RRT)?",
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #4",
+ "text": "Lack of commitment to ongoing life support (including RRT).",
+ "time_sensitive": false
+}

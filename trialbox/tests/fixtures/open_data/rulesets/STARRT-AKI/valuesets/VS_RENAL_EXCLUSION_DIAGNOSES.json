@@ -1,0 +1,82 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "D59.3",
+      "display": "Hemolytic-uremic syndrome"
+     },
+     {
+      "code": "M30.0",
+      "display": "Polyarteritis nodosa"
+     },
+     {
+      "code": "M31.1",
+      "display": "Thrombotic microangiopathy"
+     },
+     {
+      "code": "M31.30",
+      "display": "Wegener's granulomatosis without renal involvement"
+     },
+     {
+      "code": "M31.31",
+      "display": "Wegener's granulomatosis with renal involvement"
+     },
+     {
+      "code": "M31.7",
+      "display": "Microscopic polyangiitis"
+     },
+     {
+      "code": "N01.9",
+      "display": "Rapidly progressive nephritic syndrome with unspecified morphologic changes"
+     },
+     {
+      "code": "N10",
+      "display": "Acute pyelonephritis"
+     },
+     {
+      "code": "N13.0",
+      "display": "Hydronephrosis with ureteropelvic junction obstruction"
+     },
+     {
+      "code": "N13.1",
+      "display": "Hydronephrosis with ureteral stricture, not elsewhere classified"
+     },
+     {
+      "code": "N13.2",
+      "display": "Hydronephrosis with renal and ureteral calculous obstruction"
+     },
+     {
+      "code": "N13.30",
+      "display": "Unspecified hydronephrosis"
+     },
+     {
+      "code": "N13.39",
+      "display": "Other hydronephrosis"
+     },
+     {
+      "code": "N13.6",
+      "display": "Pyonephrosis"
+     },
+     {
+      "code": "N13.8",
+      "display": "Other obstructive and reflux uropathy"
+     },
+     {
+      "code": "N13.9",
+      "display": "Obstructive and reflux uropathy, unspecified"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "STARRT-AKI-VS-RENAL-EXCLUSION-DIAGNOSES",
+ "name": "VS_RENAL_EXCLUSION_DIAGNOSES",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Obstruction, RPGN, vasculitis, thrombotic microangiopathy, acute interstitial nephritis",
+ "url": "http://trialbox.local/fhir/ValueSet/STARRT-AKI-VS-RENAL-EXCLUSION-DIAGNOSES",
+ "version": "1.0.0-v86befdf7"
+}

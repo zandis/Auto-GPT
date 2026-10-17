@@ -22,7 +22,8 @@ from mail_gateway.store import MailDB
 
 MAX_ATTACHMENTS = 20
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
-_METHOD = re.compile(r"\b(spf|dkim|dmarc)\s*=\s*([a-z]+)", re.I)
+_RESULT = re.compile(r"^\s*(spf|dkim|dmarc)\s*=\s*([a-z]+)\b(.*)$", re.I | re.S)
+_PROP = re.compile(r"\b(smtp\.mailfrom|header\.d|header\.i|header\.from)\s*=\s*([^\s;()]+)", re.I)
 
 
 @dataclass
@@ -47,18 +48,52 @@ class Decision:
     subject: Subject | None = None
 
 
-def authentication(msg: EmailMessage, authserv_id: str = "") -> tuple[bool, str]:
-    """The top-most ``Authentication-Results`` header (added by our MTA) must show spf=pass or dkim=pass and no
-    dmarc=fail. With ``authserv_id`` set, a header from any other server is ignored (forged headers)."""
+def _domain(value: str) -> str:
+    return value.rsplit("@", 1)[-1].strip().strip(".<>").lower()
+
+
+def aligned(auth_domain: str, from_domain: str) -> bool:
+    """DMARC relaxed alignment, approximated without the public-suffix list: the same domain, or one a subdomain of
+    the other (mail.hospa.test ~ hospa.test)."""
+    a, f = _domain(auth_domain), _domain(from_domain)
+    return bool(a and f) and (a == f or a.endswith("." + f) or f.endswith("." + a))
+
+
+def authentication(msg: EmailMessage, authserv_id: str = "", sender: str = "") -> tuple[bool, str]:
+    """The top-most ``Authentication-Results`` header (added by our MTA, RFC 8601) decides. It passes on
+    ``dmarc=pass``, or on an ``spf=pass`` / ``dkim=pass`` whose domain (``smtp.mailfrom`` / ``header.d``) is aligned
+    with the From: domain of ``sender`` — a pass for some other domain proves nothing about the From: address — and
+    never with ``dmarc=fail``. With ``authserv_id`` set, a header from any other server is ignored (forged headers
+    the sender put further down)."""
     headers = msg.get_all("Authentication-Results") or []
     for h in headers:
         text = str(h)
-        server = text.split(";", 1)[0].strip()
-        if authserv_id and server.lower() != authserv_id.lower():
+        server, _, rest = text.partition(";")
+        if authserv_id and server.strip().lower() != authserv_id.lower():
             continue
-        res = {k.lower(): v.lower() for k, v in _METHOD.findall(text)}
-        ok = (res.get("spf") == "pass" or res.get("dkim") == "pass") and res.get("dmarc") != "fail"
-        return ok, ", ".join(f"{k}={v}" for k, v in sorted(res.items())) or "no results"
+        results: list[tuple[str, str, dict[str, str]]] = []
+        for clause in rest.split(";"):
+            m = _RESULT.match(clause)
+            if m:
+                props = {k.lower(): v for k, v in _PROP.findall(m.group(3))}
+                results.append((m.group(1).lower(), m.group(2).lower(), props))
+        if not results:
+            return False, "no results"
+        dmarc = {r for meth, r, _ in results if meth == "dmarc"}
+        passes = []
+        for meth, res, props in results:
+            if res != "pass" or meth == "dmarc":
+                continue
+            dom = (
+                props.get("smtp.mailfrom", "") if meth == "spf" else props.get("header.d") or props.get("header.i", "")
+            )
+            if aligned(dom, sender):
+                passes.append(meth)
+        ok = "fail" not in dmarc and ("pass" in dmarc or bool(passes))
+        detail = ", ".join(sorted(f"{meth}={res}" for meth, res, _ in results))
+        if not ok and not dmarc and any(r == "pass" for _, r, _ in results):
+            detail += f" (no pass aligned with {_domain(sender) or 'the From: domain'})"
+        return ok, detail
     return False, "no Authentication-Results header"
 
 
@@ -80,7 +115,7 @@ def read(raw: bytes, authserv_id: str = "") -> Inbound:
     sender = norm(parseaddr(str(msg.get("From", "")))[1])
     mid = str(msg.get("Message-ID", "")).strip() or f"<no-id-{sha256_bytes(raw)[:24]}@trialbox>"
     irt = str(msg.get("In-Reply-To", "")).strip() or None
-    ok, detail = authentication(msg, authserv_id)
+    ok, detail = authentication(msg, authserv_id, sender)
     atts: list[tuple[str, bytes, str]] = []
     used: set[str] = set()
     for part in msg.iter_attachments():

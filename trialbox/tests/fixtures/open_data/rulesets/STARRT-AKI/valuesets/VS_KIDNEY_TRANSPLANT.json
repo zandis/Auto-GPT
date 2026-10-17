@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "Z94.0",
+      "display": "Kidney transplant status"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "STARRT-AKI-VS-KIDNEY-TRANSPLANT",
+ "name": "VS_KIDNEY_TRANSPLANT",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Kidney transplant status",
+ "url": "http://trialbox.local/fhir/ValueSet/STARRT-AKI-VS-KIDNEY-TRANSPLANT",
+ "version": "1.0.0-vc698bb20"
+}

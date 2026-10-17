@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from llm_stub.app import app as stub
 from tb_common.audit import AuditLog, verify
 from tb_common.llm import LlmClient, LlmSchemaError, load_prompt
-from tb_common.phi_guard import scan
+from tb_common.phi_guard import scan, variables_text
 
 
 def _client(tmp_path: Path, **kw: Any) -> LlmClient:
@@ -52,14 +52,35 @@ def test_judge_through_stub_and_audit(tmp_path: Path) -> None:
 def test_cloud_routing_requires_service_flag_and_clearance(tmp_path: Path) -> None:
     c = _client(tmp_path, cloud_base_url="http://cloud/v1", cloud_enabled=True, service_name="criteria-compiler")
     meta = load_prompt("ir_extract").meta
-    text = "criteria text"
-    assert c._target(meta, text, None) == "local"
-    clear = scan(text).clearance
-    assert c._target(meta, text, clear) == "cloud"
-    assert c._target(meta, text + "!", clear) == "local"  # clearance bound to the exact text
+    variables = {"ruleset": "GZQO", "language": "en", "criteria": [{"text": "Age >= 18", "kind": "inclusion"}]}
+    assert c._target(meta, variables, None) == "local"
+    clear = scan(variables_text(variables)).clearance
+    assert c._target(meta, variables, clear) == "cloud"
+    other = {**variables, "criteria": [{"text": "Age >= 18 years", "kind": "inclusion"}]}
+    assert c._target(meta, other, clear) == "local"  # clearance bound to exactly these variables
     c.service_name = "orchestrator"
-    assert c._target(meta, text, clear) == "local"
-    assert c._target(load_prompt("judge").meta, text, clear) == "local"  # PHI prompts never go to cloud
+    assert c._target(meta, variables, clear) == "local"
+    assert c._target(load_prompt("judge").meta, variables, clear) == "local"  # PHI prompts never go to cloud
+    # MRN at the start of a criteria line: a JSON dump would hide it behind "\n", the variables text does not
+    assert scan(variables_text({"criteria": [{"text": "see\nA1234567 chart"}]}), r"^A\d{7}$").hit
+
+
+def test_compiler_cloud_call_goes_to_cloud(tmp_path: Path) -> None:
+    """End to end through chat_json: a clean ir_extract call from criteria-compiler with cloud enabled reaches the
+    cloud endpoint (the clearance used to be computed over other text than the check, so it never did)."""
+    seen: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(str(req.url.host))
+        out = {"criteria": [{"text": "Age >= 18", "kind": "inclusion", "class": "human", "concept_candidates": []}]}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(out)}}], "usage": {}})
+
+    c = _client(tmp_path, cloud_base_url="http://cloud/v1", cloud_enabled=True, service_name="criteria-compiler")
+    c.http = httpx.Client(transport=httpx.MockTransport(handler))
+    variables = {"ruleset": "GZQO", "language": "en", "criteria": [{"text": "Age >= 18", "kind": "inclusion"}]}
+    guard = scan(variables_text(variables))
+    res = c.chat_json("ir_extract", variables, job_id="J1", clearance=guard.clearance, phi_guard_hit=guard.hit)
+    assert res.target == "cloud" and seen == ["cloud"]
 
 
 class _Flaky(httpx.MockTransport):

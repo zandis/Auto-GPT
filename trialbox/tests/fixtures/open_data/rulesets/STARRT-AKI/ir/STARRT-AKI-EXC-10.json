@@ -1,0 +1,16 @@
+{
+ "class": "human",
+ "human_question": "Does the treating clinician believe deferral of RRT is mandated?",
+ "id": "STARRT-AKI-EXC-10",
+ "kind": "exclusion",
+ "label": "Deferral of RRT mandated",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #10",
+ "text": "Clinician(s) caring for patient believe(s) that deferral of RRT initiation is mandated.",
+ "time_sensitive": false
+}

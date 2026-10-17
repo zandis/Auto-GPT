@@ -86,6 +86,8 @@ def postprocess(
             if key in concept_vs or cand.domain == "demographic":
                 continue
             vs_name = vs_name_for(cand.name)
+            if vs_name in valuesets:  # another concept with the same slug: never overwrite its ValueSet
+                vs_name = vs_name_for(cand.name, unique=True)
             res = term.map(cand.domain, cand.name, cand.synonyms or [], llm_map)
             mappings[vs_name] = res
             concept_vs[key] = vs_name

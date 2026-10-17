@@ -1,0 +1,74 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "I20.0",
+      "display": "Unstable angina"
+     },
+     {
+      "code": "I21.01",
+      "display": "STEMI involving left main coronary artery"
+     },
+     {
+      "code": "I21.02",
+      "display": "STEMI involving left anterior descending coronary artery"
+     },
+     {
+      "code": "I21.09",
+      "display": "STEMI involving other coronary artery of anterior wall"
+     },
+     {
+      "code": "I21.11",
+      "display": "STEMI involving right coronary artery"
+     },
+     {
+      "code": "I21.19",
+      "display": "STEMI involving other coronary artery of inferior wall"
+     },
+     {
+      "code": "I21.21",
+      "display": "STEMI involving left circumflex coronary artery"
+     },
+     {
+      "code": "I21.29",
+      "display": "STEMI involving other sites"
+     },
+     {
+      "code": "I21.3",
+      "display": "STEMI of unspecified site"
+     },
+     {
+      "code": "I21.4",
+      "display": "Non-ST elevation (NSTEMI) myocardial infarction"
+     },
+     {
+      "code": "I21.9",
+      "display": "Acute myocardial infarction, unspecified"
+     },
+     {
+      "code": "I21.A1",
+      "display": "Myocardial infarction type 2"
+     },
+     {
+      "code": "I21.A9",
+      "display": "Other myocardial infarction type"
+     },
+     {
+      "code": "I24.9",
+      "display": "Acute ischemic heart disease, unspecified"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-ACUTE-CORONARY-SYNDROME",
+ "name": "VS_ACUTE_CORONARY_SYNDROME",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Acute coronary syndrome",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-ACUTE-CORONARY-SYNDROME",
+ "version": "1.0.0-v12d6e6b8"
+}

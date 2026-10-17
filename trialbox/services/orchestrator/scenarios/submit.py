@@ -104,6 +104,10 @@ def simulated_response(bundle: dict[str, Any], created: str, job_id: str) -> dic
     }
 
 
+class NotSubmitted(StepFailed):
+    """The bundle provably did not reach NHI (no connection, or refused with 4xx): the reservation is released."""
+
+
 def post_bundle(base_url: str, bundle_bytes: bytes, timeout: float = 120.0) -> dict[str, Any]:
     """POST the Bundle to the NHI endpoint; returns the ClaimResponse (direct or inside a response Bundle)."""
     import httpx
@@ -116,10 +120,24 @@ def post_bundle(base_url: str, bundle_bytes: bytes, timeout: float = 120.0) -> d
             headers={"Content-Type": "application/fhir+json", "Accept": "application/fhir+json"},
             timeout=timeout,
         )
-    except httpx.HTTPError as exc:
-        raise StepFailed("running", f"NHI endpoint unreachable ({type(exc).__name__}); nothing was submitted.") from exc
-    if resp.status_code >= 400:
-        raise StepFailed("running", f"NHI endpoint answered HTTP {resp.status_code}; see the box log.")
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:  # no connection: the bundle never left the box
+        raise NotSubmitted(
+            "running", f"NHI endpoint unreachable ({type(exc).__name__}); nothing was submitted."
+        ) from exc
+    except httpx.HTTPError as exc:  # sent (at least partly), answer lost: NHI may have received it
+        raise StepFailed(
+            "running",
+            f"No answer from the NHI endpoint ({type(exc).__name__}); the claim may have been received. Check it in "
+            "the NHI system before submitting again.",
+        ) from exc
+    if 400 <= resp.status_code < 500:  # refused by NHI: no claim was created
+        raise NotSubmitted("running", f"NHI refused the bundle (HTTP {resp.status_code}); see the box log.")
+    if resp.status_code >= 500:
+        raise StepFailed(
+            "running",
+            f"NHI endpoint answered HTTP {resp.status_code}; the claim may have been received. Check it in the NHI "
+            "system before submitting again.",
+        )
     body = resp.json()
     if body.get("resourceType") == "ClaimResponse":
         return dict(body)
@@ -162,11 +180,46 @@ def run(ctx: Ctx) -> Outcome:
     sha = hashlib.sha256(data).hexdigest()
     if sha != out.sha256:
         raise StepFailed("running", f"Stored bundle {out.filename} does not match its audited hash; not submitted.")
-    if ctx.orch.db.submissions(sha, live_only=True):
-        raise StepFailed("running", f"{out.filename} from job {nav.job_id} was already submitted to NHI.")
     bundle = json.loads(data)
     now = ctx.orch._now().isoformat(timespec="seconds")
-    response = simulated_response(bundle, now, job.job_id) if dry else post_bundle(str(base), data)
+    record = {
+        "job_id": job.job_id,
+        "ruleset": ruleset,
+        "pid": pid,
+        "nav_job_id": nav.job_id,
+        "bundle_sha": sha,
+        "dry_run": dry,
+        "outcome": "pending",
+        "submitted_by": norm(job.requested_by),
+        "submitted_at": now,
+    }
+    if dry:
+        response = simulated_response(bundle, now, job.job_id)
+    else:
+        # reserve before sending, atomically: two SUBMITs of one bundle (or a re-run of this job after a restart)
+        # never both reach NHI
+        prior = ctx.orch.db.submission_reserve(record)
+        if prior is not None:
+            if prior["job_id"] == job.job_id:
+                raise StepFailed(
+                    "running",
+                    f"This job was interrupted while submitting {out.filename} (recorded outcome: "
+                    f"{prior['outcome']}); it is not sent again. Check the claim in the NHI system before any new "
+                    "SUBMIT.",
+                )
+            raise StepFailed(
+                "running",
+                f"{out.filename} from job {nav.job_id} was already submitted to NHI by job {prior['job_id']} "
+                f"({prior['outcome']}).",
+            )
+        try:
+            response = post_bundle(str(base), data)
+        except NotSubmitted:
+            ctx.orch.db.submission_release(job.job_id)
+            raise
+        except StepFailed:
+            ctx.orch.db.submission_update(job.job_id, "uncertain")
+            raise
     outcome = str(response.get("outcome") or "unknown")
     ctx.orch.audit.append(
         "twpas.submit",
@@ -182,19 +235,10 @@ def run(ctx: Ctx) -> Outcome:
             "by": norm(job.requested_by),
         },
     )
-    ctx.orch.db.submission_add(
-        {
-            "job_id": job.job_id,
-            "ruleset": ruleset,
-            "pid": pid,
-            "nav_job_id": nav.job_id,
-            "bundle_sha": sha,
-            "dry_run": dry,
-            "outcome": outcome,
-            "submitted_by": norm(job.requested_by),
-            "submitted_at": now,
-        }
-    )
+    if dry:
+        ctx.orch.db.submission_add({**record, "outcome": outcome})
+    else:
+        ctx.orch.db.submission_update(job.job_id, outcome)
     ctx.state("reporting")
     receipt = ctx.publish(
         f"twpas_claimresponse_{ruleset}_{pid[:12]}.json",
