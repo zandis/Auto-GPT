@@ -1,0 +1,69 @@
+{
+ "action": "order creatinine",
+ "class": "structured",
+ "fallback": "Thresholds converted to mg/dL (1 mg/dL = 88.4 µmol/L): 100 µmol/L = 1.13 mg/dL, 130 µmol/L = 1.47 mg/dL.",
+ "id": "STARRT-AKI-INC-03",
+ "kind": "inclusion",
+ "label": "Creatinine ≥100 (F) / ≥130 (M) µmol/L",
+ "logic": {
+  "args": [
+   {
+    "args": [
+     {
+      "domain": "demographic",
+      "quantifier": "any",
+      "sex": "female",
+      "valueset": "NONE"
+     },
+     {
+      "domain": "observation",
+      "quantifier": "any",
+      "value": {
+       "num": 1.13,
+       "op": ">=",
+       "unit": "mg/dL"
+      },
+      "valueset": "VS_SERUM_CREATININE",
+      "window": {
+       "anchor": "index",
+       "from_days": -30,
+       "to_days": 0
+      }
+     }
+    ],
+    "op": "and"
+   },
+   {
+    "args": [
+     {
+      "domain": "demographic",
+      "quantifier": "any",
+      "sex": "male",
+      "valueset": "NONE"
+     },
+     {
+      "domain": "observation",
+      "quantifier": "any",
+      "value": {
+       "num": 1.47,
+       "op": ">=",
+       "unit": "mg/dL"
+      },
+      "valueset": "VS_SERUM_CREATININE",
+      "window": {
+       "anchor": "index",
+       "from_days": -30,
+       "to_days": 0
+      }
+     }
+    ],
+    "op": "and"
+   }
+  ],
+  "op": "or"
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Inclusion #3",
+ "text": "Evidence of kidney dysfunction: serum creatinine ≥100 µmol/L (women) and ≥130 µmol/L (men).",
+ "time_sensitive": true
+}

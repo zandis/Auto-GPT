@@ -15,7 +15,7 @@ shows the change.
 | C-7 | **Cost/precision balance through the bench gate.** The reference is one box at about US$5k *(est.)*. Model classes per hardware profile, and any cloud route, are chosen by measurement on the site's own data and on public suites. Cloud spend runs against budgets in the gateway. | §4 (profiles, bench gate), §8 (cost model, budgets), §13 |
 | C-8 | **Multilingual.** The product handles Traditional Chinese (zh-TW), English, Japanese (ja), and code-mixed, abbreviation-heavy Taiwanese notes. The output language is defined per artefact. Evaluation is stratified by language, with per-language floors. | §3.9, §10 (ML-*), §16 (`judge_ml`, bake-off) |
 | C-9 | **Codeable now.** Every MS0/MS1 requirement maps to concrete packages and modules in this repository, and the first sprint is ordered by dependency. | §17, §20 |
-| C-10 | **Hermes as the governed front door.** Hermes Agent (pinned release) is the conversation engine on email, Teams, LINE (nudges, non-PHI) and the admin CLI/TUI: staff concierge, aggregate analyst, admin copilot. Its only tools come from the front-door MCP server: no PHI tools, schedules, approvals or writes. Every test passes with `channels.engine: native`. | §3.4, §9, §14, §18 |
+| C-10 | **Hermes as the governed front door.** Hermes Agent (pinned release) is the conversation engine on email, Teams and the admin CLI/TUI (LINE carries outbound nudges only; its inbound text gets a canned pointer and never reaches a model): staff concierge, aggregate analyst, admin copilot. Its only tools come from the front-door MCP server: no PHI tools, schedules, approvals or writes. Every test passes with `channels.engine: native`. | §3.4, §9, §14, §18 |
 | C-11 | **Open-data verifiability.** Every quality claim can be reproduced on open data before site data exists. Public suites run in CI; the bake-off uses D0 data only. A number quoted to a hospital or sponsor comes from a public suite, the site bench or the site's ledger, never a vendor claim. | §1.3, §8, §16 |
 
 **Precedence.** If two constraints pull in different directions, the order is C-2′ (data class), then C-1, then C-3, then
@@ -59,7 +59,8 @@ The settings name two reference model classes: a 35B-class MoE judge (`qwen3.5-3
 | Platform | Record | lint | unit | integration | e2e | egress |
 | --- | --- | --- | --- | --- | --- | --- |
 | Linux | `docs/PROGRESS.md` D-86 | clean | 285 passed, 2 skipped | 59 passed | 6 passed | 1 passed |
-| Linux | `0803107` adds two test modules | – | + 11 test functions (`test_mlbench.py` 7, `test_recall_cert.py` 4) | – | – | – |
+| Linux | `0803107` and `437ba0a` add two test modules | – | + 13 test functions (`test_mlbench.py` 7, `test_recall_cert.py` 6) | – | – | – |
+| Linux | the open-data change (§1.3) adds two test modules | – | + 13 (`test_mimic_mapping.py`) | + 5 (`test_open_data_e2e.py`), passed | – | – |
 | Windows (WSL2) | fixes in `f8697a8` | – | counts not recorded | – | – | – |
 
 The suites were not re-run for this document (no project virtual environment in the authoring container). The history
@@ -83,7 +84,8 @@ contains one merged pull request (#1).
 
 ### 1.2 The TrialGPT port
 
-The port lives in the sibling directory `trialgpt/` (branch `claude/trialgpt-local-lcvm9p`, head `8711899`). It runs NCBI
+The port lives on branch `claude/trialgpt-local-lcvm9p` (head `8711899`) under `trialgpt/`; it is **not in this
+worktree**, and sprint 1 vendors `trialgpt_local/` into `services/matching/registry_match/` (S1-17, §20.8). It runs NCBI
 TrialGPT (Jin et al., *Nat Commun* 15:9074, 2024) on a local model. It is the only part of the codebase that has been run
 with real models, and it is the base of the v4 matching engine (§10, M5).
 
@@ -106,7 +108,8 @@ Commit `0803107` added three assets. They make v4's quality gates testable befor
 | --- | --- | --- |
 | `eval/criterion_ml/` | 1,015 physician-labelled patient–criterion pairs (NCBI TrialGPT-Criterion-Annotations, public domain): 53 SIGIR patients, 103 trials, 356 inclusion and 659 exclusion criteria, with expert evidence sentence ids. The 53 notes also exist in zh-TW, ja and Taiwanese code-mixed style, with sentence order, sentence count (326) and numbers preserved. | `judge_ml` seed, evidence-span gold, public calibration prior (§16). Translations are machine-made and **not clinician-verified**: for model comparison and parity, not clinical ground truth. |
 | `tools/mlbench.py` | Judging benchmark against any OpenAI-compatible endpoint (OpenRouter or the box's vLLM): accuracy, macro-F1, false-block rate and patient×trial false exclusion with Clopper–Pearson bounds, evidence F1, language parity, cost. Cached and resumable. | Engine of the bake-off (§16) and of the judge-role bench (§4) |
-| `libs/tb_common/recall.py` | Clopper–Pearson bounds and an anytime-valid betting confidence sequence (Waudby-Smith & Ramdas, JRSS-B 2024) for elusion rates; certificate combiner (Bonferroni over strata, known-positive lower bound) | Statistics of the recall certificate (§6, §10 SAFE-*) |
+| `libs/tb_common/recall.py` | Clopper–Pearson bounds and an anytime-valid betting confidence sequence (Waudby-Smith & Ramdas, JRSS-B 2024) for elusion rates, on a non-uniform 2,001-point grid (step 0.00005 below 0.05); `recall_lower_sequence`; certificate combiner (equal α/K split over strata today; known-positive lower bound, single-look or `known_positive_sequence`). 6 unit tests in `tests/unit/test_recall_cert.py`. | Statistics of the recall certificate (§6, §10 SAFE-*) |
+| `tools/recall_sim.py` | The 12-look coverage simulation (`python -m tools.recall_sim`, seed 11) | Reproduces the 9.7 % / 0.3 % figure quoted below |
 
 **The GPT-4 reference.** These numbers come from scoring the published GPT-4 labels in the dataset with `mlbench`, on all
 1,015 pairs. No GPT-4 call was made.
@@ -121,13 +124,20 @@ The last row is why TrialBox certifies recall rather than quoting criterion accu
 rate loses about one eligible patient–trial pair in ten. The dataset's `training` flag is not a split (in 129 of its 134
 `False` rows GPT-4 disagrees with the physician), so `mlbench` reports those rows as a hard slice.
 
-**Anytime-valid bounds.** In the simulation recorded for v4, over 12 monthly looks, repeated Clopper–Pearson bounds missed
-the true elusion rate in 9.7 % of ledgers and the confidence sequence in 0.3 %.
+**Anytime-valid bounds.** In the reference simulation (`tools/recall_sim.py`, `python -m tools.recall_sim`, seed 11:
+p = 0.02, 12 monthly looks of 40, 300 ledgers), repeated Clopper–Pearson bounds missed the true elusion rate in 9.7 % of
+ledgers and the confidence sequence in 0.3 %.
 `tests/unit/test_recall_cert.py::test_sequence_covers_true_rate_over_monthly_looks` reproduces the comparison at smaller
-scale. Importance (Horvitz–Thompson) weighting and pooling per canonical criterion are not implemented yet (§6, §10).
+scale (150 reps, asserts ≤ 5 %). This is the single statement of the module's state; §6.7, SAFE-12 and App. F.2 cite it:
+- **Implemented:** real-valued observations in [0, 1]; `recall_lower_sequence` for the cumulative chart-review line.
+- **Not implemented:** per-cell pre-registered α weights in `certificate()` (it splits α/K equally), Horvitz–Thompson
+  rescaling `Y_i = x_i·w_i/w_max`, pooling per canonical criterion, and a log-spaced grid below 0.0005.
 
-**In progress:** the end-to-end test on the open MIMIC-IV Clinical Database Demo on FHIR (v2.1.0, 100 patients, ODbL 1.0);
-its fetcher `tools/fetch_open_data.py` (checksum-verified, into `.cache/open_data/`) is written but not committed.
+**Open-data end-to-end (present, committed with this spec revision):** `docs/OPEN_DATA.md`, `tools/fetch_open_data.py`
+(checksum-verified, into `.cache/open_data/`), `tools/open_data_e2e.py`, the MIMIC mapping `services/adapter/mapping/mimic/`,
+`tests/unit/test_mimic_mapping.py` and `tests/integration/test_open_data_e2e.py`. The run on the MIMIC-IV Clinical Database
+Demo on FHIR (v2.1.0, 100 patients, ODbL 1.0) against EMPULSE (NCT04157751) and STARRT-AKI (NCT02568722) **passed**; the
+report is `.cache/open_data/report.md` (§16.3.2).
 **Pending:** the OpenRouter bake-off on D0 data, waiting for the API key. No bake-off results exist and none are quoted.
 
 ### 1.4 What has never touched reality
@@ -259,8 +269,8 @@ highest data class a model sees in that stage (§7). Module allocation is normat
 | 4 | Site selection | Site qualification pack, past performance, start-up timelines | M3 | no | – | MS4 |
 | 5 | Start-up | IRB package pre-fill and **IRB e-submission package** in the IRB system's import format; CTA budget from the SoA with NHI standard-of-care split; delegation and training expiry | M7 | drafting only | D1 | MS4–MS5 |
 | 6 | Pre-screening | Cascade per study; portfolio clinic-day lists; watchlist flip dates; decision packets; recall certificate | M4 | residue only | D3 | MS2–MS3 |
-| 7 | Patient → trial | Open studies (compiled rulesets) and registry trials (TrialGPT retrieval and judgement) for one patient; tumour-board batches | M5 | residue only | D3 (patient), D0 (registry) | MS2 (open studies), MS4 (registry) |
-| 8 | Consent and enrolment | Pipeline; consent versions and re-consent; **screening-visit eligibility checklist** pre-filled from evidence for the investigator to confirm per criterion (never marked "eligible"); forecast | M6 | no | – | MS4 |
+| 7 | Patient → trial | Open studies (compiled rulesets) and registry trials (TrialGPT retrieval and judgement) for one patient; tumour-board batches | M5 | residue only | D3 (patient), D0 (registry) | MS2 (open studies, silent; live MS3), MS4 (registry, tumour board) |
+| 8 | Consent and enrolment | Pipeline; consent versions and re-consent; **screening-visit eligibility checklist** pre-filled from evidence for the investigator to confirm per criterion (never marked "eligible"); forecast | M6 | no | – | MS4 (checklist MS5, FR-M7-18) |
 | 9 | Conduct | Visit windows; **retention and visit adherence** (missed-visit risk); deviation candidates with CAPA log; SAE/SUSAR clocks; **IP accountability prompts** (dispensing-log reconciliation, temperature excursions; no randomisation data); **lab-kit and sample logistics**; **participant reimbursement reminders**; hospital-flagged events listed | M7 | no | – | MS5 |
 | 10 | Oversight | **RBQM KRIs** (deviation rate, query rate, SAE lateness, consent-version lag) in the Monday digest; **TMF/ISF completeness** against the ICH E6(R3) essential-records list; **DSMB support** (event listings); **sponsor-query SLA tracking** | M7 | no | – | MS5 |
 | 11 | Data | eCRF pre-fill with lineage; SDV source packets; EDC query-answer drafts from source; critical-field gaps | M8 | extraction | D3 | MS5 |
@@ -270,7 +280,7 @@ highest data class a model sees in that stage (§7). Module allocation is normat
 | 15 | Investigator-initiated trials | ICH M11-template protocol skeleton drafted from a concept sheet, under G1-like review | M1, M7 | drafting | D1 | MS5 |
 | 16 | Reimbursement | NHI navigation and TWPAS (v1 NAV) | M10 | as v1 | D3 | MS1 (carried) |
 | 17 | Networked research | Alliance cohorts; federated feasibility with the privacy accountant; alliance language packs; OMOP endpoint for OHDSI studies | M11 | no | aggregates | MS5 |
-| – | Conversation (all stages) | Requests, clarifications, status, protocol Q&A, aggregate questions, admin copilot | Hermes / native | yes (interactive) | D1, or D3 after identifier redaction, on-prem only (§3.4) | MS0 onward |
+| – | Conversation (all stages) | Requests, clarifications, status, protocol Q&A, aggregate questions, admin copilot | Hermes / native | yes (interactive) | D3 for packet threads and tokenised PHI-tolerant text, otherwise D1; on-prem only, never a cloud route (§3.4) | MS0 onward |
 
 These remain out of scope and are listed as non-goals in §2.6: randomisation, IP dispensing, unblinding, eConsent signing,
 and patient contact.
@@ -415,9 +425,11 @@ Intake runs in this order, for every inbound message and every channel:
    become tokens before any model sees the text; in no-PHI channels a hit drops the message with a canned pointer.
 4. **Parse the exact grammar** (`libs/tb_common/subject.py`, `services/mail_gateway/intake.py`). A line that parses runs
    deterministically, with no model. Approval lines are accepted only from email (FR-SIG-8).
-5. **Converse.** Remaining free text goes to the conversation engine. Its model calls go through `tb-gateway` with the
-   declared class: D1 for text without patient content, D3 for redacted text from PHI-tolerant channels. Both route to
-   on-prem builds only (§8).
+5. **Converse.** Remaining free text goes to the conversation engine (Hermes, or `classify_intent` in the native
+   engine). Its model calls go through `tb-gateway` with the declared class: **D3** for every authenticated staff message
+   in a packet thread and for tokenised text from PHI-tolerant channels; D1 only for text without patient content
+   outside a packet thread. Both route to on-prem builds only (§8.5); cloud routes never receive conversation text. LINE
+   inbound text stops at step 3 with a canned pointer and never reaches a model.
 6. **Propose.** Anything with an effect becomes a proposal rendered by the orchestrator (§3.4.2). The engine never renders
    the command itself.
 
@@ -521,7 +533,7 @@ in Japanese (ML-10, MS6).
 | FR-CONV-5 | Recipients, delegations, external targets and scope beyond the sender's delegations MUST NOT be taken from free text (SEC-13, §14). A request that exceeds them is refused with the reason and a proposal for the permitted alternative. The engine MUST NOT reveal whether a named patient exists to a non-delegated user. | T | MS1 |
 | FR-CONV-6 | Conversation state of record (proposals, clarifications, references) MUST live in the orchestrator (`conversation_*` tables), so a conversation survives an engine switch. Hermes memory is off by default (§9). Hermes session state MUST NOT be needed to complete any request. | T | MS0 |
 | FR-CONV-7 | **Native parity.** With `channels.engine: native`, every example in §3.4.4 MUST produce the same proposal lines, except that multi-turn clarification collapses to one numbered round. The intake e2e suite runs on both engines. | T | MS0 |
-| FR-CONV-8 | Model calls made for a conversation MUST declare their class: D1, or D3 when the text came from a PHI-tolerant channel. They MUST resolve to on-prem builds only, whatever the topology. | T | MS0 |
+| FR-CONV-8 | Model calls made for a conversation (Hermes `frontdesk_converse`, `classify_intent`) MUST declare their class: **D3** for every authenticated staff message in a packet thread and for tokenised text from a PHI-tolerant channel; D1 only for staff text with no patient content outside a packet thread. Both classes MUST resolve to on-prem builds only (topology B: inside the tenant), whatever the topology; cloud routes never receive conversation text (§8.5). LINE inbound text never reaches a model (FR-UX-11). | T | MS0 |
 | FR-CONV-9 | **Plain-word candidate decisions.** Replies to a packet thread MUST be resolved against that packet's rows by row number, alias or position words ("the first two"). Free-text reasons MUST be mapped to reason codes R01–R07, with the original text kept redacted and never echoed in a body. Relative dates MUST be resolved from the scheduling feed or a stated default, and the reply MUST say which. | T | MS2 |
 | FR-CONV-10 | A decision expressed outside email (Teams) MUST produce a proposal delivered to the person's mailbox. The approval is the email reply. | T | MS4 |
 | FR-CONV-11 | The engine MUST reply in the language of the user's message, falling back to the preferred language (ML-9). Mixed zh/en messages are answered in the dominant language of the message. Grammar keywords and codes stay in ASCII. | T | MS1 |
@@ -650,7 +662,7 @@ FR-SIG-1…8 carry over from v3. Their release column maps to milestones as in �
 | FR-SIG-11 | **Review-page approvals.** A decision set submitted on the review page MUST be recorded as Level A with method `review_page`. The record holds the IdP subject, `auth_time`, link id and decision-set hash. For a gate configured B, submission MUST hand over to the signing ceremony instead. | T | MS4 |
 | FR-SIG-12 | **Two-step ceremony.** The signing page MUST NOT render record content before step 2 (identify) succeeds for the bound signer. Step 4 MUST use a fresh assertion bound to the record hash (B1) or a forced re-authentication with `auth_time` after step 3 began (B2). | T | MS2 |
 | FR-SIG-13 | Additional negative tests MUST pass: WebAuthn assertion without user verification; credential not enrolled to the signer; IdP subject different from the bound signer; IdP `auth_time` older than the step start; CSRF on the sign action; framing by another origin; link token leaked through `Referer`; double submission from two devices (one signature only); record superseded while the page is open; revoked or expired PKI certificate (B3). | T | MS2 |
-| FR-SIG-14 | The signing and review listeners MUST meet OWASP ASVS 5.0 Level 2, with the headers of §3.7.2. They are verified by a DAST run in CI and the yearly penetration test (§14). | T | MS2 |
+| FR-SIG-14 | The signing page and the admin console MUST meet OWASP ASVS 5.0 Level 3; the review page and the CDS card MUST meet Level 2 (§14.2.3). All use the headers of §3.7.2. They are verified by a DAST run in CI and the yearly penetration test (§14). | T | MS2 |
 | FR-SIG-15 | **A2 fast-track.** Reverting the routing policy or egress allowlist to a previously approved, stricter version MAY be approved as A2 (system owner and QA, hash-bound) instead of B. Any change that widens a route, class or egress target MUST be Level B. | T | MS1 |
 
 ### 3.8 The admin control plane
@@ -705,7 +717,7 @@ Any D3/D4 call reaching a non-on-prem build fails the simulation, and the change
 | `kill passes` | Scheduled model passes | Steps stop at the next durable-step boundary and resume later |
 | `kill module <M0…M11>` | One module | Requests acknowledged as "paused by the administrator"; gates stay open |
 | `kill channel <email\|teams\|line>` | One channel | Inbound gets a canned reply |
-| `kill hermes` | Conversation engine | `channels.engine` falls back to `native`; Hermes container stopped; sessions archived; no request lost (outbox) |
+| `kill hermes` | Conversation engine | `channels.engine` falls back to `native`; Hermes container stopped; sessions archived; no request lost (outbox). Timing: kill switch and automatic health-check fallback: engine switched ≤ 60 s (FR-UX-23); full channel rollback incl. verification ≤ 15 min (§18.5.5) |
 | `kill route <id>` / `kill cloud` | One route, or all non-on-prem routes | Gateway refuses them; fallback only to permitted on-prem builds |
 | `kill role <llm-role>` | One LLM role | Work waits or takes the deterministic or human path of §4 |
 

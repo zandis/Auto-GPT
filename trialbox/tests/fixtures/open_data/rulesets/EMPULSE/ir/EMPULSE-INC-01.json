@@ -1,0 +1,18 @@
+{
+ "class": "structured",
+ "id": "EMPULSE-INC-01",
+ "kind": "inclusion",
+ "label": "Age ≥18",
+ "logic": {
+  "age": {
+   "min": 18
+  },
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: minimumAge",
+ "text": "Adults aged 18 years or older.",
+ "time_sensitive": false
+}

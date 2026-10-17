@@ -68,7 +68,7 @@ No code changes are needed for a new site.
 | Path | What |
 | --- | --- |
 | `SPEC.md` | the specification (v1.0) |
-| `docs/` | `PLAN.md`, `ARCHITECTURE.md` (as built), `DECISIONS.md` (every choice and deviation), `PROGRESS.md` (phase log + evidence), `RUNBOOK.md`, `HARDENING.md`, `BENCH.md` |
+| `docs/` | `PLAN.md`, `ARCHITECTURE.md` (as built), `DECISIONS.md` (every choice and deviation), `PROGRESS.md` (phase log + evidence), `RUNBOOK.md`, `HARDENING.md`, `BENCH.md`, `OPEN_DATA.md` (open-data end-to-end test; MIMIC-IV demo ODbL notice) |
 | `schemas/` → `libs/tb_contracts` | JSON Schemas (the contracts) → generated pydantic v2 models (`make contracts`) |
 | `libs/tb_common` | config, audit chain, LLM gateway, PHI guard, routing, crypto, deterministic outputs, … |
 | `services/` | mail_gateway, orchestrator (scenarios + reports), criteria_compiler, doc_parser, adapter, lake, embed_service, llm_stub |

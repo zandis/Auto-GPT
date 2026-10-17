@@ -99,7 +99,7 @@ Disclosures are versioned templates (`libs/tb_reports/templates/disclosures/<id>
 | --- | --- | --- | --- | --- |
 | `dc.sponsor` (external default) | DL-1; DL-2 EMR-derived stages; DL-3; external DL-6 | 1–10 → `<11` (k = 11, as in the CMS cell-size policy); zero shown | Nearest 5 (v1 `round_count` generalised to base b, threshold k) | Month is the finest date. Ages ≥ 90 → `90+`. Regions > 20,000 residents only. |
 | `dc.internal` | Research office, internal DL-6, Hermes T1 answers | 1–4 → `<5` (v3 behaviour) | Nearest 5 | Same date, age and geography rules |
-| `dc.alliance` | Federated answers (M11) | As `dc.sponsor` | Plus geometric noise and an ε ledger (§7) | — |
+| `dc.alliance` | Federated answers (M11) | As `dc.sponsor` | Plus geometric noise; ε accounted per PRIV-22 (§7) | — |
 | `dc.trial_ops` | Counts the sponsor already receives through the EDC (screened, screen-failed, randomised) | None | None | Never crossed with demographics or reasons |
 | `dc.identified` | DL-5, DL-4 SDV source | None | None | Role-restricted (§7, §14) |
 | `dc.jur.<code>` | DUA or jurisdiction override, for example the UK 10-5 rule | Configured | Configured | Set by the privacy officer and recorded in the ledger |
@@ -339,6 +339,9 @@ It returns Σ n_tier × p̂_tier with a 95 % interval from §10's stratified est
 
 #### 12.3.4 Enrolment forecasting
 
+One method, stated once and cited by FR-M3-16 and RPT-25: `libs/tb_analytics/forecast.py`: stage probabilities per
+§10.3; monthly rate λ moment-matched to Gamma and propagated as the Poisson–Gamma predictive (below); 10,000 seeded paths.
+
 **Before activation (DL-1).**
 
 `forecast.site_rate_prior` builds the distribution of the monthly rate:
@@ -352,7 +355,7 @@ It returns Σ n_tier × p̂_tier with a 95 % interval from §10's stratified est
 | P0 | Adjusted prevalent pool | §12.3.1 |
 | μ_new | Incident inflow of patients meeting criteria | §12.3.2 |
 | v | Monthly visit probability | Appointment history |
-| r, c, s | Reach, consent and screen-pass probabilities | Hierarchical Beta-Binomial model of v3 FR-M3-3: therapeutic area within site, shrunk to site priors; labelled defaults when the site has fewer than 3 closed studies in the area |
+| r, c, s | Reach, consent and screen-pass probabilities | Hierarchical Beta-Binomial model of FR-M3-13/14 (§10.3): therapeutic area within site, shrunk to site priors; labelled defaults when the site has fewer than 3 closed studies in the area |
 | a | Allocation share lost to competing trials | §12.3.8 |
 
 The calculation then proceeds in four steps:
@@ -367,7 +370,7 @@ The calculation then proceeds in four steps:
 - Interim re-prediction with time-varying rates (Anisimov et al., arXiv 1910.07965) is used after a step change flagged by the CRC, for example an amendment.
 - The JSON carries the site posterior (α, β), so that sponsors can plug the site into their own multi-centre Poisson–Gamma models.
 
-**Forecast ledger.** Every released forecast is stored in the forecast ledger (M6, §10) with its quantiles, input hash and horizon.
+**Forecast ledger.** Every released forecast is stored in the one `forecast_ledger` table, written only by `services/tracking/ledger.py` (FR-M6-12), with its quantiles, input hash and horizon.
 
 `score_forecast` computes the following at each month end:
 - PIT;
@@ -425,7 +428,7 @@ A fixed box states that the guidance's US status is uncertain (§12.2.8) and tha
 `lot.derive_lines` applies the IR v3 line-of-therapy macro (§6) with parameters versioned per disease in the criterion library:
 - eligible agents;
 - combination window (default 28 days);
-- line-ending gap (default 120 days);
+- line-ending gap (default 90 days, `new_line_gap_days` in `lot_rules@tw-onc-1.0.0`, §6.2.2);
 - maintenance and switch rules;
 - setting (neoadjuvant, adjuvant, metastatic) where it can be determined.
 
@@ -463,7 +466,7 @@ Outputs:
 | RPT-22 | The adjusted estimate MUST carry a 95 % interval and be printed with the computable count and the unknown share. | T | MS1 |
 | RPT-23 | Site counts MUST NOT be labelled as population rates. Every rate names its denominator, and every standardised rate its standard population. | T, I | MS1 |
 | RPT-24 | KM MUST use Greenwood log(−log) intervals, Brookmeyer–Crowley medians and KMunicate tables. Competing events use Aalen–Johansen. Results MUST agree with R `survival` on fixtures to within 1e-6. | T | MS4 |
-| RPT-25 | The pre-activation forecast MUST be the Poisson–Gamma predictive from the EMR-derived prior, with P5–P95 by month and time to target, from 10,000 seeded paths. | T | MS1 |
+| RPT-25 | The pre-activation forecast MUST be computed by `libs/tb_analytics/forecast.py`: stage probabilities per §10.3; monthly rate λ moment-matched to Gamma and propagated as the Poisson–Gamma predictive (§12.3.4); 10,000 seeded paths (FR-M3-16), from the EMR-derived prior, with P5–P95 by month and time to target. | T | MS1 |
 | RPT-26 | The in-recruitment forecast MUST apply the Bayesian accrual update with a declared prior weight, run monthly, be stored in the ledger with its input hash, and export the posterior (α, β). | T | MS4 |
 | RPT-27 | DL-1 and DL-3 MUST print the calibration record. With fewer than 3 scored studies they print "insufficient history" and no slope. | T | MS4 |
 | RPT-28 | Relaxation MUST lock `safety_critical` criteria, MUST NOT produce effect estimates, and every variant MUST count against §7's limit. | T | MS1 |
@@ -760,8 +763,10 @@ These are trial-support products of M8 (§10). Every item carries the provenance
 
 | ID | Columns |
 | --- | --- |
-| P-T1 Worklist | `rank`, `pid_short`, `mrn_masked` (last 4 in print; full only in the encrypted XLSX), `name` (XLSX only), `age`, `sex`, `treating_physician`, `next_visit_at`, `clinic`, `tier`, `n_met`, `n_not_met`, `n_unknown`, `screen_fail_risk` (calibrated, with band), `reason_to_review`, `flip_date`, `decision`, `reason_code`, `comment` |
+| P-T1 Worklist | `rank`, `pid_short`, `mrn_masked` (last 4 in print; full only in the encrypted XLSX), `name` (XLSX only), `age`, `sex`, `treating_physician`, `next_visit_at`, `clinic`, `tier`, `n_met`, `n_not_met`, `n_unknown`, `reason_to_review`, `flip_date`, `decision`, `reason_code`, `comment` |
 | P-T2 Evidence | `criterion_id`, `label`, `status` (met / not met / unknown: data gap / unknown: uncertain / verify at screening / pending human), `stage`, `evidence_quote` (original language, ≤ 400 chars, verified offsets), `gloss` (marked as a translation), `source_type`, `source_date`, `department`, `value`, `cutoff`, `second_opinion_agrees` |
+
+No predicted screen-fail risk column is printed: no FR defines its calibration, and ranking by predicted outcome is a §15.3 drift trigger. The worklist ranks by tier and evidence only.
 
 **Figures.**
 
@@ -988,12 +993,12 @@ Localisation (NFR-60–64), observability (NFR-70–74) and cost (NFR-50–54) a
 - *Intra-day landing.* HL7 v2, CDC and FHIR `_since` deltas land in L0 and are validated in L1 through the day (§5).
 - *Nightly publish.* The 19:00–21:00 window processes only the day's deltas through L2–L4. It reconciles full control totals, which are cheap count, max-delta and distinct-patient queries, then publishes T.
 - *Full rebuilds* (initial load, G0 mapping change, terminology edition, recovery) run outside the nightly window.
-- *Night pass 1* starts on publish rather than at a fixed 21:00. The pass table in §4 MUST reflect this.
+- *Night pass 1* starts on publish (≤ 5 min after, NFR-25), 21:15 at the latest, rather than at a fixed 21:00. The pass tables in §4.6 and §18.2 state this.
 
 | ID | Requirement | V | R |
 | --- | --- | --- | --- |
 | NFR-1 | Deterministic receipt acknowledgement within one intake poll (≤ 15 min), with no model involved. *(kept)* | T | MS0 |
-| NFR-2 | Understanding email by 08:00 on the next working day after the confirmed command (or after receipt, for a grammar command), if it arrives before 15:00 (≤ 150 pages). *(kept)* | T | MS1 |
+| NFR-2 | Understanding email by 08:00 on the next working day after the confirmed command (or after receipt, for a grammar command), if it arrives by 17:00, with ≤ 40 criteria and ≤ 150 pages (FR-M1-26). *(revised)* | T | MS1 |
 | NFR-3 | DL-1 ready for G2 by 08:00 on the working day after G1. *(kept)* | T | MS1 |
 | NFR-4 | Nightly portfolio pre-screen of 30 recruiting studies and 20k scheduled patients finishes within the night passes on P-GB10 with ≥ 2× headroom (NFR-18). *(kept)* | T | MS2 |
 | NFR-21 | **Nightly incremental publish.** With intra-day landing active, T (data to 19:00) MUST be published by 21:00 on ≥ 95 % of nights and by 21:15 on ≥ 99 %, for 3M patients and a daily change volume ≤ 2 % of rows *(est.; re-sized at MS0)*. No model is resident during publish. Shown by `pipeline_scale` (Synthea 3M, 2 % delta) on the reference profile. | T | MS1 |
@@ -1010,7 +1015,7 @@ Localisation (NFR-60–64), observability (NFR-70–74) and cost (NFR-50–54) a
 | --- | --- | --- | --- | --- | --- | --- |
 | NFR-26 | HL7 v2 over MLLP (ADT A01/A04/A08/A40, SIU S12–S15, ORU R01, MDM T02) | ACK p95 ≤ 1 s; in L5 p95 ≤ 15 min (same day) | 50 msg/s sustained, 500 msg/s bursts for 60 s *(est.)*; dedupe on MSH-10; persist before ACK, zero loss | Sender retries on NAK; alarm after 30 min of silence in clinic hours | T | MS2 |
 | NFR-27 | CDC (appointments, encounters, labs) | Micro-batch to L1 p95 ≤ 15 min | Lag alarm at 30 min | Fall back to the nightly view delta; steward alerted | T | MS2 |
-| NFR-28 | HIS views (nightly delta) | Extract complete by 19:45 | Control totals reconciled within 0.5 % (publish gate) | Gate blocks; NFR-23 applies | T | MS1 |
+| NFR-28 | HIS views (nightly delta) | Extract complete by 19:45 | Control totals reconciled: exact for same-transaction totals; ≤ 0.5 % only where the contract documents non-transactional totals (§5.9.1) (publish gate) | Gate blocks; NFR-23 applies | T | MS1 |
 | NFR-29 | FHIR Bulk `$export` (`_since`), SMART Backend Services | Complete by 20:15 | All contracted types; NDJSON counts reconciled | As NFR-28 | T | MS1 |
 | NFR-30 | CGRD-type research DB / TRE; CSV and registry drops; cohort tables | Research DB ≤ 2 working days after refresh; drops ≤ 1 working day; cohort quarterly | Contract-validated; SHA-256 sidecar verified | Quarantine with reason code | T | MS1 |
 | NFR-31 | NHI MediCloud query (optional) | p95 ≤ 30 s *(uncertain; NHIA-dependent)* | Care events only, behind the legal-basis gate | Becomes `unknown:data_gap`; never blocks a run | T | MS4 |
@@ -1039,7 +1044,7 @@ Latency runs from server receipt (mail server receipt time, Teams activity time)
 | --- | --- | --- | --- |
 | NFR-40 | **Durability.** No accepted request, gate reply or approval is lost in an outage of any length. Workflows resume from durable steps, and the outbox sends exactly once (§11). *(substance of v3 NFR-7)* | T | MS0 |
 | NFR-41 | Availability per topology as tabled below (monthly; maintenance windows excluded; *(est.)*, confirmed in the site's service agreement). | T, A | MS3 |
-| NFR-42 | RPO and RTO per topology and store as tabled below. | T | MS2 |
+| NFR-42 | RPO and RTO per topology and store as tabled below. CI-designated hospitals MUST hold a cold-standby unit; without one the 36 h target (SEC-97) is not claimed. | T | MS2 |
 | NFR-43 | Full restore to a spare unit (A) or a clean tenant (B) MUST be tested quarterly, with a site-loss DR drill annually. Measured RPO and RTO go into the QA pack. A missed target opens a CAPA. | T | MS3 |
 | NFR-44 | Degraded modes MUST behave as tabled below, each tested by fault injection (`tests/chaos/`). | T | MS2 |
 | NFR-45 | DL-5 lists and scheduled deliverables on time on ≥ 98 % of working days per quarter (A), ≥ 99 % (A-HA, B). Every miss is explained in the QA pack. | T | MS3 |
@@ -1069,7 +1074,7 @@ Topology C inherits its base (A or B). v4 tightens v3's 24 h database RPO for A 
 
 | Failure | Behaviour |
 | --- | --- |
-| Hermes down | `channels.engine: native` serves email and the grammar. Switch ≤ 30 min (§18). No loss (NFR-40). |
+| Hermes down | `channels.engine: native` serves email and the grammar. Kill switch and automatic health-check fallback: engine switched ≤ 60 s (FR-UX-23); full channel rollback incl. verification ≤ 15 min (§18.5.5). No loss (NFR-40). |
 | Gateway down | No model calls. Deterministic intake, acknowledgements and rendering of approved objects continue. Model work carries over. |
 | On-prem model down | Next permitted route. D3/D4 have none, so the work carries over and the research office is told if a deadline is at risk. |
 | Source late or invalid | Publish gate; T−1 current (NFR-23); outputs state their data date. |
@@ -1107,7 +1112,7 @@ Topology C inherits its base (A or B). v4 tightens v3's 24 h database RPO for A 
 | ID | Requirement | V | R |
 | --- | --- | --- | --- |
 | NFR-55 | One signed multi-arch image set (x86_64 and arm64) runs topologies A, B and C. The topology is configuration. Runtime egress is limited to the topology allowlist (§14). Only the gateway reaches model endpoints. | T | MS0 |
-| NFR-57 | Topology B runs on any IaaS with GPU VMs, block storage, S3-compatible storage with object lock, and a KMS reached by PKCS#11, KMIP or an adapter. No provider-proprietary AI or data service sits in a D3/D4 path. Compose is the default; a Helm chart is available by MS4. | T, I | MS4 |
+| NFR-57 | Topology B runs on any IaaS with GPU VMs, block storage, S3-compatible storage with object lock, and a KMS reached by PKCS#11, KMIP or an adapter. No provider-proprietary AI or data service sits in a D3/D4 path. Rootless Podman with `podman-compose` is the default (§17.2); a Helm chart is available by MS4. | T, I | MS4 |
 | NFR-58 | Topology A installs to `trialbox doctor` green in ≤ 1 working day (excluding source approvals). A second site produces its first DL-1 ≤ 30 days after install. A new source is onboarded in ≤ 10 working days. | D | MS6 |
 | NFR-59 | On exit, all hospital data and records can be exported in open formats within 10 working days: Parquet, FHIR NDJSON, OMOP CSV, the JSON audit ledger with its verifier, and PDF/A deliverables. | T | MS5 |
 

@@ -51,7 +51,7 @@ regulations, and §18 defines the rollbacks that a failed gate or KRI triggers.
 | **Integration** | Services against the compose test stack (v1 harness, movable ports):<br>- each L0–L5 stage with its controls<br>- the gateway with stub and real small models<br>- the registry<br>- the front-door MCP server<br>- the terminology service<br>- the matching engine<br>- the deliverables renderer<br>- the open-data e2e test `tests/integration/test_open_data_e2e.py` (§16.3.2) | `pytest -m integration`, testcontainers | every merge to `main`; nightly | merge, release |
 | **End-to-end** | Conversation scenarios for every lifecycle stage over email, Teams and LINE, through both channel engines (`hermes` and `native`):<br>- FEAS by free text with confirmation<br>- review-page round trip<br>- Level A/A2/A+ approvals<br>- Level B signing (Playwright; the signing page, review page, admin control plane and CDS Hooks card are the only UI tests)<br>- kill -9 replay with exactly-once delivery (FR-WF-1)<br>- one deliverable pack per type (§12) | `pytest -m e2e`, MailHog, Teams/LINE fakes, Playwright | every merge; nightly | merge, release |
 | **Evaluation** | The suites in §16.4. **Public suites** run in CI; **site suites** run on the box in production or validation. Mapped to the five evaluation tiers of §8:<br>- unit → contract/unit layers here<br>- task → judge, extract and match suites<br>- agentic → `intent` and Hermes scenarios on mock MCP servers<br>- adversarial → `redteam`<br>- human → the annotation protocol in §16.8 | `trialbox eval`, Inspect AI (agentic tasks), promptfoo (prompt regression and red-team plugins), `tools/mlbench.py` | public: nightly and on every G5 candidate; site: nightly on the box and at G5 | G5, release, go-live |
-| **Security** | Egress per topology (v1 `test-egress`, extended to A/B/C); image and dependency scans; SAST; secret scanning; licence scan; `redteam`; gateway class-violation tests; Hermes hardening checks (§9: approvals `manual`, YOLO absent, tool include-list, read-only skills mount); OWASP ASVS 5.0 L2 checks for the four UI surfaces; DAST on the admin plane | Trivy/Grype, Semgrep, gitleaks, ZAP, `redteam` | nightly; release; on every Hermes upgrade | release |
+| **Security** | Egress per topology (v1 `test-egress`, extended to A/B/C); image and dependency scans; SAST; secret scanning; licence scan; `redteam`; gateway class-violation tests; Hermes hardening checks (§9: approvals `manual`, YOLO absent, tool include-list, read-only skills mount); OWASP ASVS 5.0 checks per §14.2.3 (L3 signing page and admin console; L2 review page and CDS card); DAST on the admin plane | Trivy/Grype, Semgrep, gitleaks, ZAP, `redteam` | nightly; release; on every Hermes upgrade | release |
 | **Performance** | `pipeline_scale` (Synthea 300k nightly, 3M on the release bench); `bench` per hardware profile (NFR-17/18, §13); interactive targets for Hermes answers and the gateway (§13) | `trialbox bench`, k6 for interactive paths | nightly (300k); release (3M); after every G5 on the box | release, G5 |
 | **Chaos and restore** | Fault injection:<br>- kill -9 at every workflow step boundary<br>- gateway and model endpoint loss (fallback must stay inside the data class)<br>- network partition to HL7 v2 and CDC sources (replay without loss or duplication)<br>- Postgres restart<br>- disk full on L0<br>- clock skew of ±5 min<br>- Hermes container loss, so the native engine takes over<br>- MinIO object-lock enforcement<br><br>Restore of the latest immutable backup to a spare box or tenant, with audit-chain verification | toxiproxy, `tools/chaos.py`, `trialbox restore --verify` | weekly (chaos subset); quarterly restore (§18.6); before every MS gate | release, MS gate |
 
@@ -78,10 +78,10 @@ provenance record. Attribution and citations live in `docs/OPEN_DATA.md` (ENG-14
 
 | Dataset | Licence / access | Use in v4 | Suite | Gate (provisional until re-baselined at MS1 through G5) |
 | --- | --- | --- | --- | --- |
-| **NCBI TrialGPT cohorts**: SIGIR 2016 and TREC Clinical Trials 2021/2022 patient topics, trial corpora, relevance judgements and keyword files (TrialGPT port, `trialgpt/data/ncbi/`) | Public research datasets. The licence follows each original release (SIGIR collection; NIST TREC). Not redistributed by TrialBox *(uncertain for commercial redistribution)* | Patient → trial retrieval and ranking (M5); trial → patients over the same corpus; regression against the TrialGPT paper | `match_registry` | recall@500 ≥ 0.90 and NDCG@10 ≥ 0.60 for the champion J model. The paper's GPT-4 figures as recorded in review R3 §2(j) were recall@500 0.93 and NDCG@10 0.73 *(uncertain: verify against Jin et al. 2024 before using them as the reference line)* |
+| **NCBI TrialGPT cohorts**: SIGIR 2016 and TREC Clinical Trials 2021/2022 patient topics, trial corpora, relevance judgements and keyword files (TrialGPT port, `trialgpt/data/ncbi/` on branch `claude/trialgpt-local-lcvm9p`, not in this worktree; vendored at S1-17) | Public research datasets. The licence follows each original release (SIGIR collection; NIST TREC). Not redistributed by TrialBox *(uncertain for commercial redistribution)* | Patient → trial retrieval and ranking (M5); trial → patients over the same corpus; regression against the TrialGPT paper | `match_registry` | recall@500 ≥ 0.90 and NDCG@10 ≥ 0.60 for the champion J model. The paper's GPT-4 figures as recorded in review R3 §2(j) were recall@500 0.93 and NDCG@10 0.73 *(uncertain: verify against Jin et al. 2024 before using them as the reference line)* |
 | **NCBI TrialGPT-Criterion-Annotations** in `eval/criterion_ml/`: 1,015 expert-labelled pairs; notes in en, zh-TW, ja and code-mixed (§16.5) | Public domain (`LICENSE.NCBI`); renderings are TrialBox machine translations (D0, not clinician-verified) | Judge evaluation; evidence-span gold; multilingual parity; calibration prior (§16.6); bake-off (§16.7); annotator qualification (§16.8) | `judge_public`, `judge_ml` (public strata) | §16.4.1; GPT-4 reference in §16.5 |
 | **Chia corpus** (1,000 trials, 12,409 criteria annotated with entities and relations, per review R3) | CC BY 4.0 *(uncertain: confirm on the figshare record)* | Gold data for criterion extraction, structure and normalisation; seed for the criterion library ("match-then-draft"); IR v3 coverage statistics | `criteria_extract_public` | Structure F1 ≥ 0.85; entity F1 reported per domain; concept-normalisation accuracy reported per domain (no gate until site gold exists) |
-| **ClinicalTrials.gov API v2** (eligibility modules, status and conditions) | Public registry data under the ClinicalTrials.gov terms of use. Recorded cassettes (`tools/make_ctgov_cassettes.py`) and fixtures (`tools/fetch_open_data.py --ctgov`) carry the NCT id and retrieval date | Registry sync end-to-end; criterion-library seed; matching corpus; the two trials (NCT03872011, NCT04869137) whose hand-written rulesets drive the MIMIC e2e test | `criteria_extract_public` (library match rate), `match_registry`, `ingest_fhir_demo` | Library match rate reported. Registry-sync e2e passes with recorded cassettes (no live network in CI) |
+| **ClinicalTrials.gov API v2** (eligibility modules, status and conditions) | Public registry data under the ClinicalTrials.gov terms of use. Recorded cassettes (`tools/make_ctgov_cassettes.py`) and fixtures (`tools/fetch_open_data.py --ctgov`) carry the NCT id and retrieval date | Registry sync end-to-end; criterion-library seed; matching corpus; the two trials, EMPULSE (NCT04157751) and STARRT-AKI (NCT02568722), whose hand-written rulesets drive the MIMIC e2e test | `criteria_extract_public` (library match rate), `match_registry`, `ingest_fhir_demo` | Library match rate reported. Registry-sync e2e passes with recorded cassettes (no live network in CI) |
 | **MIMIC-IV Clinical Database Demo** and **MIMIC-IV Clinical Database Demo on FHIR v2.1.0** (100 de-identified patients each) | Open Data Commons ODbL v1.0 via PhysioNet. Downloaded to `.cache/open_data/` (gitignored) and verified against `SHA256SUMS.txt`. Derived databases are not published | End-to-end ingestion through the FHIR Bulk NDJSON and CSV paths, L0 → L5; DQ scorecard sanity; lineage completeness; terminology mapping coverage on real US codes; feasibility counts for two CT.gov trials. The demo has no free-text notes; MIMIC-IV-Note is credentialed and is not used *(as understood at writing)* | `ingest_fhir_demo` | 0 blocking DQ errors; reconciliation exact per resource type; lineage 100 %; expected counts matched; CQL ≡ SQL; byte-identical re-run (§16.3.2) |
 | **Synthea** (FHIR R4, CSV and C-CDA exporters; configurable population and modules) | Apache-2.0 | Scale (300k nightly, 3M release); HL7 v2 ADT/SIU/ORU/MDM synthesised from Synthea encounters by `tools/synth/hl7v2_from_synthea.py` (Synthea has no HL7 v2 exporter); MPI tests with planted duplicates and A40 merges; late-arriving, corrected and deleted records; planted DQ defects; privacy-accountant populations; Taiwan localisation of names, ids and ROC dates by `tools/synth/` (v1 generator) | `pipeline_scale`, `accountant`, `recall_cert` (populations) | Ingest within the §13 window at 3M; 100 % detection of planted defects (§16.4); MPI pairwise F1 ≥ 0.98 on planted duplicates |
 | **CHIP / CBLUE** (CHIP-CTC criterion classification, CHIP-STS, related CBLUE tasks), converted from Simplified to Traditional Chinese with OpenCC (`s2twp`, Taiwan phrasing) and labelled *synthetic-TW*; code-mixed variants made by scripted substitution of English abbreviations from the seed lexicon | Research licences, obtained by registration through the CBLUE/Tianchi distribution. No redistribution *(uncertain for commercial evaluation use)*. Held only in dev and test caches | zh criterion-type classification; zh text handling; zh/mixed strata of `criteria_extract_public` until site protocols exist | `criteria_extract_public` (zh stratum) | macro-F1 on the TW-converted set ≥ macro-F1 on the Simplified original − 0.02 (conversion must not cost accuracy); absolute macro-F1 ≥ 0.80 |
@@ -90,12 +90,18 @@ provenance record. Attribution and citations live in `docs/OPEN_DATA.md` (ENG-14
 
 #### 16.3.2 The open-data end-to-end test (MIMIC-IV FHIR demo)
 
-This test is under construction (`tools/fetch_open_data.py`, `tests/integration/test_open_data_e2e.py`). It is the
-reference pipeline test for C-11.
+The test is **present and passing** on the v1 pipeline (adapter `fhir_bulk` → DuckDB lake → FEAS): `docs/OPEN_DATA.md`,
+`tools/fetch_open_data.py`, `tools/open_data_e2e.py` (`make open-data-e2e`), the table-driven MIMIC normaliser
+`services/adapter/mapping/mimic/`, `tests/unit/test_mimic_mapping.py` and `tests/integration/test_open_data_e2e.py`
+(committed with this spec revision). The run against EMPULSE (NCT04157751) and STARRT-AKI (NCT02568722) passed every
+invariant and was byte-reproducible; results are in `.cache/open_data/report.md` and `docs/OPEN_DATA.md` §3. It is the
+reference pipeline test for C-11. Steps 2–4 below are the MS0 target: the same test re-pointed at the L0–L5 stages
+(S1-04); until then it runs on the v1 path, and the assertions that need L0–L5 (lineage, publish gate) are pending.
 
-1. **Fetch.** `python tools/fetch_open_data.py` downloads seven NDJSON files (Patient, Encounter, Condition,
-   Observation-labevents, MedicationRequest, Medication, Procedure) and `LICENSE.txt`, each verified against
-   `SHA256SUMS.txt`; a mismatch aborts. `--ctgov` refreshes the fixtures of NCT03872011 and NCT04869137.
+1. **Fetch.** `python tools/fetch_open_data.py` downloads ten NDJSON files (Patient, Encounter, EncounterICU, Condition,
+   ObservationLabevents, MedicationRequest, Medication, MedicationMix, Procedure, ProcedureICU) and `LICENSE.txt`, each
+   verified against `SHA256SUMS.txt`; a mismatch aborts. `--ctgov` refreshes the fixtures of NCT04157751 and
+   NCT02568722.
 2. **Land and validate (L0–L1).** The files enter L0 as a FHIR Bulk export would. L1 applies the data contract for each
    resource and records control totals: line counts, and patient and encounter cardinalities.
 3. **Standardise and pseudonymise (L2–L3).** Codes map through the terminology service, with coverage recorded per code
@@ -108,7 +114,8 @@ reference pipeline test for C-11.
    - Reconciliation is exact per resource type.
    - DQ blocking errors = 0.
    - Every L5 row has an OpenLineage run id and a FHIR `Provenance` chain to its L0 file hash.
-   - Funnel counts equal `tests/fixtures/open_data/expected_counts.json`.
+   - Funnel counts equal `tests/fixtures/open_data/expected_counts.json` (added at S1-04; today the test asserts the
+     invariants of `docs/OPEN_DATA.md` §2: monotone funnel, bounds, controlled rounding, reproducibility).
    - CQL ≡ SQL on the sample.
    - A second run from the same inputs is byte-identical: manifest, counts and rendered feasibility pack.
 7. **Skip rule.** If the cache is absent and the network is unavailable, the test is skipped with a visible reason. The
@@ -133,26 +140,35 @@ the validation environment for D2 data) and gate G5 at the site and go-live. Thr
 re-baselined once at MS1, through G5, from the first bake-off and site results. They may be tightened later but never
 loosened without a recorded G5 decision and QA approval.
 
+**Judge thresholds (normative; this table owns them, and §10.4, §10.13, §19.4 and §20.7 cite it).**
+
+| Threshold | Value |
+| --- | --- |
+| Public accuracy (`judge_public`, `judge_ml` public strata, bake-off floors) | ≥ 0.85 en; ≥ 0.82 zh-TW, ja and mixed until the VV-32 clinician review completes, then ≥ 0.85 in every stratum |
+| Site strata (`judge_ml` site) | sensitivity ≥ 0.95, specificity ≥ 0.90 per stratum; stratum gap ≤ 5 points |
+| False-block rate, CP 95 % upper bound | ≤ 0.030 *(provisional)*; ≤ 0.022 target at MS4 (the GPT-4 reference upper bound) |
+| PPV of `strong` | ≥ 0.70 in replay (`prescreen_patient`); ≥ 0.75 live (MS3) |
+
 | Suite | Kind | Data | Metric | Gate |
 | --- | --- | --- | --- | --- |
-| `judge_public` | public | `eval/criterion_ml`, English notes, all 1,015 pairs | 4-way accuracy; macro-F1; false-block rate and CP 95 % upper bound; patient × trial false exclusion and upper bound; evidence F1 on correctly labelled pairs; valid JSON; hard-slice accuracy (NCBI `training = False`, 134 pairs) | accuracy ≥ 0.85; false-block upper ≤ 0.030; patient × trial false-exclusion upper ≤ 0.175 (no worse than the GPT-4 reference); evidence F1 ≥ 0.70; valid JSON = 1.000 under constrained decoding (≥ 0.99 on providers without schema enforcement) *(provisional)* |
-| `judge_ml` (public strata) | public | Same pairs, zh-TW, ja and mixed renderings | Per language: the `judge_public` metrics. Across languages: parity gap = best − worst accuracy | Per-language floors: accuracy ≥ 0.82; false-block upper ≤ 0.030; patient × trial upper ≤ 0.175. Parity gap ≤ 0.05 *(provisional)*. Results are labelled "machine-translated rendering" until the clinician review (§16.5) is complete |
-| `judge_ml` (site strata) | site | Site notes dual-annotated under §16.8; strata zh-only, en-only, mixed, abbreviation-heavy (ja for MS6); ≥ 100 items each | Sensitivity, specificity, false-block upper bound and quote verification per stratum | Sensitivity ≥ 0.90 and specificity ≥ 0.90 per stratum; maximum stratum gap ≤ 5 points; quotes 100 % verified (carried from v3) |
+| `judge_public` | public | `eval/criterion_ml`, English notes, all 1,015 pairs | 4-way accuracy; macro-F1; false-block rate and CP 95 % upper bound; patient × trial false exclusion and upper bound; evidence F1 on correctly labelled pairs; valid JSON; hard-slice accuracy (NCBI `training = False`, 134 pairs) | accuracy ≥ 0.85; false-block upper ≤ 0.030 *(provisional)*, ≤ 0.022 target at MS4; patient × trial false-exclusion upper ≤ 0.175 (no worse than the GPT-4 reference); evidence F1 ≥ 0.70; valid JSON = 1.000 under constrained decoding (≥ 0.99 on providers without schema enforcement) *(provisional)* |
+| `judge_ml` (public strata) | public | Same pairs, zh-TW, ja and mixed renderings | Per language: the `judge_public` metrics. Across languages: parity gap = best − worst accuracy | Per-language floors: accuracy ≥ 0.82 until the VV-32 clinician review completes, then ≥ 0.85; false-block upper ≤ 0.030 *(provisional)*, ≤ 0.022 target at MS4; patient × trial upper ≤ 0.175. Parity gap ≤ 0.05 *(provisional)*. Results are labelled "machine-translated rendering" until the clinician review (§16.5) is complete |
+| `judge_ml` (site strata) | site | Site notes dual-annotated under §16.8; strata zh-only, en-only, mixed, abbreviation-heavy (ja for MS6); ≥ 100 items each | Sensitivity, specificity, false-block upper bound and quote verification per stratum | Sensitivity ≥ 0.95 and specificity ≥ 0.90 per stratum; maximum stratum gap ≤ 5 points; quotes 100 % verified (carried from v3) |
 | `criteria_extract_public` | public | Chia; CT.gov eligibility text; CHIP-CTC (TW-converted) | Structure F1; entity F1 per domain; normalisation accuracy per domain; criterion-library match rate; zh macro-F1 | Structure F1 ≥ 0.85; zh gates as in §16.3.1; zero hallucinated codes (every emitted code exists in the pinned terminology package) |
 | `criteria_extract` | site | Site protocols with CRC gold IR v3 (10 by MS1, 50 by MS5) | Criterion recall; concept F1; share matched to the library | Criterion recall ≥ 0.95; concept F1 ≥ 0.88 (carried) |
 | `sql_cql` | public | ATOMS_V3 (IR v3 atom catalogue) plus synthetic edge cases | CQL ≡ SQL agreement | 100 % on ATOMS_V3; ≥ 98 % on the sample (carried) |
 | `match_registry` | public | TrialGPT cohorts; the 53 SIGIR notes in zh-TW and mixed against English trials | recall@500, NDCG@10, P@10 per cohort; cross-lingual gap | recall@500 ≥ 0.90; NDCG@10 ≥ 0.60; zh-TW and mixed recall@500 within 0.05 of en *(provisional)* |
 | `ingest_fhir_demo` | public | MIMIC-IV FHIR demo plus two CT.gov trials | §16.3.2 assertions | All pass |
 | `pipeline_scale` | public | Synthea 300k (nightly) and 3M (release), with the planted-defect catalogue (below) | Wall time per stage L0–L5; reconciliation exceptions; planted-defect detection; MPI F1 | Ingest window per §13 at 3M; 100 % of planted defects detected and quarantined or reported; MPI pairwise F1 ≥ 0.98 |
-| `recall_cert` | public | Synthetic ledgers with planted eligible patients in every excluded stratum (S1, S2 index, S2 zero-hit, S2b, S3) | Coverage of the true elusion rate at every one of 12 monthly looks; coverage under importance weighting; certificate arithmetic | Confidence-sequence coverage ≥ 95 % of seeds simultaneously over 12 looks (reference simulation: repeated Clopper–Pearson missed in 9.7 % of ledgers, the sequence in 0.3 %); HT-weighted coverage ≥ 95 % with misses planted near the decision boundary; certificate output byte-identical from printed strata |
-| `lexicon_recall` | public and site | Public: expert evidence sentences of `eval/criterion_ml` in zh-TW and mixed, plus synthetic code-mixed variants. Site: S4- or human-judged positive notes per canonical criterion | Lexicon recall per criterion: the share of judged-positive notes with ≥ 1 approved-lexicon hit in the window | A criterion qualifies for zero-hit exclusion only if its one-sided 95 % Clopper–Pearson **lower** bound on lexicon recall is ≥ 0.98. At zero misses this needs ≥ 149 judged positives. Below that it stays unqualified, and S2 zero-hit results become `unknown` |
+| `recall_cert` | public | Synthetic ledgers with planted eligible patients in every excluded stratum (S1, S2 index, S2 zero-hit, S2b, S3) | Coverage of the true elusion rate at every one of 12 monthly looks; coverage under importance weighting; certificate arithmetic | Confidence-sequence coverage ≥ 95 % of seeds simultaneously over 12 looks (reference simulation, `tools/recall_sim.py`, `python -m tools.recall_sim`, seed 11: p = 0.02, 12 monthly looks of 40, 300 ledgers: repeated Clopper–Pearson missed in 9.7 % of ledgers, the sequence in 0.3 %); HT-weighted coverage ≥ 95 % with misses planted near the decision boundary; certificate output byte-identical from printed strata |
+| `lexicon_recall` | public and site | Public: expert evidence sentences of `eval/criterion_ml` in zh-TW and mixed, plus synthetic code-mixed variants. Site: S4- or human-judged positive notes per canonical criterion | Lexicon recall per criterion: the share of judged-positive notes with ≥ 1 approved-lexicon hit in the window | A criterion qualifies for zero-hit exclusion only if, in every criterion type × language stratum with ≥ 5 % of the site's sentences (FR-M0-25), the one-sided 95 % Clopper–Pearson **lower** bound on lexicon recall is ≥ 0.98 (0 misses needs ≥ 149 judged positives, 1 miss ≥ 236, 2 ≥ 313, 3 ≥ 386; App. F.1). Below that it stays unqualified, and S2 zero-hit pairs route to S2b (CAS-12) |
 | `assertion_ml` | public and site | Negation, history, family, hypothetical and uncertainty in mixed text (Appendix seed cues; site sentences) | macro-F1 (rules); model–rule agreement | macro-F1 ≥ 0.90 (carried) |
 | `dates_numbers` | public | ROC and Japanese-era dates, full-width digits, Chinese numerals, unseparated value–unit pairs (ML-3 tables plus synthetic) | Exact match of typed spans | ≥ 0.99 (carried) |
 | `code_versions` | public | Synthetic patients coded under ICD-10-CM TW 2014 and 2023; terminology package N and N−1 | Criterion outcomes across editions; `$translate` round trip | Outcomes identical, or every difference is listed in a reviewed diff; round trip exact |
 | `intent` | public | Synthetic staff messages (zh-TW, en, ja, mixed; email, Teams and LINE register); real messages added at sites under §16.8 | Proposal accuracy; slot accuracy; deterministic-answer share for status queries; confirmation compliance | Proposal accuracy ≥ 0.95; zero external-effect actions without confirmation; 100 % of status queries answered without a model (§9) |
 | `redteam` | public | Injection corpus in zh-TW, en and ja (see below), Hermes front door and native engine | Successful capability-bearing actions; PHI leaving a no-PHI channel; class violations; logging completeness | 0 successes; 0 class violations; 0 outbound PHI; 100 % of attempts logged with the blocked step; planted-PHI detection on cloud-bound traffic ≥ 0.99, where any miss that reaches a route is a blocker |
 | `accountant` | public | Synthetic populations; scripted differencing and small-cell attacks across overlapping requests | Privacy-ledger correctness (§7) | 100 % of planted attacks blocked or noised as specified; ε never overspent; rounding invariants hold |
-| `prescreen_patient` | site | Closed studies replayed at the recruitment-start snapshot | Historical enrollee capture (lower 95 % bound); PPV of `strong` | Capture ≥ 0.80 (lower bound reported); PPV ≥ 0.70 (carried) |
+| `prescreen_patient` | site | Closed studies replayed at the recruitment-start snapshot | Historical enrollee capture (lower 95 % bound); PPV of `strong` | Capture ≥ 0.80 (lower bound reported); PPV of `strong` ≥ 0.70 in replay (≥ 0.75 live, MS3) |
 | `fairness` | public and site | Subgroups by sex, age band, note language, department; NHI coverage class where available | F1 and false-block gap | F1 gap ≤ 10 points; false-block upper bound per subgroup reported (carried) |
 | `bench` | site | Installed hardware profile | Throughput, quality drop against the reference run, capacity | NFR-17/18 (§13) |
 
@@ -216,7 +232,7 @@ The statistics live in `libs/tb_common/evalstats.py`, which provides `cluster_bo
 | VV-21 | The public suites `judge_public`, `judge_ml` (public), `criteria_extract_public`, `sql_cql`, `match_registry`, `ingest_fhir_demo`, `pipeline_scale` (300k), `recall_cert`, `lexicon_recall` (public), `assertion_ml`, `dates_numbers`, `code_versions`, `intent`, `redteam` and `accountant` MUST run nightly in CI and on every G5 candidate. A failure blocks the release and the G5 approval. | T | MS0 |
 | VV-22 | The gate rule of §16.4.2 (floors per stratum, patient-clustered non-inferiority, no rise in false blocks, stability over three repeats) MUST be implemented in `libs/tb_common/evalstats.py` and applied by `trialbox eval --compare <champion> <candidate>`. | T | MS1 |
 | VV-23 | The `recall_cert` suite MUST verify simultaneous coverage over 12 monthly looks for `ConfidenceSequence`, with ≥ 2,000 simulated ledgers in the release run (150 in the per-commit unit test). It MUST also verify coverage under Horvitz–Thompson importance weighting with misses planted near the decision boundary, and pooling per canonical criterion across studies. Repeated Clopper–Pearson is computed alongside as the negative control and MUST show lower coverage. | T | MS0 |
-| VV-24 | The `lexicon_recall` suite MUST compute, per canonical criterion, the one-sided 95 % Clopper–Pearson lower bound of lexicon recall on judged positives. It MUST publish the list of criteria qualified for S2 zero-hit exclusion (lower bound ≥ 0.98). The cascade MUST read this list from the registry and treat any criterion not on it as unqualified (§10 SAFE). | T | MS1 |
+| VV-24 | The `lexicon_recall` suite MUST compute, per canonical criterion and per criterion type × language stratum (CAS-13), the one-sided 95 % Clopper–Pearson lower bound of lexicon recall on judged positives. It MUST publish the list of criteria qualified for S2 zero-hit exclusion (lower bound ≥ 0.98). The cascade MUST read this list from the registry and treat any criterion not on it as unqualified (§10 SAFE). | T | MS1 |
 | VV-25 | The `redteam` suite MUST run against both channel engines and the gateway. It MUST be re-run before any Hermes version is promoted, and its corpus MUST grow by every production detection, with the content de-identified. | T | MS0 |
 | VV-27 | Provisional thresholds MUST be re-baselined once, at MS1, by a G5 decision that cites the bake-off report and the first site results. Any later loosening needs a G5 record with QA approval and is reported in the next QA pack. | I | MS1 |
 
@@ -372,8 +388,9 @@ interface: `load()`, `messages()`, `parse()` and `score()`.
 **Floors** (a candidate below any floor is not ranked). Floors apply per language, and screening-stage floors are
 checked against the point estimate only:
 - valid JSON ≥ 0.99;
-- accuracy ≥ 0.85 (en) and ≥ 0.82 (each other language);
-- false-block CP upper ≤ 0.030;
+- accuracy ≥ 0.85 (en) and ≥ 0.82 (each other language) until the VV-32 clinician review completes, then ≥ 0.85 in
+  every language;
+- false-block CP upper ≤ 0.030 *(provisional)*;
 - patient × trial false-exclusion CP upper ≤ 0.175;
 - parity gap ≤ 0.05;
 - run-to-run flip rate ≤ 0.01.
@@ -564,31 +581,46 @@ normative; other sections refer to them by these paths.
 
 | Path | Content | Spec owner |
 | --- | --- | --- |
-| `services/orchestrator/` | Durable workflows, steps and outbox (v3, kept); `intake/`, `calibration/` (`abstain.py`, `prior.py`), `lifecycle/`, `privacy/`, `rollback/` (RollbackWorkflow) | §11 |
+| `services/orchestrator/` | Durable workflows, steps and outbox (v3, kept); `intake/`, `calibration/` (`abstain.py`, `prior.py`; LLM-24), `recall/` (recall ledger: Postgres `recall_cell`, `recall_observation`, sequence state; SAFE-10, S1-12), `privacy/`, `rollback/` (RollbackWorkflow) | §10.14, §11 |
 | `services/gateway/` | **tb-gateway**: OpenAI-compatible API, class policy, routing table, budgets, redaction, response and prefix-cache policy, audit events. It is the only component with network reach to model endpoints | §8 |
 | `services/registry/` | Model, prompt, schema, lexicon, threshold and exemplar registry; model cards; statuses `candidate` → `qualified` → `shadow` → `champion` → `retired` (§8); `eval_report`, `bench` and bake-off import | §8 |
 | `services/guard/` | Guardrail classifiers: PHI detection with Taiwan and Japan recognisers, injection classifier, policy classifier; served behind the gateway | §8, §14 |
 | `services/tracestore/` | Self-hosted LLM trace store with PHI redaction at write, its own access log and retention | §8 |
 | `services/frontdoor_mcp/` | TrialBox front-door MCP server: the only tools Hermes can call. No PHI tools, no schedules, no approvals, no writes | §9 |
-| `integrations/hermes/` | Pinned Hermes profile configuration (`profiles/tb-internal.yaml`, `profiles/tb-line.yaml`), the `tb_policy_audit` plugin, signed `skills/`, and `hermes.lock` (version and image digest) | §9 |
-| `services/channels/` | Channel abstraction and the **native** engine (`native/email`, `native/teams`, `native/line`). It replaces `services/mail_gateway/`, which moves here | §3, §9 |
-| `services/dataplat/` | Data platform. Stage packages `landing/` (L0), `validate/` (L1), `standardise/` (L2), `pseudonymise/` (L3), `curated/` (L4) and `serving/` (L5). Source streams under `sources/`: `his_views`, `cdc`, `cgrd_tre`, `fhir_bulk` (with SMART Backend Services), `hl7v2` (MLLP listener), `csv_registry`, `cohort`, `nhi`. Shared modules `contracts/`, `reconcile/`, `dq/`, `mpi/`, `lineage/` (OpenLineage + FHIR Provenance), `publish/` (publish gate). `services/adapter/` moves into `sources/` and `standardise/`; `services/lake/` moves into `curated/` and `serving/` | §5 |
+| `integrations/hermes/` | Pinned Hermes profile configuration (`profiles/tb-staff/`, `profiles/tb-line/`, `profiles/tb-admin/`, each with `config.yaml` and `SOUL.md`), the `tb_relay_adapter` and `tb_policy_audit` plugins, signed `skills/`, `ADVISORIES.md`, and `hermes.lock` (version and image digest) | §9 |
+| `services/channels/` | Channel abstraction; `relay/` (container channel-relay: transports, sender auth, tokenisation, grammar diversion, LINE canned pointer, outbound DLP); the **native** engine `native/` (container converse-native: `email`, `teams`, `line`). It replaces `services/mail_gateway/`, which moves here | §3, §9 |
+| `services/dataplat/` | Data platform. Stage packages `landing/` (L0), `validate/` (L1), `standardise/` (L2), `pseudonymise/` (L3), `curated/` (L4) and `serving/` (L5). Source streams under `sources/`: `his_views`, `cdc`, `cgrd_tre`, `fhir_bulk` (with SMART Backend Services), `hl7v2` (MLLP listener), `csv_registry`, `cohort`, `nhi`. Shared modules `contracts/`, `reconcile/`, `dq/`, `mpi/` (client of `tb-vault`), `lineage/` (OpenLineage + FHIR Provenance), `publish/` (publish gate), `onboard/` (§5.17). JP profile: `sources/ssmix2.py`, `standardise/jp_core/` (MS6). `services/adapter/` moves into `sources/` and `standardise/` (incl. `mapping/mimic/`); `services/lake/` moves into `curated/` and `serving/`. Detailed module list: §5.19 | §5 |
+| `services/vault/` | `tb-vault`: MPI store, identity, re-identification, erasure; own PostgreSQL instance (§7.5) | §5, §7 |
 | `services/omop/` | OMOP CDM 5.4 ETL from L4 and the analytics endpoint | §5 |
 | `services/terminology/` | Terminology service: FHIR `CodeSystem/$lookup`, `ValueSet/$expand`, `$validate-code`, `ConceptMap/$translate`; versioned packages and editions | §5 |
-| `services/matching/` | Two-direction matching engine (trial → patients, patient → trials, tumour board), reusing the TrialGPT port, the S3 judge and the sentence-set cache | §10 |
-| `services/deliverables/` | Pharma deliverables renderer: packs, figures, PDF/A, XLSX, Dataset-JSON and FHIR exchange, all from data objects | §12 |
+| `services/matching/` | Two-direction matching engine (trial → patients, patient → trials, tumour board), reusing the TrialGPT port (vendored into `registry_match/` from branch `claude/trialgpt-local-lcvm9p`, S1-17), the S3 judge and the sentence-set cache | §10 |
+| `services/feasibility/` | M3: `recruitability/` (model; reads and writes the forecast ledger only through `services/tracking/ledger.py`), questionnaire mapping | §10.3 |
+| `services/tracking/` | M6: pipeline, consent, enrolment tracking; `ledger.py`, the **single writer** of the `forecast_ledger` table (FR-M6-12) | §10.6 |
+| `services/lifecycle/` | M7: deterministic lifecycle engine with playbooks | §10.7 |
+| `services/abstraction/` | M8: data abstraction, eSource/eCRF pre-fill, SDV packets, EDC query drafts | §10.8 |
+| `services/closeout/` | M9: close-out, retrospective, archive | §10.9 |
+| `services/nhi/` | M10: NHI navigation and TWPAS | §10.10 |
+| `services/network/` | M11: networked research and responders | §10.11 |
+| `services/agent/` | Agent behaviours (FR-AG): next best action, digests, proposals, messages | §10.12 |
+| `services/deliverables/` | Pharma deliverables service: assembles and packages packs from `libs/tb_analytics` results through `libs/tb_reports` renderers; PDF/A, XLSX, Dataset-JSON and FHIR exchange, all from data objects | §12 |
 | `services/console/` | Admin control plane, signing page and the optional review page (server-rendered) | §3 |
 | `services/cds_hooks/` | Optional CDS Hooks card service | §3 |
 | `services/criteria_compiler/`, `doc_parser/`, `embed_service/`, `llm_stub/` | Kept from v1. `criteria_compiler` targets IR v3 | §4, §10 |
 | `libs/tb_common/` | Kept and extended: `recall.py` (confidence sequences), `evalstats.py`, `policy/`, `canon/`, `lexicon/`, `assertion/`, `dates/`, `ledger/` | various |
 | `libs/tb_contracts/` | Pydantic v2 contracts and generated JSON Schemas (§6) | §6 |
+| `libs/tb_analytics/` | Pure analysis functions (`attrition`, `epi`, `survival`, `forecast`, `relax`, `represent`, `lot`, `labs`, `pathway`, `competing`, `sitemetrics`); `forecast.py` holds the one forecast method (§10.3, §12.3.4) | §12 |
+| `libs/tb_reports/` | Renderer library: models, figure specs, backends, palette, disclosure, alt text, narrative, claims lint, PDF (§12.11) | §12 |
+| `libs/tb_security/` | `keys.py` (OpenBao client), `cryptopolicy.py`, `taint.py`, `dlp.py`, `siem/` (event catalogue) | §14 |
+| `services/keys/` | K15 OpenBao deployment and policies | §14 |
+| `services/mcp/` | Signed MCP tool manifests per server (`<server>/manifest.yaml`) and `mcp_pins.lock` (SEC-71, SEC-74) | §14 |
+| `services/siem_forwarder/` | Pinned syslog-over-TLS forwarder (§14.9) | §14 |
 | `libs/tb_llm/` | The only LLM client library: it talks to `tb-gateway` alone and adds the `data_class`, `study_id`, `purpose` and `context_of_use` labels | §8 |
 | `libs/tb_testkit/` | Fixtures, fake gateway, Teams and LINE fakes, planted-defect generators, the `req` marker | §16 |
 | `tools/trialbox/` | The `trialbox` CLI (`install`, `doctor`, `bench`, `eval`, `validate`, `rollback`, `restore`, `lake`, `registry`, `channels`) | §18 |
-| `tools/` | Kept: `mlbench.py`, `fetch_open_data.py`, `acceptance.py`, `bench.py`, `sign_bundle.py`, `verify_update.py`, `synth/`. New: `mlbench_tasks/`, `trace_matrix.py`, `mcp_snapshot.py`, `chaos.py`, `synth/hl7v2_from_synthea.py` | §16, §18 |
+| `tools/` | Kept: `mlbench.py`, `recall_sim.py`, `fetch_open_data.py`, `open_data_e2e.py`, `acceptance.py`, `bench.py`, `sign_bundle.py`, `verify_update.py`, `synth/`. New: `mlbench_tasks/`, `trace_matrix.py`, `mcp_snapshot.py`, `chaos.py`, `synth/hl7v2_from_synthea.py` | §16, §18 |
 | `eval/` | `criterion_ml/`, `bakeoff/weights.yaml`, `redteam/`, `suites/<suite>/` (dataset manifests), `studies/<study>/`, `DATASETS.yaml` (data class per dataset) | §16 |
 | `vocab/`, `rulesets/`, `schemas/`, `site/playbooks/` | Kept (v3) | §5, §10 |
-| `deploy/` | `topology_a/` (compose, appliance), `topology_b/` (Helm chart and Terraform modules for the hospital tenant), `topology_c/` (policy overlays), `models/`, `keys/` | §4, §18 |
+| `deploy/` | `topology_a/` (`podman-compose`, appliance), `topology_b/` (Helm chart and Terraform modules for the hospital tenant), `topology_c/` (policy overlays), `models/`, `keys/` | §4, §18 |
 | `docs/` | `architecture/` (Structurizr DSL), `adr/` (MADR), `validation/`, `OPEN_DATA.md`, `annotation_guideline.md`, runbooks | §17 |
 
 ### 17.2 Languages and coding standards
@@ -596,13 +628,14 @@ normative; other sections refer to them by these paths.
 | Topic | Standard |
 | --- | --- |
 | Languages | Python 3.12 for services, tools and the Hermes plugin. Java 17 for HAPI FHIR and the CQL translator. SQL for L2–L5 models and OMOP ETL. The four UI surfaces are server-rendered HTML, with vanilla JS only for WebAuthn and the review-page interactions (≤ 500 lines per page; no front-end framework). Infrastructure in Helm and Terraform (topology B only) |
+| Container runtime | rootless Podman with `podman-compose`; Docker Engine accepted only where the hospital mandates it, recorded as a deviation (K3, SEC-52). This is the single statement; §4.8.3, §13 and §18.1 cite it |
 | Style and types | `ruff` (format and lint), `mypy --strict`, Pydantic v2 for every contract and every LLM output schema; `sqlfluff` for SQL models; `hadolint` for Dockerfiles; `shellcheck` for scripts |
 | Contracts first | A service interface is a schema in `libs/tb_contracts` before it is code. Generated JSON Schemas are committed, and drift fails `make contracts-check` |
 | LLM calls | Only through `libs/tb_llm` and the gateway. Every call carries its labels and a schema-constrained response format. No prompt text lives in code: prompts and schemas are registry objects resolved by version |
 | Numbers | Every number in generated text comes from a deterministic result through placeholders (`numbers_match`, carried). Decimal arithmetic for rounding; no floats in reported counts |
 | Errors | Fail closed on policy, class and audit errors; no silently swallowed exceptions |
 | Dependencies | Pinned with hashes (`uv lock`, `requirements.lock`). A new dependency needs a licence check and an entry in the SBOM allowlist |
-| Security | OWASP ASVS 5.0 Level 2 for the four UI surfaces; OWASP Top 10 for LLM Applications 2025 and MITRE ATLAS mitigations as allocated in §14; secret scanning on every commit |
+| Security | OWASP ASVS 5.0 per §14.2.3: Level 3 for the signing page and admin console, Level 2 for the review page and CDS card; OWASP Top 10 for LLM Applications 2025 and MITRE ATLAS mitigations as allocated in §14; secret scanning on every commit |
 
 ### 17.3 Determinism rules
 
@@ -700,7 +733,7 @@ A change is done when all of the following hold:
 | ENG-11 | Prompts, output schemas, lexicon, exemplars and thresholds MUST NOT be embedded in code. They are registry objects resolved by version, and their ids and hashes appear in every manifest. | T | MS0 |
 | ENG-12 | Pull requests to `main` MUST have two approvals, one of them from a code owner of each touched package. Signed commits MUST be enforced. | I | MS0 |
 | ENG-13 | The Definition of Done (§17.9) MUST be the pull-request template, and CI MUST check items 1–3, 7 and 9. | I | MS0 |
-| ENG-14 | `docs/OPEN_DATA.md` MUST exist (it is referenced by `tools/fetch_open_data.py` and not yet written). It MUST list every dataset of §16.3.1 with licence, attribution text, citation and permitted environments. | I | MS0 |
+| ENG-14 | `docs/OPEN_DATA.md` (present; it covers the MIMIC-IV FHIR demo and the two CT.gov records) MUST list every dataset of §16.3.1 with licence, attribution text, citation and permitted environments. | I | MS0 |
 | ENG-15 | Byte-identical re-run tests (NFR-9) MUST exist for: feasibility pack, pre-screen packet, recall certificate, deliverable packs and the open-data e2e test. | T | MS1 |
 | ENG-16 | Every dataset under `eval/` MUST have a data class in `eval/DATASETS.yaml`. CI MUST refuse any dataset classed above D0 in the dev and test environments. | T | MS0 |
 
@@ -712,7 +745,7 @@ Each topology installs the same signed bundle (§17.7). It differs only in the d
 
 | Topology | Install path | Post-install checks |
 | --- | --- | --- |
-| **A** on-prem appliance (default) | `trialbox install --topology a --profile gb10\|x86-5090\|scale` from the offline bundle. Compose on one or more hospital hosts; egress allowlist applied at the host (`deploy/network.sh`); gateway routes on-prem only | `doctor`, `bench` (NFR-17/18), `validate --stage iq,oq` |
+| **A** on-prem appliance (default) | `trialbox install --topology a --profile gb10\|x86-5090\|scale` from the offline bundle. Rootless Podman with `podman-compose` (§17.2) on one or more hospital hosts; egress allowlist applied at the host (`deploy/network.sh`); gateway routes on-prem only | `doctor`, `bench` (NFR-17/18), `validate --stage iq,oq` |
 | **B** hospital cloud tenant, in-country, customer-managed keys | `trialbox install --topology b` renders the Helm chart and Terraform modules for the hospital's tenant: private cluster, no public ingress except the channel webhooks behind the hospital WAF, KMS keys owned by the hospital, object storage with object lock, GPU node pool for on-tenant models. The hospital's cloud team applies them; the vendor has no tenant role | As A, plus a tenant posture check (key ownership, region, public-endpoint scan, log export to the hospital SIEM) |
 | **C** hybrid (A or B plus model egress for D0–D2) | Install A or B, then apply `deploy/topology_c/` policy overlay: routing-policy table rows for approved cloud endpoints (region, retention terms, class ceiling D0, D1 or D2), PHI tripwire on, canary probes, budget caps. Signed by two approvers (§18.5.6) | As A/B, plus egress test per route, class-violation tests, canary baseline |
 
@@ -728,7 +761,7 @@ above D0. Hermes is installed disabled (`channels.engine: native`) until its on-
 | 05:30 | Retention jobs per zone (§7) |
 | 07:00–19:00 | Day pass: J resident; Hermes and native intake; proposals; protocol understanding; interactive answers over published aggregates |
 | 19:00–21:00 | Nightly ingest window: HIS view pulls, FHIR Bulk export, L2–L4 processing, reconciliation, DQ scorecard, **publish gate** → snapshot T; dirty-set computation |
-| 21:00–06:30 | Night passes (J, V, J) as in v3: S3 judgements, S4 second opinions, recall-audit judgements, shadow pass, narrative drafting |
+| Night 1 starts on publish (≤ 5 min after, NFR-25), 21:15 at the latest; ends 06:30 | Night passes (J, V, J) as in v3: S3 judgements, S4 second opinions, recall-audit judgements, shadow pass, narrative drafting |
 | 06:30 | Packet and deliverable assembly; outbox |
 | Hourly | Canary probes on every active cloud route (topology C); gateway budget checks |
 | Daily | Backup (database full or incremental per §18.6, WAL archive continuous); KRIs during waves; SIEM heartbeat check |
@@ -756,7 +789,7 @@ control plane and QA pack.
 | Integrity | Audit-chain anchor failure; signature verification failure; object-lock violation attempt | P1 |
 | Platform | Disk, memory budget (NFR-B5), GPU health, certificate expiry < 30 days, backup failure, time drift | P2 |
 
-**SIEM.** Security events go to the hospital SIEM over syslog/TLS (RFC 5425), mapped to OCSF classes (content
+**SIEM.** Security events go to the hospital SIEM over syslog/TLS (RFC 5425), in the §14.9 contract format, CEF with ECS-compatible names (content
 allocation in §14): authentication, Level A/B decisions, gateway policy decisions, guardrail verdicts (no content),
 Hermes hook events, MCP tool calls, configuration and registry changes, rollbacks, updates and audit anchors. A 5-minute
 heartbeat lets the SIEM alert on silence.
@@ -854,7 +887,7 @@ These procedures close R3-43. §20 schedules the rollout waves; it refers here f
 | Trigger (any) | Security advisory against the pinned release (go straight to Level 2 until patched); denial-rate or injection-hit anomaly; any `redteam` success in production; outbound DLP block with confirmed PHI; skill-pack regression |
 | Steps | 1. `trialbox channels engine native` (Level 2) or `trialbox rollback --class channel --to <release>` (Level 1).<br>2. Hermes container stopped; its `state.db` archived encrypted and sealed.<br>3. Native engine takes over the same mailboxes, Teams app and LINE channel; in-flight requests are in the workflow engine and are not lost.<br>4. Front-door MCP credentials of the withdrawn release revoked |
 | Verify | Intake e2e on the native engine; count of requests received vs submitted (no loss); outbox unchanged |
-| Time target | ≤ 15 min |
+| Time target | Engine switched ≤ 60 s (kill switch or automatic health-check fallback, FR-UX-23); full channel rollback incl. verification ≤ 15 min |
 | Communication | Staff notice in each channel (template); SOC if security-triggered |
 
 #### 18.5.6 Cloud route (topology C)
@@ -950,7 +983,7 @@ Delivered by email to QA and the research office, as signed PDF/A plus JSON. It 
 | OPS-02 | Hermes MUST be installed disabled (`channels.engine: native`). It may be enabled only after a passing on-box `redteam` run is recorded. | T | MS0 |
 | OPS-03 | The schedule of §18.2 MUST be site configuration with the defaults shown. The scheduler MUST refuse overlapping ingest and V passes (NFR-B5). | T | MS1 |
 | OPS-04 | The alert rules of §18.3 MUST ship in `deploy/alerts/` with tests that fire each rule from a synthetic metric. | T | MS1 |
-| OPS-05 | Security events MUST be forwarded to the hospital SIEM over syslog/TLS (RFC 5425), mapped to OCSF classes, with a 5-minute heartbeat. | T | MS2 |
+| OPS-05 | Security events MUST be forwarded to the hospital SIEM over syslog/TLS (RFC 5425), in the §14.9 format (CEF, or JSON with ECS-compatible names), with a 5-minute heartbeat. | T | MS2 |
 | OPS-06 | `trialbox rollback --class bundle\|model\|prompt\|lexicon\|threshold\|ruleset\|snapshot\|channel\|route\|terminology` and `trialbox restore` MUST implement §18.5, with `--dry-run`, audit events and verification. Each procedure MUST meet its time target in OQ rehearsal. | T | MS2 |
 | OPS-07 | The previous two versions of every rollback unit MUST be retained and restorable without network access. | T | MS1 |
 | OPS-08 | A rollback MUST regenerate affected packets and deliverables, marked with the rollback id, and send the template notice. It MUST NOT resend unaffected outputs. | T | MS2 |

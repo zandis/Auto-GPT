@@ -1,0 +1,16 @@
+{
+ "class": "human",
+ "human_question": "Has the patient had (or is planned for) any of the listed interventions within 30 days?",
+ "id": "EMPULSE-EXC-04",
+ "kind": "exclusion",
+ "label": "Major intervention ±30 d",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #4",
+ "text": "Major cardiac surgery, TAVI, PCI, MitraClip, other major surgery, CRT implantation, mechanical support implantation or carotid revascularisation in the past 30 days or planned.",
+ "time_sensitive": false
+}

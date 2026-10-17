@@ -1,0 +1,16 @@
+{
+ "class": "human",
+ "human_question": "Is randomisation possible between 24 hours and 5 days after admission, while the patient is in hospital?",
+ "id": "EMPULSE-INC-04",
+ "kind": "inclusion",
+ "label": "Randomised 24 h–5 d after admission",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Inclusion #3",
+ "text": "Randomised after at least 24 hours and no later than 5 days after admission, while still in hospital.",
+ "time_sensitive": false
+}

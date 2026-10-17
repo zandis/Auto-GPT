@@ -13,7 +13,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench clean
+.PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e clean
 
 venv:
 	uv venv --allow-existing --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
@@ -102,6 +102,12 @@ audit-verify:
 
 bench:
 	$(PY) tools/bench.py
+
+# open data (docs/OPEN_DATA.md): fetch the PhysioNet MIMIC-IV FHIR demo (sha256-verified, not committed), then
+# adapter -> lake -> FEAS in process for the two ClinicalTrials.gov rulesets; writes .cache/open_data/report.{json,md}
+open-data-e2e:
+	$(PY) tools/fetch_open_data.py
+	PYTHONPATH=libs:services:. $(PY) tools/open_data_e2e.py
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache build *.egg-info

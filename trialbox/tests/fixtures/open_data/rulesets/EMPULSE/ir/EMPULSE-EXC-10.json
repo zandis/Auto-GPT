@@ -1,0 +1,15 @@
+{
+ "class": "structured",
+ "id": "EMPULSE-EXC-10",
+ "kind": "exclusion",
+ "label": "History of ketoacidosis",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_KETOACIDOSIS"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #10",
+ "text": "History of ketoacidosis, including diabetic ketoacidosis.",
+ "time_sensitive": false
+}

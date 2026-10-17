@@ -1,0 +1,27 @@
+{
+ "action": "order creatinine",
+ "class": "structured",
+ "fallback": "Only arm (ii) is computable in IR v1 (absolute threshold, 354 µmol/L = 4.0 mg/dL, without the +27 µmol/L delta); the 2-fold rise needs a relative comparison and urine output is not loaded, so they are checked at screening (the funnel undercounts).",
+ "id": "STARRT-AKI-INC-04",
+ "kind": "inclusion",
+ "label": "Severe AKI (creatinine ≥354 µmol/L arm)",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "any",
+  "value": {
+   "num": 4.0,
+   "op": ">=",
+   "unit": "mg/dL"
+  },
+  "valueset": "VS_SERUM_CREATININE",
+  "window": {
+   "anchor": "index",
+   "from_days": -30,
+   "to_days": 0
+  }
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Inclusion #4",
+ "text": "Severe AKI: ≥2-fold increase in serum creatinine from baseline; or serum creatinine ≥354 µmol/L with a minimum increase of 27 µmol/L; or urine output <6.0 mL/kg over the preceding 12 hours.",
+ "time_sensitive": true
+}

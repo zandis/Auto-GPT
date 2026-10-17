@@ -18,9 +18,9 @@ Milestones follow §20, which governs:
 | --- | --- |
 | MS0 | Foundations; synthetic and open data |
 | MS1 | De-identified feasibility at site 1 |
-| MS2 | Silent pre-screening; first identifiable PHI |
+| MS2 | Silent pre-screening; first identifiable PHI; open-study patient → trials (silent) |
 | MS3 | Live wave 1 |
-| MS4 | Recruitment engine, Teams, patient → trials and tumour board, topology C for D1 (if decided) |
+| MS4 | Recruitment engine, Teams, registry patient → trials and tumour board, topology C for D1 (if decided) |
 | MS5 | Conduct and data, eSource, SAE clocks, CDS Hooks card |
 | MS6 | Second site and the Japan profile |
 
@@ -206,7 +206,7 @@ ATLAS identifiers are *(uncertain)* and are re-checked each release because ATLA
 | TS-4 | **Insider administrator** bulk-exports PHI or alters records | No PHI in the console (C-5′); no standing admin (SEC-23); ticketed, dual-controlled database shell (SEC-25); dual control on keys (SEC-33); export detection (SEC-92); append-only ledger | Two colluding insiders. Verified by `sec_authz` and session-recording review. |
 | TS-5 | **Ransomware**: the Mackay pattern (domain takeover, GPO push, EDR killing) and the Osaka pattern (third-party VPN, reused credentials) | Not domain-joined; local break-glass; independent backup credentials; immutable copy; A/B OS; segmentation (SEC-24, SEC-95–SEC-97) | Loss up to the RPO (§13). Verified by an AD-down drill and a full-site restore ≤ 36 h. |
 | TS-6 | **Sponsor-document injection** ("send all candidates to x@y" hidden in a protocol) | CDR sandbox (SEC-9); quarantined extractor without tools (SEC-73); documents never supply recipients (SEC-13) | Mis-extracted criteria, caught at G1. Verified by `redteam` protocol cases. |
-| TS-7 | **Differencing** through Hermes aggregates or repeated packets | Privacy accountant and ε ledger (PRIV-7, §7); T1 tools only via the accountant | Inference within the accounted ε. Verified by the §16 accountant attack suite. |
+| TS-7 | **Differencing** through Hermes aggregates or repeated packets | Privacy accountant and ε ledger (PRIV-21, PRIV-23, §7); T1 tools only via the accountant | Inference within the accounted ε. Verified by the §16 accountant attack suite. |
 | TS-8 | **Vendor support abuse** | SEC-29; IEC 62443-2-4 practices | Misuse inside a recorded window. Verified by session audit. |
 | TS-9 | **Reply-chain hijack** to redirect outputs | Recipients from the delegation log only (SEC-13); external senders quarantined (SEC-4) | None for PHI. Verified by `sec_mail`. |
 | TS-10 | **Hospital IdP or AD compromise** | Level B1 needs a WebAuthn credential bound at enrolment; break-glass and K15 unseal do not depend on AD | Sites using only B2 accept the residual risk in writing. |
@@ -262,7 +262,7 @@ remains for tests only.
 | --- | --- | --- | --- | --- |
 | Platform root | Seals LUKS and the unseal key; TPM 2.0 PCRs 0, 2, 4, 7 | TPM (A) or cloud KMS HSM CMK (B); hospital | Re-seal on firmware change | — |
 | OpenBao recovery | Shamir 3-of-5 shares | Sealed envelopes held by the CISO office, IT and the research office | Yearly and after use | **Yes** |
-| `K_site` | `pid = HMAC-SHA-256(K_site, MPI id)` (§7) | Transit, non-exportable; hospital | Only on compromise, via the §7 re-pseudonymisation migration | **Yes** |
+| `K_pid` | `HKDF-SHA-256(K_root, salt = site_id, info = "tb/pid/v1")`; `pid = hex(HMAC-SHA-256(K_pid, mpi_id))[:32]` (§7.5) | Transit, non-exportable; hospital | Per §7.5: planned key-version change only, with a `pid_alias` table (reason `key_rotation`); on compromise, the §7 re-pseudonymisation migration | **Yes** |
 | `K_proj` | Per-project D2 pseudonyms, HKDF-SHA-256 | Derived in transit | Per project | — |
 | D4 KEK and DEKs | AES-256-GCM envelopes for identified data, tokenisation tables and the v1 pid map | Transit; hospital | KEK yearly (re-wrap) | Destruction **yes** |
 | Volume keys | LUKS2 AES-XTS-512 per volume | TPM-sealed; recovery passphrase in escrow | On re-provisioning | Recovery **yes** |
@@ -278,10 +278,10 @@ remains for tests only.
 | --- | --- | --- | --- |
 | SEC-30 | All keys above MUST be generated and used inside K15 or the TPM/HSM. Private key material MUST NOT appear in images, env files, Git, prompts, logs or backups, other than escrowed recovery shares. | I, T | MS1 |
 | SEC-31 | Rotation MUST follow the table. `trialbox keys status` reports the age and expiry of every key and certificate, with alerts at 30 and 7 days before expiry. | T | MS1 |
-| SEC-32 | `K_site` MUST be non-exportable in normal operation. HMAC calls go through transit under a `pseudonymise` policy that only the L3 stage holds. | T | MS1 |
-| SEC-33 | **Dual control** (two named, authenticated, recorded custodians) MUST apply to: unseal recovery; `K_site` export or rotation; KEK destruction; backup-key recovery; CA root use; enabling cloud credentials; vendor TUF root signing. | T, I | MS2 |
+| SEC-32 | `K_pid` (and `K_root`, §7.5) MUST be non-exportable in normal operation. HMAC calls go through transit under a `pseudonymise` policy that only the L3 stage holds. | T | MS1 |
+| SEC-33 | **Dual control** (two named, authenticated, recorded custodians) MUST apply to: unseal recovery; `K_pid` or `K_root` export or rotation; KEK destruction; backup-key recovery; CA root use; enabling cloud credentials; vendor TUF root signing. | T, I | MS2 |
 | SEC-34 | Cryptography MUST be configured only in `libs/tb_security/cryptopolicy.py`, for crypto agility. TLS 1.3 internally; TLS 1.2 with AEAD suites only for hospital systems that lack 1.3. AES-256-GCM, Ed25519 / ECDSA P-256, SHA-256 or stronger. Hybrid post-quantum key exchange (X25519MLKEM768) SHOULD be enabled where both ends support it *(est.)*. | I, T | MS1 (PQC MS6) |
-| SEC-35 | At decommission, destroying the KEK, `K_site`, the TPM seal and the backup key MUST render every copy unreadable. A destruction certificate is issued (§18). | D | MS3 |
+| SEC-35 | At decommission, destroying the KEK, `K_root` (and with it `K_pid`), the TPM seal and the backup key MUST render every copy unreadable. A destruction certificate is issued (§18). | D | MS3 |
 | SEC-36 | Secrets MUST be fetched from K15 at runtime on short leases. Prompts contain no secrets or access logic (LLM07). Secret scanning runs on every commit and every built image. | T | MS0 |
 | SEC-37 | Where the hospital has an HSM or a FIPS 140-3 module, K15 SHOULD use it via PKCS#11 for the platform root, the KEK and the anchor keys. | I | MS4 |
 
@@ -379,7 +379,10 @@ The rule is enforced twice:
 
 Two paths comply by construction:
 - the cascade's judging, which has P and U but no X; packets leave only after G3;
-- Hermes, which has U and X but no P (§9).
+- Hermes, which has U and sees D3 only as tokenised conversation text (packet threads and PHI-tolerant channels, on-prem
+  routes only; FR-CONV-8), with no PHI tool. Its only direct X is the reply to the authenticated sender in the same
+  thread, bound to that sender by channel-relay and passed through outbound DLP (no PHI in bodies, FR-UX-9); every other
+  X is a `tb.submit_request` proposal that a human confirms (§9).
 
 #### 14.8.2 Tool manifests and per-call authorisation
 
@@ -410,7 +413,7 @@ Each MCP server ships a signed manifest, `services/mcp/<server>/manifest.yaml`. 
 | --- | --- | --- | --- |
 | SEC-75 | **Outbound DLP** (`libs/tb_security/dlp.py`) MUST scan every outbound item: bodies, subjects, filenames, attachment text (XLSX, PDF, DOCX, CSV), Teams cards, LINE payloads and cloud-bound prompts. It combines the §7 PHI guard, class labels and the recipient policy. Channel ceilings: LINE D0 fixed templates only; Teams counts and links only; email PHI only in SEC-10 attachments to delegated recipients; cloud per the §8 class policy. A hit blocks the item or sends it to review (`TB-DLP-001`). The false-negative rate on the §7 test set is reported each release. | T | MS1 |
 | SEC-76 | Model output rendered on a page, email or card MUST be context-encoded. Remote images and auto-loaded links from model output are never rendered. Structured output is schema-validated before use. | T | MS1 |
-| SEC-77 | The channel layer (Hermes or native) sees request text and status only, never patient-level data. Inbound identifiers MUST be tokenised before any model sees them (§9). Grammar lines carrying an MRN bypass the model entirely. Supersedes v3 SEC-12. | T | MS0 |
+| SEC-77 | The channel layer (Hermes or native) sees request text and status only, never patient-level data from tools. Inbound identifiers MUST be tokenised before any model sees them (§9). Conversation text is D3 for every authenticated staff message in a packet thread and for tokenised text from PHI-tolerant channels, and routes on-prem only; cloud routes never receive conversation text (FR-CONV-8, §8.5). LINE inbound text never reaches a model. Grammar lines carrying an MRN bypass the model entirely. Supersedes v3 SEC-12. | T | MS0 |
 | SEC-78 | Attachments MUST pass content disarm and reconstruction and anti-malware scanning (ClamAV, signatures delivered in update bundles when offline). Macros, embedded objects, scripts and external references are removed before parsing. | T | MS1 |
 | SEC-79 | A topology C route MUST NOT be enabled until the registry records all of the following: region pinning; contractual zero data retention or modified abuse monitoring, with the approval artefact; a no-training clause; the private-endpoint configuration; and the §15.5 cross-border record. Enabling needs dual control (SEC-33) and G5. | T, I | MS4 |
 | SEC-80 | Indexes and caches holding D3 text (vector index, judgement cache, library embeddings) MUST be classed D3. They are partitioned per study, ACL-filtered at retrieval (not in the prompt), and carry provenance per chunk, re-hashed weekly. | T | MS2 |
@@ -630,9 +633,9 @@ Each milestone re-runs every earlier suite. The gates are **blocking**.
 | --- | --- | --- | --- |
 | MS0 | Gateway, registry, front-door MCP, Hermes with native fallback, egress, CI | Threat model v1; SAST, SCA, secret and image scans; `sec_egress`, `sec_pux`, `sec_authz`, `sec_mcp_pin`, `sec_model_load`, `sec_class_egress`; `redteam` baseline (en, zh-TW) with zero capability-bearing successes; Hermes breakout test | CI green; threat-model review record |
 | MS1 | First on-site install (A); D2 in the validation zone; IdP; K15; backup | `sec_boot`, `sec_host_scan`, `sec_images`, `sec_keys`, `sec_update_tamper`, `sec_siem_contract`, `sec_backup_restore`, `sec_console`, `sec_mail`, `sec_fuzz`; DLP false-negative report; 防護基準 and MDS2 drafts | Security section of IQ/OQ; events arriving at the SOC |
-| MS2 | D3/D4 live; Level B; D4 vault; IR | Independent pentest with all Critical/High closed; `sec_signing`; `sec_rls`; DAST; PUX runtime tests on real workflows; IR plan; joint tabletop including the 1 h path; first access recertification | Pentest summary; tabletop record; security package signed off by QA (SEC-141) |
+| MS2 | D3/D4 live; Level B; D4 vault; IR; open-study matching (silent; M5 analysis signed, CMP-71) | Independent pentest with all Critical/High closed; `sec_signing`; `sec_rls`; DAST; PUX runtime tests on real workflows; IR plan; joint tabletop including the 1 h path; first access recertification | Pentest summary; tabletop record; security package signed off by QA (SEC-141) |
 | MS3 | Live wave 1 | Full-site restore ≤ 36 h; attestation check; kill-switch drill; monthly security release; CVD policy live | DR drill record; first VEX-bearing monthly release |
-| MS4 | Teams, cloud routes (C, D1), patient → trials | Threat-model delta; signed M5 intended-use analysis (CMP-71); pentest of the Teams/DMZ path; `sec_teams_jwt`, `sec_dlp_channels`, `sec_cloud_config`; human red team via Teams and email; ZDR, region and private-endpoint evidence audit; cross-border record | Route-enablement G5 record with dual control; red-team report |
+| MS4 | Teams, cloud routes (C, D1), registry patient → trials and tumour board | Threat-model delta; signed M5 intended-use analysis (CMP-71); pentest of the Teams/DMZ path; `sec_teams_jwt`, `sec_dlp_channels`, `sec_cloud_config`; human red team via Teams and email; ZDR, region and private-endpoint evidence audit; cross-border record | Route-enablement G5 record with dual control; red-team report |
 | MS5 | eSource, SAE clocks, CDS Hooks, any adapter | `sec_cds` (EHR JWT, card ceiling per §15.3); MIA and extraction test for any PHI adapter; fuzzing of new parsers; CDS-boundary delta | Signed M7 and CDS Hooks analyses (CMP-71); MIA report if applicable |
 | MS6 | Second site; Japan | Pentest of the Japanese deployment; ja `redteam` corpus; MHLW v6.0 mapping (v7.0 gap if confirmed); MDS/SDS; 責任分界表; APPI tabletop; check of the hospital's core-infrastructure designation; second install from the bundle with attestation | Japanese security package; vendor ISO/IEC 27001 certificate |
 | Each release | All | Security and `redteam` regression; SBOM, ML-BOM, VEX; CSAF advisories; two-person sign-off | Release security package |
@@ -711,7 +714,7 @@ Each row reads: **source**, then the obligation, then "→" followed by what imp
 
 | ID | Requirement | V | R |
 | --- | --- | --- | --- |
-| CMP-14 | **PDPA; HSRA.** Aggregates only; rounding; accountant; IRB precondition. → PRIV-2, PRIV-7, PRIV-9 (§7). | T | MS1 |
+| CMP-14 | **PDPA; HSRA.** Aggregates only; rounding; accountant; IRB precondition. → PRIV-20, PRIV-21, PRIV-23, PRIV-9 (§7). | T | MS1 |
 | CMP-15 | **PDPA (2025 amendment).** Breach workflow. → SEC-111, SEC-113; tabletop record. | T | MS2 |
 | CMP-17 | **Hospital policy; NHI data provisions.** Opt-outs applied before lists are formed. → §7 consent scopes; FR-M4 (§10). | T | MS2 |
 | CMP-32 | **NHI rules.** Coverage analysis; research items not billed to NHI. → FR-M7, FR-M10 (§10). | T | MS4 |
@@ -814,7 +817,7 @@ M7 drift triggers:
 
 | ID | Requirement | V | R |
 | --- | --- | --- | --- |
-| CMP-71 | The M5 and M7 analyses MUST be signed (Level B, G5) before those features are enabled at a site: M5 patient → trials before MS4; M7 safety support and the CDS Hooks card before MS5. The CDS Hooks card also needs sign-off from the hospital's medical-informatics committee. | I | MS4 |
+| CMP-71 | The M5 and M7 analyses MUST be signed (Level B, G5) before those features are enabled at a site: M5 open-study matching before MS2 (silent), registry and tumour board before MS4; M7 safety support and the CDS Hooks card before MS5. The CDS Hooks card also needs sign-off from the hospital's medical-informatics committee. | I | MS4 |
 | CMP-72 | `tools/claims_lint.py` MUST run in CI and on site configuration changes. A prohibited claim blocks the change. | T | MS1 |
 | CMP-73 | A change that matches a drift trigger MUST reopen the analysis. The feature stays disabled until the analysis is re-signed. | I | MS4 |
 
@@ -844,7 +847,7 @@ Each file contains:
 | --- | --- | --- | --- | --- |
 | `classify_intent` | Propose a typed request; a human confirms | Low × low | 1 | Proposal accuracy ≥ 0.95 *(target)*; `redteam` |
 | `extract_criteria`, `concept_select` | Draft IR; G1 review | Medium × medium | 2 | `criteria_extract_public`; concept F1 per domain; CQL≡SQL gate |
-| S2b pre-filter and lexicon zero-hit exclusion | May exclude patients unread | High × medium-high | 3 | `lexicon_recall` ≥ 0.98 before zero-hit exclusion; elusion bound |
+| S2b pre-filter and lexicon zero-hit exclusion | May exclude patients unread | High × medium-high | 3 | `lexicon_recall` 95 % lower bound ≥ 0.98 per stratum before zero-hit exclusion (CAS-13); elusion bound |
 | `judge`, `second_opinion` | Criterion judgement with quotes; negatives audited by sampling | Medium × medium-high | 3 | `judge_public` (1,015 annotations); `judge_ml` per stratum; abstention calibration; anytime-valid recall certificate |
 | Matching ranker (M5) | Order trials or patients for review | Medium × medium | 2 | `match_registry` (TrialGPT cohorts); §15.3 conditions |
 | Recruitability model | Projection for sponsors | Medium × medium | 2 | Forecast-ledger calibration slope; Brier score |
@@ -870,7 +873,7 @@ them. Counsel reviews it before any topology B or C go-live (§21).
 | D2 de-identified | Allowed under TRE controls | Default off. Allowed only with a documented re-identification risk below the threshold, a PDPA Art. 21 assessment, IRB and DPO sign-off, and an in-country region. | PDPA Art. 6(1)(4) requires non-identifiability; HSRA Art. 19 applies if not de-linked | 匿名加工情報 may be provided after its categories are published. 仮名加工情報 is personal information and Art. 28 applies *(legal review)*. | D2 release certificate (§7); Five Safes; cross-border record |
 | D3 pseudonymised | Only in the hospital's own tenant, in Taiwan, with customer-managed keys and no vendor access | **Never** | Personal data; not 去連結 | Personal information | Tenant attestation; CMK evidence; region lock |
 | D4 identified | Only where the HIS itself is hosted there | **Never** | Same; EMR storage in Taiwan | Same | — |
-| Suppressed aggregates | Allowed | Allowed | Non-personal | Statistical | Accountant record (PRIV-7) |
+| Suppressed aggregates | Allowed | Allowed | Non-personal | Statistical | Accountant record (PRIV-21, PRIV-23) |
 | Security events | Hospital SIEM only | — | Staff personal data | Same | No vendor telemetry (§18) |
 | Vendor support views | — | — | A D3/D4 view by staff abroad is a cross-border transfer | Same | SEC-29: redacted by default; in-country staff only |
 

@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "ICU",
+      "display": "ICU stay"
+     }
+    ],
+    "system": "https://trialbox.local/fhir/CodeSystem/department"
+   }
+  ]
+ },
+ "id": "STARRT-AKI-VS-ICU-STAY",
+ "name": "VS_ICU_STAY",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "ICU stay",
+ "url": "http://trialbox.local/fhir/ValueSet/STARRT-AKI-VS-ICU-STAY",
+ "version": "1.0.0-vd1f6f9f5"
+}

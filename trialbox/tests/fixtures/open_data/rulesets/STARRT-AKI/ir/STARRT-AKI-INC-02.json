@@ -1,0 +1,21 @@
+{
+ "class": "structured",
+ "fallback": "Structured proxy: an ICU stay starting in the 30 days before the index date.",
+ "id": "STARRT-AKI-INC-02",
+ "kind": "inclusion",
+ "label": "ICU admission",
+ "logic": {
+  "domain": "encounter",
+  "quantifier": "any",
+  "valueset": "VS_ICU_STAY",
+  "window": {
+   "anchor": "index",
+   "from_days": -30,
+   "to_days": 0
+  }
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Inclusion #2",
+ "text": "Admission to an intensive care unit (ICU).",
+ "time_sensitive": true
+}

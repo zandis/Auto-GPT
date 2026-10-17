@@ -1,0 +1,40 @@
+# Hand-written open-data test ruleset for NCT02568722 (docs/OPEN_DATA.md). Not reviewed/approved through the
+# APPROVE loop: the computable criteria are encoded by hand from the registry text in source_documents.
+id: STARRT-AKI
+kind: trial
+title: 'STARRT-AKI: standard vs accelerated initiation of RRT in severe AKI'
+trial_alias: STARRT-AKI
+version: 1.0.0
+status: draft
+nct_id: NCT02568722
+source_documents:
+- tests/fixtures/open_data/ctgov_NCT02568722.json
+source_last_update: '2024-10-18'
+protocol_version: ClinicalTrials.gov record
+language: en
+index_date_rule: month_end
+criteria:
+- STARRT-AKI-INC-01
+- STARRT-AKI-INC-02
+- STARRT-AKI-INC-03
+- STARRT-AKI-INC-04
+- STARRT-AKI-EXC-01
+- STARRT-AKI-EXC-02
+- STARRT-AKI-EXC-03
+- STARRT-AKI-EXC-04
+- STARRT-AKI-EXC-05
+- STARRT-AKI-EXC-06
+- STARRT-AKI-EXC-07
+- STARRT-AKI-EXC-08
+- STARRT-AKI-EXC-09
+- STARRT-AKI-EXC-10
+scopes:
+  feas:
+    population: hospital
+    lookback_months: 36
+routing:
+  aggregate_to: []
+thresholds:
+  small_cell: 5
+variants:
+  INC-04: 2,3

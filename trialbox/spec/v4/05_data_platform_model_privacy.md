@@ -92,7 +92,7 @@ Each stage is a job type in `services/dataplat/` (§5.19) with a stable OpenLine
 
 ### 5.5 Connector framework
 
-All sources implement one interface in `services/dataplat/connectors/base.py`. It replaces the v1 `Source` protocol (`services/adapter/sources/base.py`), which streamed rows only.
+All sources implement one interface in `services/dataplat/sources/base.py`. It replaces the v1 `Source` protocol (`services/adapter/sources/base.py`), which streamed rows only.
 
 ```python
 class Connector(Protocol):
@@ -123,11 +123,11 @@ class Connector(Protocol):
 
 | Source | Transport | Cadence | Identity | Zone | Data class (at L0 → after L3) | Control totals | SLO *(targets, est.; normative values in §13)* |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| HIS DB views | JDBC/ODBC, TLS, RO account, DBA views on replica | Nightly delta at the 19:00 cut; weekly full-key reconciliation (Sun) | MRN → MPI | Z-IDN → Z-PSN | D4 → D3 | `count(*)`, `count(distinct patient_key)`, `min/max(watermark)`, `sum(keyhash mod 2^31)`, per-day counts over the delta window | Extract + L0–L4 delta ≤ 120 min at 3M patients; reconciliation delta 0 |
-| HIS log-based CDC | Debezium Server → durable queue → `tb-ingest`; or native change tables | Micro-batches ≤ 5 min | MRN → MPI | Z-IDN → Z-PSN | D4 → D3 | Per micro-batch: events by op (c/u/d), LSN range continuity, per-table counts; nightly view-count cross-check | Event → intraday overlay ≤ 10 min p95; no LSN gap |
+| HIS DB views | JDBC/ODBC, TLS, RO account, DBA views on replica | Nightly delta at the 19:00 cut; weekly full-key reconciliation (Sun) | MRN → MPI | Z-IDN → Z-PSN | D4 → D3 | `count(*)`, `count(distinct patient_key)`, `min/max(watermark)`, `sum(keyhash mod 2^31)`, per-day counts over the delta window | Extract complete by 19:45 (NFR-28); L0–L4 delta published by 21:00 on ≥ 95 % of nights (NFR-21); reconciliation exact (§5.9.1) |
+| HIS log-based CDC | Debezium Server → durable queue → `tb-ingest`; or native change tables | Micro-batches ≤ 5 min | MRN → MPI | Z-IDN → Z-PSN | D4 → D3 | Per micro-batch: events by op (c/u/d), LSN range continuity, per-table counts; nightly view-count cross-check | Micro-batch to L1 p95 ≤ 15 min; lag alarm at 30 min (NFR-27); no LSN gap |
 | CGRD-type research DB | `file_drop` (CSV/Parquet export) or `db_view` on the research DB | Per release (typically quarterly; per approval) | Research ID only; honest-broker link outside TrialBox | Z-TRE only | D2 → D2 | Per table rows, distinct research IDs, per-year counts, sha256 per file; data dictionary version | Onboarding of a new release ≤ 2 working days after files land |
-| FHIR server | HTTPS, Bulk Data 3.0.0 (2.0.0 accepted), SMART Backend Services 2.2.0 | Nightly `_since` incremental; monthly full Group export | `Patient.identifier` (MRN system) → MPI | Z-IDN → Z-PSN | D4 → D3 | Manifest `output[].count` per type vs NDJSON lines; `deleted` count; `transactionTime` continuity | Kick-off to L4 ≤ 4 h at 3M patients *(server-dependent)* |
-| HL7 v2 feeds | MLLP over TLS 1.2+ (TLS 1.3 preferred), copy feed | Real time | PID-3 (MRN, assigning authority) → MPI | Z-IDN → Z-PSN | D4 → D3 | Per hour: messages by type, ACK codes, MSH-10 duplicates, sequence gaps; nightly cross-check against `db_view` counts for the same day | Durable write + ACK ≤ 1 s p99; to intraday overlay ≤ 5 min p95 |
+| FHIR server | HTTPS, Bulk Data 3.0.0 (2.0.0 accepted), SMART Backend Services 2.2.0 | Nightly `_since` incremental; monthly full Group export | `Patient.identifier` (MRN system) → MPI | Z-IDN → Z-PSN | D4 → D3 | Manifest `output[].count` per type vs NDJSON lines; `deleted` count; `transactionTime` continuity | Complete by 20:15 (NFR-29) *(server-dependent)* |
+| HL7 v2 feeds | MLLP over TLS 1.2+ (TLS 1.3 preferred), copy feed | Real time | PID-3 (MRN, assigning authority) → MPI | Z-IDN → Z-PSN | D4 → D3 | Per hour: messages by type, ACK codes, MSH-10 duplicates, sequence gaps; nightly cross-check against `db_view` counts for the same day | ACK p95 ≤ 1 s; in L5 p95 ≤ 15 min, same day (NFR-26) |
 | CSV / registry drops | SFTP (key auth) with manifest + `.sha256` | Per publication (cancer registry monthly or quarterly; consent registry daily) | MRN or registry ID → MPI | Z-IDN → Z-PSN | D4 → D3 | Declared rows per file, column count, quote balance, sha256 | Validation report ≤ 30 min after drop |
 | Cohort / alliance | Signed COHORT tables by email (v1), OHDSI study packages (Strategus) run locally | Quarterly or per request | None (aggregates) | Z-REL in, Z-REL out | D1 | Signature, cell count, suppression flags, ε spent | Answer within the alliance SLA (§10.11) |
 | NHI MediCloud (gated) | Per-patient query through the hospital's authorised workstation integration *(mechanism uncertain)* | On care events only | MRN + national ID (in vault) | Z-IDN → Z-PSN | D4 → D3 | Query log count vs evidence items created | n/a (disabled by default) |
@@ -135,7 +135,7 @@ class Connector(Protocol):
 
 #### 5.6.2 HIS database views and log-based CDC
 
-**Views (default route).** The DBA owns the views. TrialBox gets a read-only account and never issues DDL. Each view in the data contract declares a key, a watermark column (or `none`), a patient key and a numeric checksum expression. The extract and its control-total query run in one read-consistent transaction (Oracle `SET TRANSACTION READ ONLY`; SQL Server `SNAPSHOT` isolation where enabled; PostgreSQL `REPEATABLE READ`; Db2 `RS` or `RR`, or a point-in-time replica, never `UR`). Both statements are also bounded by `watermark < cut`, so rows committed after the cut are excluded from both sides. The v1 `cgrd_sql` source and its identifier validation carry over into `connectors/db_view.py`.
+**Views (default route).** The DBA owns the views. TrialBox gets a read-only account and never issues DDL. Each view in the data contract declares a key, a watermark column (or `none`), a patient key and a numeric checksum expression. The extract and its control-total query run in one read-consistent transaction (Oracle `SET TRANSACTION READ ONLY`; SQL Server `SNAPSHOT` isolation where enabled; PostgreSQL `REPEATABLE READ`; Db2 `RS` or `RR`, or a point-in-time replica, never `UR`). Both statements are also bounded by `watermark < cut`, so rows committed after the cut are excluded from both sides. The v1 `cgrd_sql` source and its identifier validation carry over into `services/dataplat/sources/his_views.py`.
 
 Views cannot see deletes and their watermark columns are often wrong. Two compensating controls are mandatory:
 
@@ -276,7 +276,7 @@ Publication-derived tables are D0. HWDC outputs from an academic collaborator ar
                                                                 steward + research office email
  21:00  L5                       FTS + embedding increments; dirty set (CAS-6) from changed pids ×   tb.l5.serve.*
                                  dependent domains; Data Atlas coverage/freshness/DQ scorecard
- 21:00  cascade passes (§4)      screening and feasibility runs pin snapshot T in their manifests     run manifest lineage_id
+ ≤21:15 cascade passes (§4)      start on publish (NFR-25); runs pin snapshot T in their manifests    run manifest lineage_id
 ```
 
 Timings are illustrative for a 3M-patient site on profile P-GB10 *(est.)*. The full rebuild (all tables from L0 or a fresh full extract) runs at the weekend and is not bound to the 19:00–21:00 window; this resolves the v3 conflict between NFR-5 and the ingest window noted in the round-3 review.
@@ -365,7 +365,7 @@ ICH E6(R3) §4.2.5 requires that transferred data "retains its integrity" and th
 
 | Level | Equation | Tolerance |
 | --- | --- | --- |
-| Source → L0 | Source totals (same transaction) = landed totals: `count`, `count distinct patient_key`, `min/max watermark`, `Σ keyhash mod 2^31`, per-day counts | Exact. Any difference is blocking. The 0.5 % tolerance of the round-3 design is kept only as a site-configurable ceiling for sources whose totals cannot be taken in the same transaction (documented per contract). |
+| Source → L0 | Source totals (same transaction) = landed totals: `count`, `count distinct patient_key`, `min/max watermark`, `Σ keyhash mod 2^31`, per-day counts | Exact for same-transaction totals; ≤ 0.5 % only where the contract documents non-transactional totals (§5.9.1). Any difference beyond that is blocking. The 0.5 % ceiling is site-configurable downwards and is recorded in the contract of each source whose totals cannot be taken in the same transaction. |
 | L0 → L1 | landed = accepted + quarantined | Exact (internal invariant) |
 | L1 → L2 | accepted = mapped (+ explicit drops with reason, for example undated medication orders, as in v1) | Exact |
 | L2 → L3 | mapped = pseudonymised + opted-out + identity-quarantined | Exact |
@@ -632,21 +632,24 @@ The stage table (§5.3) gives retention for L0–L5 working data. The remaining 
 
 ### 5.19 Code locations
 
+The package names follow §17.1, which is normative.
+
 | Package (relative to `trialbox/`) | Content | Replaces / reuses |
 | --- | --- | --- |
-| `services/dataplat/connectors/{db_view,cdc,hl7v2,fhir_rest,fhir_bulk,file_drop}.py` | Connectors (§5.5) | v1 `services/adapter/sources/*` (identifier validation of `cgrd_sql` reused) |
-| `services/dataplat/l0_landing/` | Landing sink, batch manifest, object lock | — |
-| `services/dataplat/l1_validation/{contracts,reconcile,drift,gx}.py` | Contracts, reconciliation, drift, GX runner | v1 `adapter/validate/validator.py` (sampling) |
-| `services/dataplat/l2_standardise/{si_mapper,dates,units,canon_text,fhir_writer,omop_writer}.py` | SI mapping and writers | v1 `adapter/mapping/engine.py`, `adapter/ndjson.py`, `load_fhir.py` |
-| `services/dataplat/l3_pseudonymise/{mpi_client,pseudonym,consent}.py` | L3 | v1 `adapter/pidmap.py`, `pipeline.pseudonymise_bulk` |
-| `services/dataplat/l4_curated/{iceberg_store,snapshot,publish_gate,purge}.py` | L4 | v1 `prune_snapshots` logic via `tb_common.retention` |
-| `services/dataplat/l5_serving/{duck,overlay,accountant_api}.py` | L5 | v1 `services/lake` |
+| `services/dataplat/sources/{base,his_views,cdc,cgrd_tre,fhir_bulk,hl7v2,csv_registry,cohort,nhi,ssmix2}.py` | Connectors (§5.5), one module per source stream. `Connector.kind` maps to them: `db_view` → `his_views`, `cdc` → `cdc`, `fhir_rest`/`fhir_bulk` → `fhir_bulk` (with SMART Backend Services), `hl7v2` → `hl7v2`, `file_drop` → `csv_registry`; `ssmix2` for the `ja-JP` profile (ML-17) | v1 `services/adapter/sources/*` (identifier validation of `cgrd_sql` reused) |
+| `services/dataplat/sources/hl7v2/` | `tb-hl7` MLLP/TLS listener (container `hl7-listener`) and parser | — |
+| `services/dataplat/landing/` | L0: landing sink, batch manifest, object lock | — |
+| `services/dataplat/validate/` with `contracts/`, `reconcile/` | L1: contracts, reconciliation, drift, GX runner | v1 `adapter/validate/validator.py` (sampling) |
+| `services/dataplat/standardise/{si_mapper,dates,units,canon_text,fhir_writer,omop_writer}.py`, `standardise/jp_core/` | L2: SI mapping and writers; JP Core 1.x mapping (ML-17) | v1 `adapter/mapping/engine.py`, `adapter/ndjson.py`, `load_fhir.py`; `adapter/mapping/mimic/` (open-data normaliser) moves here |
+| `services/dataplat/pseudonymise/{pseudonym,consent}.py` | L3 | v1 `adapter/pidmap.py`, `pipeline.pseudonymise_bulk` |
+| `services/dataplat/mpi/` | MPI client, probabilistic linkage, merge and unmerge handling (§5.14); calls `tb-vault` | v1 `adapter/pidmap.py` |
+| `services/dataplat/curated/{iceberg_store,snapshot,purge}.py`, `services/dataplat/publish/` | L4 and the publish gate | v1 `prune_snapshots` logic via `tb_common.retention` |
+| `services/dataplat/serving/{duck,overlay,accountant_api}.py` | L5 | v1 `services/lake` |
 | `services/dataplat/dq/` | Rules YAML, scorecard builder | — |
 | `services/dataplat/lineage/` | OpenLineage emitter and store, Provenance writer | — |
 | `services/dataplat/onboard/` | §5.17 job | v1 `tools/mapping_check.py` |
-| `services/hl7_listener/` | `tb-hl7` MLLP/TLS listener | — |
 | `services/terminology/` | `tb-terminology` facade | v1 terminology loaders (FR-M0-8) |
-| `services/vault/` | `tb-vault`: MPI, identity, tokenisation, erasure | v1 `pidmap.py` (AES-GCM scheme kept) |
+| `services/vault/` | `tb-vault`: MPI store, identity, re-identification, erasure. **Kept as a separate service** next to K15 (own PostgreSQL instance and volume, §7.5); `services/dataplat/mpi/` is its client | v1 `pidmap.py` (AES-GCM scheme kept) |
 | `services/omop/` | OMOP transform, loader, DQD/Achilles runner (`tb-omop`) | — |
 | `site/contracts/`, `site/sources.yaml` | Site configuration | v1 `site/sources.yaml` |
 | `schemas/v4/` | Contracts (§6) | `schemas/v2/` |
@@ -887,7 +890,7 @@ Two studies that use the same criterion therefore share the hash. The judgement 
  "lexicon_keys": ["lx_0142", "lx_0907"],
  "note_question": {"key": "nq_ecog_0_1", "en": "…", "zh-TW": "…", "ja": "…"},
  "lexicon_recall": {"n_judged": 200, "point": 0.990, "lower95": 0.965, "strata": {"zh": 0.99, "en": 1.0, "mixed": 0.98},
-                    "suite_run": "er_01J…", "zero_hit_exclusion_allowed": false},   // rule in §10.4
+                    "suite_run": "er_01J…", "zero_hit_exclusion_allowed": false},   // rule: CAS-13, SAFE-9 (§10.14)
  "computability_history": [{"snapshot": "snap_2026-10-17", "scope": "CHEST active 24m", "score": 0.58}],
  "precision_history": [{"period": "2026-Q3", "ppv_strong": 0.81, "n": 120}],
  "recall_ledger": "rl_9c1e…", "used_by": ["LUNG7/v1.0.0", "LUNG9/v1.1.0"],
@@ -987,45 +990,47 @@ The numbers above are illustrative only.
 
 The certificate's statistics are implemented in `libs/tb_common/recall.py` and specified in §10 (SAFE). The schema carries everything needed to recompute every printed number:
 
-- per stratum, the anytime-valid confidence-sequence bound (Waudby-Smith & Ramdas betting) at α/K;
+- per stratum, the anytime-valid confidence-sequence bound (Waudby-Smith & Ramdas betting) at the cell's pre-registered level α_c = α · E_c/ΣE (§10.14; weighted Bonferroni, K fixed for the series);
 - a reference to the stored, resumable sequence state;
 - the single-look Clopper–Pearson figure, for information only;
 - two known-positive lines.
 
-In the project's simulation, repeated monthly Clopper–Pearson looks over 12 months missed the true rate in 9.7 % of ledgers, against 0.3 % for the sequence. That is the reason the sequence bound is the one quoted.
+In the reference simulation (`tools/recall_sim.py`, `python -m tools.recall_sim`, seed 11: p = 0.02, 12 monthly looks of 40, 300 ledgers), repeated monthly Clopper–Pearson looks missed the true rate in 9.7 % of ledgers, against 0.3 % for the sequence. That is the reason the sequence bound is the one quoted.
 
 ```jsonc
-// example produced by recall.certificate(strata, known_positive=(61, 0), alpha=0.05, anytime=True, observations=…)
+// example: each upper_cs is ConfidenceSequence(alpha=α_c).extend(observations) with α_c = 0.05·E_c/ΣE (the per-cell
+// weights argument of certificate() is pending, SAFE-12); both known-positive lines use recall_lower_sequence()
 {"schema_version": "3.0.0", "rc_id": "rc_01J…", "study_id": "LUNG7", "ruleset": "LUNG7/v1.0.0", "period": "2026-10",
  "alpha": 0.05, "k_strata": 5,
- "method": "confidence sequence (WSR 2024 betting), alpha 0.05 split over 5 strata (Bonferroni)",
+ "method": "confidence sequence (WSR 2024 betting); alpha 0.05 allocated per cell in proportion to E_c, pre-registered 2026-04",
  "strata": [
-   {"stage": "S1-affirmative",    "excluded": 15100, "ledger_sampled": 600, "found": 0, "upper_cs": 0.015,  "upper_cp_single_look": 0.0076},
-   {"stage": "S2-absence(index)", "excluded": 2900,  "ledger_sampled": 450, "found": 1, "upper_cs": 0.023,  "upper_cp_single_look": 0.0147},
-   {"stage": "S2-zero_hit(note)", "excluded": 1800,  "ledger_sampled": 300, "found": 0, "upper_cs": 0.030,  "upper_cp_single_look": 0.0152},
-   {"stage": "S2b-screen_out",    "excluded": 950,   "ledger_sampled": 300, "found": 0, "upper_cs": 0.030,  "upper_cp_single_look": 0.0152},
-   {"stage": "S3-not_met",        "excluded": 240,   "ledger_sampled": 120, "found": 0, "upper_cs": 0.0725, "upper_cp_single_look": 0.0376}],
+   {"stage": "S1-affirmative",    "excluded": 15100, "alpha_c": 0.03597, "ledger_sampled": 600, "found": 0, "upper_cs": 0.0110, "upper_cp_single_look": 0.0055},
+   {"stage": "S2-absence(index)", "excluded": 2900,  "alpha_c": 0.00691, "ledger_sampled": 450, "found": 1, "upper_cs": 0.0248, "upper_cp_single_look": 0.0156},
+   {"stage": "S2-zero_hit(note)", "excluded": 1800,  "alpha_c": 0.00429, "ledger_sampled": 300, "found": 0, "upper_cs": 0.0354, "upper_cp_single_look": 0.0180},
+   {"stage": "S2b-below",         "excluded": 950,   "alpha_c": 0.00226, "ledger_sampled": 300, "found": 0, "upper_cs": 0.0394, "upper_cp_single_look": 0.0201},
+   {"stage": "S3-not_met",        "excluded": 240,   "alpha_c": 0.00057, "ledger_sampled": 120, "found": 0, "upper_cs": 0.1137, "upper_cp_single_look": 0.0603}],
  // every stratum also carries: "weighting": "uniform | horvitz_thompson", "cs_state": {"ref": "cs_…", "sha": "sha256:…", "n": …},
  //                             "observation_seq_sha": "sha256:…", "looks": 7, "first_look": "2026-04"
- "missed_point": 6.4, "missed_upper": 393, "per_1000_excluded_upper": 18.7,
+ "missed_point": 6.4, "missed_upper": 366, "per_1000_excluded_upper": 17.4,
  "known_positive": [
    {"line": "historical_enrollees", "biased": true, "population": "patients enrolled in any thoracic-oncology study 2023–2026, pooled per criterion type",
-    "r": 61, "missed": 0, "recall_lower": 0.952, "method": "Clopper–Pearson, single look"},
+    "r": 61, "missed": 0, "recall_lower": 0.909, "method": "1 − confidence-sequence upper bound on the miss rate (anytime)",
+    "recall_lower_single_look_info": 0.952},
    {"line": "blinded_chart_review", "biased": false, "population": "CRC-confirmed candidates from blinded review, cumulative",
-    "r": 34, "missed": 1, "recall_lower": 0.809, "method": "1 − confidence-sequence upper bound on the miss rate"}],
+    "r": 34, "missed": 1, "recall_lower": 0.809, "method": "1 − confidence-sequence upper bound on the miss rate (anytime)"}],
  "auditor": {"pipeline": "S4@V-sha", "human_blinded": 30, "human_agreement": 0.93},
  "demotions": [], "seed": 912733, "lineage_id": "lin_01J…", "data_class": "D1",
  "statement": {"en": "…quotes recall_lower of each line with its population, and per_1000_excluded_upper…", "zh-TW": "…"}}
 ```
 
-The values above are the actual outputs of `recall.py` for these inputs (one positive placed at sample 200 in `S2-absence(index)`; one miss among 34 chart-review positives). They show the price of anytime validity: the sequence bounds are about twice the single-look bounds.
+The values above are the actual outputs of `recall.py` for these inputs (one positive placed at sample 200 in `S2-absence(index)`; one miss among 34 chart-review positives; 61 historical enrollees, none missed; single-look figures at the same α_c). They show the price of anytime validity: the sequence bounds are about twice the single-look bounds.
 
-Two items need code changes in `recall.py` (owned by §10 SAFE; listed here because the schema depends on them):
+What `recall.py` implements and what it still lacks (owned by §10 SAFE-12; listed here because the schema depends on it):
 
-1. The blinded-chart-review line uses `1 − ConfidenceSequence.upper` over the miss indicators, because that line accumulates. `certificate()` currently computes only the single-look `cp_lower`.
-2. A Horvitz–Thompson weighted variant is needed for importance-weighted strata. Until it exists, `weighting` MUST be `uniform` and sampling within a stratum MUST be uniform.
+- **Implemented:** real-valued observations in [0, 1]; `recall_lower_sequence` for the cumulative chart-review line (`certificate(..., known_positive_sequence=...)`).
+- **Not implemented:** per-cell pre-registered α weights in `certificate()` (it splits α/K equally), Horvitz–Thompson rescaling `Y_i = x_i·w_i/w_max`, pooling per canonical criterion, and a log-spaced grid below 0.0005. Until the rescaling exists, `weighting` MUST be `uniform` and sampling within a stratum MUST be uniform.
 
-`ConfidenceSequence` state (a grid of 2,001 log-capital values and rejection flags, plus `n`, `total`, `sq_dev` and `upper`) is stored per (canonical_hash, stratum, α) in `recall_ledger_entry`, together with the ordered observation list and its hash, so any certificate can be recomputed exactly.
+`ConfidenceSequence` state (a non-uniform grid of 2,001 log-capital values and rejection flags — step 0.00005 on [0, 0.05], 0.00095 above — plus `n`, `total`, `sq_dev` and `upper`) is stored per (canonical_hash, stratum, α) in `recall_ledger_entry`, together with the ordered observation list and its hash, so any certificate can be recomputed exactly.
 
 ### 6.8 Study Card additions
 
@@ -1187,7 +1192,7 @@ The default when no record exists is a site policy (`research_use: permit`, `con
 | DM-02 | IR 3.0.0 MUST be a superset of IR 2.0.0 with the extensions of §6.2. Rulesets below 3.0.0 MUST run unchanged until recompiled at their next G1. | T | MS1 |
 | DM-03 | Every IR 3 construct (line of therapy, attribute with `source_priority`, `value.ref`, derived calculators, screening and randomisation anchors, the organ-function macro, human checklists) MUST compile to CQL and SQL from templates and pass the equivalence gate on `rulesets/ATOMS_V3` fixtures. | T | MS1 |
 | DM-04 | `attribute` resolution MUST follow `source_priority` and the declared conflict rule, MUST log `resolved_from` in the evidence, and MUST yield `unknown` (data gap) when no source has a value. | T | MS1 |
-| DM-05 | `episode_lot` MUST be derived deterministically by a versioned `lot_rules` artefact approved at G0. An atom requiring `ended_by: progression` MUST yield `unknown` when the end is unattributed. | T | MS2 |
+| DM-05 | `episode_lot` MUST be derived deterministically by a versioned `lot_rules` artefact approved at G0. An atom requiring `ended_by: progression` MUST yield `unknown` when the end is unattributed. Structured regimen derivation is MS4 (FR-M1-20); until then `line_of_therapy` atoms take the note path. | T | MS4 |
 | DM-06 | Each calculator MUST have an id, semantic version, constants hash and ≥ 20 test vectors. CQL and SQL MUST be rendered from the same constants. A ruleset MUST pin `calc_id@version`. Published versions MUST be immutable. | T | MS1 |
 | DM-07 | Future anchors (`screening`, `randomization`) MUST follow the evaluation table of §6.2.4. Data not yet collectable MUST yield `verify_at_screening`, never `pass`. | T | MS1 |
 | DM-08 | The organ-function macro MUST expand at compile time into stored atoms. The G1 workbook MUST list every parameter and its value. | T | MS1 |
@@ -1198,7 +1203,7 @@ The default when no record exists is a site policy (`research_use: permit`, `con
 | DM-13 | Evidence MUST support up to three spans with `combination: all_required`. Every span MUST verify byte-for-byte against its canonical text, or the evidence is invalid. | T | MS2 |
 | DM-14 | Candidates MUST use the tiers `strong`, `potential:data_gap`, `potential:uncertain`, `watchlist` and `excluded` with the rules of §6.5. Every data gap MUST name what is missing, an action and an expiry. | T | MS2 |
 | DM-15 | Feasibility objects MUST follow §6.6 and record the data cut of every contributing source. Every recruitability forecast MUST create a forecast-ledger entry that is scored at study close. | T | MS1 |
-| DM-16 | The recall certificate MUST follow §6.7: confidence-sequence bounds per stratum at α/K, the single-look figure for information only, two known-positive lines (historical enrollees labelled biased; blinded chart review with a sequence-based bound), and stored sequence state and observation hashes sufficient to recompute every number. | T | MS2 |
+| DM-16 | The recall certificate MUST follow §6.7: confidence-sequence bounds per stratum at the pre-registered per-cell α_c = α · E_c/ΣE (§10.14), both known-positive lines with sequence-based bounds (historical enrollees labelled biased; blinded chart review), the single-look figure for information only, and stored sequence state and observation hashes sufficient to recompute every number. | T | MS2 |
 | DM-17 | Run manifest v3 MUST contain the fields of §6.9, including per-table snapshot ids, data cut per source, overlays, data versions, routes with data class and model SHA, and `replay_degraded`. | T | MS0 |
 | DM-18 | Gate, approval and signature records MUST keep v3 §5.9 semantics and add `data_class` and `lineage_id` of the object. | T | MS0 |
 | DM-19 | Privacy-ledger entries and release certificates MUST follow §6.12 and be written for every release from Z-PSN or Z-TRE. | T | MS1 |
@@ -1251,10 +1256,10 @@ The class label is assigned at the **source**, by the workflow step or the zone.
 
 | Surface | Highest class it may carry |
 | --- | --- |
-| Email | D4 only as encrypted attachments to delegated internal recipients (SEC-10, §14). D1 to sponsors after G2. Body text D1 at most. |
-| Microsoft Teams | D1 (nudges, aggregate status). No patient references. No approvals (FR-SIG-8). |
-| LINE | D0/D1 nudges only. No study-patient references. |
-| Hermes Agent (§9) | D0/D1 context only. Aggregate tools return D1 after the accountant. It has no PHI tools in any topology. |
+| Email | Outbound: D4 only as encrypted attachments to delegated internal recipients (SEC-10, §14); D1 to sponsors after G2; body text D1 at most. Inbound internal mail is PHI-tolerant: tokenised at the relay before any model (D3), stored redacted (§3.4.1). |
+| Microsoft Teams | Outbound D1 (cards, counts). Inbound text PHI-tolerant: tokenised at the relay before any model, stored redacted (§3.4.1). No approvals (FR-SIG-8). |
+| LINE | Outbound D0/D1 nudges from fixed templates only. No study-patient references. Inbound text never reaches a model; it gets a canned pointer (FR-UX-11). |
+| Hermes Agent (§9) | D1, and D3 for tokenised conversation text (every authenticated staff message in a packet thread; redacted text from PHI-tolerant channels). Runs on box only (topology B: inside the tenant); cloud routes never receive conversation text, in any topology. Aggregate tools return D1 after the accountant. It has no PHI tools in any topology; relay tokens are resolved only by `frontdoor-mcp` (HER-12). |
 | Trace store (§8) | D3 only in redacted form, on the perimeter. 90-day retention. |
 | Logs and SIEM export | Hashes, ids, policy decisions and metadata. No PHI. |
 
@@ -1513,7 +1518,7 @@ v3 PRIV-5, PRIV-6 and PRIV-9 are kept unchanged. The others are superseded as sh
 | PRIV-27 | Consent and opt-out MUST be applied per patient and per scope at the points of §7.13. `contact: deny` MUST take effect within one hour. Opt-outs MUST be applied before any candidate list is formed. | T | MS2 |
 | PRIV-28 | The platform MUST be able to import an NHI secondary-use opt-out list as a `file_drop` source mapped to `nhi_secondary_use: deny`, without assuming that such a list exists. | T | MS2 |
 | PRIV-29 | The PHI guard MUST have the coverage of §7.14 and run as an independent tripwire at every boundary listed there; a hit MUST block the call whatever its class label. | T | MS0 |
-| PRIV-30 | The PHI guard MUST reach recall ≥ 0.98 for names and for identifiers, overall and per language stratum, on the 1,000-item code-mixed test set (plus ja for the Japan profile), re-run on every guard change through G5. | T | MS2 (zh-TW/en); MS6 (ja) |
+| PRIV-30 | The PHI guard MUST reach recall ≥ 0.98 for names and for identifiers, overall and per language stratum, on the 1,000-item code-mixed test set (plus ja for the Japan profile), re-run on every guard change through G5. Until the IRB-built site set exists, the public synthetic code-mixed set `eval/suites/deid_synthetic/` (S1-08) is the CI floor. | T | MS2 (zh-TW/en); MS6 (ja) |
 | PRIV-31 | Free text MUST NOT be part of any D2 release unless the text de-identification pipeline has run, met PRIV-30, and passed a 200-record human check. | T | MS1 |
 | PRIV-32 | Every topology C route MUST have the cross-border analysis of §7.15 on file before its G5 approval, including the actual processing geography and provider retention terms. | I | MS4 |
 | PRIV-33 | The Japan profile MUST handle D3 as 仮名加工情報 (no third-party provision, no contact through the data, secured replacement keys) and MUST support operating with a certified creator or user under the Next-Generation Medical Infrastructure Act in the on-premises usage type. | I | MS6 |

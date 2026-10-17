@@ -163,3 +163,4 @@ Replies to review mails are matched through `In-Reply-To`. Outbound mail is Mark
 | host | `sudo make test-egress` | nftables default deny with the allowlist on the running stack |
 | LLM | `TB_LLM_EVAL_URL=… TB_JUDGE_LLM_URL=… pytest -m llm` | real model: judge on 300 items (≥ 90 %), ir_extract on 5 eligibility texts vs gold IR, concept_map on 200 concepts |
 | bench | `make bench` | §11.3 (docs/BENCH.md) |
+| open data | `make open-data-e2e` | MIMIC-IV FHIR demo (PhysioNet, ODbL; fetched, never committed) → MIMIC normalisation → adapter `fhir_bulk` → lake → FEAS for two real CT.gov trials; invariants + second-run reproducibility (docs/OPEN_DATA.md); the `slow` test skips without the data |

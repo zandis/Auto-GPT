@@ -78,8 +78,8 @@ D3 and D4 never reach an external model in any topology. Three independent contr
 | External system | Protocol | Highest class | Container |
 | --- | --- | --- | --- |
 | Hospital mail | IMAP/TLS, SMTP submission, DMARC results | D4 (packets to delegated staff) | channel-relay |
-| Teams | Bot Framework endpoint via the DMZ proxy; Graph for proactive messages | D1 (no PHI, no study ids, §3) | channel-relay |
-| LINE Messaging API | signature-verified webhook via the DMZ proxy; push and reply APIs | D0/D1 nudges | channel-relay |
+| Teams | Bot Framework endpoint via the DMZ proxy; Graph for proactive messages | Outbound D1 (cards, counts; no PHI, no study ids, §3). Inbound text PHI-tolerant: tokenised at the relay before any model (D3), stored redacted (§3.4.1, §7.2) | channel-relay |
+| LINE Messaging API | signature-verified webhook via the DMZ proxy; push and reply APIs | D0/D1 nudges; inbound text gets a canned pointer and never reaches a model | channel-relay |
 | HIS DB, HL7 engine, FHIR server | views and CDC; MLLP/TLS; Bulk `$export` with SMART Backend Services (§5) | D4 | ingest-workers, cdc-reader, hl7-listener |
 | Research DB / TRE | de-identified SQL or CSV export | D2 | ingest-workers, TRE zone (§7) |
 | IdP | OIDC; group export for allowlists | D1 | listeners, channel-relay |
@@ -87,7 +87,7 @@ D3 and D4 never reach an external model in any topology. Three independent contr
 | SIEM | syslog/CEF | D1 | otel-collector, audit-ledger |
 | NHI TWPAS | per M10 (§10) | D4 | orchestrator |
 | ClinicalTrials.gov API v2, MOHW | HTTPS GET, no request body | D0 | registry-sync |
-| External model endpoints (C only) | HTTPS via the egress proxy | D2 | tb-gateway |
+| External model endpoints (C only) | HTTPS via `tb-egress` | D2 | tb-gateway |
 
 ### 4.3 Containers (C4 level 2)
 
@@ -103,7 +103,7 @@ D3 and D4 never reach an external model in any topology. Three independent contr
  │ tb-gateway ─▶ serving router ─▶ llm-serving (vLLM)     │◀─────────────────┤
  │   │  ▲        embed-service · guard-service            │  ┌─ Data zone ─────▼────────────────────────────────┐
  │   │  └── model-registry (alias → pinned build)         │  │ hl7-listener · cdc-reader · ingest-workers L0–L3 │
- │   └──▶ egress proxy (topology C only)                  │  │ pid-service + vault · terminology · atlas        │
+ │   └──▶ tb-egress (all topologies; models in C only)    │  │ pid-service + vault · terminology · atlas        │
  └────────────────────────────────────────────────────────┘  │ lake L4/L5 · fhir-store · omop-db · object store │
  ┌─ Assurance zone ───────────────────────────────────────┐  │ postgres (orch, intake, channel, gateway, ledger)│
  │ audit-ledger · lineage-store · otel-collector ·        │  └──────────────────────────────────────────────────┘
@@ -115,22 +115,22 @@ Each component is a supplier component to validate (§15), so v4 adds only what 
 
 | Container | Responsibility | Tech | State | Highest class | Change from v3 |
 | --- | --- | --- | --- | --- | --- |
-| **channel-relay** | All transports (IMAP/SMTP, Teams bot, LINE webhook); sender auth; identity assertions; quote stripping; tokenisation; grammar diversion; outbound DLP and delivery | Python, `services/channel_relay/` (`tb_relay`), from v1 `mail_gateway` | Postgres `channel`; object store | D4 | replaces mail-gateway and notify |
+| **channel-relay** | All transports (IMAP/SMTP, Teams bot, LINE webhook); sender auth; identity assertions; quote stripping; tokenisation; grammar diversion; LINE canned pointer; outbound DLP and delivery | Python, `services/channels/relay/` (`tb_relay`), from v1 `mail_gateway` | Postgres `channel`; object store | D4 | replaces mail-gateway and notify |
 | **cdr-sandbox** | Attachments to text or PDF/A; hidden text, metadata and invisible Unicode removed; ClamAV | LibreOffice headless, PDF extraction; no network | ephemeral | D4 | new container |
-| **hermes** | Conversation engine (§9) | Hermes Agent, pinned (§9.5); plugins in `integrations/hermes/` | encrypted `state.db` | D1 by design; storage treated as D4 | new |
-| **converse-native** | Native engine: grammar, `classify_intent` proposals, deterministic status and help | `services/converse_native/` (`tb_converse`) | Postgres `intake` | D1 | v3 intake refactored |
+| **hermes** | Conversation engine (§9) | Hermes Agent, pinned (§9.5); profiles (`tb-staff`, `tb-line`, `tb-admin`) and plugins in `integrations/hermes/` | encrypted `state.db` | D1, and D3 for tokenised conversation text (on-prem routes only, FR-CONV-8); storage treated as D4 | new |
+| **converse-native** | Native engine: grammar, `classify_intent` proposals, deterministic status and help | `services/channels/native/` (`tb_converse`) | Postgres `intake` | D1, and D3 for tokenised text (on-prem routes only) | v3 intake refactored |
 | **frontdoor-mcp** | The eight front-door tools (§9.3), run in the orchestrator's policy context | MCP SDK, spec 2026-07-28, `services/frontdoor_mcp/` (`tb_frontdoor`) | none | D1 out (T0/T1) | new |
 | orchestrator | Durable workflows, gates G0–G6, outbox, schedules, pass scheduler (`passes.py`), intake grammar and confirmation | v3 code (§11) | Postgres `orch`, `intake` | D4 | extended |
-| **matching** | Cascade S0–S5 with S2b; judgement cache; trial → patients and patient → trials; registry match from the TrialGPT port | `services/matching/` (`cascade/`, `registry_match/`, `calibration/`) in orchestrator workers | Postgres `matching` | D3 | new package |
+| **matching** | Cascade S0–S5 with S2b; judgement cache; trial → patients and patient → trials; registry match from the TrialGPT port | `services/matching/` (`cascade/`, `registry_match/`) in orchestrator workers; calibration and abstention in `services/orchestrator/calibration/` | Postgres `matching` | D3 | new package |
 | criteria-compiler | IR v3, criterion library ("match-then-draft"), CQL/SQL, equivalence gate, canonical hashes, filter classes | v3 code + IR v3 (§6) | Git, Postgres `library` | D1 | extended |
 | doc-parser | PDF/DOCX/XLSX/ICH M11/USDM → canonical text, sections, tables; OCR for scanned zh-TW/ja | v3 code | none | D1 | kept |
-| **signing-listener** | Level B signing page; optional review page; optional CDS Hooks service | FastAPI + Jinja2, no third-party JS; own port; ASVS 5.0 L2 (§14) | via orchestrator | D3 | own listener |
-| **admin-listener** | Admin control plane (§3): health, passes, registry and routes (propose → G5), kill switches, engine switch, audit integrity, DR drill | FastAPI + Jinja2; mgmt VLAN; IdP OIDC with phishing-resistant MFA | none | D1 | console → control plane |
+| **signing-listener** | Level B signing page; optional review page; optional CDS Hooks service | FastAPI + Jinja2, no third-party JS; own port; `services/console/`, `services/cds_hooks/`; ASVS 5.0 L3 for the signing page, L2 for the review page and CDS card (§14.2.3) | via orchestrator | D3 | own listener |
+| **admin-listener** | Admin control plane (§3): health, passes, registry and routes (propose → G5), kill switches, engine switch, audit integrity, DR drill | FastAPI + Jinja2, `services/console/`; mgmt VLAN; IdP OIDC with phishing-resistant MFA; ASVS 5.0 L3 (§14.2.3) | none | D1 | console → control plane |
 | registry-sync | ClinicalTrials.gov and MOHW index | v3 worker | Postgres `registry` | D0 | kept |
-| **hl7-listener** | MLLP/TLS for ADT, SIU, ORU, MDM; MSH-10 de-duplication; ACK; writes L0 | `services/hl7_listener/` | L0 | D4 | new (§5) |
+| **hl7-listener** | MLLP/TLS for ADT, SIU, ORU, MDM; MSH-10 de-duplication; ACK; writes L0 | `services/dataplat/sources/hl7v2/` (MLLP listener entry point) | L0 | D4 | new (§5) |
 | **cdc-reader** | Optional log-based CDC on DBA-approved tables; idempotent on (LSN/SCN, key) | Debezium Server without Kafka, or change-table polling (§5) | L0; offsets in Postgres | D4 | new (§5) |
 | ingest-workers | L0 → L3 with contracts, reconciliation and the publish gate | v1 adapter, restaged (§5) | object store, Postgres `ingest` | D4 | restructured |
-| **pid-service** + vault | MPI merges, pid derivation, purpose-logged lookups, erasure tombstones | Python; vault key (§14) | Postgres `vault` (own role) | D4 | extended |
+| **pid-service** + vault | MPI merges, pid derivation, purpose-logged lookups, erasure tombstones | Python: `services/vault/` (`tb-vault`, own PostgreSQL instance, §7.5) and the MPI client and linkage in `services/dataplat/mpi/`; vault key (§14) | Postgres `vault` (own role) | D4 | extended |
 | **terminology** | `$validate-code`, `$lookup`, `$translate`, `$expand`; editions pinned per snapshot | `tb-terminology` facade over HAPI terminology, or Snowstorm where SNOMED CT is licensed (§5) | own volume | D0 | new |
 | atlas | Profiling, mapping proposals, DQ scorecard, catalogue, lexicon mining | v3 module | Postgres `atlas` | D2 | extended |
 | lake | L4 snapshots and L5 serving: guarded SQL, CJK FTS, sentence index for S2b, hybrid retrieval | DuckDB over Parquet (§5) | lake volume | D3 | extended |
@@ -138,7 +138,7 @@ Each component is a supplier component to validate (§15), so v4 adds only what 
 | **omop-db** | OMOP CDM 5.4 per snapshot; read-only role for ATLAS, Achilles, DQD | PostgreSQL 16 | own volume | D3 (D2 views for TRE) | new (ADR-V4-10) |
 | **lineage-store** | OpenLineage events per stage and step; lineage-id resolution | Postgres `lineage`; Marquez export optional (§5) | Postgres | D1 | new |
 | **tb-gateway** | The only path to any model (§8.2) | FastAPI + httpx, `services/gateway/` (`tb_gateway`) | Postgres `gateway`; recorded outputs | D4 in transit | new |
-| **model-registry** | Builds, cards, statuses, prompt registrations; alias map for the gateway | `services/model_registry/` (`tb_registry`); Git `models/` | Postgres `models` | D1 | new |
+| **model-registry** | Builds, cards, statuses, prompt registrations; alias map for the gateway | `services/registry/` (`tb_registry`); Git `models/` | Postgres `models` | D1 | new |
 | **serving router** | Loads builds per pass; one endpoint per resident build; prefix-aware routing on multi-replica profiles | `services/gateway/serving.py` + pass scheduler | none | D4 in transit | new |
 | llm-serving | Resident builds; JSON-schema constrained; salted prefix cache | vLLM; llama.cpp on P-Mac | read-only model volume | D4 in transit | extended |
 | embed-service | bge-m3; bge-reranker-v2-m3 | v1 | none | D3 in transit | kept, behind the gateway |
@@ -149,6 +149,8 @@ Each component is a supplier component to validate (§15), so v4 adds only what 
 | postgres, object store | Schemas above; landing, packets, recorded outputs; object-lock bucket | PostgreSQL 16; MinIO (A), tenant storage (B) | volumes | D4 | extended |
 | prometheus | Metrics and alerts | pinned image | volume | D1 | made explicit |
 | backup-agent | 3-2-1 backups with an immutable copy (§14, §18) | pinned image | none | D4 | new |
+| **tb-egress** | Deny-by-default outbound proxy for every container in **all topologies** (SEC-40); host/SNI allowlist per topology; model endpoints in topology C only | pinned Envoy; policy `deploy/egress_policy.yaml` | none | D4 in transit (D0–D2 to model endpoints) | extends v1 `deploy/egress.py` |
+| **keys** (K15) | Secrets, transit encryption, internal PKI (§14.5) | OpenBao, pinned; `services/keys/`, client `libs/tb_security/keys.py` | own volume | D4 (key material) | new |
 | eval, bench, bake-off | `trialbox eval`, `trialbox bench`, `tools/bakeoff.py`, `tools/mlbench.py` | CLI | reports | D2 on site; D0 in dev | extended |
 
 The following are deliberately **not** used:
@@ -168,7 +170,7 @@ The v3 layer numbers L1–L8 are retired, because L0–L5 now name the data-plat
  ────────────  ─────────────────────────────────────────────────  ────────────────────  ─────────────────────────
  Channels      channel-relay, cdr-sandbox                         D0–D4 (transport)     none
  ═════════ boundary 1: identifiers tokenised; grammar lines diverted to Intake ═══════════════════════════════
- Conversation  hermes | converse-native                           D0–D1                 front-door MCP (T0, T1)
+ Conversation  hermes | converse-native                           D0–D1, D3 tokenised   front-door MCP (T0, T1)
  Intake        orchestrator.intake (grammar, confirmation)        D0–D4 (deterministic) creates requests only
  Policy        tb_common.policy: sender auth, delegation, purpose, accountant, rate limits, routes
  Workflows     orchestrator, matching: steps, gates, outbox       D0–D4                 T0–T3 (T3 deterministic)
@@ -176,14 +178,14 @@ The v3 layer numbers L1–L8 are retired, because L0–L5 now name the data-plat
  Data          L0–L5, lake, fhir-store, omop-db, vault            D0–D4 (D4 only in L0–L3 and the vault)
  ═════════ boundary 2: every model call carries a class label; the gateway decides ═════════════════════════
  Models        tb-gateway → serving router → serving, embed,      D0–D4 on box/tenant; D0–D2 external (C)
-               guard; egress proxy (C)
+               guard; tb-egress (all; models C)
  Assurance     ledger, lineage, traces, collector, eval, backups  D3 at most (no names or MRNs)
 ```
 
 | ID | Requirement | V | R |
 | --- | --- | --- | --- |
 | NFR-B12 | A model MUST NOT hold a T3 tool. T2 data MUST reach a model only inside a workflow step for a study on which the requester is delegated, with step id, purpose and class on the gateway call. (Carries v3 SEC-11; controls allocated in §14.) | T | MS1 |
-| NFR-B13 | The Conversation layer MUST NOT receive patient-level data. Grammar lines carrying identifiers (`MATCH`, `FULLREVIEW`) MUST go from channel-relay to Intake directly. Identifiers in free text MUST first be replaced by message-scoped tokens. (Carries v3 SEC-12, revised.) | T | MS0 |
+| NFR-B13 | The Conversation layer MUST NOT receive patient-level data from tools; staff text it receives is tokenised and is D3 in packet threads and PHI-tolerant channels, routed on-prem only (FR-CONV-8). Grammar lines carrying identifiers (`MATCH`, `FULLREVIEW`) MUST go from channel-relay to Intake directly. Identifiers in free text MUST first be replaced by message-scoped tokens. (Carries v3 SEC-12, revised.) | T | MS0 |
 | NFR-B14 | Recipients, scope and release targets MUST come from the delegation log and the Study Card, never from model output or document content. (Carries v3 SEC-13.) | T | MS1 |
 | NFR-B15 | Each container MUST declare its highest class and its `talks_to` list in `deploy/containers.yaml`. `trialbox doctor` MUST refuse a network policy that lets a container reach a higher-class container not on its list. | T | MS0 |
 | NFR-B16 | Assurance containers MUST NOT store names, MRNs, national ids or free-text notes. They MAY store pids, hashes, counts and redacted text. The collector's drop rules MUST be tested with planted identifiers. | T | MS1 |
@@ -212,7 +214,7 @@ TrialGPT-derived retrieval in `services/matching/registry_match/`, then the same
    │ S2  lexical pre-filter: approved bilingual lexicon, window-restricted FTS,       lexicon/FTS/rules  cost ≈ 0
    │      assertion rules (ML-6), typed-value patterns ("EF 35%", "eGFR 28")
    │      hits → S3 · zero hits → S2b (default) · zero hits → absence semantics
-   │      ONLY where certified lexicon_recall ≥ 0.98 (CAS-13)
+   │      ONLY where lexicon_recall lower bound ≥ 0.98 (CAS-13)
    ▼
    │ S2b semantic screen of zero-hit pairs: note_question vs sentence embeddings      embeddings, batch  small
    │      in the window; LTT threshold per criterion type × language stratum
@@ -246,7 +248,7 @@ The v3 identifiers are kept. *(v4: revised)* marks a change in substance.
 | CAS-10 | Every candidate packet, matching result and feasibility pack MUST carry the current recall certificate of its study and ruleset (§10 SAFE), computed with anytime-valid confidence sequences and including the `S2-zero_hit` and `S2b-below` strata. *(v4: revised.)* | T | MS2 |
 | CAS-11 | **Affirmative exclusion** (IR ≥ 2.0.0). S1 MUST exclude only on a matching record in the window for an exclusion atom, or on a failing value for an inclusion threshold. It MUST log the evidence (code, value, date, source, lineage id). Missing data yields `unknown`. The one exception is absence of the index condition (`index: true`): the patient is excluded only if neither S2 nor S2b finds a mention in any note in the lookback. *(v4: S2b added.)* | T | MS1 |
 | CAS-12 | Zero S2 hits MUST route the pair to S2b. Absence semantics MAY apply directly after S2 only for a canonical criterion certified under CAS-13 for the pair's language stratum. | T | MS1 |
-| CAS-13 | **Lexicon-recall certification.** The `lexicon_recall` suite (`eval/lexicon_recall/`) MUST measure lexicon recall against judged positives on ≥ 200 judged pairs per criterion type × language stratum (zh-only, en-only, mixed, abbreviation-heavy; ja from MS6). A stratum is certified only if recall is ≥ 0.98 **and** the sample holds ≥ 150 judged positives, so at most 3 misses. The one-sided 95 % lower bound is reported alongside. Certification lapses on any lexicon change that removes or narrows a term. | T | MS2 |
+| CAS-13 | **Lexicon-recall certification.** The `lexicon_recall` suite (`eval/lexicon_recall/`) MUST measure lexicon recall against judged positives per criterion type × language stratum. A stratum is certified only if the one-sided 95 % Clopper–Pearson lower bound of lexicon recall on judged positives is ≥ 0.98 (0 misses needs ≥ 149 positives, 1 miss ≥ 236, 2 ≥ 313, 3 ≥ 386; App. F.1). Strata: criterion type × language (zh-only, en-only, mixed, abbreviation-heavy; ja from MS6), each with ≥ 5 % of the site's sentences (FR-M0-25). Certification lapses on any lexicon change that removes or narrows a term. | T | MS2 |
 | CAS-14 | **S2b.** S2b MUST compare the bilingual `note_question` with bge-m3 sentence embeddings from the L5 sentence index (§5) inside the window. The threshold per criterion type × language stratum MUST be set by Learn-then-Test, so that the miss rate among judged positives is ≤ 0.02 at confidence 0.95. Until a stratum has ≥ 100 judged positives, it MUST use the public-prior threshold fitted on the NCBI 1,015-annotation set and its translations (`eval/criterion_ml/`), lowered by a site safety margin. Code: `services/matching/cascade/s2b_semantic.py`. | T | MS1 |
 | CAS-15 | S2b MUST call embeddings through `tb-gateway` as D3 batch requests (one audit record per batch). It MUST NOT call a generative model. | T | MS1 |
 | CAS-16 | **Multi-span evidence.** A judgement MAY cite ≤ 3 spans, in different chunks. Every span MUST verify: quote at its offsets, chunk date in the window, assertion agreement, typed-value match. If any fails, the judgement is `insufficient`. Each conjunct of an IR conjunction (for example drug **and** date) MUST be covered by a verified span. | T | MS2 |
@@ -270,7 +272,7 @@ v3's 19:00–21:00 ingest window could not hold a 3M-patient ingest (a round-2 d
 | all day | HL7/CDC micro-batches into L0/L1; SIU refreshes clinic-day lists | — | CPU only |
 | 07:00–19:00 Day | — | J (`tb-judge`, `tb-frontdesk`), G-policy, E/R | Hermes front door; intake proposals; library match and first extraction; `ASK`; questionnaires; urgent re-checks on same-day SIU/ADT |
 | 19:00–21:00 Publish | L2–L4 delta; publish gate; dirty set; sentence-index delta | E | front door in native mode |
-| 21:00–01:30 Night 1 | — | J | S3 for screens, feasibility samples and matching |
+| Night 1: on publish (≤ 5 min after, NFR-25), 21:15 at the latest – 01:30 | — | J | S3 for screens, feasibility samples and matching |
 | 01:30–05:30 Night 2 | no ingest or Atlas | V | S4; second extraction; recall-audit judgements; shadow pass (§8.10) |
 | 05:30–06:30 Night 3 | — | J | narrative drafting; five-minute review selection |
 | 06:30–07:00 Assembly | — | J | deterministic rendering; outbox |
@@ -368,6 +370,7 @@ four weeks in daily-note clinics *(est.; measured by CAS-7)*.
 | Network zones | (1) appliance VLAN; (2) management VLAN (admin-listener, SSH, x86 BMC); (3) integration paths to HIS, HL7 engine and FHIR, firewall-pinned by source and port; (4) channel DMZ, where the hospital reverse proxy and WAF forward only the Teams and LINE webhook paths. User VLANs reach only signing-listener, over HTTPS. |
 | Remote management | x86: BMC on the management VLAN, default credentials removed. GB10: no documented BMC *(uncertain)*; SSH on the management VLAN, plus an IP-KVM or on-site access, recorded in the install record. |
 | Platform pin | `deploy/platform.lock` pins the OS image (DGX OS on GB10, Ubuntu LTS on x86), kernel, NVIDIA driver branch, CUDA, container toolkit and vLLM image digest. Driver, firmware (fwupd/LVFS capsules only) and OS updates are G5 platform changes, followed by the bench and the E2 suites (§8.9). |
+| Runtime | Rootless Podman with `podman-compose`; Docker Engine accepted only where the hospital mandates it, recorded as a deviation (§17.2). |
 | Time | Two internal NTP sources; UTC audit timestamps; alarm at > 1 s offset. |
 | Storage | NVMe with LUKS2 and TPM-sealed keys (§14); read-only, SHA-verified model volume; backups to the local disk and the hospital's immutable target (§18). |
 | Topology B | Infrastructure as code in the site repository; private subnets; customer-managed keys; object-locked backup bucket; GPU quota reserved before go-live. |
@@ -409,7 +412,7 @@ These requirements carry v3 NFR-17…19 under this part's prefix.
 | ADR-V4-15 | Reproducibility rests on recorded outputs, not on GPU determinism. | temperature 0 + seed | vLLM batching is not bit-exact (R3-22) |
 | ADR-V4-16 | The only production MCP server is the first-party `frontdoor-mcp`, on spec 2026-07-28. No third-party servers or catalogues. | MCP gateway with several servers | CVE-2026-82021; OWASP MCP Top 10 MCP03, MCP04, MCP09 |
 | ADR-V4-17 | S2 excludes on zero hits only for certified criteria; S2b screens semantically; the cache is keyed by sentence set. | v3 zero-hit exclusion; chunk-set cache | R3-02, R3-05 |
-| ADR-V4-18 | Recall is certified by anytime-valid confidence sequences (`libs/tb_common/recall.py`). In simulation over 12 monthly looks, repeated Clopper–Pearson missed the true rate in 9.7 % of ledgers, against 0.3 % for the sequence. *(revises V3-10; the statistics are owned by §10 SAFE)* | repeated Clopper–Pearson | R3-03: optional stopping |
+| ADR-V4-18 | Recall is certified by anytime-valid confidence sequences (`libs/tb_common/recall.py`). In the reference simulation (`tools/recall_sim.py`, `python -m tools.recall_sim`, seed 11: p = 0.02, 12 monthly looks of 40, 300 ledgers), repeated Clopper–Pearson missed the true rate in 9.7 % of ledgers, against 0.3 % for the sequence. *(revises V3-10; the statistics are owned by §10 SAFE)* | repeated Clopper–Pearson | R3-03: optional stopping |
 
 ## 8. LLM platform
 
@@ -430,7 +433,7 @@ module cannot use a model without a registered role, data class and route.
    ▼
  [tb-gateway] authN · label · route · tripwire · injection screen · budget · cache · dispatch · output checks · audit
    ├─▶ serving router ─▶ llm-serving (J, V, F, G) · embed-service (E, R) · guard-service
-   └─▶ egress proxy ─▶ approved external endpoints (topology C; D0–D2)
+   └─▶ tb-egress ─▶ approved external endpoints (model endpoints: topology C only; D0–D2)
  assurance: audit ledger (call records) · recorded-output store · trace store (redacted) · Prometheus
 ```
 
@@ -447,7 +450,7 @@ The platform follows five principles:
 `tb-gateway` (`services/gateway/`) exposes OpenAI-compatible `/v1/chat/completions`, `/v1/embeddings` and `/v1/rerank`.
 It also exposes `/v1/batch` for chunked batch jobs, and `/v1/models`, which lists aliases only.
 
-Callers use the rewritten `libs/tb_common/llm.py`. It keeps the v3 signature `chat_json(prompt_id, variables, schema)` and
+Callers use `libs/tb_llm/` (§17.1, S1-06); `libs/tb_common/llm.py` becomes an import shim to it for one milestone. It keeps the v3 signature `chat_json(prompt_id, variables, schema)` and
 adds the headers below.
 
 | Header | Content | Checked against |
@@ -467,7 +470,7 @@ adds the headers below.
 | 2 | Header validation and prompt binding (the rendered request must equal `prompt_id@version` rendered with its variables) | missing header; template mismatch. Free-form prompts are allowed only for `frontdesk_converse`. |
 | 3 | Route lookup: `(role, class, profile, topology, site flags, environment)` → ordered build list | no route |
 | 4 | Replay, if `X-TB-Replay` is set: return the recording and stop | recording missing (an error; never a fresh call) |
-| 5 | PHI tripwire (§8.6) on D0–D2 calls, external-bound calls and all Hermes traffic | external hit: block and alert. Internal D0–D2 hit: relabel D3, route on box, alert. |
+| 5 | PHI tripwire (§8.6) on D0–D2 calls, external-bound calls and all Hermes traffic | external hit: block and alert. Internal D0–D2 hit: block, alert, and quarantine the step for steward review (the mislabel is the incident; the call is never re-run as D3 automatically). |
 | 6 | Injection screen on untrusted spans | score above the role's threshold |
 | 7 | Budget reservation (§8.11) | exhausted |
 | 8 | Cache lookup (§8.12) | — |
@@ -520,7 +523,7 @@ server. The serving rules are:
 - `models/cards/<build_id>.yaml` holds model cards;
 - `models/routing.yaml` holds the routing policy.
 
-`model-registry` (`services/model_registry/`) verifies signatures and hashes, loads the files into Postgres schema
+`model-registry` (`services/registry/`) verifies signatures and hashes, loads the files into Postgres schema
 `models`, and serves the alias → build map, which is the only routing input the gateway reads. CLI:
 `trialbox models list | show | card | propose | promote | retire | rollback`.
 
@@ -588,12 +591,14 @@ default is below. Sites may narrow it. Widening needs G5 and the conditions of �
 
 | Role group | Class | Topology A | Topology B | Topology C adds | Dev environment |
 | --- | --- | --- | --- | --- | --- |
-| `classify_intent`, `frontdesk_converse`, `summarise_external` | D1 | J / F on box | J / F tenant | nothing | OpenRouter on synthetic D0 |
+| `classify_intent`, `frontdesk_converse` | D1 (staff text with no patient content, outside a packet thread) | J / F on box | J / F tenant | **never** (cloud routes never receive conversation text) | OpenRouter on synthetic D0 |
+| `classify_intent`, `frontdesk_converse` | D3 (tokenised text from PHI-tolerant channels; every authenticated staff message in a packet thread) | J / F on box only | J / F tenant only | **never** | — |
+| `summarise_external` | D1 (documents) / D3 (forwarded mail about participants) | J / F on box | J / F tenant; D3 tenant only | X for D1 documents only, under the D1 conditions below; **never** for D3 | OpenRouter on synthetic D0 |
 | `match_criterion_library`, `extract_criteria`, `extract_soa`, `concept_select`, `answer_protocol`, `map_questionnaire`, `draft_document` | D1 | J day, V night | same, tenant | X, only if the Study Card records sponsor consent | OpenRouter on public protocols (D0) |
 | `propose_mapping` | D1 (schema and coded samples) | J | J | X | J |
 | `judge`, `second_opinion`, `registry_match_patient`, `match_keywords`, `abstract_field`, `draft_query_answer` | D3 | J / V on box only | J / V tenant only | **never** | public suites only (D0) |
 | `s2b_screen`, `embed`, `rerank` | D3 (D1 for protocol text) | E / R | E / R | never for D3 | E / R |
-| `draft_narrative`, `summarise_aggregate` | D2 (released aggregates) | J / F | J / F | X only with the §7 approvals | J / F |
+| `draft_narrative`, `summarise_aggregate` | D1 (released aggregates; input MUST be a `DisclosedDeliverable`, RPT-14) | J / F | J / F | X under the D1 conditions below | J / F |
 | `ops_explain` | D1 | F | F | X | F |
 | `guard_policy`, `guard_injection`, `phi_ner` | the guarded class | G | G | **never** | G |
 | `shadow:<role>` | as the role | shadow build on box | tenant | never | — |
@@ -630,7 +635,7 @@ route records its verified geography at approval time. A change in the provider'
 
 | ID | Requirement | V | R |
 | --- | --- | --- | --- |
-| LLM-15 | The tripwire MUST block any external-bound request with a hit, whatever its label. On internal D0–D2 calls, a hit MUST relabel the call D3, route it on box, and raise an alert. External-bound hits have a target of 0 and are reported monthly. | T | MS0 |
+| LLM-15 | The tripwire MUST block any external-bound request with a hit, whatever its label. On internal D0–D2 calls, a hit MUST block the call, raise an alert, and quarantine the step for steward review; the call MUST NOT be relabelled and continued as D3. External-bound hits have a target of 0 and are reported monthly. | T | MS0 |
 | LLM-16 | Guard verdicts MUST be recorded in the call record and as span events. Output release MUST be gated on them, while generation MAY run in parallel. | T | MS1 |
 | LLM-17 | The guard policy text MUST be a registered prompt (`prompts/guard_policy/`), owned by the hospital's QA and DPO and changed only through G5. Guards MUST be evaluated by the `guard` suite (§16) per language. A release MUST NOT raise the false-negative rate on the red-team corpus. | T | MS1 |
 | LLM-18 | (carries AI-07, AI-08) Narratives MUST use template placeholders, and `numbers_match` MUST reject any digit sequence the template engine did not produce. Unmappable questionnaire fields MUST stay blank and be listed. | T | MS1 |
@@ -683,9 +688,9 @@ in code.
 
 | ID | Requirement | V | R |
 | --- | --- | --- | --- |
-| LLM-24 | (carries AI-10) Scoring and LTT selection MUST be implemented in `services/matching/calibration/abstain.py`. Thresholds MUST be versioned (`aq_<yyyy-mm>`), recorded in manifests, and recomputed monthly, on drift alarms and after G5 changes. | T | MS2 |
+| LLM-24 | (carries AI-10) Scoring and LTT selection MUST be implemented in `services/orchestrator/calibration/abstain.py` (§17.1). Thresholds MUST be versioned (`aq_<yyyy-mm>`), recorded in manifests, and recomputed monthly, on drift alarms and after G5 changes. | T | MS2 |
 | LLM-25 | (carries AI-11, revised by R3-41) Until a stratum has ≥ 100 site-adjudicated pairs, it MUST use the **public prior**: the nonconformity model and thresholds fitted on the 1,015 NCBI annotations and their zh-TW, ja and code-mixed renderings (`eval/criterion_ml/`). The QA pack MUST show which threshold is in force per stratum. At α = δ = 0.05 a threshold certifies only if accepted errors are ≤ 1 at n = 100, ≤ 4 at n = 200, and 0 at n = 59. | T | MS1 |
-| LLM-26 | (carries AI-12, AI-15) The QA pack MUST report, per stratum, the error of accepted judgements on held-out adjudications against α. Recall-audit samples MUST be drawn with probability increasing in `s` and the S2/S2b margin, with a 5 % uniform floor and Horvitz–Thompson weights (§10 SAFE). | T | MS2 |
+| LLM-26 | (carries AI-12; AI-15 is retired by SAFE-11) The QA pack MUST report, per stratum, the error of accepted judgements on held-out adjudications against α. Recall-audit samples MUST be drawn with probability increasing in `s` and the S2/S2b margin, with the floor `audit_floor` of SAFE-11 (default 0.5) and Horvitz–Thompson weights (§10 SAFE). | T | MS2 |
 | LLM-27 | `second_opinion` MUST NOT receive the J output. J and V MUST be from different model families, enforced by the registry at binding time. | T | MS1 |
 
 ### 8.9 Evaluation tiers and gates
@@ -850,9 +855,9 @@ This is the registry's role table, which links each role to the modules that use
 
 | Role | Input → output | Module(s) | Class | Degraded mode |
 | --- | --- | --- | --- | --- |
-| `classify_intent` | stripped, tokenised text → proposal + restatement | Intake, converse-native | D1 | `queue` |
-| `frontdesk_converse` | conversation, skills, tool schemas → reply, front-door tool calls | Hermes (§9) | D1 | native |
-| `summarise_external` | CDR text of an external document → typed fields only (the quarantined extractor, §9.8) | M1, M3, M7, M9, quarantine workflow | D1 | `manual` |
+| `classify_intent` | stripped, tokenised text → proposal + restatement | Intake, converse-native | D1 / D3 (tokenised); D3 on box only | `queue` |
+| `frontdesk_converse` | conversation, skills, tool schemas → reply, front-door tool calls | Hermes (§9) | D1 / D3 (tokenised); D3 on box only | native |
+| `summarise_external` | CDR text of an external document → typed fields only (the quarantined extractor, §9.8) | M1, M3, M7, M9, quarantine workflow | D1 (documents) / D3 (forwarded mail about participants); D3 on box only | `manual` |
 | `match_criterion_library` | criterion + library candidates → match id or `none`, with diff | M1 | D1 | `queue` |
 | `extract_criteria` | protocol sections, unmatched criteria → IR v3 with spans and ambiguities | M1 | D1 | `queue` |
 | `extract_soa` | schedule-of-activities tables → visits, windows, procedures, kits as typed rows with spans (USDM-aligned, §6) | M1, M7 | D1 | `manual` |
@@ -865,9 +870,9 @@ This is the registry's role table, which links each role to the modules that use
 | `s2b_screen`, `embed`, `rerank` | sentences, protocol text → vectors, scores | M1, M4, M5, SAFE | D3 / D1 | S2b off: zero-hit pairs go to S3 |
 | `abstract_field`, `draft_query_answer` | field definition or query + facts → value with lineage; draft with citations | M8 | D3 | `manual` |
 | `map_questionnaire` | field labels → pack / profile paths | M3 | D1 | `manual` |
-| `draft_narrative` | pack JSON → text with placeholders | M3, M6, M9, §12 | D2 | `queue` |
+| `draft_narrative` | pack JSON → text with placeholders; input MUST be a `DisclosedDeliverable` (RPT-14) | M3, M6, M9, §12 | D1 (aggregates) | `queue` |
 | `draft_document` | template + structured inputs → sections with placeholders, as a redline (IRB/CTA, IIT skeleton, close-out) | M2, M7, M9 | D1 or D2 | `manual` |
-| `summarise_aggregate` | released aggregate table → explanation, numbers by placeholder | M6, M11, Hermes analyst | D2 | native table reply |
+| `summarise_aggregate` | released aggregate table → explanation, numbers by placeholder; input MUST be a `DisclosedDeliverable` (RPT-14) | M6, M11, Hermes analyst | D1 (aggregates) | native table reply |
 | `ops_explain` | ops summaries → explanation, drafted runbook action | admin copilot | D1 | none |
 | `guard_policy`, `guard_injection`, `phi_ner` | text + policy → verdict | all | as guarded | fail closed |
 | `shadow:<role>`, `bakeoff`, `optimise_prompt` | as role; public data | evaluation | as role; D0 | skip |
@@ -886,8 +891,8 @@ M10 (NHI navigation) uses no model role.
 | Element | Content |
 | --- | --- |
 | Record | `changes/<yyyy>/<change_id>.yaml`: artefact, from → to (ids and SHAs), reason, risk tier, affected roles and modules, evidence ids (§8.9), rollback target, approvers |
-| Approvers | Product QA and the research-office delegate. Security also signs for routes, external builds, guard policy and Hermes. The DPO also signs any widening of class permissions. |
-| Fast-track | Rollback to a previous champion, a route kill, or a Hermes or gateway security patch: two Level A approvals, with the evidence completed within five working days |
+| Approvers | System owner and QA (§11.1); security also signs for routes, external builds, guard policy and Hermes; the DPO for any class widening. |
+| Fast-track | Rollback to a previous champion or a route kill (reverts and narrowings, FR-SIG-15 A2): two Level A approvals, with the evidence completed within five working days. A Hermes or gateway security patch is a bundle change, not A2: it goes through §18.4 "Security patch" (expedited bundle, CCB). |
 | Batching | Exemplar, lexicon and threshold changes go out monthly, unless a recall demotion needs them sooner (§10 SAFE) |
 | Effect | Applied at the next pass boundary. Running runs keep their SHAs. |
 
@@ -904,13 +909,14 @@ come about weekly, and the project had a significant 2026 vulnerability history 
 
 TrialBox uses Hermes as an **untrusted proposer behind a narrow, audited interface**: a concierge, not a clerk. It
 converses, understands intent, collects parameters, and shows status and released results. It holds no PHI tool, owns no
-schedule, approves nothing, and writes no record of the regulated core.
+schedule, approves nothing, and writes no record of the regulated core. The staff text it reads is tokenised; it is D3
+in packet threads and PHI-tolerant channels and is served on-prem only (FR-CONV-8, §8.5).
 
 ### 9.1 Role
 
 | Function | What Hermes does | What it never does | Tools (§9.3) |
 | --- | --- | --- | --- |
-| **Front door** | One persona over email, Teams, LINE (nudges, non-PHI) and the admin TUI; multi-turn clarification; turns plain language into a typed request for the user to confirm | parse grammar lines (Intake does); see identifiers (the relay tokenises them) | `tb.submit_request`, `tb.status` |
+| **Front door** | One persona over email, Teams and the admin TUI (LINE carries outbound nudges only; its inbound text gets a canned pointer, profile `tb-line` has no tools); multi-turn clarification; turns plain language into a typed request for the user to confirm | parse grammar lines (Intake does); see identifiers (the relay tokenises them) | `tb.submit_request`, `tb.status` |
 | **Staff concierge** | "What is due this week", request status, protocol questions, how-to answers from signed SOP skills; drafts replies to sponsors from released material | send outside the thread; contact sponsors | `tb.status`, `tb.ask_protocol`, `tb.registry_search`, `tb.resend_released_file` |
 | **Aggregate analyst** | Natural-language questions from the research office over a fixed metric catalogue, answered with accountant-checked, control-rounded numbers placed by template | free SQL; patient-level rows; computing numbers itself | `tb.aggregate_query`, `tb.atlas_describe` |
 | **Admin copilot** | Explains health, queues, passes, bench and eval results, and denials; drafts runbook actions for the administrator | execute anything; change configuration; touch keys | `tb.ops_read`, `tb.status` |
@@ -943,7 +949,7 @@ return the same way.
           3 grammar line or gate reply? ── yes ──▶ Intake (deterministic) ─▶ orchestrator
           4 identifiers → message-scoped tokens ([MRN-1], [NAME-1]); 5 rate limit; mint identity assertion
                 │
-     engine = hermes ──▶ [hermes]  LLM ─▶ tb-gateway (alias tb-frontdesk, class D1, on box/tenant only)
+     engine = hermes ──▶ [hermes]  LLM ─▶ tb-gateway (alias tb-frontdesk, class D1 or D3 (tokenised), on box/tenant only)
      engine = native ──▶ [converse-native]   tools ─▶ frontdoor-mcp (mTLS, assertion, policy, audit)
                 │
  reply ─▶ channel-relay: outbound DLP (PHI guard, class check, policy classifier) ─▶ same sender, same thread
@@ -954,7 +960,7 @@ Hermes has no egress except `tb-gateway`, `frontdoor-mcp` and channel-relay. It 
 | Profile | Channels | Tools | Notes |
 | --- | --- | --- | --- |
 | `tb-staff` | internal email, Teams | all except `tb.ops_read` | default |
-| `tb-line` | LINE (no-PHI channel) | `tb.status` (own requests, counts only), `tb.registry_search` | fixed nudge templates plus status; no study identifiers (§3) |
+| `tb-line` | LINE | none (outbound templates only) | inbound LINE text never reaches a model; channel-relay answers it with the canned pointer to email or Teams (FR-UX-11) |
 | `tb-admin` | admin TUI, management VLAN, IdP-authenticated | `tb.ops_read`, `tb.status`, `tb.atlas_describe` | drafts only; the `trialbox` CLI remains the only way to act |
 
 | ID | Requirement | V | R |
@@ -1013,12 +1019,12 @@ service, with these claims:
 - `conv`: the conversation id;
 - `msg`: the message hash;
 - `aud`: `frontdoor-mcp`;
-- `exp`: 10 minutes.
+- `exp`: 5 minutes (§14.4).
 
 The `tb_policy_audit` plugin attaches the current turn's assertion to each tool call. The server checks the signature,
 audience, expiry, and that `conv` matches the calling session. Hermes cannot mint assertions.
 
-The residual risk is that a compromised Hermes replays another active user's assertion within its 10-minute life. The
+The residual risk is that a compromised Hermes replays another active user's assertion within its 5-minute life. The
 worst case is T0/T1 access at that user's permission, with aggregates still accountant-checked. This is recorded in the
 threat model (§14).
 
@@ -1065,12 +1071,12 @@ relying on patches.
 | ID | Requirement | V | R |
 | --- | --- | --- | --- |
 | HER-18 | The release MUST be pinned by tag, SHA and digest, mirrored internally, and ≥ v0.21.6. `trialbox doctor` MUST refuse to start Hermes on a digest mismatch or a version below the floor. | T | MS0 |
-| HER-19 | `deploy/hermes/ADVISORIES.md` MUST track every advisory, with the control that makes it inapplicable or the release that fixes it, and MUST be reviewed at each upgrade. | I | MS0 |
+| HER-19 | `integrations/hermes/ADVISORIES.md` MUST track every advisory, with the control that makes it inapplicable or the release that fixes it, and MUST be reviewed at each upgrade. | I | MS0 |
 
 ### 9.6 Hardening checklist
 
-Configuration lives in `deploy/hermes/<profile>/config.yaml`, together with `SOUL.md`, signed skills and a hash
-manifest. Key names not confirmed against the pinned release are marked, and are confirmed by the configuration-diff test
+Configuration lives in `integrations/hermes/profiles/<profile>/config.yaml` (`tb-staff`, `tb-line`, `tb-admin`), together
+with `SOUL.md`, signed skills and a hash manifest. Key names not confirmed against the pinned release are marked, and are confirmed by the configuration-diff test
 (§9.12).
 
 | # | Area | Setting or control | Verified by |
@@ -1081,7 +1087,7 @@ manifest. Key names not confirmed against the pinned release are marked, and are
 | 4 | MCP client | one server; explicit `tools.include` per profile; `prompts: false`, `resources: false`; sampling and elicitation off; mTLS client certificate; 30 s timeout | config test; traffic capture |
 | 5 | Approvals | `approvals.mode: manual`; `cron_mode`, `single_query_mode`, `unattended_mode: deny`; `approvals.deny: ["*"]`; never "always" | config test |
 | 6 | YOLO | `HERMES_YOLO_MODE` absent | CI; `doctor` |
-| 7 | Model | `base_url` = `tb-gateway`; alias `tb-frontdesk`; context ≥ 65,536; auxiliary models on gateway aliases (`tb-guard`, `tb-router-small`); `fallback_providers` only gateway aliases (a cloud fallback moves data off site) | config test; gateway accepts only D1 from Hermes |
+| 7 | Model | `base_url` = `tb-gateway`; alias `tb-frontdesk`; context ≥ 65,536; auxiliary models on gateway aliases (`tb-guard`, `tb-router-small`); `fallback_providers` only gateway aliases (a cloud fallback moves data off site) | config test; gateway accepts D1 and D3 from Hermes, both routed on box only; never D4 |
 | 8 | Plugins and hooks | only `tb_relay_adapter` and `tb_policy_audit`, signed, read-only, hash-checked at start; project plugins off; `hooks_auto_accept` off | `doctor` |
 | 9 | Policy hook | `pre_tool_call` calls `tb_common.policy`; blocks on deny, error or 5 s timeout (`plugins.hook_callback_timeout: 5`); block beats approve | E3 with policy-failure injection |
 | 10 | Dispatch hook | `pre_gateway_dispatch` is unbounded, so the plugin enforces a 2 s internal timeout and fails closed, and it re-checks that the message came through the relay adapter with a valid assertion | unit test |
@@ -1115,7 +1121,7 @@ memory providers are never used.
 `MEMORY.md`, `USER.md` and `state.db` are listed in the data inventory as operational, non-GxP records.
 
 **Skills** are controlled documents. Each skill's front matter carries its owner, version, effective date and SOP
-reference. Skills live in `deploy/hermes/skills/`, pass QA review, are signed, and are mounted read-only. Agent-proposed
+reference. Skills live in `integrations/hermes/skills/`, pass QA review, are signed, and are mounted read-only. Agent-proposed
 edits are staged (`skills.write_approval: true`, `guard_agent_created: true`; project discovery and hub installs off). A
 nightly job exports them as pull requests into G5.
 
@@ -1191,7 +1197,7 @@ The switch is manual, from the control plane or with `trialbox channels engine n
 
 | ID | Requirement | V | R |
 | --- | --- | --- | --- |
-| HER-31 | A switch MUST take effect within 5 minutes, lose no message (the relay queues inbound), and be audited. Open Hermes conversations MUST receive a fixed message that explains how to continue. | T | MS0 |
+| HER-31 | Switch times follow one rule: kill switch and automatic health-check fallback: engine switched ≤ 60 s (FR-UX-23); full channel rollback incl. verification ≤ 15 min (§18.5.5). A switch MUST lose no message (the relay queues inbound), and be audited. Open Hermes conversations MUST receive a fixed message that explains how to continue. | T | MS0 |
 | HER-32 | CI MUST run the channel end-to-end and acceptance suites (§16) in both modes on every release. The control plane MUST show the current engine, the scheduled native windows and the reason for any automatic switch. | T | MS0 |
 
 ### 9.11 Offline optimisation

@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "33762-6",
+      "display": "Natriuretic peptide.B prohormone N-Terminal [Mass/volume] in Serum or Plasma"
+     }
+    ],
+    "system": "http://loinc.org"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-NT-PROBNP",
+ "name": "VS_NT_PROBNP",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "NT-proBNP",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-NT-PROBNP",
+ "version": "1.0.0-vb3a51b94"
+}

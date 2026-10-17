@@ -1,0 +1,56 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "96.70",
+      "display": "Continuous invasive mechanical ventilation of unspecified duration"
+     },
+     {
+      "code": "96.71",
+      "display": "Continuous invasive mechanical ventilation for less than 96 consecutive hours"
+     },
+     {
+      "code": "96.72",
+      "display": "Continuous invasive mechanical ventilation for 96 consecutive hours or more"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-9-cm"
+   },
+   {
+    "concept": [
+     {
+      "code": "40617009",
+      "display": "Artificial respiration (procedure)"
+     }
+    ],
+    "system": "http://snomed.info/sct"
+   },
+   {
+    "concept": [
+     {
+      "code": "5A1935Z",
+      "display": "Respiratory Ventilation, Less than 24 Consecutive Hours"
+     },
+     {
+      "code": "5A1945Z",
+      "display": "Respiratory Ventilation, 24-96 Consecutive Hours"
+     },
+     {
+      "code": "5A1955Z",
+      "display": "Respiratory Ventilation, Greater than 96 Consecutive Hours"
+     }
+    ],
+    "system": "http://www.cms.gov/Medicare/Coding/ICD10"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-MECHANICAL-VENTILATION",
+ "name": "VS_MECHANICAL_VENTILATION",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Invasive mechanical ventilation",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-MECHANICAL-VENTILATION",
+ "version": "1.0.0-veac4a5e7"
+}

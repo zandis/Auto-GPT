@@ -1,0 +1,70 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "G45.0",
+      "display": "Vertebro-basilar artery syndrome"
+     },
+     {
+      "code": "G45.1",
+      "display": "Carotid artery syndrome (hemispheric)"
+     },
+     {
+      "code": "G45.8",
+      "display": "Other transient cerebral ischemic attacks and related syndromes"
+     },
+     {
+      "code": "G45.9",
+      "display": "Transient cerebral ischemic attack, unspecified"
+     },
+     {
+      "code": "I63.00",
+      "display": "Cerebral infarction due to thrombosis of unspecified precerebral artery"
+     },
+     {
+      "code": "I63.10",
+      "display": "Cerebral infarction due to embolism of unspecified precerebral artery"
+     },
+     {
+      "code": "I63.20",
+      "display": "Cerebral infarction due to unspecified occlusion or stenosis of unspecified precerebral arteries"
+     },
+     {
+      "code": "I63.30",
+      "display": "Cerebral infarction due to thrombosis of unspecified cerebral artery"
+     },
+     {
+      "code": "I63.40",
+      "display": "Cerebral infarction due to embolism of unspecified cerebral artery"
+     },
+     {
+      "code": "I63.50",
+      "display": "Cerebral infarction due to unspecified occlusion or stenosis of unspecified cerebral artery"
+     },
+     {
+      "code": "I63.81",
+      "display": "Other cerebral infarction due to occlusion or stenosis of small artery"
+     },
+     {
+      "code": "I63.89",
+      "display": "Other cerebral infarction"
+     },
+     {
+      "code": "I63.9",
+      "display": "Cerebral infarction, unspecified"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-STROKE-OR-TIA",
+ "name": "VS_STROKE_OR_TIA",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Ischaemic stroke or TIA",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-STROKE-OR-TIA",
+ "version": "1.0.0-v10a30f68"
+}

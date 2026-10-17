@@ -1,0 +1,35 @@
+{
+ "class": "structured",
+ "id": "EMPULSE-EXC-05",
+ "kind": "exclusion",
+ "label": "ACS / stroke / TIA ≤90 d",
+ "logic": {
+  "args": [
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_ACUTE_CORONARY_SYNDROME",
+    "window": {
+     "anchor": "index",
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_STROKE_OR_TIA",
+    "window": {
+     "anchor": "index",
+     "from_days": -90,
+     "to_days": 0
+    }
+   }
+  ],
+  "op": "or"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #5",
+ "text": "Acute coronary syndrome / myocardial infarction, stroke or transient ischaemic attack in the past 90 days prior to randomisation.",
+ "time_sensitive": true
+}

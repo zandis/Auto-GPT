@@ -1,0 +1,16 @@
+{
+ "class": "human",
+ "human_question": "Does the treating clinician believe immediate RRT is mandated?",
+ "id": "STARRT-AKI-EXC-09",
+ "kind": "exclusion",
+ "label": "Immediate RRT mandated",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #9",
+ "text": "Clinician(s) caring for patient believe(s) that immediate RRT is mandated.",
+ "time_sensitive": false
+}

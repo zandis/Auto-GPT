@@ -1,0 +1,21 @@
+{
+ "class": "structured",
+ "fallback": "Structured proxy: an acute/unspecified heart-failure diagnosis on an admission in the 30 days before the index date; primary-diagnosis position and HF symptoms at admission are checked at screening.",
+ "id": "EMPULSE-INC-02",
+ "kind": "inclusion",
+ "label": "Hospitalised for acute HF",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_ACUTE_HEART_FAILURE",
+  "window": {
+   "anchor": "index",
+   "from_days": -30,
+   "to_days": 0
+  }
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Inclusion #1",
+ "text": "Currently hospitalised for the primary diagnosis of acute heart failure (de novo or decompensated chronic HF), regardless of ejection fraction.",
+ "time_sensitive": true
+}

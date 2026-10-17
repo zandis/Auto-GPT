@@ -1,0 +1,16 @@
+{
+ "class": "note",
+ "id": "EMPULSE-INC-03",
+ "kind": "inclusion",
+ "label": "LVEF documented",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "note_question": "Do the echocardiography reports or notes document a left ventricular ejection fraction measured in the 12 months before the index date?",
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Inclusion #2",
+ "text": "Evidence of left ventricular ejection fraction (reduced or preserved) as per local reading, preferably during the current hospitalisation or in the 12 months prior to randomisation.",
+ "time_sensitive": false
+}

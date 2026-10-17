@@ -1,0 +1,21 @@
+{
+ "class": "structured",
+ "fallback": "Structured proxy: kidney-transplant status coded in the last 365 days (the transplant date itself is not in the demo).",
+ "id": "STARRT-AKI-EXC-06",
+ "kind": "exclusion",
+ "label": "Kidney transplant ≤365 d",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_KIDNEY_TRANSPLANT",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #6",
+ "text": "Kidney transplant within the past 365 days.",
+ "time_sensitive": false
+}

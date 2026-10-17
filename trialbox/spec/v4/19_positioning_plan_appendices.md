@@ -56,20 +56,20 @@ Items 1–6 are what would make TrialBox unmatched. Items 7–14 widen the lead.
 
 | # | Differentiator | Normative in | Primary metric | Target | First at |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Anytime-valid recall ledger (confidence sequences per canonical criterion, two known-positive lines) | §6, §10 SAFE, App. F | Coverage over 12 simulated monthly looks; new studies certified at first packet | ≥ 95 % over the whole sequence (simulation: repeated Clopper–Pearson missed 9.7 %, the sequence 0.3 %); ≥ 50 % certified at first packet *(est.)* | MS0 (sim.), MS2 |
+| 1 | Anytime-valid recall ledger (confidence sequences per canonical criterion, two known-positive lines) | §6, §10 SAFE, App. F | Coverage over 12 simulated monthly looks; new studies certified at first packet | ≥ 95 % over the whole sequence (reference simulation `tools/recall_sim.py`, seed 11: repeated Clopper–Pearson missed 9.7 %, the sequence 0.3 %); ≥ 50 % certified at first packet *(est.)* | MS0 (sim.), MS2 |
 | 2 | Criterion library with match-then-draft extraction | §6, §10.1 | Share matched to library; structure F1; normalisation per domain | > 60 % after 20 protocols; F1 ≥ 0.85; ≥ 0.80 drug, ≥ 0.70 condition, ≥ 0.65 measurement | MS1 |
-| 3 | Two-direction matching engine | §10.5 | `match_registry` recall@500, NDCG@10; tumour-board minutes | ≥ 0.90; ≥ 0.60 *(est.)*; against a site baseline | MS1, MS4 |
+| 3 | Two-direction matching engine | §10.5 | `match_registry` recall@500, NDCG@10; tumour-board minutes | ≥ 0.90; ≥ 0.60 *(est.)*; against a site baseline | MS1 (public benchmark), MS2 (open studies, silent), MS4 (registry, tumour board) |
 | 4 | Data platform with reconciliation and lineage | §5 | Planted-defect detection; days to onboard a source | 100 %; ≤ 10 working days | MS0 |
 | 5 | Class-based hybrid LLM control plane | §8 | Class violations; cost per candidate; model-swap time | 0; reported monthly; ≤ 1 working day incl. G5 | MS0 |
 | 6 | Hermes front door with capability separation | §9 | Proposal accuracy; capability-bearing injection successes | ≥ 0.95; 0 | MS0, MS3 |
 | 7 | Recruitability model and forecast ledger | §10.3, §10.6, §12 | Calibration slope; Brier vs PI estimates | 0.8–1.2 after 10 closed studies; better than PIs | MS1, MS6 |
-| 8 | S2b pre-filter with lexicon-recall gating | §4, §10 SAFE | `S2-zero_hit` bound; lexicon recall | Zero-hit exclusion only where recall ≥ 0.98 | MS2 |
+| 8 | S2b pre-filter with lexicon-recall gating | §4, §10 SAFE | `S2-zero_hit` bound; lexicon recall | Zero-hit exclusion only where the 95 % lower bound of lexicon recall is ≥ 0.98 per stratum (CAS-13) | MS2 |
 | 9 | Sentence-set judgement cache | §4, §10.4 | Hit rate in daily-note clinics | > 80 % after 4 weeks | MS3 |
 | 10 | Sponsor deliverable standard (four packs, FHIR/USDM/Dataset-JSON) | §12 | Accepted without rework; days to pack | ≥ 80 % *(est.)*; ≤ 2 working days | MS1, MS4 |
 | 11 | Open-data CI and public calibration prior | §16 | Weeks to first certified LTT threshold | ≤ 8 | MS2 |
 | 12 | Bake-off as code (OpenRouter, D0, per-language floors) | §8, §16 | Bake-off → champion cycle; stratum gap | ≤ 6 weeks *(est.)*; ≤ 5 points | MS1 (key needed) |
 | 13 | Champion/challenger shadow pass | §8 | Shadow evidence before a G5 change | ≥ 4 weeks *(est.)* | MS3 |
-| 14 | Alliance language packs and a federated node | §10.12 | Requests answered automatically; ε per quarter | Reported; within the ledger cap | MS5 |
+| 14 | Alliance language packs and a federated node | §10.11, ML-12 | Requests answered automatically; ε per quarter | Reported; within the ledger cap | MS5 |
 | 15 | PET kit (de-identification, PPRL, synthetic twins) | §7 | Re-identification risk of D2 exports | ≤ the §7 threshold on 100 % of exports | MS1 |
 | 16 | Watchlist flips, clinic-day lists, QBCB depth | §10.4 | Watchlist → strong conversions; depth k | Reported per study | MS3 |
 | 17 | Five-minute review and exemplar bank | §10.4, §8 | PPV lift per 100 labels | CI excludes 0 after 300 labels *(est.)* | MS3 |
@@ -136,7 +136,7 @@ Figures from different datasets are not comparable. A target is met only on the 
 | Function | Bar (holder, tag) | TrialBox target | Measured on | First at |
 | --- | --- | --- | --- | --- |
 | Criterion judgement, real EHR | Acc 0.94, sens 0.98, spec 0.81, PPV 0.95 (UTSW, cloud) [V, preprint] | Acc ≥ 0.94 and spec ≥ 0.90 with an **on-prem open model**, every language stratum within 5 points | Site `judge_ml`, blinded CRC adjudication | MS3 |
-| Criterion judgement, public proxy | GPT-4 0.873 on the 1,015 NCBI pairs; physicians 0.887–0.900 [V] | ≥ 0.85 in en, zh-TW, ja and mixed; false-block upper bound ≤ 0.022 | `eval/criterion_ml` via `tools/mlbench.py` | MS1 |
+| Criterion judgement, public proxy | GPT-4 0.873 on the 1,015 NCBI pairs; physicians 0.887–0.900 [V] | ≥ 0.85 en; ≥ 0.82 zh-TW, ja and mixed until the VV-32 review completes, then ≥ 0.85 in all; false-block upper bound ≤ 0.030 *(provisional)*, ≤ 0.022 target at MS4 (§16.4) | `eval/criterion_ml` via `tools/mlbench.py` | MS1 |
 | Single-trial judgement | 97.9–100 % per criterion; sens 92.3 / spec 93.9 (RECTIFIER) [V] | The same on ≥ 3 non-oncology trials | Validation replay | MS2 |
 | Patient-level sensitivity | 81.8 % vs 36.4 % manual (UTHSA) [V] | ≥ 0.90 with a certified recall lower bound ≥ 0.90 at go-live, ≥ 0.95 by MS5 | Recall ledger (chart-review line) | MS3 |
 | Real-world PPV, Asian charts | 64 % (Fujitsu) [V] | PPV of `strong` ≥ 0.75 | Silent prospective, wave 1 | MS3 |
@@ -368,10 +368,10 @@ which the milestone is 80 % likely to be met *(est.)*.
 | --- | --- | --- | --- | --- |
 | MS0 | Foundations | 1–10 | 12 | Data platform L0–L5 thin path (Synthea 300k, MIMIC-IV FHIR demo) with reconciliation, publish gate and lineage; durable steps and outbox; `tb-gateway`, registry, routing policy, trace store; front-door MCP server; Hermes and native engines; recall ledger with confidence sequences; public suites in CI; VP, URS, threat model; dev bench |
 | MS1 | Feasibility on de-identified data | 11–24 | 28 | IR v3; criterion library (Chia, ClinicalTrials.gov); match-then-draft; cascade S0–S4 with S2b; terminology service; OMOP in L2 for VAL; feasibility pack with figures; recruitability model v1; validation replay; bake-off and shadow builds; bench gate; IQ/OQ; Level A approvals; PET kit |
-| MS2 | Pre-screening, silent mode | 25–36 | 42 | IRB and PDPA basis; L3 with MPI merges; HL7 v2 or CDC; shadow clinic-day lists; recall ledger live; LTT from the public prior; `potential` split; multi-span evidence; sentence-set cache; Level B signing; site `judge_ml`; PQ protocol; silent prospective started |
-| MS3 | Live, wave 1 (one department) | 37–48 | 56 | ≥ 8 weeks silent comparison with CRC logs; wave 1 with a 2-week soak and hypercare; validation summary report |
-| MS4 | Recruitment engine and start-up | 49–64 | 74 | Waves 2–3; accrual and site-performance packs; forecast ledger; M7 playbooks; Teams nudges; patient → trials and tumour board; optional review page; topology C for D1 if OD-02 is decided; stepped-wedge started; offline prompt optimisation |
-| MS5 | Conduct and data | 65–80 | 92 | Visits, deviations, SAE clocks, RBQM KRIs, TMF/ISF completeness; eSource packets, pre-fill, query drafts; OMOP endpoint; federated TACTC answer; optional CDS Hooks card; close-out |
+| MS2 | Pre-screening, silent mode | 25–36 | 42 | IRB and PDPA basis; L3 with MPI merges; HL7 v2 or CDC; shadow clinic-day lists; recall ledger live; LTT from the public prior; `potential` split; multi-span evidence; sentence-set cache; Level B signing; site `judge_ml`; PQ protocol; silent prospective started; open-study patient → trials matching (FR-M5-6) in silent mode only, with a CRC champion |
+| MS3 | Live, wave 1 (one department) | 37–48 | 56 | ≥ 8 weeks silent comparison with CRC logs; wave 1 with a 2-week soak and hypercare; open-study matching live; validation summary report |
+| MS4 | Recruitment engine and start-up | 49–64 | 74 | Waves 2–3; accrual and site-performance packs; forecast ledger; M7 playbooks; Teams nudges; registry patient → trials (FR-M5-7, -9, -11) and tumour board (FR-M5-8); optional review page; topology C for D1 if OD-02 is decided; stepped-wedge started; offline prompt optimisation |
+| MS5 | Conduct and data | 65–80 | 92 | Visits, deviations, SAE clocks, RBQM KRIs, TMF/ISF completeness; screening-visit checklist (FR-M7-18); eSource packets, pre-fill, query drafts; OMOP endpoint; federated TACTC answer; optional CDS Hooks card; close-out |
 | MS6 | Second site and Japan profile | 81–96 | 112 | Second hospital from the offline bundle; JP Core adapter and ja suites; forecast calibration; validation paper; stepped-wedge report |
 
 **Exit criteria and KRIs.** Every exit criterion must be met or waived in writing by the SC with a risk entry. Any KRI
@@ -379,9 +379,9 @@ breach at the gate means no-go.
 
 | MS | Exit criteria | Go/no-go KRIs |
 | --- | --- | --- |
-| MS0 | L1 blocks 100 % of planted defects on Synthea 300k (0.5 % row drop, type drift, duplicate key, null identifier). MIMIC-IV FHIR demo v2.1.0 ingests with 0 blocking DQ errors and complete lineage. Routing property test finds 0 routes from D3/D4 outside the perimeter. Intake e2e passes on `hermes` and `native`. Front-door `redteam` has 0 capability-bearing successes. `recall_cert` coverage is ≥ 95 % over 12 looks. `judge_public` reproduces GPT-4 accuracy 0.873 from recorded outputs. VP and URS are approved. | Critical defects = 0; schedule variance ≤ 2 weeks; TEST class violations = 0 |
-| MS1 | `criteria_extract_public` structure F1 ≥ 0.85 and normalisation ≥ 0.80/0.70/0.65. `judge_public` ≥ 0.85 per stratum for the chosen J. S0–S2 funnel within ±15 % of a manual CRC funnel on 5 closed studies. Validation replay on ≥ 10 closed studies in ≥ 3 therapeutic areas, with anytime-valid bounds. Feasibility pack passes G2 on ≥ 2 live requests. Planned load is ≤ 50 % of night capacity (NFR-18). IQ/OQ are signed. The bake-off report exists, or a recorded waiver if there is no key. | PHI or class incidents = 0; D2 exports over the risk threshold = 0; snapshots published with blocking DQ = 0; reconciliation delta ≤ 0.5 % |
-| MS2 | IRB approval and PDPA basis are on file. Feed reconciliation is ≤ 0.5 % for 4 weeks. Shadow lists run on ≥ 20 consecutive clinic days. A CS bound exists for every stratum, with both known-positive lines. `lexicon_recall` has run, and zero-hit exclusion is enabled only where recall ≥ 0.98. `judge_ml` has ≥ 100 site items per stratum, with a gap ≤ 5 points. FR-SIG negative tests pass. The PQ protocol is approved. The silent analysis is pre-registered. | PHI incidents = 0; `uncertain` sends = 0; class violations = 0; unresolved Hermes denial anomalies > 48 h = 0 |
+| MS0 | L1 blocks 100 % of planted defects on Synthea 300k (0.5 % row drop, type drift, duplicate key, null identifier). MIMIC-IV FHIR demo v2.1.0 ingests with 0 blocking DQ errors and complete lineage. Routing property test finds 0 routes from D3/D4 outside the perimeter. Intake e2e passes on `hermes` and `native`. Front-door `redteam` has 0 capability-bearing successes. `recall_cert` coverage is ≥ 95 % over 12 looks. `judge_public` reproduces GPT-4 accuracy 0.873 from recorded outputs. Iceberg writer qualification (merge re-key, purge, rollback-to-snapshot) passes on Synthea 300k, or the §5.13.1 fallback is declared. VP and URS are approved. | Critical defects = 0; schedule variance ≤ 2 weeks; TEST class violations = 0 |
+| MS1 | `criteria_extract_public` structure F1 ≥ 0.85 and normalisation ≥ 0.80/0.70/0.65. The VV-32 clinician review of all 326 sentences of each rendering is complete. `judge_public` for the chosen J meets the §16.4 floors (≥ 0.85 en; ≥ 0.82 zh-TW/ja/mixed until VV-32 completes, then ≥ 0.85 in every stratum). S0–S2 funnel within ±15 % of a manual CRC funnel on 5 closed studies. Validation replay on ≥ 10 closed studies in ≥ 3 therapeutic areas, with anytime-valid bounds. Feasibility pack passes G2 on ≥ 2 live requests. Planned load is ≤ 50 % of night capacity (NFR-18). IQ/OQ are signed. The bake-off report exists, or a recorded waiver if there is no key. | PHI or class incidents = 0; D2 exports over the risk threshold = 0; snapshots published with blocking DQ = 0; reconciliation exact for same-transaction totals; ≤ 0.5 % only where the contract documents non-transactional totals (§5.9.1) |
+| MS2 | IRB approval and PDPA basis are on file. Feed reconciliation is exact for same-transaction totals; ≤ 0.5 % only where the contract documents non-transactional totals (§5.9.1), for 4 weeks. Shadow lists run on ≥ 20 consecutive clinic days. A CS bound exists for every stratum, with both known-positive lines. `lexicon_recall` has run, and zero-hit exclusion is enabled only where the 95 % lower bound of lexicon recall is ≥ 0.98 in every stratum (CAS-13). `judge_ml` has ≥ 100 site items per stratum, with a gap ≤ 5 points. FR-SIG negative tests pass. The PQ protocol is approved. The silent analysis is pre-registered. | PHI incidents = 0; `uncertain` sends = 0; class violations = 0; unresolved Hermes denial anomalies > 48 h = 0 |
 | MS3 | ≥ 8 weeks silent prospective, capturing ≥ 0.80 of CRC-identified candidates, with AI-only candidates adjudicated. Chart-review recall lower bound ≥ 0.90. PPV of `strong` ≥ 0.75. CRC minutes per candidate −40 % against baseline. Wave-1 soak is green. Validation summary is signed. DR drill passes. | PHI incidents = 0; `uncertain` sends = 0; recall lower bound ≥ 0.90; abstention error ≤ α per stratum; gate backlog < 48 h; CRC satisfaction ≥ 4/5 |
 | MS4 | ≥ 3 departments live after green soaks. Monthly accrual packs for ≥ 10 studies. `match_registry` recall@500 ≥ 0.90 and NDCG@10 ≥ 0.60. Tumour-board use on ≥ 10 cases, timed. If C is enabled: egress test, cost report and DPO sign-off for D1. Stepped-wedge has started. Every projection is in the forecast ledger. | As MS3; cost per candidate within budget; packs needing rework ≤ 20 % |
 | MS5 | eSource packets accepted by a CRA on ≥ 1 study. Structured agreement ≥ 0.95 on 3 closed studies. OMOP endpoint used by ≥ 1 OHDSI study with DQD run. Federated TACTC answer with the ε ledger. RBQM KRIs in the Monday digest. | As MS4; SAE clock breaches caused by the box = 0 |
@@ -404,39 +404,45 @@ breach at the gate means no-go.
 | HL7 v2 or CDC feed | MS2 | IT, HIS vendor | 8–20 weeks *(uncertain)* | Nightly views; next-day lists |
 | Hardware (OD-11) | MS0 (dev), MS1 (prod) | PO, IT | 2–8 weeks *(volatile prices)* | P-5090 profile |
 | IdP integration (OIDC) | MS2 | IT, SEC | 4–8 weeks | Sealed break-glass accounts; B1 passkeys |
-| Clinician review of the zh-TW/ja/mixed note translations | MS2 | Clinical informatics | 4 weeks | Synthetic strata labelled "not clinician-verified" |
+| Clinician review of the zh-TW/ja/mixed note translations (all 326 sentences of each rendering, VV-32) | MS1 | Clinical informatics | 4 weeks | Synthetic strata labelled "not clinician-verified"; non-en floor stays 0.82 (§16.4) |
 | Cloud tenant and contract (OD-02) | MS4 | PO, DPO | 8–16 weeks | Topology A only |
 
-### 20.8 First sprint (weeks 1–3), in dependency order
+### 20.8 MS0 backlog in dependency order, and the first sprint (weeks 1–3)
 
 v3's first task deleted the cloud-LLM path. v4 does the opposite: the cloud branch of `libs/tb_common/llm.py` becomes
 gateway routes under class policy (S1-06). Package paths follow the normative layout of §17.1. If the two ever differ, §17.1 governs and
 the CCB updates this table. Every task ends with tests carrying `@req` markers.
 
+The table is the **MS0 backlog**: at 7 FTE it is about 8–10 weeks of work, not three. The **first sprint (weeks 1–3)** is
+the slice marked **[Sprint 1]**: S1-01, S1-02, S1-03, S1-05, S1-06 (v0 only: class check, route refusal, audit), S1-12
+and S1-15 (schema only). S1-00 is already done. The rest follows in dependency order through MS0 (§20.7).
+
 | # | Task | Deps | Files | Done when |
 | --- | --- | --- | --- | --- |
-| S1-01 | **Data-class contract.** Add a D0–D4 enum and a `ClassLabel` model; every payload that crosses a boundary carries `data_class`. Contracts come first (§17.2). | — | `libs/tb_contracts/dataclass.py`, `libs/tb_common/policy/classes.py`, `schemas/` (generated), `tests/unit/test_dataclass.py` | A missing or unknown class fails validation; every existing contract has a class; mypy strict passes |
-| S1-02 | **L0 Landing.** Immutable landing per source × batch, with a manifest {source, extract_time, rows, bytes, sha256, schema_fingerprint}. | S1-01 | `services/dataplat/landing/`, `libs/tb_contracts/landing.py`, `services/dataplat/sources/` (v1 `services/adapter/sources/` moved) | Re-landing is idempotent; a one-byte change is detected; raw retention is 90 days |
-| S1-03 | **L1 Validation and publish gate.** Data contracts; reconciliation against control totals (`count(*)`, `max(delta)`, `count(distinct mrn)`); Kahn-style DQ rules; quarantine with reason codes; steward email; no partial publish. | S1-02 | `services/dataplat/validate/`, `services/dataplat/{contracts,reconcile,dq,publish}/`, `libs/tb_testkit/` (planted-defect generators), `tools/gen_contracts.py` | Each planted defect on Synthea 300k blocks publish with its reason code. MailHog receives the diff. The previous snapshot stays current. |
-| S1-04 | **L2–L5 thin path and lineage.** Wrap the v1 adapter as the stages: standardise; pseudonymise with an MRN → MPI merge table; curated snapshot manifest; serving pin. Emit OpenLineage events. | S1-03 | `services/dataplat/{standardise,pseudonymise,curated,serving,mpi,lineage}/` (from v1 `services/adapter/` and `services/lake/` with import shims), `tests/e2e/test_ingest_fhir_demo.py` | The MIMIC-IV FHIR demo (via `tools/fetch_open_data.py`) becomes a snapshot with 0 blocking DQ errors and full lineage. An A40-style fixture maps two MRNs to one pid. |
-| S1-05 | **Durable steps and outbox** (v3 S1-6; skip if merged). | S1-01 | `services/orchestrator/` (`db_pg.py`, `outbox.py`), `deploy/topology_a/` (compose) | Kill-loop e2e gives exactly one delivery per outbox row |
-| S1-06 | **`tb-gateway` v0 with class policy.** OpenAI-compatible proxy with caller identity, declared class, route lookup, refusal on mismatch, structured-output pass-through, cache keyed by (prompt sha, model sha), and an audit record (prompt sha, model sha, class, tokens, latency, cost, purpose). All callers use `libs/tb_llm`, which talks only to the gateway. Egress lets only the gateway reach model hosts. | S1-01 | `services/gateway/`, `models/routing.yaml`, `libs/tb_llm/` (replaces `libs/tb_common/llm.py`, shim for one milestone), `deploy/egress.py`, `tests/unit/test_routing_policy.py`, `tests/unit/test_egress_rules.py` | A property test over (role, class, profile, topology) finds 0 routes from D3/D4 outside the perimeter. A mismatch is refused and audited. No container other than the gateway has a model-host egress rule. |
+| S1-00 | **Open-data fetcher, fixtures and docs (VV-10, VV-11).** **Done:** present and committed with this spec revision. | — | `docs/OPEN_DATA.md`, `tools/fetch_open_data.py`, `tools/open_data_e2e.py`, `services/adapter/mapping/mimic/`, `tests/fixtures/open_data/`, `tests/unit/test_mimic_mapping.py`, `tests/integration/test_open_data_e2e.py` | `make open-data-e2e` passes on MIMIC-IV FHIR demo v2.1.0 against EMPULSE (NCT04157751) and STARRT-AKI (NCT02568722), reproducibly; report at `.cache/open_data/report.md` (passed) |
+| S1-01 | **[Sprint 1]** **Data-class contract.** Add a D0–D4 enum and a `ClassLabel` model; every payload that crosses a boundary carries `data_class`. Contracts come first (§17.2). | — | `libs/tb_contracts/dataclass.py`, `libs/tb_common/policy/classes.py`, `schemas/` (generated), `tests/unit/test_dataclass.py` | A missing or unknown class fails validation; every existing contract has a class; mypy strict passes |
+| S1-02 | **[Sprint 1]** **L0 Landing.** Immutable landing per source × batch, with a manifest {source, extract_time, rows, bytes, sha256, schema_fingerprint}. | S1-01 | `services/dataplat/landing/`, `libs/tb_contracts/landing.py`, `services/dataplat/sources/` (v1 `services/adapter/sources/` moved) | Re-landing is idempotent; a one-byte change is detected; raw retention is 90 days |
+| S1-03 | **[Sprint 1]** **L1 Validation and publish gate.** Data contracts; reconciliation against control totals (`count(*)`, `max(delta)`, `count(distinct mrn)`); Kahn-style DQ rules; quarantine with reason codes; steward email; no partial publish. | S1-02 | `services/dataplat/validate/`, `services/dataplat/{contracts,reconcile,dq,publish}/`, `libs/tb_testkit/` (planted-defect generators), `tools/gen_contracts.py` | Each planted defect on Synthea 300k blocks publish with its reason code. MailHog receives the diff. The previous snapshot stays current. |
+| S1-04 | **L2–L5 thin path and lineage.** Wrap the v1 adapter as the stages: standardise; pseudonymise with an MRN → MPI merge table; curated snapshot manifest; serving pin. Emit OpenLineage events. | S1-00, S1-03 | `services/dataplat/{standardise,pseudonymise,curated,serving,mpi,lineage}/` (from v1 `services/adapter/` and `services/lake/` with import shims), `tests/e2e/test_ingest_fhir_demo.py` | The MIMIC-IV FHIR demo (via `tools/fetch_open_data.py`) becomes a snapshot with 0 blocking DQ errors and full lineage. An A40-style fixture maps two MRNs to one pid. |
+| S1-05 | **[Sprint 1]** **Durable steps and outbox** (v3 S1-6; skip if merged). | S1-01 | `services/orchestrator/` (`db_pg.py`, `outbox.py`), `deploy/topology_a/` (`podman-compose`) | Kill-loop e2e gives exactly one delivery per outbox row |
+| S1-06 | **[Sprint 1]** (v0 slice: class check, route refusal, audit) **`tb-gateway` v0 with class policy.** OpenAI-compatible proxy with caller identity, declared class, route lookup, refusal on mismatch, structured-output pass-through, cache keyed by (prompt sha, model sha), and an audit record (prompt sha, model sha, class, tokens, latency, cost, purpose). All callers use `libs/tb_llm`, which talks only to the gateway. Egress lets only the gateway reach model hosts. | S1-01 | `services/gateway/`, `models/routing.yaml`, `libs/tb_llm/` (replaces `libs/tb_common/llm.py`, shim for one milestone), `deploy/egress.py`, `tests/unit/test_routing_policy.py`, `tests/unit/test_egress_rules.py` | A property test over (role, class, profile, topology) finds 0 routes from D3/D4 outside the perimeter. A mismatch is refused and audited. No container other than the gateway has a model-host egress rule. |
 | S1-07 | **Model registry v0 and model cards.** Alias → pinned build (SHA-256, revision, quantisation, licence, origin); candidate/shadow/champion/retired statuses; served-model echo. | S1-06 | `services/registry/`, `models/registry.yaml`, `models/cards/`, `tools/trialbox/` (`registry` command) | The gateway resolves aliases from the registry. A stub serving the wrong name is detected. Manifests print the served model and SHA. |
 | S1-08 | **Trace store and redaction.** Traces go to a self-hosted store (OD-14) with redaction at write. Extend `phi_guard` with national ID, ARC, passport, phone and address patterns. | S1-06 | `services/tracestore/`, `services/guard/` (PHI recognisers; `libs/tb_common/phi_guard.py` folded in), `eval/suites/deid_synthetic/` | On ≥ 200 synthetic items with planted identifiers, no planted ID appears in traces. Recall is reported. Retention is 90 days. |
 | S1-09 | **Front-door MCP server.** Tools: `tb.submit_request`, `tb.status`, `tb.ask_protocol`, `tb.registry_search`, `tb.atlas_describe`, `tb.aggregate_query` (T1, accountant), `tb.resend_released_file`, `tb.ops_read` (exactly the §9.3 list; HELP is served by SOP skills). Each runs in the orchestrator policy context and writes the audit event before returning. | S1-05, S1-06 | `services/frontdoor_mcp/`, `libs/tb_contracts/frontdoor.py`, `tools/mcp_snapshot.py` | Contract tests per tool. No T2/T3 tool is listed. Unauthenticated calls are refused. Small cells are suppressed. |
-| S1-10 | **Channel abstraction and native engine.** `Channel` interface; native email and Teams (no PHI); `channels.engine: hermes \| native`. Grammar lines are parsed deterministically; plain text becomes a `classify_intent` proposal via the gateway. | S1-09 | `services/channels/` (base, `native/email`, `native/teams`; v1 `services/mail_gateway/` moved), `schemas/settings.schema.json` | On `native`, 「這個試驗做得起來嗎」 plus a PDF yields a proposal, and `OK` starts FEAS |
-| S1-11 | **Hermes, pinned and hardened.** Vendored tag + SHA. Only the front-door MCP toolset. Memory off; approvals manual; cron and unattended denied; MCP sampling and elicitation off; private URLs off. The `tb_policy_audit` plugin's `pre_tool_call` fails closed. | S1-10 | `integrations/hermes/` (`profiles/tb-internal.yaml`, `hermes.lock`, the `tb_policy_audit` plugin), `tests/security/test_hermes_config.py`, `eval/redteam/` | CI lint asserts every setting. The intake e2e passes on `hermes`. `redteam` has 0 capability-bearing successes. Switching to `native` mid-conversation loses no request. |
-| S1-12 | **Recall ledger with confidence sequences.** Persist and resume `ConfidenceSequence` state per (canonical criterion, stratum). The certificate has two labelled known-positive lines. Add the `recall_cert` simulation. | S1-05 | `libs/tb_common/recall.py`, `services/orchestrator/calibration/`, `libs/tb_contracts/recall.py`, `eval/suites/recall_cert/` | State round-trips byte-identically. Over 12 looks, CS miss-coverage is ≤ 5 % (reference 0.3 %), and repeated CP exceeds 5 % (reference 9.7 %). |
-| S1-13 | **Public suites in CI.** `judge_public` (stub and recorded outputs through the gateway), `ingest_fhir_demo`, and a Chia loader for `criteria_extract_public`. Results are archived with dataset hashes. | S1-04, S1-06 | `tools/trialbox/` (`eval`), `tools/mlbench.py`, `eval/suites/{judge_public,ingest_fhir_demo,criteria_extract_public}/`, `eval/DATASETS.yaml`, `Makefile` (`eval-public`) | The GPT-4 reference reproduces accuracy 0.873 and false-block 0.014 exactly. `ingest_fhir_demo` is green. |
-| S1-14 | **Bake-off as code.** `tools/bakeoff.py` drives `mlbench` through the gateway `bakeoff` route (OpenRouter, D0 only). Candidates come from the registry. Per-language floors; cost and latency per 1k items. | S1-07, S1-13 | `tools/bakeoff.py`, `tools/mlbench_tasks/`, `models/routing.yaml`, `models/registry.yaml`, `eval/bakeoff/weights.yaml` | Without a key: `--dry-run` prints the plan and a cost estimate, and a D1 payload on `bakeoff` is refused. With `OPENROUTER_API_KEY`: the report has per-stratum accuracy, false-block rate, bootstrap CIs, cost and latency, and the top two per role become `shadow`. No result is recorded before the run. |
-| S1-15 | **IR v3 schema and criterion-library tables.** Line of therapy, attributes, derived calculators, screening/randomisation anchors, organ-function macro; library keyed by canonical hash; Chia seed. | S1-01 | `libs/tb_contracts/criterion_ir.py` (generated schema in `schemas/`), `services/criteria_compiler/library/` | All v1/v3 rulesets validate and re-run byte-identically. The Chia seed loads, and its duplicate rate is reported. |
+| S1-10 | **Channel abstraction and native engine.** `Channel` interface; native email, and Teams as a **fake transport only** (no PHI; live Teams is MS4, FR-UX-11); `channels.engine: hermes \| native`. Grammar lines are parsed deterministically; plain text becomes a `classify_intent` proposal via the gateway. | S1-09 | `services/channels/` (base, `relay/`, `native/email`, `native/teams` (fake transport); v1 `services/mail_gateway/` moved), `schemas/settings.schema.json` | On `native`, 「這個試驗做得起來嗎」 plus a PDF yields a proposal, and `OK` starts FEAS |
+| S1-11 | **Hermes, pinned and hardened.** Vendored tag + SHA; the release pinned by digest and mirrored internally (ENG-08); the `tb_relay_adapter` contract test (HER-7). Only the front-door MCP toolset. Memory off; approvals manual; cron and unattended denied; MCP sampling and elicitation off; private URLs off. The `tb_policy_audit` plugin's `pre_tool_call` fails closed. | S1-10 | `integrations/hermes/` (`profiles/tb-staff/`, `profiles/tb-line/` (no tools), `profiles/tb-admin/`, `hermes.lock`, the `tb_relay_adapter` and `tb_policy_audit` plugins), `tests/security/test_hermes_config.py`, `eval/redteam/` | CI lint asserts every setting. The mirrored digest matches `hermes.lock`. The `tb_relay_adapter` contract test passes. The intake e2e passes on `hermes`. `redteam` has 0 capability-bearing successes. Switching to `native` mid-conversation loses no request. |
+| S1-12 | **[Sprint 1]** **Recall ledger with confidence sequences.** Persist and resume `ConfidenceSequence` state per (canonical criterion, stratum). The certificate has two labelled known-positive lines. Add the `recall_cert` simulation. | S1-05 | `libs/tb_common/recall.py`, `services/orchestrator/recall/` (Postgres `recall_cell`, `recall_observation`), `tools/recall_sim.py`, `libs/tb_contracts/recall.py`, `eval/suites/recall_cert/` | State round-trips byte-identically. Over 12 looks, CS miss-coverage is ≤ 5 % (reference 0.3 %), and repeated CP exceeds 5 % (reference 9.7 %; `python -m tools.recall_sim`, seed 11). |
+| S1-13 | **Public suites in CI.** `judge_public` (stub and recorded outputs through the gateway), `ingest_fhir_demo`, and a Chia loader for `criteria_extract_public`; the loader ships only after the Chia licence is confirmed (App. H, *uncertain*). Results are archived with dataset hashes. | S1-04, S1-06, Chia licence | `tools/trialbox/` (`eval`), `tools/mlbench.py`, `eval/suites/{judge_public,ingest_fhir_demo,criteria_extract_public}/`, `eval/DATASETS.yaml`, `Makefile` (`eval-public`) | The GPT-4 reference reproduces accuracy 0.873 and false-block 0.014 exactly. `ingest_fhir_demo` is green. |
+| S1-14 | **Bake-off as code.** `tools/bakeoff.py` drives `mlbench` through the gateway `bakeoff` route (OpenRouter, D0 only). Candidates come from the registry. Per-language floors; cost and latency per 1k items. | S1-07, S1-13 | `tools/bakeoff.py`, `tools/mlbench_tasks/`, `models/routing.yaml`, `models/registry.yaml`, `eval/bakeoff/weights.yaml` | **Done-criterion (MS0):** `--dry-run` prints the plan and a cost estimate, and a D1 payload on `bakeoff` is refused. The live run needs the key (A7) and is not part of the done-criterion: with `OPENROUTER_API_KEY` the report has per-stratum accuracy, false-block rate, bootstrap CIs, cost and latency, and the top two per role become `shadow`. No result is recorded before the run. |
+| S1-15 | **[Sprint 1]** (schema only) **IR v3 schema and criterion-library tables.** Line of therapy, attributes, derived calculators, screening/randomisation anchors, organ-function macro; library keyed by canonical hash; Chia seed. | S1-01 | `libs/tb_contracts/criterion_ir.py` (generated schema in `schemas/`), `services/criteria_compiler/library/` | All v1/v3 rulesets validate and re-run byte-identically. The Chia seed loads, and its duplicate rate is reported. |
 | S1-16 | **`trialbox doctor` for v4.** Checks topology, environment class ceiling, gateway-only model reach, channel engine and fallback, Hermes pinned SHA, publish-gate state. | S1-06, S1-11 | `tools/trialbox/` (`doctor`), `deploy/check_host.sh` | Fails closed on a D3/D4 route outside the perimeter, an unpinned Hermes image, or D3 data in DEV |
+| S1-17 | **Vendor the TrialGPT port.** The port lives on branch `claude/trialgpt-local-lcvm9p` under `trialgpt/` and is not in this worktree. Vendor `trialgpt_local/` into `services/matching/registry_match/` and its benchmark into `eval/match_registry/` (§10.5 table); remove live CT.gov search (FR-M5-9). | S1-06 | `services/matching/registry_match/`, `services/matching/registry_mirror/`, `eval/match_registry/` | The port's offline tests pass in-tree; the NCBI prompt drift check passes; no code path queries ClinicalTrials.gov with patient-derived text |
 
-Parallel tracks in sprint 1:
+Parallel tracks (sprint 1 covers the [Sprint 1] slice of each):
 - WS1 runs S1-02 → S1-04.
 - WS4 runs S1-06 → S1-08, then S1-14.
 - WS5 runs S1-05 → S1-09 → S1-11.
-- WS2 runs S1-15 and S1-12.
+- WS2 runs S1-15 and S1-12, then S1-17.
 - WS8 drafts the VP.
 - WS9 submits the IRB application and schedules the time-and-motion baseline.
 
@@ -468,7 +474,7 @@ Parallel tracks in sprint 1:
 | PPV of `strong` | ≥ 0.75 after 50 decisions *(est.)* | G3 decisions | Hold; ruleset or threshold review |
 | Median G3 gate backlog | < 48 h | Gate store | Hold; review PI load |
 | Packets on schedule | ≥ 95 % | Scheduler, outbox | Hold |
-| Reconciliation delta | ≤ 0.5 % | L1 | Snapshot pin T−1 (automatic) |
+| Reconciliation delta | exact for same-transaction totals; ≤ 0.5 % only where the contract documents non-transactional totals (§5.9.1) | L1 | Snapshot pin T−1 (automatic) |
 | Hermes capability-bearing injection | 0 | `redteam`, traces | Stop Hermes; `channels.engine: native` |
 | CRC satisfaction (monthly, 1–5) | ≥ 4 | Two-question survey | Hold; training or workflow review |
 | Candidates per PI per week | ≤ site cap (default 20) | Packets | Hold; adjust cadence or scope |
@@ -554,7 +560,7 @@ L is likelihood and I is impact, each scored 1–5; the score is L × I. Scores 
 | PLAN-RK-02 | IT bandwidth delays views or feeds | 4 | 4 | WS1 lead | Ready-made contracts and control-total queries; CSV fallback; IT time agreed at R0 | Feed not live 4 weeks after request |
 | PLAN-RK-03 | On-prem small models miss the bar on zh-TW code-mixed notes | 3 | 5 | ML lead | Bake-off with per-language floors; larger V model at night; S4 escalation; P-Scale | `judge_ml` stratum below floor or gap > 5 |
 | PLAN-RK-04 | No `OPENROUTER_API_KEY`, so the bake-off is delayed | 3 | 2 | PO | Bench-only choice on the dev unit; dry-run plan ready | No key by week 6 |
-| PLAN-RK-05 | Machine-translated NCBI notes mislead parity results | 3 | 3 | Clinical informatics | Labelled synthetic strata; clinician review of a stratified sample before MS2; site items decide | Reviewer disagreement > 5 % |
+| PLAN-RK-05 | Machine-translated NCBI notes mislead parity results | 3 | 3 | Clinical informatics | Labelled synthetic strata; full clinician review of all 326 sentences of each rendering before MS1 (VV-32); site items decide | Reviewer disagreement > 5 % |
 | PLAN-RK-06 | Chia (English) seed matches few Taiwanese protocols | 3 | 3 | WS2 lead | Seed from MOHW-disclosed protocols and TW-site CT.gov records; track match share | < 30 % matched after 10 protocols |
 | PLAN-RK-07 | Lexicon recall < 0.98 for most criterion types, so S2b load exceeds the night budget | 3 | 4 | WS2 lead | Embedding screen; sentence-set cache; NFR-18 reduces scope or cadence | Planned load > 50 % of capacity |
 | PLAN-RK-08 | Anytime-valid bounds double the audit samples, burdening CRCs | 4 | 3 | QA lead | Pooling per canonical criterion; importance weighting; budgeted monthly load; research-nurse annotators | Annotation hours over budget |
@@ -620,7 +626,7 @@ The "v3" column gives the old number of a carried-over decision.
 | OD-09 | Pricing | Appliance + yearly support; yearly subscription; alliance licence (none with per-patient fees, PLAN-COM-01) | Appliance + yearly support, with a published list price | PO | MS1 | OD-8 |
 | OD-10 | Data source order | (a) De-identified research DB for MS1, then HIS views and HL7/CDC for MS2; (b) HIS views first; (c) FHIR server first | (a): it matches the IRB path, and replay needs the research DB | Data steward, IT | Week 1 | OD-1 |
 | OD-11 | Hardware purchase | P-GB10; P-5090; P-Scale | A GB10-class dev unit in weeks 1–2; production after the MS0 bench and the bake-off shortlist; quotes needed *(volatile prices)* | IT, PO | Week 2; MS0 | OD-2 |
-| OD-12 | Small-cell thresholds per disclosure profile (§12.2, §7) | sponsor `<11`/5 and internal `<5`/5; or stricter per IRB | sponsor `<11` with base-5 rounding; internal `<5`; the IRB may tighten either | IRB | MS1 | OD-4 |
+| OD-12 | Small-cell thresholds per disclosure profile (§12.2.3 profiles `dc.sponsor`, `dc.internal`, `dc.alliance`, `dc.identified`; §7) | sponsor `<11`/5 and internal `<5`/5; or stricter per IRB | sponsor `<11` with base-5 rounding; internal `<5`; the IRB may tighten either | IRB | MS1 | OD-4 |
 | OD-13 | LINE use | None; nudges without PHI | Nudges without PHI, opt-in per user | CISO, research office | MS2 | — |
 | OD-14 | Trace-store engine | Langfuse; Phoenix (both self-hosted) | DA decides after a one-week spike on redaction-at-write and retention | TL, SEC | Week 3 | — |
 | OD-15 | Sponsor consent for D1 cloud processing (C) | None; per-protocol written consent | Off; consent template by MS4 if OD-02 enables C | Legal, research office | Before MS4 | — |
@@ -657,8 +663,8 @@ Legend:
 | Site selection, site profile | ○ | ● | ● | MS4 | FR-M3 | No |
 | Start-up: budget, coverage analysis, delegation, training; IRB e-submission package (*new*) | ○ | ● | ● | MS4 | FR-M7 | Drafting only |
 | Pre-screening, clinic-day lists, recall certificate | ● | ● | ● | MS3 | FR-M4, SAFE- | Residue only |
-| Patient → trials, tumour board | ○ | ● | ● | MS4 | FR-M5 | Residue only; registry retrieval |
-| Screening-visit checklist pre-filled for the investigator (*new*) | ○ | ○ | ● | MS4 | FR-M4, FR-M7 | No (reuses evidence) |
+| Patient → trials, tumour board | ○ | ● | ● | MS2 / MS4 | FR-M5 (open studies MS2 silent, live MS3; registry and tumour board MS4) | Residue only; registry retrieval |
+| Screening-visit checklist pre-filled for the investigator (*new*) | ○ | ○ | ● | MS5 | FR-M4, FR-M7 (FR-M7-18) | No (reuses evidence) |
 | Consent tracking and re-consent (signing out of scope) | ○ | ● | ● | MS4 | FR-M6 | No |
 | Enrolment tracking, accrual pack | ◐ | ● | ● | MS4 | FR-M6, §12 | No |
 | Retention, visit adherence, participant reimbursement reminders (*new*) | ○ | ○ | ● | MS5 | FR-M6, FR-M7 | No |
@@ -673,7 +679,7 @@ Legend:
 | IIT protocol skeleton, ICH M11 template (*new*) | ○ | ○ | ◐ | MS5 | FR-M7, FR-M9 | Drafting under G1-like review (D1) |
 | NHI reimbursement, TWPAS, NHI signals | ● | ● | ● | MS1 / MS4 | FR-M10 | As v1 |
 | Networked and federated research, language packs | ● | ● | ● | MS5 | FR-M11 | No |
-| Staff concierge, aggregate analyst, admin copilot (Hermes) (*new*) | ○ | ○ | ● | MS0 / MS3 | §9, FR-AG | Yes (D1, aggregates; no PHI) |
+| Staff concierge, aggregate analyst, admin copilot (Hermes) (*new*) | ○ | ○ | ● | MS0 / MS3 | §9, FR-AG | Yes (D1; D3 tokenised conversation text, on-prem only; aggregates; no PHI tools) |
 | Randomisation, IP dispensing, unblinding, eConsent signing, patient contact | ○ | ○ | ○ | — | §2 non-goals | — |
 
 ## Appendix B — Evidence base (selected)
@@ -727,7 +733,7 @@ line**. That line is a **proposal**: the deterministic intake executes it only a
 the sender types the line directly (§3, §9). Free text never acts by itself. The v1 ABNF (`SPEC.md` §5) and the v3
 additions stay valid as the typed fallback.
 
-**Lines a proposal may produce** (grammar as in v3, except `row`):
+**Lines a proposal may produce** (grammar as in v3; candidates are named by `alias`):
 
 ```
 command   =/ "FEAS" SP ("NEW" / study) *(SP param)          ; param = key "=" value (scope, lookback, deadline)
@@ -737,20 +743,21 @@ command   =/ "WHATIF" SP study SP change *(";" change)       ; internal only
 change    = ("drop" SP criterion-id) / ("set" SP criterion-id SP param "=" value)
 command   =/ "SCREEN" SP study *(SP param)                   ; scope=practitioners:…, cadence=weekly|nightly
 command   =/ "STUDY" SP study SP status                      ; recruiting | follow_up | closed | declined
-command   =/ "CONFIRM" SP row *(SP row)                      ; G3, PI/Sub-I
-command   =/ "REJECT" SP row SP reason-code [SP free-text]
-command   =/ "DEFER" SP row [SP date]
-command   =/ "STATE" SP row SP state [SP date]               ; G4
+command   =/ "CONFIRM" SP alias *(SP alias)                  ; G3, PI/Sub-I
+command   =/ "REJECT" SP alias SP reason-code [SP free-text]
+command   =/ "DEFER" SP alias [SP date]
+command   =/ "STATE" SP alias SP state [SP date]             ; G4
 state     = "contacted" / "consented" / "screened" / "randomized" / "declined" / "screen_failed" / "withdrawn" / "not_contactable"
 command   =/ "ANSWERS" SP 1*(DIGIT ("Y" / "N" / "?") SP)     ; five-minute review
 command   =/ "MONITOR" SP study SP date                      ; monitoring-visit pack
 command   =/ "ATLAS" [SP domain] / "STATUS" [SP study] / "HELP" / "DIGEST" SP ("daily" / "weekly" / "off")
 command   =/ "OK"                                            ; confirms the proposal in the replied-to message
-row       = packet-id "#" 1*3DIGIT                           ; row handle printed in the packet (v4)
+alias     = "P" 4DIGIT                                       ; pseudonymous candidate alias printed in the packet (FR-M4-5, FR-UX-9)
 ```
 
-A proposal names a candidate by the packet's row handle, never by pid or MRN. The orchestrator resolves the handle
-inside the perimeter, and the front door never sees the pid (§9). A typed line may still carry a pid, as in v3.
+A proposal names a candidate by the alias printed in the packet (for example `CONFIRM P0156 P0203`, §3.4.4), never by pid
+or MRN. The orchestrator renders the proposal and resolves the alias inside the perimeter; the conversation engine fills
+only row references (FR-CONV-9) and never sees the alias list or the pid (§3.4.2, §9). A typed line may still carry a pid, as in v3.
 
 **Lines never proposed.** These are typed by the person and parsed deterministically.
 
@@ -839,13 +846,14 @@ certificate date. They are not valid for monthly re-issue on an accumulating led
 | Construction | Betting upper confidence sequence for a bounded mean (Waudby-Smith & Ramdas, JRSS-B 2024). Capital K_t(m) = ∏ (1 + λ_i (m − X_i)), where X_i = 1 marks an excluded patient who was in fact a candidate. |
 | Validity | Ville's inequality: P(∃t: K_t(true rate) ≥ 1/α) ≤ α. The bound at t is the largest m whose capital has never reached 1/α. It is valid at every look, so monthly re-issue and demotion are allowed. |
 | Bet | Predictable plug-in (WSR eq. 26): λ = √(2 log(1/α) / (σ̂² t log(t+1))), with σ̂² = (0.25 + Σ(x − x̄)²)/t, truncated so that 1 + λ(m − x) ≥ 0.5 |
-| Grid | 2,001 rates on [0, 1] (resolution 0.0005); running intersection, so the bound never rises |
-| α | 0.05 per certificate. Bonferroni α/K over K strata. |
+| Grid | 2,001 rates on [0, 1], non-uniform: step 0.00005 on [0, 0.05], 0.00095 above; running intersection, so the bound never rises |
+| α | 0.05 per certificate, allocated per cell in proportion to E_c and pre-registered at the study's first certificate (α_c = α · E_c/ΣE, weighted Bonferroni; K fixed for the series; §10.14). `certificate()` today splits α/K equally, the special case of equal E_c. |
 | State | Log-capital and rejection flag per grid point, n, Σx and the squared deviation. Persisted in the ledger (S1-12). |
-| Pooling and weights | Per canonical criterion across studies (SAFE-2). The module accepts 0/1 observations only. Horvitz–Thompson-weighted observations (AI-15) need the same construction on weights normalised to [0, 1]; this is a §10 SAFE item and is not yet implemented. |
-| Known-positive lines | Two labelled lines, historical enrollees (biased) and blinded chart review, both by Clopper–Pearson at the certificate date. An anytime-valid version of the cumulative chart-review line is a §10 item. |
+| Implemented | Real-valued observations in [0, 1]; `recall_lower_sequence` for the cumulative chart-review line (`certificate(..., known_positive_sequence=...)`). Both known-positive lines (historical enrollees, biased; blinded chart review) use sequence-based bounds; the single-look figure is for information only. |
+| Not implemented | Per-cell pre-registered α weights in `certificate()` (it splits α/K equally), Horvitz–Thompson rescaling `Y_i = x_i·w_i/w_max`, pooling per canonical criterion, and a log-spaced grid below 0.0005 (SAFE-12). |
 
-**Simulation (brief).** Over 12 monthly looks, repeated Clopper–Pearson at fixed α missed the true elusion rate in
+**Simulation (brief).** In the reference simulation (`tools/recall_sim.py`, `python -m tools.recall_sim`, seed 11:
+p = 0.02, 12 monthly looks of 40, 300 ledgers), repeated Clopper–Pearson at fixed α missed the true elusion rate in
 **9.7 %** of ledgers; the confidence sequence missed it in **0.3 %**. The nominal rate is 5 %. `recall_cert` reruns
 this simulation in CI and requires coverage ≥ 95 % over the whole sequence.
 
@@ -858,10 +866,10 @@ the observations:
 
 | n | 0 found: CS / CP | 1 found: CS / CP | 2 found: CS / CP |
 | --- | --- | --- | --- |
-| 150 | 0.0385 / 0.0198 | 0.0475 / 0.0312 | 0.0565 / 0.0414 |
-| 300 | 0.0195 / 0.0099 | 0.0240 / 0.0157 | 0.0285 / 0.0208 |
-| 600 | 0.0095 / 0.0050 | 0.0120 / 0.0079 | 0.0140 / 0.0105 |
-| 1,000 | 0.0055 / 0.0030 | 0.0070 / 0.0047 | 0.0085 / 0.0063 |
+| 150 | 0.0387 / 0.0198 | 0.0477 / 0.0312 | 0.0567 / 0.0414 |
+| 300 | 0.0197 / 0.0099 | 0.0242 / 0.0157 | 0.0288 / 0.0208 |
+| 600 | 0.0099 / 0.0050 | 0.0122 / 0.0079 | 0.0145 / 0.0105 |
+| 1,000 | 0.0060 / 0.0030 | 0.0073 / 0.0047 | 0.0087 / 0.0063 |
 
 | CS certifies elusion below p at n = | 0 found | 1 found | 2 found | CP single look, 0 found |
 | --- | --- | --- | --- | --- |
@@ -869,7 +877,7 @@ the observations:
 | 1 % | 595 | 734 | 872 | 299 |
 | 0.5 % | 1,194 | 1,472 | 1,749 | 598 |
 
-With K = 4 strata, a 1 % claim at 0 found needs n = 870 with the sequence, against about 438 with one CP look. When
+With K = 4 strata, a 1 % claim at 0 found needs n = 870 with the sequence, against 437 with one CP look. When
 nothing is found, anytime validity costs about twice the samples. That is why samples are pooled and importance-weighted,
 and why annotation load is a tracked risk (PLAN-RK-08).
 
@@ -903,6 +911,10 @@ any topology.
 | D2 | ✓ | ✓ (TRE controls) | Only with documented re-identification risk ≤ threshold, the PDPA cross-border analysis, and IRB/DPO sign-off (default off) | ✗ |
 | D3 | ✓ | ✓ only if the tenant is attested as the hospital's own perimeter | ✗ | ✗ |
 | D4 | ✓ | ✗ unless the HIS itself lives there | ✗ | ✗ |
+
+**Conversation text.** Every authenticated staff message in a packet thread, and tokenised text from PHI-tolerant
+channels, is D3 and routes on-prem only (topology B: inside the tenant); other staff text is D1 but is also kept on-prem.
+Cloud routes never receive conversation text. LINE inbound text never reaches a model (§3.4.1, §8.5, FR-CONV-8).
 
 Class ceilings per environment (§20.5):
 
@@ -958,12 +970,12 @@ redistribution. "Bundle" means the data may ship in the offline bundle.
 | ID | Sev | Finding | v4 resolution | Sections |
 | --- | --- | --- | --- | --- |
 | R3-01 | B | IR too narrow; no criterion library | IR v3; library with match-then-draft; normalisation targets per domain | §6, §10.1, §16 |
-| R3-02 | B | S2 zero-hit silently excludes | S2 never excludes by default; S2b; zero-hit only where lexicon recall ≥ 0.98 | §4, §10, §16 |
-| R3-03 | B | Certificate invalid under optional stopping | Confidence sequences (implemented); two known-positive lines; 12-look suite | §6, §10, App. F; S1-12 |
+| R3-02 | B | S2 zero-hit silently excludes | **Partly** (round 4, B2 now applied): S2 never excludes by default; S2b; zero-hit only where the 95 % Clopper–Pearson lower bound of lexicon recall is ≥ 0.98 in every stratum (CAS-13 = SAFE-9 = VV-24); measured only from MS2 site data | §4, §10, §16 |
+| R3-03 | B | Certificate invalid under optional stopping | **Partly**: confidence sequences, real-valued observations and the sequence recall line implemented; both known-positive lines anytime; 12-look suite (`tools/recall_sim.py`). Pending in code: per-cell α weights, HT rescaling, pooling (SAFE-12) | §6, §10, App. F; S1-12 |
 | R3-04 | M | J/V agreement is not correctness | Agreement with library and gold | §10.1, §16 |
 | R3-05 | M | Cache invalidated by any note | Sentence-set key | §4, §10.4 |
 | R3-06 | M | `potential` mixes two causes | `potential:data_gap` and `potential:uncertain` | §6, §10.4 |
-| R3-07 | M | M5 thin | Two-direction engine reusing the TrialGPT port | §10.5, §16 |
+| R3-07 | M | M5 thin | **Partly**: two-direction engine reusing the TrialGPT port (on branch `claude/trialgpt-local-lcvm9p`, vendored at S1-17); milestones now open-study MS2 silent / MS3 live, registry and tumour board MS4 | §10.5, §16 |
 | R3-08 | m | Single-span quotes | ≤ 3 verified spans | §6 |
 | R3-09 | B | No stages, controls or lineage | L0–L5; OpenLineage and Provenance | §5; S1-02…04 |
 | R3-10 | B | No reconciliation | Control totals; publish gate | §5; S1-03 |
@@ -974,7 +986,7 @@ redistribution. "Bundle" means the data may ship in the offline bundle.
 | R3-15 | m | No terminology service | `$validate-code`, `$translate` | §5 |
 | R3-16 | B | No data classes | D0–D4; A/B/C | §0, §7, App. G |
 | R3-17 | M | De-identification undefined | Standard, risk method, Five Safes | §7 |
-| R3-18 | M | PHI guard thin | Larger dictionaries and patterns; recall gate ≥ 0.98 | §7, §8, §16; S1-08 |
+| R3-18 | M | PHI guard thin | **Partly**: larger dictionaries and patterns; recall gate ≥ 0.98; the site test set is IRB-built, so a public synthetic code-mixed set (`eval/suites/deid_synthetic/`, S1-08) is the CI floor until MS2 | §7, §8, §16; S1-08 |
 | R3-19 | m | Opt-out is a flag | FHIR `Consent` scopes | §6, §7; OD-08 |
 | R3-20 | B | No LLM platform | Gateway, registry, routing, budgets | §8; S1-06/07 |
 | R3-21 | M | Unpoliced cloud branch | Gateway routes with class checks and cost | §8; S1-06 |
@@ -998,7 +1010,7 @@ redistribution. "Bundle" means the data may ship in the offline bundle.
 | R3-39 | M | Thin lifecycle | §2(i) additions | §2, §10, App. A |
 | R3-40 | B | No open-data strategy | Public suites in CI | §16, App. H; S1-13 |
 | R3-41 | M | Cold-start calibration | Public prior from the 1,015 annotations | §8, §10, §16 |
-| R3-42 | M | No bake-off | `tools/bakeoff.py`, D0 only; results pending the key | §8, §16; S1-14 |
+| R3-42 | M | No bake-off | **Partly**: procedure as code specified; `tools/bakeoff.py` and the task modules do not exist yet; D0 only; results pending the key | §8, §16; S1-14 |
 | R3-43 | B | No rollback, milestones, environments or waves | §18 rollback; MS0–MS6; environments; waves | §18, §20 |
 | R3-44 | M | Optimistic timeline | Re-estimated for 6–8 people, with p80 dates | §20.1, §20.7 |
 

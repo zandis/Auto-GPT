@@ -39,7 +39,7 @@ The spec is split into nine files because a single file would be about 1 MB. Sec
 | [12_deliverables_nfr.md](12_deliverables_nfr.md) | §12 Pharma deliverables (TrialBox Deliverable Standard: packs, tables, figures, formats, analyses) · §13 Non-functional requirements |
 | [14_security_compliance.md](14_security_compliance.md) | §14 Security (frameworks, threat model, identity, keys, network, hardening, LLM/agent controls, SIEM, backup, incident response, control allocation per component) · §15 Compliance (trace matrix, intended use, AI credibility, cross-border) |
 | [16_vv_engineering_operations.md](16_vv_engineering_operations.md) | §16 Verification, validation and open data (suites, gates, calibration, bake-off) · §17 Engineering standards · §18 Operations (install, monitoring, **rollback procedures**) |
-| [19_positioning_plan_appendices.md](19_positioning_plan_appendices.md) | §19 Positioning · §20 Delivery plan (governance, RACI, environments, milestones MS0–MS6, first sprint, rollout waves, risks) · §21 Open decisions · Appendices A–J |
+| [19_positioning_plan_appendices.md](19_positioning_plan_appendices.md) | §19 Positioning · §20 Delivery plan (governance, RACI, environments, milestones MS0–MS6, MS0 backlog and first sprint, rollout waves, risks) · §21 Open decisions · Appendices A–J |
 
 ## How to read it
 
@@ -47,7 +47,7 @@ The spec is split into nine files because a single file would be about 1 MB. Sec
 | --- | --- |
 | Hospital leadership, research office | §0–§2, §12 (what sponsors receive), §19, §20 |
 | Investigator, coordinator | §3, §10 for your stage |
-| Engineer or coding agent | everything; start at §4, §5, §8 and the first sprint in §20 |
+| Engineer or coding agent | everything; start at §4, §5, §8 and the MS0 backlog and first sprint in §20.8 |
 | QA, IRB, information security | §3 approvals, §7, §14, §15, §16, §18 |
 | IT, procurement | §4 hardware and topologies, §13, §14, §18 |
 
@@ -101,6 +101,10 @@ are quoted outside the team.
 **Verified evidence already in the repository:**
 - `tools/mlbench.py` and `eval/criterion_ml/`: 1,015 physician-labelled criterion pairs; every note in English,
   Traditional Chinese, Japanese and Taiwanese code-mixed style. The GPT-4 reference accuracy is 0.873.
-- `libs/tb_common/recall.py`: anytime-valid recall bounds. In simulation, repeated Clopper–Pearson looks missed the true
-  rate in 9.7 % of 12-month ledgers, and the sequence in 0.3 %.
-- `tools/fetch_open_data.py`: the MIMIC-IV FHIR demo end-to-end test.
+- `libs/tb_common/recall.py`: anytime-valid recall bounds (6 unit tests). In the reference simulation
+  (`tools/recall_sim.py`, `python -m tools.recall_sim`, seed 11: p = 0.02, 12 monthly looks of 40, 300 ledgers),
+  repeated Clopper–Pearson looks missed the true rate in 9.7 % of ledgers, and the sequence in 0.3 %.
+- `docs/OPEN_DATA.md`, `tools/fetch_open_data.py`, `tools/open_data_e2e.py`, `services/adapter/mapping/mimic/`: the
+  MIMIC-IV FHIR demo (v2.1.0) end-to-end test against EMPULSE (NCT04157751) and STARRT-AKI (NCT02568722). It passed;
+  results in `.cache/open_data/report.md`.
+- Not in this worktree: the TrialGPT port, on branch `claude/trialgpt-local-lcvm9p` under `trialgpt/` (§1.2).

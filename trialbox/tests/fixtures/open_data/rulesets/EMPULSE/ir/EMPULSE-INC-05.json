@@ -1,0 +1,16 @@
+{
+ "class": "human",
+ "human_question": "Does the patient fulfil all stabilisation criteria (SBP, i.v. diuretics, vasodilators, inotropes) at randomisation?",
+ "id": "EMPULSE-INC-05",
+ "kind": "inclusion",
+ "label": "Stabilised",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Inclusion #4",
+ "text": "Stabilisation: SBP ≥100 mmHg and no symptomatic hypotension in the preceding 6 h; no increase in i.v. diuretic dose for 6 h; no i.v. vasodilators for 6 h; no i.v. inotropes for 24 h.",
+ "time_sensitive": false
+}
