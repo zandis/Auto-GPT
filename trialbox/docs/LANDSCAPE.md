@@ -1,6 +1,6 @@
 # TrialBox v2 — Landscape, Literature and Brainstorm
 
-Oct 17, 2026 · companion to `SPEC_v2.md`. Public sources only; tags: [V] verified against a primary source, [R] reported by
+Oct 17, 2026 · companion to `SPEC_v3.md`. Public sources only; tags: [V] verified against a primary source, [R] reported by
 trade press or a secondary source, [U] unverified. Funding and product statements are as of the dates given.
 
 ## 1. Summary
@@ -55,7 +55,7 @@ trade press or a secondary source, [U] unverified. Funding and product statement
 | BEKhealth | NLP over EHR; site–sponsor matching | Cloud | AWS Marketplace from ~$6 k/yr for 1–10 practices [V] | US-only |
 | Trially | Matching, feasibility and an agentic recruiter (voice/text/email) | Cloud; Epic, athena, Oracle integrations | $4.7 M seed (2025) [V] | US |
 | Realyze (Carta Healthcare) | UPMC spin-out matching | Cloud | Acquired December 2024 [V] | US |
-| Inato | Site marketplace with AI pre-screening | Cloud | ~$35 M raised [R]; free to sites | Community-site focus; could be a channel |
+| Inato | Site marketplace with AI pre-screening | Cloud | ~$35 M raised [R]; free to sites | Community-site focus; a competitor for site attention |
 | Epic | AI chart-vs-criteria checks (Nov 2025), Cosmos feasibility, Forward CTMS (early adopters Nov 2026) | Hospital-hosted EHR + Cosmos | [R] | Only for Epic hospitals |
 | Oracle Health / Life Sciences | Natural-language cohorting over 122 M+ de-identified records; recruitment services | Cloud | 23 Sep 2026 release [V] | Cloud; US |
 | Open baselines | TrialGPT 2.0 (preprint), local TrialGPT (JAMIA 2026), Yale CTPM, TrialMatchAI (*Nat Commun* 2026) | Local | §6 | Need integration, governance and workflow |
