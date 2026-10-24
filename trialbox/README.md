@@ -1,5 +1,8 @@
 # TrialBox
 
+> **Next build:** the v4 specification is in [`spec/v4/`](spec/v4/README.md). The build handoff is [`docs/HANDOFF.md`](docs/HANDOFF.md), and the
+> starter prompt for the next session is [`docs/NEXT_SESSION_PROMPT.md`](docs/NEXT_SESSION_PROMPT.md).
+
 TrialBox is an on-prem appliance driven by e-mail. It compiles eligibility rules (clinical-trial protocols, Taiwan
 NHI reimbursement rules, alliance cohort definitions) into **auditable, deterministic patient screens** over the
 hospital's own data.
