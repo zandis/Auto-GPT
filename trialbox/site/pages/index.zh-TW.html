@@ -1,0 +1,60 @@
+<section class="hero">
+  <div class="eyebrow">院內部署 · 電子郵件與網頁操作 · 開放原始碼</div>
+  <h1>資料不出院，也能找到臨床試驗需要的病人。</h1>
+  <p class="lead">TrialBox 是在醫院內運作的收案條件編譯器與病人搜尋設備。它把試驗計畫書、健保給付規定與世代定義，
+  轉換成可稽核的病人篩選，直接在醫院自己的病歷資料上執行，並透過電子郵件或管理主控台回覆可行性評估。</p>
+  <div class="cta">
+    <a class="btn primary" href="../demo.html">觀看示範</a>
+    <a class="btn" href="../report.html">模型測試報告</a>
+    <a class="btn" href="{{repo}}/README.md">GitHub 快速開始</a>
+  </div>
+</section>
+
+<h2>三個原則</h2>
+<div class="grid">
+  <div class="card"><h3>資料不出院</h3><p>在院內網路的 DGX Spark 或任何 Docker 主機上執行。模型在設備上提供服務，對外連線預設封鎖。
+  交給試驗委託者的只有經小格抑制的彙總報告。</p></div>
+  <div class="card"><h3>代理人起草，引擎判定</h3><p>語言模型只負責從文件擷取條件，以及在結構化資料無法回答時閱讀自由文字病歷。
+  所有人數都來自由審閱過的規則集產生、並與 CQL 交叉驗證的確定性 SQL。</p></div>
+  <div class="card"><h3>由人核可</h3><p>每個編譯完成的規則集由研究協調員在審閱活頁簿中核可，收案資格由試驗主持人決定。
+  每個請求、模型呼叫與輸出檔都以雜湊寫入只能追加的稽核軌跡。</p></div>
+</div>
+
+<h2>運作方式</h2>
+{{pipeline_zh_tw}}
+<p class="small muted">篩選級聯先跑便宜且精確的步驟：SQL（S0–S1）在零模型成本下排除大多數病人；詞庫與語意篩選（S2、S2b）決定哪些病歷需要模型閱讀；
+只有剩下的才交給病歷判讀（S3）與夜間第二意見（S4）。最後由人決定（S5）。召回率證明書給出排除過程可能漏掉的符合病人數上界。</p>
+
+<h2>使用方式</h2>
+<div class="grid">
+  <div class="card"><h3>電子郵件</h3>
+    <p>寄一行指令給設備，結果會回到你的信箱。</p>
+<pre><code>收件者: trialbox@your-hospital
+主旨: FEAS GZQO</code></pre>
+    <p class="small muted">另有 <code>SCREEN</code>、<code>NAV</code>（健保申請導航）、<code>COHORT</code>，以及回覆填好的 <code>review.xlsx</code> 進行核可。</p>
+  </div>
+  <div class="card"><h3>管理主控台</h3>
+    <p>同樣的指令變成按鈕：新增請求、上傳與審閱計畫書、執行篩選級聯、每個工作的郵件往來與稽核軌跡。
+    用中文、日文或英文輸入問題，主控台會建議精確的指令；確認之前不會執行。</p>
+    <p><a href="../screens.html">主控台與網頁郵件畫面 →</a></p>
+  </div>
+</div>
+
+<h2>部署環境</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">環境</th><th scope="col">指令</th><th scope="col">模型</th></tr></thead>
+  <tbody>
+    <tr><td><b>NVIDIA DGX Spark</b>（GB10，128 GB）</td><td><code>make spark-e2e</code></td><td>設備上固定版本的開放權重模型（vLLM）</td></tr>
+    <tr><td><b>任何 Docker 主機</b>（Linux、macOS、WSL2）</td><td><code>deploy/poc.sh</code></td><td>確定性替身模型，或測試用 OpenRouter 模型：<code>TB_LLM_MODE=openrouter</code></td></tr>
+    <tr><td><b>雲端 GPU 虛擬機</b>（例如 GCP 的 L4 / A100）</td><td><code>TB_LLM_MODE=gpu deploy/poc.sh</code></td><td>同一固定版本模型，在你的虛擬機上</td></tr>
+  </tbody>
+</table></div>
+<p class="small muted">POC 會連同測試郵件伺服器與網頁郵件啟動整套設備、建立主控台管理員，並載入 600 位病人的合成醫院資料。
+詳見 <a href="{{repo}}/docs/RUNBOOK.md">RUNBOOK §8–9</a>（英文）。</p>
+
+<h2>本網站內容</h2>
+<div class="grid">
+  <a class="card" href="../demo.html" style="text-decoration:none;color:inherit"><h3>示範</h3><p>合成醫院 A 的可行性篩選級聯：漏斗圖、含小格抑制的流失表、召回率證明書與 DL-1 PDF。</p></a>
+  <a class="card" href="../report.html" style="text-decoration:none;color:inherit"><h3>測試報告</h3><p>以 TrialGPT 的 1,015 筆醫師標註條件配對，評估開放權重模型在英文、中文、日文上的表現，並與 TrialGPT 比較。</p></a>
+  <a class="card" href="../docs.html" style="text-decoration:none;color:inherit"><h3>文件</h3><p>GitHub 上的 README、維運手冊與架構說明（英文）。</p></a>
+</div>

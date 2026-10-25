@@ -1,0 +1,85 @@
+<section class="hero">
+  <div class="eyebrow"><span class="l-en">Live demo · static, precomputed</span><span class="l-ja" lang="ja">デモ · 静的・事前計算</span></div>
+  <h1><span class="l-en">A feasibility run on synthetic site A</span><span class="l-ja" lang="ja">合成サイト A での実施可能性評価</span></h1>
+  <p class="lead"><span class="l-en">This is the actual output of <code>tools.cascade_e2e</code> for the GZQO protocol (retatrutide in gout, phase 3)
+  on a 600-patient synthetic hospital, with the deterministic stub model. Only what the box would release to a sponsor is
+  shown: counts below 11 are suppressed and the rest rounded to 5.</span><span class="l-ja" lang="ja">GZQO プロトコル（痛風に対するレタトルチド、第 3 相）を
+  600 人の合成病院で <code>tools.cascade_e2e</code>（決定論的スタブモデル）により実行した実際の出力です。表示しているのは、ボックスが治験依頼者に公開する内容だけ：
+  11 未満の件数は秘匿し、それ以外は 5 単位で丸めています。</span></p>
+  <p class="small muted">{{demo_meta}}</p>
+</section>
+
+{{demo_tiles}}
+
+<ol class="stepper" role="tablist" aria-label="Walkthrough">
+  <li><button type="button" role="tab" data-step="0" aria-controls="step-request"><span class="l-en">1 Request</span><span class="l-ja" lang="ja">1 依頼</span></button></li>
+  <li><button type="button" role="tab" data-step="1" aria-controls="step-cascade"><span class="l-en">2 Cascade</span><span class="l-ja" lang="ja">2 カスケード</span></button></li>
+  <li><button type="button" role="tab" data-step="2" aria-controls="step-attrition"><span class="l-en">3 Attrition</span><span class="l-ja" lang="ja">3 脱落</span></button></li>
+  <li><button type="button" role="tab" data-step="3" aria-controls="step-estimate"><span class="l-en">4 Estimate</span><span class="l-ja" lang="ja">4 推定</span></button></li>
+  <li><button type="button" role="tab" data-step="4" aria-controls="step-recall"><span class="l-en">5 Recall certificate</span><span class="l-ja" lang="ja">5 再現率証明書</span></button></li>
+  <li><button type="button" role="tab" data-step="5" aria-controls="step-release"><span class="l-en">6 Release</span><span class="l-ja" lang="ja">6 公開</span></button></li>
+  <li><button type="button" role="tab" data-step="6" aria-controls="step-open"><span class="l-en">7 Open data (MIMIC)</span><span class="l-ja" lang="ja">7 公開データ（MIMIC）</span></button></li>
+</ol>
+
+<section class="step-panel" id="step-request" role="tabpanel">
+  <h2><span class="l-en">1 · The request</span><span class="l-ja" lang="ja">1 · 依頼</span></h2>
+  <p><span class="l-en">A coordinator sends one line by e-mail, or presses <b>Start</b> in the console. Both become the same
+  orchestrator call, with the same permissions and audit.</span><span class="l-ja" lang="ja">コーディネーターがメールで 1 行送るか、コンソールで<b>開始</b>を押します。
+  どちらも同じオーケストレーター呼び出しになり、権限と監査も同じです。</span></p>
+<pre><code>To: trialbox@hospa.test
+Subject: FEAS GZQO</code></pre>
+  <h3><span class="l-en">Study and scope</span><span class="l-ja" lang="ja">試験と対象範囲</span></h3>
+  {{study_table}}
+</section>
+
+<section class="step-panel" id="step-cascade" role="tabpanel">
+  <h2><span class="l-en">2 · Cascade S0–S5</span><span class="l-ja" lang="ja">2 · カスケード S0–S5</span></h2>
+  <p><span class="l-en">Structured SQL removes most patients before any model is called; the model reads notes only for the
+  residue, and a person decides at S5.</span><span class="l-ja" lang="ja">モデルを呼ぶ前に構造化 SQL が大半の患者を除外します。モデルが記録を読むのは残りだけで、S5 で人が判断します。</span></p>
+  {{cascade_chart}}
+</section>
+
+<section class="step-panel" id="step-attrition" role="tabpanel">
+  <h2><span class="l-en">3 · Attrition with small-cell suppression</span><span class="l-ja" lang="ja">3 · 小セル秘匿付きの脱落</span></h2>
+  {{attrition_chart}}
+  <details><summary><span class="l-en">Attrition table (released values)</span><span class="l-ja" lang="ja">脱落表（公開値）</span></summary>
+  {{attrition_table}}
+  </details>
+</section>
+
+<section class="step-panel" id="step-estimate" role="tabpanel">
+  <h2><span class="l-en">4 · Estimate by tier and projection</span><span class="l-ja" lang="ja">4 · 階層別推定と登録予測</span></h2>
+  <p><span class="l-en">Patients the records cannot fully decide are sampled for chart review; the estimate adds them with a
+  prior weight and reports a 95% interval.</span><span class="l-ja" lang="ja">記録だけでは判定しきれない患者はカルテレビュー用に抽出され、事前重み付きで推定に加算し 95% 区間で報告します。</span></p>
+  {{tier_table}}
+  {{projection}}
+</section>
+
+<section class="step-panel" id="step-recall" role="tabpanel">
+  <h2><span class="l-en">5 · Recall certificate</span><span class="l-ja" lang="ja">5 · 再現率証明書</span></h2>
+  <p><span class="l-en">A sample of excluded patients is re-checked in a ledger. A confidence sequence (valid at every look)
+  bounds how many eligible patients the exclusions could have missed. With too little evidence the box refuses to issue one.</span><span class="l-ja" lang="ja">除外された患者の一部を台帳で再確認し、
+  信頼系列（いつ見ても有効）で、除外により見逃した可能性のある適格患者数の上限を示します。根拠が不足していればボックスは発行を拒否します。</span></p>
+  {{recall_card}}
+</section>
+
+<section class="step-panel" id="step-release" role="tabpanel">
+  <h2><span class="l-en">6 · What is released, and how</span><span class="l-ja" lang="ja">6 · 何を、どう公開するか</span></h2>
+  <p><span class="l-en">The disclosure engine lowers the internal exact result to class D1 for an external sponsor, in these
+  recorded steps:</span><span class="l-ja" lang="ja">開示エンジンが院内の厳密な結果を外部依頼者向けの D1 区分に落とします。記録された手順：</span></p>
+  {{disclosure}}
+  <h3><span class="l-en">End-to-end checks of this run</span><span class="l-ja" lang="ja">この実行の E2E チェック</span></h3>
+  {{checks}}
+  <div class="cta">{{pdf_link}}</div>
+</section>
+
+<section class="step-panel" id="step-open" role="tabpanel">
+  <h2><span class="l-en">7 · Same engine on open data: MIMIC-IV FHIR demo</span><span class="l-ja" lang="ja">7 · 公開データでも同じエンジン：MIMIC-IV FHIR デモ</span></h2>
+  <p><span class="l-en">Two published trials compiled and run on the public MIMIC-IV demo (100 ICU patients). Released counts only.</span><span class="l-ja" lang="ja">公開済みの 2 試験をコンパイルし、公開 MIMIC-IV デモ（ICU 患者 100 人）で実行。公開値のみ表示。</span></p>
+  {{open_data}}
+</section>
+
+<div class="step-nav">
+  <button type="button" class="btn" id="step-prev"><span class="l-en">← Previous</span><span class="l-ja" lang="ja">← 前へ</span></button>
+  <button type="button" class="btn primary" id="step-next"><span class="l-en">Next →</span><span class="l-ja" lang="ja">次へ →</span></button>
+</div>

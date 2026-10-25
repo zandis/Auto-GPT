@@ -1,0 +1,45 @@
+<section class="hero">
+  <div class="eyebrow"><span class="l-en">Test report</span><span class="l-ja" lang="ja">テストレポート</span></div>
+  <h1><span class="l-en">Which model should judge the notes?</span><span class="l-ja" lang="ja">記録の判定にどのモデルを使うか</span></h1>
+  <p class="lead"><span class="l-en">Candidate open-weights models for the box, run through the TrialBox gateway on the public
+  TrialGPT criterion annotations: 1,015 patient–criterion pairs labelled by physicians, with the notes also rendered in
+  Traditional Chinese, Japanese and mixed text. Hosted endpoints were used for the test; on the box the chosen model runs
+  locally.</span><span class="l-ja" lang="ja">ボックス搭載候補のオープンウェイトモデルを、TrialBox ゲートウェイ経由で公開データ TrialGPT 基準アノテーション
+  （医師がラベル付けした患者×基準ペア 1,015 件、記録を繁体字中国語・日本語・混在テキストにも変換）で評価しました。テストにはホスティング版を使い、本番では選んだモデルをボックス上で動かします。</span></p>
+  <p class="small muted">{{report_meta}}</p>
+</section>
+
+{{report_status}}
+{{report_tiles}}
+
+<h2><span class="l-en">Accuracy</span><span class="l-ja" lang="ja">正解率</span></h2>
+{{acc_chart}}
+{{lang_chart}}
+
+<h2><span class="l-en">Safety: false blocks</span><span class="l-ja" lang="ja">安全性：誤ブロック</span></h2>
+<p><span class="l-en">For patient finding, a wrong exclusion loses a patient silently, so the box uses the judge only where a
+wrong "not met" is unlikely, and the recall certificate measures what slips through.</span><span class="l-ja" lang="ja">患者探索では誤った除外は患者を静かに失うため、
+ボックスは誤った「不適合」が起きにくい場面でのみ判定モデルを使い、すり抜けは再現率証明書で測定します。</span></p>
+{{fb_chart}}
+
+<h2><span class="l-en">Cost and latency</span><span class="l-ja" lang="ja">コストとレイテンシ</span></h2>
+{{cost_chart}}
+{{lat_chart}}
+
+<h2><span class="l-en">All metrics</span><span class="l-ja" lang="ja">全メトリクス</span></h2>
+{{metrics_table}}
+
+<h2><span class="l-en">End-to-end cascade with each model (synthetic site A)</span><span class="l-ja" lang="ja">各モデルでの E2E カスケード（合成サイト A）</span></h2>
+{{cascade_table}}
+
+<h2 id="trialgpt"><span class="l-en">TrialBox vs TrialGPT</span><span class="l-ja" lang="ja">TrialBox と TrialGPT の比較</span></h2>
+<p><span class="l-en">TrialGPT (NCBI) matches patients to trials with GPT-4 and its own prompt. The "recorded GPT-4" bars above
+are the labels stored in the dataset from that run, made with TrialGPT's own prompt in the study that
+collected the physician labels, so read them as a reference point rather than a like-for-like run. A dedicated comparison follows when it is ready.</span><span class="l-ja" lang="ja">TrialGPT（NCBI）は GPT-4 と独自プロンプトで患者と治験を照合します。
+上の「記録された GPT-4」はその実行でデータセットに保存されたラベルで、医師ラベルを集めた研究の中で TrialGPT 独自のプロンプトにより作られたため、同条件の比較ではなく参照値として読んでください。専用の比較は準備でき次第ここに掲載します。</span></p>
+{{trialgpt_section}}
+
+<h2><span class="l-en">How the run was made</span><span class="l-ja" lang="ja">実行条件</span></h2>
+{{run_note}}
+<p class="small"><a href="data/bakeoff.json">bakeoff.json</a> · <a href="data/trialgpt_comparison.json">trialgpt_comparison.json</a> ·
+<a href="{{repo_tree}}/eval/bakeoff">eval/bakeoff/</a></p>

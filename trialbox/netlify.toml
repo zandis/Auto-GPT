@@ -1,0 +1,15 @@
+# Netlify: set "Base directory" to trialbox in the site settings; everything else comes from here.
+# Static TrialBox website (site/ + tools/build_site.py, standard library only). See site/README.md.
+[build]
+  command = "python3 tools/build_site.py --no-refresh"
+  publish = "build/site"
+
+[build.environment]
+  PYTHON_VERSION = "3.12"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
