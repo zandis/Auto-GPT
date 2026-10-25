@@ -248,3 +248,16 @@ def test_reply_to_subject_with_encoded_crlf(tmp_path: Path) -> None:
     assert len(sent) == 1
     reply = message_from_bytes(sent[0], policy=policy.default)
     assert reply["Subject"] == "Re: hello Bcc: evil@evil.example" and reply["Bcc"] is None
+
+
+def test_text_part_of_a_body_with_html_blocks_has_no_raw_tags() -> None:
+    from mail_gateway.outbound import render_body
+
+    text, html = render_body(
+        "Ruleset **X** compiled.\n\n<h2>Ruleset X &mdash; round 1</h2>\n<ul><li>PHI guard: clean</li></ul>\n"
+        "<table><tr><th>id</th><th>kind</th></tr><tr><td>X-INC-01</td><td>inclusion</td></tr></table>\n"
+    )
+    assert "<" not in text and "Ruleset X — round 1" in text
+    assert "- PHI guard: clean" in text and "X-INC-01 | inclusion" in text
+    assert "<table>" in html
+    assert render_body("plain **md**")[0] == "plain **md**"

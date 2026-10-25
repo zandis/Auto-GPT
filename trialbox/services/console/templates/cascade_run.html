@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ t('nav.cascade') }} {{ run.trial }}{% endblock %}
 {% block content %}
-<h1>{{ t('nav.cascade') }} · {{ run.trial }} <span class="state s-{{ run.state }}" data-testid="cascade-state">{{ run.state }}</span></h1>
+<h1>{{ t('nav.cascade') }} · {{ run.trial }} <span class="state s-{{ run.state }}" data-testid="cascade-state" data-state="{{ run.state }}">{{ state(run.state) }}</span></h1>
 <p class="mono">Run {{ run.run_id }} · {{ run.started_by }} · {{ run.seconds }} s</p>
 {% if refresh %}<p class="hint" role="status">{{ t('job.refresh') }}</p>{% endif %}
 {% if run.error %}<p class="error" role="alert">{{ run.error }}</p>{% endif %}
@@ -9,9 +9,9 @@
 <section class="card" data-testid="cascade-funnel">
 <h2>{{ t('cascade.funnel') }}</h2>
 <p>n in scope: {{ cell(summary.n_scope) }} · class {{ summary.data_class }}</p>
-<table><thead><tr><th scope="col">{{ t('col.stage') }}</th><th scope="col">{{ t('col.patients') }}</th><th scope="col"></th></tr></thead>
+<div class="scroll"><table><thead><tr><th scope="col">{{ t('col.stage') }}</th><th scope="col">{{ t('col.patients') }}</th><th scope="col"></th></tr></thead>
 <tbody>{% for stage, n in summary.funnel %}<tr><td>{{ stage }}</td><td class="num">{{ cell(n) }}</td>
-<td>{% if n is number and summary.n_scope is number and summary.n_scope > 0 %}<progress max="{{ summary.n_scope }}" value="{{ n }}" aria-label="{{ n }}"></progress>{% endif %}</td></tr>{% endfor %}</tbody></table>
+<td>{% if n is number and summary.n_scope is number and summary.n_scope > 0 %}<progress max="{{ summary.n_scope }}" value="{{ n }}" aria-label="{{ n }}"></progress>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
 </section>
 {% endif %}
 {% if summary.certificate_status %}

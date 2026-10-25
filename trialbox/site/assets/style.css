@@ -17,7 +17,7 @@
   --series-2: #eb6834;
   --series-3: #1baf7a;
   --series-4: #eda100;
-  --good: #1a7f37;
+  --good: #166b2e;
   --good-soft: #e3f4e8;
   --warn: #8a5a00;
   --warn-soft: #fff4d6;
@@ -161,7 +161,7 @@ footer.site div { max-width: 1120px; margin: 0 auto; padding: 18px 16px 32px; }
 /* pipeline diagram (HTML, responsive) */
 .pipeline { display: flex; align-items: stretch; gap: 0; margin: 16px 0; flex-wrap: nowrap; }
 .pipe-step { flex: 1 1 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 12px 14px; min-width: 0; }
-.pipe-step h4 { margin: 0 0 4px; font-size: 1rem; }
+.pipe-step h3 { margin: 0 0 4px; font-size: 1rem; }
 .pipe-step .tag { font-size: 0.72rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
 .pipe-step ul { margin: 6px 0 0; padding-left: 1.1em; font-size: 0.86rem; color: var(--text-2); }
 .pipe-step.out { border-color: var(--accent); background: var(--accent-soft); }
@@ -277,3 +277,6 @@ dl.kv dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 560px) { dl.kv { grid-template-columns: 1fr; } dl.kv dd { margin-bottom: 6px; } }
 ol.checks { columns: 2 240px; padding-left: 1.2em; font-size: 0.88rem; }
 @media print { header.site, .banner, .stepper, .step-nav { display: none; } .js .step-panel[hidden] { display: block; } }
+
+.table-wrap:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+a.card h2 { margin-top: 0; font-size: 1.05rem; }

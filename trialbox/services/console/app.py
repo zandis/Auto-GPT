@@ -66,6 +66,11 @@ class PilotRefused(RuntimeError):
     """The pilot workspace was requested where it may not run."""
 
 
+def _num(v: object) -> object:
+    """1.0 -> 1 for counts of people; anything else unchanged."""
+    return int(v) if isinstance(v, float) and v.is_integer() else v
+
+
 @dataclass(frozen=True)
 class ConsoleSettings:
     environment: str
@@ -248,6 +253,11 @@ def create_app(
         def t(key: str, **values: object) -> str:
             return translate(lang, key, **values)
 
+        def state(value: str) -> str:  # badge text; the machine state stays in data-state
+            key = f"state.{value}"
+            text = t(key)
+            return value if text == key else text
+
         base = {
             "t": t,
             "lang": lang,
@@ -260,6 +270,8 @@ def create_app(
             "path": request.url.path,
             "k": settings.small_cell,
             "cell": lambda v: cell(v, settings.small_cell),
+            "state": state,
+            "num": _num,
         }
         return templates.TemplateResponse(request, name, {**base, **ctx}, status_code=status)
 
@@ -456,6 +468,10 @@ def create_app(
             aggregate=[o for o in job.outputs or [] if o.tag == "aggregate"],
             phi=[o for o in job.outputs or [] if o.tag == "phi"],
             review=_review_book(job) if job.state == "awaiting_approval" else None,
+            review_html=next(
+                (o for o in job.outputs or [] if o.filename.startswith("review_") and o.filename.endswith(".html")),
+                None,
+            ),
             thread=thread_rows,
             audit=sorted(audit_recs, key=lambda r: r.ts),
             refresh=job.state not in TERMINAL and job.state != "awaiting_approval",
@@ -536,9 +552,14 @@ def create_app(
             raise _Problem(400, "request.refused", reason="choose FEAS or SCREEN and an approved ruleset")
         parts = [kind, rs]
         if kind == "FEAS" and lookback.strip():
-            if not lookback.strip().isdigit():
-                raise _Problem(400, "request.refused", reason="look-back is a number of months")
-            parts.append(f"lookback={int(lookback)}")
+            # checked here so the form says what to fix, instead of a job that fails a step later
+            lb = lookback.strip()
+            if not lb.isdigit() or not 1 <= int(lb) <= 120:
+                msg = translate(lang_of(request, sess), "request.lookback.range")
+                return _request_page(request, sess, 422, error=msg, selected=rs)
+            parts.append(f"lookback={int(lb)}")
+        if kind == "SCREEN" and not version.strip():  # the form lists approved rulesets only: run that version
+            version = next((r.version or "" for r in bk.rulesets() if r.id == rs and r.status == "approved"), "")
         if version.strip():
             if not _VERSION.match(version.strip()):
                 raise _Problem(400, "request.refused", reason="version is x.y.z")
@@ -612,6 +633,9 @@ def create_app(
             name, data, ctype = sample.name, sample.read_bytes(), "application/pdf"
         else:
             raise _Problem(400, "request.refused", reason="attach a protocol file")
+        if not data:
+            msg = translate(lang_of(request, sess), "protocol.empty")
+            return page(request, "protocol.html", sess, 422, sample=sample is not None, error=msg)
         if len(data) > MAX_UPLOAD or not name.lower().endswith(DOC_EXT):
             raise _Problem(400, "request.refused", reason="protocols are PDF, DOCX, TXT or MD, at most 50 MB")
         job = submit(sess, f"FEAS {rs}", [(name, data, ctype)])

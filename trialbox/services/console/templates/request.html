@@ -25,7 +25,7 @@
   <label for="feas-rs">{{ t('col.ruleset') }}</label>
   <select id="feas-rs" name="ruleset">{% for r in rulesets if r.kind == 'trial' %}<option value="{{ r.id }}" {{ 'selected' if r.id == selected else '' }}>{{ r.id }} v{{ r.version }}</option>{% endfor %}</select>
   <label for="feas-lb">{{ t('request.lookback') }}</label>
-  <input id="feas-lb" name="lookback" inputmode="numeric" pattern="[0-9]{1,3}" maxlength="3">
+  <input id="feas-lb" name="lookback" type="number" inputmode="numeric" min="1" max="120" step="1">
   <button type="submit" {{ 'disabled' if not user.is_admin else '' }} data-testid="start-feas">{{ t('request.start') }}</button>
 </form>
 {% else %}<p>{{ t('request.no_rulesets') }}</p>{% endif %}
@@ -37,8 +37,6 @@
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="SCREEN">
   <label for="scr-rs">{{ t('col.ruleset') }}</label>
   <select id="scr-rs" name="ruleset">{% for r in rulesets if r.kind == 'trial' %}<option value="{{ r.id }}" {{ 'selected' if r.id == selected else '' }}>{{ r.id }} v{{ r.version }}</option>{% endfor %}</select>
-  <label for="scr-v">{{ t('request.version') }}</label>
-  <input id="scr-v" name="version" value="{{ (rulesets|selectattr('kind', 'equalto', 'trial')|first).version if rulesets else '' }}" pattern="[0-9]+\.[0-9]+\.[0-9]+">
   <button type="submit" {{ 'disabled' if not user.is_admin else '' }}>{{ t('request.start') }}</button>
 </form>
 {% endif %}

@@ -362,6 +362,49 @@ def test_feas_form_becomes_the_email_jobcreate(box: dict[str, Any]) -> None:
     assert rec.actor == "console:admin" and rec.detail["line"] == "FEAS GZQO lookback=36"
 
 
+def test_feas_lookback_out_of_range_stays_on_the_form(box: dict[str, Any]) -> None:
+    c, csrf = login(box["app"])
+    for bad in ("0", "999", "abc"):
+        r = c.post("/pilot/request", data={"csrf": csrf, "kind": "FEAS", "ruleset": "GZQO", "lookback": bad})
+        assert r.status_code == 422 and "1 to 120" in r.text and 'data-testid="request-error"' in r.text
+    assert box["backend"].created == []  # no job that would fail a step later
+
+
+def test_screen_form_runs_the_approved_version(box: dict[str, Any]) -> None:
+    c, csrf = login(box["app"])
+    assert 'name="version"' not in c.get("/pilot/request").text  # the ruleset list already carries the version
+    r = c.post("/pilot/request", data={"csrf": csrf, "kind": "SCREEN", "ruleset": "GZQO"}, follow_redirects=False)
+    assert r.status_code == 303
+    rec = next(x for x in read_audit(box["dir"] / "audit") if x.event == "console.request")
+    assert rec.detail["line"] == "SCREEN GZQO version=1.0.0"
+
+
+def test_empty_protocol_file_is_refused_on_the_form(box: dict[str, Any]) -> None:
+    c, csrf = login(box["app"])
+    files = {"protocol": ("empty.pdf", io.BytesIO(b""), "application/pdf")}
+    r = c.post("/pilot/protocol", data={"csrf": csrf, "ruleset": "E1"}, files=files)
+    assert r.status_code == 422 and 'data-testid="protocol-error"' in r.text
+    assert box["backend"].created == []
+
+
+def test_sentence_starting_with_a_command_word_goes_to_the_model() -> None:
+    def classify(text: str, language: str) -> ClassifiedIntent:
+        return ClassifiedIntent(type="FEAS", study="GZQO", language="en")
+
+    assert propose("FEAS for GZQO or RA-BIO?", "en", classify).line == "FEAS GZQO"
+    with pytest.raises(ProposalError, match="key=value"):  # a malformed exact line still gets the parser message
+        propose("FEAS GZQO lookback", "en", classify)
+
+
+def test_state_badges_are_translated_but_keep_the_machine_state(box: dict[str, Any]) -> None:
+    job = _done_feas(box["backend"])
+    c, csrf = login(box["app"])
+    c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
+    page = c.get(f"/pilot/jobs/{job.job_id}").text
+    assert 'data-testid="job-state" data-state="done">完了<' in page
+    assert "日本語" in page and "繁體中文" in page  # languages by their own names
+
+
 def test_orchestrator_refusal_is_shown_and_audited(box: dict[str, Any]) -> None:
     box["backend"].refuse = "admin@hospa.test is not permitted to run SCREEN"
     c, csrf = login(box["app"])
@@ -473,7 +516,7 @@ def test_cascade_run_shows_released_numbers_only(box: dict[str, Any]) -> None:
     import time
 
     for _ in range(50):
-        if 'data-testid="cascade-state">done' in c.get(run_url).text:
+        if 'data-testid="cascade-state" data-state="done"' in c.get(run_url).text:
             break
         time.sleep(0.05)
     page = c.get(run_url).text

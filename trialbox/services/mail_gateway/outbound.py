@@ -3,7 +3,9 @@ encryption of PHI attachments (7z AES-256 with a separately mailed password, or 
 
 from __future__ import annotations
 
+import html as html_lib
 import io
+import re
 import smtplib
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -58,9 +60,29 @@ def smtp_transport(host: str, port: int, user: str = "", password: str = "", sta
     return send
 
 
+_TAG = re.compile(r"<[^>]+>")
+_TEXT_BREAKS = (
+    (re.compile(r"</t[dh]>\s*", re.I), " | "),
+    (re.compile(r"<li[^>]*>", re.I), "- "),
+    (re.compile(r"<br\s*/?>|</(?:p|li|tr|h[1-6]|ul|ol|table|div)>", re.I), "\n"),
+)
+
+
+def plain_text(body_md: str) -> str:
+    """Text part of a Markdown body: embedded HTML blocks (review tables) become readable lines, not raw tags."""
+    if "<" not in body_md:
+        return body_md
+    text = body_md
+    for pattern, repl in _TEXT_BREAKS:
+        text = pattern.sub(repl, text)
+    text = html_lib.unescape(_TAG.sub("", text))
+    lines = (re.sub(r"[ \t]+", " ", ln).strip().removesuffix(" |") for ln in text.splitlines())
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip() + "\n"
+
+
 def render_body(body_md: str) -> tuple[str, str]:
     html = markdown.markdown(body_md, extensions=["tables", "fenced_code", "sane_lists"])
-    return body_md, HTML_WRAP.format(body=html)
+    return plain_text(body_md), HTML_WRAP.format(body=html)
 
 
 def seven_zip(files: list[tuple[str, bytes]], password: str) -> bytes:

@@ -78,4 +78,15 @@ progress { width: 140px; height: 12px; vertical-align: middle; }
 .kvlist dt { color: var(--muted); }
 .kvlist dd { margin: 0; }
 ul.checks { columns: 2; padding-left: 18px; }
-@media (max-width: 640px) { .who { margin-left: 0; } ul.checks { columns: 1; } progress { width: 70px; } }
+.nowrap { white-space: nowrap; }
+.wrap { overflow-wrap: anywhere; }
+p.mono { overflow-wrap: anywhere; }
+td .mono { white-space: nowrap; }
+details > summary { cursor: pointer; color: var(--accent); margin-bottom: 8px; }
+@media (max-width: 640px) {
+  .who { margin-left: 0; } ul.checks { columns: 1; } progress { width: 70px; }
+  .top { gap: 8px 12px; padding: 8px 12px; }
+  nav { flex-wrap: nowrap; overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; }
+  nav a { white-space: nowrap; }
+  main { padding: 12px; }
+}

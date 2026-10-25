@@ -2,6 +2,7 @@
 {% block title %}{{ t('protocol.title') }}{% endblock %}
 {% block content %}
 <h1>{{ t('protocol.title') }}</h1>
+{% if error %}<p class="error" role="alert" data-testid="protocol-error">{{ error }}</p>{% endif %}
 <section class="card">
 <p>{{ t('protocol.help') }}</p>
 <form method="post" action="/pilot/protocol" enctype="multipart/form-data">
