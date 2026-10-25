@@ -13,7 +13,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade clean
+.PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e poc poc-down poc-status poc-hermes poc-hermes-down test-hermes-e2e test-console test-console-e2e site site-preview clean
 
 venv:
 	uv venv --allow-existing --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
@@ -123,6 +123,46 @@ eval-public:
 
 e2e-cascade:
 	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.cascade_e2e --source tests/fixtures/synthetic_patients/site-a --trial $${TB_E2E_TRIAL:-GZQO} --out $${TB_E2E_OUT:-build/e2e}
+
+# full stack end to end on one box (docs/RUNBOOK.md "DGX Spark end to end"): GB10 + vLLM + pinned local model by
+# default; TB_LLM_MODE=stub on any Docker host without a GPU. One PASS/FAIL report under build/spark-e2e/.
+spark-e2e:
+	PY=$(PY) tools/spark_e2e.sh
+
+# proof of concept in one command (README "Try the POC in 10 minutes", RUNBOOK §9): box + GreenMail/MailHog + admin
+# console with the pilot workspace; TB_LLM_MODE=stub|openrouter|gpu. Windows: deploy/poc.ps1.
+poc:
+	deploy/poc.sh up
+
+poc-down:
+	deploy/poc.sh down
+
+poc-status:
+	deploy/poc.sh status
+
+# Hermes serving through channel-relay and frontdoor-mcp on the running POC (spec v4 §9; make poc first)
+poc-hermes:
+	deploy/hermes/up.sh up
+
+poc-hermes-down:
+	deploy/hermes/up.sh down
+
+# Hermes end to end against the running POC + Hermes fragment (make poc-hermes first)
+test-hermes-e2e:
+	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_hermes_relay.py
+
+test-console:
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
+
+# browser + e-mail end to end against the running POC (make poc first): Playwright (Node) drives the console
+test-console-e2e:
+	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_console_poc.py
+
+site:
+	$(PY) tools/build_site.py
+
+site-preview: site
+	$(PY) -m http.server -d build/site 8000
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache build *.egg-info

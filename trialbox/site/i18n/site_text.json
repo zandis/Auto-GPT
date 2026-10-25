@@ -1,0 +1,307 @@
+{
+ "_comment": "Translatable text used by tools/build_site.py (pipeline diagram, screenshot captions, chrome).",
+ "pipeline": {
+  "en": {
+   "steps": [
+    {
+     "title": "1 · Data platform",
+     "tag": "Hospital data",
+     "items": [
+      "HIS / LIS / EMR drops → lake L0–L5",
+      "DQ gates, lineage, signed snapshot",
+      "FHIR store; nothing leaves the site"
+     ]
+    },
+    {
+     "title": "2 · Criteria IR",
+     "tag": "Compile",
+     "items": [
+      "Protocol PDF, NHI rule or cohort text",
+      "Agents draft the IR; SQL + CQL generated",
+      "Coordinator approves review.xlsx"
+     ]
+    },
+    {
+     "title": "3 · Cascade S0–S5",
+     "tag": "Decide",
+     "items": [
+      "Deterministic SQL first (S0–S1)",
+      "Lexicon + semantic screens (S2, S2b)",
+      "LLM judges only the residue (S3–S4); person decides (S5)"
+     ]
+    },
+    {
+     "title": "4 · Outputs",
+     "tag": "Deliver",
+     "items": [
+      "Feasibility pack DL-1 (aggregate, small cells suppressed)",
+      "Recall certificate (anytime-valid bound)",
+      "Hash-chained audit trail"
+     ]
+    }
+   ],
+   "legend": [
+    {
+     "kind": "deterministic",
+     "label": "rules / SQL"
+    },
+    {
+     "kind": "llm",
+     "label": "LLM, gateway-audited"
+    },
+    {
+     "kind": "human",
+     "label": "human"
+    }
+   ]
+  },
+  "ja": {
+   "steps": [
+    {
+     "title": "1 · データ基盤",
+     "tag": "病院データ",
+     "items": [
+      "HIS / LIS / EMR → データレイク L0–L5",
+      "品質ゲート・系譜・署名付きスナップショット",
+      "FHIR ストア。データは院外に出ない"
+     ]
+    },
+    {
+     "title": "2 · 基準 IR",
+     "tag": "コンパイル",
+     "items": [
+      "プロトコル PDF・健保規定・コホート定義",
+      "エージェントが IR を起案、SQL と CQL を生成",
+      "コーディネーターが review.xlsx で承認"
+     ]
+    },
+    {
+     "title": "3 · カスケード S0–S5",
+     "tag": "判定",
+     "items": [
+      "まず決定論的 SQL（S0–S1）",
+      "辞書・意味検索スクリーン（S2, S2b）",
+      "残りだけを LLM が判定（S3–S4）、最終判断は人（S5）"
+     ]
+    },
+    {
+     "title": "4 · 成果物",
+     "tag": "納品",
+     "items": [
+      "実施可能性パック DL-1（集計・小セル秘匿）",
+      "再現率証明書（常時有効な上限）",
+      "ハッシュチェーン監査証跡"
+     ]
+    }
+   ],
+   "legend": [
+    {
+     "kind": "deterministic",
+     "label": "ルール / SQL"
+    },
+    {
+     "kind": "llm",
+     "label": "LLM（ゲートウェイで監査）"
+    },
+    {
+     "kind": "human",
+     "label": "人"
+    }
+   ]
+  },
+  "zh-TW": {
+   "steps": [
+    {
+     "title": "1 · 資料平台",
+     "tag": "院內資料",
+     "items": [
+      "HIS / LIS / EMR → 資料湖 L0–L5",
+      "品質閘門、資料血緣、簽章快照",
+      "FHIR 儲存庫；資料不出院"
+     ]
+    },
+    {
+     "title": "2 · 條件 IR",
+     "tag": "編譯",
+     "items": [
+      "試驗計畫書 PDF、健保給付規定、世代定義",
+      "代理人起草 IR，產生 SQL 與 CQL",
+      "研究協調員以 review.xlsx 核可"
+     ]
+    },
+    {
+     "title": "3 · 篩選級聯 S0–S5",
+     "tag": "判定",
+     "items": [
+      "先跑確定性 SQL（S0–S1）",
+      "詞庫與語意篩選（S2、S2b）",
+      "只有剩餘的交給 LLM 判讀（S3–S4），最後由人決定（S5）"
+     ]
+    },
+    {
+     "title": "4 · 產出",
+     "tag": "交付",
+     "items": [
+      "可行性報告 DL-1（彙總、小格抑制）",
+      "召回率證明書（隨時有效上界）",
+      "雜湊鏈稽核軌跡"
+     ]
+    }
+   ],
+   "legend": [
+    {
+     "kind": "deterministic",
+     "label": "規則 / SQL"
+    },
+    {
+     "kind": "llm",
+     "label": "LLM（經閘道稽核）"
+    },
+    {
+     "kind": "human",
+     "label": "人工"
+    }
+   ]
+  }
+ },
+ "shots": [
+  {
+   "file": "01-login.png",
+   "title": {
+    "en": "Sign in",
+    "ja": "サインイン"
+   },
+   "caption": {
+    "en": "Console accounts: administrator, coordinator, read-only viewer.",
+    "ja": "コンソールのアカウント：管理者・コーディネーター・閲覧のみ。"
+   }
+  },
+  {
+   "file": "02-overview.png",
+   "title": {
+    "en": "Overview",
+    "ja": "概要"
+   },
+   "caption": {
+    "en": "Service health, approved rulesets on the box, recent jobs from web and e-mail.",
+    "ja": "サービス状態、承認済みルールセット、Web とメールからの最近のジョブ。"
+   }
+  },
+  {
+   "file": "11-proposal.png",
+   "title": {
+    "en": "New request",
+    "ja": "新規リクエスト"
+   },
+   "caption": {
+    "en": "Plain words in any language become an exact command line; nothing runs until you confirm.",
+    "ja": "どの言語の文章も正確なコマンド行に変換。確認するまで実行されない。"
+   }
+  },
+  {
+   "file": "03-jobs.png",
+   "title": {
+    "en": "Jobs",
+    "ja": "ジョブ"
+   },
+   "caption": {
+    "en": "FEAS, SCREEN, NAV, COHORT, SUBMIT and APPROVE jobs with requester and state.",
+    "ja": "FEAS・SCREEN・NAV・COHORT・SUBMIT・APPROVE ジョブと依頼者・状態。"
+   }
+  },
+  {
+   "file": "04-result.png",
+   "title": {
+    "en": "Feasibility result",
+    "ja": "実施可能性の結果"
+   },
+   "caption": {
+    "en": "Attrition table, enrolment projection, output files with hashes, e-mail thread and audit trail.",
+    "ja": "脱落表、登録予測、ハッシュ付き出力ファイル、メールスレッドと監査証跡。"
+   }
+  },
+  {
+   "file": "09-review.png",
+   "title": {
+    "en": "Review round",
+    "ja": "レビューラウンド"
+   },
+   "caption": {
+    "en": "Approve the compiled ruleset as compiled, or upload the edited review.xlsx.",
+    "ja": "コンパイル済みルールセットをそのまま承認、または編集した review.xlsx をアップロード。"
+   }
+  },
+  {
+   "file": "10-cascade.png",
+   "title": {
+    "en": "Cascade (v4)",
+    "ja": "カスケード（v4）"
+   },
+   "caption": {
+    "en": "Released funnel S0–S5, recall certificate, DL-1 headline and end-to-end checks.",
+    "ja": "公開ファネル S0–S5、再現率証明書、DL-1 要約と E2E チェック。"
+   }
+  },
+  {
+   "file": "08-test-mailbox.png",
+   "title": {
+    "en": "Test mailbox",
+    "ja": "テスト用メールボックス"
+   },
+   "caption": {
+    "en": "Send a command by e-mail from the console (stands in for your mail client in the POC).",
+    "ja": "コンソールからメールでコマンド送信（POC ではメールクライアントの代わり）。"
+   }
+  },
+  {
+   "file": "05-email-job.png",
+   "title": {
+    "en": "Job started by e-mail",
+    "ja": "メールで開始したジョブ"
+   },
+   "caption": {
+    "en": "Same orchestrator path, same permissions and audit as the web console.",
+    "ja": "Web コンソールと同じオーケストレーター経路・権限・監査。"
+   }
+  },
+  {
+   "file": "06-webmail.png",
+   "title": {
+    "en": "Web mail (outgoing)",
+    "ja": "Web メール（送信）"
+   },
+   "caption": {
+    "en": "Every mail the box sends: 'Received …' then 'Done …' with the PDF and XLSX.",
+    "ja": "ボックスが送る全メール：「Received …」の後に PDF と XLSX 付き「Done …」。"
+   }
+  },
+  {
+   "file": "07-viewer-request.png",
+   "title": {
+    "en": "Read-only viewer",
+    "ja": "閲覧専用ユーザー"
+   },
+   "caption": {
+    "en": "Viewers can read results but cannot start requests.",
+    "ja": "閲覧者は結果を見られるがリクエストは開始できない。"
+   }
+  }
+ ],
+ "ui": {
+  "en": {
+   "banner": "Synthetic and open data only · data never leaves the hospital in production",
+   "skip": "Skip to content",
+   "nav": "Main"
+  },
+  "ja": {
+   "banner": "合成データと公開データのみ · 本番ではデータは院外に出ません",
+   "skip": "本文へ移動",
+   "nav": "メイン"
+  },
+  "zh-TW": {
+   "banner": "僅使用合成與公開資料 · 正式環境資料不出院",
+   "skip": "跳至內容",
+   "nav": "主選單"
+  }
+ }
+}

@@ -1,0 +1,20 @@
+<section class="hero">
+  <div class="eyebrow">Documentation</div>
+  <h1>Docs</h1>
+  <p class="lead">The documentation lives with the code on GitHub.</p>
+</section>
+<div class="grid">
+  <a class="card" href="{{repo}}/README.md" style="text-decoration:none;color:inherit"><h3>README</h3><p>What TrialBox is, the mail commands, the 10-minute POC (<code>deploy/poc.sh</code>) and the contributor quickstart.</p></a>
+  <a class="card" href="{{repo}}/docs/RUNBOOK.md" style="text-decoration:none;color:inherit"><h3>RUNBOOK</h3><p>Install a site, daily operation, troubleshooting, updates and backup, go-live acceptance, DGX Spark end to end (§8), POC with console and e-mail (§9).</p></a>
+  <a class="card" href="{{repo}}/docs/ARCHITECTURE.md" style="text-decoration:none;color:inherit"><h3>ARCHITECTURE</h3><p>Services, data classes, the model gateway, the cascade and the deliverables.</p></a>
+  <a class="card" href="{{repo}}/spec/v4/README.md" style="text-decoration:none;color:inherit"><h3>Specification v4</h3><p>Requirements, milestones and the cascade contract (CAS-1…).</p></a>
+  <a class="card" href="{{repo}}/site/README.md" style="text-decoration:none;color:inherit"><h3>This website</h3><p>How it is built, the data files it reads and their schemas.</p></a>
+  <a class="card" href="{{repo_tree}}" style="text-decoration:none;color:inherit"><h3>Source</h3><p>The whole <code>trialbox/</code> tree.</p></a>
+</div>
+<h2>Data on this site</h2>
+<ul>
+  <li>Synthetic site A: generated patients (<code>tools/make_fixtures.py</code>), data class D0.</li>
+  <li>MIMIC-IV Clinical Database Demo on FHIR v2.1.0, PhysioNet, ODbL.</li>
+  <li>TrialGPT-Criterion-Annotations, NCBI (public dataset), with TrialBox renderings of the notes in zh-TW and ja.</li>
+</ul>
+<p class="muted small">No hospital data, credentials or internal addresses are published here. The build script scans every page for keys and private addresses and refuses to publish on a hit.</p>

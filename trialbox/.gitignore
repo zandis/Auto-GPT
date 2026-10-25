@@ -13,3 +13,9 @@ data/
 /secrets/
 tests/fixtures/synthetic_patients/site-*/cgrd.sqlite
 *.tmp
+deploy/site/*
+!deploy/site/.gitkeep
+# POC runtime files (deploy/poc.sh): generated settings, secrets, site pins
+deploy/poc/
+# Hermes fragment runtime material (deploy/hermes/prepare.py): certificates, keys, directory, DEV profile
+deploy/secrets/

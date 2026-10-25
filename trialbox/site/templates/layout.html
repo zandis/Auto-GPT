@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="{{html_lang}}" data-lang="{{data_lang}}" data-toggle="{{toggle}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<meta name="description" content="{{description}}">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="{{root}}assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="{{root}}assets/style.css">
+{{alternates}}
+{{lang_boot}}
+</head>
+<body>
+<a class="skip" href="#main">{{skip_label}}</a>
+<div class="banner">{{banner}}</div>
+<header class="site">
+  <nav class="nav" aria-label="{{nav_label}}">
+    <a class="brand" href="{{root}}{{home}}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="5" fill="#1d5fb4"/><path d="M7 8h10M12 8v9" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>TrialBox</a>
+    {{nav_links}}
+    <span class="spacer"></span>
+    {{lang_switch}}
+  </nav>
+</header>
+<main id="main">
+{{body}}
+</main>
+<footer class="site"><div>{{footer}}</div></footer>
+<script src="{{root}}assets/app.js"></script>
+</body>
+</html>

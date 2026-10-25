@@ -1,0 +1,194 @@
+# Hermes Agent, pinned and hardened, with the two services it talks to (spec v4 §9.2-§9.6; S1-11). Compose
+# fragment, layered on the main file (and the test/POC overlays):
+#   python3 deploy/hermes/prepare.py --admin-email admin@hospa.test     # certificates, relay key, directory, profile
+#   docker compose --project-directory deploy -f deploy/docker-compose.yml [-f ...test/poc overlays] \
+#     -f deploy/hermes/docker-compose.hermes.yml --profile hermes up -d
+# DEV/TEST also set TB_HERMES_CONFIG=./secrets/hermes/hermes-config.yaml (prepare.py renders it: model alias on the
+# DEV/TEST route, X-TB-Data-Class D0). VALIDATION/PRODUCTION mount the committed profile. Opt-in: the install default
+# stays channels.engine: native (OPS-02); `trialbox doctor` must pass first (HER-18).
+#
+# Image: the multi-arch index digest from integrations/hermes/hermes.lock (amd64 and arm64/GB10 resolve from the same
+# reference). DEV/TEST may run the upstream digest; VALIDATION/PRODUCTION set TB_HERMES_IMAGE to the internal mirror
+# <registry>/hermes-agent@<same digest>, and doctor refuses anything else. Never a tag (ENG-08).
+#
+# Message path (§9.2): staff -> channel-relay (sender auth, grammar, tokens, assertion) -> https://hermes:8444/inject
+# (tb_relay_adapter, mTLS, client cert channel-relay only) -> Hermes -> model via tb-gateway (http://gateway:8020/v1)
+# and tools via https://frontdoor-mcp:8443/mcp (mTLS, client cert hermes, per-call assertion in _tb_identity added
+# by tb_policy_audit) -> replies to https://channel-relay:8443/hermes/reply (mTLS) -> the relay audits and sends.
+#
+# Network (item 15): Hermes joins only `hermes-net`, an internal network shared with the gateway, frontdoor-mcp and
+# channel-relay. No egress network, no published ports, so 8642 (API server) and 9119 (dashboard) are unreachable
+# even if started (HER-5). frontdoor-mcp and channel-relay also join trialbox-net (workflow-db, audit volume,
+# orchestrator, mail); neither publishes a port (the test overlay docker-compose.hermes.test.yml publishes the
+# relay's intake on loopback for the e2e test).
+
+x-hermes-profile: &hermes_profile ${TB_HERMES_PROFILE:-tb-staff}
+
+services:
+  hermes:
+    profiles: [hermes]
+    image: ${TB_HERMES_IMAGE:-docker.io/nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919}
+    # Bypass the image's s6 entrypoint: it needs root, CHOWN/SETUID/SETGID to remap and drop to the hermes user.
+    # Run the CLI directly as hermes (UID 10000 in the image) under a read-only root with every capability dropped.
+    entrypoint: ["/opt/hermes/bin/hermes"]
+    command: ["gateway", "run"]
+    user: "10000:10000"
+    init: true                      # PID 1 reaps MCP/hook children (the image warns without an init)
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    mem_limit: 4g
+    cpus: 2
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+    environment:
+      HERMES_HOME: /opt/data
+      SSL_CERT_FILE: /run/secrets/tb-ca.pem       # trust only the internal CA (MCP/relay TLS); see profile comment
+      TB_HERMES_GATEWAY_KEY: ${TB_HERMES_GATEWAY_KEY:-}
+      TB_RELAY_REPLY_URL: ${TB_RELAY_REPLY_URL:-https://channel-relay:8443/hermes/reply}
+      TB_RELAY_CA: /run/secrets/tb-ca.pem
+      TB_RELAY_CLIENT_CERT: /run/secrets/hermes-client.pem
+      TB_RELAY_CLIENT_KEY: /run/secrets/hermes-client.key
+      TB_ADAPTER_LISTEN: 0.0.0.0:8444                 # tb_relay_adapter inject listener (hermes-net; channel-relay only)
+      TB_ADAPTER_CERT: /run/secrets/hermes-client.pem # CN/SAN hermes, server and client usage
+      TB_ADAPTER_KEY: /run/secrets/hermes-client.key
+      TB_POLICY_DECIDE_URL: ${TB_POLICY_DECIDE_URL:-https://frontdoor-mcp:8443/policy/decide}  # empty: block all
+      TB_POLICY_CA: /run/secrets/tb-ca.pem
+      TB_POLICY_CLIENT_CERT: /run/secrets/hermes-client.pem
+      TB_POLICY_CLIENT_KEY: /run/secrets/hermes-client.key
+      # Deliberately absent (trialbox.yaml env.forbid): HERMES_YOLO_MODE, GATEWAY_ALLOW_ALL_USERS,
+      # HERMES_ENABLE_PROJECT_PLUGINS, HERMES_ACCEPT_HOOKS, any *_ALLOW_ALL_USERS and any platform bot token.
+      # No env_file either: deploy/.env holds other services' secrets.
+    volumes:
+      # profile config: managed scope (user-immutable overlay) and the profile home, both read-only (HER-22)
+      - ${TB_HERMES_CONFIG:-../integrations/hermes/profiles/${TB_HERMES_PROFILE:-tb-staff}/config.yaml}:/etc/hermes/config.yaml:ro
+      - ${TB_HERMES_CONFIG:-../integrations/hermes/profiles/${TB_HERMES_PROFILE:-tb-staff}/config.yaml}:/opt/data/config.yaml:ro
+      # the only two plugins, read-only (item 8)
+      - ../integrations/hermes/tb_relay_adapter:/opt/data/plugins/tb_relay_adapter:ro
+      - ../integrations/hermes/tb_policy_audit:/opt/data/plugins/tb_policy_audit:ro
+      # state.db, sessions, logs: a dedicated volume (encrypt the backing store; HER-24 keeps 30 days)
+      - hermes-data:/opt/data
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/hermes-client.pem:/run/secrets/hermes-client.pem:ro
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/hermes-client.key:/run/secrets/hermes-client.key:ro
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/tb-ca.pem:/run/secrets/tb-ca.pem:ro
+    # ready = this boot finished its startup restore (v0.22.2 logs "Press Ctrl+C to stop" after it opens the inbound
+    # gate; before that a turn is only queued and the relay sees an empty turn end) and the tb_relay_adapter inject
+    # listener accepts connections. Without it `up --wait` returned while the first turn would still fail.
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - >-
+          import socket;
+          log = open('/opt/data/logs/gateway.log', encoding='utf-8', errors='replace').read();
+          assert 'Press Ctrl+C to stop' in log[log.rfind('Starting Hermes Gateway...'):];
+          socket.create_connection(('127.0.0.1', 8444), timeout=3).close()
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
+    networks: [hermes-net]
+    depends_on:
+      gateway: {condition: service_started}
+      frontdoor-mcp: {condition: service_healthy}   # Hermes lists the front-door tools when it starts
+      channel-relay: {condition: service_healthy}
+
+  # frontdoor-mcp (§9.3): MCP Streamable HTTP over mTLS on :8443 (clients hermes, channel-relay), the pre_tool_call
+  # decision at /policy/decide, health on loopback :8081. Proposals and relay tokens on workflow-db; audit chain on
+  # the shared audit volume. Never published.
+  frontdoor-mcp:
+    profiles: [hermes]
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    command: ["python", "-m", "frontdoor_mcp.listener"]
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+    restart: unless-stopped
+    logging: {driver: json-file, options: {max-size: "50m", max-file: "5"}}
+    environment: &tb_hermes_side_env
+      PORT: "8081"
+      TB_SERVICE_NAME: frontdoor-mcp
+      TB_ENV: "${TB_ENV:-TEST}"
+      TB_AUDIT_DIR: /data/audit
+      TB_SECRETS: /run/secrets/tb
+      TB_CHANNELS_STORE: "postgresql://trialbox:${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD:-}}@workflow-db:5432/trialbox_wf"
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - audit-data:/data/audit
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/frontdoor-mcp.pem:/run/secrets/tb/frontdoor-mcp.pem:ro
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/frontdoor-mcp.key:/run/secrets/tb/frontdoor-mcp.key:ro
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/tb-ca.pem:/run/secrets/tb/tb-ca.pem:ro
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/relay.pub:/run/secrets/tb/relay.pub:ro
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/directory.yaml:/run/secrets/tb/directory.yaml:ro
+    networks: [trialbox-net, hermes-net]
+    depends_on:
+      workflow-db: {condition: service_healthy}
+    healthcheck: &tb_hermes_side_health
+      test: ["CMD", "python", "-c", "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"PORT\"]}/healthz', timeout=4).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # channel-relay (§3.4.1, §9.2): transport intake on :8095 (internal), the Hermes reply edge on :8443 (mTLS, client
+  # hermes only). Engine hermes with native fallback; deterministic lines start orchestrator jobs; email replies go
+  # out through SMTP (MailHog in the POC), Teams through the MS0 fake transport.
+  channel-relay:
+    profiles: [hermes]
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    command: ["python", "-m", "channels.relay.listener"]
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+    restart: unless-stopped
+    logging: {driver: json-file, options: {max-size: "50m", max-file: "5"}}
+    environment:
+      <<: *tb_hermes_side_env
+      PORT: "8095"
+      TB_SERVICE_NAME: channel-relay
+      TB_CHANNELS_ENGINE: "${TB_CHANNELS_ENGINE:-hermes}"
+      TB_HERMES_ADAPTER_URL: https://hermes:8444/inject
+      TB_FRONTDOOR_URL: https://frontdoor-mcp:8443/mcp
+      TB_GATEWAY_URL: http://gateway:8020/v1
+      TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}"
+      TB_ORCH_URL: http://orchestrator:8010
+      TB_RELAY_SMTP_HOST: "${TB_RELAY_SMTP_HOST:-mailhog}"
+      TB_RELAY_SMTP_PORT: "${TB_RELAY_SMTP_PORT:-1025}"
+      TB_RELAY_FROM: "${MAIL_INTAKE_ADDR:-trialbox@hospa.test}"
+      TB_RELAY_AUTHSERV_ID: "${TB_RELAY_AUTHSERV_ID:-mx.hospa.test}"
+      TB_TEAMS_FAKE_TOKENS: "${TB_TEAMS_FAKE_TOKENS:-}"
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - audit-data:/data/audit
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/channel-relay.pem:/run/secrets/tb/channel-relay.pem:ro
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/channel-relay.key:/run/secrets/tb/channel-relay.key:ro
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/tb-ca.pem:/run/secrets/tb/tb-ca.pem:ro
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/relay-signing.key:/run/secrets/tb/relay-signing.key:ro
+      - ${TB_HERMES_SECRETS:-./secrets/hermes}/directory.yaml:/run/secrets/tb/directory.yaml:ro
+    networks: [trialbox-net, hermes-net]
+    depends_on:
+      workflow-db: {condition: service_healthy}
+      frontdoor-mcp: {condition: service_healthy}
+    healthcheck: *tb_hermes_side_health
+
+  # the gateway also joins hermes-net so Hermes reaches its model only through tb-gateway (item 7)
+  gateway:
+    networks: [hermes-net]
+
+networks:
+  hermes-net:
+    name: trialbox-hermes-net
+    internal: true                  # no default route: Hermes has no egress (item 15)
+
+volumes:
+  hermes-data:

@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav.audit') }}{% endblock %}
+{% block content %}
+<h1>{{ t('audit.title') }}</h1>
+<section class="card">{% set rows = records %}{% include "_audit_table.html" %}</section>
+{% endblock %}

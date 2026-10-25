@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ t('mailbox.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('mailbox.title') }}</h1>
+{% if sent %}<p class="ok" role="status" data-testid="mail-sent">{{ t('mailbox.sent', mid=sent) }}</p>{% endif %}
+<section class="card">
+<p>{{ t('mailbox.help') }}</p>
+<form method="post" action="/pilot/mailbox" enctype="multipart/form-data">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <p>{{ t('mailbox.from') }}: <code>{{ user.mailbox or settings.admin_email }}</code> · {{ t('mailbox.to') }}: <code>{{ settings.intake_addr }}</code></p>
+  <label for="subject">{{ t('mailbox.subject') }}</label>
+  <input id="subject" name="subject" value="{{ subject }}" required maxlength="200">
+  <label for="body">{{ t('mailbox.body') }}</label>
+  <textarea id="body" name="body" rows="3" maxlength="5000"></textarea>
+  <label for="attachment">{{ t('mailbox.attach') }}</label>
+  <input id="attachment" name="attachment" type="file">
+  <button type="submit" {{ 'disabled' if not user.is_admin else '' }} data-testid="mail-send">{{ t('mailbox.send') }}</button>
+</form>
+{% if settings.webmail_url %}<p><a href="{{ settings.webmail_url }}" target="_blank" rel="noopener noreferrer">{{ t('overview.webmail') }}</a></p>{% endif %}
+</section>
+{% endblock %}

@@ -49,6 +49,29 @@ def _validator(name: str) -> Draft202012Validator:
     return Draft202012Validator(schema, registry=_registry(), format_checker=FormatChecker())
 
 
+def null_absent(schema: dict[str, Any], data: Any) -> Any:
+    """``data`` with every absent property that ``schema`` requires *and* lets be ``null`` set to ``None``.
+
+    Strict structured output (OpenAI-style ``strict: true``) needs every property listed as required, so an optional
+    field is written as required and nullable; for TrialBox ``null`` and absent mean the same. This keeps answers that
+    omit such a field (a non-strict endpoint, an older stub) valid. Nested objects with inline ``properties`` are
+    handled; ``$ref`` targets are not followed."""
+    if not isinstance(data, dict) or not isinstance(schema.get("properties"), dict):
+        return data
+    out = dict(data)
+    props: dict[str, Any] = schema["properties"]
+    for key in schema.get("required") or ():
+        sub = props.get(key)
+        t = sub.get("type") if isinstance(sub, dict) else None
+        if key not in out and isinstance(t, list) and "null" in t:
+            out[key] = None
+    for key, value in out.items():
+        sub = props.get(key)
+        if isinstance(sub, dict) and isinstance(value, dict):
+            out[key] = null_absent(sub, value)
+    return out
+
+
 def schema_errors(name: str, data: Any) -> list[str]:
     """Return human-readable validation errors of ``data`` against schema ``name`` (empty if valid)."""
     errs = sorted(_validator(name).iter_errors(data), key=lambda e: list(e.absolute_path))

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav.overview') }}{% endblock %}
+{% block content %}
+<h1>{{ t('nav.overview') }}</h1>
+{% if notice == 'ingested' %}<p class="ok" role="status">{{ t('overview.ingest') }} ✓</p>{% endif %}
+<div class="grid">
+<section class="card">
+<h2>{{ t('overview.health') }}</h2>
+<table data-testid="health">
+<thead><tr><th scope="col">{{ t('col.service') }}</th><th scope="col">{{ t('col.status') }}</th><th scope="col">{{ t('col.detail') }}</th></tr></thead>
+<tbody>{% for h in health %}<tr><td>{{ h.service }}</td><td>{% if h.ok %}<span class="pill ok">OK</span>{% else %}<span class="pill bad">DOWN</span>{% endif %}</td><td>{{ h.detail }}</td></tr>{% endfor %}</tbody>
+</table>
+{% if user.is_admin %}
+<form method="post" action="/ops/ingest" class="mt">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="secondary" data-testid="ingest">{{ t('overview.ingest') }}</button>
+  <p class="hint">{{ t('overview.ingest.help') }}</p>
+</form>
+{% endif %}
+</section>
+{% if pilot %}
+<section class="card">
+<h2>{{ t('overview.rulesets') }}</h2>
+<table data-testid="rulesets">
+<thead><tr><th scope="col">{{ t('col.ruleset') }}</th><th scope="col">{{ t('col.version') }}</th><th scope="col">{{ t('col.status') }}</th></tr></thead>
+<tbody>{% for r in rulesets %}<tr><td>{% if r.status == 'approved' and r.kind == 'trial' %}<a href="/pilot/request?ruleset={{ r.id }}">{{ r.id }}</a>{% else %}{{ r.id }}{% endif %}</td><td>{{ r.version or '–' }}</td><td>{{ r.status }}{% if r.kind %} · {{ r.kind }}{% endif %}</td></tr>{% endfor %}</tbody>
+</table>
+<h2 class="mt">{{ t('overview.mail') }}</h2>
+<p>{{ t('overview.mail.help', intake=settings.intake_addr, mailbox=(user.mailbox or settings.admin_email or '–')) }}</p>
+{% if settings.webmail_url %}<p><a href="{{ settings.webmail_url }}" rel="noopener noreferrer" target="_blank" data-testid="webmail">{{ t('overview.webmail') }}</a></p>{% endif %}
+</section>
+{% endif %}
+</div>
+<section class="card">
+<h2>{{ t('overview.recent') }}</h2>
+{% include "_jobs_table.html" %}
+</section>
+{% endblock %}

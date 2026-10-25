@@ -86,6 +86,12 @@ def send(req: SendRequest) -> SendResult:
         ) from exc
 
 
+@app.get("/threads/{job_id}")
+def thread(job_id: str) -> dict[str, Any]:
+    """Mail of one job (metadata only) for the admin console's thread view."""
+    return {"job_id": job_id, "items": gateway().db.thread(job_id)}
+
+
 @app.post("/poll")
 def poll() -> dict[str, int]:
     return {"processed": gateway().poll_once()}

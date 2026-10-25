@@ -1,14 +1,15 @@
 # Model registry (spec v4 §8.4, S1-07): alias -> pinned build. The gateway resolves aliases only through this file
 # (services/registry). Builds are immutable (MOD-7): a new revision is a new build_id.
 #
-# sha256 is the digest of the build's weight manifest (per-file SHA-256 list). A null sha256 means "not yet pinned":
-# the registry refuses to route to such a build, except the stub in DEV/TEST. Hashes are filled in only from a
+# sha256 is the digest of the build's weight manifest (per-file SHA-256 list); for a `serving: hosted` build it is the
+# digest of its provider_pin descriptor (registry.provider_pin_sha). A null sha256 means "not yet pinned": the registry
+# refuses to route to such a build, except the stub in DEV/TEST. Hashes are filled in only from a
 # verified download at qualification (MOD-2, MOD-8); none is guessed here. Licence facts marked verified: false
 # must be confirmed by legal review before the build moves past `candidate`.
 #
 # Status rules for routing (MOD-7): production roles resolve to `champion`, `shadow:<role>` to `shadow`, evaluation
 # roles to `qualified` or better; in DEV/TEST any status except `retired` and `suspended` may be used.
-version: registry-2026-10-25.1
+version: registry-2026-10-25.3
 
 aliases:
   trialbox-stub: {class: J, description: "deterministic OpenAI-compatible stub (services/llm_stub), DEV/TEST only"}
@@ -34,6 +35,103 @@ builds:
     licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
     origin: {developer: TrialBox, country: TW, non_prc: true}
 
+  # The same stub behind the front-desk and guard aliases, so Hermes profiles keep their committed aliases in DEV/TEST
+  # (route dev-stub); unpinned, so never routable in VALIDATION or PRODUCTION.
+  - build_id: f-frontdesk-stub-1
+    alias: f-frontdesk
+    status: champion
+    serving: stub
+    served: {stub: trialbox-stub}
+    sha256: null
+    revision: null
+    repository: services/llm_stub (this repository)
+    quantisation: none
+    context_length: null
+    family: trialbox-stub
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
+    origin: {developer: TrialBox, country: TW, non_prc: true}
+
+  - build_id: g-guard-stub-1
+    alias: g-guard
+    status: champion
+    serving: stub
+    served: {stub: trialbox-stub}
+    sha256: null
+    revision: null
+    repository: services/llm_stub (this repository)
+    quantisation: none
+    context_length: null
+    family: trialbox-stub
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
+    origin: {developer: TrialBox, country: TW, non_prc: true}
+
+  # ---------------------------------------------------------------- DGX Spark (P-GB10) default pair
+  # Recommended by the 2026-10-25 bake-off (eval/bakeoff/results/2026-10-25) and an independent comparison: gpt-oss-120b
+  # as the judge, Gemma 4 26B-A4B-it as the verifier, a criterion blocking only when both agree
+  # (matching.cascade.judge.AgreementJudge). Seed builds: the site pins the weights with tools/pin_model.py
+  # (j-workhorse on endpoint `serving`, v-verifier on endpoint `verifier`; deploy/docker-compose.gb10.yml serves both).
+  # The front desk on P-GB10 is the J build at 64k context (§8.4 table, NFR-B20), the same weights pinned again.
+  - build_id: gpt-oss-120b-spark
+    alias: j-workhorse
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: openai/gpt-oss-120b
+    quantisation: MXFP4 (native release weights)
+    context_length: 65536
+    family: gpt-oss
+    model_name: gpt-oss-120b
+    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: OpenAI, country: US, non_prc: true}
+
+  - build_id: gemma-4-26b-a4b-it-spark
+    alias: v-verifier
+    status: candidate
+    serving: vllm
+    served: {verifier: null}
+    sha256: null
+    revision: null
+    repository: google/gemma-4-26b-a4b-it
+    quantisation: BF16 or FP8 (recipe to record at qualification)
+    context_length: 32768
+    family: gemma
+    model_name: Gemma 4 26B-A4B-it
+    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    origin: {developer: Google, country: US, non_prc: true}
+
+  - build_id: gpt-oss-120b-frontdesk-spark
+    alias: f-frontdesk
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: openai/gpt-oss-120b
+    quantisation: MXFP4 (native release weights)
+    context_length: 65536
+    family: gpt-oss
+    model_name: gpt-oss-120b (front desk, 64k)
+    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: OpenAI, country: US, non_prc: true}
+
+  - build_id: gpt-oss-safeguard-20b-candidate
+    alias: g-guard
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: openai/gpt-oss-safeguard-20b
+    quantisation: MXFP4
+    context_length: null
+    family: gpt-oss
+    model_name: gpt-oss-safeguard-20b
+    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: OpenAI, country: US, non_prc: true}
+
+  # ---------------------------------------------------------------- earlier candidates (Qwen: documented alternative)
   - build_id: nemotron-3-nano-candidate
     alias: j-workhorse
     status: candidate
@@ -92,4 +190,85 @@ builds:
     family: gpt-oss
     model_name: gpt-oss-120b
     licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: OpenAI, country: US, non_prc: true}
+
+  # ---------------------------------------------------------------- hosted bake-off builds (S1-14, DEV / D0 only)
+  # A hosted build is one dated provider version of a model served by a third party (OpenRouter). It has no weights
+  # to hash: a site pins it with tools/pin_provider.py, which writes a provider_pin descriptor (model id, dated
+  # canonical slug, provider, quantisation, pin date) and its sha256 into the site override. The gateway then asks for
+  # that provider only and refuses a response from any other model or provider. These builds exist to compare model
+  # families before buying or loading weights; promotion to the box needs the local build above, pinned by weights.
+  - build_id: or-qwen3.6-35b-a3b
+    alias: j-workhorse
+    status: candidate
+    serving: hosted
+    served: {openrouter: null}
+    sha256: null
+    revision: null
+    repository: null
+    quantisation: null
+    context_length: null
+    family: qwen
+    model_name: Qwen3.6-35B-A3B (hosted)
+    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
+
+  - build_id: or-gpt-oss-120b
+    alias: j-workhorse
+    status: candidate
+    serving: hosted
+    served: {openrouter: null}
+    sha256: null
+    revision: null
+    repository: null
+    quantisation: null
+    context_length: null
+    family: gpt-oss
+    model_name: gpt-oss-120b (hosted)
+    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: OpenAI, country: US, non_prc: true}
+
+  - build_id: or-gemma-4-26b-a4b
+    alias: j-workhorse
+    status: candidate
+    serving: hosted
+    served: {openrouter: null}
+    sha256: null
+    revision: null
+    repository: null
+    quantisation: null
+    context_length: null
+    family: gemma
+    model_name: Gemma 4 26B-A4B-it (hosted)
+    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    origin: {developer: Google, country: US, non_prc: true}
+
+  - build_id: or-nemotron-3-nano-30b-a3b
+    alias: j-workhorse
+    status: candidate
+    serving: hosted
+    served: {openrouter: null}
+    sha256: null
+    revision: null
+    repository: null
+    quantisation: null
+    context_length: null
+    family: nemotron
+    model_name: Nemotron 3 Nano 30B-A3B (hosted)
+    licence: {name: NVIDIA open model licence (version to confirm), spdx: null, verified: false}
+    origin: {developer: NVIDIA, country: US, non_prc: true}
+
+  - build_id: or-gpt-4.1-reference
+    alias: j-workhorse
+    status: candidate
+    serving: hosted
+    served: {openrouter: null}
+    sha256: null
+    revision: null
+    repository: null
+    quantisation: null
+    context_length: null
+    family: gpt-4.1
+    model_name: GPT-4.1 (hosted; GPT-4-class reference only, closed weights, never promoted)
+    licence: {name: OpenAI API terms (no weights), spdx: null, verified: false}
     origin: {developer: OpenAI, country: US, non_prc: true}

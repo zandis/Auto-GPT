@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav.cascade') }} {{ run.trial }}{% endblock %}
+{% block content %}
+<h1>{{ t('nav.cascade') }} · {{ run.trial }} <span class="state s-{{ run.state }}" data-testid="cascade-state">{{ run.state }}</span></h1>
+<p class="mono">Run {{ run.run_id }} · {{ run.started_by }} · {{ run.seconds }} s</p>
+{% if refresh %}<p class="hint" role="status">{{ t('job.refresh') }}</p>{% endif %}
+{% if run.error %}<p class="error" role="alert">{{ run.error }}</p>{% endif %}
+{% if summary.funnel %}
+<section class="card" data-testid="cascade-funnel">
+<h2>{{ t('cascade.funnel') }}</h2>
+<p>n in scope: {{ cell(summary.n_scope) }} · class {{ summary.data_class }}</p>
+<table><thead><tr><th scope="col">{{ t('col.stage') }}</th><th scope="col">{{ t('col.patients') }}</th><th scope="col"></th></tr></thead>
+<tbody>{% for stage, n in summary.funnel %}<tr><td>{{ stage }}</td><td class="num">{{ cell(n) }}</td>
+<td>{% if n is number and summary.n_scope is number and summary.n_scope > 0 %}<progress max="{{ summary.n_scope }}" value="{{ n }}" aria-label="{{ n }}"></progress>{% endif %}</td></tr>{% endfor %}</tbody></table>
+</section>
+{% endif %}
+{% if summary.certificate_status %}
+<section class="card" data-testid="certificate">
+<h2>{{ t('cascade.certificate') }}: {{ summary.certificate_status }}</h2>
+<p>{{ summary.certificate_statement }}</p>
+</section>
+{% endif %}
+{% if summary.headline %}
+<section class="card">
+<h2>{{ t('cascade.headline') }}</h2>
+<dl class="kvlist">{% for k, v in summary.headline.items() %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl>
+</section>
+{% endif %}
+{% if files %}
+<section class="card">
+<h2>{{ t('job.outputs') }}</h2>
+<ul>{% for n in files %}<li><a href="/pilot/cascade/{{ run.run_id }}/files/{{ n }}" data-file="{{ n }}">{{ n }}</a></li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% if summary.checks %}
+<section class="card">
+<h2>{{ t('cascade.checks') }}</h2>
+<ul class="checks">{% for name, ok in summary.checks %}<li>{{ '✓' if ok else '✗' }} {{ name }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% endblock %}

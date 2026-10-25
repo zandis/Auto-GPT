@@ -27,7 +27,8 @@ DEFAULT_PORTS = {
     "ADAPTER": 8016,
     "MINIO": 9000,
     "FHIR": 8080,
-    "LLM": 8000,
+    "GATEWAY": 8020,  # tb-gateway: the only model path (llm-stub / llm-service are not published)
+    "WORKFLOW_DB": 5433,  # workflow-db (outbox, recall ledger)
 }
 
 

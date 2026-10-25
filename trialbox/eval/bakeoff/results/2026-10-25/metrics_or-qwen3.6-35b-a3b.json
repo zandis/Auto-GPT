@@ -1,0 +1,592 @@
+{
+ "alias": "j-workhorse",
+ "build_id": "or-qwen3.6-35b-a3b",
+ "build_sha": "bfea44f0a17edb72ce6c3ecdfddbbd46434d3e9625ed4971caee21471a39ca6a",
+ "by_lang": {
+  "en": {
+   "accuracy": 0.5369,
+   "accuracy_absent_as_negative": 0.7754,
+   "agreement_with_gpt4": 0.4936,
+   "block_recall": 0.6364,
+   "build_shas": [
+    "bfea44f0a17edb72ce6c3ecdfddbbd46434d3e9625ed4971caee21471a39ca6a"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 9,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not excluded": 0
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 0,
+      "not applicable": 15,
+      "not enough information": 10,
+      "not excluded": 21
+     },
+     "not enough information": {
+      "excluded": 6,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 98,
+      "not excluded": 14
+     },
+     "not excluded": {
+      "excluded": 13,
+      "invalid": 0,
+      "not applicable": 4,
+      "not enough information": 341,
+      "not excluded": 126
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 130,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 19,
+      "not included": 0
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 4,
+      "not enough information": 4,
+      "not included": 1
+     },
+     "not enough information": {
+      "included": 9,
+      "invalid": 0,
+      "not applicable": 1,
+      "not enough information": 150,
+      "not included": 14
+     },
+     "not included": {
+      "included": 1,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 10,
+      "not included": 12
+     }
+    }
+   },
+   "cost_per_1k_usd": 0.9866,
+   "cost_usd": 1.001387,
+   "evidence_f1": 0.8132,
+   "false_block_rate": 0.0346,
+   "false_block_upper95": 0.0458,
+   "gateway_refusals": {},
+   "gpt4_reference_same_items": {
+    "accuracy": 0.8729,
+    "accuracy_absent_as_negative": 0.7941,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.0143,
+    "false_block_upper95": 0.0222,
+    "macro_f1": 0.8075,
+    "screen_accuracy": 0.9813
+   },
+   "invalid_rate": 0.002,
+   "latency_mean_s": 5.854,
+   "latency_p50_s": 5.807,
+   "latency_p95_s": 9.162,
+   "lenient_accuracy": 0.5379,
+   "macro_f1": 0.5431,
+   "model_refusals": 0,
+   "n": 1015,
+   "per_label": {
+    "excluded": {
+     "precision": 0.3214,
+     "recall": 0.9,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.9286,
+     "recall": 0.8667,
+     "support": 150
+    },
+    "not applicable": {
+     "precision": 0.7917,
+     "recall": 0.3455,
+     "support": 55
+    },
+    "not enough information": {
+     "precision": 0.3918,
+     "recall": 0.8464,
+     "support": 293
+    },
+    "not excluded": {
+     "precision": 0.7826,
+     "recall": 0.2603,
+     "support": 484
+    },
+    "not included": {
+     "precision": 0.4444,
+     "recall": 0.5217,
+     "support": 23
+    }
+   },
+   "providers": {
+    "DeepInfra": 1015
+   },
+   "reasoning_tokens_mean": 1047.4,
+   "screen_accuracy": 0.9547,
+   "served_models": {
+    "qwen/qwen3.6-35b-a3b": 1015
+   },
+   "tokens_in_mean": 445.3,
+   "tokens_out_mean": 991.6,
+   "trial_false_exclusion": 0.2785,
+   "truncated": 2,
+   "upstream_errors": {}
+  },
+  "ja": {
+   "accuracy": 0.5232,
+   "accuracy_absent_as_negative": 0.7557,
+   "agreement_with_gpt4": 0.4749,
+   "block_recall": 0.6364,
+   "build_shas": [
+    "bfea44f0a17edb72ce6c3ecdfddbbd46434d3e9625ed4971caee21471a39ca6a"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 9,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not excluded": 0
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 1,
+      "not applicable": 13,
+      "not enough information": 10,
+      "not excluded": 22
+     },
+     "not enough information": {
+      "excluded": 5,
+      "invalid": 2,
+      "not applicable": 2,
+      "not enough information": 97,
+      "not excluded": 13
+     },
+     "not excluded": {
+      "excluded": 9,
+      "invalid": 25,
+      "not applicable": 3,
+      "not enough information": 319,
+      "not excluded": 128
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 113,
+      "invalid": 5,
+      "not applicable": 0,
+      "not enough information": 24,
+      "not included": 8
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 5,
+      "not enough information": 3,
+      "not included": 1
+     },
+     "not enough information": {
+      "included": 11,
+      "invalid": 9,
+      "not applicable": 0,
+      "not enough information": 143,
+      "not included": 11
+     },
+     "not included": {
+      "included": 0,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 10,
+      "not included": 12
+     }
+    }
+   },
+   "cost_per_1k_usd": 1.0852,
+   "cost_usd": 1.101511,
+   "evidence_f1": 0.8099,
+   "false_block_rate": 0.0346,
+   "false_block_upper95": 0.0458,
+   "gateway_refusals": {
+    "phi_tripwire": 40
+   },
+   "gpt4_reference_same_items": {
+    "accuracy": 0.8729,
+    "accuracy_absent_as_negative": 0.7941,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.0143,
+    "false_block_upper95": 0.0222,
+    "macro_f1": 0.8075,
+    "screen_accuracy": 0.9813
+   },
+   "invalid_rate": 0.003,
+   "latency_mean_s": 8.333,
+   "latency_p50_s": 7.452,
+   "latency_p95_s": 15.066,
+   "lenient_accuracy": 0.5251,
+   "macro_f1": 0.5327,
+   "model_refusals": 0,
+   "n": 1015,
+   "per_label": {
+    "excluded": {
+     "precision": 0.3913,
+     "recall": 0.9,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.9113,
+     "recall": 0.7533,
+     "support": 150
+    },
+    "not applicable": {
+     "precision": 0.7826,
+     "recall": 0.3273,
+     "support": 55
+    },
+    "not enough information": {
+     "precision": 0.3954,
+     "recall": 0.8191,
+     "support": 293
+    },
+    "not excluded": {
+     "precision": 0.7853,
+     "recall": 0.2645,
+     "support": 484
+    },
+    "not included": {
+     "precision": 0.375,
+     "recall": 0.5217,
+     "support": 23
+    }
+   },
+   "providers": {
+    "DeepInfra": 975
+   },
+   "reasoning_tokens_mean": 1208.4,
+   "screen_accuracy": 0.9547,
+   "served_models": {
+    "qwen/qwen3.6-35b-a3b": 975
+   },
+   "tokens_in_mean": 467.5,
+   "tokens_out_mean": 1140.0,
+   "trial_false_exclusion": 0.2658,
+   "truncated": 3,
+   "upstream_errors": {}
+  },
+  "mixed": {
+   "accuracy": 0.5478,
+   "accuracy_absent_as_negative": 0.7665,
+   "agreement_with_gpt4": 0.5054,
+   "block_recall": 0.6061,
+   "build_shas": [
+    "bfea44f0a17edb72ce6c3ecdfddbbd46434d3e9625ed4971caee21471a39ca6a"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 9,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not excluded": 0
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 1,
+      "not applicable": 10,
+      "not enough information": 11,
+      "not excluded": 24
+     },
+     "not enough information": {
+      "excluded": 6,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 99,
+      "not excluded": 14
+     },
+     "not excluded": {
+      "excluded": 9,
+      "invalid": 8,
+      "not applicable": 4,
+      "not enough information": 315,
+      "not excluded": 148
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 125,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 19,
+      "not included": 5
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 4,
+      "not enough information": 4,
+      "not included": 1
+     },
+     "not enough information": {
+      "included": 10,
+      "invalid": 2,
+      "not applicable": 0,
+      "not enough information": 148,
+      "not included": 14
+     },
+     "not included": {
+      "included": 0,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 11,
+      "not included": 11
+     }
+    }
+   },
+   "cost_per_1k_usd": 1.0558,
+   "cost_usd": 1.071656,
+   "evidence_f1": 0.8003,
+   "false_block_rate": 0.0356,
+   "false_block_upper95": 0.047,
+   "gateway_refusals": {
+    "phi_tripwire": 11
+   },
+   "gpt4_reference_same_items": {
+    "accuracy": 0.8729,
+    "accuracy_absent_as_negative": 0.7941,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.0143,
+    "false_block_upper95": 0.0222,
+    "macro_f1": 0.8075,
+    "screen_accuracy": 0.9813
+   },
+   "invalid_rate": 0.002,
+   "latency_mean_s": 6.952,
+   "latency_p50_s": 6.997,
+   "latency_p95_s": 9.456,
+   "lenient_accuracy": 0.5498,
+   "macro_f1": 0.5307,
+   "model_refusals": 0,
+   "n": 1015,
+   "per_label": {
+    "excluded": {
+     "precision": 0.375,
+     "recall": 0.9,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.9259,
+     "recall": 0.8333,
+     "support": 150
+    },
+    "not applicable": {
+     "precision": 0.7778,
+     "recall": 0.2545,
+     "support": 55
+    },
+    "not enough information": {
+     "precision": 0.4062,
+     "recall": 0.843,
+     "support": 293
+    },
+    "not excluded": {
+     "precision": 0.7957,
+     "recall": 0.3058,
+     "support": 484
+    },
+    "not included": {
+     "precision": 0.3548,
+     "recall": 0.4783,
+     "support": 23
+    }
+   },
+   "providers": {
+    "DeepInfra": 1004
+   },
+   "reasoning_tokens_mean": 1115.8,
+   "screen_accuracy": 0.9527,
+   "served_models": {
+    "qwen/qwen3.6-35b-a3b": 1004
+   },
+   "tokens_in_mean": 433.6,
+   "tokens_out_mean": 1077.9,
+   "trial_false_exclusion": 0.3165,
+   "truncated": 2,
+   "upstream_errors": {}
+  },
+  "zh-TW": {
+   "accuracy": 0.533,
+   "accuracy_absent_as_negative": 0.7675,
+   "agreement_with_gpt4": 0.4808,
+   "block_recall": 0.5758,
+   "build_shas": [
+    "bfea44f0a17edb72ce6c3ecdfddbbd46434d3e9625ed4971caee21471a39ca6a"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 9,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not excluded": 0
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 0,
+      "not applicable": 16,
+      "not enough information": 13,
+      "not excluded": 17
+     },
+     "not enough information": {
+      "excluded": 8,
+      "invalid": 2,
+      "not applicable": 0,
+      "not enough information": 97,
+      "not excluded": 12
+     },
+     "not excluded": {
+      "excluded": 12,
+      "invalid": 34,
+      "not applicable": 2,
+      "not enough information": 313,
+      "not excluded": 123
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 122,
+      "invalid": 5,
+      "not applicable": 0,
+      "not enough information": 21,
+      "not included": 2
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 5,
+      "not enough information": 3,
+      "not included": 1
+     },
+     "not enough information": {
+      "included": 10,
+      "invalid": 10,
+      "not applicable": 0,
+      "not enough information": 147,
+      "not included": 7
+     },
+     "not included": {
+      "included": 1,
+      "invalid": 4,
+      "not applicable": 0,
+      "not enough information": 8,
+      "not included": 10
+     }
+    }
+   },
+   "cost_per_1k_usd": 1.0487,
+   "cost_usd": 1.064404,
+   "evidence_f1": 0.8117,
+   "false_block_rate": 0.0305,
+   "false_block_upper95": 0.0412,
+   "gateway_refusals": {
+    "phi_tripwire": 52
+   },
+   "gpt4_reference_same_items": {
+    "accuracy": 0.8729,
+    "accuracy_absent_as_negative": 0.7941,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.0143,
+    "false_block_upper95": 0.0222,
+    "macro_f1": 0.8075,
+    "screen_accuracy": 0.9813
+   },
+   "invalid_rate": 0.003,
+   "latency_mean_s": 8.92,
+   "latency_p50_s": 9.002,
+   "latency_p95_s": 11.879,
+   "lenient_accuracy": 0.535,
+   "macro_f1": 0.5421,
+   "model_refusals": 0,
+   "n": 1015,
+   "per_label": {
+    "excluded": {
+     "precision": 0.3103,
+     "recall": 0.9,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.9173,
+     "recall": 0.8133,
+     "support": 150
+    },
+    "not applicable": {
+     "precision": 0.913,
+     "recall": 0.3818,
+     "support": 55
+    },
+    "not enough information": {
+     "precision": 0.4046,
+     "recall": 0.8328,
+     "support": 293
+    },
+    "not excluded": {
+     "precision": 0.8092,
+     "recall": 0.2541,
+     "support": 484
+    },
+    "not included": {
+     "precision": 0.5,
+     "recall": 0.4348,
+     "support": 23
+    }
+   },
+   "providers": {
+    "DeepInfra": 963
+   },
+   "reasoning_tokens_mean": 1172.2,
+   "screen_accuracy": 0.9567,
+   "served_models": {
+    "qwen/qwen3.6-35b-a3b": 963
+   },
+   "tokens_in_mean": 449.3,
+   "tokens_out_mean": 1116.2,
+   "trial_false_exclusion": 0.2532,
+   "truncated": 3,
+   "upstream_errors": {}
+  }
+ },
+ "d1_probe": "class_not_allowed_in_env",
+ "items": "all",
+ "langs": [
+  "en",
+  "zh-TW",
+  "ja",
+  "mixed"
+ ],
+ "max_tokens": 2048,
+ "model_name": "Qwen3.6-35B-A3B (hosted)",
+ "provider_pin": {
+  "canonical_slug": "qwen/qwen3.6-35b-a3b-20260415",
+  "created": 1777260255,
+  "endpoint": "openrouter",
+  "model": "qwen/qwen3.6-35b-a3b",
+  "pinned_at": "2026-10-25",
+  "provider": "DeepInfra",
+  "provider_tag": "deepinfra/fp8",
+  "quantization": "fp8"
+ },
+ "reasoning_effort": "low",
+ "variant": "",
+ "workers": 8
+}

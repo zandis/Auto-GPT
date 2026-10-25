@@ -103,3 +103,29 @@ def test_job_schema_ulid_and_states() -> None:
     assert not c.schema_errors("job", job)
     assert c.schema_errors("job", {**job, "state": "sleeping"})
     assert c.Job.model_validate(job).state == "received"
+
+
+@pytest.mark.req("LLM-22", "MOD-4")
+def test_judge_output_schema_is_strict_mode_compatible() -> None:
+    """judge@3 (llm_judge_output 1.1.0): every property required, optional ones nullable, no extra keys, so
+    OpenAI-style strict structured output accepts it; null and absent validate alike (``null_absent``)."""
+    s = c.inline_schema("llm_judge_output")
+    assert s["additionalProperties"] is False and set(s["required"]) == set(s["properties"])
+    nullable = {k for k, v in s["properties"].items() if "null" in (v.get("type") or [])}
+    assert nullable == {"quote", "quote_date", "reason"}  # verdict and confidence stay non-null
+    assert all("type" in v for v in s["properties"].values())
+    full = {"verdict": "pass", "quote": "q", "quote_date": "2026-10-01", "confidence": 0.9, "reason": "r"}
+    nulls = {"verdict": "unknown", "quote": None, "quote_date": None, "confidence": 0.5, "reason": None}
+    assert c.schema_errors("llm_judge_output", full) == [] and c.schema_errors("llm_judge_output", nulls) == []
+    absent = {"verdict": "unknown", "confidence": 0.5}
+    assert c.schema_errors("llm_judge_output", absent)  # strictly, absent is an error ...
+    assert c.null_absent(s, absent) == nulls | {"reason": None}  # ... and null_absent makes it the null form
+    assert c.schema_errors("llm_judge_output", c.null_absent(s, absent)) == []
+    for bad in ({**nulls, "verdict": None}, {**nulls, "confidence": None}, {**full, "quote_date": "Oct 1"}):
+        assert c.schema_errors("llm_judge_output", bad), bad
+    assert c.null_absent(s, {"verdict": "pass"}) == {
+        "verdict": "pass",
+        "quote": None,
+        "quote_date": None,
+        "reason": None,
+    }  # never invents non-nullable keys

@@ -1,0 +1,41 @@
+{
+ "build_id": "or-gpt-4.1-reference",
+ "calls": 0,
+ "certificate_reasons": [],
+ "certificate_status": "issued",
+ "checks_passed": 15,
+ "checks_total": 16,
+ "classes": {},
+ "cost_usd": 0,
+ "failed_checks": [
+  "gateway_build_pinned"
+ ],
+ "final_list_size": 2,
+ "funnel": "600 → 18 → 18 → 17 → 17 → 17 → 2",
+ "gateway": {
+  "builds": {},
+  "calls": 0,
+  "mode": "remote",
+  "model": "j-workhorse",
+  "url": "http://127.0.0.1:8125/v1"
+ },
+ "gateway_refusals": {
+  "phi_tripwire": 1,
+  "upstream_failed": 18
+ },
+ "mode": "single model",
+ "passed": false,
+ "problems": [
+  "gateway answered with builds [], expected sha256 a93701804c70c6358c7382f54b1b55e15df5666aac3ba3bcd4c862d01d0959bc",
+  "check failed: gateway_build_pinned"
+ ],
+ "repro_check": "off (hosted inference is not bit-reproducible; as tools/spark_e2e.sh)",
+ "routes": {},
+ "seconds": 29.9,
+ "tiers": {
+  "excluded": 581,
+  "potential:data_gap": 5,
+  "potential:uncertain": 12,
+  "watchlist": 2
+ }
+}

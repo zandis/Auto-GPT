@@ -2,15 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/llm_judge_output.schema.json",
   "title": "LlmJudgeOutput",
-  "description": "Output of prompt judge (SPEC 7.3). Schema version 1.0.0.",
+  "description": "Output of prompt judge (SPEC 7.3). Schema version 1.1.0: every property is required so OpenAI-style strict structured output accepts the schema; quote, quote_date and reason are nullable, and null means absent.",
   "type": "object",
-  "required": ["verdict", "confidence"],
+  "required": ["verdict", "quote", "quote_date", "confidence", "reason"],
   "additionalProperties": false,
   "properties": {
-    "verdict": {"enum": ["pass", "fail", "unknown"]},
-    "quote": {"type": "string", "maxLength": 400},
-    "quote_date": {"type": "string", "format": "date"},
+    "verdict": {"type": "string", "enum": ["pass", "fail", "unknown"]},
+    "quote": {"type": ["string", "null"], "maxLength": 400},
+    "quote_date": {"type": ["string", "null"], "format": "date"},
     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-    "reason": {"type": "string", "maxLength": 300}
+    "reason": {"type": ["string", "null"], "maxLength": 300}
   }
 }

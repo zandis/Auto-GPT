@@ -21,6 +21,7 @@ deviations and choices, and `docs/PROGRESS.md` the build log.
 | embed-service | `services/embed_service` | trialbox-py | 8014 | trialbox-net | models (ro) |
 | llm-service / llm-stub | vLLM (`gpu` profile) / `services/llm_stub` (`stub`) | vllm / trialbox-py | 8000 | trialbox-net | models (ro) |
 | fhir-store + fhir-db | HAPI JPA 8.12 (CR) + Postgres 16 | pinned digests | 8080 | trialbox-net | `fhir-pg` |
+| console | `services/console` | trialbox-py | 8090 | trialbox-net | `console-data` (accounts, sessions, pilot cascade runs), `audit-data` (append), `rulesets-data` (ro) |
 | minio | object store (attachments, outputs, review packages, CT.gov cache) | pinned digest | 9000 | trialbox-net | `minio-data` |
 
 `trialbox-net` is `internal: true`, so it has no route out. Only the three services on `trialbox-egress` can leave
@@ -186,4 +187,5 @@ the new code wraps the v1 adapter, lake and mail gateway.
 | Hermes | `integrations/hermes/` | config surface and relay-adapter contract; blocked until a release is pinned (S1-11) |
 | Operations | `tools/trialbox/` (`doctor`, `eval`), `tools/bakeoff.py` | doctor fails closed on unsafe routes, unpinned Hermes, D3 in DEV; public eval suites; bake-off as code (dry run) |
 | End to end | `tools/cascade_e2e.py` | dataplat → cascade → DL-1 pack + recall certificate, 16 checks, PASS/FAIL |
+| Console | `services/console/`, `deploy/docker-compose.poc.yml`, `deploy/poc.sh` / `poc.ps1` | §3.8 admin control plane (health, jobs, audit, ingest; metadata only) plus a pilot workspace that exists only in DEV/TEST on D0 data (refuses to start otherwise): web requests become the exact e-mail line and the same `POST /jobs`; results, downloads (aggregate only), e-mail thread, cascade/DL-1/recall certificate |
 | Test Bench | `tools/testbench/` | dev/test-only web UI over all of the above (D0 only, 127.0.0.1, banner on every page); not in product images |

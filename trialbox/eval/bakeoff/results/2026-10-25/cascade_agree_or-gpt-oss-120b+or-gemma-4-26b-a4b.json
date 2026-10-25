@@ -1,0 +1,51 @@
+{
+ "build_id": "agree:or-gpt-oss-120b+or-gemma-4-26b-a4b",
+ "calls": 31,
+ "certificate_reasons": [],
+ "certificate_status": "issued",
+ "checks_passed": 17,
+ "checks_total": 17,
+ "classes": {
+  "D0": 31
+ },
+ "cost_usd": 0.002965,
+ "failed_checks": [],
+ "final_list_size": 2,
+ "funnel": "600 → 18 → 18 → 17 → 12 → 12 → 2",
+ "gateway": {
+  "builds": {
+   "j-workhorse:9ced587a77f0146993dffe5baabe45e7f2b5cd8b20f16af3ba9604b371ab1391": 17
+  },
+  "calls": 17,
+  "disagreements": 0,
+  "mode": "remote",
+  "model": "j-workhorse",
+  "url": "http://127.0.0.1:8121/v1",
+  "verifier": {
+   "builds": {
+    "j-workhorse:6679993249ff3bcb41799711c7917ff46e87329ca7c142b4ce66d0f2a7a5d8d9": 14
+   },
+   "calls": 14,
+   "mode": "remote-verifier",
+   "model": "j-workhorse",
+   "url": "http://127.0.0.1:8123/v1"
+  }
+ },
+ "gateway_refusals": {
+  "phi_tripwire": 1
+ },
+ "mode": "two-model agreement (judge + verifier; block only if both)",
+ "passed": true,
+ "problems": [],
+ "repro_check": "off (hosted inference is not bit-reproducible; as tools/spark_e2e.sh)",
+ "routes": {
+  "dev-public": 31
+ },
+ "seconds": 197.3,
+ "tiers": {
+  "excluded": 585,
+  "potential:data_gap": 7,
+  "potential:uncertain": 5,
+  "watchlist": 3
+ }
+}

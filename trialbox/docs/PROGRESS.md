@@ -419,7 +419,18 @@ Postgres; caller identity by header, not mTLS; gateway serves chat completions a
 embedder is injected); D3/D4 step-confirm hook not wired, so such calls are refused; production routes nothing until
 a model build is pinned by sha256; model cards are `.md`; RPT-07 leak check uses interval propagation (no scipy) and
 seeded random cases (no Hypothesis); the S2b threshold is a placeholder; `deploy/egress.py` now needs PyYAML on the
-host; the v1 compiler's cloud egress moved to `gateway`, which has no compose service yet.
+host; the v1 compiler's cloud egress moved to `gateway`, which has no compose service yet (resolved below: D-87).
 
 **Evidence:** `make lint` clean (361 files); `make test` 802 passed, 3 skipped; `make testbench-test` 44 passed
 (strict v4 engine); `make e2e-cascade` PASS; `make open-data-e2e` PASS (reproducible).
+
+## One-box stack: v4 services in compose, DGX Spark end to end (2026-10-25)
+
+- Compose: `gateway` (registry, guard, trace store in process), `workflow-db`, `model-net` (D-87). GB10 override
+  covers both. The Test Bench stays in `docker-compose.testbench.yml` under the `dev` profile.
+- `tools/pin_model.py`: weight manifest → registry sha256 → site override; `--verify` re-checks the weights.
+  `trialbox doctor` reports the site pins (`registry_pins`).
+- `tools/cascade_e2e.py` and `trialbox eval judge_public` run through a real gateway with `TB_GATEWAY_URL`
+  (in-process stub stays the default).
+- `make spark-e2e` (`tools/spark_e2e.sh`): one PASS/FAIL report; `TB_LLM_MODE=stub` on hosts without a GPU
+  (RUNBOOK section 8).

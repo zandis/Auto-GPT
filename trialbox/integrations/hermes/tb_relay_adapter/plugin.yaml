@@ -1,0 +1,9 @@
+# Hermes v0.22.2 plugin manifest (hermes_cli/plugins_manifest.py). Mounted read-only at $HERMES_HOME/plugins/tb_relay_adapter.
+name: tb_relay_adapter
+label: TrialBox channel-relay
+kind: platform
+version: "0.1.0"
+description: "TrialBox relay platform: messages reach Hermes only through channel-relay (spec v4 HER-6, HER-7)."
+author: TrialBox
+provides_hooks:
+  - pre_gateway_dispatch

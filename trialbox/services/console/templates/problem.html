@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card narrow">
+<p class="error" role="alert" data-testid="problem">{{ t(key, **values) }}</p>
+<p><a href="/">{{ t('nav.overview') }}</a></p>
+</section>
+{% endblock %}

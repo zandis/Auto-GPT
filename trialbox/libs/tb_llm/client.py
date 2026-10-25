@@ -88,16 +88,32 @@ def json_schema_format(name: str, schema: dict[str, Any], *, strict: bool = True
 
 
 class GatewayClient:
-    def __init__(self, base_url: str, caller: str, *, http: httpx.Client | None = None, timeout: float = 600.0) -> None:
+    """``model`` (or ``TB_GATEWAY_MODEL`` via :meth:`from_env`) is a default alias the client asks for when a call
+    names none; the gateway still decides whether that alias is on the route and pinned (it never widens a route)."""
+
+    def __init__(
+        self,
+        base_url: str,
+        caller: str,
+        *,
+        http: httpx.Client | None = None,
+        timeout: float = 600.0,
+        model: str | None = None,
+    ) -> None:
         if not base_url:
             raise ValueError("tb_llm: gateway URL required")
         self.base_url = base_url.rstrip("/")
         self.caller = caller
         self.http = http or httpx.Client(timeout=timeout)
+        self.model = model or None
 
     @classmethod
     def from_env(cls, caller: str | None = None) -> GatewayClient:
-        return cls(os.environ.get("TB_GATEWAY_URL", ""), caller or os.environ.get("TB_SERVICE_NAME", ""))
+        return cls(
+            os.environ.get("TB_GATEWAY_URL", ""),
+            caller or os.environ.get("TB_SERVICE_NAME", ""),
+            model=os.environ.get("TB_GATEWAY_MODEL") or None,
+        )
 
     def complete(self, body: dict[str, Any], labels: CallLabels) -> dict[str, Any]:
         """Send an OpenAI-style chat body; returns the raw payload (with the gateway's ``tb`` extension)."""
@@ -106,6 +122,8 @@ class GatewayClient:
             if not isinstance(rf, dict) or rf.get("type") != "json_schema":
                 raise ValueError("tb_llm: a json_schema response_format is required (ENG-04, LLM-22)")
         headers = labels.headers(self.caller)
+        if self.model and not body.get("model"):
+            body = {**body, "model": self.model}
         try:
             resp = self.http.post(f"{self.base_url}/chat/completions", json=body, headers=headers)
         except httpx.HTTPError as e:

@@ -1,18 +1,39 @@
-# Hermes Agent pin (spec v4 §9.5, HER-18, ENG-08; S1-11). Filled ONLY from a release that was fetched, verified
-# (tag -> commit SHA -> image digest) and mirrored internally. Nothing here is guessed: null means "not verified".
-# `trialbox doctor` refuses engine=hermes unless every field below is set, the version is >= the floor and the
-# mirrored digest equals the upstream digest.
+# Hermes Agent pin (spec v4 §9.5, HER-18, ENG-08; S1-11). Filled ONLY from a release that was fetched and verified
+# tag -> commit SHA -> image digest. Nothing here is guessed. `trialbox doctor` refuses engine=hermes unless every
+# field is set, the version is >= the floor and the running digest equals the pinned one (integrations/hermes/lock.py).
+#
+# Verification record (2026-10-25):
+#   git ls-remote --tags https://github.com/NousResearch/hermes-agent
+#     refs/tags/v0.22.2      7b77e29eedd85a8497ce2821448dac7964dc46f6  (annotated tag object)
+#     refs/tags/v0.22.2^{}   d923a5eb487a17c0a68801bba9ef0f56c81040a8  (peeled commit, 2026-10-15T01:52:56-04:00,
+#                            "Release 0.22.2 from release/0.22.1 with the published v0.22.1 as a parent")
+#   no date tag (v2026.M.D) peels to that commit (the newest date tag is v2026.9.24); rc.1/rc.2-v0.22.2 do.
+#   docker buildx imagetools inspect nousresearch/hermes-agent:v0.22.2 -> manifest list below (amd64 + arm64).
+#   Shallow clone of the tag (.cache/hermes-src/v0.22.2, HEAD == commit_sha) compared file by file with
+#   /opt/hermes in BOTH platform images: every source file present in both is byte-identical (pyproject.toml,
+#   uv.lock, run_agent.py, toolsets.py, hermes_cli/, gateway/, tools/, agent/, plugins/); the images only add
+#   build artefacts (tui_dist, web_dist, bundled runtimes). So the image was built from this commit (the v0.22.1
+#   failure mode, §9.5, is excluded).
 product: hermes-agent
-version: v0.22.2            # intended pin (§9.5); not yet verified in this build
+version: v0.22.2            # spec §9.5 initial pin; kept over v0.22.5, see ADVISORIES.md "Pin decision"
 floor: v0.21.6              # display-name allowlist bypass and dashboard auth fixes (§9.5)
 tag: v0.22.2
-date_tag: null              # Hermes also publishes date tags; the registry records both
-commit_sha: null            # 40-hex commit of the tag, from the upstream repository
-upstream_image: null        # nousresearch/hermes-agent:<version>@sha256:<digest>
-upstream_digest: null       # sha256:<64 hex>
-mirror_image: null          # <internal registry>/hermes-agent@sha256:<digest> (never a mutable tag)
-mirror_digest: null         # must equal upstream_digest (v0.22.1 was built from the wrong commit)
-verified: false
-verified_at: null
-status: blocked
-blocked_reason: release not fetched and verified offline in this build; engine stays native (OPS-02)
+tag_object: 7b77e29eedd85a8497ce2821448dac7964dc46f6
+date_tag: null              # verified: no date tag peels to commit_sha (v2026.9.24 peels to f97608f1...)
+version_label: "2026.9.24"  # what `hermes --version` prints in the image: "v0.22.2 (2026.9.24) · upstream d923a5eb"
+commit_sha: d923a5eb487a17c0a68801bba9ef0f56c81040a8
+upstream_image: docker.io/nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+upstream_digest: sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919   # manifest list (index)
+platform_digests:
+  linux/amd64: sha256:a11574b7fe8e1631d7d88d556677dac693bc058abf558cdeb899155688c1bf05
+  linux/arm64: sha256:6793b8c89a44872fc9a5ef135ac0c28bf0a7b9caf4968278195b14e43919aef5   # DGX Spark / GB10
+# Internal mirror: NOT yet pushed. The placeholder below is the only non-digest value lock.py accepts, and only in
+# DEV and TEST, where the stack runs `upstream_image` by digest. VALIDATION and PRODUCTION refuse it: push the index
+# (`crane copy` / `skopeo copy --all` keeps the index digest), then set mirror_image to
+# <registry>/hermes-agent@<upstream_digest> and mirror_digest to the same digest.
+mirror_image: PENDING-INTERNAL-MIRROR
+mirror_digest: PENDING-INTERNAL-MIRROR
+verified: true
+verified_at: "2026-10-25"
+status: pinned-dev-test     # pinned by tag + SHA + digest; production additionally needs the internal mirror
+blocked_reason: null

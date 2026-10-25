@@ -4,9 +4,9 @@
 # Run: podman-compose -f deploy/topology_a/podman-compose.yml up -d
 services:
   workflow-db:
-    # TODO(pin): replace with an image pinned by digest (postgres:16-alpine@sha256:<digest>) after verifying the
-    # digest from the registry. No digest is invented here; until pinned, POSTGRES_WF_IMAGE must be set explicitly.
-    image: ${POSTGRES_WF_IMAGE:?set POSTGRES_WF_IMAGE to a digest-pinned postgres:16 image (TODO pin)}
+    # postgres 16.15-alpine3.24, multi-arch index (linux/amd64, linux/arm64/v8 …), the same pin as the docker compose
+    # workflow-db and fhir-db (verified with `docker buildx imagetools inspect`, 2026-10-25)
+    image: ${POSTGRES_WF_IMAGE:-docker.io/library/postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}
     environment:
       POSTGRES_DB: trialbox_wf
       POSTGRES_USER: trialbox

@@ -1,0 +1,41 @@
+{
+ "build_id": "or-qwen3.6-35b-a3b",
+ "calls": 17,
+ "certificate_reasons": [],
+ "certificate_status": "issued",
+ "checks_passed": 16,
+ "checks_total": 16,
+ "classes": {
+  "D0": 17
+ },
+ "cost_usd": 0.012303,
+ "failed_checks": [],
+ "final_list_size": 2,
+ "funnel": "600 → 18 → 18 → 17 → 11 → 11 → 2",
+ "gateway": {
+  "builds": {
+   "j-workhorse:bfea44f0a17edb72ce6c3ecdfddbbd46434d3e9625ed4971caee21471a39ca6a": 17
+  },
+  "calls": 17,
+  "mode": "remote",
+  "model": "j-workhorse",
+  "url": "http://127.0.0.1:8122/v1"
+ },
+ "gateway_refusals": {
+  "phi_tripwire": 1
+ },
+ "mode": "single model",
+ "passed": true,
+ "problems": [],
+ "repro_check": "off (hosted inference is not bit-reproducible; as tools/spark_e2e.sh)",
+ "routes": {
+  "dev-public": 17
+ },
+ "seconds": 98.6,
+ "tiers": {
+  "excluded": 586,
+  "potential:data_gap": 8,
+  "potential:uncertain": 3,
+  "watchlist": 3
+ }
+}

@@ -69,9 +69,14 @@ from frontdoor_mcp.identity import AssertionRefused, AssertionVerifier
 from frontdoor_mcp.metrics import Catalogue, PrivacyAccountant, rounded_rows
 from frontdoor_mcp.policy import OrchestratorPolicyContext, Principal
 from frontdoor_mcp.requests import RequestStore
-from frontdoor_mcp.tokens import RelayTokenMap
+from frontdoor_mcp.tokens import TokenMap
 
 PROTOCOL_VERSION = "2026-07-28"  # MCP specification revision named in §9.3
+# Handshake-era revisions a client may ask for in ``initialize``. Hermes v0.22.2 ships the MCP Python SDK 2.0, whose
+# ``ClientSession`` performs the ``initialize`` handshake and refuses a server answer outside these revisions (the
+# 2026-07-28 single-exchange mode needs no handshake). The server answers with the requested revision when it is one
+# of these and with :data:`PROTOCOL_VERSION` otherwise; the method set is the same in every revision.
+HANDSHAKE_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
 SMALL_CELL = 5
 
 # JSON-RPC error codes (the -32000 range is implementation-defined)
@@ -123,7 +128,7 @@ class FrontDoorServer:
     policy: OrchestratorPolicyContext
     requests: RequestStore
     audit: AuditSink
-    tokens: RelayTokenMap
+    tokens: TokenMap
     registry: RegistryIndex
     protocol: ProtocolAnswerer
     atlas: AtlasSource
@@ -147,7 +152,11 @@ class FrontDoorServer:
         assertion: str | None = None,
         conv: str | None = None,
         client: str = "converse-native",
+        peer: str | None = None,
     ) -> dict[str, Any] | None:
+        """One JSON-RPC message. ``peer`` is the mTLS client certificate's common name when the transport verified
+        one (``frontdoor_mcp.listener``); it admits ``tools/list`` without a conversation, because an MCP client lists
+        tools when it connects, before any conversation exists. Every ``tools/call`` still needs the assertion."""
         if (
             not isinstance(message, dict)
             or message.get("jsonrpc") != "2.0"
@@ -160,10 +169,12 @@ class FrontDoorServer:
         if mid is None:  # notification (e.g. notifications/initialized): no response
             return None
         if method == "initialize":
+            requested = params.get("protocolVersion") if isinstance(params, dict) else None
+            version = requested if requested in HANDSHAKE_VERSIONS else PROTOCOL_VERSION
             return _result(
                 mid,
                 {
-                    "protocolVersion": PROTOCOL_VERSION,
+                    "protocolVersion": version,
                     "serverInfo": {"name": SERVER_NAME, "version": SCHEMA_VERSION},
                     "capabilities": {"tools": {"listChanged": False}},
                 },
@@ -171,6 +182,9 @@ class FrontDoorServer:
         if method == "ping":
             return _result(mid, {})
         if method == "tools/list":
+            if assertion is None and peer:
+                self.audit.append("frontdoor.tools_list", actor=peer, detail={"peer": peer, "client": client})
+                return _result(mid, {"tools": self.list_tools()})
             try:
                 self.verifier.verify(assertion, conv=conv)
             except AssertionRefused as e:
@@ -182,6 +196,35 @@ class FrontDoorServer:
                 return _error(mid, INVALID_PARAMS, "params must be an object")
             return self._call(mid, params, assertion, conv, client)
         return _error(mid, METHOD_NOT_FOUND, f"method {method!r} is not offered")
+
+    # ------------------------------------------------------------------------------------------------ hook decision
+    def decide(self, tool: str, assertion: str | None, conv: str | None, args_sha256: str = "") -> tuple[bool, str]:
+        """The ``pre_tool_call`` decision for Hermes (``tb_policy_audit`` -> ``POST /policy/decide``): assertion,
+        principal, tier, channel profile and role, audited; no rate budget is spent and nothing runs. The call itself
+        is checked again in full by :meth:`handle` (HER-1: three independent layers)."""
+        if tool not in TOOL_NAMES:
+            reason = "tool_unknown"
+            self.audit.append(
+                "frontdoor.policy.decide", actor="?", detail={"tool": tool, "allow": False, "reason": reason}
+            )
+            return False, reason
+        try:
+            claims = self.verifier.verify(assertion, conv=conv)
+        except AssertionRefused as e:
+            self._alarm(tool, e.reason, conv)
+            return False, e.reason
+        try:
+            self.policy.preview(claims, tool_spec(tool))
+            allow, reason = True, "allow"
+        except PermissionError as e:
+            allow, reason = False, str(getattr(e, "reason", "policy"))
+        self.audit.append(
+            "frontdoor.policy.decide",
+            actor=claims.sub,
+            input_sha=args_sha256 or None,
+            detail={"tool": tool, "allow": allow, "reason": reason, "conv": claims.conv, "channel": claims.channel},
+        )
+        return allow, reason
 
     # ------------------------------------------------------------------------------------------------ tools/call
     def _call(

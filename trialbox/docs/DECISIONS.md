@@ -691,3 +691,21 @@ findings. Each was confirmed (by running code where possible) and fixed with a t
   id and verdict, so the criterion check could never pass before. The unit test now validates its rows against the
   contract.
 
+
+**D-87 v4 services in compose; site model pins.**
+- `gateway` (port 8020) is the only service on `model-net` (internal) with `llm-service` / `llm-stub`; orchestrator,
+  criteria-compiler and doc-parser reach models through `TB_GATEWAY_URL` (the `tb_common.llm` shim). The gateway is
+  also on `egress-net` for the external endpoints `deploy/egress.py` opens to it alone.
+- Model registry, PHI guard and trace store run inside the gateway process rather than as services: all three are
+  on the path of every model call and nothing else calls them over HTTP, so separate containers would add a network
+  hop and a failure mode to a fail-closed path. The read-only registry view is mounted at `/registry/v1/builds`;
+  traces go to the `traces-data` volume.
+- `workflow-db` (Postgres 16, the multi-arch digest already pinned for `fhir-db`) holds the outbox and recall ledger.
+  The product image does not yet ship `psycopg` (not in `deploy/requirements.lock`), so the e2e exercises it from the
+  host venv.
+- Site pins live in `deploy/site/registry.site.yaml` (not committed), written by `tools/pin_model.py`: the sha256 of
+  the weight manifest (sha256sum lines of every visible file, sorted). An override may only set pin fields of
+  existing builds; the merged registry version carries `+site.<hash>`. Unpinned builds stay unroutable.
+- Route `dev-stub` lists `j-workhorse@serving` after the stub: on synthetic/open D0 data in DEV/TEST a caller may ask
+  for the pinned on-box build (`TB_GATEWAY_MODEL=j-workhorse`). Unpinned, that call is refused, never served by the
+  stub.

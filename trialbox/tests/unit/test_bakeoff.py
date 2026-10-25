@@ -59,12 +59,14 @@ def test_plan_uses_registry_candidates_and_cost_cap() -> None:
 
 
 @pytest.mark.req("S1-14")
-def test_live_run_is_refused_without_key_and_pinned_build(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    assert bakeoff.main(["--live", "--n", "5"]) == 2
-    monkeypatch.setenv("OPENROUTER_API_KEY", "test-not-a-key")
+def test_live_run_is_refused_without_gateway_and_pinned_build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("TB_GATEWAY_URL", raising=False)
+    assert bakeoff.main(["--live", "--n", "5", "--build", "or-gpt-oss-120b", "--out", str(tmp_path)]) == 2
     monkeypatch.setenv("TB_GATEWAY_URL", "http://gateway.invalid/v1")
-    assert bakeoff.main(["--live", "--n", "5"]) == 3  # no candidate is routable: nothing is pinned
+    assert bakeoff.main(["--live", "--n", "5", "--out", str(tmp_path)]) == 2  # --build is required
+    # an unreachable gateway (or one that does not pin the build) refuses before any item is sent
+    assert bakeoff.main(["--live", "--n", "5", "--build", "or-gpt-oss-120b", "--out", str(tmp_path)]) == 3
+    assert not list(tmp_path.iterdir())
 
 
 def test_tasks_load() -> None:

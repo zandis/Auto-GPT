@@ -114,6 +114,9 @@ class Caller:
     name: str
     roles: tuple[str, ...]
     purposes: tuple[str, ...]
+    # conversation engines only (FR-CONV-8): a D3 call on ``intake_role`` needs no study step (it precedes one)
+    d3_intake_without_step: bool = False
+    intake_role: str = ""
 
 
 def _match(value: str, patterns: tuple[str, ...]) -> bool:
@@ -148,10 +151,20 @@ class RoutingPolicy:
                 conditions=dict(raw.get("conditions") or {}),
                 cost={k: float(v) for k, v in (raw.get("cost") or {}).items()},
             )
-        self.callers = {
-            str(n): Caller(str(n), tuple(c.get("roles") or ()), tuple(c.get("purposes") or ()))
-            for n, c in (doc.get("callers") or {}).items()
-        }
+        self.callers: dict[str, Caller] = {}
+        for n, c in (doc.get("callers") or {}).items():
+            caller = Caller(
+                str(n),
+                tuple(c.get("roles") or ()),
+                tuple(c.get("purposes") or ()),
+                d3_intake_without_step=c.get("d3_intake_without_step") is True,
+                intake_role=str(c.get("intake_role") or ""),
+            )
+            if caller.d3_intake_without_step and not (
+                caller.intake_role in self.roles and caller.intake_role in caller.roles
+            ):
+                raise ValueError(f"routing: caller {n}: d3_intake_without_step needs one of its roles as intake_role")
+            self.callers[caller.name] = caller
         self.routes: list[Route] = []
         for raw in doc.get("routes") or []:
             builds: list[tuple[str, str]] = []

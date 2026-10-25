@@ -1,0 +1,8 @@
+# Test/POC overlay for the Hermes fragment: publishes channel-relay's transport intake on loopback so the e2e test
+# (tests/e2e/test_hermes_relay.py) and tools/hermes_send.py can post messages. Never in VALIDATION/PRODUCTION.
+services:
+  channel-relay:
+    networks: [trialbox-net, hermes-net, host-net]
+    ports: ["127.0.0.1:${TB_HOST_RELAY_PORT:-8095}:8095"]
+    environment:
+      TB_TEAMS_FAKE_TOKENS: "${TB_TEAMS_FAKE_TOKENS:-poc-teams-token}"

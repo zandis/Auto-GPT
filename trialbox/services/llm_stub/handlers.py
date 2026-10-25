@@ -220,7 +220,14 @@ def judge(inp: dict[str, Any]) -> dict[str, Any]:
                     return found("pass", s, ex, "documented good response")
                 if "治療反應不佳" in s:
                     return found("fail", s, ex, "documented poor response")
-    return {"verdict": "unknown", "confidence": 0.5, "reason": "excerpts do not answer the question"}
+    # every key present, as strict structured output returns it (llm_judge_output 1.1.0: null means absent)
+    return {
+        "verdict": "unknown",
+        "quote": None,
+        "quote_date": None,
+        "confidence": 0.5,
+        "reason": "excerpts do not answer the question",
+    }
 
 
 # ----------------------------------------------------------------------------- draft_doc, ie_locate
@@ -269,10 +276,52 @@ def ie_locate(inp: dict[str, Any]) -> dict[str, Any]:
     return {"inclusion": inc, "exclusion": exc}
 
 
+def mlbench_judge(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Public judging suite (``tools/mlbench`` messages, no JSON input block): always abstains with a valid label.
+    It proves the request path through a running gateway; it says nothing about accuracy."""
+    user = next((str(m.get("content", "")) for m in messages if m.get("role") == "user"), "")
+    m = re.search(r"^Criterion type:\s*(inclusion|exclusion)", user, re.M)
+    if m is None:
+        raise ValueError("no 'Criterion type:' line in the user message")
+    return {"label": "not enough information", "evidence": []}
+
+
+_STUDY = re.compile(r"(?<![A-Za-z0-9])([A-Z][A-Z0-9]{2,7}(?:-[A-Z0-9]{1,8})?)(?![A-Za-z0-9])")
+_LOOKBACK = re.compile(r"(\d{1,3})\s*(?:months?|個月|か月|ヶ月|m\b)|(\d{1,2})\s*(?:years?|年)", re.I)
+
+
+def classify_intent(inp: dict[str, Any]) -> dict[str, Any]:
+    """Native engine / console intake (``classify_intent@1``): keyword rules in en, zh-TW and ja. Deterministic, so
+    the proposal flow runs without a model; it never invents a study code (null when the text has none)."""
+    text = str(inp.get("text", ""))
+    lang = str(inp.get("language") or "en")
+    low = norm(text)
+    study = next((s for s in _STUDY.findall(text) if s not in ("FEAS", "SCREEN", "STATUS", "OK", "PDF")), None)
+    lang = lang if lang in ("en", "ja", "zh-TW", "mixed") else "en"
+    out: dict[str, Any] = {"type": "UNKNOWN", "study": study, "language": lang}
+    if re.search(r"做得起來|可行|收得到|feasib|how many|enrol|recruit|実施可能|何例|集まる", low):
+        out["type"] = "FEAS"
+        m = _LOOKBACK.search(text)
+        if m:
+            out["lookback_months"] = int(m.group(1)) if m.group(1) else int(m.group(2)) * 12
+    elif re.search(r"screen|篩選|收案名單|スクリーニング", low):
+        out["type"] = "SCREEN"
+    elif re.search(r"status|進度|狀態|状況|進捗", low):
+        out["type"] = "STATUS"
+    elif "?" in text or "？" in text:
+        out["type"] = "ASK"
+        out["question"] = text[:500]
+    return out
+
+
+# handlers that read the raw chat messages instead of a ```json input block
+MESSAGE_HANDLERS = {"mlbench_judge": mlbench_judge}
+
 HANDLERS = {
     "ir_extract": ir_extract,
     "concept_map": concept_map,
     "judge": judge,
     "draft_doc": draft_doc,
     "ie_locate": ie_locate,
+    "classify_intent": classify_intent,
 }

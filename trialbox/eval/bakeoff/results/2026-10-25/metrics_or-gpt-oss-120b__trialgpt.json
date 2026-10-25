@@ -1,0 +1,166 @@
+{
+ "alias": "j-workhorse",
+ "build_id": "or-gpt-oss-120b",
+ "build_sha": "9ced587a77f0146993dffe5baabe45e7f2b5cd8b20f16af3ba9604b371ab1391",
+ "by_lang": {
+  "en": {
+   "accuracy": 0.67,
+   "accuracy_absent_as_negative": 0.69,
+   "agreement_with_gpt4": 0.71,
+   "block_recall": 0.6667,
+   "build_shas": [
+    "9ced587a77f0146993dffe5baabe45e7f2b5cd8b20f16af3ba9604b371ab1391"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 9,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 0,
+      "not excluded": 1
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 0,
+      "not excluded": 3
+     },
+     "not enough information": {
+      "excluded": 0,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not excluded": 5
+     },
+     "not excluded": {
+      "excluded": 0,
+      "invalid": 0,
+      "not applicable": 4,
+      "not enough information": 3,
+      "not excluded": 26
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 9,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not included": 0
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 1,
+      "not enough information": 0,
+      "not included": 0
+     },
+     "not enough information": {
+      "included": 1,
+      "invalid": 0,
+      "not applicable": 5,
+      "not enough information": 8,
+      "not included": 0
+     },
+     "not included": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 8,
+      "not enough information": 2,
+      "not included": 13
+     }
+    }
+   },
+   "cost_per_1k_usd": 0.0494,
+   "cost_usd": 0.004939,
+   "evidence_f1": 0.7924,
+   "false_block_rate": 0.0,
+   "false_block_upper95": 0.0437,
+   "gateway_refusals": {},
+   "gpt4_reference_same_items": {
+    "accuracy": 0.81,
+    "accuracy_absent_as_negative": 0.79,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.0149,
+    "false_block_upper95": 0.0689,
+    "macro_f1": 0.7924,
+    "screen_accuracy": 0.94
+   },
+   "invalid_rate": 0.0,
+   "latency_mean_s": 6.643,
+   "latency_p50_s": 6.553,
+   "latency_p95_s": 11.926,
+   "lenient_accuracy": 0.67,
+   "macro_f1": 0.6566,
+   "model_refusals": 0,
+   "n": 100,
+   "per_label": {
+    "excluded": {
+     "precision": 1.0,
+     "recall": 0.9,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.9,
+     "recall": 0.9,
+     "support": 10
+    },
+    "not applicable": {
+     "precision": 0.0556,
+     "recall": 0.25,
+     "support": 4
+    },
+    "not enough information": {
+     "precision": 0.6,
+     "recall": 0.45,
+     "support": 20
+    },
+    "not excluded": {
+     "precision": 0.7429,
+     "recall": 0.7879,
+     "support": 33
+    },
+    "not included": {
+     "precision": 1.0,
+     "recall": 0.5652,
+     "support": 23
+    }
+   },
+   "providers": {
+    "DeepInfra": 100
+   },
+   "reasoning_tokens_mean": 70.8,
+   "screen_accuracy": 0.89,
+   "served_models": {
+    "openai/gpt-oss-120b": 100
+   },
+   "tokens_in_mean": 585.5,
+   "tokens_out_mean": 163.1,
+   "trial_false_exclusion": 0.0,
+   "truncated": 0,
+   "upstream_errors": {}
+  }
+ },
+ "d1_probe": "class_not_allowed_in_env",
+ "items": 100,
+ "langs": [
+  "en"
+ ],
+ "max_tokens": 2048,
+ "model_name": "gpt-oss-120b (hosted)",
+ "provider_pin": {
+  "canonical_slug": "openai/gpt-oss-120b",
+  "created": 1754414231,
+  "endpoint": "openrouter",
+  "model": "openai/gpt-oss-120b",
+  "pinned_at": "2026-10-25",
+  "provider": "DeepInfra",
+  "provider_tag": "deepinfra/bf16",
+  "quantization": "bf16"
+ },
+ "reasoning_effort": "low",
+ "variant": "trialgpt",
+ "workers": 8
+}

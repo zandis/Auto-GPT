@@ -1,0 +1,61 @@
+<section class="hero">
+  <div class="eyebrow">院内設置 · メールと Web で操作 · オープンソース</div>
+  <h1>データを院外に出さずに、治験に必要な患者を見つける。</h1>
+  <p class="lead">TrialBox は病院内で動く適格性コンパイラ兼患者探索アプライアンスです。治験プロトコル、台湾の健保給付規定、
+  コホート定義を、病院自身の診療記録に対する監査可能な患者スクリーニングに変換し、実施可能性の問い合わせにメールまたは管理コンソールから回答します。</p>
+  <div class="cta">
+    <a class="btn primary" href="../demo.html?lang=ja">デモを見る</a>
+    <a class="btn" href="../report.html?lang=ja">モデル評価レポート</a>
+    <a class="btn" href="{{repo}}/README.md">GitHub のクイックスタート</a>
+  </div>
+</section>
+
+<h2>3 つの原則</h2>
+<div class="grid">
+  <div class="card"><h3>データは院外に出ない</h3><p>院内ネットワークの DGX Spark または任意の Docker ホストで動作します。モデルはボックス上で提供され、
+  外向き通信は既定で遮断。治験依頼者に渡るのは、小セルを秘匿した集計レポートだけです。</p></div>
+  <div class="card"><h3>エージェントが起案し、エンジンが判定する</h3><p>言語モデルの役割は、文書から基準を抽出することと、構造化データでは答えられない部分について自由記載を読むことだけ。
+  すべての件数は、レビュー済みルールセットから生成された決定論的 SQL（CQL と照合済み）で算出します。</p></div>
+  <div class="card"><h3>人が承認する</h3><p>コンパイルされたルールセットはコーディネーターがレビュー用ワークブックで承認し、適格性は治験責任医師が判断します。
+  すべてのリクエスト、モデル呼び出し、出力ファイルは追記専用の監査証跡にハッシュで記録されます。</p></div>
+</div>
+
+<h2>仕組み</h2>
+{{pipeline_ja}}
+<p class="small muted">カスケードは安価で厳密な段階から実行します。SQL（S0–S1）がモデル費用ゼロで大半の患者を除外し、
+辞書と意味検索のスクリーン（S2, S2b）がモデルに読ませるべき記録を絞り込み、その残りだけを記録判定（S3）と夜間のセカンドオピニオン（S4）に回します。
+最終判断は人（S5）。再現率証明書は、除外によって見逃した可能性のある適格患者数の上限を示します。</p>
+
+<h2>使い方</h2>
+<div class="grid">
+  <div class="card"><h3>メールで</h3>
+    <p>1 行のコマンドをボックスに送ると、結果があなたのメールボックスに届きます。</p>
+<pre><code>宛先: trialbox@your-hospital
+件名: FEAS GZQO</code></pre>
+    <p class="small muted">ほかに <code>SCREEN</code>、<code>NAV</code>（健保ナビゲーション）、<code>COHORT</code>、記入済み <code>review.xlsx</code> を返信して承認。</p>
+  </div>
+  <div class="card"><h3>管理コンソールで</h3>
+    <p>同じコマンドをボタンで：新規リクエスト、プロトコルのアップロードとレビュー、カスケード実行、各ジョブのメールスレッドと監査証跡。
+    日本語・中国語・英語で質問を入力すると、コンソールが正確なコマンドを提案し、確認するまで何も実行されません。</p>
+    <p><a href="../screens.html?lang=ja">コンソールと Web メールの画面 →</a></p>
+  </div>
+</div>
+
+<h2>動作環境</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">環境</th><th scope="col">コマンド</th><th scope="col">モデル</th></tr></thead>
+  <tbody>
+    <tr><td><b>NVIDIA DGX Spark</b>（GB10、128 GB）</td><td><code>make spark-e2e</code></td><td>ボックス上の固定版オープンウェイトモデル（vLLM）</td></tr>
+    <tr><td><b>任意の Docker ホスト</b>（Linux、macOS、WSL2）</td><td><code>deploy/poc.sh</code></td><td>決定論的スタブ、またはテスト用 OpenRouter モデル：<code>TB_LLM_MODE=openrouter</code></td></tr>
+    <tr><td><b>クラウド GPU VM</b>（例：GCP の L4 / A100）</td><td><code>TB_LLM_MODE=gpu deploy/poc.sh</code></td><td>同じ固定版モデルを自社 VM で</td></tr>
+  </tbody>
+</table></div>
+<p class="small muted">POC はボックス一式をテスト用メールサーバーと Web メール付きで起動し、コンソール管理者を作成して、600 人の合成病院データを読み込みます。
+詳細：<a href="{{repo}}/docs/RUNBOOK.md">RUNBOOK §8–9</a>（英語）。</p>
+
+<h2>このサイトの内容</h2>
+<div class="grid">
+  <a class="card" href="../demo.html?lang=ja" style="text-decoration:none;color:inherit"><h3>デモ</h3><p>合成サイト A での実施可能性カスケード：ファネル、小セル秘匿付きの脱落表、再現率証明書、DL-1 PDF。グラフは日本語表示に切り替え可能。</p></a>
+  <a class="card" href="../report.html?lang=ja" style="text-decoration:none;color:inherit"><h3>テストレポート</h3><p>TrialGPT の医師ラベル付き 1,015 件の基準ペアで、英語・中国語・日本語のオープンウェイトモデルを評価。TrialGPT との比較付き。</p></a>
+  <a class="card" href="../docs.html" style="text-decoration:none;color:inherit"><h3>ドキュメント</h3><p>GitHub 上の README、運用手順書、アーキテクチャ（英語）。</p></a>
+</div>

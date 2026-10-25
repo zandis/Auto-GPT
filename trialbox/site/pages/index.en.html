@@ -1,0 +1,66 @@
+<section class="hero">
+  <div class="eyebrow">On-prem · e-mail and web driven · open source</div>
+  <h1>Find the patients a trial needs, without the data leaving the hospital.</h1>
+  <p class="lead">TrialBox is an eligibility compiler and patient-finding appliance that runs inside the hospital. It turns
+  protocols, Taiwan NHI reimbursement rules and cohort definitions into auditable patient screens over the hospital's own
+  records, and answers feasibility questions by e-mail or from an admin console.</p>
+  <div class="cta">
+    <a class="btn primary" href="demo.html">See the live demo</a>
+    <a class="btn" href="report.html">Model test report</a>
+    <a class="btn" href="{{repo}}/README.md">Quickstart on GitHub</a>
+  </div>
+</section>
+
+<h2>Three rules</h2>
+<div class="grid">
+  <div class="card"><h3>Data never leaves the hospital</h3><p>The box runs on a DGX Spark or any Docker host inside the
+  network. Models are served on the box; outbound traffic is blocked by default. Only aggregate, small-cell-suppressed
+  reports go to sponsors.</p></div>
+  <div class="card"><h3>Agents draft, engines decide</h3><p>Language models only extract criteria from documents and read
+  free-text notes for what structured data cannot answer. Every count comes from deterministic SQL generated from a
+  reviewed rule set, checked against CQL.</p></div>
+  <div class="card"><h3>Humans approve</h3><p>A coordinator approves each compiled rule set in a review workbook, and the
+  investigator decides eligibility. Every request, model call and output file is hashed into an append-only audit trail.</p></div>
+</div>
+
+<h2>How it works</h2>
+{{pipeline_en}}
+<p class="small muted">The cascade runs cheap, exact steps first: SQL (S0–S1) removes most patients at no model cost; the
+lexicon and semantic screens (S2, S2b) decide which notes a model must read; only that residue goes to the note judge (S3)
+and an overnight second opinion (S4). A person makes the final call (S5). The recall certificate bounds how many eligible
+patients the exclusions could have missed.</p>
+
+<h2>How you use it</h2>
+<div class="grid">
+  <div class="card"><h3>By e-mail</h3>
+    <p>Send a one-line command to the box; results come back to your mailbox.</p>
+<pre><code>To: trialbox@your-hospital
+Subject: FEAS GZQO</code></pre>
+    <p class="small muted">Also <code>SCREEN</code>, <code>NAV</code> (NHI navigation), <code>COHORT</code>, and replies with a filled <code>review.xlsx</code> to approve.</p>
+  </div>
+  <div class="card"><h3>From the admin console</h3>
+    <p>The same commands as buttons: new request, protocol upload and review, cascade runs, the e-mail thread and the
+    audit trail of every job. Type a question in Chinese, Japanese or English and the console proposes the exact command;
+    nothing runs until you confirm.</p>
+    <p><a href="screens.html">Console and web mail tour →</a></p>
+  </div>
+</div>
+
+<h2>Where it runs</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Target</th><th scope="col">Command</th><th scope="col">Model</th></tr></thead>
+  <tbody>
+    <tr><td><b>NVIDIA DGX Spark</b> (GB10, 128 GB)</td><td><code>make spark-e2e</code></td><td>pinned open-weights model on the box (vLLM)</td></tr>
+    <tr><td><b>Any Docker host</b> (Linux, macOS, WSL2)</td><td><code>deploy/poc.sh</code></td><td>deterministic stub, or an OpenRouter model for tests: <code>TB_LLM_MODE=openrouter</code></td></tr>
+    <tr><td><b>Cloud GPU VM</b> (e.g. GCP with an L4/A100)</td><td><code>TB_LLM_MODE=gpu deploy/poc.sh</code></td><td>same pinned model, on your VM</td></tr>
+  </tbody>
+</table></div>
+<p class="small muted">The POC brings up the whole box with a test mail server and web mail, creates the console
+administrator, and loads a 600-patient synthetic hospital. Details: <a href="{{repo}}/docs/RUNBOOK.md">RUNBOOK §8–9</a>.</p>
+
+<h2>What is on this site</h2>
+<div class="grid">
+  <a class="card" href="demo.html" style="text-decoration:none;color:inherit"><h3>Live demo</h3><p>A feasibility cascade on synthetic site A: funnel, attrition with small-cell suppression, recall certificate, and the DL-1 PDF.</p></a>
+  <a class="card" href="report.html" style="text-decoration:none;color:inherit"><h3>Test report</h3><p>Open-weights models on 1,015 physician-labelled criterion pairs from TrialGPT, in English, Chinese and Japanese, with the TrialGPT comparison.</p></a>
+  <a class="card" href="docs.html" style="text-decoration:none;color:inherit"><h3>Docs</h3><p>README, runbook and architecture on GitHub.</p></a>
+</div>

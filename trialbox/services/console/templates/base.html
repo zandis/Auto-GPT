@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+{% if refresh %}<meta http-equiv="refresh" content="5">{% endif %}
+<title>{% block title %}{{ t('brand') }}{% endblock %} · TrialBox</title>
+<link rel="stylesheet" href="/static/console.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+{% if pilot %}<div class="banner" role="note" data-testid="banner">{{ t('pilot.banner', env=settings.environment) }}</div>
+{% else %}<div class="banner prod" role="note" data-testid="banner">{{ t('prod.banner') }}</div>{% endif %}
+<header class="top">
+  <a class="brand" href="/">{{ t('brand') }}</a>
+  {% if user %}
+  <nav aria-label="main">
+    <a href="/" class="{{ 'active' if path == '/' else '' }}">{{ t('nav.overview') }}</a>
+    <a href="/jobs" class="{{ 'active' if path.startswith('/jobs') or path.startswith('/pilot/jobs') else '' }}">{{ t('nav.jobs') }}</a>
+    {% if pilot %}
+    <a href="/pilot/request" class="{{ 'active' if path.startswith('/pilot/request') or path.startswith('/pilot/propose') else '' }}">{{ t('nav.request') }}</a>
+    <a href="/pilot/protocol" class="{{ 'active' if path.startswith('/pilot/protocol') else '' }}">{{ t('nav.protocol') }}</a>
+    <a href="/pilot/cascade" class="{{ 'active' if path.startswith('/pilot/cascade') else '' }}">{{ t('nav.cascade') }}</a>
+    {% if settings.test_smtp %}<a href="/pilot/mailbox" class="{{ 'active' if path.startswith('/pilot/mailbox') else '' }}">{{ t('nav.mailbox') }}</a>{% endif %}
+    {% endif %}
+    <a href="/audit" class="{{ 'active' if path.startswith('/audit') else '' }}">{{ t('nav.audit') }}</a>
+  </nav>
+  <div class="who">
+    <span data-testid="whoami">{{ user.username }} · {{ t('role.' + user.role) }}</span>
+    <form method="post" action="/lang" class="inline">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ path }}">
+      <label class="sr" for="lang">Language</label>
+      <select id="lang" name="lang">{% for l in langs %}<option value="{{ l }}" {{ 'selected' if l == lang else '' }}>{{ l }}</option>{% endfor %}</select>
+      <button type="submit" class="small">OK</button>
+    </form>
+    <form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small" data-testid="logout">{{ t('logout') }}</button></form>
+  </div>
+  {% endif %}
+</header>
+<main id="main">
+{% block content %}{% endblock %}
+</main>
+<footer>TrialBox · {{ settings.environment }} · data class {{ settings.data_class }} · requests run through the same orchestrator path as e-mail and are audited.</footer>
+</body>
+</html>

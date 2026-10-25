@@ -1,0 +1,23 @@
+{
+ "date": "2026-10-25",
+ "note": "First real-model run of TrialBox (S1-14): open D0 data only (NCBI TrialGPT-Criterion-Annotations, SIGIR, 1,015 physician-labelled criterion pairs, with TrialBox zh-TW / ja / mixed renderings of the notes), hosted models via OpenRouter, every call through tb-gateway (DEV, topology A, bakeoff route for judge_ml; dev-public route for the cascade). Each hosted build is provider-pinned (tools/pin_provider.py; dated canonical slug + provider endpoint, sha256 over the descriptor); the gateway asked for that provider only (no fallback, require_parameters, data_collection deny) and refused any response reporting another model or provider. Sampling is forced by the gateway: temperature 0, top_p 1, seed 20261025; one seed per item (the weights file's three seeds were not run). Request: tools/mlbench.messages (prompt mlbench_judge@1), json_schema response with evidence capped at 12 ids (tools/bakeoff_live.bounded_schema), max_tokens 2048, OpenRouter reasoning effort low for the reasoning models (Qwen3.6, gpt-oss, Nemotron). Costs are OpenRouter's reported usage.cost per call. GPT-4.1 is a closed GPT-4-class reference only; the 'recorded GPT-4' column is the label NCBI stored from the TrialGPT paper run (GPT-4, TrialGPT's own prompt). Rows '__trialgpt' use TrialGPT-Matching's criterion wording (tools/bakeoff_live.trialgpt_messages) on a seeded 100-pair subset, to show that the 4-way gap to the recorded GPT-4 labels is the 'absent is not negative' convention of the TrialBox prompt. Rows 'agree:' apply the two-model rule (gpt-oss-120b judge, Gemma 4 verifier; block only if both block) to the recorded answers. GPT-4.1 non-English rows are a seeded 200-item subset (all 33 physician blocks included, so screening accuracy there is not comparable with the full sets). Cascade rows ran with --no-repro.",
+ "gateway": {
+  "environment": "DEV",
+  "topology": "A",
+  "routing": "routing-2026-10-25.2",
+  "registry": "registry-2026-10-25.2 + per-build site override (deploy/site/bakeoff-2026-10-25/, not committed)"
+ },
+ "request": {
+  "prompt": "mlbench_judge@1",
+  "schema": "judge_public schema + evidence maxItems 12",
+  "temperature": 0,
+  "top_p": 1,
+  "seed": 20261025,
+  "max_tokens": 2048,
+  "workers": 8,
+  "retries": "2,4,8,16 s on upstream failure"
+ },
+ "budget": {
+  "cap_usd": 15.0
+ }
+}

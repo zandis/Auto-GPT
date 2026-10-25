@@ -1,0 +1,10 @@
+# TrialBox-side metadata for Hermes profile tb-staff (spec v4 §9.2, §9.6). Not read by Hermes: config.yaml next to this
+# file is the pure Hermes v0.22.2 configuration. tests/unit/test_hermes_config.py and the compose fragment use it.
+profile: tb-staff
+channels: [email, teams]
+frontdoor_profile: email              # frontdoor_mcp.policy.PROFILE_TOOLS key; must equal mcp_servers.frontdoor.tools.include
+plugins_dir: integrations/hermes   # tb_relay_adapter/ and tb_policy_audit/ are mounted read-only as Hermes user plugins
+env:
+  forbid: [HERMES_YOLO_MODE, GATEWAY_ALLOW_ALL_USERS, HERMES_ENABLE_PROJECT_PLUGINS, HERMES_ACCEPT_HOOKS]
+  forbid_suffixes: [_ALLOW_ALL_USERS]   # e.g. TELEGRAM_ALLOW_ALL_USERS: no per-platform allow-all either
+ports_never_published: [8642, 9119]   # API server and dashboard (HER-5)

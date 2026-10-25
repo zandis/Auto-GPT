@@ -1,0 +1,6 @@
+<div class="scroll"><table data-testid="audit">
+<thead><tr><th scope="col">{{ t('col.time') }}</th><th scope="col">{{ t('col.event') }}</th><th scope="col">{{ t('col.actor') }}</th><th scope="col">{{ t('col.job') }}</th><th scope="col">{{ t('col.detail') }}</th><th scope="col">{{ t('col.hash') }}</th></tr></thead>
+<tbody>{% for r in rows %}<tr><td class="mono">{{ r.ts[:19] }}</td><td>{{ r.event }}</td><td>{{ r.actor or '–' }}</td>
+<td class="mono">{% if pilot and r.job_id %}<a href="/pilot/jobs/{{ r.job_id }}">{{ r.job_id[-8:] }}</a>{% else %}{{ (r.job_id or '–')[-8:] }}{% endif %}</td>
+<td>{% for k, v in r.detail.items() %}<span class="kv">{{ k }}={{ v }}</span> {% endfor %}</td><td class="mono">{{ r.hash }}</td></tr>{% endfor %}</tbody>
+</table></div>

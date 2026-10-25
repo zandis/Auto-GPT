@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ t('protocol.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('protocol.title') }}</h1>
+<section class="card">
+<p>{{ t('protocol.help') }}</p>
+<form method="post" action="/pilot/protocol" enctype="multipart/form-data">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="ruleset">{{ t('protocol.ruleset') }}</label>
+  <input id="ruleset" name="ruleset" required maxlength="16" pattern="[A-Za-z0-9][A-Za-z0-9_\-]{0,15}">
+  <label for="protocol">{{ t('protocol.file') }}</label>
+  <input id="protocol" name="protocol" type="file" accept=".pdf,.docx,.txt,.md">
+  {% if sample %}<label class="check"><input type="checkbox" name="use_sample" value="1" data-testid="use-sample"> {{ t('protocol.sample') }}</label>{% endif %}
+  <button type="submit" {{ 'disabled' if not user.is_admin else '' }} data-testid="compile">{{ t('protocol.submit') }}</button>
+</form>
+</section>
+{% endblock %}
