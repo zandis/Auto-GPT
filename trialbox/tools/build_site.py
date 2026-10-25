@@ -554,7 +554,8 @@ def table(
         klass = f' class="{row_classes[r]}"' if row_classes and row_classes[r] else ""
         tds = "".join(f"<td{' class=num' if i in nums else ''}>{c}</td>" for i, c in enumerate(row))
         body.append(f"<tr{klass}>{tds}</tr>")
-    return f'<div class="table-wrap"><table><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
+    table = f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+    return f'<div class="table-wrap" tabindex="0">{table}</div>'  # focusable: keyboard users can scroll it
 
 
 # ------------------------------------------------------------------------------------------------ landing
@@ -583,7 +584,8 @@ def pipeline(lang: str) -> str:
             strip = f'<div class="cascade-strip" aria-hidden="true">{spans}</div>'
         out = " out" if i == len(spec["steps"]) - 1 else ""
         parts.append(
-            f'<div class="pipe-step{out}"><div class="tag">{esc(step["tag"])}</div><h4>{esc(step["title"])}</h4>'
+            f'<div class="pipe-step{out}" role="listitem"><div class="tag">{esc(step["tag"])}</div>'
+            f"<h3>{esc(step['title'])}</h3>"
             f"<ul>{li}</ul>{strip}</div>"
         )
         if i < len(spec["steps"]) - 1:

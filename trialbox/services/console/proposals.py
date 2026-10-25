@@ -31,6 +31,14 @@ _LOOKBACK = re.compile(
     r"(\d{1,3}|[一二兩两三四五六七八九十])\s*(?:(months?|個月|个月|か月|ヶ月|カ月)|(years?|yrs?|年))", re.I
 )
 
+# a malformed line that reads like a sentence ("FEAS for GZQO or RA-BIO?") goes to the model instead of a parser error
+_WORD = re.compile(r"(?:^|\s)[a-z]{2,}(?=[\s,.]|$)")
+
+
+def _reads_like_a_sentence(text: str) -> bool:
+    return "?" in text or "？" in text or len(_WORD.findall(text)) >= 2
+
+
 RUNNABLE = frozenset({"FEAS", "SCREEN", "APPROVE", "STATUS", "CANCEL", "COHORT", "NAV"})
 Classifier = Callable[[str, str], ClassifiedIntent]  # (text, language) -> intent
 
@@ -128,7 +136,9 @@ def propose(text: str, language: str, classify: Classifier | None) -> Proposal:
     try:
         line = parse_line(raw)
     except GrammarError as exc:
-        raise ProposalError(str(exc)) from exc
+        if classify is None or not _reads_like_a_sentence(raw):
+            raise ProposalError(str(exc)) from exc
+        line = None
     if line is not None:
         if line.command not in RUNNABLE:
             raise ProposalError(f"{line.command} cannot be started from the console")

@@ -4,7 +4,7 @@
 <tbody>{% for j in jobs %}<tr data-job="{{ j.job_id }}">
 <td class="mono">{% if pilot %}<a href="/pilot/jobs/{{ j.job_id }}">{{ j.job_id }}</a>{% else %}{{ j.job_id }}{% endif %}</td>
 <td>{{ j.type }}</td><td>{{ j.ruleset or '–' }}{% if j.ruleset_version %} v{{ j.ruleset_version }}{% endif %}</td>
-<td><span class="state s-{{ j.state }}">{{ j.state }}</span></td><td>{{ j.requested_by }}</td>
-<td>{{ j.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</td></tr>{% endfor %}</tbody>
+<td><span class="state s-{{ j.state }}" data-state="{{ j.state }}">{{ state(j.state) }}</span></td><td>{{ j.requested_by }}</td>
+<td class="nowrap">{{ j.received_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>{% endfor %}</tbody>
 </table></div>
 {% else %}<p>{{ t('jobs.none') }}</p>{% endif %}

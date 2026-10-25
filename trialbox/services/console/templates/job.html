@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ job.type }} {{ job.ruleset or '' }}{% endblock %}
 {% block content %}
-<h1>{{ job.type }} {{ job.ruleset or '' }}{% if job.ruleset_version %} v{{ job.ruleset_version }}{% endif %} <span class="state s-{{ job.state }}" data-testid="job-state">{{ job.state }}</span></h1>
+<h1>{{ job.type }} {{ job.ruleset or '' }}{% if job.ruleset_version %} v{{ job.ruleset_version }}{% endif %} <span class="state s-{{ job.state }}" data-testid="job-state" data-state="{{ job.state }}">{{ state(job.state) }}</span></h1>
 <p class="mono">{{ t('col.job') }} {{ job.job_id }} · {{ t('col.by') }} {{ job.requested_by }} · {{ t('col.received') }} {{ job.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
 <p>{{ t('job.line') }}: <code data-testid="job-line">{{ line }}</code></p>
 {% if refresh %}<p class="hint" role="status">{{ t('job.refresh') }}</p>{% endif %}
@@ -11,7 +11,7 @@
 <section class="card attention" data-testid="review">
 <h2>{{ t('job.review') }}</h2>
 <p>{{ t('job.review.help') }}</p>
-<p><a href="/pilot/jobs/{{ job.job_id }}/files/{{ review.filename }}">{{ t('download') }} {{ review.filename }}</a></p>
+<p>{% if review_html %}<a href="/pilot/jobs/{{ job.job_id }}/files/{{ review_html.filename }}">{{ t('job.review.open') }}</a> · {% endif %}<a href="/pilot/jobs/{{ job.job_id }}/files/{{ review.filename }}">{{ t('download') }} {{ review.filename }}</a></p>
 {% if user.is_admin %}
 <form method="post" action="/pilot/jobs/{{ job.job_id }}/approve" class="inline">
   <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -21,7 +21,7 @@
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label for="workbook">{{ t('job.approve.upload') }}</label>
   <input id="workbook" name="workbook" type="file" accept=".xlsx" required>
-  <button type="submit" class="secondary">{{ t('job.approve') }}</button>
+  <button type="submit" class="secondary">{{ t('job.approve.edited') }}</button>
 </form>
 {% endif %}
 </section>
@@ -30,18 +30,18 @@
 {% if result %}
 <section class="card" data-testid="result">
 <h2>{{ t('job.results') }}</h2>
-<p>{{ result.population }} · snapshot {{ result.snapshot }} · look-back {{ result.lookback_months }} months · start {{ cell(result.start_n) }}</p>
+<p>{{ t('job.result.line', population=result.population, snapshot=result.snapshot, months=result.lookback_months, start=cell(result.start_n)) }}</p>
 <h3>{{ t('job.funnel') }}</h3>
 <div class="scroll"><table data-testid="funnel">
 <thead><tr><th scope="col">{{ t('col.criterion') }}</th><th scope="col">{{ t('col.remaining') }}</th><th scope="col">{{ t('col.dropped') }}</th><th scope="col">{{ t('col.pct') }}</th></tr></thead>
 <tbody>{% for f in result.funnel %}<tr class="{{ '' if f.applied is not sameas false else 'muted' }}">
-<td><span class="mono">{{ f.criterion_id }}</span> {{ f.label }}{% if f.applied is sameas false %} <em>(not applied: note/human)</em>{% endif %}</td>
+<td><span class="mono">{{ f.criterion_id }}</span> {{ f.label }}{% if f.applied is sameas false %} <em>({{ t('job.not_applied') }})</em>{% endif %}</td>
 <td class="num">{{ cell(f.remaining) }}</td><td class="num">{{ cell(f.dropped) }}</td>
 <td>{% if f.pct is not none %}<progress max="100" value="{{ f.pct }}" aria-label="{{ f.pct }} %"></progress> {{ '%.1f' % f.pct }}{% else %}–{% endif %}</td></tr>{% endfor %}</tbody>
 </table></div>
 {% if result.simulation %}
 <h3>{{ t('job.simulation') }}</h3>
-<p data-testid="simulation">{{ result.simulation.months }} months: {{ result.simulation.low }}–{{ result.simulation.high }} (most likely {{ result.simulation.mid }})</p>
+<p data-testid="simulation">{{ t('job.simulation.line', months=result.simulation.months, low=num(result.simulation.low), high=num(result.simulation.high), mid=num(result.simulation.mid)) }}</p>
 {% endif %}
 {% for n in result.notes or [] %}<p class="hint">{{ n }}</p>{% endfor %}
 </section>
@@ -54,12 +54,12 @@
 <section class="card">
 <h2>{{ t('job.outputs') }}</h2>
 {% if aggregate or phi %}
-<table data-testid="outputs">
+<div class="scroll"><table data-testid="outputs">
 <thead><tr><th scope="col">{{ t('col.file') }}</th><th scope="col">{{ t('col.class') }}</th><th scope="col">{{ t('col.size') }}</th></tr></thead>
 <tbody>
-{% for o in aggregate %}<tr><td><a href="/pilot/jobs/{{ job.job_id }}/files/{{ o.filename }}" data-file="{{ o.filename }}">{{ o.filename }}</a></td><td>aggregate</td><td class="mono">{{ o.sha256[:16] }}</td></tr>{% endfor %}
-{% for o in phi %}<tr class="muted"><td>{{ o.filename }}</td><td>phi</td><td>{% if o.recipients %}{{ t('job.phi', n=o.recipients|length) }}{% else %}{{ t('job.phi_kept') }}{% endif %}</td></tr>{% endfor %}
-</tbody></table>
+{% for o in aggregate %}<tr><td class="wrap"><a href="/pilot/jobs/{{ job.job_id }}/files/{{ o.filename }}" data-file="{{ o.filename }}">{{ o.filename }}</a></td><td>{{ t('class.aggregate') }}</td><td class="mono">{{ o.sha256[:16] }}</td></tr>{% endfor %}
+{% for o in phi %}<tr class="muted"><td class="wrap">{{ o.filename }}</td><td>{{ t('class.phi') }}</td><td>{% if o.recipients %}{{ t('job.phi', n=o.recipients|length) }}{% else %}{{ t('job.phi_kept') }}{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>
 {% else %}<p>–</p>{% endif %}
 </section>
 
@@ -69,8 +69,8 @@
 <div class="scroll"><table data-testid="thread">
 <thead><tr><th scope="col">{{ t('col.direction') }}</th><th scope="col">{{ t('col.time') }}</th><th scope="col">{{ t('col.subject') }}</th><th scope="col">{{ t('col.party') }}</th><th scope="col">{{ t('col.class') }}</th></tr></thead>
 <tbody>{% for m, subj in thread %}
-{% if m %}<tr><td>{{ '→ box' if m.direction == 'in' else '← box' }}</td><td class="mono">{{ m.at[:19] }}</td><td>{{ subj }}</td><td>{{ m.party }}</td><td>{{ m.tag }}</td></tr>
-{% else %}<tr><td>web → box</td><td class="mono">{{ job.received_at.strftime('%Y-%m-%dT%H:%M:%S') }}</td><td>{{ subj }}</td><td>{{ job.requested_by }}</td><td>web console</td></tr>{% endif %}
+{% if m %}<tr><td class="nowrap">{{ t('thread.in') if m.direction == 'in' else t('thread.out') }}</td><td class="mono nowrap">{{ m.at[:19]|replace('T', ' ') }}</td><td>{{ subj }}</td><td>{{ m.party }}</td><td>{{ t('class.' + m.tag) if m.tag in ('aggregate', 'phi') else m.tag }}</td></tr>
+{% else %}<tr><td class="nowrap">{{ t('thread.web') }}</td><td class="mono nowrap">{{ job.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</td><td>{{ subj }}</td><td>{{ job.requested_by }}</td><td>{{ t('thread.web_class') }}</td></tr>{% endif %}
 {% endfor %}</tbody></table></div>
 {% if settings.webmail_url %}<p class="hint"><a href="{{ settings.webmail_url }}" target="_blank" rel="noopener noreferrer">{{ t('overview.webmail') }}</a></p>{% endif %}
 {% else %}<p>{{ t('job.thread.none') }}</p>{% endif %}
@@ -78,6 +78,8 @@
 
 <section class="card">
 <h2>{{ t('job.audit') }}</h2>
+<details{{ ' open' if audit|length <= 8 else '' }}><summary>{{ t('job.audit.show', n=audit|length) }}</summary>
 {% set rows = audit %}{% include "_audit_table.html" %}
+</details>
 </section>
 {% endblock %}

@@ -43,7 +43,7 @@ async function waitState(page, url, done, timeoutMs) {
   let state = "";
   while (Date.now() - t0 < timeoutMs) {
     await page.goto(url, { waitUntil: "load" });
-    state = (await page.locator("[data-testid=job-state]").innerText()).trim();
+    state = (await page.locator("[data-testid=job-state]").getAttribute("data-state")) || "";
     if (done.includes(state)) return state;
     await page.waitForTimeout(3000);
   }
@@ -167,7 +167,7 @@ async function cascade(page, args, out) {
   let state = "running";
   while (Date.now() - t0 < 15 * 60 * 1000) {
     await page.goto(url, { waitUntil: "load" });
-    state = (await page.locator("[data-testid=cascade-state]").innerText()).trim();
+    state = (await page.locator("[data-testid=cascade-state]").getAttribute("data-state")) || "";
     if (state !== "running") break;
     await page.waitForTimeout(3000);
   }

@@ -16,8 +16,8 @@
 <section class="card">
 <h2>{{ t('cascade.runs') }}</h2>
 {% if runs %}
-<table><thead><tr><th scope="col">Run</th><th scope="col">{{ t('cascade.trial') }}</th><th scope="col">{{ t('col.state') }}</th><th scope="col">{{ t('col.by') }}</th><th scope="col">s</th></tr></thead>
-<tbody>{% for r in runs %}<tr><td class="mono"><a href="/pilot/cascade/{{ r.run_id }}">{{ r.run_id }}</a></td><td>{{ r.trial }}</td><td><span class="state s-{{ r.state }}">{{ r.state }}</span></td><td>{{ r.started_by }}</td><td class="num">{{ r.seconds }}</td></tr>{% endfor %}</tbody></table>
+<div class="scroll"><table><thead><tr><th scope="col">{{ t('col.job') }}</th><th scope="col">{{ t('cascade.trial') }}</th><th scope="col">{{ t('col.state') }}</th><th scope="col">{{ t('col.by') }}</th><th scope="col">s</th></tr></thead>
+<tbody>{% for r in runs %}<tr><td class="mono"><a href="/pilot/cascade/{{ r.run_id }}">{{ r.run_id }}</a></td><td>{{ r.trial }}</td><td><span class="state s-{{ r.state }}" data-state="{{ r.state }}">{{ state(r.state) }}</span></td><td>{{ r.started_by }}</td><td class="num">{{ r.seconds }}</td></tr>{% endfor %}</tbody></table></div>
 {% else %}<p>–</p>{% endif %}
 </section>
 {% endblock %}
