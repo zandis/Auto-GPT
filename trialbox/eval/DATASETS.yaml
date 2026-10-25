@@ -51,3 +51,8 @@ datasets:
     data_class: D0
     kind: open
     licence: Chia corpus - licence unconfirmed (App. H); loader disabled, no data
+  trialgpt_compare:
+    path: eval/trialgpt_compare
+    data_class: D0
+    kind: open
+    licence: NCBI TrialGPT data (public domain); model answers recorded by TrialBox (2026-10-25)
