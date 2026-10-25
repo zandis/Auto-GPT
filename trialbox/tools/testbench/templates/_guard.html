@@ -1,0 +1,6 @@
+<div class="{{ 'fail-box' if out.hit else 'pass-box' }}" data-testid="guard-verdict">tripwire: {{ 'HIT' if out.hit else 'clear' }} {{ out.kinds | join(', ') }} ({{ out.count }} findings)</div>
+<h4>Redacted</h4>
+<pre class="log" data-testid="redacted">{{ out.redacted }}</pre>
+<table><thead><tr><th>kind</th><th>span</th><th>text</th><th>valid</th></tr></thead><tbody>
+{% for s in out.spans %}<tr><td>{{ s.kind }}</td><td>{{ s.start }}–{{ s.end }}</td><td><code>{{ s.text }}</code></td><td>{{ s.valid }}</td></tr>{% endfor %}
+</tbody></table>

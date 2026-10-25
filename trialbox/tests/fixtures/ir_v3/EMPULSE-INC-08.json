@@ -1,0 +1,18 @@
+{
+ "ir_version": "3.0.0",
+ "id": "EMPULSE-INC-08",
+ "ruleset": "EMPULSE/v3-example",
+ "kind": "inclusion",
+ "class": "structured",
+ "text": {"source": "HF episode treated with a minimum single dose of 40 mg i.v. furosemide (or equivalent i.v. loop diuretic: 20 mg torasemide or 1 mg bumetanide).", "lang": "en"},
+ "logic": "a1",
+ "atoms": [
+  {"id": "a1", "domain": "medication", "valueset": "VS_LOOP_DIURETIC", "quantifier": "any",
+   "window": {"from_days": -30, "to_days": 0, "anchor": "index"},
+   "medication": {"route": ["47625008"], "status": ["administered"],
+                  "dose": {"op": ">=", "unit": "mg", "basis": "single", "per_ingredient": [
+                    {"code": "4603", "system": "http://www.nlm.nih.gov/research/umls/rxnorm", "num": 40},
+                    {"code": "38413", "system": "http://www.nlm.nih.gov/research/umls/rxnorm", "num": 20},
+                    {"code": "1808", "system": "http://www.nlm.nih.gov/research/umls/rxnorm", "num": 1}]}}}
+ ]
+}

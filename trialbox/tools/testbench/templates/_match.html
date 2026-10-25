@@ -1,0 +1,6 @@
+<p>Mirror: {{ out.manifest.records }} records, <code>{{ out.manifest.sha256[:23] }}</code> · candidates {{ out.candidates }} · mock LLM calls {{ out.llm_calls }}</p>
+<p class="small">Keywords: {{ out.keywords | tojson }}</p>
+<table data-testid="match-table"><thead><tr><th>#</th><th>trial</th><th>score</th><th>matching</th><th>aggregation</th><th>criteria</th></tr></thead><tbody>
+{% for m in out.ranked %}<tr><td>{{ loop.index }}</td><td><code>{{ m.nct_id }}</code> {{ m.title }}</td><td>{{ m.score }}</td><td>{{ m.matching }}</td><td>{{ m.aggregation }}</td>
+<td><details><summary>{{ m.criteria | length }} criteria</summary><ul class="small">{% for c in m.criteria %}<li>{{ c.kind }}: {{ c.text }} → <b>{{ c.label }}</b></li>{% endfor %}</ul></details></td></tr>{% endfor %}
+</tbody></table>

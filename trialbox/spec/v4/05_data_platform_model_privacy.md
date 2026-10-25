@@ -97,10 +97,11 @@ All sources implement one interface in `services/dataplat/sources/base.py`. It r
 ```python
 class Connector(Protocol):
     kind: Literal["db_view", "cdc", "hl7v2", "fhir_rest", "fhir_bulk", "file_drop"]
+
     def plan(self, contract: DataContract, since: Watermark | None) -> ExtractPlan: ...
-    def control_totals(self, plan: ExtractPlan) -> ControlTotals: ...      # same transaction or snapshot as extract
+    def control_totals(self, plan: ExtractPlan) -> ControlTotals: ...  # same transaction or snapshot as extract
     def extract(self, plan: ExtractPlan, sink: LandingSink) -> L0BatchManifest: ...
-    def full_keys(self, table: str) -> Iterator[KeyHash]: ...              # for weekly key reconciliation
+    def full_keys(self, table: str) -> Iterator[KeyHash]: ...  # for weekly key reconciliation
     def health(self) -> ConnectorHealth: ...
 ```
 

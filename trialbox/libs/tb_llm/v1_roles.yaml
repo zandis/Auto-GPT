@@ -1,0 +1,7 @@
+# v1 prompt id -> gateway labels, used only by the tb_common.llm shim (one milestone, S1-06). The data class is
+# not here: the calling step sets it (data_class=...), else TB_DATA_CLASS, else the prompt's phi flag (D3 / D1).
+judge: {role: judge, purpose: screening, context_of_use: s3_note_judgement}
+ir_extract: {role: extract_criteria, purpose: protocol_ingest, context_of_use: protocol_criteria_extraction}
+concept_map: {role: concept_select, purpose: protocol_ingest, context_of_use: criterion_concept_selection}
+ie_locate: {role: extract_criteria, purpose: protocol_ingest, context_of_use: protocol_ie_location}
+draft_doc: {role: draft_document, purpose: documents, context_of_use: document_drafting}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<h1>TrialBox Test Bench</h1>
+<p>Drive the pieces built so far on synthetic and open data, and see what each one decides. Every dataset below is checked
+against <code>eval/DATASETS.yaml</code> with the environment ceiling (<code>check_env</code>): DEV and TEST hold D0 only.</p>
+<div class="cards">
+  <a class="card" href="/run"><h3>Run</h3><p>Run end to end per dataset, invariants as pass or fail; run the unit tests.</p></a>
+  <a class="card" href="/dataplat"><h3>Data platform</h3><p>L0–L5 publish cycle, DQ, reconciliation, lineage, planted defects.</p></a>
+  <a class="card" href="/llm"><h3>LLM lab</h3><p>Gateway route table (role × class × topology), test prompt with audit, registry and model cards.</p></a>
+  <a class="card" href="/guard"><h3>PHI guard</h3><p>Paste D0 text and see detection and redaction.</p></a>
+  <a class="card" href="/recall"><h3>Recall</h3><p>Recall-ledger simulation: confidence sequence against repeated Clopper–Pearson.</p></a>
+  <a class="card" href="/match"><h3>Registry match</h3><p>TrialGPT-port matching over the local CT.gov mirror fixtures.</p></a>
+</div>
+<h2>Datasets</h2>
+<table>
+<thead><tr><th>id</th><th>dataset</th><th>class</th><th>kind</th><th>licence</th><th>present</th></tr></thead>
+<tbody>
+{% for d in datasets %}
+<tr><td><code>{{ d.id }}</code></td><td>{{ d.title }}</td><td><span class="pill ok">{{ d.data_class }}</span></td><td>{{ d.kind }}</td><td class="small">{{ d.licence }}</td>
+<td>{% if d.available %}<span class="pill ok">yes</span>{% else %}<span class="pill warn">not fetched</span>{% endif %}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+<h2>End-to-end engine</h2>
+<p>{% if e2e_entry %}v4 <code>run_end_to_end</code> found at <code>{{ e2e_entry }}</code>.{% else %}v4 <code>run_end_to_end</code> not found yet: "Run end to end" falls back to the v1 paths (synthetic: dataplat + FEAS + reports; MIMIC: <code>tools/open_data_e2e.py</code>).{% endif %}</p>
+<p class="small">htmx {{ htmx_version }} sha256 <code>{{ htmx_sha256 }}</code></p>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% set r = job.result %}
+<div class="{{ 'pass-box' if r.passed else 'fail-box' }}" data-testid="result-status">{{ r.status }}</div>
+<p>Engine: <code>{{ r.engine }}</code> · dataset <code>{{ r.dataset }}</code> · trial <code>{{ r.trial_id }}</code> · {{ job.seconds }} s</p>
+{% if r.note %}<p class="small">{{ r.note }}</p>{% endif %}
+<div class="grid2">
+<div>
+<h4>Invariants</h4>
+<table data-testid="invariants"><thead><tr><th>invariant</th><th>result</th><th>detail</th></tr></thead><tbody>
+{% for i in r.invariants %}<tr><td>{{ i.name }}</td><td><span class="pill {{ 'ok' if i.ok else 'bad' }}">{{ 'pass' if i.ok else 'fail' }}</span></td><td class="small">{{ i.detail }}</td></tr>{% endfor %}
+</tbody></table>
+</div>
+<div>
+<h4>Stage counts</h4>
+<table data-testid="stages"><thead><tr><th>stage</th><th>count</th></tr></thead><tbody>
+{% for name, count in r.stages %}<tr><td>{{ name }}</td><td>{{ count }}</td></tr>{% endfor %}
+</tbody></table>
+</div>
+</div>
+<h4>Files produced</h4>
+<ul data-testid="files">
+{% for rel, p in files %}<li><a href="/files/{{ job.id }}/{{ rel }}">{{ rel }}</a> <span class="small">{{ p.stat().st_size }} bytes</span></li>{% else %}<li class="small">none</li>{% endfor %}
+</ul>

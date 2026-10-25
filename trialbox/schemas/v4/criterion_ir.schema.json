@@ -1,0 +1,2286 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://trialbox.local/schemas/v4/criterion_ir.schema.json",
+ "$defs": {
+  "AgeRange": {
+   "additionalProperties": false,
+   "properties": {
+    "min": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Min"
+    },
+    "max": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max"
+    }
+   },
+   "title": "AgeRange",
+   "type": "object"
+  },
+  "Aggregate": {
+   "additionalProperties": false,
+   "description": "A windowed aggregate of the atom's observations before the comparison (trap 5: \"urine output < 6.0 mL/kg\nover the preceding 12 hours\" = sum over 12 h divided by body weight in kg).",
+   "properties": {
+    "fn": {
+     "enum": [
+      "sum",
+      "mean",
+      "min",
+      "max",
+      "count"
+     ],
+     "title": "Fn",
+     "type": "string"
+    },
+    "over_hours": {
+     "exclusiveMinimum": 0,
+     "title": "Over Hours",
+     "type": "integer"
+    },
+    "per_weight_kg": {
+     "default": false,
+     "title": "Per Weight Kg",
+     "type": "boolean"
+    },
+    "per_hour": {
+     "default": false,
+     "title": "Per Hour",
+     "type": "boolean"
+    },
+    "weight_valueset": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "body-weight codes when per_weight_kg",
+     "title": "Weight Valueset"
+    }
+   },
+   "required": [
+    "fn",
+    "over_hours"
+   ],
+   "title": "Aggregate",
+   "type": "object"
+  },
+  "Atom": {
+   "additionalProperties": false,
+   "description": "One machine-evaluable fact. The v1 atom fields keep their v1 meaning.",
+   "properties": {
+    "id": {
+     "pattern": "^[a-z][a-z0-9_]*$",
+     "title": "Id",
+     "type": "string"
+    },
+    "domain": {
+     "enum": [
+      "condition",
+      "observation",
+      "medication",
+      "procedure",
+      "encounter",
+      "demographic",
+      "claim",
+      "report",
+      "line_of_therapy",
+      "registry",
+      "specimen",
+      "genomic"
+     ],
+     "title": "Domain",
+     "type": "string"
+    },
+    "valueset": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "ValueSet id; reserved 'NONE' for demographic atoms",
+     "title": "Valueset"
+    },
+    "quantifier": {
+     "anyOf": [
+      {
+       "enum": [
+        "any",
+        "none",
+        "count>=",
+        "latest",
+        "all"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Quantifier"
+    },
+    "count": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Count"
+    },
+    "value": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Value"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "value_if": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/$defs/ConditionalValue"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Value If"
+    },
+    "window": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Window"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "duration": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Duration"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "age": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/AgeRange"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "sex": {
+     "anyOf": [
+      {
+       "enum": [
+        "male",
+        "female"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Sex"
+    },
+    "derived": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Derived"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "attribute": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Attribute"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "lot": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/LineOfTherapy"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "change": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Change"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "aggregate": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Aggregate"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "medication": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/MedicationDetail"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "diagnosis_role": {
+     "anyOf": [
+      {
+       "enum": [
+        "primary",
+        "principal",
+        "admitting",
+        "discharge",
+        "secondary",
+        "any"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Diagnosis Role"
+    }
+   },
+   "required": [
+    "id",
+    "domain"
+   ],
+   "title": "Atom",
+   "type": "object"
+  },
+  "Attribute": {
+   "additionalProperties": false,
+   "description": "A value resolved from several sources in priority order (§6.2.1, DM-04).",
+   "properties": {
+    "path": {
+     "description": "e.g. ecog, nyha, biomarker:EGFR, stage",
+     "title": "Path",
+     "type": "string"
+    },
+    "op": {
+     "enum": [
+      ">",
+      ">=",
+      "<",
+      "<=",
+      "=",
+      "between",
+      "in"
+     ],
+     "title": "Op",
+     "type": "string"
+    },
+    "codes": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Codes"
+    },
+    "num": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Num"
+    },
+    "source_priority": {
+     "items": {
+      "enum": [
+       "registry",
+       "structured_pathology",
+       "structured_form",
+       "report_span",
+       "note"
+      ],
+      "type": "string"
+     },
+     "minItems": 1,
+     "title": "Source Priority",
+     "type": "array"
+    },
+    "conflict": {
+     "default": "highest_priority",
+     "enum": [
+      "highest_priority",
+      "most_recent",
+      "any_pass",
+      "all_pass"
+     ],
+     "title": "Conflict",
+     "type": "string"
+    },
+    "max_age_days": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Max Age Days"
+    }
+   },
+   "required": [
+    "path",
+    "op",
+    "source_priority"
+   ],
+   "title": "Attribute",
+   "type": "object"
+  },
+  "Baseline": {
+   "additionalProperties": false,
+   "properties": {
+    "pick": {
+     "enum": [
+      "min",
+      "max",
+      "first",
+      "last",
+      "median"
+     ],
+     "title": "Pick",
+     "type": "string"
+    },
+    "window": {
+     "$ref": "#/$defs/Window"
+    }
+   },
+   "required": [
+    "pick",
+    "window"
+   ],
+   "title": "Baseline",
+   "type": "object"
+  },
+  "BoolNode": {
+   "additionalProperties": false,
+   "properties": {
+    "op": {
+     "enum": [
+      "and",
+      "or",
+      "not"
+     ],
+     "title": "Op",
+     "type": "string"
+    },
+    "args": {
+     "items": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "$ref": "#/$defs/BoolNode"
+       }
+      ],
+      "description": "an atom/macro id, or a boolean node over them"
+     },
+     "minItems": 1,
+     "title": "Args",
+     "type": "array"
+    }
+   },
+   "required": [
+    "op",
+    "args"
+   ],
+   "title": "BoolNode",
+   "type": "object"
+  },
+  "Change": {
+   "additionalProperties": false,
+   "description": "Change of the atom's observation against a baseline value (trap 5: \"≥ 2-fold rise in creatinine from\nbaseline\", \"+27 µmol/L from the pre-morbid value\"). ``ratio`` = current / baseline, ``absolute`` = current −\nbaseline (in ``unit``), ``percent`` = 100 · (current − baseline) / baseline.",
+   "properties": {
+    "kind": {
+     "enum": [
+      "ratio",
+      "absolute",
+      "percent"
+     ],
+     "title": "Kind",
+     "type": "string"
+    },
+    "op": {
+     "enum": [
+      ">",
+      ">=",
+      "<",
+      "<=",
+      "="
+     ],
+     "title": "Op",
+     "type": "string"
+    },
+    "num": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      }
+     ],
+     "title": "Num"
+    },
+    "unit": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Unit"
+    },
+    "baseline": {
+     "$ref": "#/$defs/Baseline"
+    }
+   },
+   "required": [
+    "kind",
+    "op",
+    "num",
+    "baseline"
+   ],
+   "title": "Change",
+   "type": "object"
+  },
+  "ChecklistItem": {
+   "additionalProperties": false,
+   "properties": {
+    "key": {
+     "anyOf": [
+      {
+       "pattern": "^hq_[a-z0-9_]+$",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "language-independent item id",
+     "title": "Key"
+    },
+    "item": {
+     "$ref": "#/$defs/LangText"
+    },
+    "who": {
+     "anyOf": [
+      {
+       "enum": [
+        "investigator",
+        "crc"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Who"
+    },
+    "when": {
+     "anyOf": [
+      {
+       "enum": [
+        "prescreen_call",
+        "screening_visit"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "When"
+    },
+    "evidence_hint": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Evidence Hint"
+    },
+    "blocks_enrollment": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Blocks Enrollment"
+    }
+   },
+   "required": [
+    "item"
+   ],
+   "title": "ChecklistItem",
+   "type": "object"
+  },
+  "Computability": {
+   "additionalProperties": false,
+   "properties": {
+    "score": {
+     "maximum": 1,
+     "minimum": 0,
+     "title": "Score",
+     "type": "number"
+    },
+    "basis": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Basis"
+    },
+    "inexact_map_share": {
+     "anyOf": [
+      {
+       "maximum": 1,
+       "minimum": 0,
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Inexact Map Share"
+    }
+   },
+   "required": [
+    "score"
+   ],
+   "title": "Computability",
+   "type": "object"
+  },
+  "ConditionalValue": {
+   "additionalProperties": false,
+   "description": "A threshold that replaces ``value`` when atom ``if_atom`` holds (first match wins), e.g. NT-proBNP >= 2400\npg/mL instead of >= 1600 pg/mL in atrial fibrillation.",
+   "properties": {
+    "if_atom": {
+     "pattern": "^[a-z][a-z0-9_]*$",
+     "title": "If Atom",
+     "type": "string"
+    },
+    "value": {
+     "$ref": "#/$defs/Value"
+    }
+   },
+   "required": [
+    "if_atom",
+    "value"
+   ],
+   "title": "ConditionalValue",
+   "type": "object"
+  },
+  "CriterionText": {
+   "additionalProperties": false,
+   "properties": {
+    "source": {
+     "description": "the criterion text as written in the source document",
+     "title": "Source",
+     "type": "string"
+    },
+    "lang": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "BCP 47 tag of `source`; absent when not recorded (v1)",
+     "title": "Lang"
+    },
+    "source_ref": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "section/page in the source document",
+     "title": "Source Ref"
+    }
+   },
+   "required": [
+    "source"
+   ],
+   "title": "CriterionText",
+   "type": "object"
+  },
+  "Derived": {
+   "additionalProperties": false,
+   "description": "A pinned calculator version (§6.2.3). Without ``op`` the atom's ``value`` holds the comparison (v1 form).",
+   "properties": {
+    "calc": {
+     "pattern": "^[a-z][a-z0-9_]*@\\d+\\.\\d+\\.\\d+$",
+     "title": "Calc",
+     "type": "string"
+    },
+    "op": {
+     "anyOf": [
+      {
+       "enum": [
+        ">",
+        ">=",
+        "<",
+        "<=",
+        "="
+       ],
+       "type": "string"
+      },
+      {
+       "const": "between",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Op"
+    },
+    "num": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Num"
+    },
+    "num2": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Num2"
+    },
+    "inputs_window_days": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Inputs Window Days"
+    }
+   },
+   "required": [
+    "calc"
+   ],
+   "title": "Derived",
+   "type": "object"
+  },
+  "Dose": {
+   "additionalProperties": false,
+   "properties": {
+    "op": {
+     "enum": [
+      ">",
+      ">=",
+      "<",
+      "<=",
+      "=",
+      "between",
+      "in"
+     ],
+     "title": "Op",
+     "type": "string"
+    },
+    "num": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Num"
+    },
+    "num2": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Num2"
+    },
+    "unit": {
+     "title": "Unit",
+     "type": "string"
+    },
+    "basis": {
+     "default": "single",
+     "enum": [
+      "single",
+      "daily",
+      "cumulative"
+     ],
+     "title": "Basis",
+     "type": "string"
+    },
+    "per_ingredient": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/$defs/IngredientDose"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "equivalent thresholds, e.g. 40 mg furosemide = 20 mg torasemide = 1 mg bumetanide",
+     "title": "Per Ingredient"
+    }
+   },
+   "required": [
+    "op",
+    "unit"
+   ],
+   "title": "Dose",
+   "type": "object"
+  },
+  "Duration": {
+   "additionalProperties": false,
+   "properties": {
+    "min_days": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Min Days"
+    },
+    "gap_days": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Gap Days"
+    }
+   },
+   "title": "Duration",
+   "type": "object"
+  },
+  "FlipRule": {
+   "additionalProperties": false,
+   "properties": {
+    "kind": {
+     "enum": [
+      "window_slide",
+      "value_change"
+     ],
+     "title": "Kind",
+     "type": "string"
+    },
+    "flip_date": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "format": "date",
+     "title": "Flip Date"
+    },
+    "detail": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Detail"
+    }
+   },
+   "required": [
+    "kind"
+   ],
+   "title": "FlipRule",
+   "type": "object"
+  },
+  "HumanSpec": {
+   "additionalProperties": false,
+   "properties": {
+    "checklist": {
+     "items": {
+      "$ref": "#/$defs/ChecklistItem"
+     },
+     "minItems": 1,
+     "title": "Checklist",
+     "type": "array"
+    }
+   },
+   "required": [
+    "checklist"
+   ],
+   "title": "HumanSpec",
+   "type": "object"
+  },
+  "IngredientDose": {
+   "additionalProperties": false,
+   "properties": {
+    "code": {
+     "description": "ingredient code (RxNorm, ATC or local)",
+     "title": "Code",
+     "type": "string"
+    },
+    "system": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "System"
+    },
+    "num": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      }
+     ],
+     "description": "threshold dose of this ingredient, in the parent dose's unit",
+     "title": "Num"
+    }
+   },
+   "required": [
+    "code",
+    "num"
+   ],
+   "title": "IngredientDose",
+   "type": "object"
+  },
+  "LangText": {
+   "additionalProperties": false,
+   "description": "Text in several languages. ``und`` (BCP 47 \"undetermined\") holds v1 strings whose language was not recorded.",
+   "properties": {
+    "en": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "En"
+    },
+    "zh-TW": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Zh-Tw"
+    },
+    "ja": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Ja"
+    },
+    "und": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Und"
+    }
+   },
+   "title": "LangText",
+   "type": "object"
+  },
+  "LexiconKey": {
+   "additionalProperties": false,
+   "properties": {
+    "entry_id": {
+     "title": "Entry Id",
+     "type": "string"
+    },
+    "surface": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Surface"
+    }
+   },
+   "required": [
+    "entry_id"
+   ],
+   "title": "LexiconKey",
+   "type": "object"
+  },
+  "LibraryRef": {
+   "additionalProperties": false,
+   "properties": {
+    "lib_id": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "absent when match is new",
+     "title": "Lib Id"
+    },
+    "match": {
+     "enum": [
+      "exact",
+      "variant",
+      "new"
+     ],
+     "title": "Match",
+     "type": "string"
+    },
+    "diff": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Diff"
+    }
+   },
+   "required": [
+    "match"
+   ],
+   "title": "LibraryRef",
+   "type": "object"
+  },
+  "LineNumber": {
+   "additionalProperties": false,
+   "properties": {
+    "op": {
+     "enum": [
+      ">",
+      ">=",
+      "<",
+      "<=",
+      "="
+     ],
+     "title": "Op",
+     "type": "string"
+    },
+    "num": {
+     "title": "Num",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "op",
+    "num"
+   ],
+   "title": "LineNumber",
+   "type": "object"
+  },
+  "LineOfTherapy": {
+   "additionalProperties": false,
+   "description": "Evaluated against the SI table ``episode_lot`` derived by a versioned ``lot_rules`` artefact (§6.2.2).",
+   "properties": {
+    "regimen_classes": {
+     "items": {
+      "$ref": "#/$defs/RegimenClass"
+     },
+     "minItems": 1,
+     "title": "Regimen Classes",
+     "type": "array"
+    },
+    "match": {
+     "default": "any",
+     "enum": [
+      "any",
+      "all"
+     ],
+     "title": "Match",
+     "type": "string"
+    },
+    "line_number": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/LineNumber"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "setting": {
+     "anyOf": [
+      {
+       "enum": [
+        "metastatic",
+        "adjuvant",
+        "neoadjuvant",
+        "maintenance",
+        "unknown",
+        "any"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Setting"
+    },
+    "ended_by": {
+     "anyOf": [
+      {
+       "items": {
+        "enum": [
+         "progression",
+         "toxicity",
+         "completion",
+         "death",
+         "unknown"
+        ],
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Ended By"
+    },
+    "progression_sources": {
+     "anyOf": [
+      {
+       "items": {
+        "enum": [
+         "registry",
+         "report_span",
+         "note"
+        ],
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Progression Sources"
+    },
+    "rules": {
+     "pattern": "^lot_rules@[a-z0-9-]+-\\d+\\.\\d+\\.\\d+$",
+     "title": "Rules",
+     "type": "string"
+    }
+   },
+   "required": [
+    "regimen_classes",
+    "rules"
+   ],
+   "title": "LineOfTherapy",
+   "type": "object"
+  },
+  "MacroUse": {
+   "additionalProperties": false,
+   "properties": {
+    "id": {
+     "pattern": "^[a-z][a-z0-9_]*$",
+     "title": "Id",
+     "type": "string"
+    },
+    "macro": {
+     "pattern": "^[a-z][a-z0-9_]*@[a-z0-9-]+-\\d+\\.\\d+\\.\\d+$",
+     "title": "Macro",
+     "type": "string"
+    },
+    "params": {
+     "$ref": "#/$defs/OrganFunctionParams"
+    },
+    "window": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Window"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "expanded": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "ids of the atoms the compiler expanded into",
+     "title": "Expanded"
+    }
+   },
+   "required": [
+    "id",
+    "macro"
+   ],
+   "title": "MacroUse",
+   "type": "object"
+  },
+  "MedicationDetail": {
+   "additionalProperties": false,
+   "description": "Dose and route of a medication atom (trap 5: \"a single dose of ≥ 40 mg i.v. furosemide or equivalent\").",
+   "properties": {
+    "route": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "route codes (e.g. SNOMED 47625008 intravenous)",
+     "title": "Route"
+    },
+    "dose": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Dose"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "status": {
+     "anyOf": [
+      {
+       "items": {
+        "enum": [
+         "ordered",
+         "administered",
+         "dispensed"
+        ],
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Status"
+    }
+   },
+   "title": "MedicationDetail",
+   "type": "object"
+  },
+  "NoteQuestion": {
+   "additionalProperties": false,
+   "properties": {
+    "en": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "En"
+    },
+    "zh-TW": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Zh-Tw"
+    },
+    "ja": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Ja"
+    },
+    "und": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Und"
+    },
+    "key": {
+     "pattern": "^nq_[a-z0-9_]+$",
+     "title": "Key",
+     "type": "string"
+    }
+   },
+   "required": [
+    "key"
+   ],
+   "title": "NoteQuestion",
+   "type": "object"
+  },
+  "OrganFunctionParams": {
+   "additionalProperties": false,
+   "description": "Parameters of ``organ_function@<panel>-<semver>``; unset ones take the panel defaults (§6.2.5).",
+   "properties": {
+    "anc_min": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Anc Min"
+    },
+    "plt_min": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Plt Min"
+    },
+    "hgb_min": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Hgb Min"
+    },
+    "alt_ast_max_uln": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Alt Ast Max Uln"
+    },
+    "alt_ast_max_uln_if": {
+     "anyOf": [
+      {
+       "additionalProperties": {
+        "type": "number"
+       },
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Alt Ast Max Uln If"
+    },
+    "tbil_max_uln": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Tbil Max Uln"
+    },
+    "tbil_max_uln_if": {
+     "anyOf": [
+      {
+       "additionalProperties": {
+        "type": "number"
+       },
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Tbil Max Uln If"
+    },
+    "inr_max": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Inr Max"
+    },
+    "renal": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/RenalParam"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "title": "OrganFunctionParams",
+   "type": "object"
+  },
+  "Provenance": {
+   "additionalProperties": false,
+   "properties": {
+    "drafted_by": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Drafted By"
+    },
+    "model_route": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Model Route"
+    },
+    "agreement": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Agreement"
+    }
+   },
+   "title": "Provenance",
+   "type": "object"
+  },
+  "RefRange": {
+   "additionalProperties": false,
+   "description": "Compare against a multiple of the observation's own reference range (OBX-7), else the site default table.",
+   "properties": {
+    "kind": {
+     "enum": [
+      "uln",
+      "lln"
+     ],
+     "title": "Kind",
+     "type": "string"
+    },
+    "multiple": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      }
+     ],
+     "title": "Multiple"
+    }
+   },
+   "required": [
+    "kind",
+    "multiple"
+   ],
+   "title": "RefRange",
+   "type": "object"
+  },
+  "RegimenClass": {
+   "additionalProperties": false,
+   "properties": {
+    "label": {
+     "title": "Label",
+     "type": "string"
+    },
+    "atc": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Atc",
+     "type": "array"
+    }
+   },
+   "required": [
+    "label"
+   ],
+   "title": "RegimenClass",
+   "type": "object"
+  },
+  "RenalParam": {
+   "additionalProperties": false,
+   "properties": {
+    "calc": {
+     "pattern": "^[a-z][a-z0-9_]*@\\d+\\.\\d+\\.\\d+$",
+     "title": "Calc",
+     "type": "string"
+    },
+    "op": {
+     "enum": [
+      ">",
+      ">=",
+      "<",
+      "<=",
+      "="
+     ],
+     "title": "Op",
+     "type": "string"
+    },
+    "num": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      }
+     ],
+     "title": "Num"
+    }
+   },
+   "required": [
+    "calc",
+    "op",
+    "num"
+   ],
+   "title": "RenalParam",
+   "type": "object"
+  },
+  "Review": {
+   "additionalProperties": false,
+   "description": "v1 ``CriterionReview``, unchanged.",
+   "properties": {
+    "status": {
+     "anyOf": [
+      {
+       "enum": [
+        "draft",
+        "approved",
+        "rejected"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Status"
+    },
+    "by": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "By"
+    },
+    "at": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "format": "date-time",
+     "title": "At"
+    },
+    "comment": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Comment"
+    }
+   },
+   "title": "Review",
+   "type": "object"
+  },
+  "Value": {
+   "additionalProperties": false,
+   "description": "v1 ``AtomValue`` plus ``ref`` (§6.2.1).",
+   "properties": {
+    "op": {
+     "anyOf": [
+      {
+       "enum": [
+        ">",
+        ">=",
+        "<",
+        "<=",
+        "=",
+        "between",
+        "in"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Op"
+    },
+    "num": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Num"
+    },
+    "num2": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Num2"
+    },
+    "unit": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Unit"
+    },
+    "codes": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Codes"
+    },
+    "ref": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/RefRange"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    }
+   },
+   "title": "Value",
+   "type": "object"
+  },
+  "Window": {
+   "additionalProperties": false,
+   "description": "Days relative to ``anchor``; v1 windows are the ``index`` / ``event`` subset (§6.2.4).",
+   "properties": {
+    "from_days": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "From Days"
+    },
+    "to_days": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "To Days"
+    },
+    "anchor": {
+     "anyOf": [
+      {
+       "enum": [
+        "index",
+        "event",
+        "screening",
+        "randomization"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Anchor"
+    },
+    "event_atom": {
+     "anyOf": [
+      {
+       "pattern": "^[a-z][a-z0-9_]*$",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "anchor=event: the atom giving events",
+     "title": "Event Atom"
+    },
+    "event_pick": {
+     "anyOf": [
+      {
+       "enum": [
+        "first",
+        "last",
+        "each"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Event Pick"
+    }
+   },
+   "title": "Window",
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "properties": {
+  "ir_version": {
+   "const": "3.0.0",
+   "default": "3.0.0",
+   "title": "Ir Version",
+   "type": "string"
+  },
+  "id": {
+   "pattern": "^[A-Z0-9]+(-[A-Z0-9]+)*-(INC|EXC|REN|DOC)-[0-9]{2,3}$",
+   "title": "Id",
+   "type": "string"
+  },
+  "ruleset": {
+   "title": "Ruleset",
+   "type": "string"
+  },
+  "kind": {
+   "enum": [
+    "inclusion",
+    "exclusion",
+    "renewal",
+    "documentation"
+   ],
+   "title": "Kind",
+   "type": "string"
+  },
+  "class": {
+   "enum": [
+    "structured",
+    "note",
+    "human",
+    "mixed"
+   ],
+   "title": "Class",
+   "type": "string"
+  },
+  "text": {
+   "$ref": "#/$defs/CriterionText"
+  },
+  "label": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "description": "short display label for funnels and spreadsheets",
+   "title": "Label"
+  },
+  "time_sensitive": {
+   "anyOf": [
+    {
+     "type": "boolean"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Time Sensitive"
+  },
+  "library_ref": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/LibraryRef"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "logic": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "$ref": "#/$defs/BoolNode"
+    }
+   ],
+   "description": "an atom/macro id, or a boolean node over them",
+   "title": "Logic"
+  },
+  "atoms": {
+   "items": {
+    "$ref": "#/$defs/Atom"
+   },
+   "title": "Atoms",
+   "type": "array"
+  },
+  "macros": {
+   "anyOf": [
+    {
+     "items": {
+      "$ref": "#/$defs/MacroUse"
+     },
+     "type": "array"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Macros"
+  },
+  "canonical_hash": {
+   "anyOf": [
+    {
+     "pattern": "^sha256:[0-9a-f]{64}$",
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Canonical Hash"
+  },
+  "filter_class": {
+   "anyOf": [
+    {
+     "enum": [
+      "hard",
+      "soft"
+     ],
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Filter Class"
+  },
+  "depends_on": {
+   "anyOf": [
+    {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Depends On"
+  },
+  "flip_rule": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/FlipRule"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "fallback": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Fallback"
+  },
+  "note_question": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/NoteQuestion"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "lexicon_keys": {
+   "anyOf": [
+    {
+     "items": {
+      "$ref": "#/$defs/LexiconKey"
+     },
+     "type": "array"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Lexicon Keys"
+  },
+  "computability": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/Computability"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "human": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/HumanSpec"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "action": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "description": "suggested action when unknown/pending",
+   "title": "Action"
+  },
+  "suggested_order": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Suggested Order"
+  },
+  "flags": {
+   "anyOf": [
+    {
+     "items": {
+      "type": "string"
+     },
+     "type": "array"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Flags"
+  },
+  "review": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/Review"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  },
+  "safety_critical": {
+   "anyOf": [
+    {
+     "type": "boolean"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Safety Critical"
+  },
+  "index": {
+   "anyOf": [
+    {
+     "type": "boolean"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Index"
+  },
+  "provenance": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/Provenance"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null
+  }
+ },
+ "required": [
+  "id",
+  "ruleset",
+  "kind",
+  "class",
+  "text",
+  "logic"
+ ],
+ "type": "object",
+ "title": "CriterionIRv3",
+ "description": "One eligibility criterion (spec v4 §6.2). Schema version 3.0.0. GENERATED from libs/tb_contracts/criterion_ir.py."
+}

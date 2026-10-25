@@ -78,5 +78,18 @@ elif command -v nvidia-smi >/dev/null 2>&1; then
 else
   warn "no NVIDIA GPU: run with TB_LLM_MODE=stub or the cloud flag"
 fi
+# trialbox doctor (spec v4 S1-16): topology, class ceiling, gateway-only model reach, channel engine, Hermes pin,
+# publish gate. TB_SETTINGS names the site settings file; TB_DATAPLAT_DIR the data-platform workdir.
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+if command -v python3 >/dev/null 2>&1; then
+  if (cd "$ROOT_DIR" && PYTHONPATH=libs:services:. python3 -m tools.trialbox doctor --env-file "$ENV_FILE" ${TB_SETTINGS:+--settings "$TB_SETTINGS"}); then
+    pass "trialbox doctor"
+  else
+    fail "trialbox doctor (see the lines above)"
+  fi
+else
+  fail "python3 not found: trialbox doctor cannot run"
+fi
+
 echo "---"
 [ "$FAILS" -eq 0 ] && { echo "host checks passed"; exit 0; } || { echo "$FAILS check(s) failed"; exit 1; }

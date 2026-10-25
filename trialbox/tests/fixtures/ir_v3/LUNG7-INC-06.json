@@ -1,0 +1,43 @@
+{
+ "id": "LUNG7-INC-06", "ruleset": "LUNG7/v1.0.0", "ir_version": "3.0.0",
+ "kind": "inclusion", "class": "mixed",
+ "text": {"source": "Progressed on ≥ 1 prior platinum-based line for metastatic disease; EGFR/ALK wild type; ECOG 0–1; adequate organ function within 14 days before randomisation.",
+          "lang": "en", "source_ref": "protocol v2.0 §5.1 item 6"},
+ "library_ref": {"lib_id": "cl_01JB7ZZZZZZZZZZZZZZZZZZZZZ", "match": "variant", "diff": ["m1.params.alt_ast_max_uln 3.0 → 2.5"]},
+ "logic": {"op": "and", "args": ["a1", "a2", "a3", "m1"]},
+ "atoms": [
+  {"id": "a1", "domain": "line_of_therapy",
+   "lot": {"regimen_classes": [{"label": "platinum", "atc": ["L01XA"]}], "match": "any",
+           "line_number": {"op": ">=", "num": 1}, "setting": "metastatic",
+           "ended_by": ["progression"], "progression_sources": ["registry", "report_span", "note"],
+           "rules": "lot_rules@tw-onc-1.0.0"},
+   "window": {"from_days": -3650, "to_days": 0, "anchor": "index"}},
+  {"id": "a2", "domain": "condition", "valueset": "vs_nsclc",
+   "attribute": {"path": "biomarker:EGFR", "op": "in", "codes": ["negative", "wild_type"],
+                 "source_priority": ["registry", "structured_pathology", "report_span", "note"],
+                 "conflict": "highest_priority", "max_age_days": null}},
+  {"id": "a3", "domain": "observation",
+   "attribute": {"path": "ecog", "op": "<=", "num": 1,
+                 "source_priority": ["structured_form", "note"], "max_age_days": 30},
+   "window": {"from_days": -30, "to_days": 0, "anchor": "screening"}}
+ ],
+ "macros": [
+  {"id": "m1", "macro": "organ_function@onc-std-1.0.0",
+   "params": {"anc_min": 1.5, "plt_min": 100, "hgb_min": 9.0, "alt_ast_max_uln": 2.5,
+              "alt_ast_max_uln_if": {"liver_mets": 5.0}, "tbil_max_uln": 1.5,
+              "renal": {"calc": "egfr_ckd_epi_2021@1.0.0", "op": ">=", "num": 45}},
+   "window": {"from_days": -14, "to_days": 0, "anchor": "randomization"},
+   "expanded": ["m1.anc", "m1.plt", "m1.hgb", "m1.alt", "m1.ast", "m1.tbil", "m1.renal"]}
+ ],
+ "filter_class": "soft",
+ "depends_on": ["episode_lot", "condition_attribute", "observation", "note:pathology"],
+ "flip_rule": null,
+ "note_question": {"key": "nq_ecog_0_1", "en": "Is the patient's most recent ECOG performance status 0 or 1?",
+                   "zh-TW": "病人最近一次的 ECOG 體能狀態是否為 0 或 1？", "ja": "直近の ECOG PS は 0 または 1 か？"},
+ "lexicon_keys": [{"entry_id": "lx_0142", "surface": "ECOG"}, {"entry_id": "lx_0907", "surface": "體能狀態"}],
+ "computability": {"score": 0.58, "basis": "ECOG structured in 31 % of active CHEST patients; notes in 92 %",
+                   "inexact_map_share": 0.0},
+ "human": null,
+ "safety_critical": false, "index": false,
+ "provenance": {"drafted_by": "library_match", "agreement": "library+gold"}
+}

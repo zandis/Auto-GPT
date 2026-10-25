@@ -1,0 +1,49 @@
+# Data contract (spec v4 §5.8.1, §6.14) for the synthetic demo HIS export, table vital.
+contract_id: demo_his/vital
+version: 1.0.0
+source: demo_his
+table: vital
+kind: file_drop
+format: csv
+owner: Hospital (controller)
+steward: steward-research-informatics@site-a.example
+change_channel: his-dba@site-a.example
+latency_class: daily
+data_class: D4
+keys:
+  primary:
+  - vital_no
+  patient: mrn
+  watermark: measure_datetime
+columns:
+- name: vital_no
+  type: string
+  nullable: false
+  unique: true
+- name: mrn
+  type: string
+  nullable: false
+  privacy: direct_identifier
+- name: measure_datetime
+  type: timestamp
+  nullable: false
+- name: height_cm
+  type: decimal
+  nullable: true
+- name: weight_kg
+  type: decimal
+  nullable: true
+- name: sbp
+  type: integer
+  nullable: true
+- name: dbp
+  type: integer
+  nullable: true
+volume:
+  min_rows: 1
+  max_quarantine_share: 0.005
+control_totals:
+- count
+- count_distinct_patient
+- max_watermark
+required_for_publish: true

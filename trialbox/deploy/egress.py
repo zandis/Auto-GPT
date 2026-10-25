@@ -5,9 +5,13 @@ Default: every packet from a TrialBox container network to a destination outside
 Allowed (only when the variable is set):
 
 * mail-gateway      -> SMTP_HOST:SMTP_PORT, IMAP_HOST:IMAP_PORT
-* criteria-compiler -> host of CLOUD_LLM_BASE_URL; clinicaltrials.gov:443 when TB_CTGOV_MODE=live (COHORT, D-76)
+* gateway           -> every non-perimeter model endpoint of ``models/routing.yaml`` (zone external / dev_public)
+                       whose URL is set, and the host of CLOUD_LLM_BASE_URL (spec v4 NFR-B9, S1-06: only tb-gateway
+                       reaches a model host; the v1 criteria-compiler cloud rule is gone)
+* criteria-compiler -> clinicaltrials.gov:443 when TB_CTGOV_MODE=live (COHORT, D-76)
 * orchestrator      -> host of NHI_TWPAS_BASE_URL (SUBMIT)
-* EGRESS_EXTRA      -> "service=host:port[,service=host:port]" for site-specific additions (documented in RUNBOOK)
+* EGRESS_EXTRA      -> "service=host:port[,service=host:port]" for site-specific additions (documented in RUNBOOK);
+                       an entry that would give any service other than the gateway a model host is refused
 
 Container addresses come from ``docker inspect`` of the compose project; host names are resolved when the rules are
 applied (re-run after an address change or a container restart: ``deploy/network.sh apply``). Traffic between the
@@ -18,7 +22,8 @@ box's own containers, replies to inbound connections (published ports) and the D
     deploy/network.sh flush   # remove the table
     deploy/network.sh status  # show the live table with counters
 
-Standard library only: runs on a bare appliance host.
+Standard library only, except that reading ``models/routing.yaml`` needs PyYAML (``python3-yaml``); without it the
+model-endpoint rules are skipped with a warning (fail closed: nothing is opened).
 """
 
 from __future__ import annotations
@@ -36,7 +41,10 @@ from urllib.parse import urlparse
 
 TABLE = "trialbox_egress"
 HERE = Path(__file__).resolve().parent
+ROUTING = HERE.parent / "models" / "routing.yaml"
 CTGOV = ("clinicaltrials.gov", 443)
+GATEWAY = "gateway"  # compose service name of tb-gateway
+MODEL_ZONES = ("external", "dev_public")
 
 
 @dataclass(frozen=True)
@@ -63,7 +71,7 @@ def read_env(path: Path | None) -> dict[str, str]:
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 env[k.strip()] = v.strip().strip('"').strip("'")
-    env.update({k: v for k, v in os.environ.items() if k in _KEYS})
+    env.update({k: v for k, v in os.environ.items() if k in _KEYS or k.startswith("TB_EP_")})
     return env
 
 
@@ -76,7 +84,9 @@ _KEYS = (
     "NHI_TWPAS_BASE_URL",
     "TB_CTGOV_MODE",
     "EGRESS_EXTRA",
+    "TB_ENV",
 )
+# model endpoint URL and key variables named in routing.yaml are read too (see model_endpoints)
 
 
 def _url(url: str) -> tuple[str, int] | None:
@@ -88,15 +98,59 @@ def _url(url: str) -> tuple[str, int] | None:
     return u.hostname, u.port or (443 if u.scheme == "https" else 80)
 
 
-def allowlist(env: dict[str, str]) -> list[Allow]:
+def _routing_endpoints(
+    env: dict[str, str], routing: Path | None, *, opened_only: bool = False
+) -> list[tuple[str, str, int, str]]:
+    """``(endpoint, host, port, zone)`` for every endpoint of the routing policy whose URL is set (its ``url_env``
+    variable, else its ``default_url``)."""
+    if routing is None or not routing.exists():
+        return []
+    try:
+        import yaml
+    except ImportError:
+        print("warning: PyYAML missing; no model-endpoint egress rules rendered", file=sys.stderr)
+        return []
+    doc = yaml.safe_load(routing.read_text(encoding="utf-8")) or {}
+    out: list[tuple[str, str, int, str]] = []
+    site_env = env.get("TB_ENV") or "PRODUCTION"
+    for name, ep in sorted((doc.get("endpoints") or {}).items()):
+        if opened_only and ep.get("environments") and site_env not in ep["environments"]:
+            continue
+        if opened_only and "g5_record" in ep and not ep["g5_record"]:
+            continue
+        hp = _url(env.get(str(ep.get("url_env") or ""), "") or str(ep.get("default_url") or ""))
+        if hp:
+            out.append((str(name), hp[0], hp[1], str(ep.get("zone"))))
+    return out
+
+
+def model_endpoints(env: dict[str, str], routing: Path | None = ROUTING) -> list[tuple[str, str, int, str]]:
+    """Non-perimeter endpoints (zone external / dev_public): the only model hosts that need an egress rule.
+    Perimeter endpoints are reached inside the box networks. An endpoint restricted to other environments than
+    ``TB_ENV`` (default PRODUCTION), or an external one without a G5 record, gets no rule."""
+    return [e for e in _routing_endpoints(env, routing, opened_only=True) if e[3] in MODEL_ZONES]
+
+
+def model_hosts(env: dict[str, str], routing: Path | None = ROUTING) -> set[str]:
+    """Every host name that serves a model: routing.yaml endpoints of every zone, and CLOUD_LLM_BASE_URL."""
+    hosts = {h for _, h, _, _ in _routing_endpoints(env, routing)}
+    cloud = _url(env.get("CLOUD_LLM_BASE_URL", ""))
+    if cloud:
+        hosts.add(cloud[0])
+    return hosts
+
+
+def allowlist(env: dict[str, str], routing: Path | None = ROUTING) -> list[Allow]:
     out: list[Allow] = []
     if env.get("SMTP_HOST"):
         out.append(Allow("mail-gateway", env["SMTP_HOST"], int(env.get("SMTP_PORT") or 587), "outbound mail"))
     if env.get("IMAP_HOST"):
         out.append(Allow("mail-gateway", env["IMAP_HOST"], int(env.get("IMAP_PORT") or 993), "intake mailbox"))
+    for name, ep_host, ep_port, zone in model_endpoints(env, routing):
+        out.append(Allow(GATEWAY, ep_host, ep_port, f"model endpoint {name} ({zone})"))
     cloud = _url(env.get("CLOUD_LLM_BASE_URL", ""))
     if cloud:
-        out.append(Allow("criteria-compiler", cloud[0], cloud[1], "cloud LLM (PHI guard enforced)"))
+        out.append(Allow(GATEWAY, cloud[0], cloud[1], "cloud LLM (through tb-gateway only)"))
     if (env.get("TB_CTGOV_MODE") or "live").lower() == "live":
         out.append(Allow("criteria-compiler", CTGOV[0], CTGOV[1], "ClinicalTrials.gov public registry"))
     nhi = _url(env.get("NHI_TWPAS_BASE_URL", ""))
@@ -107,6 +161,8 @@ def allowlist(env: dict[str, str]) -> list[Allow]:
         host, _, port = hp.rpartition(":")
         if not (svc and host and port.isdigit()):
             raise SystemExit(f"bad EGRESS_EXTRA entry {item!r} (want service=host:port)")
+        if svc.strip() != GATEWAY and host.strip() in model_hosts(env, routing):
+            raise SystemExit(f"EGRESS_EXTRA entry {item!r} gives {svc.strip()} a model host; only {GATEWAY} may")
         out.append(Allow(svc.strip(), host.strip(), int(port), "site addition (EGRESS_EXTRA)"))
     return out
 
@@ -167,7 +223,7 @@ def render(box: Box, allows: list[Allow], resolver: object = resolve) -> tuple[s
             lines.append(f'    {fam} saddr {{ {joined} }} {fam} daddr {{ {joined} }} accept comment "intra-box"')
     for a in allows:
         srcs = box.addresses.get(a.service, [])
-        dsts = res(a.host)  # type: ignore[operator]
+        dsts = res(a.host)
         if not srcs:
             warnings.append(f"{a.service}: no running container; rule for {a.host}:{a.port} skipped")
             continue

@@ -1,0 +1,9 @@
+# Trace store settings (spec v4 §8.14, LLM-45; §7.1 special-category data). Changed only through G5.
+retention_days: 90
+# special-category (sc) traces keep a reduced retention (PRIV-14); the value is an estimate pending DPO approval
+sc_retention_days: 30
+# role a viewer must hold to read traces (§14)
+read_role: "trace:read"
+# span attributes stored without redaction: identifiers and enumerations the gateway sets, never content
+safe_attributes: [tb.call_id, tb.data_class, tb.route_id, tb.model_alias, tb.build_sha, tb.prompt_id,
+  tb.prompt_version, tb.cache, tb.policy_version, tb.context_of_use, tb.role, tb.purpose]

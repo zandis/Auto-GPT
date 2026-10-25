@@ -1,0 +1,14 @@
+# judge_ml: multilingual criterion judging (spec v4 §8.10, §16; S1-14). Items come from tools/mlbench.sample over
+# eval/criterion_ml (D0, public domain + TrialBox translations); the request is tools/mlbench.messages.
+id: judge_ml
+gateway_role: bakeoff
+purpose: evaluation
+context_of_use: bakeoff_judge_ml
+prompt: mlbench_judge@1
+dataset: criterion_ml
+data_class: D0
+langs: [en, zh-TW, ja, mixed]
+n: 400
+out_tokens: 80
+metrics: [accuracy, false_block_rate, false_block_upper95, trial_false_exclusion, evidence_f1, cost_per_1k,
+  sec_per_call]

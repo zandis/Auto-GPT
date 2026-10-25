@@ -1,0 +1,53 @@
+# Data contract (spec v4 §5.8.1, §6.14) for the synthetic demo HIS export, table diagnosis.
+contract_id: demo_his/diagnosis
+version: 1.0.0
+source: demo_his
+table: diagnosis
+kind: file_drop
+format: csv
+owner: Hospital (controller)
+steward: steward-research-informatics@site-a.example
+change_channel: his-dba@site-a.example
+latency_class: daily
+data_class: D4
+keys:
+  primary:
+  - diag_no
+  patient: mrn
+  watermark: recorded_date
+columns:
+- name: diag_no
+  type: string
+  nullable: false
+  unique: true
+- name: enc_no
+  type: string
+  nullable: false
+- name: mrn
+  type: string
+  nullable: false
+  privacy: direct_identifier
+- name: icd10
+  type: string
+  nullable: false
+- name: diag_date
+  type: date
+  nullable: false
+  not_future: true
+- name: recorded_date
+  type: date
+  nullable: false
+- name: status
+  type: string
+  nullable: false
+  enum:
+  - A
+  - R
+volume:
+  min_rows: 1
+  max_quarantine_share: 0.005
+control_totals:
+- count
+- count_distinct_patient
+- max_watermark
+required_for_publish: true

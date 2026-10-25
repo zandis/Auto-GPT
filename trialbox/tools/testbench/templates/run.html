@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Run{% endblock %}
+{% block content %}
+<h1>Run</h1>
+<p>One button per dataset. The live log streams while it runs; then each invariant shows as pass or fail.</p>
+<table>
+<thead><tr><th>dataset</th><th>class</th><th>trial / ruleset</th></tr></thead>
+<tbody>
+{% for d in datasets %}
+<tr>
+<td>{{ d.title }}{% if not d.available %} <span class="pill warn">not fetched</span>{% endif %}</td>
+<td><span class="pill ok">{{ d.data_class }}</span></td>
+<td>
+<form action="/run" method="post" hx-post="/run" hx-target="#run-output" hx-swap="innerHTML" class="inline">
+  <input type="hidden" name="dataset" value="{{ d.id }}">
+  <input name="trial_id" value="{{ default_trial.get(d.id, '') }}" size="10" aria-label="trial id">
+  <button type="submit" data-testid="run-{{ d.id }}">Run end to end</button>
+</form>
+</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+<p>
+<form action="/tests" method="post" hx-post="/tests" hx-target="#run-output" hx-swap="innerHTML" class="inline">
+  <button type="submit" class="secondary">Run all tests</button> <span class="small">unit suite (about 3 min), shells out to pytest</span>
+</form>
+</p>
+<div id="run-output">{% if last %}{% set job = last %}{% include "_job.html" %}{% endif %}</div>
+{% endblock %}

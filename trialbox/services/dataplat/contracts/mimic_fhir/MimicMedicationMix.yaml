@@ -1,0 +1,48 @@
+# Data contract (spec v4 §5.8.1, §6.14) for the MIMIC-IV FHIR demo v2.1.0 file MimicMedicationMix (field names only).
+# validation_max_pct 100: MIMIC is not TW Core, so the L2 structural error rate is reported, not gated (as v1).
+contract_id: mimic_fhir/MimicMedicationMix
+version: 1.0.0
+source: mimic_fhir
+table: MimicMedicationMix
+kind: fhir_bulk
+format: ndjson
+owner: PhysioNet (open data, ODbL)
+steward: steward-open-data@trialbox-dev.example
+change_channel: open-data@trialbox-dev.example
+latency_class: static
+data_class: D4
+keys:
+  primary:
+  - id
+columns:
+- name: id
+  type: string
+  nullable: false
+  unique: true
+- name: identifier
+  type: array
+  nullable: false
+- name: ingredient
+  type: array
+  nullable: false
+- name: meta
+  type: object
+  nullable: false
+- name: resourceType
+  type: string
+  nullable: false
+  enum:
+  - Medication
+- name: status
+  type: string
+  nullable: false
+- name: text
+  type: object
+  nullable: false
+volume:
+  min_rows: 1
+  max_quarantine_share: 0.005
+control_totals:
+- count
+required_for_publish: true
+validation_max_pct: 100.0

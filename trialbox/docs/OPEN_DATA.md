@@ -8,6 +8,8 @@ It runs in process, with no compose stack and no network once the data are fetch
 ```
 make open-data-e2e                       # fetch (sha256-verified) + run; writes .cache/open_data/report.{json,md}
 python -m pytest -m slow tests/integration/test_open_data_e2e.py   # the same run as a test (skipped without data)
+TB_ENV=TEST PYTHONPATH=libs:services:. python -m tools.cascade_e2e --source .cache/open_data/mimic-iv-fhir-demo --trial EMPULSE --out build/e2e-mimic
+                                         # v4 path: data platform -> cascade -> DL-1 pack; recall certificate is refused (no known positives in the demo)
 ```
 
 ## 1. Datasets and licences

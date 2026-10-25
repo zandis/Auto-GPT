@@ -1,0 +1,39 @@
+{% set r = job.result %}
+<p>Defect: <code>{{ r.defect }}</code>{% if r.defect_table %} in <code>{{ r.defect_table }}</code>, expected reason <code>{{ r.expected_reason }}</code>{% endif %}</p>
+{% for run in r.runs %}
+<h3>{{ run.label }}: <span class="pill {{ 'ok' if run.published else 'bad' }}" data-testid="gate-outcome">{{ run.outcome }}</span></h3>
+{% if run.blocking %}<p class="fail-box">Blocking reasons: {{ run.blocking | join(', ') }}</p>{% endif %}
+<p class="small">Serving pointer: before <code>{{ run.current_before }}</code>, after <code>{{ run.current_after }}</code>.
+{% if run.lineage_complete is not none %} Lineage complete: <b>{{ run.lineage_complete }}</b>{% if run.lineage_missing %} (missing {{ run.lineage_missing }}){% endif %}.{% endif %}</p>
+<div class="grid2">
+<div>
+<h4>Publish gate</h4>
+<table><thead><tr><th>#</th><th>condition</th><th>result</th><th>detail</th></tr></thead><tbody>
+{% for c in run.conditions %}<tr><td>{{ c.number }}</td><td>{{ c.name }}</td><td><span class="pill {{ 'ok' if c.result == 'pass' else ('bad' if c.result == 'fail' else 'warn') }}">{{ c.result }}</span></td><td class="small">{{ c.detail }} {{ c.reasons | join(', ') }}</td></tr>{% endfor %}
+</tbody></table>
+</div>
+<div>
+<h4>Stage counts</h4>
+<table><thead><tr><th>level</th><th>rows</th><th>tables</th></tr></thead><tbody>
+{% for level, t in run.counts.items() %}<tr><td>{{ level }}</td><td>{{ t.values() | sum }}</td><td class="small">{{ t | length }}</td></tr>{% endfor %}
+</tbody></table>
+</div>
+</div>
+<h4>L1 validation per table</h4>
+<table><thead><tr><th>table</th><th>landed</th><th>accepted</th><th>quarantined</th><th>drift</th><th>findings</th></tr></thead><tbody>
+{% for t in run.tables %}<tr><td>{{ t.table }}</td><td>{{ t.landed }}</td><td>{{ t.accepted }}</td><td>{{ t.quarantined }}</td><td>{{ t.drift }}</td><td class="small">{{ t.findings | join('; ') }}</td></tr>{% endfor %}
+</tbody></table>
+<details><summary>Reconciliation equations ({{ run.equations | length }})</summary>
+<table><thead><tr><th>level</th><th>table</th><th>equation</th><th>lhs</th><th>rhs</th><th>verdict</th></tr></thead><tbody>
+{% for q in run.equations %}<tr><td>{{ q.level }}</td><td>{{ q.table }}</td><td>{{ q.name }}</td><td>{{ q.lhs }}</td><td>{{ q.rhs }}</td><td><span class="pill {{ 'ok' if q.verdict == 'pass' else 'bad' }}">{{ q.verdict }}</span></td></tr>{% endfor %}
+</tbody></table></details>
+{% if run.notice %}<details open><summary>Steward notice (rendered, not sent)</summary>
+<p class="small">To {{ run.notice.to | join(', ') }} · cc {{ run.notice.cc | join(', ') }}</p>
+<pre class="log">{{ run.notice.subject }}
+
+{{ run.notice.body }}</pre></details>{% endif %}
+{% endfor %}
+<h4>Lineage (OpenLineage run events)</h4>
+<table><thead><tr><th>event</th><th>job</th><th>inputs</th><th>outputs</th></tr></thead><tbody>
+{% for j in r.lineage_jobs %}<tr><td>{{ j.eventType }}</td><td><code>{{ j.job }}</code></td><td>{{ j.inputs }}</td><td>{{ j.outputs }}</td></tr>{% endfor %}
+</tbody></table>

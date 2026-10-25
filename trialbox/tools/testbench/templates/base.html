@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{% block title %}Test Bench{% endblock %} · TrialBox Test Bench</title>
+<link rel="stylesheet" href="/static/bench.css">
+<script src="/static/htmx.min.js" defer></script>
+<script src="/static/bench.js" defer></script>
+</head>
+<body>
+<div class="banner" role="alert" data-testid="banner">{{ banner }}</div>
+<header class="top">
+  <span class="brand">TrialBox Test Bench</span>
+  <nav>
+    {% for href, label in pages %}<a href="{{ href }}" class="{{ 'active' if path == href else '' }}">{{ label }}</a>{% endfor %}
+  </nav>
+  <span class="env">TB_ENV={{ environment }} · D0 only</span>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+<footer>Developer and validation tool (docs/HANDOFF.md §5). Not a product surface. htmx {{ htmx_version }} vendored.</footer>
+</body>
+</html>

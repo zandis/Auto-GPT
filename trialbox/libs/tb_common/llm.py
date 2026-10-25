@@ -9,6 +9,10 @@
   variables (``phi_guard.variables_text``, everything that is not fixed template text) is supplied. Everything else
   goes to the local endpoint (``LLM_BASE_URL``).
 * Every call appends ``llm.call`` to the audit chain with prompt id/version, model, input/output sha.
+* **Gateway shim (spec v4 S1-06, one milestone).** With ``TB_GATEWAY_URL`` set (or a ``gateway`` client passed), the
+  request goes through ``libs/tb_llm`` to ``tb-gateway`` with the v4 labels instead of to an endpoint directly; the
+  gateway chooses the route and build. ``data_class=`` on :meth:`LlmClient.chat_json` sets the class (else
+  ``TB_DATA_CLASS``, else D3 for ``phi`` prompts and D1 otherwise). Without it nothing changes.
 """
 
 from __future__ import annotations
@@ -131,6 +135,7 @@ class LlmClient:
         service_name: str = "",
         audit: AuditLog | None = None,
         timeout: float = 600.0,
+        gateway: Any = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -141,6 +146,7 @@ class LlmClient:
         self.service_name = service_name
         self.audit = audit
         self.http = httpx.Client(timeout=timeout)
+        self.gateway = gateway  # tb_llm.GatewayClient (shim path) or None
 
     @classmethod
     def from_config(cls, audit: AuditLog | None = None) -> LlmClient:
@@ -148,6 +154,11 @@ class LlmClient:
 
         cfg = get_config()
         models = cfg.settings.models
+        gateway = None
+        if os.environ.get("TB_GATEWAY_URL"):
+            from tb_llm import GatewayClient
+
+            gateway = GatewayClient(os.environ["TB_GATEWAY_URL"], cfg.env.service_name)
         return cls(
             cfg.env.llm_base_url,
             cfg.env.llm_model,
@@ -157,6 +168,7 @@ class LlmClient:
             cloud_enabled=bool(models and models.cloud_enabled),
             service_name=cfg.env.service_name,
             audit=audit or AuditLog(cfg.env.audit_path, cfg.env.tz),
+            gateway=gateway,
         )
 
     def _target(self, meta: PromptMeta, variables: dict[str, Any], clearance: PhiClearance | None) -> str:
@@ -179,6 +191,7 @@ class LlmClient:
         job_id: str | None = None,
         clearance: PhiClearance | None = None,
         phi_guard_hit: bool | None = None,
+        data_class: str | None = None,
     ) -> LlmResult:
         prompt = load_prompt(prompt_id)
         schema_name = schema or prompt.meta.output_schema
@@ -186,7 +199,7 @@ class LlmClient:
         messages = render(prompt, variables)
         input_text = "\n".join(m["content"] for m in messages)
         input_sha = sha256_text(input_text)
-        target = self._target(prompt.meta, variables, clearance)
+        target = "gateway" if self.gateway is not None else self._target(prompt.meta, variables, clearance)
         base, model = (self.cloud_base_url, self.cloud_model) if target == "cloud" else (self.base_url, self.model)
         headers = {"X-TB-Prompt-Id": prompt.meta.id, "X-TB-Prompt-Version": str(prompt.meta.version)}
         if target == "cloud" and self.cloud_api_key:
@@ -206,13 +219,17 @@ class LlmClient:
                 },
             }
             t0 = time.perf_counter()
-            try:
-                resp = self.http.post(f"{base}/chat/completions", json=body, headers=headers)
-            except httpx.HTTPError as exc:
-                raise LlmError(f"LLM endpoint unreachable ({target}): {exc}") from exc
-            if resp.status_code >= 400:
-                raise LlmError(f"LLM endpoint error {resp.status_code}: {resp.text[:500]}")
-            payload = resp.json()
+            if self.gateway is not None:
+                payload = self._via_gateway(body, prompt.meta, job_id, data_class)
+                model = str(payload.get("model") or model)
+            else:
+                try:
+                    resp = self.http.post(f"{base}/chat/completions", json=body, headers=headers)
+                except httpx.HTTPError as exc:
+                    raise LlmError(f"LLM endpoint unreachable ({target}): {exc}") from exc
+                if resp.status_code >= 400:
+                    raise LlmError(f"LLM endpoint error {resp.status_code}: {resp.text[:500]}")
+                payload = resp.json()
             usage = payload.get("usage") or {}
             tokens_in += int(usage.get("prompt_tokens", 0))
             tokens_out += int(usage.get("completion_tokens", 0))
@@ -273,6 +290,23 @@ class LlmClient:
                 detail={"errors": errors[:5]},
             )
         raise LlmSchemaError(f"{prompt_id}: output violated schema twice: {errors[:5]}")
+
+    def _via_gateway(
+        self, body: dict[str, Any], meta: PromptMeta, job_id: str | None, data_class: str | None
+    ) -> dict[str, Any]:
+        """Shim path: the gateway picks the build, so ``model`` is dropped; labels go as ``X-TB-*`` headers."""
+        from tb_llm import GatewayError, GatewayRefused
+        from tb_llm.client import v1_labels
+
+        labels = v1_labels(meta.id, meta.version, phi=bool(meta.phi), study_id=job_id, data_class=data_class)
+        req = {k: v for k, v in body.items() if k != "model"}
+        try:
+            payload: dict[str, Any] = self.gateway.complete(req, labels)
+        except GatewayRefused as exc:
+            raise LlmError(f"gateway refused {meta.id}: {exc.reason}") from exc
+        except GatewayError as exc:
+            raise LlmError(str(exc)) from exc
+        return payload
 
 
 _default: LlmClient | None = None

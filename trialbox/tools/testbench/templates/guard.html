@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}PHI guard{% endblock %}
+{% block content %}
+<h1>PHI guard</h1>
+<p>Paste D0 text only (synthetic or public). <code>guard.guard.Guard</code> detects identifiers, merges spans and redacts
+them with type tags; the tripwire verdict is what tb-gateway checks on every D0–D2 call. Nothing is stored.</p>
+<form hx-post="/guard" hx-target="#guard-out" action="/guard" method="post">
+  <textarea name="text" rows="4" cols="90">{{ sample }}</textarea><br>
+  <button type="submit" data-testid="guard-run">Redact</button>
+</form>
+<div id="guard-out">{% if out %}{% include "_guard.html" %}{% endif %}</div>
+{% endblock %}

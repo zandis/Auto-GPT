@@ -19,6 +19,7 @@ dependencies = [
   "pyarrow>=17",
   "sqlglot>=25",
   "sqlalchemy>=2.0",
+  "psycopg[binary]>=3.1",  # durable steps, outbox and recall ledger on Postgres (S1-05, S1-12)
   "openpyxl>=3.1",
   "reportlab>=4.2",
   "matplotlib>=3.9",
@@ -68,6 +69,7 @@ where = ["libs", "services", "."]
 include = [
   "tb_contracts*", "tb_common*", "mail_gateway*", "doc_parser*", "criteria_compiler*",
   "adapter*", "lake*", "orchestrator*", "llm_stub*", "embed_service*", "tools*",
+  "tb_testkit*", "tb_llm*", "dataplat*", "gateway*", "registry*", "guard*", "tracestore*", "matching*", "frontdoor_mcp*", "channels*", "deliverables*",
 ]
 
 [tool.setuptools.package-data]

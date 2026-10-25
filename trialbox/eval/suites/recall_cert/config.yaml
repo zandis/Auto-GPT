@@ -1,0 +1,19 @@
+# recall_cert suite (spec v4 §10.14 SAFE-16, App. F.2; sprint task S1-12)
+# Run: PYTHONPATH=libs:services:. python -m orchestrator.recall.sim --config eval/suites/recall_cert/config.yaml
+suite: recall_cert
+data: synthetic Bernoulli draws only (no patient data)
+simulation:
+  rates: [0.005, 0.02]   # the stream is consumed in this order, as in tools/recall_sim.py
+  reps: 300              # ledgers per rate
+  months: 12             # monthly looks
+  per_month: 40          # audit draws per look
+  seed: 11
+  alpha: 0.05
+  workers: 4
+gate:
+  rate: 0.02
+  cs_miss_max: 0.05            # confidence sequence: miss-coverage over all 12 looks <= 5 %
+  cp_miss_min_exclusive: 0.05  # repeated Clopper–Pearson: the documented contrast exceeds 5 %
+reference:                     # python -m tools.recall_sim (seed 11), in-memory
+  "0.005": {cp_miss: 0.000, cs_miss: 0.000}
+  "0.02": {cp_miss: 0.097, cs_miss: 0.003}

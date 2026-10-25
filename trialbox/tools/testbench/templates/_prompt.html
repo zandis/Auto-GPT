@@ -1,0 +1,4 @@
+<div class="{{ 'pass-box' if out.allowed else 'fail-box' }}" data-testid="prompt-status">HTTP {{ out.status }}: {{ 'allowed' if out.allowed else 'refused' }} ({{ out.code }})</div>
+<details open><summary>Response body</summary><pre class="log">{{ out.body | tojson(indent=1) }}</pre></details>
+<details open><summary>Audit records (last {{ out.audit | length }}) · chain verify: {{ 'ok' if out.audit_ok else 'FAILED' }}</summary><pre class="log">{% for a in out.audit %}{{ a | tojson }}
+{% endfor %}</pre></details>
