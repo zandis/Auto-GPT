@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ t('login.title') }}{% endblock %}
+{% block content %}
+<section class="card narrow">
+<h1>{{ t('login.title') }}</h1>
+{% if uninitialised %}<p class="warn" role="alert">{{ t('login.uninitialised') }}</p>{% endif %}
+{% if failed %}<p class="error" role="alert" data-testid="login-error">{{ t('login.failed') }}</p>{% endif %}
+<form method="post" action="/login">
+  <input type="hidden" name="login_csrf" value="{{ login_csrf }}">
+  <label for="username">{{ t('login.user') }}</label>
+  <input id="username" name="username" autocomplete="username" required maxlength="64">
+  <label for="password">{{ t('login.password') }}</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256">
+  <button type="submit" data-testid="login-submit">{{ t('login.submit') }}</button>
+</form>
+</section>
+{% endblock %}

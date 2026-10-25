@@ -1,0 +1,66 @@
+# TrialBox proof of concept: the whole box + the test mail servers + the admin console with its pilot workspace.
+# Synthetic data only (D0). Start it with deploy/poc.sh (Linux, macOS, WSL2, DGX Spark) or deploy/poc.ps1 (Windows):
+#   docker compose --project-directory deploy -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml \
+#     -f deploy/docker-compose.poc.yml --profile stub --profile test up -d --wait
+# The console publishes on 127.0.0.1 only (TB_POC_BIND). For remote access put a TLS reverse proxy in front of it
+# (docs/RUNBOOK.md §9) and set TB_CONSOLE_SECURE_COOKIE=1. The pilot workspace refuses to start unless TB_ENV is DEV or
+# TEST and TB_DATA_CLASS is D0 (services/console/app.py).
+services:
+  console:
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
+              "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
+    env_file: [.env]
+    init: true
+    restart: unless-stopped
+    logging: {driver: json-file, options: {max-size: "50m", max-file: "5"}}
+    environment:
+      PORT: "8090"
+      TB_SERVICE_NAME: console
+      TB_ENV: "${TB_ENV:-TEST}"
+      TB_CONSOLE_PILOT: "${TB_CONSOLE_PILOT:-1}"
+      TB_DATA_CLASS: D0
+      TB_CONSOLE_DIR: /data/console
+      TB_AUDIT_DIR: /data/audit
+      TB_RULESETS_DIR: /data/rulesets
+      TB_GATEWAY_URL: "http://gateway:8020/v1"
+      TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}"
+      TB_CONSOLE_ADMIN_EMAIL: "${TB_POC_ADMIN_EMAIL:-admin@hospa.test}"
+      TB_CONSOLE_TEST_SMTP: "${TB_CONSOLE_TEST_SMTP-greenmail:3025}"
+      TB_CONSOLE_WEBMAIL_URL: "${TB_CONSOLE_WEBMAIL_URL:-http://127.0.0.1:8025}"
+      TB_CONSOLE_SOURCE_DIR: /data/source/site-a
+      TB_CONSOLE_SAMPLES_DIR: /data/samples
+      TB_CONSOLE_SNAPSHOT: "${TB_CONSOLE_SNAPSHOT:-2026-10-04}"
+      TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-0}"
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - console-data:/data/console
+      - audit-data:/data/audit
+      - rulesets-data:/data/rulesets:ro
+      - ${TB_SOURCE_DIR:-../tests/fixtures/synthetic_patients/site-a}:/data/source/site-a:ro
+      - ../tests/fixtures/protocols:/data/samples:ro
+      - ../eval/DATASETS.yaml:/app/eval/DATASETS.yaml:ro
+    networks: [trialbox-net, host-net]
+    ports: ["${TB_POC_BIND:-127.0.0.1}:${TB_HOST_CONSOLE_PORT:-8090}:8090"]
+    depends_on:
+      orchestrator: {condition: service_healthy}
+      mail-gateway: {condition: service_healthy}
+      gateway: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=4).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+  gateway:
+    # TB_LLM_MODE=openrouter (deploy/poc.sh): the key reaches this container only, from the environment of the
+    # `compose up` call (read from deploy/poc/secrets/openrouter_api_key or OPENROUTER_API_KEY); it is never written
+    # to a file in the repository. OpenRouter routes accept D0 only and exist only in TB_ENV=DEV (models/routing.yaml).
+    environment:
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+  mail-gateway:
+    environment:
+      TB_MAIL_POLL_SECONDS: "${TB_MAIL_POLL_SECONDS:-5}"
+
+volumes:
+  console-data:

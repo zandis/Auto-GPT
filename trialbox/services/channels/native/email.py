@@ -84,5 +84,6 @@ class EmailChannel(Channel):
             msg["In-Reply-To"] = out.in_reply_to
             msg["References"] = out.in_reply_to
         msg.set_content(out.text)
-        self.transport(self.sender_address, [out.to], msg.as_bytes())
+        # CRLF line ends on the wire (RFC 5322), as mail_gateway.outbound sends; bare LF breaks MailHog/MTAs
+        self.transport(self.sender_address, [out.to], msg.as_bytes(policy=policy.SMTP))
         return mid

@@ -23,6 +23,31 @@ hospital's own data.
 | NHI submission | `SUBMIT ONC-OSI pid=… bundle=<NAV job>` (physicians) | ClaimResponse (dry run by default) |
 | Cohort tables | `COHORT GOUT-COH` | alliance CSV, report, ClinicalTrials.gov trial simulation; `COHORT MERGE` at the alliance root |
 
+## Try the POC in 10 minutes (web console + e-mail, one command)
+
+Everything runs in Docker on synthetic data: the whole box, a test mail server (GreenMail in, MailHog web mail out)
+and the admin console. Works on Linux, macOS, WSL2, a DGX Spark, or a cloud VM; on Windows use PowerShell.
+
+```sh
+deploy/poc.sh                                  # or: make poc      Windows: powershell -File deploy\poc.ps1
+TB_LLM_MODE=openrouter deploy/poc.sh           # OpenRouter model (key: OPENROUTER_API_KEY or deploy/poc/secrets/openrouter_api_key)
+TB_LLM_MODE=gpu deploy/poc.sh                  # local GPU / DGX Spark (needs a pinned model, RUNBOOK §8)
+```
+
+The script builds the images when missing, writes random service passwords, starts the stack, creates the console
+administrator (the password is printed **once**), ingests the 600-patient synthetic hospital and prints the URLs:
+
+| URL | What |
+| --- | --- |
+| <http://127.0.0.1:8090> | Console. Sign in as `admin`. **New request** → FEAS on GZQO; **Protocol** → upload a protocol (or the bundled synthetic one), approve the review round, the feasibility runs; **Cascade (v4)** → DL-1 pack and recall certificate; every job page shows the attrition table, the PDF/XLSX downloads, the e-mail thread and the audit trail |
+| <http://127.0.0.1:8025> | Web mail (MailHog): every mail the box sends |
+| SMTP `127.0.0.1:3025` | Mail **to** the box (`trialbox@hospa.test`, from `admin@hospa.test`): the console's **Test mailbox** page, or `tools/send_test_mail.py "FEAS GZQO" --sender admin@hospa.test` |
+
+The web and e-mail paths are the same: a console action is the exact e-mail subject line (shown on the job page) and
+goes to the same orchestrator call, with the same permissions, audit and delivery rules; results also arrive by mail.
+Add a read-only user with `docker exec -i trialbox-console-1 python -m console.cli add-user ana --role viewer`. Stop
+with `deploy/poc.sh down` (`reset` deletes the data). Real mailbox, remote access with TLS, and details: RUNBOOK §9.
+
 ## 10-minute quickstart (synthetic data, no GPU)
 
 Prerequisites: Docker 27+ with compose, Python 3.12 and `uv`, about 15 GB of disk. Runs on Linux x86_64 and on

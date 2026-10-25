@@ -73,3 +73,38 @@ class MailDB:
         with self._lock:
             row = self._con.execute("SELECT job_id, subject FROM sent WHERE message_id = ?", (message_id,)).fetchone()
         return (row[0], str(row[1])) if row else None
+
+    def thread(self, job_id: str) -> list[dict[str, str]]:
+        """Inbound and outbound mail of one job, oldest first: metadata only (subject, parties, time, tag)."""
+        with self._lock:
+            inbound = self._con.execute(
+                "SELECT message_id, sender, received_at, action, COALESCE(reason, '') FROM intake WHERE job_id = ?",
+                (job_id,),
+            ).fetchall()
+            outbound = self._con.execute(
+                "SELECT message_id, subject, recipients, tag, sent_at FROM sent WHERE job_id = ?", (job_id,)
+            ).fetchall()
+        items = [
+            {
+                "direction": "in",
+                "at": str(at),
+                "subject": "",
+                "party": str(sender),
+                "tag": str(action),
+                "message_id": str(mid),
+                "note": str(reason),
+            }
+            for mid, sender, at, action, reason in inbound
+        ] + [
+            {
+                "direction": "out",
+                "at": str(at),
+                "subject": str(subject),
+                "party": str(rcpts),
+                "tag": str(tag),
+                "message_id": str(mid),
+                "note": "",
+            }
+            for mid, subject, rcpts, tag, at in outbound
+        ]
+        return sorted(items, key=lambda i: i["at"])

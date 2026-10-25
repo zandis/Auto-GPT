@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ t('request.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('request.title') }}</h1>
+{% if not user.is_admin %}<p class="warn">{{ t('request.viewer') }}</p>{% endif %}
+{% if error %}<p class="error" role="alert" data-testid="request-error">{{ error }}</p>{% endif %}
+{% if proposal %}
+<section class="card attention" data-testid="proposal">
+<h2>{{ t('request.proposal') }}</h2>
+<p><code data-testid="proposal-line">{{ proposal.line }}</code></p>
+<p class="hint">{{ t('request.proposal.source.' + proposal.source) }}</p>
+{% for n in proposal.notes %}<p class="hint">{{ n }}</p>{% endfor %}
+<form method="post" action="/pilot/propose/{{ proposal_id }}/confirm">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" data-testid="confirm">{{ t('request.confirm') }}</button>
+</form>
+</section>
+{% endif %}
+<div class="grid">
+<section class="card">
+<h2>{{ t('request.feas') }}</h2>
+{% if rulesets %}
+<form method="post" action="/pilot/request" data-testid="feas-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="FEAS">
+  <label for="feas-rs">{{ t('col.ruleset') }}</label>
+  <select id="feas-rs" name="ruleset">{% for r in rulesets if r.kind == 'trial' %}<option value="{{ r.id }}" {{ 'selected' if r.id == selected else '' }}>{{ r.id }} v{{ r.version }}</option>{% endfor %}</select>
+  <label for="feas-lb">{{ t('request.lookback') }}</label>
+  <input id="feas-lb" name="lookback" inputmode="numeric" pattern="[0-9]{1,3}" maxlength="3">
+  <button type="submit" {{ 'disabled' if not user.is_admin else '' }} data-testid="start-feas">{{ t('request.start') }}</button>
+</form>
+{% else %}<p>{{ t('request.no_rulesets') }}</p>{% endif %}
+</section>
+<section class="card">
+<h2>{{ t('request.screen') }}</h2>
+{% if rulesets %}
+<form method="post" action="/pilot/request">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="SCREEN">
+  <label for="scr-rs">{{ t('col.ruleset') }}</label>
+  <select id="scr-rs" name="ruleset">{% for r in rulesets if r.kind == 'trial' %}<option value="{{ r.id }}" {{ 'selected' if r.id == selected else '' }}>{{ r.id }} v{{ r.version }}</option>{% endfor %}</select>
+  <label for="scr-v">{{ t('request.version') }}</label>
+  <input id="scr-v" name="version" value="{{ (rulesets|selectattr('kind', 'equalto', 'trial')|first).version if rulesets else '' }}" pattern="[0-9]+\.[0-9]+\.[0-9]+">
+  <button type="submit" {{ 'disabled' if not user.is_admin else '' }}>{{ t('request.start') }}</button>
+</form>
+{% endif %}
+</section>
+</div>
+<section class="card">
+<h2>{{ t('request.free') }}</h2>
+<p class="hint">{{ t('request.free.help') }}</p>
+<form method="post" action="/pilot/propose">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="text" class="sr">{{ t('request.free') }}</label>
+  <textarea id="text" name="text" rows="3" maxlength="2000" required placeholder="GZQO 這個試驗做得起來嗎？ / Is GZQO feasible here? / FEAS GZQO lookback=36"></textarea>
+  <button type="submit" {{ 'disabled' if not user.is_admin else '' }} data-testid="propose">{{ t('request.propose') }}</button>
+</form>
+</section>
+{% endblock %}
