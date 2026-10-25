@@ -220,3 +220,31 @@ def test_outbound_smime(tmp_path: Path) -> None:
     assert b"multipart/signed" in plain and b"pkcs7-signature" in plain and b"list.xlsx" in plain
     with pytest.raises(Exception, match="no S/MIME certificate"):
         smime_wrap(EmailMessage(), ["nurse@hospa.test"], {}, sdir)
+
+
+def test_reply_to_subject_with_encoded_crlf(tmp_path: Path) -> None:
+    """An encoded-word subject that decodes to CR/LF is rejected with a one-line reply subject (it used to raise in
+    the auto-reply and abort the IMAP poll)."""
+    from mail_gateway.gateway import Gateway
+    from tb_common.audit import AuditLog
+    from tb_common.config import Config, load_env
+
+    env = load_env(dotenv=tmp_path / "none.env", environ={"MAIL_FROM_ADDR": "trialbox@hospa.test"})
+    sent: list[bytes] = []
+    gw = Gateway(
+        Config(env=env, settings=SETTINGS),
+        FsStore(tmp_path / "obj"),
+        MailDB(tmp_path / "m.sqlite"),
+        AuditLog(tmp_path / "audit", "Asia/Taipei"),
+        lambda _frm, _to, data: sent.append(data),
+        jobs=lambda req: pytest.fail("no job for a malformed subject"),
+        secrets_dir=tmp_path,
+    )
+    raw = (
+        b"From: crc1@hospa.test\r\nTo: trialbox@hospa.test\r\nMessage-ID: <crlf@hospa.test>\r\n"
+        b"Subject: =?utf-8?q?hello=0D=0ABcc:_evil@evil.example?=\r\n\r\nx"
+    )
+    assert gw.handle(raw) == "Rejected"
+    assert len(sent) == 1
+    reply = message_from_bytes(sent[0], policy=policy.default)
+    assert reply["Subject"] == "Re: hello Bcc: evil@evil.example" and reply["Bcc"] is None

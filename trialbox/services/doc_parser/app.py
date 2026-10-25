@@ -9,7 +9,7 @@ from tb_common.http import make_app
 from tb_common.objstore import ObjectStore, from_config
 from tb_contracts import ParsedDoc, ParseRequest
 
-from doc_parser.parser import parse
+from doc_parser.parser import UnreadableDocument, parse
 
 app = make_app("doc-parser")
 _store: ObjectStore | None = None
@@ -37,4 +37,9 @@ def parse_doc(req: ParseRequest) -> ParsedDoc:
         data = store().get(req.minio_key)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"object not found: {req.minio_key}") from exc
-    return parse(data, req.minio_key.rsplit("/", 1)[-1], _ie_locator(req.job_id))
+    try:
+        return parse(data, req.minio_key.rsplit("/", 1)[-1], _ie_locator(req.job_id))
+    except UnreadableDocument as exc:
+        raise HTTPException(
+            status_code=422, detail={"step": "parsing", "message": f"{exc}. Send the protocol as a PDF or DOCX."}
+        ) from exc

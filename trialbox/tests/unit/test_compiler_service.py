@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 import tb_contracts as c
 from criteria_compiler.compile_cql.translator import Translation
@@ -210,3 +211,14 @@ def test_incremental_compile_and_diff(env: dict[str, Any]) -> None:
     assert by_id["GZQO-EXC-06"].text == "HbA1c >9.5% at screening."  # changed criterion keeps its id
     assert by_id["GZQO-EXC-15"].text.startswith("Body mass index")
     assert env["gate"].calls == calls + 1
+
+
+def test_model_without_usable_json_is_a_compile_failure_not_a_500(env: dict[str, Any]) -> None:
+    env["deps"].llm.http = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _r: httpx.Response(200, json={"choices": [{"message": {"content": ""}}], "usage": {}})
+        )
+    )
+    with pytest.raises(CompileFailed, match="did not return usable criteria") as exc:
+        _compile(env)
+    assert exc.value.step == "ir_extract"

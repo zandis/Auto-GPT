@@ -559,3 +559,21 @@ def test_production_console_has_only_control_plane_routes(tmp_path: Path) -> Non
     jobs = c.get("/jobs").text
     assert "/pilot/" not in jobs and "GZQO-INC-01" not in jobs  # metadata only: no study content
     assert c.get(f"/pilot/jobs/{next(iter(backend.jobs))}").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("text", "line"),
+    [
+        ("How many gout patients could we enrol in GZQO over the last 3 years?", "FEAS GZQO lookback=36"),
+        ("請幫我評估GZQO試驗在本院過去三年的可收案人數", "FEAS GZQO lookback=36"),
+        ("GZQO試験の過去3年間の候補患者数を教えてください", "FEAS GZQO lookback=36"),
+        ("幫我跑 feasibility for GZQO, lookback 24個月", "FEAS GZQO lookback=24"),
+    ],
+)
+def test_proposal_keeps_the_study_and_lookback_the_text_states(text: str, line: str) -> None:
+    """A small hosted model often returned FEAS with no study or look-back (stress test 2026-10-25): the console fills
+    only those empty fields from the text itself."""
+    assert propose(text, "en", lambda _t, _l: ClassifiedIntent(type="FEAS")).line == line
+    two = "Could we run GZQO or RA-BIO here?"
+    with pytest.raises(ProposalError, match="Which study"):
+        propose(two, "en", lambda _t, _l: ClassifiedIntent(type="FEAS"))

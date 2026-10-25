@@ -8,7 +8,7 @@ import pytest
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import logic_summary, parse_review_xlsx, review_xlsx
 from criteria_compiler.terminology.mapper import Terminology, ValueSets, valueset
-from doc_parser.parser import items, parse
+from doc_parser.parser import UnreadableDocument, items, parse
 from openpyxl import load_workbook
 from tb_contracts import CriterionIR, dump_json
 
@@ -179,3 +179,12 @@ def test_wrapped_numeric_lines_stay_in_their_criterion() -> None:
     ]
     assert doc.ie_block.exclusion == ["Pregnancy"]
     assert [s.title for s in doc.sections][-1] == "6.1 Study Intervention"
+
+
+@pytest.mark.parametrize(
+    ("name", "data"),
+    [("empty.pdf", b""), ("garbage.pdf", b"%PDF-1.4 garbage" + bytes(range(256)) * 8), ("bad.docx", b"PK not a zip")],
+)
+def test_unreadable_documents_raise_a_reason(name: str, data: bytes) -> None:
+    with pytest.raises(UnreadableDocument, match=name):
+        parse(data, name)

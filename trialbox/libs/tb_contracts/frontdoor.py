@@ -105,7 +105,12 @@ FRONTDOOR_TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="tb.submit_request",
         tier=Tier.T0,
-        description="Creates a typed request in state proposed; nothing runs until the sender confirms it.",
+        description=(
+            "Creates a typed request in state proposed; nothing runs until the sender confirms it. Types: FEAS (site "
+            "feasibility: how many local patients meet a study's criteria over a look-back such as lookback=36m), "
+            "SCREEN (candidate list for a study), ASK (protocol question), QFILL, MATCH, REPORT and others. Local "
+            "patient counts come only from a confirmed FEAS request."
+        ),
         roles=("staff",),
         limit=5,
     ),
@@ -127,7 +132,8 @@ FRONTDOOR_TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="tb.registry_search",
         tier=Tier.T0,
-        description="Search of the local public trial registry index.",
+        description="Search of the local public trial registry index (public trial records); it holds no local "
+        "patient counts and no site rulesets.",
         roles=("staff",),
         limit=60,
         output_class=D0,

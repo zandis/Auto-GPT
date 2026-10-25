@@ -25,7 +25,7 @@ from orchestrator.reports import docx_draft, nav_xlsx
 from orchestrator.reports.common import ReportMeta
 from orchestrator.scenarios import facts as factmod
 from orchestrator.scenarios import twpas
-from orchestrator.scenarios.evaluate import PatientVerdicts, evaluate_patients
+from orchestrator.scenarios.evaluate import PatientVerdicts, check_judge, evaluate_patients
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     judge_for,
@@ -159,6 +159,7 @@ def run(ctx: Ctx) -> Outcome:
         all_candidates=True,
         kinds=("inclusion", "exclusion", "renewal", "documentation"),
     )
+    check_judge(judge)
     if judge is not None:
         m = ctx.job.metrics
         ctx.metrics(

@@ -113,7 +113,8 @@ class Gateway:
         msg = EmailMessage()
         msg["From"] = self.sender
         msg["To"] = m.sender
-        msg["Subject"] = f"Re: {m.subject}"[:200] if m.subject else "TrialBox"
+        subject = " ".join(m.subject.split())  # an encoded-word may decode to CR/LF, which no header may carry
+        msg["Subject"] = f"Re: {subject}"[:200] if subject else "TrialBox"
         msg["Date"] = format_datetime(now(self.cfg.env.tz))
         msg["Message-ID"] = make_msgid(domain=self.sender.rsplit("@", 1)[-1])
         msg["In-Reply-To"] = m.message_id
@@ -121,7 +122,7 @@ class Gateway:
         msg.set_content(text)
         try:
             self.transport(self.sender, [m.sender], bytes(msg))
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             log.warning("reply to %s failed: %s", m.sender, exc)
 
     # ------------------------------------------------------------------ inbound
@@ -185,7 +186,11 @@ class Gateway:
                 typ, got = conn.uid("FETCH", uid, "(BODY.PEEK[])")
                 if typ != "OK" or not got or not isinstance(got[0], tuple):
                     continue
-                folder = self.handle(bytes(got[0][1]))
+                try:
+                    folder = self.handle(bytes(got[0][1]))
+                except Exception:  # one bad message must not stop the rest of the batch; retried next poll
+                    log.exception("could not process message uid %s", uid.decode(errors="replace"))
+                    continue
                 if folder is None:
                     continue
                 conn.create(folder)  # NO when it exists; harmless

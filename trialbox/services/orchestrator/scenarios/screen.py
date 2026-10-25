@@ -26,6 +26,7 @@ from orchestrator.scenarios.evaluate import (
     NoteJudge,
     PatientVerdicts,
     StructuredEngine,
+    check_judge,
     engine_from_env,
     evaluate_patients,
     row,
@@ -191,6 +192,7 @@ def evaluate_scope(
         only=only,
         all_candidates=all_candidates,
     )
+    check_judge(judge)
     tiers = {t: sum(1 for v in res.values() if v.tier == t) for t in ("high", "review", "excluded")}
     ctx.orch.audit.append(
         "screen.evaluated",

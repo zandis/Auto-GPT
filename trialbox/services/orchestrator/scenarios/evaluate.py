@@ -145,6 +145,7 @@ class NoteJudge:
     calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
+    failures: int = 0  # judge calls that got no answer (model down, timeout, out-of-schema)
 
     def excerpts(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
         lo, hi = note_window(c, index_date)
@@ -205,11 +206,31 @@ class NoteJudge:
                 job_id=self.job_id,
             )
         except LlmError as exc:
+            self.failures += 1
             return NoteResult("unknown", 0.0, reason=f"judge unavailable: {str(exc)[:120]}", source=source)
         self.calls += 1
         self.tokens_in += res.tokens_in
         self.tokens_out += res.tokens_out
         return postprocess(res.data, excerpts, source)
+
+
+# a few unanswered note checks stay "unknown" (manual review); more than this share means the model was down and the
+# list would silently be a structured-only list, so the job fails instead
+MAX_JUDGE_FAILURE_SHARE = 0.1
+
+
+def check_judge(judge: NoteJudge | None) -> None:
+    if judge is None or not judge.failures:
+        return
+    total = judge.calls + judge.failures
+    if judge.failures > MAX_JUDGE_FAILURE_SHARE * total:
+        from orchestrator.clients import StepFailed
+
+        raise StepFailed(
+            "judging",
+            f"The model did not answer {judge.failures} of {total} note checks, so the note-based criteria could not "
+            f"be judged. Nothing was sent; send the request again when the model is back.",
+        )
 
 
 def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str = "chunks") -> NoteResult:

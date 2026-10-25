@@ -9,7 +9,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from llm_stub.app import app as stub
-from orchestrator.scenarios.evaluate import eligibility, postprocess, tier
+from orchestrator.clients import StepFailed
+from orchestrator.scenarios.evaluate import NoteJudge, check_judge, eligibility, postprocess, tier
 from orchestrator.scenarios.terms import keywords
 from tb_common.llm import LlmClient
 from tb_common.ruleset import Ruleset
@@ -74,3 +75,13 @@ def test_judge_set_agreement_real_model() -> None:
         pytest.skip("TB_JUDGE_LLM_URL not set")
     items = [json.loads(x) for x in SET.read_text(encoding="utf-8").splitlines()]
     assert evaluate(items, _llm())["agreement"] >= 0.90
+
+
+def test_model_outage_fails_the_job_instead_of_an_all_unknown_list() -> None:
+    judge = NoteJudge(lake=None, llm=None)  # type: ignore[arg-type]
+    check_judge(judge)
+    judge.calls, judge.failures = 95, 5  # a few unanswered checks stay "unknown" for manual review
+    check_judge(judge)
+    judge.calls, judge.failures = 0, 25  # the gateway was down for the whole run
+    with pytest.raises(StepFailed, match="25 of 25 note checks"):
+        check_judge(judge)

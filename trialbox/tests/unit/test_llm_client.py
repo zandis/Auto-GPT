@@ -107,3 +107,27 @@ def test_schema_violation_retry_then_error(tmp_path: Path) -> None:
     c.http = httpx.Client(transport=httpx.MockTransport(always_bad))
     with pytest.raises(LlmSchemaError):
         c.chat_json("judge", {"criterion_text": "x", "note_question": "q", "index_date": "2026-01-01", "excerpts": []})
+
+
+def test_truncated_answer_is_asked_again_with_a_larger_budget(tmp_path: Path) -> None:
+    """gpt-oss / nemotron spend most of max_tokens on reasoning; the cut-off JSON (finish_reason "length") was treated
+    as a schema violation and lost 17-43 % of the judge calls in the 2026-10-25 stress test."""
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        if len(bodies) == 1:
+            choice = {"message": {"content": '{\n  "verdict": "pass",\n  "quote": "急性痛'}, "finish_reason": "length"}
+        else:
+            choice = {
+                "message": {"content": json.dumps({"verdict": "unknown", "confidence": 0.5})},
+                "finish_reason": "stop",
+            }
+        return httpx.Response(200, json={"choices": [choice], "usage": {}})
+
+    c = LlmClient("http://x/v1", "m", audit=AuditLog(tmp_path))
+    c.http = httpx.Client(transport=httpx.MockTransport(handler))
+    r = c.chat_json("judge", {"criterion_text": "x", "note_question": "q", "index_date": "2026-01-01", "excerpts": []})
+    assert r.attempts == 2 and r.data["verdict"] == "unknown"
+    assert bodies[1]["max_tokens"] == 4 * bodies[0]["max_tokens"]
+    assert bodies[1]["messages"] == bodies[0]["messages"]  # the same question, not a "fix your JSON" turn
