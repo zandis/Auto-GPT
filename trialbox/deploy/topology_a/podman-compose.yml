@@ -1,0 +1,32 @@
+# Topology A (on premises), workflow store for durable steps, outbox and recall ledger (spec v4 §11.0; S1-05, S1-12).
+# Minimal: the PostgreSQL service only. The orchestrator connects with TB_PG_DSN, e.g.
+#   postgresql://trialbox:<password>@127.0.0.1:5432/trialbox_wf
+# Run: podman-compose -f deploy/topology_a/podman-compose.yml up -d
+services:
+  workflow-db:
+    # TODO(pin): replace with an image pinned by digest (postgres:16-alpine@sha256:<digest>) after verifying the
+    # digest from the registry. No digest is invented here; until pinned, POSTGRES_WF_IMAGE must be set explicitly.
+    image: ${POSTGRES_WF_IMAGE:?set POSTGRES_WF_IMAGE to a digest-pinned postgres:16 image (TODO pin)}
+    environment:
+      POSTGRES_DB: trialbox_wf
+      POSTGRES_USER: trialbox
+      POSTGRES_PASSWORD_FILE: /run/secrets/workflow_db_password
+    secrets:
+      - workflow_db_password
+    volumes:
+      - workflow-db:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${TB_HOST_WORKFLOW_DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trialbox -d trialbox_wf"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+secrets:
+  workflow_db_password:
+    file: ./secrets/workflow_db_password
+
+volumes:
+  workflow-db:

@@ -1,0 +1,95 @@
+# Model registry (spec v4 §8.4, S1-07): alias -> pinned build. The gateway resolves aliases only through this file
+# (services/registry). Builds are immutable (MOD-7): a new revision is a new build_id.
+#
+# sha256 is the digest of the build's weight manifest (per-file SHA-256 list). A null sha256 means "not yet pinned":
+# the registry refuses to route to such a build, except the stub in DEV/TEST. Hashes are filled in only from a
+# verified download at qualification (MOD-2, MOD-8); none is guessed here. Licence facts marked verified: false
+# must be confirmed by legal review before the build moves past `candidate`.
+#
+# Status rules for routing (MOD-7): production roles resolve to `champion`, `shadow:<role>` to `shadow`, evaluation
+# roles to `qualified` or better; in DEV/TEST any status except `retired` and `suspended` may be used.
+version: registry-2026-10-25.1
+
+aliases:
+  trialbox-stub: {class: J, description: "deterministic OpenAI-compatible stub (services/llm_stub), DEV/TEST only"}
+  j-workhorse: {class: J, description: "judge / workhorse (judging, extraction, intake, drafting)"}
+  v-verifier: {class: V, description: "verifier (second opinion, second extraction)"}
+  f-frontdesk: {class: F, description: "front desk (frontdesk_converse, tools, at least 64k context)"}
+  g-guard: {class: G, description: policy and injection classifiers}
+  e-embed: {class: E, description: "embeddings and reranking"}
+  x-external: {class: X, description: "topology C external build (D0-D2), per contract"}
+
+builds:
+  - build_id: trialbox-stub-1
+    alias: trialbox-stub
+    status: champion
+    serving: stub
+    served: {stub: trialbox-stub}
+    sha256: null
+    revision: null
+    repository: services/llm_stub (this repository)
+    quantisation: none
+    context_length: null
+    family: trialbox-stub
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
+    origin: {developer: TrialBox, country: TW, non_prc: true}
+
+  - build_id: nemotron-3-nano-candidate
+    alias: j-workhorse
+    status: candidate
+    serving: vllm
+    served: {serving: null, openrouter: null}
+    sha256: null
+    revision: null
+    repository: null
+    quantisation: null
+    context_length: null
+    family: nemotron
+    model_name: Nemotron 3 Nano
+    licence: {name: NVIDIA open model licence (version to confirm), spdx: null, verified: false}
+    origin: {developer: NVIDIA, country: US, non_prc: true}
+
+  - build_id: nemotron-3-super-candidate
+    alias: v-verifier
+    status: candidate
+    serving: vllm
+    served: {serving: null, openrouter: null}
+    sha256: null
+    revision: null
+    repository: null
+    quantisation: null
+    context_length: null
+    family: nemotron
+    model_name: Nemotron 3 Super
+    licence: {name: NVIDIA open model licence (version to confirm), spdx: null, verified: false}
+    origin: {developer: NVIDIA, country: US, non_prc: true}
+
+  - build_id: qwen3.5-35b-a3b-candidate
+    alias: j-workhorse
+    status: candidate
+    serving: vllm
+    served: {serving: null, openrouter: null}
+    sha256: null
+    revision: null
+    repository: null
+    quantisation: 4-bit (recipe to record at qualification)
+    context_length: null
+    family: qwen
+    model_name: Qwen3.5-35B-A3B
+    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
+
+  - build_id: gpt-oss-120b-candidate
+    alias: v-verifier
+    status: candidate
+    serving: vllm
+    served: {serving: null, openrouter: null}
+    sha256: null
+    revision: null
+    repository: null
+    quantisation: MXFP4
+    context_length: null
+    family: gpt-oss
+    model_name: gpt-oss-120b
+    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: OpenAI, country: US, non_prc: true}

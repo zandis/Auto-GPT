@@ -23,6 +23,7 @@ contracts:
 
 contracts-check:
 	$(PY) tools/gen_contracts.py --check
+	PYTHONPATH=libs:services:. $(PY) -m tb_contracts.criterion_ir --check
 
 lint: contracts-check
 	$(PY) -m ruff check .

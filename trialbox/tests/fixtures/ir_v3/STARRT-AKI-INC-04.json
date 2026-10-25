@@ -1,0 +1,25 @@
+{
+ "ir_version": "3.0.0",
+ "id": "STARRT-AKI-INC-04",
+ "ruleset": "STARRT-AKI/v3-example",
+ "kind": "inclusion",
+ "class": "structured",
+ "text": {"source": "Severe AKI: ≥2-fold increase in serum creatinine from baseline; or serum creatinine ≥354 µmol/L with a minimum increase of 27 µmol/L; or urine output <6.0 mL/kg over the preceding 12 hours.", "lang": "en", "source_ref": "ClinicalTrials.gov NCT02568722 eligibility: Inclusion #4"},
+ "logic": {"op": "or", "args": ["a1", {"op": "and", "args": ["a2", "a3"]}, "a4"]},
+ "atoms": [
+  {"id": "a1", "domain": "observation", "valueset": "VS_SERUM_CREATININE", "quantifier": "latest",
+   "window": {"from_days": -30, "to_days": 0, "anchor": "index"},
+   "change": {"kind": "ratio", "op": ">=", "num": 2,
+              "baseline": {"pick": "min", "window": {"from_days": -365, "to_days": -1, "anchor": "index"}}}},
+  {"id": "a2", "domain": "observation", "valueset": "VS_SERUM_CREATININE", "quantifier": "latest",
+   "value": {"op": ">=", "num": 354, "unit": "umol/L"}, "window": {"from_days": -30, "to_days": 0, "anchor": "index"}},
+  {"id": "a3", "domain": "observation", "valueset": "VS_SERUM_CREATININE", "quantifier": "latest",
+   "window": {"from_days": -30, "to_days": 0, "anchor": "index"},
+   "change": {"kind": "absolute", "op": ">=", "num": 27, "unit": "umol/L",
+              "baseline": {"pick": "min", "window": {"from_days": -365, "to_days": -1, "anchor": "index"}}}},
+  {"id": "a4", "domain": "observation", "valueset": "VS_URINE_OUTPUT",
+   "value": {"op": "<", "num": 6.0, "unit": "mL/kg"}, "window": {"from_days": -1, "to_days": 0, "anchor": "index"},
+   "aggregate": {"fn": "sum", "over_hours": 12, "per_weight_kg": true, "weight_valueset": "VS_BODY_WEIGHT"}}
+ ],
+ "time_sensitive": true
+}

@@ -1,0 +1,231 @@
+# Routing policy for tb-gateway (spec v4 §8.5, LLM-11, S1-06). Versioned; changes go through G5 (§8.16).
+#
+# A route maps (role, data class, topology, environment[, hardware profile]) to an ordered list of
+# `alias@endpoint` candidates. The gateway evaluates every candidate with tb_common.policy.classes.may_reach before
+# use, so a wrong row here cannot send D3/D4 outside the perimeter; tests/unit/test_routing_policy.py also proves the
+# shipped file has no such row. Fallbacks move only down a route's list (§8.2).
+#
+# Endpoint zones: perimeter (on box or the attested tenant), tre (Z-TRE), external (vendor model, topology C),
+# dev_public (developer / bake-off endpoints, Z-DEV). Only tb-gateway reads endpoint addresses (LLM-1);
+# deploy/egress.py turns the non-perimeter hosts into egress rules for the gateway container only (NFR-B9).
+version: routing-2026-10-25.1
+
+# MOD-4 sampling the gateway forces on every role except free-form ones (frontdesk_converse)
+sampling: {temperature: 0, top_p: 1, seed: 20261025}
+
+profiles: [P-GB10, P-5090, P-Scale, P-Mac]
+topologies: [A, B, C]
+environments: [DEV, TEST, VALIDATION, PRODUCTION]
+
+endpoints:
+  stub:
+    zone: perimeter
+    url_env: TB_EP_STUB_URL
+    default_url: http://llm-stub:8000/v1
+    environments: [DEV, TEST]
+    cost: {gpu_second_usd: 0.0}
+  serving:
+    # on-box serving router (topology A) or the tenant serving router (topology B); same zone either way
+    zone: perimeter
+    url_env: TB_EP_SERVING_URL
+    default_url: http://llm-service:8000/v1
+    cost: {gpu_second_usd: 0.0001} # (est.) amortised P-GB10 hardware + power per productive GPU-second, §8.11
+  embed:
+    zone: perimeter
+    url_env: TB_EP_EMBED_URL
+    default_url: http://embed-service:8014/v1
+    cost: {gpu_second_usd: 0.0001}
+  external_x:
+    # topology C vendor endpoint; disabled until a G5 record approves it with verified attributes (§7.15, §8.5)
+    zone: external
+    url_env: TB_EP_EXTERNAL_URL
+    default_url: ""
+    api_key_env: TB_EP_EXTERNAL_KEY
+    g5_record: null
+    conditions:
+      processing_geography: in_country
+      retention: zero_data_retention
+      training_use: none
+      regional_endpoint: true
+    cost: {usd_per_1k_in: 0.0, usd_per_1k_out: 0.0}
+  openrouter:
+    # development bake-off endpoint (Z-DEV); D0 only (LLM-33)
+    zone: dev_public
+    url_env: TB_EP_OPENROUTER_URL
+    default_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    environments: [DEV]
+    g5_record: dev-only
+    conditions:
+      processing_geography: any
+      retention: provider_standard
+      training_use: none
+    cost: {usd_per_1k_in: 0.0, usd_per_1k_out: 0.0}
+
+purposes: [feasibility, validation, evaluation, qa, "prescreen:*", screening, protocol_ingest, intake, documents, ops,
+  development]
+
+# Role table (§8.15). cacheable: the gateway response cache may serve it (D0/D1 only, §8.12).
+roles:
+  classify_intent: {group: converse, degraded: queue}
+  frontdesk_converse: {group: converse, degraded: native, free_form: true}
+  summarise_external: {group: documents, degraded: manual}
+  match_criterion_library: {group: protocol, degraded: queue, cacheable: true}
+  extract_criteria: {group: protocol, degraded: queue, cacheable: true}
+  extract_soa: {group: protocol, degraded: manual, cacheable: true}
+  concept_select: {group: protocol, degraded: manual, cacheable: true}
+  answer_protocol: {group: protocol, degraded: queue, cacheable: true}
+  map_questionnaire: {group: protocol, degraded: manual, cacheable: true}
+  draft_document: {group: protocol, degraded: manual}
+  propose_mapping: {group: mapping, degraded: manual, cacheable: true}
+  judge: {group: patient, degraded: deterministic_only}
+  second_opinion: {group: patient, degraded: deterministic_only}
+  registry_match_patient: {group: patient, degraded: queue}
+  match_keywords: {group: patient, degraded: deterministic_only}
+  abstract_field: {group: patient, degraded: manual}
+  draft_query_answer: {group: patient, degraded: manual}
+  s2b_screen: {group: vectors, degraded: s2b_off}
+  embed: {group: vectors, degraded: s2b_off}
+  rerank: {group: vectors, degraded: s2b_off}
+  draft_narrative: {group: aggregate, degraded: queue}
+  summarise_aggregate: {group: aggregate, degraded: native_table}
+  ops_explain: {group: ops, degraded: none}
+  guard_policy: {group: guard, degraded: fail_closed}
+  guard_injection: {group: guard, degraded: fail_closed}
+  phi_ner: {group: guard, degraded: fail_closed}
+  bakeoff: {group: evaluation, degraded: skip, cacheable: true}
+  optimise_prompt: {group: evaluation, degraded: skip}
+
+# Caller identity: the X-TB-Caller service id (mTLS certificate subject from MS1) and what it may ask for (LLM-48).
+callers:
+  orchestrator:
+    roles: [judge, second_opinion, registry_match_patient, match_keywords, abstract_field, draft_query_answer,
+      s2b_screen, embed, rerank, draft_narrative, summarise_aggregate, draft_document, summarise_external,
+      "shadow:*"]
+    purposes: [screening, feasibility, "prescreen:*", qa, validation, documents]
+  criteria-compiler:
+    roles: [match_criterion_library, extract_criteria, concept_select, answer_protocol, propose_mapping,
+      map_questionnaire]
+    purposes: [protocol_ingest, feasibility]
+  doc-parser:
+    roles: [extract_criteria, extract_soa, summarise_external]
+    purposes: [protocol_ingest, documents]
+  matching:
+    roles: [registry_match_patient, match_keywords, judge, embed, rerank]
+    purposes: [screening, "prescreen:*", feasibility]
+  frontdoor-mcp:
+    roles: [answer_protocol, summarise_aggregate]
+    purposes: [intake, feasibility]
+  hermes:
+    roles: [frontdesk_converse, classify_intent]
+    purposes: [intake]
+  converse-native:
+    roles: [classify_intent, frontdesk_converse]
+    purposes: [intake]
+  guard:
+    roles: [guard_policy, guard_injection, phi_ner]
+    purposes: [qa, intake, screening, documents]
+  admin-copilot:
+    roles: [ops_explain]
+    purposes: [ops]
+  eval:
+    roles: [bakeoff, optimise_prompt, "shadow:*", judge, second_opinion, extract_criteria, classify_intent]
+    purposes: [evaluation, development, validation]
+  testbench:
+    roles: ["*"]
+    purposes: [development, evaluation]
+
+routes:
+  # ------------------------------------------------------------------ validation / production (§8.5 table)
+  - id: converse
+    roles: ["@converse"]
+    classes: [D1, D3]
+    topologies: [A, B, C]
+    environments: [VALIDATION, PRODUCTION]
+    builds: [f-frontdesk@serving, j-workhorse@serving] # cloud routes never receive conversation text
+  - id: documents-d1
+    roles: ["@documents"]
+    classes: [D0, D1]
+    topologies: [A, B, C]
+    environments: [VALIDATION, PRODUCTION]
+    builds: [j-workhorse@serving, x-external@external_x] # external only under topology C + opt-in (may_reach)
+  - id: documents-d3
+    roles: ["@documents"]
+    classes: [D3]
+    topologies: [A, B, C]
+    environments: [PRODUCTION]
+    builds: [j-workhorse@serving]
+  - id: protocol
+    roles: ["@protocol"]
+    classes: [D0, D1]
+    topologies: [A, B, C]
+    environments: [VALIDATION, PRODUCTION]
+    builds: [j-workhorse@serving, v-verifier@serving, x-external@external_x]
+    external_requires: [sponsor_consent] # the Study Card records sponsor consent (D1)
+  - id: mapping
+    roles: ["@mapping"]
+    classes: [D1]
+    topologies: [A, B, C]
+    environments: [VALIDATION, PRODUCTION]
+    builds: [j-workhorse@serving, x-external@external_x]
+  - id: patient
+    roles: ["@patient"]
+    classes: [D3]
+    topologies: [A, B, C]
+    environments: [PRODUCTION]
+    builds: [j-workhorse@serving, v-verifier@serving] # never external
+  - id: patient-validation
+    roles: ["@patient"]
+    classes: [D2-L]
+    topologies: [A, B, C]
+    environments: [VALIDATION, PRODUCTION]
+    builds: [j-workhorse@serving, v-verifier@serving]
+  - id: vectors
+    roles: ["@vectors"]
+    classes: [D1, D3]
+    topologies: [A, B, C]
+    environments: [VALIDATION, PRODUCTION]
+    builds: [e-embed@embed]
+  - id: aggregate
+    roles: ["@aggregate"]
+    classes: [D1]
+    topologies: [A, B, C]
+    environments: [VALIDATION, PRODUCTION]
+    builds: [j-workhorse@serving, f-frontdesk@serving, x-external@external_x]
+  - id: ops
+    roles: ["@ops"]
+    classes: [D1]
+    topologies: [A, B, C]
+    environments: [VALIDATION, PRODUCTION]
+    builds: [f-frontdesk@serving, x-external@external_x]
+  - id: guard
+    roles: ["@guard"]
+    classes: [D0, D1, D2-L, D3, D4]
+    topologies: [A, B, C]
+    environments: [DEV, TEST, VALIDATION, PRODUCTION]
+    builds: [g-guard@serving] # never external
+  - id: shadow
+    roles: ["shadow:*"]
+    classes: [D1, D3]
+    topologies: [A, B, C]
+    environments: [PRODUCTION]
+    builds: [j-workhorse@serving, v-verifier@serving]
+  # ------------------------------------------------------------------ development and test (D0 only, §17.8)
+  - id: bakeoff
+    roles: ["@evaluation"]
+    classes: [D0]
+    topologies: [A, B, C]
+    environments: [DEV]
+    builds: [j-workhorse@openrouter, v-verifier@openrouter]
+  - id: dev-public
+    roles: ["@protocol", "@converse", "@documents", "@patient", "@aggregate"]
+    classes: [D0]
+    topologies: [A, B, C]
+    environments: [DEV]
+    builds: [trialbox-stub@stub, j-workhorse@openrouter]
+  - id: dev-stub
+    roles: ["*"]
+    classes: [D0]
+    topologies: [A, B, C]
+    environments: [DEV, TEST]
+    builds: [trialbox-stub@stub]
