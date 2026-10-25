@@ -66,6 +66,9 @@ class PilotRefused(RuntimeError):
     """The pilot workspace was requested where it may not run."""
 
 
+_CLASS = re.compile(r"<td>(?:inclusion|exclusion)</td><td>(structured|note|human)</td>")
+
+
 def _num(v: object) -> object:
     """1.0 -> 1 for counts of people; anything else unchanged."""
     return int(v) if isinstance(v, float) and v.is_integer() else v
@@ -445,10 +448,25 @@ def create_app(
         books = [o for o in job.outputs or [] if o.filename.startswith("review_") and o.filename.endswith(".xlsx")]
         return sorted(books, key=lambda o: o.filename)[-1] if books else None
 
+    def _check_split(review_html: JobOutput | None) -> dict[str, int] | None:
+        """How many criteria the filter, the model on notes, and a person check (the review table's class column)."""
+        if review_html is None:
+            return None
+        try:
+            found = _CLASS.findall(bk.get_object(review_html.minio_key).decode("utf-8", "replace"))
+        except (KeyError, OSError):
+            return None
+        if not found:
+            return None
+        return {"n": len(found), "s": found.count("structured"), "m": found.count("note"), "h": found.count("human")}
+
     @app.get("/pilot/jobs/{job_id}", response_class=HTMLResponse)
     def job_view(request: Request, job_id: str) -> Response:
         sess = need(request)
         job = _job_or_404(job_id)
+        review_html = next(
+            (o for o in job.outputs or [] if o.filename.startswith("review_") and o.filename.endswith(".html")), None
+        )
         audit_recs = bk.audit(job_id, 200)
         subjects = [str(r.detail.get("subject", "")) for r in audit_recs if r.event == "mail.received"]
         thread = bk.thread(job_id)
@@ -468,10 +486,8 @@ def create_app(
             aggregate=[o for o in job.outputs or [] if o.tag == "aggregate"],
             phi=[o for o in job.outputs or [] if o.tag == "phi"],
             review=_review_book(job) if job.state == "awaiting_approval" else None,
-            review_html=next(
-                (o for o in job.outputs or [] if o.filename.startswith("review_") and o.filename.endswith(".html")),
-                None,
-            ),
+            review_html=review_html,
+            split=_check_split(review_html) if job.state == "awaiting_approval" else None,
             thread=thread_rows,
             audit=sorted(audit_recs, key=lambda r: r.ts),
             refresh=job.state not in TERMINAL and job.state != "awaiting_approval",

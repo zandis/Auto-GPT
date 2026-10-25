@@ -4,7 +4,8 @@
 * Every output file is stored under ``outputs/<job_id>/``, hashed and audited (``output``) before it can be mailed.
 * ``phi`` outputs may only be delivered to the ruleset's ``list_to`` / ``referral_to`` recipients inside
   ``settings.internal_domains``; a violation fails the job (SPEC §5 routing enforcement).
-* Replies: ``Received <job_id>`` on creation, then ``Done <job_id>`` or ``Failed <job_id>`` with the failed step.
+* Replies: ``[<study>] <CMD> received · job <id>`` on creation, then ``... done: <headline> · job <id>`` or
+  ``... failed: at <step> · job <id>`` (D-88).
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from tb_common.llm import LlmClient
 from tb_common.objstore import ObjectStore
 from tb_common.routing import RoutingViolation, check, is_internal
 from tb_common.ruleset import RulesetNotApproved
+from tb_common.subject import job_subject
 from tb_common.timeutil import now
 from tb_common.ulid import new_ulid
 from tb_contracts import (
@@ -79,6 +81,7 @@ class Outcome:
     state: str = "done"  # done | awaiting_approval
     summary_md: str = ""
     deliveries: list[Delivery] = field(default_factory=list)
+    headline: str = ""  # the answer in a few words, for the subject line ("1–7 in 12 mo", "<5 high, 6 review")
 
 
 @dataclass
@@ -374,7 +377,7 @@ class Orchestrator:
             self.send(
                 job,
                 recipients,
-                d.subject or f"Done {job.job_id} — {_title(job)}",
+                d.subject or _subject(job, "done", outcome.headline),
                 d.body_md or outcome.summary_md,
                 d.outputs,
                 kind=d.kind,
@@ -382,7 +385,7 @@ class Orchestrator:
             requester_served = requester_served or job.requested_by in recipients
         if outcome.state == "done" and not requester_served and job.requested_by not in SYSTEM_SENDERS:
             self.send(
-                job, [job.requested_by], f"Done {job.job_id} — {_title(job)}", outcome.summary_md, [], kind="done"
+                job, [job.requested_by], _subject(job, "done", outcome.headline), outcome.summary_md, [], kind="done"
             )
 
     def send(
@@ -414,7 +417,7 @@ class Orchestrator:
             f"`CANCEL {job.job_id}` to cancel."
         )
         try:
-            self.send(job, [job.requested_by], f"Received {job.job_id} — {_title(job)}", body, [], kind="received")
+            self.send(job, [job.requested_by], _subject(job, "received"), body, [], kind="received")
         except (StepFailed, ServiceError, RuntimeError) as exc:
             log.warning("could not send Received mail for %s: %s", job.job_id, exc)
 
@@ -431,7 +434,7 @@ class Orchestrator:
             f"`STATUS {job.job_id}` for the job record."
         )
         try:
-            self.send(job, [to], f"Failed {job.job_id} — {_title(job)}", body, [], kind="failed")
+            self.send(job, [to], _subject(job, "failed", f"at {err.step}"), body, [], kind="failed")
         except (StepFailed, ServiceError, RuntimeError) as exc:
             log.warning("could not send Failed mail for %s: %s", job.job_id, exc)
 
@@ -486,6 +489,10 @@ def job_stamp(ctx: Ctx) -> str:
     from zoneinfo import ZoneInfo
 
     return ctx.job.received_at.astimezone(ZoneInfo(ctx.cfg.env.tz)).isoformat(timespec="seconds")
+
+
+def _subject(job: Job, kind: str, headline: str = "") -> str:
+    return job_subject(kind, job.type, job.ruleset, job.job_id, headline)
 
 
 def _title(job: Job) -> str:

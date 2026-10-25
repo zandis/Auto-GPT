@@ -32,6 +32,7 @@ from tb_common.audit import AuditLog
 from tb_common.config import Config, load_env, load_settings
 from tb_common.llm import LlmClient
 from tb_common.objstore import FsStore
+from tb_common.subject import is_job_mail
 
 from tests.unit.test_compiler_service import FakeGate, FakeTranslator
 
@@ -96,6 +97,10 @@ class Box:
 
     def find(self, prefix: str) -> list[Sent]:
         return [s for s in self.sent if s.subject.startswith(prefix)]
+
+    def find_job(self, kind: str, job_id: str) -> list[Sent]:
+        """The box's ``kind`` replies (received, done, failed) about ``job_id``."""
+        return [s for s in self.sent if is_job_mail(s.subject, kind, job_id)]
 
 
 class InprocParser:

@@ -85,6 +85,22 @@ def compile_draft(ctx: Ctx, ruleset: str, doc: JobFile, approved: Ruleset | None
     )
 
 
+_CLASS = re.compile(r"<td>(?:inclusion|exclusion)</td><td>(structured|note|human)</td>")
+
+
+def check_split(html: str) -> str:
+    """One line on how the box will check the criteria: filter, model on notes, or a person (the review's class)."""
+    found = _CLASS.findall(html)
+    if not found:
+        return ""
+    n = {k: found.count(k) for k in ("structured", "note", "human")}
+    return (
+        f"How the box will check the {len(found)} criteria: **{n['structured']}** by a fixed filter on structured "
+        f"data (age, sex, diagnosis codes, labs, drugs), **{n['note']}** by the model reading reports and notes, "
+        f"**{n['human']}** left to a person at screening.\n\n"
+    )
+
+
 def review_delivery(
     ctx: Ctx,
     ruleset: str,
@@ -106,9 +122,12 @@ def review_delivery(
     ]
     intro = (
         f"Ruleset **{ruleset} v{version}** was compiled{f' from {source}' if source else ''} (review round "
-        f"{round_no}).\n\nReview each criterion in the attached workbook (column *decision*: approve / reject / "
-        f"edit) and reply to this message — or send `APPROVE {ruleset} version={version}` — with the workbook "
-        f"attached. Runs use the ruleset only after approval.\n\n"
+        f"{round_no}).\n\n"
+        + check_split(html)
+        + f"If the criteria look right, approve them: one click on the job page in the console, or reply to this "
+        f"message (or send `APPROVE {ruleset} version={version}`) with the workbook attached. To change a "
+        f"criterion, edit its *decision* column (approve / reject / edit) first. Runs use the ruleset only after "
+        f"approval. This is the study team's check of the criteria, not a regulated e-signature.\n\n"
     )
     return Delivery(
         to=to,

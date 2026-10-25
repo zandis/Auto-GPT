@@ -123,5 +123,6 @@ def run(ctx: Ctx) -> Outcome:
     return Outcome(
         state="done",
         summary_md="\n".join(lines),
+        headline=f"{sim.low:g}–{sim.high:g} in {sim.months} mo",
         deliveries=[Delivery(to=to, outputs=[pdf, xlsx, js], routing=m.routing)],
     )

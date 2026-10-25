@@ -16,6 +16,7 @@ import pytest
 from openpyxl import load_workbook
 from orchestrator.scenarios import cohort
 from pypdf import PdfReader
+from tb_common.subject import is_job_mail
 
 from tests.inproc_box import SITE_B, Box, Sent, ingest_site, make_box
 
@@ -64,7 +65,7 @@ def _done(box: Box, subject: str, job_type: str = "COHORT", **kw: Any) -> tuple[
     box.orch.drain()
     job = box.orch.db.find(type_=job_type)[0]
     assert job.state == "done", job.error
-    mail = next(s for s in reversed(box.sent) if s.subject.startswith(f"Done {job.job_id}") and s.attachments())
+    mail = next(s for s in reversed(box.sent) if is_job_mail(s.subject, "done", job.job_id) and s.attachments())
     return job, mail
 
 
@@ -140,7 +141,7 @@ def test_member_shares_and_root_merges(boxes: dict[str, Box], synth_dir: Path) -
     a.orch.drain()
     merge = a.orch.db.find(type_="COHORT", ruleset="MERGE")[0]
     assert merge.state == "done", merge.error
-    out = next(s for s in reversed(a.sent) if s.subject.startswith(f"Done {merge.job_id}") and s.attachments())
+    out = next(s for s in reversed(a.sent) if is_job_mail(s.subject, "done", merge.job_id) and s.attachments())
     assert "trialbox@hospb.test" in out.to
     merged = _csv_rows(next(iter(out.attachments().values())))
     pop = {r["site_id"]: r for r in merged if r["criterion_id"] == "GOUT-COH-INC-01" and r["quarter"] == "2026Q3"}

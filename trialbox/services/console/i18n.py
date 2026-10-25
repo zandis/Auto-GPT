@@ -79,8 +79,7 @@ EN: dict[str, str] = {
     "job.audit": "Audit trail of this job",
     "job.error": "Failed at step {step}",
     "job.review": "Review round: approve the compiled ruleset",
-    "job.review.help": "Download the review workbook, check each criterion, then approve as compiled or upload the "
-    "edited workbook. Same as replying to the review e-mail with review.xlsx attached.",
+    "job.review.help": "Check the criteria and approve them if they look right. This is the study team's check, not a regulated e-signature; a person still confirms each candidate. To change a criterion, edit the workbook and approve with your edits (same as replying to the review e-mail).",
     "job.approve": "Approve as compiled",
     "job.approve.upload": "Approve with an edited review.xlsx",
     "job.refresh": "This page refreshes every 5 seconds while the job runs.",
@@ -171,6 +170,7 @@ EN: dict[str, str] = {
     "class.phi": "patient-level",
     "request.lookback.range": "Look-back is a whole number of months from 1 to 120.",
     "protocol.empty": "The protocol file is empty. Choose the file again.",
+    "job.review.split": "How the box will check the {n} criteria: {s} by a fixed filter on structured data (age, sex, codes, labs, drugs) · {m} by the model reading reports and notes · {h} by a person at screening.",
 }
 
 JA: dict[str, str] = {
@@ -242,8 +242,7 @@ JA: dict[str, str] = {
     "job.audit": "このジョブの監査証跡",
     "job.error": "{step} で失敗",
     "job.review": "レビュー：コンパイル済みルールセットの承認",
-    "job.review.help": "レビュー用ワークブックをダウンロードして各基準を確認し、そのまま承認するか、編集したワークブックを"
-    "アップロードしてください。review.xlsx を添付してレビューメールに返信するのと同じです。",
+    "job.review.help": "基準を確認し、問題なければ承認してください。これは試験チームの確認であり、規制対象の電子署名ではありません。候補者ごとの確認は引き続き担当者が行います。基準を変更する場合は、ワークブックを編集して編集内容で承認してください（レビューメールへの返信と同じです）。",
     "job.approve": "そのまま承認",
     "job.approve.upload": "編集した review.xlsx で承認",
     "job.refresh": "ジョブ実行中はこのページが 5 秒ごとに更新されます。",
@@ -334,6 +333,7 @@ JA: dict[str, str] = {
     "class.phi": "患者レベル",
     "request.lookback.range": "遡及期間は 1〜120 の整数（か月）で入力してください。",
     "protocol.empty": "プロトコルファイルが空です。ファイルを選び直してください。",
+    "job.review.split": "{n} 件の基準の確認方法：{s} 件は構造化データ（年齢・性別・コード・検査・薬剤）の固定フィルター · {m} 件はモデルがレポートと記録を読む · {h} 件はスクリーニング時に担当者が確認。",
 }
 
 ZH: dict[str, str] = {
@@ -405,7 +405,7 @@ ZH: dict[str, str] = {
     "job.audit": "此工作的稽核軌跡",
     "job.error": "於 {step} 步驟失敗",
     "job.review": "審查回合：核准已編譯的規則集",
-    "job.review.help": "下載審查活頁簿並確認每個條件，然後直接核准或上傳編輯後的活頁簿。等同於附上 review.xlsx 回覆審查郵件。",
+    "job.review.help": "請確認條件，沒有問題就核准。這是研究團隊的確認，不是受法規管理的電子簽章；每位候選人仍由人員確認。若要修改條件，請編輯活頁簿後以修改內容核准（等同回覆審查郵件）。",
     "job.approve": "直接核准",
     "job.approve.upload": "以編輯後的 review.xlsx 核准",
     "job.refresh": "工作執行中，本頁每 5 秒更新。",
@@ -491,6 +491,7 @@ ZH: dict[str, str] = {
     "class.phi": "病人層級",
     "request.lookback.range": "回溯期間請輸入 1 到 120 的整數（月）。",
     "protocol.empty": "計畫書檔案是空的，請重新選擇檔案。",
+    "job.review.split": "{n} 項條件的檢查方式：{s} 項以結構化資料（年齡、性別、代碼、檢驗、藥物）固定篩選 · {m} 項由模型閱讀報告與病歷 · {h} 項於篩選時由人員確認。",
 }
 
 CATALOGUES: dict[str, dict[str, str]] = {"en": EN, "ja": JA, "zh-TW": ZH}
