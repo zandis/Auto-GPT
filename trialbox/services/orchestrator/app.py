@@ -39,6 +39,26 @@ def _pinned_today() -> Callable[[], date] | None:
     return lambda: pinned
 
 
+def verifier_client(audit: AuditLog) -> LlmClient | None:
+    """The second model for independent checks (the consent explainer): through the gateway when
+    ``TB_GATEWAY_VERIFIER_MODEL`` names the V build (``v-verifier``; ``TB_GATEWAY_VERIFIER_URL`` defaults to
+    ``TB_GATEWAY_URL``), else straight to ``LLM_VERIFIER_BASE_URL`` / ``LLM_VERIFIER_MODEL``; None when neither is
+    set, and the step then says its output is unverified."""
+    cfg = get_config()
+    model = os.environ.get("TB_GATEWAY_VERIFIER_MODEL", "").strip()
+    url = (os.environ.get("TB_GATEWAY_VERIFIER_URL") or os.environ.get("TB_GATEWAY_URL") or "").strip()
+    if model and url:
+        from tb_llm import GatewayClient
+
+        gw = GatewayClient(url, cfg.env.service_name, model=model)
+        return LlmClient(cfg.env.llm_base_url, model, service_name=cfg.env.service_name, audit=audit, gateway=gw)
+    base = os.environ.get("LLM_VERIFIER_BASE_URL", "").strip()
+    if base:
+        model = os.environ.get("LLM_VERIFIER_MODEL", "").strip() or cfg.env.llm_model
+        return LlmClient(base, model, service_name=cfg.env.service_name, audit=audit)
+    return None
+
+
 def orch() -> Orchestrator:
     global _orch
     if _orch is None:
@@ -53,6 +73,7 @@ def orch() -> Orchestrator:
             adapter=AdapterHttp(cfg.env.adapter_url),
             fhir=FhirEvaluator(cfg.env.fhir_base_url, workers=int(os.environ.get("TB_FHIR_WORKERS", "8"))),
             llm=LlmClient.from_config(audit),
+            verifier=verifier_client(audit),
         )
         _orch = Orchestrator(
             cfg,

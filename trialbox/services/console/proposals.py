@@ -39,7 +39,7 @@ def _reads_like_a_sentence(text: str) -> bool:
     return "?" in text or "？" in text or len(_WORD.findall(text)) >= 2
 
 
-RUNNABLE = frozenset({"FEAS", "SCREEN", "APPROVE", "STATUS", "CANCEL", "COHORT", "NAV"})
+RUNNABLE = frozenset({"FEAS", "SCREEN", "APPROVE", "STATUS", "CANCEL", "COHORT", "NAV", "CONSENT", "RELEASE"})
 Classifier = Callable[[str, str], ClassifiedIntent]  # (text, language) -> intent
 
 

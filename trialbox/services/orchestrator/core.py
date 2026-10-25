@@ -90,6 +90,7 @@ class Services:
     adapter: AdapterAPI | None = None
     fhir: FhirEvaluator | None = None
     llm: LlmClient | None = None
+    verifier: LlmClient | None = None  # second model (the V build), used where a step wants an independent check
 
 
 Scenario = Callable[["Ctx"], Outcome]

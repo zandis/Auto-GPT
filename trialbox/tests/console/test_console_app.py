@@ -208,8 +208,14 @@ def box(tmp_path: Path) -> dict[str, Any]:
     samples = tmp_path / "samples"
     samples.mkdir()
     (samples / "GZQO_protocol_v3.pdf").write_bytes(b"%PDF-1.4 protocol")
+    (samples / "GZQO_ICF_v2.md").write_text("# Consent\n\nTaking part is voluntary.\n")
     cascades = CascadeRuns(tmp_path / "cascade", src, runner)
-    env = {**PILOT_ENV, "TB_CONSOLE_DIR": str(tmp_path / "console"), "TB_CONSOLE_SAMPLES_DIR": str(samples)}
+    env = {
+        **PILOT_ENV,
+        "TB_CONSOLE_DIR": str(tmp_path / "console"),
+        "TB_CONSOLE_SAMPLES_DIR": str(samples),
+        "TB_CONSOLE_CONSENT_SAMPLE": str(samples / "GZQO_ICF_v2.md"),
+    }
     app = create_app(env, backend=backend, audit=audit, users=users, classify=classify, cascades=cascades)
     return {"app": app, "backend": backend, "audit": audit, "users": users, "dir": tmp_path}
 
@@ -481,6 +487,96 @@ def test_protocol_sample_and_bad_upload(box: dict[str, Any]) -> None:
     files = {"protocol": ("evil.exe", io.BytesIO(b"MZ"), "application/octet-stream")}
     r = c.post("/pilot/protocol", data={"csrf": csrf, "ruleset": "S2"}, files=files)
     assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------------------------- consent explainer
+def _consent_done(backend: FakeBackend, jid: str) -> Job:
+    now = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
+    rec = {
+        "counts": {"items": 12, "questions": 3, "removed": 1, "held": 2, "unverified": 0, "ok": 40},
+        "verified": True,
+    }
+    files = {
+        "consent_GZQO.json": json.dumps(rec).encode(),
+        "consent_GZQO_review.html": b"<!doctype html><title>review</title><style>p{}</style>",
+        "consent_GZQO_en_DRAFT.html": b"<!doctype html><p>DRAFT</p>",
+        "consent_GZQO_ja_DRAFT.html": b"<!doctype html><p>DRAFT</p>",
+    }
+    outs = []
+    for name, data in files.items():
+        backend.objects[f"outputs/{jid}/{name}"] = data
+        outs.append(
+            JobOutput(
+                filename=name,
+                sha256=sha256_bytes(data),
+                minio_key=f"outputs/{jid}/{name}",
+                recipients=["admin@hospa.test"],
+                tag="aggregate",
+            )
+        )
+    return backend.add_job(
+        Job(
+            job_id=jid,
+            type="CONSENT",
+            ruleset="GZQO",
+            requested_by="admin@hospa.test",
+            received_at=now,
+            updated_at=now,
+            state="done",
+            options={"lang": "en,ja"},
+            outputs=outs,
+        )
+    )
+
+
+def test_consent_form_sample_upload_and_languages(box: dict[str, Any]) -> None:
+    c, csrf = login(box["app"])
+    page = c.get("/pilot/consent").text
+    assert 'data-testid="consent-notice"' in page and "not the consent form" in page and "use_sample" in page
+    data = {"csrf": csrf, "study": "gzqo", "use_sample": "1", "langs": ["en", "zh-TW"]}
+    r = c.post("/pilot/consent", data=data, follow_redirects=False)
+    assert r.status_code == 303, r.text
+    req = box["backend"].created[-1]
+    assert req.type == "CONSENT" and req.ruleset == "GZQO" and req.options == {"lang": "en,zh-TW"}
+    assert req.inputs[0].filename == "GZQO_ICF_v2.md"
+    files = {"icf": ("icf.docx", io.BytesIO(b"PK docx"), "application/octet-stream")}
+    r = c.post(
+        "/pilot/consent", data={"csrf": csrf, "study": "S1", "langs": ["ja"]}, files=files, follow_redirects=False
+    )
+    assert r.status_code == 303 and box["backend"].created[-1].options == {"lang": "ja"}
+    r = c.post("/pilot/consent", data={"csrf": csrf, "study": "S1", "use_sample": "1"})
+    assert r.status_code == 422 and "at least one language" in r.text
+    files = {"icf": ("evil.exe", io.BytesIO(b"MZ"), "application/octet-stream")}
+    assert c.post("/pilot/consent", data={"csrf": csrf, "study": "S1", "langs": ["en"]}, files=files).status_code == 400
+    viewer, vcsrf = login(box["app"], "viewer", VIEWER_PW)
+    data = {"csrf": vcsrf, "study": "S1", "use_sample": "1", "langs": ["en"]}
+    assert viewer.post("/pilot/consent", data=data).status_code == 403
+
+
+def test_consent_job_card_preview_and_release(box: dict[str, Any]) -> None:
+    jid = _ulid(950)
+    _consent_done(box["backend"], jid)
+    c, csrf = login(box["app"])
+    page = c.get(f"/pilot/jobs/{jid}").text
+    assert 'data-testid="consent"' in page and 'data-testid="release"' in page
+    assert "12 statements and 3 questions" in page and "held back by the second model: 2" in page
+    assert f"/pilot/jobs/{jid}/view/consent_GZQO_ja_DRAFT.html" in page
+    r = c.get(f"/pilot/jobs/{jid}/view/consent_GZQO_review.html")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    csp = r.headers["content-security-policy"]
+    assert "sandbox" in csp and "default-src 'none'" in csp and "script" not in csp
+    assert c.get(f"/pilot/jobs/{jid}/view/consent_GZQO.json").status_code == 404  # html pages only
+    assert c.get(f"/pilot/jobs/{jid}/view/other.html").status_code == 404
+    assert c.get("/").headers["content-security-policy"].startswith("default-src 'self'")  # the app keeps its own
+    r = c.post(f"/pilot/jobs/{jid}/release", data={"csrf": csrf, "drop": "i03, q2", "keep": ""}, follow_redirects=False)
+    assert r.status_code == 303
+    rel = box["backend"].created[-1]
+    assert rel.type == "RELEASE" and rel.options == {"target": jid, "drop": "I03,Q2"} and rel.ruleset is None
+    assert c.post(f"/pilot/jobs/{jid}/release", data={"csrf": csrf, "keep": "x;1"}).status_code == 400
+    viewer, vcsrf = login(box["app"], "viewer", VIEWER_PW)
+    vpage = viewer.get(f"/pilot/jobs/{jid}").text
+    assert 'data-testid="consent"' in vpage and 'data-testid="release"' not in vpage
+    assert viewer.post(f"/pilot/jobs/{jid}/release", data={"csrf": vcsrf}).status_code == 403
 
 
 # ---------------------------------------------------------------------------------------------- results

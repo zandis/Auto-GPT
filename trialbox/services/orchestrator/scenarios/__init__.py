@@ -11,6 +11,7 @@ def registry() -> dict[str, Scenario]:
         approve,
         calibration,
         cohort,
+        consent,
         feas,
         feedback,
         microbatch,
@@ -34,4 +35,6 @@ def registry() -> dict[str, Scenario]:
         "INGEST": admin.ingest,
         "RETENTION": retention.run,
         "SUBMIT": submit.run,
+        "CONSENT": consent.run,
+        "RELEASE": consent.release,
     }

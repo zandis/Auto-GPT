@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ t('consent.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('consent.title') }}</h1>
+{% if error %}<p class="error" role="alert" data-testid="consent-error">{{ error }}</p>{% endif %}
+<p class="warn" role="note" data-testid="consent-notice">{{ t('consent.notice') }}</p>
+<section class="card">
+<p>{{ t('consent.help') }}</p>
+<form method="post" action="/pilot/consent" enctype="multipart/form-data">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="study">{{ t('consent.study') }}</label>
+  <input id="study" name="study" required maxlength="16" pattern="[A-Za-z0-9][A-Za-z0-9_\-]{0,15}" value="{{ study or '' }}">
+  <label for="icf">{{ t('consent.file') }}</label>
+  <input id="icf" name="icf" type="file" accept=".pdf,.docx,.txt,.md">
+  {% if sample %}<label class="check"><input type="checkbox" name="use_sample" value="1" data-testid="use-sample"> {{ t('consent.sample') }}</label>{% endif %}
+  <fieldset><legend>{{ t('consent.langs') }}</legend>
+  {% for code in ('en', 'ja', 'zh-TW') %}<label class="check"><input type="checkbox" name="langs" value="{{ code }}" checked> <span lang="{{ code }}">{{ t('lang.name.' + code) }}</span></label> {% endfor %}
+  </fieldset>
+  <button type="submit" {{ 'disabled' if not user.is_admin else '' }} data-testid="draft-consent">{{ t('consent.submit') }}</button>
+</form>
+</section>
+{% endblock %}

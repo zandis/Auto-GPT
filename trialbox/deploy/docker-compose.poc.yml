@@ -30,6 +30,7 @@ services:
       TB_CONSOLE_WEBMAIL_URL: "${TB_CONSOLE_WEBMAIL_URL:-http://127.0.0.1:8025}"
       TB_CONSOLE_SOURCE_DIR: /data/source/site-a
       TB_CONSOLE_SAMPLES_DIR: /data/samples
+      TB_CONSOLE_CONSENT_SAMPLE: /data/consent-samples/GZQO_ICF_v2.md
       TB_CONSOLE_SNAPSHOT: "${TB_CONSOLE_SNAPSHOT:-2026-10-04}"
       TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-0}"
     volumes:
@@ -39,6 +40,7 @@ services:
       - rulesets-data:/data/rulesets:ro
       - ${TB_SOURCE_DIR:-../tests/fixtures/synthetic_patients/site-a}:/data/source/site-a:ro
       - ../tests/fixtures/protocols:/data/samples:ro
+      - ../tests/fixtures/consent:/data/consent-samples:ro
       - ../eval/DATASETS.yaml:/app/eval/DATASETS.yaml:ro
     networks: [trialbox-net, host-net]
     ports: ["${TB_POC_BIND:-127.0.0.1}:${TB_HOST_CONSOLE_PORT:-8090}:8090"]

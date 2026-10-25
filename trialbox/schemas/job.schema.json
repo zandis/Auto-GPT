@@ -28,7 +28,7 @@
     "metrics": {"$ref": "#/$defs/job_metrics"}
   },
   "$defs": {
-    "job_type": {"title": "JobType", "enum": ["FEAS", "SCREEN", "COHORT", "NAV", "APPROVE", "STATUS", "MICROBATCH", "INGEST", "SUBMIT", "FEEDBACK", "CANCEL", "RETENTION", "CALIBRATION"]},
+    "job_type": {"title": "JobType", "enum": ["FEAS", "SCREEN", "COHORT", "NAV", "APPROVE", "STATUS", "MICROBATCH", "INGEST", "SUBMIT", "FEEDBACK", "CANCEL", "RETENTION", "CALIBRATION", "CONSENT", "RELEASE"]},
     "job_state": {"title": "JobState", "enum": ["received", "parsing", "compiling", "awaiting_approval", "running", "reporting", "done", "failed"]},
     "job_file": {
       "title": "JobFile",

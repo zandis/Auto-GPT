@@ -44,7 +44,7 @@ $env:TB_CONSOLE_WEBMAIL_URL = "http://127.0.0.1:$($env:TB_HOST_MAILHOG_PORT)"
 $Compose = @("docker", "compose", "--project-directory", "deploy", "-f", "deploy/docker-compose.yml",
   "-f", "deploy/docker-compose.test.yml", "-f", "deploy/docker-compose.poc.yml", "--profile", "stub", "--profile", "test")
 switch ($Mode) {
-  "stub" { $env:TB_ENV = "TEST"; $env:TB_GATEWAY_MODEL = ""; $env:TB_SITE_DIR = "./poc/site" }
+  "stub" { $env:TB_ENV = "TEST"; $env:TB_GATEWAY_MODEL = ""; $env:TB_GATEWAY_VERIFIER_MODEL = "trialbox-stub"; $env:TB_SITE_DIR = "./poc/site" }
   "openrouter" { $env:TB_ENV = "DEV"; $env:TB_GATEWAY_MODEL = "j-workhorse"; $env:TB_SITE_DIR = "./poc/site" }
   default { Die "TB_LLM_MODE must be stub or openrouter on Windows (gpu: use deploy/poc.sh on the GPU host)" }
 }

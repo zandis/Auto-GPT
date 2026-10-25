@@ -33,8 +33,14 @@ def known_senders(settings: Settings) -> set[str]:
     return out
 
 
+# commands without a ``permissions`` entry: the ``senders`` group, except these (a site file written before the command
+# existed must not open it to every sender)
+DEFAULT_GROUPS: dict[str, list[str]] = {"RELEASE": ["reviewers"]}
+
+
 def allowed(settings: Settings, command: str, sender: str) -> bool:
-    """True when ``sender`` may issue ``command``; commands without an entry default to the ``senders`` group."""
+    """True when ``sender`` may issue ``command``; commands without an entry default to :data:`DEFAULT_GROUPS`, else
+    the ``senders`` group."""
     who = norm(sender)
-    groups = settings.permissions.get(command) or ["senders"]
+    groups = settings.permissions.get(command) or DEFAULT_GROUPS.get(command) or ["senders"]
     return any(who in group_members(settings, g) for g in groups)

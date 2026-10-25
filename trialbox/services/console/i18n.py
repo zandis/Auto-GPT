@@ -171,6 +171,34 @@ EN: dict[str, str] = {
     "class.phi": "patient-level",
     "request.lookback.range": "Look-back is a whole number of months from 1 to 120.",
     "protocol.empty": "The protocol file is empty. Choose the file again.",
+    "nav.consent": "Consent explainer",
+    "consent.title": "Consent explainer",
+    "consent.help": "Upload the IRB-approved informed-consent form. TrialBox drafts a plain-language guide with key "
+    "risks, benefits, obligations and teach-back questions in each language, checks every statement against a quote "
+    "from the form (and with a second model where one is set up), and sends you a review sheet. Nothing reaches a "
+    "patient until a coordinator or PI releases it. Same as mailing CONSENT <study> with the form attached.",
+    "consent.notice": "The guide is a reading aid, not the consent form and not an e-signature. Consent is still taken "
+    "on the official form, in your usual process.",
+    "consent.study": "Study code (e.g. GZQO)",
+    "consent.file": "Informed-consent form (PDF, DOCX, TXT or MD)",
+    "consent.langs": "Languages",
+    "consent.sample": "No file at hand? Use the synthetic GZQO consent form shipped with TrialBox",
+    "consent.submit": "Draft the explainer",
+    "consent.empty": "The consent form file is empty. Choose the file again.",
+    "consent.need_lang": "Choose at least one language.",
+    "job.consent": "Consent explainer",
+    "job.consent.draft": "Draft: review it, then release it. Patients see nothing before release.",
+    "job.consent.counts": "{items} statements and {questions} questions · removed by the grounding check: {removed} "
+    "· held back by the second model: {held} · not verified: {unverified}",
+    "job.consent.unverified": "No second model is configured: check every statement against its quote yourself.",
+    "job.consent.review": "Open the review sheet",
+    "job.consent.preview": "Preview",
+    "job.consent.drop": "Leave out items (e.g. I03,Q2)",
+    "job.consent.keep": "Include held items (e.g. I07)",
+    "job.consent.release": "Release to patient pages",
+    "job.consent.release.help": "Releasing records that you checked the statements against the consent form. It is "
+    "not an electronic signature. Same as mailing RELEASE {job}.",
+    "job.consent.released": "Released patient pages",
 }
 
 JA: dict[str, str] = {
@@ -334,6 +362,32 @@ JA: dict[str, str] = {
     "class.phi": "患者レベル",
     "request.lookback.range": "遡及期間は 1〜120 の整数（か月）で入力してください。",
     "protocol.empty": "プロトコルファイルが空です。ファイルを選び直してください。",
+    "nav.consent": "同意説明の補助",
+    "consent.title": "同意説明の補助資料",
+    "consent.help": "IRB 承認済みの同意説明文書をアップロードしてください。TrialBox が主な危険・利益・参加者のすること・"
+    "理解確認の質問をやさしい言葉で各言語に下書きし、すべての記述を文書からの引用で確認し（第 2 モデルがあればそれでも確認）、"
+    "確認用シートを送ります。コーディネーターまたは責任医師が公開するまで、患者さんには何も届きません。同意説明文書を添付して "
+    "CONSENT <治験コード> をメールするのと同じです。",
+    "consent.notice": "この資料は理解の補助であり、同意説明文書でも電子署名でもありません。同意はこれまでどおり正式な文書で取得します。",
+    "consent.study": "治験コード（例：GZQO）",
+    "consent.file": "同意説明文書（PDF、DOCX、TXT、MD）",
+    "consent.langs": "言語",
+    "consent.sample": "手元にファイルがない場合：TrialBox 同梱の合成 GZQO 同意説明文書を使う",
+    "consent.submit": "下書きを作成",
+    "consent.empty": "同意説明文書のファイルが空です。ファイルを選び直してください。",
+    "consent.need_lang": "言語を 1 つ以上選んでください。",
+    "job.consent": "同意説明の補助資料",
+    "job.consent.draft": "下書きです。確認してから公開してください。公開前は患者さんには何も表示されません。",
+    "job.consent.counts": "記述 {items} 件・質問 {questions} 件・引用確認で除外：{removed}・第 2 モデルが保留：{held}・未検証：{unverified}",
+    "job.consent.unverified": "第 2 モデルが設定されていません。すべての記述を引用と照らして確認してください。",
+    "job.consent.review": "確認用シートを開く",
+    "job.consent.preview": "プレビュー",
+    "job.consent.drop": "除外する項目（例：I03,Q2）",
+    "job.consent.keep": "保留項目を含める（例：I07）",
+    "job.consent.release": "患者向けページとして公開",
+    "job.consent.release.help": "公開は、記述を同意説明文書と照合したことの記録です。電子署名ではありません。RELEASE {job} "
+    "をメールするのと同じです。",
+    "job.consent.released": "公開済みの患者向けページ",
 }
 
 ZH: dict[str, str] = {
@@ -491,6 +545,30 @@ ZH: dict[str, str] = {
     "class.phi": "病人層級",
     "request.lookback.range": "回溯期間請輸入 1 到 120 的整數（月）。",
     "protocol.empty": "計畫書檔案是空的，請重新選擇檔案。",
+    "nav.consent": "同意說明輔助",
+    "consent.title": "受試者同意說明輔助",
+    "consent.help": "上傳經 IRB 核准的受試者同意書。TrialBox 會以各語言起草淺白說明，包含主要風險、好處、受試者須配合事項與理解確認問題；"
+    "每一句都以同意書原文引句核對（若有第二模型也會再核對），並寄給您審閱表。在協調員或主持人發布之前，病人看不到任何內容。"
+    "等同於附上同意書寄出 CONSENT <研究代碼>。",
+    "consent.notice": "本說明是閱讀輔助，不是受試者同意書，也不是電子簽章；同意仍依原流程以正式同意書取得。",
+    "consent.study": "研究代碼（例如 GZQO）",
+    "consent.file": "受試者同意書（PDF、DOCX、TXT 或 MD）",
+    "consent.langs": "語言",
+    "consent.sample": "手邊沒有檔案？使用 TrialBox 內附的合成 GZQO 同意書",
+    "consent.submit": "起草說明",
+    "consent.empty": "同意書檔案是空的，請重新選擇檔案。",
+    "consent.need_lang": "請至少選擇一種語言。",
+    "job.consent": "受試者同意說明輔助",
+    "job.consent.draft": "這是草稿：請審閱後再發布。發布前病人看不到任何內容。",
+    "job.consent.counts": "說明 {items} 句、問題 {questions} 題 · 引句核對移除：{removed} · 第二模型保留：{held} · 未驗證：{unverified}",
+    "job.consent.unverified": "未設定第二模型：請自行將每一句與引句核對。",
+    "job.consent.review": "開啟審閱表",
+    "job.consent.preview": "預覽",
+    "job.consent.drop": "排除項目（例如 I03,Q2）",
+    "job.consent.keep": "納入保留項目（例如 I07）",
+    "job.consent.release": "發布為病人版頁面",
+    "job.consent.release.help": "發布代表您已將各句與同意書核對，並非電子簽章。等同於寄出 RELEASE {job}。",
+    "job.consent.released": "已發布的病人版頁面",
 }
 
 CATALOGUES: dict[str, dict[str, str]] = {"en": EN, "ja": JA, "zh-TW": ZH}
