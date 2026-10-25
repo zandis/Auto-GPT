@@ -209,12 +209,13 @@ class LlmClient:
         tokens_in = tokens_out = 0
         errors: list[str] = []
         convo = list(messages)
+        max_tokens = prompt.meta.max_tokens
         for attempt in (1, 2):
             body = {
                 "model": model,
                 "messages": convo,
                 "temperature": prompt.meta.temperature,
-                "max_tokens": prompt.meta.max_tokens,
+                "max_tokens": max_tokens,
                 "response_format": {
                     "type": "json_schema",
                     "json_schema": {"name": prompt.meta.id, "schema": json_schema, "strict": True},
@@ -236,6 +237,7 @@ class LlmClient:
             tokens_in += int(usage.get("prompt_tokens", 0))
             tokens_out += int(usage.get("completion_tokens", 0))
             content = payload["choices"][0]["message"].get("content") or ""
+            truncated = payload["choices"][0].get("finish_reason") == "length"
             try:
                 data = null_absent(load_schema(schema_name), _extract_json(content))  # null == absent
                 errors = schema_errors(schema_name, data)
@@ -272,6 +274,12 @@ class LlmClient:
                     tokens_out,
                     attempt,
                 )
+            if truncated:
+                # a reasoning model (gpt-oss, nemotron) spends max_tokens on reasoning before the JSON: the answer was
+                # cut off, not wrong, so ask the same question again with room to finish
+                max_tokens = min(max_tokens * 4, 16384)
+                convo = list(messages)
+                continue
             convo = [
                 *messages,
                 {"role": "assistant", "content": content[:4000]},

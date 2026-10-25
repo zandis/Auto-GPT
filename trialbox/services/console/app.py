@@ -723,8 +723,9 @@ def create_app(
             if len(data) > MAX_UPLOAD:
                 raise _Problem(400, "request.refused", reason="attachments are at most 50 MB")
             files.append((re.sub(r"[^\w.\-]+", "_", attachment.filename)[-120:], data))
-        mid = bk.send_test_mail(sender, settings.intake_addr, subject.strip()[:200], body[:5000], files)
-        au.append("console.testmail", actor=actor(sess), detail={"subject": subject.strip()[:200], "action": "send"})
+        subject = " ".join(subject.split())[:200]  # one header line: CR/LF would make the mail unbuildable
+        mid = bk.send_test_mail(sender, settings.intake_addr, subject, body[:5000], files)
+        au.append("console.testmail", actor=actor(sess), detail={"subject": subject, "action": "send"})
         return page(request, "mailbox.html", sess, sent=mid, subject=subject)
 
     return app

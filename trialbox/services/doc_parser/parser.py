@@ -90,6 +90,10 @@ def _kind(filename: str, data: bytes) -> str:
     return "text"
 
 
+class UnreadableDocument(ValueError):
+    """The file is empty, corrupt or not the format its name says."""
+
+
 # ----------------------------------------------------------------------------- backends
 def _lite_pdf(data: bytes) -> _Doc:
     from pypdf import PdfReader
@@ -305,16 +309,21 @@ def parse(data: bytes, filename: str, ie_locator: IeLocator | None = None, backe
     use_docling = (
         kind in ("pdf", "docx") and backend in ("auto", "docling") and importlib.util.find_spec("docling") is not None
     )
-    if use_docling:  # pragma: no cover - production image only
-        doc = _docling(data, filename)
-    elif kind == "pdf":
-        doc = _lite_pdf(data)
-    elif kind == "docx":
-        doc = _lite_docx(data)
-    elif kind == "xlsx":
-        doc = _lite_xlsx(data)
-    else:
-        doc = _text(data)
+    if not data:
+        raise UnreadableDocument(f"{filename} is empty")
+    try:
+        if use_docling:  # pragma: no cover - production image only
+            doc = _docling(data, filename)
+        elif kind == "pdf":
+            doc = _lite_pdf(data)
+        elif kind == "docx":
+            doc = _lite_docx(data)
+        elif kind == "xlsx":
+            doc = _lite_xlsx(data)
+        else:
+            doc = _text(data)
+    except Exception as exc:  # corrupt, truncated or mislabelled file: a reason for the requester, not a 500
+        raise UnreadableDocument(f"{filename} could not be read as {kind.upper()} ({type(exc).__name__})") from exc
     secs = sections(doc.lines)
     block = ie_block(secs)
     source: Literal["heuristic", "llm", "none"] = "heuristic" if (block.inclusion or block.exclusion) else "none"

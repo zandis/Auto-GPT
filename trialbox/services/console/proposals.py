@@ -11,6 +11,7 @@ itself is not stored or echoed back (FR-UX-9); the audit keeps its SHA-256.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -20,6 +21,15 @@ from channels.base import ClassifiedIntent
 from channels.grammar import GrammarError, parse_line
 from tb_common.subject import Subject, SubjectError, parse_subject
 from tb_contracts import JobCreate
+
+# study codes and look-back periods written in the text itself: a small model often drops them, above all next to CJK
+# characters ("GZQO試験", "過去三年"); they fill only fields the model left empty, and the administrator confirms
+_STUDY = re.compile(r"(?<![A-Za-z0-9])([A-Z][A-Z0-9]{2,7}(?:-[A-Z0-9]{1,8})?)(?![A-Za-z0-9])")
+_NOT_STUDY = frozenset({"FEAS", "SCREEN", "STATUS", "CANCEL", "APPROVE", "NAV", "COHORT", "OK", "PDF", "DOCX", "CRC"})
+_CJK_NUM = {"一": 1, "二": 2, "兩": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+_LOOKBACK = re.compile(
+    r"(\d{1,3}|[一二兩两三四五六七八九十])\s*(?:(months?|個月|个月|か月|ヶ月|カ月)|(years?|yrs?|年))", re.I
+)
 
 RUNNABLE = frozenset({"FEAS", "SCREEN", "APPROVE", "STATUS", "CANCEL", "COHORT", "NAV"})
 Classifier = Callable[[str, str], ClassifiedIntent]  # (text, language) -> intent
@@ -64,6 +74,23 @@ def job_create(line: str, requested_by: str, job_id: str, comment: str, inputs: 
         requested_by=requested_by,
         inputs=inputs or [],
     )
+
+
+def fill_from_text(intent: ClassifiedIntent, text: str) -> ClassifiedIntent:
+    """The study code and look-back the text states plainly, where the model returned none."""
+    update: dict[str, Any] = {}
+    if intent.study is None:
+        codes = {c for c in _STUDY.findall(text) if c not in _NOT_STUDY}
+        if len(codes) == 1:
+            update["study"] = codes.pop()
+    if intent.lookback_months is None and intent.type == "FEAS":
+        m = _LOOKBACK.search(text)
+        if m:
+            n = int(m.group(1)) if m.group(1).isdigit() else _CJK_NUM[m.group(1)]
+            months = n if m.group(2) else n * 12
+            if 1 <= months <= 120:
+                update["lookback_months"] = months
+    return intent.model_copy(update=update) if update else intent
 
 
 def _months(v: str | None) -> str | None:
@@ -129,7 +156,7 @@ def propose(text: str, language: str, classify: Classifier | None) -> Proposal:
         raise ProposalError(
             "The conversation engine is not available right now; type an exact line such as 'FEAS GZQO'."
         ) from exc
-    prop = line_from_intent(intent)
+    prop = line_from_intent(fill_from_text(intent, raw))
     subject_of(prop.line)
     return prop
 
@@ -139,7 +166,8 @@ def gateway_classifier(gateway_url: str, model: str | None, data_class: str, tod
     from channels.native.engine import NativeEngine
     from tb_llm import GatewayClient
 
-    client = GatewayClient(gateway_url, "converse-native", model=model, timeout=120)
+    # a person is waiting on the page: a slow hosted model answers "not available" instead of a two-minute spinner
+    client = GatewayClient(gateway_url, "converse-native", model=model, timeout=45)
 
     def _unused_frontdoor(_msg: dict[str, Any], _assertion: str, _conv: str) -> dict[str, Any]:
         raise RuntimeError("the console does not call front-door tools")

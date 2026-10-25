@@ -110,12 +110,17 @@ fi
 
 # ------------------------------------------------------------------------------------------------ images
 build_images() {
-  if command -v mvn >/dev/null && command -v python3 >/dev/null && command -v curl >/dev/null; then
-    make images PY="$(command -v python3)"
+  # the font step needs fontTools: prefer the project venv, else a host python3 that has it
+  local py=""
+  for cand in "$ROOT/.venv/bin/python" "$(command -v python3 || true)"; do
+    if [ -x "$cand" ] && "$cand" -c 'import fontTools' 2>/dev/null; then py="$cand"; break; fi
+  done
+  if command -v mvn >/dev/null && [ -n "$py" ] && command -v curl >/dev/null; then
+    make images PY="$py"
   else  # no build tools on the host: fetch the build inputs in a throwaway builder container
     say "fetching fonts and JVM build inputs in a builder container"
     docker run --rm -v "$ROOT:/src" -w /src "${TB_BUILDER_IMAGE:-maven:3.9.9-eclipse-temurin-17}" bash -c \
-      'apt-get update -qq && apt-get install -y -qq python3 curl >/dev/null && PY=python3 bash tools/fetch_jvm_deps.sh && python3 tools/fetch_fonts.py'
+      'apt-get update -qq && apt-get install -y -qq python3 python3-fonttools curl >/dev/null && PY=python3 bash tools/fetch_jvm_deps.sh && python3 tools/fetch_fonts.py'
     docker build -f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
     docker build -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
   fi

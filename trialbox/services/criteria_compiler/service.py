@@ -15,7 +15,7 @@ import yaml
 from lake.client import LakeAPI
 from tb_common.audit import AuditLog
 from tb_common.fhir import FhirEvaluator, library_resource
-from tb_common.llm import LlmClient
+from tb_common.llm import LlmClient, LlmError
 from tb_common.objstore import ObjectStore
 from tb_common.phi_guard import PhiScan, scan, variables_text
 from tb_common.ruleset import Ruleset
@@ -163,13 +163,18 @@ class Compiler:
     ) -> tuple[LlmExtractOutput, PhiScan]:
         variables = {"ruleset": ruleset, "language": language, "criteria": lines}
         guard = scan(variables_text(variables), self.d.mrn_regex)  # exactly what the prompt carries (cloud routing)
-        res = self.d.llm.chat_json(
-            "ir_extract",
-            variables,
-            job_id=job_id,
-            clearance=guard.clearance,
-            phi_guard_hit=guard.hit,
-        )
+        try:
+            res = self.d.llm.chat_json(
+                "ir_extract",
+                variables,
+                job_id=job_id,
+                clearance=guard.clearance,
+                phi_guard_hit=guard.hit,
+            )
+        except LlmError as exc:  # was an unhandled 500 ("internal error") in the requester's Failed mail
+            raise CompileFailed(
+                "ir_extract", f"the model did not return usable criteria ({str(exc)[:160]}); send the protocol again"
+            ) from exc
         out = LlmExtractOutput.model_validate(res.data)
         if len(out.criteria) != len(lines):
             raise CompileFailed("ir_extract", f"model returned {len(out.criteria)} criteria for {len(lines)} lines")

@@ -158,6 +158,16 @@ class GatewayClient:
         if model:
             body["model"] = model
         payload = self.complete(body, labels)
+        if response_format is not None and payload["choices"][0].get("finish_reason") == "length":
+            # reasoning models (gpt-oss, nemotron) spend the budget on reasoning and the JSON is cut off: ask the same
+            # question once more with room to finish (stress test 2026-10-25)
+            body["max_tokens"] = min(4 * int(max_tokens or 1024), 16384)
+            first = payload.get("usage") or {}
+            payload = self.complete(body, labels)
+            again = payload.get("usage") or {}
+            payload["usage"] = {
+                k: int(first.get(k) or 0) + int(again.get(k) or 0) for k in ("prompt_tokens", "completion_tokens")
+            }
         content = str(payload["choices"][0]["message"].get("content") or "")
         tb = payload.get("tb") or {}
         usage = payload.get("usage") or {}

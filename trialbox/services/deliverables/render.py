@@ -273,7 +273,30 @@ def render_xlsx(frozen: Mapping[str, Any]) -> bytes:
                 sh.append([_xl(r.get(k)) for k in keys])
     buf = io.BytesIO()
     wb.save(buf)
-    return buf.getvalue()
+    return _fixed_zip_times(buf.getvalue())
+
+
+def _fixed_zip_times(data: bytes) -> bytes:
+    """openpyxl stamps every zip entry and ``dcterms:modified`` with the wall clock at save, so two renders a second
+    apart differed: re-pack the entries (same order, same compression) with FIXED_TIME."""
+    import re
+    import zipfile
+
+    stamp = FIXED_TIME.strftime("%Y-%m-%dT%H:%M:%SZ").encode()
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as src, zipfile.ZipFile(out, "w") as dst:
+        for info in src.infolist():
+            fixed = zipfile.ZipInfo(info.filename, date_time=FIXED_TIME.timetuple()[:6])
+            fixed.compress_type = info.compress_type
+            fixed.external_attr = info.external_attr
+            body = src.read(info.filename)
+            if info.filename == "docProps/core.xml":
+                body = re.sub(
+                    rb"(<dcterms:modified[^>]*>)[^<]*(</dcterms:modified>)", rb"\g<1>" + stamp + rb"\g<2>", body
+                )
+            dst.writestr(fixed, body)
+    return out.getvalue()
 
 
 def _xl(v: Any) -> Any:
