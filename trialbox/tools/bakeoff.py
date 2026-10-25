@@ -1,7 +1,8 @@
 """Bake-off as code (spec v4 §8.10, LLM-33; S1-14): ``mlbench`` tasks driven through the gateway ``bakeoff`` route.
 
     python -m tools.bakeoff --dry-run            # plan, cost estimate and gateway preflight; no model call leaves
-    python -m tools.bakeoff --live               # needs OPENROUTER_API_KEY, TB_GATEWAY_URL and a pinned build
+    python -m tools.bakeoff --live --build <build_id> --out <dir>   # TB_GATEWAY_URL: a DEV gateway pinning the build
+    python -m tools.bakeoff --report <dir>       # summary.json / summary.md from the live runs in <dir>
 
 Candidates come from the model registry (builds whose alias is on the ``bakeoff`` route of ``models/routing.yaml``).
 Tasks come from ``tools/mlbench_tasks/``; weights, per-language floors and the cost cap from
@@ -15,6 +16,11 @@ Tasks come from ``tools/mlbench_tasks/``; weights, per-language floors and the c
 * runs one item through the stub build (TEST, route ``dev-stub``) to show the request path works.
 
 No result is recorded before a live run (§20.8 S1-14).
+
+The live run (:mod:`tools.bakeoff_live`) is a client of a running gateway: the endpoint key lives in the gateway's
+environment only, and the build under test is pinned in the gateway's site override (``tools/pin_provider.py``). It
+first checks, against that gateway, that a D1 payload on ``bakeoff`` is refused and that the named build is pinned
+(registry view), then sends every item with bounded concurrency, retries and a budget stop.
 """
 
 from __future__ import annotations
@@ -233,12 +239,53 @@ def render(p: dict[str, Any], probes: list[Probe]) -> str:
     return "\n".join(lines)
 
 
+class LiveRefused(RuntimeError):
+    pass
+
+
+def live_preflight(url: str, build_id: str, http: httpx.Client | None = None) -> dict[str, Any]:
+    """Against the running gateway at ``url``: the build's registry entry (it must be pinned, and a hosted build must
+    carry a provider pin) and a D1 probe on ``bakeoff`` (it must be refused before any dispatch, LLM-33)."""
+    from tb_llm import CallLabels, GatewayClient, GatewayRefused, json_schema_format
+
+    from tools.trialbox.eval import JUDGE_SCHEMA
+
+    h = http or httpx.Client(timeout=30.0)
+    root = url.rstrip("/").removesuffix("/v1")
+    builds = {b["build_id"]: b for b in h.get(f"{root}/registry/v1/builds").json().get("builds", [])}
+    b = builds.get(build_id)
+    if b is None or not b.get("pinned"):
+        raise LiveRefused(f"live run refused: build {build_id} is not pinned on the gateway at {url}")
+    if b.get("provider_pin") is None:
+        raise LiveRefused(f"live run refused: build {build_id} has no provider pin on the gateway (tools/pin_provider)")
+    labels = CallLabels(
+        data_class="D1",
+        purpose="evaluation",
+        study_id="none",
+        context_of_use="bakeoff_judge_ml",
+        role="bakeoff",
+        prompt="mlbench_judge@1",
+    )
+    client = GatewayClient(url, "eval", http=h)
+    try:
+        client.chat(
+            [{"role": "user", "content": "probe"}], labels, response_format=json_schema_format("j", JUDGE_SCHEMA)
+        )
+        d1 = "allowed"
+    except GatewayRefused as e:
+        d1 = e.reason
+    if d1 == "allowed":
+        raise LiveRefused("FAIL: a D1 payload was accepted on the bakeoff role (LLM-33)")
+    return {"build": b, "d1_probe": d1}
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="bakeoff", description=__doc__.split("\n\n")[0])
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--live", action="store_true")
-    ap.add_argument("--n", type=int, default=None, help="items per task (default: the task's n)")
+    mode.add_argument("--report", type=Path, default=None, metavar="DIR", help="summarise the live runs in DIR")
+    ap.add_argument("--n", type=int, default=None, help="items per task (default: the task's n; live: 0 = all)")
     ap.add_argument("--langs", nargs="+", default=None)
     ap.add_argument("--json", action="store_true")
     ap.add_argument(
@@ -249,7 +296,23 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="price override for the estimate (USD per 1k input and output tokens)",
     )
+    ap.add_argument("--build", default="", help="live: the build_id the gateway pins for this run")
+    ap.add_argument("--model", default="j-workhorse", help="live: the alias to ask for on the bakeoff route")
+    ap.add_argument("--out", type=Path, default=None, help="live: results directory")
+    ap.add_argument("--workers", type=int, default=8, help="live: concurrent calls (at most 8)")
+    ap.add_argument("--budget-usd", type=float, default=0.0, help="live: stop once this run has recorded this cost")
+    ap.add_argument("--max-tokens", type=int, default=2048, help="live: completion cap per call (reasoning included)")
+    ap.add_argument("--variant", default="", choices=["", "trialgpt"], help="live: prompt variant")
+    ap.add_argument("--reasoning-effort", default="", help="live: OpenRouter reasoning effort (reasoning models only)")
     a = ap.parse_args(argv)
+    if a.report is not None:
+        from tools.bakeoff_live import report
+
+        js, md = report(a.report)
+        print(f"wrote {js} and {md}")
+        return 0
+    if a.live:
+        return _live(a)
     p = plan(n=a.n, langs=a.langs, prices=tuple(a.usd_per_1k) if a.usd_per_1k else None)
     with tempfile.TemporaryDirectory(prefix="bakeoff-") as tmp:
         probes = preflight(Path(tmp))
@@ -261,22 +324,54 @@ def main(argv: list[str] | None = None) -> int:
     if d1.allowed:
         print("FAIL: a D1 payload was accepted on the bakeoff role (LLM-33)", file=sys.stderr)
         return 1
-    if a.dry_run:
-        return 0
-    if not os.environ.get("OPENROUTER_API_KEY") or not os.environ.get("TB_GATEWAY_URL"):
-        print("live run refused: OPENROUTER_API_KEY and TB_GATEWAY_URL (a DEV gateway) are required", file=sys.stderr)
+    return 0
+
+
+def _live(a: argparse.Namespace) -> int:
+    from tb_llm import GatewayClient
+
+    from tools.bakeoff_live import run_live, write_metrics
+
+    url = os.environ.get("TB_GATEWAY_URL", "").strip()
+    if not url or not a.build or a.out is None:
+        print("live run refused: TB_GATEWAY_URL (a DEV gateway), --build and --out are required", file=sys.stderr)
         return 2
-    routable = [pr for pr in probes if pr.name.endswith("(D0)") and pr.allowed]
-    if not routable:
-        print(
-            "live run refused: no candidate build is routable on the bakeoff route (pin a build first)", file=sys.stderr
-        )
+    try:
+        pre = live_preflight(url, a.build)
+    except (LiveRefused, httpx.HTTPError) as e:
+        print(str(e) or type(e).__name__, file=sys.stderr)
         return 3
-    if not p["within_cap"]:
-        print("live run refused: the cost estimate exceeds the cap", file=sys.stderr)
-        return 4
-    print("live dispatch is not built in MS0 (S1-14 done-criterion is the dry run)", file=sys.stderr)
-    return 5
+    langs = a.langs or ["en"]
+    n = a.n if a.n is not None else 0
+    print(f"live: {a.build} pinned {pre['build']['sha256'][:12]}; D1 probe refused ({pre['d1_probe']})")
+    client = GatewayClient(url, "eval", model=a.model, http=httpx.Client(timeout=600.0))
+    rows = run_live(
+        client,
+        a.build,
+        langs=langs,
+        n=n,
+        out=a.out,
+        workers=a.workers,
+        budget_usd=a.budget_usd,
+        max_tokens=a.max_tokens,
+        reasoning_effort=a.reasoning_effort,
+        variant=a.variant,
+    )
+    meta = {
+        "build_sha": pre["build"]["sha256"],
+        "provider_pin": pre["build"].get("provider_pin"),
+        "model_name": pre["build"].get("model_name"),
+        "alias": a.model,
+        "d1_probe": pre["d1_probe"],
+        "items": "all" if n <= 0 else n,
+        "langs": langs,
+        "max_tokens": a.max_tokens,
+        "reasoning_effort": a.reasoning_effort or None,
+        "workers": min(a.workers, 8),
+    }
+    path = write_metrics(a.out, a.build, rows, meta, a.variant)
+    print(f"wrote {path}")
+    return 0
 
 
 if __name__ == "__main__":

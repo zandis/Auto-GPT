@@ -8,7 +8,7 @@
 # Endpoint zones: perimeter (on box or the attested tenant), tre (Z-TRE), external (vendor model, topology C),
 # dev_public (developer / bake-off endpoints, Z-DEV). Only tb-gateway reads endpoint addresses (LLM-1);
 # deploy/egress.py turns the non-perimeter hosts into egress rules for the gateway container only (NFR-B9).
-version: routing-2026-10-25.1
+version: routing-2026-10-25.3
 
 # MOD-4 sampling the gateway forces on every role except free-form ones (frontdesk_converse)
 sampling: {temperature: 0, top_p: 1, seed: 20261025}
@@ -30,6 +30,13 @@ endpoints:
     url_env: TB_EP_SERVING_URL
     default_url: http://llm-service:8000/v1
     cost: {gpu_second_usd: 0.0001} # (est.) amortised P-GB10 hardware + power per productive GPU-second, §8.11
+  verifier:
+    # the V build's own serving process (P-GB10: a second vLLM next to the J build, deploy/docker-compose.gb10.yml);
+    # where one router serves every build (topology B tenant), point TB_EP_VERIFIER_URL at the serving router
+    zone: perimeter
+    url_env: TB_EP_VERIFIER_URL
+    default_url: http://llm-verifier:8000/v1
+    cost: {gpu_second_usd: 0.0001} # (est.) as serving
   embed:
     zone: perimeter
     url_env: TB_EP_EMBED_URL
@@ -116,12 +123,19 @@ callers:
   frontdoor-mcp:
     roles: [answer_protocol, summarise_aggregate]
     purposes: [intake, feasibility]
+  # Conversation engines (FR-CONV-8, §9.6 item 7): staff conversation text is D3 before any study step exists, so a
+  # D3 call (never D4) on the engine's intake_role is accepted without X-TB-Step. Every other D3/D4 call still needs a
+  # live, delegated study step (LLM-2); no other caller may set d3_intake_without_step.
   hermes:
     roles: [frontdesk_converse, classify_intent]
     purposes: [intake]
+    d3_intake_without_step: true
+    intake_role: frontdesk_converse
   converse-native:
     roles: [classify_intent, frontdesk_converse]
     purposes: [intake]
+    d3_intake_without_step: true
+    intake_role: classify_intent
   guard:
     roles: [guard_policy, guard_injection, phi_ner]
     purposes: [qa, intake, screening, documents]
@@ -160,7 +174,7 @@ routes:
     classes: [D0, D1]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
-    builds: [j-workhorse@serving, v-verifier@serving, x-external@external_x]
+    builds: [j-workhorse@serving, v-verifier@verifier, x-external@external_x]
     external_requires: [sponsor_consent] # the Study Card records sponsor consent (D1)
   - id: mapping
     roles: ["@mapping"]
@@ -173,13 +187,13 @@ routes:
     classes: [D3]
     topologies: [A, B, C]
     environments: [PRODUCTION]
-    builds: [j-workhorse@serving, v-verifier@serving] # never external
+    builds: [j-workhorse@serving, v-verifier@verifier] # never external
   - id: patient-validation
     roles: ["@patient"]
     classes: [D2-L]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
-    builds: [j-workhorse@serving, v-verifier@serving]
+    builds: [j-workhorse@serving, v-verifier@verifier]
   - id: vectors
     roles: ["@vectors"]
     classes: [D1, D3]
@@ -209,7 +223,7 @@ routes:
     classes: [D1, D3]
     topologies: [A, B, C]
     environments: [PRODUCTION]
-    builds: [j-workhorse@serving, v-verifier@serving]
+    builds: [j-workhorse@serving, v-verifier@verifier]
   # ------------------------------------------------------------------ development and test (D0 only, §17.8)
   - id: bakeoff
     roles: ["@evaluation"]
@@ -228,4 +242,6 @@ routes:
     classes: [D0]
     topologies: [A, B, C]
     environments: [DEV, TEST]
-    builds: [trialbox-stub@stub]
+    # the stub first; the on-box build only when the caller names it (model: j-workhorse, TB_GATEWAY_MODEL) or the
+    # stub is down, and only once a site has pinned it (tools/pin_model.py): synthetic and open D0 data on the box
+    builds: [trialbox-stub@stub, f-frontdesk@stub, g-guard@stub, j-workhorse@serving, v-verifier@verifier]

@@ -1,0 +1,590 @@
+{
+ "alias": "j-workhorse",
+ "build_id": "or-gpt-4.1-reference",
+ "build_sha": "a93701804c70c6358c7382f54b1b55e15df5666aac3ba3bcd4c862d01d0959bc",
+ "by_lang": {
+  "en": {
+   "accuracy": 0.4995,
+   "accuracy_absent_as_negative": 0.7645,
+   "agreement_with_gpt4": 0.466,
+   "block_recall": 0.4848,
+   "build_shas": [
+    "a93701804c70c6358c7382f54b1b55e15df5666aac3ba3bcd4c862d01d0959bc"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 9,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 0,
+      "not excluded": 1
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 1,
+      "not applicable": 1,
+      "not enough information": 15,
+      "not excluded": 29
+     },
+     "not enough information": {
+      "excluded": 4,
+      "invalid": 2,
+      "not applicable": 0,
+      "not enough information": 104,
+      "not excluded": 9
+     },
+     "not excluded": {
+      "excluded": 8,
+      "invalid": 3,
+      "not applicable": 1,
+      "not enough information": 372,
+      "not excluded": 100
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 123,
+      "invalid": 2,
+      "not applicable": 0,
+      "not enough information": 25,
+      "not included": 0
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 3,
+      "not enough information": 5,
+      "not included": 1
+     },
+     "not enough information": {
+      "included": 12,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 158,
+      "not included": 4
+     },
+     "not included": {
+      "included": 2,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 14,
+      "not included": 7
+     }
+    }
+   },
+   "cost_per_1k_usd": 1.2646,
+   "cost_usd": 1.283606,
+   "evidence_f1": 0.8377,
+   "false_block_rate": 0.0173,
+   "false_block_upper95": 0.0259,
+   "gateway_refusals": {},
+   "gpt4_reference_same_items": {
+    "accuracy": 0.8729,
+    "accuracy_absent_as_negative": 0.7941,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.0143,
+    "false_block_upper95": 0.0222,
+    "macro_f1": 0.8075,
+    "screen_accuracy": 0.9813
+   },
+   "invalid_rate": 0.0079,
+   "latency_mean_s": 1.161,
+   "latency_p50_s": 1.057,
+   "latency_p95_s": 1.476,
+   "lenient_accuracy": 0.5025,
+   "macro_f1": 0.4706,
+   "model_refusals": 0,
+   "n": 1015,
+   "per_label": {
+    "excluded": {
+     "precision": 0.4286,
+     "recall": 0.9,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.8978,
+     "recall": 0.82,
+     "support": 150
+    },
+    "not applicable": {
+     "precision": 0.8,
+     "recall": 0.0727,
+     "support": 55
+    },
+    "not enough information": {
+     "precision": 0.3781,
+     "recall": 0.8942,
+     "support": 293
+    },
+    "not excluded": {
+     "precision": 0.7194,
+     "recall": 0.2066,
+     "support": 484
+    },
+    "not included": {
+     "precision": 0.5833,
+     "recall": 0.3043,
+     "support": 23
+    }
+   },
+   "providers": {
+    "OpenAI": 1015
+   },
+   "reasoning_tokens_mean": 0.0,
+   "screen_accuracy": 0.9665,
+   "served_models": {
+    "openai/gpt-4.1": 1015
+   },
+   "tokens_in_mean": 459.3,
+   "tokens_out_mean": 43.3,
+   "trial_false_exclusion": 0.1519,
+   "truncated": 8,
+   "upstream_errors": {}
+  },
+  "ja": {
+   "accuracy": 0.495,
+   "accuracy_absent_as_negative": 0.71,
+   "agreement_with_gpt4": 0.44,
+   "block_recall": 0.4848,
+   "build_shas": [
+    "a93701804c70c6358c7382f54b1b55e15df5666aac3ba3bcd4c862d01d0959bc"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 8,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not excluded": 0
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 4,
+      "not excluded": 2
+     },
+     "not enough information": {
+      "excluded": 1,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 17,
+      "not excluded": 1
+     },
+     "not excluded": {
+      "excluded": 1,
+      "invalid": 2,
+      "not applicable": 0,
+      "not enough information": 61,
+      "not excluded": 18
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 22,
+      "invalid": 2,
+      "not applicable": 0,
+      "not enough information": 2,
+      "not included": 0
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not included": 1
+     },
+     "not enough information": {
+      "included": 4,
+      "invalid": 3,
+      "not applicable": 0,
+      "not enough information": 23,
+      "not included": 1
+     },
+     "not included": {
+      "included": 1,
+      "invalid": 2,
+      "not applicable": 0,
+      "not enough information": 12,
+      "not included": 8
+     }
+    }
+   },
+   "cost_per_1k_usd": 1.6265,
+   "cost_usd": 0.32531,
+   "evidence_f1": 0.7752,
+   "false_block_rate": 0.024,
+   "false_block_upper95": 0.054,
+   "gateway_refusals": {
+    "phi_tripwire": 6
+   },
+   "gpt4_reference_same_items": {
+    "accuracy": 0.825,
+    "accuracy_absent_as_negative": 0.77,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.012,
+    "false_block_upper95": 0.0372,
+    "macro_f1": 0.8158,
+    "screen_accuracy": 0.965
+   },
+   "invalid_rate": 0.025,
+   "latency_mean_s": 1.285,
+   "latency_p50_s": 1.076,
+   "latency_p95_s": 1.569,
+   "lenient_accuracy": 0.515,
+   "macro_f1": 0.4895,
+   "model_refusals": 0,
+   "n": 200,
+   "per_label": {
+    "excluded": {
+     "precision": 0.8,
+     "recall": 0.8,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.8148,
+     "recall": 0.8462,
+     "support": 26
+    },
+    "not applicable": {
+     "precision": 0.0,
+     "recall": 0.0,
+     "support": 9
+    },
+    "not enough information": {
+     "precision": 0.3306,
+     "recall": 0.8,
+     "support": 50
+    },
+    "not excluded": {
+     "precision": 0.8571,
+     "recall": 0.2195,
+     "support": 82
+    },
+    "not included": {
+     "precision": 0.8,
+     "recall": 0.3478,
+     "support": 23
+    }
+   },
+   "providers": {
+    "OpenAI": 194
+   },
+   "reasoning_tokens_mean": 0.0,
+   "screen_accuracy": 0.895,
+   "served_models": {
+    "openai/gpt-4.1": 194
+   },
+   "tokens_in_mean": 521.2,
+   "tokens_out_mean": 79.3,
+   "trial_false_exclusion": 0.0536,
+   "truncated": 5,
+   "upstream_errors": {}
+  },
+  "mixed": {
+   "accuracy": 0.49,
+   "accuracy_absent_as_negative": 0.735,
+   "agreement_with_gpt4": 0.46,
+   "block_recall": 0.4545,
+   "build_shas": [
+    "a93701804c70c6358c7382f54b1b55e15df5666aac3ba3bcd4c862d01d0959bc"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 9,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not excluded": 0
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 2,
+      "not excluded": 4
+     },
+     "not enough information": {
+      "excluded": 0,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 17,
+      "not excluded": 2
+     },
+     "not excluded": {
+      "excluded": 0,
+      "invalid": 3,
+      "not applicable": 0,
+      "not enough information": 63,
+      "not excluded": 16
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 24,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 2,
+      "not included": 0
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 1,
+      "not enough information": 0,
+      "not included": 1
+     },
+     "not enough information": {
+      "included": 4,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 25,
+      "not included": 2
+     },
+     "not included": {
+      "included": 2,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 14,
+      "not included": 6
+     }
+    }
+   },
+   "cost_per_1k_usd": 1.4585,
+   "cost_usd": 0.291704,
+   "evidence_f1": 0.7933,
+   "false_block_rate": 0.018,
+   "false_block_upper95": 0.0458,
+   "gateway_refusals": {
+    "phi_tripwire": 1
+   },
+   "gpt4_reference_same_items": {
+    "accuracy": 0.825,
+    "accuracy_absent_as_negative": 0.77,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.012,
+    "false_block_upper95": 0.0372,
+    "macro_f1": 0.8158,
+    "screen_accuracy": 0.965
+   },
+   "invalid_rate": 0.02,
+   "latency_mean_s": 1.309,
+   "latency_p50_s": 1.098,
+   "latency_p95_s": 1.93,
+   "lenient_accuracy": 0.505,
+   "macro_f1": 0.5261,
+   "model_refusals": 0,
+   "n": 200,
+   "per_label": {
+    "excluded": {
+     "precision": 1.0,
+     "recall": 0.9,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.8,
+     "recall": 0.9231,
+     "support": 26
+    },
+    "not applicable": {
+     "precision": 1.0,
+     "recall": 0.1111,
+     "support": 9
+    },
+    "not enough information": {
+     "precision": 0.3387,
+     "recall": 0.84,
+     "support": 50
+    },
+    "not excluded": {
+     "precision": 0.7273,
+     "recall": 0.1951,
+     "support": 82
+    },
+    "not included": {
+     "precision": 0.6667,
+     "recall": 0.2609,
+     "support": 23
+    }
+   },
+   "providers": {
+    "OpenAI": 199
+   },
+   "reasoning_tokens_mean": 0.0,
+   "screen_accuracy": 0.895,
+   "served_models": {
+    "openai/gpt-4.1": 199
+   },
+   "tokens_in_mean": 455.5,
+   "tokens_out_mean": 69.3,
+   "trial_false_exclusion": 0.0536,
+   "truncated": 4,
+   "upstream_errors": {}
+  },
+  "zh-TW": {
+   "accuracy": 0.49,
+   "accuracy_absent_as_negative": 0.71,
+   "agreement_with_gpt4": 0.445,
+   "block_recall": 0.3636,
+   "build_shas": [
+    "a93701804c70c6358c7382f54b1b55e15df5666aac3ba3bcd4c862d01d0959bc"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 8,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not excluded": 0
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 3,
+      "not excluded": 4
+     },
+     "not enough information": {
+      "excluded": 1,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 17,
+      "not excluded": 1
+     },
+     "not excluded": {
+      "excluded": 0,
+      "invalid": 4,
+      "not applicable": 0,
+      "not enough information": 60,
+      "not excluded": 18
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 23,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 2,
+      "not included": 0
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 2,
+      "not enough information": 0,
+      "not included": 0
+     },
+     "not enough information": {
+      "included": 4,
+      "invalid": 3,
+      "not applicable": 0,
+      "not enough information": 23,
+      "not included": 1
+     },
+     "not included": {
+      "included": 1,
+      "invalid": 6,
+      "not applicable": 0,
+      "not enough information": 12,
+      "not included": 4
+     }
+    }
+   },
+   "cost_per_1k_usd": 1.4749,
+   "cost_usd": 0.294972,
+   "evidence_f1": 0.8103,
+   "false_block_rate": 0.012,
+   "false_block_upper95": 0.0372,
+   "gateway_refusals": {
+    "phi_tripwire": 11
+   },
+   "gpt4_reference_same_items": {
+    "accuracy": 0.825,
+    "accuracy_absent_as_negative": 0.77,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.012,
+    "false_block_upper95": 0.0372,
+    "macro_f1": 0.8158,
+    "screen_accuracy": 0.965
+   },
+   "invalid_rate": 0.02,
+   "latency_mean_s": 1.269,
+   "latency_p50_s": 1.072,
+   "latency_p95_s": 1.567,
+   "lenient_accuracy": 0.51,
+   "macro_f1": 0.526,
+   "model_refusals": 0,
+   "n": 200,
+   "per_label": {
+    "excluded": {
+     "precision": 0.8889,
+     "recall": 0.8,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.8214,
+     "recall": 0.8846,
+     "support": 26
+    },
+    "not applicable": {
+     "precision": 1.0,
+     "recall": 0.2222,
+     "support": 9
+    },
+    "not enough information": {
+     "precision": 0.339,
+     "recall": 0.8,
+     "support": 50
+    },
+    "not excluded": {
+     "precision": 0.7826,
+     "recall": 0.2195,
+     "support": 82
+    },
+    "not included": {
+     "precision": 0.8,
+     "recall": 0.1739,
+     "support": 23
+    }
+   },
+   "providers": {
+    "OpenAI": 189
+   },
+   "reasoning_tokens_mean": 0.0,
+   "screen_accuracy": 0.885,
+   "served_models": {
+    "openai/gpt-4.1": 189
+   },
+   "tokens_in_mean": 501.8,
+   "tokens_out_mean": 69.6,
+   "trial_false_exclusion": 0.0179,
+   "truncated": 4,
+   "upstream_errors": {}
+  }
+ },
+ "d1_probe": "class_not_allowed_in_env",
+ "items": 200,
+ "langs": [
+  "zh-TW",
+  "ja",
+  "mixed"
+ ],
+ "max_tokens": 2048,
+ "model_name": "GPT-4.1 (hosted; GPT-4-class reference only, closed weights, never promoted)",
+ "provider_pin": {
+  "canonical_slug": "openai/gpt-4.1-2025-04-14",
+  "created": 1744651385,
+  "endpoint": "openrouter",
+  "model": "openai/gpt-4.1",
+  "pinned_at": "2026-10-25",
+  "provider": "OpenAI",
+  "provider_tag": "openai",
+  "quantization": "unknown"
+ },
+ "reasoning_effort": null,
+ "workers": 8
+}

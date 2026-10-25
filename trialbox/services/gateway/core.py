@@ -4,24 +4,31 @@ Processing order for ``POST /v1/chat/completions`` (each step passes or refuses;
 
 1. caller identity: ``X-TB-Caller`` must be on the allowlist, with the role and purpose it asks for (LLM-48);
 2. header validation: class, purpose, role, study, context of use and prompt are required (LLM-2, ENG-04); D3/D4
-   also need a study and step that the step confirmer accepts as live; a schema-constrained ``response_format`` is
-   required except for free-form roles (LLM-22);
+   also need a study and step that the step confirmer accepts as live, except a D3 (never D4) call without a step
+   on the intake role of a conversation engine whose caller entry sets ``d3_intake_without_step`` (FR-CONV-8: intake
+   precedes any study step); a schema-constrained ``response_format`` is required except for free-form roles (LLM-22);
 3. route lookup: ``(role, class, topology, environment, profile)`` → ordered candidates, each checked with
    ``may_reach`` (§7.2) — no route or no permitted endpoint is refused (``no_route``, ``class_route_mismatch``);
 4. PHI tripwire on D0–D2 calls (LLM-15): a hit blocks the call, it is never relabelled;
-5. registry resolution of each candidate alias to a pinned build (S1-07; unpinned builds are refused);
+5. registry resolution of each candidate alias to a pinned build (S1-07; unpinned builds are refused); a candidate
+   outside the perimeter (``external``, ``dev_public``) also needs a provider pin for that endpoint (S1-14), because a
+   weight hash cannot vouch for what a third party serves (``provider_unpinned``);
 6. response cache keyed by (prompt sha, model sha) for cacheable D0/D1 roles (§8.12);
 7. dispatch with forced sampling (MOD-4) and structured-output pass-through; fallback only down the route list;
-8. served-model echo check (the upstream must report the build's served name);
+8. served-model echo check (the upstream must report the build's served name and, for a provider-pinned build, the
+   pinned provider; the request asked for that provider only, with no fallback);
 9. audit record appended before the response is returned (LLM-5), then the redacted trace (§8.14).
 
-The call record holds hashes, labels, tokens, latency and cost — never prompt or response text.
+The call record holds hashes, labels, tokens, latency and cost — never prompt or response text, and never request
+headers (the endpoint API key is added to the upstream request only). Cost is the upstream's reported ``usage.cost``
+when it reports one (OpenRouter does), else the routing-table price.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
@@ -30,12 +37,12 @@ from typing import Any
 
 import httpx
 from guard.guard import Guard
-from registry.registry import Registry, RegistryError, Resolved, check_served
+from registry.registry import Registry, RegistryError, Resolved, check_served, provider_routing
 from tb_common.audit import AuditLog, canonical
 from tb_common.crypto import sha256_text
 from tb_common.policy.classes import Environment, Topology
 from tb_common.ulid import new_ulid
-from tb_contracts.dataclass import ClassLabel
+from tb_contracts.dataclass import ClassLabel, DataClass
 from tracestore.store import TraceStore
 
 from gateway.policy import Candidate, Refusal, RoutingPolicy, parse_label
@@ -116,8 +123,9 @@ def _schema_ok(content: str, response_format: Any) -> bool | None:
         return None
     try:
         import jsonschema
+        from tb_contracts import null_absent
 
-        jsonschema.validate(json.loads(content), schema)
+        jsonschema.validate(null_absent(schema, json.loads(content)), schema)  # null == absent (strict schemas)
         return True
     except Exception:
         return False
@@ -149,6 +157,7 @@ class Gateway:
         self.env: Mapping[str, str] = os.environ if env is None else env
         self.cache: OrderedDict[tuple[str, str, str], dict[str, Any]] = OrderedDict()
         self.cache_size = cache_size
+        self._cache_lock = threading.Lock()  # the HTTP app runs calls in a thread pool
 
     # ------------------------------------------------------------------------------------------------ public
     def models(self) -> list[str]:
@@ -193,8 +202,14 @@ class Gateway:
             raise Refusal("header_missing", f"missing headers: {', '.join(missing)}")
         label = parse_label(call.data_class)
         call.data_class = label.tag
-        self.policy.check_caller(call.caller, call.role, call.purpose)
-        if label.data_class.rank >= 3:
+        caller = self.policy.check_caller(call.caller, call.role, call.purpose)
+        intake = (
+            caller.d3_intake_without_step
+            and call.role == caller.intake_role
+            and label.data_class == DataClass.D3
+            and not call.step
+        )
+        if label.data_class.rank >= 3 and not intake:
             confirmed = self.step_confirm is not None and bool(call.step)
             if not confirmed or not self.step_confirm(call.caller, call.study, call.step):  # type: ignore[misc]
                 raise Refusal("step_unconfirmed", "D3/D4 calls need a live, delegated study step (LLM-2)")
@@ -235,6 +250,12 @@ class Gateway:
                 registry_refusals.append(e)
                 call.fallbacks += 1
                 continue
+            pin, ep = res.build.provider_pin, cand.endpoint
+            if ep.zone in ("external", "dev_public") and not (pin and pin["endpoint"] == ep.name):
+                msg = f"build {res.build.build_id} has no provider pin for {ep.name} ({ep.zone})"
+                registry_refusals.append(RegistryError("provider_unpinned", msg))
+                call.fallbacks += 1
+                continue
             out = self._try(call, cand, res, label, body, free_form, upstream_errors)
             if out is not None:
                 return out
@@ -262,15 +283,22 @@ class Gateway:
             bool(self.policy.roles.get(call.role, {}).get("cacheable")) and label.data_class.rank <= 1 and not free_form
         )
         key = (call.rendered_sha, res.build.model_sha, canonical(sampling))
-        if cacheable and key in self.cache:
-            self.cache.move_to_end(key)
-            payload = json.loads(json.dumps(self.cache[key]))
+        hit: dict[str, Any] | None = None
+        if cacheable:
+            with self._cache_lock:
+                if key in self.cache:
+                    self.cache.move_to_end(key)
+                    hit = json.loads(json.dumps(self.cache[key]))
+        if hit is not None:
             call.cache = "hit"
-            return self._allow(call, payload, label, body)
+            return self._allow(call, hit, label, body)
 
         upstream = {k: v for k, v in body.items() if k not in ("model", "stream")}
         upstream.update(sampling)
+        upstream.pop("provider", None)  # provider routing comes from the registry pin only, never from the caller
         upstream["model"] = res.served_name
+        if res.build.provider_pin is not None:
+            upstream["provider"] = provider_routing(res.build.provider_pin)
         headers = {"X-TB-Call-Id": call.call_id}
         if call.prompt:
             pid, _, ver = call.prompt.partition("@")
@@ -299,25 +327,30 @@ class Gateway:
             errors.append(f"{ep.name}: malformed response")
             return None
         try:
-            check_served(res, payload.get("model"))
+            check_served(res, payload.get("model"), payload.get("provider"))
         except RegistryError as e:
             raise Refusal(e.reason, str(e), status=502) from e
         usage = payload.get("usage") or {}
         call.tokens_in = int(usage.get("prompt_tokens") or 0)
         call.tokens_out = int(usage.get("completion_tokens") or 0)
         c = ep.cost
-        call.cost = round(
-            call.tokens_in / 1000 * c.get("usd_per_1k_in", 0.0)
-            + call.tokens_out / 1000 * c.get("usd_per_1k_out", 0.0)
-            + call.latency_ms / 1000 * c.get("gpu_second_usd", 0.0),
-            8,
-        )
+        reported = usage.get("cost")
+        if isinstance(reported, int | float) and not isinstance(reported, bool):
+            call.cost = round(float(reported), 8)
+        else:
+            call.cost = round(
+                call.tokens_in / 1000 * c.get("usd_per_1k_in", 0.0)
+                + call.tokens_out / 1000 * c.get("usd_per_1k_out", 0.0)
+                + call.latency_ms / 1000 * c.get("gpu_second_usd", 0.0),
+                8,
+            )
         call.output_sha = sha256_text(content)
         call.schema_valid = _schema_ok(content, body.get("response_format"))
         if cacheable:
-            self.cache[key] = json.loads(json.dumps(payload))
-            while len(self.cache) > self.cache_size:
-                self.cache.popitem(last=False)
+            with self._cache_lock:
+                self.cache[key] = json.loads(json.dumps(payload))
+                while len(self.cache) > self.cache_size:
+                    self.cache.popitem(last=False)
         return self._allow(call, payload, label, body)
 
     def _allow(self, call: _Call, payload: dict[str, Any], label: ClassLabel, body: dict[str, Any]) -> GatewayResponse:

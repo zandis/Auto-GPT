@@ -29,7 +29,7 @@ from typing import Any
 import httpx
 import yaml
 from jinja2 import Environment, StrictUndefined
-from tb_contracts import PromptMeta, inline_schema, schema_errors
+from tb_contracts import PromptMeta, inline_schema, load_schema, null_absent, schema_errors
 
 from tb_common.audit import AuditLog
 from tb_common.crypto import sha256_text
@@ -158,7 +158,9 @@ class LlmClient:
         if os.environ.get("TB_GATEWAY_URL"):
             from tb_llm import GatewayClient
 
-            gateway = GatewayClient(os.environ["TB_GATEWAY_URL"], cfg.env.service_name)
+            gateway = GatewayClient(
+                os.environ["TB_GATEWAY_URL"], cfg.env.service_name, model=os.environ.get("TB_GATEWAY_MODEL") or None
+            )
         return cls(
             cfg.env.llm_base_url,
             cfg.env.llm_model,
@@ -235,7 +237,7 @@ class LlmClient:
             tokens_out += int(usage.get("completion_tokens", 0))
             content = payload["choices"][0]["message"].get("content") or ""
             try:
-                data = _extract_json(content)
+                data = null_absent(load_schema(schema_name), _extract_json(content))  # null == absent
                 errors = schema_errors(schema_name, data)
             except (json.JSONDecodeError, ValueError) as exc:
                 data, errors = None, [f"not JSON: {exc}"]

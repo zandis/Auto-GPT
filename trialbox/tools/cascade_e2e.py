@@ -10,7 +10,14 @@
 ``source_dir`` is a synthetic site drop (CSV, ``tools/make_fixtures.py``) or the MIMIC-IV FHIR demo (detected by its
 ``fhir/`` folder). ``trial_id`` names a ruleset in ``rulesets/`` or ``tests/fixtures/open_data/rulesets/``. Only D0
 datasets of ``eval/DATASETS.yaml`` are accepted, and the tool refuses to run unless ``TB_ENV`` is unset, ``DEV`` or
-``TEST`` (the model path is the in-process ``tb-gateway`` in front of the deterministic ``llm_stub``; no network).
+``TEST``. The model path is the in-process ``tb-gateway`` in front of the deterministic ``llm_stub`` (no network) by
+default. With ``TB_GATEWAY_URL`` set (e.g. ``http://127.0.0.1:8020/v1``, the compose ``gateway`` service), every judge
+call goes to that gateway instead, as caller ``orchestrator``; with ``TB_GATEWAY_VERIFIER_URL`` also set (and optionally
+``TB_GATEWAY_VERIFIER_MODEL`` / ``TB_GATEWAY_VERIFIER_EXPECT_SHA``) the judge is the two-model
+:class:`matching.cascade.judge.AgreementJudge`: a criterion blocks only when the verifier build agrees;
+``TB_GATEWAY_MODEL`` names the alias to ask for (``j-workhorse`` for the on-box build once pinned, unset for the stub)
+and ``TB_GATEWAY_EXPECT_SHA`` makes the run fail unless every answer came from the build with that sha256 (the
+``gateway_build_pinned`` check).
 
 Outputs in ``out_dir``: ``dataplat/`` (the publish cycle), ``cascade/`` (D3: traces, review queue, final list,
 stage log, manifest block), ``dl1/`` (D1: PDF, XLSX, JSON, figures; plus the INTERNAL exact comparison for these
@@ -63,6 +70,7 @@ class E2EResult:
     checks: dict[str, bool]  # invariant -> holds
     problems: list[str] = field(default_factory=list)
     seconds: float = 0.0
+    gateway: dict[str, Any] = field(default_factory=dict)  # mode, url, model, builds answering, refusals
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -137,6 +145,56 @@ def local_gateway(audit_dir: Path) -> Any:
         env={},
     )
     return GatewayClient("http://tb-gateway/v1", "orchestrator", http=TestClient(create_app(gw)))
+
+
+class RecordingClient:
+    """Wraps a ``tb_llm.GatewayClient``: counts calls and records which ``alias:build_sha`` answered each one."""
+
+    def __init__(self, client: Any, mode: str, url: str) -> None:
+        self.client = client
+        self.mode = mode
+        self.url = url
+        self.calls = 0
+        self.builds: dict[str, int] = {}
+
+    def chat(self, *args: Any, **kwargs: Any) -> Any:
+        res = self.client.chat(*args, **kwargs)
+        self.calls += 1
+        key = f"{res.alias}:{res.build_sha}"
+        self.builds[key] = self.builds.get(key, 0) + 1
+        return res
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "url": self.url,
+            "model": getattr(self.client, "model", None),
+            "calls": self.calls,
+            "builds": dict(sorted(self.builds.items())),
+        }
+
+
+def verifier_client() -> RecordingClient | None:
+    """The verifier gateway for the two-model judge (``TB_GATEWAY_VERIFIER_URL``), or None for a single model."""
+    url = os.environ.get("TB_GATEWAY_VERIFIER_URL", "").strip()
+    if not url:
+        return None
+    from tb_llm import GatewayClient
+
+    model = os.environ.get("TB_GATEWAY_VERIFIER_MODEL") or os.environ.get("TB_GATEWAY_MODEL") or None
+    return RecordingClient(GatewayClient(url, "orchestrator", model=model), "remote-verifier", url)
+
+
+def gateway_client(audit_dir: Path) -> RecordingClient:
+    """The remote gateway at ``TB_GATEWAY_URL`` when set, else :func:`local_gateway` (in process, stub upstream)."""
+    url = os.environ.get("TB_GATEWAY_URL", "").strip()
+    if url:
+        from tb_llm import GatewayClient
+
+        return RecordingClient(
+            GatewayClient(url, "orchestrator", model=os.environ.get("TB_GATEWAY_MODEL") or None), "remote", url
+        )
+    return RecordingClient(local_gateway(audit_dir), "in-process", "")
 
 
 @dataclass
@@ -283,7 +341,7 @@ def run_end_to_end(
     from lake.client import LakeLocal
     from matching.cascade import CascadeConfig, run_cascade, write_outputs
     from matching.cascade.certificate import AuditPlan, certify
-    from matching.cascade.judge import GatewayJudge
+    from matching.cascade.judge import AgreementJudge, GatewayJudge
     from matching.cascade.model import STAGES
     from orchestrator.scenarios.feas_compute import FeasParams, compute
     from tb_common.policy.classes import Destination, PolicyError, Topology, lower, may_reach
@@ -365,7 +423,16 @@ def run_end_to_end(
     if rs.manifest.scopes and rs.manifest.scopes.feas and rs.manifest.scopes.feas.lookback_months:
         lookback = int(rs.manifest.scopes.feas.lookback_months)
     truth = _Truth.load(source_dir, workdir, site_id) if kind == "csv" else None
-    client = local_gateway(out_dir / "audit")
+    client = gateway_client(out_dir / "audit")
+    verifier = verifier_client()
+    agreement: list[AgreementJudge] = []
+
+    def make_judge() -> Any:
+        if verifier is None:
+            return GatewayJudge(client)
+        j = AgreementJudge(GatewayJudge(client), GatewayJudge(verifier))
+        agreement.append(j)
+        return j
 
     def cascade() -> Any:
         cfg = CascadeConfig(
@@ -378,11 +445,21 @@ def run_end_to_end(
             sample_per_stratum=200,
             snapshot=manifest.snapshot,
         )
-        return run_cascade(
-            lake, rs, cfg, judge=GatewayJudge(client), embedder=HashEmbedder(), reviewer=_reviewer(truth, rs)
-        )
+        return run_cascade(lake, rs, cfg, judge=make_judge(), embedder=HashEmbedder(), reviewer=_reviewer(truth, rs))
 
     res = cascade()
+    expect_sha = os.environ.get("TB_GATEWAY_EXPECT_SHA", "").strip()
+    if expect_sha:
+        shas = {k.rsplit(":", 1)[-1] for k in client.builds}
+        checks["gateway_build_pinned"] = client.calls > 0 and shas == {expect_sha}
+        if not checks["gateway_build_pinned"]:
+            problems.append(f"gateway answered with builds {sorted(client.builds)}, expected sha256 {expect_sha}")
+    expect_v = os.environ.get("TB_GATEWAY_VERIFIER_EXPECT_SHA", "").strip()
+    if verifier is not None and expect_v:
+        vshas = {k.rsplit(":", 1)[-1] for k in verifier.builds}
+        checks["verifier_build_pinned"] = verifier.calls > 0 and vshas == {expect_v}
+        if not checks["verifier_build_pinned"]:
+            problems.append(f"verifier answered with builds {sorted(verifier.builds)}, expected sha256 {expect_v}")
     d3 = ClassLabel(data_class=DataClass.D3)
     if not may_reach(d3, Destination.PERIMETER, Topology.A):  # patient-level files stay in the perimeter
         raise PolicyError("D3 patient list may not be written here")
@@ -495,6 +572,14 @@ def run_end_to_end(
         checks,
         problems,
         t0,
+        gateway={
+            **client.summary(),
+            **(
+                {"verifier": verifier.summary(), "disagreements": sum(j.disagreements for j in agreement)}
+                if verifier is not None
+                else {}
+            ),
+        },
     )
 
 
@@ -514,6 +599,8 @@ def _finish(
     checks: dict[str, bool],
     problems: list[str],
     t0: float,
+    *,
+    gateway: dict[str, Any] | None = None,
 ) -> E2EResult:
     stages = (
         {
@@ -552,6 +639,7 @@ def _finish(
         checks=checks,
         problems=problems,
         seconds=round(time.monotonic() - t0, 1),
+        gateway=gateway or {},
     )
     (out_dir / "e2e_summary.json").write_text(
         json.dumps(result.to_dict(), indent=1, sort_keys=True, default=str) + "\n", "utf-8"
@@ -583,6 +671,14 @@ def markdown(r: E2EResult) -> str:
         "Checks: " + ", ".join(f"{k} {'ok' if v else 'FAIL'}" for k, v in r.checks.items()),
         "",
     ]
+    if r.gateway:
+        g = r.gateway
+        where = f" at {g['url']}" if g.get("url") else ""
+        lines += [
+            f"Gateway: {g.get('mode')}{where}, model {g.get('model') or 'route default'}, {g.get('calls')} calls; "
+            f"answered by {g.get('builds')}.",
+            "",
+        ]
     if r.problems:
         lines += ["Problems:", *(f"- {p}" for p in r.problems), ""]
     lines += ["Artefacts:", *(f"- {k}: {v}" for k, v in sorted(r.artefacts.items())), ""]

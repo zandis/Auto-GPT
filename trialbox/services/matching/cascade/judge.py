@@ -122,6 +122,47 @@ class GatewayJudge:
         )
 
 
+@dataclass
+class AgreementJudge:
+    """Two-model judge (the recommended DGX Spark configuration: judge build + verifier build behind one gateway).
+
+    Every S3 question goes to ``primary``; a decided answer (``pass`` / ``fail``) is then put to ``verifier`` with the
+    same role and inputs. The primary's answer stands only when the verifier gives the same verdict; any disagreement,
+    abstention or refusal by the verifier becomes ``unknown`` ("judge/verifier disagree"), which the cascade maps to
+    ``potential:uncertain``. So a criterion blocks a patient only when both models say so (unknown never excludes,
+    SAFE-13); the S4 second opinion goes to the verifier as before. Costs one extra call per decided S3 answer."""
+
+    primary: Any  # JudgeClient
+    verifier: Any  # JudgeClient
+    disagreements: int = 0
+
+    def judge(self, *, role: str, **kw: Any) -> JudgeReply:
+        if role != "judge":
+            reply: JudgeReply = self.verifier.judge(role=role, **kw)
+            return reply
+        first: JudgeReply = self.primary.judge(role=role, **kw)
+        if first.verdict not in ("pass", "fail"):
+            return first
+        second: JudgeReply = self.verifier.judge(role=role, **kw)
+        if second.verdict == first.verdict:
+            return first
+        self.disagreements += 1
+        refused = f"; {second.refused}" if second.refused else ""
+        reason = f"judge/verifier disagree ({first.verdict}/{second.verdict}{refused})"
+        return JudgeReply(
+            "unknown",
+            0.0,
+            None,
+            None,
+            reason,
+            call_id=first.call_id,
+            build_sha=first.build_sha,
+            prompt=first.prompt,
+            tokens_in=first.tokens_in + second.tokens_in,
+            tokens_out=first.tokens_out + second.tokens_out,
+        )
+
+
 def norm(text: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", text).split())
 

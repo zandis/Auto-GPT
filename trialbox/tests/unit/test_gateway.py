@@ -13,6 +13,7 @@ from typing import Any
 
 import httpx
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 from gateway.app import create_app
 from gateway.core import Gateway, GatewayConfig
@@ -93,7 +94,7 @@ def _pinned_registry(*, served: str = "j-test", sha: str | None = PIN, status: s
                 "alias": "v-verifier",
                 "status": "champion",
                 "serving": "vllm",
-                "served": {"serving": "v-test"},
+                "served": {"verifier": "v-test"},  # V has its own endpoint (routing.yaml)
                 "sha256": "cd" * 32,
                 "licence": {"name": "test"},
                 "origin": {"developer": "test"},
@@ -330,6 +331,62 @@ def test_d3_production_call_traced_redacted(tmp_path: Path) -> None:
     assert t["attributes"]["tb.call_id"] == res.body["tb"]["call_id"] and t["attributes"]["tb.data_class"] == "D3"
     wrong_step = gw.chat(H(Data_Class="D3", Step="other"), _judge_body())
     assert wrong_step.body["error"]["code"] == "step_unconfirmed"
+
+
+def _intake(caller: str, role: str, data_class: str = "D3", **over: str) -> dict[str, str]:
+    h = {"Caller": caller, "Role": role, "Purpose": "intake", "Data_Class": data_class, "Study": "-", "Step": ""}
+    h.update(Context_Of_Use="intake", Prompt="" if role == "frontdesk_converse" else "classify_intent@1")
+    return H(**{**h, **over})
+
+
+INTAKE_BODY: dict[str, Any] = {
+    "messages": [{"role": "user", "content": "請問 GZQO 目前收案狀況？"}],
+    "response_format": json_schema_format("classify_intent", {"type": "object"}),
+}
+
+
+@pytest.mark.req("LLM-2", "FR-CONV-8")
+@pytest.mark.parametrize(("caller", "role"), [("hermes", "frontdesk_converse"), ("converse-native", "classify_intent")])
+def test_d3_intake_role_needs_no_study_step(tmp_path: Path, caller: str, role: str) -> None:
+    # no step confirmer at all: the exemption must not depend on one
+    gw = _gw(tmp_path, env=Environment.PRODUCTION, registry=_pinned_registry(), http=_mock("j-test"))
+    res = gw.chat(_intake(caller, role), INTAKE_BODY)
+    assert res.status == 200, res.body
+    assert res.body["tb"]["route_id"] == "converse" and res.body["tb"]["build_sha"] == PIN
+    (rec,) = [r for r in _records(tmp_path) if r["event"] == "llm.gateway.call"]
+    assert rec["detail"]["class"] == "D3" and rec["detail"]["role"] == role
+
+
+@pytest.mark.req("LLM-2", "FR-CONV-8")
+@pytest.mark.parametrize(
+    "headers",
+    [
+        _intake("hermes", "frontdesk_converse", "D4"),  # D4 never, even on the intake role
+        _intake("converse-native", "classify_intent", "D4"),
+        _intake("hermes", "classify_intent"),  # hermes' intake role is frontdesk_converse
+        _intake("converse-native", "frontdesk_converse"),  # converse-native's is classify_intent
+        _intake("eval", "classify_intent", Purpose="evaluation"),  # a caller without the flag
+        _intake("orchestrator", "judge", Purpose="screening", Prompt="judge@3"),
+        _intake("hermes", "frontdesk_converse", Step="step-1"),  # a step that is named must still be confirmed
+    ],
+)
+def test_d3_without_step_still_refused_outside_the_intake_rule(tmp_path: Path, headers: dict[str, str]) -> None:
+    gw = _gw(tmp_path, env=Environment.PRODUCTION, registry=_pinned_registry(), http=_mock("j-test"))
+    res = gw.chat(headers, INTAKE_BODY if headers["X-TB-Caller"] != "orchestrator" else _judge_body())
+    assert res.status == 403 and res.body["error"]["code"] == "step_unconfirmed", res.body
+
+
+@pytest.mark.req("LLM-2", "FR-CONV-8")
+def test_intake_flag_only_on_conversation_engines() -> None:
+    doc = yaml.safe_load((ROOT / "models" / "routing.yaml").read_text(encoding="utf-8"))
+    flagged = {n: c["intake_role"] for n, c in doc["callers"].items() if c.get("d3_intake_without_step")}
+    assert flagged == {"hermes": "frontdesk_converse", "converse-native": "classify_intent"}
+    bad = {**doc, "callers": {**doc["callers"], "eval": {**doc["callers"]["eval"], "d3_intake_without_step": True}}}
+    with pytest.raises(ValueError, match="intake_role"):
+        RoutingPolicy(bad)
+    wrong = {**doc, "callers": {**doc["callers"], "hermes": {**doc["callers"]["hermes"], "intake_role": "judge"}}}
+    with pytest.raises(ValueError, match="intake_role"):
+        RoutingPolicy(wrong)
 
 
 # ------------------------------------------------------------------------------------------------ HTTP + clients

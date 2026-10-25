@@ -1,0 +1,41 @@
+{
+ "build_id": "or-nemotron-3-nano-30b-a3b",
+ "calls": 18,
+ "certificate_reasons": [],
+ "certificate_status": "issued",
+ "checks_passed": 16,
+ "checks_total": 16,
+ "classes": {
+  "D0": 18
+ },
+ "cost_usd": 0.004564,
+ "failed_checks": [],
+ "final_list_size": 2,
+ "funnel": "600 → 18 → 18 → 17 → 12 → 12 → 2",
+ "gateway": {
+  "builds": {
+   "j-workhorse:07c58a06e047d8b5c4f5b21edc638baa131b1806728b6163f44232c48462ae71": 18
+  },
+  "calls": 18,
+  "mode": "remote",
+  "model": "j-workhorse",
+  "url": "http://127.0.0.1:8124/v1"
+ },
+ "gateway_refusals": {
+  "phi_tripwire": 1
+ },
+ "mode": "single model",
+ "passed": true,
+ "problems": [],
+ "repro_check": "off (hosted inference is not bit-reproducible; as tools/spark_e2e.sh)",
+ "routes": {
+  "dev-public": 18
+ },
+ "seconds": 92.6,
+ "tiers": {
+  "excluded": 586,
+  "potential:data_gap": 6,
+  "potential:uncertain": 6,
+  "watchlist": 2
+ }
+}

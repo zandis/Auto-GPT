@@ -26,6 +26,7 @@ ALLOWED: dict[str, str] = {
     "services/llm_stub/": "the deterministic stub serves the API; it calls nothing",
     "tools/mlbench.py": "bake-off harness on D0 data (Z-DEV); moves behind the gateway bakeoff route in S1-14",
     "tests/unit/test_gateway.py": "drives the stub app in-process as the gateway's upstream (no network)",
+    "tests/unit/test_pin_model.py": "drives the stub app in-process as the gateway's upstream (no network)",
     "tests/unit/test_no_direct_model_calls.py": "holds the patterns of this check",
 }
 

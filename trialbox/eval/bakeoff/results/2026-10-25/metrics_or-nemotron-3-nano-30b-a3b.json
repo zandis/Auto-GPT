@@ -1,0 +1,592 @@
+{
+ "alias": "j-workhorse",
+ "build_id": "or-nemotron-3-nano-30b-a3b",
+ "build_sha": "07c58a06e047d8b5c4f5b21edc638baa131b1806728b6163f44232c48462ae71",
+ "by_lang": {
+  "en": {
+   "accuracy": 0.4887,
+   "accuracy_absent_as_negative": 0.7635,
+   "agreement_with_gpt4": 0.4562,
+   "block_recall": 0.5152,
+   "build_shas": [
+    "07c58a06e047d8b5c4f5b21edc638baa131b1806728b6163f44232c48462ae71"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 8,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 2,
+      "not excluded": 0
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 1,
+      "not applicable": 5,
+      "not enough information": 25,
+      "not excluded": 15
+     },
+     "not enough information": {
+      "excluded": 2,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 115,
+      "not excluded": 1
+     },
+     "not excluded": {
+      "excluded": 11,
+      "invalid": 5,
+      "not applicable": 2,
+      "not enough information": 391,
+      "not excluded": 75
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 119,
+      "invalid": 5,
+      "not applicable": 0,
+      "not enough information": 26,
+      "not included": 0
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 2,
+      "not enough information": 6,
+      "not included": 1
+     },
+     "not enough information": {
+      "included": 8,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 161,
+      "not included": 4
+     },
+     "not included": {
+      "included": 0,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 13,
+      "not included": 9
+     }
+    }
+   },
+   "cost_per_1k_usd": 0.1195,
+   "cost_usd": 0.121319,
+   "evidence_f1": 0.7297,
+   "false_block_rate": 0.0183,
+   "false_block_upper95": 0.0271,
+   "gateway_refusals": {},
+   "gpt4_reference_same_items": {
+    "accuracy": 0.8729,
+    "accuracy_absent_as_negative": 0.7941,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.0143,
+    "false_block_upper95": 0.0222,
+    "macro_f1": 0.8075,
+    "screen_accuracy": 0.9813
+   },
+   "invalid_rate": 0.0138,
+   "latency_mean_s": 5.116,
+   "latency_p50_s": 3.782,
+   "latency_p95_s": 12.435,
+   "lenient_accuracy": 0.4975,
+   "macro_f1": 0.4788,
+   "model_refusals": 0,
+   "n": 1015,
+   "per_label": {
+    "excluded": {
+     "precision": 0.381,
+     "recall": 0.8,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.937,
+     "recall": 0.7933,
+     "support": 150
+    },
+    "not applicable": {
+     "precision": 0.7778,
+     "recall": 0.1273,
+     "support": 55
+    },
+    "not enough information": {
+     "precision": 0.3735,
+     "recall": 0.942,
+     "support": 293
+    },
+    "not excluded": {
+     "precision": 0.8242,
+     "recall": 0.155,
+     "support": 484
+    },
+    "not included": {
+     "precision": 0.6429,
+     "recall": 0.3913,
+     "support": 23
+    }
+   },
+   "providers": {
+    "Nebius": 1015
+   },
+   "reasoning_tokens_mean": 396.2,
+   "screen_accuracy": 0.9665,
+   "served_models": {
+    "nvidia/nemotron-3-nano-30b-a3b": 1015
+   },
+   "tokens_in_mean": 432.9,
+   "tokens_out_mean": 389.8,
+   "trial_false_exclusion": 0.1772,
+   "truncated": 14,
+   "upstream_errors": {}
+  },
+  "ja": {
+   "accuracy": 0.4709,
+   "accuracy_absent_as_negative": 0.7488,
+   "agreement_with_gpt4": 0.4345,
+   "block_recall": 0.4848,
+   "build_shas": [
+    "07c58a06e047d8b5c4f5b21edc638baa131b1806728b6163f44232c48462ae71"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 8,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 2,
+      "not excluded": 0
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 0,
+      "not applicable": 7,
+      "not enough information": 27,
+      "not excluded": 12
+     },
+     "not enough information": {
+      "excluded": 6,
+      "invalid": 3,
+      "not applicable": 0,
+      "not enough information": 107,
+      "not excluded": 3
+     },
+     "not excluded": {
+      "excluded": 10,
+      "invalid": 26,
+      "not applicable": 1,
+      "not enough information": 379,
+      "not excluded": 68
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 109,
+      "invalid": 6,
+      "not applicable": 0,
+      "not enough information": 35,
+      "not included": 0
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 1,
+      "not enough information": 7,
+      "not included": 1
+     },
+     "not enough information": {
+      "included": 4,
+      "invalid": 13,
+      "not applicable": 0,
+      "not enough information": 154,
+      "not included": 3
+     },
+     "not included": {
+      "included": 0,
+      "invalid": 1,
+      "not applicable": 0,
+      "not enough information": 14,
+      "not included": 8
+     }
+    }
+   },
+   "cost_per_1k_usd": 0.1411,
+   "cost_usd": 0.143234,
+   "evidence_f1": 0.7553,
+   "false_block_rate": 0.0204,
+   "false_block_upper95": 0.0295,
+   "gateway_refusals": {
+    "phi_tripwire": 40
+   },
+   "gpt4_reference_same_items": {
+    "accuracy": 0.8729,
+    "accuracy_absent_as_negative": 0.7941,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.0143,
+    "false_block_upper95": 0.0222,
+    "macro_f1": 0.8075,
+    "screen_accuracy": 0.9813
+   },
+   "invalid_rate": 0.0089,
+   "latency_mean_s": 4.542,
+   "latency_p50_s": 3.75,
+   "latency_p95_s": 9.955,
+   "lenient_accuracy": 0.469,
+   "macro_f1": 0.461,
+   "model_refusals": 0,
+   "n": 1015,
+   "per_label": {
+    "excluded": {
+     "precision": 0.3333,
+     "recall": 0.8,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.9646,
+     "recall": 0.7267,
+     "support": 150
+    },
+    "not applicable": {
+     "precision": 0.8889,
+     "recall": 0.1455,
+     "support": 55
+    },
+    "not enough information": {
+     "precision": 0.36,
+     "recall": 0.8908,
+     "support": 293
+    },
+    "not excluded": {
+     "precision": 0.8193,
+     "recall": 0.1405,
+     "support": 484
+    },
+    "not included": {
+     "precision": 0.6667,
+     "recall": 0.3478,
+     "support": 23
+    }
+   },
+   "providers": {
+    "Nebius": 975
+   },
+   "reasoning_tokens_mean": 512.7,
+   "screen_accuracy": 0.9635,
+   "served_models": {
+    "nvidia/nemotron-3-nano-30b-a3b": 975
+   },
+   "tokens_in_mean": 515.6,
+   "tokens_out_mean": 483.2,
+   "trial_false_exclusion": 0.2025,
+   "truncated": 9,
+   "upstream_errors": {}
+  },
+  "mixed": {
+   "accuracy": 0.4897,
+   "accuracy_absent_as_negative": 0.7616,
+   "agreement_with_gpt4": 0.4621,
+   "block_recall": 0.5152,
+   "build_shas": [
+    "07c58a06e047d8b5c4f5b21edc638baa131b1806728b6163f44232c48462ae71"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 9,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not excluded": 0
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 1,
+      "not applicable": 2,
+      "not enough information": 30,
+      "not excluded": 13
+     },
+     "not enough information": {
+      "excluded": 4,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 114,
+      "not excluded": 1
+     },
+     "not excluded": {
+      "excluded": 9,
+      "invalid": 8,
+      "not applicable": 2,
+      "not enough information": 384,
+      "not excluded": 81
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 117,
+      "invalid": 4,
+      "not applicable": 0,
+      "not enough information": 29,
+      "not included": 0
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 2,
+      "not enough information": 6,
+      "not included": 1
+     },
+     "not enough information": {
+      "included": 5,
+      "invalid": 2,
+      "not applicable": 0,
+      "not enough information": 162,
+      "not included": 5
+     },
+     "not included": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 15,
+      "not included": 8
+     }
+    }
+   },
+   "cost_per_1k_usd": 0.1216,
+   "cost_usd": 0.123395,
+   "evidence_f1": 0.776,
+   "false_block_rate": 0.0193,
+   "false_block_upper95": 0.0283,
+   "gateway_refusals": {
+    "phi_tripwire": 11
+   },
+   "gpt4_reference_same_items": {
+    "accuracy": 0.8729,
+    "accuracy_absent_as_negative": 0.7941,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.0143,
+    "false_block_upper95": 0.0222,
+    "macro_f1": 0.8075,
+    "screen_accuracy": 0.9813
+   },
+   "invalid_rate": 0.0039,
+   "latency_mean_s": 5.57,
+   "latency_p50_s": 4.53,
+   "latency_p95_s": 12.38,
+   "lenient_accuracy": 0.4916,
+   "macro_f1": 0.466,
+   "model_refusals": 0,
+   "n": 1015,
+   "per_label": {
+    "excluded": {
+     "precision": 0.4091,
+     "recall": 0.9,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.959,
+     "recall": 0.78,
+     "support": 150
+    },
+    "not applicable": {
+     "precision": 0.6667,
+     "recall": 0.0727,
+     "support": 55
+    },
+    "not enough information": {
+     "precision": 0.3725,
+     "recall": 0.942,
+     "support": 293
+    },
+    "not excluded": {
+     "precision": 0.8526,
+     "recall": 0.1674,
+     "support": 484
+    },
+    "not included": {
+     "precision": 0.5714,
+     "recall": 0.3478,
+     "support": 23
+    }
+   },
+   "providers": {
+    "Nebius": 1004
+   },
+   "reasoning_tokens_mean": 421.0,
+   "screen_accuracy": 0.9655,
+   "served_models": {
+    "nvidia/nemotron-3-nano-30b-a3b": 1004
+   },
+   "tokens_in_mean": 443.6,
+   "tokens_out_mean": 401.2,
+   "trial_false_exclusion": 0.1646,
+   "truncated": 4,
+   "upstream_errors": {}
+  },
+  "zh-TW": {
+   "accuracy": 0.469,
+   "accuracy_absent_as_negative": 0.7458,
+   "agreement_with_gpt4": 0.4315,
+   "block_recall": 0.4242,
+   "build_shas": [
+    "07c58a06e047d8b5c4f5b21edc638baa131b1806728b6163f44232c48462ae71"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 8,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 2,
+      "not excluded": 0
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 0,
+      "not applicable": 5,
+      "not enough information": 23,
+      "not excluded": 18
+     },
+     "not enough information": {
+      "excluded": 4,
+      "invalid": 2,
+      "not applicable": 0,
+      "not enough information": 113,
+      "not excluded": 0
+     },
+     "not excluded": {
+      "excluded": 12,
+      "invalid": 34,
+      "not applicable": 2,
+      "not enough information": 371,
+      "not excluded": 65
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 111,
+      "invalid": 12,
+      "not applicable": 0,
+      "not enough information": 27,
+      "not included": 0
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 1,
+      "not enough information": 7,
+      "not included": 1
+     },
+     "not enough information": {
+      "included": 5,
+      "invalid": 9,
+      "not applicable": 0,
+      "not enough information": 156,
+      "not included": 4
+     },
+     "not included": {
+      "included": 1,
+      "invalid": 4,
+      "not applicable": 0,
+      "not enough information": 12,
+      "not included": 6
+     }
+    }
+   },
+   "cost_per_1k_usd": 0.1284,
+   "cost_usd": 0.130288,
+   "evidence_f1": 0.7122,
+   "false_block_rate": 0.0214,
+   "false_block_upper95": 0.0306,
+   "gateway_refusals": {
+    "phi_tripwire": 52
+   },
+   "gpt4_reference_same_items": {
+    "accuracy": 0.8729,
+    "accuracy_absent_as_negative": 0.7941,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.0143,
+    "false_block_upper95": 0.0222,
+    "macro_f1": 0.8075,
+    "screen_accuracy": 0.9813
+   },
+   "invalid_rate": 0.0089,
+   "latency_mean_s": 4.462,
+   "latency_p50_s": 3.691,
+   "latency_p95_s": 9.701,
+   "lenient_accuracy": 0.4759,
+   "macro_f1": 0.4334,
+   "model_refusals": 0,
+   "n": 1015,
+   "per_label": {
+    "excluded": {
+     "precision": 0.3333,
+     "recall": 0.8,
+     "support": 10
+    },
+    "included": {
+     "precision": 0.9487,
+     "recall": 0.74,
+     "support": 150
+    },
+    "not applicable": {
+     "precision": 0.75,
+     "recall": 0.1091,
+     "support": 55
+    },
+    "not enough information": {
+     "precision": 0.3783,
+     "recall": 0.9181,
+     "support": 293
+    },
+    "not excluded": {
+     "precision": 0.7831,
+     "recall": 0.1343,
+     "support": 484
+    },
+    "not included": {
+     "precision": 0.5455,
+     "recall": 0.2609,
+     "support": 23
+    }
+   },
+   "providers": {
+    "Nebius": 963
+   },
+   "reasoning_tokens_mean": 451.1,
+   "screen_accuracy": 0.9606,
+   "served_models": {
+    "nvidia/nemotron-3-nano-30b-a3b": 963
+   },
+   "tokens_in_mean": 505.1,
+   "tokens_out_mean": 437.5,
+   "trial_false_exclusion": 0.2025,
+   "truncated": 9,
+   "upstream_errors": {}
+  }
+ },
+ "d1_probe": "class_not_allowed_in_env",
+ "items": "all",
+ "langs": [
+  "en",
+  "zh-TW",
+  "ja",
+  "mixed"
+ ],
+ "max_tokens": 2048,
+ "model_name": "Nemotron 3 Nano 30B-A3B (hosted)",
+ "provider_pin": {
+  "canonical_slug": "nvidia/nemotron-3-nano-30b-a3b",
+  "created": 1765731275,
+  "endpoint": "openrouter",
+  "model": "nvidia/nemotron-3-nano-30b-a3b",
+  "pinned_at": "2026-10-25",
+  "provider": "Nebius",
+  "provider_tag": "nebius/fp8",
+  "quantization": "fp8"
+ },
+ "reasoning_effort": "low",
+ "variant": "",
+ "workers": 8
+}

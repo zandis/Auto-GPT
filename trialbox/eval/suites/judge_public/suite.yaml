@@ -12,3 +12,8 @@ reference:
   accuracy: 0.873
   false_block_rate: 0.014
   false_block_upper95: 0.022
+# live mode (TB_GATEWAY_URL: a running gateway and model): the reference above is not expected to reproduce; the run
+# passes when no call is refused and at least this share of answers is a valid label.
+live:
+  min_valid_rate: 0.95
+  max_refused: 0

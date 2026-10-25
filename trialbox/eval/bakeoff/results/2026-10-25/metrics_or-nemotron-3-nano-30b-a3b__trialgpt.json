@@ -1,0 +1,166 @@
+{
+ "alias": "j-workhorse",
+ "build_id": "or-nemotron-3-nano-30b-a3b",
+ "build_sha": "07c58a06e047d8b5c4f5b21edc638baa131b1806728b6163f44232c48462ae71",
+ "by_lang": {
+  "en": {
+   "accuracy": 0.71,
+   "accuracy_absent_as_negative": 0.74,
+   "agreement_with_gpt4": 0.68,
+   "block_recall": 0.7879,
+   "build_shas": [
+    "07c58a06e047d8b5c4f5b21edc638baa131b1806728b6163f44232c48462ae71"
+   ],
+   "confusion": {
+    "exclusion": {
+     "excluded": {
+      "excluded": 9,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 0,
+      "not excluded": 1
+     },
+     "not applicable": {
+      "excluded": 0,
+      "invalid": 0,
+      "not applicable": 2,
+      "not enough information": 0,
+      "not excluded": 1
+     },
+     "not enough information": {
+      "excluded": 0,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 4,
+      "not excluded": 2
+     },
+     "not excluded": {
+      "excluded": 1,
+      "invalid": 0,
+      "not applicable": 3,
+      "not enough information": 7,
+      "not excluded": 22
+     }
+    },
+    "inclusion": {
+     "included": {
+      "included": 9,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 1,
+      "not included": 0
+     },
+     "not applicable": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 1,
+      "not enough information": 0,
+      "not included": 0
+     },
+     "not enough information": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 0,
+      "not enough information": 7,
+      "not included": 7
+     },
+     "not included": {
+      "included": 0,
+      "invalid": 0,
+      "not applicable": 4,
+      "not enough information": 2,
+      "not included": 17
+     }
+    }
+   },
+   "cost_per_1k_usd": 0.2007,
+   "cost_usd": 0.020072,
+   "evidence_f1": 0.7172,
+   "false_block_rate": 0.1194,
+   "false_block_upper95": 0.2051,
+   "gateway_refusals": {},
+   "gpt4_reference_same_items": {
+    "accuracy": 0.81,
+    "accuracy_absent_as_negative": 0.79,
+    "block_recall": 0.8485,
+    "false_block_rate": 0.0149,
+    "false_block_upper95": 0.0689,
+    "macro_f1": 0.7924,
+    "screen_accuracy": 0.94
+   },
+   "invalid_rate": 0.0,
+   "latency_mean_s": 5.79,
+   "latency_p50_s": 5.466,
+   "latency_p95_s": 10.683,
+   "lenient_accuracy": 0.71,
+   "macro_f1": 0.7136,
+   "model_refusals": 0,
+   "n": 100,
+   "per_label": {
+    "excluded": {
+     "precision": 0.9,
+     "recall": 0.9,
+     "support": 10
+    },
+    "included": {
+     "precision": 1.0,
+     "recall": 0.9,
+     "support": 10
+    },
+    "not applicable": {
+     "precision": 0.3,
+     "recall": 0.75,
+     "support": 4
+    },
+    "not enough information": {
+     "precision": 0.5238,
+     "recall": 0.55,
+     "support": 20
+    },
+    "not excluded": {
+     "precision": 0.8462,
+     "recall": 0.6667,
+     "support": 33
+    },
+    "not included": {
+     "precision": 0.7083,
+     "recall": 0.7391,
+     "support": 23
+    }
+   },
+   "providers": {
+    "Nebius": 100
+   },
+   "reasoning_tokens_mean": 709.4,
+   "screen_accuracy": 0.85,
+   "served_models": {
+    "nvidia/nemotron-3-nano-30b-a3b": 100
+   },
+   "tokens_in_mean": 546.3,
+   "tokens_out_mean": 699.8,
+   "trial_false_exclusion": 0.1351,
+   "truncated": 1,
+   "upstream_errors": {}
+  }
+ },
+ "d1_probe": "class_not_allowed_in_env",
+ "items": 100,
+ "langs": [
+  "en"
+ ],
+ "max_tokens": 2048,
+ "model_name": "Nemotron 3 Nano 30B-A3B (hosted)",
+ "provider_pin": {
+  "canonical_slug": "nvidia/nemotron-3-nano-30b-a3b",
+  "created": 1765731275,
+  "endpoint": "openrouter",
+  "model": "nvidia/nemotron-3-nano-30b-a3b",
+  "pinned_at": "2026-10-25",
+  "provider": "Nebius",
+  "provider_tag": "nebius/fp8",
+  "quantization": "fp8"
+ },
+ "reasoning_effort": "low",
+ "variant": "trialgpt",
+ "workers": 8
+}

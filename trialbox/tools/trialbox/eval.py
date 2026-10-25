@@ -4,6 +4,12 @@
     python -m tools.trialbox eval ingest_fhir_demo        # MIMIC-IV FHIR demo through dataplat (skips if absent)
     python -m tools.trialbox eval criteria_extract_public # Chia loader: blocked until the licence is confirmed
 
+With ``TB_GATEWAY_URL`` set, ``judge_public`` sends its calls to that running gateway (live mode) instead of the
+recorded outputs: ``TB_GATEWAY_MODEL`` names the alias to ask for, ``TB_EVAL_LIMIT`` caps the number of pairs (0 or
+unset: all), and ``TB_GATEWAY_EXPECT_SHA`` requires every answer to come from that build. A live model is not expected
+to reproduce the recorded reference, so live mode passes on the suite's ``live`` floors (valid JSON rate, no refusals)
+and reports accuracy next to the reference.
+
 Every run is archived as ``<archive>/<suite>/<run_id>.json`` with the sha256 of each dataset file it read, the
 metrics, the reference and the verdict. Suites run in the TEST environment on D0 data only: a dataset classed above
 the environment ceiling in ``eval/DATASETS.yaml`` is refused before anything is read.
@@ -13,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -148,7 +155,16 @@ def run_judge_public(workdir: Path, suite: dict[str, Any]) -> dict[str, Any]:
         for p in pairs
     }
     upstream = RecordedUpstream(recorded)
-    client = gateway_client(stub_gateway(upstream.client(), workdir / "gateway_audit"), suite["gateway"]["caller"])
+    live_url = os.environ.get("TB_GATEWAY_URL", "").strip()
+    limit = int(os.environ.get("TB_EVAL_LIMIT") or 0) if live_url else 0
+    if limit > 0:
+        pairs = pairs[:limit]
+    if live_url:
+        from tb_llm import GatewayClient
+
+        client = GatewayClient(live_url, suite["gateway"]["caller"], model=os.environ.get("TB_GATEWAY_MODEL") or None)
+    else:
+        client = gateway_client(stub_gateway(upstream.client(), workdir / "gateway_audit"), suite["gateway"]["caller"])
     g = suite["gateway"]
     labels = CallLabels(
         data_class=str(suite["data_class"]),
@@ -179,12 +195,33 @@ def run_judge_public(workdir: Path, suite: dict[str, Any]) -> dict[str, Any]:
     metrics = mlbench.score(rows, {p.annotation_id: p for p in pairs})
     ref = suite["reference"]
     got = {k: round(float(metrics[k]), 3) for k in ref}
+    passed = got == {k: float(v) for k, v in ref.items()} and refused == 0
+    gateway: dict[str, Any] = {"calls": upstream.calls, "refused": refused, "builds": sorted(builds)}
+    if live_url:
+        floors = suite.get("live") or {}
+        expect = os.environ.get("TB_GATEWAY_EXPECT_SHA", "").strip()
+        build_ok = not expect or {b.rsplit(":", 1)[-1] for b in builds} == {expect}
+        passed = (
+            refused <= int(floors.get("max_refused", 0))
+            and float(metrics["valid_rate"]) >= float(floors.get("min_valid_rate", 0.95))
+            and build_ok
+        )
+        gateway = {
+            "mode": "live",
+            "url": live_url,
+            "model": client.model,
+            "calls": len(pairs) - refused,
+            "refused": refused,
+            "builds": sorted(builds),
+            "expected_sha": expect or None,
+            "limit": limit or None,
+        }
     return {
         "metrics": {k: metrics[k] for k in ("n", "accuracy", "false_block_rate", "false_block_upper95", "valid_rate")},
         "reference": ref,
         "reproduced": got,
-        "passed": got == {k: float(v) for k, v in ref.items()} and refused == 0,
-        "gateway": {"calls": upstream.calls, "refused": refused, "builds": sorted(builds)},
+        "passed": passed,
+        "gateway": gateway,
         "datasets": {f: file_sha256(ROOT / f) for f in suite["files"]},
     }
 

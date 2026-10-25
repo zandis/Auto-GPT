@@ -2,8 +2,12 @@
 
 ``create_app(gateway)`` wraps a configured :class:`gateway.core.Gateway`; ``create_app()`` builds one from the
 environment (``TB_TOPOLOGY``, ``TB_ENV``, ``TB_PROFILE``, ``TB_CLOUD_OPT_IN``, ``TB_ROUTING_PATH``,
-``TB_REGISTRY_PATH``, ``TB_AUDIT_DIR``, ``TB_TRACESTORE_PATH``). Refusals are HTTP 403 with
-``{"error": {"type": "tb_refusal", "code": <reason>}}``.
+``TB_REGISTRY_PATH``, ``TB_REGISTRY_OVERRIDE`` (site pins), ``TB_AUDIT_DIR``, ``TB_TRACESTORE_PATH``). Refusals are
+HTTP 403 with ``{"error": {"type": "tb_refusal", "code": <reason>}}``.
+
+In the compose stack the model registry, the PHI guard and the trace store run inside this process (they are on the
+request path of every model call; a network hop each would add failure modes to a fail-closed path). The read-only
+registry view (builds, statuses, pins; no endpoint addresses) is mounted at ``/registry/v1/builds``.
 """
 
 from __future__ import annotations
@@ -14,8 +18,9 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from registry.registry import DEFAULT_PATH as REGISTRY_PATH
+from registry.app import create_app as registry_app
 from registry.registry import Registry
+from starlette.concurrency import run_in_threadpool
 from tb_common.audit import AuditLog
 from tb_common.http import make_app
 from tracestore.store import TraceStore
@@ -30,7 +35,7 @@ def from_env() -> Gateway:
     traces = TraceStore(Path(e["TB_TRACESTORE_PATH"])) if e.get("TB_TRACESTORE_PATH") else None
     return Gateway(
         RoutingPolicy.load(Path(e.get("TB_ROUTING_PATH") or ROUTING_PATH)),
-        Registry.load(Path(e.get("TB_REGISTRY_PATH") or REGISTRY_PATH)),
+        Registry.from_env(e),
         AuditLog(Path(e.get("TB_AUDIT_DIR") or "/data/audit"), e.get("TZ_SITE", "Asia/Taipei")),
         GatewayConfig.from_env(),
         traces=traces,
@@ -60,7 +65,8 @@ def create_app(gateway: Gateway | None = None) -> FastAPI:
             body = None
         if not isinstance(body, dict):
             return JSONResponse({"error": {"type": "invalid_request", "message": "JSON object body required"}}, 400)
-        res = gw.chat(dict(request.headers), body)
+        res = await run_in_threadpool(gw.chat, dict(request.headers), body)  # upstream calls block; keep the loop free
         return JSONResponse(res.body, status_code=res.status, headers=res.headers)
 
+    app.mount("/registry", registry_app(gw.registry))
     return app
