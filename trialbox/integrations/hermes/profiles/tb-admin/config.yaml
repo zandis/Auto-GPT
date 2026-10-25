@@ -1,53 +1,187 @@
-# Hermes profile tb-admin (spec v4 §9.2, §9.6 hardening checklist; S1-11). Key names marked "(confirm)" are not yet
-# confirmed against the pinned release (no release is pinned in this build); the configuration-diff test of §9.12
-# confirms them at pinning. tests/unit/test_hermes_config.py lints every setting below.
-profile: tb-admin
-channels: [admin_tui]
+# Hermes profile tb-admin (spec v4 §9.2, §9.6 hardening checklist; S1-11). A real Hermes v0.22.2 config.yaml:
+# every key below exists in hermes_cli/config_defaults.py DEFAULT_CONFIG of the pinned commit (or is a dynamic
+# section: model, mcp_servers, platforms, platform_toolsets), which tests/unit/test_hermes_config.py checks against
+# the vendored source (configuration-diff, §9.12). Mounted read-only as the managed scope /etc/hermes/config.yaml
+# (user-immutable layer) and as $HERMES_HOME/config.yaml. TrialBox metadata lives in trialbox.yaml next to it.
+# tb-admin is the admin TUI profile: tb.ops_read, tb.status and tb.atlas_describe only.
+_config_version: 50
+
+# item 7: tb-gateway only; no fallback provider (a cloud fallback moves data off site)
+# Aliases are the registry's (models/registry.yaml, §8.4 classes): f-frontdesk is §9.6's tb-frontdesk, g-guard its
+# tb-guard, and the small side models (§9.6 tb-router-small) use the front-desk build: §8.4 has no router class.
 model:
-  base_url: http://gateway:8080/v1        # tb-gateway only (item 7)
-  default: tb-frontdesk
+  provider: custom
+  base_url: http://gateway:8020/v1
+  default: f-frontdesk
+  api_key: "${TB_HERMES_GATEWAY_KEY}"
   context_length: 65536
-  auxiliary: {guard: tb-guard, router: tb-router-small}
-  fallback_providers: []                  # only gateway aliases; a cloud fallback moves data off site
+  streaming: false                          # tb-gateway answers chat completions as JSON, never SSE
+  default_headers:                          # tb-gateway caller contract (models/routing.yaml callers.hermes)
+    X-TB-Caller: hermes
+    X-TB-Role: frontdesk_converse
+    X-TB-Purpose: intake
+    X-TB-Data-Class: D3                     # tokenised conversation text (§7 data inventory)
+    X-TB-Study: "-"
+    X-TB-Context-Of-Use: intake
+providers: {}
+fallback_providers: []
+auxiliary:                                  # every side model on a gateway alias; none may pick a cloud provider
+  free_only: false
+  vision: {provider: custom, base_url: http://gateway:8020/v1, model: f-frontdesk, api_key: "${TB_HERMES_GATEWAY_KEY}"}
+  compression: {provider: custom, base_url: http://gateway:8020/v1, model: f-frontdesk, api_key: "${TB_HERMES_GATEWAY_KEY}"}
+  approval: {provider: custom, base_url: http://gateway:8020/v1, model: g-guard, api_key: "${TB_HERMES_GATEWAY_KEY}"}
+  mcp: {provider: custom, base_url: http://gateway:8020/v1, model: f-frontdesk, api_key: "${TB_HERMES_GATEWAY_KEY}"}
+  title_generation: {enabled: false}
+  background_review: {enabled: false}
+model_catalog: {enabled: false}             # no remote model catalogue fetch
+
+# item 3 + HER-1 layer 1: the only toolset is the front-door MCP server ("frontdoor" -> mcp-frontdoor). Every
+# built-in leaf toolset of v0.22.2 is suppressed (the spec's "delegate" is "delegation" and "skills_manage" is the
+# "skills" toolset in this release; the test derives the list from the vendored toolsets.py).
+platform_toolsets:
+  cli: [frontdoor]
+  tb_relay: [frontdoor]
 agent:
-  disabled_toolsets: [terminal, file, browser, web, code_execution, delegate, cronjob, skills_manage, memory,
-    image_gen, tts]                       # (confirm names with `hermes tools`)
-mcp:
-  servers:
-    frontdoor:
-      transport: streamable_http
-      url: https://frontdoor-mcp:8443/mcp
-      mtls: {client_cert: /run/secrets/hermes-client.pem, client_key: /run/secrets/hermes-client.key}
-      timeout_s: 30
-      tools: {include: [tb.ops_read, tb.status, tb.atlas_describe]}
+  disabled_toolsets: [web, search, x_search, vision, video, image_gen, video_gen, computer_use, terminal, skills,
+    browser, cronjob, file, tts, todo, memory, context_engine, session_search, connections, project, bot_room,
+    desktop_ui, onboarding, catalog, clarify, code_execution, delegation, kanban, discord, discord_admin, yuanbao,
+    feishu_doc, feishu_drive]
+tools:
+  tool_search: {enabled: false}
+  connectors: {enabled: false}              # item 2: Connectors off
+
+# item 4: one MCP server, explicit include list, utilities/sampling/elicitation off, mTLS, 30 s timeout
+mcp_servers:
+  frontdoor:
+    url: https://frontdoor-mcp:8443/mcp     # Streamable HTTP
+    enabled: true
+    client_cert: /run/secrets/hermes-client.pem
+    client_key: /run/secrets/hermes-client.key
+    # server CA: SSL_CERT_FILE=/run/secrets/tb-ca.pem (compose). v0.22.2 + httpx 0.28 refuse ssl_verify: <path>
+    # together with client_cert ("verify=<str> cannot be combined with cert"), so ssl_verify stays default (true).
+    strict_redirect_headers: true
+    timeout: 30
+    connect_timeout: 10
+    tools:
+      include: [tb.ops_read, tb.status, tb.atlas_describe]
       prompts: false
       resources: false
-      sampling: false
-      elicitation: false
-  catalogue: false
+    sampling: {enabled: false}              # default in v0.22.2 is ON; must be a mapping, not a bare bool
+    elicitation: {enabled: false}           # default in v0.22.2 is ON
+mcp:
+  auto_reload_on_config_change: false
+
+# item 5: approvals
 approvals:
   mode: manual
   cron_mode: deny
   single_query_mode: deny
   unattended_mode: deny
   deny: ["*"]
-cron: {allow_agent_scheduling: false, jobs: []}
-delegation: {max_spawn_depth: 0}          # (confirm acceptance of 0; toolset removal is the control)
-memory: {enabled: false, write_approval: true, external_providers: []}
-skills: {signed_only: true, read_only: true}
+  timeout: 300
+  mcp_reload_confirm: true
+  destructive_slash_confirm: true
+command_allowlist: []
+
+# HER-2: no agent scheduling (cron jobs live in $HERMES_HOME/cron, not in config; the cronjob toolset is off)
+cron:
+  allow_agent_scheduling: false
+  catch_up_missed: false
+kanban:
+  dispatch_in_gateway: false
+  auto_decompose: false
+
+# item 12: delegation toolset off. v0.22.2 floors max_spawn_depth at 1 (0 is rewritten to 1 with a warning),
+# so the spec's 0 is not expressible; toolset removal is the control.
+delegation:
+  max_spawn_depth: 1
+  orchestrator_enabled: false
+  inherit_mcp_toolsets: false
+  subagent_auto_approve: false
+
+# HER-23 / item 13: memory off, write approval, no external provider
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+  write_approval: true
+  provider: ""
+# HER-25: skills only from the signed read-only directory; no project discovery; no agent-written skills
+skills:
+  external_dirs: []
+  project_discovery: false
+  trusted_project_dirs: []
+  auto_load: []
+  inline_shell: false
+  guard_agent_created: true
+  write_approval: true
+curator: {enabled: false}
+
+# item 8: only the two TrialBox plugins; hooks never auto-accepted; item 9: 5 s hook timeout
 plugins:
-  allow: [tb_relay_adapter, tb_policy_audit]
-  project_plugins: false
-  hooks_auto_accept: false
+  enabled: [tb_relay_adapter, tb_policy_audit]
+  # every bundled backend/platform plugin of v0.22.2 (they auto-load unless denied; derived from the vendored
+  # plugins/*/*/plugin.yaml and checked by the contract test). Model-provider plugins load via providers/.
+  disabled: [browser/browser_use, browser/browserbase, browser/firecrawl, dashboard_auth/basic,
+    dashboard_auth/drain, dashboard_auth/nous, dashboard_auth/self_hosted, image_gen/deepinfra, image_gen/fal,
+    image_gen/krea, image_gen/meta-ai, image_gen/openai, image_gen/openai-codex, image_gen/openrouter,
+    image_gen/xai, platforms/a2a, platforms/buzz, platforms/dingtalk, platforms/discord, platforms/email,
+    platforms/feishu, platforms/google_chat, platforms/irc, platforms/line, platforms/matrix,
+    platforms/mattermost, platforms/ntfy, platforms/photon, platforms/raft, platforms/simplex, platforms/slack,
+    platforms/sms, platforms/teams, platforms/telegram, platforms/wecom, platforms/whatsapp, video_gen/deepinfra,
+    video_gen/fal, video_gen/openrouter, video_gen/xai, web/brave_free, web/ddgs, web/exa, web/firecrawl,
+    web/keenable, web/openai_native, web/parallel, web/perplexity, web/searxng, web/tavily, web/xai]
   hook_callback_timeout: 5
-security: {allow_lazy_installs: false, private_urls: false}
-auth: {adopt_external_logins: false}
-surfaces:                                 # item 2: every own surface off
-  platform_adapters: false
-  webhook_gateway: false
-  dashboard: false
-  api_server: false
-  acp: false
-  connectors: false
-env:
-  forbid: [HERMES_YOLO_MODE, GATEWAY_ALLOW_ALL_USERS]
+  auto_apply: false
+  auto_update_check_hours: 0
+  isolation: in_process
+hooks: {}
+hooks_auto_accept: false
+
+# item 2: own surfaces off. Only the relay platform plugin is enabled; API server (8642) and webhook platforms off.
+# The dashboard (9119) and ACP are separate commands that the compose service never runs.
+platforms:
+  tb_relay: {enabled: true}
+  api_server: {enabled: false}
+  webhook: {enabled: false}
+gateway:
+  allow_all_users: false                    # HER-16; GATEWAY_ALLOW_ALL_USERS must also be unset (trialbox.yaml)
+  multiplex_profiles: false
+  trust_env: false
+  write_sessions_json: false
+
+security:
+  allow_private_urls: false
+  allow_lazy_installs: false
+  redact_secrets: true
+  protected_instruction_files: true
+auth:
+  adopt_external_logins: false
+privacy:
+  redact_pii: true
+
+# one reply per turn: channel-relay sends the turn's last message (no mid-turn narration to email/Teams)
+display:
+  interim_assistant_messages: false
+
+# HER-24: session history kept <= 30 days (encryption of /opt/data is the volume's job)
+sessions:
+  auto_prune: true
+  retention_days: 30
+
+# no phone-home, no background updates, no local runtimes
+telemetry:
+  shared_metrics: {enabled: false, send: false}
+updates:
+  check: false
+lsp:
+  enabled: false
+stt:
+  enabled: false
+checkpoints:
+  enabled: false
+local_runtime:
+  enabled: false
+nous:
+  guest: false
+monitoring:
+  gateway_health_export: {enabled: false}

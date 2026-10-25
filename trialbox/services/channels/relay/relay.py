@@ -25,7 +25,7 @@ from typing import Any, Protocol
 
 from frontdoor_mcp.identity import AssertionSigner
 from frontdoor_mcp.requests import ConfirmRefused, RequestStore
-from frontdoor_mcp.tokens import RelayTokenMap
+from frontdoor_mcp.tokens import TokenMap
 from guard.guard import Guard
 from tb_common.crypto import sha256_text
 from tb_common.policy.classes import Environment
@@ -126,7 +126,7 @@ class ChannelRelay:
         engines: Mapping[str, Engine],
         intake: Intake,
         signer: AssertionSigner,
-        tokens: RelayTokenMap,
+        tokens: TokenMap,
         audit: AuditSink,
         guard: Guard | None = None,
         environment: Environment = Environment.TEST,

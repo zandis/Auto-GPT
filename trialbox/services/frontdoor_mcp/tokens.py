@@ -10,9 +10,21 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
+
+from orchestrator.db_pg import SqlBackend, apply_schema
 
 Clock = Callable[[], float]  # epoch seconds
 TOKEN_TTL_S = 24 * 3600
+
+
+class TokenMap(Protocol):
+    """What channel-relay (mint) and frontdoor-mcp (resolve) need: :class:`RelayTokenMap` in one process,
+    :class:`SqlRelayTokenMap` across processes."""
+
+    def mint(self, *, msg: str, sender: str, conv: str, kind: str, value: str) -> str: ...
+
+    def resolve(self, token: str, *, msg: str, sender: str, conv: str) -> str: ...
 
 
 class TokenRefused(PermissionError):
@@ -64,3 +76,63 @@ class RelayTokenMap:
         for k in stale:
             del self._entries[k]
         return len(stale)
+
+
+TOKEN_SCHEMA = """
+CREATE TABLE IF NOT EXISTS relay_token (
+  msg TEXT NOT NULL,
+  token TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  value TEXT NOT NULL,
+  sender TEXT NOT NULL,
+  conv TEXT NOT NULL,
+  expires DOUBLE PRECISION NOT NULL,
+  PRIMARY KEY (msg, token)
+)
+"""
+
+
+class SqlRelayTokenMap:
+    """:class:`RelayTokenMap` on the orchestrator's SQL backend, for a deployment where channel-relay (mints) and
+    frontdoor-mcp (resolves) are separate processes. Same binding and expiry rules. The table is inside the
+    perimeter (workflow-db); neither Hermes nor the native engine can reach it (HER-12)."""
+
+    def __init__(self, backend: SqlBackend, clock: Clock, ttl_s: int = TOKEN_TTL_S) -> None:
+        self.backend = backend
+        self.clock = clock
+        self.ttl_s = ttl_s
+        apply_schema(backend, TOKEN_SCHEMA)
+
+    def mint(self, *, msg: str, sender: str, conv: str, kind: str, value: str) -> str:
+        with self.backend.transaction() as tx:
+            hit = tx.fetchone(
+                f"SELECT token FROM relay_token WHERE msg = ? AND kind = ? AND value = ?{self.backend.row_lock}",
+                (msg, kind, value),
+            )
+            if hit is not None:
+                return str(hit[0])
+            rows = tx.fetchall("SELECT token FROM relay_token WHERE msg = ? AND kind = ?", (msg, kind))
+            token = f"[{kind}-{len(rows) + 1}]"
+            tx.execute(
+                "INSERT INTO relay_token (msg, token, kind, value, sender, conv, expires) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (msg, token, kind, value, sender, conv, self.clock() + self.ttl_s),
+            )
+        return token
+
+    def resolve(self, token: str, *, msg: str, sender: str, conv: str) -> str:
+        with self.backend.transaction() as tx:
+            row = tx.fetchone(
+                "SELECT value, sender, conv, expires FROM relay_token WHERE msg = ? AND token = ?", (msg, token)
+            )
+        if row is None:
+            raise TokenRefused("token_unknown", f"token {token} was not minted for this message")
+        value, t_sender, t_conv, expires = row
+        if t_sender != sender or t_conv != conv:
+            raise TokenRefused("token_binding", f"token {token} is bound to another sender or conversation")
+        if self.clock() > float(expires):
+            raise TokenRefused("token_expired", f"token {token} expired")
+        return str(value)
+
+    def purge(self) -> int:
+        with self.backend.transaction() as tx:
+            return tx.execute("DELETE FROM relay_token WHERE expires < ?", (self.clock(),))

@@ -12,7 +12,9 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 
+import yaml
 from tb_common.policy.classes import Environment
 from tb_contracts.frontdoor import IdentityAssertion, Tier, ToolSpec
 
@@ -86,6 +88,16 @@ class Directory:
             for sub, r in sorted(roles.items())
         )
 
+    @classmethod
+    def from_file(cls, path: Path) -> Directory:
+        """The deployment's directory export (``groups``, ``delegations``, ``addresses``; YAML), generated from the
+        directory groups (HER-16) and mounted read-only into frontdoor-mcp and channel-relay. Other keys (the relay's
+        ``teams`` object-id map) are ignored here."""
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        return cls.from_groups(
+            doc.get("groups") or {}, delegations=doc.get("delegations") or {}, addresses=doc.get("addresses") or {}
+        )
+
     def get(self, sub: str) -> Principal | None:
         return self._by_sub.get(sub)
 
@@ -129,7 +141,9 @@ class OrchestratorPolicyContext:
             raise PolicyRefused("principal_unknown", "the assertion subject is not in the directory")
         return p
 
-    def authorise(self, claims: IdentityAssertion, spec: ToolSpec, study: str | None) -> Principal:
+    def preview(self, claims: IdentityAssertion, spec: ToolSpec) -> Principal:
+        """Who, tier, channel profile and role, without study delegation or rate limit: the ``pre_tool_call``
+        decision Hermes asks for before it calls (``tb_policy_audit``, HER-1 layer 2). Consumes no rate budget."""
         p = self.principal(claims)
         if spec.tier not in (Tier.T0, Tier.T1):  # defensive: the table has no other tier (HER-1)
             raise PolicyRefused("tier_not_allowed", f"{spec.name}: tier {spec.tier} is never served")
@@ -137,6 +151,10 @@ class OrchestratorPolicyContext:
             raise PolicyRefused("profile_not_allowed", f"{spec.name} is not in the {claims.channel} profile")
         if not (p.roles & set(spec.roles)):
             raise PolicyRefused("role_not_allowed", f"{spec.name} needs one of {', '.join(spec.roles)}")
+        return p
+
+    def authorise(self, claims: IdentityAssertion, spec: ToolSpec, study: str | None) -> Principal:
+        p = self.preview(claims, spec)
         delegated = bool(study) and study in p.delegations
         if spec.delegation == "study" and not delegated:
             raise PolicyRefused("not_delegated", f"{spec.name} needs a delegation on the study")
