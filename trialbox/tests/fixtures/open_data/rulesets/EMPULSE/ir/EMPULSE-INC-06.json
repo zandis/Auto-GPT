@@ -1,0 +1,72 @@
+{
+ "action": "order NT-proBNP",
+ "class": "structured",
+ "fallback": "BNP is not in the demo lab table; AF = any recorded atrial fibrillation diagnosis.",
+ "id": "EMPULSE-INC-06",
+ "kind": "inclusion",
+ "label": "NT-proBNP ≥1600 (≥2400 with AF)",
+ "logic": {
+  "args": [
+   {
+    "args": [
+     {
+      "args": [
+       {
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_ATRIAL_FIBRILLATION"
+       }
+      ],
+      "op": "not"
+     },
+     {
+      "domain": "observation",
+      "quantifier": "any",
+      "value": {
+       "num": 1600,
+       "op": ">=",
+       "unit": "pg/mL"
+      },
+      "valueset": "VS_NT_PROBNP",
+      "window": {
+       "anchor": "index",
+       "from_days": -30,
+       "to_days": 0
+      }
+     }
+    ],
+    "op": "and"
+   },
+   {
+    "args": [
+     {
+      "domain": "condition",
+      "quantifier": "any",
+      "valueset": "VS_ATRIAL_FIBRILLATION"
+     },
+     {
+      "domain": "observation",
+      "quantifier": "any",
+      "value": {
+       "num": 2400,
+       "op": ">=",
+       "unit": "pg/mL"
+      },
+      "valueset": "VS_NT_PROBNP",
+      "window": {
+       "anchor": "index",
+       "from_days": -30,
+       "to_days": 0
+      }
+     }
+    ],
+    "op": "and"
+   }
+  ],
+  "op": "or"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Inclusion #5",
+ "text": "Elevated NT-proBNP ≥1600 pg/mL (≥2400 pg/mL with atrial fibrillation), or BNP ≥400 pg/mL (≥600 pg/mL with AF), during the current hospitalisation.",
+ "time_sensitive": true
+}

@@ -1,0 +1,22 @@
+# Versioned metric catalogue for tb.aggregate_query (spec v4 §9.3, HER-10, FR-CONV-13). Changes go through G5.
+# Only these metric ids and their listed breakdowns are accepted; every result is control-rounded (internal "<5",
+# base-5 rounding) and recorded by the privacy accountant before it is returned.
+version: metrics-2026-10-25.1
+threshold: 5
+metrics:
+  enrolment_vs_target:
+    unit: patients
+    breakdowns: [study, month]
+    description: Enrolled patients against the study target.
+  screen_fail_pareto:
+    unit: patients
+    breakdowns: [reason_code, study]
+    description: Screen failures by reason code.
+  funnel:
+    unit: patients
+    breakdowns: [stage, study]
+    description: Candidates per pipeline stage.
+  accrual_vs_forecast:
+    unit: patients
+    breakdowns: [study, month]
+    description: Accrual against the p50 forecast.

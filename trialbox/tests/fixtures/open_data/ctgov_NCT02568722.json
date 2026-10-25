@@ -1,0 +1,84 @@
+{
+ "nct_id": "NCT02568722",
+ "retrieved": "2026-10-17",
+ "source_url": "https://clinicaltrials.gov/api/v2/studies/NCT02568722",
+ "study": {
+  "protocolSection": {
+   "conditionsModule": {
+    "conditions": [
+     "Acute Kidney Injury"
+    ],
+    "keywords": [
+     "Renal replacement therapy",
+     "Acute kidney injury",
+     "Dialysis",
+     "Hemodialysis",
+     "Critical illness"
+    ]
+   },
+   "designModule": {
+    "phases": [
+     "NA"
+    ]
+   },
+   "eligibilityModule": {
+    "eligibilityCriteria": "Inclusion Criteria:\n\n1. Age ≥ 18 years\n2. Admission to an intensive care unit (ICU)\n3. Evidence of kidney dysfunction \\[serum creatinine ≥100 µmol/L (women) and ≥ 130 µmol/L (men)\\]\n4. Evidence of severe AKI defined by at least 1 of the following 3 criteria:\n\n   i) ≥ 2-fold increase in serum creatinine from a known pre-morbid baseline or during the current hospitalization; OR ii) Achievement of a serum creatinine ≥ 354 µmol/L with evidence of a minimum increase of 27 µmol/L from pre-morbid baseline or during the current hospitalization; OR iii) Urine output \\< 6.0 mL/kg over the preceding 12 hours\n\nExclusion Criteria:\n\n1. Serum potassium \\> 5.5 mmol/L\n2. Serum bicarbonate \\< 15 mmol/L\n3. Presence of a drug overdose that necessitates initiation of RRT\n4. Lack of commitment to ongoing life support (including RRT)\n5. Any RRT within the previous 2 months (either acute or chronic RRT)\n6. Kidney transplant within the past 365 days\n7. Known pre-hospitalization advanced chronic kidney disease, defined by an estimated glomerular filtration rate \\< 20 mL/min/1.73 m2\n8. Presence or clinical suspicion of renal obstruction, rapidly progressive glomerulonephritis, vasculitis, thrombotic microangiopathy or acute interstitial nephritis\n9. Clinician(s) caring for patient believe(s) that immediate RRT is mandated\n10. Clinician(s) caring for patient believe(s) that deferral of RRT initiation is mandated\n\n    * at their discretion, clinicians may administer a bolus of intravenous furosemide (ie, \"furosemide stress test\") and evaluate the subsequent urine output to help guide decision making regarding the likelihood of AKI progression",
+    "healthyVolunteers": false,
+    "minimumAge": "18 Years",
+    "sex": "ALL",
+    "stdAges": [
+     "ADULT",
+     "OLDER_ADULT"
+    ]
+   },
+   "identificationModule": {
+    "briefTitle": "Standard vs. Accelerated Initiation of RRT in Acute Kidney Injury (STARRT-AKI: Principal Trial)",
+    "nctId": "NCT02568722",
+    "officialTitle": "STandard Versus Accelerated Initiation of Renal Replacement Therapy in Acute Kidney Injury (STARRT-AKI): A Multi-Centre, Randomized, Controlled Trial (Principal Trial)",
+    "orgStudyIdInfo": {
+     "id": "STARRT-AKI: Principal Trial"
+    },
+    "organization": {
+     "class": "OTHER",
+     "fullName": "Unity Health Toronto"
+    }
+   },
+   "statusModule": {
+    "completionDateStruct": {
+     "date": "2019-12",
+     "type": "ACTUAL"
+    },
+    "expandedAccessInfo": {
+     "hasExpandedAccess": false
+    },
+    "lastUpdatePostDateStruct": {
+     "date": "2024-10-18",
+     "type": "ACTUAL"
+    },
+    "lastUpdateSubmitDate": "2024-07-27",
+    "overallStatus": "COMPLETED",
+    "primaryCompletionDateStruct": {
+     "date": "2019-12",
+     "type": "ACTUAL"
+    },
+    "resultsFirstPostDateStruct": {
+     "date": "2024-10-18",
+     "type": "ACTUAL"
+    },
+    "resultsFirstSubmitDate": "2023-02-15",
+    "resultsFirstSubmitQcDate": "2024-07-27",
+    "startDateStruct": {
+     "date": "2015-10",
+     "type": "ACTUAL"
+    },
+    "statusVerifiedDate": "2024-07",
+    "studyFirstPostDateStruct": {
+     "date": "2015-10-06",
+     "type": "ESTIMATED"
+    },
+    "studyFirstSubmitDate": "2015-09-29",
+    "studyFirstSubmitQcDate": "2015-10-04"
+   }
+  }
+ }
+}

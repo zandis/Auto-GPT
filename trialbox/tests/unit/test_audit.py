@@ -41,6 +41,23 @@ def test_daily_files_are_chained(tmp_path: Path) -> None:
     assert verify(tmp_path).ok
 
 
+def test_event_stamped_before_midnight_written_after(tmp_path: Path) -> None:
+    """A writer that took its timestamp at 23:59:59.5 but appends after another writer's 00:00:00.2 event stays in
+    the newest day file: the files read in name order are the chain order (the gateway stamps mail.received before
+    the orchestrator's job events)."""
+    log = AuditLog(tmp_path)
+    log.append("a", ts=datetime(2026, 10, 4, 12, 0, tzinfo=TZ))
+    late = log.append("job.state", ts=datetime(2026, 10, 5, 0, 0, 0, 200000, tzinfo=TZ))
+    early = log.append("mail.received", ts=datetime(2026, 10, 4, 23, 59, 59, 500000, tzinfo=TZ))
+    assert early["prev_hash"] == late["hash"] and early["ts"].startswith("2026-10-04T23:59:59.5")
+    assert [json.loads(x)["event"] for x in (tmp_path / "2026-10-05.jsonl").read_text().splitlines()] == [
+        "job.state",
+        "mail.received",
+    ]
+    res = verify(tmp_path)
+    assert res.ok, res.errors
+
+
 def test_tamper_detected(tmp_path: Path) -> None:
     log = AuditLog(tmp_path)
     for i in range(5):

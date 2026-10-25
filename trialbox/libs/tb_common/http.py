@@ -81,10 +81,15 @@ def make_app(
 class ServiceClient:
     """Small synchronous client that sends/receives contract models."""
 
-    def __init__(self, base_url: str, service: str, timeout: float = 300.0, retries: int = 2) -> None:
+    def __init__(
+        self, base_url: str, service: str, timeout: float = 300.0, retries: int = 2, idempotent: bool = True
+    ) -> None:
+        """``idempotent=False`` (e.g. mail-gateway ``POST /send``): retry only when no connection was made, never
+        after the request may have reached the service (5xx, read timeout) — a retry would send it twice."""
         self.base_url = base_url.rstrip("/")
         self.service = service
         self.retries = retries
+        self.idempotent = idempotent
         self.client = httpx.Client(timeout=timeout)
         self.log = logging.getLogger(f"client.{service}")
 
@@ -95,14 +100,18 @@ class ServiceClient:
                 resp = self.client.request(method, f"{self.base_url}{path}", **kw)
             except httpx.TransportError as exc:
                 last = exc
+                if not self.idempotent and not isinstance(exc, httpx.ConnectError | httpx.ConnectTimeout):
+                    break  # it may have arrived
                 time.sleep(min(2**attempt, 8))
                 continue
-            if resp.status_code >= 500 and attempt < self.retries:
+            if resp.status_code >= 500 and attempt < self.retries and self.idempotent:
                 time.sleep(min(2**attempt, 8))
                 continue
             if resp.status_code >= 400:
                 raise ServiceError(self.service, resp.status_code, resp.text[:2000])
             return resp
+        if last is not None and not isinstance(last, httpx.ConnectError | httpx.ConnectTimeout):
+            raise ServiceError(self.service, 0, f"no answer (the request may have been processed): {last}")
         raise ServiceError(self.service, 0, f"unreachable: {last}")
 
     def post(self, path: str, body: BaseModel | dict[str, Any], response: type[M]) -> M:

@@ -1,0 +1,878 @@
+[
+ {
+  "annotations": {
+   "destructiveHint": false,
+   "openWorldHint": false,
+   "readOnlyHint": false,
+   "tb/limit": "5/hour",
+   "tb/roles": [
+    "staff"
+   ],
+   "tb/tier": "T0"
+  },
+  "description": "Creates a typed request in state proposed; nothing runs until the sender confirms it.",
+  "inputSchema": {
+   "$defs": {
+    "RequestType": {
+     "description": "Typed request kinds ``tb.submit_request`` may create (the grammar types of App. D).",
+     "enum": [
+      "FEAS",
+      "QFILL",
+      "SCREEN",
+      "MATCH",
+      "ASK",
+      "REPORT",
+      "CONFIG",
+      "ABSTRACT",
+      "WHATIF",
+      "STUDY",
+      "STATE",
+      "CONFIRM",
+      "REJECT",
+      "DEFER",
+      "MONITOR",
+      "DIGEST"
+     ],
+     "title": "RequestType",
+     "type": "string"
+    }
+   },
+   "additionalProperties": false,
+   "properties": {
+    "language": {
+     "default": "en",
+     "enum": [
+      "zh-TW",
+      "en",
+      "ja",
+      "mixed"
+     ],
+     "title": "Language",
+     "type": "string"
+    },
+    "params": {
+     "additionalProperties": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "integer"
+       }
+      ]
+     },
+     "title": "Params",
+     "type": "object"
+    },
+    "study": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "description": "study code or NEW",
+     "title": "Study"
+    },
+    "type": {
+     "$ref": "#/$defs/RequestType"
+    }
+   },
+   "required": [
+    "type"
+   ],
+   "title": "SubmitRequestIn",
+   "type": "object"
+  },
+  "name": "tb.submit_request",
+  "outputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "commands": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Commands",
+     "type": "array"
+    },
+    "confirm_instruction": {
+     "title": "Confirm Instruction",
+     "type": "string"
+    },
+    "expires_at": {
+     "format": "date-time",
+     "title": "Expires At",
+     "type": "string"
+    },
+    "restatement": {
+     "title": "Restatement",
+     "type": "string"
+    },
+    "state": {
+     "const": "proposed",
+     "default": "proposed",
+     "title": "State",
+     "type": "string"
+    },
+    "ticket_id": {
+     "title": "Ticket Id",
+     "type": "string"
+    }
+   },
+   "required": [
+    "ticket_id",
+    "commands",
+    "restatement",
+    "confirm_instruction",
+    "expires_at"
+   ],
+   "title": "SubmitRequestOut",
+   "type": "object"
+  }
+ },
+ {
+  "annotations": {
+   "destructiveHint": false,
+   "openWorldHint": false,
+   "readOnlyHint": true,
+   "tb/limit": "60/hour",
+   "tb/roles": [
+    "staff"
+   ],
+   "tb/tier": "T1"
+  },
+  "description": "Request states, pending gates, due dates and control-rounded pipeline counts.",
+  "inputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "study": {
+     "anyOf": [
+      {
+       "maxLength": 16,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Study"
+    },
+    "ticket_id": {
+     "anyOf": [
+      {
+       "maxLength": 40,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Ticket Id"
+    }
+   },
+   "title": "StatusIn",
+   "type": "object"
+  },
+  "name": "tb.status",
+  "outputSchema": {
+   "$defs": {
+    "RequestState": {
+     "enum": [
+      "proposed",
+      "confirmed",
+      "superseded",
+      "expired",
+      "withdrawn"
+     ],
+     "title": "RequestState",
+     "type": "string"
+    },
+    "RequestType": {
+     "description": "Typed request kinds ``tb.submit_request`` may create (the grammar types of App. D).",
+     "enum": [
+      "FEAS",
+      "QFILL",
+      "SCREEN",
+      "MATCH",
+      "ASK",
+      "REPORT",
+      "CONFIG",
+      "ABSTRACT",
+      "WHATIF",
+      "STUDY",
+      "STATE",
+      "CONFIRM",
+      "REJECT",
+      "DEFER",
+      "MONITOR",
+      "DIGEST"
+     ],
+     "title": "RequestType",
+     "type": "string"
+    },
+    "StatusItem": {
+     "additionalProperties": false,
+     "properties": {
+      "due": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Due"
+      },
+      "next_gate": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Next Gate"
+      },
+      "state": {
+       "$ref": "#/$defs/RequestState"
+      },
+      "study": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Study"
+      },
+      "ticket_id": {
+       "title": "Ticket Id",
+       "type": "string"
+      },
+      "type": {
+       "$ref": "#/$defs/RequestType"
+      }
+     },
+     "required": [
+      "ticket_id",
+      "type",
+      "state"
+     ],
+     "title": "StatusItem",
+     "type": "object"
+    }
+   },
+   "additionalProperties": false,
+   "properties": {
+    "counts": {
+     "additionalProperties": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "string"
+       }
+      ]
+     },
+     "title": "Counts",
+     "type": "object"
+    },
+    "items": {
+     "items": {
+      "$ref": "#/$defs/StatusItem"
+     },
+     "title": "Items",
+     "type": "array"
+    }
+   },
+   "required": [
+    "items"
+   ],
+   "title": "StatusOut",
+   "type": "object"
+  }
+ },
+ {
+  "annotations": {
+   "destructiveHint": false,
+   "openWorldHint": false,
+   "readOnlyHint": true,
+   "tb/limit": "30/hour",
+   "tb/roles": [
+    "staff"
+   ],
+   "tb/tier": "T0"
+  },
+  "description": "Protocol answer with section citations, or a not-stated result.",
+  "inputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "question": {
+     "maxLength": 500,
+     "minLength": 1,
+     "title": "Question",
+     "type": "string"
+    },
+    "study": {
+     "pattern": "^[A-Z0-9][A-Z0-9_-]{0,15}$",
+     "title": "Study",
+     "type": "string"
+    }
+   },
+   "required": [
+    "study",
+    "question"
+   ],
+   "title": "AskProtocolIn",
+   "type": "object"
+  },
+  "name": "tb.ask_protocol",
+  "outputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "answer": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Answer"
+    },
+    "citations": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Citations",
+     "type": "array"
+    },
+    "not_stated": {
+     "title": "Not Stated",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "answer",
+    "citations",
+    "not_stated"
+   ],
+   "title": "AskProtocolOut",
+   "type": "object"
+  }
+ },
+ {
+  "annotations": {
+   "destructiveHint": false,
+   "openWorldHint": false,
+   "readOnlyHint": true,
+   "tb/limit": "60/hour",
+   "tb/roles": [
+    "staff"
+   ],
+   "tb/tier": "T0"
+  },
+  "description": "Search of the local public trial registry index.",
+  "inputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "limit": {
+     "default": 10,
+     "maximum": 20,
+     "minimum": 1,
+     "title": "Limit",
+     "type": "integer"
+    },
+    "query": {
+     "maxLength": 200,
+     "minLength": 1,
+     "title": "Query",
+     "type": "string"
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "title": "RegistrySearchIn",
+   "type": "object"
+  },
+  "name": "tb.registry_search",
+  "outputSchema": {
+   "$defs": {
+    "RegistryRecord": {
+     "additionalProperties": false,
+     "properties": {
+      "conditions": {
+       "items": {
+        "type": "string"
+       },
+       "title": "Conditions",
+       "type": "array"
+      },
+      "nct_id": {
+       "title": "Nct Id",
+       "type": "string"
+      },
+      "phases": {
+       "items": {
+        "type": "string"
+       },
+       "title": "Phases",
+       "type": "array"
+      },
+      "status": {
+       "title": "Status",
+       "type": "string"
+      },
+      "title": {
+       "title": "Title",
+       "type": "string"
+      }
+     },
+     "required": [
+      "nct_id",
+      "title",
+      "status"
+     ],
+     "title": "RegistryRecord",
+     "type": "object"
+    }
+   },
+   "additionalProperties": false,
+   "properties": {
+    "records": {
+     "items": {
+      "$ref": "#/$defs/RegistryRecord"
+     },
+     "title": "Records",
+     "type": "array"
+    }
+   },
+   "required": [
+    "records"
+   ],
+   "title": "RegistrySearchOut",
+   "type": "object"
+  }
+ },
+ {
+  "annotations": {
+   "destructiveHint": false,
+   "openWorldHint": false,
+   "readOnlyHint": true,
+   "tb/limit": "30/hour",
+   "tb/roles": [
+    "steward",
+    "research_office",
+    "admin"
+   ],
+   "tb/tier": "T1"
+  },
+  "description": "Data coverage, freshness, data-quality scorecard and computability rows, rounded.",
+  "inputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "domain": {
+     "anyOf": [
+      {
+       "maxLength": 40,
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Domain"
+    }
+   },
+   "title": "AtlasDescribeIn",
+   "type": "object"
+  },
+  "name": "tb.atlas_describe",
+  "outputSchema": {
+   "$defs": {
+    "AtlasRow": {
+     "additionalProperties": false,
+     "properties": {
+      "computable": {
+       "title": "Computable",
+       "type": "boolean"
+      },
+      "coverage_pct": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Coverage Pct"
+      },
+      "domain": {
+       "title": "Domain",
+       "type": "string"
+      },
+      "dq_status": {
+       "enum": [
+        "green",
+        "amber",
+        "red",
+        "unknown"
+       ],
+       "title": "Dq Status",
+       "type": "string"
+      },
+      "freshness_days": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Freshness Days"
+      }
+     },
+     "required": [
+      "domain",
+      "coverage_pct",
+      "freshness_days",
+      "dq_status",
+      "computable"
+     ],
+     "title": "AtlasRow",
+     "type": "object"
+    }
+   },
+   "additionalProperties": false,
+   "properties": {
+    "rows": {
+     "items": {
+      "$ref": "#/$defs/AtlasRow"
+     },
+     "title": "Rows",
+     "type": "array"
+    },
+    "snapshot": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Snapshot"
+    }
+   },
+   "required": [
+    "snapshot",
+    "rows"
+   ],
+   "title": "AtlasDescribeOut",
+   "type": "object"
+  }
+ },
+ {
+  "annotations": {
+   "destructiveHint": false,
+   "openWorldHint": false,
+   "readOnlyHint": true,
+   "tb/limit": "20/hour",
+   "tb/roles": [
+    "research_office",
+    "pi",
+    "crc"
+   ],
+   "tb/tier": "T1"
+  },
+  "description": "Catalogue metrics as a control-rounded table with suppression marks and an accountant entry.",
+  "inputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "breakdown": {
+     "anyOf": [
+      {
+       "pattern": "^[a-z][a-z0-9_]{0,31}$",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Breakdown"
+    },
+    "metric": {
+     "pattern": "^[a-z][a-z0-9_]{0,47}$",
+     "title": "Metric",
+     "type": "string"
+    },
+    "study": {
+     "anyOf": [
+      {
+       "pattern": "^[A-Z0-9][A-Z0-9_-]{0,15}$",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Study"
+    }
+   },
+   "required": [
+    "metric"
+   ],
+   "title": "AggregateQueryIn",
+   "type": "object"
+  },
+  "name": "tb.aggregate_query",
+  "outputSchema": {
+   "$defs": {
+    "AggregateRow": {
+     "additionalProperties": false,
+     "properties": {
+      "key": {
+       "title": "Key",
+       "type": "string"
+      },
+      "suppressed": {
+       "title": "Suppressed",
+       "type": "boolean"
+      },
+      "value": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "string"
+        }
+       ],
+       "title": "Value"
+      }
+     },
+     "required": [
+      "key",
+      "value",
+      "suppressed"
+     ],
+     "title": "AggregateRow",
+     "type": "object"
+    }
+   },
+   "additionalProperties": false,
+   "properties": {
+    "accountant_entry_id": {
+     "title": "Accountant Entry Id",
+     "type": "string"
+    },
+    "breakdown": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Breakdown"
+    },
+    "data_cut": {
+     "title": "Data Cut",
+     "type": "string"
+    },
+    "metric": {
+     "title": "Metric",
+     "type": "string"
+    },
+    "rows": {
+     "items": {
+      "$ref": "#/$defs/AggregateRow"
+     },
+     "title": "Rows",
+     "type": "array"
+    }
+   },
+   "required": [
+    "metric",
+    "breakdown",
+    "rows",
+    "data_cut",
+    "accountant_entry_id"
+   ],
+   "title": "AggregateQueryOut",
+   "type": "object"
+  }
+ },
+ {
+  "annotations": {
+   "destructiveHint": false,
+   "openWorldHint": false,
+   "readOnlyHint": false,
+   "tb/limit": "10/day",
+   "tb/roles": [
+    "staff"
+   ],
+   "tb/tier": "T0"
+  },
+  "description": "Resends an already released file to the requester's directory address through the outbox.",
+  "inputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "release_id": {
+     "maxLength": 64,
+     "minLength": 1,
+     "title": "Release Id",
+     "type": "string"
+    }
+   },
+   "required": [
+    "release_id"
+   ],
+   "title": "ResendIn",
+   "type": "object"
+  },
+  "name": "tb.resend_released_file",
+  "outputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "reason": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Reason"
+    },
+    "status": {
+     "enum": [
+      "sent",
+      "refused"
+     ],
+     "title": "Status",
+     "type": "string"
+    }
+   },
+   "required": [
+    "status"
+   ],
+   "title": "ResendOut",
+   "type": "object"
+  }
+ },
+ {
+  "annotations": {
+   "destructiveHint": false,
+   "openWorldHint": false,
+   "readOnlyHint": true,
+   "tb/limit": "120/hour",
+   "tb/roles": [
+    "admin"
+   ],
+   "tb/tier": "T0"
+  },
+  "description": "Operations summaries: health, passes, queues, bench, eval, denials, budgets and changes.",
+  "inputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "panel": {
+     "enum": [
+      "health",
+      "passes",
+      "queues",
+      "bench",
+      "eval",
+      "denials",
+      "budgets",
+      "changes"
+     ],
+     "title": "Panel",
+     "type": "string"
+    }
+   },
+   "required": [
+    "panel"
+   ],
+   "title": "OpsReadIn",
+   "type": "object"
+  },
+  "name": "tb.ops_read",
+  "outputSchema": {
+   "$defs": {
+    "OpsRow": {
+     "additionalProperties": false,
+     "properties": {
+      "key": {
+       "title": "Key",
+       "type": "string"
+      },
+      "value": {
+       "title": "Value",
+       "type": "string"
+      }
+     },
+     "required": [
+      "key",
+      "value"
+     ],
+     "title": "OpsRow",
+     "type": "object"
+    }
+   },
+   "additionalProperties": false,
+   "properties": {
+    "panel": {
+     "enum": [
+      "health",
+      "passes",
+      "queues",
+      "bench",
+      "eval",
+      "denials",
+      "budgets",
+      "changes"
+     ],
+     "title": "Panel",
+     "type": "string"
+    },
+    "rows": {
+     "items": {
+      "$ref": "#/$defs/OpsRow"
+     },
+     "title": "Rows",
+     "type": "array"
+    }
+   },
+   "required": [
+    "panel",
+    "rows"
+   ],
+   "title": "OpsReadOut",
+   "type": "object"
+  }
+ }
+]

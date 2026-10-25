@@ -30,3 +30,4 @@ smtp_port: "587"
 imap_host: imap.hospc.test
 imap_port: "993"
 imap_user: trialbox
+mta_authserv_id: mx.hospc.test

@@ -1,0 +1,30 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "C03CA01",
+      "display": "furosemide"
+     },
+     {
+      "code": "C03CA02",
+      "display": "bumetanide"
+     },
+     {
+      "code": "C03CA04",
+      "display": "torasemide"
+     }
+    ],
+    "system": "http://www.whocc.no/atc"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-LOOP-DIURETIC",
+ "name": "VS_LOOP_DIURETIC",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Loop diuretics (furosemide, bumetanide, torasemide)",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-LOOP-DIURETIC",
+ "version": "1.0.0-v9aa1c934"
+}

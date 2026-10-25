@@ -267,6 +267,7 @@ a_atoms_inc_17_1_p AS (
          least(coalesce(m."end", m.start, m.authored), b.index_date) AS e
   FROM base b JOIN medication m ON m.pid = b.pid
   WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = m.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = m.nhi_code))
+    AND coalesce(m.start, m.authored) IS NOT NULL
     AND greatest(coalesce(m.start, m.authored), (b.index_date + -730)) <= least(coalesce(m."end", m.start, m.authored), b.index_date)),
 a_atoms_inc_17_1_g AS (
   SELECT *, CASE WHEN s <= max(e) OVER (PARTITION BY pid, index_date ORDER BY s, e, mid ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) + 1 THEN 0 ELSE 1 END AS new_island

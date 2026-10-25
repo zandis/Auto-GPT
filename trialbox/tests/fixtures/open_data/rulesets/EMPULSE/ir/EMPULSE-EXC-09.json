@@ -1,0 +1,15 @@
+{
+ "class": "structured",
+ "id": "EMPULSE-EXC-09",
+ "kind": "exclusion",
+ "label": "T1DM",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_TYPE_1_DIABETES_MELLITUS"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #9",
+ "text": "Type 1 diabetes mellitus.",
+ "time_sensitive": false
+}

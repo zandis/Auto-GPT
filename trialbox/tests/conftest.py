@@ -22,7 +22,16 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     yield
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line("markers", "req(*ids): spec v4 requirement ids this test verifies (§17.4)")
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    from tb_testkit.req import unknown_ids
+
+    bad = sorted({i for item in items for m in item.iter_markers("req") for i in unknown_ids(list(m.args))})
+    if bad:
+        raise pytest.UsageError(f"@pytest.mark.req names unknown spec v4 requirement ids: {', '.join(bad)}")
     egress = pytest.mark.skip(reason="host egress test: run `make test-egress` as root with the stack up")
     for item in items:
         if item.get_closest_marker("egress") and os.environ.get("TB_EGRESS_TEST") != "1":

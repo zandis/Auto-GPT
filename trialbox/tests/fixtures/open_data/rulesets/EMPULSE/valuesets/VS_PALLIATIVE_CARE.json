@@ -1,0 +1,22 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "Z51.5",
+      "display": "Encounter for palliative care"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-PALLIATIVE-CARE",
+ "name": "VS_PALLIATIVE_CARE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Palliative care",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-PALLIATIVE-CARE",
+ "version": "1.0.0-vb0486bfe"
+}

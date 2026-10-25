@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -35,11 +37,11 @@ def test_allowlist_from_env() -> None:
     assert got == [
         ("mail-gateway", "smtp.hospa.test", 587),
         ("mail-gateway", "imap.hospa.test", 993),
-        ("criteria-compiler", "llm.example.com", 443),
+        ("gateway", "llm.example.com", 443),  # v4: the cloud LLM is reached by tb-gateway only (NFR-B9)
         ("orchestrator", "twpas.nhi.example", 8443),
         ("adapter", "10.1.2.3", 1433),
     ]
-    # unset variables add nothing; ClinicalTrials.gov only in live mode
+    # unset variables add nothing; ClinicalTrials.gov only in live mode; no dev endpoint outside DEV
     assert [(a.service, a.host) for a in eg.allowlist({})] == [("criteria-compiler", "clinicaltrials.gov")]
 
 
@@ -83,3 +85,52 @@ def test_render_without_stack_warns() -> None:
     eg = _egress()
     script, warnings = eg.render(eg.Box(), [], lambda h: [])
     assert "drop" not in script and any("nothing is filtered" in w for w in warnings)
+
+
+MODEL_ENV = {
+    "TB_ENV": "DEV",
+    "TB_EP_OPENROUTER_URL": "https://openrouter.example/api/v1",
+    "TB_EP_EXTERNAL_URL": "https://vendor.example:8443/v1",
+    "CLOUD_LLM_BASE_URL": "https://llm.example.com/v1",
+    "SMTP_HOST": "smtp.hospa.test",
+    "NHI_TWPAS_BASE_URL": "https://twpas.nhi.example/api",
+}
+
+
+@pytest.mark.req("NFR-B9", "SEC-40", "S1-06")
+def test_only_the_gateway_gets_model_host_rules() -> None:
+    """Rules come from models/routing.yaml; every model host (any zone, plus CLOUD_LLM_BASE_URL) is reachable
+    only from the gateway container. The unapproved external endpoint (no G5 record) gets no rule at all."""
+    eg = _egress()
+    hosts = eg.model_hosts(MODEL_ENV)
+    assert {"openrouter.example", "vendor.example", "llm.example.com", "llm-stub", "llm-service"} <= hosts
+    allows = eg.allowlist(MODEL_ENV)
+    model_rules = [a for a in allows if a.host in hosts]
+    assert model_rules and {a.service for a in model_rules} == {"gateway"}
+    assert ("gateway", "openrouter.example", 443) in [(a.service, a.host, a.port) for a in allows]
+    assert "vendor.example" not in {a.host for a in allows}  # g5_record: null -> closed
+    assert all(a.service != "gateway" or a.host in hosts for a in allows)
+    # outside DEV the bake-off endpoint is closed too
+    prod = eg.allowlist({**MODEL_ENV, "TB_ENV": "PRODUCTION"})
+    assert "openrouter.example" not in {a.host for a in prod}
+    # the rendered ruleset: model-host destinations appear only with the gateway's source addresses
+    box = eg.Box(subnets=["172.18.0.0/16"], addresses={"gateway": ["172.18.0.2"], "orchestrator": ["172.18.0.3"]})
+    dns = {"openrouter.example": ["198.51.100.7"], "llm.example.com": ["198.51.100.8"]}
+    script, _ = eg.render(box, allows, lambda h: dns.get(h, []))
+    for line in script.splitlines():
+        if "198.51.100.7" in line or "198.51.100.8" in line:
+            assert "saddr { 172.18.0.2 }" in line and "gateway ->" in line
+
+
+@pytest.mark.req("NFR-B9", "SEC-40")
+def test_egress_extra_cannot_give_another_container_a_model_host() -> None:
+    eg = _egress()
+    for item in (
+        "orchestrator=openrouter.example:443",
+        "criteria-compiler=llm.example.com:443",
+        "hermes=llm-stub:8000",
+    ):
+        with pytest.raises(SystemExit, match="model host"):
+            eg.allowlist({**MODEL_ENV, "EGRESS_EXTRA": item})
+    ok = eg.allowlist({**MODEL_ENV, "EGRESS_EXTRA": "gateway=llm2.example:443,adapter=10.1.2.3:1433"})
+    assert ("adapter", "10.1.2.3", 1433) in [(a.service, a.host, a.port) for a in ok]

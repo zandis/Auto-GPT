@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Recall{% endblock %}
+{% block content %}
+<h1>Recall ledger simulation</h1>
+<p><code>orchestrator.recall.sim</code>: seeded Bernoulli audit draws go through the recall ledger look by look (state
+resumed from storage each time). A ledger "misses" when its 95 % upper bound falls below the true p at any look.
+Repeated Clopper–Pearson looks miss far more often than the confidence sequence.</p>
+<form action="/recall" method="post" hx-post="/recall" hx-target="#recall-output" hx-swap="innerHTML" class="inline">
+  <label>p <input name="rate" value="0.02" size="6"></label>
+  <label>ledgers <input name="reps" value="20" size="4"></label>
+  <label>looks <input name="months" value="12" size="3"></label>
+  <label>draws per look <input name="per_month" value="40" size="4"></label>
+  <button type="submit" data-testid="recall-run">Run simulation</button>
+</form>
+<div id="recall-output">{% if last %}{% set job = last %}{% include "_job.html" %}{% endif %}</div>
+{% endblock %}

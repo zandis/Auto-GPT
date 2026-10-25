@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/ingest_report.schema.json",
   "title": "IngestReport",
-  "description": "adapter ingest_report.json (SPEC 4.6). Schema version 1.0.0.",
+  "description": "adapter ingest_report.json (SPEC 4.6). Schema version 1.1.0 (1.1.0: fhir_deleted).",
   "type": "object",
   "required": [
     "snapshot",
@@ -57,6 +57,7 @@
       "type": "integer",
       "default": 0
     },
+    "fhir_deleted": {"type": "integer", "minimum": 0, "default": 0, "description": "resources removed from fhir-store because they left the source (ledger of loaded ids)"},
     "lake": {
       "anyOf": [
         {

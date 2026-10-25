@@ -1,0 +1,15 @@
+# TrialBox runs on Linux (bash scripts, Makefile, Dockerfiles): keep LF line endings on every OS, also on Windows
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary
+*.xlsx binary
+*.docx binary
+*.ttf binary
+*.jar binary
+*.sqlite binary
+*.gz binary
+*.zip binary
+*.csv -text
+*.tsv -text
+*.eml -text

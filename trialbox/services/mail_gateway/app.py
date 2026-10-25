@@ -17,7 +17,7 @@ from tb_common.http import make_app
 from tb_common.objstore import from_config
 from tb_contracts import SendRequest, SendResult
 
-from mail_gateway.gateway import Gateway, http_job_sink
+from mail_gateway.gateway import Gateway, http_job_sink, log
 from mail_gateway.outbound import EncryptionError, RoutingRefused, smtp_transport
 from mail_gateway.store import MailDB
 
@@ -30,6 +30,12 @@ def gateway() -> Gateway:
         cfg = get_config()
         env = cfg.env
         data = Path(os.environ.get("TB_MAIL_DIR", str(Path(env.data_dir) / "mail")))
+        authserv = os.environ.get("TB_MAIL_AUTHSERV_ID", "").strip()
+        if not authserv:
+            log.warning(
+                "TB_MAIL_AUTHSERV_ID is not set: the top-most Authentication-Results header is trusted whoever "
+                "wrote it. Set it to the authserv-id of the hospital MTA (RUNBOOK, mail)."
+            )
         _gw = Gateway(
             cfg=cfg,
             store=from_config(),
@@ -38,7 +44,7 @@ def gateway() -> Gateway:
             transport=smtp_transport(env.smtp_host, env.smtp_port, env.smtp_user, env.smtp_pass, env.smtp_starttls),
             jobs=http_job_sink(env.orchestrator_url),
             secrets_dir=Path(env.secrets_dir),
-            authserv_id=os.environ.get("TB_MAIL_AUTHSERV_ID", ""),
+            authserv_id=authserv,
         )
     return _gw
 

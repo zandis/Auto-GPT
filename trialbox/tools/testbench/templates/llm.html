@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}LLM lab{% endblock %}
+{% block content %}
+<h1>LLM lab</h1>
+<h2>Gateway routing (role × class × topology)</h2>
+<p>Each cell is <code>RoutingPolicy.candidates</code> from <code>models/routing.yaml</code>: the route and its permitted
+<code>alias@endpoint</code> candidates, or the refusal code. Policy lookups only; no data moves.</p>
+<form hx-get="/llm/routes" hx-target="#routes" hx-trigger="change" action="/llm/routes" method="get" class="inline">
+  <label>Topology <select name="topology">{% for t in ['A','B','C'] %}<option {{ 'selected' if sel.topology == t else '' }}>{{ t }}</option>{% endfor %}</select></label>
+  <label>Environment <select name="env">{% for x in envs %}<option {{ 'selected' if sel.env == x else '' }}>{{ x }}</option>{% endfor %}</select></label>
+  <label><input type="checkbox" name="opt_in" value="1"> cloud opt-in</label>
+</form>
+<div id="routes">{% include "_routes.html" %}</div>
+
+<h2>Test prompt through tb-gateway</h2>
+<p>A <code>judge</code> call as caller <code>testbench</code> (purpose <code>development</code>) with the deterministic stub
+as upstream, in this bench's environment ({{ environment }}). Classes above D0 are refused here; text that trips the PHI
+guard is refused whatever its label. The audit record (hashes only) is shown.</p>
+<form hx-post="/llm/prompt" hx-target="#prompt-out" action="/llm/prompt" method="post">
+  <textarea name="text" rows="3" cols="80">Progress note (synthetic): acute gout flare of the right first MTP joint, ongoing since yesterday.</textarea><br>
+  <label>Class <select name="data_class">{% for c in classes %}<option>{{ c }}</option>{% endfor %}</select></label>
+  <label>Topology <select name="topology"><option>A</option><option>B</option><option>C</option></select></label>
+  <button type="submit" data-testid="send-prompt">Send</button>
+</form>
+<div id="prompt-out"></div>
+
+<h2>Model registry <span class="small">{{ registry_version }}</span></h2>
+<table><thead><tr><th>build</th><th>alias</th><th>status</th><th>pinned</th><th>model</th><th>licence</th></tr></thead><tbody>
+{% for b in builds %}<tr><td><code>{{ b.build_id }}</code></td><td>{{ b.alias }}</td><td>{{ b.status }}</td><td>{{ 'yes' if b.pinned else 'no' }}</td><td>{{ b.model_name }}</td><td class="small">{{ b.licence.get('name', '') if b.licence else '' }}</td></tr>{% endfor %}
+</tbody></table>
+<h3>Model cards</h3>
+{% for name, text in cards.items() %}<details><summary><code>{{ name }}</code></summary><pre class="card-text">{{ text }}</pre></details>{% endfor %}
+{% endblock %}

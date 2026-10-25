@@ -1,0 +1,17 @@
+{
+ "ir_version": "3.0.0",
+ "id": "EMPULSE-INC-02",
+ "ruleset": "EMPULSE/v3-example",
+ "kind": "inclusion",
+ "class": "mixed",
+ "text": {"source": "Currently hospitalised for the primary diagnosis of acute heart failure (de novo or decompensated chronic HF), regardless of ejection fraction.", "lang": "en"},
+ "logic": {"op": "and", "args": ["a1", "a2"]},
+ "atoms": [
+  {"id": "a1", "domain": "encounter", "valueset": "VS_INPATIENT_ENCOUNTER", "quantifier": "any",
+   "window": {"from_days": -5, "to_days": 0, "anchor": "randomization"}},
+  {"id": "a2", "domain": "condition", "valueset": "VS_ACUTE_HEART_FAILURE", "quantifier": "any",
+   "diagnosis_role": "primary", "window": {"anchor": "event", "event_atom": "a1", "event_pick": "last"}}
+ ],
+ "human": {"checklist": [{"item": {"en": "HF symptoms and signs at admission are documented", "zh-TW": "入院時心衰竭症狀與徵候已記錄"},
+                          "who": "crc", "when": "screening_visit", "blocks_enrollment": true}]}
+}

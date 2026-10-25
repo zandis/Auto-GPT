@@ -190,3 +190,30 @@ def test_ssmix2_is_explicitly_unsupported(site_key_dir: Path, tmp_path: Path, re
 
 
 _ = os
+
+
+def test_undated_medication_orders_are_dropped(synth_dir: Path, tmp_path: Path) -> None:
+    """A MedicationRequest with no authoredOn and no validity start would count as exposure over a whole window in
+    both engines (CQL Max/Min and SQL greatest/least skip nulls), also for rulesets approved before the generator
+    fix; the adapter keeps it out of the snapshot and reports it."""
+    import csv
+    import shutil
+
+    from tests.inproc_box import ingest_site
+
+    src = tmp_path / "site-a"
+    shutil.copytree(synth_dir / "site-a", src)
+    path = src / "medication.csv"
+    with path.open(encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    rows[0].update(order_date="", start_date="", end_date="")
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+    sec = tmp_path / "sec"
+    sec.mkdir()
+    (sec / "site_hmac.key").write_bytes(b"trialbox-test-site-key-0123456789abcdef")
+    rep = ingest_site(src, tmp_path / "lake", sec, "2026-10-04")
+    assert rep.counts["MedicationRequest"] == len(rows) - 1
+    assert (rep.missing_required or {}).get("MedicationRequest.authoredOn (no date at all: dropped)") == 1

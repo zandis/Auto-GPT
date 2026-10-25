@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "N18.6",
+      "display": "End stage renal disease"
+     },
+     {
+      "code": "Z99.2",
+      "display": "Dependence on renal dialysis"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-DIALYSIS-DEPENDENCE",
+ "name": "VS_DIALYSIS_DEPENDENCE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Dialysis dependence or end-stage renal disease",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-DIALYSIS-DEPENDENCE",
+ "version": "1.0.0-v99456ca3"
+}

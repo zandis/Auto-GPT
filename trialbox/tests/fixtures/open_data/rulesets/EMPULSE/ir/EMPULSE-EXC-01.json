@@ -1,0 +1,20 @@
+{
+ "class": "structured",
+ "id": "EMPULSE-EXC-01",
+ "kind": "exclusion",
+ "label": "Cardiogenic shock",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_CARDIOGENIC_SHOCK",
+  "window": {
+   "anchor": "index",
+   "from_days": -30,
+   "to_days": 0
+  }
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #1",
+ "text": "Cardiogenic shock.",
+ "time_sensitive": true
+}

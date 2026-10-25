@@ -1,0 +1,41 @@
+{
+ "class": "structured",
+ "fallback": "IABP, transplant listing and outpatient inotropes are not coded in the demo; checked at screening.",
+ "id": "EMPULSE-EXC-06",
+ "kind": "exclusion",
+ "label": "Transplant / MCS / ventilation / palliative",
+ "logic": {
+  "args": [
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_HEART_TRANSPLANT_OR_ASSIST_DEVICE"
+   },
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_PALLIATIVE_CARE",
+    "window": {
+     "anchor": "index",
+     "from_days": -30,
+     "to_days": 0
+    }
+   },
+   {
+    "domain": "procedure",
+    "quantifier": "any",
+    "valueset": "VS_MECHANICAL_VENTILATION",
+    "window": {
+     "anchor": "index",
+     "from_days": -30,
+     "to_days": 0
+    }
+   }
+  ],
+  "op": "or"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #6",
+ "text": "Heart transplant recipient or listed, planned palliative care for HF, LVAD, IABP or other mechanical circulatory support, or mechanical ventilation.",
+ "time_sensitive": true
+}

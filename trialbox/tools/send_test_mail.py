@@ -11,10 +11,21 @@ from __future__ import annotations
 
 import argparse
 import mimetypes
+import os
 import smtplib
 from email.message import EmailMessage
 from email.utils import make_msgid
 from pathlib import Path
+
+
+def _smtp_port() -> int:
+    env_file = Path(__file__).resolve().parents[1] / "deploy" / ".env"
+    file_val = ""
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            if line.strip().startswith("TB_HOST_SMTP_PORT="):
+                file_val = line.split("=", 1)[1].strip().strip("'\"")
+    return int(os.environ.get("TB_HOST_SMTP_PORT") or file_val or "3025")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -25,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--to", default="trialbox@hospa.test")
     ap.add_argument("--in-reply-to", default="")
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=3025)
+    ap.add_argument("--port", type=int, default=_smtp_port(), help="GreenMail SMTP (TB_HOST_SMTP_PORT, deploy/.env)")
     args = ap.parse_args(argv)
     m = EmailMessage()
     m["From"] = args.sender
@@ -33,7 +44,8 @@ def main(argv: list[str] | None = None) -> int:
     m["Subject"] = args.subject
     m["Message-ID"] = make_msgid(domain=args.sender.rsplit("@", 1)[-1])
     domain = args.sender.rsplit("@", 1)[-1]
-    m["Authentication-Results"] = f"mx.{domain}; spf=pass smtp.mailfrom={domain}; dkim=pass header.d={domain}"
+    mta = "mx." + args.to.rsplit("@", 1)[-1]  # the receiving hospital's MTA writes it (TB_MAIL_AUTHSERV_ID)
+    m["Authentication-Results"] = f"{mta}; spf=pass smtp.mailfrom={domain}; dkim=pass header.d={domain}"
     if args.in_reply_to:
         m["In-Reply-To"] = args.in_reply_to
     m.set_content("Sent by tools/send_test_mail.py")

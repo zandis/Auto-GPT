@@ -1,0 +1,10 @@
+<section class="job" id="job-{{ job.id }}" data-job="{{ job.id }}" data-status="{{ job.status }}">
+  <h3>{{ job.title }} <span class="small">job {{ job.id }} · <a href="/jobs/{{ job.id }}/view">open as page</a></span></h3>
+  <pre class="log" data-testid="log">{% for line in job.lines %}{{ line }}
+{% endfor %}</pre>
+  {% if job.done %}
+  <div class="job-result">{% include "_job_result.html" %}</div>
+  {% else %}
+  <div class="job-result" hx-get="/jobs/{{ job.id }}/result" hx-trigger="jobdone" hx-swap="innerHTML"><p class="small">Running…</p></div>
+  {% endif %}
+</section>

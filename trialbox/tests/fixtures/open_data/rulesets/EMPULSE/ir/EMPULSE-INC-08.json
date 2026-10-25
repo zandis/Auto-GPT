@@ -1,0 +1,16 @@
+{
+ "class": "human",
+ "human_question": "Does the patient meet the protocol's further inclusion criteria?",
+ "id": "EMPULSE-INC-08",
+ "kind": "inclusion",
+ "label": "Further inclusion criteria",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "ruleset": "EMPULSE",
+ "source_ref": "ClinicalTrials.gov eligibility: Inclusion #7",
+ "text": "Further inclusion criteria apply (not published in the registry).",
+ "time_sensitive": false
+}

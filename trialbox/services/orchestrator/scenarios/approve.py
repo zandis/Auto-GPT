@@ -3,6 +3,7 @@ that were waiting for this ruleset version, on edits re-send the review (max 3 r
 
 from __future__ import annotations
 
+from tb_common.ruleset import Ruleset, RulesetNotApproved, load_approved
 from tb_contracts import ApproveRequest, JobFile
 
 from orchestrator.clients import StepFailed
@@ -29,11 +30,39 @@ def _target(ctx: Ctx) -> tuple[str, str]:
     return ruleset, version
 
 
+def _approved(ctx: Ctx, ruleset: str, version: str) -> Ruleset | None:
+    try:
+        return load_approved(ctx.rulesets_dir, ruleset, version)
+    except RulesetNotApproved:
+        return None
+
+
 def run(ctx: Ctx) -> Outcome:
     from criteria_compiler.review import parse_review_xlsx
 
     ruleset, version = _target(ctx)
     ctx.update(ruleset=ruleset, ruleset_version=version)
+    done = _approved(ctx, ruleset, version)
+    if done is not None:
+        # already tagged: this APPROVE was re-run after a restart that interrupted it after the compiler approved, or
+        # the reviewer replied twice. Nothing to compile; the waiting jobs must still resume.
+        resumed = ctx.orch.resume_awaiting(ruleset, version)
+        body = f"Ruleset **{ruleset} v{version}** is already approved; nothing was changed.\n\n" + (
+            f"Resumed waiting jobs: {', '.join(f'`{j}`' for j in resumed)}.\n" if resumed else ""
+        )
+        approved_routing = done.manifest.routing
+        return Outcome(
+            summary_md=body,
+            deliveries=[
+                Delivery(
+                    to=recipients(approved_routing, ctx.job.requested_by),
+                    subject=f"Ruleset {ruleset} v{version} approved",
+                    body_md=body,
+                    kind="approved",
+                    routing=approved_routing,
+                )
+            ],
+        )
     ctx.state("compiling")
     wb = _workbook(ctx)
     try:

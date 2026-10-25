@@ -1,0 +1,18 @@
+# Hermes Agent pin (spec v4 §9.5, HER-18, ENG-08; S1-11). Filled ONLY from a release that was fetched, verified
+# (tag -> commit SHA -> image digest) and mirrored internally. Nothing here is guessed: null means "not verified".
+# `trialbox doctor` refuses engine=hermes unless every field below is set, the version is >= the floor and the
+# mirrored digest equals the upstream digest.
+product: hermes-agent
+version: v0.22.2            # intended pin (§9.5); not yet verified in this build
+floor: v0.21.6              # display-name allowlist bypass and dashboard auth fixes (§9.5)
+tag: v0.22.2
+date_tag: null              # Hermes also publishes date tags; the registry records both
+commit_sha: null            # 40-hex commit of the tag, from the upstream repository
+upstream_image: null        # nousresearch/hermes-agent:<version>@sha256:<digest>
+upstream_digest: null       # sha256:<64 hex>
+mirror_image: null          # <internal registry>/hermes-agent@sha256:<digest> (never a mutable tag)
+mirror_digest: null         # must equal upstream_digest (v0.22.1 was built from the wrong commit)
+verified: false
+verified_at: null
+status: blocked
+blocked_reason: release not fetched and verified offline in this build; engine stays native (OPS-02)

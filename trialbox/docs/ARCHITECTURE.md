@@ -70,15 +70,17 @@ FHIR R4 NDJSON snapshot (pseudonymised: pid = HMAC(site key, MRN); name / nation
         queries: SELECT-only (sqlglot guard), read-only, memory-capped with spill, snapshot-pinned
 ```
 
-The nightly ingest adds two checks:
+The nightly ingest adds these steps:
 - an HL7 validator sample (1 %, TW Core); the ingest report fails above 0.5 % errors;
+- fhir-store mirrors the snapshot: resources that left the source are deleted, from a ledger of loaded ids (D-86);
+- medication orders without any date are dropped and reported (D-86);
 - snapshot pruning (3 nightly + 36 month-ends, D-78).
 
 ## 4. Rule path (determinism)
 
 ```
 protocol / NHI rule / cohort definition / CT.gov text
-   │ doc-parser: Docling (prod) or lite → ParsedDoc (sections, I/E block)
+   │ doc-parser: lite (pypdf / python-docx heuristics; Docling when installed, D-02) → ParsedDoc (sections, I/E)
    │ criteria-compiler:
    │   ir_extract (LLM, schema-constrained; local model, or cloud only after the PHI guard)
    │   → CriterionIR → terminology (concept_map) → ValueSets
@@ -129,7 +131,8 @@ are never decided by the box.
 
 ## 6. Mail gateway
 
-IMAP poll → `Authentication-Results` SPF/DKIM check (top-most header) → sender allowlist + per-command
+IMAP poll → `Authentication-Results` check (the MTA's header, `TB_MAIL_AUTHSERV_ID`; DMARC pass or an SPF/DKIM pass
+aligned with the From: domain, D-86) → sender allowlist + per-command
 permissions → per-sender daily rate limit → subject grammar → attachments to MinIO → `JobCreate` to the
 orchestrator.
 
@@ -160,3 +163,27 @@ Replies to review mails are matched through `In-Reply-To`. Outbound mail is Mark
 | host | `sudo make test-egress` | nftables default deny with the allowlist on the running stack |
 | LLM | `TB_LLM_EVAL_URL=… TB_JUDGE_LLM_URL=… pytest -m llm` | real model: judge on 300 items (≥ 90 %), ir_extract on 5 eligibility texts vs gold IR, concept_map on 200 concepts |
 | bench | `make bench` | §11.3 (docs/BENCH.md) |
+| open data | `make open-data-e2e` | MIMIC-IV FHIR demo (PhysioNet, ODbL; fetched, never committed) → MIMIC normalisation → adapter `fhir_bulk` → lake → FEAS for two real CT.gov trials; invariants + second-run reproducibility (docs/OPEN_DATA.md); the `slow` test skips without the data |
+
+## 9. v4 MS0 vertical slice (spec v4, `spec/v4/`)
+
+The v4 pieces sit beside the v1 services. Nothing in v1 was moved yet (the `git mv` steps of ENG-02 are later work);
+the new code wraps the v1 adapter, lake and mail gateway.
+
+| Area | Code | What it does |
+| --- | --- | --- |
+| Data classes | `libs/tb_contracts/dataclass.py`, `libs/tb_common/policy/` | D0–D4 labels with propagation, the §7.2 boundary table (`may_reach`), environment ceilings, lowering only by a registered transform with a certificate, a class for every v1 contract |
+| Requirement IDs | `libs/tb_testkit/req.py`, `tests/conftest.py` | `@pytest.mark.req("ID")`; an ID not in the spec fails collection |
+| Data platform | `services/dataplat/` | landing contracts, L0–L5 thin path, reconciliation, DQ, publish gate (HOLD keeps the last snapshot), pseudonymisation, MPI (SQLite), OpenLineage events |
+| Criterion IR v3 | `libs/tb_contracts/criterion_ir.py`, `schemas/v4/` | IR v3 with RFC 8785 canonical hash, upgrade from and down-conversion to v1 |
+| LLM gateway | `services/gateway/`, `libs/tb_llm/`, `models/` | the only path to a model; class-aware routing from `models/routing.yaml`; served-model check against the registry; only the gateway gets model egress (`deploy/egress.py`) |
+| Registry, guard, traces | `services/registry/`, `services/guard/`, `services/tracestore/` | model registry and cards; PHI recognisers and tripwire; traces stored redacted |
+| Outbox and recall | `services/orchestrator/outbox.py`, `services/orchestrator/recall/` | transactional outbox on Postgres; recall ledger with confidence sequences |
+| Registry match | `services/matching/registry_match/` | TrialGPT port over a local CT.gov mirror; no live calls |
+| Cascade | `services/matching/cascade/` | S0–S5 (with S2b): structured screen, semantic pre-filter, note judging via the gateway with span checks, review queue, final list; recall certificate |
+| Deliverables | `services/deliverables/` | DL-1 feasibility pack: disclosure profiles, complementary suppression, figures, PDF/XLSX/JSON |
+| Front door and channels | `services/frontdoor_mcp/`, `services/channels/` | the §9.3 MCP tool list with audit before act; native email engine and a fake Teams transport; deterministic grammar, free text becomes a `classify_intent` proposal |
+| Hermes | `integrations/hermes/` | config surface and relay-adapter contract; blocked until a release is pinned (S1-11) |
+| Operations | `tools/trialbox/` (`doctor`, `eval`), `tools/bakeoff.py` | doctor fails closed on unsafe routes, unpinned Hermes, D3 in DEV; public eval suites; bake-off as code (dry run) |
+| End to end | `tools/cascade_e2e.py` | dataplat → cascade → DL-1 pack + recall certificate, 16 checks, PASS/FAIL |
+| Test Bench | `tools/testbench/` | dev/test-only web UI over all of the above (D0 only, 127.0.0.1, banner on every page); not in product images |

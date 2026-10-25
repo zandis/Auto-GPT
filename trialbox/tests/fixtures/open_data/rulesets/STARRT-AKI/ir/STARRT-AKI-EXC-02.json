@@ -1,0 +1,26 @@
+{
+ "action": "order bicarbonate",
+ "class": "structured",
+ "id": "STARRT-AKI-EXC-02",
+ "kind": "exclusion",
+ "label": "Bicarbonate <15 mmol/L",
+ "logic": {
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 15,
+   "op": "<",
+   "unit": "mmol/L"
+  },
+  "valueset": "VS_SERUM_BICARBONATE",
+  "window": {
+   "anchor": "index",
+   "from_days": -30,
+   "to_days": 0
+  }
+ },
+ "ruleset": "STARRT-AKI",
+ "source_ref": "ClinicalTrials.gov eligibility: Exclusion #2",
+ "text": "Serum bicarbonate < 15 mmol/L.",
+ "time_sensitive": true
+}

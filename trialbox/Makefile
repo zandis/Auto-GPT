@@ -6,25 +6,30 @@ COMPOSE := docker compose --project-directory deploy -f deploy/docker-compose.ym
 TEST_SETTINGS := .cache/test-settings.yaml
 COMPOSE_TEST := TB_SETTINGS_FILE=../$(TEST_SETTINGS) $(COMPOSE) -f deploy/docker-compose.test.yml --profile stub --profile test
 BUILD_ARGS := $(if $(HTTPS_PROXY),--network host --build-arg HTTPS_PROXY=$(HTTPS_PROXY) --build-arg https_proxy=$(HTTPS_PROXY),)
-CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 comma := ,
+# test-stack host ports moved in deploy/.env reach every tool and test run from make (the shell environment wins)
+HOST_PORTS := $(shell grep -hE '^TB_HOST_[A-Z_]+_PORT=[0-9]+$$' deploy/.env 2>/dev/null)
+$(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
+CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test down logs fixtures audit-verify bench clean
+.PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade clean
 
 venv:
-	uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
+	uv venv --allow-existing --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
 
 contracts:
 	$(PY) tools/gen_contracts.py
 
 contracts-check:
 	$(PY) tools/gen_contracts.py --check
+	PYTHONPATH=libs:services:. $(PY) -m tb_contracts.criterion_ir --check
 
 lint: contracts-check
 	$(PY) -m ruff check .
 	$(PY) -m ruff format --check .
-	$(PY) -m mypy libs services tools tests
+	$(PY) -m mypy libs services tools tests integrations
+	PYTHONPATH=libs:services:. $(PY) -m tools.mcp_snapshot --check
 
 FONTS := .cache/fonts/NotoSansTC-Regular.ttf
 
@@ -81,6 +86,10 @@ $(TEST_SETTINGS): deploy/settings.example.yaml
 up-test: deploy/.env .cache/test-secrets/site_hmac.key $(TEST_SETTINGS)
 	$(COMPOSE_TEST) up -d --wait
 
+# load synthetic site A into the running test stack (adapter -> lake + FHIR store)
+ingest-test:
+	$(PY) -m tests.stack
+
 down:
 	$(COMPOSE_TEST) down
 
@@ -95,6 +104,25 @@ audit-verify:
 
 bench:
 	$(PY) tools/bench.py
+
+# open data (docs/OPEN_DATA.md): fetch the PhysioNet MIMIC-IV FHIR demo (sha256-verified, not committed), then
+# adapter -> lake -> FEAS in process for the two ClinicalTrials.gov rulesets; writes .cache/open_data/report.{json,md}
+open-data-e2e:
+	$(PY) tools/fetch_open_data.py
+	PYTHONPATH=libs:services:. $(PY) tools/open_data_e2e.py
+
+testbench:
+	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.testbench --host 127.0.0.1 --port $${TB_TESTBENCH_PORT:-8765}
+
+testbench-test:
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/testbench
+
+eval-public:
+	PYTHONPATH=libs:services:. $(PY) -m tools.trialbox eval judge_public
+	PYTHONPATH=libs:services:. $(PY) -m tools.trialbox eval ingest_fhir_demo
+
+e2e-cascade:
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.cascade_e2e --source tests/fixtures/synthetic_patients/site-a --trial $${TB_E2E_TRIAL:-GZQO} --out $${TB_E2E_OUT:-build/e2e}
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache build *.egg-info

@@ -1,5 +1,8 @@
 # TrialBox
 
+> **Next build:** the v4 specification is in [`spec/v4/`](spec/v4/README.md). The build handoff is [`docs/HANDOFF.md`](docs/HANDOFF.md), and the
+> starter prompt for the next session is [`docs/NEXT_SESSION_PROMPT.md`](docs/NEXT_SESSION_PROMPT.md).
+
 TrialBox is an on-prem appliance driven by e-mail. It compiles eligibility rules (clinical-trial protocols, Taiwan
 NHI reimbursement rules, alliance cohort definitions) into **auditable, deterministic patient screens** over the
 hospital's own data.
@@ -30,7 +33,7 @@ cd trialbox
 make venv                      # .venv with the pinned dependencies
 make images                    # fetches fonts + HL7 validator + CQL translator + FHIR packages, builds 2 images
 make up-test                   # whole box + stub LLM + GreenMail (IMAP 3143/SMTP 3025) + MailHog (8025)
-curl -s -X POST localhost:8016/run -H 'Content-Type: application/json' -d '{"source":"csv"}'   # ingest site A
+make ingest-test               # ingest synthetic site A (adapter -> lake + FHIR store)
 .venv/bin/python tools/send_test_mail.py "FEAS GZQO"
 ```
 
@@ -51,6 +54,15 @@ make test-integration          # against the running test stack (HAPI, validator
 make test-e2e                  # every scenario by e-mail
 ```
 
+## v4 pilot (no Docker needed)
+
+```sh
+make venv
+make e2e-cascade               # synthetic site A: data platform -> cascade -> feasibility pack + recall certificate
+make testbench                 # Test Bench on http://127.0.0.1:8765 (synthetic and open data only)
+make open-data-e2e             # MIMIC-IV FHIR demo (downloads ~10 MB, ODbL)
+```
+
 ## Deploying a real site
 
 Follow **`docs/RUNBOOK.md`**:
@@ -68,13 +80,15 @@ No code changes are needed for a new site.
 | Path | What |
 | --- | --- |
 | `SPEC.md` | the specification (v1.0) |
-| `docs/` | `PLAN.md`, `ARCHITECTURE.md` (as built), `DECISIONS.md` (every choice and deviation), `PROGRESS.md` (phase log + evidence), `RUNBOOK.md`, `HARDENING.md`, `BENCH.md` |
+| `docs/` | `PLAN.md`, `ARCHITECTURE.md` (as built), `DECISIONS.md` (every choice and deviation), `PROGRESS.md` (phase log + evidence), `RUNBOOK.md`, `HARDENING.md`, `BENCH.md`, `OPEN_DATA.md` (open-data end-to-end test; MIMIC-IV demo ODbL notice) |
 | `schemas/` → `libs/tb_contracts` | JSON Schemas (the contracts) → generated pydantic v2 models (`make contracts`) |
 | `libs/tb_common` | config, audit chain, LLM gateway, PHI guard, routing, crypto, deterministic outputs, … |
 | `services/` | mail_gateway, orchestrator (scenarios + reports), criteria_compiler, doc_parser, adapter, lake, embed_service, llm_stub |
 | `rulesets/` | approved rulesets shipped with the box: GZQO (trial), RA-BIO + ONC-OSI (NHI), GOUT-COH + RA-COH (cohort) |
 | `deploy/` | compose files (x86, test, GB10), Dockerfiles, `settings.example.yaml`, `network.sh`, `check_host.sh` |
 | `tools/` | fixtures, ruleset build, bench, acceptance, wizard, mapping check, update signing/applying, audit verify, … |
+| `spec/v4/` | the v4 specification; `docs/HANDOFF.md` is the build order |
+| `tools/testbench/` | Test Bench: dev/test-only web UI (`make testbench`, then <http://127.0.0.1:8765>) |
 | `tests/` | unit, integration (in process + services), e2e (mail), LLM, fixtures (synthetic hospitals A/B, protocols, onboarding) |
 
 All patient data in this repository is synthetic (`tools/make_fixtures.py`, 600 + 520 patients). ClinicalTrials.gov

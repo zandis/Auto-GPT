@@ -1,0 +1,42 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "I26.09",
+      "display": "Other pulmonary embolism with acute cor pulmonale"
+     },
+     {
+      "code": "I26.90",
+      "display": "Septic pulmonary embolism without acute cor pulmonale"
+     },
+     {
+      "code": "I26.92",
+      "display": "Saddle embolus of pulmonary artery without acute cor pulmonale"
+     },
+     {
+      "code": "I26.93",
+      "display": "Single subsegmental pulmonary embolism without acute cor pulmonale"
+     },
+     {
+      "code": "I26.94",
+      "display": "Multiple subsegmental pulmonary emboli without acute cor pulmonale"
+     },
+     {
+      "code": "I26.99",
+      "display": "Other pulmonary embolism without acute cor pulmonale"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "EMPULSE-VS-PULMONARY-EMBOLISM",
+ "name": "VS_PULMONARY_EMBOLISM",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "Pulmonary embolism",
+ "url": "http://trialbox.local/fhir/ValueSet/EMPULSE-VS-PULMONARY-EMBOLISM",
+ "version": "1.0.0-vc9264fda"
+}

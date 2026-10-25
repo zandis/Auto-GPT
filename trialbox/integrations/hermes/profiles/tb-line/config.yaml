@@ -1,0 +1,53 @@
+# Hermes profile tb-line (spec v4 §9.2, §9.6 hardening checklist; S1-11). Key names marked "(confirm)" are not yet
+# confirmed against the pinned release (no release is pinned in this build); the configuration-diff test of §9.12
+# confirms them at pinning. tests/unit/test_hermes_config.py lints every setting below.
+profile: tb-line
+channels: [line]
+model:
+  base_url: http://gateway:8080/v1        # tb-gateway only (item 7)
+  default: tb-frontdesk
+  context_length: 65536
+  auxiliary: {guard: tb-guard, router: tb-router-small}
+  fallback_providers: []                  # only gateway aliases; a cloud fallback moves data off site
+agent:
+  disabled_toolsets: [terminal, file, browser, web, code_execution, delegate, cronjob, skills_manage, memory,
+    image_gen, tts]                       # (confirm names with `hermes tools`)
+mcp:
+  servers:
+    frontdoor:
+      transport: streamable_http
+      url: https://frontdoor-mcp:8443/mcp
+      mtls: {client_cert: /run/secrets/hermes-client.pem, client_key: /run/secrets/hermes-client.key}
+      timeout_s: 30
+      tools: {include: []}
+      prompts: false
+      resources: false
+      sampling: false
+      elicitation: false
+  catalogue: false
+approvals:
+  mode: manual
+  cron_mode: deny
+  single_query_mode: deny
+  unattended_mode: deny
+  deny: ["*"]
+cron: {allow_agent_scheduling: false, jobs: []}
+delegation: {max_spawn_depth: 0}          # (confirm acceptance of 0; toolset removal is the control)
+memory: {enabled: false, write_approval: true, external_providers: []}
+skills: {signed_only: true, read_only: true}
+plugins:
+  allow: [tb_relay_adapter, tb_policy_audit]
+  project_plugins: false
+  hooks_auto_accept: false
+  hook_callback_timeout: 5
+security: {allow_lazy_installs: false, private_urls: false}
+auth: {adopt_external_logins: false}
+surfaces:                                 # item 2: every own surface off
+  platform_adapters: false
+  webhook_gateway: false
+  dashboard: false
+  api_server: false
+  acp: false
+  connectors: false
+env:
+  forbid: [HERMES_YOLO_MODE, GATEWAY_ALLOW_ALL_USERS]

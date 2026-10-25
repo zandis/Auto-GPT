@@ -1,0 +1,8 @@
+# criteria_extract_public: Chia corpus loader (spec v4 S1-13, App. H). The Chia licence is unconfirmed, so the loader
+# is a stub that refuses to run; no Chia data is fetched or committed until the licence is confirmed.
+suite: criteria_extract_public
+version: 0
+dataset: chia
+data_class: D0
+status: blocked
+blocked_reason: Chia corpus licence not confirmed (App. H, uncertain)

@@ -9,18 +9,17 @@ import httpx
 import pytest
 from tb_common.crypto import pid_for_mrn
 
+from tests.stack import ensure_ingested, url
+
 pytestmark = pytest.mark.integration
-ADAPTER = "http://127.0.0.1:8016"
-LAKE = "http://127.0.0.1:8013"
-FHIR = "http://127.0.0.1:8080/fhir"
+ADAPTER, LAKE, FHIR = url("ADAPTER"), url("LAKE"), url("FHIR", "/fhir")
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "synthetic_patients" / "site-a"
 
 
 @pytest.fixture(scope="module")
 def ingest_report() -> dict[str, object]:
-    resp = httpx.post(f"{ADAPTER}/run", json={"source": "csv", "snapshot": "2026-10-04"}, timeout=1800)
-    assert resp.status_code == 200, resp.text[:1000]
-    body: dict[str, object] = resp.json()
+    body = ensure_ingested(force=True)  # this module checks the ingest itself, so always run it
+    assert body is not None
     return body
 
 

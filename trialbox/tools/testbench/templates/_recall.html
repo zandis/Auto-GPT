@@ -1,0 +1,10 @@
+{% set r = job.result %}
+<table data-testid="recall-table"><thead><tr><th>true p</th><th>ledgers</th><th>repeated CP miss</th><th>CS miss</th></tr></thead><tbody>
+{% for x in r.rates %}<tr><td>{{ x.rate }}</td><td>{{ r.reps }}</td><td>{{ '%.3f' % x.cp_miss }}</td><td>{{ '%.3f' % x.cs_miss }}</td></tr>{% endfor %}
+</tbody></table>
+<h4>Ledger {{ r.trajectory_ledger }} at p = {{ r.trajectory_rate }}: upper bound per look</h4>
+<p class="small"><span class="key cs"></span> confidence sequence (ledger) <span class="key cp"></span> repeated Clopper–Pearson <span class="key truth"></span> true p · α = {{ r.alpha }}</p>
+{{ svg | safe }}
+<table><thead><tr><th>look</th><th>n</th><th>found</th><th>CS upper</th><th>CP upper</th></tr></thead><tbody>
+{% for t in r.trajectory %}<tr><td>{{ t.look }}</td><td>{{ t.n }}</td><td>{{ t.found }}</td><td>{{ '%.4f' % t.cs_upper }}</td><td class="{{ 'route-no' if t.cp_upper < r.trajectory_rate else '' }}">{{ '%.4f' % t.cp_upper }}</td></tr>{% endfor %}
+</tbody></table>

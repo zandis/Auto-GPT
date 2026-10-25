@@ -357,3 +357,69 @@ make test-e2e      # GreenMail -> TrialBox -> MailHog
 | RUNBOOK, README quickstart, ARCHITECTURE | `docs/RUNBOOK.md`, `README.md`, `docs/ARCHITECTURE.md` (phase 9) |
 | Compile gate ≥ 98 % | every shipped ruleset at 100 % CQL≡SQL; approval refused below the gate |
 | `tools/audit_verify.py` passes | on the compose stack after the full e2e run (2,703 events) |
+
+## Post-merge deep review (D-86)
+
+A max-effort correctness review of the merged v1.0 code reported 15 findings. Every one was confirmed (by running
+code, or by reading the code against the contract) and fixed. Each fix has a test that fails on the old code and
+passes now.
+
+| Area | Finding | Fix (test) |
+| --- | --- | --- |
+| NHI SUBMIT | two SUBMITs of one bundle, or a restart mid-POST, could submit the claim twice | atomic reservation before the POST; release only when provably not sent; never re-POST on restart (`test_live_submit_is_once_under_concurrency_and_restart`, `test_live_submit_failure_classification`) |
+| APPROVE | a restarted APPROVE failed and left FEAS jobs waiting forever | an already-approved version resumes the waiting jobs (`test_compile_approve_loop_by_email`) |
+| Mail | a spoofed From: was accepted on any SPF/DKIM pass | DMARC-style alignment; authserv-id in the wizard and `.env`, warning when unset (`test_authentication_results`) |
+| Audit | an event stamped before midnight, written after, broke `verify()` | it stays in the newest day file (`test_event_stamped_before_midnight_written_after`) |
+| Compiler | zh/ja concepts shared `VS_CONCEPT`; the cloud LLM route never triggered; a newline in criterion text escaped the SQL comment; undated medication orders counted as full-window exposure | hashed names + collision guard; clearance over the prompt variables; whitespace collapsed; start required in CQL/SQL and undated orders dropped at ingest (four tests) |
+| Parser | wrapped `1.5 mg/dL` / `18 years …` lines became criteria or headings and dropped I/E items | enumerator lookahead; title and numbering checks for headings (`test_wrapped_numeric_lines_stay_in_their_criterion`) |
+| fhir-store | resources deleted in the HIS stayed in HAPI (CQL ≠ SQL) | ledger of loaded ids, stale ids deleted (`test_fhir_store_follows_the_snapshot`, plus DELETE transactions checked on the running HAPI) |
+| Small cells | SCREEN/MICROBATCH summaries unsuppressed; FEAS cells derivable from neighbours; calibration rates revealing small counts | suppression in summaries; controlled rounding for FEAS; rates withheld (`test_controlled_rounding`, FEAS invariant in the in-process round trip) |
+| Delivery | `POST /send` retried after it may have arrived (duplicate PHI mails) | non-idempotent client retries only refused connections (`test_non_idempotent_client_never_resends`) |
+| COHORT | any COHORT sender could overwrite another site's alliance table | own-site refusal and sender binding, also in the re-run replay (`test_merge_refuses_tables_for_other_sites`) |
+| Acceptance | the criterion check read a `class` that candidate rows never have | classes and labels come from the ruleset IR (`test_screen_metrics_weighted` on contract-valid rows) |
+
+Docs corrected: no Docling image is shipped in v1.0, and the lite parser is the production parser (D-02, D-05,
+ARCHITECTURE). Schemas: `ingest_report` 1.1.0 (`fhir_deleted`).
+
+**Evidence**
+- `make lint` clean; `make test` 285 passed (2 skipped); `make test-integration` 59 passed; `make test-e2e` 6
+  passed; `make test-egress` 1 passed.
+- Today's compose jobs re-run byte-identically (6 jobs, 49 files); the audit chain verifies across two day files
+  (3,246 events).
+
+## v4 MS0 vertical slice (2026-10-25)
+
+Built from `docs/HANDOFF.md` phases 0–5 against `spec/v4/`. Runs end to end on synthetic and open data without
+Docker (Postgres is needed only for the outbox and recall-ledger Postgres tests, `TB_PG_DSN`).
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| S1-01/02/03 data classes, req-ID marker, eval datasets | done | `test_dataclass.py` (33) |
+| S1-04/05 landing contracts, data-platform thin path, publish gate | done | `test_dataplat_*` (26, incl. MIMIC) |
+| S1-06 tb-gateway, class-aware routing | done | `test_routing_policy`, `test_gateway`, `test_egress_rules`, `test_no_direct_model_calls` (~1.6M route combinations, 0 D3/D4 outside the perimeter) |
+| S1-07 model registry and cards | done | `test_model_registry` (wrong served model refused) |
+| S1-08 PHI guard and trace store | done | `test_phi_recognisers`, `test_tracestore` (650 planted IDs, none stored) |
+| S1-09 front-door MCP (§9.3 tools) | done (JSON-RPC handler; no HTTP/mTLS layer yet) | `test_frontdoor_mcp` (27) |
+| S1-10 channels: native email, fake Teams | done | `test_channels` (26) |
+| S1-11 Hermes | **blocked**: no release pinned by tag + SHA + digest; engine stays `native` | `test_hermes_config` (contract test skips) |
+| S1-12/15 outbox, recall ledger | done | `test_outbox_killloop`, `test_recall_ledger` (CS 0.003 vs CP 0.097) |
+| S1-13 public suites | done; Chia loader waits on licence | `test_eval_public_suites`; judge_public accuracy 0.873 through the gateway |
+| S1-14 bake-off as code | dry run only; live needs a key and a pinned build | `test_bakeoff` (5) |
+| S1-16 `trialbox doctor` | done | `test_trialbox_doctor` (13) |
+| S1-17 criterion IR v3, registry match | done | `test_criterion_ir_v3`, `test_registry_match_*` (172) |
+| Cascade S0–S5, DL-1 pack, recall certificate | done | `test_cascade_*`, `test_disclosure_linked` (21); `make e2e-cascade` PASS (16 checks) |
+| Test Bench | done (Trials, Feasibility, Patients, Conversation, Audit pages not built) | `tests/testbench` (44, incl. Playwright smoke) |
+
+**End-to-end runs (all PASS):** synthetic site A / GZQO: S0 600 → S1 18 → S2b 17 → S3/S4 13 → final list 2, recall
+certificate issued. MIMIC EMPULSE and STARRT-AKI: pack produced, certificate refused (the demo has no known
+positives and no notes, so note criteria are data gaps).
+
+**Known deviations:** v1 services wrapped, not moved (ENG-02); registry, cache and budgets in files rather than
+Postgres; caller identity by header, not mTLS; gateway serves chat completions and `/v1/models` only (the S2b
+embedder is injected); D3/D4 step-confirm hook not wired, so such calls are refused; production routes nothing until
+a model build is pinned by sha256; model cards are `.md`; RPT-07 leak check uses interval propagation (no scipy) and
+seeded random cases (no Hypothesis); the S2b threshold is a placeholder; `deploy/egress.py` now needs PyYAML on the
+host; the v1 compiler's cloud egress moved to `gateway`, which has no compose service yet.
+
+**Evidence:** `make lint` clean (361 files); `make test` 802 passed, 3 skipped; `make testbench-test` 44 passed
+(strict v4 engine); `make e2e-cascade` PASS; `make open-data-e2e` PASS (reproducible).

@@ -1,0 +1,20 @@
+{
+ "ir_version": "3.0.0",
+ "id": "EMPULSE-INC-07",
+ "ruleset": "EMPULSE/v3-example",
+ "kind": "inclusion",
+ "class": "structured",
+ "text": {"source": "Elevated NT-proBNP ≥1600 pg/mL (≥2400 pg/mL with atrial fibrillation), or BNP ≥400 pg/mL (≥600 pg/mL with AF), during the current hospitalisation.", "lang": "en"},
+ "logic": {"op": "or", "args": ["a1", "a2"]},
+ "atoms": [
+  {"id": "a1", "domain": "observation", "valueset": "VS_NT_PROBNP", "quantifier": "any",
+   "value": {"op": ">=", "num": 1600, "unit": "pg/mL"},
+   "value_if": [{"if_atom": "a3", "value": {"op": ">=", "num": 2400, "unit": "pg/mL"}}],
+   "window": {"from_days": -30, "to_days": 0, "anchor": "index"}},
+  {"id": "a2", "domain": "observation", "valueset": "VS_BNP", "quantifier": "any",
+   "value": {"op": ">=", "num": 400, "unit": "pg/mL"},
+   "value_if": [{"if_atom": "a3", "value": {"op": ">=", "num": 600, "unit": "pg/mL"}}],
+   "window": {"from_days": -30, "to_days": 0, "anchor": "index"}},
+  {"id": "a3", "domain": "condition", "valueset": "VS_ATRIAL_FIBRILLATION", "quantifier": "any"}
+ ]
+}

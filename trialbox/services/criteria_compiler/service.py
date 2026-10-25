@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import unicodedata
@@ -18,7 +17,7 @@ from tb_common.audit import AuditLog
 from tb_common.fhir import FhirEvaluator, library_resource
 from tb_common.llm import LlmClient
 from tb_common.objstore import ObjectStore
-from tb_common.phi_guard import PhiScan, scan
+from tb_common.phi_guard import PhiScan, scan, variables_text
 from tb_common.ruleset import Ruleset
 from tb_contracts import (
     ApproveRequest,
@@ -148,7 +147,7 @@ class Compiler:
                 "domain": domain,
                 "candidates": [{"code": c.code, "system": c.system, "display": c.display} for c in cands],
             }
-            guard = scan(json.dumps(variables, ensure_ascii=False), self.d.mrn_regex)
+            guard = scan(variables_text(variables), self.d.mrn_regex)
             out = LlmConceptMapOutput.model_validate(
                 self.d.llm.chat_json(
                     "concept_map", variables, job_id=job_id, clearance=guard.clearance, phi_guard_hit=guard.hit
@@ -162,11 +161,11 @@ class Compiler:
     def _extract(
         self, job_id: str, ruleset: str, language: str, lines: list[dict[str, Any]]
     ) -> tuple[LlmExtractOutput, PhiScan]:
-        text = "\n".join(str(x["text"]) for x in lines)
-        guard = scan(text, self.d.mrn_regex)
+        variables = {"ruleset": ruleset, "language": language, "criteria": lines}
+        guard = scan(variables_text(variables), self.d.mrn_regex)  # exactly what the prompt carries (cloud routing)
         res = self.d.llm.chat_json(
             "ir_extract",
-            {"ruleset": ruleset, "language": language, "criteria": lines},
+            variables,
             job_id=job_id,
             clearance=guard.clearance,
             phi_guard_hit=guard.hit,
