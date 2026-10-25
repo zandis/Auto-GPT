@@ -1,0 +1,10 @@
+{% if not job.done %}
+<p class="small">Running ({{ job.seconds }} s)…</p>
+{% elif job.status == "error" %}
+<div class="fail-box" data-testid="result-status">ERROR: {{ job.error }}</div>
+{% elif job.kind == "e2e" %}{% include "_e2e.html" %}
+{% elif job.kind == "dataplat" %}{% include "_dataplat.html" %}
+{% elif job.kind == "recall" %}{% include "_recall.html" %}
+{% elif job.kind == "tests" %}
+<div class="{{ 'pass-box' if job.result.passed else 'fail-box' }}" data-testid="result-status">{{ 'PASS' if job.result.passed else 'FAIL' }}: {{ job.result.summary }}</div>
+{% endif %}

@@ -36,3 +36,18 @@ datasets:
     data_class: D0
     kind: synthetic
     licence: generated (planted identifiers, seeded)
+  judge_public:
+    path: eval/suites/judge_public
+    data_class: D0
+    kind: open
+    licence: NCBI TrialGPT data (public domain); recorded GPT-4 labels from the same dataset
+  ingest_fhir_demo:
+    path: eval/suites/ingest_fhir_demo
+    data_class: D0
+    kind: open
+    licence: ODbL 1.0 (MIMIC-IV demo on FHIR, fetched at run time, never committed)
+  criteria_extract_public:
+    path: eval/suites/criteria_extract_public
+    data_class: D0
+    kind: open
+    licence: Chia corpus - licence unconfirmed (App. H); loader disabled, no data

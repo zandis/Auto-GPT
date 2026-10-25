@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ job.title }}{% endblock %}
+{% block content %}
+<p><a href="javascript:history.back()">← back</a></p>
+{% include "_job.html" %}
+{% endblock %}

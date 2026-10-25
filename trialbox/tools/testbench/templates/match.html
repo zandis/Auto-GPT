@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Registry match{% endblock %}
+{% block content %}
+<h1>Registry match</h1>
+<p><code>matching.registry_match.pipeline.run_patient</code> over a local mirror: the cached ClinicalTrials.gov records in
+<code>tests/fixtures/open_data</code> and/or the synthetic test trials. The model is the deterministic mock chat from
+<code>tests/registry_match_mock.py</code> (no network, no model download; lexical retrieval only).</p>
+<form hx-post="/match" hx-target="#match-out" action="/match" method="post">
+  <textarea name="note" rows="3" cols="90">{{ sample }}</textarea><br>
+  <label><input type="checkbox" name="open_data" value="1" checked> cached CT.gov records</label>
+  <label><input type="checkbox" name="synthetic" value="1" checked> synthetic trials</label>
+  <label>top k <input name="top_k" value="5" size="3"></label>
+  <button type="submit" data-testid="match-run">Match</button>
+</form>
+<div id="match-out">{% if out %}{% include "_match.html" %}{% endif %}</div>
+{% endblock %}

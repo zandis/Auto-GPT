@@ -1,0 +1,6 @@
+<p class="small">policy {{ policy_version }} · topology {{ sel.topology }} · {{ sel.env }}{% if sel.opt_in %} · cloud opt-in{% endif %}</p>
+<div class="scroll">
+<table class="routes" data-testid="route-table"><thead><tr><th>role</th>{% for c in cols %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>
+{% for role, cells in rows %}<tr><td><code>{{ role }}</code></td>{% for ok, text in cells %}<td class="{{ 'route-ok' if ok else 'route-no' }}">{{ text }}</td>{% endfor %}</tr>{% endfor %}
+</tbody></table>
+</div>

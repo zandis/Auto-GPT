@@ -1,0 +1,14 @@
+# judge_public: public criterion-judging suite (spec v4 §16, S1-13). The recorded GPT-4 outputs of the NCBI
+# TrialGPT-Criterion-Annotations are served by the stub build through tb-gateway (caller eval, role judge, D0) and
+# scored with tools/mlbench.score. The reference must reproduce exactly (3 decimals).
+suite: judge_public
+version: 1
+dataset: criterion_ml
+data_class: D0
+files: [eval/criterion_ml/annotations.jsonl, eval/criterion_ml/notes_en.json]
+lang: en
+gateway: {caller: eval, role: judge, purpose: evaluation, context_of_use: eval_judge_public, prompt: mlbench_judge@1}
+reference:
+  accuracy: 0.873
+  false_block_rate: 0.014
+  false_block_upper95: 0.022

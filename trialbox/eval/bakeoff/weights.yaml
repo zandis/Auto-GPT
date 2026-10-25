@@ -1,0 +1,12 @@
+# Bake-off weights, floors and caps (spec v4 §8.10, §16.4; S1-14). Versioned; a change is a G5 record.
+version: bakeoff-2026-10-25.1
+seeds: [7, 11, 13]            # three seeds per item, temperature 0 (§8.10)
+cost_cap_usd: 25.0            # a live run stops before the estimate exceeds this
+promote_top: 2                # top two builds per role become shadow on site (never champion from the bake-off)
+roles:
+  judge:
+    task: judge_ml
+    weights: {accuracy: 0.45, false_block: 0.30, parity: 0.10, cost: 0.10, latency: 0.05}
+    floors: {en: 0.85, zh-TW: 0.82, ja: 0.82, mixed: 0.82}   # non-English floors stay at 0.82 until VV-32
+    max_false_block_upper95: 0.030
+    max_parity_gap: 0.05

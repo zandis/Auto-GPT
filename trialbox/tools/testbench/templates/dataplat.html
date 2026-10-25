@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Data platform{% endblock %}
+{% block content %}
+<h1>Data platform (L0–L5)</h1>
+<p>Synthetic site A through <code>dataplat.pipeline.run_pipeline</code>: landing, validation and reconciliation, DQ,
+standardisation, pseudonymisation, the curated snapshot and the serving pin, with OpenLineage events. Plant a defect to
+see the publish gate hold the second cycle while the first snapshot stays current.</p>
+<form action="/dataplat" method="post" hx-post="/dataplat" hx-target="#dp-output" hx-swap="innerHTML" class="inline">
+  <label>Planted defect
+  <select name="defect">
+    <option value="">none (clean cycle only)</option>
+    {% for d in defects %}<option value="{{ d }}">{{ d }}</option>{% endfor %}
+  </select></label>
+  <button type="submit" data-testid="dp-run">Run publish cycle</button>
+</form>
+<div id="dp-output">{% if last %}{% set job = last %}{% include "_job.html" %}{% endif %}</div>
+{% endblock %}

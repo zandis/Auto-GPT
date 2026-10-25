@@ -69,7 +69,7 @@ where = ["libs", "services", "."]
 include = [
   "tb_contracts*", "tb_common*", "mail_gateway*", "doc_parser*", "criteria_compiler*",
   "adapter*", "lake*", "orchestrator*", "llm_stub*", "embed_service*", "tools*",
-  "tb_testkit*", "tb_llm*", "dataplat*", "gateway*", "registry*", "guard*", "tracestore*", "matching*",
+  "tb_testkit*", "tb_llm*", "dataplat*", "gateway*", "registry*", "guard*", "tracestore*", "matching*", "frontdoor_mcp*", "channels*",
 ]
 
 [tool.setuptools.package-data]

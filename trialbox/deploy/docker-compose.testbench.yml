@@ -1,0 +1,29 @@
+# TrialBox Test Bench (docs/HANDOFF.md §5): developer and validation tool, never a product surface.
+#   docker compose --project-directory deploy -f deploy/docker-compose.testbench.yml --profile dev up testbench
+# Only the "dev" profile starts it. The product image excludes tools/testbench (.dockerignore), so the source is
+# mounted read-only from the checkout. Inside the container uvicorn listens on all interfaces of its own network
+# namespace; the host publishes the port on 127.0.0.1 only. tests/testbench/test_testbench_no_prod.py checks this file.
+name: trialbox-testbench
+
+services:
+  testbench:
+    profiles: [dev]
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    working_dir: /src
+    command: ["python", "-m", "tools.testbench", "--host", "0.0.0.0", "--port", "8765"]
+    environment:
+      TB_ENV: DEV
+      PYTHONPATH: /src/libs:/src/services:/src
+      TB_TESTBENCH_IN_CONTAINER: "1"
+      TB_TESTBENCH_WORKDIR: /work
+    volumes:
+      - ..:/src:ro
+      - testbench-work:/work
+    ports: ["127.0.0.1:${TB_HOST_TESTBENCH_PORT:-8765}:8765"]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+volumes:
+  testbench-work:

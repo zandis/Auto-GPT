@@ -8,3 +8,4 @@ deploy/.env
 deploy/models
 tests/fixtures/synthetic_patients/site-*
 *.egg-info
+tools/testbench/
