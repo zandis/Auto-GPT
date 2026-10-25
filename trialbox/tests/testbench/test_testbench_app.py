@@ -193,7 +193,9 @@ def test_run_end_to_end_on_the_synthetic_fixture_passes(client: TestClient) -> N
     loc = client.post("/run", data={"dataset": "synthea_site_a", "trial_id": "GZQO"}, follow_redirects=False)
     page = _wait(client, loc.headers["location"])
     assert 'data-testid="result-status">PASS' in page, page[page.find("result-status") - 200 :][:2000]
-    assert "monotone funnel" in page and "lineage complete" in page and "reproducible second run" in page
+    # check names differ between the v4 cascade engine (snake_case) and the v1 fallback (prose)
+    flat = page.replace("_", " ")
+    assert "monotone funnel" in flat and "lineage complete" in flat and "reproducible" in flat
     links = re.findall(r'href="(/files/[^"]+)"', page)
     pdfs = [x for x in links if x.endswith(".pdf")]
     assert pdfs, links

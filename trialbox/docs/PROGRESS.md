@@ -386,3 +386,40 @@ ARCHITECTURE). Schemas: `ingest_report` 1.1.0 (`fhir_deleted`).
   passed; `make test-egress` 1 passed.
 - Today's compose jobs re-run byte-identically (6 jobs, 49 files); the audit chain verifies across two day files
   (3,246 events).
+
+## v4 MS0 vertical slice (2026-10-25)
+
+Built from `docs/HANDOFF.md` phases 0–5 against `spec/v4/`. Runs end to end on synthetic and open data without
+Docker (Postgres is needed only for the outbox and recall-ledger Postgres tests, `TB_PG_DSN`).
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| S1-01/02/03 data classes, req-ID marker, eval datasets | done | `test_dataclass.py` (33) |
+| S1-04/05 landing contracts, data-platform thin path, publish gate | done | `test_dataplat_*` (26, incl. MIMIC) |
+| S1-06 tb-gateway, class-aware routing | done | `test_routing_policy`, `test_gateway`, `test_egress_rules`, `test_no_direct_model_calls` (~1.6M route combinations, 0 D3/D4 outside the perimeter) |
+| S1-07 model registry and cards | done | `test_model_registry` (wrong served model refused) |
+| S1-08 PHI guard and trace store | done | `test_phi_recognisers`, `test_tracestore` (650 planted IDs, none stored) |
+| S1-09 front-door MCP (§9.3 tools) | done (JSON-RPC handler; no HTTP/mTLS layer yet) | `test_frontdoor_mcp` (27) |
+| S1-10 channels: native email, fake Teams | done | `test_channels` (26) |
+| S1-11 Hermes | **blocked**: no release pinned by tag + SHA + digest; engine stays `native` | `test_hermes_config` (contract test skips) |
+| S1-12/15 outbox, recall ledger | done | `test_outbox_killloop`, `test_recall_ledger` (CS 0.003 vs CP 0.097) |
+| S1-13 public suites | done; Chia loader waits on licence | `test_eval_public_suites`; judge_public accuracy 0.873 through the gateway |
+| S1-14 bake-off as code | dry run only; live needs a key and a pinned build | `test_bakeoff` (5) |
+| S1-16 `trialbox doctor` | done | `test_trialbox_doctor` (13) |
+| S1-17 criterion IR v3, registry match | done | `test_criterion_ir_v3`, `test_registry_match_*` (172) |
+| Cascade S0–S5, DL-1 pack, recall certificate | done | `test_cascade_*`, `test_disclosure_linked` (21); `make e2e-cascade` PASS (16 checks) |
+| Test Bench | done (Trials, Feasibility, Patients, Conversation, Audit pages not built) | `tests/testbench` (44, incl. Playwright smoke) |
+
+**End-to-end runs (all PASS):** synthetic site A / GZQO: S0 600 → S1 18 → S2b 17 → S3/S4 13 → final list 2, recall
+certificate issued. MIMIC EMPULSE and STARRT-AKI: pack produced, certificate refused (the demo has no known
+positives and no notes, so note criteria are data gaps).
+
+**Known deviations:** v1 services wrapped, not moved (ENG-02); registry, cache and budgets in files rather than
+Postgres; caller identity by header, not mTLS; gateway serves chat completions and `/v1/models` only (the S2b
+embedder is injected); D3/D4 step-confirm hook not wired, so such calls are refused; production routes nothing until
+a model build is pinned by sha256; model cards are `.md`; RPT-07 leak check uses interval propagation (no scipy) and
+seeded random cases (no Hypothesis); the S2b threshold is a placeholder; `deploy/egress.py` now needs PyYAML on the
+host; the v1 compiler's cloud egress moved to `gateway`, which has no compose service yet.
+
+**Evidence:** `make lint` clean (361 files); `make test` 802 passed, 3 skipped; `make testbench-test` 44 passed
+(strict v4 engine); `make e2e-cascade` PASS; `make open-data-e2e` PASS (reproducible).

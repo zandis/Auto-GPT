@@ -54,6 +54,15 @@ make test-integration          # against the running test stack (HAPI, validator
 make test-e2e                  # every scenario by e-mail
 ```
 
+## v4 pilot (no Docker needed)
+
+```sh
+make venv
+make e2e-cascade               # synthetic site A: data platform -> cascade -> feasibility pack + recall certificate
+make testbench                 # Test Bench on http://127.0.0.1:8765 (synthetic and open data only)
+make open-data-e2e             # MIMIC-IV FHIR demo (downloads ~10 MB, ODbL)
+```
+
 ## Deploying a real site
 
 Follow **`docs/RUNBOOK.md`**:
@@ -78,6 +87,8 @@ No code changes are needed for a new site.
 | `rulesets/` | approved rulesets shipped with the box: GZQO (trial), RA-BIO + ONC-OSI (NHI), GOUT-COH + RA-COH (cohort) |
 | `deploy/` | compose files (x86, test, GB10), Dockerfiles, `settings.example.yaml`, `network.sh`, `check_host.sh` |
 | `tools/` | fixtures, ruleset build, bench, acceptance, wizard, mapping check, update signing/applying, audit verify, … |
+| `spec/v4/` | the v4 specification; `docs/HANDOFF.md` is the build order |
+| `tools/testbench/` | Test Bench: dev/test-only web UI (`make testbench`, then <http://127.0.0.1:8765>) |
 | `tests/` | unit, integration (in process + services), e2e (mail), LLM, fixtures (synthetic hospitals A/B, protocols, onboarding) |
 
 All patient data in this repository is synthetic (`tools/make_fixtures.py`, 600 + 520 patients). ClinicalTrials.gov
