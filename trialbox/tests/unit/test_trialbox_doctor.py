@@ -44,6 +44,7 @@ def test_default_install_passes_with_hermes_disabled() -> None:
         "channel_engine",
         "hermes_pin",
         "publish_gate",
+        "registry_pins",
     }
 
 
@@ -91,9 +92,18 @@ def _lock(tmp_path: Path, **over: Any) -> Path:
 
 @pytest.mark.req("S1-16", "HER-18", "ENG-08")
 def test_fails_closed_on_unpinned_hermes_when_engine_is_hermes(tmp_path: Path) -> None:
+    # shipped lock: pinned v0.22.2, internal mirror pending -> DEV may run the upstream digest (WARN), PRODUCTION not
     shipped = doctor.run(inputs(settings={"channels": {"engine": "hermes"}}))
     c = status(shipped, "hermes_pin")
-    assert c.status == "FAIL" and "must not start" in c.detail and not doctor.ok(shipped)
+    assert c.status == "WARN" and "mirror" in c.detail
+    prod = doctor.run(
+        inputs(env={"TB_ENV": "PRODUCTION", "TB_TOPOLOGY": "A"}, settings={"channels": {"engine": "hermes"}})
+    )
+    c = status(prod, "hermes_pin")
+    assert c.status == "FAIL" and "must not start" in c.detail and "mirror pending" in c.detail and not doctor.ok(prod)
+    unpinned = _lock(tmp_path, commit_sha=None, upstream_digest=None)
+    bad = doctor.run(inputs(settings={"channels": {"engine": "hermes", "hermes_lock": str(unpinned)}}))
+    assert status(bad, "hermes_pin").status == "FAIL" and not doctor.ok(bad)
     pinned = _lock(tmp_path)
     ok = doctor.run(inputs(settings={"channels": {"engine": "hermes", "hermes_lock": str(pinned)}}))
     assert status(ok, "hermes_pin").status == "PASS"

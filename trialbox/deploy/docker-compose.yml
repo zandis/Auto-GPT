@@ -1,6 +1,9 @@
 # TrialBox single-host deployment (SPEC §2). x86_64 default; GB10 overrides in docker-compose.gb10.yml.
 #   cd deploy && cp ../.env.example .env && docker compose up -d
 # Profiles: "stub" (CPU / macOS: deterministic LLM stub), "gpu" (vLLM), "test" (GreenMail + MailHog).
+# Models are reached only through tb-gateway (spec v4 LLM-1, NFR-B9): llm-service / llm-stub sit on model-net, which
+# only the gateway joins; the services that call a model get TB_GATEWAY_URL. The model registry, PHI guard and trace
+# store run inside the gateway process (services/gateway/app.py).
 name: trialbox
 
 x-logging: &logging   # no PHI in logs (pids only); size-based rotation keeps well under the 180-day retention
@@ -60,6 +63,24 @@ services:
       timeout: 5s
       retries: 10
 
+  workflow-db:
+    # spec v4 §11.0: durable steps, transactional outbox and recall ledger (services/orchestrator/outbox.py, recall/).
+    # Same multi-arch pin as fhir-db (index digest; linux/amd64 and linux/arm64 manifests), a separate database.
+    logging: *logging
+    image: ${POSTGRES_WF_IMAGE:-postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}
+    environment:
+      POSTGRES_DB: trialbox_wf
+      POSTGRES_USER: trialbox
+      POSTGRES_PASSWORD: ${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}
+    volumes: [workflow-pg:/var/lib/postgresql/data]
+    networks: [trialbox-net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trialbox -d trialbox_wf"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   fhir-store:
     logging: *logging
     image: ${HAPI_IMAGE:-hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e}
@@ -111,15 +132,18 @@ services:
     <<: *py
     image: ${TB_DOCPARSER_IMAGE:-trialbox-py:1.0.0}
     command: ["uvicorn", "doc_parser.app:app", "--host", "0.0.0.0", "--port", "8011"]
-    environment: {PORT: "8011", TB_SERVICE_NAME: doc-parser}
+    environment: {PORT: "8011", TB_SERVICE_NAME: doc-parser, TB_GATEWAY_URL: "http://gateway:8020/v1",
+                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
 
   criteria-compiler:
     <<: *py
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
     command: ["uvicorn", "criteria_compiler.app:app", "--host", "0.0.0.0", "--port", "8012"]
     environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler, TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit,
-                  TB_CTGOV_MODE: "${TB_CTGOV_MODE:-live}"}
-    # only service allowed to reach CLOUD_LLM_BASE_URL and clinicaltrials.gov (public registry, COHORT; network.sh)
+                  TB_CTGOV_MODE: "${TB_CTGOV_MODE:-live}", TB_GATEWAY_URL: "http://gateway:8020/v1",
+                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
+    # only service allowed to reach clinicaltrials.gov (public registry, COHORT; network.sh); its cloud LLM calls go
+    # through the gateway like every other model call
     networks: [trialbox-net, egress-net]
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
@@ -144,7 +168,9 @@ services:
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
     command: ["uvicorn", "orchestrator.app:app", "--host", "0.0.0.0", "--port", "8010"]
     environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator, TB_AUDIT_DIR: /data/audit, TB_RULESETS_DIR: /data/rulesets,
-                  TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox}
+                  TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox,
+                  TB_GATEWAY_URL: "http://gateway:8020/v1", TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}",
+                  TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
     networks: [trialbox-net, egress-net]   # only service allowed to reach NHI_TWPAS_BASE_URL (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
@@ -163,14 +189,33 @@ services:
       - audit-data:/data/audit
       - mail-data:/data/mail
 
+  gateway:
+    # tb-gateway (spec v4 §8.2, S1-06): the only path to a model. Routes from models/routing.yaml; aliases resolve
+    # through models/registry.yaml plus the site pins in ./site (tools/pin_model.py; a missing file = nothing pinned,
+    # so production routes nothing). Registry, PHI guard and trace store run in this process.
+    <<: *py
+    command: ["uvicorn", "--factory", "gateway.app:create_app", "--host", "0.0.0.0", "--port", "8020"]
+    environment: {PORT: "8020", TB_SERVICE_NAME: gateway, TB_ENV: "${TB_ENV:-DEV}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
+                  TB_PROFILE: "${TB_PROFILE:-P-GB10}", TB_CLOUD_OPT_IN: "${TB_CLOUD_OPT_IN:-}", TB_AUDIT_DIR: /data/audit,
+                  TB_TRACESTORE_PATH: /data/traces/traces.sqlite,
+                  TB_REGISTRY_OVERRIDE: /etc/trialbox/site/registry.site.yaml}
+    # model-net: the only network with llm-service / llm-stub; egress-net: external model endpoints, filtered per
+    # container by network.sh (deploy/egress.py gives model hosts to this service only)
+    networks: [trialbox-net, model-net, egress-net]
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ${TB_SITE_DIR:-./site}:/etc/trialbox/site:ro
+      - audit-data:/data/audit
+      - traces-data:/data/traces
+
   llm-stub:
     <<: *py
     profiles: [stub]
     command: ["uvicorn", "llm_stub.app:app", "--host", "0.0.0.0", "--port", "8000"]
     environment: {PORT: "8000", TB_SERVICE_NAME: llm-stub}
     networks:
-      trialbox-net:
-        aliases: [llm-service]
+      model-net:
+        aliases: [llm-service, llm-verifier]  # stands in for both serving endpoints (routing.yaml)
 
   llm-service:
     logging: *logging
@@ -188,7 +233,7 @@ services:
       VLLM_NO_USAGE_STATS: "1"
     volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
     ipc: host
-    networks: [trialbox-net]
+    networks: [model-net]
     restart: unless-stopped
     deploy:
       resources:
@@ -205,6 +250,9 @@ networks:
   trialbox-net:
     name: trialbox-net
     internal: true        # no default route: deny-by-default egress at the compose level
+  model-net:
+    name: trialbox-model-net
+    internal: true        # gateway <-> llm-service / llm-stub only; no other service joins it
   egress-net:
     name: trialbox-egress  # host-level nftables (network.sh) restricts destinations per container
 
@@ -217,3 +265,5 @@ volumes:
   rulesets-data:
   mail-data:
   tb-secrets:
+  workflow-pg:
+  traces-data:

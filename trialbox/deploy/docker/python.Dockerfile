@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_
     PYTHONPATH=/app/libs:/app/services:/app MPLBACKEND=Agg TB_DATA_DIR=/data MPLCONFIGDIR=/tmp/mpl \
     TB_FONTS_DIR=/opt/trialbox/fonts
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin tb \
-    && mkdir -p /app /data/lake /data/audit /data/orchestrator /data/rulesets /data/mail /run/secrets/trialbox \
+    && mkdir -p /app /data/lake /data/audit /data/orchestrator /data/rulesets /data/mail /data/traces /run/secrets/trialbox \
     && chown -R tb:tb /data /run/secrets/trialbox && chmod 700 /run/secrets/trialbox
 COPY deploy/requirements.lock /tmp/requirements.lock
 RUN --mount=type=secret,id=extra_ca,required=false \
@@ -23,9 +23,15 @@ COPY --chown=tb:tb schemas /app/schemas
 COPY --chown=tb:tb libs /app/libs
 COPY --chown=tb:tb services /app/services
 COPY --chown=tb:tb tools /app/tools
+# Hermes pin and contract (channel-relay reads hermes.lock; the plugins themselves are mounted into Hermes only)
+COPY --chown=tb:tb integrations /app/integrations
 COPY --chown=tb:tb rulesets /app/rulesets
+# routing policy, model registry and cards (tb-gateway, model-registry); a site pin is mounted, never baked in
+COPY --chown=tb:tb models /app/models
 COPY --chown=tb:tb deploy/settings.example.yaml /app/deploy/settings.example.yaml
 COPY --chown=tb:tb pyproject.toml /app/pyproject.toml
+# admin console state (accounts, sessions, pilot runs): a named volume takes this owner on first use
+RUN install -d -o tb -g tb -m 0750 /data/console
 WORKDIR /app
 USER tb
 CMD ["python", "-c", "print('specify a service command')"]

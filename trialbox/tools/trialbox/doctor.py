@@ -10,8 +10,12 @@ closed). Checks:
 * ``gateway_only_model_reach``: the egress allowlist (``deploy/egress.py``) gives a model host to the gateway only;
 * ``channel_engine``: ``channels.engine`` is valid and the fallback is native;
 * ``hermes_pin``: ``hermes.lock`` pins tag + commit SHA + mirrored digest ≥ v0.21.6. FAIL when the engine is
-  ``hermes``; WARN when Hermes is disabled (``native``), which is the install default (OPS-02);
-* ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known.
+  ``hermes``; WARN when Hermes is disabled (``native``), which is the install default (OPS-02). DEV/TEST may run
+  the upstream digest while the internal mirror is pending (WARN); VALIDATION/PRODUCTION require the mirror;
+* ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known;
+* ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
+  ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
+  (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``.
 """
 
 from __future__ import annotations
@@ -165,13 +169,16 @@ def check_channel_engine(inp: DoctorInputs) -> Check:
 def check_hermes_pin(inp: DoctorInputs) -> Check:
     from channels.config import ChannelsConfig, ChannelsConfigError
 
-    from integrations.hermes.lock import HermesLock, pin_problems
+    from integrations.hermes.lock import HermesLock, pin_notes, pin_problems
 
     try:
         cfg = ChannelsConfig.from_settings(inp.settings)
     except ChannelsConfigError as e:
         return Check("hermes_pin", "FAIL", f"channels config invalid: {e}")
-    problems = pin_problems(HermesLock.load(cfg.hermes_lock), running_digest=inp.hermes_running_digest)
+    lock, env = HermesLock.load(cfg.hermes_lock), inp.env.get("TB_ENV", "DEV")
+    problems = pin_problems(lock, running_digest=inp.hermes_running_digest, environment=env)
+    if not problems and (notes := pin_notes(lock, env)):
+        return Check("hermes_pin", "WARN", "hermes.lock pins tag, commit SHA and digest; " + "; ".join(notes))
     if not problems:
         return Check("hermes_pin", "PASS", "hermes.lock pins tag, commit SHA and mirrored digest")
     if cfg.engine == "hermes":
@@ -198,6 +205,26 @@ def check_publish_gate(inp: DoctorInputs) -> Check:
     return Check("publish_gate", "PASS", f"snapshot {cur.get('snapshot_id')} current; last gate {last.get('outcome')}")
 
 
+def check_registry_pins(inp: DoctorInputs) -> Check:
+    from registry.registry import DEFAULT_PATH, Registry, Status
+
+    raw = inp.env.get("TB_REGISTRY_OVERRIDE")
+    override = Path(raw) if raw else ROOT / "deploy" / "site" / "registry.site.yaml"
+    try:
+        reg = Registry.load(DEFAULT_PATH, override)
+    except (ValueError, OSError, yaml.YAMLError) as e:
+        return Check("registry_pins", "FAIL", f"registry with site override {override} does not load: {e}")
+    pinned = [b for b in reg.builds if b.pinned and b.serving != "stub"]
+    if not pinned:
+        where = f"override {override}" if override.is_file() else f"no override at {override}"
+        return Check("registry_pins", "WARN", f"no model build pinned ({where}): only the DEV/TEST stub routes")
+    names = ", ".join(f"{b.build_id} ({b.status.value}, {b.sha256[:12] if b.sha256 else ''})" for b in pinned)
+    env = inp.env.get("TB_ENV", "DEV")
+    if env in ("VALIDATION", "PRODUCTION") and not any(b.status == Status.CHAMPION for b in pinned):
+        return Check("registry_pins", "WARN", f"pinned: {names}; none is champion, so {env} roles route nothing")
+    return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -206,6 +233,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_channel_engine,
     check_hermes_pin,
     check_publish_gate,
+    check_registry_pins,
 )
 
 
