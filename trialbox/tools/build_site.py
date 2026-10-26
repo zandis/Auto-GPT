@@ -1589,6 +1589,121 @@ def shots_fragment() -> str:
     return f'<div class="shots">{"".join(items)}</div>'
 
 
+# ------------------------------------------------------------------------------------------------ consent explainer
+def consent_fragments(rec: dict[str, Any] | None) -> dict[str, str]:
+    """The consent page: the record ``tools.consent_live --site`` wrote (synthetic consent form, real models)."""
+    keys = ("consent_meta", "consent_tiles", "consent_pages", "consent_held")
+    if not rec:
+        pending = t(
+            "Not generated yet: run tools.consent_live --site.",
+            "未生成：tools.consent_live --site を実行してください。",
+        )
+        return {k: (pending if k == "consent_meta" else "") for k in keys}
+    if str(ROOT / "services") not in sys.path:
+        sys.path.insert(0, str(ROOT / "services"))
+    from orchestrator.reports.consent_html import DISCLAIMER, QUIZ, SECTION_ORDER, SECTION_TITLES
+
+    langs = [lang for lang in ("en", "ja", "zh-TW") if lang in rec.get("languages", [])]
+    c = rec.get("counts") or {}
+    run = rec.get("run") or {}
+    models = rec.get("models") or {}
+    frag: dict[str, str] = {}
+    frag["consent_meta"] = t(
+        f"Consent form {esc(rec['icf']['filename'])} (synthetic) · draft model {esc(models.get('draft'))} · "
+        f"second model {esc(models.get('verifier') or 'none')} · {esc(run.get('calls', '?'))} model calls · "
+        f"generated {esc(str(rec.get('created', ''))[:10])}",
+        f"同意説明文書 {esc(rec['icf']['filename'])}（合成）· 下書きモデル {esc(models.get('draft'))} · "
+        f"第 2 モデル {esc(models.get('verifier') or 'なし')} · モデル呼び出し {esc(run.get('calls', '?'))} 回 · "
+        f"生成 {esc(str(rec.get('created', ''))[:10])}",
+    )
+    tiles = [
+        (
+            ("Statements drafted", "下書きした記述"),
+            c.get("items", 0),
+            ("plus teach-back questions", "＋理解確認の質問"),
+        ),
+        (("Questions", "質問"), c.get("questions", 0), ("for the consent visit", "同意取得の面談用")),
+        (
+            ("Removed by quote check", "引用確認で削除"),
+            c.get("removed", 0),
+            ("quote not in the form", "文書にない引用"),
+        ),
+        (("Held back", "保留"), c.get("held", 0), ("statement × language", "記述 × 言語")),
+        (("Verified", "確認済み"), c.get("ok", 0), ("statement × language", "記述 × 言語")),
+    ]
+    frag["consent_tiles"] = (
+        '<div class="tiles">'
+        + "".join(
+            f'<div class="tile"><div class="k">{t(*k)}</div><div class="v">{esc(v)}</div>'
+            f'<div class="s">{t(*s)}</div></div>'
+            for k, v, s in tiles
+        )
+        + "</div>"
+    )
+    names = {"en": "English", "ja": "日本語", "zh-TW": "繁體中文"}
+    panels = []
+    for i, lang in enumerate(langs):
+
+        def shown(x: dict[str, Any], lang: str = lang) -> bool:
+            tx = x["texts"].get(lang) or {}
+            return not x.get("removed") and tx.get("status") in ("ok", "unverified")
+
+        body = [f'<p class="notice"><strong>{esc(DISCLAIMER[lang])}</strong></p>']
+        for sec in SECTION_ORDER:
+            rows = [x for x in rec["items"] if x["section"] == sec and shown(x)]
+            if rows:
+                body.append(f"<h3>{esc(SECTION_TITLES[sec][lang])}</h3><ul>")
+                body += [f"<li>{esc(x['texts'][lang]['text'])}</li>" for x in rows]
+                body.append("</ul>")
+        qs = [q for q in rec["questions"] if shown(q)]
+        if qs:
+            body.append(f"<h3>{esc(QUIZ[lang][0])}</h3><ol>")
+            body += [f"<li>{esc(q['texts'][lang]['question'])}</li>" for q in qs]
+            body.append("</ol>")
+        html_lang = "zh-Hant-TW" if lang == "zh-TW" else lang
+        panels.append(
+            f'<details class="card"{" open" if i == 0 else ""}><summary><b>{esc(names[lang])}</b></summary>'
+            f'<div lang="{html_lang}">{"".join(body)}</div></details>'
+        )
+    frag["consent_pages"] = "".join(panels)
+    rows = []
+    for x in rec["items"] + rec["questions"]:
+        for lang in langs:
+            tx = x["texts"].get(lang) or {}
+            if x.get("removed") or tx.get("status") != "held":
+                continue
+            text = tx.get("text") or f"{tx.get('question', '')} — {tx.get('answer', '')}"
+            rows.append(
+                [
+                    esc(x["id"]),
+                    esc(lang),
+                    f'<span lang="{esc(lang)}">{esc(text)}</span>'
+                    + (
+                        f'<br><span class="muted small">↩ {esc(tx["back_translation"])}</span>'
+                        if lang != "en" and tx.get("back_translation")
+                        else ""
+                    ),
+                    f'<span class="muted">{esc(x["quote"])}</span>',
+                    esc(tx.get("problem") or ""),
+                ]
+            )
+    frag["consent_held"] = (
+        table(
+            [
+                t("Id", "ID"),
+                t("Lang", "言語"),
+                t("Statement", "記述"),
+                t("Consent-form quote", "同意説明文書の引用"),
+                t("Why held", "保留の理由"),
+            ],
+            rows,
+        )
+        if rows
+        else f"<p>{t('Nothing was held back in this run.', 'この実行では保留はありませんでした。')}</p>"
+    )
+    return frag
+
+
 # ------------------------------------------------------------------------------------------------ pages + layout
 @dataclass
 class Page:
@@ -1639,6 +1754,15 @@ PAGES = [
         True,
     ),
     Page(
+        "consent.html",
+        "consent.html",
+        "Consent explainer · TrialBox",
+        "A plain-language consent-form guide in EN/JA/zh-TW, checked against the form and by a second model.",
+        "en",
+        "consent",
+        True,
+    ),
+    Page(
         "screens.html",
         "screens.html",
         "Screenshots · TrialBox",
@@ -1669,6 +1793,7 @@ PAGES = [
 NAV = [
     ("home", "index.html", ("Overview", "概要", "總覽")),
     ("demo", "demo.html", ("Live demo", "デモ", "示範")),
+    ("consent", "consent.html", ("Consent", "同意説明", "同意說明")),
     ("screens", "screens.html", ("Screenshots", "画面", "畫面")),
     ("report", "report.html", ("Test report", "テスト報告", "測試報告")),
     ("docs", "docs.html", ("Docs", "ドキュメント", "文件")),
@@ -1791,6 +1916,7 @@ def build(out_dir: Path) -> list[str]:
         report_fragments(load_optional(DATA / "bakeoff.json"), load_optional(DATA / "trialgpt_comparison.json"))
     )
     fragments["shots"] = shots_fragment()
+    fragments.update(consent_fragments(load_optional(DATA / "consent_gzqo.json")))
     layout = (SITE / "templates" / "layout.html").read_text(encoding="utf-8")
     written = []
     for page in PAGES:

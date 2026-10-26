@@ -1,0 +1,53 @@
+<section class="hero">
+  <div class="eyebrow"><span class="l-en">Consent explainer · static, precomputed</span><span class="l-ja" lang="ja">同意説明の補助 · 静的・事前計算</span></div>
+  <h1><span class="l-en">A plain-language guide to a consent form, checked twice and released by a person</span><span class="l-ja" lang="ja">同意説明文書のやさしい説明：2 回の確認のあと、人が公開</span></h1>
+  <p class="lead"><span class="l-en">A coordinator sends the IRB-approved informed-consent form with <code>CONSENT GZQO</code>.
+  TrialBox drafts the key facts (purpose, visits, risks, benefits, rights, contacts) and a few teach-back questions in
+  English, Japanese and Traditional Chinese, so the consent visit can be spent on the patient's questions.</span><span class="l-ja" lang="ja">コーディネーターが IRB 承認済みの同意説明文書を
+  <code>CONSENT GZQO</code> で送ると、TrialBox が要点（目的・来院・危険・利益・権利・連絡先）と理解確認の質問を英語・日本語・繁体字中国語で下書きします。
+  同意取得の面談を患者さんの質問に使えるようにするためです。</span></p>
+  <p class="notice warn"><strong><span class="l-en">An aid, not the consent.</span><span class="l-ja" lang="ja">補助資料であり、同意そのものではありません。</span></strong>
+  <span class="l-en">The guide is not the consent form, not an e-signature and not part of the consent record. Consent is still
+  taken on the official form, in the site's own process; every page says so in its own language.</span><span class="l-ja" lang="ja">この説明は同意説明文書でも電子署名でもなく、同意記録の一部でもありません。
+  同意はこれまでどおり正式な文書で、施設の手順に従って取得します。各ページにその旨を各言語で記載しています。</span></p>
+  <p class="small muted">{{consent_meta}}</p>
+</section>
+
+{{consent_tiles}}
+
+<h2><span class="l-en">Three checks before a patient sees anything</span><span class="l-ja" lang="ja">患者さんが目にする前の 3 つの確認</span></h2>
+<div class="grid">
+  <div class="card"><h3><span class="l-en">1 · Quote check (program)</span><span class="l-ja" lang="ja">1 · 引用の確認（プログラム）</span></h3>
+  <p><span class="l-en">Every statement carries a word-for-word quote from the form. A quote that is not in the form, or a number
+  the quote does not contain, removes the statement.</span><span class="l-ja" lang="ja">すべての記述に同意説明文書からの逐語引用が付きます。文書にない引用や、
+  引用にない数字を含む記述は削除されます。</span></p></div>
+  <div class="card"><h3><span class="l-en">2 · Second model</span><span class="l-ja" lang="ja">2 · 第 2 モデル</span></h3>
+  <p><span class="l-en">A different model (Gemma 4 next to the gpt-oss-120b drafter) checks each statement in each language against
+  its quote and back-translates it into English. Anything it does not support is held back.</span><span class="l-ja" lang="ja">別のモデル（下書き用 gpt-oss-120b と並ぶ Gemma 4）が、各言語の記述を引用と照合し、
+  英語に逆翻訳します。裏付けがないものは保留されます。</span></p></div>
+  <div class="card"><h3><span class="l-en">3 · A person releases it</span><span class="l-ja" lang="ja">3 · 人が公開する</span></h3>
+  <p><span class="l-en">The coordinator or PI reads the review sheet and sends <code>RELEASE &lt;job&gt;</code> (or presses Release in
+  the console), optionally dropping items or keeping a held one. Until then every page says DRAFT.</span><span class="l-ja" lang="ja">コーディネーターまたは責任医師が確認用シートを読み、
+  <code>RELEASE &lt;job&gt;</code> を送信（またはコンソールで公開）します。項目の除外や保留項目の採用も可能です。それまでは各ページに「下書き」と表示されます。</span></p></div>
+</div>
+
+<h2><span class="l-en">The draft guide, by language</span><span class="l-ja" lang="ja">言語別の下書き</span></h2>
+<p class="muted small"><span class="l-en">What the patient page would show if released as is: statements that passed both checks.
+Synthetic consent form; real models.</span><span class="l-ja" lang="ja">このまま公開した場合に患者向けページに表示される内容（両方の確認を通過した記述）。
+同意説明文書は合成、モデルは実物です。</span></p>
+{{consent_pages}}
+
+<h2><span class="l-en">What the second model held back</span><span class="l-ja" lang="ja">第 2 モデルが保留した記述</span></h2>
+<p class="muted small"><span class="l-en">From the reviewer's sheet. The reviewer decides: fix and re-run, drop, or keep.</span><span class="l-ja" lang="ja">確認用シートより。修正して再実行、除外、採用のどれにするかは確認者が決めます。</span></p>
+{{consent_held}}
+
+<h2><span class="l-en">Try it on a box</span><span class="l-ja" lang="ja">ボックスで試す</span></h2>
+<pre><code>To: trialbox@hospa.test
+Subject: CONSENT GZQO lang=en,ja,zh-TW
+Attachment: GZQO_ICF_v2.md
+
+To: trialbox@hospa.test
+Subject: RELEASE &lt;job id&gt; drop=I13</code></pre>
+<p><span class="l-en">Or the console: <b>Consent explainer</b> → upload the form (or use the bundled synthetic one) → open the
+review sheet → <b>Release to patient pages</b>.</span><span class="l-ja" lang="ja">またはコンソールで：<b>同意説明の補助</b> → 文書をアップロード（または同梱の合成文書を使用）→
+確認用シートを開く → <b>患者向けページとして公開</b>。</span></p>

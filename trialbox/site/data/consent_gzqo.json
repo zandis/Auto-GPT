@@ -1,0 +1,1112 @@
+{
+ "counts": {
+  "held": 6,
+  "items": 27,
+  "ok": 90,
+  "questions": 5,
+  "removed": 0,
+  "unverified": 0
+ },
+ "created": "2026-10-25T22:18:32+00:00",
+ "icf": {
+  "filename": "GZQO_ICF_v2.md",
+  "language": "en",
+  "paragraphs": 25,
+  "sha256": "bb42cb8009ecb9f020284004bccabe73c688b922d6dd962cb89272537e879672"
+ },
+ "issues": [],
+ "items": [
+  {
+   "id": "I01",
+   "para": "P2",
+   "quote": "You are being asked to take part in a research study because you have gout and a body mass index of 27 or higher.",
+   "removed": null,
+   "section": "purpose",
+   "texts": {
+    "en": {
+     "back_translation": "You have gout and a body mass index of 27 or higher, and the study tests retatrutide.",
+     "long_sentences": 0,
+     "problem": "The text adds that the study tests retatrutide, which is not mentioned in the quote.",
+     "status": "held",
+     "text": "You have gout and a body mass index of 27 or higher, and the study tests retatrutide.",
+     "verdict": "unsupported"
+    },
+    "ja": {
+     "back_translation": "You have gout and your BMI is 27 or higher. This study examines retatrutide.",
+     "long_sentences": 0,
+     "problem": "The text adds information about examining retatrutide which is not in the quote.",
+     "status": "held",
+     "text": "あなたは痛風があり、BMIが27以上です。この研究ではレタトルチドを検査します。",
+     "verdict": "unsupported"
+    },
+    "zh-TW": {
+     "back_translation": "You have gout, and your body mass index (BMI) ≥ 27, the study test drug is retatrutide.",
+     "long_sentences": 0,
+     "problem": "The text adds information about the study drug (retatrutide) which is not in the quote.",
+     "status": "held",
+     "text": "您有痛風，且體重指數（BMI）≥27，研究測試的藥物是 retatrutide。",
+     "verdict": "unsupported"
+    }
+   }
+  },
+  {
+   "id": "I02",
+   "para": "P3",
+   "quote": "The purpose of the study is to find out whether retatrutide, given once a week, lowers the level of uric acid in the blood and reduces gout flares compared with placebo.",
+   "removed": null,
+   "section": "purpose",
+   "texts": {
+    "en": {
+     "back_translation": "The study aims to see if weekly retatrutide lowers uric acid and reduces gout flares compared with placebo.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "The study aims to see if weekly retatrutide lowers uric acid and reduces gout flares compared with placebo.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "This study investigates whether weekly retatrutide lowers uric acid and reduces gout flares compared to placebo.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "この研究は、週1回のレタトルチドが尿酸を下げ、プラセボと比べて痛風の発作を減らすかどうかを調べます。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "This study aims to compare whether using retatrutide once a week can lower uric acid and reduce gout flares compared with placebo.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "本研究旨在比較每週使用 retatrutide 是否能降低尿酸並減少痛風發作，與安慰劑相比。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I03",
+   "para": "P4",
+   "quote": "About 30 people will take part at this hospital.",
+   "removed": null,
+   "section": "purpose",
+   "texts": {
+    "en": {
+     "back_translation": "About 30 people will take part at this hospital.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "About 30 people will take part at this hospital.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "About 30 people will participate at this hospital.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "この病院で約30名が参加します。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "About 30 subjects will participate in this hospital.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "大約有 30 位受試者會在本醫院參與。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I04",
+   "para": "P5",
+   "quote": "The study has a screening period of up to 4 weeks and a treatment period of 52 weeks, followed by a safety follow-up visit 4 weeks after your last dose. In total you will be in the study for about 60 weeks.",
+   "removed": null,
+   "section": "duration",
+   "texts": {
+    "en": {
+     "back_translation": "The study includes up to 4-week screening, 52-week treatment, a 4-week safety follow-up, total about 60 weeks.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "The study includes up to 4‑week screening, 52‑week treatment, a 4‑week safety follow‑up, total about 60 weeks.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "The study includes up to 4 weeks of screening, 52 weeks of treatment, and 4 weeks of safety follow-up, totaling about 60 weeks.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "研究は最大4週間のスクリーニング、52週間の治療、4週間の安全性フォローアップを含み、合計約60週間です。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "The study includes a screening period of up to 4 weeks, a 52-week treatment period, 4 weeks of safety follow-up, totaling about 60 weeks.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "研究包括最長 4 週的篩選期、52 週的治療期、4 週的安全追蹤，總共約 60 週。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I05",
+   "para": "P6",
+   "quote": "You will be assigned by chance, like rolling a die, to one of three groups: retatrutide 4 mg, retatrutide 8 mg, or placebo. You have a 1 in 3 chance of receiving placebo. Neither you nor the study doctor will know which group you are in.",
+   "removed": null,
+   "section": "procedures",
+   "texts": {
+    "en": {
+     "back_translation": "You will be randomly assigned to retatrutide 4 mg, 8 mg, or placebo; you have a 1 in 3 chance of placebo and neither you nor the doctor will know the group.",
+     "long_sentences": 1,
+     "problem": "",
+     "status": "ok",
+     "text": "You will be randomly assigned to retatrutide 4 mg, 8 mg, or placebo; you have a 1 in 3 chance of placebo and neither you nor the doctor will know the group.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "You will be randomly assigned to retatrutide 4 mg, 8 mg, or placebo. The probability of being placebo is 1/3, and neither you nor the doctor knows which group it is.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "レタトルチド4 mg、8 mg、またはプラセボのいずれかに無作為に割り付けられます。プラセボになる確率は3分の1で、あなたも医師もどのグループか分かりません。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "You will be randomly assigned to retatrutide 4 mg, 8 mg, or placebo; the probability of receiving placebo is 1/3, and neither you nor the doctor will know the group assignment.",
+     "long_sentences": 1,
+     "problem": "",
+     "status": "ok",
+     "text": "您會被隨機分配到 retatrutide 4 mg、8 mg 或安慰劑；得到安慰劑的機率是 1/3，您和醫師都不會知道分組。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I06",
+   "para": "P7",
+   "quote": "You will inject the study medicine under the skin of your belly or thigh once a week, on the same day each week.",
+   "removed": null,
+   "section": "procedures",
+   "texts": {
+    "en": {
+     "back_translation": "You will inject the medicine under the skin of your belly or thigh once each week on the same day.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "You will inject the medicine under the skin of your belly or thigh once each week on the same day.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Inject the medicine once a week under the skin of the belly or thigh on the same day each week.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "お腹または太ももの皮下に、毎週同じ曜日に1回薬を注射します。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "You will self-inject the drug once a week under the skin of your belly or thigh on the same day each week.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "您每週在同一天於腹部或大腿皮下自行注射一次藥物。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I07",
+   "para": "P7",
+   "quote": "The study staff will teach you how to give the injection.",
+   "removed": null,
+   "section": "procedures",
+   "texts": {
+    "en": {
+     "back_translation": "Study staff will teach you how to give the injection.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "Study staff will teach you how to give the injection.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "The study staff will instruct you on how to inject.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "研究スタッフが注射の方法を指導します。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "Research staff will teach you how to inject.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "研究人員會教您如何注射。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I08",
+   "para": "P8",
+   "quote": "You will come to the hospital for 14 visits. Most visits take about 2 hours.",
+   "removed": null,
+   "section": "procedures",
+   "texts": {
+    "en": {
+     "back_translation": "You will come for 14 hospital visits, each lasting about 2 hours.",
+     "long_sentences": 0,
+     "problem": "The text states each visit lasts about 2 hours, whereas the quote says most visits take about 2 hours.",
+     "status": "held",
+     "text": "You will come for 14 hospital visits, each lasting about 2 hours.",
+     "verdict": "unsupported"
+    },
+    "ja": {
+     "back_translation": "There are 14 hospital visits. Each visit is about 2 hours.",
+     "long_sentences": 0,
+     "problem": "The text changes 'Most visits take about 2 hours' to 'Each visit is about 2 hours'.",
+     "status": "held",
+     "text": "14回の病院訪問があります。各訪問は約2時間です。",
+     "verdict": "unsupported"
+    },
+    "zh-TW": {
+     "back_translation": "You need to come to the hospital 14 times, each time for about 2 hours.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "您需要前來醫院 14 次，每次約 2 小時。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I09",
+   "para": "P8",
+   "quote": "At the visits the study staff will take blood samples (about 2 tablespoons each time), measure your weight and blood pressure, and ask about your health and your medicines.",
+   "removed": null,
+   "section": "procedures",
+   "texts": {
+    "en": {
+     "back_translation": "At visits staff will take blood samples (about 2 tablespoons), measure weight and blood pressure, and ask about your health and medicines.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "At visits staff will take blood samples (about 2 tablespoons), measure weight and blood pressure, and ask about your health and medicines.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "At the visits, staff will collect blood (about 2 tablespoons), measure weight and blood pressure, and ask about health status and medicines being taken.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "訪問時にスタッフが血液（約大さじ2）を採取し、体重と血圧を測定し、健康状態や服用薬について質問します。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "During each visit, staff will draw blood (about 2 tablespoons), measure weight and blood pressure, and ask about your health status and medication usage.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "每次就診時，工作人員會抽血（約 2 湯匙）、量體重與血壓，並詢問您的健康狀況與用藥情形。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I10",
+   "para": "P9",
+   "quote": "You must keep taking your usual gout medicine that lowers uric acid during the study, unless the study doctor tells you otherwise.",
+   "removed": null,
+   "section": "procedures",
+   "texts": {
+    "en": {
+     "back_translation": "You must keep taking your usual gout medicine unless the study doctor tells you otherwise.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "You must keep taking your usual gout medicine unless the study doctor tells you otherwise.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Unless instructed by the study doctor, please continue your usual gout medicine.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "研究医師から指示がない限り、普段の痛風薬は続けてください。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "Unless the study doctor has other instructions, you must continue to take your original gout medication.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "除非研究醫師另有指示，您必須持續服用原本的痛風藥物。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I11",
+   "para": "P10",
+   "quote": "The most common side effects seen with medicines like retatrutide are nausea, diarrhea, vomiting and constipation.",
+   "removed": null,
+   "section": "risks",
+   "texts": {
+    "en": {
+     "back_translation": "Common side effects are nausea, diarrhea, vomiting, and constipation.",
+     "long_sentences": 0,
+     "problem": "The text omits that these are side effects seen with medicines 'like retatrutide', making it a general statement.",
+     "status": "held",
+     "text": "Common side effects are nausea, diarrhea, vomiting, and constipation.",
+     "verdict": "unsupported"
+    },
+    "ja": {
+     "back_translation": "Common side effects are nausea, diarrhea, vomiting, and constipation.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "よくある副作用は吐き気、下痢、嘔吐、便秘です。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "Common side effects include nausea, diarrhea, vomiting, and constipation.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "常見的副作用包括噁心、腹瀉、嘔吐與便祕。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I12",
+   "para": "P10",
+   "quote": "In earlier studies, nausea happened in about 4 out of 10 people. These effects were usually mild to moderate and happened most often when the dose was increased.",
+   "removed": null,
+   "section": "risks",
+   "texts": {
+    "en": {
+     "back_translation": "Nausea occurred in about 4 out of 10 people, usually mild to moderate, often when the dose increased.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "Nausea occurred in about 4 out of 10 people, usually mild to moderate, often when the dose increased.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Nausea occurs in about 4 out of 10 people, is usually mild to moderate, and is seen most often when dosage is increased.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "吐き気は約10人中4人に起こり、通常は軽度から中等度で、用量増加時に多く見られます。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "About 4 out of 10 people will experience nausea, usually mild to moderate, occurring mostly when the dose is increased.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "約有 10 人中有 4 人會出現噁心，通常為輕至中度，多在劑量提升時發生。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I13",
+   "para": "P11",
+   "quote": "Retatrutide may cause inflammation of the pancreas (pancreatitis), which can be serious. Stop the injections and call the study doctor right away if you have severe stomach pain that does not go away, with or without vomiting.",
+   "removed": null,
+   "section": "risks",
+   "texts": {
+    "en": {
+     "back_translation": "Retatrutide may cause pancreatitis; stop injections and call the study doctor right away if you have severe stomach pain that does not go away, with or without vomiting.",
+     "long_sentences": 1,
+     "problem": "",
+     "status": "ok",
+     "text": "Retatrutide may cause pancreatitis; stop injections and call the study doctor right away if you have severe stomach pain that does not go away, with or without vomiting.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Retatrutide may cause pancreatitis. If severe abdominal pain continues (regardless of vomiting), stop injections immediately and contact the study doctor.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "レタトルチドは膵炎を起こすことがあります。激しい腹痛が続く（嘔吐の有無にかかわらず）場合は、すぐに注射を中止し、研究医師に連絡してください。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "Retatrutide may cause pancreatitis; if persistent and severe abdominal pain occurs (with or without vomiting), please stop injections immediately and contact the study doctor.",
+     "long_sentences": 1,
+     "problem": "",
+     "status": "ok",
+     "text": "Retatrutide 可能導致胰臟炎；若出現持續且嚴重的腹痛（有無嘔吐），請立即停止注射並聯絡研究醫師。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I14",
+   "para": "P12",
+   "quote": "In studies in rodents, medicines like retatrutide caused thyroid tumors. It is not known whether this happens in people. You cannot take part if you or a family member has had medullary thyroid cancer.",
+   "removed": null,
+   "section": "risks",
+   "texts": {
+    "en": {
+     "back_translation": "In rodent studies similar medicines caused thyroid tumors; it is unknown in people, and you cannot join if you or a family member had medullary thyroid cancer.",
+     "long_sentences": 1,
+     "problem": "",
+     "status": "ok",
+     "text": "In rodent studies similar medicines caused thyroid tumors; it is unknown in people, and you cannot join if you or a family member had medullary thyroid cancer.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "In rodent studies, similar drugs caused thyroid tumors, but there is no information for humans. You cannot participate if you or a family member has a history of medullary thyroid cancer.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "げっ歯類の研究で同様の薬が甲状腺腫瘍を起こしましたが、人での情報はありません。ご自身または家族に髄様甲状腺がんの既往がある場合は参加できません。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "In animal experiments, similar drugs have caused thyroid tumors; it is not yet certain in humans; if you or a family member has had medullary thyroid cancer, you cannot participate.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "在動物實驗中，類似藥物曾出現甲狀腺腫瘤；在人類尚未確定，若您或家族成員曾有甲狀腺髓樣癌，則不可參加。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I15",
+   "para": "P13",
+   "quote": "You may get a gout flare when your uric acid level changes. The study doctor will give you medicine to treat flares.",
+   "removed": null,
+   "section": "risks",
+   "texts": {
+    "en": {
+     "back_translation": "You may get a gout flare when uric acid changes; the study doctor will give medicine to treat flares.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "You may get a gout flare when uric acid changes; the study doctor will give medicine to treat flares.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Gout flares may occur when uric acid fluctuates. The study doctor will provide medicine to treat flares.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "尿酸が変動すると痛風の発作が起こることがあります。研究医師が発作治療の薬を提供します。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "Gout flares may occur when uric acid changes; the study doctor will provide medication to treat flares.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "尿酸變化時可能會出現痛風發作；研究醫師會提供藥物治療發作。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I16",
+   "para": "P14",
+   "quote": "Blood draws may cause pain, bruising or, rarely, fainting or infection where the needle goes in.",
+   "removed": null,
+   "section": "risks",
+   "texts": {
+    "en": {
+     "back_translation": "Blood draws may cause pain, bruising, or rarely fainting or infection at the needle site.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "Blood draws may cause pain, bruising, or rarely fainting or infection at the needle site.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Blood draws may cause pain, bruising, and rarely fainting or infection at the needle site.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "採血は痛みや打ち身、まれに失神や針刺部の感染を起こすことがあります。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "Blood draws may cause pain, bruising, and in very few cases, fainting or needle site infection.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "抽血可能會造成疼痛、瘀青，極少數情況會暈倒或針孔感染。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I17",
+   "para": "P15",
+   "quote": "Retatrutide may harm an unborn baby. If you can become pregnant, you must use an effective method of birth control during the study and for 2 months after your last dose. Tell the study doctor at once if you become pregnant.",
+   "removed": null,
+   "section": "risks",
+   "texts": {
+    "en": {
+     "back_translation": "Retatrutide may harm an unborn baby; use effective birth control during the study and for 2 months after the last dose, and tell the doctor if you become pregnant.",
+     "long_sentences": 1,
+     "problem": "",
+     "status": "ok",
+     "text": "Retatrutide may harm an unborn baby; use effective birth control during the study and for 2 months after the last dose, and tell the doctor if you become pregnant.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Retatrutide may harm a fetus. Please use reliable contraception during the study and for 2 months after the last dose. If you become pregnant, notify the doctor immediately.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "レタトルチドは胎児に害を及ぼす可能性があります。研究期間中と最後の投与後2か月は確実な避妊をしてください。妊娠した場合はすぐに医師に知らせてください。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "Retatrutide may be harmful to an unborn baby; during the study period and for 2 months after the last dose, please use effective contraception; if pregnant, please inform the doctor.",
+     "long_sentences": 1,
+     "problem": "",
+     "status": "ok",
+     "text": "Retatrutide 可能對未出生的寶寶有害；在研究期間及最後一次給藥後 2 個月內，請使用有效的避孕方法，若懷孕請告知醫師。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I18",
+   "para": "P16",
+   "quote": "There may be risks that are not known yet.",
+   "removed": null,
+   "section": "risks",
+   "texts": {
+    "en": {
+     "back_translation": "There may be risks that are not known yet.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "There may be risks that are not known yet.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "There is a possibility that there are risks not yet understood.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "まだ分かっていないリスクもある可能性があります。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "There may still be unknown risks.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "可能還有尚未知道的風險。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I19",
+   "para": "P17",
+   "quote": "You may or may not benefit from taking part in this study. Your uric acid level, gout flares or weight may improve, but this cannot be promised.",
+   "removed": null,
+   "section": "benefits",
+   "texts": {
+    "en": {
+     "back_translation": "You may or may not benefit; uric acid, flares, or weight may improve, but this cannot be promised.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "You may or may not benefit; uric acid, flares, or weight may improve, but this cannot be promised.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Effectiveness cannot be guaranteed. Uric acid, flares, or weight may improve or may not.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "効果は保証できません。尿酸、発作、体重が改善するかもしれませんし、しないかもしれません。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "You may benefit or not; uric acid, frequency of flares, or weight may improve, but no guarantee.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "您可能會受益，也可能不會；尿酸、發作次數或體重可能改善，但無法保證。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I20",
+   "para": "P18",
+   "quote": "You do not have to take part in this study to receive treatment for gout. Other choices include your current gout medicines, other approved medicines that lower uric acid, and advice about diet and weight. Your doctor can talk with you about these choices.",
+   "removed": null,
+   "section": "alternatives",
+   "texts": {
+    "en": {
+     "back_translation": "You do not have to join the study to receive gout treatment; other approved medicines, diet, and weight advice are options.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "You do not have to join the study to receive gout treatment; other approved medicines, diet, and weight advice are options.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Treatment for gout can be received without participating in the study. There are also approved medicines, diet, and weight management guidance.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "痛風の治療は研究に参加しなくても受けられます。承認された薬や食事、体重管理の指導もあります。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "You do not need to participate in this study to receive gout treatment; other approved drugs, diet, and weight suggestions are also options.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "您不必參加本研究才能接受痛風治療；其他已核准的藥物、飲食與體重建議也是選項。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I21",
+   "para": "P19",
+   "quote": "You will need to come to all study visits, inject the study medicine every week, and write down any side effects and gout flares in the study diary.",
+   "removed": null,
+   "section": "obligations",
+   "texts": {
+    "en": {
+     "back_translation": "You must attend all visits, inject weekly, and record side effects and flares in the study diary.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "You must attend all visits, inject weekly, and record side effects and flares in the study diary.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Please attend all visits, inject once a week, and record side effects and flares in the study diary.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "すべての訪問に出席し、週1回注射し、副作用や発作を研究日誌に記録してください。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "You must attend all visits, inject the study medicine every week, and record side effects and flare conditions in the study diary.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "您必須出席所有就診、每週注射，並在研究日誌中記錄副作用與發作情形。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I22",
+   "para": "P19",
+   "quote": "You must not take part in any other research study involving a medicine at the same time. Do not start any weight-loss medicine during the study.",
+   "removed": null,
+   "section": "obligations",
+   "texts": {
+    "en": {
+     "back_translation": "You must not join another medicine study or start weight-loss medicine during the study.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "You must not join another medicine study or start weight‑loss medicine during the study.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "You must not participate in other drug studies or start weight-loss medicine during the study period.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "研究期間中に他の薬剤研究に参加したり、減量薬を始めたりしてはいけません。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "During the study, you cannot participate in other drug trials or start weight-loss drugs.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "研究期間不可參加其他藥物試驗或開始減重藥物。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I23",
+   "para": "P20",
+   "quote": "Taking part is voluntary. You can decide not to take part, or you can stop at any time, without giving a reason. If you decide not to take part or to stop, you will not lose any benefits or medical care you would otherwise get at this hospital. If you stop, the study doctor will ask you to come for a final safety visit.",
+   "removed": null,
+   "section": "rights",
+   "texts": {
+    "en": {
+     "back_translation": "Participation is voluntary; you can stop anytime without reason and will not lose any care, and the doctor will ask you to come for a final safety visit.",
+     "long_sentences": 1,
+     "problem": "",
+     "status": "ok",
+     "text": "Participation is voluntary; you can stop anytime without reason and will not lose any care, and the doctor will ask you to come for a final safety visit.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Participation is voluntary. You can stop at any time without giving a reason, and medical care will not be lost. The doctor will request a final safety check visit.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "参加は任意です。理由を述べずにいつでも中止でき、医療は失われません。医師は最終安全確認の訪問を依頼します。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "Participation is voluntary; you can stop at any time without explaining reasons, and you will not lose any medical care; the study doctor will arrange a final safety check.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "參與是自願的；您可隨時停止且不需說明理由，且不會失去任何醫療照護，研究醫師會安排最後的安全檢查。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I24",
+   "para": "P21",
+   "quote": "Your study records will be labelled with a code number, not your name. Only the study team, the ethics committee, the sponsor's monitors and health authorities may look at your medical records to check the study. Your name will not appear in any report or publication.",
+   "removed": null,
+   "section": "privacy",
+   "texts": {
+    "en": {
+     "back_translation": "Your records will have a code number, not your name; only the study team, ethics committee, sponsor monitors, and health authorities can see them, and your name will not appear in reports.",
+     "long_sentences": 1,
+     "problem": "",
+     "status": "ok",
+     "text": "Your records will have a code number, not your name; only the study team, ethics committee, sponsor monitors, and health authorities can see them, and your name will not appear in reports.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Records are managed by code number rather than name. Only the study team, ethics committee, sponsor monitors, and health authorities can view them, and names will not appear in reports.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "記録は氏名ではなくコード番号で管理されます。研究チーム、倫理委員会、スポンサーのモニター、保健当局だけが閲覧でき、報告書に氏名は掲載されません。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "Your data will be saved with a code number, not using your name; only the research team, ethics committee, sponsor monitors, and health authorities can review it; your name will not appear in reports.",
+     "long_sentences": 1,
+     "problem": "",
+     "status": "ok",
+     "text": "您的資料會以代碼編號保存，不會使用姓名；只有研究團隊、倫理委員會、贊助商監督人員與衛生主管機關可查閱，報告中不會出現您的姓名。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I25",
+   "para": "P22",
+   "quote": "The study medicine and study tests are free. You will receive NT$1,000 for each completed visit to cover travel costs. If you are injured because of taking part in this study, the sponsor will pay for the medical care you need, as described in the injury section of the full form.",
+   "removed": null,
+   "section": "costs",
+   "texts": {
+    "en": {
+     "back_translation": "The study medicine and tests are free; you receive NT$1,000 for each completed visit, and the sponsor will pay for any injury care.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "The study medicine and tests are free; you receive NT$1,000 for each completed visit, and the sponsor will pay for any injury care.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "Study medicine and tests are free. NT$1,000 is paid for each completed visit, and the sponsor bears the cost of injury treatment.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "研究薬と検査は無料です。訪問を完了するごとにNT$1,000が支払われ、怪我の治療費はスポンサーが負担します。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "Study drugs and tests are free; you can receive NT$1,000 for each completed visit; if injured, the sponsor will cover medical expenses.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "研究藥物與檢查均免費；每完成一次就診可獲得新台幣 1,000 元，若受傷，贊助商會負擔醫療費用。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I26",
+   "para": "P23",
+   "quote": "If you have questions about the study or a side effect, call the study coordinator, Ms. Lin, at 02-2312-3456 extension 7701, Monday to Friday, 9:00 to 17:00. After hours, call the hospital emergency line at 02-2312-3456 extension 9.",
+   "removed": null,
+   "section": "contacts",
+   "texts": {
+    "en": {
+     "back_translation": "If you have questions or side effects, call Ms. Lin at 02-2312-3456 ext 7701, Mon-Fri 9:00-17:00; after hours call the hospital emergency line at 02-2312-3456 ext 9.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "If you have questions or side effects, call Ms. Lin at 02-2312-3456 ext 7701, Mon‑Fri 9:00‑17:00; after hours call the hospital emergency line at 02-2312-3456 ext 9.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "For questions or side effects, call Ms. Lin (02-2312-3456 ext 7701) on weekdays 9:00-17:00. After hours, call the hospital emergency line (02-2312-3456 ext 9).",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "質問や副作用がある場合は、平日9:00〜17:00に林さん（電話 02-2312-3456 内線7701）へお電話ください。時間外は病院の緊急電話（02-2312-3456 内線9）へ。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "If you have questions or side effects, please call Ms. Lin at 02-2312-3456 ext 7701 during Mon-Fri 9:00-17:00; after hours, please call the hospital emergency line at 02-2312-3456 ext 9.",
+     "long_sentences": 1,
+     "problem": "",
+     "status": "ok",
+     "text": "如有問題或副作用，請於週一至週五 9:00‑17:00 撥打林小姐 02-2312-3456 轉 7701；下班時間請撥打醫院急診電話 02-2312-3456 轉 9。",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "I27",
+   "para": "P24",
+   "quote": "If you have questions about your rights as a research participant, call the Research Ethics Committee at 02-2312-3456 extension 5200.",
+   "removed": null,
+   "section": "contacts",
+   "texts": {
+    "en": {
+     "back_translation": "If you have questions about your rights, call the Research Ethics Committee at 02-2312-3456 ext 5200.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "If you have questions about your rights, call the Research Ethics Committee at 02-2312-3456 ext 5200.",
+     "verdict": "supported"
+    },
+    "ja": {
+     "back_translation": "For questions regarding rights, call the Research Ethics Committee (02-2312-3456 ext 5200).",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "権利に関する質問は、研究倫理委員会（電話 02-2312-3456 内線5200）へお電話ください。",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "back_translation": "To understand your rights, please call the Research Ethics Committee at 02-2312-3456 ext 5200.",
+     "long_sentences": 0,
+     "problem": "",
+     "status": "ok",
+     "text": "如欲了解您的權益，請撥打研究倫理委員會 02-2312-3456 轉 5200。",
+     "verdict": "supported"
+    }
+   }
+  }
+ ],
+ "job_id": "live",
+ "languages": [
+  "en",
+  "ja",
+  "zh-TW"
+ ],
+ "missing_sections": [],
+ "models": {
+  "draft": "openai/gpt-oss-120b",
+  "verifier": "google/gemma-4-26b-a4b-it"
+ },
+ "questions": [
+  {
+   "id": "Q1",
+   "para": "P20",
+   "quote": "Taking part is voluntary. You can decide not to take part, or you can stop at any time, without giving a reason.",
+   "removed": null,
+   "texts": {
+    "en": {
+     "answer": "No, I can stop at any time without giving a reason.",
+     "back_translation": "Can you tell me if you must stay in the study if you change your mind? — No, I can stop at any time without giving a reason.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "Can you tell me if you must stay in the study if you change your mind?",
+     "status": "ok",
+     "verdict": "supported"
+    },
+    "ja": {
+     "answer": "いいえ、理由を述べずにいつでも中止できます。",
+     "back_translation": "If you want to stop the study halfway, please tell me if you must continue participating. — No, you can stop at any time without giving a reason.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "研究を途中でやめたくなった場合、参加し続けなければならないか教えてください。",
+     "status": "ok",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "answer": "不行，我可以隨時停止，且不需要說明理由。",
+     "back_translation": "If you change your mind, do you have to continue participating in the study? — No, I can stop at any time without explaining reasons.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "如果您改變主意，是否必須繼續參與研究？",
+     "status": "ok",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "Q2",
+   "para": "P11",
+   "quote": "Stop the injections and call the study doctor right away if you have severe stomach pain that does not go away, with or without vomiting.",
+   "removed": null,
+   "texts": {
+    "en": {
+     "answer": "Stop the injections and call the study doctor right away.",
+     "back_translation": "What should you do if you have severe stomach pain that does not go away? — Stop the injections and call the study doctor right away.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "What should you do if you have severe stomach pain that does not go away?",
+     "status": "ok",
+     "verdict": "supported"
+    },
+    "ja": {
+     "answer": "すぐに注射を中止し、研究医師に連絡してください。",
+     "back_translation": "What should you do if severe abdominal pain continues? — Stop injections immediately and contact the study doctor.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "激しい腹痛が続く場合、どうすべきですか？",
+     "status": "ok",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "answer": "立即停止注射並立刻聯絡研究醫師。",
+     "back_translation": "If persistent and severe abdominal pain occurs, what should you do? — Stop injections immediately and contact the study doctor immediately.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "如果出現持續且嚴重的腹痛，您應該怎麼做？",
+     "status": "ok",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "Q3",
+   "para": "P7",
+   "quote": "You will inject the study medicine under the skin of your belly or thigh once a week, on the same day each week.",
+   "removed": null,
+   "texts": {
+    "en": {
+     "answer": "Inject it under the skin of my belly or thigh.",
+     "back_translation": "What do you need to do each week with the study medicine? — Inject it under the skin of my belly or thigh.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "What do you need to do each week with the study medicine?",
+     "status": "ok",
+     "verdict": "supported"
+    },
+    "ja": {
+     "answer": "お腹または太ももの皮下に注射します。",
+     "back_translation": "What must you do with the study medicine every week? — Inject under the skin of the belly or thigh.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "毎週、研究薬で何をしなければなりませんか？",
+     "status": "ok",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "answer": "在腹部或大腿皮下自行注射一次。",
+     "back_translation": "What do you need to do for the study drug every week? — Self-inject once a week under the skin of the belly or thigh.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "每週您需要對研究藥物做什麼？",
+     "status": "ok",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "Q4",
+   "para": "P19",
+   "quote": "write down any side effects and gout flares in the study diary.",
+   "removed": null,
+   "texts": {
+    "en": {
+     "answer": "Any side effects and gout flares.",
+     "back_translation": "What must you record in the study diary? — Any side effects and gout flares.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "What must you record in the study diary?",
+     "status": "ok",
+     "verdict": "supported"
+    },
+    "ja": {
+     "answer": "副作用と痛風の発作のすべてです。",
+     "back_translation": "What must be recorded in the study diary? — All side effects and gout flares.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "研究日誌に何を記録しなければなりませんか？",
+     "status": "ok",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "answer": "任何副作用與痛風發作。",
+     "back_translation": "What must you record in the study diary? — Any side effects and gout flares.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "您必須在研究日誌中記錄什麼？",
+     "status": "ok",
+     "verdict": "supported"
+    }
+   }
+  },
+  {
+   "id": "Q5",
+   "para": "P23",
+   "quote": "If you have questions about the study or a side effect, call the study coordinator, Ms. Lin, at 02-2312-3456 extension 7701, Monday to Friday, 9:00 to 17:00. After hours, call the hospital emergency line at 02-2312-3456 extension 9.",
+   "removed": null,
+   "texts": {
+    "en": {
+     "answer": "Call Ms. Lin at 02-2312-3456 ext 7701 during business hours, or the emergency line after hours.",
+     "back_translation": "Who should you call if you have a question about the study or a side effect? — Call Ms. Lin at 02-2312-3456 ext 7701 during business hours, or the emergency line after hours.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "Who should you call if you have a question about the study or a side effect?",
+     "status": "ok",
+     "verdict": "supported"
+    },
+    "ja": {
+     "answer": "平日9:00〜17:00は林さん（02-2312-3456 内線7701）へ、時間外は緊急電話（02-2312-3456 内線9）へお電話ください。",
+     "back_translation": "If you have questions about the study or side effects, who should you contact? — On weekdays 9:00-17:00, Ms. Lin (02-2312-3456 ext 7701); after hours, the emergency line (02-2312-3456 ext 9).",
+     "long_sentences": 1,
+     "problem": "",
+     "question": "研究や副作用について質問がある場合、誰に連絡すべきですか？",
+     "status": "ok",
+     "verdict": "supported"
+    },
+    "zh-TW": {
+     "answer": "於上班時間撥打林小姐 02-2312-3456 轉 7701，非上班時間則撥打急診電話。",
+     "back_translation": "If you have questions about the study or side effects, who should you contact? — During working hours, call Ms. Lin at 02-2312-3456 ext 7701; after hours, call the emergency line.",
+     "long_sentences": 0,
+     "problem": "",
+     "question": "如果對研究或副作用有疑問，您應該聯絡誰？",
+     "status": "ok",
+     "verdict": "supported"
+    }
+   }
+  }
+ ],
+ "release": null,
+ "requested_by": "consent_live",
+ "run": {
+  "calls": 6,
+  "seconds": 638.0,
+  "tokens_in": 20391,
+  "tokens_out": 35009
+ },
+ "schema": "trialbox.consent@1",
+ "site": "DEMO-A",
+ "source_language": "en",
+ "study": "GZQO",
+ "verified": true
+}

@@ -2,9 +2,11 @@
 
     subject = cmd SP ruleset *(SP option) [SP "--" SP comment]
     cmd     = "FEAS" / "SCREEN" / "COHORT" / "NAV" / "APPROVE" / "STATUS" / "CANCEL" / "SUBMIT" / "FEEDBACK"
-    ruleset = 1*16(ALPHA / DIGIT / "-" / "_")        ; STATUS / CANCEL take a job id (ULID) instead
+            / "CONSENT" / "RELEASE"
+    ruleset = 1*16(ALPHA / DIGIT / "-" / "_")        ; STATUS / CANCEL / RELEASE take a job id (ULID) instead
     option  = key "=" value
     key     = "window" / "pract" / "dept" / "lookback" / "version" / "variant" / "since" / "pid" / "bundle" / "site"
+            / "lang" / "drop" / "keep"
     value   = 1*32(ALPHA / DIGIT / "-" / "," / "." / ":")   ; ":" allowed for variant=bmi:24,25,27 (spec example)
 
 Leading reply/forward prefixes (``Re:``, ``RE:``, ``Fwd:``, ``回覆:``, ``轉寄:``) are ignored.
@@ -15,13 +17,39 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-COMMANDS = ("FEAS", "SCREEN", "COHORT", "NAV", "APPROVE", "STATUS", "CANCEL", "SUBMIT", "FEEDBACK")
-KEYS = ("window", "pract", "dept", "lookback", "version", "variant", "since", "pid", "bundle", "site")
+COMMANDS = (
+    "FEAS",
+    "SCREEN",
+    "COHORT",
+    "NAV",
+    "APPROVE",
+    "STATUS",
+    "CANCEL",
+    "SUBMIT",
+    "FEEDBACK",
+    "CONSENT",
+    "RELEASE",
+)
+KEYS = (
+    "window",
+    "pract",
+    "dept",
+    "lookback",
+    "version",
+    "variant",
+    "since",
+    "pid",
+    "bundle",
+    "site",
+    "lang",
+    "drop",
+    "keep",
+)
 _RULESET = re.compile(r"^[A-Za-z0-9_-]{1,16}$")
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 _VALUE = re.compile(r"^[A-Za-z0-9,.:\-]{1,32}$")
 _PREFIX = re.compile(r"^\s*(?:(?:re|fw|fwd|aw|回覆|回复|轉寄|转发)\s*[:：]\s*)+", re.I)
-JOB_ID_COMMANDS = ("STATUS", "CANCEL")
+JOB_ID_COMMANDS = ("STATUS", "CANCEL", "RELEASE")
 
 
 class SubjectError(ValueError):

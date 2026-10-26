@@ -22,6 +22,7 @@ hospital's own data.
 | NHI navigation | `NAV RA-BIO dept=RHEU` | likely-eligible / renewal / doc-gap / maybe-ineligible lists, application drafts, TWPAS bundles |
 | NHI submission | `SUBMIT ONC-OSI pid=… bundle=<NAV job>` (physicians) | ClaimResponse (dry run by default) |
 | Cohort tables | `COHORT GOUT-COH` | alliance CSV, report, ClinicalTrials.gov trial simulation; `COHORT MERGE` at the alliance root |
+| Consent explainer | `CONSENT GZQO lang=en,ja,zh-TW` (+ the IRB-approved consent form) | review sheet + DRAFT plain-language guides; `RELEASE <job id>` (reviewers) releases them. A reading aid, not the consent form or an e-signature ([docs/CONSENT.md](docs/CONSENT.md)) |
 
 ## Try the POC in 10 minutes (web console + e-mail, one command)
 

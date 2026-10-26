@@ -8,7 +8,10 @@ __pycache__/
 build/
 deploy/.env
 deploy/models/
-data/
+/data/
+# site data is generated (tools/build_site.py); the consent demo record comes from a paid model run, so it is kept
+site/data/*
+!site/data/consent_gzqo.json
 .cache/
 /secrets/
 tests/fixtures/synthetic_patients/site-*/cgrd.sqlite

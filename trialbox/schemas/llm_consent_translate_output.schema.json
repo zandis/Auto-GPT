@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/llm_consent_translate_output.schema.json",
+  "title": "LlmConsentTranslateOutput",
+  "description": "Output of prompt consent_translate: the explainer statements and questions in one target language, same ids. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["items", "questions"],
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "title": "ConsentItemText",
+        "type": "object",
+        "required": ["id", "text"],
+        "additionalProperties": false,
+        "properties": {"id": {"type": "string", "maxLength": 8}, "text": {"type": "string", "maxLength": 600}}
+      }
+    },
+    "questions": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "title": "ConsentQuestionText",
+        "type": "object",
+        "required": ["id", "question", "answer"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "maxLength": 8},
+          "question": {"type": "string", "maxLength": 400},
+          "answer": {"type": "string", "maxLength": 400}
+        }
+      }
+    }
+  }
+}

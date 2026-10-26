@@ -45,7 +45,7 @@ V4_COMMANDS = (
 )
 ALL_COMMANDS = frozenset(V4_COMMANDS) | frozenset(V1_COMMANDS)
 APPROVAL_COMMANDS = frozenset({"APPROVE", "REJECTGATE"})  # email only (FR-SIG-8); never proposed
-NEVER_PROPOSED = APPROVAL_COMMANDS | {"MATCH", "FULLREVIEW", "SAE", "QUERY"}
+NEVER_PROPOSED = APPROVAL_COMMANDS | {"MATCH", "FULLREVIEW", "SAE", "QUERY", "RELEASE"}
 STUDY_STATUS = ("recruiting", "follow_up", "closed", "declined")
 STATES = (
     "contacted",

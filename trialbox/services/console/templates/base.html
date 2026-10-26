@@ -21,6 +21,7 @@
     {% if pilot %}
     <a href="/pilot/request" class="{{ 'active' if path.startswith('/pilot/request') or path.startswith('/pilot/propose') else '' }}">{{ t('nav.request') }}</a>
     <a href="/pilot/protocol" class="{{ 'active' if path.startswith('/pilot/protocol') else '' }}">{{ t('nav.protocol') }}</a>
+    <a href="/pilot/consent" class="{{ 'active' if path.startswith('/pilot/consent') else '' }}">{{ t('nav.consent') }}</a>
     <a href="/pilot/cascade" class="{{ 'active' if path.startswith('/pilot/cascade') else '' }}">{{ t('nav.cascade') }}</a>
     {% if settings.test_smtp %}<a href="/pilot/mailbox" class="{{ 'active' if path.startswith('/pilot/mailbox') else '' }}">{{ t('nav.mailbox') }}</a>{% endif %}
     {% endif %}

@@ -170,7 +170,7 @@ services:
     environment: {PORT: "8010", TB_SERVICE_NAME: orchestrator, TB_AUDIT_DIR: /data/audit, TB_RULESETS_DIR: /data/rulesets,
                   TB_ORCH_DIR: /data/orchestrator, TB_SECRETS_DIR: /run/secrets/trialbox,
                   TB_GATEWAY_URL: "http://gateway:8020/v1", TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}",
-                  TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
+                  TB_GATEWAY_VERIFIER_MODEL: "${TB_GATEWAY_VERIFIER_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
     networks: [trialbox-net, egress-net]   # only service allowed to reach NHI_TWPAS_BASE_URL (network.sh)
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro

@@ -17,6 +17,8 @@ permissions:
   CANCEL: [senders]
   FEEDBACK: [senders]
   SUBMIT: [physicians]
+  CONSENT: [senders]
+  RELEASE: [reviewers]   # consent explainer release: the coordinator or PI who reviewed it (not an e-signature)
 reviewers: ["crc1@hospa.test", "pi@hospa.test"]
 require_spf_dkim: true
 rate_limit_per_sender_per_day: 20

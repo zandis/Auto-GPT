@@ -28,6 +28,33 @@
 </section>
 {% endif %}
 
+{% if consent %}
+<section class="card{{ ' attention' if job.type == 'CONSENT' and job.state == 'done' else '' }}" data-testid="consent">
+<h2>{{ t('job.consent.released') if job.type == 'RELEASE' else t('job.consent') }}</h2>
+<p class="warn" role="note">{{ t('consent.notice') }}</p>
+{% if job.type == 'CONSENT' %}
+<p>{{ t('job.consent.draft') }}</p>
+<p data-testid="consent-counts">{{ t('job.consent.counts', **consent.counts) }}</p>
+{% if not consent.verified %}<p class="hint">{{ t('job.consent.unverified') }}</p>{% endif %}
+{% endif %}
+<ul>
+{% if consent.review %}<li><a href="/pilot/jobs/{{ job.job_id }}/view/{{ consent.review }}" target="_blank" rel="noopener" data-testid="consent-review">{{ t('job.consent.review') }}</a></li>{% endif %}
+{% for lang, name in consent.pages %}<li><a href="/pilot/jobs/{{ job.job_id }}/view/{{ name }}" target="_blank" rel="noopener" data-file="{{ name }}">{{ t('job.consent.preview') }} · <span lang="{{ lang }}">{{ t('lang.name.' + lang) }}</span></a></li>{% endfor %}
+</ul>
+{% if job.type == 'CONSENT' and job.state == 'done' and user.is_admin %}
+<form method="post" action="/pilot/jobs/{{ job.job_id }}/release" class="mt">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="drop">{{ t('job.consent.drop') }}</label>
+  <input id="drop" name="drop" maxlength="32" pattern="[A-Za-z0-9,]*">
+  <label for="keep">{{ t('job.consent.keep') }}</label>
+  <input id="keep" name="keep" maxlength="32" pattern="[A-Za-z0-9,]*">
+  <p class="hint">{{ t('job.consent.release.help', job=job.job_id) }}</p>
+  <button type="submit" data-testid="release">{{ t('job.consent.release') }}</button>
+</form>
+{% endif %}
+</section>
+{% endif %}
+
 {% if result %}
 <section class="card" data-testid="result">
 <h2>{{ t('job.results') }}</h2>

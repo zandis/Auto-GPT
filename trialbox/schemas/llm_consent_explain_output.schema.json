@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/llm_consent_explain_output.schema.json",
+  "title": "LlmConsentExplainOutput",
+  "description": "Output of prompt consent_explain: plain-language statements and teach-back questions, each grounded in a verbatim quote of the informed-consent form. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["items", "questions"],
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "title": "ConsentItem",
+        "type": "object",
+        "required": ["section", "text", "quote", "para"],
+        "additionalProperties": false,
+        "properties": {
+          "section": {"enum": ["purpose", "procedures", "duration", "risks", "benefits", "alternatives", "obligations", "rights", "privacy", "costs", "contacts"]},
+          "text": {"type": "string", "maxLength": 400},
+          "quote": {"type": "string", "maxLength": 600},
+          "para": {"type": "string", "maxLength": 8}
+        }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "title": "ConsentQuestion",
+        "type": "object",
+        "required": ["question", "answer", "quote", "para"],
+        "additionalProperties": false,
+        "properties": {
+          "question": {"type": "string", "maxLength": 300},
+          "answer": {"type": "string", "maxLength": 300},
+          "quote": {"type": "string", "maxLength": 600},
+          "para": {"type": "string", "maxLength": 8}
+        }
+      }
+    }
+  }
+}

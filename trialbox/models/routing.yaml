@@ -8,7 +8,7 @@
 # Endpoint zones: perimeter (on box or the attested tenant), tre (Z-TRE), external (vendor model, topology C),
 # dev_public (developer / bake-off endpoints, Z-DEV). Only tb-gateway reads endpoint addresses (LLM-1);
 # deploy/egress.py turns the non-perimeter hosts into egress rules for the gateway container only (NFR-B9).
-version: routing-2026-10-25.3
+version: routing-2026-10-25.4
 
 # MOD-4 sampling the gateway forces on every role except free-form ones (frontdesk_converse)
 sampling: {temperature: 0, top_p: 1, seed: 20261025}
@@ -162,7 +162,8 @@ routes:
     classes: [D0, D1]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
-    builds: [j-workhorse@serving, x-external@external_x] # external only under topology C + opt-in (may_reach)
+    # v-verifier: the consent explainer's second-model check names it (TB_GATEWAY_VERIFIER_MODEL=v-verifier)
+    builds: [j-workhorse@serving, x-external@external_x, v-verifier@verifier] # external only under C + opt-in
   - id: documents-d3
     roles: ["@documents"]
     classes: [D3]

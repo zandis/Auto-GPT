@@ -5,3 +5,6 @@ ir_extract: {role: extract_criteria, purpose: protocol_ingest, context_of_use: p
 concept_map: {role: concept_select, purpose: protocol_ingest, context_of_use: criterion_concept_selection}
 ie_locate: {role: extract_criteria, purpose: protocol_ingest, context_of_use: protocol_ie_location}
 draft_doc: {role: draft_document, purpose: documents, context_of_use: document_drafting}
+consent_explain: {role: draft_document, purpose: documents, context_of_use: consent_explainer_draft}
+consent_translate: {role: draft_document, purpose: documents, context_of_use: consent_explainer_translation}
+consent_verify: {role: draft_document, purpose: documents, context_of_use: consent_explainer_verification}

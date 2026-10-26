@@ -55,6 +55,7 @@ _RULESET_ID = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,15}$")
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 _VERSION = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}$")
 _FILE = re.compile(r"^[\w.\-]{1,160}$")
+_ITEM_IDS = re.compile(r"^(?:I\d{2}|Q\d)(?:,(?:I\d{2}|Q\d))*$")
 PROPOSAL_TTL = 3600.0
 CSP = (
     "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'none'; object-src 'none'; "
@@ -88,6 +89,7 @@ class ConsoleSettings:
     intake_addr: str
     source_dir: Path | None
     samples_dir: Path | None
+    consent_sample: Path | None
     gateway_url: str
     gateway_model: str | None
     small_cell: int
@@ -123,6 +125,7 @@ class ConsoleSettings:
             intake_addr=(env.get("MAIL_INTAKE_ADDR") or "trialbox@hospa.test").strip().lower(),
             source_dir=Path(src) if src else None,
             samples_dir=Path(samples) if samples else None,
+            consent_sample=Path(env["TB_CONSOLE_CONSENT_SAMPLE"]) if env.get("TB_CONSOLE_CONSENT_SAMPLE") else None,
             gateway_url=env.get("TB_GATEWAY_URL", "").strip(),
             gateway_model=env.get("TB_GATEWAY_MODEL") or None,
             small_cell=int(env.get("TB_CONSOLE_SMALL_CELL") or 5),
@@ -218,7 +221,7 @@ def create_app(
     @app.middleware("http")
     async def headers(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         resp = await call_next(request)
-        resp.headers["Content-Security-Policy"] = CSP
+        resp.headers.setdefault("Content-Security-Policy", CSP)  # the sandboxed preview sets its own
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["Referrer-Policy"] = "no-referrer"
@@ -460,6 +463,75 @@ def create_app(
             return None
         return {"n": len(found), "s": found.count("structured"), "m": found.count("note"), "h": found.count("human")}
 
+    def _consent_card(job: Job) -> dict[str, Any] | None:
+        """The consent explainer card: counts from the explainer record, the pages to preview."""
+        if job.type not in ("CONSENT", "RELEASE") or job.state != "done":
+            return None
+        import json
+
+        outs = {o.filename: o for o in job.outputs or [] if o.tag == "aggregate"}
+        study = (job.ruleset or "").upper()
+        card: dict[str, Any] = {"review": None, "pages": [], "counts": {}, "verified": True}
+        suffix = "_DRAFT.html" if job.type == "CONSENT" else ".html"
+        for lang in ("en", "ja", "zh-TW"):
+            name = f"consent_{study}_{lang}{suffix}"
+            if name in outs:
+                card["pages"].append((lang, name))
+        if job.type == "CONSENT":
+            rec_out = outs.get(f"consent_{study}.json")
+            if rec_out is None:
+                return None
+            try:
+                rec = json.loads(bk.get_object(rec_out.minio_key))
+            except (KeyError, ValueError, OSError):
+                return None
+            card["counts"] = rec.get("counts") or {}
+            card["verified"] = bool(rec.get("verified"))
+            card["review"] = f"consent_{study}_review.html" if f"consent_{study}_review.html" in outs else None
+        return card
+
+    @app.get("/pilot/jobs/{job_id}/view/{filename}")
+    def job_view_file(request: Request, job_id: str, filename: str) -> Response:
+        """An aggregate HTML output shown in the browser (consent explainer pages); sandboxed, no script."""
+        sess = need(request)
+        job = _job_or_404(job_id)
+        out = next((o for o in job.outputs or [] if o.filename == filename), None)
+        if not _FILE.match(filename) or out is None or out.tag != "aggregate" or not filename.endswith(".html"):
+            raise _Problem(404, "notfound")
+        data = bk.get_object(out.minio_key)
+        au.append(
+            "console.view",
+            job_id=job_id,
+            actor=actor(sess),
+            output_sha=sha256_bytes(data),
+            detail={"filename": filename, "tag": out.tag},
+        )
+        return Response(
+            data,
+            media_type="text/html; charset=utf-8",
+            headers={
+                "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox"
+            },
+        )
+
+    @app.post("/pilot/jobs/{job_id}/release")
+    def consent_release(
+        request: Request, job_id: str, csrf: str = Form(""), drop: str = Form(""), keep: str = Form("")
+    ) -> Response:
+        sess = need_admin(request, csrf)
+        job = _job_or_404(job_id)
+        if job.type != "CONSENT" or job.state != "done":
+            raise _Problem(409, "request.refused", reason="only a finished consent explainer can be released")
+        parts = ["RELEASE", job.job_id]
+        for key, raw in (("drop", drop), ("keep", keep)):
+            value = re.sub(r"\s+", "", raw).upper().strip(",")
+            if value:
+                if not _ITEM_IDS.match(value):
+                    raise _Problem(400, "request.refused", reason="item ids look like I03 or Q2, separated by commas")
+                parts.append(f"{key}={value}")
+        new = submit(sess, " ".join(parts))
+        return RedirectResponse(f"/pilot/jobs/{new.job_id}", status_code=303)
+
     @app.get("/pilot/jobs/{job_id}", response_class=HTMLResponse)
     def job_view(request: Request, job_id: str) -> Response:
         sess = need(request)
@@ -492,6 +564,7 @@ def create_app(
             audit=sorted(audit_recs, key=lambda r: r.ts),
             refresh=job.state not in TERMINAL and job.state != "awaiting_approval",
             rulesets=[r for r in bk.rulesets() if r.status == "approved"],
+            consent=_consent_card(job),
         )
 
     @app.get("/pilot/jobs/{job_id}/files/{filename}")
@@ -655,6 +728,52 @@ def create_app(
         if len(data) > MAX_UPLOAD or not name.lower().endswith(DOC_EXT):
             raise _Problem(400, "request.refused", reason="protocols are PDF, DOCX, TXT or MD, at most 50 MB")
         job = submit(sess, f"FEAS {rs}", [(name, data, ctype)])
+        return RedirectResponse(f"/pilot/jobs/{job.job_id}", status_code=303)
+
+    @app.get("/pilot/consent", response_class=HTMLResponse)
+    def consent_form(request: Request) -> Response:
+        sess = need(request)
+        return page(request, "consent.html", sess, sample=_consent_sample() is not None)
+
+    def _consent_sample() -> Path | None:
+        p = settings.consent_sample
+        return p if p is not None and p.is_file() else None
+
+    @app.post("/pilot/consent")
+    async def consent_submit(
+        request: Request,
+        csrf: str = Form(""),
+        study: str = Form(""),
+        use_sample: str = Form(""),
+        langs: Annotated[list[str] | None, Form()] = None,
+        icf: Annotated[UploadFile | None, File()] = None,
+    ) -> Response:
+        sess = need_admin(request, csrf)
+        code = study.strip().upper()
+        sample = _consent_sample()
+
+        def again(key: str) -> Response:
+            msg = translate(lang_of(request, sess), key)
+            return page(request, "consent.html", sess, 422, sample=sample is not None, error=msg, study=code)
+
+        if not _RULESET_ID.match(code):
+            raise _Problem(400, "request.refused", reason="study codes are 1-16 letters, digits, '-' or '_'")
+        chosen = [lang for lang in ("en", "ja", "zh-TW") if lang in (langs or [])]
+        if not chosen:
+            return again("consent.need_lang")
+        if icf is not None and icf.filename:
+            name = re.sub(r"[^\w.\-]+", "_", icf.filename)[-120:]
+            data = await icf.read(MAX_UPLOAD + 1)
+            ctype = icf.content_type or "application/octet-stream"
+        elif use_sample and sample is not None:
+            name, data, ctype = sample.name, sample.read_bytes(), "text/markdown"
+        else:
+            raise _Problem(400, "request.refused", reason="attach the informed-consent form")
+        if not data:
+            return again("consent.empty")
+        if len(data) > MAX_UPLOAD or not name.lower().endswith(DOC_EXT):
+            raise _Problem(400, "request.refused", reason="consent forms are PDF, DOCX, TXT or MD, at most 50 MB")
+        job = submit(sess, f"CONSENT {code} lang={','.join(chosen)}", [(name, data, ctype)])
         return RedirectResponse(f"/pilot/jobs/{job.job_id}", status_code=303)
 
     cr: CascadeRuns | None = cascades

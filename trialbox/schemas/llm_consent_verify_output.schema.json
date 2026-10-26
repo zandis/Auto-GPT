@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/llm_consent_verify_output.schema.json",
+  "title": "LlmConsentVerifyOutput",
+  "description": "Output of prompt consent_verify (second model): per statement, whether the consent-form quote supports it, with an English back-translation. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["checks"],
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "title": "ConsentCheck",
+        "type": "object",
+        "required": ["id", "verdict", "back_translation", "problem"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "maxLength": 8},
+          "verdict": {"enum": ["supported", "unsupported", "unclear"]},
+          "back_translation": {"type": "string", "maxLength": 600},
+          "problem": {"type": "string", "maxLength": 300}
+        }
+      }
+    }
+  }
+}

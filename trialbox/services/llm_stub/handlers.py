@@ -315,6 +315,86 @@ def classify_intent(inp: dict[str, Any]) -> dict[str, Any]:
 
 
 # handlers that read the raw chat messages instead of a ```json input block
+
+# ----------------------------------------------------------------------------- consent explainer
+_CONSENT_SECTIONS = (
+    ("purpose", ("purpose", "why is this study", "investigational")),
+    ("procedures", ("will happen", "visit", "inject", "assigned by chance")),
+    ("duration", ("weeks", "months", "how long")),
+    ("risks", ("risk", "side effect", "may cause", "harm")),
+    ("benefits", ("benefit",)),
+    ("alternatives", ("other choices", "alternative", "do not have to take part")),
+    ("obligations", ("you will need to", "you must", "do not start")),
+    ("rights", ("voluntary", "stop at any time", "decide not to")),
+    ("privacy", ("records", "code number", "privacy", "confidential")),
+    ("costs", ("free", "cost", "pay", "injured")),
+    ("contacts", ("call", "contact", "questions about")),
+)
+
+
+def _consent_section(text: str) -> str | None:
+    low = text.lower()
+    for name, words in _CONSENT_SECTIONS:
+        if any(w in low for w in words):
+            return name
+    return None
+
+
+def consent_explain(inp: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic stand-in: the first sentence of each paragraph that names a section, quoted verbatim and
+    restated as is (the stub does not simplify); questions from the voluntary, risk and contact paragraphs."""
+    items: list[dict[str, Any]] = []
+    seen: dict[str, int] = {}
+    for p in inp.get("paragraphs", []):
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?。])\s+", p["text"]) if len(s.strip()) > 20]
+        for sent in sentences[:2]:
+            sec = _consent_section(sent) or _consent_section(p.get("heading", ""))
+            if sec is None or seen.get(sec, 0) >= 3 or len(items) >= 30:
+                continue
+            seen[sec] = seen.get(sec, 0) + 1
+            items.append({"section": sec, "text": sent[:400], "quote": sent[:600], "para": p["id"]})
+    questions = []
+    for sec, q in (
+        ("rights", "Do you have to take part, and can you stop later?"),
+        ("risks", "What is one possible side effect of the study medicine?"),
+        ("contacts", "Whom do you call if you have a side effect?"),
+    ):
+        it = next((i for i in items if i["section"] == sec), None)
+        if it is not None:
+            questions.append({"question": q, "answer": it["text"][:300], "quote": it["quote"], "para": it["para"]})
+    return {"items": items, "questions": questions}
+
+
+_STUB_TAG = {"ja": "［日本語］", "zh-TW": "［中文］"}
+
+
+def consent_translate(inp: dict[str, Any]) -> dict[str, Any]:
+    """Not a translation: the text is copied with a language tag, so numbers and ids survive (pipeline tests)."""
+    tag = _STUB_TAG.get(str(inp.get("target_language")), "")
+    return {
+        "items": [{"id": i["id"], "text": f"{tag}{i['text']}"[:600]} for i in inp.get("items", [])],
+        "questions": [
+            {"id": q["id"], "question": f"{tag}{q['question']}"[:400], "answer": f"{tag}{q['answer']}"[:400]}
+            for q in inp.get("questions", [])
+        ],
+    }
+
+
+def consent_verify(inp: dict[str, Any]) -> dict[str, Any]:
+    """Supported when every number in the text is in the quote and the text gives no advice."""
+    out = []
+    for e in inp.get("entries", []):
+        text, quote = str(e.get("text", "")), str(e.get("quote", ""))
+        nums = set(re.findall(r"\d+", quote))
+        bad_num = any(n not in nums for n in re.findall(r"\d+", text))
+        advice = any(w in text.lower() for w in ("you should join", "we recommend", "it is safe"))
+        verdict = "unsupported" if bad_num or advice else "supported"
+        problem = "number not in the quote" if bad_num else ("gives advice" if advice else "")
+        back = re.sub(r"^［[^］]+］", "", text)
+        out.append({"id": e["id"], "verdict": verdict, "back_translation": back[:600], "problem": problem})
+    return {"checks": out}
+
+
 MESSAGE_HANDLERS = {"mlbench_judge": mlbench_judge}
 
 HANDLERS = {
@@ -322,6 +402,9 @@ HANDLERS = {
     "concept_map": concept_map,
     "judge": judge,
     "draft_doc": draft_doc,
+    "consent_explain": consent_explain,
+    "consent_translate": consent_translate,
+    "consent_verify": consent_verify,
     "ie_locate": ie_locate,
     "classify_intent": classify_intent,
 }
