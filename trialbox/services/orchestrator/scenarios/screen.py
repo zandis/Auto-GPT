@@ -410,4 +410,4 @@ def run(ctx: Ctx) -> Outcome:
         + "."
     )
     deliveries.append(Delivery(to=agg_to, outputs=[summary], routing=rs.manifest.routing, body_md=text))
-    return Outcome(summary_md=text, deliveries=deliveries)
+    return Outcome(summary_md=text, deliveries=deliveries, headline=f"{n(s.high)} high, {n(s.review)} review")

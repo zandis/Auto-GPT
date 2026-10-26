@@ -65,7 +65,7 @@ def test_screen_by_email(world: dict[str, Any], synth_dir: Path) -> None:
     rows = list(wb["candidates"].iter_rows(min_row=2, values_only=True))
     listed = [r for r in rows if r[1]]
     assert all(str(r[0]).isdigit() and len(str(r[0])) == 8 for r in listed[: len(cl.rows)])  # MRN resolved in-box
-    assert box.find(f"Done {job.job_id}") and not any(
+    assert box.find_job("done", job.job_id) and not any(
         s.to == ["sponsor@pharma.example"] for s in box.sent
     )  # summary is the only non-list mail
     # planted truth: structured verdicts == recorded CQL verdicts; note verdicts vs note truth
@@ -183,7 +183,7 @@ def test_feedback_and_calibration(world: dict[str, Any]) -> None:
     box.orch.drain()
     fb = box.orch.db.feedback("GZQO")
     assert len(fb) == min(len(pool), len(outcomes))
-    done = box.find(f"Done {box.orch.db.find(type_='FEEDBACK')[0].job_id}")[0]
+    done = box.find_job("done", box.orch.db.find(type_="FEEDBACK")[0].job_id)[0]
     assert "pid not in the GZQO candidate pool" in done.text()
     box.orch.create(c.JobCreate(type="CALIBRATION", ruleset="GZQO", requested_by="scheduler"))
     box.orch.drain()

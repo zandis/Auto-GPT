@@ -72,7 +72,7 @@ async function web(page, args, out) {
   const head = require("fs").readFileSync(file).subarray(0, 5).toString();
   check(head === "%PDF-", `downloaded ${download.suggestedFilename()} is a PDF`);
   out.pdf = download.suggestedFilename();
-  check((await page.locator("[data-testid=thread]").innerText()).includes(`Done ${out.job}`), "Done mail in the thread");
+  check((await page.locator("[data-testid=thread]").innerText()).includes(`done: `), "Done mail in the thread");
   await shot(page, args, "04-result.png");
   await page.goto(args.base + "/jobs", { waitUntil: "load" });
   check((await page.locator(`tr[data-job='${out.job}']`).count()) === 1, "job in the job list");
@@ -88,7 +88,7 @@ async function thread(page, args, out) {
   check(state === "done", `e-mail job ${args.job} done in the console`);
   const text = await page.locator("[data-testid=thread]").innerText();
   check(text.includes("→ box"), "inbound mail in the thread");
-  check(text.includes(`Received ${args.job}`) && text.includes(`Done ${args.job}`), "Received and Done replies in the thread");
+  check(text.includes(` received · job ${args.job}`) && text.includes(`· job ${args.job}`) && text.includes(" done"), "Received and Done replies in the thread");
   await shot(page, args, "05-email-job.png");
   if (args.webmail) {
     await page.goto(args.webmail, { waitUntil: "networkidle" });

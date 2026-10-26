@@ -10,6 +10,7 @@
 {% if review %}
 <section class="card attention" data-testid="review">
 <h2>{{ t('job.review') }}</h2>
+{% if split %}<p data-testid="check-split"><strong>{{ t('job.review.split', **split) }}</strong></p>{% endif %}
 <p>{{ t('job.review.help') }}</p>
 <p>{% if review_html %}<a href="/pilot/jobs/{{ job.job_id }}/files/{{ review_html.filename }}">{{ t('job.review.open') }}</a> · {% endif %}<a href="/pilot/jobs/{{ job.job_id }}/files/{{ review.filename }}">{{ t('download') }} {{ review.filename }}</a></p>
 {% if user.is_admin %}

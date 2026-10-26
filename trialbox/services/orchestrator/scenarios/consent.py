@@ -28,6 +28,7 @@ from typing import Any
 
 from tb_common.crypto import sha256_bytes
 from tb_common.llm import LlmClient, LlmError
+from tb_common.subject import job_subject
 from tb_contracts import JobOutput, ParseRequest
 
 from orchestrator.clients import StepFailed
@@ -433,11 +434,6 @@ def counts(rec: dict[str, Any]) -> dict[str, int]:
 
 
 # ------------------------------------------------------------------------------------------------ scenarios
-def subject(study: str, cmd: str, outcome: str, detail: str, job_id: str) -> str:
-    """Study and outcome first, the job id last (the UX thread's subject format)."""
-    return f"[{study}] {cmd} {outcome}: {detail} · job {job_id}"
-
-
 def lang_label(langs: list[str]) -> str:
     return ", ".join(lang.upper() if lang != "zh-TW" else "zh-TW" for lang in langs)
 
@@ -493,7 +489,9 @@ def run(ctx: Ctx) -> Outcome:
             Delivery(
                 to=to,
                 outputs=[o for o in outputs if not o.filename.endswith(".json")],
-                subject=subject(study, "CONSENT", "draft ready for review", lang_label(rec["languages"]), job.job_id),
+                subject=job_subject(
+                    "draft ready for review", "CONSENT", study, job.job_id, lang_label(rec["languages"])
+                ),
                 body_md=summary,
             )
         ],
@@ -564,7 +562,7 @@ def release(ctx: Ctx) -> Outcome:
             Delivery(
                 to=to,
                 outputs=outputs,
-                subject=subject(study, "CONSENT", "released", lang_label(langs), job.job_id),
+                subject=job_subject("released", "CONSENT", study, job.job_id, lang_label(langs)),
                 body_md=summary,
             )
         ],

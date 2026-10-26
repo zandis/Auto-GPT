@@ -63,7 +63,7 @@ make ingest-test               # ingest synthetic site A (adapter -> lake + FHIR
 .venv/bin/python tools/send_test_mail.py "FEAS GZQO"
 ```
 
-Open <http://127.0.0.1:8025>. Within a few seconds MailHog shows "Received …", then "Done …" with the
+Open <http://127.0.0.1:8025>. Within a few seconds MailHog shows "[GZQO] FEAS received · job …", then "[GZQO] FEAS done: 1–7 in 12 mo · job …" with the
 feasibility PDF and XLSX for the GZQO retatrutide gout protocol on the 600 synthetic patients.
 
 Next, try:

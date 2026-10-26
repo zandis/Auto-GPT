@@ -56,7 +56,7 @@ def run(ctx: Ctx) -> Outcome:
             deliveries=[
                 Delivery(
                     to=recipients(approved_routing, ctx.job.requested_by),
-                    subject=f"Ruleset {ruleset} v{version} approved",
+                    subject=f"[{ruleset}] ruleset v{version} approved",
                     body_md=body,
                     kind="approved",
                     routing=approved_routing,
@@ -91,16 +91,18 @@ def run(ctx: Ctx) -> Outcome:
         )
         out = ctx.publish(f"manifest_{ruleset}_v{version}.yaml", manifest.encode("utf-8"), "aggregate", to)
         resumed = ctx.orch.resume_awaiting(ruleset, version)
-        body = f"Ruleset **{ruleset} v{version}** is approved (tag `{res.tag}`, review round {res.round}).\n\n" + (
-            f"Resumed waiting jobs: {', '.join(f'`{j}`' for j in resumed)}.\n" if resumed else ""
-        )
+        body = (
+            f"Ruleset **{ruleset} v{version}** is approved by {ctx.job.requested_by} (tag `{res.tag}`, review round "
+            f"{res.round}). The box now uses it for counts and candidate lists; a person still confirms each "
+            f"candidate.\n\n"
+        ) + (f"Resumed waiting jobs: {', '.join(f'`{j}`' for j in resumed)}.\n" if resumed else "")
         return Outcome(
             summary_md=body,
             deliveries=[
                 Delivery(
                     to=to,
                     outputs=[out],
-                    subject=f"Ruleset {ruleset} v{version} approved",
+                    subject=f"[{ruleset}] ruleset v{version} approved",
                     body_md=body,
                     kind="approved",
                     routing=routing,
