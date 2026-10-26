@@ -709,3 +709,21 @@ findings. Each was confirmed (by running code where possible) and fixed with a t
 - Route `dev-stub` lists `j-workhorse@serving` after the stub: on synthetic/open D0 data in DEV/TEST a caller may ask
   for the pinned on-box build (`TB_GATEWAY_MODEL=j-workhorse`). Unpinned, that call is refused, never served by the
   stub.
+
+**D-88 Lightweight ruleset approval; outcome-first mail subjects.** Decided with the site owner on 2026-10-25.
+TrialBox pre-screening stays outside the regulated record: it proposes candidates, a person confirms each one, and
+the trial's own systems (EDC, eTMF, IRB) hold the regulated record. So ruleset approval is a working check by the
+study team, not a 21 CFR Part 11 / ER/ES e-signature: one click on the console job page by an administrator, or a
+reply to the review mail with the workbook. No re-authentication, no signature manifestation, no second approver.
+The approver (requesting mailbox), time and workbook hash stay in the audit chain as before, and the approved mail
+names the approver. The review mail and the console card say how each criterion will be checked, following the
+compiler's class: a fixed filter on structured data (age, sex, codes, labs, drugs), the model reading reports and
+notes, or a person at screening. The language model reads the criteria once to draft them; it never decides
+eligibility on structured data.
+Comparable products do the same: public material for Lind, Deep 6 AI (Tempus), TriNetX and NIH TrialGPT shows the
+human check on the candidate or the query, not an e-signature on the criteria. The spec v2 sign page (§4.1) is
+deferred until a stage that writes to a regulated record (eCRF, SAE) is built.
+Box reply subjects lead with study, command and outcome and end with the job id
+(`tb_common.subject.job_subject`): `[GZQO] FEAS done: 1–7 in 12 mo · job <id>`, `... received · job <id>`,
+`... failed: at <step> · job <id>`, `[GZQO] ruleset v1.0.0 approved`. A reply to one never parses as a command.
+The review mail keeps its `APPROVE <id> version=<v> -- …` subject so a plain reply approves.

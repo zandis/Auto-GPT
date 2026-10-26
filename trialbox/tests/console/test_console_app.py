@@ -462,11 +462,27 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
         recipients=["admin@hospa.test"],
         tag="aggregate",
     )
+    html = (
+        b"<table><tr><td>GZQO-DEMO-INC-01</td><td>inclusion</td><td>structured</td></tr>"
+        b"<tr><td>GZQO-DEMO-INC-02</td><td>inclusion</td><td>note</td></tr>"
+        b"<tr><td>GZQO-DEMO-EXC-01</td><td>exclusion</td><td>human</td></tr></table>"
+    )
+    hkey = f"outputs/{job.job_id}/review_GZQO-DEMO_v1.0.0_r1.html"
+    box["backend"].objects[hkey] = html
+    hout = JobOutput(
+        filename="review_GZQO-DEMO_v1.0.0_r1.html",
+        sha256=sha256_bytes(html),
+        minio_key=hkey,
+        recipients=["admin@hospa.test"],
+        tag="aggregate",
+    )
     box["backend"].jobs[job.job_id] = job.model_copy(
-        update={"state": "awaiting_approval", "ruleset_version": "1.0.0", "outputs": [out]}
+        update={"state": "awaiting_approval", "ruleset_version": "1.0.0", "outputs": [hout, out]}
     )
     page = c.get(f"/pilot/jobs/{job.job_id}").text
     assert 'data-testid="review"' in page
+    assert "check the 3 criteria: 1 by a fixed filter" in page and "1 by a person at screening" in page
+    assert "not a regulated e-signature" in page  # lightweight approval (D-88)
     r = c.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": csrf}, follow_redirects=False)
     assert r.status_code == 303
     appr = box["backend"].created[-1]

@@ -82,3 +82,19 @@ def format_subject(s: Subject) -> str:
     opts = " ".join(f"{k}={v}" for k, v in sorted(s.options.items()))
     out = f"{s.cmd} {s.ruleset}" + (f" {opts}" if opts else "")
     return out + (f" -- {s.comment}" if s.comment else "")
+
+
+def job_subject(kind: str, cmd: str, study: str | None, job_id: str, headline: str = "") -> str:
+    """Subject of a box reply: study, command and outcome first, the job id last (spec §4.1 mail UX).
+
+    ``[GZQO] FEAS done: 1–7 in 12 mo · job 01J…`` reads in a truncated inbox row; a reply to it never parses as a
+    new command (the leading ``[...]`` tag is not one).
+    """
+    tag = f"[{study}] " if study else ""
+    return f"{tag}{cmd} {kind}" + (f": {headline}" if headline else "") + f" · job {job_id}"
+
+
+def is_job_mail(subject: str, kind: str, job_id: str) -> bool:
+    """True for the box's ``kind`` reply (received, done, failed) about ``job_id``."""
+    head, sep, tail = subject.rpartition(" · job ")
+    return bool(sep) and tail.strip() == job_id and f" {kind}" in head

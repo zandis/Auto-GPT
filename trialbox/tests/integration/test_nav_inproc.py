@@ -14,6 +14,7 @@ import pytest
 import tb_contracts as c
 from openpyxl import load_workbook
 from tb_common.crypto import pid_for_mrn
+from tb_common.subject import is_job_mail
 
 from tests.inproc_box import Box, ingest_site, make_box, unzip_phi
 
@@ -88,5 +89,5 @@ def test_nav_by_email(world: dict[str, Any], synth_dir: Path) -> None:
             if r.text == "[待補]"
         ]
         assert marks and all("yellow" in r._r.xml for r in marks)  # shaded yellow, bold
-    summary = next(s for s in box.sent if s.subject.startswith(f"Done {job.job_id}"))
+    summary = next(s for s in box.sent if is_job_mail(s.subject, "done", job.job_id))
     assert any(k.endswith(".pdf") for k in summary.attachments())

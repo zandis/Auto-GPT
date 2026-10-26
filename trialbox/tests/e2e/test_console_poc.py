@@ -28,6 +28,7 @@ from typing import Any
 
 import httpx
 import pytest
+from tb_common.subject import is_job_mail
 
 from tests.stack import host_port, url
 
@@ -114,6 +115,16 @@ def wait_mail(prefix: str, timeout: float = 900) -> EmailMessage:
     raise AssertionError(f"no mail {prefix!r} in MailHog")
 
 
+def wait_job_mail(kind: str, job_id: str, timeout: float = 900) -> EmailMessage:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for m in mailhog():
+            if is_job_mail(str(m["Subject"]), kind, job_id):
+                return m
+        time.sleep(3)
+    raise AssertionError(f"no {kind} mail for job {job_id} in MailHog")
+
+
 def job_by_comment(tag: str, timeout: float = 300) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -148,7 +159,7 @@ def test_web_feas_result_and_pdf(accounts: dict[str, str]) -> None:
     assert out["pdf"].startswith("feasibility_GZQO") and out["pdf"].endswith(".pdf")
     job = httpx.get(url("ORCH", f"/jobs/{out['job']}"), timeout=30).json()
     assert job["state"] == "done" and job["requested_by"] == ADMIN_MAILBOX  # same orchestrator record as e-mail
-    done = wait_mail(f"Done {out['job']}", 120)  # results still go out by e-mail
+    done = wait_job_mail("done", out["job"], 120)  # results still go out by e-mail
     assert any(str(p.get_filename()).endswith(".pdf") for p in done.iter_attachments())
 
 
@@ -164,8 +175,8 @@ def test_email_feas_reply_in_mailhog_and_console(accounts: dict[str, str]) -> No
     with smtplib.SMTP("127.0.0.1", host_port("SMTP"), timeout=30) as s:
         s.send_message(m)
     job = job_by_comment(tag)
-    wait_mail(f"Received {job['job_id']}", 300)
-    done = wait_mail(f"Done {job['job_id']}", 900)
+    wait_job_mail("received", job["job_id"], 300)
+    done = wait_job_mail("done", job["job_id"], 900)
     assert any(str(p.get_filename()).endswith(".pdf") for p in done.iter_attachments())
     browser("thread", user="e2e-admin", password=accounts["admin"], job=job["job_id"], webmail=url("MAILHOG"))
 
@@ -175,7 +186,7 @@ def test_console_test_mailbox_goes_through_email_intake(accounts: dict[str, str]
     browser("mailbox", user="e2e-admin", password=accounts["admin"], subject=f"FEAS GZQO -- {tag}")
     job = job_by_comment(tag)
     assert job["requested_by"] == ADMIN_MAILBOX
-    wait_mail(f"Done {job['job_id']}", 900)
+    wait_job_mail("done", job["job_id"], 900)
 
 
 def test_viewer_cannot_start_jobs(accounts: dict[str, str]) -> None:
@@ -190,7 +201,7 @@ def test_protocol_compile_approve_loop_from_the_web(accounts: dict[str, str]) ->
     ruleset = f"GZQO-W{os.getpid() % 100000}"
     out = browser("protocol", user="e2e-admin", password=accounts["admin"], ruleset=ruleset)
     wait_mail(f"APPROVE {ruleset} version=1.0.0", 120)  # the review package went out by e-mail as well
-    wait_mail(f"Ruleset {ruleset} v1.0.0 approved", 120)
+    wait_mail(f"[{ruleset}] ruleset v1.0.0 approved", 120)
     assert httpx.get(url("ORCH", f"/jobs/{out['feas']}"), timeout=30).json()["state"] == "done"
 
 

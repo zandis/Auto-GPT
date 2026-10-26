@@ -21,6 +21,7 @@ from typing import Any
 import httpx
 import pytest
 from pypdf import PdfReader
+from tb_common.subject import is_job_mail
 
 from tests.stack import ensure_ingested, host_port, url
 
@@ -118,8 +119,8 @@ def test_feas_email_to_pdf() -> None:
         job = next((j for j in jobs if j.get("comment") == tag), {})
         time.sleep(2)
     assert job, "job not created from the email"
-    wait_for(lambda m: str(m["Subject"]).startswith(f"Received {job['job_id']}"), 300)
-    done = wait_for(lambda m: str(m["Subject"]).startswith(f"Done {job['job_id']}"), 1800)
+    wait_for(lambda m: is_job_mail(str(m["Subject"]), "received", str(job["job_id"])), 300)
+    done = wait_for(lambda m: is_job_mail(str(m["Subject"]), "done", str(job["job_id"])), 1800)
     elapsed = time.monotonic() - t0
     assert elapsed < 30 * 60  # SPEC phase 3 DoD: PDF within 30 min
     atts = attachments(done)
@@ -138,9 +139,9 @@ def test_approve_loop_by_email() -> None:
     review = wait_for(lambda m: str(m["Subject"]).startswith(f"APPROVE {ruleset} version=1.0.0"), 1800)
     xlsx = next(v for k, v in attachments(review).items() if k.endswith(".xlsx"))
     send("Approved, thanks", (("review.xlsx", xlsx),), in_reply_to=str(review["Message-ID"]))
-    wait_for(lambda m: str(m["Subject"]) == f"Ruleset {ruleset} v1.0.0 approved", 1800)
+    wait_for(lambda m: str(m["Subject"]) == f"[{ruleset}] ruleset v1.0.0 approved", 1800)
     feas_id = str(review["Subject"]).rsplit("job ", 1)[1].strip()
-    done = wait_for(lambda m: str(m["Subject"]).startswith(f"Done {feas_id}"), 1800)
+    done = wait_for(lambda m: is_job_mail(str(m["Subject"]), "done", feas_id), 1800)
     assert any(k.endswith(".pdf") for k in attachments(done))
 
 
@@ -172,7 +173,7 @@ def test_screen_email_to_encrypted_list() -> None:
         job = next((j for j in jobs if j.get("comment") == tag), {})
         time.sleep(2)
     assert job
-    done = wait_for(lambda m: str(m["Subject"]).startswith(f"Done {job['job_id']}"), 1800)
+    done = wait_for(lambda m: is_job_mail(str(m["Subject"]), "done", str(job["job_id"])), 1800)
     assert any(k.endswith(".pdf") for k in attachments(done))
     lst = wait_for(lambda m: str(m["Subject"]) == f"Candidates GZQO v1.0.0 — job {job['job_id']}", 300)
     assert "pi@hospa.test" in str(lst["To"]) and "sponsor" not in str(lst["To"])
@@ -237,7 +238,7 @@ def test_nav_onc_twpas_then_submit_dry_run() -> None:
     tag2 = f"submit-{os.getpid()}"
     send(f"SUBMIT ONC-OSI pid={pid} bundle={job['job_id']} -- {tag2}", sender="onc-dr@hospa.test")
     sub = _job_by_tag("SUBMIT", tag2)
-    done = wait_for(lambda m: str(m["Subject"]).startswith(f"Done {sub['job_id']}") and bool(attachments(m)), 600)
+    done = wait_for(lambda m: is_job_mail(str(m["Subject"]), "done", str(sub["job_id"])) and bool(attachments(m)), 600)
     assert "onc-dr@hospa.test" in str(done["To"])
     receipt = json.loads(_unzip(done)[f"twpas_claimresponse_ONC-OSI_{pid[:12]}.json"])
     assert receipt["resourceType"] == "ClaimResponse" and receipt["outcome"] == "queued"
@@ -260,7 +261,7 @@ def test_cohort_and_alliance_merge(tmp_path: Path) -> None:
     tag = f"cohort-{os.getpid()}"
     send(f"COHORT GOUT-COH -- {tag}")
     job = _job_by_tag("COHORT", tag)
-    done = wait_for(lambda m: str(m["Subject"]).startswith(f"Done {job['job_id']}") and bool(attachments(m)), 1800)
+    done = wait_for(lambda m: is_job_mail(str(m["Subject"]), "done", str(job["job_id"])) and bool(attachments(m)), 1800)
     files = attachments(done)
     table = next(v for k, v in files.items() if k.startswith("cohort_table_GOUT-COH_DEMO-A_"))
     rows = list(csv.DictReader(io.StringIO(table.decode("utf-8"))))
@@ -296,7 +297,7 @@ def test_cohort_and_alliance_merge(tmp_path: Path) -> None:
     with smtplib.SMTP("127.0.0.1", host_port("SMTP"), timeout=30) as s:
         s.send_message(m)
     merge = _job_by_tag("COHORT", tag2)
-    out = wait_for(lambda x: str(x["Subject"]).startswith(f"Done {merge['job_id']}") and bool(attachments(x)), 600)
+    out = wait_for(lambda x: is_job_mail(str(x["Subject"]), "done", str(merge["job_id"])) and bool(attachments(x)), 600)
     assert "trialbox@hospb.test" in str(out["To"])
     merged = list(csv.DictReader(io.StringIO(next(iter(attachments(out).values())).decode("utf-8"))))
     pop = {r["site_id"]: r for r in merged if r["criterion_id"] == "GOUT-COH-INC-01" and r["quarter"] == "2026Q3"}

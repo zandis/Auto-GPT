@@ -77,7 +77,8 @@ def test_routing_violation_fails_job(make: Any, tmp_path: Path) -> None:
     assert got is not None and got.state == "failed" and got.error is not None and got.error.step == "routing"
     phi_mails = [m for m in mail.sent if any(a.tag == "phi" for a in m.attachments or [])]
     assert not phi_mails  # nothing tagged phi left the box
-    assert [m.subject.split(" ")[0] for m in mail.sent] == ["Received", "Failed"]  # routes checked before sending
+    kinds = [m.subject.split(" · job ")[0].split(" ")[2] for m in mail.sent]
+    assert kinds == ["received", "failed:"]  # routes checked before sending
     assert verify(tmp_path / "audit").ok
 
 

@@ -29,13 +29,13 @@ def box(ingested: dict[str, Any], site_key_dir: Path, tmp_path: Path) -> Box:
 def test_feas_email_round_trip(box: Box) -> None:
     assert box.mail("FEAS GZQO variant=bmi:25 -- sponsor question") == "Processed"
     queued = box.orch.db.find(type_="FEAS")[0]
-    assert box.find(f"Received {queued.job_id}")[0].to == ["crc1@hospa.test"]
+    assert box.find_job("received", queued.job_id)[0].to == ["crc1@hospa.test"]
     box.orch.drain()
     got = box.orch.db.get(queued.job_id)
     assert got is not None
     assert got.state == "done", got.error
     job = got
-    done = box.find(f"Done {job.job_id}")
+    done = box.find_job("done", job.job_id)
     assert len(done) == 1 and done[0].to == ["crc1@hospa.test"]
     atts = done[0].attachments()
     names = sorted(atts)
@@ -104,10 +104,10 @@ def test_compile_approve_loop_by_email(box: Box) -> None:
     box.orch.drain()
     appr = box.orch.db.find(type_="APPROVE")[0]
     assert appr.state == "done", appr.error
-    assert box.find("Ruleset GZQO-IT v1.0.0 approved")
+    assert box.find("[GZQO-IT] ruleset v1.0.0 approved")
     feas = box.orch.db.get(feas.job_id)  # type: ignore[assignment]
     assert feas is not None and feas.state == "done", feas.error
-    done = box.find(f"Done {feas.job_id}")
+    done = box.find_job("done", feas.job_id)
     assert done and any(n.endswith(".pdf") for n in done[0].attachments())
     # restart recovery re-runs an APPROVE interrupted after the compiler tagged the version but before the waiting
     # jobs were resumed: the re-run must not fail on "no draft awaiting approval" and must resume them
@@ -120,7 +120,7 @@ def test_compile_approve_loop_by_email(box: Box) -> None:
     box.orch.set_state(appr, "received")
     again = box.orch.run(appr.job_id)
     assert again.state == "done", again.error
-    assert any("already approved" in s.text() for s in box.find("Ruleset GZQO-IT v1.0.0 approved"))
+    assert any("already approved" in s.text() for s in box.find("[GZQO-IT] ruleset v1.0.0 approved"))
     box.orch.drain()
     resumed = box.orch.db.get(stuck.job_id)
     assert resumed is not None
@@ -141,7 +141,7 @@ def test_rejections_status_cancel(box: Box) -> None:
     box.orch.drain()
     assert box.orch.db.get(job.job_id).state == "failed"  # type: ignore[union-attr]
     box.mail(f"STATUS {job.job_id}")
-    failed = box.find(f"Failed {job.job_id}")[0]
+    failed = box.find_job("failed", job.job_id)[0]
     assert "Step: **ruleset**" in failed.text() or "Step: ruleset" in failed.text()
     status = box.find(f"Status {job.job_id}")
     assert status and '"job_id"' in status[0].text()
