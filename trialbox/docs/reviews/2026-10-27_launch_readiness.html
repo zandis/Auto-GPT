@@ -1,0 +1,158 @@
+<title>TrialBox Launch Readiness</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; a ranked register of gaps, grouped by what each one blocks */
+:root{
+  --bg:#f7f8f6; --surface:#ffffff; --ink:#1d2421; --muted:#5c6a64; --rule:#d9dfdb;
+  --accent:#1f6f5c; --block:#b4442f; --block-bg:#fbeae6; --warn:#9a6a10; --warn-bg:#fbf3e0;
+  --ok:#2c7a4b; --ok-bg:#e6f4ea; --later:#4d5d78; --later-bg:#e9edf4;
+  --display:"IBM Plex Serif",Georgia,serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121715; --surface:#1a201e; --ink:#e4ebe7; --muted:#9aa8a1; --rule:#2e3833;
+  --accent:#5cc2a3; --block:#f08a74; --block-bg:#3a1f19; --warn:#e2b45a; --warn-bg:#352a12;
+  --ok:#6fcf93; --ok-bg:#16301f; --later:#a9b8d6; --later-bg:#1f2635; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121715; --surface:#1a201e; --ink:#e4ebe7; --muted:#9aa8a1; --rule:#2e3833;
+  --accent:#5cc2a3; --block:#f08a74; --block-bg:#3a1f19; --warn:#e2b45a; --warn-bg:#352a12;
+  --ok:#6fcf93; --ok-bg:#16301f; --later:#a9b8d6; --later-bg:#1f2635; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font:15px/1.6 var(--body)}
+.wrap{max-width:880px;margin:0 auto;padding-block:40px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:36px}
+header{display:grid;gap:10px}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font:600 34px/1.15 var(--display);margin:0;text-wrap:balance}
+h2{font:600 22px/1.25 var(--display);margin:0;text-wrap:balance}
+h3{font:600 15px/1.3 var(--body);margin:0}
+p{margin:0;max-width:68ch}
+.verdict{background:var(--surface);border:1px solid var(--rule);border-left:4px solid var(--block);padding:16px 18px;display:grid;gap:6px}
+.verdict strong{font-weight:600}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.facts > div{background:var(--surface);border:1px solid var(--rule);padding:14px 16px;display:grid;gap:8px;min-width:0}
+.facts ul{margin:0;padding-left:18px;display:grid;gap:4px}
+section{display:grid;gap:14px}
+.lede{color:var(--muted)}
+.reg{display:grid;gap:10px}
+.item{background:var(--surface);border:1px solid var(--rule);padding:14px 16px;display:grid;grid-template-columns:44px 1fr;gap:4px 14px;min-width:0}
+.rank{font:500 20px/1.2 var(--mono);color:var(--muted);grid-row:span 3}
+.item .meta{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px;color:var(--muted)}
+.item p{font-size:14px}
+.pill{font:500 11.5px/1 var(--mono);padding:4px 7px;border-radius:3px;letter-spacing:.02em;white-space:nowrap}
+.p-block{background:var(--block-bg);color:var(--block)}
+.p-warn{background:var(--warn-bg);color:var(--warn)}
+.p-ok{background:var(--ok-bg);color:var(--ok)}
+.p-later{background:var(--later-bg);color:var(--later)}
+code{font:13px var(--mono);background:var(--bg);border:1px solid var(--rule);padding:0 4px;border-radius:3px;overflow-wrap:anywhere}
+.tbl{overflow-x:auto;border:1px solid var(--rule);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font:500 12px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+ol.q{margin:0;padding-left:20px;display:grid;gap:8px;max-width:72ch}
+footer{color:var(--muted);font-size:13px;border-top:1px solid var(--rule);padding-top:14px}
+a{color:var(--accent)}
+@media (max-width:520px){h1{font-size:27px}.item{grid-template-columns:1fr}.rank{grid-row:auto}}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Commercial readiness review · 27 Oct 2026 · master 875b51c</div>
+  <h1>Is TrialBox ready to sell to a hospital?</h1>
+  <div class="verdict">
+    <p><strong>Not yet.</strong> TrialBox is a working proof of concept that has only ever run in the cloud on public and synthetic data. It is close to being offered as a <strong>paid, scoped pilot</strong> at one hospital, but five things outside the code have to happen first: a run on the DGX Spark, a run on real hospital records, a legal basis and IRB route, a pilot contract, and confirmed model licences.</p>
+  </div>
+</header>
+
+<div class="facts">
+  <div>
+    <h3>Works today (cloud, synthetic data)</h3>
+    <ul>
+      <li>One-command Docker POC with admin console and e-mail in/out</li>
+      <li>FEAS, SCREEN, protocol questions, consent explainer (EN/JA/zh-TW)</li>
+      <li>920+ unit tests, browser and mail end-to-end tests</li>
+      <li>Model pair gpt-oss-120b + Gemma 4: 8 of 79 eligible pairs lost (same as TrialGPT's GPT-4), 0.9% wrong blocks, about US$0.04 per 1,000 checks</li>
+    </ul>
+  </div>
+  <div>
+    <h3>Has never happened</h3>
+    <ul>
+      <li>A run on the DGX Spark (GB10) with the real models</li>
+      <li>A run on a real hospital's records or Chinese/Japanese clinical notes</li>
+      <li>Hermes with a real model proposing a run (fixed in code today, rerun pending)</li>
+      <li>A hospital IT security review, IRB submission or signed contract</li>
+    </ul>
+  </div>
+</div>
+
+<section>
+  <h2>Blocks a first paid pilot</h2>
+  <p class="lede">Ranked by how much each one stops a hospital from signing. Items 1 to 5 need you or the pilot site; items 6 to 8 were code and are fixed on the draft PR.</p>
+  <div class="reg">
+    <div class="item"><div class="rank">1</div><h3>No real hospital data yet</h3>
+      <div class="meta"><span class="pill p-block">Blocker</span><span>Owner: pilot site + Changfu</span></div>
+      <p>Recall is measured only on the English TrialGPT benchmark and the MIMIC demo. The Taiwan mapping (<code>tw_core</code>) has never seen a real HIS export, and zh-TW notes have never been judged. A hospital will ask "how many of our eligible patients does it miss?" and we cannot answer yet. Needed: a de-identified extract under an IRB-approved protocol, or an on-site run, plus a recall check on 50 to 100 known screened patients.</p></div>
+
+    <div class="item"><div class="rank">2</div><h3>Never run on the DGX Spark</h3>
+      <div class="meta"><span class="pill p-block">Blocker</span><span>Owner: Changfu (hardware access)</span></div>
+      <p><code>make spark-e2e</code> passed 12/12 only with a placeholder model in the cloud. Whether gpt-oss-120b and Gemma 4 fit together in the GB10's 128 GB, and how fast a SCREEN runs there, is unknown. This is the product's whole on-premise promise. Needed: one run on the Spark, or the GCP stand-in if you provide credentials.</p></div>
+
+    <div class="item"><div class="rank">3</div><h3>Legal basis, IRB route and hospital security review</h3>
+      <div class="meta"><span class="pill p-block">Blocker</span><span>Owner: Changfu + site; we can draft the documents</span></div>
+      <p>Screening records for recruitment is secondary use under Taiwan's PDPA and the Human Subjects Research Act. The pilot needs the hospital's legal basis and IRB position, a data protection impact assessment, and the hospital's information-security questionnaire. None of these documents exist yet, though the architecture (on-premise, no patient data leaves the box, audit chain, human confirms every candidate) answers most questions.</p></div>
+
+    <div class="item"><div class="rank">4</div><h3>No contract, data processing terms or price</h3>
+      <div class="meta"><span class="pill p-block">Blocker</span><span>Owner: Changfu</span></div>
+      <p>There is no pilot agreement, data processing agreement, support terms or price. A pilot can be a short fixed-fee agreement with success criteria (for example, recall on a known cohort and hours saved per screen), but it has to exist before a hospital procurement office will move.</p></div>
+
+    <div class="item"><div class="rank">5</div><h3>Model and dataset licences unconfirmed</h3>
+      <div class="meta"><span class="pill p-block">Blocker</span><span>Owner: Changfu / counsel</span></div>
+      <p>Every open model in <code>models/registry.yaml</code> is marked <code>verified: false</code> (Gemma terms, NVIDIA open model licence versions). The Chia corpus licence is still open. Commercial use needs each one confirmed and recorded.</p></div>
+
+    <div class="item"><div class="rank">6</div><h3>Hermes with a real model never proposed a run</h3>
+      <div class="meta"><span class="pill p-warn">Fixed in code, rerun needed</span><span>Stress test #26</span></div>
+      <p>gpt-oss-120b answered "no record of study GZQO" 7 times out of 7. Now: a front-desk instruction file per Hermes profile, refusals that name the wrong field with an example, tolerant look-back and study parsing, and the exact line to confirm is always added to the reply. Needs one real-model run. The native engine (19/20 correct) is the fallback.</p></div>
+
+    <div class="item"><div class="rank">7</div><h3>One bad criterion failed the whole protocol</h3>
+      <div class="meta"><span class="pill p-ok">Fixed</span><span>Stress test #24</span></div>
+      <p>A model-made criterion that cannot be compiled now goes to human review with a <code>compile_error</code> flag; the rest of the protocol compiles.</p></div>
+
+    <div class="item"><div class="rank">8</div><h3>Hospital TLS inspection broke outbound calls</h3>
+      <div class="meta"><span class="pill p-ok">Fixed</span><span>Stress test #21</span></div>
+      <p>Set <code>TB_EXTRA_CA</code> to the hospital CA file; the services that call out trust it alongside the public CAs.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Needed before go-live at the site</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Gap</th><th>Why it matters</th><th>Effort</th></tr></thead>
+    <tbody>
+      <tr><td>Candidate review queue in the console</td><td>"A human confirms every candidate" is the safety story, but the SCREEN page shows no counts or queue; review happens in a spreadsheet by mail.</td><td>1 to 2 weeks</td></tr>
+      <tr><td>Results and mails in zh-TW and Japanese</td><td>Only menus and the consent explainer are translated. Coordinators read results in their own language.</td><td>1 week</td></tr>
+      <tr><td>Users and roles in the console</td><td>Today a CLI task; the research office needs to add and remove staff itself.</td><td>3 to 5 days</td></tr>
+      <tr><td>Backup, restore drill, monitoring and alerts</td><td>Backup is a manual rsync note; there is no alerting and no tested restore. A hospital IT team will ask for both.</td><td>1 week</td></tr>
+      <tr><td>PHI name detector on zh/ja text</td><td>Misfires on Chinese and Japanese names, which can block legitimate model calls or miss a name.</td><td>3 days + real text</td></tr>
+      <tr><td>"Not mentioned" means unknown or absent</td><td>Product decision; it moves 4-way accuracy from about 0.5 to TrialGPT's 0.87 at the cost of more confident exclusions.</td><td>Your decision</td></tr>
+      <tr><td>Smaller stress-test items</td><td>Forwarded .eml attachments dropped (#7), model label mismatch in audit (#25), Windows installer untested, 7 low/info items.</td><td>2 to 3 days</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>For a repeatable product, later</h2>
+  <p>Second site and remote fleet updates, ISO 27001 or SOC 2 path, support hours and an SLA, a second Spark per site for capacity, and the Phase C/D modules that the business case gates on measured recall. Lind Asia (with PREMIA) is localising EHR-embedded screening for Taiwan and Japan, so the first reference site matters more than breadth.</p>
+</section>
+
+<section>
+  <h2>Questions for you</h2>
+  <ol class="q">
+    <li>Which hospital and which trial is the pilot, and who there owns the IRB and IT review?</li>
+    <li>Can you run <code>make spark-e2e</code> on the Spark (or install Claude Code with Remote Control there), or give us a GCP project for the stand-in?</li>
+    <li>Can you add a rotated OpenRouter key as an environment secret named <code>OPENROUTER_API_KEY</code>, so we can rerun Hermes with a real model and close item 6?</li>
+    <li>Should we draft the pilot agreement outline, DPIA and security whitepaper next? You or counsel would finish them.</li>
+    <li>"Not mentioned in the notes": keep it as unknown (safer, current) or treat it as absent?</li>
+  </ol>
+</section>
+
+<footer>Sources: master at 875b51c, stress test of 25 Oct 2026 (29 findings), lifecycle UX review of 25 Oct 2026, models/registry.yaml, docs/RUNBOOK.md, model bake-off results of 25 Oct 2026. Fixes for items 6 to 8 and stress-test #4 and #20 are on the draft PR from branch claude/project-thread-24d0e1, not merged.</footer>
+</div>

@@ -339,6 +339,37 @@ def test_submit_request_only_proposes(box: dict[str, Any]) -> None:
     assert p is not None and p.state.value == "proposed" and p.job_id is None
 
 
+@pytest.mark.req("FR-CONV-2")
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"type": "feas", "study": "gzqo", "lookback_months": 36},
+        {"type": "FEAS", "study": "GZQO", "params": {"lookback": "3 years"}},
+        {"type": "FEAS", "study": "GZQO", "params": "lookback=36"},
+        {"type": "feasibility", "study": " GZQO ", "params": {"years": 3}},
+        {"type": "FEAS", "study": "GZQO", "params": {"look_back": "36個月"}},
+        {"type": "FEAS", "study": "GZQO", "lookback": 36},
+    ],
+)
+def test_submit_request_accepts_the_shapes_real_models_send(box: dict[str, Any], args: dict[str, Any]) -> None:
+    """Stress test #26: gpt-oss-120b via Hermes sent look-backs and study codes the strict contract refused."""
+    sc = call(box, "tb.submit_request", args)["result"]["structuredContent"]
+    assert sc["commands"] == ["FEAS GZQO scope=hospital lookback=36m"], sc
+
+
+def test_invalid_arguments_name_the_field_and_give_an_example_without_echoing_values(box: dict[str, Any]) -> None:
+    out = call(box, "tb.submit_request", {"type": "FEAS", "study": "GZQO", "params": {"lookback": "999 months"}})
+    sc = out["result"]["structuredContent"]
+    assert out["result"]["isError"] and sc["refused"] == "invalid_arguments"
+    assert sc["problems"] and sc["problems"][0]["field"] == "params" and "lookback" in sc["problems"][0]["problem"]
+    assert "999" not in json.dumps(sc["problems"])
+    assert sc["example"]["type"] == "FEAS" and sc["example"]["params"] == {"lookback": "36m"}
+    out = call(box, "tb.submit_request", {"type": "FEAS", "study": "GZQO", "patient": "12345678"})
+    assert "12345678" not in json.dumps(out)
+    final = [r for r in records(box["audit"]) if r["event"] == "frontdoor.call"][-1]
+    assert final["detail"]["reason"] == "invalid_arguments" and final["detail"]["fields"] == ["patient"]
+
+
 @pytest.mark.req("HER-11")
 @pytest.mark.parametrize("value", ["12345678", "A123456789", "crc1@hospa.test", "0912-345-678", "[MRN-1] 12345678"])
 def test_submit_request_rejects_identifiers(box: dict[str, Any], value: str) -> None:

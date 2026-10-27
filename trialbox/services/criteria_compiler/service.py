@@ -180,6 +180,31 @@ class Compiler:
             raise CompileFailed("ir_extract", f"model returned {len(out.criteria)} criteria for {len(lines)} lines")
         return out, guard
 
+    def demote_uncompilable(
+        self, ruleset: str, version: str, criteria: list[CriterionIR], valuesets: dict[str, dict[str, Any]]
+    ) -> tuple[list[CriterionIR], list[str]]:
+        """A structured criterion whose IR cannot be compiled goes to a person instead of failing the whole protocol
+        (stress test #24: one model-made demographic atom without age or sex blocked every other criterion). It
+        becomes class ``human`` with ``needs_review`` and ``compile_error`` flags; the reviewer edits or accepts it."""
+        vsi = ValueSets(ruleset, valuesets, self.d.term)
+        out: list[CriterionIR] = []
+        warnings: list[str] = []
+        for c in criteria:
+            if c.class_ != "structured" or (c.review and c.review.status == "rejected"):
+                out.append(c)
+                continue
+            try:
+                CqlGenerator(ruleset, version, vsi).render([c])
+                SqlGenerator(ruleset, version, vsi).render([c])
+            except CompileError as exc:
+                flags = sorted(set(c.flags or []) | {"needs_review", "compile_error"})
+                question = c.human_question or f"Confirm with the patient/clinician: {c.text}"
+                out.append(c.model_copy(update={"class_": "human", "human_question": question, "flags": flags}))
+                warnings.append(f"{c.id}: {exc}; moved to human review")
+                continue
+            out.append(c)
+        return out, warnings
+
     def build_artifacts(
         self,
         ruleset: str,
@@ -436,6 +461,8 @@ class Compiler:
             criteria.append(fresh.model_copy(update={"id": new_id}))
         profile = self._profile(ruleset)
         lookback = int(options.get("lookback") or profile.get("scopes", {}).get("feas", {}).get("lookback_months", 36))
+        criteria, demoted = self.demote_uncompilable(ruleset, version, criteria, valuesets)
+        warnings.extend(demoted)
         art = self.build_artifacts(ruleset, version, criteria, valuesets, lookback)
         warnings.extend(art.warnings)
         index_date = date.fromisoformat(options["index_date"]) if options.get("index_date") else self._today()

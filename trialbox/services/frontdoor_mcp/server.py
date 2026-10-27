@@ -263,8 +263,16 @@ class FrontDoorServer:
         in_model = TOOL_MODELS[name][0]
         try:
             parsed = in_model.model_validate(args)
-        except ValidationError:
-            return self._refuse(mid, event("refuse", "invalid_arguments"), "invalid_arguments")
+        except ValidationError as e:
+            # the caller learns which field is wrong and why, never the value it sent (stress test #26)
+            problems = _problems(e)
+            return self._refuse(
+                mid,
+                event("refuse", "invalid_arguments"),
+                "invalid_arguments",
+                extra={"problems": problems, **({"example": EXAMPLES[name]} if name in EXAMPLES else {})},
+                audit_extra={"fields": [p["field"] for p in problems]},
+            )
         study = getattr(parsed, "study", None)
         try:
             principal = self.policy.authorise(claims, spec, study if study != "NEW" else None)
@@ -296,12 +304,20 @@ class FrontDoorServer:
             },
         )
 
-    def _refuse(self, mid: Any, ev: FrontdoorAuditEvent, reason: str) -> dict[str, Any]:
+    def _refuse(
+        self,
+        mid: Any,
+        ev: FrontdoorAuditEvent,
+        reason: str,
+        *,
+        extra: dict[str, Any] | None = None,
+        audit_extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         try:
-            self._write("frontdoor.call", ev)
+            self._write("frontdoor.call", ev, audit_extra)
         except Exception:
             return _error(mid, AUDIT_FAILED, "audit ledger unavailable")
-        body = {"refused": reason}
+        body: dict[str, Any] = {"refused": reason, **(extra or {})}
         return _result(
             mid,
             {
@@ -312,8 +328,9 @@ class FrontDoorServer:
             },
         )
 
-    def _write(self, event: str, ev: FrontdoorAuditEvent) -> None:
-        self.audit.append(event, actor=ev.user, input_sha=ev.args_sha256, detail=ev.model_dump(mode="json"))
+    def _write(self, event: str, ev: FrontdoorAuditEvent, extra: dict[str, Any] | None = None) -> None:
+        detail = ev.model_dump(mode="json") | (extra or {})
+        self.audit.append(event, actor=ev.user, input_sha=ev.args_sha256, detail=detail)
 
     def _alarm(self, tool: str, reason: str, conv: str | None) -> None:
         ev = FrontdoorAuditEvent(user="?", tool=tool, args_sha256="", decision="refuse", reason=reason, conv=conv)
@@ -433,6 +450,23 @@ class FrontDoorServer:
             lambda: StepResult(output={"release_id": rel.release_id, "resent_to": principal.sub}, sends=[msg]),
         )
         return ResendOut(status="sent")
+
+
+# A well-formed call per tool, returned with ``invalid_arguments`` so a model can correct itself on the next step.
+EXAMPLES: dict[str, dict[str, Any]] = {
+    "tb.submit_request": {"type": "FEAS", "study": "GZQO", "params": {"lookback": "36m"}, "language": "en"},
+    "tb.ask_protocol": {"study": "GZQO", "question": "What is the upper age limit?"},
+    "tb.status": {"study": "GZQO"},
+}
+
+
+def _problems(e: ValidationError) -> list[dict[str, str]]:
+    """Field path and reason of each validation error, without the offending input (it may carry an identifier)."""
+    out = []
+    for err in e.errors(include_input=False, include_url=False)[:8]:
+        loc = ".".join(str(x) for x in err.get("loc", ())) or "arguments"
+        out.append({"field": loc, "problem": str(err.get("msg", "invalid"))[:200]})
+    return out
 
 
 def _result(mid: Any, result: dict[str, Any]) -> dict[str, Any]:
