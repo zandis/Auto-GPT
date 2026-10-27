@@ -167,7 +167,7 @@ class Gateway:
             detail={"reason": reason, "auth": m.auth_detail},
         )
         if reply:
-            self._reply(m, f"TrialBox could not process your message: {reason}." if detailed else GENERIC)
+            self._reply(m, f"TrialBox could not process your message: {reason.rstrip('.')}." if detailed else GENERIC)
         return "Rejected"
 
     # ------------------------------------------------------------------ IMAP

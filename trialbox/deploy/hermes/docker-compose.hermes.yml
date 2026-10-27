@@ -68,6 +68,8 @@ services:
       # profile config: managed scope (user-immutable overlay) and the profile home, both read-only (HER-22)
       - ${TB_HERMES_CONFIG:-../integrations/hermes/profiles/${TB_HERMES_PROFILE:-tb-staff}/config.yaml}:/etc/hermes/config.yaml:ro
       - ${TB_HERMES_CONFIG:-../integrations/hermes/profiles/${TB_HERMES_PROFILE:-tb-staff}/config.yaml}:/opt/data/config.yaml:ro
+      # the profile's front-desk instructions (SOUL.md is Hermes' identity prompt), read-only; stress test #26
+      - ../integrations/hermes/profiles/${TB_HERMES_PROFILE:-tb-staff}/SOUL.md:/opt/data/SOUL.md:ro
       # the only two plugins, read-only (item 8)
       - ../integrations/hermes/tb_relay_adapter:/opt/data/plugins/tb_relay_adapter:ro
       - ../integrations/hermes/tb_policy_audit:/opt/data/plugins/tb_policy_audit:ro

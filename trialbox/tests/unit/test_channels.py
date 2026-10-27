@@ -394,7 +394,15 @@ def test_grammar_rejects_malformed_lines_and_leaves_free_text_alone() -> None:
     ):
         with pytest.raises(GrammarError):
             parse_line(bad)
-    for free in ("這個試驗做得起來嗎", "status of GZQO?", "ok thanks", "", "Feas for GZQO please"):
+    for free in (
+        "這個試驗做得起來嗎",
+        "status of GZQO?",
+        "ok thanks",
+        "",
+        "Feas for GZQO please",
+        "FEAS for GZQO or RA-BIO?",  # stress test #20: a sentence that starts with a command word
+        "STATUS of my requests?",
+    ):
         assert parse_line(free) is None
     assert parse_line("APPROVE GZQO version=1.0.0") is not None and parse_line("APPROVE G-1 sha=ab").approval  # type: ignore[union-attr]
 

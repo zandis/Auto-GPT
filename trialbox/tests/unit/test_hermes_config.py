@@ -425,3 +425,18 @@ def test_compose_fragment_pins_digest_and_isolates_hermes() -> None:
     ):
         assert mounts[target].endswith(":ro"), target
     assert doc["services"]["gateway"]["networks"] == ["hermes-net"]
+
+
+@pytest.mark.req("HER-22")
+@pytest.mark.parametrize("name", ["tb-staff", "tb-admin", "tb-line"])
+def test_each_profile_has_a_read_only_front_desk_identity(name: str) -> None:
+    """Stress test #26: without instructions a real model answered "no record of study GZQO" instead of proposing.
+    SOUL.md is Hermes' identity prompt; it is mounted read-only and names only tools the profile includes."""
+    soul = (PROFILES / name / "SOUL.md").read_text(encoding="utf-8")
+    assert soul.strip()
+    named = set(re.findall(r"`(tb\.[a-z_]+)`", soul))
+    cfg = yaml.safe_load((PROFILES / name / "config.yaml").read_text())
+    assert named <= set(cfg["mcp_servers"]["frontdoor"]["tools"]["include"]), named
+    assert not re.search(r"ignore\s+(previous|all|above|prior)|you\s+are\s+now\s", soul, re.I)  # Hermes context scan
+    mounts = yaml.safe_load(COMPOSE.read_text())["services"]["hermes"]["volumes"]
+    assert any(m.endswith("/SOUL.md:/opt/data/SOUL.md:ro") for m in mounts)

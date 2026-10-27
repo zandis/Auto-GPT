@@ -149,6 +149,7 @@ services:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - rulesets-data:/data/rulesets
       - audit-data:/data/audit
+      - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
 
   adapter:
     <<: *py
@@ -178,6 +179,7 @@ services:
       - audit-data:/data/audit
       - rulesets-data:/data/rulesets:ro
       - tb-secrets:/run/secrets/trialbox
+      - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
 
   mail-gateway:
     <<: *py
@@ -188,6 +190,7 @@ services:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - audit-data:/data/audit
       - mail-data:/data/mail
+      - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
 
   gateway:
     # tb-gateway (spec v4 §8.2, S1-06): the only path to a model. Routes from models/routing.yaml; aliases resolve
@@ -207,6 +210,7 @@ services:
       - ${TB_SITE_DIR:-./site}:/etc/trialbox/site:ro
       - audit-data:/data/audit
       - traces-data:/data/traces
+      - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
 
   llm-stub:
     <<: *py

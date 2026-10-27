@@ -22,6 +22,7 @@ from mail_gateway.store import MailDB
 
 MAX_ATTACHMENTS = 20
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+MAX_SUBJECT_CHARS = 998  # RFC 5322 line limit
 _RESULT = re.compile(r"^\s*(spf|dkim|dmarc)\s*=\s*([a-z]+)\b(.*)$", re.I | re.S)
 _PROP = re.compile(r"\b(smtp\.mailfrom|header\.d|header\.i|header\.from)\s*=\s*([^\s;()]+)", re.I)
 
@@ -137,6 +138,8 @@ def decide(m: Inbound, settings: Settings, db: MailDB, now: datetime, intake_add
         return Decision("reject", "sender not on the allowlist", detailed_reply=False, reply=m.auth_ok)
     if settings.require_spf_dkim is not False and not m.auth_ok:
         return Decision("reject", f"sender authentication failed ({m.auth_detail})")
+    if len(m.subject) > MAX_SUBJECT_CHARS:  # stress test #4: a 200 KB subject became a job and its audit record
+        return Decision("reject", f"subject longer than {MAX_SUBJECT_CHARS} characters")
     try:
         subj = parse_subject(m.subject)
     except SubjectError as exc:
