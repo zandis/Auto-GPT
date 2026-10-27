@@ -41,6 +41,10 @@ platform_toolsets:
   cli: [frontdoor]
   tb_relay: [frontdoor]
 agent:
+  # the model sits behind a gateway alias (f-frontdesk / j-workhorse), so the "auto" model-name match never fires:
+  # force the call-the-tool guidance and the nudge when a reply narrates a call instead of making it (stress #26)
+  tool_use_enforcement: true
+  intent_ack_continuation: true
   disabled_toolsets: [web, search, x_search, vision, video, image_gen, video_gen, computer_use, terminal, skills,
     browser, cronjob, file, tts, todo, memory, context_engine, session_search, connections, project, bot_room,
     desktop_ui, onboarding, catalog, clarify, code_execution, delegation, kanban, discord, discord_admin, yuanbao,
