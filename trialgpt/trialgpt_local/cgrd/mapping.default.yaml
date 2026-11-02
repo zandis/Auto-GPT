@@ -1,0 +1,17 @@
+# CGRD source mapping: which tables/columns hold what. The default describes the synthetic CGRD-format database
+# (TrialBox `tools/make_fixtures.py`, `cgrd.sqlite`). For the real CGRD, copy this file and change names only.
+# Identity columns (name, national id, phone, birth date) are never selected: the note carries age, not birth date.
+icd10_names: icd10_names_synthetic.csv   # code,display,display_zh — replace with the full ICD-10-CM (TW) table
+tables:
+  patient:     {table: patient, mrn: mrn, birth_date: birth_date, sex: sex, death_date: death_date}
+  diagnosis:   {table: diagnosis, mrn: mrn, code: icd10, date: diag_date, status: status}
+  lab:         {table: lab, mrn: mrn, name: item_name, value: result_value, unit: unit, date: sample_datetime}
+  vital:       {table: vital, mrn: mrn, date: measure_datetime, height_cm: height_cm, weight_kg: weight_kg, sbp: sbp, dbp: dbp}
+  medication:  {table: medication, mrn: mrn, name: drug_name, atc: atc, dose: daily_dose, unit: dose_unit, start: start_date, end: end_date, order_date: order_date}
+  procedure:   {table: procedure, mrn: mrn, name: proc_name, date: proc_date}
+  report:      {table: report, mrn: mrn, name: exam_name, date: exam_date, text: conclusion}
+  note:        {table: note, mrn: mrn, date: note_datetime, type: note_type, text: text}
+sex_values: {M: male, F: female, "1": male, "2": female}
+window_days: 365        # history included in the note
+max_notes: 3            # most recent clinical notes, verbatim
+max_labs_per_item: 2    # latest results per lab item
