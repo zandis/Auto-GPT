@@ -6,6 +6,7 @@ in-scope patients are screened and appended to the pool."""
 from __future__ import annotations
 
 from datetime import date, timedelta
+from typing import Any
 
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
@@ -21,6 +22,8 @@ from orchestrator.scenarios.screen import (
     Scoped,
     deliver_lists,
     evaluate_scope,
+    judge_for,
+    judging_info,
     local_iso,
     persist_pool,
     practitioner_names,
@@ -120,10 +123,12 @@ def run(ctx: Ctx) -> Outcome:
             )
         )
     added = 0
+    judging: dict[str, Any] | None = judging_info(judge_for(ctx, rs)) if ts and scoped else None
     incident = (job.options or {}).get("incident", "auto")
     if incident == "1" or (incident == "auto" and first_monday(run_date)):
         known = {p["pid"] for p in pool}
         srun = run_screen(ctx, rs, run_date, snapshot)
+        judging = srun.judging
         new_rows = [r for r in srun.rows if r.pid not in known and r.tier in ("high", "review")]
         persist_pool(ctx, rs, new_rows)
         added = len(new_rows)
@@ -136,7 +141,7 @@ def run(ctx: Ctx) -> Outcome:
     rows.sort(key=sort_key)
     persist_pool(ctx, rs, [r for r in rows if r.pid in {p["pid"] for p in week}])
     ctx.state("reporting")
-    meta = report_meta(ctx, rs, snapshot, run_date, srun.judging)
+    meta = report_meta(ctx, rs, snapshot, run_date, judging)
     stem = f"this_week_visit1_{rs.id}_{run_date.isoformat()}"
     deliveries, _ = deliver_lists(ctx, rs, rows, meta, stem, changes=changes)
     agg_to = recipients(rs.manifest.routing, job.requested_by)
