@@ -15,17 +15,20 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import re
 import secrets
 import sqlite3
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-Role = Literal["admin", "coordinator", "investigator", "viewer"]
-ROLES: tuple[Role, ...] = ("admin", "coordinator", "investigator", "viewer")
+Role = Literal["admin", "coordinator", "investigator", "viewer", "cro"]
+ROLES: tuple[Role, ...] = ("admin", "coordinator", "investigator", "viewer", "cro")
+# D-104: where an account sits. An SMO coordinator is a study-scoped coordinator; a CRO account is aggregate-only.
+AFFILIATIONS: tuple[str, ...] = ("hospital", "smo", "cro")
 SSO_MARK = "sso"  # pw_hash of an account the hospital identity provider signs in (no console password)
 MIN_PASSWORD = 12
 MAX_FAILURES = 5
@@ -58,6 +61,9 @@ CREATE TABLE IF NOT EXISTS login_failures (
 );
 CREATE INDEX IF NOT EXISTS login_failures_user ON login_failures (username, at);
 """
+# D-104 account scope, added to existing databases in place (nullable: old accounts stay hospital-wide, no end date)
+SCOPE_COLUMNS = (("affiliation", "TEXT"), ("studies", "TEXT"), ("expires", "TEXT"))
+_COLS = "username, role, mailbox, affiliation, studies, expires"
 
 
 class AuthError(ValueError):
@@ -116,6 +122,9 @@ class User:
     username: str
     role: Role
     mailbox: str | None
+    affiliation: str = "hospital"
+    studies: tuple[str, ...] = ()  # empty = every study (D-104)
+    expires: str | None = None  # ISO date; sign-in refused after it
 
     @property
     def is_admin(self) -> bool:
@@ -133,6 +142,19 @@ class User:
         the requesters, who keep the screening log."""
         return self.role in ("admin", "coordinator", "investigator")
 
+    @property
+    def can_mark(self) -> bool:
+        """May mark weekly-list patients Approach / Not suitable / Need info: investigators (D-104)."""
+        return self.role == "investigator"
+
+    @property
+    def aggregate_only(self) -> bool:
+        """Sees aggregate reports only, in the sponsor (suppressed) form for CRO accounts (D-104)."""
+        return self.role in ("viewer", "cro")
+
+    def sees_study(self, ruleset: str) -> bool:
+        return not self.studies or ruleset.upper() in self.studies
+
 
 @dataclass(frozen=True)
 class Session:
@@ -149,6 +171,12 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def _row_user(row: tuple[object, ...]) -> User:
+    u, r, m, aff, studies, exp = row
+    st = tuple(x for x in str(studies or "").upper().replace(" ", "").split(",") if x)
+    return User(str(u), r, m, str(aff or "hospital"), st, str(exp) if exp else None)  # type: ignore[arg-type]
+
+
 class UserStore:
     def __init__(self, path: Path, clock: Clock = _utcnow) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -156,7 +184,14 @@ class UserStore:
         self._con = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
         self._con.execute("PRAGMA journal_mode=WAL")
         self._con.executescript(SCHEMA)
+        have = {r[1] for r in self._con.execute("PRAGMA table_info(users)").fetchall()}
+        for col, typ in SCOPE_COLUMNS:
+            if col not in have:
+                self._con.execute(f"ALTER TABLE users ADD COLUMN {col} {typ}")
         self.clock = clock
+
+    def _expired(self, user: User) -> bool:
+        return bool(user.expires) and self.clock().date().isoformat() > str(user.expires)
 
     # ------------------------------------------------------------------ users
     def count(self, role: Role | None = None) -> int:
@@ -171,17 +206,45 @@ class UserStore:
 
     def users(self) -> list[User]:
         with self._lock:
-            rows = self._con.execute(
-                "SELECT username, role, mailbox FROM users WHERE disabled = 0 ORDER BY username"
-            ).fetchall()
-        return [User(str(u), str(r), m) for u, r, m in rows]  # type: ignore[arg-type]
+            rows = self._con.execute(f"SELECT {_COLS} FROM users WHERE disabled = 0 ORDER BY username").fetchall()
+        return [_row_user(r) for r in rows]
 
     def get(self, username: str) -> User | None:
         with self._lock:
             row = self._con.execute(
-                "SELECT username, role, mailbox FROM users WHERE username = ? AND disabled = 0", (username,)
+                f"SELECT {_COLS} FROM users WHERE username = ? AND disabled = 0", (username,)
             ).fetchone()
-        return User(str(row[0]), row[1], row[2]) if row else None
+        if row is None:
+            return None
+        user = _row_user(row)
+        return None if self._expired(user) else user
+
+    def set_scope(
+        self, username: str, affiliation: str = "hospital", studies: str = "", expires: str | None = None
+    ) -> User:
+        """Affiliation, study scope and end date of an account (D-104). An SMO coordinator is normally scoped to
+        the studies on its contract with an end date; a CRO account is aggregate-only whatever its scope."""
+        aff = (affiliation or "hospital").strip().lower()
+        if aff not in AFFILIATIONS:
+            raise AuthError(f"affiliation must be one of {', '.join(AFFILIATIONS)}")
+        st = ",".join(x for x in studies.upper().replace(" ", "").split(",") if x)
+        if st and not all(re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{0,31}", x) for x in st.split(",")):
+            raise AuthError("studies are ruleset ids separated by commas")
+        exp = (expires or "").strip() or None
+        if exp is not None:
+            try:
+                date.fromisoformat(exp)
+            except ValueError as exc:
+                raise AuthError("end date must be YYYY-MM-DD") from exc
+        with self._lock:
+            cur = self._con.execute(
+                "UPDATE users SET affiliation = ?, studies = ?, expires = ? WHERE username = ?",
+                (aff, st or None, exp, username),
+            )
+            if cur.rowcount != 1:
+                raise AuthError(f"no user {username}")
+            row = self._con.execute(f"SELECT {_COLS} FROM users WHERE username = ?", (username,)).fetchone()
+        return _row_user(row)
 
     def create(self, username: str, role: Role, password: str, mailbox: str | None = None) -> User:
         u = check_username(username)
@@ -220,9 +283,10 @@ class UserStore:
             elif row[0] == SSO_MARK:
                 self._con.execute("UPDATE users SET role = ?, mailbox = ? WHERE username = ?", (role, mb, u))
             else:  # a local account: the header never changes its role or mailbox
-                row = self._con.execute("SELECT role, mailbox FROM users WHERE username = ?", (u,)).fetchone()
-                return User(u, row[0], row[1])
-        return User(u, role, mb)
+                row = self._con.execute(f"SELECT {_COLS} FROM users WHERE username = ?", (u,)).fetchone()
+                return _row_user(row)
+            row = self._con.execute(f"SELECT {_COLS} FROM users WHERE username = ?", (u,)).fetchone()
+        return _row_user(row)
 
     def is_sso(self, username: str) -> bool:
         with self._lock:
@@ -259,9 +323,9 @@ class UserStore:
         u = username.strip().lower()
         with self._lock:
             row = self._con.execute(
-                "SELECT username, role, mailbox, pw_hash FROM users WHERE username = ? AND disabled = 0", (u,)
+                f"SELECT {_COLS}, pw_hash FROM users WHERE username = ? AND disabled = 0", (u,)
             ).fetchone()
-        stored = str(row[3]) if row else hash_password("unknown-user-dummy-password")
+        stored = str(row[6]) if row else hash_password("unknown-user-dummy-password")
         ok = verify_password(password, stored) and row is not None
         if self.locked(u):
             return None
@@ -274,7 +338,8 @@ class UserStore:
         with self._lock:
             self._con.execute("DELETE FROM login_failures WHERE username = ?", (u,))
         assert row is not None
-        return User(str(row[0]), row[1], row[2])
+        user = _row_user(row[:6])
+        return None if self._expired(user) else user
 
     # ------------------------------------------------------------------ sessions
     def new_session(self, user: User, lang: str = "en") -> tuple[str, Session]:

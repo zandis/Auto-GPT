@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}{{ t('feas.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow">
+  <h1>{{ rs }} · {{ t('feas.title') }}</h1>
+  {% if rep %}<div class="actions">
+    {% if user.role != 'cro' %}{% if rep.sponsor %}<a href="/studies/{{ rs }}/feasibility" data-testid="view-internal">{{ t('feas.view_internal') }}</a>{% else %}<a href="/studies/{{ rs }}/feasibility?view=sponsor" data-testid="view-sponsor">{{ t('feas.view_sponsor') }}</a>{% endif %}{% endif %}
+    {% for f in rep.files %}<a href="/pilot/jobs/{{ rep.job.job_id }}/files/{{ f }}">{{ f.rsplit('.', 1)[1]|upper }}</a>{% endfor %}
+    <a href="/pilot/jobs/{{ rep.job.job_id }}/sponsor-pack.zip" data-testid="sponsor-pack">{{ t('feas.pack') }}</a>
+  </div>{% endif %}
+</div>
+{% if saved %}<p class="ok" role="status">{{ t('feas.saved') }}</p>{% endif %}
+{% if not rep %}
+<section class="card"><p>{{ t('feas.none') }}</p>{% if user.can_request %}<a class="button" href="/pilot/request?ruleset={{ rs }}">{{ t('next.feas') }}</a>{% endif %}</section>
+{% else %}
+{% set s = rep.summary %}
+<p class="hint" data-testid="feas-meta">{{ t('feas.meta', ver=rep.version, snapshot=rep.snapshot, lookback=rep.lookback or '–', population=rep.population or '–') }}</p>
+{% if rep.sponsor %}<p class="warn" data-testid="sponsor-banner">{{ t('feas.sponsor_banner') }}</p>{% endif %}
+
+<section class="card" id="summary">
+<h2>1 · {{ t('feas.s1') }}</h2>
+<div class="tiles">
+  <div class="tile"><p class="hint">{{ t('feas.tile.rand' if not s.consent_only else 'feas.tile.consent') }}</p>
+    <p class="big" data-testid="per-month">{{ s.per_month[1] }} <small>/ {{ t('feas.month') }}</small></p>
+    <p class="hint">{{ t('feas.range', low=s.per_month[0], high=s.per_month[2]) }} · {{ t('feas.horizon', months=s.months, low=s.horizon[0], mid=s.horizon[1], high=s.horizon[2]) }}</p></div>
+  <div class="tile"><p class="hint">{{ t('feas.tile.reading') }}</p>
+    <p class="big" data-testid="reading">{% if s.reading %}<span class="pill rd-{{ s.reading }}">{{ t('reading.' + s.reading) }}</span>{% else %}–{% endif %}</p>
+    <p class="hint">{% if s.target_n %}{{ t('feas.target', n=s.target_n, months=s.target_months) }}{% else %}{{ t('reading.none') }}{% endif %}</p></div>
+  <div class="tile"><p class="hint">{{ t('feas.tile.pool') }}</p>
+    <p class="big" data-testid="pool">{{ s.pool_now }} / {{ s.potential }}</p>
+    <p class="hint">{{ t('feas.pool.help') }}</p></div>
+  {% if s.visits_90d is not none %}<div class="tile"><p class="hint">{{ t('feas.tile.visits') }}</p>
+    <p class="big">{{ s.visits_90d }}</p><p class="hint">{{ t('feas.visits.help') }}</p></div>{% endif %}
+</div>
+{% if s.barriers %}<p><strong>{{ t('feas.barriers') }}</strong> {% for b in s.barriers %}{{ b.label }} (−{{ '{:,}'.format(b.dropped) }}{% if b.never %}, {{ t('feas.never_n', n='{:,}'.format(b.never)) }}{% endif %}){{ ' · ' if not loop.last else '' }}{% endfor %}</p>{% endif %}
+<p>{% if s.n_not_applied %}{{ t('feas.not_applied_n', n=s.n_not_applied) }} {% endif %}{% if s.consent_only %}{{ t('feas.limit.consent') }}{% else %}{{ t('feas.limit.sf', pct=(s.screen_fail * 100)|round|int, src=t('src.' + s.screen_fail_source)) }}{% endif %}</p>
+</section>
+
+<section class="card" id="counts">
+<h2>2 · {{ t('feas.s2') }}</h2>
+<table class="compact"><tbody>
+<tr><td>{{ t('feas.c.start', lookback=rep.lookback or '–') }}</td><td class="num">{{ s.start }}</td></tr>
+<tr><td>{{ t('feas.c.now') }}</td><td class="num">{{ s.pool_now }}</td></tr>
+<tr><td>{{ t('feas.c.potential') }}</td><td class="num">{{ s.potential }}</td></tr>
+<tr><td>{{ t('feas.c.monthly') }}</td><td class="num">{{ s.monthly_mean if s.monthly_mean is not none else '–' }}</td></tr>
+{% if s.visits_90d is not none %}<tr><td>{{ t('feas.c.visits') }}</td><td class="num">{{ s.visits_90d }}</td></tr>{% endif %}
+</tbody></table>
+<p class="hint">{{ t('feas.rounded') }}</p>
+</section>
+
+<section class="card" id="funnel">
+<h2>3 · {{ t('feas.s3') }}</h2>
+<div class="scroll"><table class="funnel" data-testid="funnel">
+<thead><tr><th>{{ t('feas.f.criterion') }}</th><th class="barcol"></th><th class="num">{{ t('feas.f.remaining') }}</th><th class="num">{{ t('feas.f.dropped') }}</th><th class="num">{{ t('feas.f.unknown') }}</th><th>{{ t('feas.f.how') }}</th></tr></thead>
+<tbody>
+<tr><td>{{ t('feas.f.scope') }}</td><td class="barcol"><svg viewBox="0 0 100 10" preserveAspectRatio="none" class="bar" aria-hidden="true"><rect x="0" y="1" width="100" height="8" class="b"/></svg></td><td class="num">{{ s.start }}</td><td></td><td></td><td></td></tr>
+{% for f in rep.funnel %}
+<tr class="{{ '' if f.applied else 'muted' }}">
+<td>{{ f.id }} {{ f.label }}</td>
+<td class="barcol">{% if f.applied and f.width is not none %}<svg viewBox="0 0 100 10" preserveAspectRatio="none" class="bar" aria-hidden="true"><rect x="0" y="1" width="{{ '%.1f'|format(f.width) }}" height="8" class="b"/></svg>{% else %}<svg viewBox="0 0 100 10" preserveAspectRatio="none" class="bar" aria-hidden="true"><rect x="0" y="1" width="100" height="8" class="na"/></svg>{% endif %}</td>
+{% if f.applied %}<td class="num">{{ f.remaining }}</td><td class="num">{{ f.dropped }}</td><td class="num">{{ f.unknown }}</td>{% else %}<td colspan="3" class="hint">{{ t('feas.f.not_applied') }}</td>{% endif %}
+<td>{{ t('how.' + f.verified) }}</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+<p class="hint">{{ t('feas.f.help') }}</p>
+</section>
+
+<section class="card" id="barriers">
+<h2>4 · {{ t('feas.s4') }}</h2>
+<div class="scroll"><table class="compact" data-testid="barriers">
+<thead><tr><th>{{ t('feas.f.criterion') }}</th><th class="num">{{ t('feas.b.lost') }}</th><th class="num">{{ t('feas.b.failed') }}</th><th class="num">{{ t('feas.b.never') }}</th></tr></thead>
+<tbody>{% for b in rep.barriers %}<tr><td>{{ b.id }} {{ b.label }}</td><td class="num">{{ '{:,}'.format(b.dropped) }}</td><td class="num">{{ '{:,}'.format(b.failed) }}</td><td class="num">{{ '{:,}'.format(b.never) }}</td></tr>{% else %}<tr><td colspan="4" class="hint">–</td></tr>{% endfor %}</tbody>
+</table></div>
+<p class="hint">{{ t('feas.b.help') }}</p>
+{% if rep.not_applied %}<h3>{{ t('feas.b.unverifiable') }}</h3>
+<ul>{% for f in rep.not_applied %}<li>{{ f.id }} {{ f.label }} — {{ t('how.' + f.verified) }}</li>{% endfor %}</ul>{% endif %}
+{% if rep.comment %}<h3>{{ t('feas.comment') }}</h3><p data-testid="site-comment">{{ rep.comment }} <span class="hint">({{ rep.entered.by }}, {{ rep.entered.at }})</span></p>{% endif %}
+</section>
+
+<section class="card" id="sensitivity">
+<h2>5 · {{ t('feas.s5') }}</h2>
+<div class="scroll"><table class="compact"><thead><tr><th>{{ t('feas.f.criterion') }}</th><th>{{ t('feas.sens.variant') }}</th><th class="num">{{ t('feas.f.remaining') }}</th><th class="num">{{ t('feas.sens.delta') }}</th></tr></thead>
+<tbody>{% for r in rep.sensitivity %}<tr><td>{% if r.criterion == '*' %}{{ t('feas.sens.all') }}{% else %}{{ r.criterion }} {{ r.label if r.label != r.criterion else '' }}{% endif %}</td><td>{% if r.variant == 'unknown_as_pass' %}{{ t('feas.sens.uap') }}{% else %}{{ r.variant }}{% endif %}</td><td class="num">{{ r.remaining }}</td><td class="num">{% if r.delta is not none %}{{ '%+d'|format(r.delta) }}{% else %}–{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+
+<section class="card" id="projection">
+<h2>6 · {{ t('feas.s6') }}</h2>
+{% set mvals = rep.monthly|map(attribute='n')|select('number')|list %}
+{% if rep.monthly %}
+<h3>{{ t('feas.monthly') }}</h3>
+{% set mmax = (mvals|max) if mvals else 1 %}{% set mmax = mmax if mmax > 0 else 1 %}
+{% set w = 600 / (rep.monthly|length) %}
+<svg viewBox="0 0 600 130" class="chart" role="img" aria-label="{{ t('feas.monthly') }}" data-testid="monthly-chart">
+  {% for m in rep.monthly %}{% if m.n is number %}{% set hgt = 100 * m.n / mmax %}<rect x="{{ '%.1f'|format(loop.index0 * w + 1) }}" y="{{ '%.1f'|format(105 - hgt) }}" width="{{ '%.1f'|format(w - 2) }}" height="{{ '%.1f'|format(hgt) }}" class="b"><title>{{ m.month }}: {{ m.n }}</title></rect>{% else %}<rect x="{{ '%.1f'|format(loop.index0 * w + 1) }}" y="95" width="{{ '%.1f'|format(w - 2) }}" height="10" class="na"><title>{{ m.month }}: {{ m.n }}</title></rect>{% endif %}{% endfor %}
+  <text x="0" y="122" class="ax">{{ rep.monthly[0].month }}</text><text x="600" y="122" class="ax" text-anchor="end">{{ rep.monthly[-1].month }}</text>
+  <text x="0" y="10" class="ax">{{ t('feas.max', n=mmax) }}</text>
+</svg>
+{% endif %}
+{% if rep.projection %}
+<h3>{{ t('feas.curve', what=t('feas.tile.rand' if not s.consent_only else 'feas.tile.consent')) }}</h3>
+{% set n = rep.projection|length %}{% set top = (rep.projection[-1][2] if rep.projection[-1][2] > 0 else 1) %}
+{% if s.target_n %}{% set tgt = s.target_n * s.months / s.target_months %}{% set top = [top, tgt]|max %}{% endif %}
+<svg viewBox="0 0 600 170" class="chart" role="img" aria-label="{{ t('feas.curve', what='') }}" data-testid="projection-chart">
+  {% set pts_hi = [] %}{% set pts_lo = [] %}{% set pts_mid = [] %}
+  {% for p in rep.projection %}{% set x = 40 + 540 * loop.index / n %}
+    {% set _ = pts_hi.append('%.1f,%.1f'|format(x, 150 - 140 * p[2] / top)) %}{% set _ = pts_lo.append('%.1f,%.1f'|format(x, 150 - 140 * p[0] / top)) %}{% set _ = pts_mid.append('%.1f,%.1f'|format(x, 150 - 140 * p[1] / top)) %}
+  {% endfor %}
+  <polygon points="40,150 {{ pts_hi|join(' ') }} {{ (pts_lo|reverse|list)|join(' ') }} 40,150" class="band"/>
+  <polyline points="40,150 {{ pts_mid|join(' ') }}" class="line"/>
+  {% if s.target_n %}<line x1="40" x2="580" y1="{{ '%.1f'|format(150 - 140 * tgt / top) }}" y2="{{ '%.1f'|format(150 - 140 * tgt / top) }}" class="target"/><text x="580" y="{{ '%.1f'|format(146 - 140 * tgt / top) }}" class="ax" text-anchor="end">{{ t('feas.target_line', n='%g'|format(tgt)) }}</text>{% endif %}
+  <line x1="40" x2="580" y1="150" y2="150" class="axis"/>
+  <text x="40" y="166" class="ax">0</text><text x="580" y="166" class="ax" text-anchor="end">{{ t('feas.month_n', n=n) }}</text>
+  <text x="36" y="14" class="ax" text-anchor="end">{{ '%g'|format(top) }}</text>
+</svg>
+<p class="hint">{{ t('feas.curve.help') }}</p>
+{% endif %}
+</section>
+
+<section class="card" id="demographics">
+<h2>7 · {{ t('feas.s7') }}</h2>
+{% if rep.demographics %}
+<div class="scroll"><table class="compact" data-testid="demographics">
+<thead><tr><th>{{ t('feas.d.age') }}</th><th class="num">{{ t('feas.d.f') }}</th><th class="num">{{ t('feas.d.m') }}</th><th class="num">{{ t('feas.d.total') }}</th></tr></thead>
+<tbody>{% for b in rep.demographics.bands %}<tr><td>{{ b.band }}</td><td class="num">{{ b.F }}</td><td class="num">{{ b.M }}</td><td class="num">{{ b.n }}</td></tr>{% endfor %}</tbody></table></div>
+<p class="hint">{{ t('feas.d.help') }}</p>
+{% else %}<p class="hint">{{ t('feas.na', reason=t('feas.na.rerun')) }}</p>{% endif %}
+</section>
+
+<section class="card" id="site">
+<h2>8 · {{ t('feas.s8') }} <span class="hint">{% if rep.entered.at %}{{ t('feas.entered', by=rep.entered.by, at=rep.entered.at) }}{% else %}{{ t('feas.not_entered') }}{% endif %}</span></h2>
+{% if rep.capabilities %}<div class="scroll"><table class="compact" data-testid="capabilities"><tbody>{% for c in rep.capabilities %}<tr><td>{{ t('cap.' + c.key) }}</td><td>{{ t('capv.' + c.value) }}</td><td class="hint">{{ c.note }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="hint">{{ t('feas.not_entered') }}</p>{% endif %}
+<h2 class="mt">9 · {{ t('feas.s9') }}</h2>
+{% if rep.competing %}<div class="scroll"><table class="compact" data-testid="competing"><thead><tr><th>ID</th><th>{{ t('feas.ct.title') }}</th><th>{{ t('feas.ct.overlap') }}</th><th>{{ t('feas.ct.status') }}</th></tr></thead><tbody>{% for c in rep.competing %}<tr><td>{{ c.id }}</td><td>{{ c.title }}</td><td>{{ c.overlap }}</td><td>{{ c.status }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="hint">{{ t('feas.ct.none') }}</p>{% endif %}
+
+{% if can_edit and not rep.sponsor %}
+<details class="mt" {{ 'open' if site.missing else '' }} data-testid="site-form">
+<summary>{{ t('feas.edit') }}{% if site.missing %} · {{ t('feas.missing') }} {% for m in site.missing %}{{ t('miss.' + m) }}{{ ', ' if not loop.last else '' }}{% endfor %}{% endif %}</summary>
+<form method="post" action="/studies/{{ rs }}/profile">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="formgrid">
+  <div><label for="target_n">{{ t('feas.e.target') }}</label><input id="target_n" name="target_n" type="number" min="1" max="10000" value="{{ site.target_n or '' }}"></div>
+  <div><label for="target_months">{{ t('feas.e.months') }}</label><input id="target_months" name="target_months" type="number" min="1" max="120" value="{{ site.target_months or 12 }}"></div>
+  <div><label for="screen_fail">{{ t('feas.e.sf') }}</label><input id="screen_fail" name="screen_fail" type="number" min="0" max="99" step="1" value="{{ (site.screen_fail * 100)|round|int if site.screen_fail is not none else '' }}"><p class="hint">{{ t('feas.e.sf.help', dflt=((s.screen_fail * 100)|round|int ~ ' %') if s.screen_fail_source == 'default' else '–') }}</p></div>
+</div>
+<h3>{{ t('feas.s8') }}</h3>
+<div class="scroll"><table class="compact"><tbody>
+{% for k in cap_keys %}{% set cur = site.capabilities.get(k, {}) %}<tr><td><label for="cap_{{ k }}" class="check">{{ t('cap.' + k) }}</label></td>
+<td><select id="cap_{{ k }}" name="cap_{{ k }}"><option value="">–</option>{% for v in cap_values %}<option value="{{ v }}" {{ 'selected' if cur.get('value') == v else '' }}>{{ t('capv.' + v) }}</option>{% endfor %}</select></td>
+<td><input name="capnote_{{ k }}" aria-label="{{ t('cap.' + k) }} {{ t('feas.e.note') }}" maxlength="200" value="{{ cur.get('note', '') }}" placeholder="{{ t('feas.e.note') }}"></td></tr>{% endfor %}
+</tbody></table></div>
+<h3>{{ t('feas.s9') }}</h3>
+<div class="scroll"><table class="compact"><thead><tr><th>ID (jRCT / NCT)</th><th>{{ t('feas.ct.title') }}</th><th>{{ t('feas.ct.overlap') }}</th><th>{{ t('feas.ct.status') }}</th></tr></thead><tbody>
+{% for i in range(5) %}{% set c = site.competing[i] if i < site.competing|length else {} %}<tr>
+<td><input name="ct_id_{{ i }}" aria-label="ID {{ i + 1 }}" maxlength="40" value="{{ c.get('id', '') }}"></td>
+<td><input name="ct_title_{{ i }}" aria-label="{{ t('feas.ct.title') }} {{ i + 1 }}" maxlength="160" value="{{ c.get('title', '') }}"></td>
+<td><select name="ct_overlap_{{ i }}" aria-label="{{ t('feas.ct.overlap') }} {{ i + 1 }}">{% for o in ('', 'same', 'partial', 'none') %}<option value="{{ o }}" {{ 'selected' if c.get('overlap', '') == o else '' }}>{{ t('ov.' + (o or 'blank')) }}</option>{% endfor %}</select></td>
+<td><input name="ct_status_{{ i }}" aria-label="{{ t('feas.ct.status') }} {{ i + 1 }}" maxlength="40" value="{{ c.get('status', '') }}"></td></tr>{% endfor %}
+</tbody></table></div>
+<label for="comment">{{ t('feas.comment') }}</label>
+<textarea id="comment" name="comment" rows="3" maxlength="1000">{{ site.comment }}</textarea>
+<label class="check"><input type="checkbox" name="comment_to_sponsor" value="1" {{ 'checked' if site.comment_to_sponsor else '' }}> {{ t('feas.e.to_sponsor') }}</label>
+<button type="submit" data-testid="site-save">{{ t('feas.e.save') }}</button>
+</form>
+</details>
+{% endif %}
+</section>
+
+<section class="card" id="quality">
+<h2>10 · {{ t('feas.s10') }}</h2>
+<ul data-testid="facts">{% for key, vals in rep.facts %}<li>{{ t(key, **vals) }}</li>{% endfor %}</ul>
+<h2 class="mt">11 · {{ t('feas.s11') }}</h2>
+<p>{{ t('feas.method') }}</p>
+<p class="hint">{{ t('feas.validation') }}</p>
+<h2 class="mt">12 · {{ t('feas.s12') }}</h2>
+<div class="scroll"><table class="compact" data-testid="assumptions"><thead><tr><th>{{ t('feas.a.item') }}</th><th>{{ t('feas.a.value') }}</th><th>{{ t('feas.a.source') }}</th></tr></thead>
+<tbody>{% for k, v, src in rep.assumptions %}<tr><td>{{ t('as.' + k) }}</td><td>{% if v is none %}–{% elif v is number and v < 1 and k in ('reach', 'accept', 'screen_fail') %}{{ (v * 100)|round|int }} %{% else %}{{ v }}{% endif %}</td><td>{{ t_or('src.' + src, src) }}</td></tr>{% endfor %}</tbody></table></div>
+{% if s.screen_fail_ref and s.screen_fail_source == 'default' %}<p class="hint">{{ t('feas.sf_ref', ref=s.screen_fail_ref) }}</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

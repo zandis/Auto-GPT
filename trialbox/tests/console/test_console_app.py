@@ -1231,7 +1231,7 @@ def test_sso_header_signs_in_from_a_trusted_proxy_only(tmp_path: Path) -> None:
     )
     # TestClient's peer address is the literal "testclient", so it is listed among the trusted proxies above
     c = TestClient(app, headers={"X-Forwarded-User": "Nurse.Lin@hospa.test", "X-Forwarded-Groups": "staff;crc"})
-    r = c.get("/", follow_redirects=False)
+    r = c.get("/home", follow_redirects=False)  # D-104: a coordinator starts on My studies
     assert r.status_code == 200 and "nurse.lin" in r.text and "study coordinator" in r.text
     assert "tb_console=" in r.headers.get("set-cookie", "")  # a session cookie was set
     assert users.is_sso("nurse.lin") and users.get("nurse.lin").mailbox == "nurse.lin@hospa.test"  # type: ignore[union-attr]

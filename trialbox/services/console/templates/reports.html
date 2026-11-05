@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav.reports') }}{% endblock %}
+{% block content %}
+<h1>{{ t('reports.title') }}</h1>
+{% if user.role == 'cro' %}<p class="hint" data-testid="cro-note">{{ t('reports.cro') }}</p>{% endif %}
+<section class="card"><div class="scroll">
+<table data-testid="reports">
+<thead><tr><th>{{ t('col.study') }}</th><th>{{ t('reports.run') }}</th><th class="num">{{ t('reports.per_month') }}</th><th>{{ t('reports.reading') }}</th><th class="num">{{ t('reports.pool') }}</th><th></th></tr></thead>
+<tbody>
+{% for r in rows %}<tr>
+<td>{{ r.id }} <span class="hint">v{{ r.version }}</span></td>
+<td>{{ r.job.updated_at.date().isoformat() if r.job else '–' }}</td>
+{% if r.summary %}
+<td class="num">{{ r.summary.per_month[1] }} <span class="hint">({{ r.summary.per_month[0] }}–{{ r.summary.per_month[2] }})</span></td>
+<td>{% if r.summary.reading %}<span class="pill rd-{{ r.summary.reading }}">{{ t('reading.' + r.summary.reading) }}</span>{% else %}<span class="hint">{{ t('reading.none') }}</span>{% endif %}</td>
+<td class="num">{{ r.summary.pool_now }} / {{ r.summary.potential }}</td>
+<td><a href="/studies/{{ r.id }}/feasibility">{{ t('home.open_report') }}</a></td>
+{% else %}<td colspan="4" class="hint">{{ t('home.feas.none') }}</td>{% endif %}
+</tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

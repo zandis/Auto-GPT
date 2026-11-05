@@ -1,0 +1,49 @@
+{# D-104: each role sees at most four items; everything else sits under "More". All older pages stay reachable. #}
+{% set r = user.role %}
+{% macro item(href, key, active) %}<a href="{{ href }}" class="{{ 'active' if active else '' }}">{{ t(key) }}</a>{% endmacro %}
+<nav aria-label="main" data-testid="nav" data-role="{{ r }}">
+  {% if pilot %}
+    {% if r == 'investigator' %}
+      {{ item('/week', 'nav.week', path.startswith('/week') or path.endswith('/week') or '/patients/' in path) }}
+      {{ item('/pilot/registry', 'nav.patients', path.startswith('/pilot/registry')) }}
+      {{ item('/reports', 'nav.reports', path.startswith('/reports') or path.endswith('/feasibility')) }}
+    {% elif r in ('cro', 'viewer') %}
+      {{ item('/reports', 'nav.reports', path.startswith('/reports') or path.endswith('/feasibility')) }}
+    {% elif r == 'admin' %}
+      {{ item('/home', 'nav.admin', path == '/home') }}
+      {{ item('/home?view=studies', 'nav.studies', false) }}
+      {{ item('/ops/users', 'nav.users', path.startswith('/ops/users')) }}
+      {{ item('/audit', 'nav.audit', path.startswith('/audit')) }}
+    {% else %}
+      {{ item('/home', 'nav.studies', path == '/home') }}
+      {{ item('/week', 'nav.week', path.startswith('/week') or path.endswith('/week') or '/patients/' in path) }}
+      {{ item('/reports', 'nav.reports', path.startswith('/reports') or path.endswith('/feasibility')) }}
+      {{ item('/pilot/registry', 'nav.patients', path.startswith('/pilot/registry')) }}
+    {% endif %}
+    {% if r != 'cro' %}
+    <details class="more" data-testid="nav-more">
+      <summary>{{ t('nav.more') }}</summary>
+      <div class="more-items">
+        <a href="/">{{ t('nav.overview') }}</a>
+        <a href="/jobs">{{ t('nav.jobs') }}</a>
+        {% if user.can_request %}
+        <a href="/pilot/request">{{ t('nav.request') }}</a>
+        <a href="/pilot/protocol">{{ t('nav.protocol') }}</a>
+        <a href="/pilot/consent">{{ t('nav.consent') }}</a>
+        <a href="/pilot/cascade">{{ t('nav.cascade') }}</a>
+        {% endif %}
+        <a href="/pilot/case">{{ t('nav.case') }}</a>
+        <a href="/pilot/registry">{{ t('nav.registry') }}</a>
+        {% if settings.test_smtp %}<a href="/pilot/mailbox">{{ t('nav.mailbox') }}</a>{% endif %}
+        <a href="/audit">{{ t('nav.audit') }}</a>
+        {% if user.is_admin %}<a href="/ops/users">{{ t('nav.users') }}</a>{% endif %}
+      </div>
+    </details>
+    {% endif %}
+  {% else %}
+    <a href="/" class="{{ 'active' if path == '/' else '' }}">{{ t('nav.overview') }}</a>
+    <a href="/jobs" class="{{ 'active' if path.startswith('/jobs') else '' }}">{{ t('nav.jobs') }}</a>
+    <a href="/audit" class="{{ 'active' if path.startswith('/audit') else '' }}">{{ t('nav.audit') }}</a>
+    {% if user.is_admin %}<a href="/ops/users" class="{{ 'active' if path.startswith('/ops/users') else '' }}">{{ t('nav.users') }}</a>{% endif %}
+  {% endif %}
+</nav>

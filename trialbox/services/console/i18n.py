@@ -1076,3 +1076,13 @@ def pick_language(accept: str | None) -> str:
         if tag.startswith("en"):
             return "en"
     return "en"
+
+
+# D-104 report-first role pages: their strings live in console.i18n_home and join the catalogues here
+from console.i18n_home import EN as _HOME_EN  # noqa: E402
+from console.i18n_home import JA as _HOME_JA  # noqa: E402
+from console.i18n_home import ZH as _HOME_ZH  # noqa: E402
+
+EN.update(_HOME_EN)
+JA.update(_HOME_JA)
+ZH.update(_HOME_ZH)

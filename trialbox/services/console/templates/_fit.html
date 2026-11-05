@@ -1,0 +1,9 @@
+{# the one-line "why this patient fits": assembled from the verdicts, never written by a model (D-104) #}
+{% macro fit_line(fit) -%}
+{{ t('fit.inc', met=fit.inc_met, total=fit.inc_total) }}{% if fit.key %} ({% for k in fit.key[:2] %}{{ k.label }}{% if k.date %} {{ k.date }}{% endif %}{{ ', ' if not loop.last else '' }}{% endfor %}){% endif %}; {{ t('fit.exc', clear=fit.exc_clear, total=fit.exc_total) }}{% if fit.note_exclusion %}; {{ t('fit.note_exc') }} {% for k in fit.note_exclusion[:1] %}<q lang="">{{ k.quote }}</q>{% if k.date %} ({{ k.date }}){% endif %}{% endfor %}{% endif %}.
+{%- endmacro %}
+{% macro open_items(fit, actions) -%}
+{% if fit.open %}<span>{{ t('fit.open') }} {{ fit.open[:3]|join(' · ') }}{% if fit.open|length > 3 %} +{{ fit.open|length - 3 }}{% endif %}</span>{% endif %}
+{% if fit.person %}<br><span>{{ t('fit.person') }} {{ fit.person[:3]|join(' · ') }}</span>{% endif %}
+{% if actions %}<br><span class="hint">{{ t('fit.todo') }} {{ actions[:2]|join(' · ') }}</span>{% endif %}
+{%- endmacro %}
