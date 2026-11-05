@@ -311,6 +311,80 @@ def all_pairs(lang: str = "en") -> list[tuple[str, dict[str, Any]]]:
     return sorted(out, key=lambda x: (x[1]["trial_false_exclusion"], x[1]["false_block_rate"]))
 
 
+ROUTES = ROOT / "eval" / "trialgpt_compare" / "criteria_routes.jsonl"
+
+
+def routes() -> dict[tuple[str, str], str]:
+    """(criterion type, normalised text) -> filter | notes | mixed | human (see eval/trialgpt_compare/README.md)."""
+    out = {}
+    for line in ROUTES.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            r = json.loads(line)
+            out[(r["type"], " ".join(str(r["text"]).split()))] = r["route"]
+    return out
+
+
+def filter_first(
+    rows: list[dict[str, Any]], by_id: dict[str, mlbench.Pair], rt: dict[tuple[str, str], str]
+) -> list[dict[str, Any]]:
+    """Replay a recorded run as if TrialBox filtered first: ``filter`` criteria take the physician label (an ideal
+    deterministic rule on coded data, the optimistic case), ``human`` criteria go to review (never block), and the
+    model answer is kept only for ``notes`` and ``mixed`` criteria, the ones an LLM would still read."""
+    out = []
+    for r in rows:
+        p = by_id[r["annotation_id"]]
+        route = rt.get((p.criterion_type, " ".join(str(p.criterion).split())), "notes")
+        if route == "filter":
+            r = r | {
+                "label": p.expert_label,
+                "valid_json": True,
+                "cost": 0.0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+            }
+        elif route == "human":
+            r = r | {
+                "label": "not enough information",
+                "valid_json": True,
+                "cost": 0.0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+            }
+        out.append(r | {"route": route})
+    return out
+
+
+def filter_first_table(lang: str = "en") -> list[tuple[str, dict[str, Any]]]:
+    """Every recorded TrialBox run (and every both-must-block pair) in ``lang``, rescored under filter-first."""
+    pairs, tr, rt = mlbench.load_pairs(), trials(), routes()
+    by_id = {p.annotation_id: p for p in comparable(pairs, tr)}
+    runs: dict[str, list[dict[str, Any]]] = {}
+    for f in sorted((RESULTS / "raw").glob(f"trialbox__*__{lang}.jsonl.gz")):
+        name = f.name.removesuffix(f"__{lang}.jsonl.gz").removeprefix("trialbox__").replace("__", "/", 1)
+        runs[name] = [r for r in _load(f) if r["annotation_id"] in by_id]
+    out = []
+    names = sorted(runs)
+    for n in names:
+        rows = filter_first(runs[n], by_id, rt)
+        m = mlbench.score(rows, by_id)
+        m["llm_share"] = sum(r["route"] in ("notes", "mixed") for r in rows) / max(1, len(rows))
+        out.append((n, m))
+    for i, a in enumerate(names):
+        for b in names[i + 1 :]:
+            rb = {r["annotation_id"]: r for r in runs[b]}
+            both = []
+            for r in runs[a]:
+                o = rb.get(r["annotation_id"]) or {"label": None}
+                block = (r["label"] or "") in mlbench.BLOCKS and (o["label"] or "") in mlbench.BLOCKS
+                lab = r["label"] if block or (r["label"] or "") not in mlbench.BLOCKS else "not enough information"
+                both.append(r | {"label": lab})
+            rows = filter_first(both, by_id, rt)
+            m = mlbench.score(rows, by_id)
+            m["llm_share"] = sum(r["route"] in ("notes", "mixed") for r in rows) / max(1, len(rows))
+            out.append((f"{a}+{b}", m))
+    return sorted(out, key=lambda x: (x[1]["trial_false_exclusion"], -x[1]["block_recall"]))
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="trialgpt_compare")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -323,7 +397,19 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--base-url", default=os.environ.get("MLBENCH_BASE_URL", "https://openrouter.ai/api/v1"))
     sub.add_parser("score")
     sub.add_parser("pairs")
+    ff = sub.add_parser("filterfirst")
+    ff.add_argument("--lang", default="en", choices=mlbench.LANGS)
     a = ap.parse_args(argv)
+    if a.cmd == "filterfirst":
+        rows = filter_first_table(a.lang)
+        (RESULTS / f"filter_first_{a.lang}.json").write_text(json.dumps(dict(rows), indent=1))
+        for k, v in rows:
+            print(
+                f"{k:75s} pairs_lost={round(v['trial_false_exclusion'] * v['trials_open'])}/{v['trials_open']} "
+                f"false_block={v['false_block_rate']:.3f} block_recall={v['block_recall']:.2f} "
+                f"llm_share={v['llm_share']:.2f}"
+            )
+        return
     if a.cmd == "pairs":
         for k, v in all_pairs():
             print(
