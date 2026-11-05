@@ -48,3 +48,15 @@ def test_cli_text_and_json(capsys) -> None:  # type: ignore[no-untyped-def]
     assert doc["rows"][0]["fits"] is False and doc["models"]["gemma-4-26b-a4b-fp8"]["assumed"]
     assert main(["--hardware", "rtx-pro-6000", "--model", "gpt-oss-120b-mxfp4", "--model", "gemma-4-26b-a4b-fp8"]) == 0
     assert "DOES NOT FIT" in capsys.readouterr().out
+
+
+def test_consumer_cards() -> None:
+    rows = {r["hardware"]: r for r in (place(HARDWARE[h], *PLANS[h]) for h in PLANS)}
+    for h in ("rtx-3090", "rtx-4090", "rtx-5090", "2x-rtx-4090", "2x-rtx-5090"):
+        assert rows[h]["fits"], h
+    # the both-must-block consumer pair does not fit one 32 GB card, even at 8k and one sequence
+    one = place(HARDWARE["rtx-5090"], [("gemma-4-26b-a4b-q4", 8_192), ("qwen3.6-35b-a3b-q4", 8_192)], 1)
+    assert one["fits"] is False
+    # a dense 31B at 4 bit is bandwidth-bound: far slower per sequence than the 4B-active MoE on the same card
+    dense = place(HARDWARE["rtx-5090"], [("gemma-4-31b-q4", 16_384)], 4)["models"][0]  # type: ignore[index]
+    assert dense["tokens_per_s"] * 4 < rows["rtx-5090"]["models"][0]["tokens_per_s"]  # type: ignore[index]
