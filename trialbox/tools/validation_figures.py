@@ -93,7 +93,18 @@ def _save(fig: Figure, name: str) -> None:
 
 
 def _panel_letter(ax: Axes, letter: str) -> None:
-    ax.text(-0.02, 1.06, letter, transform=ax.transAxes, fontsize=12, fontweight="bold", color=INK, ha="right")
+    ax.annotate(
+        letter,
+        (0, 1),
+        xycoords="axes fraction",
+        xytext=(-6, 5),
+        textcoords="offset points",
+        fontsize=12,
+        fontweight="bold",
+        color=INK,
+        ha="right",
+        va="bottom",
+    )
 
 
 # ---------------------------------------------------------------- data
@@ -119,7 +130,10 @@ def cohorts() -> dict[str, dict[str, Any]]:
                     "lost": cell(e["llm"]["eligible_lost"]),
                     "caught": cell(e["llm"]["excluded_caught"]),
                 }
-    for cname, label_c in (("sigir", "SIGIR 2016 (full)"), ("trec2023", "TREC CT 2023 (structured)")):
+    for cname, label_c in (
+        ("sigir", "SIGIR 2016 (full; eligible pairs only)"),
+        ("trec2023", "TREC CT 2023 (structured)"),
+    ):
         if cname in oc:
             out[label_c] = {}
             for label, ms, _ in CONFIGS:
@@ -182,16 +196,18 @@ def fig_forest(data: dict[str, dict[str, Any]]) -> None:
         axes[0].text(1, yy - 0.75, c, fontsize=7.8, fontweight="bold", color=INK, ha="left", va="center")
     axes[0].set_ylim(rows[-1][0] + 0.6, 0)
     axes[1].tick_params(axis="y", left=False)
+    h = fig.get_figheight()
+    fig.subplots_adjust(top=1 - 0.8 / h, bottom=0.6 / h)
     fig.supxlabel(
-        "% of labelled pairs, point and 95% CI (patient-cluster bootstrap)", fontsize=8.5, color=INK2, y=-0.02
+        "% of labelled pairs, point and 95% CI (patient-cluster bootstrap)", fontsize=8.5, color=INK2, y=0.12 / h
     )
     fig.suptitle(
-        "Raw pair-level results across public cohorts (labels are noisy; see Fig. 3)",
+        "Raw pair-level results across public cohorts (labels are noisy; see Figs. 3 and 8)",
         x=0.01,
         ha="left",
         fontsize=10,
         fontweight="bold",
-        y=1.07,
+        y=1 - 0.1 / h,
     )
     _save(fig, "fig2_cohorts_forest")
     DATA["fig2"] = data
@@ -413,7 +429,7 @@ def fig_routes() -> None:
     if not chia:
         return
     if ad:
-        fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.8), gridspec_kw={"width_ratios": [1, 1.5], "wspace": 0.75})
+        fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.8), gridspec_kw={"width_ratios": [1, 1.5], "wspace": 0.95})
     else:
         fig, ax0 = plt.subplots(figsize=(3.8, 3.4))
         axes = [ax0]
@@ -462,7 +478,7 @@ def fig_routes() -> None:
     _panel_letter(ax, "a")
     if ad:
         ax = axes[1]
-        cats = list(ad["by_category"].items())[:12]
+        cats = sorted(ad["by_category"].items(), key=lambda kv: -sum(kv[1].values()))
         for i, (_cat, cnt) in enumerate(cats):
             left = 0
             for k in ("filter", "llm", "human"):
@@ -470,7 +486,18 @@ def fig_routes() -> None:
                 ax.barh(i, w, left=left, color=cols[k], edgecolor=SURFACE, linewidth=1.5, height=0.65)
                 left += w
             ax.text(left + 8, i, f"{left}", va="center", fontsize=7, color=INK2)
-        ax.set_yticks(range(len(cats)), [c.replace("_", " ") for c, _ in cats], fontsize=7.2)
+        ax.set_yticks(
+            range(len(cats)),
+            [
+                c.replace("_", " ")
+                .replace("ad ", "AD ")
+                .replace("apoe", "APOE")
+                .replace("mri", "MRI")
+                .replace("other neurological or psychiatric", "other neuro / psychiatric")
+                for c, _ in cats
+            ],
+            fontsize=7.2,
+        )
         ax.invert_yaxis()
         ax.set_xlabel("criteria")
         ax.grid(axis="y", visible=False)
@@ -570,11 +597,70 @@ def fig_overview() -> None:
     DATA["fig1"] = items
 
 
+AUDITS = {  # cohort -> (model errors, pairs read); see eval/*/AUDIT.md
+    "TREC CT 2021-22": (10, 30),
+    "TREC CT 2023 (structured)": (2, 12),
+    "Alzheimer's trials (TREC)": (3, 15),
+}
+
+
+def fig_adjusted(data: dict[str, dict[str, Any]]) -> None:
+    """Raw loss x share of drops that a person judged a real model error (Beta posterior, Monte Carlo)."""
+    import random
+
+    label = CONFIGS[-1][0]
+    rows = []
+    rng = random.Random(20261105)
+    for c, (k, n) in AUDITS.items():
+        cell = data.get(c, {}).get(label, {}).get("lost")
+        if not cell:
+            continue
+        raw = cell["point"]
+        sims = sorted(rng.uniform(cell["low"], cell["high"]) * rng.betavariate(k + 1, n - k + 1) for _ in range(20000))
+        adj = raw * k / n
+        rows.append((c, raw, cell["low"], cell["high"], adj, sims[500], sims[19499], k, n))
+    if not rows:
+        return
+    fig, ax = plt.subplots(figsize=(6.4, 0.75 * len(rows) + 1.3))
+    for i, (_c, raw, lo, hi, adj, alo, ahi, k, n) in enumerate(rows):
+        ax.plot([lo, hi], [i - 0.15, i - 0.15], color=MUTED, lw=1.6)
+        ax.plot(raw, i - 0.15, "o", color=SURFACE, mec=MUTED, mew=1.4, ms=6)
+        ax.text(hi + 1, i - 0.15, f"raw {raw:.1f}%", va="center", fontsize=7, color=INK2)
+        ax.plot([alo, ahi], [i + 0.15, i + 0.15], color=ORANGE, lw=1.8)
+        ax.plot(adj, i + 0.15, "o", color=ORANGE, mec=SURFACE, mew=0.8, ms=6.5)
+        ax.text(
+            ahi + 1,
+            i + 0.15,
+            f"true about {adj:.1f}%  ({k} model errors in {n} read)",
+            va="center",
+            fontsize=7,
+            color=INK,
+        )
+    ax.set_yticks(range(len(rows)), [r[0] for r in rows])
+    ax.invert_yaxis()
+    ax.set_xlim(0, 60)
+    ax.grid(axis="y", visible=False)
+    ax.set_xlabel("% of NIST-eligible pairs dropped by the RTX 5090 pair (95% interval)")
+    ax.set_title("After reading the dropped pairs by hand, true loss is about 6% in every cohort", loc="left")
+    _save(fig, "fig8_audit_adjusted")
+    DATA["fig8"] = [
+        dict(
+            zip(
+                ("cohort", "raw", "raw_low", "raw_high", "adjusted", "adj_low", "adj_high", "errors", "read"),
+                r,
+                strict=True,
+            )
+        )
+        for r in rows
+    ]
+
+
 def main() -> None:
     fig_overview()
     data = cohorts()
     fig_forest(data)
     fig_tradeoff(data)
+    fig_adjusted(data)
     fig_audit()
     fig_medtxt()
     fig_prompt()

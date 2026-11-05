@@ -7,6 +7,24 @@
    20096
   ],
   [
+   "SIGIR 2016 (full)",
+   "58 patients, physician labels",
+   413,
+   3326
+  ],
+  [
+   "TREC CT 2023",
+   "40 structured patient records",
+   900,
+   12134
+  ],
+  [
+   "Alzheimer's trials x TREC",
+   "AD/dementia/MCI trials",
+   215,
+   3184
+  ],
+  [
    "MedTxt Japanese (ja + en)",
    "215 real Japanese reports",
    0,
@@ -17,6 +35,12 @@
    "1,000 trials, expert entities",
    0,
    12337
+  ],
+  [
+   "AD trials on CT.gov",
+   "phase 2/3 since 2015",
+   0,
+   9381
   ]
  ],
  "fig2": {
@@ -117,8 +141,301 @@
      "n": 500
     }
    }
+  },
+  "SIGIR 2016 (full; eligible pairs only)": {
+   "Gemma 4 26B": {
+    "lost": {
+     "point": 19.37046004842615,
+     "low": 15.698924731182796,
+     "high": 23.919308357348704,
+     "k": 80,
+     "n": 413
+    },
+    "caught": null
+   },
+   "Gemma 4 26B 4-bit": {
+    "lost": {
+     "point": 17.675544794188863,
+     "low": 14.122137404580155,
+     "high": 22.058823529411764,
+     "k": 73,
+     "n": 413
+    },
+    "caught": null
+   },
+   "gpt-oss-120b": {
+    "lost": {
+     "point": 24.213075060532688,
+     "low": 19.870410367170628,
+     "high": 29.12371134020619,
+     "k": 100,
+     "n": 413
+    },
+    "caught": null
+   },
+   "Qwen3.5-9B": {
+    "lost": {
+     "point": 16.222760290556902,
+     "low": 12.015503875968992,
+     "high": 21.695760598503743,
+     "k": 67,
+     "n": 413
+    },
+    "caught": null
+   },
+   "Spark pair: gpt-oss-120b + Gemma 4": {
+    "lost": {
+     "point": 12.590799031477,
+     "low": 9.732824427480915,
+     "high": 16.320474777448073,
+     "k": 52,
+     "n": 413
+    },
+    "caught": null
+   },
+   "RTX 5090 pair: Gemma 4 4-bit + Qwen3.5-9B": {
+    "lost": {
+     "point": 11.62227602905569,
+     "low": 8.549222797927461,
+     "high": 15.5,
+     "k": 48,
+     "n": 413
+    },
+    "caught": null
+   }
+  },
+  "TREC CT 2023 (structured)": {
+   "Gemma 4 26B": {
+    "lost": {
+     "point": 49.333333333333336,
+     "low": 41.82776801405975,
+     "high": 56.41025641025641,
+     "k": 296,
+     "n": 600
+    },
+    "caught": {
+     "point": 91.66666666666666,
+     "low": 86.4963503649635,
+     "high": 95.95588235294117,
+     "k": 275,
+     "n": 300
+    }
+   },
+   "Gemma 4 26B 4-bit": {
+    "lost": {
+     "point": 47.66666666666667,
+     "low": 39.923224568138195,
+     "high": 55.172413793103445,
+     "k": 286,
+     "n": 600
+    },
+    "caught": {
+     "point": 89.66666666666666,
+     "low": 84.30656934306569,
+     "high": 94.46254071661238,
+     "k": 269,
+     "n": 300
+    }
+   },
+   "gpt-oss-120b": {
+    "lost": {
+     "point": 49.333333333333336,
+     "low": 42.08566108007449,
+     "high": 56.25,
+     "k": 296,
+     "n": 600
+    },
+    "caught": {
+     "point": 88.66666666666667,
+     "low": 83.42105263157895,
+     "high": 93.27354260089686,
+     "k": 266,
+     "n": 300
+    }
+   },
+   "Qwen3.5-9B": {
+    "lost": {
+     "point": 41.66666666666667,
+     "low": 33.81294964028777,
+     "high": 50.07363770250368,
+     "k": 250,
+     "n": 600
+    },
+    "caught": {
+     "point": 79.66666666666666,
+     "low": 73.10606060606061,
+     "high": 85.71428571428571,
+     "k": 239,
+     "n": 300
+    }
+   },
+   "Spark pair: gpt-oss-120b + Gemma 4": {
+    "lost": {
+     "point": 41.16666666666667,
+     "low": 33.71868978805395,
+     "high": 48.90625,
+     "k": 247,
+     "n": 600
+    },
+    "caught": {
+     "point": 87.33333333333333,
+     "low": 81.63934426229508,
+     "high": 92.2279792746114,
+     "k": 262,
+     "n": 300
+    }
+   },
+   "RTX 5090 pair: Gemma 4 4-bit + Qwen3.5-9B": {
+    "lost": {
+     "point": 35.16666666666667,
+     "low": 27.560521415270017,
+     "high": 43.65942028985507,
+     "k": 211,
+     "n": 600
+    },
+    "caught": {
+     "point": 78.33333333333333,
+     "low": 71.88612099644128,
+     "high": 84.6938775510204,
+     "k": 235,
+     "n": 300
+    }
+   }
+  },
+  "Alzheimer's trials (TREC)": {
+   "Gemma 4 26B": {
+    "lost": {
+     "point": 51.33333333333333,
+     "low": 47.58620689655172,
+     "high": 71.42857142857143,
+     "k": 77,
+     "n": 150
+    },
+    "caught": {
+     "point": 70.76923076923077,
+     "low": 55.55555555555556,
+     "high": 79.48717948717949,
+     "k": 46,
+     "n": 65
+    }
+   },
+   "Gemma 4 26B 4-bit": {
+    "lost": {
+     "point": 43.333333333333336,
+     "low": 39.568345323741006,
+     "high": 60.0,
+     "k": 65,
+     "n": 150
+    },
+    "caught": {
+     "point": 69.23076923076923,
+     "low": 60.0,
+     "high": 77.77777777777779,
+     "k": 45,
+     "n": 65
+    }
+   },
+   "gpt-oss-120b": {
+    "lost": {
+     "point": 45.33333333333333,
+     "low": 41.007194244604314,
+     "high": 66.66666666666666,
+     "k": 68,
+     "n": 150
+    },
+    "caught": {
+     "point": 67.6923076923077,
+     "low": 51.28205128205128,
+     "high": 81.15942028985508,
+     "k": 44,
+     "n": 65
+    }
+   },
+   "Qwen3.5-9B": {
+    "lost": {
+     "point": 41.333333333333336,
+     "low": 37.03703703703704,
+     "high": 64.0,
+     "k": 62,
+     "n": 150
+    },
+    "caught": {
+     "point": 61.53846153846154,
+     "low": 44.06779661016949,
+     "high": 72.5,
+     "k": 40,
+     "n": 65
+    }
+   },
+   "Spark pair: gpt-oss-120b + Gemma 4": {
+    "lost": {
+     "point": 34.0,
+     "low": 25.0,
+     "high": 48.57142857142857,
+     "k": 51,
+     "n": 150
+    },
+    "caught": {
+     "point": 61.53846153846154,
+     "low": 47.05882352941176,
+     "high": 74.07407407407408,
+     "k": 40,
+     "n": 65
+    }
+   },
+   "RTX 5090 pair: Gemma 4 4-bit + Qwen3.5-9B": {
+    "lost": {
+     "point": 30.666666666666664,
+     "low": 24.0,
+     "high": 44.0,
+     "k": 46,
+     "n": 150
+    },
+    "caught": {
+     "point": 58.46153846153847,
+     "low": 43.58974358974359,
+     "high": 71.42857142857143,
+     "k": 38,
+     "n": 65
+    }
+   }
   }
  },
+ "fig8": [
+  {
+   "cohort": "TREC CT 2021-22",
+   "raw": 19.333333333333332,
+   "raw_low": 16.864608076009503,
+   "raw_high": 21.893491124260358,
+   "adjusted": 6.444444444444444,
+   "adj_low": 3.6342816477903495,
+   "adj_high": 10.194085037427252,
+   "errors": 10,
+   "read": 30
+  },
+  {
+   "cohort": "TREC CT 2023 (structured)",
+   "raw": 35.16666666666667,
+   "raw_low": 27.560521415270017,
+   "raw_high": 43.65942028985507,
+   "adjusted": 5.861111111111112,
+   "adj_low": 1.7473177033438407,
+   "adj_high": 16.77934958479309,
+   "errors": 2,
+   "read": 12
+  },
+  {
+   "cohort": "Alzheimer's trials (TREC)",
+   "raw": 30.666666666666664,
+   "raw_low": 24.0,
+   "raw_high": 44.0,
+   "adjusted": 6.133333333333334,
+   "adj_low": 2.3312446248404783,
+   "adj_high": 16.647569023271192,
+   "errors": 3,
+   "read": 15
+  }
+ ],
  "fig3b": {
   "categories": {
    "Model error": 10,
@@ -259,7 +576,111 @@
     ]
    }
   },
-  "ad": null
+  "ad": {
+   "router": "openai/gpt-oss-120b",
+   "trials": 400,
+   "criteria": 9381,
+   "routes": {
+    "human": {
+     "n": 2819,
+     "share": 0.3005,
+     "wilson95": [
+      0.29130635107936603,
+      0.3098590005020608
+     ]
+    },
+    "llm": {
+     "n": 2613,
+     "share": 0.2785,
+     "wilson95": [
+      0.2695622234394195,
+      0.28770254701765474
+     ]
+    },
+    "filter": {
+     "n": 3949,
+     "share": 0.421,
+     "wilson95": [
+      0.41100067444153604,
+      0.4309785444725051
+     ]
+    }
+   },
+   "by_category": {
+    "general_medical_condition": {
+     "human": 400,
+     "filter": 723,
+     "llm": 241
+    },
+    "other_neurological_or_psychiatric": {
+     "filter": 539,
+     "llm": 596,
+     "human": 182
+    },
+    "medication": {
+     "filter": 1081,
+     "human": 71,
+     "llm": 79
+    },
+    "lab_value": {
+     "filter": 846,
+     "llm": 11,
+     "human": 23
+    },
+    "cognitive_or_functional_score": {
+     "llm": 706,
+     "human": 57,
+     "filter": 4
+    },
+    "consent_or_capacity": {
+     "human": 543
+    },
+    "other_trial_or_logistics": {
+     "human": 513,
+     "llm": 6,
+     "filter": 6
+    },
+    "ad_diagnosis_or_stage": {
+     "llm": 255,
+     "filter": 265,
+     "human": 1
+    },
+    "other": {
+     "human": 393,
+     "filter": 42,
+     "llm": 69
+    },
+    "mri_or_imaging": {
+     "llm": 370,
+     "human": 86,
+     "filter": 22
+    },
+    "sex_or_reproductive": {
+     "filter": 105,
+     "human": 190,
+     "llm": 84
+    },
+    "study_partner_or_caregiver": {
+     "human": 339,
+     "filter": 1
+    },
+    "age": {
+     "filter": 265,
+     "llm": 3
+    },
+    "amyloid_or_tau_biomarker": {
+     "llm": 181,
+     "filter": 24,
+     "human": 16
+    },
+    "genetics_apoe": {
+     "filter": 26,
+     "human": 5,
+     "llm": 12
+    }
+   },
+   "cost_usd": 0.3365
+  }
  },
  "fig7": [
   {

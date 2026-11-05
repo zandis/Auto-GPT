@@ -173,12 +173,67 @@ review queue, not in the dropped count.
 The review queue is the cost that matters, and its size here comes from the synthetic generator, which plants many
 borderline patients on purpose; a real site's funnel replaces it after the first FEAS run.
 
+## 4. Round 2: two more cohorts, Alzheimer's, Chia, judge v4
+
+Asked the same afternoon: more data, more detail, an Alzheimer's focus. Figures are in `docs/figures/validation`
+(`python -m tools.validation_figures`; every plotted number with its interval is in `figure_data.json`).
+
+### More cohorts (`tools/open_cohorts_eval.py`, `tools/ad_eval.py`), RTX 5090 pair, judge v3
+
+| Cohort | Pairs | Criteria | Eligible dropped, raw | Excluded caught | Spot check | True loss, about |
+|---|---|---|---|---|---|---|
+| TREC CT 2021-22 | 1,200 eligible / 500 excluded | 20,096 | 19.3 % (16.9-21.9) | 54.2 % | 10 errors in 30 | 6.4 % |
+| SIGIR 2016, full cohort | 413 eligible | 3,326 | 11.6 % (8.5-15.5) | (no excluded pairs) | none | |
+| TREC CT 2023 (structured questionnaires) | 600 / 300 | 12,134 | 35.2 % (27.6-43.7) | 78.3 % | 2 in 12 | 5.9 % |
+| Alzheimer's trials x TREC patients | 150 / 65 | 3,184 | 30.7 % (24.0-44.0) | 58.5 % | 3 in 15 | 6.1 % |
+
+The Spark pair (gpt-oss-120b + Gemma 4) drops 12.6 % on SIGIR, 41.2 % on TREC 2023 and 34.0 % on the AD slice; any
+single model is 6-20 points worse than either pair on every cohort. The raw rates differ a lot between cohorts
+because the labels do: TREC 2023 and the AD slice mark many pairs "eligible" that fail a written criterion (an
+uveitic glaucoma patient for a primary open-angle glaucoma trial, an Alzheimer's dementia patient for an MCI-only
+trial). Read by hand, the share of drops that are real model errors is about the same everywhere, and so is the true
+loss: **about 6 % when every criterion goes to the models**, before filter first. Spot checks are small (12-30
+pairs), so treat the adjusted rates as indicative; see `eval/open_cohorts/AUDIT.md` and `eval/ad/AUDIT.md`.
+
+### Judge v4 ablation (suspected findings never exclude, D-96), RTX 5090 pair
+
+| Cohort | Eligible dropped, v3 -> v4 | Excluded caught, v3 -> v4 |
+|---|---|---|
+| TREC CT 2021-22 | 19.3 % -> 19.8 % | 54.2 % -> 55.2 % |
+| SIGIR 2016 | 11.6 % -> 10.4 % | |
+| TREC CT 2023 | 35.2 % -> 31.5 % | 78.3 % -> 82.3 % |
+| MedTxt suspected findings excluded (en / ja) | 37 / 41 % -> 15 / 12 % | recall of present findings 84 / 69 % -> 76 / 62 % |
+
+v4 costs nothing on the pair cohorts and fixes the suspected-finding error, at a few points of recall on notes.
+It is now the default prompt for new rulesets.
+
+### Who decides each criterion (`tools/chia_routes.py`, Chia, CC BY 4.0)
+
+On Chia's 12,337 expert-annotated criteria of 1,000 trials, a fixed rule on the entity labels gives: structured
+filter **54 % (52-55)**, LLM reads the notes 30 % (29-31), a person decides 16 % (14-18). Negated exclusions, the
+commonest model error, are 5.8 % of exclusion lines and can be rewritten at protocol import. An LLM router agreed with
+the entity rule on 61 % of 600 criteria (kappa 0.34), so the split is a band, not a point: 42-58 % filter.
+
+### Alzheimer's trials on ClinicalTrials.gov (400 interventional phase 2/3 trials since 2015, 9,381 criteria)
+
+Routed by gpt-oss-120b: filter 42 %, LLM 28 %, person 30 %. The person share is higher than in Chia because AD
+protocols carry many study-partner (340), consent or capacity (543) and logistics (525) criteria. Cognitive and
+functional scores (767 criteria: MMSE, CDR, ADAS-Cog) and amyloid or tau biomarkers (221) mostly need the notes or
+reports, because a site rarely holds them as coded values; APOE and age are filterable. For a trial-ready cohort this
+says which fields to capture as structured data up front (MMSE/CDR with date, amyloid PET or CSF status, APOE, study
+partner availability) so that most AD criteria move from "LLM" or "person" to "filter".
+
 ## Data not used
 
 - **n2c2 2018 Track 1 (cohort selection)**: 288 real discharge-summary records, 13 criteria. Needs a signed DUA on the
   DBMI portal (Harvard). Worth doing: it is the only public set with real longitudinal notes and per-criterion labels.
 - **Synthea**: the spec's 300k scale population. Downloading and running the Synthea jar was blocked in this cloud
   session; the in-repo generator stands in. Running it on the Spark or a Docker host needs a yes from Changfu.
+- **ADNI / J-ADNI**: the natural AD cohort (amyloid PET, CSF, MMSE, CDR over time). Needs an ADNI data-use
+  application; J-ADNI through NBDC. Neither can be fetched from here.
+- **MIMIC-IV notes**: credentialed PhysioNet access and CITI training.
+- **CHIP-CTC** (Chinese criteria classification): a Hugging Face mirror exists, but the licence is unclear (CBLUE
+  registration), so it was not used.
 - **Japanese EHR notes**: none public. MedTxt is the closest; real admission notes need a partner site (Osaka).
 
 ## Reproduce
@@ -190,4 +245,8 @@ python -m tools.medtxt_eval fetch && OPENROUTER_API_KEY=... python -m tools.medt
 python -m tools.medtxt_eval score
 TB_ENV=TEST PYTHONPATH=libs:services:. python -m tools.hospital_sim scale --sizes 2000 10000 --trials GZQO
 python -m tools.hospital_sim project --patients 50000 --trials-per-year 12
+python -m tools.open_cohorts_eval fetch && OPENROUTER_API_KEY=... python -m tools.open_cohorts_eval run --cohort sigir --models <m>
+python -m tools.chia_routes
+OPENROUTER_API_KEY=... python -m tools.ad_eval trec --models <m> ; python -m tools.ad_eval ctgov --router openai/gpt-oss-120b
+python -m tools.ad_eval score && python -m tools.open_cohorts_eval score && python -m tools.validation_figures
 ```

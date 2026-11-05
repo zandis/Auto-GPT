@@ -223,6 +223,18 @@ def _load(cohort: str, model: str) -> dict[str, dict[str, Any]]:
         return {r["annotation_id"]: r for r in map(json.loads, fh)}
 
 
+def _complete(cohort: str, model: str, expected: int) -> bool:
+    """False while a run is still appending to the gzip file (no end-of-stream marker yet) or has not started."""
+    try:
+        n = len(_load(cohort, model))
+    except EOFError:
+        n = -1
+    if n < 0.98 * expected:
+        print("skipping", cohort, model, f"({max(n, 0)}/{expected} answers, run still in progress)")
+        return False
+    return True
+
+
 def score_combo(cohort: str, models: list[str], pairs: list[dict[str, Any]]) -> dict[str, Any]:
     ans = {m: _load(cohort, m) for m in models}
     flags: dict[str, list[tuple[str, bool]]] = defaultdict(list)
@@ -247,6 +259,10 @@ def score() -> dict[str, Any]:
             continue
         pairs, _notes = dataset(cohort)
         models = [f.name.removesuffix(".jsonl.gz").split("__", 1)[1].replace("__", "/", 1) for f in files]
+        expected = sum(len(p["criteria"]) for p in pairs)
+        models = [m for m in models if _complete(cohort, m, expected)]
+        if not models:
+            continue
         block: dict[str, Any] = {
             "pairs": {lab: sum(p["label"] == lab for p in pairs) for lab in SAMPLE[cohort]},
             "patients": len({p["patient"] for p in pairs}),
