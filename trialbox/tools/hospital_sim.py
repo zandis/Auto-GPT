@@ -98,7 +98,12 @@ def _trec_replicates(models: list[str], reps: int) -> dict[str, Any]:
     from tools.trec_ct_eval import dataset, load
 
     pairs, *_ = dataset()
-    ans = {m: load(m) for m in models}
+    ans: dict[str, dict[str, dict[str, Any]]] = {}
+    for m in models:
+        got = load(m)
+        if got is None:
+            raise SystemExit(f"{m}: run still in progress")
+        ans[m] = got
     per_patient: dict[str, list[tuple[int, int, int, int, int]]] = {}
     tokens = calls = 0
     for p in pairs:
