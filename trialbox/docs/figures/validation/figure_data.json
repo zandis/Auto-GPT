@@ -685,21 +685,98 @@
  "fig7": [
   {
    "patients": 2000,
-   "pipeline_s": 57.0,
-   "peak_rss_mb": 1292,
+   "pipeline_s": 40.3,
+   "peak_rss_mb": 925,
    "model_calls": 78
   },
   {
    "patients": 10000,
-   "pipeline_s": 225.6,
-   "peak_rss_mb": 5081,
+   "pipeline_s": 172.9,
+   "peak_rss_mb": 3449,
    "model_calls": 277
   },
   {
    "patients": 25000,
-   "pipeline_s": 582.3,
-   "peak_rss_mb": 12148,
+   "pipeline_s": 467.6,
+   "peak_rss_mb": 8366,
    "model_calls": 770
+  },
+  {
+   "patients": 50000,
+   "pipeline_s": 804.6,
+   "peak_rss_mb": 12305,
+   "model_calls": 1362
   }
- ]
+ ],
+ "fig9": {
+  "population": 14865,
+  "ad_alive_50_90_mmse": {
+   "22-30, current": 38,
+   "below 22": 313,
+   "no MMSE on record": 52,
+   "older than 12 months": 449
+  },
+  "alive_50_90": 10001,
+  "funnel": [
+   {
+    "criterion": "I1 alive",
+    "remaining": 10001
+   },
+   {
+    "criterion": "I2 age 50-90",
+    "remaining": 10001
+   },
+   {
+    "criterion": "I3 Alzheimer's disease diagnosis",
+    "remaining": 852
+   },
+   {
+    "criterion": "I4 MMSE 22-30 in the last 12 months",
+    "remaining": 38
+   },
+   {
+    "criterion": "E1 stroke or cerebrovascular disease",
+    "remaining": 38
+   },
+   {
+    "criterion": "E2 seizure disorder or epilepsy",
+    "remaining": 38
+   },
+   {
+    "criterion": "E3 anticoagulant now",
+    "remaining": 36
+   },
+   {
+    "criterion": "E4 malignancy in the last 5 years",
+    "remaining": 31
+   },
+   {
+    "criterion": "E5 severe kidney disease",
+    "remaining": 29
+   }
+  ],
+  "coded_candidates": 29,
+  "drop_one": {
+   "I1 alive": 0,
+   "I2 age 50-90": 0,
+   "I3 Alzheimer's disease diagnosis": 0,
+   "I4 MMSE 22-30 in the last 12 months": 574,
+   "E1 stroke or cerebrovascular disease": 0,
+   "E2 seizure disorder or epilepsy": 0,
+   "E3 anticoagulant now": 2,
+   "E4 malignancy in the last 5 years": 3,
+   "E5 severe kidney disease": 2
+  },
+  "per_1000_alive_50_90": 2.9,
+  "still_to_decide": {
+   "Amyloid PET or CSF positive": "LLM reads the PET or lab report",
+   "MRI: no more than 4 microhemorrhages, no macro-haemorrhage": "LLM reads the MRI report",
+   "Study partner available": "person (coordinator call)",
+   "Able to give consent or has a legal representative": "person"
+  },
+  "ref_date": "2026-11-05",
+  "independent_sql_agrees": true,
+  "mismatches": 0,
+  "protocol": "coded criteria modelled on lecanemab Clarity AD (NCT03887455), simplified"
+ }
 }

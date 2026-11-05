@@ -881,3 +881,10 @@ candidates for the next visits"). The single-case form lists trial rulesets only
 words left the user's text (the proposal note, the health line). On phones the menu fades at the edge to show it
 scrolls, every table scrolls inside its card, and controls stack. Reviewed 2026-11-05 (Fable review M3, M7, M8, L1,
 L2, L3, L4).
+
+**D-103 Lake rebuild keeps embeddings as float32 and inserts in batches.** The 50,000-patient hospital simulation ran
+out of memory in the lake rebuild: every note-chunk embedding was a Python list of 1,024 floats (about 32 KB a chunk)
+and the whole `document_chunk` table was built as one Arrow table from Python rows. Embeddings are now NumPy float32
+(4 KB), read from the embedding cache through Arrow, inserted in batches of 4,096 rows, and the resource dicts and
+non-document flat rows are freed once their Parquet file is written. The stored values are unchanged (the column was
+already FLOAT[1024]). Peak memory of a 5,000-patient cycle fell from 2.6 GB to 1.8 GB. Reviewed 2026-11-05.

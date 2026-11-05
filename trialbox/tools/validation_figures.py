@@ -524,7 +524,12 @@ def fig_scale() -> None:
     x = [r["patients"] / 1000 for r in rows]
     for ax, ys, lab, letter in (
         (axes[0], [r["pipeline_s"] / 60 for r in rows], "pipeline minutes", "a"),
-        (axes[1], [r["peak_rss_mb"] / 1024 for r in rows], "peak memory (GB)", "b"),
+        (
+            axes[1],
+            [(r["peak_rss_mb"] + r.get("peak_swap_mb", 0)) / 1024 for r in rows],
+            "memory, GB (RAM + swap)",
+            "b",
+        ),
         (axes[2], [r["funnel"]["S5"]["in"] for r in rows], "review queue (S5)", "c"),
     ):
         ax.plot(x, ys, "-o", color=BLUE, lw=2, ms=6, mec=SURFACE, mew=0.8)
@@ -655,6 +660,56 @@ def fig_adjusted(data: dict[str, dict[str, Any]]) -> None:
     ]
 
 
+def fig_synthea_ad() -> None:
+    d = _j(EV / "synthea/results/ad_cohort.json")
+    if not d:
+        return
+    fig, axes = plt.subplots(1, 2, figsize=(7.6, 3.2), gridspec_kw={"width_ratios": [1.5, 1], "wspace": 0.9})
+    ax = axes[0]
+    steps = [("Alive, age 50-90", d["alive_50_90"])] + [
+        (f["criterion"].split(" ", 1)[1], f["remaining"]) for f in d["funnel"][2:]
+    ]
+    for i, (_lab, n) in enumerate(steps):
+        ax.barh(i, n, color=BLUE if i < 3 else AQUA, height=0.62, edgecolor=SURFACE)
+        ax.text(n * 1.15 if n else 1.2, i, f"{n:,}", va="center", fontsize=7.2, color=INK2)
+    ax.set_xscale("log")
+    ax.set_xlim(10, d["alive_50_90"] * 4)
+    ax.set_yticks(range(len(steps)), [s[0] for s in steps], fontsize=7.2)
+    ax.invert_yaxis()
+    ax.grid(axis="y", visible=False)
+    ax.set_xlabel("patients (log scale)")
+    ax.set_title(f"Coded filters on {d['alive_50_90']:,} synthetic adults 50-90", loc="left")
+    _panel_letter(ax, "a")
+    ax = axes[1]
+    order = ["22-30, current", "below 22", "older than 12 months", "no MMSE on record"]
+    mm = d["ad_alive_50_90_mmse"]
+    cols = [AQUA, MUTED, ORANGE, YELLOW]
+    for i, (k, c) in enumerate(zip(order, cols, strict=True)):
+        ax.barh(i, mm.get(k, 0), color=c, height=0.62, edgecolor=SURFACE)
+        ax.text(mm.get(k, 0) + 8, i, f"{mm.get(k, 0):,}", va="center", fontsize=7.2, color=INK2)
+    ax.set_yticks(
+        range(len(order)),
+        ["MMSE 22-30, current", "MMSE below 22", "MMSE older than 12 months", "no MMSE on record"],
+        fontsize=7.2,
+    )
+    ax.invert_yaxis()
+    ax.grid(axis="y", visible=False)
+    ax.set_xlabel("patients with Alzheimer's disease")
+    ax.set_title("Why they drop: the latest MMSE", loc="left")
+    _panel_letter(ax, "b")
+    fig.suptitle(
+        f"Synthea Alzheimer's cohort: {d['coded_candidates']} coded candidates, then amyloid, MRI and study partner\n"
+        "blue = inclusion, green = exclusion; Python and SQL counts agree exactly",
+        x=0.01,
+        ha="left",
+        fontsize=9.5,
+        fontweight="bold",
+        y=1.04,
+    )
+    _save(fig, "fig9_synthea_ad_cohort")
+    DATA["fig9"] = d
+
+
 def main() -> None:
     fig_overview()
     data = cohorts()
@@ -666,6 +721,7 @@ def main() -> None:
     fig_prompt()
     fig_routes()
     fig_scale()
+    fig_synthea_ad()
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "figure_data.json").write_text(json.dumps(DATA, indent=1, default=str))
     print("figures in", OUT, sorted(p.name for p in OUT.glob("*.png")))
