@@ -194,7 +194,12 @@ def stage_funnel(rs: Ruleset, srun: ScreenRun, listed: int, n: Callable[[int], i
         )
         if not coded_fail:
             after_codes += 1
-        if any((c := by_id.get(v.id)) is not None and is_note_answer(c, v) for v in pv.verdicts):
+        if any(
+            (c := by_id.get(v.id)) is not None
+            and is_note_answer(c, v)
+            and not (v.evidence is not None and v.evidence.reason == "not evaluated")
+            for v in pv.verdicts
+        ):
             notes_read += 1
     return [
         ["S0", n(len(srun.scoped))],

@@ -139,7 +139,11 @@ def test_stage_funnel_counts_coded_filters_notes_read_and_candidates() -> None:
         "a": pv(
             "a", CriterionVerdict(id="I1", verdict="pass"), CriterionVerdict(id="E1", verdict="pass", evidence=conf)
         ),
-        "b": pv("b", CriterionVerdict(id="I1", verdict="fail")),  # out on codes, notes never read
+        "b": pv(
+            "b",
+            CriterionVerdict(id="I1", verdict="fail"),
+            CriterionVerdict(id="E1", verdict="unknown", evidence=Evidence(reason="not evaluated")),
+        ),  # out on codes, notes never read
         "c": pv(
             "c", CriterionVerdict(id="I1", verdict="pass"), CriterionVerdict(id="M1", verdict="pass")
         ),  # codes settled

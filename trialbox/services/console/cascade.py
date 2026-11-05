@@ -27,9 +27,20 @@ SERVED = {
 }
 
 
+_WORDS = {
+    "est": "estimate",
+    "ci95_low": "95 % low",
+    "ci95_high": "95 % high",
+    "p10": "10th percentile",
+    "p50": "median",
+    "p90": "90th percentile",
+    "n": "n",
+}
+
+
 def _flat(v: Any) -> str:
     if isinstance(v, dict):
-        return ", ".join(f"{k} {_flat(x)}" for k, x in v.items())
+        return ", ".join(f"{_WORDS.get(str(k), str(k).replace('_', ' '))} {_flat(x)}" for k, x in v.items())
     if isinstance(v, list):
         return ", ".join(_flat(x) for x in v)
     return str(v)

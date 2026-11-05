@@ -99,6 +99,7 @@ details > summary { cursor: pointer; color: var(--accent); margin-bottom: 8px; }
   form.inline { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   td form.inline select, td form.inline input { max-width: 100%; }
   .grid { grid-template-columns: 1fr; }
+  .grid > *, .card { min-width: 0; }
 }
 ol.stages { padding-left: 20px; } ol.stages li { margin: 4px 0; }
 table.compact td, table.compact th { padding: 3px 8px; }
