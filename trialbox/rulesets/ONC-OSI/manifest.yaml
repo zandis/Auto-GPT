@@ -37,11 +37,18 @@ thresholds:
   small_cell: 5
 models:
   judge: qwen3.5-35b-a3b-q4
-  judge_prompt: judge_v3
+  judge_prompt: judge_v4
 review:
-  approved_by: crc1@hospa.test
-  approved_at: '2026-10-04T18:31:44.293650+08:00'
-  rounds: 1
+  approved_by: zandis (project owner)
+  approved_at: '2026-11-06T07:11:00+08:00'
+  approved_via: project chat
+  rounds: 2
+  routing_confirmed: true
+  split:
+    structured: 4
+    mixed: 0
+    note: 1
+    human: 0
 equivalence:
   overall_pct: 100.0
   sample_size: 200
