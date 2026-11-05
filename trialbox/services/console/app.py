@@ -69,7 +69,7 @@ class PilotRefused(RuntimeError):
     """The pilot workspace was requested where it may not run."""
 
 
-_CLASS = re.compile(r"<td>(?:inclusion|exclusion)</td><td>(structured|note|human)</td>")
+_CLASS = re.compile(r"<td>(?:inclusion|exclusion)</td><td>(structured|note|human|mixed)</td>")
 
 
 def _num(v: object) -> object:
@@ -612,7 +612,13 @@ def create_app(
             return None
         if not found:
             return None
-        return {"n": len(found), "s": found.count("structured"), "m": found.count("note"), "h": found.count("human")}
+        return {
+            "n": len(found),
+            "s": found.count("structured"),
+            "m": found.count("note"),
+            "x": found.count("mixed"),
+            "h": found.count("human"),
+        }
 
     def _consent_card(job: Job) -> dict[str, Any] | None:
         """The consent explainer card: counts from the explainer record, the pages to preview."""

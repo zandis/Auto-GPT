@@ -233,6 +233,11 @@ def render(
     for c in rs.active():
         if c.class_ == "structured":
             how = f"{logic_summary(c.logic, rs.valuesets)}. Codes: {codes_text(c.logic, rs.valuesets)}"
+        elif c.class_ == "mixed":
+            how = (
+                f"Not applied in counts (coded pre-check at screening: {logic_summary(c.logic, rs.valuesets)}; "
+                f"the notes decide the rest)"
+            )
         else:
             how = (
                 "Not applied in counts ("

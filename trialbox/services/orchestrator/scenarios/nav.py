@@ -25,7 +25,7 @@ from orchestrator.reports import docx_draft, nav_xlsx
 from orchestrator.reports.common import ReportMeta
 from orchestrator.scenarios import facts as factmod
 from orchestrator.scenarios import twpas
-from orchestrator.scenarios.evaluate import PatientVerdicts, check_judge, evaluate_patients
+from orchestrator.scenarios.evaluate import PatientVerdicts, check_judge, evaluate_patients, is_note_answer
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     judge_for,
@@ -58,7 +58,7 @@ def _ok(v: CriterionVerdict, by: dict[str, Any], t: float) -> str:
     """yes / no / unknown from the eligibility-perspective verdict (weak note answers count as unknown)."""
     c = by[v.id]
     conf = v.evidence.confidence if v.evidence and v.evidence.confidence is not None else 1.0
-    if v.verdict in ("unknown", "pending_human") or (c.class_ == "note" and conf < t):
+    if v.verdict in ("unknown", "pending_human") or (is_note_answer(c, v) and conf < t):
         return "unknown"
     return "yes" if v.verdict == "pass" else "no"
 

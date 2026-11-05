@@ -118,9 +118,15 @@ def check_bool(expr: Atom | BoolExpr) -> None:
             check_bool(a)
 
 
+FILTERED = ("structured", "mixed")  # classes whose logic is compiled to CQL/SQL (D-32, D-98)
+JUDGED = ("note", "mixed")  # classes whose note_question goes to the model
+
+
 def compiled(criteria: list[CriterionIR]) -> list[CriterionIR]:
-    """Only class=structured criteria are compiled to CQL/SQL (note/human are judged or asked; D-32)."""
-    return [c for c in criteria if c.class_ == "structured"]
+    """Class ``structured`` and ``mixed`` criteria are compiled to CQL/SQL (note/human are judged or asked; D-32).
+    A mixed criterion's compiled part is a pre-check: it decides the patient when the coded data can, and the note
+    judge decides the rest (D-98)."""
+    return [c for c in criteria if c.class_ in FILTERED]
 
 
 def fmt_num(x: float) -> str:

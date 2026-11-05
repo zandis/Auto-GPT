@@ -46,7 +46,7 @@ from criteria_compiler.equivalence.gate import run_gate
 from criteria_compiler.ir_extract.postprocess import KIND_CODE, postprocess
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
-from criteria_compiler.semantics import CompileError, compiled
+from criteria_compiler.semantics import FILTERED, CompileError, compiled
 from criteria_compiler.terminology.mapper import Concept, Terminology, ValueSets
 
 log = logging.getLogger("criteria-compiler")
@@ -185,12 +185,13 @@ class Compiler:
     ) -> tuple[list[CriterionIR], list[str]]:
         """A structured criterion whose IR cannot be compiled goes to a person instead of failing the whole protocol
         (stress test #24: one model-made demographic atom without age or sex blocked every other criterion). It
-        becomes class ``human`` with ``needs_review`` and ``compile_error`` flags; the reviewer edits or accepts it."""
+        becomes class ``human`` with ``needs_review`` and ``compile_error`` flags; the reviewer edits or accepts it. A
+        ``mixed`` criterion keeps its note question and becomes ``note`` (D-98)."""
         vsi = ValueSets(ruleset, valuesets, self.d.term)
         out: list[CriterionIR] = []
         warnings: list[str] = []
         for c in criteria:
-            if c.class_ != "structured" or (c.review and c.review.status == "rejected"):
+            if c.class_ not in FILTERED or (c.review and c.review.status == "rejected"):
                 out.append(c)
                 continue
             try:
@@ -198,6 +199,10 @@ class Compiler:
                 SqlGenerator(ruleset, version, vsi).render([c])
             except CompileError as exc:
                 flags = sorted(set(c.flags or []) | {"needs_review", "compile_error"})
+                if c.class_ == "mixed":
+                    out.append(c.model_copy(update={"class_": "note", "flags": flags}))
+                    warnings.append(f"{c.id}: {exc}; the coded pre-check is dropped, the notes decide it")
+                    continue
                 question = c.human_question or f"Confirm with the patient/clinician: {c.text}"
                 out.append(c.model_copy(update={"class_": "human", "human_question": question, "flags": flags}))
                 warnings.append(f"{c.id}: {exc}; moved to human review")
@@ -625,7 +630,7 @@ class Compiler:
                     to_extract.append((c, d.edited_text))
                 if d.edited_class and not d.edited_text and d.edited_ir is None:
                     upd: dict[str, Any] = {"class_": d.edited_class, "review": review}
-                    if d.edited_class == "note" and not c.note_question:
+                    if d.edited_class in ("note", "mixed") and not c.note_question:
                         upd["note_question"] = f"Do the notes support: {c.text}"
                     if d.edited_class == "human" and not c.human_question:
                         upd["human_question"] = f"Confirm with the patient/clinician: {c.text}"

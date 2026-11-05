@@ -44,8 +44,10 @@ from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.reports import case_html
 from orchestrator.scenarios.evaluate import (
+    FILTERED,
     NoteJudge,
     NoteResult,
+    coded_settles,
     engine_from_env,
     human_verdict,
     note_verdict,
@@ -260,7 +262,7 @@ def evaluate_case(
     active = [c for c in rs.active() if c.kind in ("inclusion", "exclusion")]
     evals: dict[str, PatientEvaluation] = {}
     if subj.in_lake and subj.pid:
-        ids = [c.id for c in active if c.class_ == "structured"]
+        ids = [c.id for c in active if c.class_ in FILTERED]
         engine = engine_from_env("sql", None, ctx.services.lake, subj.snapshot)  # the lake snapshot, deterministic
         evals = engine.evaluate(rs, [subj.pid], index_date, ids) if ids else {}
     judge = judge_for(ctx, rs)
@@ -271,7 +273,7 @@ def evaluate_case(
         if c.class_ == "human":
             v = human_verdict(c)
             source = "human"
-        elif c.class_ == "structured" and subj.in_lake:
+        elif subj.in_lake and (c.class_ == "structured" or coded_settles(c, evals.get(subj.pid or ""))):
             v = structured_verdict(c, evals.get(subj.pid or ""))
         elif cj is not None:
             r = cj.decide(c, index_date)

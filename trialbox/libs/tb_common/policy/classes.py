@@ -198,6 +198,7 @@ _D1 = {
     "MonthlyCount",
     "SensitivityRow",
     "TierSummary",
+    "Judging",  # models and note-block policy of a run, no patient data
     "CohortRow",
     "CohortTable",
     "RegistrySummary",  # counts per status, no pseudonym

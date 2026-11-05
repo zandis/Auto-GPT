@@ -330,19 +330,37 @@ def human_verdict(c: CriterionIR) -> CriterionVerdict:
     return CriterionVerdict(id=c.id, verdict="pending_human", evidence=Evidence(resource_refs=[]))
 
 
+FILTERED = ("structured", "mixed")  # classes whose logic the filters decide (D-32, D-98)
+JUDGED = ("note", "mixed")  # classes whose note_question the model may be asked
+
+
+def coded_settles(c: CriterionIR, ev: PatientEvaluation | None) -> bool:
+    """D-98: a ``mixed`` criterion is settled by the coded data when its logic is true (an inclusion met, an
+    exclusion present). A false or null coded answer only means the codes did not show it: the notes decide."""
+    return c.class_ == "mixed" and ev is not None and ev.results.get(c.id) is True
+
+
+def is_note_answer(c: CriterionIR, v: CriterionVerdict) -> bool:
+    """A verdict that came from the note judge (and so follows the confidence and note-block rules): every ``note``
+    verdict, and a ``mixed`` verdict the coded data did not settle (it carries a model confidence)."""
+    if c.class_ == "note":
+        return True
+    return c.class_ == "mixed" and v.evidence is not None and v.evidence.confidence is not None
+
+
 def structured_candidate(rs: Ruleset, ev: PatientEvaluation | None, ids: set[str] | None = None) -> bool:
-    """SPEC §8.2: all structured inclusions in {true, null} and no structured exclusion true."""
+    """SPEC §8.2: all structured inclusions in {true, null} and no structured exclusion true. A ``mixed`` inclusion
+    whose codes say false stays a candidate (the notes may still show it); a ``mixed`` exclusion present in the codes
+    drops the patient like a structured one (D-98)."""
     if ev is None:
         return False
     for c in rs.active():
-        if (
-            c.class_ != "structured"
-            or (ids is not None and c.id not in ids)
-            or c.kind not in ("inclusion", "exclusion")
-        ):
+        if c.class_ not in FILTERED or (ids is not None and c.id not in ids):
+            continue
+        if c.kind not in ("inclusion", "exclusion"):
             continue
         v = ev.results.get(c.id)
-        if c.kind == "inclusion" and v is False:
+        if c.kind == "inclusion" and v is False and c.class_ == "structured":
             return False
         if c.kind == "exclusion" and v is True:
             return False
@@ -395,7 +413,7 @@ def tier(
         c = by_id[v.id]
         conf = v.evidence.confidence if v.evidence and v.evidence.confidence is not None else 1.0
         if v.verdict == "fail":
-            if c.class_ == "note" and (conf < threshold or not note_block):
+            if is_note_answer(c, v) and (conf < threshold or not note_block):
                 weak = True
             else:
                 failed = True
@@ -406,7 +424,7 @@ def tier(
         elif v.verdict == "pending_human":
             if c.action:
                 actions.append(c.action)
-        elif v.verdict == "pass" and c.class_ == "note" and conf < threshold:
+        elif v.verdict == "pass" and is_note_answer(c, v) and conf < threshold:
             weak = True
             if c.action:
                 actions.append(c.action)
@@ -441,17 +459,17 @@ def evaluate_patients(
     if note_block is None:
         note_block = effective_note_block(judge)[0]
     active = [c for c in rs.active() if c.kind in kinds and (only is None or c.id in only)]
-    structured_ids = [c.id for c in active if c.class_ == "structured"]
+    structured_ids = [c.id for c in active if c.class_ in FILTERED]
     evals = engine.evaluate(rs, pids, index_date, structured_ids) if structured_ids else {}
     if not structured_ids:
         evals = {
             p: PatientEvaluation(pid=p, index_date=index_date, engine=cast(Any, engine.name), results={}) for p in pids
         }
     cands = [p for p in pids if all_candidates or structured_candidate(rs, evals.get(p), set(structured_ids))]
-    notes = [c for c in active if c.class_ == "note"]
+    notes = [c for c in active if c.class_ in JUDGED]
     note_res: dict[tuple[str, str], NoteResult] = {}
     if judge is not None and notes and cands:
-        tasks = [(p, c) for p in cands for c in notes]
+        tasks = [(p, c) for p in cands for c in notes if not coded_settles(c, evals.get(p))]
 
         def run(task: tuple[str, CriterionIR]) -> tuple[tuple[str, str], NoteResult]:
             p, c = task
@@ -469,9 +487,9 @@ def evaluate_patients(
         ev = evals.get(p)
         vs: list[CriterionVerdict] = []
         for c in active:
-            if c.class_ == "structured":
+            if c.class_ == "structured" or coded_settles(c, ev):
                 vs.append(structured_verdict(c, ev))
-            elif c.class_ == "note":
+            elif c.class_ in JUDGED:
                 r = note_res.get((p, c.id))
                 vs.append(
                     note_verdict(c, r)

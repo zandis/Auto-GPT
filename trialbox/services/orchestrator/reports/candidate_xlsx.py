@@ -108,11 +108,14 @@ def render(
         cell.font = bold
         cell.fill = head_fill
     for c in crit:
-        how = (
-            logic_summary(c.logic, rs.valuesets)
-            if c.class_ == "structured"
-            else (c.note_question or "" if c.class_ == "note" else "ask at screening")
-        )
+        if c.class_ == "structured":
+            how = logic_summary(c.logic, rs.valuesets)
+        elif c.class_ == "mixed":
+            how = f"coded data first: {logic_summary(c.logic, rs.valuesets)}; else the notes: {c.note_question or ''}"
+        elif c.class_ == "note":
+            how = c.note_question or ""
+        else:
+            how = "ask at screening"
         cs.append([c.id, c.kind, c.class_, c.label or "", c.text, how, c.action or ""])
     for col, w in zip("ABCDEFG", (16, 10, 10, 22, 60, 60, 30), strict=True):
         cs.column_dimensions[col].width = w

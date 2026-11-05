@@ -826,3 +826,18 @@ the orchestrator's `GET /models`, which the console shows on the Overview as "Mo
 when the fallback is in force. `trialbox doctor` gained the `note_block` check: WARN in DEV/TEST, FAIL in
 VALIDATION/PRODUCTION when `both_agree` has no verifier. A site that wants single-model on purpose sets
 `TB_NOTE_BLOCK=never`, as the rtx4090 installer profile does. Reviewed 2026-11-05 (Fable review H2, M9).
+
+**D-98 Mixed criteria and the polarity check at import.** The 5 Nov 2026 validation routed about 27 % of real
+criteria as "codes confirm when present, notes decide otherwise", which the v1 IR could not express (v4's cascade IR
+already had a `mixed` class). Criterion IR 1.x now accepts `class: mixed`: the criterion carries `logic` and a
+`note_question`. The compiler compiles its logic like a structured criterion (and demotes it to `note`, never to
+`human`, when the logic does not compile). At screening the coded answer settles the criterion when it is true (an
+inclusion met, an exclusion present); a false or null coded answer only says the codes were silent, so the patient
+stays a candidate and the judge reads the notes. A verdict that came from the notes keeps the note rules
+(confidence threshold, two-model agreement, D-95/D-97 note-block policy); a coded verdict is deterministic. FEAS and
+cohort counts do not apply mixed criteria (their coded part is a lower bound, not a count), and say so. The same
+validation found that a negated exclusion question ("Does the patient have no history of X?") inverts the judge's
+answer and excludes exactly the patients to keep. The extraction prompt (ir_extract v2) forbids it, and the compiler
+checks every exclusion question anyway: common English forms are rewritten to the positive
+(`negated_question_rewritten`, the original kept in `note_question_source` and shown to the reviewer); anything else
+is flagged `negated_question`. Both need review before approval. Reviewed 2026-11-05 (Fable review H5).

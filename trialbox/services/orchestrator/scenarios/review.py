@@ -85,7 +85,7 @@ def compile_draft(ctx: Ctx, ruleset: str, doc: JobFile, approved: Ruleset | None
     )
 
 
-_CLASS = re.compile(r"<td>(?:inclusion|exclusion)</td><td>(structured|note|human)</td>")
+_CLASS = re.compile(r"<td>(?:inclusion|exclusion)</td><td>(structured|note|human|mixed)</td>")
 
 
 def check_split(html: str) -> str:
@@ -93,11 +93,16 @@ def check_split(html: str) -> str:
     found = _CLASS.findall(html)
     if not found:
         return ""
-    n = {k: found.count(k) for k in ("structured", "note", "human")}
+    n = {k: found.count(k) for k in ("structured", "note", "human", "mixed")}
+    mixed = (
+        f", **{n['mixed']}** by the filter first and the model on the notes where the codes are silent"
+        if n["mixed"]
+        else ""
+    )
     return (
         f"How the box will check the {len(found)} criteria: **{n['structured']}** by a fixed filter on structured "
-        f"data (age, sex, diagnosis codes, labs, drugs), **{n['note']}** by the model reading reports and notes, "
-        f"**{n['human']}** left to a person at screening.\n\n"
+        f"data (age, sex, diagnosis codes, labs, drugs), **{n['note']}** by the model reading reports and notes"
+        f"{mixed}, **{n['human']}** left to a person at screening.\n\n"
     )
 
 

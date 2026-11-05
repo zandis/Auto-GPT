@@ -186,7 +186,7 @@ EN: dict[str, str] = {
     "class.phi": "patient-level",
     "request.lookback.range": "Look-back is a whole number of months from 1 to 120.",
     "protocol.empty": "The protocol file is empty. Choose the file again.",
-    "job.review.split": "How the box will check the {n} criteria: {s} by a fixed filter on structured data (age, sex, codes, labs, drugs) · {m} by the model reading reports and notes · {h} by a person at screening.",
+    "job.review.split": "How the box will check the {n} criteria: {s} by a fixed filter on structured data (age, sex, codes, labs, drugs) · {m} by the model reading reports and notes · {x} by the filter first, then the model where the codes are silent · {h} by a person at screening.",
     "nav.consent": "Consent explainer",
     "consent.title": "Consent explainer",
     "consent.help": "Upload the IRB-approved informed-consent form. TrialBox drafts a plain-language guide with key "
@@ -478,7 +478,7 @@ JA: dict[str, str] = {
     "class.phi": "患者レベル",
     "request.lookback.range": "遡及期間は 1〜120 の整数（か月）で入力してください。",
     "protocol.empty": "プロトコルファイルが空です。ファイルを選び直してください。",
-    "job.review.split": "{n} 件の基準の確認方法：{s} 件は構造化データ（年齢・性別・コード・検査・薬剤）の固定フィルター · {m} 件はモデルがレポートと記録を読む · {h} 件はスクリーニング時に担当者が確認。",
+    "job.review.split": "{n} 件の基準の確認方法：{s} 件は構造化データ（年齢・性別・コード・検査・薬剤）の固定フィルター · {m} 件はモデルがレポートと記録を読む · {x} 件はまずフィルター、コードにない場合はモデルが記録を読む · {h} 件はスクリーニング時に担当者が確認。",
     "nav.consent": "同意説明の補助",
     "consent.title": "同意説明の補助資料",
     "consent.help": "IRB 承認済みの同意説明文書をアップロードしてください。TrialBox が主な危険・利益・参加者のすること・"
@@ -756,7 +756,7 @@ ZH: dict[str, str] = {
     "class.phi": "病人層級",
     "request.lookback.range": "回溯期間請輸入 1 到 120 的整數（月）。",
     "protocol.empty": "計畫書檔案是空的，請重新選擇檔案。",
-    "job.review.split": "{n} 項條件的檢查方式：{s} 項以結構化資料（年齡、性別、代碼、檢驗、藥物）固定篩選 · {m} 項由模型閱讀報告與病歷 · {h} 項於篩選時由人員確認。",
+    "job.review.split": "{n} 項條件的檢查方式：{s} 項以結構化資料（年齡、性別、代碼、檢驗、藥物）固定篩選 · {m} 項由模型閱讀報告與病歷 · {x} 項先篩選，代碼無法判定時再由模型閱讀病歷 · {h} 項於篩選時由人員確認。",
     "nav.consent": "同意說明輔助",
     "consent.title": "受試者同意說明輔助",
     "consent.help": "上傳經 IRB 核准的受試者同意書。TrialBox 會以各語言起草淺白說明，包含主要風險、好處、受試者須配合事項與理解確認問題；"

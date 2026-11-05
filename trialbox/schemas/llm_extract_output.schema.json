@@ -79,7 +79,7 @@
         "label": {"type": "string"},
         "source_ref": {"type": "string"},
         "kind": {"enum": ["inclusion", "exclusion", "renewal", "documentation"]},
-        "class": {"enum": ["structured", "note", "human"]},
+        "class": {"enum": ["structured", "note", "human", "mixed"]},
         "time_sensitive": {"type": "boolean"},
         "logic": {"anyOf": [{"$ref": "#/$defs/extracted_atom"}, {"$ref": "#/$defs/extracted_bool1"}]},
         "fallback": {"type": "string"},
