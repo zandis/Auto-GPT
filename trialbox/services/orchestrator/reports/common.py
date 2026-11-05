@@ -34,12 +34,16 @@ class ReportMeta:
     run_date: str
     locale: str = "zh-TW"
     contact: str = ""
+    clock: str = ""  # non-empty when the box's clock was pinned (test stack): printed so a reader never mistakes it
 
     @property
     def footer(self) -> str:
+        """``model`` names what actually ran on this job (D-101): the judge and verifier of a screening run,
+        ``no model (filters only)`` for counts, never a configured-but-unused model name."""
+        tail = f" · {self.clock}" if self.clock else ""
         return (
             f"TrialBox {self.site_id} · ruleset {self.ruleset} v{self.version} · model {self.model} · "
-            f"snapshot {self.snapshot} · job {self.job_id}"
+            f"snapshot {self.snapshot} · job {self.job_id}{tail}"
         )
 
 

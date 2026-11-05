@@ -365,7 +365,7 @@ def consent_explain(inp: dict[str, Any]) -> dict[str, Any]:
     return {"items": items, "questions": questions}
 
 
-_STUB_TAG = {"ja": "［日本語］", "zh-TW": "［中文］"}
+_STUB_TAG = {"ja": "［日本語・サンプル：翻訳ではありません］", "zh-TW": "［中文・範例：非翻譯］"}
 
 
 def consent_translate(inp: dict[str, Any]) -> dict[str, Any]:

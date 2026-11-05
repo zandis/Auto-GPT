@@ -4,6 +4,7 @@ scheduler start with the app."""
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -13,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Response
 from lake.client import LakeHttp
+from pydantic import BaseModel, Field
 from tb_common.audit import AuditLog
 from tb_common.config import get_config
 from tb_common.fhir import FhirEvaluator
@@ -117,6 +119,52 @@ def _queue() -> dict[str, Any]:
 app = make_app("orchestrator", checks=[_queue], lifespan=lifespan)
 
 
+@app.get("/models")
+def models() -> dict[str, Any]:
+    """What judges notes on this box and whether a note answer may exclude a patient (D-95, D-97). Aggregate
+    configuration only; the console shows it on the Overview so a site sees single-model mode before a run."""
+    from orchestrator.scenarios.evaluate import NoteJudge
+    from orchestrator.scenarios.screen import judging_info
+
+    o = orch()
+    s = o.services
+    mode = os.environ.get("TB_SCREEN_JUDGE", "agreement").strip().lower()
+    verifier = s.verifier if mode != "single" else None
+    judge = NoteJudge(s.lake, s.llm, "judge", job_id="", verifier=verifier) if s.llm is not None else None
+    return {
+        "engine": os.environ.get("TB_SCREEN_ENGINE", "cql"),
+        "screen_judge": mode,
+        "gateway": bool(os.environ.get("TB_GATEWAY_URL", "").strip()),
+        **judging_info(judge),
+    }
+
+
+@app.get("/rulesets/{ruleset}")
+def ruleset_detail(ruleset: str) -> dict[str, Any]:
+    """The approved manifest's provenance (version, approval record, population, kind): what the console prints in
+    a sponsor pack README (D-101). Aggregate: no criteria text, no patients."""
+    from tb_common.ruleset import RulesetNotApproved, load_approved
+
+    rid = ruleset.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{1,31}", rid):
+        raise HTTPException(status_code=404, detail="no such ruleset")
+    try:
+        rs = load_approved(orch().rulesets_dir, rid)
+    except (RulesetNotApproved, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    m = rs.manifest
+    return {
+        "ruleset": rs.id,
+        "version": rs.version,
+        "kind": str(m.kind or ""),
+        "title": m.title or "",
+        "nct_id": m.nct_id or "",
+        "population": m.population.model_dump(exclude_none=True) if m.population else None,
+        "review": m.review.model_dump(exclude_none=True) if m.review else None,
+        "criteria": len([c for c in rs.criteria if c.kind in ("inclusion", "exclusion")]),
+    }
+
+
 @app.post("/jobs")
 def create_job(req: JobCreate) -> Job:
     try:
@@ -138,6 +186,36 @@ def list_jobs(
     state: str | None = None, ruleset: str | None = None, type: str | None = None, limit: int = 50
 ) -> list[Job]:
     return orch().db.find(state=state, ruleset=ruleset, type_=type, limit=min(limit, 500))
+
+
+class RevealRequest(BaseModel):
+    pid: str = Field(min_length=8, max_length=64)
+    by: str = Field(min_length=1, max_length=200)
+
+
+@app.post("/jobs/{job_id}/reveal")
+def reveal(job_id: str, req: RevealRequest) -> dict[str, Any]:
+    """Chart number of one listed pseudonym for a coordinator on the console (D-99). On-prem only: the pid map
+    never leaves the box, every reveal is one audit event with the actor, and nothing is stored."""
+    from orchestrator.scenarios.screen import resolve_mrns
+
+    o = orch()
+    job = o.db.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="no such job")
+    if job.type not in ("SCREEN", "MICROBATCH", "NAV") or job.state != "done":
+        raise HTTPException(status_code=409, detail="chart numbers are revealed for finished screening jobs only")
+    found = resolve_mrns(Path(o.cfg.env.secrets_dir), [req.pid])
+    o.audit.append(
+        "screen.reveal",
+        job_id=job_id,
+        ruleset=job.ruleset,
+        actor=req.by,
+        detail={"pid": req.pid, "found": req.pid in found},
+    )
+    if req.pid not in found:
+        raise HTTPException(status_code=404, detail="this pseudonym is not in the box's pid map")
+    return {"pid": req.pid, "mrn": found[req.pid]}
 
 
 @app.post("/jobs/{job_id}/cancel")

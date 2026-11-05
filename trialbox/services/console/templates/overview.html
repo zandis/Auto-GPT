@@ -10,6 +10,19 @@
 <thead><tr><th scope="col">{{ t('col.service') }}</th><th scope="col">{{ t('col.status') }}</th><th scope="col">{{ t('col.detail') }}</th></tr></thead>
 <tbody>{% for h in health %}<tr><td>{{ h.service }}</td><td>{% if h.ok %}<span class="pill ok">OK</span>{% else %}<span class="pill bad">DOWN</span>{% endif %}</td><td>{{ h.detail }}</td></tr>{% endfor %}</tbody>
 </table>
+<h2 class="mt">{{ t('overview.models') }}</h2>
+{% if models %}
+<dl class="facts" data-testid="models">
+<dt>{{ t('overview.models.judge') }}</dt><dd>{{ models.judge_model or t('overview.models.none') }}</dd>
+<dt>{{ t('overview.models.verifier') }}</dt><dd>{{ models.verifier_model or t('overview.models.none') }}</dd>
+<dt>{{ t('overview.models.policy') }}</dt>
+<dd>{% if models.mode == 'none' %}<span class="pill warn">{{ t('overview.models.no_judge') }}</span>
+{% elif models.may_block %}<span class="pill ok">{{ t('overview.models.both_agree') }}</span>
+{% else %}<span class="pill warn" data-testid="models-warning">{{ t('overview.models.never') }}</span>{% endif %}</dd>
+</dl>
+{% if models.mode != 'none' and not models.may_block %}<p class="hint" data-testid="models-fallback">{% if models.configured_note_block == 'both_agree' %}{{ t('overview.models.fallback') }}{% else %}{{ t('overview.models.never.help') }}{% endif %}</p>{% endif %}
+<p class="hint">{{ t('overview.models.engine', engine=models.engine) }}</p>
+{% else %}<p class="hint" data-testid="models">{{ t('overview.models.unavailable') }}</p>{% endif %}
 {% if user.is_admin %}
 <form method="post" action="/ops/ingest" class="mt">
   <input type="hidden" name="csrf" value="{{ csrf }}">

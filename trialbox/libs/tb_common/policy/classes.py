@@ -198,6 +198,9 @@ _D1 = {
     "MonthlyCount",
     "SensitivityRow",
     "TierSummary",
+    "Judging",  # models and note-block policy of a run, no patient data
+    "ClassSplit",  # how many criteria each class checks, at approval (D-101)
+    "PopulationSpec",  # the protocol's disease stage and study arm in words (D-101)
     "CohortRow",
     "CohortTable",
     "RegistrySummary",  # counts per status, no pseudonym

@@ -42,7 +42,7 @@ def test_feas_email_round_trip(box: Box) -> None:
     assert [n.rsplit(".", 1)[-1] for n in names] == ["json", "pdf", "xlsx"]
     pdf = next(v for k, v in atts.items() if k.endswith(".pdf"))
     text = "".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
-    assert "Eligibility funnel" in text and f"job {job.job_id}" in text and "示範醫院A" in text
+    assert "資格篩選漏斗" in text and f"job {job.job_id}" in text and "示範醫院A" in text  # site locale zh-TW (D-100)
     assert b"/FontFile2" in pdf  # CJK font embedded
     result = c.FeasibilityResult.model_validate_json(next(v for k, v in atts.items() if k.endswith(".json")))
     assert result.start_n == 600 and result.funnel[0].criterion_id == "GZQO-INC-01"
@@ -142,8 +142,8 @@ def test_rejections_status_cancel(box: Box) -> None:
     assert box.orch.db.get(job.job_id).state == "failed"  # type: ignore[union-attr]
     box.mail(f"STATUS {job.job_id}")
     failed = box.find_job("failed", job.job_id)[0]
-    assert "Step: **ruleset**" in failed.text() or "Step: ruleset" in failed.text()
-    status = box.find(f"Status {job.job_id}")
+    assert "**ruleset**" in failed.text()  # the failed step, in the site's language (zh-TW here, D-100)
+    status = box.find("[NOPE] FEAS status: failed")
     assert status and '"job_id"' in status[0].text()
     box.mail("FEAS GZQO")
     queued = box.orch.db.find(type_="FEAS")[0]

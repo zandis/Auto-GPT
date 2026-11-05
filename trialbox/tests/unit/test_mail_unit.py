@@ -263,3 +263,21 @@ def test_text_part_of_a_body_with_html_blocks_has_no_raw_tags() -> None:
     assert "- PHI guard: clean" in text and "X-INC-01 | inclusion" in text
     assert "<table>" in html
     assert render_body("plain **md**")[0] == "plain **md**"
+
+
+def test_outbound_subject_with_a_middle_dot_has_no_empty_encoded_word(tmp_path: Path) -> None:
+    """The box's subjects carry one non-ASCII character ("·"); Python's header folder used to emit an empty encoded
+    word (``=?utf-8?q??=``) when it folded them, which some mail clients render as garbage."""
+    store = _store(tmp_path)
+    req = _req(["pi@hospa.test"], tag="aggregate", enc=False)
+    req = req.model_copy(
+        update={"subject": "[GZQO] CONSENT draft ready for review: EN, JA, zh-TW · job 01M6P5YTYTF5EZ35KRT7E7F75X"}
+    )
+    p = prepare(req, store=store, sender="trialbox@hospa.test", internal_domains=["hospa.test"])
+    head = p.data.split(b"\r\n\r\n")[0]
+    assert b"=?utf-8?q??=" not in head and all(len(line) <= 998 for line in head.split(b"\r\n"))
+    msg = message_from_bytes(p.data, policy=policy.default)
+    assert msg["Subject"] == req.subject
+    enc = prepare(_req(["pi@hospa.test"]), store=store, sender="trialbox@hospa.test", internal_domains=["hospa.test"])
+    pw = message_from_bytes(enc.password_mails[0][1], policy=policy.default)
+    assert str(pw["Subject"]).startswith("Password: ")

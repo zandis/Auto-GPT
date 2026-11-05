@@ -813,3 +813,71 @@ criterion's time frame. Measured with the same wording in `tools/medtxt_eval.py 
 on suspected findings 11-22 % of the time, at 2-8 points of recall on present findings. The cascade asks for `judge`
 (newest version) and gets v4; the compiler writes `judge_v4` into new manifests. Approved rulesets keep their pinned
 `judge_v3` until they are re-approved, because a prompt change in an approved ruleset is a change the approver signs.
+
+**D-97 Never-exclude fallback without a verifier, and the models card.** `TB_NOTE_BLOCK=both_agree` (D-95) promises
+that a note criterion excludes a patient only when two models agree. Where no verifier is wired (the OpenRouter POC
+mode, a verifier scaled to zero, `TB_SCREEN_JUDGE=single`, a verifier that is down), the orchestrator used to run
+the single judge and still let a confident note `fail` exclude, so the site believed two models had agreed when one
+had. Now `evaluate.effective_note_block(judge)` decides per run: `both_agree` without a verifier becomes `never`,
+and the run says so. The judging facts (judge model, verifier model, agreement mode, policy configured and in
+force, disagreements, failures) travel with the run: the `screen.evaluated` audit event, the candidate-list JSON
+(`judging`, optional), the summary PDF scope lines, the done mail, a new aggregate `screen_<stem>.json`, and
+the orchestrator's `GET /models`, which the console shows on the Overview as "Models and policy" with a warning pill
+when the fallback is in force. `trialbox doctor` gained the `note_block` check: WARN in DEV/TEST, FAIL in
+VALIDATION/PRODUCTION when `both_agree` has no verifier. A site that wants single-model on purpose sets
+`TB_NOTE_BLOCK=never`, as the rtx4090 installer profile does. Reviewed 2026-11-05 (Fable review H2, M9).
+
+**D-98 Mixed criteria and the polarity check at import.** The 5 Nov 2026 validation routed about 27 % of real
+criteria as "codes confirm when present, notes decide otherwise", which the v1 IR could not express (v4's cascade IR
+already had a `mixed` class). Criterion IR 1.x now accepts `class: mixed`: the criterion carries `logic` and a
+`note_question`. The compiler compiles its logic like a structured criterion (and demotes it to `note`, never to
+`human`, when the logic does not compile). At screening the coded answer settles the criterion when it is true (an
+inclusion met, an exclusion present); a false or null coded answer only says the codes were silent, so the patient
+stays a candidate and the judge reads the notes. A verdict that came from the notes keeps the note rules
+(confidence threshold, two-model agreement, D-95/D-97 note-block policy); a coded verdict is deterministic. FEAS and
+cohort counts do not apply mixed criteria (their coded part is a lower bound, not a count), and say so. The same
+validation found that a negated exclusion question ("Does the patient have no history of X?") inverts the judge's
+answer and excludes exactly the patients to keep. The extraction prompt (ir_extract v2) forbids it, and the compiler
+checks every exclusion question anyway: common English forms are rewritten to the positive
+(`negated_question_rewritten`, the original kept in `note_question_source` and shown to the reviewer); anything else
+is flagged `negated_question`. Both need review before approval. Reviewed 2026-11-05 (Fable review H5).
+
+**D-100 Mail and reports in the requester's language.** The console and the front door accepted Japanese and
+Traditional Chinese, but every reply, PDF and done mail was English, and the CASE sheet followed the site locale
+although the console promised "same as the chart". A job now has one language: the `lang=` option when given (the
+console adds the signed-in user's language to FEAS, SCREEN, CASE, NAV and MICROBATCH requests), else the site locale.
+`services/orchestrator/i18n.py` holds the texts (received, failed and status mail; SCREEN and FEAS done mail and
+headlines; every label of the feasibility and screening-summary PDFs) in EN, JA and zh-TW with one key set, checked
+by a test. Subjects keep their ASCII kind tokens, since `is_job_mail` parses them. The CASE sheet detects the
+chart's language from its script when no `lang=` is given. The stub model's "translations" are now tagged as samples
+that are not translations. Reviewed 2026-11-05 (Fable review H4, M5).
+
+**D-101 Approval record, investigator role, sponsor pack and report provenance.** The 5 Nov 2026 review found
+the approval of a ruleset stored only the requester's address, that a protocol with 19 of 23 criteria routed to a
+person could be approved in one click without a word of warning, and that the LLM router agreed with expert
+annotators on the class of a criterion only about 6 times in 10 (kappa 0.34) on open trial data. The review mail now
+says so and asks the approver to read the class column; when at least half of the criteria are left to a person it
+opens with "Check this". The approval record (`manifest.review`) keeps who approved, via which channel (web console
+or e-mail), the class split at approval and `routing_confirmed: true`, because the approval is the person's check of
+the routing. The manifest gained an optional `population` block (disease stage, study arm): the AD audit showed a
+criteria list alone does not say that a dementia patient is out of an MCI trial, so the stage is a named field that
+FEAS and SCREEN mails print next to every count. The console gained the **investigator** role (PI / sub-I): reads
+what a viewer reads, plus the CASE sheet and the pseudonymous candidate rows; no chart numbers (reveal and registry
+export stay with coordinators), no requests. A finished FEAS job offers a **sponsor pack**: one zip with the
+aggregate PDF, XLSX and JSON and a README naming the ruleset version, snapshot, approval record, population and the
+models that ran; the download is audited (`console.export`). Report footers print the models that actually ran
+(`no model (filters only)` for FEAS; judge and verifier, or judge alone with the note-block policy, for screening
+runs) instead of the configured judge, and say when the box's clock was pinned (test stack). Reviewed 2026-11-05
+(Fable review M1, M2, M6; PR #15 design points 1 and 3).
+
+**D-102 One funnel, plain words, phones.** The 5 Nov 2026 review walked the console as a coordinator on a 390 px
+phone and as a viewer and sponsor. Every results page now shows the same named funnel with the cascade's stage ids
+(S0 in scope, S1 after the coded filters, S3 notes the model read, S4 candidates for a person, S5 confirmed): a
+screening run writes it into `screen_<stem>.json`, the cascade page names its stages the same way and shows them
+while the run is still going instead of an empty page, and its headline keys are words. The FEAS page opens with the
+PDF's answer (participants in N months, biggest barriers) before the funnel. The New request page shows a viewer what
+they can do instead of three greyed-out forms; its buttons say what they start ("Count eligible patients", "Find
+candidates for the next visits"). The single-case form lists trial rulesets only and asks the user to pick one. Engine
+words left the user's text (the proposal note, the health line). On phones the menu fades at the edge to show it
+scrolls, every table scrolls inside its card, and controls stack. Reviewed 2026-11-05 (Fable review M3, M7, M8, L1,
+L2, L3, L4).

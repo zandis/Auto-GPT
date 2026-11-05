@@ -319,6 +319,7 @@
             "structured",
             "note",
             "human",
+            "mixed",
             null
           ]
         },
@@ -365,6 +366,13 @@
             "string",
             "null"
           ]
+        },
+        "via": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "how the approval reached the box: 'web console' or 'e-mail' (D-101)"
         },
         "decisions": {
           "type": "array",

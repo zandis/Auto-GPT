@@ -3,8 +3,11 @@
 * ids ``<RULESET>-INC-01`` ... per kind, in source order;
 * concept names -> ``VS_<NAME>`` ids; each concept mapped through the terminology tables (§4.3.1);
 * derived atoms reference ``VS_<DERIVED>_COMPONENTS`` built from the shared constants; demographic atoms ``NONE``;
-* classification sanity: a ``structured`` criterion whose logic cannot be compiled, or whose concepts did not map,
-  is flagged ``needs_review`` (never silently dropped).
+* classification sanity: a ``structured`` (or ``mixed``) criterion whose logic cannot be compiled, or whose concepts
+  did not map, is flagged ``needs_review`` (never silently dropped);
+* polarity (D-98): an exclusion ``note_question`` in the negative is rewritten to its positive form when a safe
+  English rewrite exists (``negated_question_rewritten``, original kept in ``note_question_source``), else flagged
+  ``negated_question`` for the reviewer. Either way the criterion needs review.
 """
 
 from __future__ import annotations
@@ -15,7 +18,8 @@ from typing import Any
 from tb_common.derived import CODES, COMPONENTS
 from tb_contracts import CriterionIR, LlmExtractOutput, dump
 
-from criteria_compiler.semantics import CompileError, atoms, check_bool, kind
+from criteria_compiler.ir_extract.polarity import is_negated, positive
+from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, kind
 from criteria_compiler.terminology.mapper import (
     Concept,
     ConceptMapLLM,
@@ -110,7 +114,7 @@ def postprocess(
         ir_dict = {k: v for k, v in raw.items() if k not in ("concept_candidates", "logic") and v is not None}
         ir_dict.update({"id": cid, "ruleset": ruleset, "logic": logic, "review": {"status": "draft"}})
         ir = CriterionIR.model_validate(ir_dict)
-        if ir.class_ == "structured":
+        if ir.class_ in FILTERED:
             try:
                 check_bool(ir.logic)
                 for a in atoms(ir.logic):
@@ -125,10 +129,19 @@ def postprocess(
             except CompileError as exc:
                 warnings.append(f"{cid}: {exc}")
                 flags.append("logic_invalid")
-        if ir.class_ == "note" and not ir.note_question:
+        if ir.class_ in JUDGED and not ir.note_question:
             flags.append("missing_note_question")
         if ir.class_ == "human" and not ir.human_question:
             flags.append("missing_human_question")
+        if ir.class_ in JUDGED and ir.kind == "exclusion" and ir.note_question and is_negated(ir.note_question):
+            fixed = positive(ir.note_question)
+            if fixed is not None:
+                ir = ir.model_copy(update={"note_question": fixed, "note_question_source": ir.note_question})
+                flags.append("negated_question_rewritten")
+                warnings.append(f"{cid}: exclusion question was negated; rewritten to {fixed!r} (check it)")
+            else:
+                flags.append("negated_question")
+                warnings.append(f"{cid}: exclusion question is negated and could not be rewritten; edit it")
         if flags:
             ir = ir.model_copy(update={"flags": sorted(set(flags) | {"needs_review"})})
         criteria.append(ir)

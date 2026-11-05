@@ -45,7 +45,7 @@ def _nav(box: Box) -> tuple[c.Job, dict[str, bytes]]:
     box.orch.drain()
     job = box.orch.db.find(type_="NAV", ruleset="ONC-OSI")[0]
     assert job.state == "done", job.error
-    mail = next(s for s in reversed(box.sent) if s.subject.startswith("NAV ONC-OSI ONC"))
+    mail = next(s for s in reversed(box.sent) if s.subject.startswith("[ONC-OSI] NAV list: ONC"))
     assert sorted(mail.to) == ["nurse-onc@hospa.test", "onc-dr@hospa.test"]
     return job, unzip_phi(box, mail)
 

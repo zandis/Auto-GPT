@@ -18,7 +18,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 from tb_contracts import Atom, BoolExpr, CriterionIR, EquivalenceReport, ReviewDecision
 
-from criteria_compiler.semantics import window
+from criteria_compiler.semantics import FILTERED, window
 
 COLUMNS = [
     "id",
@@ -146,12 +146,15 @@ def rows(
 ) -> list[dict[str, Any]]:
     out = []
     for c in criteria:
-        eq = (tests.per_criterion.get(c.id) if tests else None) if c.class_ == "structured" else None
-        summary = (
-            logic_summary(c.logic, valuesets)
-            if c.class_ == "structured"
-            else (c.note_question or c.human_question or "")
-        )
+        eq = (tests.per_criterion.get(c.id) if tests else None) if c.class_ in FILTERED else None
+        if c.class_ == "structured":
+            summary = logic_summary(c.logic, valuesets)
+        elif c.class_ == "mixed":
+            summary = f"Coded data first: {logic_summary(c.logic, valuesets)}. Then the notes: {c.note_question or ''}"
+        else:
+            summary = c.note_question or c.human_question or ""
+        if c.note_question_source:
+            summary += f"\n[question rewritten from the negated form: {c.note_question_source}]"
         out.append(
             {
                 "id": c.id,
@@ -159,7 +162,7 @@ def rows(
                 "class": c.class_,
                 "text": c.text,
                 "summary": summary,
-                "codes": codes_text(c.logic, valuesets) if c.class_ == "structured" else "",
+                "codes": codes_text(c.logic, valuesets) if c.class_ in FILTERED else "",
                 "equivalence_pct": eq,
                 "flags": ", ".join(c.flags or []),
                 "decision": "reject" if (c.review and c.review.status == "rejected") else "approve",
@@ -224,7 +227,7 @@ def review_xlsx(
         ws.append([r.get(c, "") for c in COLUMNS])
     n = ws.max_row
     dv = DataValidation(type="list", formula1='"approve,reject,edit"', allow_blank=False)
-    dv2 = DataValidation(type="list", formula1='"structured,note,human"', allow_blank=True)
+    dv2 = DataValidation(type="list", formula1='"structured,note,human,mixed"', allow_blank=True)
     ws.add_data_validation(dv)
     ws.add_data_validation(dv2)
     dv.add(f"I2:I{n}")
@@ -302,8 +305,8 @@ def parse_review_xlsx(data: bytes) -> tuple[list[ReviewDecision], dict[str, str]
         if decision not in ("approve", "reject", "edit"):
             raise ValueError(f"{cid}: decision must be approve, reject or edit (got {decision!r})")
         edited_class = get("edited_class")
-        if edited_class and edited_class not in ("structured", "note", "human"):
-            raise ValueError(f"{cid}: edited_class must be structured, note or human")
+        if edited_class and edited_class not in ("structured", "note", "human", "mixed"):
+            raise ValueError(f"{cid}: edited_class must be structured, note, human or mixed")
         out.append(
             ReviewDecision(
                 id=str(cid),

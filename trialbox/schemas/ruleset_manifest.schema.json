@@ -30,6 +30,7 @@
     "twpas": {"$ref": "#/$defs/twpas_config"},
     "docx_template": {"type": "string", "description": "relative path of the Jinja2 docx application template"},
     "cohort": {"$ref": "#/$defs/cohort_config"},
+    "population": {"$ref": "#/$defs/population_spec"},
     "nct_id": {"type": "string"},
     "source_last_update": {"type": "string"}
   },
@@ -113,7 +114,33 @@
       "properties": {
         "approved_by": {"type": "string"},
         "approved_at": {"type": "string", "format": "date-time"},
-        "rounds": {"type": "integer"}
+        "approved_via": {"type": "string", "description": "'web console' or 'e-mail' (D-101)"},
+        "rounds": {"type": "integer"},
+        "split": {"$ref": "#/$defs/class_split"},
+        "routing_confirmed": {"type": "boolean", "description": "the approver saw and confirmed the class (filter / model / person) of every criterion (D-101)"}
+      }
+    },
+    "class_split": {
+      "title": "ClassSplit",
+      "description": "How many active criteria each class checks at approval time (D-101).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "structured": {"type": "integer"},
+        "mixed": {"type": "integer"},
+        "note": {"type": "integer"},
+        "human": {"type": "integer"}
+      }
+    },
+    "population_spec": {
+      "title": "PopulationSpec",
+      "description": "The protocol's population in words the box can show next to every count: disease stage and study arm are explicit fields because a criteria list alone does not say that a dementia patient is out of an MCI trial (D-101).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "disease_stage": {"type": "string", "description": "e.g. 'MCI or mild dementia due to AD (CDR 0.5–1)'"},
+        "study_arm": {"type": "string", "description": "e.g. 'treatment-naive, first-line'"},
+        "notes": {"type": "string"}
       }
     },
     "equivalence_summary": {

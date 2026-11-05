@@ -83,6 +83,8 @@ class Backend(Protocol):
     def audit(self, job_id: str | None = None, limit: int = 200) -> list[AuditRecord]: ...
     def rulesets(self) -> list[RulesetInfo]: ...
     def health(self) -> list[Health]: ...
+    def models(self) -> dict[str, Any] | None: ...
+    def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None: ...
     def ingest(self) -> dict[str, Any]: ...
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str: ...
     def registry_summaries(self) -> list[RegistrySummary]: ...
@@ -90,6 +92,7 @@ class Backend(Protocol):
     def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry: ...
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
     def registry_export(self, ruleset: str) -> bytes: ...
+    def reveal(self, job_id: str, pid: str, by: str) -> str | None: ...
 
 
 # ---------------------------------------------------------------------------------------------- audit reading
@@ -214,6 +217,23 @@ class HttpBackend:
     def rulesets(self) -> list[RulesetInfo]:
         return ruleset_infos(self.cfg.env.rulesets_path)
 
+    def models(self) -> dict[str, Any] | None:
+        """The orchestrator's ``GET /models`` (judge, verifier, note-block policy in force); None when it is down."""
+        try:
+            data = self.orch.get_json("/models")
+        except ServiceError:
+            return None
+        return dict(data) if isinstance(data, dict) else None
+
+    def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None:
+        """The approved manifest's provenance (version, approval record, population) for the sponsor pack README
+        (D-101); None when there is no approved version or the orchestrator is down."""
+        try:
+            data = self.orch.get_json(f"/rulesets/{ruleset}")
+        except ServiceError:
+            return None
+        return dict(data) if isinstance(data, dict) else None
+
     def health(self) -> list[Health]:
         def probe(item: tuple[str, str]) -> Health:
             name, base = item
@@ -227,7 +247,8 @@ class HttpBackend:
                 if name == "lake":
                     detail = f"snapshot {checks.get('snapshot', '?')}"
                 elif name == "orchestrator":
-                    detail = f"{checks.get('queued_or_running', 0)} queued or running"
+                    n_q = int(checks.get("queued_or_running", 0) or 0)
+                    detail = "idle" if n_q == 0 else f"{n_q} job{'s' if n_q != 1 else ''} in progress"
             except ValueError:
                 pass
             return Health(name, resp.status_code == 200, detail)
@@ -272,6 +293,20 @@ class HttpBackend:
 
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
         return int(self._registry_call("POST", f"/registry/{ruleset}/promote", req)["added"])
+
+    def reveal(self, job_id: str, pid: str, by: str) -> str | None:
+        """The chart number of one listed pseudonym (D-99): the orchestrator resolves and audits it; None when the
+        box has no pid map for it."""
+        try:
+            data = self.orch.post_raw(f"/jobs/{job_id}/reveal", {"pid": pid, "by": by}).json()
+        except ServiceError as exc:
+            if exc.status == 404:
+                return None
+            if exc.status in (400, 409, 422):
+                raise Refused(exc.detail) from exc
+            raise Unavailable(str(exc)) from exc
+        mrn = data.get("mrn") if isinstance(data, dict) else None
+        return str(mrn) if mrn else None
 
     def registry_export(self, ruleset: str) -> bytes:
         try:

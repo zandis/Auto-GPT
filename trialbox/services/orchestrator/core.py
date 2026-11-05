@@ -50,6 +50,7 @@ from tb_contracts import (
     SendResult,
 )
 
+from orchestrator import i18n
 from orchestrator.clients import AdapterAPI, CompilerAPI, MailAPI, ParserAPI, StepFailed
 from orchestrator.db import TERMINAL, JobDB
 
@@ -218,6 +219,11 @@ class Orchestrator:
     # ------------------------------------------------------------------ time
     def today(self) -> date:
         return self._today() if self._today else now(self.cfg.env.tz).date()
+
+    @property
+    def clock_pinned(self) -> bool:
+        """True when ``TB_TODAY`` pins the clock (test stack); reports print it in their footer (D-101)."""
+        return self._today is not None
 
     def _now(self) -> datetime:
         return now(self.cfg.env.tz)
@@ -411,11 +417,17 @@ class Orchestrator:
         self.db.add_mail(res.message_id, job.job_id, kind, subject, self._now().isoformat())
         return res
 
+    def lang(self, job: Job) -> str:
+        """The job's language for mail and reports (D-100): ``lang=`` option, else the site locale."""
+        return i18n.job_lang(job.options, self.cfg.settings.site.locale if self.cfg.settings.site else None)
+
     def _received_mail(self, job: Job) -> None:
-        body = (
-            f"Your request **{_title(job)}** was received at {job.received_at.isoformat(timespec='seconds')} and "
-            f"queued as job `{job.job_id}`.\n\nResults follow by email. Reply `STATUS {job.job_id}` for progress or "
-            f"`CANCEL {job.job_id}` to cancel."
+        body = i18n.t(
+            self.lang(job),
+            "mail.received",
+            title=_title(job),
+            at=job.received_at.isoformat(timespec="seconds"),
+            job=job.job_id,
         )
         try:
             self.send(job, [job.requested_by], _subject(job, "received"), body, [], kind="received")
@@ -429,10 +441,8 @@ class Orchestrator:
         if not to:
             return
         err = job.error or JobError(step="unknown", message="unknown error")
-        body = (
-            f"Job `{job.job_id}` (**{_title(job)}**) failed.\n\n- Step: **{err.step}**\n- Reason: {err.message}\n\n"
-            f"Nothing was sent to other recipients. Fix the request and send it again, or reply "
-            f"`STATUS {job.job_id}` for the job record."
+        body = i18n.t(
+            self.lang(job), "mail.failed", job=job.job_id, title=_title(job), step=err.step, reason=err.message
         )
         try:
             self.send(job, [to], _subject(job, "failed", f"at {err.step}"), body, [], kind="failed")
@@ -482,6 +492,11 @@ class Orchestrator:
                 return
             self.run(jid)
         raise TimeoutError("queue not drained")
+
+
+def job_language(ctx: Ctx) -> str:
+    """The job's language (D-100), see :meth:`Orchestrator.lang`."""
+    return ctx.orch.lang(ctx.job)
 
 
 def job_stamp(ctx: Ctx) -> str:

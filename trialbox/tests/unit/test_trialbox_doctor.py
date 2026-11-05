@@ -44,6 +44,7 @@ def test_default_install_passes_with_hermes_disabled() -> None:
         "channel_engine",
         "hermes_pin",
         "publish_gate",
+        "note_block",
         "registry_pins",
     }
 
@@ -174,6 +175,29 @@ def test_publish_gate_state(tmp_path: Path) -> None:
 
 
 @pytest.mark.req("S1-16")
+def test_note_block_without_a_verifier_warns_in_test_and_fails_in_production() -> None:
+    base = {"TB_TOPOLOGY": "A", "TB_GATEWAY_URL": "http://tb-gateway:8000"}
+    warn = status(doctor.run(inputs(env={**base, "TB_ENV": "TEST"})), "note_block")
+    assert warn.status == "WARN" and "never-exclude" in warn.detail
+    fail = status(doctor.run(inputs(env={**base, "TB_ENV": "PRODUCTION"})), "note_block")
+    assert fail.status == "FAIL"
+    single = status(
+        doctor.run(
+            inputs(env={**base, "TB_ENV": "PRODUCTION", "TB_GATEWAY_VERIFIER_MODEL": "v", "TB_SCREEN_JUDGE": "single"})
+        ),
+        "note_block",
+    )
+    assert single.status == "FAIL" and "single" in single.detail
+    ok = status(
+        doctor.run(inputs(env={**base, "TB_ENV": "PRODUCTION", "TB_GATEWAY_VERIFIER_MODEL": "v"})), "note_block"
+    )
+    assert ok.status == "PASS"
+    never = status(doctor.run(inputs(env={**base, "TB_ENV": "PRODUCTION", "TB_NOTE_BLOCK": "never"})), "note_block")
+    assert never.status == "PASS"
+    bad = status(doctor.run(inputs(env={**base, "TB_ENV": "DEV", "TB_NOTE_BLOCK": "sometimes"})), "note_block")
+    assert bad.status == "FAIL"
+
+
 def test_a_check_that_cannot_run_fails(tmp_path: Path) -> None:
     checks = doctor.run(inputs(routing_path=tmp_path / "missing.yaml"))
     assert status(checks, "routing_perimeter").status == "FAIL" and not doctor.ok(checks)

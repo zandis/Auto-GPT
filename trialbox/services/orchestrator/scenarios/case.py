@@ -42,10 +42,13 @@ from tb_contracts import CriterionIR, CriterionVerdict, Evidence, ParseRequest, 
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
+from orchestrator.i18n import detect_lang
 from orchestrator.reports import case_html
 from orchestrator.scenarios.evaluate import (
+    FILTERED,
     NoteJudge,
     NoteResult,
+    coded_settles,
     engine_from_env,
     human_verdict,
     note_verdict,
@@ -260,7 +263,7 @@ def evaluate_case(
     active = [c for c in rs.active() if c.kind in ("inclusion", "exclusion")]
     evals: dict[str, PatientEvaluation] = {}
     if subj.in_lake and subj.pid:
-        ids = [c.id for c in active if c.class_ == "structured"]
+        ids = [c.id for c in active if c.class_ in FILTERED]
         engine = engine_from_env("sql", None, ctx.services.lake, subj.snapshot)  # the lake snapshot, deterministic
         evals = engine.evaluate(rs, [subj.pid], index_date, ids) if ids else {}
     judge = judge_for(ctx, rs)
@@ -271,7 +274,7 @@ def evaluate_case(
         if c.class_ == "human":
             v = human_verdict(c)
             source = "human"
-        elif c.class_ == "structured" and subj.in_lake:
+        elif subj.in_lake and (c.class_ == "structured" or coded_settles(c, evals.get(subj.pid or ""))):
             v = structured_verdict(c, evals.get(subj.pid or ""))
         elif cj is not None:
             r = cj.decide(c, index_date)
@@ -314,12 +317,16 @@ def headline(c: dict[str, int], lang: str) -> str:
     return case_html.HEADLINE[lang].format(**c)
 
 
-def pick_lang(ctx: Ctx) -> str:
+def pick_lang(ctx: Ctx, chart_text: str | None = None) -> str:
+    """The sheet's language: ``lang=`` when given; else the chart's own language (what the console option "Same as
+    the chart" promises); else the site locale."""
     raw = (ctx.job.options or {}).get("lang")
     if raw:
         if raw not in LANGS:
             raise StepFailed("received", f"lang={raw!r}: use one of en, ja, zh-TW")
-        return raw
+        return str(raw)
+    if chart_text and chart_text.strip():
+        return detect_lang(chart_text)
     loc = (ctx.cfg.settings.site.locale or "en") if ctx.cfg.settings.site else "en"
     return loc if loc in LANGS else ("ja" if loc.startswith("ja") else "zh-TW" if loc.startswith("zh") else "en")
 
@@ -343,6 +350,7 @@ def run(ctx: Ctx) -> Outcome:
             "routing", f"Ruleset {rs.id} has no internal routing.list_to; an eligibility sheet cannot be sent."
         )
     excerpts, charts = read_charts(ctx)
+    lang = pick_lang(ctx, " ".join(str(e.get("text", "")) for e in excerpts[:40]))
     subj = resolve_subject(ctx, opts.get("mrn"))
     if subj.snapshot:
         ctx.update(snapshot_date=date.fromisoformat(subj.snapshot))

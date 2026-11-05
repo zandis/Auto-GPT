@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 from dataclasses import replace
@@ -156,6 +157,7 @@ META = ReportMeta(
     "2026-10-04",
     "01JB0000000000000000000000",
     "2026-10-05",
+    locale="en",
     contact="crc1@hospa.test",
 )
 
@@ -182,6 +184,11 @@ def test_reports_deterministic_and_complete() -> None:
     ):
         assert needle in text, needle
     assert "1–7" in text and "痛風 diagnosis (GZQO-INC-02, −402)" in text  # answer + biggest barrier
+    zh = feasibility_pdf.render(r, GZQO, dataclasses.replace(META, locale="zh-TW"), {"cold_chain": True})
+    ztext = "".join(p.extract_text() for p in PdfReader(io.BytesIO(zh)).pages)
+    assert "資格篩選漏斗" in ztext and "可行性報告" in ztext and "Eligibility funnel" not in ztext  # D-100
+    ja = feasibility_pdf.render(r, GZQO, dataclasses.replace(META, locale="ja"), {"cold_chain": True})
+    assert "適格性の絞り込み" in "".join(p.extract_text() for p in PdfReader(io.BytesIO(ja)).pages)
     xlsx = feasibility_xlsx.render(r, GZQO, META)
     assert xlsx == feasibility_xlsx.render(r, GZQO, META)
     wb = load_workbook(io.BytesIO(xlsx))

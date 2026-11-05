@@ -106,7 +106,9 @@ def steps(rs: Ruleset) -> list[Step]:
     for c in rs.active():
         if c.kind not in ("inclusion", "exclusion"):
             continue
-        if c.class_ != "structured":
+        if c.class_ == "mixed":
+            out.append(Step(c, False, "mixed criterion — coded pre-check at screening only; not applied in counts"))
+        elif c.class_ != "structured":
             out.append(Step(c, False, f"{c.class_} criterion — not applied in counts"))
         elif f'"C_{c.id}"' not in rs.sql:
             out.append(Step(c, False, "not compiled"))

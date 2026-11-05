@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 
+from tb_common.subject import job_subject
 from tb_contracts import IngestRequest, dump
 
 from orchestrator.clients import StepFailed
-from orchestrator.core import Ctx, Delivery, Outcome, job_markdown
+from orchestrator.core import Ctx, Delivery, Outcome, job_language, job_markdown
+from orchestrator.i18n import t
 
 
 def _target(ctx: Ctx) -> str:
@@ -21,13 +23,13 @@ def status(ctx: Ctx) -> Outcome:
     target = ctx.orch.db.get(_target(ctx))
     if target is None:
         raise StepFailed("received", f"No job {_target(ctx)} on this box.")
-    body = f"Job `{target.job_id}` is **{target.state}**.\n\n" + job_markdown(target)
+    body = t(job_language(ctx), "mail.status", job=target.job_id, state=target.state) + "\n\n" + job_markdown(target)
     return Outcome(
         summary_md=body,
         deliveries=[
             Delivery(
                 to=[ctx.job.requested_by],
-                subject=f"Status {target.job_id} — {target.state}",
+                subject=job_subject("status", target.type, target.ruleset, target.job_id, target.state),
                 body_md=body,
                 kind="status",
             )

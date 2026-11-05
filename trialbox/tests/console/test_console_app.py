@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,22 @@ def _ulid(n: int) -> str:
 _T0 = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
 
 
+MODELS_INFO: dict[str, Any] = {
+    "engine": "cql",
+    "screen_judge": "agreement",
+    "gateway": True,
+    "mode": "single",
+    "judge_model": "j-workhorse",
+    "verifier_model": None,
+    "note_block": "never",
+    "note_block_reason": "no verifier configured: a single model may not exclude",
+    "configured_note_block": "both_agree",
+    "may_block": False,
+    "disagreements": 0,
+    "failures": 0,
+}
+
+
 class FakeBackend:
     def __init__(self) -> None:
         self.jobs: dict[str, Job] = {}
@@ -76,6 +93,8 @@ class FakeBackend:
         self.created: list[JobCreate] = []
         self.mails: list[tuple[str, str, str, list[tuple[str, bytes]]]] = []
         self.refuse: str | None = None
+        self.models_info: dict[str, Any] | None = dict(MODELS_INFO)
+        self.revealed: list[tuple[str, str, str]] = []
         self.audit_dir: Path | None = None
         self.ingested = 0
         self.registry: dict[tuple[str, str], RegistryEntry] = {}
@@ -138,6 +157,34 @@ class FakeBackend:
 
     def health(self) -> list[Health]:
         return [Health("orchestrator", True, "0 queued or running"), Health("lake", True, "snapshot 2026-10-04")]
+
+    def models(self) -> dict[str, Any] | None:
+        return self.models_info
+
+    def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None:
+        if ruleset != "GZQO":
+            return None
+        return {
+            "ruleset": "GZQO",
+            "version": "1.0.0",
+            "kind": "trial",
+            "title": "Gout flare prevention",
+            "nct_id": "NCT00000000",
+            "population": {"disease_stage": "recurrent gout, >=2 flares/year", "study_arm": "urate-lowering naive"},
+            "review": {
+                "approved_by": "crc@hospa.test",
+                "approved_via": "web console",
+                "approved_at": "2026-10-20T08:00:00+00:00",
+                "rounds": 1,
+                "split": {"structured": 3, "mixed": 1, "note": 2, "human": 1},
+                "routing_confirmed": True,
+            },
+            "criteria": 7,
+        }
+
+    def reveal(self, job_id: str, pid: str, by: str) -> str | None:
+        self.revealed.append((job_id, pid, by))
+        return {"a" * 32: "MRN-000123"}.get(pid)
 
     def ingest(self) -> dict[str, Any]:
         self.ingested += 1
@@ -412,8 +459,8 @@ def test_viewer_cannot_start_or_operate(box: dict[str, Any]) -> None:
     assert box["backend"].created == [] and box["backend"].mails == [] and box["backend"].ingested == 0
     events = [r.event for r in read_audit(box["dir"] / "audit")]
     assert events.count("console.denied") == 6
-    page = c.get("/pilot/request").text
-    assert 'data-testid="start-feas" disabled' in page or "disabled" in page
+    page = c.get("/pilot/request").text  # L1: a viewer sees what they can do, not greyed-out forms
+    assert 'data-testid="viewer-card"' in page and 'data-testid="start-feas"' not in page
 
 
 # ---------------------------------------------------------------------------------------------- request paths
@@ -427,12 +474,12 @@ def test_feas_form_becomes_the_email_jobcreate(box: dict[str, Any]) -> None:
     )
     assert r.status_code == 303
     (req,) = box["backend"].created
-    assert req.type == "FEAS" and req.ruleset == "GZQO" and req.options == {"lookback": "36"}
+    assert req.type == "FEAS" and req.ruleset == "GZQO" and req.options == {"lookback": "36", "lang": "en"}
     assert req.requested_by == "admin@hospa.test"  # the admin's mailbox: settings.permissions apply as for e-mail
     page = c.get(r.headers["location"]).text
     assert "FEAS GZQO lookback=36" in page  # the equivalent e-mail subject is printed
     rec = next(x for x in read_audit(box["dir"] / "audit") if x.event == "console.request")
-    assert rec.actor == "console:admin" and rec.detail["line"] == "FEAS GZQO lookback=36"
+    assert rec.actor == "console:admin" and rec.detail["line"] == "FEAS GZQO lookback=36 lang=en"
 
 
 def test_feas_lookback_out_of_range_stays_on_the_form(box: dict[str, Any]) -> None:
@@ -449,7 +496,7 @@ def test_screen_form_runs_the_approved_version(box: dict[str, Any]) -> None:
     r = c.post("/pilot/request", data={"csrf": csrf, "kind": "SCREEN", "ruleset": "GZQO"}, follow_redirects=False)
     assert r.status_code == 303
     rec = next(x for x in read_audit(box["dir"] / "audit") if x.event == "console.request")
-    assert rec.detail["line"] == "SCREEN GZQO version=1.0.0"
+    assert rec.detail["line"] == "SCREEN GZQO version=1.0.0 lang=en"
 
 
 def test_empty_protocol_file_is_refused_on_the_form(box: dict[str, Any]) -> None:
@@ -556,6 +603,12 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     assert 'data-testid="review"' in page
     assert "check the 3 criteria: 1 by a fixed filter" in page and "1 by a person at screening" in page
     assert "not a regulated e-signature" in page  # lightweight approval (D-88)
+    assert "agreed with expert annotators" in page and 'data-testid="split-warning"' not in page  # D-101
+    heavy = html.replace(b"<td>structured</td>", b"<td>human</td>")
+    box["backend"].objects[hkey] = heavy
+    page = c.get(f"/pilot/jobs/{job.job_id}").text
+    assert 'data-testid="split-warning"' in page and "2 of 3 criteria are left to a person" in page
+    box["backend"].objects[hkey] = html
     r = c.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": csrf}, follow_redirects=False)
     assert r.status_code == 303
     appr = box["backend"].created[-1]
@@ -662,6 +715,206 @@ def test_consent_job_card_preview_and_release(box: dict[str, Any]) -> None:
     assert viewer.post(f"/pilot/jobs/{jid}/release", data={"csrf": vcsrf}).status_code == 403
 
 
+# ---------------------------------------------------------------------------------------------- CASE sheet
+def _case_done(backend: FakeBackend, jid: str) -> Job:
+    """A finished CASE job shaped like the orchestrator writes it: ``counts`` keys are met/not_met/unknown/human."""
+    now = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
+    rec = {
+        "counts": {"met": 15, "not_met": 2, "unknown": 3, "human": 3, "total": 23},
+        "lang": "ja",
+        "subject": {"in_lake": True, "snapshot": "2026-10-04"},
+    }
+    files = {"case_GZQO.json": json.dumps(rec).encode(), "case_GZQO_ja.html": b"<!doctype html><p>sheet</p>"}
+    outs = []
+    for name, data in files.items():
+        backend.objects[f"outputs/{jid}/{name}"] = data
+        outs.append(
+            JobOutput(
+                filename=name,
+                sha256=sha256_bytes(data),
+                minio_key=f"outputs/{jid}/{name}",
+                recipients=["admin@hospa.test"],
+                tag="aggregate",
+            )
+        )
+    return backend.add_job(
+        Job(
+            job_id=jid,
+            type="CASE",
+            ruleset="GZQO",
+            requested_by="admin@hospa.test",
+            received_at=now,
+            updated_at=now,
+            state="done",
+            options={"lang": "ja"},
+            outputs=outs,
+        )
+    )
+
+
+def test_case_job_card_renders_counts_in_every_language(box: dict[str, Any]) -> None:
+    jid = _ulid(960)
+    _case_done(box["backend"], jid)
+    c, csrf = login(box["app"])
+    page = c.get(f"/pilot/jobs/{jid}").text
+    assert 'data-testid="case-counts"' in page and "met 15" in page and "not met 2" in page and "for a human 3" in page
+    assert f"/pilot/jobs/{jid}/view/case_GZQO_ja.html" in page
+    for lang, needle in (("ja", "該当 15"), ("zh-TW", "符合 15")):
+        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
+        r = c.get(f"/pilot/jobs/{jid}")
+        assert r.status_code == 200 and needle in r.text, lang
+
+
+# ---------------------------------------------------------------------------------------------- coordinator screen
+def _done_screen(backend: FakeBackend, jid: str) -> Job:
+    now = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
+    summary = {
+        "ruleset": "GZQO",
+        "version": "1.0.0",
+        "run_date": "2026-10-05",
+        "snapshot": "2026-10-04",
+        "practitioner_names": {"DR-LIN": "Dr Lin (DR-LIN)"},
+        "scope": {"practitioners": ["DR-LIN"], "departments": ["RHEU"], "window_days": 14, "n_scoped": 61},
+        "tiers": {"high": 2, "review": 1, "excluded": 58},
+        "listed": 3,
+        "referrals": {"RHEU": 3},
+        "unknown_by_criterion": {"GZQO-INC-05": 1},
+        "judging": {"mode": "single", "judge_model": "j-workhorse", "verifier_model": None, "may_block": False},
+    }
+    rows = [
+        {
+            "pid": "a" * 32,
+            "tier": "high",
+            "next_appointment": "2026-10-07T09:30:00+08:00",
+            "practitioner_id": "DR-LIN",
+            "department": "RHEU",
+            "criteria": [
+                {"id": "GZQO-INC-01", "verdict": "pass", "evidence": {"resource_refs": []}},
+                {
+                    "id": "GZQO-INC-05",
+                    "verdict": "pass",
+                    "evidence": {
+                        "resource_refs": [],
+                        "quote": "two flares this spring",
+                        "quote_date": "2026-04-02",
+                        "confidence": 0.9,
+                    },
+                },
+            ],
+            "actions": [],
+            "n_unknown": 0,
+        },
+        {
+            "pid": "b" * 32,
+            "tier": "review",
+            "next_appointment": None,
+            "practitioner_id": "DR-LIN",
+            "department": "RHEU",
+            "criteria": [{"id": "GZQO-INC-05", "verdict": "unknown", "evidence": {"resource_refs": []}}],
+            "actions": ["confirm flare dates with patient"],
+            "n_unknown": 1,
+        },
+        {"pid": "c" * 32, "tier": "excluded", "criteria": [], "actions": [], "n_unknown": 0},
+    ]
+    cl = {
+        "ruleset": "GZQO",
+        "version": "1.0.0",
+        "snapshot": "2026-10-04",
+        "scope": {},
+        "rows": rows,
+        "summary": summary["tiers"],
+    }
+    files = {
+        ("screen_candidates_GZQO_v1.0.0_2026-10-05.json", "aggregate"): json.dumps(summary).encode(),
+        ("candidate_list_GZQO_v1.0.0.json", "phi"): json.dumps(cl).encode(),
+        ("summary_candidates_GZQO_v1.0.0_2026-10-05.pdf", "aggregate"): b"%PDF-1.4 x",
+    }
+    outs = []
+    for (name, tag), data in files.items():
+        backend.objects[f"outputs/{jid}/{name}"] = data
+        outs.append(
+            JobOutput(
+                filename=name,
+                sha256=sha256_bytes(data),
+                minio_key=f"outputs/{jid}/{name}",
+                recipients=["pi@hospa.test"],
+                tag=tag,  # type: ignore[arg-type]
+            )
+        )
+    return backend.add_job(
+        Job(
+            job_id=jid,
+            type="SCREEN",
+            ruleset="GZQO",
+            requested_by="admin@hospa.test",
+            received_at=now,
+            updated_at=now,
+            state="done",
+            options={},
+            outputs=outs,
+        )
+    )
+
+
+def test_screen_job_page_shows_candidates_and_reveals_a_chart_number_once(box: dict[str, Any]) -> None:
+    jid = _ulid(970)
+    _done_screen(box["backend"], jid)
+    c, csrf = login(box["app"])
+    page = c.get(f"/pilot/jobs/{jid}").text
+    assert (
+        'data-testid="screen"' in page
+        and "2 patients likely eligible, 1 to review, 58 excluded, of 61 in scope" in page
+    )
+    assert 'data-testid="screen-rows"' in page and page.count("<tr data-pid=") == 2  # excluded rows are not listed
+    assert page.index("a" * 12) < page.index("b" * 12)  # likely eligible first
+    assert "two flares this spring" in page and "90 %" in page and "Dr Lin" in page and "confirm flare dates" in page
+    assert "read by j-workhorse alone" in page and f'href="/pilot/registry/GZQO#p-{"a" * 32}"' in page
+    assert page.count('data-testid="reveal"') == 2 and "MRN-000123" not in page
+    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "a" * 32})
+    assert r.status_code == 200 and 'data-testid="mrn"' in r.text and "MRN-000123" in r.text
+    assert r.text.count('data-testid="reveal"') == 1  # the other row still has its button
+    assert box["backend"].revealed == [(jid, "a" * 32, "console:admin")]
+    assert any(rec.event == "console.reveal" for rec in box["backend"].audit(jid))
+    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "b" * 32})
+    assert r.status_code == 200 and "no chart number on this box" in r.text
+    assert c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "x"}).status_code == 400
+    # viewers: counts, no rows, no reveal
+    viewer, vcsrf = login(box["app"], "viewer", VIEWER_PW)
+    vpage = viewer.get(f"/pilot/jobs/{jid}").text
+    assert (
+        'data-testid="screen-viewer"' in vpage
+        and 'data-testid="screen-rows"' not in vpage
+        and "two flares" not in vpage
+    )
+    assert viewer.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": vcsrf, "pid": "a" * 32}).status_code == 403
+    # Japanese
+    c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
+    assert "適格の可能性が高い 2 名" in c.get(f"/pilot/jobs/{jid}").text
+
+
+# ---------------------------------------------------------------------------------------------- models card
+def test_overview_shows_models_and_the_never_exclude_fallback(box: dict[str, Any]) -> None:
+    c, csrf = login(box["app"])
+    page = c.get("/").text
+    assert 'data-testid="models"' in page and "j-workhorse" in page
+    assert 'data-testid="models-warning"' in page and 'data-testid="models-fallback"' in page
+    assert "has only one model" in page
+    c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
+    assert "モデルが一つしかありません" in c.get("/").text
+    c.post("/lang", data={"csrf": csrf, "lang": "en", "back": "/"})
+    box["backend"].models_info = {
+        **MODELS_INFO,
+        "mode": "agreement",
+        "verifier_model": "v-verifier",
+        "note_block": "both_agree",
+        "may_block": True,
+    }
+    page = c.get("/").text
+    assert "v-verifier" in page and "Only when both models agree" in page and 'data-testid="models-warning"' not in page
+    box["backend"].models_info = None
+    assert "orchestrator is not answering" in c.get("/").text
+
+
 # ---------------------------------------------------------------------------------------------- results
 def test_result_page_funnel_downloads_and_phi_rule(box: dict[str, Any]) -> None:
     job = _done_feas(box["backend"])
@@ -747,7 +1000,7 @@ def _done_case(backend: FakeBackend) -> Job:
     rec = {
         "lang": "en",
         "subject": {"pid": "ab" * 16, "in_lake": True, "snapshot": "2026-10-04", "note": ""},
-        "counts": {"total": 12, "pass": 7, "fail": 1, "unknown": 2, "human": 2},
+        "counts": {"total": 12, "met": 7, "not_met": 1, "unknown": 2, "human": 2},
         "criteria": [],
     }
     outs = []
@@ -1080,3 +1333,62 @@ def test_proposal_keeps_the_study_and_lookback_the_text_states(text: str, line: 
     two = "Could we run GZQO or RA-BIO here?"
     with pytest.raises(ProposalError, match="Which study"):
         propose(two, "en", lambda _t, _l: ClassifiedIntent(type="FEAS"))
+
+
+# ---------------------------------------------------------------------------------------------- D-101
+def test_sponsor_pack_is_audited_and_for_requesters_only(box: dict[str, Any]) -> None:
+    job = _done_feas(box["backend"])
+    c, _ = login(box["app"])
+    page = c.get(f"/pilot/jobs/{job.job_id}").text
+    assert 'data-testid="sponsor-pack"' in page
+    r = c.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        names = z.namelist()
+        readme = z.read("README.txt").decode("utf-8")
+    assert "README.txt" in names and "feasibility_GZQO_v1.0.0_2026-10-04.pdf" in names
+    assert not any(n.endswith("raw.json") for n in names)  # the phi file never leaves the box
+    assert "crc@hospa.test via web console" in readme and "stage = recurrent gout" in readme
+    ex = [r for r in read_audit(box["dir"] / "audit") if r.event == "console.export"]
+    assert ex and ex[0].actor == "console:admin" and ex[0].detail["action"] == "sponsor_pack"
+    viewer, _ = login(box["app"], "viewer", VIEWER_PW)
+    assert 'data-testid="sponsor-pack"' not in viewer.get(f"/pilot/jobs/{job.job_id}").text
+    assert viewer.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip").status_code == 403
+
+
+def test_investigator_sees_candidate_rows_and_case_sheet_but_no_reveal(box: dict[str, Any]) -> None:
+    box["users"].create("pi", "investigator", VIEWER_PW, "pi@hospa.test")
+    screen = _done_screen(box["backend"], _ulid(951))
+    c, csrf = login(box["app"], "pi", VIEWER_PW)
+    page = c.get(f"/pilot/jobs/{screen.job_id}").text
+    assert 'data-testid="screen-rows"' in page  # pseudonymous rows, as a coordinator sees them
+    assert 'data-testid="reveal"' not in page  # chart numbers stay with the requesters
+    r = c.post(f"/pilot/jobs/{screen.job_id}/reveal", data={"csrf": csrf, "pid": "a" * 32}, follow_redirects=False)
+    assert r.status_code == 403
+    case = _done_case(box["backend"])
+    sheet = next(o for o in case.outputs or [] if o.filename.endswith(".html"))
+    assert c.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 200
+    r = c.post("/pilot/request", data={"kind": "FEAS", "ruleset": "GZQO", "csrf": csrf})
+    assert r.status_code == 403 and box["backend"].created == []
+    viewer, _ = login(box["app"], "viewer", VIEWER_PW)
+    assert viewer.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 404
+    admin, _ = login(box["app"])
+    assert "investigator" in admin.get("/ops/users").text
+
+
+def test_feas_page_leads_with_the_answer_and_the_barriers(box: dict[str, Any]) -> None:
+    job = _done_feas(box["backend"])
+    c, _ = login(box["app"])
+    page = c.get(f"/pilot/jobs/{job.job_id}").text
+    answer = page.index('data-testid="answer"')
+    assert answer < page.index('data-testid="funnel"')
+    assert "12 months" in page and "Gout (−480)" in page and "Flares (−117)" in page
+
+
+def test_request_buttons_say_what_they_start_and_case_form_lists_trials_only(box: dict[str, Any]) -> None:
+    c, _ = login(box["app"])
+    page = c.get("/pilot/request").text
+    assert "Count eligible patients" in page and "Find candidates for the next visits" in page
+    case = c.get("/pilot/case").text
+    assert "GZQO" in case and "RA-BIO" not in case  # the NHI ruleset is not a trial
+    assert "Choose the trial" not in case  # one trial: nothing to pick

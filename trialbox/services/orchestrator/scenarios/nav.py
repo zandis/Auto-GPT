@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from tb_common.ruleset import Ruleset
+from tb_common.subject import job_subject
 from tb_contracts import CriterionVerdict, JobOutput, MissingItem, NavLists, NavRow, dump
 
 from orchestrator.clients import StepFailed
@@ -25,10 +26,11 @@ from orchestrator.reports import docx_draft, nav_xlsx
 from orchestrator.reports.common import ReportMeta
 from orchestrator.scenarios import facts as factmod
 from orchestrator.scenarios import twpas
-from orchestrator.scenarios.evaluate import PatientVerdicts, check_judge, evaluate_patients
+from orchestrator.scenarios.evaluate import PatientVerdicts, check_judge, evaluate_patients, is_note_answer
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     judge_for,
+    judging_info,
     local_iso,
     pid_names,
     practitioner_names,
@@ -58,7 +60,7 @@ def _ok(v: CriterionVerdict, by: dict[str, Any], t: float) -> str:
     """yes / no / unknown from the eligibility-perspective verdict (weak note answers count as unknown)."""
     c = by[v.id]
     conf = v.evidence.confidence if v.evidence and v.evidence.confidence is not None else 1.0
-    if v.verdict in ("unknown", "pending_human") or (c.class_ == "note" and conf < t):
+    if v.verdict in ("unknown", "pending_human") or (is_note_answer(c, v) and conf < t):
         return "unknown"
     return "yes" if v.verdict == "pass" else "no"
 
@@ -191,7 +193,7 @@ def run(ctx: Ctx) -> Outcome:
         ):
             lists[r["dept"]]["doc_gaps"].append(row)
     ctx.state("reporting")
-    meta = report_meta(ctx, rs, snapshot, run_date)
+    meta = report_meta(ctx, rs, snapshot, run_date, judging_info(judge))
     all_rows = [row for d in lists.values() for name in ("likely_eligible", "renewal_due") for row in d[name]]
     mrns = pid_names(ctx, [r.pid for d in lists.values() for rows in d.values() for r in rows])
     names = practitioner_names(ctx)
@@ -269,7 +271,7 @@ def run(ctx: Ctx) -> Outcome:
             outputs=outputs,
             routing=rs.manifest.routing,
             kind="list",
-            subject=f"NAV {rs.id} {'/'.join(depts)} — job {job.job_id}",
+            subject=job_subject("list", "NAV", rs.id, job.job_id, "/".join(depts)),
             body_md=text + ("\n\nIssues:\n" + "\n".join(f"- {i}" for i in issues[:20]) if issues else ""),
         ),
         Delivery(to=agg_to, outputs=[summary], routing=rs.manifest.routing, body_md=text),

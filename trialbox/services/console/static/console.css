@@ -15,7 +15,7 @@ body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Noto San
 a { color: var(--accent); }
 .skip { position: absolute; left: -999px; }
 .skip:focus { left: 8px; top: 8px; background: var(--card); padding: 6px; z-index: 9; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.sr { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }  /* left:0: an off-screen label must not widen the page on a phone (M3) */
 .banner { background: var(--banner); color: #fff; padding: 6px 16px; font-size: 13px; }
 .banner.prod { background: #3d3d3d; }
 .top { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 10px 16px;
@@ -86,11 +86,40 @@ details > summary { cursor: pointer; color: var(--accent); margin-bottom: 8px; }
 @media (max-width: 640px) {
   .who { margin-left: 0; } ul.checks { columns: 1; } progress { width: 70px; }
   .top { gap: 8px 12px; padding: 8px 12px; }
-  nav { flex-wrap: nowrap; overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; }
+  /* the menu scrolls sideways; the fade on the right says more items follow (M3) */
+  nav { flex-wrap: nowrap; overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; scrollbar-width: thin;
+    -webkit-mask-image: linear-gradient(to right, #000 88%, transparent); mask-image: linear-gradient(to right, #000 88%, transparent); padding-right: 24px; }
   nav a { white-space: nowrap; }
   main { padding: 12px; }
+  /* every table scrolls inside its card instead of widening the page */
+  .scroll { max-width: 100%; }
+  td .mono, td.mono { white-space: normal; overflow-wrap: anywhere; }
+  td .nowrap, td.nowrap { white-space: normal; }
+  /* controls stack instead of squeezing into one line */
+  form.inline { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  td form.inline select, td form.inline input { max-width: 100%; }
+  .grid { grid-template-columns: 1fr; }
+  .grid > *, .card { min-width: 0; }
 }
+ol.stages { padding-left: 20px; } ol.stages li { margin: 4px 0; }
+table.compact td, table.compact th { padding: 3px 8px; }
 .pill.st-enrolled, .pill.st-consented { background: var(--ok-bg); color: var(--ok); }
 .pill.st-screen_fail, .pill.st-declined, .pill.st-withdrawn { background: var(--bad-bg); color: var(--bad); }
 .pill.st-contacted { background: var(--warn-bg); color: var(--warn); }
 td form.inline select, td form.inline input { max-width: 140px; }
+
+/* models-and-policy card (D-97) */
+.pill.warn { background: var(--warn-bg); color: var(--warn); padding: 1px 8px; }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0; }
+dl.facts dt { color: var(--muted); }
+dl.facts dd { margin: 0; }
+@media (max-width: 640px) { dl.facts { grid-template-columns: 1fr; } dl.facts dd { margin-bottom: 6px; } }
+
+/* coordinator screen (D-99) */
+.pill.tier-high { background: var(--ok-bg); color: var(--ok); }
+.pill.tier-review { background: var(--warn-bg); color: var(--warn); }
+.pill.tier-excluded { background: var(--bad-bg); color: var(--bad); }
+table.candidates td { vertical-align: top; }
+table.candidates blockquote.quote { margin: 0 0 6px; padding: 4px 8px; border-left: 3px solid var(--line); font-size: 12px; }
+.bad-text { color: var(--bad); }
+tr:target { outline: 2px solid var(--accent); }

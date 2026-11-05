@@ -13,6 +13,10 @@ closed). Checks:
   ``hermes``; WARN when Hermes is disabled (``native``), which is the install default (OPS-02). DEV/TEST may run
   the upstream digest while the internal mirror is pending (WARN); VALIDATION/PRODUCTION require the mirror;
 * ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known;
+* ``note_block``: ``TB_NOTE_BLOCK=both_agree`` (the default, D-95) needs a verifier build (``TB_GATEWAY_VERIFIER_MODEL``
+  or ``LLM_VERIFIER_BASE_URL``) and ``TB_SCREEN_JUDGE`` other than ``single``; otherwise the box runs single-model
+  and SCREEN falls back to ``never`` (a note answer may send a patient to review, never out: D-97). WARN in
+  DEV/TEST, FAIL in VALIDATION/PRODUCTION, since the site then believes two models agree when one did;
 * ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
   ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
   (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``.
@@ -225,6 +229,31 @@ def check_registry_pins(inp: DoctorInputs) -> Check:
     return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}")
 
 
+def check_note_block(inp: DoctorInputs) -> Check:
+    policy = (inp.env.get("TB_NOTE_BLOCK") or "both_agree").strip().lower()
+    if policy == "never":
+        return Check("note_block", "PASS", "TB_NOTE_BLOCK=never: note answers route to review, never exclude")
+    if policy != "both_agree":
+        return Check("note_block", "FAIL", f"TB_NOTE_BLOCK={policy!r} is not one of both_agree, never")
+    mode = (inp.env.get("TB_SCREEN_JUDGE") or "agreement").strip().lower()
+    gw = bool(inp.env.get("TB_GATEWAY_VERIFIER_MODEL")) and bool(
+        inp.env.get("TB_GATEWAY_VERIFIER_URL") or inp.env.get("TB_GATEWAY_URL")
+    )
+    direct = bool(inp.env.get("LLM_VERIFIER_BASE_URL"))
+    if mode != "single" and (gw or direct):
+        via = "gateway verifier build" if gw else "LLM_VERIFIER_BASE_URL"
+        return Check("note_block", "PASS", f"both_agree with a verifier ({via}): two models must agree to exclude")
+    why = "TB_SCREEN_JUDGE=single" if mode == "single" else "no verifier configured"
+    env = inp.env.get("TB_ENV", "DEV")
+    status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    return Check(
+        "note_block",
+        status,
+        f"TB_NOTE_BLOCK=both_agree but {why}: SCREEN runs single-model and falls back to never-exclude "
+        f"(D-97); set TB_NOTE_BLOCK=never on purpose or add a verifier build",
+    )
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -233,6 +262,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_channel_engine,
     check_hermes_pin,
     check_publish_gate,
+    check_note_block,
     check_registry_pins,
 )
 

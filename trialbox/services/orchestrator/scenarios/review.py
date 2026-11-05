@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, cast
 
+from criteria_compiler.semantics import human_heavy
 from tb_common.authz import norm
 from tb_common.ruleset import Ruleset, RulesetNotApproved, load_approved
 from tb_contracts import CompileRequest, DiffRequest, JobFile, JobOutput, ParsedDoc, ParseRequest, Routing, dump_json
@@ -85,7 +86,7 @@ def compile_draft(ctx: Ctx, ruleset: str, doc: JobFile, approved: Ruleset | None
     )
 
 
-_CLASS = re.compile(r"<td>(?:inclusion|exclusion)</td><td>(structured|note|human)</td>")
+_CLASS = re.compile(r"<td>(?:inclusion|exclusion)</td><td>(structured|note|human|mixed)</td>")
 
 
 def check_split(html: str) -> str:
@@ -93,11 +94,24 @@ def check_split(html: str) -> str:
     found = _CLASS.findall(html)
     if not found:
         return ""
-    n = {k: found.count(k) for k in ("structured", "note", "human")}
+    n = {k: found.count(k) for k in ("structured", "note", "human", "mixed")}
+    mixed = (
+        f", **{n['mixed']}** by the filter first and the model on the notes where the codes are silent"
+        if n["mixed"]
+        else ""
+    )
+    warn = (
+        f"**Check this:** {n['human']} of {len(found)} criteria are left to a person, so the box would do little of "
+        f"the screening for this trial. Re-read the class column before approving.\n\n"
+        if human_heavy(n)
+        else ""
+    )
     return (
         f"How the box will check the {len(found)} criteria: **{n['structured']}** by a fixed filter on structured "
-        f"data (age, sex, diagnosis codes, labs, drugs), **{n['note']}** by the model reading reports and notes, "
-        f"**{n['human']}** left to a person at screening.\n\n"
+        f"data (age, sex, diagnosis codes, labs, drugs), **{n['note']}** by the model reading reports and notes"
+        f"{mixed}, **{n['human']}** left to a person at screening. The model proposed this routing; on open trial "
+        f"data it agreed with expert annotators about 6 times in 10, so your approval is the check of every class "
+        f"(filter / model / person).\n\n" + warn
     )
 
 

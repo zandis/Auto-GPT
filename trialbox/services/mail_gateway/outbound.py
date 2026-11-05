@@ -30,6 +30,13 @@ HTML_WRAP = (
 )
 
 
+# RFC 5322 allows header lines up to 998 octets. Folding a subject with one non-ASCII character (the "·" of the box's
+# subjects) makes Python's folder emit an empty encoded word ("=?utf-8?q??=") that some clients render as garbage,
+# so the box does not fold headers: a subject of at most 200 characters never needs it, and body lines are wrapped by
+# the content manager, not by this policy.
+SMTP_UNFOLDED = policy.SMTP.clone(max_line_length=None)
+
+
 class RoutingRefused(RuntimeError):
     pass
 
@@ -109,7 +116,7 @@ def smime_wrap(inner: Message, recipients: list[str], certs: dict[str, str], sig
     pkey = serialization.load_pem_private_key(key.read_bytes(), password=None)
     signed = (
         pkcs7.PKCS7SignatureBuilder()
-        .set_data(inner.as_bytes(policy=policy.SMTP))
+        .set_data(inner.as_bytes(policy=SMTP_UNFOLDED))
         .add_signer(signer, pkey, hashes.SHA256())  # type: ignore[arg-type]
         .sign(serialization.Encoding.SMIME, [pkcs7.PKCS7Options.DetachedSignature])
     )
@@ -178,8 +185,8 @@ def prepare(
                 f"Password for the encrypted attachment of '{req.subject}' (message {mid}):\n\n    {password}\n\n"
                 "Sent separately; do not forward."
             )
-            headers(pm, f"Password — {req.subject}", [r], make_msgid(idstring="pw", domain=domain))
-            password_mails.append((r, pm.as_bytes(policy=policy.SMTP)))
+            headers(pm, f"Password: {req.subject}", [r], make_msgid(idstring="pw", domain=domain))
+            password_mails.append((r, pm.as_bytes(policy=SMTP_UNFOLDED)))
     else:
         for name, data in files:
             maintype, _, subtype = _ctype(name).partition("/")
@@ -190,10 +197,10 @@ def prepare(
             policy=policy.SMTP,
         )
         headers(wrapped, req.subject, to, mid)
-        data = wrapped.as_bytes(policy=policy.SMTP)
+        data = wrapped.as_bytes(policy=SMTP_UNFOLDED)
     else:
         headers(body, req.subject, to, mid)
-        data = body.as_bytes(policy=policy.SMTP)
+        data = body.as_bytes(policy=SMTP_UNFOLDED)
     return Prepared(mid, to, data, encrypt, password_mails)
 
 

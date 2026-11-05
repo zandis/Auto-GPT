@@ -11,6 +11,7 @@
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label for="ruleset">{{ t('case.ruleset') }}</label>
   <select id="ruleset" name="ruleset" required>
+    {% if not selected and rulesets|length > 1 %}<option value="" disabled selected>{{ t('case.ruleset.pick') }}</option>{% endif %}
     {% for r in rulesets %}<option value="{{ r.id }}" {{ 'selected' if r.id == selected else '' }}>{{ r.id }}{% if r.version %} v{{ r.version }}{% endif %}</option>{% endfor %}
   </select>
   <label for="mrn">{{ t('case.mrn') }}</label>
