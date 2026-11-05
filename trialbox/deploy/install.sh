@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TrialBox one-file installer for a hospital workstation or server (clinical review 2026-11, section 6; RUNBOOK §1).
 #
-#   sudo deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--yes]
+#   sudo deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--gpu gb10|rtx5090|rtx4090] [--yes]
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #
 # What it does, in order, and stops at the first failure:
@@ -18,11 +18,12 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; YES=0; CHECK=0
+BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --answers) ANSWERS="$2"; shift ;;
     --mode) MODE="$2"; shift ;;
+    --gpu) GPU="$2"; shift ;;
     --yes) YES=1 ;;
     --check) CHECK=1 ;;
     -h|--help) sed -n 2,18p "$0"; exit 0 ;;
@@ -55,11 +56,23 @@ case "$MODE" in
   stub) echo "    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model" ;;
   *) die "--mode must be gpu or stub" ;;
 esac
+# GPU profile (D-95): gb10 = DGX Spark pair; rtx5090 = Gemma 4 4-bit + Qwen3.5-9B 4-bit on one 32 GB card, both must
+# agree to exclude; rtx4090 = the judge alone on a 24 GB card, note answers never exclude; default = base llm-service
+if [ "$MODE" = gpu ] && [ "$GPU" = auto ]; then
+  name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
+  case "$(uname -m):$name" in
+    aarch64:*|arm64:*) GPU=gb10 ;;
+    *5090*|*"RTX PRO 4500"*) GPU=rtx5090 ;;
+    *4090*|*3090*) GPU=rtx4090 ;;
+    *) GPU=default ;;
+  esac
+fi
+case "$GPU" in auto|default|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be gb10, rtx5090, rtx4090 or default" ;; esac
 [ -f "$PUBKEY" ] || die "vendor public key missing: copy vendor_ed25519.pub (from the vendor, out of band) to $PUBKEY"
 if [ -f "$BUNDLE.sha256" ]; then
   (cd "$(dirname "$BUNDLE")" && sha256sum -c "$(basename "$BUNDLE").sha256" >/dev/null) || die "bundle checksum mismatch"
 fi
-echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, vendor key: $PUBKEY"
+echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, gpu: $GPU, vendor key: $PUBKEY"
 
 # ------------------------------------------------------------------------------------------------ 2. bundle
 say "bundle: verify and load (images, models, rulesets)"
@@ -93,6 +106,8 @@ for k in MINIO_SECRET_KEY POSTGRES_PASSWORD POSTGRES_WF_PASSWORD; do
 done
 rm -f deploy/.env.bak
 grep -q '^TB_LLM_MODE=' deploy/.env && sed -i "s/^TB_LLM_MODE=.*/TB_LLM_MODE=$MODE/" deploy/.env || echo "TB_LLM_MODE=$MODE" >> deploy/.env
+NOTE_BLOCK=both_agree; [ "$GPU" = rtx4090 ] && NOTE_BLOCK=never
+grep -q '^TB_NOTE_BLOCK=' deploy/.env && sed -i "s/^TB_NOTE_BLOCK=.*/TB_NOTE_BLOCK=$NOTE_BLOCK/" deploy/.env || echo "TB_NOTE_BLOCK=$NOTE_BLOCK" >> deploy/.env
 grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$MODE/" deploy/.env || echo "COMPOSE_PROFILES=$MODE" >> deploy/.env
 chmod 600 deploy/.env deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
@@ -102,14 +117,18 @@ fi
 
 # ------------------------------------------------------------------------------------------------ 4. start
 COMPOSE=(docker compose --project-directory deploy -f deploy/docker-compose.yml)
-if [ "$MODE" = gpu ] && { [ "$(uname -m)" = aarch64 ] || [ "$(uname -m)" = arm64 ]; }; then COMPOSE+=(-f deploy/docker-compose.gb10.yml); fi
+case "$MODE:$GPU" in
+  gpu:gb10) COMPOSE+=(-f deploy/docker-compose.gb10.yml) ;;
+  gpu:rtx5090|gpu:rtx4090) COMPOSE+=(-f deploy/docker-compose.rtx5090.yml) ;;
+esac
 COMPOSE+=(--profile "$MODE")
+UP_EXTRA=(); [ "$MODE:$GPU" = gpu:rtx4090 ] && UP_EXTRA=(--scale llm-verifier=0)
 if [ "$YES" != 1 ] && [ -t 0 ]; then
   printf 'Start the stack now with profile %s? [Y/n] ' "$MODE"; read -r ans; case "$ans" in n|N) die "stopped before start; re-run with --yes to skip the question" ;; esac
 fi
 say "starting the stack (profile $MODE)"
 "${COMPOSE[@]}" config -q
-"${COMPOSE[@]}" up -d --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
+"${COMPOSE[@]}" up -d "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$(id -u)" = 0 ] && [ -x deploy/network.sh ]; then
   say "egress rules"; deploy/network.sh apply || echo "install: warning: egress rules not applied (deploy/network.sh apply)" >&2

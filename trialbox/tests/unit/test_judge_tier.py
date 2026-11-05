@@ -85,3 +85,17 @@ def test_model_outage_fails_the_job_instead_of_an_all_unknown_list() -> None:
     judge.calls, judge.failures = 0, 25  # the gateway was down for the whole run
     with pytest.raises(StepFailed, match="25 of 25 note checks"):
         check_judge(judge)
+
+
+def test_note_block_never(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """D-95: on a single-model box a confident note fail sends the patient to review, never out; structured fails
+    still exclude."""
+    base = [_v(c.id, "pass") for c in GZQO.active() if c.class_ == "structured"]
+    monkeypatch.setenv("TB_NOTE_BLOCK", "never")
+    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75)[0] == "review"
+    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75, note_block=True)[0] == "excluded"
+    monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")
+    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75)[0] == "excluded"
+    monkeypatch.setenv("TB_NOTE_BLOCK", "sometimes")
+    with pytest.raises(ValueError):
+        tier(GZQO, base, 0.75)

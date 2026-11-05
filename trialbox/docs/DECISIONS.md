@@ -783,3 +783,23 @@ clinical review (weights, KV cache from the model configurations, engine and sta
 throughput); every figure is an estimate until measured (RUNBOOK §8). Its first result: the benchmarked pair fits
 one DGX Spark only with the judge at 32k, the verifier at 16k and two sequences at a time; the spec v4 plan (64k/32k,
 four sequences) is about 10 GB short once HAPI, Postgres, DuckDB and the embedder are counted.
+
+**D-95 Consumer-card profiles and the note-block policy.** Filter first stays the pipeline (SPEC §8.2): CQL/SQL decide
+every structured criterion, and the note judge reads notes only for patients the filters kept. The 2026-11-05
+assessment (docs/reviews/2026-11-05-consumer-gpu-filter-first.md) replayed the TrialGPT benchmark that way. The LLM
+then reads 42 % of criteria. Gemma 4 26B-A4B 4-bit + Qwen3.5-9B, both must block, lost 1/79 (en) and 2/79 (ja)
+eligible pairs, against 5 and 4 for the Spark pair. This was measured through OpenRouter providers, with the filter
+assumed perfect, on machine-translated Japanese notes. Two install profiles follow:
+- `--gpu rtx5090` (deploy/docker-compose.rtx5090.yml): that pair resident on one 32 GB card, registry builds
+  `gemma-4-26b-a4b-it-rtx5090` and `qwen3.5-9b-rtx5090`.
+- `--gpu rtx4090`: the judge alone on a 24 GB card.
+
+`TB_NOTE_BLOCK` sets whether a note answer may exclude a patient:
+- `both_agree` (default) keeps D-89: with a verifier, a note criterion excludes only when both models agree.
+- `never` (written by the installer for `rtx4090`) never lets a note answer exclude. A confident note fail keeps its
+  verdict and quote, but the patient goes to review.
+
+On one model the LLM therefore cannot cause a wrong exclusion; a weaker model costs coordinator minutes, not
+patients. The installer picks the profile from `nvidia-smi` (aarch64 -> gb10, 5090 -> rtx5090, 4090/3090 ->
+rtx4090) unless `--gpu` is given. Before go-live, the exact 4-bit files must be qualified on the card
+(RUNBOOK §8).
