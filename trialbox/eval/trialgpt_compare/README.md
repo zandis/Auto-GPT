@@ -39,3 +39,9 @@ unmentioned fact absent; that costs exact-label accuracy and keeps patients. 79 
 one pair is 1.3 points. Translations of the notes (ja, zh-TW) are machine-made and not clinician-checked.
 
 Cite: Jin Q, et al. *Matching patients to clinical trials with large language models.* Nat Commun 15, 9074 (2024).
+
+2026-11-05 additions (US$0.88): gpt-oss-20b, Gemma 4 31B, Qwen3.8 27B and Qwen3.5 9B, plus 4-bit (`@fp4`, OpenRouter
+provider filter) runs of Gemma 4 26B and Qwen3.6 35B, in en and ja. Two new subcommands: `pairs` scores every
+both-must-block pair; `filterfirst --lang L` replays runs as if the deterministic filters had decided the `filter`
+criteria in `criteria_routes.jsonl` first. That file is a route per criterion (filter / mixed / notes / human),
+labelled by Fable. Results and caveats: `docs/reviews/2026-11-05-consumer-gpu-filter-first.md`.

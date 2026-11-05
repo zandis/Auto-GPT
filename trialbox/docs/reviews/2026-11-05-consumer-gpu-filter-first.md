@@ -4,7 +4,44 @@ Question (Changfu): have smaller models been assessed, can TrialBox run on a con
 
 ## Short answer
 
-Yes. With filter first, one RTX 4090 or 5090 is enough for screening, provided the LLM is not allowed to exclude a patient on its own on a single-card box. Two cards (or one 5090 that swaps models) can run the two-model "both must block" rule. Gemma 4 26B and Qwen3.6 35B are the consumer pair; on Japanese notes it loses 6 of 79 eligible pairs, against 4 for today's Spark pair. Not yet measured: 4-bit builds and models under 25B. Those runs are waiting for a fresh OpenRouter key.
+Yes. With filter first, one RTX 5090 is enough to run two models that must agree before they exclude anyone. One RTX 4090 runs one model, which may send a patient to review but never exclude them.
+
+The 5 Nov runs (smaller and 4-bit models, English and Japanese, US$0.88) changed the picture in three ways:
+- A **9B model** (Qwen3.5-9B) was the most careful single model.
+- **4-bit Gemma 4 26B held up**: it lost fewer pairs than the full-precision run.
+- **4-bit Qwen3.6 35B fell apart**: about 10 more eligible pairs lost.
+
+Best one-card pair: **Gemma 4 26B at 4-bit + Qwen3.5-9B**, both resident on one 5090 (about 29 of 32 GB). Under filter first it lost **1 of 79 eligible pairs on English and 2 on Japanese**. Today's Spark pair lost 5 and 4. Treat that as a candidate, not a result: it is the best of about 120 pairs on a small set.
+
+## 5 Nov runs: smaller and 4-bit models
+
+All runs were on OpenRouter. Each `@fp4` run was checked to have been served 100 % by a 4-bit provider: AkashML for Gemma, Darkbloom for Qwen3.6. The other models were served by mixed providers at bf16, fp8 or fp4. "All-LLM" means the LLM reads every criterion; "filter first" means the replay below.
+
+| model | fits | lost, all-LLM (en / ja) | lost, filter first (en / ja) | block recall, filter first (en / ja) | JSON valid |
+| --- | --- | --- | --- | --- | --- |
+| Qwen3.5-9B | 16 GB card (Q8) | 8 / 2 | **3 / 2** | 0.64 / 0.58 | 99.9 % |
+| Gemma 4 26B-A4B, 4-bit | 4090 | 10 / 10 | **5 / 5** | 0.67 / 0.73 | 99.7 % |
+| Gemma 4 26B-A4B, full precision (25 Oct) | (5090 at Q4) | 15 / 14 | 11 / 9 | 0.70 / 0.70 | 100 % |
+| Gemma 4 31B dense | 5090, slow | 13 / 12 | 10 / 9 | 0.67 / 0.67 | 100 % |
+| gpt-oss-20b | 16-24 GB | 20 / 23 | 11 / 15 | 0.73 / 0.70 | 98.4 % |
+| Qwen3.6 35B-A3B, full precision (25 Oct) | 5090 at Q4 | 22 / 19 | 12 / 11 | 0.70 / 0.67 | 100 % |
+| Qwen3.6 35B-A3B, 4-bit | 5090 | 32 / 34 | 20 / 18 | 0.76 / 0.70 | 100 % |
+| Qwen3.8 27B dense | 4090 | 26 / 25 | 18 / 20 | 0.73 / 0.79 | 100 % |
+
+Pairs, filter first, both must block:
+
+| pair | hardware | lost (en / ja) | block recall (en / ja) |
+| --- | --- | --- | --- |
+| Gemma 4 26B 4-bit + Qwen3.5-9B | one 5090, both loaded (28.8 GB estimated) | **1 / 2** | 0.58 / 0.58 |
+| Gemma 4 26B 4-bit + gpt-oss-20b | one 5090 swapping, or 2 cards | 3 / 2 | 0.64 / 0.70 |
+| Gemma 4 26B 4-bit + Qwen3.6 4-bit | 2× 4090 / 2× 5090 | 4 / 4 | 0.67 / 0.70 |
+| gpt-oss-120b + Gemma 4 (today's Spark pair) | Spark / PRO 6000 | 5 / 4 | 0.64 / 0.64 |
+
+How to read this:
+- **Quantisation hits models differently.** It cost Qwen3.6 about 10 pairs. For Gemma, the 4-bit provider did better than the full-precision one. Some of that gap is provider and engine, not bit width. Only the exact file on the exact engine on the card settles it (Fable's rule 4 below).
+- **Qwen3.5-9B is careful, not clever.** It abstains a lot: with no filters it catches only 36 % (en) and 27 % (ja) of true exclusions. Filter first is what makes it useful, because the filters supply the exclusions it misses.
+- **Gemma 4 31B and Qwen3.8 27B are not worth it.** The dense models are slower and no better.
+- **gpt-oss-20b** breaks JSON 1.6-2.1 % of the time and is weaker on Japanese.
 
 ## How the filter-first replay works
 
@@ -19,7 +56,7 @@ All 1,003 criteria in the TrialGPT SIGIR benchmark were labelled by route (Fable
 
 So the LLM reads **42 %** of criteria. `python -m tools.trialgpt_compare filterfirst --lang en|ja|zh-TW` replays the recorded 25 Oct model answers on top of that routing. It assumes the filter is perfect, which is the optimistic case: real coding errors and missing codes would add losses on the filter side.
 
-## Results (79 eligible patient × trial pairs; "lost" = wrongly excluded)
+## Results from the 25 Oct runs (79 eligible patient × trial pairs; "lost" = wrongly excluded)
 
 | setup | hardware | lost en: all-LLM → filter first | ja | zh-TW | block recall en, filter first |
 | --- | --- | --- | --- | --- | --- |
@@ -27,6 +64,7 @@ So the LLM reads **42 %** of criteria. `python -m tools.trialgpt_compare filterf
 | gpt-oss-120b + Gemma 4 (today) | Spark / RTX PRO 6000 | 8 → **5** | 4 | 6 | 0.64 |
 | Gemma 4 + Qwen3.6 (both must block) | 2× 4090, 2× 5090, or one 5090 swapping | 10 → **7** | 6 | 8 | 0.67 |
 | Gemma 4 26B alone | one 4090 / 5090 | 15 → **11** | 9 | 10 | 0.70 |
+| (5 Nov additions are in the tables above) | | | | | |
 | Qwen3.6 35B alone | one 5090 | 22 → 12 | 11 | 14 | 0.70 |
 | Nemotron Nano 30B alone | one 4090 | 33 → 22 | – | – | 0.58 |
 
@@ -82,7 +120,7 @@ The Japanese and Traditional Chinese notes are machine translations and were not
 - Dense 27–31B models (Gemma 4 31B, Qwen3.8 27B) fit a 5090 but run at about 1/7 the speed of the MoE models.
 - A 16 GB card is about 0.4 GB short for gpt-oss-20b once the engine allowance is counted.
 
-## Still to run (needs `OPENROUTER_API_KEY`)
+## Re-run
 
 ```
 python -m tools.trialgpt_compare run --pipelines trialbox --langs en ja \
