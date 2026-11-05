@@ -1,0 +1,66 @@
+# One RTX 5090 (32 GB, x86-64) override: the consumer-card pair of the 2026-11-05 assessment
+# (docs/reviews/2026-11-05-consumer-gpu-filter-first.md; DECISIONS D-95).
+#
+#   cd deploy && docker compose -f docker-compose.yml -f docker-compose.rtx5090.yml --profile gpu up -d --wait
+#   deploy/install.sh <bundle> --mode gpu --gpu rtx5090
+#
+# Filter first: CQL/SQL decide every structured criterion; the two models below read notes only for patients the
+# filters kept. llm-service serves the judge (j-workhorse: Gemma 4 26B-A4B-it, 4-bit) and llm-verifier the verifier
+# (v-verifier: Qwen3.5-9B, 4-bit), both resident on the one card; a note criterion excludes a patient only when both
+# agree (D-89, TB_NOTE_BLOCK=both_agree). On a 24 GB card run the judge alone: --scale llm-verifier=0 and
+# TB_NOTE_BLOCK=never (a note answer then only sends a patient to review).
+#
+# Memory (estimate, tools/gpu_sizing.py --hardware rtx-5090 --model gemma-4-26b-a4b-q4 --model qwen3.5-9b-q4
+# --context 8192 --sequences 2: 28.8 of 32 GB; TO BE MEASURED on the card, RUNBOOK §8):
+#   llm-service   JUDGE_GPU_MEM_UTIL 0.60     Gemma 4 26B-A4B 4-bit ~15 GB + KV at 8k
+#   llm-verifier  VERIFIER_GPU_MEM_UTIL 0.28  Qwen3.5-9B 4-bit ~5.5 GB + KV at 8k
+# A criterion check is ~500 tokens, so 8k context is ample for SCREEN and CASE; protocol reading (ir_extract) needs
+# 16-32k and runs on the cloud route behind the PHI guard or on a larger box.
+#
+# Weights: 4-bit builds (NVFP4 or AWQ; the recipe is recorded at qualification) under deploy/models, pinned with
+# tools/pin_model.py (builds gemma-4-26b-a4b-it-rtx5090 on endpoint `serving`, qwen3.5-9b-rtx5090 on `verifier`).
+# The 2026-11-05 OpenRouter runs measured fp4 providers, not these files: qualify the exact files on the card
+# (python -m tools.trialgpt_compare run --base-url http://<gateway>/v1 ...) before go-live.
+
+services:
+  llm-service:
+    command:
+      - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
+      - --served-model-name=${JUDGE_MODEL:-gemma-4-26b-a4b-it}
+      - --max-model-len=${JUDGE_MAX_LEN:-8192}
+      - --max-num-seqs=8
+      - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.60}
+      - --guided-decoding-backend=${GUIDED_BACKEND:-outlines}
+
+  llm-verifier:
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+    profiles: [gpu]
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.11.0}
+    command:
+      - --model=/models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}
+      - --served-model-name=${VERIFIER_MODEL:-qwen3.5-9b}
+      - --max-model-len=${VERIFIER_MAX_LEN:-8192}
+      - --max-num-seqs=8
+      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.28}
+      - --guided-decoding-backend=${GUIDED_BACKEND:-outlines}
+    environment:
+      HF_HUB_OFFLINE: "1"
+      VLLM_NO_USAGE_STATS: "1"
+    volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
+    ipc: host
+    networks: [model-net]
+    restart: unless-stopped
+    depends_on:
+      llm-service: {condition: service_healthy}  # vLLM checks free memory at start: load the judge first
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      interval: 30s
+      timeout: 10s
+      retries: 40
+      start_period: 300s

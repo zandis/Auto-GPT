@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
 from collections.abc import Callable
@@ -348,10 +349,27 @@ def structured_candidate(rs: Ruleset, ev: PatientEvaluation | None, ids: set[str
     return True
 
 
-def tier(rs: Ruleset, verdicts: list[CriterionVerdict], threshold: float) -> tuple[str, list[str], int]:
+NOTE_BLOCK_POLICIES = ("both_agree", "never")
+
+
+def note_block_policy() -> str:
+    """``TB_NOTE_BLOCK`` (D-95): ``both_agree`` (default) lets a note criterion exclude a patient, which with a verifier
+    configured means both models agreed (D-89); ``never`` (single-model boxes such as one RTX 4090) never lets a note
+    answer exclude: a note ``fail`` keeps its verdict and quote but sends the patient to review."""
+    v = os.environ.get("TB_NOTE_BLOCK", "both_agree").strip().lower() or "both_agree"
+    if v not in NOTE_BLOCK_POLICIES:
+        raise ValueError(f"TB_NOTE_BLOCK must be one of {', '.join(NOTE_BLOCK_POLICIES)}, not {v!r}")
+    return v
+
+
+def tier(
+    rs: Ruleset, verdicts: list[CriterionVerdict], threshold: float, note_block: bool | None = None
+) -> tuple[str, list[str], int]:
     """high: every structured/note criterion passes (note with confidence ≥ t), only human criteria pending;
-    excluded: any criterion fails (note fails only with confidence ≥ t); review otherwise. Returns tier, actions,
-    number of unknowns."""
+    excluded: any criterion fails (note fails only with confidence ≥ t, and only when note answers may block, see
+    :func:`note_block_policy`); review otherwise. Returns tier, actions, number of unknowns."""
+    if note_block is None:
+        note_block = note_block_policy() != "never"
     by_id = rs.by_id()
     actions: list[str] = []
     unknown = 0
@@ -361,7 +379,7 @@ def tier(rs: Ruleset, verdicts: list[CriterionVerdict], threshold: float) -> tup
         c = by_id[v.id]
         conf = v.evidence.confidence if v.evidence and v.evidence.confidence is not None else 1.0
         if v.verdict == "fail":
-            if c.class_ == "note" and conf < threshold:
+            if c.class_ == "note" and (conf < threshold or not note_block):
                 weak = True
             else:
                 failed = True

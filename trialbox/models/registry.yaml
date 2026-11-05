@@ -101,6 +101,40 @@ builds:
     licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
     origin: {developer: Google, country: US, non_prc: true}
 
+  # ---------------------------------------------------------------- one RTX 5090 (consumer card) pair, D-95
+  # 2026-11-05 assessment (docs/reviews/2026-11-05-consumer-gpu-filter-first.md): with filter first, Gemma 4 26B-A4B
+  # at 4-bit as the judge and Qwen3.5-9B as the verifier, both resident on one 32 GB card
+  # (deploy/docker-compose.rtx5090.yml). Measured only through OpenRouter fp4 / mixed-precision providers so far.
+  - build_id: gemma-4-26b-a4b-it-rtx5090
+    alias: j-workhorse
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: google/gemma-4-26b-a4b-it
+    quantisation: 4-bit (NVFP4 or AWQ; recipe to record at qualification)
+    context_length: 8192
+    family: gemma
+    model_name: Gemma 4 26B-A4B-it (4-bit, RTX 5090 judge)
+    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    origin: {developer: Google, country: US, non_prc: true}
+
+  - build_id: qwen3.5-9b-rtx5090
+    alias: v-verifier
+    status: candidate
+    serving: vllm
+    served: {verifier: null}
+    sha256: null
+    revision: null
+    repository: Qwen/Qwen3.5-9B
+    quantisation: 4-bit (NVFP4 or AWQ; recipe to record at qualification)
+    context_length: 8192
+    family: qwen
+    model_name: Qwen3.5-9B (4-bit, RTX 5090 verifier)
+    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
+
   - build_id: gpt-oss-120b-frontdesk-spark
     alias: f-frontdesk
     status: candidate
