@@ -45,6 +45,17 @@ TERMS: dict[str, tuple[str, ...]] = {
 _WORD = re.compile(r"[A-Za-z][A-Za-z0-9]+")
 
 
+def source_words(text: str) -> list[str]:
+    """The English keywords of ``text`` that the terms table knows (deduplicated, in order of appearance): the lexicon
+    keys for notes written in English (the cascade's S2, D-103)."""
+    out: list[str] = []
+    for w in _WORD.findall(text):
+        k = w.lower()
+        if k in TERMS and k not in out:
+            out.append(k)
+    return out
+
+
 def keywords(text: str, limit: int = 12) -> list[str]:
     """zh-TW / ja equivalents of the English keywords in ``text`` (deduplicated, in order of appearance)."""
     out: list[str] = []

@@ -67,6 +67,10 @@ _SENT = re.compile(r"[^。！？!?\n]+[。！？!?]?")
 Reviewer = Callable[[ReviewItem, PatientTrace], dict[str, Any]]
 
 
+FILTERED = ("structured", "mixed")  # classes whose logic the compiled SQL decides (D-32, D-98)
+JUDGED = ("note", "mixed")  # classes whose note_question the judge may be asked (mixed: when the codes were silent)
+
+
 class CascadeError(RuntimeError):
     pass
 
@@ -99,6 +103,14 @@ class CascadeConfig:
     sample_per_stratum: int | None = None  # CAS-8: ≤ 200 in feasibility runs; None screens everyone
     seed: int = 20261025
     snapshot: str | None = None
+    # D-103 (SCREEN runs the cascade): the population is given by the caller instead of POP_SQL (the practitioner /
+    # appointment scope of a screening run); a note ``fail`` is soft (review, never exclusion) when ``note_block`` is
+    # False (D-95/D-97 single-model fallback); zero-hit pairs below the S2b threshold go to the judge instead of
+    # taking absence semantics when ``absence_semantics`` is False (screening spends the tokens, feasibility saves
+    # them).
+    population: Sequence[str] | None = None
+    note_block: bool = True
+    absence_semantics: bool = True
 
 
 @dataclass
@@ -217,9 +229,10 @@ def lexicon_terms(c: CriterionIR, extra: Mapping[str, Sequence[str]]) -> list[st
     """Approved lexicon keys for the criterion: the site table when present, else the shipped bilingual terms."""
     if c.id in extra:
         return [str(t) for t in extra[c.id]]
-    from orchestrator.scenarios.terms import keywords
+    from orchestrator.scenarios.terms import keywords, source_words
 
-    return keywords(f"{c.text} {c.note_question or ''}", limit=24)
+    text = f"{c.text} {c.note_question or ''}"
+    return [*source_words(text), *keywords(text, limit=24)]
 
 
 def sentences(text: str) -> list[str]:
@@ -311,7 +324,12 @@ class _Run:
                 raise CascadeError("lookback must be at least one month")
             pop_from = add_months(idx[0], -1)
         n_all = int(self.lake.query("SELECT count(*) AS n FROM patient", [], cfg.snapshot).to_pylist()[0]["n"])
-        rows = self.lake.query(POP_SQL, [pop_from.isoformat(), idx[-1].isoformat()], cfg.snapshot).to_pylist()
+        if cfg.population is not None:
+            rows = [{"pid": p, "dept": None} for p in sorted(set(cfg.population))]
+            population = f"{len(rows)} patients given by the caller (screening scope)"
+        else:
+            rows = self.lake.query(POP_SQL, [pop_from.isoformat(), idx[-1].isoformat()], cfg.snapshot).to_pylist()
+            population = f"≥1 encounter {pop_from.isoformat()}…{idx[-1].isoformat()}"
         consent: dict[str, tuple[str, bool | None]] = {}
         try:
             for r in self.lake.query(CONSENT_SQL, [], cfg.snapshot).to_pylist():
@@ -337,7 +355,7 @@ class _Run:
             n_scope,
             n_all * n_c,
             n_scope * n_c,
-            population=f"≥1 encounter {pop_from.isoformat()}…{idx[-1].isoformat()}",
+            population=population,
             opted_out=opted_out,
             contact_denied=sum(1 for t in self.traces.values() if t.in_scope and not t.contact_ok),
         )
@@ -349,7 +367,7 @@ class _Run:
         return [
             c
             for c in self.rs.active()
-            if c.class_ == "structured" and c.kind in ("inclusion", "exclusion") and f'"C_{c.id}"' in self.rs.sql
+            if c.class_ in FILTERED and c.kind in ("inclusion", "exclusion") and f'"C_{c.id}"' in self.rs.sql
         ]
 
     def _pass(self, c: CriterionIR, v: bool | None) -> bool:
@@ -374,7 +392,7 @@ class _Run:
             for row in rows:
                 depth = 0
                 for c in applied:
-                    if not self._pass(c, row.get(f"C_{c.id}")):
+                    if not self._pass(c, row.get(f"C_{c.id}")) and not (c.class_ == "mixed" and c.kind == "inclusion"):
                         break
                     depth += 1
                 if depth >= best_depth:  # latest date on ties
@@ -385,13 +403,17 @@ class _Run:
             t.index_date = best["index_date"]
             applied_ids = {a.id for a in applied}
             for c in self.rs.active():
-                if c.class_ != "structured" or c.kind not in ("inclusion", "exclusion"):
+                if c.class_ not in FILTERED or c.kind not in ("inclusion", "exclusion"):
                     continue
                 if c.id not in applied_ids:
+                    if c.class_ == "mixed":  # D-98: logic did not compile, the notes decide
+                        continue
                     t.outcomes[c.id] = Outcome(c.id, "unknown", "S1", unknown_kind="data_gap", reason="not compiled")
                     continue
+                if c.class_ == "mixed" and best.get(f"C_{c.id}") is not True:
+                    continue  # D-98: codes silent (false or null) → the notes decide at S2/S3
                 t.outcomes[c.id] = self._s1_outcome(c, best)
-            first_fail = next((c.id for c in applied if t.outcomes[c.id].hard), None)
+            first_fail = next((c.id for c in applied if c.id in t.outcomes and t.outcomes[c.id].hard), None)
             if first_fail:
                 self.exclude(t, "S1", first_fail)
         n_scope = self.metrics.n_scope = sum(1 for t in self.traces.values() if t.in_scope)
@@ -404,7 +426,7 @@ class _Run:
             n_scope,
             len(alive),
             n_scope * n_struct,
-            sum(1 for t in alive for c in applied if t.outcomes[c.id].status != "fail"),
+            sum(1 for t in alive for c in applied if c.id in t.outcomes and t.outcomes[c.id].status != "fail"),
             semantics=self.semantics,
             index_dates=len(idx),
             deferred_index=sum(1 for t in alive for o in t.outcomes.values() if o.reason == "index_absent"),
@@ -486,6 +508,8 @@ class _Run:
         for t in alive:
             pnotes = notes.get(t.pid, [])
             for c in note_crit:
+                if c.id in t.outcomes and t.outcomes[c.id].stage == "S1":
+                    continue  # D-98 mixed: the codes settled it
                 lo, hi = window_of(c, t.index_date)
                 win = [n for n in pnotes if lo <= n.d <= hi]
                 if not win:
@@ -566,13 +590,15 @@ class _Run:
             if index_sweep:
                 if res_above and sents:
                     self._rescue(t, cid, "S2b", sents[top[0]][1])
+                elif not self.cfg.absence_semantics:
+                    t.outcomes[cid].reason = "index condition not coded and not found in the notes; review"
                 else:
                     o = t.outcomes[cid]
                     o.status, o.hard, o.stratum, o.stage = "fail", True, STRATUM_INDEX, "S2b"
                     o.unknown_kind, o.reason = None, "index condition absent: no code, no S2 or S2b mention"
                     self.exclude(t, "S2b", cid)
                 continue
-            if res_above:
+            if res_above or (not self.cfg.absence_semantics and sents):
                 self.metrics.pairs_s2b_above += 1
                 keep = {sents[i][0].did for i in top}
                 sset = sorted({sentence_hash(sents[i][1]) for i in top})
@@ -661,7 +687,12 @@ class _Run:
 
     def _map(self, c: CriterionIR, reply: JudgeReply, span: dict[str, Any] | None, stage: Stage) -> Outcome:
         ev = [span] if span else []
-        meta = {"call_id": reply.call_id, "build_sha": reply.build_sha, "prompt": reply.prompt}
+        meta = {
+            "call_id": reply.call_id,
+            "build_sha": reply.build_sha,
+            "prompt": reply.prompt,
+            "confidence": reply.confidence,
+        }
         if reply.verdict not in ("pass", "fail"):
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason="abstained")
         if span is None:
@@ -672,6 +703,15 @@ class _Run:
             return Outcome(c.id, "pass", stage, evidence=[*ev, meta], reason=reply.reason[:200])
         if reply.confidence < self.cfg.confidence_floor:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[*ev, meta], reason="abstained")
+        if not self.cfg.note_block:  # D-97: a single model may send a patient to review, never out
+            return Outcome(
+                c.id,
+                "fail",
+                stage,
+                hard=False,
+                evidence=[*ev, meta],
+                reason="not_met (single model: review, not exclusion)",
+            )
         return Outcome(c.id, "fail", stage, hard=True, stratum=STRATUM_S3, evidence=[*ev, meta], reason="not_met")
 
     def s3(self, routes: list[_Route]) -> list[_Route]:
@@ -788,6 +828,8 @@ class _Run:
                 t.tier = "watchlist" if timed else "excluded"
                 continue
             kinds = {o.unknown_kind for o in t.outcomes.values() if o.status == "unknown"}
+            if any(o.status == "fail" and not o.hard for o in t.outcomes.values()):
+                kinds.add("uncertain")  # soft note fail (D-97): a person decides
             if "uncertain" in kinds:
                 t.tier = "potential:uncertain"
             elif "data_gap" in kinds:
@@ -856,7 +898,7 @@ def run_cascade(
     run = _Run(lake, rs, cfg, judge, embedder)
     idx = run.s0()
     applied = run.s1(idx)
-    note_crit = [c for c in rs.active() if c.class_ == "note" and c.kind in ("inclusion", "exclusion")]
+    note_crit = [c for c in rs.active() if c.class_ in JUDGED and c.kind in ("inclusion", "exclusion")]
     human = [c for c in rs.active() if c.class_ == "human"]
     run.metrics.note_criteria = len(note_crit)
     routes, zero = run.s2(note_crit)

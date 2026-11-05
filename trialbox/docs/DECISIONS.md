@@ -881,3 +881,33 @@ candidates for the next visits"). The single-case form lists trial rulesets only
 words left the user's text (the proposal note, the health line). On phones the menu fades at the edge to show it
 scrolls, every table scrolls inside its card, and controls stack. Reviewed 2026-11-05 (Fable review M3, M7, M8, L1,
 L2, L3, L4).
+
+**D-103 SCREEN runs the v4 cascade; GZQO re-approved with judge v4.** Until 5 Nov 2026 the v4 cascade (S0–S5,
+`services/matching/cascade/`) ran only as `tools.cascade_e2e` on the synthetic drop, while a screening request went
+through the v1 evaluator (per-patient CQL/SQL, then RAG and the judge on every structured candidate); D-102 unified
+the names of the two funnels but not the engines. Changfu's decision of 5 Nov ("pilot = the full cascade as one named
+funnel", "e2e, do it now"): a SCREEN job now scopes its patients as before (practitioner appointments and recent
+encounters) and hands that population to `run_cascade` (`scenarios/screen_cascade.py`): S0 consent and scope, S1 the
+approved ruleset's compiled SQL (filters first, never a model), S2 the bilingual lexicon on the notes in the window,
+S2b the semantic ranking that picks the excerpts, S3 the judge in exclusion-power order with span verification, S4 a
+second opinion on would-be strong candidates, tiers. S5 stays with the coordinator (console and workbook), so the
+cascade runs without a reviewer. The judge is the orchestrator's own LLM client wrapped as the cascade's
+`JudgeClient` (same gateway route, prompt pin, audit line and two-model agreement rule as before; the judge-failure
+gate of v1 applies). Screening differs from feasibility in three settings the engine gained: the population is given
+by the caller (`CascadeConfig.population`), nobody is sampled, and zero-hit pairs below the S2b threshold go to the
+judge instead of taking absence semantics (`absence_semantics=False`: screening spends the tokens, the S2b
+thresholds stay a feasibility economy until the LTT fit exists, D-90). The note-block policy in force (D-95/D-97)
+becomes the engine's `note_block`: without a verifier a confident note `fail` is soft, keeps its quote and sends the
+patient to review, never out. `mixed` criteria (D-98) now exist in the cascade too: a coded hit settles them at S1,
+silent codes send them to S2/S3. The traces come back as the same `CandidateRow` verdicts, tiers and actions every
+report, mail, pool, registry and console page already used (a null exclusion value the cascade keeps reads `unknown`
+and makes the row a review row, as v1 did); `screen_<stem>.json` carries the engine's stage log under `cascade` and
+the funnel of D-102 is now that log (S0, S1, S3 = patients whose notes the model read, S4). `TB_SCREEN_PIPELINE=v1`
+restores the v1 evaluator for a measured comparison; `GET /models` and the console Overview say which pipeline runs.
+MICROBATCH's per-criterion delta check keeps the v1 evaluator (it re-asks single criteria for pool patients); its
+Monday re-screen goes through `run_screen` and so through the cascade. On the synthetic site the cascade reproduces
+the planted structured truth at ≥ 98 % and the note truth at ≥ 90 % (the v1 acceptance tests, unchanged). With the
+same decision Changfu re-approved GZQO with the judge v4 prompt (D-96): `rulesets/GZQO/manifest.yaml` pins
+`judge_v4`, the review record names the approver, the channel (project chat, 6 Nov 2026 06:28 +08:00), round 2 and
+the class split; criteria, SQL and CQL are unchanged, so the ruleset version stays 1.0.0. The four other shipped
+rulesets keep `judge_v3` until their approver says so.

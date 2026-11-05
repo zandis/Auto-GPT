@@ -215,3 +215,76 @@ def test_cascade_is_deterministic(env: dict[str, Any]) -> None:
     a, b = _run(env, RecordingJudge()), _run(env, RecordingJudge())
     assert [s.patients_out for s in a.stages] == [s.patients_out for s in b.stages]
     assert a.tier_counts() == b.tier_counts() and a.final_list == b.final_list
+
+
+# --------------------------------------------------------------------------------------------- D-103 screening mode
+class QuotingJudge:
+    """Answers every S3 question with a confident ``fail`` that quotes the newest excerpt (so the span verifies)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def judge(self, **kw: Any) -> Any:
+        from matching.cascade.judge import JudgeReply
+
+        self.calls += 1
+        ex = kw["excerpts"][0]
+        return JudgeReply("fail", 0.95, str(ex["text"])[:40], str(ex["date"]), "stated")
+
+
+@pytest.mark.req("CAS-1")
+def test_population_given_by_the_caller(env: dict[str, Any]) -> None:
+    from matching.cascade.model import STAGES
+
+    full = _run(env, RecordingJudge())
+    pids = sorted(full.traces)[:7]
+    res = _run(env, RecordingJudge(), population=pids, index_mode="single", sample_per_stratum=None)
+    assert sorted(res.traces) == pids and res.metrics.n_after["S0"] <= 7
+    assert "given by the caller" in str(res.stages[0].detail["population"])
+    assert [s.stage for s in res.stages] == list(STAGES) and res.index_dates == [env["cfg"].run_date]
+
+
+@pytest.mark.req("SAFE-13")
+def test_single_model_fail_is_soft_without_note_block(env: dict[str, Any]) -> None:
+    blocking = _run(env, QuotingJudge(), sample_per_stratum=None)
+    s3_exits = [t for t in blocking.traces.values() if t.exit_stage == "S3"]
+    assert s3_exits, "the quoting judge should exclude someone at S3 when note answers may block"
+    soft = _run(env, QuotingJudge(), sample_per_stratum=None, note_block=False)
+    assert not any(t.exit_stage in ("S3", "S4") for t in soft.traces.values())
+    softs = [o for t in soft.traces.values() for o in t.outcomes.values() if o.status == "fail" and o.stage == "S3"]
+    assert softs and all(not o.hard for o in softs) and all("review" in o.reason for o in softs)
+    assert all(soft.traces[t.pid].tier.startswith("potential") for t in s3_exits if soft.traces[t.pid].in_scope)
+    assert all(e.get("confidence") == 0.95 for o in softs for e in o.evidence if "call_id" in e)
+
+
+@pytest.mark.req("CAS-12")
+def test_screening_routes_every_zero_hit_pair_to_the_judge(env: dict[str, Any]) -> None:
+    feas = _run(env, RecordingJudge(), sample_per_stratum=None)
+    screen = _run(env, RecordingJudge(), sample_per_stratum=None, absence_semantics=False)
+    assert screen.metrics.pairs_s2b_below == 0 and feas.metrics.pairs_s2b_below >= 0
+    assert screen.metrics.pairs_judged["S3"] >= feas.metrics.pairs_judged["S3"]
+    below = [o for t in screen.traces.values() for o in t.outcomes.values() if o.stage == "S2b"]
+    assert not below  # nothing decided by absence: every pair with a note in the window reached S3
+
+
+@pytest.mark.req("CAS-1")
+def test_mixed_criterion_codes_settle_when_true_else_notes(env: dict[str, Any]) -> None:
+    from dataclasses import replace as rep
+
+    rs = env["rs"]
+    # turn a structured exclusion into a mixed one: a coded hit still settles it (fail, hard); silent codes go to the notes
+    target = next(
+        c for c in rs.active() if c.class_ == "structured" and c.kind == "exclusion" and f'"C_{c.id}"' in rs.sql
+    )
+    mixed = target.model_copy(update={"class_": "mixed", "note_question": f"Do the notes document {target.text}?"})
+    rs2 = rep(rs, criteria=[mixed if c.id == target.id else c for c in rs.criteria])
+    res = _run({**env, "rs": rs2}, RecordingJudge(), sample_per_stratum=None, absence_semantics=False)
+    assert target.id in res.applied and target.id in res.note_criteria
+    stages = {t.outcomes[target.id].stage for t in res.traces.values() if target.id in t.outcomes}
+    s1 = [
+        t.outcomes[target.id]
+        for t in res.traces.values()
+        if t.outcomes.get(target.id) and t.outcomes[target.id].stage == "S1"
+    ]
+    assert all(o.status == "fail" and o.hard for o in s1)  # at S1 only a coded hit settles a mixed exclusion
+    assert stages - {"S1"}, "patients with silent codes must reach the note stages"

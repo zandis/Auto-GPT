@@ -54,6 +54,11 @@ EN: dict[str, str] = {
     "goes to review.",
     "overview.models.engine": "Structured criteria (age, sex, diagnoses, labs, medicines) are decided by the {engine} "
     "filters, never by a model.",
+    "overview.models.pipeline.cascade": "Screening runs the v4 cascade: filters first (S1), lexicon and ranking on the "
+    "notes (S2), the model reads only what is left (S3), a second opinion on strong candidates (S4), a person confirms "
+    "(S5).",
+    "overview.models.pipeline.v1": "Screening runs the v1 evaluator (per-patient filters, then the note judge on every "
+    "candidate).",
     "overview.models.unavailable": "Model settings unavailable: the orchestrator is not answering.",
     "jobs.title": "Jobs",
     "jobs.none": "No jobs yet.",
@@ -409,6 +414,8 @@ JA: dict[str, str] = {
     "overview.models.never.help": "この装置では意図して「除外しない」に設定されています。記録基準に該当しない場合も引用を残し、"
     "患者は確認待ちに回ります。",
     "overview.models.engine": "構造化基準（年齢・性別・診断・検査・薬剤）は {engine} フィルタで決まり、モデルは関与しません。",
+    "overview.models.pipeline.cascade": "スクリーニングは v4 カスケードで実行します：まずフィルタ（S1）、ノートの語彙照合とランキング（S2）、残った分だけモデルが読む（S3）、有力候補には第 2 の意見（S4）、最後に人が確認（S5）。",
+    "overview.models.pipeline.v1": "スクリーニングは v1 評価器で実行します（患者ごとのフィルタの後、候補全員のノートを判定）。",
     "overview.models.unavailable": "モデル設定を取得できません：オーケストレータが応答しません。",
     "jobs.title": "ジョブ",
     "jobs.none": "ジョブはまだありません。",
@@ -755,6 +762,8 @@ ZH: dict[str, str] = {
     "一律列入人工確認。請加入第二模型，或明確把原則設為「永不」。",
     "overview.models.never.help": "本機刻意設為「永不」：病歷條件不符時保留引文，病人送交人工確認。",
     "overview.models.engine": "結構化條件（年齡、性別、診斷、檢驗、用藥）由 {engine} 篩選器決定，模型不參與。",
+    "overview.models.pipeline.cascade": "篩選以 v4 串級執行：先篩選器（S1）、病歷詞彙比對與排序（S2）、模型只讀剩下的部分（S3）、有力候選由第二模型複核（S4）、最後由人確認（S5）。",
+    "overview.models.pipeline.v1": "篩選以 v1 評估器執行（逐病人篩選後，模型判讀每位候選的病歷）。",
     "overview.models.unavailable": "無法取得模型設定：協調服務沒有回應。",
     "jobs.title": "工作",
     "jobs.none": "尚無工作。",
