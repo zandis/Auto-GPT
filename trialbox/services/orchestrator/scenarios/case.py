@@ -42,6 +42,7 @@ from tb_contracts import CriterionIR, CriterionVerdict, Evidence, ParseRequest, 
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
+from orchestrator.i18n import detect_lang
 from orchestrator.reports import case_html
 from orchestrator.scenarios.evaluate import (
     FILTERED,
@@ -316,12 +317,16 @@ def headline(c: dict[str, int], lang: str) -> str:
     return case_html.HEADLINE[lang].format(**c)
 
 
-def pick_lang(ctx: Ctx) -> str:
+def pick_lang(ctx: Ctx, chart_text: str | None = None) -> str:
+    """The sheet's language: ``lang=`` when given; else the chart's own language (what the console option "Same as
+    the chart" promises); else the site locale."""
     raw = (ctx.job.options or {}).get("lang")
     if raw:
         if raw not in LANGS:
             raise StepFailed("received", f"lang={raw!r}: use one of en, ja, zh-TW")
-        return raw
+        return str(raw)
+    if chart_text and chart_text.strip():
+        return detect_lang(chart_text)
     loc = (ctx.cfg.settings.site.locale or "en") if ctx.cfg.settings.site else "en"
     return loc if loc in LANGS else ("ja" if loc.startswith("ja") else "zh-TW" if loc.startswith("zh") else "en")
 
@@ -345,6 +350,7 @@ def run(ctx: Ctx) -> Outcome:
             "routing", f"Ruleset {rs.id} has no internal routing.list_to; an eligibility sheet cannot be sent."
         )
     excerpts, charts = read_charts(ctx)
+    lang = pick_lang(ctx, " ".join(str(e.get("text", "")) for e in excerpts[:40]))
     subj = resolve_subject(ctx, opts.get("mrn"))
     if subj.snapshot:
         ctx.update(snapshot_date=date.fromisoformat(subj.snapshot))

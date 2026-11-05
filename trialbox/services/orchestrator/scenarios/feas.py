@@ -9,7 +9,8 @@ from datetime import date
 from tb_contracts import Settings, dump
 
 from orchestrator.clients import StepFailed
-from orchestrator.core import Ctx, Delivery, Outcome
+from orchestrator.core import Ctx, Delivery, Outcome, job_language
+from orchestrator.i18n import t
 from orchestrator.reports import feasibility_pdf, feasibility_xlsx
 from orchestrator.reports.common import ReportMeta, fmt_count
 from orchestrator.scenarios import calibration
@@ -95,7 +96,7 @@ def run(ctx: Ctx) -> Outcome:
         snapshot=snapshot,
         job_id=job.job_id,
         run_date=params.run_date.isoformat(),
-        locale=settings.site.locale or "zh-TW",
+        locale=job_language(ctx),
         contact=settings.site.contact or "",
     )
     to = recipients(m.routing, job.requested_by)
@@ -108,21 +109,25 @@ def run(ctx: Ctx) -> Outcome:
     # unsuppressed counts stay in the box (funnel-compare harness); hashed + audited, never mailed
     ctx.publish(f"{stem}.raw.json", raw_json(raw), "phi", [])
     sim = result.simulation
+    lang = meta.locale
     lines = [
-        f"Feasibility for **{m.trial_alias or rs.id}** (ruleset {rs.id} v{rs.version}, snapshot {snapshot}).",
+        t(lang, "feas.intro", trial=m.trial_alias or rs.id, rs=rs.id, ver=rs.version, snapshot=snapshot),
         "",
-        f"- Estimated {sim.months}-month enrolment: **{sim.low:g}–{sim.high:g}** (most likely {sim.mid:g})",
-        f"- Population: {result.population}: {fmt_count(result.start_n)}",
-        f"- Eligible on structured criteria (any month-end): "
-        f"{fmt_count(next((f.remaining for f in reversed(result.funnel) if f.applied is not False), 0))}",
+        t(lang, "feas.enrol", months=sim.months, low=f"{sim.low:g}", high=f"{sim.high:g}", mid=f"{sim.mid:g}"),
+        t(lang, "feas.population", population=result.population, n=fmt_count(result.start_n)),
+        t(
+            lang,
+            "feas.eligible",
+            n=fmt_count(next((f.remaining for f in reversed(result.funnel) if f.applied is not False), 0)),
+        ),
     ]
     bars = feasibility_pdf.barriers(result)
     if bars:
-        lines.append("- Biggest barriers: " + "; ".join(f"{lbl} (−{fmt_count(d)})" for _, lbl, d in bars))
-    lines += ["", "Attached: feasibility report (PDF), workbook (XLSX) and the machine-readable result (JSON)."]
+        lines.append(t(lang, "feas.barriers", items="; ".join(f"{lbl} (−{fmt_count(d)})" for _, lbl, d in bars)))
+    lines += ["", t(lang, "feas.attached")]
     return Outcome(
         state="done",
         summary_md="\n".join(lines),
-        headline=f"{sim.low:g}–{sim.high:g} in {sim.months} mo",
+        headline=t(lang, "feas.headline", low=f"{sim.low:g}", high=f"{sim.high:g}", months=sim.months),
         deliveries=[Delivery(to=to, outputs=[pdf, xlsx, js], routing=m.routing)],
     )

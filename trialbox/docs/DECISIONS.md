@@ -841,3 +841,13 @@ answer and excludes exactly the patients to keep. The extraction prompt (ir_extr
 checks every exclusion question anyway: common English forms are rewritten to the positive
 (`negated_question_rewritten`, the original kept in `note_question_source` and shown to the reviewer); anything else
 is flagged `negated_question`. Both need review before approval. Reviewed 2026-11-05 (Fable review H5).
+
+**D-100 Mail and reports in the requester's language.** The console and the front door accepted Japanese and
+Traditional Chinese, but every reply, PDF and done mail was English, and the CASE sheet followed the site locale
+although the console promised "same as the chart". A job now has one language: the `lang=` option when given (the
+console adds the signed-in user's language to FEAS, SCREEN, CASE, NAV and MICROBATCH requests), else the site locale.
+`services/orchestrator/i18n.py` holds the texts (received, failed and status mail; SCREEN and FEAS done mail and
+headlines; every label of the feasibility and screening-summary PDFs) in EN, JA and zh-TW with one key set, checked
+by a test. Subjects keep their ASCII kind tokens, since `is_job_mail` parses them. The CASE sheet detects the
+chart's language from its script when no `lang=` is given. The stub model's "translations" are now tagged as samples
+that are not translations. Reviewed 2026-11-05 (Fable review H4, M5).

@@ -19,7 +19,8 @@ from tb_common.timeutil import add_months
 from tb_contracts import CandidateList, CandidateRow, Judging, Routing, ScreenRunScope, TierSummary, dump
 
 from orchestrator.clients import StepFailed
-from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
+from orchestrator.core import Ctx, Delivery, Outcome, job_language, job_stamp
+from orchestrator.i18n import t
 from orchestrator.reports import candidate_xlsx, screen_summary_pdf
 from orchestrator.reports.common import ReportMeta
 from orchestrator.scenarios.evaluate import (
@@ -98,20 +99,13 @@ def judging_info(judge: NoteJudge | None) -> dict[str, Any]:
     }
 
 
-def judging_sentence(j: dict[str, Any]) -> str:
+def judging_sentence(j: dict[str, Any], lang: str = "en") -> str:
     """One sentence for the mail and the PDF: who judged the notes and whether a note answer could exclude."""
     if j.get("mode") == "none":
-        return "Note criteria were not judged (no model on this box): they go to review."
+        return t(lang, "screen.judging.none")
     if j.get("may_block"):
-        return (
-            f"Note criteria: judged by {j.get('judge_model')} and checked by {j.get('verifier_model')}; a note "
-            f"answer excludes a patient only when both models agree."
-        )
-    why = str(j.get("note_block_reason") or "")
-    return (
-        f"Note criteria: judged by {j.get('judge_model')} alone; note answers could not exclude anyone on this run "
-        f"({why}). Patients with a failing note answer are listed for review."
-    )
+        return t(lang, "screen.judging.pair", judge=j.get("judge_model"), verifier=j.get("verifier_model"))
+    return t(lang, "screen.judging.single", judge=j.get("judge_model"), why=str(j.get("note_block_reason") or ""))
 
 
 def scope_patients(
@@ -187,7 +181,7 @@ def report_meta(ctx: Ctx, rs: Ruleset, snapshot: str, run_date: date) -> ReportM
         snapshot,
         ctx.job.job_id,
         run_date.isoformat(),
-        s.site.locale or "zh-TW",
+        job_language(ctx),
         s.site.contact or "",
     )
 
@@ -360,17 +354,18 @@ def deliver_lists(
     if extra is not None:
         files.append(ctx.publish(extra[0], extra[1], "phi", list_to))
     n_high = sum(r.tier == "high" for r in listed)
+    lang = job_language(ctx)
     out.append(
         Delivery(
             to=list_to,
             outputs=files,
             routing=routing,
             kind="list",
-            subject=job_subject("candidates", ctx.job.type, rs.id, ctx.job.job_id, f"{len(listed)} patients"),
-            body_md=(
-                f"Candidate list for **{rs.id} v{rs.version}**: {len(listed)} patients ({n_high} high, "
-                f"{len(listed) - n_high} review). The workbook is encrypted; the password follows separately. "
-                f"Coordinators also see this list, with the note quotes, on the job page of the console."
+            subject=job_subject(
+                "candidates", ctx.job.type, rs.id, ctx.job.job_id, t(lang, "screen.list.headline", n=len(listed))
+            ),
+            body_md=t(
+                lang, "screen.list", rs=rs.id, ver=rs.version, n=len(listed), high=n_high, review=len(listed) - n_high
             ),
         )
     )
@@ -392,10 +387,20 @@ def deliver_lists(
                 outputs=[ref],
                 routing=routing,
                 kind="referral",
-                subject=job_subject("referral", ctx.job.type, rs.id, ctx.job.job_id, f"{dept}, {len(sub)} patients"),
-                body_md=(
-                    f"{len(sub)} patients of department {dept} may be eligible for **{rs.id}**. Please consider a "
-                    f"referral to the study team ({', '.join(routing.list_to or []) if routing else ''})."
+                subject=job_subject(
+                    "referral",
+                    ctx.job.type,
+                    rs.id,
+                    ctx.job.job_id,
+                    t(lang, "screen.referral.headline", dept=dept, n=len(sub)),
+                ),
+                body_md=t(
+                    lang,
+                    "screen.referral",
+                    n=len(sub),
+                    dept=dept,
+                    rs=rs.id,
+                    to=", ".join(routing.list_to or []) if routing else "",
                 ),
             )
         )
@@ -428,11 +433,17 @@ def run(ctx: Ctx) -> Outcome:
         return v
 
     judging = srun.judging or judging_info(None)
+    lang = job_language(ctx)
     scope_lines = [
-        f"Ruleset {rs.id} v{rs.version}, run {run_date.isoformat()}, snapshot {snapshot}.",
-        f"Scope: practitioners {', '.join(srun.practitioners)}; appointments in the next {srun.window_days} days or "
-        f"an encounter in the last 12 months; {n(len(srun.scoped))} patients evaluated.",
-        judging_sentence(judging),
+        t(lang, "screen.scope1", rs=rs.id, ver=rs.version, run=run_date.isoformat(), snapshot=snapshot),
+        t(
+            lang,
+            "screen.scope2",
+            pract=", ".join(srun.practitioners),
+            window=srun.window_days,
+            scoped=n(len(srun.scoped)),
+        ),
+        judging_sentence(judging, lang),
     ]
     unknown_by: dict[str, int] = {}
     for r in srun.rows:
@@ -475,7 +486,7 @@ def run(ctx: Ctx) -> Outcome:
     summary = ctx.publish(
         f"summary_{stem}.pdf",
         screen_summary_pdf.render(
-            f"Screening summary — {rs.manifest.trial_alias or rs.id}",
+            t(lang, "pdf.screen.title", trial=rs.manifest.trial_alias or rs.id),
             srun.rows,
             rs,
             meta,
@@ -487,17 +498,24 @@ def run(ctx: Ctx) -> Outcome:
         agg_to,
     )
     s = cl.summary
-    text = (
-        f"Screening **{rs.id} v{rs.version}** finished: {n(len(srun.scoped))} patients in scope, "
-        f"{n(s.high)} high, {n(s.review)} review, {n(s.excluded)} excluded. The encrypted candidate list went to "
-        f"{', '.join(rs.manifest.routing.list_to or []) if rs.manifest.routing else ''}"
-        + (
-            f"; referrals: {', '.join(f'{k} ({n(v)})' for k, v in info['referrals'].items())}"
+    text = t(
+        lang,
+        "screen.done",
+        rs=rs.id,
+        ver=rs.version,
+        scoped=n(len(srun.scoped)),
+        high=n(s.high),
+        review=n(s.review),
+        excluded=n(s.excluded),
+        to=", ".join(rs.manifest.routing.list_to or []) if rs.manifest.routing else "",
+        referrals=(
+            t(lang, "screen.referrals", items=", ".join(f"{k} ({n(v)})" for k, v in info["referrals"].items()))
             if info["referrals"]
             else ""
-        )
-        + ". "
-        + judging_sentence(judging)
+        ),
+        judging=judging_sentence(judging, lang),
     )
     deliveries.append(Delivery(to=agg_to, outputs=[summary], routing=rs.manifest.routing, body_md=text))
-    return Outcome(summary_md=text, deliveries=deliveries, headline=f"{n(s.high)} high, {n(s.review)} review")
+    return Outcome(
+        summary_md=text, deliveries=deliveries, headline=t(lang, "screen.headline", high=n(s.high), review=n(s.review))
+    )

@@ -96,7 +96,7 @@ def test_screen_by_email(world: dict[str, Any], synth_dir: Path) -> None:
     assert n_total >= 10 and n_agree / n_total >= 0.90, (n_agree, n_total)  # 300-item set: tools/judge_eval.py
     pool = box.orch.db.pool("GZQO")
     assert {p["pid"] for p in pool} == {r.pid for r in cl.rows}
-    referral = [s for s in box.sent if s.subject.startswith("Referral META GZQO")]
+    referral = [s for s in box.sent if s.subject.startswith("[GZQO] SCREEN referral: META")]
     if any(r.department == "META" for r in cl.rows):
         assert referral and referral[0].to == ["meta-head@hospa.test"]
     assert verify(box.audit_dir).ok

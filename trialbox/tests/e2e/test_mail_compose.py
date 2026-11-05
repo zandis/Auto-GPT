@@ -126,7 +126,7 @@ def test_feas_email_to_pdf() -> None:
     atts = attachments(done)
     pdf = next(v for k, v in atts.items() if k.endswith(".pdf"))
     text = "".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
-    assert "Eligibility funnel" in text and f"job {job['job_id']}" in text
+    assert ("Eligibility funnel" in text or "資格篩選漏斗" in text) and f"job {job['job_id']}" in text
     assert any(k.endswith(".xlsx") for k in atts) and any(k.endswith(".json") for k in atts)
     final = final_job(job["job_id"])
     assert final["state"] == "done" and len(final["outputs"]) == 4

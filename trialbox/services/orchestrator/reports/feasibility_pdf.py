@@ -11,6 +11,7 @@ from xml.sax.saxutils import escape
 from tb_common.ruleset import Ruleset
 from tb_contracts import FeasibilityResult
 
+from orchestrator.i18n import t
 from orchestrator.reports.common import ReportMeta, figure, fmt_count, pdf_fonts, pdf_invariant, png
 
 BRAND = "#1f4e79"
@@ -34,14 +35,21 @@ def barriers(result: FeasibilityResult, n: int = 2) -> list[tuple[str, str, int 
 
 def answer_text(result: FeasibilityResult, meta: ReportMeta) -> str:
     sim = result.simulation
-    text = (
-        f"Estimated {sim.months}-month enrolment at {meta.site_name}: <b>{sim.low:g}–{sim.high:g}</b> participants "
-        f"(most likely {sim.mid:g}; P10–P90 of {sim.iterations or 1000} simulations). "
+    lang = meta.locale
+    text = t(
+        lang,
+        "pdf.answer.text",
+        months=sim.months,
+        site=escape(meta.site_name),
+        low=f"{sim.low:g}",
+        high=f"{sim.high:g}",
+        mid=f"{sim.mid:g}",
+        iterations=sim.iterations or 1000,
     )
     bars = barriers(result)
     if bars:
         parts = [f"{escape(label)} ({cid}, −{fmt_count(d)})" for cid, label, d in bars]
-        text += "The biggest barriers are " + " and ".join(parts) + "."
+        text += t(lang, "pdf.answer.barriers", items=t(lang, "pdf.and").join(parts))
     return text
 
 
@@ -127,6 +135,11 @@ def render(
         textColor=colors.HexColor(BRAND),
     )
     m = rs.manifest
+    lang = meta.locale
+
+    def L(key: str, **kw: Any) -> str:  # noqa: N802 - label
+        return t(lang, key, **kw)
+
     story: list[Any] = []
 
     def table(rows: list[list[Any]], widths: list[float], head: int = 1) -> Table:
@@ -148,41 +161,43 @@ def render(
     # 1 cover
     story += [
         Spacer(1, 30 * mm),
-        Paragraph(f"Feasibility report — {escape(m.trial_alias or m.id)}", h1),
+        Paragraph(escape(L("pdf.feas.title", trial=m.trial_alias or m.id)), h1),
         Spacer(1, 6 * mm),
         table(
             [
-                ["Item", "Value"],
-                ["Trial", f"{m.title or m.id} (ruleset {m.id} v{m.version})"],
-                ["Sponsor", m.sponsor or "—"],
-                ["Site", f"{meta.site_name} ({meta.site_id})"],
-                ["Run date", meta.run_date],
-                ["Data snapshot", meta.snapshot],
-                ["Population", result.population],
-                ["Lookback", f"{result.lookback_months} months (month-end index dates)"],
-                ["Contact", meta.contact or "—"],
+                [L("pdf.item"), L("pdf.value")],
+                [L("pdf.trial"), L("pdf.trial.value", title=m.title or m.id, rs=m.id, ver=m.version)],
+                [L("pdf.sponsor"), m.sponsor or "—"],
+                [L("pdf.site"), f"{meta.site_name} ({meta.site_id})"],
+                [L("pdf.run_date"), meta.run_date],
+                [L("pdf.snapshot"), meta.snapshot],
+                [L("pdf.population"), result.population],
+                [L("pdf.lookback"), L("pdf.lookback.value", months=result.lookback_months)],
+                [L("pdf.contact"), meta.contact or "—"],
             ],
             [40 * mm, 125 * mm],
         ),
         Spacer(1, 8 * mm),
         # 2 answer
-        Paragraph("Answer", h2),
+        Paragraph(L("pdf.answer"), h2),
         Paragraph(answer_text(result, meta), body),
         PageBreak(),
     ]
     # 3 funnel
-    frows: list[list[Any]] = [["Step", "Criterion", "Remaining", "Dropped", "% of start", "Unknown"]]
+    frows: list[list[Any]] = [
+        [L("pdf.step"), L("pdf.criterion"), L("pdf.remaining"), L("pdf.dropped"), L("pdf.pct_start"), L("pdf.unknown")]
+    ]
     frows.append(["—", result.population, fmt_count(result.start_n), "", "100.0", ""])
     for f in result.funnel:
         if f.applied is False:
-            frows.append([f.criterion_id, f"{f.label} (not applied in counts)", "", "", "", ""])
+            frows.append([f.criterion_id, L("pdf.not_applied", label=f.label), "", "", "", ""])
         else:
             pct = "—" if f.pct is None else f"{f.pct:.1f}"
             frows.append(
                 [f.criterion_id, f.label, fmt_count(f.remaining), fmt_count(f.dropped), pct, fmt_count(f.unknown)]
             )
     story += [
-        Paragraph("Eligibility funnel", h2),
+        Paragraph(L("pdf.funnel"), h2),
         table(frows, [27 * mm, 67 * mm, 20 * mm, 18 * mm, 18 * mm, 20 * mm]),
         Spacer(1, 4 * mm),
         Image(
@@ -192,67 +207,72 @@ def render(
         ),
     ]
     # 4 sensitivity
-    srows: list[list[Any]] = [["Variant", "Criterion", "Remaining", "Δ vs base"]]
+    srows: list[list[Any]] = [[L("pdf.variant"), L("pdf.criterion"), L("pdf.remaining"), L("pdf.delta")]]
     for s in result.sensitivity:
         delta = "—" if s.delta is None else f"{s.delta:+d}"
         srows.append([s.variant, s.criterion_id, fmt_count(s.remaining), delta])
-    story += [KeepTogether([Paragraph("Sensitivity", h2), table(srows, [45 * mm, 45 * mm, 30 * mm, 30 * mm])])]
+    story += [KeepTogether([Paragraph(L("pdf.sensitivity"), h2), table(srows, [45 * mm, 45 * mm, 30 * mm, 30 * mm])])]
     # 5 monthly
     story += [
-        Paragraph(f"New eligible patients per month ({len(result.monthly_new)} months)", h2),
+        Paragraph(L("pdf.monthly", n=len(result.monthly_new)), h2),
         Image(io.BytesIO(monthly_chart(result, meta.locale, small_cell)), width=170 * mm, height=62 * mm),
     ]
     # 6 simulation assumptions
     sim = result.simulation
-    cap = "not limited" if sim.capacity_per_month is None else f"{sim.capacity_per_month:g} per month"
+    cap = (
+        L("pdf.capacity.unlimited")
+        if sim.capacity_per_month is None
+        else L("pdf.capacity.value", n=f"{sim.capacity_per_month:g}")
+    )
     story += [
         KeepTogether(
             [
-                Paragraph("Simulation assumptions", h2),
+                Paragraph(L("pdf.assumptions"), h2),
                 table(
                     [
-                        ["Parameter", "Value", "Source"],
-                        ["Reach rate", f"{sim.reach_rate:.0%}", sim.source or "default"],
-                        ["Accept rate", f"{sim.accept_rate:.0%}", sim.source or "default"],
-                        ["Investigator capacity", cap, "settings.practitioners"],
-                        ["New eligible per month", f"{sim.monthly_eligible_mean or 0:g}", "funnel, last 12 months"],
-                        ["Horizon", f"{sim.months} months", "SPEC §8.1"],
-                        ["Iterations", str(sim.iterations or 1000), "Beta-distributed rates, Poisson arrivals"],
-                        ["Result (P10 / P50 / P90)", f"{sim.low:g} / {sim.mid:g} / {sim.high:g}", "simulation"],
+                        [L("pdf.parameter"), L("pdf.value"), L("pdf.source")],
+                        [L("pdf.reach"), f"{sim.reach_rate:.0%}", sim.source or L("pdf.default")],
+                        [L("pdf.accept"), f"{sim.accept_rate:.0%}", sim.source or L("pdf.default")],
+                        [L("pdf.capacity"), cap, "settings.practitioners"],
+                        [
+                            L("pdf.monthly_eligible"),
+                            f"{sim.monthly_eligible_mean or 0:g}",
+                            L("pdf.monthly_eligible.source"),
+                        ],
+                        [L("pdf.horizon"), L("pdf.horizon.value", months=sim.months), "SPEC §8.1"],
+                        [L("pdf.iterations"), str(sim.iterations or 1000), L("pdf.iterations.source")],
+                        [L("pdf.result"), f"{sim.low:g} / {sim.mid:g} / {sim.high:g}", L("pdf.simulation")],
                     ],
                     [55 * mm, 55 * mm, 60 * mm],
                 ),
             ]
         ),
-        Paragraph("Notes", h2),
+        Paragraph(L("pdf.notes"), h2),
     ]
     story += [Paragraph("• " + escape(n), small) for n in result.notes]
     # 7 criterion definitions
-    story += [PageBreak(), Paragraph("Appendix A — criterion definitions", h2)]
-    drows: list[list[Any]] = [["Id", "Protocol text", "How computed", "Class"]]
+    story += [PageBreak(), Paragraph(L("pdf.appendix_a"), h2)]
+    drows: list[list[Any]] = [[L("pdf.id"), L("pdf.protocol_text"), L("pdf.how"), L("pdf.class")]]
     for c in rs.active():
         if c.class_ == "structured":
-            how = f"{logic_summary(c.logic, rs.valuesets)}. Codes: {codes_text(c.logic, rs.valuesets)}"
+            how = L(
+                "pdf.how.structured",
+                logic=logic_summary(c.logic, rs.valuesets),
+                codes=codes_text(c.logic, rs.valuesets),
+            )
         elif c.class_ == "mixed":
-            how = (
-                f"Not applied in counts (coded pre-check at screening: {logic_summary(c.logic, rs.valuesets)}; "
-                f"the notes decide the rest)"
-            )
+            how = L("pdf.how.mixed", logic=logic_summary(c.logic, rs.valuesets))
         else:
-            how = (
-                "Not applied in counts ("
-                + ("chart review / note judge" if c.class_ == "note" else "asked at screening")
-                + ")"
-            )
+            how = L("pdf.how.note" if c.class_ == "note" else "pdf.how.human")
             if c.fallback:
-                how += f". Fallback: {c.fallback}"
+                how += L("pdf.fallback", text=c.fallback)
         drows.append([c.id, c.text, how[:900], c.class_])
     story.append(table(drows, [23 * mm, 56 * mm, 79 * mm, 20 * mm]))
     # 8 site capability
-    story += [Paragraph("Appendix B — site capabilities", h2)]
-    crow: list[list[Any]] = [["Capability", "Available"]]
+    story += [Paragraph(L("pdf.appendix_b"), h2)]
+    crow: list[list[Any]] = [[L("pdf.capability"), L("pdf.available")]]
     for k, v in sorted(capabilities.items()):
-        crow.append([CAPABILITY_LABELS.get(k, k.replace("_", " ").capitalize()), "yes" if v else "no"])
+        crow.append([CAPABILITY_LABELS.get(k, k.replace("_", " ").capitalize()), L("pdf.yes") if v else L("pdf.no")])
     story.append(table(crow, [90 * mm, 30 * mm]))
 
     def on_page(canvas: Any, doc: Any) -> None:

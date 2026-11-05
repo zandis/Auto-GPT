@@ -452,12 +452,12 @@ def test_feas_form_becomes_the_email_jobcreate(box: dict[str, Any]) -> None:
     )
     assert r.status_code == 303
     (req,) = box["backend"].created
-    assert req.type == "FEAS" and req.ruleset == "GZQO" and req.options == {"lookback": "36"}
+    assert req.type == "FEAS" and req.ruleset == "GZQO" and req.options == {"lookback": "36", "lang": "en"}
     assert req.requested_by == "admin@hospa.test"  # the admin's mailbox: settings.permissions apply as for e-mail
     page = c.get(r.headers["location"]).text
     assert "FEAS GZQO lookback=36" in page  # the equivalent e-mail subject is printed
     rec = next(x for x in read_audit(box["dir"] / "audit") if x.event == "console.request")
-    assert rec.actor == "console:admin" and rec.detail["line"] == "FEAS GZQO lookback=36"
+    assert rec.actor == "console:admin" and rec.detail["line"] == "FEAS GZQO lookback=36 lang=en"
 
 
 def test_feas_lookback_out_of_range_stays_on_the_form(box: dict[str, Any]) -> None:
@@ -474,7 +474,7 @@ def test_screen_form_runs_the_approved_version(box: dict[str, Any]) -> None:
     r = c.post("/pilot/request", data={"csrf": csrf, "kind": "SCREEN", "ruleset": "GZQO"}, follow_redirects=False)
     assert r.status_code == 303
     rec = next(x for x in read_audit(box["dir"] / "audit") if x.event == "console.request")
-    assert rec.detail["line"] == "SCREEN GZQO version=1.0.0"
+    assert rec.detail["line"] == "SCREEN GZQO version=1.0.0 lang=en"
 
 
 def test_empty_protocol_file_is_refused_on_the_form(box: dict[str, Any]) -> None:

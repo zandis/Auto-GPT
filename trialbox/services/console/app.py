@@ -399,6 +399,9 @@ def create_app(
             raise _Problem(400, "request.refused", reason="this account has no mailbox (console.cli set-mailbox)")
         job_id = new_ulid()
         inputs = [bk.put_input(job_id, name, data, ctype) for name, data, ctype in files or []]
+        cmd = line.split(" ", 1)[0].upper()
+        if cmd in ("FEAS", "SCREEN", "CASE", "NAV", "MICROBATCH") and " lang=" not in f" {line}" and " -- " not in line:
+            line = f"{line} lang={sess.lang}"  # D-100: mail and reports in the requester's language
         try:
             req = job_create(line, mailbox, job_id, f"web console ({sess.user.username})", inputs)
         except ProposalError as exc:

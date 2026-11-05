@@ -11,6 +11,7 @@ from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
 from tb_contracts import CandidateRow
 
+from orchestrator.i18n import t
 from orchestrator.reports.common import ReportMeta, fmt_count, pdf_fonts, pdf_invariant
 
 
@@ -35,7 +36,11 @@ def render(
     small = ParagraphStyle("s", parent=body, fontSize=8, leading=10)
     h1 = ParagraphStyle("h1", parent=body, fontName=bold, fontSize=16, leading=20, textColor=colors.HexColor("#1f4e79"))
     h2 = ParagraphStyle("h2", parent=body, fontName=bold, fontSize=12, leading=16, spaceBefore=8, spaceAfter=4)
-    t = small_cell
+    sc = small_cell
+    lang = meta.locale
+
+    def L(key: str, **kw: Any) -> str:  # noqa: N802 - label
+        return t(lang, key, **kw)
 
     def table(data: list[list[Any]], widths: list[float]) -> Table:
         tb = Table([[Paragraph(escape(str(c)), small) for c in r] for r in data], colWidths=widths, repeatRows=1)
@@ -53,10 +58,10 @@ def render(
     story: list[Any] = [Paragraph(escape(title), h1), Spacer(1, 4 * mm)]
     story += [Paragraph(escape(s), body) for s in scope_lines]
     story += [
-        Paragraph("Candidates by tier", h2),
+        Paragraph(L("pdf.screen.tiers"), h2),
         table(
-            [["tier", "patients"]]
-            + [[k, fmt_count(suppress(tiers.get(k, 0), t))] for k in ("high", "review", "excluded")],
+            [[L("pdf.tier"), L("pdf.patients")]]
+            + [[L("pdf.tier." + k), fmt_count(suppress(tiers.get(k, 0), sc))] for k in ("high", "review", "excluded")],
             [60 * mm, 40 * mm],
         ),
     ]
@@ -64,10 +69,10 @@ def render(
     by_pr = Counter(r.practitioner_id or "—" for r in rows if r.tier in ("high", "review"))
     if by_pr:
         story += [
-            Paragraph("Listed candidates by practitioner", h2),
+            Paragraph(L("pdf.screen.by_practitioner"), h2),
             table(
-                [["practitioner", "patients"]]
-                + [[names.get(k, k), fmt_count(suppress(n, t))] for k, n in sorted(by_pr.items())],
+                [[L("pdf.practitioner"), L("pdf.patients")]]
+                + [[names.get(k, k), fmt_count(suppress(n, sc))] for k, n in sorted(by_pr.items())],
                 [80 * mm, 40 * mm],
             ),
         ]
@@ -75,27 +80,26 @@ def render(
     unknown = Counter(v.id for r in listed for v in r.criteria if v.verdict == "unknown")
     pending = Counter(v.id for r in listed for v in r.criteria if v.verdict == "pending_human")
     label = {c.id: c.label or c.text[:50] for c in rs.criteria}
-    crow = [["criterion", "label", "unknown", "to ask"]]
+    crow = [[L("pdf.criterion"), L("pdf.label"), L("pdf.unknown"), L("pdf.to_ask")]]
     for c in rs.active():
         if c.id in unknown or c.id in pending:
             crow.append(
                 [
                     c.id,
                     label[c.id],
-                    fmt_count(suppress(unknown.get(c.id, 0), t)),
-                    fmt_count(suppress(pending.get(c.id, 0), t)),
+                    fmt_count(suppress(unknown.get(c.id, 0), sc)),
+                    fmt_count(suppress(pending.get(c.id, 0), sc)),
                 ]
             )
     if len(crow) > 1:
         story += [
-            Paragraph("Open items among listed candidates", h2),
+            Paragraph(L("pdf.screen.open"), h2),
             table(crow, [30 * mm, 80 * mm, 25 * mm, 25 * mm]),
         ]
     story += [
         Spacer(1, 4 * mm),
         Paragraph(
-            "Patient lists were sent encrypted to the internal list recipients only. "
-            f"Cells 1–{t - 1} are shown as '<{t}'.",
+            L("pdf.screen.footer") + (L("pdf.screen.footer.cells", hi=sc - 1, t=sc) if sc > 1 else ""),
             small,
         ),
     ]
