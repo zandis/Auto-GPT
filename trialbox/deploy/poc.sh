@@ -139,7 +139,9 @@ docker run --rm -v "$POC:/out" --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m 
   --in /app/deploy/settings.example.yaml --out /out/settings.yaml --admin-email "$ADMIN_EMAIL"
 if [ "$MODE" = openrouter ]; then
   say "pinning j-workhorse to OpenRouter model $OPENROUTER_MODEL (DEV, D0 only)"
-  docker run --rm -v "$POC/site:/out" --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m console.cli \
+  ca=()  # a hospital TLS-inspection CA (TB_EXTRA_CA) must also reach this one-off call to OpenRouter
+  [ -n "${TB_EXTRA_CA:-}" ] && ca=(-v "$TB_EXTRA_CA:/run/tb-extra-ca.pem:ro")
+  docker run --rm -v "$POC/site:/out" "${ca[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m console.cli \
     poc-openrouter-pin --model "$OPENROUTER_MODEL" --out /out/registry.site.yaml
 elif [ "$MODE" = gpu ]; then
   [ -s "deploy/${TB_SITE_DIR#./}/registry.site.yaml" ] \

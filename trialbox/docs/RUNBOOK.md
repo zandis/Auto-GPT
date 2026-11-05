@@ -78,6 +78,8 @@ PHI attachments arrive as 7z (AES-256). The password comes in a separate mail to
 | Lake queries slow or OOM | `docker stats`, lake logs | raise `TB_LAKE_MEMORY_LIMIT` (default 40 % of RAM; spills to `/data/lake/tmp`) |
 | Containers lost egress after a restart | `deploy/network.sh status` | `deploy/network.sh apply` (systemd unit re-applies it automatically) |
 | GB10 vLLM fails to start | `nvidia-smi`, `deploy/check_host.sh --gb10` | driver must be 580.142 |
+| `CERTIFICATE_VERIFY_FAILED` to a model endpoint, the registry or the mail server | hospital TLS inspection re-signs outbound HTTPS | put the hospital CA (PEM) on the host and set `TB_EXTRA_CA=/abs/path/hospital-ca.pem` in `deploy/.env`, then `docker compose up -d`; gateway, criteria-compiler, orchestrator and mail-gateway trust it next to the public CAs (`tb_common.extra_ca`) |
+| Hermes replies without proposing a run | `docker compose logs hermes`, audit `frontdoor.call` events with `reason: invalid_arguments` (the `fields` list names what the model got wrong) | the profile's `SOUL.md` must be mounted (`/opt/data/SOUL.md`); a weak model can be swapped for the native engine with `TB_CHANNELS_ENGINE=native` |
 
 Job errors always name the step (`received`, `parsing`, `compiling`, `running`, `reporting`) and come back to the
 requester as a "Failed" mail with a plain-language message.

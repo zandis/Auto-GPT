@@ -10,7 +10,7 @@
    ],
    "tb/tier": "T0"
   },
-  "description": "Creates a typed request in state proposed; nothing runs until the sender confirms it. Types: FEAS (site feasibility: how many local patients meet a study's criteria over a look-back such as lookback=36m), SCREEN (candidate list for a study), ASK (protocol question), QFILL, MATCH, REPORT and others. Local patient counts come only from a confirmed FEAS request.",
+  "description": "Creates a typed request in state proposed; nothing runs until the sender confirms it. Types: FEAS (site feasibility: how many local patients meet a study's criteria over a look-back such as lookback=36m), SCREEN (candidate list for a study), ASK (protocol question), QFILL, MATCH, REPORT and others. Local patient counts come only from a confirmed FEAS request. Study codes are local site codes, often absent from the public registry; a request on an unknown code is still valid. A refusal lists the field at fault with an example call.",
   "inputSchema": {
    "$defs": {
     "RequestType": {

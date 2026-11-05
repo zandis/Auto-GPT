@@ -222,3 +222,32 @@ def test_model_without_usable_json_is_a_compile_failure_not_a_500(env: dict[str,
     with pytest.raises(CompileFailed, match="did not return usable criteria") as exc:
         _compile(env)
     assert exc.value.step == "ir_extract"
+
+
+def test_one_uncompilable_criterion_goes_to_review_instead_of_failing_the_protocol(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stress test #24: gpt-oss-120b made one demographic atom with neither age nor sex and the whole compile failed."""
+    from criteria_compiler.ir_extract.postprocess import postprocess as real
+
+    broken: list[str] = []
+
+    def bad_atom(*a: Any, **kw: Any) -> Any:
+        out = real(*a, **kw)
+        crits = list(out.criteria)
+        for i, x in enumerate(crits):
+            if x.class_ == "structured" and isinstance(x.logic, c.Atom):
+                atom = x.logic.model_copy(update={"domain": "demographic", "age": None, "sex": None})
+                crits[i] = x.model_copy(update={"logic": atom})
+                broken.append(x.text)
+                break
+        out.criteria[:] = crits
+        return out
+
+    monkeypatch.setattr("criteria_compiler.service.postprocess", bad_atom)
+    res = _compile(env)
+    assert broken
+    hit = next(x for x in res.criteria if x.text == broken[0])
+    assert hit.class_ == "human" and hit.human_question and {"needs_review", "compile_error"} <= set(hit.flags or [])
+    assert res.needs_review and hit.id in res.needs_review
+    assert sum(1 for x in res.criteria if x.class_ == "structured") == 17  # every other criterion still compiled

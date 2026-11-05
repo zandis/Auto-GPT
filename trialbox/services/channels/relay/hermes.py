@@ -10,7 +10,9 @@ the pinned release) over mTLS, and Hermes answers the same way:
 2. Hermes' replies come back to channel-relay's ``/hermes/reply`` (client certificate ``hermes``): each message the
    agent sends is collected, and the adapter's ``on_processing_complete`` ends the turn.
 3. The last message of a successful turn is the reply; the relay audits the turn and sends it (FR-CONV-16). A turn
-   that fails, times out or says nothing is a fixed message plus the grammar lines, never Hermes' error text.
+   that fails, times out or says nothing is a fixed message plus the grammar lines, never Hermes' error text. When
+   the turn created a proposal, the orchestrator's restatement and exact line are appended unless the reply already
+   quotes the line, so the sender can always confirm what will run.
 
 Whether the turn produced a proposal is read from the orchestrator's request store (the front door wrote it), not
 from Hermes' text. Hermes may only run on a release pinned by tag, commit SHA and image digest, mirrored internally
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import ssl
 import threading
 import urllib.error
@@ -39,6 +42,36 @@ ADAPTER_MISSING = "Hermes relay-adapter connection not configured"
 TURN_TIMEOUT_S = 180.0
 FAILED_TEXT = "The assistant could not complete this request. You can type one of these lines instead:"
 OpenProposals = Callable[[str, str], list[str]]  # (conv, sender) -> open proposal ticket ids
+ProposalText = Callable[[str], str | None]  # ticket id -> the orchestrator-rendered proposal block
+_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
+
+
+def proposal_block(p: Any) -> str | None:
+    """Restatement, exact grammar line(s) and confirm instruction of a stored proposal (FR-CONV-2), or ``None``."""
+    if p is None:
+        return None
+    return "\n".join([p.restatement, *p.commands, p.confirm_instruction])
+
+
+def clean_reply(text: str) -> str:
+    """Hermes' reply as mail text: literal JSON escapes some models emit (``\\u2019``) become the characters."""
+
+    def char(m: re.Match[str]) -> str:
+        cp = int(m.group(1), 16)
+        return m.group(0) if 0xD800 <= cp <= 0xDFFF else chr(cp)  # a lone surrogate cannot be mailed
+
+    return _ESCAPE.sub(char, text).replace("\\n", "\n").strip()
+
+
+def with_proposal(reply: str, block: str | None) -> str:
+    """The reply always carries the exact line to confirm, whatever the model wrote (stress test #26): the block is
+    appended unless every one of its command lines already appears in the reply."""
+    if not block:
+        return reply
+    commands = [ln for ln in block.splitlines()[1:-1] if ln.strip()]
+    if commands and all(c in reply for c in commands):
+        return reply
+    return f"{reply}\n\n{block}" if reply else block
 
 
 class HermesTransport(Protocol):
@@ -138,12 +171,14 @@ class HermesEngine:
         transport: HermesTransport | None = None,
         replies: HermesReplies | None = None,
         open_proposals: OpenProposals | None = None,
+        proposal_text: ProposalText | None = None,
         turn_timeout_s: float = TURN_TIMEOUT_S,
     ) -> None:
         self.problems = pin_problems(HermesLock.load(lock_path), environment=environment)
         self.transport = transport
         self.replies = replies
         self.open_proposals = open_proposals
+        self.proposal_text = proposal_text
         self.turn_timeout_s = turn_timeout_s
         self.available = not self.problems and transport is not None and replies is not None
 
@@ -176,6 +211,7 @@ class HermesEngine:
             return EngineTurn("\n".join([FAILED_TEXT, *HELP_LINES]), refused=reason)
         new = [t for t in (self.open_proposals(conv, sender) if self.open_proposals else []) if t not in before]
         ticket = new[-1] if new else None
-        return EngineTurn(
-            texts[-1], ticket_id=ticket, tool="tb.submit_request" if ticket else None, proposal=bool(ticket)
-        )
+        reply = clean_reply(texts[-1])
+        if ticket and self.proposal_text is not None:
+            reply = with_proposal(reply, self.proposal_text(ticket))
+        return EngineTurn(reply, ticket_id=ticket, tool="tb.submit_request" if ticket else None, proposal=bool(ticket))

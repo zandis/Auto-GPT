@@ -60,7 +60,7 @@ from channels.grammar import Line
 from channels.native.email import EmailChannel
 from channels.native.engine import NativeEngine
 from channels.native.teams import FakeBotFramework, FakeTeamsTransport, TeamsChannel
-from channels.relay.hermes import HermesEngine, HermesReplies, MtlsHermesTransport
+from channels.relay.hermes import HermesEngine, HermesReplies, MtlsHermesTransport, proposal_block
 from channels.relay.relay import ChannelRelay, Intake, RelayResult
 
 logger = logging.getLogger("channels.relay.listener")
@@ -256,6 +256,7 @@ def build_from_env() -> dict[str, Any]:
         transport=MtlsHermesTransport(adapter_url, client_ctx) if adapter_url else None,
         replies=replies,
         open_proposals=lambda conv, sender: [p.ticket_id for p in requests.open_in(conv, sender)],
+        proposal_text=lambda ticket: proposal_block(requests.get(ticket)),
         turn_timeout_s=float(os.environ.get("TB_HERMES_TURN_TIMEOUT", "180")),
     )
     if hermes.problems:

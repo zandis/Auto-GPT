@@ -91,6 +91,8 @@ def test_intake_decisions(tmp_path: Path) -> None:
     assert st.job is not None and st.job.ruleset is None and st.job.options == {"target": "01JB0000000000000000000000"}
     for _ in range(20):
         db.record_intake(f"<{_}@x>", "crc1@hospa.test", NOW.isoformat(), "job", "J")
+    huge = intake.decide(intake.read(_msg("FEAS GZQO -- " + "A" * 200_000)), SETTINGS, db, NOW)
+    assert huge.action == "reject" and "longer than 998" in huge.reason  # stress test #4
     limited = intake.decide(intake.read(_msg("FEAS GZQO")), SETTINGS, db, NOW)
     assert limited.action == "reject" and "daily limit" in limited.reason
     db.record_sent(

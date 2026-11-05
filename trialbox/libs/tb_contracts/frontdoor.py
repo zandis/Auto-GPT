@@ -15,12 +15,13 @@ Rules carried by the models themselves:
 
 from __future__ import annotations
 
+import contextlib
 import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tb_contracts.dataclass import ClassLabel, DataClass
 
@@ -109,7 +110,9 @@ FRONTDOOR_TOOLS: tuple[ToolSpec, ...] = (
             "Creates a typed request in state proposed; nothing runs until the sender confirms it. Types: FEAS (site "
             "feasibility: how many local patients meet a study's criteria over a look-back such as lookback=36m), "
             "SCREEN (candidate list for a study), ASK (protocol question), QFILL, MATCH, REPORT and others. Local "
-            "patient counts come only from a confirmed FEAS request."
+            "patient counts come only from a confirmed FEAS request. Study codes are local site codes, often absent "
+            "from the public registry; a request on an unknown code is still valid. A refusal lists the field at "
+            "fault with an example call."
         ),
         roles=("staff",),
         limit=5,
@@ -202,11 +205,88 @@ def _no_identifier(value: str) -> str:
     return value
 
 
+# How conversation models actually phrase a look-back (stress test #26): 36, "36", "36 months", "3y", "3 years",
+# "3年", "36個月", "36か月". Normalised to the grammar's ``<n>m`` (App. D) before validation.
+_LOOKBACK_MONTHS = re.compile(r"^(\d{1,3})\s*(?:m|mo|mos|mon|month|months|個月|个月|か月|ヶ月|カ月|月)?$")
+_LOOKBACK_YEARS = re.compile(r"^(\d{1,2})\s*(?:y|yr|yrs|year|years|年)$")
+_PARAM_ALIASES = {
+    "lookback_months": "lookback",
+    "look_back": "lookback",
+    "lookback_period": "lookback",
+    "look_back_months": "lookback",
+    "months": "lookback",
+    "period": "lookback",
+}
+_TYPE_ALIASES = {"FEASIBILITY": "FEAS", "SITE_FEASIBILITY": "FEAS", "QUESTION": "ASK"}
+_FIELDS = ("type", "study", "params", "language")
+# grammar parameter names (channels.grammar.PARAM_KEYS) a model may put at the top level instead of in ``params``
+_TOP_LEVEL_PARAMS = (
+    frozenset(
+        {"scope", "lookback", "deadline", "cadence", "window", "pract", "dept", "version", "variant", "since", "site"}
+    )
+    | frozenset(_PARAM_ALIASES)
+    | {"years"}
+)
+
+
+def normalise_lookback(value: str | int) -> str:
+    """``36`` / ``"3 years"`` / ``"36個月"`` -> ``"36m"``; 1 to 120 months (the grammar's range)."""
+    text = str(value).strip().lower().replace("_", " ")
+    m = _LOOKBACK_MONTHS.match(text)
+    y = None if m else _LOOKBACK_YEARS.match(text)
+    if m is None and y is None:
+        raise ValueError("lookback must be a number of months such as 36m (or years such as 3y)")
+    months = int(m.group(1)) if m else int(y.group(1)) * 12  # type: ignore[union-attr]
+    if not 1 <= months <= 120:
+        raise ValueError("lookback must be between 1 and 120 months")
+    return f"{months}m"
+
+
+def _split_params(text: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for tok in text.replace(",", " ").split():
+        k, sep, v = tok.partition("=")
+        if not sep:
+            raise ValueError('params must be an object such as {"lookback": "36m"}')
+        out[k] = v
+    return out
+
+
 class SubmitRequestIn(_Model):
     type: RequestType
     study: str | None = Field(default=None, description="study code or NEW")
     params: dict[str, str | int] = Field(default_factory=dict)
     language: Literal["zh-TW", "en", "ja", "mixed"] = "en"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _shape(cls, data: object) -> object:
+        """Tolerate the usual shapes a model sends: lower-case type and study, parameters at the top level or as a
+        ``key=value`` string, alias names and spelled-out look-backs. Values are still screened below (HER-11)."""
+        if not isinstance(data, dict):
+            return data
+        d = dict(data)
+        raw = d.get("params")
+        params: dict[str, object] = dict(_split_params(raw) if isinstance(raw, str) else raw or {})
+        for k in [k for k in d if k not in _FIELDS and str(k).lower() in _TOP_LEVEL_PARAMS]:
+            params.setdefault(k, d.pop(k))
+        if isinstance(d.get("type"), str):
+            t = d["type"].strip().upper().replace(" ", "_")
+            d["type"] = _TYPE_ALIASES.get(t, t)
+        if isinstance(d.get("study"), str):
+            d["study"] = d["study"].strip().upper() or None
+        shaped: dict[str, object] = {}
+        for k, v in params.items():
+            key = str(k).strip().lower().replace("-", "_")
+            if key == "years" and isinstance(v, int | str) and str(v).strip().isdigit():
+                key, v = "lookback", f"{v}y"
+            key = _PARAM_ALIASES.get(key, key)
+            if key == "lookback" and isinstance(v, int | str) and not isinstance(v, bool):
+                with contextlib.suppress(ValueError):  # reported by the ``params`` check with the parameter's name
+                    v = normalise_lookback(v)
+            shaped[key] = v
+        d["params"] = shaped
+        return d
 
     @field_validator("study")
     @classmethod
@@ -223,6 +303,8 @@ class SubmitRequestIn(_Model):
         for k, val in v.items():
             if not _PARAM_KEY.match(k):
                 raise ValueError(f"invalid parameter name {k!r}")
+            if k == "lookback":
+                normalise_lookback(val)
             if isinstance(val, str):
                 if len(val) > 64:
                     raise ValueError(f"parameter {k} longer than 64 characters")

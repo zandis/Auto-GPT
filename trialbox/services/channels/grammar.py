@@ -151,6 +151,8 @@ def parse_line(raw: str) -> Line | None:
             v1 = _v1(text)
             if v1 is not None:
                 return v1
+            if _sentence(rest):  # "FEAS for GZQO or RA-BIO?" is a question, not a broken line (stress test #20)
+                return None
             raise
     if cmd in ("QFILL",):
         if len(rest) != 1:
@@ -202,6 +204,8 @@ def parse_line(raw: str) -> Line | None:
             raise GrammarError("ATLAS [domain]")
         return Line(cmd, args=tuple(rest), text=text)
     if cmd == "STATUS":
+        if len(rest) > 1 and _sentence(rest):  # "STATUS of my requests?"
+            return None
         if len(rest) > 1:
             raise GrammarError("STATUS [study | job id]")
         if rest and _ULID.match(rest[0].upper()):
@@ -228,6 +232,15 @@ def parse_line(raw: str) -> Line | None:
     if v1 is None:
         raise GrammarError(f"{cmd}: not a valid line")
     return v1
+
+
+_WORD = re.compile(r"^[a-z][a-z']+[?.,!]?$")
+
+
+def _sentence(tokens: list[str]) -> bool:
+    """Free text after a command word: the word in the study position is a lower-case English word ("FEAS for
+    GZQO?", "STATUS of my requests?"). A study code followed by a bad parameter stays a malformed line."""
+    return bool(tokens) and bool(_WORD.match(tokens[0])) and "=" not in tokens[0]
 
 
 def _v1(text: str) -> Line | None:

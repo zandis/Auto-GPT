@@ -30,7 +30,14 @@ from typing import Any
 
 import pytest
 import yaml
-from channels.relay.hermes import FAILED_TEXT, HermesEngine, HermesReplies, MtlsHermesTransport
+from channels.relay.hermes import (
+    FAILED_TEXT,
+    HermesEngine,
+    HermesReplies,
+    MtlsHermesTransport,
+    clean_reply,
+    with_proposal,
+)
 from channels.relay.listener import HermesReplyHandler
 from cryptography.hazmat.primitives import serialization
 from frontdoor_mcp.backends import LocalRegistryIndex, ReleaseIndex, StaticAggregates, StaticAtlas, StaticOps
@@ -321,6 +328,33 @@ def test_hermes_engine_turn_last_message_proposal_and_failures() -> None:
     assert t3.refused == "hermes_timeout"
     assert replies.deliver("conv-3", "late") is False  # a reply after the turn closed is never forwarded
     assert not HermesEngine(LOCK, "TEST").available  # no transport: the relay falls back to native
+
+
+@pytest.mark.req("FR-CONV-2")
+def test_hermes_reply_always_carries_the_rendered_line_and_no_json_escapes() -> None:
+    """Stress test #26/#28: a real model paraphrased the proposal or wrote "I\\u2019m"; the sender must still see
+    the exact line that OK confirms."""
+    block = "I understand: FEAS for GZQO.\nFEAS GZQO scope=hospital lookback=36m\nReply OK to confirm."
+    replies = HermesReplies()
+    tickets: list[str] = []
+    fake = FakeHermes(
+        replies, ["I\\u2019ve prepared a feasibility check for GZQO."], on_inject=lambda env: tickets.append("T-1")
+    )
+    eng = HermesEngine(
+        LOCK,
+        "TEST",
+        transport=fake,
+        replies=replies,
+        open_proposals=lambda c, s: list(tickets),
+        proposal_text=lambda t: block if t == "T-1" else None,
+    )
+    turn = eng.converse(
+        text="GZQO here?", attachments=(), conv="conv-p", assertion=_assertion("conv-p"), data_class="D0"
+    )
+    assert turn.proposal and turn.ticket_id == "T-1"
+    assert turn.text.startswith("I\u2019ve prepared") and turn.text.endswith(block)
+    assert with_proposal(f"ok\n{block}", block) == f"ok\n{block}"  # already quoted: not repeated
+    assert clean_reply("a \\ud83d b\\nc") == "a \\ud83d b\nc"  # lone surrogates stay escaped
 
 
 @pytest.mark.req("HER-6", "FR-CONV-16")
