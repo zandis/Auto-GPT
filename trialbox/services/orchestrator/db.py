@@ -63,6 +63,31 @@ CREATE TABLE IF NOT EXISTS feedback (
   received_at TEXT NOT NULL,
   PRIMARY KEY (ruleset, pid)
 );
+CREATE TABLE IF NOT EXISTS candidates (
+  ruleset TEXT NOT NULL,
+  pid TEXT NOT NULL,
+  status TEXT NOT NULL,
+  reason TEXT,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  source TEXT NOT NULL,
+  source_job TEXT,
+  tier TEXT,
+  events INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (ruleset, pid)
+);
+CREATE TABLE IF NOT EXISTS candidate_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  ruleset TEXT NOT NULL,
+  pid TEXT NOT NULL,
+  status TEXT NOT NULL,
+  previous TEXT,
+  reason TEXT,
+  at TEXT NOT NULL,
+  by TEXT NOT NULL,
+  source_job TEXT
+);
+CREATE INDEX IF NOT EXISTS candidate_events_pid ON candidate_events (ruleset, pid, seq);
 CREATE TABLE IF NOT EXISTS submissions (
   job_id TEXT PRIMARY KEY,
   ruleset TEXT NOT NULL,
@@ -392,6 +417,98 @@ class JobDB:
                 f"DELETE FROM feedback WHERE ruleset NOT IN ({marks}) AND received_at < ?", (*keep, cutoff_iso)
             ).rowcount
         return {"pool": int(pool), "feedback": int(feedback)}
+
+    # ------------------------------------------------------------------ candidate registry (D-92)
+    _CAND_KEYS = (
+        "ruleset",
+        "pid",
+        "status",
+        "reason",
+        "updated_at",
+        "updated_by",
+        "source",
+        "source_job",
+        "tier",
+        "events",
+    )
+
+    def candidate_get(self, ruleset: str, pid: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._con.execute(
+                f"SELECT {', '.join(self._CAND_KEYS)} FROM candidates WHERE ruleset = ? AND pid = ?", (ruleset, pid)
+            ).fetchone()
+        return dict(zip(self._CAND_KEYS, row, strict=True)) if row else None
+
+    def candidates(self, ruleset: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._con.execute(
+                f"SELECT {', '.join(self._CAND_KEYS)} FROM candidates WHERE ruleset = ? ORDER BY updated_at DESC, pid",
+                (ruleset,),
+            ).fetchall()
+        return [dict(zip(self._CAND_KEYS, r, strict=True)) for r in rows]
+
+    def candidate_summaries(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._con.execute(
+                "SELECT ruleset, status, count(*), max(updated_at) FROM candidates "
+                "GROUP BY ruleset, status ORDER BY 1, 2"
+            ).fetchall()
+        out: dict[str, dict[str, Any]] = {}
+        for ruleset, status, n, at in rows:
+            s = out.setdefault(ruleset, {"ruleset": ruleset, "counts": {}, "updated_at": None})
+            s["counts"][status] = int(n)
+            s["updated_at"] = max(filter(None, [s["updated_at"], at]), default=None)
+        return list(out.values())
+
+    def candidate_set(
+        self,
+        ruleset: str,
+        pid: str,
+        status: str,
+        reason: str | None,
+        by: str,
+        at: str,
+        source: str,
+        source_job: str | None,
+        tier: str | None = None,
+    ) -> dict[str, Any]:
+        """Insert or update one row and append its event; returns the row after the change."""
+        with self.tx() as con:
+            row = con.execute("SELECT status FROM candidates WHERE ruleset=? AND pid=?", (ruleset, pid)).fetchone()
+            if row is None:
+                con.execute(
+                    "INSERT INTO candidates (ruleset, pid, status, reason, updated_at, updated_by, source, source_job, "
+                    "tier, events) VALUES (?,?,?,?,?,?,?,?,?,1)",
+                    (ruleset, pid, status, reason, at, by, source, source_job, tier),
+                )
+                previous = None
+            else:
+                previous = str(row[0])
+                con.execute(
+                    "UPDATE candidates SET status=?, reason=?, updated_at=?, updated_by=?, "
+                    "source_job=coalesce(?, source_job), tier=coalesce(?, tier), events=events+1 "
+                    "WHERE ruleset=? AND pid=?",
+                    (status, reason, at, by, source_job, tier, ruleset, pid),
+                )
+            con.execute(
+                "INSERT INTO candidate_events (ruleset, pid, status, previous, reason, at, by, source_job) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (ruleset, pid, status, previous, reason, at, by, source_job),
+            )
+        got = self.candidate_get(ruleset, pid)
+        assert got is not None
+        return got
+
+    def candidate_events(self, ruleset: str, pid: str | None = None) -> list[dict[str, Any]]:
+        keys = ("ruleset", "pid", "status", "previous", "reason", "at", "by", "source_job")
+        sql = f"SELECT {', '.join(keys)} FROM candidate_events WHERE ruleset = ?"
+        params: list[Any] = [ruleset]
+        if pid is not None:
+            sql += " AND pid = ?"
+            params.append(pid)
+        with self._lock:
+            rows = self._con.execute(sql + " ORDER BY seq", params).fetchall()
+        return [dict(zip(keys, r, strict=True)) for r in rows]
 
     # ------------------------------------------------------------------ alliance cohort tables (COHORT MERGE)
     _COHORT_COLS = (

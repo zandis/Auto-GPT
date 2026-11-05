@@ -22,7 +22,16 @@ from console.proposals import ProposalError, propose
 from fastapi.testclient import TestClient
 from tb_common.audit import AuditLog, verify
 from tb_common.crypto import sha256_bytes
-from tb_contracts import Job, JobCreate, JobFile, JobOutput
+from tb_contracts import (
+    Job,
+    JobCreate,
+    JobFile,
+    JobOutput,
+    RegistryEntry,
+    RegistryPromote,
+    RegistrySummary,
+    RegistryUpdate,
+)
 
 ADMIN_PW = "correct-horse-battery-1"
 VIEWER_PW = "viewer-password-0001"
@@ -57,6 +66,9 @@ def _ulid(n: int) -> str:
     return f"01JTEST{n:019d}"[:26].replace("I", "1").replace("L", "1").replace("O", "0").replace("U", "V")
 
 
+_T0 = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
+
+
 class FakeBackend:
     def __init__(self) -> None:
         self.jobs: dict[str, Job] = {}
@@ -66,6 +78,7 @@ class FakeBackend:
         self.refuse: str | None = None
         self.audit_dir: Path | None = None
         self.ingested = 0
+        self.registry: dict[tuple[str, str], RegistryEntry] = {}
 
     def add_job(self, job: Job) -> Job:
         self.jobs[job.job_id] = job
@@ -133,6 +146,60 @@ class FakeBackend:
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str:
         self.mails.append((sender, to, subject, files))
         return "<test@hospa.test>"
+
+    # ---- candidate registry (D-92): an in-memory stand-in for the orchestrator's tables
+    def registry_summaries(self) -> list[RegistrySummary]:
+        out: dict[str, dict[str, int]] = {}
+        for (rs, _), e in self.registry.items():
+            out.setdefault(rs, {})[e.status] = out.setdefault(rs, {}).get(e.status, 0) + 1
+        return [RegistrySummary(ruleset=rs, counts=c, updated_at=_T0) for rs, c in out.items()]
+
+    def registry_rows(self, ruleset: str) -> list[RegistryEntry]:
+        if ruleset == "BAD":
+            raise Refused("invalid ruleset id 'BAD'")
+        return [e for (rs, _), e in self.registry.items() if rs == ruleset]
+
+    def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
+        if upd.mrn == "nope":
+            raise Refused("that does not look like a chart number of this site")
+        pid = upd.pid or ("ab" * 16 if upd.mrn == "A1001" else "cd" * 16)
+        prev = self.registry.get((ruleset, pid))
+        e = RegistryEntry(
+            ruleset=ruleset,
+            pid=pid,
+            status=upd.status,
+            reason=upd.reason,
+            updated_at=_T0,
+            updated_by=upd.by,
+            source=upd.source or "manual",
+            source_job=upd.source_job,
+            tier=None,
+            events=(prev.events or 0) + 1 if prev else 1,
+        )
+        self.registry[(ruleset, pid)] = e
+        return e
+
+    def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
+        n = 0
+        for pid in ("11" * 16, "22" * 16):
+            if (ruleset, pid) not in self.registry:
+                self.registry[(ruleset, pid)] = RegistryEntry(
+                    ruleset=ruleset,
+                    pid=pid,
+                    status="candidate",
+                    reason=None,
+                    updated_at=_T0,
+                    updated_by=req.by,
+                    source="screen",
+                    source_job=_ulid(900),
+                    tier="high",
+                    events=1,
+                )
+                n += 1
+        return n
+
+    def registry_export(self, ruleset: str) -> bytes:
+        return b"PK\x03\x04fake-xlsx-" + ruleset.encode()
 
 
 def _done_feas(backend: FakeBackend) -> Job:
@@ -671,6 +738,287 @@ def test_language_switch(box: dict[str, Any]) -> None:
 def test_catalogues_complete() -> None:
     for lang, cat in CATALOGUES.items():
         assert set(cat) == set(EN), lang
+
+
+# ---------------------------------------------------------------------------------------------- D-91 CASE
+def _done_case(backend: FakeBackend) -> Job:
+    jid = _ulid(950)
+    now = datetime(2026, 10, 25, 9, 5, tzinfo=UTC)
+    rec = {
+        "lang": "en",
+        "subject": {"pid": "ab" * 16, "in_lake": True, "snapshot": "2026-10-04", "note": ""},
+        "counts": {"total": 12, "pass": 7, "fail": 1, "unknown": 2, "human": 2},
+        "criteria": [],
+    }
+    outs = []
+    for name, data in (
+        (f"case_GZQO_{jid}.html", b"<h1>Eligibility sheet</h1><p>2026-03-12 acute gout flare</p>"),
+        (f"case_GZQO_{jid}.json", json.dumps(rec).encode()),
+    ):
+        key = f"outputs/{jid}/{name}"
+        backend.objects[key] = data
+        outs.append(JobOutput(filename=name, sha256=sha256_bytes(data), minio_key=key, recipients=[], tag="phi"))
+    return backend.add_job(
+        Job(
+            job_id=jid,
+            type="CASE",
+            ruleset="GZQO",
+            ruleset_version="1.0.0",
+            requested_by="admin@hospa.test",
+            received_at=now,
+            updated_at=now,
+            state="done",
+            options={"lang": "en"},
+            inputs=[],
+            outputs=outs,
+        )
+    )
+
+
+def test_case_form_becomes_the_case_mail_line(box: dict[str, Any]) -> None:
+    c, csrf = login(box["app"])
+    page = c.get("/pilot/case").text
+    assert 'data-testid="case-submit"' in page and "GZQO" in page and 'data-testid="case-notice"' in page
+    r = c.post(
+        "/pilot/case",
+        data={"csrf": csrf, "ruleset": "gzqo", "mrn": " A1001 ", "lang": "zh-TW"},
+        files=[("charts", ("chart.md", b"# summary\n2026-03-12 flare", "text/markdown"))],
+        follow_redirects=False,
+    )
+    assert r.status_code == 303, r.text
+    (req,) = box["backend"].created
+    assert req.type == "CASE" and req.ruleset == "GZQO"
+    assert req.options == {"mrn": "A1001", "lang": "zh-TW"}
+    assert [i.filename for i in req.inputs] == ["chart.md"]
+    # no file -> the form again with the message, no job
+    r = c.post("/pilot/case", data={"csrf": csrf, "ruleset": "GZQO"})
+    assert r.status_code == 422 and 'data-testid="case-error"' in r.text and len(box["backend"].created) == 1
+    # a bad chart number or language is refused before anything is stored
+    r = c.post(
+        "/pilot/case",
+        data={"csrf": csrf, "ruleset": "GZQO", "mrn": "A 10/01"},
+        files=[("charts", ("c.txt", b"x", "text/plain"))],
+    )
+    assert r.status_code == 400
+    r = c.post(
+        "/pilot/case",
+        data={"csrf": csrf, "ruleset": "GZQO", "lang": "fr"},
+        files=[("charts", ("c.txt", b"x", "text/plain"))],
+    )
+    assert r.status_code == 400 and len(box["backend"].created) == 1
+
+
+def test_case_sheet_card_and_phi_view_rules(box: dict[str, Any]) -> None:
+    job = _done_case(box["backend"])
+    c, _ = login(box["app"])
+    page = c.get(f"/pilot/jobs/{job.job_id}").text
+    assert 'data-testid="case"' in page and "12 criteria" in page and "met 7" in page and "snapshot 2026-10-04" in page
+    sheet = re.search(
+        r'data-testid="case-sheet" href="([^"]+)"|href="([^"]+)" target="_blank" rel="noopener" data-testid="case-sheet"',
+        page,
+    )
+    assert sheet
+    r = c.get(sheet.group(1) or sheet.group(2))
+    assert r.status_code == 200 and "acute gout flare" in r.text
+    assert "sandbox" in r.headers.get("content-security-policy", "")
+    # the viewer sees the counts but cannot open the sheet (chart text)
+    v, _ = login(box["app"], "viewer", VIEWER_PW)
+    page = v.get(f"/pilot/jobs/{job.job_id}").text
+    assert "12 criteria" in page and 'data-testid="case-sheet"' not in page
+    assert v.get(f"/pilot/jobs/{job.job_id}/view/case_GZQO_{job.job_id}.html").status_code == 404
+    # a phi output of any other job type is never viewable, even for an administrator
+    feas = _done_feas(box["backend"])
+    assert c.get(f"/pilot/jobs/{feas.job_id}/view/feasibility_GZQO_v1.0.0_2026-10-04.raw.json").status_code == 404
+
+
+# ---------------------------------------------------------------------------------------------- D-92 registry
+def test_registry_pages_add_promote_export(box: dict[str, Any]) -> None:
+    c, csrf = login(box["app"])
+    page = c.get("/pilot/registry").text
+    assert 'data-testid="registry-summary"' in page and "GZQO" in page
+    page = c.get("/pilot/registry/GZQO").text
+    assert 'data-testid="registry-empty"' in page and 'data-testid="registry-add"' in page
+    r = c.post(
+        "/pilot/registry/GZQO",
+        data={"csrf": csrf, "mrn": "A1001", "status": "candidate", "reason": "referred by Dr Lin"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    page = c.get("/pilot/registry/GZQO").text
+    assert 'data-testid="registry-rows"' in page and "referred by Dr Lin" in page and "A1001" not in page
+    assert 'data-pid="' + "ab" * 16 + '"' in page
+    # the row's own status form offers only recorded transitions
+    assert '<option value="enrolled"' not in page.split('data-pid="')[1]
+    # change the status by pseudonym
+    r = c.post(
+        "/pilot/registry/GZQO",
+        data={"csrf": csrf, "pid": "ab" * 16, "status": "contacted", "reason": ""},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert box["backend"].registry[("GZQO", "ab" * 16)].status == "contacted"
+    # a refusal from the orchestrator comes back on the page, not as a crash
+    r = c.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "nope", "status": "candidate"})
+    assert r.status_code == 422 and 'data-testid="registry-error"' in r.text and "chart number" in r.text
+    # promote SCREEN candidates
+    r = c.post("/pilot/registry/GZQO/promote", data={"csrf": csrf}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].endswith("?added=2")
+    page = c.get(r.headers["location"]).text
+    assert 'data-testid="registry-added"' in page and "2 candidates added" in page and "SCREEN run" in page
+    counts = re.search(r'data-testid="registry-counts">(.*?)</p>', page, re.S)
+    assert counts and "candidate 2" in counts.group(1) and "contacted 1" in counts.group(1)
+    # the summary page counts them
+    page = c.get("/pilot/registry").text
+    assert 'data-testid="registry-summary"' in page
+    # export carries chart numbers: requesters only, audited
+    r = c.get("/pilot/registry/GZQO/export.xlsx")
+    assert (
+        r.status_code == 200
+        and r.content.startswith(b"PK")
+        and "screening_log_GZQO.xlsx" in r.headers["content-disposition"]
+    )
+    assert c.get("/pilot/registry/BAD").status_code == 400
+    events = [e.event for e in read_audit(box["dir"] / "audit")]
+    assert events.count("console.registry") == 5  # 2 updates + 1 refused update + promote + export
+    assert verify(box["dir"] / "audit").ok
+
+
+def test_viewer_reads_registry_but_cannot_change_or_export(box: dict[str, Any]) -> None:
+    v, csrf = login(box["app"], "viewer", VIEWER_PW)
+    assert v.get("/pilot/registry").status_code == 200 and v.get("/pilot/registry/GZQO").status_code == 200
+    assert v.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "A1001", "status": "candidate"}).status_code == 403
+    assert v.post("/pilot/registry/GZQO/promote", data={"csrf": csrf}).status_code == 403
+    assert v.get("/pilot/registry/GZQO/export.xlsx").status_code == 403
+    assert v.post("/pilot/case", data={"csrf": csrf, "ruleset": "GZQO"}).status_code == 403
+    assert box["backend"].registry == {}
+
+
+# ---------------------------------------------------------------------------------------------- D-93 roles and SSO
+def test_coordinator_requests_and_approves_but_does_not_operate(box: dict[str, Any]) -> None:
+    box["users"].create("crc", "coordinator", "crc-password-1234", "crc1@hospa.test")
+    c, csrf = login(box["app"], "crc", "crc-password-1234")
+    assert "study coordinator" in c.get("/").text
+    r = c.post(
+        "/pilot/request",
+        data={"csrf": csrf, "kind": "FEAS", "ruleset": "GZQO", "lookback": "36"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert box["backend"].created[-1].requested_by == "crc1@hospa.test"
+    r = c.post(
+        "/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "A1001", "status": "candidate"}, follow_redirects=False
+    )
+    assert r.status_code == 303
+    assert c.post("/ops/ingest", data={"csrf": csrf}).status_code == 403
+    assert c.get("/ops/users").status_code == 403
+    assert (
+        c.post("/ops/users", data={"csrf": csrf, "action": "add", "username": "x", "role": "admin"}).status_code == 403
+    )
+    assert "/ops/users" not in c.get("/").text  # no link either
+
+
+def test_users_page_add_reset_disable(box: dict[str, Any]) -> None:
+    c, csrf = login(box["app"])
+    page = c.get("/ops/users").text
+    assert 'data-testid="users-table"' in page and 'data-user="viewer"' in page and "/ops/users" in c.get("/").text
+    r = c.post(
+        "/ops/users",
+        data={
+            "csrf": csrf,
+            "action": "add",
+            "username": "Nurse.Lin",
+            "role": "coordinator",
+            "mailbox": "lin@hospa.test",
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303 and "made=nurse.lin" in r.headers["location"]
+    page = c.get(r.headers["location"]).text
+    pw = re.search(r'data-testid="users-pw">([^<]+)<', page)
+    assert pw and len(pw.group(1)) >= 12 and 'data-user="nurse.lin"' in page
+    n, _ = login(box["app"], "nurse.lin", pw.group(1))  # the one-time password works once handed over
+    assert "study coordinator" in n.get("/").text
+    # reset signs the person out everywhere and shows a new password once
+    r = c.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": "nurse.lin"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert n.get("/", follow_redirects=False).status_code == 303  # session gone
+    pw2 = re.search(r'data-testid="users-pw">([^<]+)<', c.get(r.headers["location"]).text)
+    assert pw2 and pw2.group(1) != pw.group(1)
+    # cannot disable yourself; can disable others; duplicates and bad roles are refused with a reason
+    assert c.post("/ops/users", data={"csrf": csrf, "action": "disable", "username": "admin"}).status_code == 400
+    r = c.post("/ops/users", data={"csrf": csrf, "action": "disable", "username": "nurse.lin"}, follow_redirects=False)
+    assert r.status_code == 303 and 'data-user="nurse.lin"' not in c.get("/ops/users").text
+    assert (
+        c.post("/ops/users", data={"csrf": csrf, "action": "add", "username": "viewer", "role": "viewer"}).status_code
+        == 400
+    )
+    assert (
+        c.post("/ops/users", data={"csrf": csrf, "action": "add", "username": "z", "role": "root"}).status_code == 400
+    )
+    events = [e.event for e in read_audit(box["dir"] / "audit")]
+    assert events.count("console.user") == 3
+
+
+SSO_ENV = {
+    **PILOT_ENV,
+    "TB_CONSOLE_SSO_HEADER": "X-Forwarded-User",
+    "TB_CONSOLE_SSO_ROLE_HEADER": "X-Forwarded-Groups",
+    "TB_CONSOLE_SSO_TRUSTED_PROXIES": "testclient,127.0.0.1,10.0.0.0/8",
+    "TB_CONSOLE_SSO_ROLE_MAP": "trialbox-admins:admin,crc:coordinator",
+}
+
+
+def test_sso_header_signs_in_from_a_trusted_proxy_only(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    backend.audit_dir = tmp_path / "audit"
+    users = UserStore(tmp_path / "c.sqlite")
+    users.create("admin", "admin", ADMIN_PW, "admin@hospa.test")
+    app = create_app(
+        {**SSO_ENV, "TB_CONSOLE_DIR": str(tmp_path)}, backend=backend, audit=AuditLog(backend.audit_dir), users=users
+    )
+    # TestClient's peer address is the literal "testclient", so it is listed among the trusted proxies above
+    c = TestClient(app, headers={"X-Forwarded-User": "Nurse.Lin@hospa.test", "X-Forwarded-Groups": "staff;crc"})
+    r = c.get("/", follow_redirects=False)
+    assert r.status_code == 200 and "nurse.lin" in r.text and "study coordinator" in r.text
+    assert "tb_console=" in r.headers.get("set-cookie", "")  # a session cookie was set
+    assert users.is_sso("nurse.lin") and users.get("nurse.lin").mailbox == "nurse.lin@hospa.test"  # type: ignore[union-attr]
+    # the sign-in page sends an SSO user straight in; a local account still works beside it
+    assert c.get("/login", follow_redirects=False).status_code == 303
+    plain = TestClient(app)
+    assert 'data-testid="sso-hint"' in plain.get("/login").text
+    local, _ = login(app)
+    assert "administrator" in local.get("/").text
+    # group -> role mapping, default role for the rest
+    a = TestClient(app, headers={"X-Forwarded-User": "boss", "X-Forwarded-Groups": "trialbox-admins"})
+    assert "administrator" in a.get("/").text
+    v = TestClient(app, headers={"X-Forwarded-User": "someone"})
+    assert "viewer" in v.get("/").text
+    # an SSO account cannot be given a console password; a local account is never overwritten by the header
+    adm_c, csrf = login(app)
+    assert adm_c.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": "nurse.lin"}).status_code == 400
+    spoof = TestClient(app, headers={"X-Forwarded-User": "admin", "X-Forwarded-Groups": "nothing"})
+    assert "administrator" in spoof.get("/").text  # the local admin keeps their role (header cannot demote)
+    events = [e.event for e in read_audit(tmp_path / "audit")]
+    assert events.count("console.login") >= 4
+
+
+def test_sso_header_ignored_from_an_untrusted_peer(tmp_path: Path) -> None:
+    backend = FakeBackend()
+    backend.audit_dir = tmp_path / "audit"
+    users = UserStore(tmp_path / "c.sqlite")
+    users.create("admin", "admin", ADMIN_PW)
+    env = {**SSO_ENV, "TB_CONSOLE_SSO_TRUSTED_PROXIES": "10.1.2.3", "TB_CONSOLE_DIR": str(tmp_path)}
+    app = create_app(env, backend=backend, audit=AuditLog(backend.audit_dir), users=users)
+    c = TestClient(app, headers={"X-Forwarded-User": "mallory", "X-Forwarded-Groups": "trialbox-admins"})
+    assert c.get("/", follow_redirects=False).status_code == 303  # to /login: the header did nothing
+    assert users.get("mallory") is None
+    assert "console.sso_rejected" in [e.event for e in read_audit(tmp_path / "audit")]
+    with pytest.raises(PilotRefused, match="TRUSTED_PROXIES"):
+        create_app(
+            {**SSO_ENV, "TB_CONSOLE_SSO_TRUSTED_PROXIES": "", "TB_CONSOLE_DIR": str(tmp_path)},
+            backend=backend,
+            audit=AuditLog(backend.audit_dir),
+        )
 
 
 # ---------------------------------------------------------------------------------------------- surface rules

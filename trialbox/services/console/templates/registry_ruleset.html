@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ t('registry.title') }} {{ ruleset }}{% endblock %}
+{% block content %}
+<h1>{{ t('registry.title') }} · {{ ruleset }}</h1>
+{% if error %}<p class="error" role="alert" data-testid="registry-error">{{ error }}</p>{% endif %}
+{% if request.query_params.get('added') %}<p class="hint" role="status" data-testid="registry-added">{{ t('registry.promoted', n=request.query_params.get('added')) }}</p>{% endif %}
+<p class="warn" role="note">{{ t('registry.notice') }}</p>
+<p data-testid="registry-counts">{% for s in statuses %}<span class="pill">{{ t('registry.status.' + s) }} {{ counts.get(s, 0) }}</span> {% endfor %}</p>
+
+<div class="grid">
+<section class="card">
+<h2>{{ t('registry.add') }}</h2>
+<p class="hint">{{ t('registry.add.help') }}</p>
+<form method="post" action="/pilot/registry/{{ ruleset }}">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="mrn">{{ t('case.mrn') }}</label>
+  <input id="mrn" name="mrn" required maxlength="32" pattern="[A-Za-z0-9\-]+" autocomplete="off">
+  <label for="status">{{ t('registry.status') }}</label>
+  <select id="status" name="status">{% for s in statuses %}<option value="{{ s }}">{{ t('registry.status.' + s) }}</option>{% endfor %}</select>
+  <label for="reason">{{ t('registry.reason') }}</label>
+  <input id="reason" name="reason" maxlength="500">
+  <button type="submit" {{ 'disabled' if not user.can_request else '' }} data-testid="registry-add">{{ t('registry.add.submit') }}</button>
+</form>
+</section>
+<section class="card">
+<h2>{{ t('registry.promote') }}</h2>
+<p class="hint">{{ t('registry.promote.help') }}</p>
+<form method="post" action="/pilot/registry/{{ ruleset }}/promote">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="secondary" {{ 'disabled' if not user.can_request else '' }} data-testid="registry-promote">{{ t('registry.promote.submit') }}</button>
+</form>
+{% if user.can_request %}<p class="mt"><a href="/pilot/registry/{{ ruleset }}/export.xlsx" data-testid="registry-export">{{ t('registry.export') }}</a> <span class="hint">{{ t('registry.export.help') }}</span></p>{% endif %}
+</section>
+</div>
+
+<section class="card">
+<h2>{{ t('registry.rows') }}</h2>
+{% if not rows %}<p class="hint" data-testid="registry-empty">{{ t('registry.empty') }}</p>{% else %}
+<table data-testid="registry-rows">
+<thead><tr><th>{{ t('registry.pid') }}</th><th>{{ t('registry.status') }}</th><th>{{ t('registry.reason') }}</th><th>{{ t('registry.updated') }}</th><th>{{ t('col.by') }}</th><th>{{ t('registry.source') }}</th><th>{{ t('registry.change') }}</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr data-pid="{{ r.pid }}">
+<td class="mono" title="{{ r.pid }}">{{ r.pid[:12] }}…</td>
+<td><span class="pill st-{{ r.status }}">{{ t('registry.status.' + r.status) }}</span></td>
+<td>{{ r.reason or '' }}</td>
+<td class="mono">{{ r.updated_at }}</td>
+<td>{{ r.updated_by }}</td>
+<td>{{ t('registry.source.' + r.source) }}{% if r.tier %} · {{ r.tier }}{% endif %}</td>
+<td>
+<form method="post" action="/pilot/registry/{{ ruleset }}" class="inline">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pid" value="{{ r.pid }}">
+  <label class="sr" for="st-{{ loop.index }}">{{ t('registry.status') }}</label>
+  <select id="st-{{ loop.index }}" name="status">{% for s in options(r.status) %}<option value="{{ s }}" {{ 'selected' if s == r.status else '' }}>{{ t('registry.status.' + s) }}</option>{% endfor %}</select>
+  <label class="sr" for="rs-{{ loop.index }}">{{ t('registry.reason') }}</label>
+  <input id="rs-{{ loop.index }}" name="reason" maxlength="500" placeholder="{{ t('registry.reason') }}">
+  <button type="submit" class="small" {{ 'disabled' if not user.can_request else '' }}>{{ t('registry.save') }}</button>
+</form>
+</td></tr>
+{% endfor %}
+</tbody></table>
+{% endif %}
+</section>
+{% endblock %}

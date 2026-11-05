@@ -581,10 +581,18 @@ class _Run:
             self.metrics.pairs_s2b_below += 1
             detail = {"best": round(best, 4), "threshold": thr.value, "threshold_source": thr.source}
             if c.kind == "inclusion":
+                # An inclusion criterion the semantic pre-filter finds no mention of is NOT an exclusion: the
+                # threshold is a public-prior placeholder until the LTT fit exists (independent review 2026-10-27,
+                # finding 6; D-90). The pair goes to the review queue as ``unknown`` and the patient stays in.
                 t.outcomes[cid] = Outcome(
-                    cid, "fail", "S2b", hard=True, stratum=STRATUM_S2B, evidence=[detail], reason="S2b below"
+                    cid,
+                    "unknown",
+                    "S2b",
+                    unknown_kind="uncertain",
+                    stratum=STRATUM_S2B,
+                    evidence=[detail],
+                    reason="S2b below: no mention found; review (never an exclusion)",
                 )
-                self.exclude(t, "S2b", cid)
             else:
                 t.outcomes[cid] = Outcome(cid, "pass", "S2b", evidence=[detail], reason="S2b below: absence")
         self.metrics.s2b_embed_batches = self.embedder.batches if self.embedder else 0

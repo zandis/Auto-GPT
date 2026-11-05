@@ -19,6 +19,7 @@ adds ``console.*`` events to the shared audit chain before it acts.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import secrets
@@ -36,13 +37,14 @@ from fastapi.templating import Jinja2Templates
 from tb_common.audit import AuditLog
 from tb_common.crypto import sha256_bytes
 from tb_common.ulid import new_ulid
-from tb_contracts import Job, JobOutput
+from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console.auth import Session, UserStore, csrf_ok
-from console.backend import Backend, MailItem, Refused, Unavailable
+from console.auth import ROLES, AuthError, Session, User, UserStore, csrf_ok, random_password
+from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
+from console.registry_view import STATUSES, status_options
 
 HERE = Path(__file__).resolve().parent
 COOKIE = "tb_console"
@@ -94,6 +96,17 @@ class ConsoleSettings:
     gateway_model: str | None
     small_cell: int
     trials: tuple[str, ...]
+    # D-93: sign-in by the hospital's identity provider through a reverse proxy that sets a trusted header
+    sso_header: str = ""
+    sso_role_header: str = ""
+    sso_mailbox_header: str = ""
+    sso_trusted: tuple[str, ...] = ()
+    sso_role_map: tuple[tuple[str, str], ...] = ()
+    sso_default_role: str = "viewer"
+
+    @property
+    def sso(self) -> bool:
+        return bool(self.sso_header and self.sso_trusted)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> ConsoleSettings:
@@ -112,7 +125,7 @@ class ConsoleSettings:
         pw = env.get("TB_CONSOLE_ADMIN_PASSWORD_FILE", "").strip()
         src = env.get("TB_CONSOLE_SOURCE_DIR", "").strip()
         samples = env.get("TB_CONSOLE_SAMPLES_DIR", "").strip()
-        return cls(
+        obj = cls(
             environment=environment,
             pilot=want_pilot,
             data_class=data_class or "-",
@@ -130,7 +143,22 @@ class ConsoleSettings:
             gateway_model=env.get("TB_GATEWAY_MODEL") or None,
             small_cell=int(env.get("TB_CONSOLE_SMALL_CELL") or 5),
             trials=tuple(t for t in (env.get("TB_CONSOLE_TRIALS") or "GZQO").split(",") if t),
+            sso_header=env.get("TB_CONSOLE_SSO_HEADER", "").strip().lower(),
+            sso_role_header=env.get("TB_CONSOLE_SSO_ROLE_HEADER", "").strip().lower(),
+            sso_mailbox_header=env.get("TB_CONSOLE_SSO_MAILBOX_HEADER", "").strip().lower(),
+            sso_trusted=tuple(x.strip() for x in env.get("TB_CONSOLE_SSO_TRUSTED_PROXIES", "").split(",") if x.strip()),
+            sso_role_map=tuple(
+                (k.strip().lower(), v.strip().lower())
+                for k, _, v in (item.partition(":") for item in env.get("TB_CONSOLE_SSO_ROLE_MAP", "").split(","))
+                if k.strip() and v.strip().lower() in ROLES
+            ),
+            sso_default_role=(env.get("TB_CONSOLE_SSO_DEFAULT_ROLE") or "viewer").strip().lower(),
         )
+        if obj.sso_header and not obj.sso_trusted:
+            raise PilotRefused("TB_CONSOLE_SSO_HEADER needs TB_CONSOLE_SSO_TRUSTED_PROXIES (the proxy addresses)")
+        if obj.sso_default_role not in ROLES:
+            raise PilotRefused(f"TB_CONSOLE_SSO_DEFAULT_ROLE must be one of {', '.join(ROLES)}")
+        return obj
 
 
 class _LoginRequired(Exception):
@@ -228,7 +256,59 @@ def create_app(
         resp.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
         resp.headers.setdefault("Cache-Control", "no-store")
+        token = getattr(request.state, "sso_cookie", None)
+        if token:
+            resp.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
         return resp
+
+    def _trusted_peer(request: Request) -> bool:
+        host = request.client.host if request.client else None
+        if not host:
+            return False
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:  # not an address (a unix socket peer, the test client): exact name match only
+            return host in settings.sso_trusted
+        for item in settings.sso_trusted:
+            try:
+                if "/" in item:
+                    if ip in ipaddress.ip_network(item, strict=False):
+                        return True
+                elif ip == ipaddress.ip_address(item):
+                    return True
+            except ValueError:
+                continue
+        return False
+
+    def sso_user(request: Request) -> User | None:
+        """The account behind a trusted identity header (D-93), or None. Only a request from a configured proxy
+        address counts; a header on any other connection is ignored and audited once per request."""
+        if not settings.sso or request.cookies.get(COOKIE):
+            return None
+        ident = (request.headers.get(settings.sso_header) or "").strip().lower()
+        if not ident:
+            return None
+        if not _trusted_peer(request):
+            au.append("console.sso_rejected", actor="console:-", detail={"reason": "untrusted peer"})
+            return None
+        username = re.sub(r"[^a-z0-9._-]+", "_", ident.split("@", 1)[0])[:32] or "sso"
+        groups = (request.headers.get(settings.sso_role_header) or "").lower() if settings.sso_role_header else ""
+        role = settings.sso_default_role
+        for group, mapped in settings.sso_role_map:
+            if group in {g.strip() for g in re.split(r"[;,]", groups)}:
+                role = mapped
+                if mapped == "admin":
+                    break
+        mailbox = ""
+        if settings.sso_mailbox_header:
+            mailbox = (request.headers.get(settings.sso_mailbox_header) or "").strip().lower()
+        if not mailbox and "@" in ident:
+            mailbox = ident
+        try:
+            return us.upsert_sso(username, role, mailbox or None)  # type: ignore[arg-type]
+        except AuthError as exc:
+            au.append("console.sso_rejected", actor=f"console:{username}", detail={"reason": str(exc)[:80]})
+            return None
 
     def session_of(request: Request) -> Session | None:
         return us.session(request.cookies.get(COOKIE))
@@ -236,17 +316,31 @@ def create_app(
     def need(request: Request) -> Session:
         sess = session_of(request)
         if sess is None:
-            raise _LoginRequired()
+            user = sso_user(request)
+            if user is None:
+                raise _LoginRequired()
+            token, sess = us.new_session(user, pick_language(request.headers.get("accept-language")))
+            request.state.sso_cookie = token
+            au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": "sso"})
         return sess
 
-    def need_admin(request: Request, csrf: str) -> Session:
-        sess = need(request)
+    def _need_role(request: Request, csrf: str, ok: bool, sess: Session) -> Session:
         if not csrf_ok(sess, csrf):
             raise _Problem(400, "csrf")
-        if not sess.user.is_admin:
+        if not ok:
             au.append("console.denied", actor=f"console:{sess.user.username}", detail={"action": request.url.path[:80]})
             raise _Problem(403, "forbidden")
         return sess
+
+    def need_admin(request: Request, csrf: str) -> Session:
+        """Operations: ingest, users. Administrators only."""
+        sess = need(request)
+        return _need_role(request, csrf, sess.user.is_admin, sess)
+
+    def need_requester(request: Request, csrf: str) -> Session:
+        """Clinical workspace actions: requests, approvals, the registry. Administrators and coordinators (D-93)."""
+        sess = need(request)
+        return _need_role(request, csrf, sess.user.can_request, sess)
 
     def lang_of(request: Request, sess: Session | None) -> str:
         if sess is not None and sess.lang in LANGS:
@@ -334,8 +428,18 @@ def create_app(
 
     @app.get("/login", response_class=HTMLResponse)
     def login_form(request: Request) -> Response:
+        if settings.sso and (session_of(request) is not None or sso_user(request) is not None):
+            return RedirectResponse("/", status_code=303)
         token = secrets.token_urlsafe(24)
-        resp = page(request, "login.html", None, login_csrf=token, failed=False, uninitialised=us.count("admin") == 0)
+        resp = page(
+            request,
+            "login.html",
+            None,
+            login_csrf=token,
+            failed=False,
+            uninitialised=us.count("admin") == 0,
+            sso=settings.sso,
+        )
         resp.set_cookie(
             LOGIN_COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie, max_age=900
         )
@@ -423,6 +527,52 @@ def create_app(
         sess = need(request)
         return page(request, "audit.html", sess, records=bk.audit(None, 300))
 
+    @app.get("/ops/users", response_class=HTMLResponse)
+    def users_view(request: Request, made: str = "", pw: str = "") -> Response:
+        sess = need(request)
+        if not sess.user.is_admin:
+            raise _Problem(403, "forbidden")
+        rows = [(u, us.is_sso(u.username)) for u in us.users()]
+        return page(request, "users.html", sess, users=rows, roles=ROLES, made=made, pw=pw, sso=settings.sso)
+
+    @app.post("/ops/users")
+    def users_edit(
+        request: Request,
+        csrf: str = Form(""),
+        action: str = Form(""),
+        username: str = Form(""),
+        role: str = Form("viewer"),
+        mailbox: str = Form(""),
+    ) -> Response:
+        """Add a user (password shown once), reset a password (shown once) or disable an account. Same as the
+        console.cli commands; every change is an audit event."""
+        sess = need_admin(request, csrf)
+        name = username.strip().lower()[:32]
+        try:
+            if action == "add":
+                if role not in ROLES:
+                    raise AuthError("unknown role")
+                password = random_password()
+                us.create(name, role, password, mailbox.strip() or None)
+                au.append("console.user", actor=actor(sess), detail={"action": "create", "user": name, "role": role})
+                return RedirectResponse(f"/ops/users?made={name}&pw={password}", status_code=303)
+            if action == "reset":
+                if us.is_sso(name):
+                    raise AuthError("this account signs in through the hospital identity provider")
+                password = random_password()
+                us.set_password(name, password)
+                au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
+                return RedirectResponse(f"/ops/users?made={name}&pw={password}", status_code=303)
+            if action == "disable":
+                if name == sess.user.username:
+                    raise AuthError("you cannot disable your own account")
+                us.disable(name)
+                au.append("console.user", actor=actor(sess), detail={"action": "disable", "user": name})
+                return RedirectResponse("/ops/users", status_code=303)
+        except AuthError as exc:
+            raise _Problem(400, "request.refused", reason=str(exc)) from exc
+        raise _Problem(400, "request.refused", reason="unknown action")
+
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:
         return app
@@ -496,7 +646,11 @@ def create_app(
         sess = need(request)
         job = _job_or_404(job_id)
         out = next((o for o in job.outputs or [] if o.filename == filename), None)
-        if not _FILE.match(filename) or out is None or out.tag != "aggregate" or not filename.endswith(".html"):
+        if not _FILE.match(filename) or out is None or not filename.endswith(".html"):
+            raise _Problem(404, "notfound")
+        # D-91: the CASE eligibility sheet carries chart text (phi); in the pilot workspace (D0, synthetic data) a
+        # requester may read it in the browser, exactly as the study team receives it by mail. Viewers may not.
+        if out.tag != "aggregate" and not (job.type == "CASE" and sess.user.can_request):
             raise _Problem(404, "notfound")
         data = bk.get_object(out.minio_key)
         au.append(
@@ -518,7 +672,7 @@ def create_app(
     def consent_release(
         request: Request, job_id: str, csrf: str = Form(""), drop: str = Form(""), keep: str = Form("")
     ) -> Response:
-        sess = need_admin(request, csrf)
+        sess = need_requester(request, csrf)
         job = _job_or_404(job_id)
         if job.type != "CONSENT" or job.state != "done":
             raise _Problem(409, "request.refused", reason="only a finished consent explainer can be released")
@@ -565,7 +719,29 @@ def create_app(
             refresh=job.state not in TERMINAL and job.state != "awaiting_approval",
             rulesets=[r for r in bk.rulesets() if r.status == "approved"],
             consent=_consent_card(job),
+            case=_case_card(job),
         )
+
+    def _case_card(job: Job) -> dict[str, Any] | None:
+        if job.type != "CASE" or job.state != "done":
+            return None
+        import json
+
+        outs = [o for o in job.outputs or [] if o.filename.startswith("case_")]
+        rec_out = next((o for o in outs if o.filename.endswith(".json")), None)
+        sheet = next((o for o in outs if o.filename.endswith(".html")), None)
+        if rec_out is None or sheet is None:
+            return None
+        try:
+            rec = json.loads(bk.get_object(rec_out.minio_key))
+        except (KeyError, ValueError, OSError):
+            return None
+        return {
+            "counts": rec.get("counts") or {},
+            "sheet": sheet.filename,
+            "lang": rec.get("lang"),
+            "subject": rec.get("subject") or {},
+        }
 
     @app.get("/pilot/jobs/{job_id}/files/{filename}")
     def job_file(request: Request, job_id: str, filename: str) -> Response:
@@ -602,7 +778,7 @@ def create_app(
     async def approve(
         request: Request, job_id: str, csrf: str = Form(""), workbook: Annotated[UploadFile | None, File()] = None
     ) -> Response:
-        sess = need_admin(request, csrf)
+        sess = need_requester(request, csrf)
         job = _job_or_404(job_id)
         book = _review_book(job)
         if job.state != "awaiting_approval" or book is None or not job.ruleset or not job.ruleset_version:
@@ -635,7 +811,7 @@ def create_app(
         lookback: str = Form(""),
         version: str = Form(""),
     ) -> Response:
-        sess = need_admin(request, csrf)
+        sess = need_requester(request, csrf)
         rs = ruleset.strip().upper()
         if kind not in ("FEAS", "SCREEN") or not _RULESET_ID.match(rs):
             raise _Problem(400, "request.refused", reason="choose FEAS or SCREEN and an approved ruleset")
@@ -658,7 +834,7 @@ def create_app(
 
     @app.post("/pilot/propose", response_class=HTMLResponse)
     def propose_view(request: Request, csrf: str = Form(""), text: str = Form("")) -> Response:
-        sess = need_admin(request, csrf)
+        sess = need_requester(request, csrf)
         from channels.native.engine import detect_language
 
         lang = detect_language(text)
@@ -682,7 +858,7 @@ def create_app(
 
     @app.post("/pilot/propose/{pid}/confirm")
     def propose_confirm(request: Request, pid: str, csrf: str = Form("")) -> Response:
-        sess = need_admin(request, csrf)
+        sess = need_requester(request, csrf)
         item = pending.get(pid)
         if item is None or item.session_sha != sess.token_sha or time.time() - item.created > PROPOSAL_TTL:
             raise _Problem(410, "request.refused", reason="the proposal expired; propose again")
@@ -709,7 +885,7 @@ def create_app(
         use_sample: str = Form(""),
         protocol: Annotated[UploadFile | None, File()] = None,
     ) -> Response:
-        sess = need_admin(request, csrf)
+        sess = need_requester(request, csrf)
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(400, "request.refused", reason="ruleset ids are 1-16 letters, digits, '-' or '_'")
@@ -748,7 +924,7 @@ def create_app(
         langs: Annotated[list[str] | None, Form()] = None,
         icf: Annotated[UploadFile | None, File()] = None,
     ) -> Response:
-        sess = need_admin(request, csrf)
+        sess = need_requester(request, csrf)
         code = study.strip().upper()
         sample = _consent_sample()
 
@@ -776,6 +952,170 @@ def create_app(
         job = submit(sess, f"CONSENT {code} lang={','.join(chosen)}", [(name, data, ctype)])
         return RedirectResponse(f"/pilot/jobs/{job.job_id}", status_code=303)
 
+    # ------------------------------------------------------------------ single case (CASE, D-91)
+    def _trial_rulesets() -> list[Any]:
+        return [r for r in bk.rulesets() if r.status == "approved"]
+
+    @app.get("/pilot/case", response_class=HTMLResponse)
+    def case_form(request: Request, ruleset: str = "") -> Response:
+        sess = need(request)
+        return page(request, "case.html", sess, rulesets=_trial_rulesets(), selected=ruleset, langs=LANGS)
+
+    @app.post("/pilot/case")
+    async def case_submit(
+        request: Request,
+        csrf: str = Form(""),
+        ruleset: str = Form(""),
+        mrn: str = Form(""),
+        lang: str = Form(""),
+        charts: Annotated[list[UploadFile] | None, File()] = None,
+    ) -> Response:
+        sess = need_requester(request, csrf)
+        rs = ruleset.strip().upper()
+        if not _RULESET_ID.match(rs):
+            raise _Problem(400, "request.refused", reason="choose an approved ruleset")
+        files: list[tuple[str, bytes, str]] = []
+        for up in charts or []:
+            if not up.filename:
+                continue
+            name = re.sub(r"[^\w.\-]+", "_", up.filename)[-120:]
+            data = await up.read(MAX_UPLOAD + 1)
+            if not data:
+                continue
+            if len(data) > MAX_UPLOAD or not name.lower().endswith(DOC_EXT):
+                raise _Problem(400, "request.refused", reason="charts are PDF, DOCX, TXT or MD, at most 50 MB each")
+            files.append((name, data, up.content_type or "application/octet-stream"))
+        if not files:
+            msg = translate(lang_of(request, sess), "case.need_file")
+            return page(
+                request, "case.html", sess, 422, rulesets=_trial_rulesets(), selected=rs, langs=LANGS, error=msg
+            )
+        parts = ["CASE", rs]
+        chart_no = re.sub(r"\s+", "", mrn)
+        if chart_no:
+            if not re.match(r"^[A-Za-z0-9\-]{1,32}$", chart_no):
+                raise _Problem(400, "request.refused", reason="chart numbers are letters, digits or '-'")
+            parts.append(f"mrn={chart_no}")
+        if lang:
+            if lang not in LANGS:
+                raise _Problem(400, "request.refused", reason="choose en, ja or zh-TW")
+            parts.append(f"lang={lang}")
+        job = submit(sess, " ".join(parts), files)
+        return RedirectResponse(f"/pilot/jobs/{job.job_id}", status_code=303)
+
+    # ------------------------------------------------------------------ candidate registry (D-92)
+    def _registry_page(request: Request, sess: Session, rs: str, status: int = 200, **ctx: Any) -> HTMLResponse:
+        rows = bk.registry_rows(rs)
+        from orchestrator.candidates import counts as _counts
+
+        return page(
+            request,
+            "registry_ruleset.html",
+            sess,
+            status,
+            ruleset=rs,
+            rows=rows,
+            counts=_counts(rows),
+            statuses=STATUSES,
+            options=status_options,
+            **ctx,
+        )
+
+    @app.get("/pilot/registry", response_class=HTMLResponse)
+    def registry_home(request: Request) -> Response:
+        sess = need(request)
+        summaries = {s.ruleset: s for s in bk.registry_summaries()}
+        rulesets = _trial_rulesets()
+        known = {r.id for r in rulesets}
+        # a registry may outlive its ruleset version (e.g. after a re-approval): still list it
+        rulesets += [RulesetInfo(rs_id, None, "registry", "trial") for rs_id in sorted(summaries) if rs_id not in known]
+        return page(request, "registry.html", sess, rulesets=rulesets, summaries=summaries, statuses=STATUSES)
+
+    @app.get("/pilot/registry/{ruleset}", response_class=HTMLResponse)
+    def registry_view(request: Request, ruleset: str) -> Response:
+        sess = need(request)
+        rs = ruleset.strip().upper()
+        if not _RULESET_ID.match(rs):
+            raise _Problem(404, "notfound")
+        try:
+            return _registry_page(request, sess, rs)
+        except Refused as exc:
+            raise _Problem(400, "request.refused", reason=str(exc)) from exc
+
+    @app.post("/pilot/registry/{ruleset}")
+    def registry_edit(
+        request: Request,
+        ruleset: str,
+        csrf: str = Form(""),
+        pid: str = Form(""),
+        mrn: str = Form(""),
+        status: str = Form(""),
+        reason: str = Form(""),
+    ) -> Response:
+        sess = need_requester(request, csrf)
+        rs = ruleset.strip().upper()
+        if not _RULESET_ID.match(rs) or status not in STATUSES:
+            raise _Problem(400, "request.refused", reason="choose a ruleset and a status")
+        who = sess.user.mailbox or sess.user.username
+        upd = RegistryUpdate(
+            pid=pid.strip() or None,
+            mrn=re.sub(r"\s+", "", mrn) or None,
+            status=status,  # type: ignore[arg-type]
+            reason=reason.strip()[:500] or None,
+            by=who,
+            source="manual",
+        )
+        au.append(
+            "console.registry",
+            actor=actor(sess),
+            ruleset=rs,
+            detail={"action": "update", "status": status, "by_mrn": bool(upd.mrn)},
+        )
+        try:
+            bk.registry_update(rs, upd)
+        except Refused as exc:
+            return _registry_page(request, sess, rs, 422, error=str(exc))
+        return RedirectResponse(f"/pilot/registry/{rs}", status_code=303)
+
+    @app.post("/pilot/registry/{ruleset}/promote")
+    def registry_promote(request: Request, ruleset: str, csrf: str = Form("")) -> Response:
+        sess = need_requester(request, csrf)
+        rs = ruleset.strip().upper()
+        if not _RULESET_ID.match(rs):
+            raise _Problem(404, "notfound")
+        who = sess.user.mailbox or sess.user.username
+        try:
+            added = bk.registry_promote(rs, RegistryPromote(by=who))
+        except Refused as exc:
+            return _registry_page(request, sess, rs, 422, error=str(exc))
+        au.append("console.registry", actor=actor(sess), ruleset=rs, detail={"action": "promote", "added": added})
+        return RedirectResponse(f"/pilot/registry/{rs}?added={added}", status_code=303)
+
+    @app.get("/pilot/registry/{ruleset}/export.xlsx")
+    def registry_export(request: Request, ruleset: str) -> Response:
+        sess = need(request)
+        rs = ruleset.strip().upper()
+        if not _RULESET_ID.match(rs):
+            raise _Problem(404, "notfound")
+        if not sess.user.can_request:  # the export carries chart numbers (phi): requesters only
+            raise _Problem(403, "forbidden")
+        data = bk.registry_export(rs)
+        au.append(
+            "console.registry",
+            actor=actor(sess),
+            ruleset=rs,
+            output_sha=sha256_bytes(data),
+            detail={"action": "export"},
+        )
+        return Response(
+            data,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="screening_log_{rs}.xlsx"',
+                "X-Download-Options": "noopen",
+            },
+        )
+
     cr: CascadeRuns | None = cascades
 
     def _runs() -> CascadeRuns:
@@ -800,7 +1140,7 @@ def create_app(
 
     @app.post("/pilot/cascade")
     def cascade_start(request: Request, csrf: str = Form(""), trial: str = Form("GZQO")) -> Response:
-        sess = need_admin(request, csrf)
+        sess = need_requester(request, csrf)
         runs = _runs()
         if trial not in settings.trials:
             raise _Problem(400, "request.refused", reason="unknown trial")
@@ -872,7 +1212,7 @@ def create_app(
         body: str = Form(""),
         attachment: Annotated[UploadFile | None, File()] = None,
     ) -> Response:
-        sess = need_admin(request, csrf)
+        sess = need_requester(request, csrf)
         if not settings.test_smtp:
             raise _Problem(404, "notfound")
         sender = sess.user.mailbox or settings.admin_email

@@ -6,11 +6,12 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from lake.client import LakeHttp
 from tb_common.audit import AuditLog
 from tb_common.config import get_config
@@ -18,8 +19,9 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
-from tb_contracts import Job, JobCreate
+from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
+from orchestrator.candidates import CandidateRegistry, RegistryError
 from orchestrator.clients import AdapterHttp, CompilerHttp, MailHttp, ParserHttp
 from orchestrator.core import Orchestrator, Rejected, Services
 from orchestrator.db import JobDB
@@ -144,3 +146,65 @@ def cancel_job(job_id: str, by: str) -> Job:
         return orch().cancel(job_id, by)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="no such job") from exc
+
+
+# ---------------------------------------------------------------------------------------- candidate registry (D-92)
+def registry_of(o: Orchestrator) -> CandidateRegistry:
+    return CandidateRegistry(o.db, o.audit, Path(o.cfg.env.secrets_dir), o.cfg.settings.mrn_regex)
+
+
+def _now(o: Orchestrator) -> datetime:
+    return datetime.now(ZoneInfo(o.cfg.settings.site.tz))
+
+
+@app.get("/registry")
+def registry_summaries() -> list[RegistrySummary]:
+    return registry_of(orch()).summaries()
+
+
+@app.get("/registry/{ruleset}")
+def registry_rows(ruleset: str) -> list[RegistryEntry]:
+    try:
+        return registry_of(orch()).rows(ruleset)
+    except RegistryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/registry/{ruleset}/events")
+def registry_events(ruleset: str, pid: str | None = None) -> list[RegistryEvent]:
+    try:
+        return registry_of(orch()).events(ruleset, pid)
+    except RegistryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/registry/{ruleset}")
+def registry_update(ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
+    o = orch()
+    try:
+        return registry_of(o).update(ruleset, upd, _now(o))
+    except RegistryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/registry/{ruleset}/promote")
+def registry_promote(ruleset: str, req: RegistryPromote) -> dict[str, int]:
+    o = orch()
+    try:
+        return {"added": registry_of(o).promote(ruleset, req, _now(o))}
+    except RegistryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/registry/{ruleset}/export.xlsx")
+def registry_export(ruleset: str) -> Response:
+    o = orch()
+    try:
+        data = registry_of(o).export_xlsx(ruleset, o.cfg.settings.site.id)
+    except RegistryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="screening_log_{ruleset.upper()}.xlsx"'},
+    )

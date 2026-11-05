@@ -4,6 +4,7 @@
 <section class="card narrow">
 <h1>{{ t('login.title') }}</h1>
 {% if uninitialised %}<p class="warn" role="alert">{{ t('login.uninitialised') }}</p>{% endif %}
+{% if sso %}<p class="hint" data-testid="sso-hint">{{ t('login.sso') }}</p>{% endif %}
 {% if failed %}<p class="error" role="alert" data-testid="login-error">{{ t('login.failed') }}</p>{% endif %}
 <form method="post" action="/login">
   <input type="hidden" name="login_csrf" value="{{ login_csrf }}">

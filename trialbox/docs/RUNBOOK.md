@@ -6,6 +6,12 @@ noted. Section references (§) are to `SPEC.md`; D-numbers are entries in `docs/
 
 ## 1. Install a new site (≈ 1 day)
 
+**One file.** With the vendor's signed release bundle on a USB stick, `sudo deploy/install.sh trialbox-<version>.tar`
+does steps 2, 3, 5, 6 and 8 below in one run (verify and load the bundle, settings wizard, start with the GPU or stub
+profile, first administrator, host check; `--answers site.yaml` for no questions, `--mode stub` for a box without a
+GPU). The vendor builds the bundle with `tools/make_bundle.sh`. Hardware: `python -m tools.gpu_sizing` prints the
+estimate table (no GPU is enough for feasibility, NAV and COHORT; a GPU serves protocol extraction and note criteria).
+
 1. **Host.** Ubuntu 24.04 LTS on LUKS2 with TPM2 unlock, swap off, Docker Engine 27+, nftables. Add the NVIDIA
    driver and container toolkit when there is a GPU (GB10: driver 580.142, held). See `docs/HARDENING.md`.
 2. **Images.** Load the signed release bundle: `tools/apply_update.sh trialbox-<version>.tar` (images, models,
@@ -62,8 +68,20 @@ Everything is a job. To see jobs, send `STATUS <job id>` by mail, or use the orc
 | COHORT | `COHORT GOUT-COH lookback=4` | alliance CSV, report PDF, trial simulation XLSX |
 | COHORT MERGE | member box → root, `cohort_table_*.csv` attached | merged alliance table |
 | STATUS / CANCEL | `STATUS 01J…` / `CANCEL 01J…` | job status / cancellation |
+| CASE | `CASE GZQO mrn=10000001 lang=zh-TW` + the chart (PDF/DOCX/TXT/MD) | eligibility sheet (encrypted, to the study team's `list_to`); counts-only mail to a requester outside that list |
 
 PHI attachments arrive as 7z (AES-256). The password comes in a separate mail to the same recipient.
+
+### Console roles and the registry
+
+The console (`services/console`) has three roles: administrator (ingest, users, updates, everything else), study
+coordinator (requests, approvals, the candidate registry, consent drafts) and viewer (read only). Administrators add
+accounts on **Users** (`/ops/users`): the one-time password is shown once; hand it over in person. With a hospital
+reverse proxy that authenticates staff, set `TB_CONSOLE_SSO_HEADER` (e.g. `X-Forwarded-User`),
+`TB_CONSOLE_SSO_TRUSTED_PROXIES` (the proxy addresses or CIDRs), optionally `TB_CONSOLE_SSO_ROLE_HEADER` and
+`TB_CONSOLE_SSO_ROLE_MAP=ad-group:admin,crc-group:coordinator`; staff then sign in without a console password.
+The **Registry** page keeps the per-study screening log (add by chart number, take over a SCREEN run's candidates,
+record contact/consent/enrolment, export XLSX for the monitor). The **Single case** page uploads one chart (CASE).
 
 ## 4. Troubleshooting
 

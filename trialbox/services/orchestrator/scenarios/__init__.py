@@ -10,6 +10,7 @@ def registry() -> dict[str, Scenario]:
         admin,
         approve,
         calibration,
+        case,
         cohort,
         consent,
         feas,
@@ -37,4 +38,5 @@ def registry() -> dict[str, Scenario]:
         "SUBMIT": submit.run,
         "CONSENT": consent.run,
         "RELEASE": consent.release,
+        "CASE": case.run,
     }

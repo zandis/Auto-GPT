@@ -63,6 +63,13 @@ fi
 if [ -d "$STAGE/other" ]; then
   mkdir -p "$ROOT/deploy/updates/$BUNDLE_ID"; cp -R "$STAGE/other/." "$ROOT/deploy/updates/$BUNDLE_ID/"
 fi
+if [ -n "${TB_SKIP_AUDIT:-}" ] || ! $COMPOSE ps --status running --services 2>/dev/null | grep -qx orchestrator; then
+  # first install: the stack is not up yet; deploy/install.sh records the event once the orchestrator runs
+  mkdir -p "$ROOT/deploy/updates/pending_audit"
+  printf '%s' "$SUMMARY" > "$ROOT/deploy/updates/pending_audit/$BUNDLE_ID.json"
+  echo "update $BUNDLE_ID applied; audit event deferred (orchestrator not running)"
+  exit 0
+fi
 printf '%s' "$SUMMARY" | $COMPOSE exec -T orchestrator python -c '
 import json, sys
 from tb_common.audit import AuditLog

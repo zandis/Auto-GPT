@@ -138,14 +138,29 @@ class NoteResult:
 
 @dataclass
 class NoteJudge:
+    """The v1 note judge, with the two-model agreement rule of the bake-off when a ``verifier`` is wired.
+
+    With a verifier, every decided answer (``pass`` or ``fail``) of the judge is put to the verifier with the same
+    excerpts; the answer stands only when both models agree, else it becomes ``unknown`` ("judge/verifier
+    disagree"), which the tiering sends to review. So in production a note criterion blocks a patient only when
+    both models say so, the configuration the 2026-10-25 bake-off measured (independent review 2026-10-27, finding
+    2). Costs one extra call per decided answer; a verifier failure also yields ``unknown`` and counts as a failure
+    for :func:`check_judge`."""
+
     lake: LakeAPI
     llm: LlmClient
     prompt: str = "judge"
     job_id: str | None = None
+    verifier: LlmClient | None = None
     calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
     failures: int = 0  # judge calls that got no answer (model down, timeout, out-of-schema)
+    disagreements: int = 0  # decided answers the verifier did not confirm (became unknown)
+
+    @property
+    def mode(self) -> str:
+        return "agreement" if self.verifier is not None else "single"
 
     def excerpts(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
         lo, hi = note_window(c, index_date)
@@ -194,24 +209,47 @@ class NoteJudge:
         source = "full_record" if full else "chunks"
         if not excerpts:
             return NoteResult("unknown", 0.0, reason="no notes in the window", source=source)
+        return self.judge_excerpts(c, index_date, excerpts, source)
+
+    def judge_excerpts(
+        self, c: CriterionIR, index_date: date, excerpts: list[dict[str, Any]], source: str = "chunks"
+    ) -> NoteResult:
+        """Judge one criterion from given excerpts (the lake's chunks, the full record, or an uploaded chart)."""
+        variables = {
+            "criterion_text": c.text,
+            "note_question": c.note_question or c.text,
+            "index_date": index_date.isoformat(),
+            "excerpts": [{k: e[k] for k in ("date", "note_type", "text")} for e in excerpts],
+        }
         try:
-            res = self.llm.chat_json(
-                self.prompt,
-                {
-                    "criterion_text": c.text,
-                    "note_question": c.note_question or c.text,
-                    "index_date": index_date.isoformat(),
-                    "excerpts": [{k: e[k] for k in ("date", "note_type", "text")} for e in excerpts],
-                },
-                job_id=self.job_id,
-            )
+            res = self.llm.chat_json(self.prompt, variables, job_id=self.job_id)
         except LlmError as exc:
             self.failures += 1
             return NoteResult("unknown", 0.0, reason=f"judge unavailable: {str(exc)[:120]}", source=source)
         self.calls += 1
         self.tokens_in += res.tokens_in
         self.tokens_out += res.tokens_out
-        return postprocess(res.data, excerpts, source)
+        first = postprocess(res.data, excerpts, source)
+        if self.verifier is None or first.predicate not in ("pass", "fail"):
+            return first
+        try:
+            res2 = self.verifier.chat_json(self.prompt, variables, job_id=self.job_id)
+        except LlmError as exc:
+            self.failures += 1
+            return NoteResult("unknown", 0.0, reason=f"verifier unavailable: {str(exc)[:120]}", source=source)
+        self.calls += 1
+        self.tokens_in += res2.tokens_in
+        self.tokens_out += res2.tokens_out
+        second = postprocess(res2.data, excerpts, source)
+        if second.predicate == first.predicate:
+            return first
+        self.disagreements += 1
+        return NoteResult(
+            "unknown",
+            0.0,
+            reason=f"judge/verifier disagree ({first.predicate}/{second.predicate}); needs a human look",
+            source=source,
+        )
 
 
 # a few unanswered note checks stay "unknown" (manual review); more than this share means the model was down and the

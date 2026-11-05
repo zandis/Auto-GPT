@@ -727,3 +727,59 @@ Box reply subjects lead with study, command and outcome and end with the job id
 (`tb_common.subject.job_subject`): `[GZQO] FEAS done: 1–7 in 12 mo · job <id>`, `... received · job <id>`,
 `... failed: at <step> · job <id>`, `[GZQO] ruleset v1.0.0 approved`. A reply to one never parses as a command.
 The review mail keeps its `APPROVE <id> version=<v> -- …` subject so a plain reply approves.
+
+## Clinical review build (2026-11)
+
+**D-89 Two-model agreement in SCREEN and CASE.** Decided after the clinical review of 2026-11-05. The note judge used by
+SCREEN (`NoteJudge`) runs the agreement rule the cascade already had: when a verifier build is configured, every decided
+judge answer is asked of the verifier too, and a criterion is decided only when both agree; a disagreement becomes
+`unknown` with the reason "judge/verifier disagree; needs a human look". The bake-off showed the pair blocking
+wrongly on 0.9 % of criteria against a higher single-model rate, and a wrong exclusion is the costliest error in
+pre-screening. `TB_SCREEN_JUDGE=single` restores the single judge for a measured comparison; the judge record in
+every output names the mode, the verifier build and the disagreement count. No GPU cost at feasibility: structured
+criteria never reach a model.
+
+**D-90 Uncertain inclusion goes to review, never out.** The cascade's S2b stage used to exclude a patient when the
+inclusion evidence was below threshold. Below threshold now means `unknown` in the review stratum, consistent with
+the SCREEN rule that the box never excludes on silence (`services/matching/cascade/engine.py`). The independent
+review of 2026-10-27 reported it (finding 6).
+
+**D-91 CASE: one patient, one chart.** `CASE <ruleset> [mrn=<chart number>] [lang=en|ja|zh-TW]` with the chart
+attached (PDF, DOCX, TXT or MD, several files allowed), by mail or on the console's "Single case" page. Structured
+criteria come from the lake when the chart number resolves to a patient on the box (the number becomes the pseudonym
+and is discarded); otherwise every criterion is read from the chart with the agreement rule, and the sheet says
+which ones to check against the record. Human-review criteria stay `pending_human`. The eligibility sheet (HTML and
+JSON) is PHI: it goes 7z-encrypted to the ruleset's `routing.list_to` (the study team) only; the requester gets a
+counts-only mail when not on that list; viewers cannot open it on the console. Dates in charts are read in ISO,
+slashed, Minguo (民國) and Japanese era (令和/平成) forms. Pilot default: a chart number is optional (a visiting
+patient has none yet). Decision open to the site: whether CASE should also add the patient to the registry.
+
+**D-92 Candidate registry (screening log).** Per approved ruleset the box keeps where the study team is with each
+pseudonym: candidate, contacted, consented, enrolled, screen_fail, declined, withdrawn; every change is an event
+(who, when, why) and an audit record; clerical corrections are allowed but enrolled is final unless withdrawn. Rows
+arrive by hand with a chart number (resolved in-box, never stored), by promotion from the latest SCREEN pool (tiers
+high and review), or later from CASE. The XLSX export resolves chart numbers from the pid map for the site's own
+screening log (ICH E6(R3) 3.16) and is deterministic (D-82). It is not an EDC: no visit data, and the consent
+status is the coordinator's note, not the consent record (D-88). Orchestrator API `/registry/...`; console pages
+`/pilot/registry`.
+
+**D-93 Coordinator role, hospital sign-in, users page.** Three console roles: administrator (everything, including
+ingest, users, updates), study coordinator (requests, approvals, registry, consent drafts) and viewer (read only).
+The pilot workspace's actions need coordinator or administrator; operations need administrator. A hospital reverse
+proxy that authenticates staff (AD FS, Keycloak, Entra, Okta) can sign users in with a trusted identity header
+(`TB_CONSOLE_SSO_HEADER`, groups in `TB_CONSOLE_SSO_ROLE_HEADER` mapped by `TB_CONSOLE_SSO_ROLE_MAP`, default role
+`TB_CONSOLE_SSO_DEFAULT_ROLE`); the header counts only from the proxy addresses in `TB_CONSOLE_SSO_TRUSTED_PROXIES`,
+anything else is audited as `console.sso_rejected`. Header accounts carry no console password and cannot be given
+one; a local account is never changed by a header. Administrators manage accounts on `/ops/users` (one-time
+password shown once; reset signs the person out everywhere). LDAP bind, OIDC in the console itself and TOTP remain
+on the roadmap: the proxy pattern is what hospital IT already runs, and it keeps passwords out of the box.
+
+**D-94 One-file install and the sizing estimate.** `tools/make_bundle.sh` (vendor) exports the images, models,
+rulesets, installer and runbook into one Ed25519-signed bundle (D-77); `deploy/install.sh <bundle>` on the site
+verifies it, loads it, runs the settings wizard, starts the stack with the GPU or stub profile, creates the first
+administrator and runs the host check; re-running is idempotent and nothing leaves the host. The update audit event
+is deferred until the orchestrator runs. `tools/gpu_sizing.py` holds the arithmetic behind the hardware table of the
+clinical review (weights, KV cache from the model configurations, engine and stack allowances, bandwidth-bound
+throughput); every figure is an estimate until measured (RUNBOOK §8). Its first result: the benchmarked pair fits
+one DGX Spark only with the judge at 32k, the verifier at 16k and two sequences at a time; the spec v4 plan (64k/32k,
+four sequences) is about 10 GB short once HAPI, Postgres, DuckDB and the embedder are counted.

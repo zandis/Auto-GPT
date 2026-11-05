@@ -13,7 +13,7 @@
 {% if split %}<p data-testid="check-split"><strong>{{ t('job.review.split', **split) }}</strong></p>{% endif %}
 <p>{{ t('job.review.help') }}</p>
 <p>{% if review_html %}<a href="/pilot/jobs/{{ job.job_id }}/files/{{ review_html.filename }}">{{ t('job.review.open') }}</a> · {% endif %}<a href="/pilot/jobs/{{ job.job_id }}/files/{{ review.filename }}">{{ t('download') }} {{ review.filename }}</a></p>
-{% if user.is_admin %}
+{% if user.can_request %}
 <form method="post" action="/pilot/jobs/{{ job.job_id }}/approve" class="inline">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <button type="submit" data-testid="approve">{{ t('job.approve') }}</button>
@@ -41,7 +41,7 @@
 {% if consent.review %}<li><a href="/pilot/jobs/{{ job.job_id }}/view/{{ consent.review }}" target="_blank" rel="noopener" data-testid="consent-review">{{ t('job.consent.review') }}</a></li>{% endif %}
 {% for lang, name in consent.pages %}<li><a href="/pilot/jobs/{{ job.job_id }}/view/{{ name }}" target="_blank" rel="noopener" data-file="{{ name }}">{{ t('job.consent.preview') }} · <span lang="{{ lang }}">{{ t('lang.name.' + lang) }}</span></a></li>{% endfor %}
 </ul>
-{% if job.type == 'CONSENT' and job.state == 'done' and user.is_admin %}
+{% if job.type == 'CONSENT' and job.state == 'done' and user.can_request %}
 <form method="post" action="/pilot/jobs/{{ job.job_id }}/release" class="mt">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label for="drop">{{ t('job.consent.drop') }}</label>
@@ -52,6 +52,17 @@
   <button type="submit" data-testid="release">{{ t('job.consent.release') }}</button>
 </form>
 {% endif %}
+</section>
+{% endif %}
+
+{% if case %}
+<section class="card attention" data-testid="case">
+<h2>{{ t('job.case') }}</h2>
+<p class="warn" role="note">{{ t('case.notice') }}</p>
+<p data-testid="case-counts">{{ t('job.case.counts', **case.counts) }}</p>
+{% if case.subject.in_lake %}<p class="hint">{{ t('job.case.lake', snapshot=case.subject.snapshot) }}</p>{% else %}<p class="hint">{{ t('job.case.chart_only') }}</p>{% endif %}
+{% if user.can_request %}<p><a href="/pilot/jobs/{{ job.job_id }}/view/{{ case.sheet }}" target="_blank" rel="noopener" data-testid="case-sheet">{{ t('job.case.open') }}</a></p>
+{% else %}<p class="hint">{{ t('job.case.viewer') }}</p>{% endif %}
 </section>
 {% endif %}
 
