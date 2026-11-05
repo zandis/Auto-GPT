@@ -29,8 +29,9 @@ run time and never committed.
    on TREC; a prompt fix helps a little (net 17 fewer dropped pairs, McNemar p about 0.09), not enough: the proper fix
    is to rewrite them at protocol import.
 4. **Hospital scale.** The real pipeline (data platform, cascade S0-S5, feasibility pack, recall certificate) passes
-   all 16 invariant checks at 2,000 and 10,000 synthetic patients and runs in about 32 ms per patient. The in-process
-   test harness ran out of memory at 50,000 patients (13.5 GB on a 16 GB box); see "Hospital-scale simulation".
+   all 16 invariant checks at 2,000, 10,000 and 25,000 synthetic patients, in about 23 ms per patient, growing
+   linearly. The in-process test harness needs about 0.5 GB per 1,000 patients and ran out of memory at 50,000 on
+   this 16 GB container; see "Hospital-scale simulation".
    Compute is not the bottleneck: model time for a 50,000-patient hospital screening 12 trials a year is a few
    GPU hours. Coordinator review is.
 5. **The age/sex filter is right where the data is right.** On TREC it blocked 20 % of NIST-excluded pairs without
@@ -132,10 +133,17 @@ Synthetic hospitals from `tools/synth` (fictional patients with planted truth), 
 `tools/cascade_e2e.py` (adapter -> data platform L0-L5 -> cascade S0-S5 -> DL-1 pack -> recall certificate), stub
 model, GZQO ruleset, one process per size.
 
-SCALE_TABLE
+| patients | pipeline time | per patient | peak memory | pass S1 filters | S5 review queue | final list | model calls | checks |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2,000 | 57 s | 29 ms | 1.3 GB | 64 (3.2 %) | 42 | 5 | 78 | 16 / 16 |
+| 10,000 | 226 s | 23 ms | 5.1 GB | 266 (2.7 %) | 173 | 10 | 277 | 16 / 16 |
+| 25,000 | 582 s | 23 ms | 12.1 GB | 654 (2.6 %) | 408 | 31 | 770 | 16 / 16 |
+| 50,000 | killed | | > 13.5 GB | | | | | |
 
-Every run passed all 16 invariant checks (published, no blocking data-quality defect, lineage complete, monotone
-funnel, cascade equals the v1 funnel, small cells suppressed, reproducible, and the rest). Time grows linearly.
+The recall certificate was issued at every size.
+
+Every completed run passed all 16 invariant checks (published, no blocking data-quality defect, lineage complete, monotone
+funnel, cascade equals the v1 funnel, small cells suppressed, reproducible, and the rest). Time and memory grow linearly (about 23 ms and 0.5 MB per patient).
 The 50,000-patient run was killed at 13.5 GB resident on this 16 GB container: the test harness keeps the whole
 lake, traces and pack in one process. That is a harness limit, not the deployed stack (separate lake and services),
 but the per-patient memory of the cascade and pack should be measured on the real box before a 50k-patient site;
@@ -148,7 +156,19 @@ TREC error rates (bootstrap over TREC patients) and the audit share (Beta(11, 21
 parameters: 2 truly eligible patients per 1,000 per trial, LLM reads 42 % of criteria, 10 minutes per review,
 2,500 tokens/s on the box.
 
-PROJECT_TABLE
+| per year (GZQO-like protocol, one-5090 pair) | point | 95 % range |
+| --- | --- | --- |
+| patient x trial screens | 600,000 | |
+| pass the structured filters (synthetic funnel) | 15,700 | |
+| model calls / GPU hours (stub-measured call count) | 18,500 / 1.2 h | |
+| review queue / coordinator hours at 10 min each | 9,800 / 1,630 h | |
+| truly eligible patient x trial pairs (2 per 1,000) | 1,200 | |
+| dropped by the model, raw TREC rate | 129 (10.7 %) | 111-149 |
+| dropped by the model, audit-adjusted | **43 (3.6 %)** | 25-68 (2.1-5.6 %) |
+
+Japanese uses the same numbers: on MedTxt the Japanese wrong-block rate was not higher than the English one (ratio
+0.78, floored at 1), so the projection does not get worse; the Japanese cost is the lower recall, which lands in the
+review queue, not in the dropped count.
 
 The review queue is the cost that matters, and its size here comes from the synthetic generator, which plants many
 borderline patients on purpose; a real site's funnel replaces it after the first FEAS run.

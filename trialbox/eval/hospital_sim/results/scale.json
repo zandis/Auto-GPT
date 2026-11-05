@@ -1,0 +1,176 @@
+[
+ {
+  "patients": 2000,
+  "trial": "GZQO",
+  "passed": true,
+  "failed_checks": [],
+  "generate_s": 1.5,
+  "pipeline_s": 57.0,
+  "ms_per_patient": 28.52,
+  "peak_rss_mb": 1292,
+  "funnel": {
+   "S0": {
+    "in": 2000,
+    "out": 2000
+   },
+   "S1": {
+    "in": 2000,
+    "out": 64
+   },
+   "S2": {
+    "in": 64,
+    "out": 64
+   },
+   "S2b": {
+    "in": 64,
+    "out": 64
+   },
+   "S3": {
+    "in": 64,
+    "out": 49
+   },
+   "S4": {
+    "in": 49,
+    "out": 49
+   },
+   "S5": {
+    "in": 42,
+    "out": 5
+   }
+  },
+  "s3_detail": {
+   "judged": 72,
+   "unprocessed": 0,
+   "sampled": 64,
+   "cache_hits": 0
+  },
+  "model_calls": 78,
+  "model_calls_per_1k_patients": 39.0,
+  "tiers": {
+   "excluded": 1941,
+   "potential:data_gap": 23,
+   "potential:uncertain": 21,
+   "strong": 5,
+   "watchlist": 10
+  },
+  "final_list": 5,
+  "certificate": "issued",
+  "certificate_statement": "Recall is at least 0.659 (historical enrollees; biased: found by the previous process; population: historical enrollees of GZQO (synthetic)). At most 27.4 per 1,000 excluded patients may have been eligible (anytime-valid, alpha 0.05). Blinded chart review has r = 4 so far (quoted from r = 30)."
+ },
+ {
+  "patients": 10000,
+  "trial": "GZQO",
+  "passed": true,
+  "failed_checks": [],
+  "generate_s": 7.6,
+  "pipeline_s": 225.6,
+  "ms_per_patient": 22.56,
+  "peak_rss_mb": 5081,
+  "funnel": {
+   "S0": {
+    "in": 10000,
+    "out": 10000
+   },
+   "S1": {
+    "in": 10000,
+    "out": 266
+   },
+   "S2": {
+    "in": 266,
+    "out": 266
+   },
+   "S2b": {
+    "in": 266,
+    "out": 266
+   },
+   "S3": {
+    "in": 266,
+    "out": 198
+   },
+   "S4": {
+    "in": 198,
+    "out": 198
+   },
+   "S5": {
+    "in": 173,
+    "out": 10
+   }
+  },
+  "s3_detail": {
+   "judged": 267,
+   "unprocessed": 0,
+   "sampled": 266,
+   "cache_hits": 0
+  },
+  "model_calls": 277,
+  "model_calls_per_1k_patients": 27.7,
+  "tiers": {
+   "excluded": 9730,
+   "potential:data_gap": 100,
+   "strong": 13,
+   "potential:uncertain": 85,
+   "watchlist": 72
+  },
+  "final_list": 10,
+  "certificate": "issued",
+  "certificate_statement": "Recall is at least 0.845 (historical enrollees; biased: found by the previous process; population: historical enrollees of GZQO (synthetic)). At most 27.3 per 1,000 excluded patients may have been eligible (anytime-valid, alpha 0.05). Blinded chart review has r = 1 so far (quoted from r = 30)."
+ },
+ {
+  "patients": 25000,
+  "trial": "GZQO",
+  "passed": true,
+  "failed_checks": [],
+  "generate_s": 17.8,
+  "pipeline_s": 582.3,
+  "ms_per_patient": 23.29,
+  "peak_rss_mb": 12148,
+  "funnel": {
+   "S0": {
+    "in": 25000,
+    "out": 25000
+   },
+   "S1": {
+    "in": 25000,
+    "out": 654
+   },
+   "S2": {
+    "in": 654,
+    "out": 654
+   },
+   "S2b": {
+    "in": 654,
+    "out": 654
+   },
+   "S3": {
+    "in": 654,
+    "out": 460
+   },
+   "S4": {
+    "in": 460,
+    "out": 460
+   },
+   "S5": {
+    "in": 408,
+    "out": 31
+   }
+  },
+  "s3_detail": {
+   "judged": 699,
+   "unprocessed": 0,
+   "sampled": 654,
+   "cache_hits": 0
+  },
+  "model_calls": 770,
+  "model_calls_per_1k_patients": 30.8,
+  "tiers": {
+   "excluded": 24365,
+   "potential:data_gap": 247,
+   "potential:uncertain": 165,
+   "watchlist": 175,
+   "strong": 48
+  },
+  "final_list": 31,
+  "certificate": "issued",
+  "certificate_statement": "Recall is at least 0.949 (historical enrollees; biased: found by the previous process; population: historical enrollees of GZQO (synthetic)). At most 27.4 per 1,000 excluded patients may have been eligible (anytime-valid, alpha 0.05). Blinded chart review has r = 2 so far (quoted from r = 30)."
+ }
+]
