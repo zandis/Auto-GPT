@@ -69,6 +69,22 @@ def _ulid(n: int) -> str:
 _T0 = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
 
 
+MODELS_INFO: dict[str, Any] = {
+    "engine": "cql",
+    "screen_judge": "agreement",
+    "gateway": True,
+    "mode": "single",
+    "judge_model": "j-workhorse",
+    "verifier_model": None,
+    "note_block": "never",
+    "note_block_reason": "no verifier configured: a single model may not exclude",
+    "configured_note_block": "both_agree",
+    "may_block": False,
+    "disagreements": 0,
+    "failures": 0,
+}
+
+
 class FakeBackend:
     def __init__(self) -> None:
         self.jobs: dict[str, Job] = {}
@@ -76,6 +92,7 @@ class FakeBackend:
         self.created: list[JobCreate] = []
         self.mails: list[tuple[str, str, str, list[tuple[str, bytes]]]] = []
         self.refuse: str | None = None
+        self.models_info: dict[str, Any] | None = dict(MODELS_INFO)
         self.audit_dir: Path | None = None
         self.ingested = 0
         self.registry: dict[tuple[str, str], RegistryEntry] = {}
@@ -138,6 +155,9 @@ class FakeBackend:
 
     def health(self) -> list[Health]:
         return [Health("orchestrator", True, "0 queued or running"), Health("lake", True, "snapshot 2026-10-04")]
+
+    def models(self) -> dict[str, Any] | None:
+        return self.models_info
 
     def ingest(self) -> dict[str, Any]:
         self.ingested += 1
@@ -662,6 +682,79 @@ def test_consent_job_card_preview_and_release(box: dict[str, Any]) -> None:
     assert viewer.post(f"/pilot/jobs/{jid}/release", data={"csrf": vcsrf}).status_code == 403
 
 
+# ---------------------------------------------------------------------------------------------- CASE sheet
+def _case_done(backend: FakeBackend, jid: str) -> Job:
+    """A finished CASE job shaped like the orchestrator writes it: ``counts`` keys are met/not_met/unknown/human."""
+    now = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
+    rec = {
+        "counts": {"met": 15, "not_met": 2, "unknown": 3, "human": 3, "total": 23},
+        "lang": "ja",
+        "subject": {"in_lake": True, "snapshot": "2026-10-04"},
+    }
+    files = {"case_GZQO.json": json.dumps(rec).encode(), "case_GZQO_ja.html": b"<!doctype html><p>sheet</p>"}
+    outs = []
+    for name, data in files.items():
+        backend.objects[f"outputs/{jid}/{name}"] = data
+        outs.append(
+            JobOutput(
+                filename=name,
+                sha256=sha256_bytes(data),
+                minio_key=f"outputs/{jid}/{name}",
+                recipients=["admin@hospa.test"],
+                tag="aggregate",
+            )
+        )
+    return backend.add_job(
+        Job(
+            job_id=jid,
+            type="CASE",
+            ruleset="GZQO",
+            requested_by="admin@hospa.test",
+            received_at=now,
+            updated_at=now,
+            state="done",
+            options={"lang": "ja"},
+            outputs=outs,
+        )
+    )
+
+
+def test_case_job_card_renders_counts_in_every_language(box: dict[str, Any]) -> None:
+    jid = _ulid(960)
+    _case_done(box["backend"], jid)
+    c, csrf = login(box["app"])
+    page = c.get(f"/pilot/jobs/{jid}").text
+    assert 'data-testid="case-counts"' in page and "met 15" in page and "not met 2" in page and "for a human 3" in page
+    assert f"/pilot/jobs/{jid}/view/case_GZQO_ja.html" in page
+    for lang, needle in (("ja", "該当 15"), ("zh-TW", "符合 15")):
+        c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
+        r = c.get(f"/pilot/jobs/{jid}")
+        assert r.status_code == 200 and needle in r.text, lang
+
+
+# ---------------------------------------------------------------------------------------------- models card
+def test_overview_shows_models_and_the_never_exclude_fallback(box: dict[str, Any]) -> None:
+    c, csrf = login(box["app"])
+    page = c.get("/").text
+    assert 'data-testid="models"' in page and "j-workhorse" in page
+    assert 'data-testid="models-warning"' in page and 'data-testid="models-fallback"' in page
+    assert "has only one model" in page
+    c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
+    assert "モデルが一つしかありません" in c.get("/").text
+    c.post("/lang", data={"csrf": csrf, "lang": "en", "back": "/"})
+    box["backend"].models_info = {
+        **MODELS_INFO,
+        "mode": "agreement",
+        "verifier_model": "v-verifier",
+        "note_block": "both_agree",
+        "may_block": True,
+    }
+    page = c.get("/").text
+    assert "v-verifier" in page and "Only when both models agree" in page and 'data-testid="models-warning"' not in page
+    box["backend"].models_info = None
+    assert "orchestrator is not answering" in c.get("/").text
+
+
 # ---------------------------------------------------------------------------------------------- results
 def test_result_page_funnel_downloads_and_phi_rule(box: dict[str, Any]) -> None:
     job = _done_feas(box["backend"])
@@ -747,7 +840,7 @@ def _done_case(backend: FakeBackend) -> Job:
     rec = {
         "lang": "en",
         "subject": {"pid": "ab" * 16, "in_lake": True, "snapshot": "2026-10-04", "note": ""},
-        "counts": {"total": 12, "pass": 7, "fail": 1, "unknown": 2, "human": 2},
+        "counts": {"total": 12, "met": 7, "not_met": 1, "unknown": 2, "human": 2},
         "criteria": [],
     }
     outs = []

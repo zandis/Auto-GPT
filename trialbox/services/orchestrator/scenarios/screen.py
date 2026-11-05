@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
 from tb_common.timeutil import add_months
-from tb_contracts import CandidateList, CandidateRow, Routing, ScreenRunScope, TierSummary, dump
+from tb_contracts import CandidateList, CandidateRow, Judging, Routing, ScreenRunScope, TierSummary, dump
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
@@ -27,8 +27,10 @@ from orchestrator.scenarios.evaluate import (
     PatientVerdicts,
     StructuredEngine,
     check_judge,
+    effective_note_block,
     engine_from_env,
     evaluate_patients,
+    note_block_policy,
     row,
     sort_key,
 )
@@ -76,6 +78,40 @@ class ScreenRun:
     departments: list[str]
     window_days: int
     judge: NoteJudge | None
+    judging: dict[str, Any] | None = None
+
+
+def judging_info(judge: NoteJudge | None) -> dict[str, Any]:
+    """How note criteria were judged on this run: models, agreement mode, and whether a note answer could exclude
+    (D-97). Aggregate metadata: goes into the candidate list, the summary PDF, the done mail and the console."""
+    may_block, policy, reason = effective_note_block(judge)
+    return {
+        "mode": judge.mode if judge is not None else "none",
+        "judge_model": judge.llm.model if judge is not None else None,
+        "verifier_model": judge.verifier.model if judge is not None and judge.verifier is not None else None,
+        "note_block": policy,
+        "note_block_reason": reason,
+        "configured_note_block": note_block_policy(),
+        "may_block": may_block,
+        "disagreements": judge.disagreements if judge is not None else 0,
+        "failures": judge.failures if judge is not None else 0,
+    }
+
+
+def judging_sentence(j: dict[str, Any]) -> str:
+    """One sentence for the mail and the PDF: who judged the notes and whether a note answer could exclude."""
+    if j.get("mode") == "none":
+        return "Note criteria were not judged (no model on this box): they go to review."
+    if j.get("may_block"):
+        return (
+            f"Note criteria: judged by {j.get('judge_model')} and checked by {j.get('verifier_model')}; a note "
+            f"answer excludes a patient only when both models agree."
+        )
+    why = str(j.get("note_block_reason") or "")
+    return (
+        f"Note criteria: judged by {j.get('judge_model')} alone; note answers could not exclude anyone on this run "
+        f"({why}). Patients with a failing note answer are listed for review."
+    )
 
 
 def scope_patients(
@@ -212,6 +248,7 @@ def evaluate_scope(
             "patients": len(scoped),
             "only": sorted(only) if only else None,
             "tiers": tiers,
+            "judging": judging_info(judge),
         },
     )
     if judge is not None:
@@ -250,7 +287,10 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
         for p, pv in results.items()
     ]
     rows.sort(key=sort_key)
-    return ScreenRun(rs, run_date, snapshot, scoped, results, rows, practitioners, depts, window, None)
+    judge = judge_for(ctx, rs)
+    return ScreenRun(
+        rs, run_date, snapshot, scoped, results, rows, practitioners, depts, window, judge, judging_info(judge)
+    )
 
 
 def candidate_list(run: ScreenRun) -> CandidateList:
@@ -269,6 +309,7 @@ def candidate_list(run: ScreenRun) -> CandidateList:
         ),
         rows=listed,
         summary=TierSummary(**tiers),
+        judging=Judging(**run.judging) if run.judging else None,
     )
 
 
@@ -382,11 +423,50 @@ def run(ctx: Ctx) -> Outcome:
     def n(v: int) -> int | str:  # aggregate outputs: every count small-cell suppressed (SPEC §10.1)
         return suppress(v, sc)
 
+    judging = srun.judging or judging_info(None)
     scope_lines = [
         f"Ruleset {rs.id} v{rs.version}, run {run_date.isoformat()}, snapshot {snapshot}.",
         f"Scope: practitioners {', '.join(srun.practitioners)}; appointments in the next {srun.window_days} days or "
         f"an encounter in the last 12 months; {n(len(srun.scoped))} patients evaluated.",
+        judging_sentence(judging),
     ]
+    unknown_by: dict[str, int] = {}
+    for r in srun.rows:
+        if r.tier in ("high", "review"):
+            for v in r.criteria:
+                if v.verdict == "unknown":
+                    unknown_by[v.id] = unknown_by.get(v.id, 0) + 1
+    ctx.publish(
+        f"screen_{stem}.json",
+        json.dumps(
+            {
+                "ruleset": rs.id,
+                "version": rs.version,
+                "run_date": run_date.isoformat(),
+                "snapshot": snapshot,
+                "scope": {
+                    "practitioners": srun.practitioners,
+                    "departments": srun.departments,
+                    "window_days": srun.window_days,
+                    "n_scoped": n(len(srun.scoped)),
+                },
+                "tiers": {
+                    "high": n(cl.summary.high),
+                    "review": n(cl.summary.review),
+                    "excluded": n(cl.summary.excluded),
+                },
+                "listed": n(info["listed"]),
+                "referrals": {k: n(v) for k, v in info["referrals"].items()},
+                "unknown_by_criterion": {k: n(v) for k, v in sorted(unknown_by.items())},
+                "judging": judging,
+            },
+            ensure_ascii=False,
+            indent=1,
+            sort_keys=True,
+        ).encode("utf-8"),
+        "aggregate",
+        agg_to,
+    )
     summary = ctx.publish(
         f"summary_{stem}.pdf",
         screen_summary_pdf.render(
@@ -411,7 +491,8 @@ def run(ctx: Ctx) -> Outcome:
             if info["referrals"]
             else ""
         )
-        + "."
+        + ". "
+        + judging_sentence(judging)
     )
     deliveries.append(Delivery(to=agg_to, outputs=[summary], routing=rs.manifest.routing, body_md=text))
     return Outcome(summary_md=text, deliveries=deliveries, headline=f"{n(s.high)} high, {n(s.review)} review")

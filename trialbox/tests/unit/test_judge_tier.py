@@ -4,13 +4,23 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import date
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from llm_stub.app import app as stub
 from orchestrator.clients import StepFailed
-from orchestrator.scenarios.evaluate import NoteJudge, check_judge, eligibility, postprocess, tier
+from orchestrator.scenarios.evaluate import (
+    NoteJudge,
+    NoteResult,
+    check_judge,
+    effective_note_block,
+    eligibility,
+    evaluate_patients,
+    postprocess,
+    tier,
+)
 from orchestrator.scenarios.terms import keywords
 from tb_common.llm import LlmClient
 from tb_common.ruleset import Ruleset
@@ -99,3 +109,39 @@ def test_note_block_never(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("TB_NOTE_BLOCK", "sometimes")
     with pytest.raises(ValueError):
         tier(GZQO, base, 0.75)
+
+
+def test_both_agree_without_a_verifier_falls_back_to_never(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """D-97: ``both_agree`` promises two models agreed; with one model the run may route to review, never exclude."""
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")
+    judge_only = NoteJudge(SimpleNamespace(), SimpleNamespace(model="j"), "judge", verifier=None)  # type: ignore[arg-type]
+    pair = NoteJudge(SimpleNamespace(), SimpleNamespace(model="j"), "judge", verifier=SimpleNamespace(model="v"))  # type: ignore[arg-type]
+    assert effective_note_block(None) == (False, "never", "no note judge on this box")
+    may, policy, why = effective_note_block(judge_only)
+    assert (may, policy) == (False, "never") and "verifier" in why
+    assert effective_note_block(pair)[:2] == (True, "both_agree")
+    monkeypatch.setenv("TB_NOTE_BLOCK", "never")
+    assert effective_note_block(pair)[:2] == (False, "never")
+
+    # and evaluate_patients applies it: a confident note fail from a lone judge lands in review, not excluded
+    monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")
+
+    class Engine:
+        name = "sql"
+
+        def evaluate(self, rs, pids, index_date, ids):  # type: ignore[no-untyped-def]
+            raise AssertionError("no structured criteria asked for")
+
+    class LoneJudge(NoteJudge):
+        def judge(self, pid, c, index_date, full=False):  # type: ignore[no-untyped-def]
+            return NoteResult("fail", 0.99, quote="documented tophus", reason="note says so")
+
+    lone = LoneJudge(SimpleNamespace(), SimpleNamespace(model="j"), "judge", verifier=None)  # type: ignore[arg-type]
+    only = {"GZQO-INC-05"}
+    kw = dict(only=only, workers=1, full_record_fallback=False)
+    res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), lone, 0.75, **kw)  # type: ignore[arg-type]
+    assert res["p1"].tier == "review"
+    res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), lone, 0.75, note_block=True, **kw)  # type: ignore[arg-type]
+    assert res["p1"].tier == "excluded"

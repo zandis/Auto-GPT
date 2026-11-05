@@ -117,6 +117,26 @@ def _queue() -> dict[str, Any]:
 app = make_app("orchestrator", checks=[_queue], lifespan=lifespan)
 
 
+@app.get("/models")
+def models() -> dict[str, Any]:
+    """What judges notes on this box and whether a note answer may exclude a patient (D-95, D-97). Aggregate
+    configuration only; the console shows it on the Overview so a site sees single-model mode before a run."""
+    from orchestrator.scenarios.evaluate import NoteJudge
+    from orchestrator.scenarios.screen import judging_info
+
+    o = orch()
+    s = o.services
+    mode = os.environ.get("TB_SCREEN_JUDGE", "agreement").strip().lower()
+    verifier = s.verifier if mode != "single" else None
+    judge = NoteJudge(s.lake, s.llm, "judge", job_id="", verifier=verifier) if s.llm is not None else None
+    return {
+        "engine": os.environ.get("TB_SCREEN_ENGINE", "cql"),
+        "screen_judge": mode,
+        "gateway": bool(os.environ.get("TB_GATEWAY_URL", "").strip()),
+        **judging_info(judge),
+    }
+
+
 @app.post("/jobs")
 def create_job(req: JobCreate) -> Job:
     try:

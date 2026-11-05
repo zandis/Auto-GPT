@@ -362,6 +362,22 @@ def note_block_policy() -> str:
     return v
 
 
+def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
+    """Whether a confident note ``fail`` may exclude a patient on this run (D-95, D-97).
+
+    ``both_agree`` promises that two models agreed; without a verifier that promise cannot be kept, so the run falls
+    back to ``never`` (a single model may send a patient to review, never out) and says so. Returns
+    ``(may_block, effective_policy, reason)``."""
+    policy = note_block_policy()
+    if policy == "never":
+        return False, "never", "configured: note answers never exclude"
+    if judge is None:
+        return False, "never", "no note judge on this box"
+    if judge.verifier is None:
+        return False, "never", "no verifier configured: a single model may not exclude"
+    return True, "both_agree", "judge and verifier must both say fail"
+
+
 def tier(
     rs: Ruleset, verdicts: list[CriterionVerdict], threshold: float, note_block: bool | None = None
 ) -> tuple[str, list[str], int]:
@@ -417,9 +433,13 @@ def evaluate_patients(
     workers: int = 4,
     all_candidates: bool = False,
     kinds: tuple[str, ...] = ("inclusion", "exclusion"),
+    note_block: bool | None = None,
 ) -> dict[str, PatientVerdicts]:
     """Structured screen of every pid, then note criteria for structured candidates only (SPEC §8.2). NAV passes
-    ``kinds`` with renewal/documentation criteria and ``all_candidates`` (every scoped patient is judged)."""
+    ``kinds`` with renewal/documentation criteria and ``all_candidates`` (every scoped patient is judged).
+    ``note_block`` defaults to :func:`effective_note_block` of the judge: without a verifier no note answer excludes."""
+    if note_block is None:
+        note_block = effective_note_block(judge)[0]
     active = [c for c in rs.active() if c.kind in kinds and (only is None or c.id in only)]
     structured_ids = [c.id for c in active if c.class_ == "structured"]
     evals = engine.evaluate(rs, pids, index_date, structured_ids) if structured_ids else {}
@@ -463,7 +483,7 @@ def evaluate_patients(
             else:
                 vs.append(human_verdict(c))
         if p in cands:
-            t, acts, n_unk = tier(rs, vs, threshold)
+            t, acts, n_unk = tier(rs, vs, threshold, note_block=note_block)
         else:
             t, acts, n_unk = "excluded", [], 0
         out[p] = PatientVerdicts(p, vs, t, acts, n_unk)

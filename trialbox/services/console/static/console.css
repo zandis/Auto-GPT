@@ -94,3 +94,10 @@ details > summary { cursor: pointer; color: var(--accent); margin-bottom: 8px; }
 .pill.st-screen_fail, .pill.st-declined, .pill.st-withdrawn { background: var(--bad-bg); color: var(--bad); }
 .pill.st-contacted { background: var(--warn-bg); color: var(--warn); }
 td form.inline select, td form.inline input { max-width: 140px; }
+
+/* models-and-policy card (D-97) */
+.pill.warn { background: var(--warn-bg); color: var(--warn); padding: 1px 8px; }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0; }
+dl.facts dt { color: var(--muted); }
+dl.facts dd { margin: 0; }
+@media (max-width: 640px) { dl.facts { grid-template-columns: 1fr; } dl.facts dd { margin-bottom: 6px; } }

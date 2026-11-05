@@ -813,3 +813,16 @@ criterion's time frame. Measured with the same wording in `tools/medtxt_eval.py 
 on suspected findings 11-22 % of the time, at 2-8 points of recall on present findings. The cascade asks for `judge`
 (newest version) and gets v4; the compiler writes `judge_v4` into new manifests. Approved rulesets keep their pinned
 `judge_v3` until they are re-approved, because a prompt change in an approved ruleset is a change the approver signs.
+
+**D-97 Never-exclude fallback without a verifier, and the models card.** `TB_NOTE_BLOCK=both_agree` (D-95) promises
+that a note criterion excludes a patient only when two models agree. Where no verifier is wired (the OpenRouter POC
+mode, a verifier scaled to zero, `TB_SCREEN_JUDGE=single`, a verifier that is down), the orchestrator used to run
+the single judge and still let a confident note `fail` exclude, so the site believed two models had agreed when one
+had. Now `evaluate.effective_note_block(judge)` decides per run: `both_agree` without a verifier becomes `never`,
+and the run says so. The judging facts (judge model, verifier model, agreement mode, policy configured and in
+force, disagreements, failures) travel with the run: the `screen.evaluated` audit event, the candidate-list JSON
+(`judging`, optional), the summary PDF scope lines, the done mail, a new aggregate `screen_<stem>.json`, and
+the orchestrator's `GET /models`, which the console shows on the Overview as "Models and policy" with a warning pill
+when the fallback is in force. `trialbox doctor` gained the `note_block` check: WARN in DEV/TEST, FAIL in
+VALIDATION/PRODUCTION when `both_agree` has no verifier. A site that wants single-model on purpose sets
+`TB_NOTE_BLOCK=never`, as the rtx4090 installer profile does. Reviewed 2026-11-05 (Fable review H2, M9).

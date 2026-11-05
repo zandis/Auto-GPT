@@ -13,7 +13,8 @@
     "run_date": {"type": "string", "format": "date"},
     "scope": {"$ref": "#/$defs/screen_run_scope"},
     "rows": {"type": "array", "items": {"$ref": "#/$defs/candidate_row"}},
-    "summary": {"$ref": "#/$defs/tier_summary"}
+    "summary": {"$ref": "#/$defs/tier_summary"},
+    "judging": {"$ref": "#/$defs/judging"}
   },
   "$defs": {
     "screen_run_scope": {
@@ -66,6 +67,24 @@
         "n_unknown": {"type": "integer", "default": 0},
         "last_evaluated": {"type": ["string", "null"], "format": "date-time"},
         "changed": {"type": "array", "items": {"type": "string"}, "description": "microbatch: criterion ids whose verdict changed"}
+      }
+    },
+    "judging": {
+      "title": "Judging",
+      "description": "How note criteria were judged on this run (D-97): models, agreement mode and whether a note answer could exclude a patient.",
+      "type": "object",
+      "required": ["mode", "note_block", "may_block"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {"type": "string", "enum": ["agreement", "single", "none"]},
+        "judge_model": {"type": ["string", "null"]},
+        "verifier_model": {"type": ["string", "null"]},
+        "note_block": {"type": "string", "enum": ["both_agree", "never"]},
+        "note_block_reason": {"type": "string"},
+        "configured_note_block": {"type": "string", "enum": ["both_agree", "never"]},
+        "may_block": {"type": "boolean"},
+        "disagreements": {"type": "integer"},
+        "failures": {"type": "integer"}
       }
     },
     "tier_summary": {

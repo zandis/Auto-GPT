@@ -498,6 +498,7 @@ def create_app(
             "overview.html",
             sess,
             health=bk.health(),
+            models=bk.models(),
             rulesets=bk.rulesets() if settings.pilot else [],
             jobs=jobs,
             notice=notice if notice in ("ingested",) else "",
