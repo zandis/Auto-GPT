@@ -101,3 +101,12 @@ dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px;
 dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; }
 @media (max-width: 640px) { dl.facts { grid-template-columns: 1fr; } dl.facts dd { margin-bottom: 6px; } }
+
+/* coordinator screen (D-99) */
+.pill.tier-high { background: var(--ok-bg); color: var(--ok); }
+.pill.tier-review { background: var(--warn-bg); color: var(--warn); }
+.pill.tier-excluded { background: var(--bad-bg); color: var(--bad); }
+table.candidates td { vertical-align: top; }
+table.candidates blockquote.quote { margin: 0 0 6px; padding: 4px 8px; border-left: 3px solid var(--line); font-size: 12px; }
+.bad-text { color: var(--bad); }
+tr:target { outline: 2px solid var(--accent); }

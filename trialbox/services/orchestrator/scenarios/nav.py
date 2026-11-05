@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from tb_common.ruleset import Ruleset
+from tb_common.subject import job_subject
 from tb_contracts import CriterionVerdict, JobOutput, MissingItem, NavLists, NavRow, dump
 
 from orchestrator.clients import StepFailed
@@ -269,7 +270,7 @@ def run(ctx: Ctx) -> Outcome:
             outputs=outputs,
             routing=rs.manifest.routing,
             kind="list",
-            subject=f"NAV {rs.id} {'/'.join(depts)} — job {job.job_id}",
+            subject=job_subject("list", "NAV", rs.id, job.job_id, "/".join(depts)),
             body_md=text + ("\n\nIssues:\n" + "\n".join(f"- {i}" for i in issues[:20]) if issues else ""),
         ),
         Delivery(to=agg_to, outputs=[summary], routing=rs.manifest.routing, body_md=text),

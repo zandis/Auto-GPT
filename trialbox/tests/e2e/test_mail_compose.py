@@ -175,7 +175,9 @@ def test_screen_email_to_encrypted_list() -> None:
     assert job
     done = wait_for(lambda m: is_job_mail(str(m["Subject"]), "done", str(job["job_id"])), 1800)
     assert any(k.endswith(".pdf") for k in attachments(done))
-    lst = wait_for(lambda m: str(m["Subject"]) == f"Candidates GZQO v1.0.0 — job {job['job_id']}", 300)
+    lst = wait_for(
+        lambda m: str(m["Subject"]).startswith("[GZQO] SCREEN candidates") and m["Subject"].endswith(job["job_id"]), 300
+    )
     assert "pi@hospa.test" in str(lst["To"]) and "sponsor" not in str(lst["To"])
     files = _unzip(lst)
     cl = json.loads(next(v for k, v in files.items() if k.endswith(".json")))
@@ -196,7 +198,7 @@ def test_nav_email_to_lists_and_drafts() -> None:
         job = next((j for j in jobs if j.get("comment") == tag), {})
         time.sleep(2)
     assert job
-    lst = wait_for(lambda m: str(m["Subject"]) == f"NAV RA-BIO RHEU — job {job['job_id']}", 1800)
+    lst = wait_for(lambda m: str(m["Subject"]) == f"[RA-BIO] NAV list: RHEU · job {job['job_id']}", 1800)
     files = _unzip(lst)
     assert any(k.startswith("nav_lists_RA-BIO_RHEU") and k.endswith(".xlsx") for k in files)
     drafts = [v for k, v in files.items() if k.endswith(".docx")]
@@ -226,7 +228,7 @@ def test_nav_onc_twpas_then_submit_dry_run() -> None:
     tag = f"onc-{os.getpid()}"
     send(f"NAV ONC-OSI dept=ONC -- {tag}", sender="nurse-onc@hospa.test")
     job = _job_by_tag("NAV", tag)
-    lst = wait_for(lambda m: str(m["Subject"]) == f"NAV ONC-OSI ONC — job {job['job_id']}", 1800)
+    lst = wait_for(lambda m: str(m["Subject"]) == f"[ONC-OSI] NAV list: ONC · job {job['job_id']}", 1800)
     files = _unzip(lst)
     rep = json.loads(files["twpas_validation_ONC-OSI.json"])
     assert rep["validator"] == "hl7-validator" and rep["ig"].startswith("tw.gov.mohw.nhi.pas#")

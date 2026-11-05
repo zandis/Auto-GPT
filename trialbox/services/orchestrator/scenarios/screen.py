@@ -14,7 +14,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from tb_common.ruleset import Ruleset
-from tb_common.smallcell import suppress
+from tb_common.subject import job_subject
 from tb_common.timeutil import add_months
 from tb_contracts import CandidateList, CandidateRow, Judging, Routing, ScreenRunScope, TierSummary, dump
 
@@ -194,7 +194,11 @@ def report_meta(ctx: Ctx, rs: Ruleset, snapshot: str, run_date: date) -> ReportM
 
 def pid_names(ctx: Ctx, pids: list[str]) -> dict[str, str]:
     """pid -> MRN from the in-box pid map (internal recipients only)."""
-    sec = Path(ctx.cfg.env.secrets_dir)
+    return resolve_mrns(Path(ctx.cfg.env.secrets_dir), pids)
+
+
+def resolve_mrns(sec: Path, pids: list[str]) -> dict[str, str]:
+    """pid -> chart number from the pid map under ``sec``; empty when the box has no map (stub installs)."""
     db, key = sec / "pid_map.sqlite", sec / "pid_map.key"
     if not db.exists() or not key.exists():
         return {}
@@ -362,10 +366,11 @@ def deliver_lists(
             outputs=files,
             routing=routing,
             kind="list",
-            subject=f"Candidates {rs.id} v{rs.version} — job {ctx.job.job_id}",
+            subject=job_subject("candidates", ctx.job.type, rs.id, ctx.job.job_id, f"{len(listed)} patients"),
             body_md=(
                 f"Candidate list for **{rs.id} v{rs.version}**: {len(listed)} patients ({n_high} high, "
-                f"{len(listed) - n_high} review). The workbook is encrypted; the password follows separately."
+                f"{len(listed) - n_high} review). The workbook is encrypted; the password follows separately. "
+                f"Coordinators also see this list, with the note quotes, on the job page of the console."
             ),
         )
     )
@@ -387,7 +392,7 @@ def deliver_lists(
                 outputs=[ref],
                 routing=routing,
                 kind="referral",
-                subject=f"Referral {dept} {rs.id} — job {ctx.job.job_id}",
+                subject=job_subject("referral", ctx.job.type, rs.id, ctx.job.job_id, f"{dept}, {len(sub)} patients"),
                 body_md=(
                     f"{len(sub)} patients of department {dept} may be eligible for **{rs.id}**. Please consider a "
                     f"referral to the study team ({', '.join(routing.list_to or []) if routing else ''})."
@@ -418,10 +423,9 @@ def run(ctx: Ctx) -> Outcome:
     )
     persist_pool(ctx, rs, [r for r in srun.rows if r.tier in ("high", "review")])
     agg_to = recipients(rs.manifest.routing, job.requested_by)
-    sc = small_cell(ctx, rs)
 
-    def n(v: int) -> int | str:  # aggregate outputs: every count small-cell suppressed (SPEC §10.1)
-        return suppress(v, sc)
+    def n(v: int) -> int:  # D-99: internal mail, PDF and console show exact counts; the sponsor pack suppresses
+        return v
 
     judging = srun.judging or judging_info(None)
     scope_lines = [
@@ -444,6 +448,7 @@ def run(ctx: Ctx) -> Outcome:
                 "version": rs.version,
                 "run_date": run_date.isoformat(),
                 "snapshot": snapshot,
+                "practitioner_names": practitioner_names(ctx),
                 "scope": {
                     "practitioners": srun.practitioners,
                     "departments": srun.departments,
@@ -475,7 +480,7 @@ def run(ctx: Ctx) -> Outcome:
             rs,
             meta,
             scope_lines,
-            sc,
+            1,  # D-99: exact counts inside the site
             practitioner_names(ctx),
         ),
         "aggregate",

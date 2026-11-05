@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tb_common.subject import job_subject
 from tb_contracts import Settings
 
 DEFAULT_CONCENTRATION = 20.0
@@ -146,7 +147,7 @@ def run(ctx: Any) -> Any:
                     outputs=[out],
                     routing=routing,
                     kind="calibration",
-                    subject=f"Calibration {rid} — job {ctx.job.job_id}",
+                    subject=job_subject("calibration", ctx.job.type, rid, ctx.job.job_id),
                     body_md=f"Monthly recruitment calibration for **{rid}**: {rates}.",
                 )
             )

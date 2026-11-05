@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Response
 from lake.client import LakeHttp
+from pydantic import BaseModel, Field
 from tb_common.audit import AuditLog
 from tb_common.config import get_config
 from tb_common.fhir import FhirEvaluator
@@ -158,6 +159,36 @@ def list_jobs(
     state: str | None = None, ruleset: str | None = None, type: str | None = None, limit: int = 50
 ) -> list[Job]:
     return orch().db.find(state=state, ruleset=ruleset, type_=type, limit=min(limit, 500))
+
+
+class RevealRequest(BaseModel):
+    pid: str = Field(min_length=8, max_length=64)
+    by: str = Field(min_length=1, max_length=200)
+
+
+@app.post("/jobs/{job_id}/reveal")
+def reveal(job_id: str, req: RevealRequest) -> dict[str, Any]:
+    """Chart number of one listed pseudonym for a coordinator on the console (D-99). On-prem only: the pid map
+    never leaves the box, every reveal is one audit event with the actor, and nothing is stored."""
+    from orchestrator.scenarios.screen import resolve_mrns
+
+    o = orch()
+    job = o.db.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="no such job")
+    if job.type not in ("SCREEN", "MICROBATCH", "NAV") or job.state != "done":
+        raise HTTPException(status_code=409, detail="chart numbers are revealed for finished screening jobs only")
+    found = resolve_mrns(Path(o.cfg.env.secrets_dir), [req.pid])
+    o.audit.append(
+        "screen.reveal",
+        job_id=job_id,
+        ruleset=job.ruleset,
+        actor=req.by,
+        detail={"pid": req.pid, "found": req.pid in found},
+    )
+    if req.pid not in found:
+        raise HTTPException(status_code=404, detail="this pseudonym is not in the box's pid map")
+    return {"pid": req.pid, "mrn": found[req.pid]}
 
 
 @app.post("/jobs/{job_id}/cancel")

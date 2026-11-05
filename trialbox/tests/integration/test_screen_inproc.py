@@ -50,7 +50,7 @@ def test_screen_by_email(world: dict[str, Any], synth_dir: Path) -> None:
     job = box.orch.db.find(type_="SCREEN")[0]
     assert job.state == "done", job.error
     assert (job.metrics.patients_scoped or 0) > 50 and (job.metrics.llm_calls or 0) > 0  # type: ignore[union-attr]
-    files = _list_mail(box, "Candidates GZQO v1.0.0")
+    files = _list_mail(box, "[GZQO] SCREEN candidates")
     xlsx = next(v for k, v in files.items() if k.endswith(".xlsx"))
     cl = c.CandidateList.model_validate_json(next(v for k, v in files.items() if k.endswith(".json")))
     assert (
@@ -156,7 +156,7 @@ def test_microbatch_changes_on_seeded_changes(world: dict[str, Any], synth_dir: 
     box.orch.drain()
     job = box.orch.db.get(job.job_id)  # type: ignore[assignment]
     assert job is not None and job.state == "done", job.error
-    files = _list_mail(box, "Candidates GZQO v1.0.0")
+    files = _list_mail(box, "[GZQO] MICROBATCH candidates")
     xlsx = next(v for k, v in files.items() if k.startswith("this_week_visit1"))
     wb = load_workbook(io.BytesIO(xlsx))
     assert "changes" in wb.sheetnames

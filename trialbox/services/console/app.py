@@ -697,6 +697,10 @@ def create_app(
     def job_view(request: Request, job_id: str) -> Response:
         sess = need(request)
         job = _job_or_404(job_id)
+        return _job_page(request, sess, job)
+
+    def _job_page(request: Request, sess: Session, job: Job, revealed: dict[str, str] | None = None) -> Response:
+        job_id = job.job_id
         review_html = next(
             (o for o in job.outputs or [] if o.filename.startswith("review_") and o.filename.endswith(".html")), None
         )
@@ -727,7 +731,90 @@ def create_app(
             rulesets=[r for r in bk.rulesets() if r.status == "approved"],
             consent=_consent_card(job),
             case=_case_card(job),
+            screen=_screen_card(job, sess, revealed),
         )
+
+    def _screen_card(job: Job, sess: Session, revealed: dict[str, str] | None = None) -> dict[str, Any] | None:
+        """The coordinator's screen for a finished SCREEN / MICROBATCH job (D-99): the run summary from the
+        ``screen_*.json`` aggregate, and for administrators and coordinators the candidate rows (tier, next visit,
+        practitioner, open questions, note quotes) from the candidate-list JSON the mail also carried. Viewers see the
+        summary only: the rows are patient-level."""
+        if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
+            return None
+        import json
+
+        outs = job.outputs or []
+        summary_out = next((o for o in outs if o.filename.startswith("screen_") and o.filename.endswith(".json")), None)
+        list_out = next(
+            (o for o in outs if o.filename.startswith("candidate_list_") and o.filename.endswith(".json")), None
+        )
+        if summary_out is None and list_out is None:
+            return None
+        card: dict[str, Any] = {"summary": None, "rows": None, "revealed": revealed or {}, "practitioners": {}}
+        if summary_out is not None:
+            try:
+                card["summary"] = json.loads(bk.get_object(summary_out.minio_key))
+            except (KeyError, ValueError, OSError):
+                card["summary"] = None
+        if list_out is not None and sess.user.can_request:
+            try:
+                cl = json.loads(bk.get_object(list_out.minio_key))
+            except (KeyError, ValueError, OSError):
+                cl = None
+            if cl is not None:
+                rows = []
+                for r in cl.get("rows") or []:
+                    if r.get("tier") not in ("high", "review"):
+                        continue
+                    unknown = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "unknown"]
+                    failing = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "fail"]
+                    quotes = [
+                        {
+                            "id": v["id"],
+                            "verdict": v.get("verdict"),
+                            "quote": (v.get("evidence") or {}).get("quote"),
+                            "date": (v.get("evidence") or {}).get("quote_date"),
+                            "confidence": (v.get("evidence") or {}).get("confidence"),
+                        }
+                        for v in r.get("criteria") or []
+                        if (v.get("evidence") or {}).get("quote")
+                    ]
+                    rows.append(
+                        {
+                            "pid": r.get("pid", ""),
+                            "tier": r.get("tier"),
+                            "next_appointment": (r.get("next_appointment") or "")[:16].replace("T", " "),
+                            "practitioner": r.get("practitioner_id") or "",
+                            "department": r.get("department") or "",
+                            "unknown": unknown,
+                            "failing": failing,
+                            "quotes": quotes,
+                            "actions": r.get("actions") or [],
+                            "changed": r.get("changed") or [],
+                        }
+                    )
+                order = {"high": 0, "review": 1}
+                rows.sort(key=lambda r: (order.get(str(r["tier"]), 2), r["next_appointment"] or "9", r["pid"]))
+                card["rows"] = rows
+        card["practitioners"] = (card["summary"] or {}).get("practitioner_names") or {}
+        return card
+
+    @app.post("/pilot/jobs/{job_id}/reveal")
+    def job_reveal(request: Request, job_id: str, csrf: str = Form(""), pid: str = Form("")) -> Response:
+        """One chart number for one listed pseudonym, shown once on the page and audited on both sides (D-99)."""
+        sess = need_requester(request, csrf)
+        job = _job_or_404(job_id)
+        if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
+            raise _Problem(409, "request.refused", reason="chart numbers are revealed for finished screening jobs only")
+        pid = pid.strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", pid):
+            raise _Problem(400, "request.refused", reason="bad pseudonym")
+        au.append("console.reveal", job_id=job_id, actor=actor(sess), detail={"pid": pid})
+        try:
+            mrn = bk.reveal(job_id, pid, actor(sess))
+        except Refused as exc:
+            raise _Problem(409, "request.refused", reason=str(exc)) from exc
+        return _job_page(request, sess, job, revealed={pid: mrn or ""})
 
     def _case_card(job: Job) -> dict[str, Any] | None:
         if job.type != "CASE" or job.state != "done":

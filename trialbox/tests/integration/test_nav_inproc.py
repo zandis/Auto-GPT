@@ -42,7 +42,7 @@ def test_nav_by_email(world: dict[str, Any], synth_dir: Path) -> None:
     box.orch.drain()
     job = box.orch.db.find(type_="NAV")[0]
     assert job.state == "done", job.error
-    mail = next(s for s in box.sent if s.subject.startswith("NAV RA-BIO RHEU"))
+    mail = next(s for s in box.sent if s.subject.startswith("[RA-BIO] NAV list: RHEU"))
     assert sorted(mail.to) == ["nurse-rheu@hospa.test", "rheu-dr@hospa.test"]
     files = unzip_phi(box, mail)
     wb = load_workbook(io.BytesIO(next(v for k, v in files.items() if k.endswith(".xlsx"))))

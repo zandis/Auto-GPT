@@ -91,6 +91,7 @@ class Backend(Protocol):
     def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry: ...
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
     def registry_export(self, ruleset: str) -> bytes: ...
+    def reveal(self, job_id: str, pid: str, by: str) -> str | None: ...
 
 
 # ---------------------------------------------------------------------------------------------- audit reading
@@ -281,6 +282,20 @@ class HttpBackend:
 
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
         return int(self._registry_call("POST", f"/registry/{ruleset}/promote", req)["added"])
+
+    def reveal(self, job_id: str, pid: str, by: str) -> str | None:
+        """The chart number of one listed pseudonym (D-99): the orchestrator resolves and audits it; None when the
+        box has no pid map for it."""
+        try:
+            data = self.orch.post_raw(f"/jobs/{job_id}/reveal", {"pid": pid, "by": by}).json()
+        except ServiceError as exc:
+            if exc.status == 404:
+                return None
+            if exc.status in (400, 409, 422):
+                raise Refused(exc.detail) from exc
+            raise Unavailable(str(exc)) from exc
+        mrn = data.get("mrn") if isinstance(data, dict) else None
+        return str(mrn) if mrn else None
 
     def registry_export(self, ruleset: str) -> bytes:
         try:
