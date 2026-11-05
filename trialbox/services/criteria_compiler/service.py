@@ -355,7 +355,7 @@ class Compiler:
                 "small_cell": int(self.d.settings_thresholds.get("small_cell", 5)),
             },
         )
-        m.setdefault("models", {"judge": self.d.judge_model, "judge_prompt": "judge_v3"})
+        m.setdefault("models", {"judge": self.d.judge_model, "judge_prompt": "judge_v4"})
         m.pop("review", None)
         m.pop("equivalence", None)
         return RulesetManifest.model_validate(m)

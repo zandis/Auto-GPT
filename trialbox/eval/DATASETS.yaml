@@ -71,3 +71,18 @@ datasets:
     data_class: D0
     kind: synthetic
     licence: generated (tools/synth via tools/hospital_sim.py)
+  open_cohorts:
+    path: eval/open_cohorts (model answers and scores; SIGIR/TREC 2023 topics, qrels and trial texts in .cache, never committed)
+    data_class: D0
+    kind: open
+    licence: SIGIR 2016 cohort as redistributed by NCBI TrialGPT (public domain, US Government work); TREC Clinical Trials 2023 topics and qrels (NIST); trial criteria from the ClinicalTrials.gov public API
+  chia:
+    path: eval/chia (route shares only; the Chia corpus is fetched to .cache at run time, never committed)
+    data_class: D0
+    kind: open
+    licence: CC BY 4.0 (Kury et al., Sci Data 2020, figshare 10.6084/m9.figshare.11855817)
+  ad:
+    path: eval/ad (Alzheimer's slice; model answers, router labels and scores; trial texts in .cache, never committed)
+    data_class: D0
+    kind: open
+    licence: ClinicalTrials.gov public records; TREC Clinical Trials 2021/2022 topics and qrels (NIST)

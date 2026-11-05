@@ -1,0 +1,130 @@
+{
+ "qualifier_needs_llm": {
+  "criteria": 12409,
+  "annotated": 12337,
+  "trials": 1000,
+  "routes": {
+   "filter": {
+    "n": 6660,
+    "share": 0.5398,
+    "trial95": [
+     0.524,
+     0.5542
+    ]
+   },
+   "human": {
+    "n": 1968,
+    "share": 0.1595,
+    "trial95": [
+     0.1426,
+     0.1775
+    ]
+   },
+   "llm": {
+    "n": 3709,
+    "share": 0.3006,
+    "trial95": [
+     0.2881,
+     0.3134
+    ]
+   }
+  },
+  "routes_inclusion": {
+   "filter": 0.5227,
+   "human": 0.19,
+   "llm": 0.2874
+  },
+  "routes_exclusion": {
+   "filter": 0.5499,
+   "human": 0.1416,
+   "llm": 0.3084
+  },
+  "negated_exclusions": {
+   "n": 451,
+   "of": 7768,
+   "share": 0.0581,
+   "wilson95": [
+    0.0531,
+    0.0635
+   ],
+   "examples": [
+    "A moderate/severe COPD exacerbation that has not resolved at least 14 days prior to Visit 1 and at least 30 days following the last dose of oral corticosteroids",
+    "stimulant medications (eg, Ritalin, Concerta, Biphetamine, and Dexedrine)",
+    "Preoperative left ventricular ejection fraction < 30%, sick sinus syndrome, severe sinus bradycardia (< 50 beats per minute), or second-degree or above atrioven",
+    "Has a transplanted organ (with the exception of a corneal transplant performed >= 3 months prior to baseline)",
+    "Subjects were not to have a history of alcohol or drug abuse within 2 years prior to the study (subjects with a history of previous use of cannabis were not exc",
+    "Malignant tumors other than basal cell or squamous cell carcinoma of the skin, CIN(Cervical Intraepitherial Neoplasia) and CIS(Carcinoma in situ) of the cervix,",
+    "Liver disease caused by an etiology other than HCV",
+    "Subjects with a history of thrombosis or other reason (other than sickle cell disease) for enhanced thrombotic risk"
+   ]
+  },
+  "mood_criteria": {
+   "n": 550,
+   "share": 0.0446
+  }
+ },
+ "qualifier_codeable": {
+  "criteria": 12409,
+  "annotated": 12337,
+  "trials": 1000,
+  "routes": {
+   "filter": {
+    "n": 8843,
+    "share": 0.7168,
+    "trial95": [
+     0.7004,
+     0.7317
+    ]
+   },
+   "human": {
+    "n": 1968,
+    "share": 0.1595,
+    "trial95": [
+     0.1426,
+     0.1775
+    ]
+   },
+   "llm": {
+    "n": 1526,
+    "share": 0.1237,
+    "trial95": [
+     0.1159,
+     0.1318
+    ]
+   }
+  },
+  "routes_inclusion": {
+   "filter": 0.6739,
+   "human": 0.19,
+   "llm": 0.1361
+  },
+  "routes_exclusion": {
+   "filter": 0.742,
+   "human": 0.1416,
+   "llm": 0.1164
+  },
+  "negated_exclusions": {
+   "n": 451,
+   "of": 7768,
+   "share": 0.0581,
+   "wilson95": [
+    0.0531,
+    0.0635
+   ],
+   "examples": [
+    "A moderate/severe COPD exacerbation that has not resolved at least 14 days prior to Visit 1 and at least 30 days following the last dose of oral corticosteroids",
+    "stimulant medications (eg, Ritalin, Concerta, Biphetamine, and Dexedrine)",
+    "Preoperative left ventricular ejection fraction < 30%, sick sinus syndrome, severe sinus bradycardia (< 50 beats per minute), or second-degree or above atrioven",
+    "Has a transplanted organ (with the exception of a corneal transplant performed >= 3 months prior to baseline)",
+    "Subjects were not to have a history of alcohol or drug abuse within 2 years prior to the study (subjects with a history of previous use of cannabis were not exc",
+    "Malignant tumors other than basal cell or squamous cell carcinoma of the skin, CIN(Cervical Intraepitherial Neoplasia) and CIS(Carcinoma in situ) of the cervix,",
+    "Liver disease caused by an etiology other than HCV",
+    "Subjects with a history of thrombosis or other reason (other than sickle cell disease) for enhanced thrombotic risk"
+   ]
+  },
+  "mood_criteria": {
+   "n": 550,
+   "share": 0.0446
+  }
+ }
+}

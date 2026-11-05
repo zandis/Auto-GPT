@@ -263,9 +263,12 @@ def raw_path(model: str) -> Path:
 
 def run(models: list[str], base_url: str, workers: int, variant: str = "base") -> None:
     pairs, notes, trials, _ = dataset()
-    cps = criterion_pairs(pairs, {k: v["title"] for k, v in trials.items()} if variant != "base" else None)
+    cps = criterion_pairs(pairs, {k: v["title"] for k, v in trials.items()} if variant == "negation" else None)
+    from tools.medtxt_eval import SUSPECTED  # here, not at import: medtxt_eval imports this module
+
+    extra = SUSPECTED if variant == "suspected" else VARIANTS[variant]
     base_system = mlbench.SYSTEM
-    mlbench.SYSTEM = base_system + VARIANTS[variant]
+    mlbench.SYSTEM = base_system + extra
     key = os.environ.get("OPENROUTER_API_KEY", "none")
     (RESULTS / "raw").mkdir(parents=True, exist_ok=True)
     for model in models:
@@ -319,9 +322,14 @@ def rate(flags: list[tuple[str, bool]]) -> dict[str, Any]:
     return {"k": k, "n": n, "rate": k / n if n else 0.0, "wilson95": wilson(k, n), "cluster95": cluster_ci(flags)}
 
 
-def load(model: str) -> dict[str, dict[str, Any]]:
-    with gzip.open(raw_path(model), "rt", encoding="utf-8") as fh:
-        return {r["annotation_id"]: r for r in map(json.loads, fh)}
+def load(model: str) -> dict[str, dict[str, Any]] | None:
+    """All answers of one model, or None while its run is still writing the file (gzip not closed yet)."""
+    try:
+        with gzip.open(raw_path(model), "rt", encoding="utf-8") as fh:
+            return {r["annotation_id"]: r for r in map(json.loads, fh)}
+    except EOFError:
+        print("skipping", model, "(run still in progress)")
+        return None
 
 
 def blocks(models: list[str], answers: dict[str, dict[str, dict[str, Any]]], aid: str) -> bool:
@@ -371,7 +379,9 @@ def score() -> dict[str, Any]:
     models = sorted(
         f.name.removesuffix(".jsonl.gz").replace("__", "/", 1) for f in (RESULTS / "raw").glob("*.jsonl.gz")
     )
-    answers = {m: load(m) for m in models}
+    loaded = {m: load(m) for m in models}
+    answers = {m: a for m, a in loaded.items() if a is not None}
+    models = [m for m in models if m in answers]
     res: dict[str, Any] = {
         "pairs": {
             "eligible": sum(p["label"] == "2" for p in pairs),
@@ -410,7 +420,7 @@ def main(argv: list[str] | None = None) -> None:
     r = sub.add_parser("run")
     r.add_argument("--models", nargs="+", required=True)
     r.add_argument("--workers", type=int, default=24)
-    r.add_argument("--variant", default="base", choices=sorted(VARIANTS))
+    r.add_argument("--variant", default="base", choices=[*sorted(VARIANTS), "suspected"])
     r.add_argument("--base-url", default=os.environ.get("MLBENCH_BASE_URL", "https://openrouter.ai/api/v1"))
     sub.add_parser("score")
     sub.add_parser("stats")

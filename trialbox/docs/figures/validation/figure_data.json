@@ -1,0 +1,284 @@
+{
+ "fig1": [
+  [
+   "TREC CT 2021-22",
+   "125 patients, NIST pair labels",
+   1700,
+   20096
+  ],
+  [
+   "MedTxt Japanese (ja + en)",
+   "215 real Japanese reports",
+   0,
+   1677
+  ],
+  [
+   "Chia criteria corpus",
+   "1,000 trials, expert entities",
+   0,
+   12337
+  ]
+ ],
+ "fig2": {
+  "TREC CT 2021-22": {
+   "Gemma 4 26B": {
+    "lost": {
+     "point": 34.333333333333336,
+     "low": 30.714285714285715,
+     "high": 37.971014492753625,
+     "k": 412,
+     "n": 1200
+    },
+    "caught": {
+     "point": 71.6,
+     "low": 65.88235294117646,
+     "high": 77.35470941883767,
+     "k": 358,
+     "n": 500
+    }
+   },
+   "Gemma 4 26B 4-bit": {
+    "lost": {
+     "point": 31.0,
+     "low": 27.879213483146064,
+     "high": 34.12098298676749,
+     "k": 372,
+     "n": 1200
+    },
+    "caught": {
+     "point": 67.2,
+     "low": 61.86612576064908,
+     "high": 72.67657992565056,
+     "k": 336,
+     "n": 500
+    }
+   },
+   "gpt-oss-120b": {
+    "lost": {
+     "point": 35.75,
+     "low": 32.13728549141966,
+     "high": 39.37449879711307,
+     "k": 429,
+     "n": 1200
+    },
+    "caught": {
+     "point": 70.8,
+     "low": 64.63654223968565,
+     "high": 76.65903890160183,
+     "k": 354,
+     "n": 500
+    }
+   },
+   "Qwen3.5-9B": {
+    "lost": {
+     "point": 34.5,
+     "low": 30.87693441414886,
+     "high": 38.31009023789992,
+     "k": 414,
+     "n": 1200
+    },
+    "caught": {
+     "point": 66.0,
+     "low": 60.451977401129945,
+     "high": 71.42857142857143,
+     "k": 330,
+     "n": 500
+    }
+   },
+   "Spark pair: gpt-oss-120b + Gemma 4": {
+    "lost": {
+     "point": 24.916666666666668,
+     "low": 21.863260706235913,
+     "high": 28.095644748078563,
+     "k": 299,
+     "n": 1200
+    },
+    "caught": {
+     "point": 63.6,
+     "low": 56.95364238410596,
+     "high": 70.22132796780684,
+     "k": 318,
+     "n": 500
+    }
+   },
+   "RTX 5090 pair: Gemma 4 4-bit + Qwen3.5-9B": {
+    "lost": {
+     "point": 19.333333333333332,
+     "low": 16.864608076009503,
+     "high": 21.893491124260358,
+     "k": 232,
+     "n": 1200
+    },
+    "caught": {
+     "point": 54.2,
+     "low": 48.98989898989899,
+     "high": 59.471365638766514,
+     "k": 271,
+     "n": 500
+    }
+   }
+  }
+ },
+ "fig3b": {
+  "categories": {
+   "Model error": 10,
+   "Label noise (criterion clearly blocks)": 12,
+   "Criterion of another trial arm": 5,
+   "Ambiguous": 3
+  },
+  "patterns": {
+   "Negated exclusion read as the condition": 5,
+   "'Other X' applied to the index condition": 2,
+   "Blocked without evidence / wrong sub-type": 3
+  }
+ },
+ "fig4": {
+  "Spark pair|en": {
+   "Present": 95.1,
+   "Stated\nabsent": 9.5,
+   "Suspected": 64.9,
+   "Not\nmentioned": 6.3
+  },
+  "Spark pair|ja": {
+   "Present": 87.7,
+   "Stated\nabsent": 8.7,
+   "Suspected": 66.9,
+   "Not\nmentioned": 6.3
+  },
+  "RTX 5090 pair|en": {
+   "Present": 84.1,
+   "Stated\nabsent": 9.1,
+   "Suspected": 36.4,
+   "Not\nmentioned": 4.2
+  },
+  "RTX 5090 pair|ja": {
+   "Present": 69.0,
+   "Stated\nabsent": 6.3,
+   "Suspected": 41.1,
+   "Not\nmentioned": 3.7
+  }
+ },
+ "fig5": {
+  "Gemma 4 26B (en)": {
+   "suspected_v3": 76.2,
+   "suspected_v4": 23.8,
+   "recall_v3": 96.1,
+   "recall_v4": 88.9
+  },
+  "Gemma 4 26B (ja)": {
+   "suspected_v3": 76.8,
+   "suspected_v4": 25.2,
+   "recall_v3": 90.3,
+   "recall_v4": 84.4
+  },
+  "Gemma 4 26B 4-bit (en)": {
+   "suspected_v3": 79.5,
+   "suspected_v4": 32.5,
+   "recall_v3": 91.8,
+   "recall_v4": 89.1
+  },
+  "Gemma 4 26B 4-bit (ja)": {
+   "suspected_v3": 78.8,
+   "suspected_v4": 38.4,
+   "recall_v3": 82.7,
+   "recall_v4": 80.7
+  },
+  "gpt-oss-120b (en)": {
+   "suspected_v3": 67.5,
+   "suspected_v4": 24.5,
+   "recall_v3": 96.5,
+   "recall_v4": 94.1
+  },
+  "gpt-oss-120b (ja)": {
+   "suspected_v3": 72.8,
+   "suspected_v4": 23.8,
+   "recall_v3": 91.8,
+   "recall_v4": 92.1
+  },
+  "Qwen3.5-9B (en)": {
+   "suspected_v3": 37.1,
+   "suspected_v4": 17.9,
+   "recall_v3": 87.4,
+   "recall_v4": 79.8
+  },
+  "Qwen3.5-9B (ja)": {
+   "suspected_v3": 46.4,
+   "suspected_v4": 15.9,
+   "recall_v3": 75.6,
+   "recall_v4": 68.0
+  },
+  "Spark pair (en)": {
+   "suspected_v3": 64.9,
+   "suspected_v4": 21.2,
+   "recall_v3": 95.1,
+   "recall_v4": 87.7
+  },
+  "Spark pair (ja)": {
+   "suspected_v3": 66.9,
+   "suspected_v4": 17.9,
+   "recall_v3": 87.7,
+   "recall_v4": 82.5
+  },
+  "RTX 5090 pair (en)": {
+   "suspected_v3": 36.4,
+   "suspected_v4": 14.6,
+   "recall_v3": 84.1,
+   "recall_v4": 76.2
+  },
+  "RTX 5090 pair (ja)": {
+   "suspected_v3": 41.1,
+   "suspected_v4": 11.9,
+   "recall_v3": 69.0,
+   "recall_v4": 62.4
+  }
+ },
+ "fig6": {
+  "chia": {
+   "filter": {
+    "n": 6660,
+    "share": 0.5398,
+    "trial95": [
+     0.524,
+     0.5542
+    ]
+   },
+   "human": {
+    "n": 1968,
+    "share": 0.1595,
+    "trial95": [
+     0.1426,
+     0.1775
+    ]
+   },
+   "llm": {
+    "n": 3709,
+    "share": 0.3006,
+    "trial95": [
+     0.2881,
+     0.3134
+    ]
+   }
+  },
+  "ad": null
+ },
+ "fig7": [
+  {
+   "patients": 2000,
+   "pipeline_s": 57.0,
+   "peak_rss_mb": 1292,
+   "model_calls": 78
+  },
+  {
+   "patients": 10000,
+   "pipeline_s": 225.6,
+   "peak_rss_mb": 5081,
+   "model_calls": 277
+  },
+  {
+   "patients": 25000,
+   "pipeline_s": 582.3,
+   "peak_rss_mb": 12148,
+   "model_calls": 770
+  }
+ ]
+}

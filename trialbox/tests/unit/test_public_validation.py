@@ -6,7 +6,7 @@ import random
 
 import pytest
 
-from tools import medtxt_eval, trec_ct_eval
+from tools import ad_eval, chia_routes, medtxt_eval, open_cohorts_eval, trec_ct_eval
 from tools.trec_ct_eval import age_sex_filter, cluster_ci, ct_age, patient_age_sex, wilson
 
 
@@ -79,3 +79,28 @@ def test_medtxt_sentences_strip_tags() -> None:
 def test_medtxt_criterion_is_an_exclusion() -> None:
     p = medtxt_eval.criterion({"id": "CR:1|0", "report": "CR:1", "finding": "hemoptysis", "certainty": "positive"})
     assert p.criterion_type == "exclusion" and p.criterion == "Patients with hemoptysis."
+
+
+def test_split_ctgov_criteria() -> None:
+    text = (
+        "Inclusion Criteria:\n\n* Age 50 to 85\n* MMSE 20-28\n\nExclusion Criteria:\n\n"
+        "* OFFSPRING - EXCLUSION CRITERIA:\n1. Prior stroke\n* No\n"
+    )
+    assert open_cohorts_eval.split_criteria(text) == [
+        ("inclusion", "Age 50 to 85"),
+        ("inclusion", "MMSE 20-28"),
+        ("exclusion", "Prior stroke"),
+    ]
+
+
+def test_chia_route_rule() -> None:
+    assert chia_routes.route(["Condition", "Informed_consent"]) == "human"
+    assert chia_routes.route(["Condition", "Mood"]) == "llm"
+    assert chia_routes.route(["Condition", "Qualifier"]) == "llm"
+    assert chia_routes.route(["Condition", "Qualifier"], qualifier_llm=False) == "filter"
+    assert chia_routes.route([]) == "unannotated"
+
+
+def test_kappa() -> None:
+    assert ad_eval.kappa(["a", "b", "a", "b"], ["a", "b", "a", "b"]) == 1.0
+    assert ad_eval.kappa(["a", "a", "b", "b"], ["a", "b", "a", "b"]) == 0.0

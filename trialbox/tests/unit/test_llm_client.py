@@ -46,7 +46,7 @@ def test_judge_through_stub_and_audit(tmp_path: Path) -> None:
     assert r.data["verdict"] == "pass" and r.target == "local"
     assert verify(tmp_path).ok
     line = json.loads(next(tmp_path.glob("*.jsonl")).read_text().splitlines()[0])
-    assert line["event"] == "llm.call" and line["prompt_version"] == "judge_v3"
+    assert line["event"] == "llm.call" and line["prompt_version"] == "judge_v4"
 
 
 def test_cloud_routing_requires_service_flag_and_clearance(tmp_path: Path) -> None:
