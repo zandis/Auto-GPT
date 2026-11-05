@@ -83,6 +83,7 @@ T: dict[str, dict[str, str]] = {
         "feas.eligible": "- Eligible on structured criteria (any month-end): {n}",
         "feas.barriers": "- Biggest barriers: {items}",
         "feas.attached": "Attached: feasibility report (PDF), workbook (XLSX) and the machine-readable result (JSON).",
+        "pop.line": "Protocol population: stage {stage}; arm {arm}. Counts and candidates are for this population only.",
         "feas.headline": "{low}–{high} in {months} mo",
         # PDF labels
         "pdf.feas.title": "Feasibility report — {trial}",
@@ -190,6 +191,7 @@ T: dict[str, dict[str, str]] = {
         "feas.eligible": "- 構造化基準で適格（いずれかの月末）：{n}",
         "feas.barriers": "- 最大の障壁：{items}",
         "feas.attached": "添付：フィージビリティ報告書（PDF）、ワークブック（XLSX）、機械可読の結果（JSON）。",
+        "pop.line": "プロトコルの対象集団：病期 {stage}；群 {arm}。件数と候補者はこの集団に限ります。",
         "feas.headline": "{months} か月で {low}–{high}",
         "pdf.feas.title": "フィージビリティ報告書 — {trial}",
         "pdf.item": "項目",
@@ -295,6 +297,7 @@ T: dict[str, dict[str, str]] = {
         "feas.eligible": "- 結構化條件符合（任一月底）：{n}",
         "feas.barriers": "- 最大障礙：{items}",
         "feas.attached": "附件：可行性報告（PDF）、活頁簿（XLSX）與機器可讀結果（JSON）。",
+        "pop.line": "試驗計畫對象族群：病期 {stage}；組別 {arm}。件數與候選者僅限此族群。",
         "feas.headline": "{months} 個月 {low}–{high}",
         "pdf.feas.title": "可行性報告 — {trial}",
         "pdf.item": "項目",
@@ -374,6 +377,17 @@ T: dict[str, dict[str, str]] = {
         "pdf.screen.footer.cells": " 1–{hi} 的格子顯示為「<{t}」。",
     },
 }
+
+
+def population_line(lang: str, population: Any) -> str:
+    """One sentence naming the protocol's disease stage and study arm (D-101); empty when the manifest has none."""
+    if population is None:
+        return ""
+    stage = getattr(population, "disease_stage", None) or "-"
+    arm = getattr(population, "study_arm", None) or "-"
+    if stage == "-" and arm == "-":
+        return ""
+    return t(lang, "pop.line", stage=stage, arm=arm)
 
 
 def t(lang: str, key: str, **values: Any) -> str:

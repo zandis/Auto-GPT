@@ -136,7 +136,7 @@ def run(ctx: Ctx) -> Outcome:
     rows.sort(key=sort_key)
     persist_pool(ctx, rs, [r for r in rows if r.pid in {p["pid"] for p in week}])
     ctx.state("reporting")
-    meta = report_meta(ctx, rs, snapshot, run_date)
+    meta = report_meta(ctx, rs, snapshot, run_date, srun.judging)
     stem = f"this_week_visit1_{rs.id}_{run_date.isoformat()}"
     deliveries, _ = deliver_lists(ctx, rs, rows, meta, stem, changes=changes)
     agg_to = recipients(rs.manifest.routing, job.requested_by)

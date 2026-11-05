@@ -3,6 +3,7 @@ that were waiting for this ruleset version, on edits re-send the review (max 3 r
 
 from __future__ import annotations
 
+from criteria_compiler.semantics import human_heavy
 from tb_common.ruleset import Ruleset, RulesetNotApproved, load_approved
 from tb_contracts import ApproveRequest, JobFile
 
@@ -75,9 +76,15 @@ def run(ctx: Ctx) -> Outcome:
         raise StepFailed("approve", f"The workbook is for ruleset {meta['ruleset']}, not {ruleset}.")
     if meta.get("version") and meta["version"] != version:
         raise StepFailed("approve", f"The workbook is for version {meta['version']}, not {version}.")
+    via = "web console" if (ctx.job.comment or "").startswith("web console") else "e-mail"
     res = ctx.services.compiler.approve(
         ApproveRequest(
-            ruleset=ruleset, version=version, by=ctx.job.requested_by, job_id=ctx.job.job_id, decisions=decisions
+            ruleset=ruleset,
+            version=version,
+            by=ctx.job.requested_by,
+            job_id=ctx.job.job_id,
+            via=via,
+            decisions=decisions,
         )
     )
     routing = res.manifest.routing if res.manifest else None
@@ -91,11 +98,26 @@ def run(ctx: Ctx) -> Outcome:
         )
         out = ctx.publish(f"manifest_{ruleset}_v{version}.yaml", manifest.encode("utf-8"), "aggregate", to)
         resumed = ctx.orch.resume_awaiting(ruleset, version)
+        rev = res.manifest.review
+        split = dict(rev.split.model_dump()) if rev and rev.split else {}
+        split = {k: int(v or 0) for k, v in split.items()}
         body = (
-            f"Ruleset **{ruleset} v{version}** is approved by {ctx.job.requested_by} (tag `{res.tag}`, review round "
-            f"{res.round}). The box now uses it for counts and candidate lists; a person still confirms each "
-            f"candidate.\n\n"
-        ) + (f"Resumed waiting jobs: {', '.join(f'`{j}`' for j in resumed)}.\n" if resumed else "")
+            f"Ruleset **{ruleset} v{version}** is approved by {ctx.job.requested_by} via {via} (tag `{res.tag}`, "
+            f"review round {res.round}). The box now uses it for counts and candidate lists; a person still confirms "
+            f"each candidate.\n\n"
+        )
+        if split:
+            body += (
+                f"Approval record: {split.get('structured', 0)} criteria by the filter, {split.get('mixed', 0)} by the "
+                f"filter then the model, {split.get('note', 0)} by the model on notes, {split.get('human', 0)} by a "
+                f"person at screening; the approver confirmed this routing.\n\n"
+            )
+            if human_heavy(split):
+                body += (
+                    "**Note:** at least half of the criteria are left to a person, so the box does little of the "
+                    "screening for this trial. If that is not intended, edit the class column and re-approve.\n\n"
+                )
+        body += f"Resumed waiting jobs: {', '.join(f'`{j}`' for j in resumed)}.\n" if resumed else ""
         return Outcome(
             summary_md=body,
             deliveries=[

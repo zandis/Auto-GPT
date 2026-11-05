@@ -36,7 +36,7 @@
 <section class="card">
 <h2>{{ t('registry.rows') }}</h2>
 {% if not rows %}<p class="hint" data-testid="registry-empty">{{ t('registry.empty') }}</p>{% else %}
-<table data-testid="registry-rows">
+<div class="scroll"><table data-testid="registry-rows">
 <thead><tr><th>{{ t('registry.pid') }}</th><th>{{ t('registry.status') }}</th><th>{{ t('registry.reason') }}</th><th>{{ t('registry.updated') }}</th><th>{{ t('col.by') }}</th><th>{{ t('registry.source') }}</th><th>{{ t('registry.change') }}</th></tr></thead>
 <tbody>
 {% for r in rows %}
@@ -58,7 +58,7 @@
 </form>
 </td></tr>
 {% endfor %}
-</tbody></table>
+</tbody></table></div>
 {% endif %}
 </section>
 {% endblock %}

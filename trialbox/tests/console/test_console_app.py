@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -159,6 +160,27 @@ class FakeBackend:
 
     def models(self) -> dict[str, Any] | None:
         return self.models_info
+
+    def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None:
+        if ruleset != "GZQO":
+            return None
+        return {
+            "ruleset": "GZQO",
+            "version": "1.0.0",
+            "kind": "trial",
+            "title": "Gout flare prevention",
+            "nct_id": "NCT00000000",
+            "population": {"disease_stage": "recurrent gout, >=2 flares/year", "study_arm": "urate-lowering naive"},
+            "review": {
+                "approved_by": "crc@hospa.test",
+                "approved_via": "web console",
+                "approved_at": "2026-10-20T08:00:00+00:00",
+                "rounds": 1,
+                "split": {"structured": 3, "mixed": 1, "note": 2, "human": 1},
+                "routing_confirmed": True,
+            },
+            "criteria": 7,
+        }
 
     def reveal(self, job_id: str, pid: str, by: str) -> str | None:
         self.revealed.append((job_id, pid, by))
@@ -437,8 +459,8 @@ def test_viewer_cannot_start_or_operate(box: dict[str, Any]) -> None:
     assert box["backend"].created == [] and box["backend"].mails == [] and box["backend"].ingested == 0
     events = [r.event for r in read_audit(box["dir"] / "audit")]
     assert events.count("console.denied") == 6
-    page = c.get("/pilot/request").text
-    assert 'data-testid="start-feas" disabled' in page or "disabled" in page
+    page = c.get("/pilot/request").text  # L1: a viewer sees what they can do, not greyed-out forms
+    assert 'data-testid="viewer-card"' in page and 'data-testid="start-feas"' not in page
 
 
 # ---------------------------------------------------------------------------------------------- request paths
@@ -1305,3 +1327,62 @@ def test_proposal_keeps_the_study_and_lookback_the_text_states(text: str, line: 
     two = "Could we run GZQO or RA-BIO here?"
     with pytest.raises(ProposalError, match="Which study"):
         propose(two, "en", lambda _t, _l: ClassifiedIntent(type="FEAS"))
+
+
+# ---------------------------------------------------------------------------------------------- D-101
+def test_sponsor_pack_is_audited_and_for_requesters_only(box: dict[str, Any]) -> None:
+    job = _done_feas(box["backend"])
+    c, _ = login(box["app"])
+    page = c.get(f"/pilot/jobs/{job.job_id}").text
+    assert 'data-testid="sponsor-pack"' in page
+    r = c.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        names = z.namelist()
+        readme = z.read("README.txt").decode("utf-8")
+    assert "README.txt" in names and "feasibility_GZQO_v1.0.0_2026-10-04.pdf" in names
+    assert not any(n.endswith("raw.json") for n in names)  # the phi file never leaves the box
+    assert "crc@hospa.test via web console" in readme and "stage = recurrent gout" in readme
+    ex = [r for r in read_audit(box["dir"] / "audit") if r.event == "console.export"]
+    assert ex and ex[0].actor == "console:admin" and ex[0].detail["action"] == "sponsor_pack"
+    viewer, _ = login(box["app"], "viewer", VIEWER_PW)
+    assert 'data-testid="sponsor-pack"' not in viewer.get(f"/pilot/jobs/{job.job_id}").text
+    assert viewer.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip").status_code == 403
+
+
+def test_investigator_sees_candidate_rows_and_case_sheet_but_no_reveal(box: dict[str, Any]) -> None:
+    box["users"].create("pi", "investigator", VIEWER_PW, "pi@hospa.test")
+    screen = _done_screen(box["backend"], _ulid(951))
+    c, csrf = login(box["app"], "pi", VIEWER_PW)
+    page = c.get(f"/pilot/jobs/{screen.job_id}").text
+    assert 'data-testid="screen-rows"' in page  # pseudonymous rows, as a coordinator sees them
+    assert 'data-testid="reveal"' not in page  # chart numbers stay with the requesters
+    r = c.post(f"/pilot/jobs/{screen.job_id}/reveal", data={"csrf": csrf, "pid": "a" * 32}, follow_redirects=False)
+    assert r.status_code == 403
+    case = _done_case(box["backend"])
+    sheet = next(o for o in case.outputs or [] if o.filename.endswith(".html"))
+    assert c.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 200
+    r = c.post("/pilot/request", data={"kind": "FEAS", "ruleset": "GZQO", "csrf": csrf})
+    assert r.status_code == 403 and box["backend"].created == []
+    viewer, _ = login(box["app"], "viewer", VIEWER_PW)
+    assert viewer.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 404
+    admin, _ = login(box["app"])
+    assert "investigator" in admin.get("/ops/users").text
+
+
+def test_feas_page_leads_with_the_answer_and_the_barriers(box: dict[str, Any]) -> None:
+    job = _done_feas(box["backend"])
+    c, _ = login(box["app"])
+    page = c.get(f"/pilot/jobs/{job.job_id}").text
+    answer = page.index('data-testid="answer"')
+    assert answer < page.index('data-testid="funnel"')
+    assert "12 months" in page and "Gout (−480)" in page and "Flares (−117)" in page
+
+
+def test_request_buttons_say_what_they_start_and_case_form_lists_trials_only(box: dict[str, Any]) -> None:
+    c, _ = login(box["app"])
+    page = c.get("/pilot/request").text
+    assert "Count eligible patients" in page and "Find candidates for the next visits" in page
+    case = c.get("/pilot/case").text
+    assert "GZQO" in case and "RA-BIO" not in case  # the NHI ruleset is not a trial
+    assert "Choose the trial" not in case  # one trial: nothing to pick

@@ -84,6 +84,7 @@ class Backend(Protocol):
     def rulesets(self) -> list[RulesetInfo]: ...
     def health(self) -> list[Health]: ...
     def models(self) -> dict[str, Any] | None: ...
+    def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None: ...
     def ingest(self) -> dict[str, Any]: ...
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str: ...
     def registry_summaries(self) -> list[RegistrySummary]: ...
@@ -224,6 +225,15 @@ class HttpBackend:
             return None
         return dict(data) if isinstance(data, dict) else None
 
+    def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None:
+        """The approved manifest's provenance (version, approval record, population) for the sponsor pack README
+        (D-101); None when there is no approved version or the orchestrator is down."""
+        try:
+            data = self.orch.get_json(f"/rulesets/{ruleset}")
+        except ServiceError:
+            return None
+        return dict(data) if isinstance(data, dict) else None
+
     def health(self) -> list[Health]:
         def probe(item: tuple[str, str]) -> Health:
             name, base = item
@@ -237,7 +247,8 @@ class HttpBackend:
                 if name == "lake":
                     detail = f"snapshot {checks.get('snapshot', '?')}"
                 elif name == "orchestrator":
-                    detail = f"{checks.get('queued_or_running', 0)} queued or running"
+                    n_q = int(checks.get("queued_or_running", 0) or 0)
+                    detail = "idle" if n_q == 0 else f"{n_q} job{'s' if n_q != 1 else ''} in progress"
             except ValueError:
                 pass
             return Health(name, resp.status_code == 200, detail)

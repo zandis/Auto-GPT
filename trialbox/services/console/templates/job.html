@@ -73,6 +73,8 @@
 <p data-testid="screen-headline"><strong>{{ t('job.screen.headline', high=s.tiers.high, review=s.tiers.review, scoped=s.scope.n_scoped, excluded=s.tiers.excluded) }}</strong></p>
 <p class="hint">{{ t('job.screen.scope', window=s.scope.window_days, snapshot=s.snapshot, run=s.run_date) }}{% if s.referrals %} · {{ t('job.screen.referrals') }}: {% for d, n in s.referrals.items() %}{{ d }} ({{ n }}){{ ', ' if not loop.last }}{% endfor %}{% endif %}</p>
 {% if s.judging %}<p class="hint" data-testid="screen-judging">{% if s.judging.mode == 'none' %}{{ t('job.screen.judging.none') }}{% elif s.judging.may_block %}{{ t('job.screen.judging.pair', judge=s.judging.judge_model, verifier=s.judging.verifier_model) }}{% else %}{{ t('job.screen.judging.single', judge=s.judging.judge_model) }}{% endif %}</p>{% endif %}
+{% if s.funnel %}<div class="scroll"><table data-testid="screen-funnel" class="compact"><thead><tr><th scope="col">{{ t('col.stage') }}</th><th scope="col">{{ t('col.patients') }}</th><th scope="col"></th></tr></thead>
+<tbody>{% for stage, n in s.funnel %}<tr><td>{{ t_or('stage.' + stage, stage) }}</td><td class="num">{{ n }}</td><td>{% if s.scope.n_scoped is number and s.scope.n_scoped > 0 and n is number %}<progress max="{{ s.scope.n_scoped }}" value="{{ n }}" aria-label="{{ n }}"></progress>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 {% if s.unknown_by_criterion %}<p class="hint">{{ t('job.screen.unknowns') }}: {% for cid, n in s.unknown_by_criterion.items() %}<span class="mono">{{ cid }}</span> ({{ n }}){{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
 {% endif %}
 {% if screen.rows is not none %}
@@ -88,7 +90,7 @@
 <td>{{ screen.practitioners.get(r.practitioner, r.practitioner) or '–' }}{% if r.department %} · {{ r.department }}{% endif %}</td>
 <td>{% if r.unknown %}{% for cid in r.unknown %}<span class="mono">{{ cid }}</span>{{ ' ' if not loop.last }}{% endfor %}{% endif %}{% if r.failing %}<br><span class="bad-text">{{ t('job.screen.failing') }}: {% for cid in r.failing %}<span class="mono">{{ cid }}</span>{{ ' ' if not loop.last }}{% endfor %}</span>{% endif %}{% if r.actions %}<br><em>{{ r.actions|join('; ') }}</em>{% endif %}{% if not r.unknown and not r.failing and not r.actions %}–{% endif %}</td>
 <td class="wrap">{% for q in r.quotes %}<blockquote class="quote"><span class="mono">{{ q.id }}</span> {{ t('verdict.' + q.verdict) }}{% if q.confidence is not none %} · {{ (q.confidence * 100)|round|int }} %{% endif %}{% if q.date %} · {{ q.date }}{% endif %}<br>“{{ q.quote }}”</blockquote>{% else %}–{% endfor %}</td>
-<td>{% if r.pid in screen.revealed %}{% if screen.revealed[r.pid] %}<span class="mono" data-testid="mrn">{{ screen.revealed[r.pid] }}</span>{% else %}<span class="hint">{{ t('job.screen.no_map') }}</span>{% endif %}{% else %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/reveal" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pid" value="{{ r.pid }}"><button type="submit" class="small secondary" data-testid="reveal">{{ t('job.screen.reveal') }}</button></form>{% endif %}</td>
+<td>{% if r.pid in screen.revealed %}{% if screen.revealed[r.pid] %}<span class="mono" data-testid="mrn">{{ screen.revealed[r.pid] }}</span>{% else %}<span class="hint">{{ t('job.screen.no_map') }}</span>{% endif %}{% elif sess.user.can_request %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/reveal" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pid" value="{{ r.pid }}"><button type="submit" class="small secondary" data-testid="reveal">{{ t('job.screen.reveal') }}</button></form>{% else %}<span class="hint">{{ t('job.screen.reveal.coordinator') }}</span>{% endif %}</td>
 </tr>{% endfor %}
 </tbody></table></div>
 <p class="hint">{{ t('job.screen.reveal.help') }}</p>
@@ -100,7 +102,10 @@
 {% if result %}
 <section class="card" data-testid="result">
 <h2>{{ t('job.results') }}</h2>
-<p>{{ t('job.result.line', population=result.population, snapshot=result.snapshot, months=result.lookback_months, start=cell(result.start_n)) }}</p>
+{% if result.simulation %}
+<p data-testid="answer"><strong>{{ t('job.answer', months=result.simulation.months, low=num(result.simulation.low), high=num(result.simulation.high), mid=num(result.simulation.mid)) }}</strong>{% if barriers %} {{ t('job.answer.barriers', items=barriers|join(', ')) }}{% endif %}</p>
+{% endif %}
+<p class="hint">{{ t('job.result.line', population=result.population, snapshot=result.snapshot, months=result.lookback_months, start=cell(result.start_n)) }}</p>
 <h3>{{ t('job.funnel') }}</h3>
 <div class="scroll"><table data-testid="funnel">
 <thead><tr><th scope="col">{{ t('col.criterion') }}</th><th scope="col">{{ t('col.remaining') }}</th><th scope="col">{{ t('col.dropped') }}</th><th scope="col">{{ t('col.pct') }}</th></tr></thead>
@@ -123,6 +128,9 @@
 
 <section class="card">
 <h2>{{ t('job.outputs') }}</h2>
+{% if job.type == 'FEAS' and job.state == 'done' and aggregate and sess.user.can_request %}
+<p><a class="button" href="/pilot/jobs/{{ job.job_id }}/sponsor-pack.zip" data-testid="sponsor-pack">{{ t('job.sponsor_pack') }}</a><br><span class="hint">{{ t('job.sponsor_pack.help') }}</span></p>
+{% endif %}
 {% if aggregate or phi %}
 <div class="scroll"><table data-testid="outputs">
 <thead><tr><th scope="col">{{ t('col.file') }}</th><th scope="col">{{ t('col.class') }}</th><th scope="col">{{ t('col.size') }}</th></tr></thead>

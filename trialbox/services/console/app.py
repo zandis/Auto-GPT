@@ -19,11 +19,13 @@ adds ``console.*`` events to the shared audit chain before it acts.
 
 from __future__ import annotations
 
+import io
 import ipaddress
 import os
 import re
 import secrets
 import time
+import zipfile
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -212,6 +214,52 @@ def _default_backend(settings: ConsoleSettings) -> tuple[Backend, AuditLog]:
     return HttpBackend(cfg, from_config(), audit, gateway_url=settings.gateway_url, test_smtp=settings.test_smtp), audit
 
 
+def build_sponsor_pack(
+    job: Job, files: list[tuple[str, bytes]], detail: Mapping[str, Any], models: Mapping[str, Any] | None
+) -> bytes:
+    """Deterministic zip (fixed timestamps) of the aggregate files plus README.txt with the provenance (D-101)."""
+    review = detail.get("review") or {}
+    population = detail.get("population") or {}
+    split = review.get("split") or {}
+    version = job.ruleset_version or detail.get("version") or "-"
+    screening = ""
+    if models:
+        verifier = f", verifier {models['verifier_model']}" if models.get("verifier_model") else ", no verifier"
+        screening = (
+            f"Screening on this box: judge {models.get('judge_model') or '-'}{verifier}, note answers may exclude: "
+            f"{'yes' if models.get('may_block') else 'no'}."
+        )
+    lines = [
+        f"TrialBox sponsor pack · {job.ruleset} v{version} · job {job.job_id}",
+        "",
+        "What this is: aggregate feasibility counts from one hospital's TrialBox. Counts below 5 are printed as '<5'.",
+        "No patient-level data is in this pack; the box keeps those files and never mails them.",
+        "",
+        f"Protocol: {detail.get('title') or '-'}" + (f" ({detail['nct_id']})" if detail.get("nct_id") else ""),
+        f"Population (as entered at import): stage = {population.get('disease_stage') or '-'}; "
+        f"arm = {population.get('study_arm') or '-'}",
+        f"Ruleset version: {version}; criteria: {detail.get('criteria', '-')}",
+        f"Approved by: {review.get('approved_by') or '-'} via {review.get('approved_via') or '-'} on "
+        f"{review.get('approved_at') or '-'} (review rounds: {review.get('rounds', '-')}); "
+        f"routing confirmed by the approver: {'yes' if review.get('routing_confirmed') else 'not recorded'}",
+        f"Criteria routing: {split.get('structured', '-')} filter, {split.get('mixed', '-')} filter then model, "
+        f"{split.get('note', '-')} model on notes, {split.get('human', '-')} person at screening",
+        f"Data snapshot: {job.snapshot_date.isoformat() if job.snapshot_date else '-'}; "
+        f"run date: {job.run_date.isoformat() if job.run_date else '-'}",
+        "Models: feasibility counts run on filters only (no language model). " + screening,
+        f"Requested by: {job.requested_by}",
+        "",
+        "Files:",
+    ] + [f"  {name}  sha256 {sha256_bytes(data)}" for name, data in files]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in [("README.txt", ("\n".join(lines) + "\n").encode("utf-8")), *files]:
+            info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            z.writestr(info, data)
+    return buf.getvalue()
+
+
 def create_app(
     env: Mapping[str, str] | None = None,
     *,
@@ -353,6 +401,10 @@ def create_app(
         def t(key: str, **values: object) -> str:
             return translate(lang, key, **values)
 
+        def t_or(key: str, fallback: str) -> str:  # a translation when the catalogue has one, else the fallback
+            text = t(key)
+            return fallback if text == key else text
+
         def state(value: str) -> str:  # badge text; the machine state stays in data-state
             key = f"state.{value}"
             text = t(key)
@@ -360,6 +412,7 @@ def create_app(
 
         base = {
             "t": t,
+            "t_or": t_or,
             "lang": lang,
             "langs": LANGS,
             "sess": sess,
@@ -601,6 +654,16 @@ def create_app(
                 return data
         return None
 
+    def _barriers(result: dict[str, Any] | None) -> list[str]:
+        """The three criteria that drop the most patients (L4): the answer the PDF opens with, now on the page too."""
+        if not result:
+            return []
+        rows = [
+            f for f in result.get("funnel") or [] if isinstance(f.get("dropped"), int) and f.get("applied") is not False
+        ]
+        rows.sort(key=lambda f: -int(f["dropped"]))
+        return [f"{f.get('label') or f.get('criterion_id')} (−{f['dropped']})" for f in rows[:3] if f["dropped"] > 0]
+
     def _review_book(job: Job) -> JobOutput | None:
         books = [o for o in job.outputs or [] if o.filename.startswith("review_") and o.filename.endswith(".xlsx")]
         return sorted(books, key=lambda o: o.filename)[-1] if books else None
@@ -658,9 +721,9 @@ def create_app(
         out = next((o for o in job.outputs or [] if o.filename == filename), None)
         if not _FILE.match(filename) or out is None or not filename.endswith(".html"):
             raise _Problem(404, "notfound")
-        # D-91: the CASE eligibility sheet carries chart text (phi); in the pilot workspace (D0, synthetic data) a
-        # requester may read it in the browser, exactly as the study team receives it by mail. Viewers may not.
-        if out.tag != "aggregate" and not (job.type == "CASE" and sess.user.can_request):
+        # D-91/D-101: the CASE eligibility sheet carries chart text (phi); in the pilot workspace a requester or an
+        # investigator may read it in the browser, exactly as the study team receives it by mail. Viewers may not.
+        if out.tag != "aggregate" and not (job.type == "CASE" and sess.user.can_view_phi):
             raise _Problem(404, "notfound")
         data = bk.get_object(out.minio_key)
         au.append(
@@ -722,7 +785,8 @@ def create_app(
             sess,
             job=job,
             line=job_line(job),
-            result=_feas_result(job),
+            result=(feas := _feas_result(job)),
+            barriers=_barriers(feas),
             aggregate=[o for o in job.outputs or [] if o.tag == "aggregate"],
             phi=[o for o in job.outputs or [] if o.tag == "phi"],
             review=_review_book(job) if job.state == "awaiting_approval" else None,
@@ -759,7 +823,7 @@ def create_app(
                 card["summary"] = json.loads(bk.get_object(summary_out.minio_key))
             except (KeyError, ValueError, OSError):
                 card["summary"] = None
-        if list_out is not None and sess.user.can_request:
+        if list_out is not None and sess.user.can_view_phi:
             try:
                 cl = json.loads(bk.get_object(list_out.minio_key))
             except (KeyError, ValueError, OSError):
@@ -1051,7 +1115,8 @@ def create_app(
 
     # ------------------------------------------------------------------ single case (CASE, D-91)
     def _trial_rulesets() -> list[Any]:
-        return [r for r in bk.rulesets() if r.status == "approved"]
+        """Approved trial rulesets: a single-case check is against a trial, never a cohort or NHI ruleset (M8)."""
+        return [r for r in bk.rulesets() if r.status == "approved" and r.kind in ("trial", "")]
 
     @app.get("/pilot/case", response_class=HTMLResponse)
     def case_form(request: Request, ruleset: str = "") -> Response:
@@ -1187,6 +1252,39 @@ def create_app(
             return _registry_page(request, sess, rs, 422, error=str(exc))
         au.append("console.registry", actor=actor(sess), ruleset=rs, detail={"action": "promote", "added": added})
         return RedirectResponse(f"/pilot/registry/{rs}?added={added}", status_code=303)
+
+    @app.get("/pilot/jobs/{job_id}/sponsor-pack.zip")
+    def sponsor_pack(request: Request, job_id: str) -> Response:
+        """One zip a coordinator can send to a sponsor (D-101): the finished FEAS job's aggregate files plus a
+        README that names the ruleset version, snapshot, approval record, population and the models that ran. The
+        pack never contains a patient-level file; the download is audited."""
+        sess = need(request)
+        if not sess.user.can_request:
+            raise _Problem(403, "forbidden")
+        job = _job_or_404(job_id)
+        if job.type != "FEAS" or job.state != "done":
+            raise _Problem(404, "notfound")
+        files = [(o.filename, bk.get_object(o.minio_key)) for o in job.outputs or [] if o.tag == "aggregate"]
+        if not files:
+            raise _Problem(404, "notfound")
+        detail = bk.ruleset_detail(job.ruleset or "") or {}
+        data = build_sponsor_pack(job, files, detail, bk.models())
+        au.append(
+            "console.export",
+            job_id=job_id,
+            actor=actor(sess),
+            ruleset=job.ruleset,
+            output_sha=sha256_bytes(data),
+            detail={"action": "sponsor_pack", "files": [n for n, _ in files]},
+        )
+        return Response(
+            data,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="sponsor_pack_{job.ruleset}_{job_id}.zip"',
+                "X-Download-Options": "noopen",
+            },
+        )
 
     @app.get("/pilot/registry/{ruleset}/export.xlsx")
     def registry_export(request: Request, ruleset: str) -> Response:

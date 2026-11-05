@@ -30,6 +30,7 @@ from orchestrator.scenarios.evaluate import PatientVerdicts, check_judge, evalua
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     judge_for,
+    judging_info,
     local_iso,
     pid_names,
     practitioner_names,
@@ -192,7 +193,7 @@ def run(ctx: Ctx) -> Outcome:
         ):
             lists[r["dept"]]["doc_gaps"].append(row)
     ctx.state("reporting")
-    meta = report_meta(ctx, rs, snapshot, run_date)
+    meta = report_meta(ctx, rs, snapshot, run_date, judging_info(judge))
     all_rows = [row for d in lists.values() for name in ("likely_eligible", "renewal_due") for row in d[name]]
     mrns = pid_names(ctx, [r.pid for d in lists.values() for rows in d.values() for r in rows])
     names = practitioner_names(ctx)

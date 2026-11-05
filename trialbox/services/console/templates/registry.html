@@ -5,7 +5,7 @@
 <p>{{ t('registry.help') }}</p>
 <p class="warn" role="note">{{ t('registry.notice') }}</p>
 <section class="card">
-<table data-testid="registry-summary">
+<div class="scroll"><table data-testid="registry-summary">
 <thead><tr><th>{{ t('col.ruleset') }}</th>{% for s in statuses %}<th>{{ t('registry.status.' + s) }}</th>{% endfor %}<th>{{ t('registry.updated') }}</th></tr></thead>
 <tbody>
 {% for r in rulesets %}{% set s = summaries.get(r.id) %}
@@ -13,6 +13,6 @@
 {% for st in statuses %}<td class="num">{{ s.counts.get(st, 0) if s else 0 }}</td>{% endfor %}
 <td class="mono">{{ s.updated_at if s and s.updated_at else '–' }}</td></tr>
 {% endfor %}
-</tbody></table>
+</tbody></table></div>
 </section>
 {% endblock %}

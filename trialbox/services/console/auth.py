@@ -24,8 +24,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-Role = Literal["admin", "coordinator", "viewer"]
-ROLES: tuple[Role, ...] = ("admin", "coordinator", "viewer")
+Role = Literal["admin", "coordinator", "investigator", "viewer"]
+ROLES: tuple[Role, ...] = ("admin", "coordinator", "investigator", "viewer")
 SSO_MARK = "sso"  # pw_hash of an account the hospital identity provider signs in (no console password)
 MIN_PASSWORD = 12
 MAX_FAILURES = 5
@@ -125,6 +125,13 @@ class User:
     def can_request(self) -> bool:
         """May start requests and edit the registry: administrators and coordinators (D-93)."""
         return self.role in ("admin", "coordinator")
+
+    @property
+    def can_view_phi(self) -> bool:
+        """May read patient-level results in the browser: the CASE sheet and the pseudonymous candidate rows.
+        Administrators, coordinators and investigators (D-101). Chart numbers (reveal, registry export) stay with
+        the requesters, who keep the screening log."""
+        return self.role in ("admin", "coordinator", "investigator")
 
 
 @dataclass(frozen=True)

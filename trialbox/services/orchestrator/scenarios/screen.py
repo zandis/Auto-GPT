@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -20,7 +21,7 @@ from tb_contracts import CandidateList, CandidateRow, Judging, Routing, ScreenRu
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_language, job_stamp
-from orchestrator.i18n import t
+from orchestrator.i18n import population_line, t
 from orchestrator.reports import candidate_xlsx, screen_summary_pdf
 from orchestrator.reports.common import ReportMeta
 from orchestrator.scenarios.evaluate import (
@@ -31,6 +32,7 @@ from orchestrator.scenarios.evaluate import (
     effective_note_block,
     engine_from_env,
     evaluate_patients,
+    is_note_answer,
     note_block_policy,
     row,
     sort_key,
@@ -167,11 +169,50 @@ def small_cell(ctx: Ctx, rs: Ruleset) -> int:
     )
 
 
-def report_meta(ctx: Ctx, rs: Ruleset, snapshot: str, run_date: date) -> ReportMeta:
+NO_MODEL = "no model (filters only)"
+
+
+def models_used(j: dict[str, Any] | None) -> str:
+    """The footer's model field, from the run's ``judging`` record (D-101): never a configured model that was not
+    called."""
+    if not j or j.get("mode") == "none" or not j.get("judge_model"):
+        return NO_MODEL
+    if j["verifier_model"]:
+        return f"{j['judge_model']} + {j['verifier_model']} (both agree)"
+    return f"{j['judge_model']} (single, {j['note_block']}-exclude)"
+
+
+def stage_funnel(rs: Ruleset, srun: ScreenRun, listed: int, n: Callable[[int], int]) -> list[list[Any]]:
+    """The run as the one named funnel every page shows (M7), with the cascade's stage ids: S0 in scope, S1 after
+    the coded filters, S3 patients whose notes the model read, S4 candidates (high + review) for a person."""
+    by_id = {c.id: c for c in rs.criteria}
+    after_codes = 0
+    notes_read = 0
+    for pv in srun.results.values():
+        coded_fail = any(
+            v.verdict == "fail" and (c := by_id.get(v.id)) is not None and not is_note_answer(c, v) for v in pv.verdicts
+        )
+        if not coded_fail:
+            after_codes += 1
+        if any((c := by_id.get(v.id)) is not None and is_note_answer(c, v) for v in pv.verdicts):
+            notes_read += 1
+    return [
+        ["S0", n(len(srun.scoped))],
+        ["S1", n(after_codes)],
+        ["S3", n(notes_read)],
+        ["S4", n(listed)],
+    ]
+
+
+def pinned_clock_note(ctx: Ctx) -> str:
+    return "clock pinned (test stack)" if ctx.orch.clock_pinned else ""
+
+
+def report_meta(
+    ctx: Ctx, rs: Ruleset, snapshot: str, run_date: date, judging: dict[str, Any] | None = None
+) -> ReportMeta:
     s = ctx.cfg.settings
-    model = (rs.manifest.models.judge if rs.manifest.models and rs.manifest.models.judge else None) or (
-        s.models.judge if s.models and s.models.judge else "n/a"
-    )
+    model = models_used(judging)
     return ReportMeta(
         s.site.id,
         s.site.name,
@@ -183,6 +224,7 @@ def report_meta(ctx: Ctx, rs: Ruleset, snapshot: str, run_date: date) -> ReportM
         run_date.isoformat(),
         job_language(ctx),
         s.site.contact or "",
+        pinned_clock_note(ctx),
     )
 
 
@@ -420,7 +462,7 @@ def run(ctx: Ctx) -> Outcome:
     srun = run_screen(ctx, rs, run_date, snapshot)
     ctx.state("reporting")
     cl = candidate_list(srun)
-    meta = report_meta(ctx, rs, snapshot, run_date)
+    meta = report_meta(ctx, rs, snapshot, run_date, srun.judging)
     stem = f"candidates_{rs.id}_v{rs.version}_{run_date.isoformat()}"
     body = json.dumps(dump(cl), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     deliveries, info = deliver_lists(
@@ -444,6 +486,7 @@ def run(ctx: Ctx) -> Outcome:
             scoped=n(len(srun.scoped)),
         ),
         judging_sentence(judging, lang),
+        *([population_line(lang, rs.manifest.population)] if population_line(lang, rs.manifest.population) else []),
     ]
     unknown_by: dict[str, int] = {}
     for r in srun.rows:
@@ -451,6 +494,7 @@ def run(ctx: Ctx) -> Outcome:
             for v in r.criteria:
                 if v.verdict == "unknown":
                     unknown_by[v.id] = unknown_by.get(v.id, 0) + 1
+    funnel = stage_funnel(rs, srun, info["listed"], n)
     ctx.publish(
         f"screen_{stem}.json",
         json.dumps(
@@ -472,6 +516,7 @@ def run(ctx: Ctx) -> Outcome:
                     "excluded": n(cl.summary.excluded),
                 },
                 "listed": n(info["listed"]),
+                "funnel": funnel,
                 "referrals": {k: n(v) for k, v in info["referrals"].items()},
                 "unknown_by_criterion": {k: n(v) for k, v in sorted(unknown_by.items())},
                 "judging": judging,

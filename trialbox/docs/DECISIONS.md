@@ -851,3 +851,33 @@ headlines; every label of the feasibility and screening-summary PDFs) in EN, JA 
 by a test. Subjects keep their ASCII kind tokens, since `is_job_mail` parses them. The CASE sheet detects the
 chart's language from its script when no `lang=` is given. The stub model's "translations" are now tagged as samples
 that are not translations. Reviewed 2026-11-05 (Fable review H4, M5).
+
+**D-101 Approval record, investigator role, sponsor pack and report provenance.** The 5 Nov 2026 review found
+the approval of a ruleset stored only the requester's address, that a protocol with 19 of 23 criteria routed to a
+person could be approved in one click without a word of warning, and that the LLM router agreed with expert
+annotators on the class of a criterion only about 6 times in 10 (kappa 0.34) on open trial data. The review mail now
+says so and asks the approver to read the class column; when at least half of the criteria are left to a person it
+opens with "Check this". The approval record (`manifest.review`) keeps who approved, via which channel (web console
+or e-mail), the class split at approval and `routing_confirmed: true`, because the approval is the person's check of
+the routing. The manifest gained an optional `population` block (disease stage, study arm): the AD audit showed a
+criteria list alone does not say that a dementia patient is out of an MCI trial, so the stage is a named field that
+FEAS and SCREEN mails print next to every count. The console gained the **investigator** role (PI / sub-I): reads
+what a viewer reads, plus the CASE sheet and the pseudonymous candidate rows; no chart numbers (reveal and registry
+export stay with coordinators), no requests. A finished FEAS job offers a **sponsor pack**: one zip with the
+aggregate PDF, XLSX and JSON and a README naming the ruleset version, snapshot, approval record, population and the
+models that ran; the download is audited (`console.export`). Report footers print the models that actually ran
+(`no model (filters only)` for FEAS; judge and verifier, or judge alone with the note-block policy, for screening
+runs) instead of the configured judge, and say when the box's clock was pinned (test stack). Reviewed 2026-11-05
+(Fable review M1, M2, M6; PR #15 design points 1 and 3).
+
+**D-102 One funnel, plain words, phones.** The 5 Nov 2026 review walked the console as a coordinator on a 390 px
+phone and as a viewer and sponsor. Every results page now shows the same named funnel with the cascade's stage ids
+(S0 in scope, S1 after the coded filters, S3 notes the model read, S4 candidates for a person, S5 confirmed): a
+screening run writes it into `screen_<stem>.json`, the cascade page names its stages the same way and shows them
+while the run is still going instead of an empty page, and its headline keys are words. The FEAS page opens with the
+PDF's answer (participants in N months, biggest barriers) before the funnel. The New request page shows a viewer what
+they can do instead of three greyed-out forms; its buttons say what they start ("Count eligible patients", "Find
+candidates for the next visits"). The single-case form lists trial rulesets only and asks the user to pick one. Engine
+words left the user's text (the proposal note, the health line). On phones the menu fades at the edge to show it
+scrolls, every table scrolls inside its card, and controls stack. Reviewed 2026-11-05 (Fable review M3, M7, M8, L1,
+L2, L3, L4).

@@ -122,6 +122,21 @@ FILTERED = ("structured", "mixed")  # classes whose logic is compiled to CQL/SQL
 JUDGED = ("note", "mixed")  # classes whose note_question goes to the model
 
 
+def class_split(criteria: list[CriterionIR]) -> dict[str, int]:
+    """How many active (not rejected) inclusion/exclusion criteria each class checks (D-101)."""
+    out = {"structured": 0, "mixed": 0, "note": 0, "human": 0}
+    for c in criteria:
+        if c.kind in ("inclusion", "exclusion") and not (c.review and c.review.status == "rejected"):
+            out[c.class_] = out.get(c.class_, 0) + 1
+    return out
+
+
+def human_heavy(split: dict[str, int]) -> bool:
+    """True when at least half of the criteria are left to a person: the box would do little of the screening."""
+    n = sum(split.values())
+    return n > 0 and split.get("human", 0) * 2 >= n
+
+
 def compiled(criteria: list[CriterionIR]) -> list[CriterionIR]:
     """Class ``structured`` and ``mixed`` criteria are compiled to CQL/SQL (note/human are judged or asked; D-32).
     A mixed criterion's compiled part is a pre-check: it decides the patient when the coded data can, and the note

@@ -4,6 +4,7 @@ scheduler start with the app."""
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -135,6 +136,32 @@ def models() -> dict[str, Any]:
         "screen_judge": mode,
         "gateway": bool(os.environ.get("TB_GATEWAY_URL", "").strip()),
         **judging_info(judge),
+    }
+
+
+@app.get("/rulesets/{ruleset}")
+def ruleset_detail(ruleset: str) -> dict[str, Any]:
+    """The approved manifest's provenance (version, approval record, population, kind): what the console prints in
+    a sponsor pack README (D-101). Aggregate: no criteria text, no patients."""
+    from tb_common.ruleset import RulesetNotApproved, load_approved
+
+    rid = ruleset.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{1,31}", rid):
+        raise HTTPException(status_code=404, detail="no such ruleset")
+    try:
+        rs = load_approved(orch().rulesets_dir, rid)
+    except (RulesetNotApproved, FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    m = rs.manifest
+    return {
+        "ruleset": rs.id,
+        "version": rs.version,
+        "kind": str(m.kind or ""),
+        "title": m.title or "",
+        "nct_id": m.nct_id or "",
+        "population": m.population.model_dump(exclude_none=True) if m.population else None,
+        "review": m.review.model_dump(exclude_none=True) if m.review else None,
+        "criteria": len([c for c in rs.criteria if c.kind in ("inclusion", "exclusion")]),
     }
 
 

@@ -4,7 +4,7 @@ action is also a command, with the same audit).
     bootstrap-admin [--username admin] [--mailbox you@hospital] [--password-stdin]
         First administrator. Without --password-stdin a random password is generated and printed once.
         Does nothing (exit 0) when an administrator exists.
-    add-user NAME --role admin|viewer [--mailbox ADDR] [--password-stdin]
+    add-user NAME --role admin|coordinator|investigator|viewer [--mailbox ADDR] [--password-stdin]
     reset-password NAME [--password-stdin]
     disable NAME
     list-users
@@ -120,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--password-stdin", action="store_true")
     a = sub.add_parser("add-user")
     a.add_argument("name")
-    a.add_argument("--role", choices=("admin", "coordinator", "viewer"), required=True)
+    a.add_argument("--role", choices=("admin", "coordinator", "investigator", "viewer"), required=True)
     a.add_argument("--mailbox", default="")
     a.add_argument("--password-stdin", action="store_true")
     r = sub.add_parser("reset-password")

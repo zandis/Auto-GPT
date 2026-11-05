@@ -220,6 +220,11 @@ class Orchestrator:
     def today(self) -> date:
         return self._today() if self._today else now(self.cfg.env.tz).date()
 
+    @property
+    def clock_pinned(self) -> bool:
+        """True when ``TB_TODAY`` pins the clock (test stack); reports print it in their footer (D-101)."""
+        return self._today is not None
+
     def _now(self) -> datetime:
         return now(self.cfg.env.tz)
 

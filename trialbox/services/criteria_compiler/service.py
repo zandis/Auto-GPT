@@ -46,7 +46,7 @@ from criteria_compiler.equivalence.gate import run_gate
 from criteria_compiler.ir_extract.postprocess import KIND_CODE, postprocess
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
-from criteria_compiler.semantics import FILTERED, CompileError, compiled
+from criteria_compiler.semantics import FILTERED, CompileError, class_split, compiled
 from criteria_compiler.terminology.mapper import Concept, Terminology, ValueSets
 
 log = logging.getLogger("criteria-compiler")
@@ -727,7 +727,14 @@ class Compiler:
             {
                 **dump(manifest),
                 "status": "approved",
-                "review": {"approved_by": req.by, "approved_at": now.isoformat(), "rounds": round_no},
+                "review": {
+                    "approved_by": req.by,
+                    "approved_at": now.isoformat(),
+                    "approved_via": req.via or "e-mail",
+                    "rounds": round_no,
+                    "split": class_split(updated),
+                    "routing_confirmed": True,  # approval is the person's confirmation of every class (D-101)
+                },
                 "equivalence": {
                     "overall_pct": tests.overall_pct,
                     "sample_size": tests.sample_size,
