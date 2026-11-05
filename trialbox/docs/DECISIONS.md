@@ -803,3 +803,13 @@ On one model the LLM therefore cannot cause a wrong exclusion; a weaker model co
 patients. The installer picks the profile from `nvidia-smi` (aarch64 -> gb10, 5090 -> rtx5090, 4090/3090 ->
 rtx4090) unless `--gpu` is given. Before go-live, the exact 4-bit files must be qualified on the card
 (RUNBOOK §8).
+
+**D-96 Suspected findings never exclude (judge v4).** The 2026-11-05 MedTxt run (215 real Japanese case and
+radiology reports with English translations, docs/reviews/2026-11-05-public-data-validation.md) showed every model
+reading "lung cancer is suspected" as lung cancer: suspected findings were excluded 37-80 % of the time, 41-67 % for
+the pairs. `services/orchestrator/prompts/judge_v4.md` adds one paragraph: suspected / possible / rule-out is
+`unknown` (so the patient goes to review), and a resolved or removed condition is history, judged against the
+criterion's time frame. Measured with the same wording in `tools/medtxt_eval.py --variant suspected`: pairs exclude
+on suspected findings 11-22 % of the time, at 2-8 points of recall on present findings. The cascade asks for `judge`
+(newest version) and gets v4; the compiler writes `judge_v4` into new manifests. Approved rulesets keep their pinned
+`judge_v3` until they are re-approved, because a prompt change in an approved ruleset is a change the approver signs.

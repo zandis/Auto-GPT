@@ -434,5 +434,5 @@ def test_tb_common_llm_shim_goes_through_gateway(tmp_path: Path) -> None:
     r = llm.chat_json("judge", JUDGE_VARS, job_id="J1", data_class="D0")
     assert r.data["verdict"] == "pass" and r.target == "gateway" and r.model == "trialbox-stub"
     (rec,) = _records(tmp_path)
-    assert rec["prompt_version"] == "judge@3" and rec["detail"]["study"] == "J1"
+    assert rec["prompt_version"] == "judge@4" and rec["detail"]["study"] == "J1"
     assert rec["detail"]["context_of_use"] == "s3_note_judgement"
