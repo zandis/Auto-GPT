@@ -200,6 +200,7 @@ _D1 = {
     "TierSummary",
     "CohortRow",
     "CohortTable",
+    "RegistrySummary",  # counts per status, no pseudonym
 }
 _D3 = {
     "AuditEvent",
@@ -221,8 +222,12 @@ _D3 = {
     "ScreenFeedbackRow",
     "JobFile",
     "JobOutput",
+    "RegistryEntry",  # pseudonym + status (D-92)
+    "RegistryEvent",
+    "RegistryPromote",
 }
-_D4 = {"SendRequest", "SendAttachment", "SendResult", "PractitionerInfo"}
+# RegistryUpdate may carry the chart number (mrn) on its way into the box: a direct identifier until resolved
+_D4 = {"SendRequest", "SendAttachment", "SendResult", "PractitionerInfo", "RegistryUpdate"}
 
 CONTRACT_CLASSES: dict[str, DataClass] = {
     **dict.fromkeys(_D0, DataClass.D0),

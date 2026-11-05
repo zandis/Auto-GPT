@@ -19,6 +19,7 @@ permissions:
   SUBMIT: [physicians]
   CONSENT: [senders]
   RELEASE: [reviewers]   # consent explainer release: the coordinator or PI who reviewed it (not an e-signature)
+  CASE: [senders]        # single-chart eligibility check; the sheet is PHI and goes only to an internal requester
 reviewers: ["crc1@hospa.test", "pi@hospa.test"]
 require_spf_dkim: true
 rate_limit_per_sender_per_day: 20

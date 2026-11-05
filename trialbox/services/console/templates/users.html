@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ t('users.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('users.title') }}</h1>
+<p>{{ t('users.help') }}</p>
+{% if sso %}<p class="hint" data-testid="users-sso">{{ t('users.sso') }}</p>{% endif %}
+{% if made %}<section class="card attention" data-testid="users-made"><p>{{ t('users.made', user=made) }}</p><p><code data-testid="users-pw">{{ pw }}</code></p><p class="hint">{{ t('users.made.help') }}</p></section>{% endif %}
+<div class="grid">
+<section class="card">
+<h2>{{ t('users.add') }}</h2>
+<form method="post" action="/ops/users">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="add">
+  <label for="username">{{ t('login.user') }}</label>
+  <input id="username" name="username" required maxlength="32" pattern="[a-z0-9._-]+" autocomplete="off">
+  <label for="role">{{ t('users.role') }}</label>
+  <select id="role" name="role">{% for r in roles %}<option value="{{ r }}" {{ 'selected' if r == 'coordinator' else '' }}>{{ t('role.' + r) }}</option>{% endfor %}</select>
+  <label for="mailbox">{{ t('users.mailbox') }}</label>
+  <input id="mailbox" name="mailbox" type="email" maxlength="120">
+  <button type="submit" data-testid="users-add">{{ t('users.add.submit') }}</button>
+</form>
+</section>
+<section class="card">
+<h2>{{ t('users.roles') }}</h2>
+<ul>
+<li><strong>{{ t('role.admin') }}</strong>: {{ t('users.role.admin') }}</li>
+<li><strong>{{ t('role.coordinator') }}</strong>: {{ t('users.role.coordinator') }}</li>
+<li><strong>{{ t('role.viewer') }}</strong>: {{ t('users.role.viewer') }}</li>
+</ul>
+</section>
+</div>
+<section class="card">
+<table data-testid="users-table">
+<thead><tr><th>{{ t('login.user') }}</th><th>{{ t('users.role') }}</th><th>{{ t('users.mailbox') }}</th><th>{{ t('users.signin') }}</th><th></th></tr></thead>
+<tbody>
+{% for u, is_sso in users %}
+<tr data-user="{{ u.username }}">
+<td>{{ u.username }}</td><td>{{ t('role.' + u.role) }}</td><td>{{ u.mailbox or '' }}</td>
+<td>{% if is_sso %}{{ t('users.signin.sso') }}{% else %}{{ t('users.signin.password') }}{% endif %}</td>
+<td>
+{% if not is_sso %}<form method="post" action="/ops/users" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="reset"><input type="hidden" name="username" value="{{ u.username }}"><button type="submit" class="small secondary">{{ t('users.reset') }}</button></form>{% endif %}
+{% if u.username != user.username %}<form method="post" action="/ops/users" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="disable"><input type="hidden" name="username" value="{{ u.username }}"><button type="submit" class="small secondary">{{ t('users.disable') }}</button></form>{% endif %}
+</td></tr>
+{% endfor %}
+</tbody></table>
+</section>
+{% endblock %}

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/registry.schema.json",
+  "title": "RegistryEntry",
+  "description": "One row of a candidate registry: a pseudonymous patient and where the study team is with them for one ruleset (the ICH E6 screening and enrolment log, pseudonymous). Schema version 1.0.0. Chart numbers are never stored; the box resolves them from the pid map for the site's export.",
+  "type": "object",
+  "required": ["ruleset", "pid", "status", "updated_at", "updated_by", "source"],
+  "additionalProperties": false,
+  "properties": {
+    "ruleset": {"type": "string", "pattern": "^[A-Z0-9][A-Z0-9_-]{0,15}$"},
+    "pid": {"type": "string", "minLength": 8, "maxLength": 64},
+    "status": {"$ref": "#/$defs/registry_status"},
+    "reason": {"type": ["string", "null"], "maxLength": 500, "description": "free text; the sponsor's reason codes are the site's convention"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "updated_by": {"type": "string"},
+    "source": {"type": "string", "enum": ["manual", "screen", "case", "import"], "description": "how the row first arrived"},
+    "source_job": {"type": ["string", "null"], "description": "the SCREEN or CASE job the row came from"},
+    "tier": {"type": ["string", "null"], "description": "SCREEN tier when the row was promoted from a list"},
+    "events": {"type": "integer", "minimum": 1, "description": "number of status changes recorded for the row"}
+  },
+  "$defs": {
+    "registry_status": {
+      "title": "RegistryStatus",
+      "type": "string",
+      "enum": ["candidate", "contacted", "consented", "enrolled", "screen_fail", "declined", "withdrawn"]
+    },
+    "registry_update": {
+      "title": "RegistryUpdate",
+      "description": "A status change from the console, the CLI or a future channel. Exactly one of pid / mrn.",
+      "type": "object",
+      "required": ["status", "by"],
+      "additionalProperties": false,
+      "properties": {
+        "pid": {"type": ["string", "null"]},
+        "mrn": {"type": ["string", "null"], "description": "chart number, resolved to the pseudonym on the box and discarded"},
+        "status": {"$ref": "#/$defs/registry_status"},
+        "reason": {"type": ["string", "null"], "maxLength": 500},
+        "by": {"type": "string"},
+        "source": {"type": ["string", "null"], "enum": ["manual", "screen", "case", "import", null]},
+        "source_job": {"type": ["string", "null"]}
+      }
+    },
+    "registry_event": {
+      "title": "RegistryEvent",
+      "type": "object",
+      "required": ["ruleset", "pid", "status", "at", "by"],
+      "additionalProperties": false,
+      "properties": {
+        "ruleset": {"type": "string"},
+        "pid": {"type": "string"},
+        "status": {"$ref": "#/$defs/registry_status"},
+        "previous": {"anyOf": [{"$ref": "#/$defs/registry_status"}, {"type": "null"}]},
+        "reason": {"type": ["string", "null"]},
+        "at": {"type": "string", "format": "date-time"},
+        "by": {"type": "string"},
+        "source_job": {"type": ["string", "null"]}
+      }
+    },
+    "registry_summary": {
+      "title": "RegistrySummary",
+      "type": "object",
+      "required": ["ruleset", "counts", "updated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "ruleset": {"type": "string"},
+        "counts": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "updated_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "registry_promote": {
+      "title": "RegistryPromote",
+      "description": "Add the candidates of the ruleset's current SCREEN pool (tiers high and review) that are not yet in the registry.",
+      "type": "object",
+      "required": ["by"],
+      "additionalProperties": false,
+      "properties": {
+        "by": {"type": "string"},
+        "tiers": {"type": "array", "items": {"type": "string", "enum": ["high", "review"]}, "default": ["high", "review"]}
+      }
+    }
+  }
+}

@@ -23,6 +23,8 @@ hospital's own data.
 | NHI submission | `SUBMIT ONC-OSI pid=… bundle=<NAV job>` (physicians) | ClaimResponse (dry run by default) |
 | Cohort tables | `COHORT GOUT-COH` | alliance CSV, report, ClinicalTrials.gov trial simulation; `COHORT MERGE` at the alliance root |
 | Consent explainer | `CONSENT GZQO lang=en,ja,zh-TW` (+ the IRB-approved consent form) | review sheet + DRAFT plain-language guides; `RELEASE <job id>` (reviewers) releases them. A reading aid, not the consent form or an e-signature ([docs/CONSENT.md](docs/CONSENT.md)) |
+| Single case | `CASE GZQO mrn=10000001 lang=zh-TW` (+ the patient's chart) or the console's "Single case" page | eligibility sheet per criterion with quotes (encrypted, study team only); structured criteria from the box's data when the chart number is known, else from the chart |
+| Candidate registry | console "Registry" page, or `POST /registry/<ruleset>` | per-study screening log: candidate → contacted → consented → enrolled (or screen fail / declined / withdrawn), promotion from a SCREEN run, XLSX export for the monitor |
 
 ## Try the POC in 10 minutes (web console + e-mail, one command)
 

@@ -106,10 +106,14 @@ def local_iso(value: object, tz: str) -> str | None:
 
 
 def judge_for(ctx: Ctx, rs: Ruleset) -> NoteJudge | None:
+    """The note judge for a run: two-model agreement when a verifier build is configured (the default, D-89), the
+    single judge with ``TB_SCREEN_JUDGE=single``."""
     if ctx.services.llm is None:
         return None
     prompt = rs.manifest.models.judge_prompt if rs.manifest.models and rs.manifest.models.judge_prompt else None
-    return NoteJudge(ctx.services.lake, ctx.services.llm, prompt or "judge", job_id=ctx.job.job_id)
+    mode = os.environ.get("TB_SCREEN_JUDGE", "agreement").strip().lower()
+    verifier = ctx.services.verifier if mode != "single" else None
+    return NoteJudge(ctx.services.lake, ctx.services.llm, prompt or "judge", job_id=ctx.job.job_id, verifier=verifier)
 
 
 def structured_engine(ctx: Ctx, snapshot: str) -> StructuredEngine:

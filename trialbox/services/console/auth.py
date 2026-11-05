@@ -24,8 +24,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-Role = Literal["admin", "viewer"]
-ROLES: tuple[Role, ...] = ("admin", "viewer")
+Role = Literal["admin", "coordinator", "viewer"]
+ROLES: tuple[Role, ...] = ("admin", "coordinator", "viewer")
+SSO_MARK = "sso"  # pw_hash of an account the hospital identity provider signs in (no console password)
 MIN_PASSWORD = 12
 MAX_FAILURES = 5
 LOCKOUT = timedelta(minutes=15)
@@ -120,6 +121,11 @@ class User:
     def is_admin(self) -> bool:
         return self.role == "admin"
 
+    @property
+    def can_request(self) -> bool:
+        """May start requests and edit the registry: administrators and coordinators (D-93)."""
+        return self.role in ("admin", "coordinator")
+
 
 @dataclass(frozen=True)
 class Session:
@@ -186,6 +192,35 @@ class UserStore:
                 (u, role, hash_password(password), mb, self.clock().isoformat()),
             )
         return User(u, role, mb)
+
+    def upsert_sso(self, username: str, role: Role, mailbox: str | None) -> User:
+        """The account behind a trusted identity header (D-93): created on first sight with no console password,
+        role and mailbox refreshed on every sign-in so a change in the directory applies at once. Never touches an
+        account that has a password (a local administrator keeps their rights)."""
+        u = check_username(username)
+        if role not in ROLES:
+            raise AuthError(f"role must be one of {', '.join(ROLES)}")
+        mb = mailbox.strip().lower() if mailbox else None
+        with self._lock:
+            row = self._con.execute("SELECT pw_hash, disabled FROM users WHERE username = ?", (u,)).fetchone()
+            if row is None:
+                self._con.execute(
+                    "INSERT INTO users (username, role, pw_hash, mailbox, created) VALUES (?,?,?,?,?)",
+                    (u, role, SSO_MARK, mb, self.clock().isoformat()),
+                )
+            elif row[1]:
+                raise AuthError("account disabled")
+            elif row[0] == SSO_MARK:
+                self._con.execute("UPDATE users SET role = ?, mailbox = ? WHERE username = ?", (role, mb, u))
+            else:  # a local account: the header never changes its role or mailbox
+                row = self._con.execute("SELECT role, mailbox FROM users WHERE username = ?", (u,)).fetchone()
+                return User(u, row[0], row[1])
+        return User(u, role, mb)
+
+    def is_sso(self, username: str) -> bool:
+        with self._lock:
+            row = self._con.execute("SELECT pw_hash FROM users WHERE username = ?", (username,)).fetchone()
+        return bool(row) and row[0] == SSO_MARK
 
     def set_password(self, username: str, password: str) -> None:
         check_password_policy(password)

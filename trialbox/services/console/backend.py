@@ -25,7 +25,7 @@ from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError
 from tb_common.objstore import ObjectStore
 from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved
-from tb_contracts import Job, JobCreate, JobFile
+from tb_contracts import Job, JobCreate, JobFile, RegistryEntry, RegistryPromote, RegistrySummary, RegistryUpdate
 
 
 class Refused(RuntimeError):
@@ -85,6 +85,11 @@ class Backend(Protocol):
     def health(self) -> list[Health]: ...
     def ingest(self) -> dict[str, Any]: ...
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str: ...
+    def registry_summaries(self) -> list[RegistrySummary]: ...
+    def registry_rows(self, ruleset: str) -> list[RegistryEntry]: ...
+    def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry: ...
+    def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
+    def registry_export(self, ruleset: str) -> bytes: ...
 
 
 # ---------------------------------------------------------------------------------------------- audit reading
@@ -240,6 +245,39 @@ class HttpBackend:
             raise Unavailable(str(exc)) from exc
         report: dict[str, Any] = resp.json()
         return report
+
+    # ------------------------------------------------------------------ candidate registry (D-92)
+    def _registry_call(self, method: str, path: str, body: Any = None) -> Any:
+        try:
+            if method == "GET":
+                return self.orch.get_json(path)
+            return self.orch.post_raw(path, body).json()
+        except ServiceError as exc:
+            if exc.status in (400, 404, 422):
+                try:
+                    detail = str(json.loads(exc.detail).get("detail"))
+                except (ValueError, AttributeError):
+                    detail = exc.detail
+                raise Refused(detail) from exc
+            raise Unavailable(str(exc)) from exc
+
+    def registry_summaries(self) -> list[RegistrySummary]:
+        return [RegistrySummary.model_validate(s) for s in self._registry_call("GET", "/registry")]
+
+    def registry_rows(self, ruleset: str) -> list[RegistryEntry]:
+        return [RegistryEntry.model_validate(r) for r in self._registry_call("GET", f"/registry/{ruleset}")]
+
+    def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry:
+        return RegistryEntry.model_validate(self._registry_call("POST", f"/registry/{ruleset}", upd))
+
+    def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
+        return int(self._registry_call("POST", f"/registry/{ruleset}/promote", req)["added"])
+
+    def registry_export(self, ruleset: str) -> bytes:
+        try:
+            return self.orch._request("GET", f"/registry/{ruleset}/export.xlsx").content
+        except ServiceError as exc:
+            raise Unavailable(str(exc)) from exc
 
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str:
         """Test profile only (GreenMail): what a staff mail client would send. The ``Authentication-Results`` header

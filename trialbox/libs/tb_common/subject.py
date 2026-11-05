@@ -2,11 +2,11 @@
 
     subject = cmd SP ruleset *(SP option) [SP "--" SP comment]
     cmd     = "FEAS" / "SCREEN" / "COHORT" / "NAV" / "APPROVE" / "STATUS" / "CANCEL" / "SUBMIT" / "FEEDBACK"
-            / "CONSENT" / "RELEASE"
+            / "CONSENT" / "RELEASE" / "CASE"
     ruleset = 1*16(ALPHA / DIGIT / "-" / "_")        ; STATUS / CANCEL / RELEASE take a job id (ULID) instead
     option  = key "=" value
     key     = "window" / "pract" / "dept" / "lookback" / "version" / "variant" / "since" / "pid" / "bundle" / "site"
-            / "lang" / "drop" / "keep"
+            / "lang" / "drop" / "keep" / "mrn"
     value   = 1*32(ALPHA / DIGIT / "-" / "," / "." / ":")   ; ":" allowed for variant=bmi:24,25,27 (spec example)
 
 Leading reply/forward prefixes (``Re:``, ``RE:``, ``Fwd:``, ``回覆:``, ``轉寄:``) are ignored.
@@ -29,6 +29,7 @@ COMMANDS = (
     "FEEDBACK",
     "CONSENT",
     "RELEASE",
+    "CASE",
 )
 KEYS = (
     "window",
@@ -44,6 +45,7 @@ KEYS = (
     "lang",
     "drop",
     "keep",
+    "mrn",
 )
 _RULESET = re.compile(r"^[A-Za-z0-9_-]{1,16}$")
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")

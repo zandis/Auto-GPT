@@ -90,3 +90,7 @@ details > summary { cursor: pointer; color: var(--accent); margin-bottom: 8px; }
   nav a { white-space: nowrap; }
   main { padding: 12px; }
 }
+.pill.st-enrolled, .pill.st-consented { background: var(--ok-bg); color: var(--ok); }
+.pill.st-screen_fail, .pill.st-declined, .pill.st-withdrawn { background: var(--bad-bg); color: var(--bad); }
+.pill.st-contacted { background: var(--warn-bg); color: var(--warn); }
+td form.inline select, td form.inline input { max-width: 140px; }

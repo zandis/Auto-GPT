@@ -16,7 +16,7 @@
   <fieldset><legend>{{ t('consent.langs') }}</legend>
   {% for code in ('en', 'ja', 'zh-TW') %}<label class="check"><input type="checkbox" name="langs" value="{{ code }}" checked> <span lang="{{ code }}">{{ t('lang.name.' + code) }}</span></label> {% endfor %}
   </fieldset>
-  <button type="submit" {{ 'disabled' if not user.is_admin else '' }} data-testid="draft-consent">{{ t('consent.submit') }}</button>
+  <button type="submit" {{ 'disabled' if not user.can_request else '' }} data-testid="draft-consent">{{ t('consent.submit') }}</button>
 </form>
 </section>
 {% endblock %}
