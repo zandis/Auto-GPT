@@ -603,6 +603,12 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     assert 'data-testid="review"' in page
     assert "check the 3 criteria: 1 by a fixed filter" in page and "1 by a person at screening" in page
     assert "not a regulated e-signature" in page  # lightweight approval (D-88)
+    assert "agreed with expert annotators" in page and 'data-testid="split-warning"' not in page  # D-101
+    heavy = html.replace(b"<td>structured</td>", b"<td>human</td>")
+    box["backend"].objects[hkey] = heavy
+    page = c.get(f"/pilot/jobs/{job.job_id}").text
+    assert 'data-testid="split-warning"' in page and "2 of 3 criteria are left to a person" in page
+    box["backend"].objects[hkey] = html
     r = c.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": csrf}, follow_redirects=False)
     assert r.status_code == 303
     appr = box["backend"].created[-1]

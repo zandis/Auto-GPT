@@ -244,6 +244,8 @@ EN: dict[str, str] = {
     "request.lookback.range": "Look-back is a whole number of months from 1 to 120.",
     "protocol.empty": "The protocol file is empty. Choose the file again.",
     "job.review.split": "How the box will check the {n} criteria: {s} by a fixed filter on structured data (age, sex, codes, labs, drugs) · {m} by the model reading reports and notes · {x} by the filter first, then the model where the codes are silent · {h} by a person at screening.",
+    "job.review.split.warn": "Check this: {h} of {n} criteria are left to a person, so the box would do little of the screening for this trial. Read the class column before approving.",
+    "job.review.routing": "The model proposed this routing; on open trial data it agreed with expert annotators about 6 times in 10, so your approval is the check of every class (filter / model / person).",
     "nav.consent": "Consent explainer",
     "consent.title": "Consent explainer",
     "consent.help": "Upload the IRB-approved informed-consent form. TrialBox drafts a plain-language guide with key "
@@ -597,6 +599,8 @@ JA: dict[str, str] = {
     "request.lookback.range": "遡及期間は 1〜120 の整数（か月）で入力してください。",
     "protocol.empty": "プロトコルファイルが空です。ファイルを選び直してください。",
     "job.review.split": "{n} 件の基準の確認方法：{s} 件は構造化データ（年齢・性別・コード・検査・薬剤）の固定フィルター · {m} 件はモデルがレポートと記録を読む · {x} 件はまずフィルター、コードにない場合はモデルが記録を読む · {h} 件はスクリーニング時に担当者が確認。",
+    "job.review.split.warn": "ご確認ください：{n} 件中 {h} 件が担当者に委ねられており、この試験では装置の自動化がほとんど効きません。承認前に区分列をお読みください。",
+    "job.review.routing": "この振り分けはモデルの提案です。公開試験データでは専門家の注釈と約 10 回中 6 回一致しました。承認は各基準の区分（フィルター／モデル／担当者）の確認を意味します。",
     "nav.consent": "同意説明の補助",
     "consent.title": "同意説明の補助資料",
     "consent.help": "IRB 承認済みの同意説明文書をアップロードしてください。TrialBox が主な危険・利益・参加者のすること・"
@@ -936,6 +940,8 @@ ZH: dict[str, str] = {
     "request.lookback.range": "回溯期間請輸入 1 到 120 的整數（月）。",
     "protocol.empty": "計畫書檔案是空的，請重新選擇檔案。",
     "job.review.split": "{n} 項條件的檢查方式：{s} 項以結構化資料（年齡、性別、代碼、檢驗、藥物）固定篩選 · {m} 項由模型閱讀報告與病歷 · {x} 項先篩選，代碼無法判定時再由模型閱讀病歷 · {h} 項於篩選時由人員確認。",
+    "job.review.split.warn": "請注意：{n} 項條件中有 {h} 項交由人員判斷，本機對此試驗的篩選幫助有限。核准前請先閱讀「類別」欄。",
+    "job.review.routing": "此分流由模型提出；在公開試驗資料上，它與專家標註約每 10 次有 6 次一致，因此您的核准即是對每項類別（篩選／模型／人員）的確認。",
     "nav.consent": "同意說明輔助",
     "consent.title": "受試者同意說明輔助",
     "consent.help": "上傳經 IRB 核准的受試者同意書。TrialBox 會以各語言起草淺白說明，包含主要風險、好處、受試者須配合事項與理解確認問題；"

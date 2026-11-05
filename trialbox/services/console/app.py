@@ -678,12 +678,14 @@ def create_app(
             return None
         if not found:
             return None
+        h = found.count("human")
         return {
             "n": len(found),
             "s": found.count("structured"),
             "m": found.count("note"),
             "x": found.count("mixed"),
-            "h": found.count("human"),
+            "h": h,
+            "human_heavy": h * 2 >= len(found),  # D-101: half or more left to a person
         }
 
     def _consent_card(job: Job) -> dict[str, Any] | None:
