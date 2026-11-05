@@ -56,3 +56,18 @@ datasets:
     data_class: D0
     kind: open
     licence: Chia corpus - licence unconfirmed (App. H); loader disabled, no data
+  trec_ct:
+    path: eval/trec_ct (model answers and scores; NIST topics/qrels and NCBI corpus in .cache, never committed)
+    data_class: D0
+    kind: open
+    licence: TREC Clinical Trials 2021/2022 topics and qrels (NIST, synthetic patient descriptions); trial texts from the NCBI TrialGPT corpus (ClinicalTrials.gov public records)
+  medtxt:
+    path: eval/medtxt (model answers and scores; MedTxt-CR/RR XML in .cache, never committed)
+    data_class: D0
+    kind: open
+    licence: CC BY 4.0 (NTCIR-16 Real-MedNLP test collection, Sociocom NAIST; MedTxt-CR training split and MedTxt-RR)
+  hospital_sim:
+    path: eval/hospital_sim (measured pipeline runs on generated hospitals and projections)
+    data_class: D0
+    kind: synthetic
+    licence: generated (tools/synth via tools/hospital_sim.py)
