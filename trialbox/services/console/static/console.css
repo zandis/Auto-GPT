@@ -15,7 +15,7 @@ body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Noto San
 a { color: var(--accent); }
 .skip { position: absolute; left: -999px; }
 .skip:focus { left: 8px; top: 8px; background: var(--card); padding: 6px; z-index: 9; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.sr { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }  /* left:0: an off-screen label must not widen the page on a phone (M3) */
 .banner { background: var(--banner); color: #fff; padding: 6px 16px; font-size: 13px; }
 .banner.prod { background: #3d3d3d; }
 .top { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 10px 16px;
