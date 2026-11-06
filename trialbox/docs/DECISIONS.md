@@ -909,8 +909,10 @@ Monday re-screen goes through `run_screen` and so through the cascade. On the sy
 the planted structured truth at ≥ 98 % and the note truth at ≥ 90 % (the v1 acceptance tests, unchanged). With the
 same decision Changfu re-approved GZQO with the judge v4 prompt (D-96): `rulesets/GZQO/manifest.yaml` pins
 `judge_v4`, the review record names the approver, the channel (project chat, 6 Nov 2026 06:28 +08:00), round 2 and
-the class split; criteria, SQL and CQL are unchanged, so the ruleset version stays 1.0.0. The four other shipped
-rulesets keep `judge_v3` until their approver says so.
+the class split; criteria, SQL and CQL are unchanged, so the ruleset version stays 1.0.0. Changfu's "Switch" of
+6 Nov 2026 07:11 +08:00 re-approved the four other shipped rulesets (GOUT-COH, RA-BIO, RA-COH, ONC-OSI) the same
+way, so every shipped ruleset now pins `judge_v4`; only ONC-OSI has a note criterion, the three cohort rulesets
+are filters only and the pin is recorded for consistency.
 
 **D-104 Report-first pages per role.** Changfu's review of 5 Nov 2026 ("the general UX is too complex… sometimes they
 just want a report and a patient list"): the pilot console gains one landing page per role and three report pages,
