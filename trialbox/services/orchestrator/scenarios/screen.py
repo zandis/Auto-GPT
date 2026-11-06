@@ -38,6 +38,7 @@ from orchestrator.scenarios.evaluate import (
     sort_key,
 )
 from orchestrator.scenarios.review import recipients, require_approved
+from orchestrator.scenarios.screen_cascade import pipeline, screen_with_cascade
 
 SCOPE_SQL = """
 WITH a AS (
@@ -82,6 +83,11 @@ class ScreenRun:
     window_days: int
     judge: NoteJudge | None
     judging: dict[str, Any] | None = None
+    cascade: dict[str, Any] | None = None  # D-103: the cascade's stage log and counts when it ran the screen
+
+    @property
+    def pipeline(self) -> str:
+        return "cascade" if self.cascade else "v1"
 
 
 def judging_info(judge: NoteJudge | None) -> dict[str, Any]:
@@ -184,7 +190,16 @@ def models_used(j: dict[str, Any] | None) -> str:
 
 def stage_funnel(rs: Ruleset, srun: ScreenRun, listed: int, n: Callable[[int], int]) -> list[list[Any]]:
     """The run as the one named funnel every page shows (M7), with the cascade's stage ids: S0 in scope, S1 after
-    the coded filters, S3 patients whose notes the model read, S4 candidates (high + review) for a person."""
+    the coded filters, S3 patients whose notes the model read, S4 candidates (high + review) for a person. When the
+    cascade ran the screen (D-103) the counts are its own stage log."""
+    if srun.cascade:
+        after = srun.cascade.get("n_after") or {}
+        return [
+            ["S0", n(int(after.get("S0", len(srun.scoped))))],
+            ["S1", n(int(after.get("S1", 0)))],
+            ["S3", n(int(srun.cascade.get("notes_read") or 0))],
+            ["S4", n(listed)],
+        ]
     by_id = {c.id: c for c in rs.criteria}
     after_codes = 0
     notes_read = 0
@@ -324,7 +339,34 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
     recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
     scoped = scope_patients(ctx, practitioners, run_date, window, recent, depts)
     ctx.metrics(patients_scoped=len(scoped))
-    results = evaluate_scope(ctx, rs, run_date, snapshot, scoped)
+    judge = judge_for(ctx, rs)
+    judging = judging_info(judge)
+    cascade: dict[str, Any] | None = None
+    if pipeline() == "cascade":  # D-103: the v4 cascade is the screening engine
+        cs = screen_with_cascade(
+            ctx, rs, run_date, snapshot, [s.pid for s in scoped], judge, judging, threshold(ctx, rs), recent
+        )
+        results, judging, cascade = cs.results, cs.judging, cs.summary
+        tiers = {t: sum(1 for v in results.values() if v.tier == t) for t in ("high", "review", "excluded")}
+        ctx.orch.audit.append(
+            "screen.evaluated",
+            job_id=ctx.job.job_id,
+            ruleset=rs.id,
+            ruleset_version=rs.version,
+            snapshot=snapshot,
+            model=judge.llm.model if judge is not None else None,
+            prompt_version=judge.prompt if judge is not None else None,
+            detail={
+                "engine": "cascade",
+                "index_date": run_date.isoformat(),
+                "patients": len(scoped),
+                "tiers": tiers,
+                "n_after": cascade["n_after"],
+                "judging": judging,
+            },
+        )
+    else:
+        results = evaluate_scope(ctx, rs, run_date, snapshot, scoped)
     by_pid = {s.pid: s for s in scoped}
     stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
     rows = [
@@ -332,9 +374,8 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
         for p, pv in results.items()
     ]
     rows.sort(key=sort_key)
-    judge = judge_for(ctx, rs)
     return ScreenRun(
-        rs, run_date, snapshot, scoped, results, rows, practitioners, depts, window, judge, judging_info(judge)
+        rs, run_date, snapshot, scoped, results, rows, practitioners, depts, window, judge, judging, cascade
     )
 
 
@@ -522,6 +563,8 @@ def run(ctx: Ctx) -> Outcome:
                 },
                 "listed": n(info["listed"]),
                 "funnel": funnel,
+                "pipeline": srun.pipeline,
+                "cascade": srun.cascade,
                 "referrals": {k: n(v) for k, v in info["referrals"].items()},
                 "unknown_by_criterion": {k: n(v) for k, v in sorted(unknown_by.items())},
                 "judging": judging,

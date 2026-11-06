@@ -33,7 +33,7 @@ from lake.textproc import chunk, token_string
 
 log = logging.getLogger("lake")
 DIM = 1024
-INSERT_BATCH = 4096  # chunk rows per Arrow batch: bounds memory on hospital-size snapshots (D-103)
+INSERT_BATCH = 4096  # chunk rows per Arrow batch: bounds memory on hospital-size snapshots (D-105)
 _ARROW = {
     "VARCHAR": pa.string(),
     "DATE": pa.date32(),

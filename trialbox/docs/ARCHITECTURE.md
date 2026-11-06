@@ -93,9 +93,12 @@ protocol / NHI rule / cohort definition / CT.gov text
 approved ruleset: manifest.yaml, ir/*.json, valuesets/*.json, cql/*.cql + elm, sql/*.sql, tests/{patients,expected}
 ```
 
-Scenarios evaluate structured criteria in one of two ways. CQL `$evaluate` per patient on HAPI is the SCREEN default.
-The ruleset SQL in the lake is used for FEAS month-ends, COHORT quarter-ends, NAV retrospection, and SCREEN when
-`TB_SCREEN_ENGINE=sql`.
+SCREEN runs the v4 cascade (D-103, `scenarios/screen_cascade.py` → `services/matching/cascade/`): the scoped
+patients go through S0 consent, S1 the ruleset SQL in the lake (filters first), S2 lexicon and S2b semantic ranking on
+the notes, S3 the judge through the orchestrator's LLM client, S4 a second opinion, tiers; S5 is the coordinator.
+`TB_SCREEN_PIPELINE=v1` restores the v1 evaluator, which evaluates structured criteria in one of two ways: CQL
+`$evaluate` per patient on HAPI, or the ruleset SQL in the lake with `TB_SCREEN_ENGINE=sql`. The SQL is also what
+FEAS month-ends, COHORT quarter-ends, NAV retrospection, CASE and MICROBATCH deltas use.
 
 Note criteria go through RAG over the patient's chunks and then the `judge` (LLM, schema-constrained). The judge
 must quote verbatim; the quote is checked against the record, with a fallback to the full record. Human criteria

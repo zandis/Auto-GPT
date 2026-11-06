@@ -95,6 +95,20 @@ class Backend(Protocol):
     def reveal(self, job_id: str, pid: str, by: str) -> str | None: ...
 
 
+def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, str]]:
+    """Inclusion and exclusion criteria of the approved ruleset, in protocol order (id, kind, class, label, text):
+    what the role pages (D-104) print next to a verdict. Empty when there is no approved version."""
+    try:
+        rs = load_approved(rulesets_dir, ruleset)
+    except (RulesetNotApproved, FileNotFoundError, ValueError):
+        return []
+    return [
+        {"id": c.id, "kind": c.kind, "class": c.class_, "label": c.label or c.text[:60], "text": c.text}
+        for c in rs.active()
+        if c.kind in ("inclusion", "exclusion")
+    ]
+
+
 # ---------------------------------------------------------------------------------------------- audit reading
 _SHOWN_DETAIL = ("from", "to", "type", "filename", "tag", "bytes", "subject", "reason", "action", "line", "role", "run")
 
@@ -216,6 +230,9 @@ class HttpBackend:
 
     def rulesets(self) -> list[RulesetInfo]:
         return ruleset_infos(self.cfg.env.rulesets_path)
+
+    def criteria(self, ruleset: str) -> list[dict[str, str]]:
+        return criteria_of(self.cfg.env.rulesets_path, ruleset)
 
     def models(self) -> dict[str, Any] | None:
         """The orchestrator's ``GET /models`` (judge, verifier, note-block policy in force); None when it is down."""

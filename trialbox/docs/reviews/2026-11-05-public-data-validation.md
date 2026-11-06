@@ -145,7 +145,7 @@ The recall certificate was issued at every size, including all 50,000 patients.
 Every run passed all 16 invariant checks (published, no blocking data-quality defect, lineage complete, monotone
 funnel, cascade equals the v1 funnel, small cells suppressed, reproducible, and the rest). Time and memory grow
 linearly (about 17 ms and 0.34 MB per patient). The first 50,000-patient attempt was killed at 13.5 GB: the lake
-rebuild held every note embedding as a Python list (about 32 KB a chunk). D-103 keeps them as float32 and inserts in
+rebuild held every note embedding as a Python list (about 32 KB a chunk). D-105 keeps them as float32 and inserts in
 batches, which cut memory by about a third (25,000 patients: 12.1 GB before, 8.2 GB after); the 50,000 run then
 finished on this 16 GB container with a 12 GB swap file added. The test harness still holds lake, traces and pack in
 one process; the deployed stack splits them, so a real box needs less.

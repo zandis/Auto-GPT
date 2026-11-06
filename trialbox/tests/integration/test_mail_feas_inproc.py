@@ -56,7 +56,7 @@ def test_feas_email_round_trip(box: Box) -> None:
     wb = load_workbook(io.BytesIO(next(v for k, v in atts.items() if k.endswith(".xlsx"))))
     assert wb.sheetnames == ["funnel", "sensitivity", "monthly", "criteria", "assumptions"]
     # every output hashed + audited; the unsuppressed raw counts are an output that is never mailed
-    assert len(job.outputs or []) == 4 and {o.tag for o in job.outputs or []} == {"aggregate", "phi"}
+    assert len(job.outputs or []) == 5 and {o.tag for o in job.outputs or []} == {"aggregate", "phi"}
     assert not any(n.endswith(".raw.json") for n in names)
     assert verify(box.audit_dir).ok
     lines = [json.loads(x) for f in sorted(box.audit_dir.glob("*.jsonl")) for x in f.read_text().splitlines()]

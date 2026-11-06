@@ -41,7 +41,17 @@ from tb_common.crypto import sha256_bytes
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console.auth import ROLES, AuthError, Session, User, UserStore, csrf_ok, random_password
+from console.auth import (
+    AFFILIATIONS,
+    ROLES,
+    AuthError,
+    Session,
+    User,
+    UserStore,
+    csrf_ok,
+    random_password,
+    scope_values,
+)
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
@@ -370,7 +380,37 @@ def create_app(
             token, sess = us.new_session(user, pick_language(request.headers.get("accept-language")))
             request.state.sso_cookie = token
             au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": "sso"})
+        _scope_check(request, sess)
         return sess
+
+    def _scope_check(request: Request, sess: Session) -> None:
+        """D-104: a CRO account sees the reports pages only; a study-scoped account (an SMO coordinator) reaches no
+        job or registry page of another study."""
+        path = request.url.path
+        u = sess.user
+        if u.role == "cro" and not (
+            path in ("/", "/home", "/reports", "/lang", "/logout")
+            or re.fullmatch(r"/studies/[A-Za-z0-9_-]+/feasibility", path)
+            or re.fullmatch(r"/pilot/jobs/[0-9A-HJKMNP-TV-Z]{26}/sponsor-pack\.zip", path)
+        ):
+            au.append("console.denied", actor=f"console:{u.username}", detail={"action": path[:80]})
+            raise _Problem(403, "forbidden")
+        if not u.studies:
+            return
+        # cross-study lists a study-scoped account (an SMO coordinator) has no business with
+        if path in ("/jobs", "/audit", "/pilot/mailbox") or path.startswith("/pilot/cascade"):
+            au.append("console.denied", actor=f"console:{u.username}", detail={"action": path[:80]})
+            raise _Problem(403, "forbidden")
+        m = re.match(r"^/pilot/(?:jobs/([0-9A-HJKMNP-TV-Z]{26})|registry/([A-Za-z0-9_-]+))", path)
+        if not m:
+            return
+        rs = m.group(2)
+        if m.group(1):
+            job = bk.get_job(m.group(1))
+            rs = job.ruleset if job is not None else None
+        if rs and not u.sees_study(rs):
+            au.append("console.denied", actor=f"console:{u.username}", detail={"action": path[:80]})
+            raise _Problem(404, "notfound")
 
     def _need_role(request: Request, csrf: str, ok: bool, sess: Session) -> Session:
         if not csrf_ok(sess, csrf):
@@ -459,6 +499,9 @@ def create_app(
             req = job_create(line, mailbox, job_id, f"web console ({sess.user.username})", inputs)
         except ProposalError as exc:
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
+        if req.ruleset and not sess.user.sees_study(req.ruleset):  # D-104: a scoped account requests its studies only
+            au.append("console.denied", actor=actor(sess), detail={"action": f"request {req.ruleset}"})
+            raise _Problem(404, "notfound")
         au.append(
             "console.request",
             job_id=job_id,
@@ -548,6 +591,8 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def overview(request: Request, notice: str = "") -> Response:
         sess = need(request)
+        if settings.pilot and not sess.user.is_admin:  # D-104: every role but the administrator starts on its home
+            return RedirectResponse("/home", status_code=303)
         jobs = bk.list_jobs(limit=8)
         return page(
             request,
@@ -590,7 +635,17 @@ def create_app(
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
-        return page(request, "users.html", sess, users=rows, roles=ROLES, made=made, pw=pw, sso=settings.sso)
+        return page(
+            request,
+            "users.html",
+            sess,
+            users=rows,
+            roles=ROLES,
+            affiliations=AFFILIATIONS,
+            made=made,
+            pw=pw,
+            sso=settings.sso,
+        )
 
     @app.post("/ops/users")
     def users_edit(
@@ -600,6 +655,9 @@ def create_app(
         username: str = Form(""),
         role: str = Form("viewer"),
         mailbox: str = Form(""),
+        affiliation: str = Form("hospital"),
+        studies: str = Form(""),
+        expires: str = Form(""),
     ) -> Response:
         """Add a user (password shown once), reset a password (shown once) or disable an account. Same as the
         console.cli commands; every change is an audit event."""
@@ -609,9 +667,22 @@ def create_app(
             if action == "add":
                 if role not in ROLES:
                     raise AuthError("unknown role")
+                scope_values(affiliation, studies, expires or None)  # refuse a bad scope before the account exists
                 password = random_password()
                 us.create(name, role, password, mailbox.strip() or None)
-                au.append("console.user", actor=actor(sess), detail={"action": "create", "user": name, "role": role})
+                made_user = us.set_scope(name, affiliation, studies, expires or None)
+                au.append(
+                    "console.user",
+                    actor=actor(sess),
+                    detail={
+                        "action": "create",
+                        "user": name,
+                        "role": role,
+                        "affiliation": made_user.affiliation,
+                        "studies": ",".join(made_user.studies),
+                        "expires": made_user.expires or "",
+                    },
+                )
                 return RedirectResponse(f"/ops/users?made={name}&pw={password}", status_code=303)
             if action == "reset":
                 if us.is_sso(name):
@@ -620,6 +691,20 @@ def create_app(
                 us.set_password(name, password)
                 au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
                 return RedirectResponse(f"/ops/users?made={name}&pw={password}", status_code=303)
+            if action == "scope":
+                u2 = us.set_scope(name, affiliation, studies, expires or None)
+                au.append(
+                    "console.user",
+                    actor=actor(sess),
+                    detail={
+                        "action": "scope",
+                        "user": name,
+                        "affiliation": u2.affiliation,
+                        "studies": ",".join(u2.studies),
+                        "expires": u2.expires or "",
+                    },
+                )
+                return RedirectResponse("/ops/users", status_code=303)
             if action == "disable":
                 if name == sess.user.username:
                     raise AuthError("you cannot disable your own account")
@@ -633,6 +718,26 @@ def create_app(
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:
         return app
+
+    from console.home import Helpers
+    from console.home import register as register_home
+    from console.sitestore import SiteStore
+
+    register_home(
+        app,
+        Helpers(
+            need=need,
+            page=page,
+            problem=_Problem,
+            csrf_ok=csrf_ok,
+            actor=actor,
+            bk=bk,
+            au=au,
+            store=SiteStore(settings.data_dir / "site.sqlite"),
+            users=us,
+            clock=us.clock,
+        ),
+    )
 
     def _job_or_404(job_id: str) -> Job:
         if not _ULID.match(job_id):
@@ -1193,6 +1298,8 @@ def create_app(
         known = {r.id for r in rulesets}
         # a registry may outlive its ruleset version (e.g. after a re-approval): still list it
         rulesets += [RulesetInfo(rs_id, None, "registry", "trial") for rs_id in sorted(summaries) if rs_id not in known]
+        rulesets = [r for r in rulesets if sess.user.sees_study(r.id)]
+        summaries = {k: v for k, v in summaries.items() if sess.user.sees_study(k)}
         return page(request, "registry.html", sess, rulesets=rulesets, summaries=summaries, statuses=STATUSES)
 
     @app.get("/pilot/registry/{ruleset}", response_class=HTMLResponse)
@@ -1261,9 +1368,11 @@ def create_app(
         README that names the ruleset version, snapshot, approval record, population and the models that ran. The
         pack never contains a patient-level file; the download is audited."""
         sess = need(request)
-        if not sess.user.can_request:
+        if not (sess.user.can_request or sess.user.role == "cro"):  # D-104: a CRO account gets the sponsor pack
             raise _Problem(403, "forbidden")
         job = _job_or_404(job_id)
+        if not sess.user.sees_study(job.ruleset or ""):
+            raise _Problem(404, "notfound")
         if job.type != "FEAS" or job.state != "done":
             raise _Problem(404, "notfound")
         files = [(o.filename, bk.get_object(o.minio_key)) for o in job.outputs or [] if o.tag == "aggregate"]

@@ -131,8 +131,11 @@ def models() -> dict[str, Any]:
     mode = os.environ.get("TB_SCREEN_JUDGE", "agreement").strip().lower()
     verifier = s.verifier if mode != "single" else None
     judge = NoteJudge(s.lake, s.llm, "judge", job_id="", verifier=verifier) if s.llm is not None else None
+    from orchestrator.scenarios.screen_cascade import pipeline
+
     return {
         "engine": os.environ.get("TB_SCREEN_ENGINE", "cql"),
+        "pipeline": pipeline(),
         "screen_judge": mode,
         "gateway": bool(os.environ.get("TB_GATEWAY_URL", "").strip()),
         **judging_info(judge),

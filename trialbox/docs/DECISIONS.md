@@ -882,7 +882,70 @@ words left the user's text (the proposal note, the health line). On phones the m
 scrolls, every table scrolls inside its card, and controls stack. Reviewed 2026-11-05 (Fable review M3, M7, M8, L1,
 L2, L3, L4).
 
-**D-103 Lake rebuild keeps embeddings as float32 and inserts in batches.** The 50,000-patient hospital simulation ran
+**D-103 SCREEN runs the v4 cascade; GZQO re-approved with judge v4.** Until 5 Nov 2026 the v4 cascade (S0–S5,
+`services/matching/cascade/`) ran only as `tools.cascade_e2e` on the synthetic drop, while a screening request went
+through the v1 evaluator (per-patient CQL/SQL, then RAG and the judge on every structured candidate); D-102 unified
+the names of the two funnels but not the engines. Changfu's decision of 5 Nov ("pilot = the full cascade as one named
+funnel", "e2e, do it now"): a SCREEN job now scopes its patients as before (practitioner appointments and recent
+encounters) and hands that population to `run_cascade` (`scenarios/screen_cascade.py`): S0 consent and scope, S1 the
+approved ruleset's compiled SQL (filters first, never a model), S2 the bilingual lexicon on the notes in the window,
+S2b the semantic ranking that picks the excerpts, S3 the judge in exclusion-power order with span verification, S4 a
+second opinion on would-be strong candidates, tiers. S5 stays with the coordinator (console and workbook), so the
+cascade runs without a reviewer. The judge is the orchestrator's own LLM client wrapped as the cascade's
+`JudgeClient` (same gateway route, prompt pin, audit line and two-model agreement rule as before; the judge-failure
+gate of v1 applies). Screening differs from feasibility in three settings the engine gained: the population is given
+by the caller (`CascadeConfig.population`), nobody is sampled, and zero-hit pairs below the S2b threshold go to the
+judge instead of taking absence semantics (`absence_semantics=False`: screening spends the tokens, the S2b
+thresholds stay a feasibility economy until the LTT fit exists, D-90). The note-block policy in force (D-95/D-97)
+becomes the engine's `note_block`: without a verifier a confident note `fail` is soft, keeps its quote and sends the
+patient to review, never out. `mixed` criteria (D-98) now exist in the cascade too: a coded hit settles them at S1,
+silent codes send them to S2/S3. The traces come back as the same `CandidateRow` verdicts, tiers and actions every
+report, mail, pool, registry and console page already used (a null exclusion value the cascade keeps reads `unknown`
+and makes the row a review row, as v1 did); `screen_<stem>.json` carries the engine's stage log under `cascade` and
+the funnel of D-102 is now that log (S0, S1, S3 = patients whose notes the model read, S4). `TB_SCREEN_PIPELINE=v1`
+restores the v1 evaluator for a measured comparison; `GET /models` and the console Overview say which pipeline runs.
+MICROBATCH's per-criterion delta check keeps the v1 evaluator (it re-asks single criteria for pool patients); its
+Monday re-screen goes through `run_screen` and so through the cascade. On the synthetic site the cascade reproduces
+the planted structured truth at ≥ 98 % and the note truth at ≥ 90 % (the v1 acceptance tests, unchanged). With the
+same decision Changfu re-approved GZQO with the judge v4 prompt (D-96): `rulesets/GZQO/manifest.yaml` pins
+`judge_v4`, the review record names the approver, the channel (project chat, 6 Nov 2026 06:28 +08:00), round 2 and
+the class split; criteria, SQL and CQL are unchanged, so the ruleset version stays 1.0.0. The four other shipped
+rulesets keep `judge_v3` until their approver says so.
+
+**D-104 Report-first pages per role.** Changfu's review of 5 Nov 2026 ("the general UX is too complex… sometimes they
+just want a report and a patient list"): the pilot console gains one landing page per role and three report pages,
+and the existing pages move under a "More" menu. Roles: `admin`, `coordinator` (hospital CRC or SMO coordinator),
+`investigator`, `viewer`, and a new `cro` role. An account carries an affiliation (hospital, smo, cro), an optional
+study allowlist and an optional end date (`services/console/auth.py`): a scoped account gets 404 on other studies, an
+expired account cannot sign in, `cro` and `viewer` see aggregate pages only (feasibility report, sponsor pack), never
+a patient. Pages (`services/console/home.py`, pilot workspace only; production keeps the D-12 rule of no study
+content on the console): `/home` (study cards with the next action for coordinators; tiles for admins; investigators
+go to `/week`, `cro`/`viewer` to `/reports`); `/studies/{rs}/feasibility`, a sponsor-style feasibility report in 12
+sections built from the FEAS job and a new `feasprofile_*.json` aggregate (`scenarios/feas_profile.py`: rounded age
+and sex bands, 90-day visits, a per-month projection path from the same Monte-Carlo draws), the criteria funnel with
+"checked by" per criterion, barriers split into "value did not meet" and "no value on record", a GO / CONDITIONAL /
+NO-GO reading against the sponsor target, and site fields the coordinator types (capabilities, competing trials,
+target, screen-failure rate; `site.sqlite`), with a sponsor copy (`?view=sponsor`) that leaves out internal comments;
+`/studies/{rs}/week`, the weekly PI list from the latest SCREEN/MICROBATCH candidate list (clinic date, doctor, met
+and still-open criteria, a deterministic "why this patient fits" sentence, no model text); and
+`/studies/{rs}/patients/{pid}`, every criterion with result, evidence quote and how it was checked. The investigator
+marks a patient "approach", "not suitable" (with a reason) or "need info": marks are audited events in `site.sqlite`,
+separate from the candidate registry statuses, and never change a screening result. Investigators may now reveal a
+chart number on the patient page (audited `console.reveal_patient`), as coordinators could. `tools/role_demo.py`
+runs the whole box in one process on the synthetic hospital with one account per role, for trying the product.
+Review of 6 Nov 2026 (second pass, fixed in the same change): a study-scoped account can request jobs for its own
+studies only and gets 403 on the cross-study lists (`/jobs`, `/audit`, mailbox, cascade runs; the registry index is
+filtered); an account past its end date is refused at single sign-on too, not only at the password form; a failed
+inclusion criterion shows as "Not met" on the weekly list; the GO reading compares the projection path at the
+sponsor's own deadline (pro-rating only beyond the 12-month horizon); the report says which counts are over the
+look-back window and which is the latest-month-end pool; a bad scope is refused before the account exists and an
+administrator can edit scope and end date later. The "aggregate only, never a patient" rule is enforced for `cro`
+accounts; the existing `viewer` role keeps its earlier read-only rights (job pages with patient files withheld,
+registry pseudonyms) and only its new pages are aggregate. The CRO account downloads the sponsor pack of a study it
+sees. Known gaps: age and sex are not on the weekly list (the candidate row does not carry them); the AD capability list
+and the 60 % AD screen-failure default appear only for an early-AD ruleset, and none ships yet.
+
+**D-105 Lake rebuild keeps embeddings as float32 and inserts in batches.** The 50,000-patient hospital simulation ran
 out of memory in the lake rebuild: every note-chunk embedding was a Python list of 1,024 floats (about 32 KB a chunk)
 and the whole `document_chunk` table was built as one Arrow table from Python rows. Embeddings are now NumPy float32
 (4 KB), read from the embedding cache through Arrow, inserted in batches of 4,096 rows, and the resource dicts and
