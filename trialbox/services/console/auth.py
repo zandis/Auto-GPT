@@ -177,6 +177,23 @@ def _row_user(row: tuple[object, ...]) -> User:
     return User(str(u), r, m, str(aff or "hospital"), st, str(exp) if exp else None)  # type: ignore[arg-type]
 
 
+def scope_values(affiliation: str, studies: str, expires: str | None) -> tuple[str, str, str | None]:
+    """Checked affiliation, study list and end date of an account (D-104); raises AuthError."""
+    aff = (affiliation or "hospital").strip().lower()
+    if aff not in AFFILIATIONS:
+        raise AuthError(f"affiliation must be one of {', '.join(AFFILIATIONS)}")
+    st = ",".join(x for x in studies.upper().replace(" ", "").split(",") if x)
+    if st and not all(re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{0,31}", x) for x in st.split(",")):
+        raise AuthError("studies are ruleset ids separated by commas")
+    exp = (expires or "").strip() or None
+    if exp is not None:
+        try:
+            date.fromisoformat(exp)
+        except ValueError as exc:
+            raise AuthError("end date must be YYYY-MM-DD") from exc
+    return aff, st, exp
+
+
 class UserStore:
     def __init__(self, path: Path, clock: Clock = _utcnow) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -224,18 +241,7 @@ class UserStore:
     ) -> User:
         """Affiliation, study scope and end date of an account (D-104). An SMO coordinator is normally scoped to
         the studies on its contract with an end date; a CRO account is aggregate-only whatever its scope."""
-        aff = (affiliation or "hospital").strip().lower()
-        if aff not in AFFILIATIONS:
-            raise AuthError(f"affiliation must be one of {', '.join(AFFILIATIONS)}")
-        st = ",".join(x for x in studies.upper().replace(" ", "").split(",") if x)
-        if st and not all(re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{0,31}", x) for x in st.split(",")):
-            raise AuthError("studies are ruleset ids separated by commas")
-        exp = (expires or "").strip() or None
-        if exp is not None:
-            try:
-                date.fromisoformat(exp)
-            except ValueError as exc:
-                raise AuthError("end date must be YYYY-MM-DD") from exc
+        aff, st, exp = scope_values(affiliation, studies, expires)
         with self._lock:
             cur = self._con.execute(
                 "UPDATE users SET affiliation = ?, studies = ?, expires = ? WHERE username = ?",
@@ -286,7 +292,10 @@ class UserStore:
                 row = self._con.execute(f"SELECT {_COLS} FROM users WHERE username = ?", (u,)).fetchone()
                 return _row_user(row)
             row = self._con.execute(f"SELECT {_COLS} FROM users WHERE username = ?", (u,)).fetchone()
-        return _row_user(row)
+        user = _row_user(row)
+        if self._expired(user):  # D-104: an account past its end date never signs in, SSO or not
+            raise AuthError("account expired")
+        return user
 
     def is_sso(self, username: str) -> bool:
         with self._lock:

@@ -933,5 +933,14 @@ marks a patient "approach", "not suitable" (with a reason) or "need info": marks
 separate from the candidate registry statuses, and never change a screening result. Investigators may now reveal a
 chart number on the patient page (audited `console.reveal_patient`), as coordinators could. `tools/role_demo.py`
 runs the whole box in one process on the synthetic hospital with one account per role, for trying the product.
-Known gaps: age and sex are not on the weekly list (the candidate row does not carry them); the AD capability list
+Review of 6 Nov 2026 (second pass, fixed in the same change): a study-scoped account can request jobs for its own
+studies only and gets 403 on the cross-study lists (`/jobs`, `/audit`, mailbox, cascade runs; the registry index is
+filtered); an account past its end date is refused at single sign-on too, not only at the password form; a failed
+inclusion criterion shows as "Not met" on the weekly list; the GO reading compares the projection path at the
+sponsor's own deadline (pro-rating only beyond the 12-month horizon); the report says which counts are over the
+look-back window and which is the latest-month-end pool; a bad scope is refused before the account exists and an
+administrator can edit scope and end date later. The "aggregate only, never a patient" rule is enforced for `cro`
+accounts; the existing `viewer` role keeps its earlier read-only rights (job pages with patient files withheld,
+registry pseudonyms) and only its new pages are aggregate. The CRO account downloads the sponsor pack of a study it
+sees. Known gaps: age and sex are not on the weekly list (the candidate row does not carry them); the AD capability list
 and the 60 % AD screen-failure default appear only for an early-AD ruleset, and none ships yet.

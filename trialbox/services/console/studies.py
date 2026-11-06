@@ -107,8 +107,15 @@ def feas_report(
     low, mid, high = scaled(sim.get("low")), scaled(sim.get("mid")), scaled(sim.get("high"))
     target_n = site.target_n
     target_m = site.target_months or months
-    target_at_horizon = (target_n * months / target_m) if target_n else None
-    reading = go_reading(low, mid, high, target_at_horizon)
+    # compare at the sponsor's own deadline: the projection path's month when it is inside the horizon, otherwise
+    # the horizon total against the pro-rated target (stated as an extrapolation in the assumptions)
+    path_raw = (prof.get("projection") or {}).get("path") or []
+    if target_n and target_m and 1 <= target_m <= len(path_raw):
+        a, b, c = path_raw[int(target_m) - 1]
+        reading = go_reading(scaled(a), scaled(b), scaled(c), float(target_n))
+    else:
+        target_at_horizon = (target_n * months / target_m) if target_n else None
+        reading = go_reading(low, mid, high, target_at_horizon)
 
     funnel_rows = []
     start = result.get("start_n")
@@ -191,6 +198,8 @@ def feas_report(
             "target_n": target_n,
             "target_months": target_m if target_n else None,
             "pool_now": _fmt(pool_now if pool_now is not None else prof.get("pool_now")),
+            # the latest-month-end pool the projection starts from (look-back counts above are cumulative)
+            "pool_latest": _fmt(prof.get("pool_now")) if "pool_now" in prof else None,
             "potential": _fmt(potential if potential is not None else prof.get("potential")),
             "visits_90d": _fmt(prof.get("visits_90d")) if "visits_90d" in prof else None,
             "start": _fmt(start),
@@ -279,6 +288,7 @@ class Fit:
     key: list[dict[str, Any]] = field(default_factory=list)  # met inclusion facts: label, date, quote
     note_exclusion: list[dict[str, Any]] = field(default_factory=list)  # exclusions found in notes (review tier)
     open: list[str] = field(default_factory=list)  # unknown labels
+    not_met: list[str] = field(default_factory=list)  # inclusion criteria a note or record says are not met
     person: list[str] = field(default_factory=list)  # pending_human labels
 
 
@@ -296,6 +306,8 @@ def fit_facts(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Criterio
             if verdict == "pass":
                 fit.inc_met += 1
                 fit.key.append({"id": cid, "label": label, "date": ev.get("quote_date"), "quote": ev.get("quote")})
+            elif verdict == "fail":
+                fit.not_met.append(label)
         else:
             fit.exc_total += 1
             if verdict == "pass":

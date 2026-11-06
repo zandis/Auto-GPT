@@ -150,12 +150,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             if res is not None:
                 rep = st.feas_report(res, load(feas_job, "feasprofile_", ".json", "aggregate"), site, {})
                 feas = rep["summary"]
-        week: dict[str, Any] | None = None
-        if screen_job is not None:
-            cl = load(screen_job, "candidate_list_", ".json")
-            if cl is not None:
-                rows = st.weekly_rows(cl, {}, registry_map(rs), store.latest_marks(rs), {}, "", None)
-                week = {"job": screen_job, "counts": st.week_counts(rows)}
+        # the same rows as the weekly page, so "new" and "marked" agree with what the PI sees
+        week: dict[str, Any] | None = week_bundle(sess, rs) if screen_job is not None else None
         regc = registry_counts(rs)
         if waiting is not None:
             nxt = ("approve", f"/pilot/jobs/{waiting.job_id}")
@@ -166,7 +162,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         elif screen_job is None:
             nxt = ("screen", f"/pilot/request?ruleset={rs}")
         elif week and week["counts"]["marked"]:
-            nxt = ("contact", f"/pilot/registry/{rs}")
+            nxt = ("contact", f"/studies/{rs}/week")
         else:
             nxt = ("week", f"/studies/{rs}/week")
         return {

@@ -125,6 +125,9 @@ def test_fit_facts_count_and_open_items() -> None:
     assert (fit.inc_met, fit.inc_total, fit.exc_clear, fit.exc_total) == (1, 3, 1, 2)
     assert fit.open == ["MMSE 22-30"] and fit.person == ["study partner"]
     assert fit.key[0]["label"] == "MCI diagnosis" and fit.note_exclusion[0]["quote"] == "ワーファリン内服中"
+    # a failed inclusion is shown as "not met", never silently dropped (review 6 Nov)
+    fit2 = st.fit_facts([{"id": "I2", "verdict": "fail", "evidence": {"quote": "MMSE 18"}}], crit)
+    assert fit2.not_met == ["MMSE 22-30"] and fit2.inc_met == 0
 
 
 def test_feas_report_applies_screen_failure_and_target() -> None:
@@ -273,6 +276,20 @@ def test_cro_and_scoped_accounts_see_only_what_they_may(box: dict[str, Any]) -> 
     assert smo.get("/studies/GZQO/feasibility").status_code == 404
     assert smo.get(f"/pilot/jobs/{feas.job_id}").status_code == 404
     assert smo.get("/pilot/registry/GZQO").status_code == 404
+    # review 6 Nov: no request for another study, no cross-study lists
+    page = smo.get("/pilot/request?ruleset=GZQO")
+    if page.status_code == 200:
+        r = smo.post(
+            "/pilot/request",
+            data={"csrf": _csrf(page.text), "kind": "SCREEN", "ruleset": "GZQO", "version": "1.0.0"},
+            follow_redirects=False,
+        )
+        assert r.status_code == 404, r.text[:300]
+    for path in ("/jobs", "/audit", "/pilot/mailbox", "/pilot/cascade"):
+        assert smo.get(path).status_code == 403, path
+    assert "GZQO" not in smo.get("/pilot/registry").text
+    # the CRO account gets the sponsor pack of a study, nothing else of the job
+    assert cro.get(f"/pilot/jobs/{feas.job_id}/sponsor-pack.zip").status_code == 200
 
 
 def test_expired_account_cannot_sign_in(box: dict[str, Any]) -> None:
@@ -283,6 +300,53 @@ def test_expired_account_cannot_sign_in(box: dict[str, Any]) -> None:
     assert token
     r = c.post("/login", data={"username": "old", "password": PW, "login_csrf": token.group(1)}, follow_redirects=False)
     assert r.status_code != 303
+
+
+def test_expired_sso_account_is_refused(tmp_path: Path) -> None:
+    from console.app import create_app
+    from console.auth import UserStore
+    from tb_common.audit import AuditLog
+
+    from tests.console.test_console_app import SSO_ENV, FakeBackend
+
+    backend = FakeBackend()
+    backend.audit_dir = tmp_path / "audit"
+    users = UserStore(tmp_path / "c.sqlite")
+    users.create("admin", "admin", ADMIN_PW, "admin@hospa.test")
+    app = create_app(
+        {**SSO_ENV, "TB_CONSOLE_DIR": str(tmp_path)}, backend=backend, audit=AuditLog(backend.audit_dir), users=users
+    )
+    c = TestClient(app, headers={"X-Forwarded-User": "nurse.old@hospa.test", "X-Forwarded-Groups": "crc"})
+    assert c.get("/home", follow_redirects=False).status_code == 200
+    users.set_scope("nurse.old", affiliation="smo", studies="GZQO", expires="2020-01-01")
+    fresh = TestClient(app, headers={"X-Forwarded-User": "nurse.old@hospa.test", "X-Forwarded-Groups": "crc"})
+    assert fresh.get("/home", follow_redirects=False).status_code == 303  # to the sign-in page
+
+
+def test_admin_scope_is_checked_before_the_account_exists_and_can_be_edited(box: dict[str, Any]) -> None:
+    admin, _ = login(box["app"], "admin", ADMIN_PW)
+    tok = _csrf(admin.get("/ops/users").text)
+    bad = {"csrf": tok, "action": "add", "username": "smo9", "role": "coordinator", "affiliation": "smo",
+           "studies": "GZQO", "expires": "31/03/2027", "mailbox": ""}  # fmt: skip
+    assert admin.post("/ops/users", data=bad, follow_redirects=False).status_code == 400
+    assert box["users"].get("smo9") is None
+    ok = {**bad, "expires": "2027-03-31"}
+    assert admin.post("/ops/users", data=ok, follow_redirects=False).status_code == 303
+    edit = {"csrf": tok, "action": "scope", "username": "smo9", "affiliation": "smo", "studies": "GZQO,LEQ-301",
+            "expires": "2027-06-30"}  # fmt: skip
+    assert admin.post("/ops/users", data=edit, follow_redirects=False).status_code == 303
+    u = box["users"].get("smo9")
+    assert u is not None and u.studies == ("GZQO", "LEQ-301") and u.expires == "2027-06-30"
+
+
+def test_go_reading_uses_the_path_at_the_sponsor_deadline() -> None:
+    result = {"start_n": 600, "funnel": [], "sensitivity": [], "simulation": {"low": 2.0, "mid": 5.0, "high": 9.0}}
+    prof = {"projection": {"months": 12, "path": [[0.5 * m, 1.0 * m, 1.5 * m] for m in range(1, 13)]}}
+    # target 3 by month 6: the path at month 6 is (3, 6, 9), so GO; pro-rating would compare 6 at month 12 with the
+    # 12-month low of 2 and say CONDITIONAL
+    site = SiteProfile(target_n=3, target_months=6)
+    rep = st.feas_report(result, prof, site, {})
+    assert rep["summary"]["reading"] == "go"  # path low at month 6 is 3.0 >= 3
 
 
 def test_role_page_strings_exist_in_every_language() -> None:

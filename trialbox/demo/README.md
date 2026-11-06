@@ -5,12 +5,14 @@ role: `admin`, `crc` (study coordinator), `pi` (investigator), `smo` (SMO coordi
 `cra` (CRO, aggregate reports only) and `viewer`. All share `TB_DEMO_PASSWORD`. It uses a stub language model, so no
 API key is needed and nothing leaves the container. Every restart rebuilds the data, so the demo resets.
 
-Never load real patient data into it: it runs TB_ENV=DEV, data class D0.
+Never load real patient data into it: it runs TB_ENV=DEV, data class D0. It is not a product image: it carries the
+test helpers (the in-process box lives in `tests/`), which is why it sits outside `deploy/`, where every Dockerfile
+is a product image that must never contain the Test Bench.
 
 ## Run it anywhere with Docker
 
     cd trialbox
-    docker build -f deploy/demo/Dockerfile -t trialbox-demo .
+    docker build -f demo/Dockerfile -t trialbox-demo .
     docker run -p 8080:8080 -e TB_DEMO_PASSWORD=choose-one -e TB_CONSOLE_SECURE_COOKIE=0 trialbox-demo
 
 Open http://localhost:8080. (`TB_CONSOLE_SECURE_COOKIE=0` only for plain http on your own machine; behind https keep

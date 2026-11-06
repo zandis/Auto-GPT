@@ -38,7 +38,7 @@
 </section>
 </div>
 <section class="card">
-<table data-testid="users-table">
+<div class="scroll"><table data-testid="users-table">
 <thead><tr><th>{{ t('login.user') }}</th><th>{{ t('users.role') }}</th><th>{{ t('users.mailbox') }}</th><th>{{ t('users.affiliation') }}</th><th>{{ t('users.studies') }}</th><th>{{ t('users.expires') }}</th><th>{{ t('users.signin') }}</th><th></th></tr></thead>
 <tbody>
 {% for u, is_sso in users %}
@@ -48,9 +48,15 @@
 <td>{% if is_sso %}{{ t('users.signin.sso') }}{% else %}{{ t('users.signin.password') }}{% endif %}</td>
 <td>
 {% if not is_sso %}<form method="post" action="/ops/users" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="reset"><input type="hidden" name="username" value="{{ u.username }}"><button type="submit" class="small secondary">{{ t('users.reset') }}</button></form>{% endif %}
+<details class="more"><summary class="small">{{ t('users.scope.edit') }}</summary>
+<form method="post" action="/ops/users" data-testid="users-scope-{{ u.username }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="scope"><input type="hidden" name="username" value="{{ u.username }}">
+<label>{{ t('users.affiliation') }} <select name="affiliation">{% for a in affiliations %}<option value="{{ a }}" {{ 'selected' if a == u.affiliation else '' }}>{{ t('aff.' + a) }}</option>{% endfor %}</select></label>
+<label>{{ t('users.studies') }} <input name="studies" maxlength="200" value="{{ u.studies|join(',') }}"></label>
+<label>{{ t('users.expires') }} <input name="expires" type="date" value="{{ u.expires or '' }}"></label>
+<button type="submit" class="small">{{ t('users.scope.save') }}</button></form></details>
 {% if u.username != user.username %}<form method="post" action="/ops/users" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="disable"><input type="hidden" name="username" value="{{ u.username }}"><button type="submit" class="small secondary">{{ t('users.disable') }}</button></form>{% endif %}
 </td></tr>
 {% endfor %}
-</tbody></table>
+</tbody></table></div>
 </section>
 {% endblock %}

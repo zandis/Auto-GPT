@@ -5,8 +5,8 @@
   <h1>{{ rs }} · {{ t('feas.title') }}</h1>
   {% if rep %}<div class="actions">
     {% if user.role != 'cro' %}{% if rep.sponsor %}<a href="/studies/{{ rs }}/feasibility" data-testid="view-internal">{{ t('feas.view_internal') }}</a>{% else %}<a href="/studies/{{ rs }}/feasibility?view=sponsor" data-testid="view-sponsor">{{ t('feas.view_sponsor') }}</a>{% endif %}{% endif %}
-    {% for f in rep.files %}<a href="/pilot/jobs/{{ rep.job.job_id }}/files/{{ f }}">{{ f.rsplit('.', 1)[1]|upper }}</a>{% endfor %}
-    <a href="/pilot/jobs/{{ rep.job.job_id }}/sponsor-pack.zip" data-testid="sponsor-pack">{{ t('feas.pack') }}</a>
+    {% if user.role != 'cro' %}{% for f in rep.files %}<a href="/pilot/jobs/{{ rep.job.job_id }}/files/{{ f }}">{{ f.rsplit('.', 1)[1]|upper }}</a>{% endfor %}{% endif %}
+    {% if user.can_request or user.role == 'cro' %}<a href="/pilot/jobs/{{ rep.job.job_id }}/sponsor-pack.zip" data-testid="sponsor-pack">{{ t('feas.pack') }}</a>{% endif %}
   </div>{% endif %}
 </div>
 {% if saved %}<p class="ok" role="status">{{ t('feas.saved') }}</p>{% endif %}
@@ -42,6 +42,7 @@
 <tr><td>{{ t('feas.c.start', lookback=rep.lookback or '–') }}</td><td class="num">{{ s.start }}</td></tr>
 <tr><td>{{ t('feas.c.now') }}</td><td class="num">{{ s.pool_now }}</td></tr>
 <tr><td>{{ t('feas.c.potential') }}</td><td class="num">{{ s.potential }}</td></tr>
+{% if s.pool_latest is not none %}<tr><td>{{ t('feas.c.latest') }}</td><td class="num" data-testid="pool-latest">{{ s.pool_latest }}</td></tr>{% endif %}
 <tr><td>{{ t('feas.c.monthly') }}</td><td class="num">{{ s.monthly_mean if s.monthly_mean is not none else '–' }}</td></tr>
 {% if s.visits_90d is not none %}<tr><td>{{ t('feas.c.visits') }}</td><td class="num">{{ s.visits_90d }}</td></tr>{% endif %}
 </tbody></table>
@@ -89,6 +90,7 @@
 {% set mvals = rep.monthly|map(attribute='n')|select('number')|list %}
 {% if rep.monthly %}
 <h3>{{ t('feas.monthly') }}</h3>
+{% if not mvals|select('gt', 0)|list %}<p class="hint" data-testid="monthly-small">{{ t('feas.monthly.small') }}</p>{% else %}
 {% set mmax = (mvals|max) if mvals else 1 %}{% set mmax = mmax if mmax > 0 else 1 %}
 {% set w = 600 / (rep.monthly|length) %}
 <svg viewBox="0 0 600 130" class="chart" role="img" aria-label="{{ t('feas.monthly') }}" data-testid="monthly-chart">
@@ -96,6 +98,7 @@
   <text x="0" y="122" class="ax">{{ rep.monthly[0].month }}</text><text x="600" y="122" class="ax" text-anchor="end">{{ rep.monthly[-1].month }}</text>
   <text x="0" y="10" class="ax">{{ t('feas.max', n=mmax) }}</text>
 </svg>
+{% endif %}
 {% endif %}
 {% if rep.projection %}
 <h3>{{ t('feas.curve', what=t('feas.tile.rand' if not s.consent_only else 'feas.tile.consent')) }}</h3>
@@ -129,7 +132,7 @@
 
 <section class="card" id="site">
 <h2>8 · {{ t('feas.s8') }} <span class="hint">{% if rep.entered.at %}{{ t('feas.entered', by=rep.entered.by, at=rep.entered.at) }}{% else %}{{ t('feas.not_entered') }}{% endif %}</span></h2>
-{% if rep.capabilities %}<div class="scroll"><table class="compact" data-testid="capabilities"><tbody>{% for c in rep.capabilities %}<tr><td>{{ t('cap.' + c.key) }}</td><td>{{ t('capv.' + c.value) }}</td><td class="hint">{{ c.note }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="hint">{{ t('feas.not_entered') }}</p>{% endif %}
+{% if rep.capabilities %}<div class="scroll"><table class="compact" data-testid="capabilities"><tbody>{% for c in rep.capabilities %}<tr><td>{{ t('cap.' + c.key) }}</td><td>{{ t('capv.' + c.value) }}</td><td class="hint">{{ c.note if not rep.sponsor else '' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="hint">{{ t('feas.not_entered') }}</p>{% endif %}
 <h2 class="mt">9 · {{ t('feas.s9') }}</h2>
 {% if rep.competing %}<div class="scroll"><table class="compact" data-testid="competing"><thead><tr><th>ID</th><th>{{ t('feas.ct.title') }}</th><th>{{ t('feas.ct.overlap') }}</th><th>{{ t('feas.ct.status') }}</th></tr></thead><tbody>{% for c in rep.competing %}<tr><td>{{ c.id }}</td><td>{{ c.title }}</td><td>{{ c.overlap }}</td><td>{{ c.status }}</td></tr>{% endfor %}</tbody></table></div>
 {% else %}<p class="hint">{{ t('feas.ct.none') }}</p>{% endif %}

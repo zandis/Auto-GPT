@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Role demo (D-104): the whole TrialBox box in one process on the SYNTHETIC hospital, one sign-in per role.
 # For trying the product on a public host (Hugging Face Spaces, Render, Cloud Run, any Docker host). Never real data.
-#   docker build -f deploy/demo/Dockerfile -t trialbox-demo .        (context = the trialbox/ folder)
+#   docker build -f demo/Dockerfile -t trialbox-demo .        (context = the trialbox/ folder)
 #   docker run -p 8080:8080 -e TB_DEMO_PASSWORD=... trialbox-demo
 # Accounts: admin, crc, pi, smo, cra, viewer; one shared password from TB_DEMO_PASSWORD (else printed in the log).
 FROM python:3.12-slim
