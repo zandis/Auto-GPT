@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav.week') }}{% endblock %}
+{% block content %}
+<h1>{{ t('week.title') }}</h1>
+{% if not studies %}<section class="card"><p>{{ t('week.none') }}</p></section>{% endif %}
+<section class="card"><ul class="plain">{% for r in studies %}<li><a href="/studies/{{ r.id }}/week">{{ r.id }}</a></li>{% endfor %}</ul></section>
+{% endblock %}

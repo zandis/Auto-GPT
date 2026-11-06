@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "_fit.html" import fit_line, open_items with context %}
+{% block title %}{{ t('patient.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<p><a href="/studies/{{ rs }}/week">← {{ t('week.title') }}</a></p>
+<div class="headrow">
+  <h1>{{ rs }} · {{ t('week.patient', p=pid[:8]) }}</h1>
+  <div>
+  {% if mrn is not none %}<span class="pill ok" data-testid="mrn">{{ t('patient.mrn') }} {{ mrn or t('patient.mrn.none') }}</span>
+  {% else %}<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/reveal" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="reveal">{{ t('patient.reveal') }}</button></form>{% endif %}
+  </div>
+</div>
+{% if mrn is not none %}<p class="hint">{{ t('patient.mrn.help') }}</p>{% endif %}
+<dl class="facts">
+  <dt>{{ t('patient.visit') }}</dt><dd>{{ (row.next_appointment or '')[:16].replace('T', ' ') or t('week.no_visit') }} · {{ practitioner }}{% if row.department %} · {{ row.department }}{% endif %}</dd>
+  <dt>{{ t('patient.tier') }}</dt><dd><span class="pill tier-{{ row.tier }}">{{ t('tier.' + row.tier) }}</span>{% if listed %} <span class="pill stt-{{ listed.status }}">{{ t('wstatus.' + listed.status) }}</span>{% endif %}{% if registry %} · {{ t('patient.registry') }} {{ t('registry.status.' + registry) }}{% endif %}</dd>
+  <dt>{{ t('patient.why') }}</dt><dd data-testid="why">{{ fit_line(fit) }}</dd>
+  <dt>{{ t('patient.open') }}</dt><dd>{{ open_items(fit, row.actions or []) }}</dd>
+</dl>
+{% if user.can_mark %}
+<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" class="card markform">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="patient">
+  <strong>{{ t('patient.your_mark') }}</strong>
+  <button type="submit" name="mark" value="approach" data-testid="approach">{{ t('mark.approach') }}</button>
+  <button type="submit" name="mark" value="need_info" class="secondary">{{ t('mark.need_info') }}</button>
+  <label for="reason">{{ t('mark.reason') }}</label>
+  <select id="reason" name="reason">{% for x in reasons %}<option value="{{ x }}">{{ t('reason.' + x) }}</option>{% endfor %}</select>
+  <label for="note">{{ t('mark.note') }}</label><input id="note" name="note" maxlength="300">
+  <button type="submit" name="mark" value="not_suitable" class="secondary">{{ t('mark.not_suitable') }}</button>
+</form>
+{% endif %}
+<section class="card">
+<h2>{{ t('patient.criteria') }}</h2>
+<div class="scroll"><table class="candidates stack" data-testid="criteria">
+<thead><tr><th>{{ t('feas.f.criterion') }}</th><th>{{ t('patient.type') }}</th><th>{{ t('patient.result') }}</th><th>{{ t('patient.evidence') }}</th><th>{{ t('patient.source') }}</th></tr></thead>
+<tbody>{% for c in crits %}<tr>
+<td class="crit"><strong>{{ c.id }}</strong> {{ c.label }}{% if c.text and c.text != c.label %}<br><span class="hint">{{ c.text }}</span>{% endif %}</td>
+<td>{{ t_or('kind.' + c.kind, c.kind) }}</td>
+<td><span class="pill vd-{{ c.verdict }}">{{ t('verdict.' + c.verdict) }}</span></td>
+<td>{% if c.quote %}<blockquote class="quote">{{ c.quote }}</blockquote>{% endif %}{% if c.date %}<span class="hint">{{ c.date }}</span>{% endif %}{% if c.confidence is not none %} <span class="hint">· {{ '%.2f'|format(c.confidence) }}</span>{% endif %}{% if c.reason and not c.quote %}<span class="hint">{{ c.reason }}</span>{% endif %}</td>
+<td>{{ t('how.' + c.source) }}</td>
+</tr>{% endfor %}</tbody></table></div>
+</section>
+{% if history %}<section class="card"><h2>{{ t('patient.history') }}</h2><ul>{% for m in history %}<li>{{ m.at[:16].replace('T', ' ') }} · {{ m.by }} · {{ t('mark.' + m.mark) }}{% if m.reason %}: {{ t('reason.' + m.reason) }}{% endif %}{% if m.note %} — {{ m.note }}{% endif %}</li>{% endfor %}</ul></section>{% endif %}
+<p class="hint">{{ t('patient.footer', job=job.job_id, judge=(judging.get('judge_model') or judging.get('mode') or '–')) }}</p>
+{% endblock %}

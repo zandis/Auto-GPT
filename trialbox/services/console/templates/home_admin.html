@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav.admin') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('nav.admin') }}</h1><a class="button" href="/ops/users" data-testid="create-account">{{ t('admin.create') }}</a></div>
+<div class="tiles">
+  <section class="card tile" data-testid="tile-accounts">
+    <h2>{{ t('admin.accounts') }}</h2>
+    <p class="big">{{ users|length }}</p>
+    <p class="hint">{% for k, v in by_aff|dictsort %}{{ t('aff.' + k) }} {{ v }}{{ ' · ' if not loop.last else '' }}{% endfor %}</p>
+    {% if soon %}<p class="warn">{{ t('admin.expiring', n=soon|length) }}: {% for u in soon %}{{ u.username }} ({{ u.expires }}){{ ', ' if not loop.last else '' }}{% endfor %}</p>{% endif %}
+    <a href="/ops/users">{{ t('admin.manage') }}</a>
+  </section>
+  <section class="card tile" data-testid="tile-approvals">
+    <h2>{{ t('admin.approvals') }}</h2>
+    <p class="big">{{ waiting|length }}</p>
+    <p class="hint">{{ t('admin.waiting') }}</p>
+    <ul class="plain">{% for j in waiting[:5] %}<li><a href="/pilot/jobs/{{ j.job_id }}">{{ j.ruleset }} · {{ j.type }}</a></li>{% endfor %}
+    {% for r in rulesets if r.status == 'approved' %}<li class="hint">{{ r.id }} v{{ r.version }} · {{ t('admin.approved') }}</li>{% endfor %}</ul>
+  </section>
+  <section class="card tile" data-testid="tile-audit">
+    <h2>{{ t('admin.audit24') }}</h2>
+    <dl class="facts">
+      <dt>{{ t('admin.reveals') }}</dt><dd>{% if reveals %}{% for a, n in reveals %}{{ a|replace('console:', '') }} {{ n }}{{ ', ' if not loop.last else '' }}{% endfor %}{% else %}0{% endif %}</dd>
+      <dt>{{ t('admin.exports') }}</dt><dd>{{ counts.exports }}</dd>
+      <dt>{{ t('admin.denied') }}</dt><dd>{{ counts.denied }}</dd>
+      <dt>{{ t('admin.marks') }}</dt><dd>{{ counts.marks }}</dd>
+    </dl>
+    <a href="/audit">{{ t('admin.full_audit') }}</a>
+  </section>
+  <section class="card tile" data-testid="tile-system">
+    <h2>{{ t('admin.system') }}</h2>
+    {% set up = health|selectattr('ok')|list|length %}
+    <p class="big"><span class="pill {{ 'ok' if up == health|length else 'bad' }}">{{ up }}/{{ health|length }} OK</span></p>
+    {% if models %}<p class="hint">{{ t('overview.models.judge') }}: {{ models.judge_model or t('overview.models.none') }} · {{ t('overview.models.verifier') }}: {{ models.verifier_model or t('overview.models.none') }}</p>
+    <p>{% if models.mode == 'none' %}<span class="pill warn">{{ t('overview.models.no_judge') }}</span>{% elif models.may_block %}<span class="pill ok">{{ t('overview.models.both_agree') }}</span>{% else %}<span class="pill warn">{{ t('overview.models.never') }}</span>{% endif %}</p>{% endif %}
+    <a href="/">{{ t('admin.overview') }}</a>
+  </section>
+</div>
+{% endblock %}

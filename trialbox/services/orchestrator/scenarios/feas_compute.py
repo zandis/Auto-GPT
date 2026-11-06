@@ -97,6 +97,8 @@ class FeasRaw:
     first_eligible: dict[str, int]  # YYYY-MM -> n
     prevalent: int
     index_dates: list[date]
+    # pids eligible at the latest month-end (the "pool now"); in-box only, for the D-104 report profile
+    prevalent_pids: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------------------------- steps & variants
@@ -297,7 +299,8 @@ def compute(lake: LakeAPI, rs: Ruleset, p: FeasParams) -> tuple[FeasibilityResul
             key = d.strftime("%Y-%m")
             first[key] = first.get(key, 0) + 1
     prevalent = sum(1 for x in cols["prevalent"] if x)
-    raw = FeasRaw(n, remaining, unknown, var_counts, first, prevalent, idx)
+    pool = [str(pid) for pid, x in zip(cols["pid"], cols["prevalent"], strict=True) if x]
+    raw = FeasRaw(n, remaining, unknown, var_counts, first, prevalent, idx, pool)
     return _result(rs, p, st, variants, raw), raw
 
 
@@ -460,7 +463,8 @@ def simulate(
     iterations: int = 1000,
     concentration: float = 20.0,
     seed: int = 0,
-) -> dict[str, float]:
+    path: bool = False,
+) -> dict[str, Any]:
     """Monte-Carlo enrolment over ``months`` (DECISIONS D-41).
 
     Per iteration: reach ~ Beta(reach·κ, (1−reach)·κ), accept ~ Beta(accept·κ, (1−accept)·κ); prevalent eligible
@@ -474,6 +478,7 @@ def simulate(
     r = rng.beta(max(reach * k, eps), max((1 - reach) * k, eps), iterations)
     a = rng.beta(max(accept * k, eps), max((1 - accept) * k, eps), iterations)
     totals = np.zeros(iterations)
+    cum = np.zeros((iterations, months))
     for it in range(iterations):
         present = rng.multinomial(prevalent, [1.0 / months] * months) if prevalent > 0 else np.zeros(months, int)
         arrivals = present + rng.poisson(max(monthly_rate, 0.0), months)
@@ -485,9 +490,14 @@ def simulate(
             take = backlog if capacity is None else min(backlog, capacity)
             total += take
             backlog -= take
+            cum[it, m] = total
         totals[it] = total
     lo, mid, hi = np.percentile(totals, [10, 50, 90])
-    return {"low": round(float(lo), 1), "mid": round(float(mid), 1), "high": round(float(hi), 1)}
+    out: dict[str, Any] = {"low": round(float(lo), 1), "mid": round(float(mid), 1), "high": round(float(hi), 1)}
+    if path:  # cumulative P10/P50/P90 at the end of each month (D-104 projection curve), same draws as the totals
+        q = np.percentile(cum, [10, 50, 90], axis=0)
+        out["path"] = [[round(float(q[j, m]), 1) for j in range(3)] for m in range(months)]
+    return out
 
 
 def raw_json(raw: FeasRaw) -> bytes:

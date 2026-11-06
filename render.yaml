@@ -1,0 +1,13 @@
+# Render Blueprint: TrialBox role demo (synthetic hospital only, D-104). New > Blueprint > pick this repository.
+services:
+  - type: web
+    name: trialbox-demo
+    runtime: docker
+    plan: free
+    dockerfilePath: ./trialbox/demo/Dockerfile
+    dockerContext: ./trialbox
+    healthCheckPath: /login
+    autoDeploy: false
+    envVars:
+      - key: TB_DEMO_PASSWORD
+        sync: false   # Render asks for it at creation; one password for all six demo accounts

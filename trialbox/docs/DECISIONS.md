@@ -911,3 +911,36 @@ same decision Changfu re-approved GZQO with the judge v4 prompt (D-96): `ruleset
 `judge_v4`, the review record names the approver, the channel (project chat, 6 Nov 2026 06:28 +08:00), round 2 and
 the class split; criteria, SQL and CQL are unchanged, so the ruleset version stays 1.0.0. The four other shipped
 rulesets keep `judge_v3` until their approver says so.
+
+**D-104 Report-first pages per role.** Changfu's review of 5 Nov 2026 ("the general UX is too complex… sometimes they
+just want a report and a patient list"): the pilot console gains one landing page per role and three report pages,
+and the existing pages move under a "More" menu. Roles: `admin`, `coordinator` (hospital CRC or SMO coordinator),
+`investigator`, `viewer`, and a new `cro` role. An account carries an affiliation (hospital, smo, cro), an optional
+study allowlist and an optional end date (`services/console/auth.py`): a scoped account gets 404 on other studies, an
+expired account cannot sign in, `cro` and `viewer` see aggregate pages only (feasibility report, sponsor pack), never
+a patient. Pages (`services/console/home.py`, pilot workspace only; production keeps the D-12 rule of no study
+content on the console): `/home` (study cards with the next action for coordinators; tiles for admins; investigators
+go to `/week`, `cro`/`viewer` to `/reports`); `/studies/{rs}/feasibility`, a sponsor-style feasibility report in 12
+sections built from the FEAS job and a new `feasprofile_*.json` aggregate (`scenarios/feas_profile.py`: rounded age
+and sex bands, 90-day visits, a per-month projection path from the same Monte-Carlo draws), the criteria funnel with
+"checked by" per criterion, barriers split into "value did not meet" and "no value on record", a GO / CONDITIONAL /
+NO-GO reading against the sponsor target, and site fields the coordinator types (capabilities, competing trials,
+target, screen-failure rate; `site.sqlite`), with a sponsor copy (`?view=sponsor`) that leaves out internal comments;
+`/studies/{rs}/week`, the weekly PI list from the latest SCREEN/MICROBATCH candidate list (clinic date, doctor, met
+and still-open criteria, a deterministic "why this patient fits" sentence, no model text); and
+`/studies/{rs}/patients/{pid}`, every criterion with result, evidence quote and how it was checked. The investigator
+marks a patient "approach", "not suitable" (with a reason) or "need info": marks are audited events in `site.sqlite`,
+separate from the candidate registry statuses, and never change a screening result. Investigators may now reveal a
+chart number on the patient page (audited `console.reveal_patient`), as coordinators could. `tools/role_demo.py`
+runs the whole box in one process on the synthetic hospital with one account per role, for trying the product.
+Review of 6 Nov 2026 (second pass, fixed in the same change): a study-scoped account can request jobs for its own
+studies only and gets 403 on the cross-study lists (`/jobs`, `/audit`, mailbox, cascade runs; the registry index is
+filtered); an account past its end date is refused at single sign-on too, not only at the password form; a failed
+inclusion criterion shows as "Not met" on the weekly list; the GO reading compares the projection path at the
+sponsor's own deadline (pro-rating only beyond the 12-month horizon); the report says which counts are over the
+look-back window and which is the latest-month-end pool; a bad scope is refused before the account exists and an
+administrator can edit scope and end date later. The "aggregate only, never a patient" rule is enforced for `cro`
+accounts; the existing `viewer` role keeps its earlier read-only rights (job pages with patient files withheld,
+registry pseudonyms) and only its new pages are aggregate. The CRO account downloads the sponsor pack of a study it
+sees. Known gaps: age and sex are not on the weekly list (the candidate row does not carry them); the AD capability list
+and the 60 % AD screen-failure default appear only for an early-AD ruleset, and none ships yet.

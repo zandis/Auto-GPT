@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ t('home.studies') }}{% endblock %}
+{% block content %}
+<div class="headrow">
+  <h1>{{ t('home.studies') }}</h1>
+  {% if user.can_request %}<a class="button" href="/pilot/protocol" data-testid="send-protocol">{{ t('home.send_protocol') }}</a>{% endif %}
+</div>
+{% if user.affiliation == 'smo' %}<p class="warn" data-testid="smo-banner">{{ t('home.smo_banner', studies=(user.studies|join(', ') or t('users.studies.all')), until=(user.expires or '–')) }}</p>{% endif %}
+<p class="hint">{{ t('home.studies.help') }}</p>
+{% if not cards %}<section class="card"><p>{{ t('home.no_studies') }}</p></section>{% endif %}
+{% for c in cards %}
+<section class="card study" data-testid="study-{{ c.id }}">
+  <div class="headrow"><h2>{{ c.id }}</h2><span class="hint">v{{ c.version }}</span></div>
+  <dl class="facts">
+    <dt>{{ t('home.feas') }}</dt>
+    <dd>{% if c.feas %}
+      {% set s = c.feas %}
+      {% if s.reading %}<span class="pill rd-{{ s.reading }}">{{ t('reading.' + s.reading) }}</span>{% endif %}
+      {{ t('home.feas.line', mid=s.per_month[1], low=s.per_month[0], high=s.per_month[2], pool=s.pool_now, potential=s.potential) }}
+      · <a href="/studies/{{ c.id }}/feasibility">{{ t('home.open_report') }}</a>
+      {% else %}{{ t('home.feas.none') }}{% endif %}</dd>
+    <dt>{{ t('home.week') }}</dt>
+    <dd>{% if c.week %}{{ t('home.week.line', n=c.week.counts.total, new=c.week.counts.new, marked=c.week.counts.marked) }} · <a href="/studies/{{ c.id }}/week">{{ t('home.open_week') }}</a>
+      {% else %}{{ t('home.week.none') }}{% endif %}</dd>
+    <dt>{{ t('home.registry') }}</dt>
+    <dd>{% if c.registry %}{% for k, v in c.registry|dictsort %}{{ t('registry.status.' + k) }} {{ v }}{{ ' · ' if not loop.last else '' }}{% endfor %}{% else %}{{ t('home.registry.none') }}{% endif %}</dd>
+  </dl>
+  <div class="next" data-testid="next-{{ c.id }}"><span>{{ t('next.' + c.next[0]) }}</span><a class="button small-btn" href="{{ c.next[1] }}">{{ t('next.go') }}</a></div>
+</section>
+{% endfor %}
+<p class="hint">{{ t('home.more') }}</p>
+{% endblock %}

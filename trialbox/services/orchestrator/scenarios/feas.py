@@ -13,7 +13,7 @@ from orchestrator.core import Ctx, Delivery, Outcome, job_language
 from orchestrator.i18n import population_line, t
 from orchestrator.reports import feasibility_pdf, feasibility_xlsx
 from orchestrator.reports.common import ReportMeta, fmt_count
-from orchestrator.scenarios import calibration
+from orchestrator.scenarios import calibration, feas_profile
 from orchestrator.scenarios.feas_compute import FeasError, FeasParams, compute, parse_variant_option, raw_json
 from orchestrator.scenarios.review import approved_or_none, compile_draft, protocol_input, recipients, require_approved
 from orchestrator.scenarios.screen import NO_MODEL, pinned_clock_note
@@ -107,6 +107,17 @@ def run(ctx: Ctx) -> Outcome:
     js = ctx.publish(f"{stem}.json", body.encode("utf-8"), "aggregate", to)
     # unsuppressed counts stay in the box (funnel-compare harness); hashed + audited, never mailed
     ctx.publish(f"{stem}.raw.json", raw_json(raw), "phi", [])
+    # D-104: demographics, visits in 90 days, projection curve for the console's feasibility report (aggregate,
+    # rounded like the funnel; stored, not mailed). A lake without the tables must not fail the feasibility run.
+    try:
+        profile = feas_profile.build(ctx.services.lake, rs, params, raw, ctx.today())
+        ctx.publish(
+            f"feasprofile_{rs.id}_v{rs.version}_{snapshot}.json", feas_profile.to_bytes(profile), "aggregate", []
+        )
+    except Exception as exc:
+        ctx.orch.audit.append(
+            "feas.profile_skipped", job_id=job.job_id, actor="orchestrator", detail={"reason": str(exc)[:200]}
+        )
     sim = result.simulation
     lang = meta.locale
     lines = [
