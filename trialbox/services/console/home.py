@@ -19,7 +19,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from fastapi import FastAPI, Form, Request, Response
@@ -165,9 +165,44 @@ def register(app: FastAPI, h: Helpers) -> None:
             nxt = ("contact", f"/studies/{rs}/week")
         else:
             nxt = ("week", f"/studies/{rs}/week")
+        today = h.clock().date()
+        reg = registry_map(rs)
+        rows = week["rows"] if week else []
+        tasks: list[dict[str, Any]] = []
+        if waiting is not None:
+            tasks.append({"kind": "approve", "rs": rs, "short": waiting.type, "href": f"/pilot/jobs/{waiting.job_id}",
+                          "due": today, "detail": ""})  # fmt: skip
+        if feas_job is not None and site.missing:
+            tasks.append({"kind": "site", "rs": rs, "short": "", "href": f"/studies/{rs}/feasibility#site",
+                          "due": today, "detail": ""})  # fmt: skip
+        clinic = []
+        for w in rows:
+            mk = w.get("mark")
+            when = w["visit"].date() if w.get("visit") else None
+            href = f"/studies/{rs}/week?list=all&pid={w['pid']}#chart"
+            open_items = " · ".join((w["fit"].not_met + w["fit"].open + w["fit"].person)[:3])
+            if mk is not None and mk.mark == "approach" and reg.get(w["pid"]) in (None, "candidate"):
+                due = date.fromisoformat(mk.at[:10]) + timedelta(days=2)
+                tasks.append({"kind": "call", "rs": rs, "short": w["short"], "href": href, "due": due,
+                              "detail": mk.note or open_items})  # fmt: skip
+            elif mk is not None and mk.mark == "need_info":
+                due = date.fromisoformat(mk.at[:10]) + timedelta(days=3)
+                tasks.append({"kind": "info", "rs": rs, "short": w["short"], "href": href, "due": due,
+                              "detail": mk.note or open_items})  # fmt: skip
+            if when is not None and today <= when <= today + timedelta(days=14):
+                clinic.append({**w, "rs": rs, "href": href, "open_items": open_items})
+                if mk is None and when <= today + timedelta(days=2):
+                    tasks.append({"kind": "prepare", "rs": rs, "short": w["short"], "href": href, "due": when,
+                                  "detail": open_items})  # fmt: skip
+        for tk in tasks:
+            tk["late"] = tk["due"] < today
         return {
             "id": rs,
             "version": r.version,
+            "step": study_step(rs),
+            "pipeline": st.pipeline_counts(rows, reg),
+            "tasks": tasks,
+            "clinic": clinic,
             "feas": feas,
             "feas_job": feas_job,
             "week": week,
@@ -189,7 +224,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             return admin_home(request, sess)
         jobs = bk.list_jobs(limit=500)
         cards = [study_card(sess, r, jobs) for r in trials(sess)]
-        return h.page(request, "home_crc.html", sess, cards=cards, models=bk.models())
+        tasks = sorted((tk for c in cards for tk in c["tasks"]), key=lambda tk: (tk["due"], tk["rs"]))
+        clinic = sorted((v for c in cards for v in c["clinic"]), key=lambda v: v["visit_text"])
+        return h.page(
+            request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic, steps=st.STEPS,
+            pipeline_keys=st.PIPELINE, models=bk.models(),
+        )  # fmt: skip
 
     def admin_home(request: Request, sess: Session) -> Response:
         users = h.users.users()
@@ -339,7 +379,48 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_view_phi:
             raise h.problem(403, "forbidden")
         wk = week_bundle(sess, rid)
-        return h.page(request, "week.html", sess, rs=rid, wk=wk, marks=MARKS, reasons=NOT_SUITABLE_REASONS)
+        today = h.clock().date()
+        counts = st.worklist_counts(wk["rows"], today) if wk else {}
+        lst = request.query_params.get("list", "")
+        if lst not in st.WORKLISTS:  # open on the first list with work in it
+            lst = next((k for k in ("clinic", "review") if counts.get(k)), "all")
+        rows = [r for r in wk["rows"] if st.in_worklist(r, lst, today)] if wk else []
+        for r in rows:
+            r["score"] = st.met_score(r["fit"])
+        pid = request.query_params.get("pid", "")
+        sel = None
+        if wk and rows:
+            if not any(r["pid"] == pid for r in rows):
+                pid = rows[0]["pid"]
+            sel = patient_ctx(sess, rid, pid)
+        return h.page(
+            request,
+            "week.html",
+            sess,
+            rs=rid,
+            wk=wk,
+            lst=lst,
+            lists=st.WORKLISTS,
+            counts=counts,
+            rows=rows,
+            sel=sel,
+            marks=MARKS,
+            reasons=NOT_SUITABLE_REASONS,
+            step=study_step(rid),
+            steps=st.STEPS,
+        )
+
+    def study_step(rid: str) -> int:
+        jobs = bk.list_jobs(limit=500)
+        regc = registry_counts(rid)
+        return st.procedure_step(
+            approved=any(r.id == rid and r.status == "approved" for r in bk.rulesets()),
+            feas_done=st.latest_job(jobs, rid, ("FEAS",)) is not None,
+            screen_done=st.latest_job(jobs, rid, SCREEN_TYPES) is not None,
+            contacted=sum(v for k, v in regc.items() if k != "candidate"),
+            enrolled=regc.get("enrolled", 0),
+            waiting=st.latest_job(jobs, rid, ("FEAS", "SCREEN", "COMPILE"), state="awaiting_approval") is not None,
+        )
 
     def patient_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
         if not _PID.match(pid):
@@ -450,5 +531,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             actor=h.actor(sess),
             detail={"pid": pid, "action": mark, "reason": reason if mark == "not_suitable" else ""},
         )
-        target = f"/studies/{rid}/patients/{pid}" if back == "patient" else f"/studies/{rid}/week#p-{pid[:8]}"
+        if back == "patient":
+            target = f"/studies/{rid}/patients/{pid}"
+        else:
+            lst = back.removeprefix("list:") if back.startswith("list:") else ""
+            lst = lst if lst in st.WORKLISTS else "all"
+            target = f"/studies/{rid}/week?list={lst}&pid={pid}&done={mark}#chart"
         return RedirectResponse(target, status_code=303)

@@ -1,16 +1,40 @@
 {% extends "base.html" %}
+{% from "_steps.html" import steps_bar with context %}
 {% block title %}{{ t('home.studies') }}{% endblock %}
 {% block content %}
 <div class="headrow">
-  <h1>{{ t('home.studies') }}</h1>
+  <h1>{{ t('wb.crc.title') }}</h1>
   {% if user.can_request %}<a class="button" href="/pilot/protocol" data-testid="send-protocol">{{ t('home.send_protocol') }}</a>{% endif %}
 </div>
 {% if user.affiliation == 'smo' %}<p class="warn" data-testid="smo-banner">{{ t('home.smo_banner', studies=(user.studies|join(', ') or t('users.studies.all')), until=(user.expires or '–')) }}</p>{% endif %}
-<p class="hint">{{ t('home.studies.help') }}</p>
 {% if not cards %}<section class="card"><p>{{ t('home.no_studies') }}</p></section>{% endif %}
+{% if cards %}
+<div class="crcgrid">
+  <section data-testid="tasks">
+    <div class="headrow"><h2>{{ t('wb.tasks') }}</h2><span class="hint">{{ t('wb.tasks.help') }}</span></div>
+    {% if not tasks %}<p class="empty hint">{{ t('wb.tasks.none') }}</p>{% endif %}
+    <ul class="tasks">{% for tk in tasks %}<li data-testid="task-{{ tk.kind }}">
+      <a href="{{ tk.href }}">{{ t('wb.task.' + tk.kind, p=tk.short, rs=tk.rs) }}</a>
+      <span class="due{{ ' late' if tk.late else '' }}">{{ t('wb.overdue') if tk.late else tk.due.isoformat() }}</span>
+      {% if tk.detail %}<span class="hint">{{ tk.detail }}</span>{% endif %}
+    </li>{% endfor %}</ul>
+  </section>
+  <section data-testid="clinic">
+    <div class="headrow"><h2>{{ t('wb.clinic') }}</h2><span class="hint">{{ t('wb.clinic.help') }}</span></div>
+    {% if not clinic %}<p class="empty hint">{{ t('wb.clinic.none') }}</p>{% endif %}
+    <ul class="tasks">{% for v in clinic %}<li>
+      <a href="{{ v.href }}">{{ v.visit_text }} · {{ t('week.patient', p=v.short) }}</a>
+      <span class="pill stt-{{ v.status }}">{{ t('wstatus.' + v.status) }}</span>
+      <span class="hint">{{ v.rs }} · {{ v.practitioner }}{% if v.open_items %} · {{ t('wb.prepare') }} {{ v.open_items }}{% endif %}</span>
+    </li>{% endfor %}</ul>
+  </section>
+</div>
+{% endif %}
 {% for c in cards %}
 <section class="card study" data-testid="study-{{ c.id }}">
   <div class="headrow"><h2>{{ c.id }}</h2><span class="hint">v{{ c.version }}</span></div>
+  {{ steps_bar(steps, c.step) }}
+  <div class="pipe" data-testid="pipeline-{{ c.id }}">{% for k in pipeline_keys %}<a href="{{ '/pilot/registry/' + c.id if k != 'found' and k != 'reviewed' else '/studies/' + c.id + '/week?list=all' }}"><b>{{ c.pipeline[k] }}</b><span>{{ t('wb.pipe.' + k) }}</span></a>{% endfor %}</div>
   <dl class="facts">
     <dt>{{ t('home.feas') }}</dt>
     <dd>{% if c.feas %}
@@ -22,8 +46,6 @@
     <dt>{{ t('home.week') }}</dt>
     <dd>{% if c.week %}{{ t('home.week.line', n=c.week.counts.total, new=c.week.counts.new, marked=c.week.counts.marked) }} · <a href="/studies/{{ c.id }}/week">{{ t('home.open_week') }}</a>
       {% else %}{{ t('home.week.none') }}{% endif %}</dd>
-    <dt>{{ t('home.registry') }}</dt>
-    <dd>{% if c.registry %}{% for k, v in c.registry|dictsort %}{{ t('registry.status.' + k) }} {{ v }}{{ ' · ' if not loop.last else '' }}{% endfor %}{% else %}{{ t('home.registry.none') }}{% endif %}</dd>
   </dl>
   <div class="next" data-testid="next-{{ c.id }}"><span>{{ t('next.' + c.next[0]) }}</span><a class="button small-btn" href="{{ c.next[1] }}">{{ t('next.go') }}</a></div>
 </section>

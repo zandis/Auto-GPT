@@ -944,3 +944,21 @@ accounts; the existing `viewer` role keeps its earlier read-only rights (job pag
 registry pseudonyms) and only its new pages are aggregate. The CRO account downloads the sponsor pack of a study it
 sees. Known gaps: age and sex are not on the weekly list (the candidate row does not carry them); the AD capability list
 and the 60 % AD screen-failure default appear only for an early-AD ruleset, and none ships yet.
+
+**D-105 Clinic workbench.** Changfu tried the D-104 pages on 6 Nov 2026 and found them still not role-based or
+clinical ("no work bench, patient list?"). He approved a clickable mockup modelled on clinical software (EMR clinic
+lists and in-baskets, research pre-screening tools, trial management pipelines). The weekly list
+(`/studies/{rs}/week`) becomes the PI's workbench: worklists on the left (clinic visits in the next 14 days, needs
+my review, waiting for information, approved and contacted, all), a patient table in the middle (next visit,
+doctor, criteria met as a count and bar, still needed, status), and a chart-style panel on the right with a banner,
+the deterministic "why this patient" sentence, the three decisions (approve for contact, ask the coordinator, not
+suitable with a reason and a note) and every criterion grouped by inclusion and exclusion with its result, source,
+date and verbatim quote. A decision returns to the same list and patient with a confirmation. The coordinator's
+home becomes "My work": a task list derived from the PI's decisions and the study state (contact a patient the PI
+approved, due two days after the decision; find information the PI asked for, due in three days; prepare for a
+candidate's visit in the next two days; approve a waiting run; fill the site fields), coming clinic visits of
+candidates, and per study a pipeline (found, PI reviewed, contacted, consented, enrolled; cumulative) and the six-step
+procedure bar (protocol in, criteria approved, feasibility report, weekly PI list, contact and screen, enrolled),
+which also heads the PI's workbench. Tasks are computed on each view, never stored, so they cannot drift from the
+marks and the registry. No scripts were added (the console's CSP stays `script-src 'none'`); selection is a link.
+`tools/role_demo.py` seeds a few PI decisions and registry steps so the demo opens in a working state.

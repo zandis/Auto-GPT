@@ -1,0 +1,6 @@
+{# D-105: the six-step study procedure; done steps ticked, the current one underlined #}
+{% macro steps_bar(steps, step) -%}
+<ol class="steps" aria-label="{{ t('steps.label') }}" data-testid="steps">
+{% for s in steps %}<li class="{{ 'done' if loop.index0 < step else ('now' if loop.index0 == step else '') }}"{% if loop.index0 == step %} aria-current="step"{% endif %}><b>{{ loop.index }} · {{ t('steps.' + s) }}</b><span>{{ t('steps.' + s + '.who') }}</span></li>{% endfor %}
+</ol>
+{%- endmacro %}
