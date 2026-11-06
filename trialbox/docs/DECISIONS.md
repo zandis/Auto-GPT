@@ -991,3 +991,23 @@ on JP sites (JP sites reuse the TW code columns so the existing `tw_core/demo_hi
 them; terminology is TB-DS-10 work); the SS-MIX2 folder writer (H); per-study expected eligible rate in the generator
 summary (the FEAS funnel on the demo gives it); the GOUT-COH criterion labels stay as authored (zh-TW) inside a
 Japanese report. TB-DS-21 §5 calls GZQO "the early-Alzheimer study"; in this repository GZQO is the gout trial.
+
+## Simple build plan, step 2: list and mail (2026-11)
+
+**D-107 Clinic workbench** (numbered D-105 on its branch; renumbered when it was taken into build step 2). Changfu tried the D-104 pages on 6 Nov 2026 and found them still not role-based or
+clinical ("no work bench, patient list?"). He approved a clickable mockup modelled on clinical software (EMR clinic
+lists and in-baskets, research pre-screening tools, trial management pipelines). The weekly list
+(`/studies/{rs}/week`) becomes the PI's workbench: worklists on the left (clinic visits in the next 14 days, needs
+my review, waiting for information, approved and contacted, all), a patient table in the middle (next visit,
+doctor, criteria met as a count and bar, still needed, status), and a chart-style panel on the right with a banner,
+the deterministic "why this patient" sentence, the three decisions (approve for contact, ask the coordinator, not
+suitable with a reason and a note) and every criterion grouped by inclusion and exclusion with its result, source,
+date and verbatim quote. A decision returns to the same list and patient with a confirmation. The coordinator's
+home becomes "My work": a task list derived from the PI's decisions and the study state (contact a patient the PI
+approved, due two days after the decision; find information the PI asked for, due in three days; prepare for a
+candidate's visit in the next two days; approve a waiting run; fill the site fields), coming clinic visits of
+candidates, and per study a pipeline (found, PI reviewed, contacted, consented, enrolled; cumulative) and the six-step
+procedure bar (protocol in, criteria approved, feasibility report, weekly PI list, contact and screen, enrolled),
+which also heads the PI's workbench. Tasks are computed on each view, never stored, so they cannot drift from the
+marks and the registry. No scripts were added (the console's CSP stays `script-src 'none'`); selection is a link.
+`tools/role_demo.py` seeds a few PI decisions and registry steps so the demo opens in a working state.

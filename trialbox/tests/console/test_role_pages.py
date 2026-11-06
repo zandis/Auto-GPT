@@ -357,3 +357,58 @@ def test_role_page_strings_exist_in_every_language() -> None:
         assert not missing, (lang, missing[:5])
     assert datetime.now(UTC)  # keep the import list honest for the unused-import check
     assert ADMIN_PW
+
+
+# ---------------------------------------------------------------------------------------------- D-105 workbench
+def test_worklists_pipeline_and_procedure_step() -> None:
+    from datetime import date as d
+
+    today = d(2026, 11, 9)
+    fit = st.Fit(inc_met=7, inc_total=9, exc_clear=10, exc_total=14)
+    rows: list[dict[str, Any]] = [
+        {"pid": "a", "status": "new", "mark": None, "visit": datetime(2026, 11, 12, 9, 0), "fit": fit},
+        {"pid": "b", "status": "pending", "mark": Mark("b", "need_info", None, None, "pi", "x", None), "visit": None},
+        {"pid": "c", "status": "contacted", "mark": Mark("c", "approach", None, None, "pi", "x", None), "visit": None},
+        {"pid": "e", "status": "new", "mark": None, "visit": datetime(2026, 12, 30, 9, 0)},
+    ]
+    counts = st.worklist_counts(rows, today)
+    assert counts == {"clinic": 1, "review": 2, "info": 1, "approached": 1, "all": 4}
+    assert st.met_score(fit) == (17, 23)
+    pipe = st.pipeline_counts(rows, {"c": "contacted", "z": "consented"})
+    assert pipe == {"found": 5, "reviewed": 3, "contacted": 2, "consented": 1, "enrolled": 0}
+    kw: dict[str, Any] = {
+        "approved": True,
+        "feas_done": True,
+        "screen_done": True,
+        "contacted": 0,
+        "enrolled": 0,
+        "waiting": False,
+    }
+    assert st.procedure_step(**kw) == 3
+    assert st.procedure_step(**{**kw, "contacted": 2}) == 4
+    assert st.procedure_step(**{**kw, "feas_done": False}) == 2
+    assert st.procedure_step(**{**kw, "waiting": True}) == 1
+
+
+def test_pi_workbench_selects_marks_and_creates_coordinator_task(box: dict[str, Any]) -> None:
+    _done_feas(box["backend"])
+    _done_screen(box["backend"], _ulid(953))
+    pi = _user(box, "drsato", "investigator")
+    page = pi.get("/studies/GZQO/week?list=all")
+    assert page.status_code == 200 and 'data-testid="workbench"' in page.text and 'data-testid="chart"' in page.text
+    assert 'data-testid="steps"' in page.text and 'data-testid="list-review"' in page.text
+    pid = re.search(r'/studies/GZQO/patients/([0-9a-f]{32})"', page.text)
+    assert pid
+    r = pi.post(
+        f"/studies/GZQO/patients/{pid.group(1)}/mark",
+        data={"csrf": _csrf(page.text), "mark": "approach", "back": "list:all"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303 and "list=all" in r.headers["location"] and "done=approach" in r.headers["location"]
+    assert 'data-testid="done"' in pi.get(r.headers["location"]).text
+    crc = _user(box, "crc9", "coordinator")
+    home = crc.get("/home").text
+    assert 'data-testid="task-call"' in home and 'data-testid="pipeline-GZQO"' in home
+    for lang in ("ja", "zh-TW"):
+        for key in ("wb.task.call", "wb.list.clinic", "steps.weekly", "wb.pipe.consented"):
+            assert key in CATALOGUES[lang], (lang, key)

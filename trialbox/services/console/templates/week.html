@@ -1,40 +1,70 @@
 {% extends "base.html" %}
 {% from "_fit.html" import fit_line, open_items with context %}
+{% from "_steps.html" import steps_bar with context %}
 {% block title %}{{ t('week.title') }} · {{ rs }}{% endblock %}
 {% block content %}
-<div class="headrow"><h1>{{ t('week.title') }} · {{ rs }}</h1>
+<div class="headrow"><h1>{{ t('wb.title') }} · {{ rs }}</h1>
 {% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }}</span>{% endif %}</div>
+{{ steps_bar(steps, step) }}
 {% if not wk %}
 <section class="card"><p>{{ t('week.none') }}</p>{% if user.can_request %}<a class="button" href="/pilot/request?ruleset={{ rs }}">{{ t('next.screen') }}</a>{% endif %}</section>
 {% else %}
-{% set sm = wk.summary %}
-<p class="hint" data-testid="week-meta">{{ t('week.meta', job=wk.job.type, date=wk.job.updated_at.date().isoformat(), snapshot=(wk.job.snapshot_date.isoformat() if wk.job.snapshot_date else '–')) }}{% if sm.pipeline %} · {{ t('week.pipeline', p=sm.pipeline) }}{% endif %}{% if sm.funnel %} · {% for st_, n in sm.funnel %}{{ st_ }} {{ n }}{{ ' → ' if not loop.last else '' }}{% endfor %}{% endif %}</p>
-<p class="hint">{{ t('week.help') }}</p>
-{% if not wk.rows %}<section class="card"><p>{{ t('week.empty') }}</p></section>{% endif %}
-{% for r in wk.rows %}
-<section class="card prow st-{{ r.status }}" id="p-{{ r.short }}" data-testid="row-{{ r.short }}">
-  <div class="headrow">
-    <div><strong class="visit">{{ r.visit_text or t('week.no_visit') }}</strong> <span class="hint">{{ r.practitioner }}{% if r.department %} · {{ r.department }}{% endif %}</span></div>
-    <div><span class="pill tier-{{ r.tier }}">{{ t('tier.' + r.tier) }}</span> <span class="pill stt-{{ r.status }}">{{ t('wstatus.' + r.status) }}</span></div>
-  </div>
-  <p class="why"><a href="/studies/{{ rs }}/patients/{{ r.pid }}" data-testid="open-{{ r.short }}">{{ t('week.patient', p=r.short) }}</a> · {{ fit_line(r.fit) }}</p>
-  <p class="open">{{ open_items(r.fit, r.actions) }}</p>
-  {% if r.changed %}<p class="hint">{{ t('week.changed', ids=r.changed|join(', ')) }}</p>{% endif %}
-  <div class="markrow">
-    {% if r.mark %}<span class="pill mk-{{ r.mark.mark }}" data-testid="mark-{{ r.short }}">{{ t('mark.' + r.mark.mark) }}{% if r.mark.reason %}: {{ t('reason.' + r.mark.reason) }}{% endif %} · {{ r.mark.by }} {{ r.mark.at[:10] }}</span>{% endif %}
+<div class="bench" data-testid="workbench">
+  <nav class="rail" aria-label="{{ t('wb.lists') }}">
+    <h3>{{ t('wb.lists') }}</h3>
+    {% for k in lists %}<a href="?list={{ k }}" class="{{ 'active' if k == lst else '' }}" data-testid="list-{{ k }}"{% if k == lst %} aria-current="page"{% endif %}><span>{{ t('wb.list.' + k) }}</span><span class="n{{ ' hot' if k == 'review' and counts[k] else '' }}">{{ counts[k] }}</span></a>{% endfor %}
+    <p class="hint">{{ t('week.meta', job=wk.job.type, date=wk.job.updated_at.date().isoformat(), snapshot=(wk.job.snapshot_date.isoformat() if wk.job.snapshot_date else '–')) }}</p>
+  </nav>
+  <section class="wlist">
+    <div class="headrow"><h2>{{ t('wb.list.' + lst) }}</h2><span class="hint">{{ t('wb.list.' + lst + '.help') }}</span></div>
+    {% if not rows %}<p class="empty">{{ t('wb.empty') }}</p>{% else %}
+    <div class="scroll"><table class="worklist" data-testid="worklist">
+      <thead><tr><th>{{ t('wb.c.visit') }}</th><th>{{ t('wb.c.patient') }}</th><th>{{ t('wb.c.met') }}</th><th>{{ t('wb.c.needed') }}</th><th>{{ t('wb.c.status') }}</th></tr></thead>
+      <tbody>{% for r in rows %}{% set on = sel and sel.pid == r.pid %}
+      <tr class="{{ 'sel' if on else '' }} st-{{ r.status }}" id="p-{{ r.short }}" data-testid="row-{{ r.short }}">
+        <td class="num">{{ r.visit_text or t('week.no_visit') }}</td>
+        <td><a href="?list={{ lst }}&amp;pid={{ r.pid }}#chart" data-testid="open-{{ r.short }}"{% if on %} aria-current="true"{% endif %}><b>{{ t('week.patient', p=r.short) }}</b></a><br><span class="hint">{{ r.practitioner }}</span></td>
+        <td class="num nowrap"><span class="meter" aria-hidden="true"><i class="w{{ ((r.score[0] * 10) // (r.score[1] or 1)) }}"></i></span>{{ r.score[0] }}/{{ r.score[1] }}</td>
+        <td class="needed">{% if r.fit.not_met %}<span class="bad">{{ t('fit.not_met') }} {{ r.fit.not_met[:2]|join(' · ') }}</span><br>{% endif %}{{ (r.fit.open + r.fit.person)[:3]|join(' · ') or '–' }}</td>
+        <td><span class="pill tier-{{ r.tier }}">{{ t('tier.' + r.tier) }}</span> <span class="pill stt-{{ r.status }}">{{ t('wstatus.' + r.status) }}</span>{% if r.mark %}<br><span class="pill mk-{{ r.mark.mark }}" data-testid="mark-{{ r.short }}">{{ t('mark.' + r.mark.mark) }}</span>{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>{% endif %}
+  </section>
+  {% if sel %}{% set p = sel %}
+  <aside class="chartp" id="chart" data-testid="chart">
+    <div class="pbanner">
+      <strong class="pname">{{ t('week.patient', p=p.pid[:8]) }}</strong>
+      <dl>
+        <div><dt>{{ t('patient.visit') }}</dt><dd>{{ (p.row.next_appointment or '')[:16].replace('T', ' ') or t('week.no_visit') }}</dd></div>
+        <div><dt>{{ t('wb.doctor') }}</dt><dd>{{ p.practitioner or '–' }}{% if p.row.department %} · {{ p.row.department }}{% endif %}</dd></div>
+        <div><dt>{{ t('patient.tier') }}</dt><dd>{% if p.listed %}{{ t('wstatus.' + p.listed.status) }}{% else %}{{ t('tier.' + p.row.tier) }}{% endif %}{% if p.registry and not (p.listed and p.listed.status == p.registry) %} · {{ t('registry.status.' + p.registry) }}{% endif %}</dd></div>
+      </dl>
+    </div>
+    <p class="whyp" data-testid="why"><b>{{ t('patient.why') }}</b> {{ fit_line(p.fit) }}</p>
+    {% if p.fit.not_met or p.fit.open or p.fit.person or p.row.actions %}<p class="openp">{{ open_items(p.fit, p.row.actions or []) }}</p>{% endif %}
+    {% if request.query_params.get('done') %}<p class="toastp" data-testid="done">{{ t('wb.done.' + request.query_params.get('done')) }}</p>{% endif %}
     {% if user.can_mark %}
-    <form method="post" action="/studies/{{ rs }}/patients/{{ r.pid }}/mark" class="inline">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button type="submit" name="mark" value="approach" class="small" data-testid="approach-{{ r.short }}">{{ t('mark.approach') }}</button>
-      <button type="submit" name="mark" value="need_info" class="small secondary">{{ t('mark.need_info') }}</button>
-      <label class="sr" for="reason-{{ r.short }}">{{ t('mark.reason') }}</label>
-      <select id="reason-{{ r.short }}" name="reason">{% for x in reasons %}<option value="{{ x }}">{{ t('reason.' + x) }}</option>{% endfor %}</select>
-      <button type="submit" name="mark" value="not_suitable" class="small secondary">{{ t('mark.not_suitable') }}</button>
+    <form method="post" action="/studies/{{ rs }}/patients/{{ p.pid }}/mark" class="actp" data-testid="actions">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="list:{{ lst }}">
+      <button type="submit" name="mark" value="approach" data-testid="approach-{{ p.pid[:8] }}">{{ t('wb.approach') }}</button>
+      <button type="submit" name="mark" value="need_info" class="secondary">{{ t('wb.need_info') }}</button>
+      <span class="ns"><label class="sr" for="reason">{{ t('mark.reason') }}</label><select id="reason" name="reason">{% for x in reasons %}<option value="{{ x }}">{{ t('reason.' + x) }}</option>{% endfor %}</select>
+      <button type="submit" name="mark" value="not_suitable" class="secondary danger">{{ t('mark.not_suitable') }}</button></span>
+      <label class="sr" for="note">{{ t('mark.note') }}</label><input id="note" name="note" maxlength="300" placeholder="{{ t('mark.note') }}">
     </form>
-    {% endif %}
-  </div>
-</section>
-{% endfor %}
+    {% else %}<p class="hint">{{ t('wb.crc_hint') }}</p>{% endif %}
+    {% for kind in ('inclusion', 'exclusion') %}{% set cs = p.crits|selectattr('kind', 'equalto', kind)|list %}{% if cs %}
+    <h3 class="grp">{{ t('wb.' + kind) }}</h3>
+    <ul class="critl">{% for c in cs %}<li>
+      <span class="ic vd-{{ c.verdict }}" aria-label="{{ t('verdict.' + c.verdict) }}">{{ {'pass': '✓', 'fail': '✕', 'unknown': '?', 'pending_human': 'P'}.get(c.verdict, '·') }}</span>
+      <div><span class="clab">{{ c.label }}</span> <span class="hint">{{ c.id }}</span>
+      <div class="hint">{{ t('verdict.' + c.verdict) }} · {{ t('how.' + c.source) }}{% if c.date %} · {{ c.date }}{% endif %}</div>
+      {% if c.quote %}<q class="quote">{{ c.quote }}</q>{% endif %}</div>
+    </li>{% endfor %}</ul>{% endif %}{% endfor %}
+    <p class="chartlinks"><a href="/studies/{{ rs }}/patients/{{ p.pid }}" data-testid="full-chart">{{ t('wb.full') }}</a>{% if user.can_request %} · <a href="/pilot/registry/{{ rs }}">{{ t('nav.patients') }}</a>{% endif %}</p>
+  </aside>
+  {% endif %}
+</div>
 <p class="hint">{{ t('week.footer') }}</p>
 {% endif %}
 {% endblock %}

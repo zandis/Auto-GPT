@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from tb_contracts import Job
@@ -413,3 +413,71 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
             }
         )
     return out
+
+
+# ---------------------------------------------------------------------------------------------- workbench (D-105)
+WORKLISTS: tuple[str, ...] = ("clinic", "review", "info", "approached", "all")
+PIPELINE: tuple[str, ...] = ("found", "reviewed", "contacted", "consented", "enrolled")
+STEPS: tuple[str, ...] = ("protocol", "criteria", "feasibility", "weekly", "contact", "enrolled")
+
+
+def in_worklist(row: Mapping[str, Any], key: str, today: date, days: int = 14) -> bool:
+    """The PI's worklists (D-105): clinic visits in the next two weeks, still to review, waiting for information,
+    approved and contacted, all. A patient can sit on more than one list (a clinic visit that still needs review)."""
+    mk = row.get("mark")
+    mark = getattr(mk, "mark", None)
+    status = row.get("status")
+    if key == "clinic":
+        when = row.get("visit")
+        return when is not None and today <= when.date() <= today + timedelta(days=days)
+    if key == "review":
+        return mark is None and status in ("new", "pending")
+    if key == "info":
+        return mark == "need_info"
+    if key == "approached":
+        return mark == "approach" or status in ("contacted", "screened")
+    return True
+
+
+def worklist_counts(rows: Sequence[Mapping[str, Any]], today: date) -> dict[str, int]:
+    return {k: sum(1 for r in rows if in_worklist(r, k, today)) for k in WORKLISTS}
+
+
+def met_score(fit: Fit) -> tuple[int, int]:
+    """Criteria met out of the criteria counted: inclusions met plus exclusions cleared."""
+    return fit.inc_met + fit.exc_clear, fit.inc_total + fit.exc_total
+
+
+def pipeline_counts(rows: Sequence[Mapping[str, Any]], registry: Mapping[str, str]) -> dict[str, int]:
+    """Found → PI reviewed → contacted → consented → enrolled, cumulative: a consented patient was also contacted."""
+    found = {str(r["pid"]) for r in rows} | set(registry)
+    reviewed = {str(r["pid"]) for r in rows if r.get("mark") is not None}
+    rank = {"contacted": 1, "consented": 2, "screen_fail": 2, "enrolled": 3}
+    contacted = {p for p, s in registry.items() if rank.get(s, 0) >= 1}
+    consented = {p for p, s in registry.items() if rank.get(s, 0) >= 2}
+    enrolled = {p for p, s in registry.items() if s == "enrolled"}
+    reviewed |= contacted
+    return {
+        "found": len(found),
+        "reviewed": len(reviewed),
+        "contacted": len(contacted),
+        "consented": len(consented),
+        "enrolled": len(enrolled),
+    }
+
+
+def procedure_step(
+    *, approved: bool, feas_done: bool, screen_done: bool, contacted: int, enrolled: int, waiting: bool
+) -> int:
+    """Where a study stands on the six-step procedure (index into STEPS): the first step not yet done."""
+    if waiting or not approved:
+        return 1
+    if not feas_done:
+        return 2
+    if not screen_done:
+        return 3
+    if enrolled:
+        return 5
+    if contacted:
+        return 4
+    return 3
