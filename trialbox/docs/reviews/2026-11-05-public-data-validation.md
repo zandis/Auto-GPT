@@ -135,19 +135,20 @@ model, GZQO ruleset, one process per size.
 
 | patients | pipeline time | per patient | peak memory | pass S1 filters | S5 review queue | final list | model calls | checks |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2,000 | 57 s | 29 ms | 1.3 GB | 64 (3.2 %) | 42 | 5 | 78 | 16 / 16 |
-| 10,000 | 226 s | 23 ms | 5.1 GB | 266 (2.7 %) | 173 | 10 | 277 | 16 / 16 |
-| 25,000 | 582 s | 23 ms | 12.1 GB | 654 (2.6 %) | 408 | 31 | 770 | 16 / 16 |
-| 50,000 | killed | | > 13.5 GB | | | | | |
+| 2,000 | 40 s | 20 ms | 0.9 GB | 64 (3.2 %) | 42 | 5 | 78 | 16 / 16 |
+| 10,000 | 173 s | 17 ms | 3.4 GB | 266 (2.7 %) | 173 | 10 | 277 | 16 / 16 |
+| 25,000 | 468 s | 19 ms | 8.2 GB | 654 (2.6 %) | 408 | 31 | 770 | 16 / 16 |
+| 50,000 | 805 s | 16 ms | 17.0 GB (12.0 RAM + 5.0 swap) | 1,393 (2.8 %) | 923 | 80 | 1,362 | 16 / 16 |
 
-The recall certificate was issued at every size.
+The recall certificate was issued at every size, including all 50,000 patients.
 
-Every completed run passed all 16 invariant checks (published, no blocking data-quality defect, lineage complete, monotone
-funnel, cascade equals the v1 funnel, small cells suppressed, reproducible, and the rest). Time and memory grow linearly (about 23 ms and 0.5 MB per patient).
-The 50,000-patient run was killed at 13.5 GB resident on this 16 GB container: the test harness keeps the whole
-lake, traces and pack in one process. That is a harness limit, not the deployed stack (separate lake and services),
-but the per-patient memory of the cascade and pack should be measured on the real box before a 50k-patient site;
-added to the follow-ups.
+Every run passed all 16 invariant checks (published, no blocking data-quality defect, lineage complete, monotone
+funnel, cascade equals the v1 funnel, small cells suppressed, reproducible, and the rest). Time and memory grow
+linearly (about 17 ms and 0.34 MB per patient). The first 50,000-patient attempt was killed at 13.5 GB: the lake
+rebuild held every note embedding as a Python list (about 32 KB a chunk). D-105 keeps them as float32 and inserts in
+batches, which cut memory by about a third (25,000 patients: 12.1 GB before, 8.2 GB after); the 50,000 run then
+finished on this 16 GB container with a 12 GB swap file added. The test harness still holds lake, traces and pack in
+one process; the deployed stack splits them, so a real box needs less.
 
 ### Projected: a 50,000-patient hospital, 12 trials a year
 
@@ -223,12 +224,23 @@ reports, because a site rarely holds them as coded values; APOE and age are filt
 says which fields to capture as structured data up front (MMSE/CDR with date, amyloid PET or CSF status, APOE, study
 partner availability) so that most AD criteria move from "LLM" or "person" to "filter".
 
+### Synthea: an Alzheimer's trial-ready cohort from coded data (`tools/synthea_ad_cohort.py`)
+
+Synthea (Apache-2.0) generated 14,865 synthetic people aged 55-90 at start (10,001 alive and 50-90 on 5 Nov 2026).
+The coded criteria of an early-AD protocol (modelled on lecanemab Clarity AD, NCT03887455) were applied twice, in
+Python and in DuckDB SQL, and every patient's flags agree. 852 have an Alzheimer's diagnosis; only 38 have a current
+MMSE of 22-30 and 29 pass every coded exclusion (2.9 per 1,000 adults). The MMSE is the bottleneck: 449 of the 852
+have no MMSE in the last 12 months and 52 none at all, against 313 whose score is too low. Amyloid status, MRI
+findings and the study partner are not coded and go to the LLM (reports) or a person. For a trial-ready cohort this
+is the case for capturing a dated MMSE or MoCA routinely: re-testing the 449 with a stale score is the largest single
+gain. Synthea's disease model is coarse (no MCI, no amyloid), so treat these as a worked example, not prevalence.
+
 ## Data not used
 
 - **n2c2 2018 Track 1 (cohort selection)**: 288 real discharge-summary records, 13 criteria. Needs a signed DUA on the
   DBMI portal (Harvard). Worth doing: it is the only public set with real longitudinal notes and per-criterion labels.
-- **Synthea**: the spec's 300k scale population. Downloading and running the Synthea jar was blocked in this cloud
-  session; the in-repo generator stands in. Running it on the Spark or a Docker host needs a yes from Changfu.
+- **n2c2 2018 Track 1** (update): Changfu's Hugging Face bucket holds the BigBio loader only; `train.zip` and
+  `n2c2-t1_gold_standard_test_data.zip` are still to be uploaded.
 - **ADNI / J-ADNI**: the natural AD cohort (amyloid PET, CSF, MMSE, CDR over time). Needs an ADNI data-use
   application; J-ADNI through NBDC. Neither can be fetched from here.
 - **MIMIC-IV notes**: credentialed PhysioNet access and CITI training.

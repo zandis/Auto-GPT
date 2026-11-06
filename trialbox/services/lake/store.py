@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 from embed_service.embedder import Embedder
@@ -32,6 +33,7 @@ from lake.textproc import chunk, token_string
 
 log = logging.getLogger("lake")
 DIM = 1024
+INSERT_BATCH = 4096  # chunk rows per Arrow batch: bounds memory on hospital-size snapshots (D-105)
 _ARROW = {
     "VARCHAR": pa.string(),
     "DATE": pa.date32(),
@@ -106,12 +108,17 @@ class Lake:
             with f.open(encoding="utf-8") as fh:
                 by_type[f.stem] = [json.loads(line) for line in fh if line.strip()]
         rows = Flattener(self.tz).flatten(by_type)
+        by_type.clear()  # the flat rows replace the resources; free them before the embedding pass
+        counts = {name: len(rows[name]) for name in SCHEMAS}
         pdir = self.dir / "parquet" / f"snapshot={snapshot}"
         pdir.mkdir(parents=True, exist_ok=True)
         for name, cols in SCHEMAS.items():
             schema = pa.schema([(c, _ARROW[t]) for c, t in cols])
             table = pa.Table.from_pylist(rows[name], schema=schema)
             pq.write_table(table, pdir / f"{name}.parquet")
+            del table
+            if name != "document":
+                rows[name] = []  # DuckDB reads the Parquet file; only document rows are needed for chunking
         # chunks
         chunk_rows: list[dict[str, Any]] = []
         for doc in sorted(rows["document"], key=lambda r: r["did"]):
@@ -142,22 +149,20 @@ class Lake:
                 f"type VARCHAR, text VARCHAR, tok VARCHAR, embedding FLOAT[{DIM}], chunk_key VARCHAR)"
             )
             if chunk_rows:
-                arrow = pa.Table.from_pylist(
-                    [
-                        {
-                            **{k: r[k] for k in ("did", "chunk_no", "pid", "date", "type", "text", "tok")},
-                            "embedding": vectors[r["sha"]],
-                            "chunk_key": f"{r['did']}#{r['chunk_no']}",
-                        }
-                        for r in chunk_rows
-                    ]
-                )
-                con.register("chunks_arrow", arrow)
-                con.execute(
-                    f"INSERT INTO document_chunk SELECT did, chunk_no, pid, date, type, text, tok, "
-                    f"embedding::FLOAT[{DIM}], chunk_key FROM chunks_arrow"
-                )
-                con.unregister("chunks_arrow")
+                for i in range(0, len(chunk_rows), INSERT_BATCH):
+                    part = chunk_rows[i : i + INSERT_BATCH]
+                    batch: dict[str, Any] = {
+                        k: [r[k] for r in part] for k in ("did", "chunk_no", "pid", "date", "type", "text", "tok")
+                    }
+                    flat = np.concatenate([vectors[r["sha"]] for r in part]).astype(np.float32, copy=False)
+                    batch["embedding"] = pa.FixedSizeListArray.from_arrays(pa.array(flat, type=pa.float32()), DIM)
+                    batch["chunk_key"] = [f"{r['did']}#{r['chunk_no']}" for r in part]
+                    con.register("chunks_arrow", pa.table(batch))
+                    con.execute(
+                        f"INSERT INTO document_chunk SELECT did, chunk_no, pid, date, type, text, tok, "
+                        f"embedding::FLOAT[{DIM}], chunk_key FROM chunks_arrow"
+                    )
+                    con.unregister("chunks_arrow")
                 con.execute(
                     "PRAGMA create_fts_index('document_chunk', 'chunk_key', 'tok', stemmer='none', "
                     "stopwords='none', ignore='\\s+', strip_accents=0, lower=1, overwrite=1)"
@@ -171,10 +176,11 @@ class Lake:
             con.close()
         tmp.replace(db_path)
         (self.dir / "CURRENT").write_text(snapshot)
-        counts = {name: len(rows[name]) for name in SCHEMAS}
         return RebuildStats(snapshot, counts, len(chunk_rows), new, round(time.perf_counter() - t0, 2))
 
-    def _embed(self, chunk_rows: list[dict[str, Any]], embedder: Embedder) -> tuple[dict[str, list[float]], int]:
+    def _embed(self, chunk_rows: list[dict[str, Any]], embedder: Embedder) -> tuple[dict[str, np.ndarray], int]:
+        """sha -> float32 vector. Kept as NumPy arrays: a Python list of 1,024 floats is ~32 KB per chunk and was
+        the peak of a 25,000-patient rebuild (12 GB); float32 is 4 KB."""
         cache = duckdb.connect(str(self.dir / "embed_cache.duckdb"))
         try:
             cache.execute(
@@ -182,22 +188,26 @@ class Lake:
                 "PRIMARY KEY (sha, model))"
             )
             shas = sorted({r["sha"] for r in chunk_rows})
-            have: dict[str, list[float]] = {}
+            have: dict[str, np.ndarray] = {}
             if shas:
                 cache.register("want", pa.table({"sha": shas}))
-                for sha, vec in cache.execute(
+                got = cache.execute(
                     "SELECT c.sha, c.vec FROM cache c JOIN want w USING (sha) WHERE c.model = ?",
                     [embedder.model],
-                ).fetchall():
-                    have[sha] = list(vec)
+                ).fetch_arrow_table()
                 cache.unregister("want")
+                if got.num_rows:
+                    vec_col = got.column("vec").combine_chunks()
+                    mat = vec_col.flatten().to_numpy(zero_copy_only=False).astype(np.float32).reshape(-1, DIM)
+                    for sha, row in zip(got.column("sha").to_pylist(), mat, strict=True):
+                        have[sha] = row
             missing = [s for s in shas if s not in have]
             text_by_sha = {r["sha"]: r["text"] for r in chunk_rows}
             for i in range(0, len(missing), 64):
                 batch = missing[i : i + 64]
                 vecs = embedder.embed([text_by_sha[s] for s in batch])
                 for s, v in zip(batch, vecs, strict=True):
-                    have[s] = v
+                    have[s] = np.asarray(v, dtype=np.float32)
                 cache.register("newvecs", pa.table({"sha": batch, "model": [embedder.model] * len(batch), "vec": vecs}))
                 cache.execute(f"INSERT OR REPLACE INTO cache SELECT sha, model, vec::FLOAT[{DIM}] FROM newvecs")
                 cache.unregister("newvecs")

@@ -104,3 +104,46 @@ def test_chia_route_rule() -> None:
 def test_kappa() -> None:
     assert ad_eval.kappa(["a", "b", "a", "b"], ["a", "b", "a", "b"]) == 1.0
     assert ad_eval.kappa(["a", "a", "b", "b"], ["a", "b", "a", "b"]) == 0.0
+
+
+def test_synthea_ad_cohort_python_and_sql_agree(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    import csv as _csv
+    from datetime import date as _date
+
+    from tools import synthea_ad_cohort as s
+
+    def write(name: str, header: list[str], rows: list[list[str]]) -> None:
+        with (tmp_path / f"{name}.csv").open("w", newline="", encoding="utf-8") as fh:
+            w = _csv.writer(fh)
+            w.writerow(header)
+            w.writerows(rows)
+
+    write(
+        "patients",
+        ["Id", "BIRTHDATE", "DEATHDATE"],
+        [["a", "1950-01-01", ""], ["b", "1950-01-01", ""], ["c", "1990-01-01", ""], ["d", "1945-06-01", "2020-01-01"]],
+    )
+    write(
+        "conditions",
+        ["START", "STOP", "PATIENT", "CODE", "DESCRIPTION"],
+        [
+            ["2024-01-01", "", "a", "26929004", "Alzheimer's disease (disorder)"],
+            ["2024-01-01", "", "b", "26929004", "Alzheimer's disease (disorder)"],
+            ["2010-01-01", "", "b", "84757009", "Epilepsy (disorder)"],
+        ],
+    )
+    write(
+        "medications",
+        ["START", "STOP", "PATIENT", "DESCRIPTION"],
+        [["2026-01-01", "", "c", "Warfarin Sodium 5 MG Oral Tablet"]],
+    )
+    write(
+        "observations",
+        ["DATE", "PATIENT", "CODE", "VALUE"],
+        [["2026-06-01T08:00:00Z", "a", s.MMSE, "24.0"], ["2026-06-01T08:00:00Z", "b", s.MMSE, "25.0"]],
+    )
+    ref = _date(2026, 11, 5)
+    py, sql = s.python_flags(tmp_path, ref), s.sql_flags(tmp_path, ref)
+    assert py == sql
+    res = s.summarise(py)
+    assert res["coded_candidates"] == 1 and res["drop_one"]["E2 seizure disorder or epilepsy"] == 1

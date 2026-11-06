@@ -946,3 +946,10 @@ accounts; the existing `viewer` role keeps its earlier read-only rights (job pag
 registry pseudonyms) and only its new pages are aggregate. The CRO account downloads the sponsor pack of a study it
 sees. Known gaps: age and sex are not on the weekly list (the candidate row does not carry them); the AD capability list
 and the 60 % AD screen-failure default appear only for an early-AD ruleset, and none ships yet.
+
+**D-105 Lake rebuild keeps embeddings as float32 and inserts in batches.** The 50,000-patient hospital simulation ran
+out of memory in the lake rebuild: every note-chunk embedding was a Python list of 1,024 floats (about 32 KB a chunk)
+and the whole `document_chunk` table was built as one Arrow table from Python rows. Embeddings are now NumPy float32
+(4 KB), read from the embedding cache through Arrow, inserted in batches of 4,096 rows, and the resource dicts and
+non-document flat rows are freed once their Parquet file is written. The stored values are unchanged (the column was
+already FLOAT[1024]). Peak memory of a 5,000-patient cycle fell from 2.6 GB to 1.8 GB. Reviewed 2026-11-05.
