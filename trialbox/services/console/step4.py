@@ -44,7 +44,7 @@ HELP_PAGES: tuple[tuple[str, str], ...] = (
     (r"^/pilot/protocol", "protocol"),
     (r"^/cmd", "cmd"),
 )
-HELP_SLUGS = tuple(dict.fromkeys(slug for _, slug in HELP_PAGES)) + ("other",)
+HELP_SLUGS = (*dict.fromkeys(slug for _, slug in HELP_PAGES), "other")
 
 
 def help_slug(path: str) -> str:
@@ -72,8 +72,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         out: dict[str, list[dict[str, str]]] = {"studies": [], "patients": []}
         for rs in studies:
             if qu and qu in rs:
-                out["studies"].append({"id": rs, "href": command.url_of(command.Action("status", rs), sess.user.role)
-                                       or "/home"})  # fmt: skip
+                out["studies"].append(
+                    {"id": rs, "href": command.url_of(command.Action("status", rs), sess.user.role) or "/home"}
+                )
         if not sess.user.can_view_phi or len(q) < 4:
             return out
         for rs in studies:
@@ -86,8 +87,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             for pid in sorted(pids):
                 no = nos.get(pid, "")
                 if pid.startswith(q) or (no and no.upper() == qu):
-                    out["patients"].append({"study": rs, "pid": pid, "no": no,
-                                            "href": f"/studies/{rs}/patients/{pid}"})  # fmt: skip
+                    out["patients"].append({"study": rs, "pid": pid, "no": no, "href": f"/studies/{rs}/patients/{pid}"})
                 if len(out["patients"]) >= 20:
                     return out
         return out
@@ -100,11 +100,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         act = command.interpret(q[:300], studies, role)
         au.append("console.command", actor=h.actor(sess), detail={"intent": act.intent, "action": act.command or ""})
         if act.intent == "patient" and act.target:
-            hits = search(sess, act.target, studies)["patients"]
-            if len(hits) == 1:
-                return RedirectResponse(hits[0]["href"], status_code=303)
-            return h.page(request, "cmd.html", sess, q=q, act=act, hits={"studies": [], "patients": hits},
-                          back=_safe_back(back))  # fmt: skip
+            pats = search(sess, act.target, studies)["patients"]
+            if len(pats) == 1:
+                return RedirectResponse(pats[0]["href"], status_code=303)
+            return h.page(
+                request, "cmd.html", sess, q=q, act=act, hits={"studies": [], "patients": pats}, back=_safe_back(back)
+            )
         if act.intent == "search":
             hits = search(sess, act.target or q, studies)
             found = hits["studies"] + hits["patients"]
@@ -122,12 +123,21 @@ def register(app: FastAPI, h: Helpers) -> None:
     def account(request: Request, saved: str = "") -> Response:
         sess = h.need(request)
         u = sess.user
-        last = next((r.ts for r in bk.audit(None, 2000)
-                     if r.event == "console.login" and r.actor == f"console:{u.username}"), "")  # fmt: skip
+        last = next(
+            (r.ts for r in bk.audit(None, 2000) if r.event == "console.login" and r.actor == f"console:{u.username}"),
+            "",
+        )
         return h.page(
-            request, "account.html", sess, me=u, sso=h.users.is_sso(u.username), studies=studies_of(sess),
-            last_login=last[:16].replace("T", " "), saved=saved == "1", error="",
-        )  # fmt: skip
+            request,
+            "account.html",
+            sess,
+            me=u,
+            sso=h.users.is_sso(u.username),
+            studies=studies_of(sess),
+            last_login=last[:16].replace("T", " "),
+            saved=saved == "1",
+            error="",
+        )
 
     @app.post("/account/password")
     def account_password(
@@ -155,11 +165,19 @@ def register(app: FastAPI, h: Helpers) -> None:
                 error = "account.err.policy"
         if not error:
             au.append("console.user", actor=h.actor(sess), detail={"action": "password", "user": u.username})
-            return RedirectResponse("/account?saved=1", status_code=303)
+            return RedirectResponse("/login", status_code=303)  # set_password signs the account out everywhere
         return h.page(
-            request, "account.html", sess, status=400, me=u, sso=h.users.is_sso(u.username),
-            studies=studies_of(sess), last_login="", saved=False, error=error,
-        )  # fmt: skip
+            request,
+            "account.html",
+            sess,
+            status=400,
+            me=u,
+            sso=h.users.is_sso(u.username),
+            studies=studies_of(sess),
+            last_login="",
+            saved=False,
+            error=error,
+        )
 
     # ------------------------------------------------------------------ S29 Help panel
     @app.get("/help")
@@ -173,10 +191,15 @@ def register(app: FastAPI, h: Helpers) -> None:
     def notices_received(request: Request) -> Response:
         sess = h.need(request)
         rows = [
-            {"kind": k, "day": d, "at": a[:16].replace("T", " "), "subject": s,
-             "href": "/week" if k == "N1" else "/home"}
+            {
+                "kind": k,
+                "day": d,
+                "at": a[:16].replace("T", " "),
+                "subject": s,
+                "href": "/week" if k == "N1" else "/home",
+            }
             for k, d, a, s in store.notices_for(sess.user.username)
-        ]  # fmt: skip
+        ]
         return h.page(request, "notices_received.html", sess, rows=rows)
 
     # ------------------------------------------------------------------ S13 admin page: health, jobs, data sources
@@ -210,13 +233,15 @@ def register(app: FastAPI, h: Helpers) -> None:
             "reveals": sorted(reveals.items(), key=lambda kv: -kv[1]),
             "counts": {
                 "exports": sum(1 for r in recs if r.event in ("console.export", "console.download")),
-                "denied": sum(1 for r in recs if r.event in ("console.denied", "console.login_failed",
-                                                             "console.sso_rejected")),  # fmt: skip
+                "denied": sum(
+                    1 for r in recs if r.event in ("console.denied", "console.login_failed", "console.sso_rejected")
+                ),
                 "marks": sum(1 for r in recs if r.event == "console.pi_mark"),
             },
             "queue": sum(1 for j in jobs if j.state not in TERMINAL and j.state != "awaiting_approval"),
-            "failed24": sum(1 for j in jobs if j.state == "failed" and (j.updated_at or j.received_at).isoformat()
-                            >= since),  # fmt: skip
+            "failed24": sum(
+                1 for j in jobs if j.state == "failed" and (j.updated_at or j.received_at).isoformat() >= since
+            ),
         }
 
     def sources_rows() -> list[dict[str, Any]]:
@@ -227,15 +252,34 @@ def register(app: FastAPI, h: Helpers) -> None:
             if r.event not in ("ingest.done", "ingest.failed"):
                 continue
             src = str(r.detail.get("source") or "csv")
-            row = rows.setdefault(src, {"source": src, "last_ok": "", "last_try": r.ts, "patients": None,
-                                        "records": None, "error_pct": None, "runs": []})  # fmt: skip
+            row = rows.setdefault(
+                src,
+                {
+                    "source": src,
+                    "last_ok": "",
+                    "last_try": r.ts,
+                    "patients": None,
+                    "records": None,
+                    "error_pct": None,
+                    "runs": [],
+                },
+            )
             if len(row["runs"]) < 30:
-                row["runs"].append({"at": r.ts[:16].replace("T", " "), "ok": r.event == "ingest.done",
-                                    "records": r.detail.get("records"),
-                                    "error_pct": r.detail.get("validation_error_pct")})  # fmt: skip
+                row["runs"].append(
+                    {
+                        "at": r.ts[:16].replace("T", " "),
+                        "ok": r.event == "ingest.done",
+                        "records": r.detail.get("records"),
+                        "error_pct": r.detail.get("validation_error_pct"),
+                    }
+                )
             if r.event == "ingest.done" and not row["last_ok"]:
-                row.update(last_ok=r.ts, patients=r.detail.get("patients"), records=r.detail.get("records"),
-                           error_pct=r.detail.get("validation_error_pct"))  # fmt: skip
+                row.update(
+                    last_ok=r.ts,
+                    patients=r.detail.get("patients"),
+                    records=r.detail.get("records"),
+                    error_pct=r.detail.get("validation_error_pct"),
+                )
         for row in rows.values():
             row["amber"] = not row["last_ok"] or row["last_ok"] < stale
             row["last_ok_text"] = row["last_ok"][:16].replace("T", " ")
@@ -251,25 +295,46 @@ def register(app: FastAPI, h: Helpers) -> None:
             types = sorted({j.type for j in jobs})
             studies = sorted({j.ruleset for j in jobs if j.ruleset})
             sel = [
-                j for j in jobs
-                if (not flt.get("study") or j.ruleset == flt["study"]) and (not flt.get("type") or j.type == flt["type"])
+                j
+                for j in jobs
+                if (not flt.get("study") or j.ruleset == flt["study"])
+                and (not flt.get("type") or j.type == flt["type"])
                 and (not flt.get("state") or j.state == flt["state"])
                 and (not flt.get("day") or j.received_at.date().isoformat() == flt["day"])
-            ]  # fmt: skip
-            ctx.update(jobs=sel, types=types, studies=studies, flt=flt, terminal=TERMINAL,
-                       can_cancel=callable(getattr(bk, "cancel_job", None)))  # fmt: skip
+            ]
+            ctx.update(
+                jobs=sel,
+                types=types,
+                studies=studies,
+                flt=flt,
+                terminal=TERMINAL,
+                can_cancel=callable(getattr(bk, "cancel_job", None)),
+            )
         else:
             ctx.update(sources=sources_rows())
         return h.page(request, "admin.html", sess, **ctx)
 
     @app.get("/admin")
     def admin(
-        request: Request, tab: str = "health", notice: str = "", study: str = "", type: str = "",  # noqa: A002
-        state: str = "", day: str = "",
-    ) -> Response:  # fmt: skip
+        request: Request,
+        tab: str = "health",
+        notice: str = "",
+        study: str = "",
+        type: str = "",
+        state: str = "",
+        day: str = "",
+    ) -> Response:
         sess = need_admin(request)
-        return admin_page(request, sess, tab, notice if notice in ("cancelled", "retried", "ingested") else "",
-                          study=study, type=type, state=state, day=day)  # fmt: skip
+        return admin_page(
+            request,
+            sess,
+            tab,
+            notice if notice in ("cancelled", "retried", "ingested") else "",
+            study=study,
+            type=type,
+            state=state,
+            day=day,
+        )
 
     h.admin_page = admin_page  # type: ignore[attr-defined]  # /home for the administrator (console.home)
 
@@ -296,8 +361,13 @@ def register(app: FastAPI, h: Helpers) -> None:
             fn(job.job_id, h.actor(sess))
         except Refused as exc:
             raise h.problem(400, "request.refused", reason=str(exc)) from exc
-        au.append("console.operate", actor=h.actor(sess), job_id=job.job_id, ruleset=job.ruleset,
-                  detail={"action": "cancel", "type": job.type})  # fmt: skip
+        au.append(
+            "console.operate",
+            actor=h.actor(sess),
+            job_id=job.job_id,
+            ruleset=job.ruleset,
+            detail={"action": "cancel", "type": job.type},
+        )
         return RedirectResponse("/admin?tab=jobs&notice=cancelled", status_code=303)
 
     @app.post("/admin/jobs/{job_id}/retry")
@@ -308,13 +378,22 @@ def register(app: FastAPI, h: Helpers) -> None:
         if confirm != "yes":
             return h.page(request, "admin_confirm.html", sess, job=job, action="retry")
         req = JobCreate(
-            type=job.type, ruleset=job.ruleset, options=dict(job.options or {}), comment=job.comment,
-            requested_by=job.requested_by, inputs=list(job.inputs or []) or None,
-        )  # fmt: skip
+            type=job.type,
+            ruleset=job.ruleset,
+            options=dict(job.options or {}),
+            comment=job.comment,
+            requested_by=job.requested_by,
+            inputs=list(job.inputs or []) or None,
+        )
         try:
             new = bk.create_job(req)
         except Refused as exc:
             raise h.problem(400, "request.refused", reason=str(exc)) from exc
-        au.append("console.operate", actor=h.actor(sess), job_id=new.job_id, ruleset=job.ruleset,
-                  detail={"action": "retry", "from": job.job_id, "type": job.type})  # fmt: skip
+        au.append(
+            "console.operate",
+            actor=h.actor(sess),
+            job_id=new.job_id,
+            ruleset=job.ruleset,
+            detail={"action": "retry", "from": job.job_id, "type": job.type},
+        )
         return RedirectResponse("/admin?tab=jobs&notice=retried", status_code=303)

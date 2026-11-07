@@ -1,0 +1,680 @@
+{
+ "studies": [
+  "GZQO",
+  "HTN2"
+ ],
+ "cases": [
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "FEAS GZQO",
+   "intent": "feasibility",
+   "study": "GZQO"
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "feas gzqo",
+   "intent": "feasibility",
+   "study": "GZQO"
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "FEAS NEW",
+   "intent": "new_feas",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "SCREEN GZQO",
+   "intent": "request",
+   "study": "GZQO"
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "screen htn2",
+   "intent": "request",
+   "study": "HTN2"
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "STATUS GZQO",
+   "intent": "status",
+   "study": "GZQO"
+  },
+  {
+   "lang": "en",
+   "role": "investigator",
+   "text": "Status HTN2",
+   "intent": "status",
+   "study": "HTN2"
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "HELP",
+   "intent": "help",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "investigator",
+   "text": "APPROVE GZQO",
+   "intent": "refused",
+   "study": "GZQO"
+  },
+  {
+   "lang": "en",
+   "role": "admin",
+   "text": "REJECTGATE GZQO",
+   "intent": "refused",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "coordinator",
+   "text": "ＦＥＡＳ　ＧＺＱＯ",
+   "intent": "feasibility",
+   "study": "GZQO"
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "DIGEST off",
+   "intent": "notice_settings",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "investigator",
+   "text": "this week",
+   "intent": "week",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "investigator",
+   "text": "who fits GZQO this week?",
+   "intent": "week",
+   "study": "GZQO"
+  },
+  {
+   "lang": "en",
+   "role": "investigator",
+   "text": "my list",
+   "intent": "week",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "investigator",
+   "text": "GZQO feasibility",
+   "intent": "feasibility",
+   "study": "GZQO"
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "feasibility report for HTN2",
+   "intent": "feasibility",
+   "study": "HTN2"
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "screening log GZQO",
+   "intent": "log",
+   "study": "GZQO"
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "cohort HTN2",
+   "intent": "cohort",
+   "study": "HTN2"
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "study setup GZQO",
+   "intent": "setup",
+   "study": "GZQO"
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "new feasibility",
+   "intent": "new_feas",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "run screening for GZQO",
+   "intent": "request",
+   "study": "GZQO"
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "my notices",
+   "intent": "notices",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "notification settings",
+   "intent": "notice_settings",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "investigator",
+   "text": "change password",
+   "intent": "account",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "cro",
+   "text": "my account",
+   "intent": "account",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "viewer",
+   "text": "reports",
+   "intent": "reports",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "admin",
+   "text": "jobs",
+   "intent": "jobs",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "admin",
+   "text": "data sources",
+   "intent": "sources",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "admin",
+   "text": "system health",
+   "intent": "health",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "admin",
+   "text": "users",
+   "intent": "users",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "viewer",
+   "text": "audit trail",
+   "intent": "audit",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "admin",
+   "text": "redcap connection",
+   "intent": "redcap",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "research office yearly counts",
+   "intent": "office",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "cro",
+   "text": "help",
+   "intent": "help",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "investigator",
+   "text": "home",
+   "intent": "home",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "GZQO",
+   "intent": "status",
+   "study": "GZQO"
+  },
+  {
+   "lang": "en",
+   "role": "investigator",
+   "text": "approval",
+   "intent": "approvals",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "investigator",
+   "text": "今週のリスト",
+   "intent": "week",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "investigator",
+   "text": "GZQO の今週の患者リスト",
+   "intent": "week",
+   "study": "GZQO"
+  },
+  {
+   "lang": "ja",
+   "role": "investigator",
+   "text": "GZQO の実施可能性",
+   "intent": "feasibility",
+   "study": "GZQO"
+  },
+  {
+   "lang": "ja",
+   "role": "coordinator",
+   "text": "HTN2の実施可能性レポート",
+   "intent": "feasibility",
+   "study": "HTN2"
+  },
+  {
+   "lang": "ja",
+   "role": "coordinator",
+   "text": "GZQO のスクリーニングログ",
+   "intent": "log",
+   "study": "GZQO"
+  },
+  {
+   "lang": "ja",
+   "role": "coordinator",
+   "text": "HTN2 のコホート",
+   "intent": "cohort",
+   "study": "HTN2"
+  },
+  {
+   "lang": "ja",
+   "role": "coordinator",
+   "text": "GZQO の試験設定",
+   "intent": "setup",
+   "study": "GZQO"
+  },
+  {
+   "lang": "ja",
+   "role": "coordinator",
+   "text": "新しい実施可能性",
+   "intent": "new_feas",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "coordinator",
+   "text": "GZQO のスクリーニングを開始",
+   "intent": "request",
+   "study": "GZQO"
+  },
+  {
+   "lang": "ja",
+   "role": "coordinator",
+   "text": "受信した通知",
+   "intent": "notices",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "investigator",
+   "text": "通知設定",
+   "intent": "notice_settings",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "investigator",
+   "text": "パスワードを変更したい",
+   "intent": "account",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "cro",
+   "text": "マイアカウント",
+   "intent": "account",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "viewer",
+   "text": "レポート",
+   "intent": "reports",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "admin",
+   "text": "ジョブ",
+   "intent": "jobs",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "admin",
+   "text": "データソース",
+   "intent": "sources",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "admin",
+   "text": "システム状態",
+   "intent": "health",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "admin",
+   "text": "ユーザー",
+   "intent": "users",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "viewer",
+   "text": "監査証跡",
+   "intent": "audit",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "admin",
+   "text": "REDCap 接続",
+   "intent": "redcap",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "coordinator",
+   "text": "治験事務局の年次件数",
+   "intent": "office",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "investigator",
+   "text": "ヘルプ",
+   "intent": "help",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "coordinator",
+   "text": "ホーム",
+   "intent": "home",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "investigator",
+   "text": "承認",
+   "intent": "approvals",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "investigator",
+   "text": "本週名單",
+   "intent": "week",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "investigator",
+   "text": "GZQO 本週病人名單",
+   "intent": "week",
+   "study": "GZQO"
+  },
+  {
+   "lang": "zh-TW",
+   "role": "investigator",
+   "text": "GZQO 可行性",
+   "intent": "feasibility",
+   "study": "GZQO"
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "HTN2 可行性報告",
+   "intent": "feasibility",
+   "study": "HTN2"
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "GZQO 篩選紀錄",
+   "intent": "log",
+   "study": "GZQO"
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "HTN2 世代名單",
+   "intent": "cohort",
+   "study": "HTN2"
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "GZQO 試驗設定",
+   "intent": "setup",
+   "study": "GZQO"
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "新增可行性",
+   "intent": "new_feas",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "GZQO 開始篩選",
+   "intent": "request",
+   "study": "GZQO"
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "收到的通知",
+   "intent": "notices",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "investigator",
+   "text": "通知設定",
+   "intent": "notice_settings",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "investigator",
+   "text": "變更密碼",
+   "intent": "account",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "cro",
+   "text": "我的帳號",
+   "intent": "account",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "viewer",
+   "text": "報告",
+   "intent": "reports",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "admin",
+   "text": "工作",
+   "intent": "jobs",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "admin",
+   "text": "資料來源",
+   "intent": "sources",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "admin",
+   "text": "系統狀態",
+   "intent": "health",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "admin",
+   "text": "使用者",
+   "intent": "users",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "viewer",
+   "text": "稽核",
+   "intent": "audit",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "admin",
+   "text": "REDCap 連線",
+   "intent": "redcap",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "臨床試驗中心年度統計",
+   "intent": "office",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "investigator",
+   "text": "說明",
+   "intent": "help",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "首頁",
+   "intent": "home",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "investigator",
+   "text": "核准",
+   "intent": "approvals",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "GZQO-0001",
+   "intent": "patient",
+   "study": "GZQO"
+  },
+  {
+   "lang": "ja",
+   "role": "investigator",
+   "text": "GZ-0950",
+   "intent": "patient",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "a1b2c3d4e5f6",
+   "intent": "search",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "cro",
+   "text": "GZQO screening log",
+   "intent": "forbidden",
+   "study": "GZQO"
+  },
+  {
+   "lang": "ja",
+   "role": "viewer",
+   "text": "GZQO-0001",
+   "intent": "forbidden",
+   "study": "GZQO"
+  },
+  {
+   "lang": "zh-TW",
+   "role": "investigator",
+   "text": "使用者",
+   "intent": "forbidden",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "cro",
+   "text": "jobs",
+   "intent": "forbidden",
+   "study": null
+  },
+  {
+   "lang": "en",
+   "role": "coordinator",
+   "text": "asdf qwer",
+   "intent": "unknown",
+   "study": null
+  },
+  {
+   "lang": "ja",
+   "role": "investigator",
+   "text": "今日の天気は？",
+   "intent": "unknown",
+   "study": null
+  },
+  {
+   "lang": "zh-TW",
+   "role": "coordinator",
+   "text": "今天天氣如何",
+   "intent": "unknown",
+   "study": null
+  }
+ ]
+}

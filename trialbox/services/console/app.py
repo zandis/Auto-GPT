@@ -598,7 +598,7 @@ def create_app(
             return resp
         token, _ = us.new_session(user, pick_language(request.headers.get("accept-language")))
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
-        done = RedirectResponse("/", status_code=303)
+        done = RedirectResponse("/home" if settings.pilot else "/", status_code=303)  # S1: land on the work list
         done.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
         done.delete_cookie(LOGIN_COOKIE)
         return done

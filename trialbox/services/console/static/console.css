@@ -301,7 +301,7 @@ form.grid2 .full { grid-column: 1 / -1; }
 
 /* build step 4 (D-110): header command field, help, admin tabs, phone layout */
 form.cmd { display: flex; gap: 6px; align-items: center; flex: 1 1 260px; max-width: 460px; margin: 0; }
-form.cmd button { margin-top: 0; }
+form.cmd button { margin-top: 0; white-space: nowrap; }
 form.cmd input[type=search] { flex: 1 1 auto; min-width: 0; min-height: 36px; margin: 0; }
 .helpq { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%;
   border: 1px solid var(--line); text-decoration: none; font-weight: 700; }
@@ -314,9 +314,9 @@ form.filters { flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 form.filters label { margin: 0; }
 .helppanel { max-width: 760px; }
 @media (max-width: 640px) {
-  form.cmd { order: 3; flex: 1 1 100%; max-width: none; }
-  .helpq { order: 2; }
-  .who { order: 4; width: 100%; justify-content: space-between; }
+  form.cmd { order: 3; flex: 1 1 calc(100% - 52px); max-width: none; }
+  .helpq { order: 4; flex: 0 0 32px; }
+  .who { order: 5; width: 100%; justify-content: space-between; }
   nav.tabs { overflow-x: auto; }
   nav.tabs a { white-space: nowrap; padding: 8px 10px; }
   html, body { overflow-x: hidden; }

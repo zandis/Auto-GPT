@@ -22,27 +22,100 @@ import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from channels.grammar import ALL_COMMANDS, GrammarError, Line, parse_line
+from channels.grammar import GrammarError, Line, parse_line
 
 # what each role may open; the target page checks again (defence in depth, the field is only a shortcut)
 ROLE_TARGETS: dict[str, frozenset[str]] = {
     "admin": frozenset(
-        {"home", "admin", "jobs", "health", "sources", "users", "audit", "redcap", "account", "help", "notices",
-         "notice_settings", "reports", "office", "feasibility", "new_feas", "request", "setup", "log", "cohort",
-         "week", "registry", "patient", "status", "search", "approvals"}
-    ),  # fmt: skip
+        {
+            "home",
+            "admin",
+            "jobs",
+            "health",
+            "sources",
+            "users",
+            "audit",
+            "redcap",
+            "account",
+            "help",
+            "notices",
+            "notice_settings",
+            "reports",
+            "office",
+            "feasibility",
+            "new_feas",
+            "request",
+            "setup",
+            "log",
+            "cohort",
+            "week",
+            "registry",
+            "patient",
+            "status",
+            "search",
+            "approvals",
+        }
+    ),
     "coordinator": frozenset(
-        {"home", "account", "help", "notices", "notice_settings", "reports", "office", "feasibility", "new_feas",
-         "request", "setup", "log", "cohort", "week", "registry", "patient", "status", "search", "approvals"}
-    ),  # fmt: skip
+        {
+            "home",
+            "account",
+            "help",
+            "notices",
+            "notice_settings",
+            "reports",
+            "office",
+            "feasibility",
+            "new_feas",
+            "request",
+            "setup",
+            "log",
+            "cohort",
+            "week",
+            "registry",
+            "patient",
+            "status",
+            "search",
+            "approvals",
+        }
+    ),
     "investigator": frozenset(
-        {"home", "account", "help", "notices", "notice_settings", "reports", "feasibility", "setup", "log", "cohort",
-         "week", "registry", "patient", "status", "search", "approvals"}
-    ),  # fmt: skip
+        {
+            "home",
+            "account",
+            "help",
+            "notices",
+            "notice_settings",
+            "reports",
+            "feasibility",
+            "setup",
+            "log",
+            "cohort",
+            "week",
+            "registry",
+            "patient",
+            "status",
+            "search",
+            "approvals",
+        }
+    ),
     "viewer": frozenset(
-        {"home", "account", "help", "notices", "notice_settings", "reports", "office", "feasibility", "audit",
-         "redcap", "status", "search", "jobs"}
-    ),  # fmt: skip
+        {
+            "home",
+            "account",
+            "help",
+            "notices",
+            "notice_settings",
+            "reports",
+            "office",
+            "feasibility",
+            "audit",
+            "redcap",
+            "status",
+            "search",
+            "jobs",
+        }
+    ),
     "cro": frozenset({"home", "account", "help", "reports", "feasibility", "search"}),
 }
 
@@ -53,18 +126,59 @@ NEEDS_STUDY = frozenset({"feasibility", "setup", "log", "cohort", "request"})
 # words are tried first, so "通知設定" wins over "通知" and "new feasibility" over "feasibility".
 PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("notice_settings", ("notice settings", "notification settings", "通知設定", "通知の設定", "通知設置")),
-    ("new_feas", ("new feasibility", "feas new", "新しい実施可能性", "新規の実施可能性", "実施可能性を新しく",
-                  "新的可行性", "新增可行性", "paste criteria", "基準を貼", "貼上條件")),  # fmt: skip
-    ("office", ("research office", "治験事務局", "臨床試驗中心", "研究室年報", "yearly counts", "年次件数", "年度統計")),
+    (
+        "new_feas",
+        (
+            "new feasibility",
+            "feas new",
+            "新しい実施可能性",
+            "新規の実施可能性",
+            "実施可能性を新しく",
+            "新的可行性",
+            "新增可行性",
+            "paste criteria",
+            "基準を貼",
+            "貼上條件",
+        ),
+    ),
+    (
+        "office",
+        ("research office", "治験事務局", "臨床試驗中心", "研究室年報", "yearly counts", "年次件数", "年度統計"),
+    ),
     ("redcap", ("redcap connection", "redcap 接続", "redcap接続", "redcap 連線", "redcap連線")),
     ("setup", ("study setup", "study set-up", "試験設定", "試験の設定", "試驗設定", "研究設定")),
     ("log", ("screening log", "スクリーニングログ", "スクリーニング記録", "篩選紀錄", "篩選記錄", "篩檢紀錄")),
     ("cohort", ("cohort list", "cohort", "コホート", "世代名單", "世代列表", "隊列")),
     ("feasibility", ("feasibility report", "feasibility", "実施可能性", "フィージビリティ", "可行性報告", "可行性")),
-    ("request", ("run screening", "start screening", "screen patients", "スクリーニング実行", "スクリーニングを開始",
-                 "執行篩選", "開始篩選")),  # fmt: skip
-    ("week", ("this week", "weekly list", "patient list", "my list", "clinic list", "今週", "患者リスト", "リスト",
-              "本週", "病人名單", "名單", "清單")),  # fmt: skip
+    (
+        "request",
+        (
+            "run screening",
+            "start screening",
+            "screen patients",
+            "スクリーニング実行",
+            "スクリーニングを開始",
+            "執行篩選",
+            "開始篩選",
+        ),
+    ),
+    (
+        "week",
+        (
+            "this week",
+            "weekly list",
+            "patient list",
+            "my list",
+            "clinic list",
+            "今週",
+            "患者リスト",
+            "リスト",
+            "本週",
+            "病人名單",
+            "名單",
+            "清單",
+        ),
+    ),
     ("approvals", ("approve", "approval", "承認", "核准")),
     ("registry", ("registry", "candidate registry", "候補登録", "登録簿", "候選登錄", "登錄")),
     ("health", ("system health", "health", "稼働状況", "システム状態", "系統狀態", "健康狀態")),
@@ -73,15 +187,32 @@ PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("users", ("users", "accounts", "user accounts", "アカウント管理", "ユーザー", "使用者", "帳號管理")),
     ("audit", ("audit", "audit trail", "監査", "監査証跡", "稽核")),
     ("notices", ("notices received", "my notices", "notices", "notifications", "受信した通知", "通知", "收到的通知")),
-    ("account", ("my account", "account", "password", "change password", "language", "マイアカウント", "パスワード",
-                 "言語", "我的帳號", "密碼", "語言")),  # fmt: skip
+    (
+        "account",
+        (
+            "my account",
+            "account",
+            "password",
+            "change password",
+            "language",
+            "マイアカウント",
+            "パスワード",
+            "言語",
+            "我的帳號",
+            "密碼",
+            "語言",
+        ),
+    ),
     ("reports", ("reports", "report", "レポート", "報告書", "報告")),
     ("help", ("help", "how do i", "what can i type", "ヘルプ", "使い方", "説明", "說明", "幫助", "怎麼用")),
     ("home", ("home", "start page", "ホーム", "トップ", "首頁", "主頁")),
 )
 _PHRASES_BY_LENGTH = sorted(((w, intent) for intent, ws in PHRASES for w in ws), key=lambda p: -len(p[0]))
 
+# commands also accepted in lower case ("feas gzqo"): the short v4 ones whose word is not also a phrase ("cohort")
+LENIENT = frozenset({"FEAS", "SCREEN", "STATUS", "APPROVE", "REJECTGATE"})
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+_HEX = re.compile(r"^[0-9a-fA-F]{8,64}$")
 _SCREEN_NO = re.compile(r"^([A-Z0-9][A-Z0-9_-]{0,31})-(\d{1,6})$")
 _STUDY_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{1,31}")
 
@@ -118,7 +249,7 @@ def _lenient(t: str, studies: list[str]) -> Line | None:
     """``feas gzqo``, ``Status GZQO``: a short grammar line typed in lower case. Only the command word and a known
     study code are upper-cased; anything that still does not parse falls through to the phrases."""
     toks = t.split()
-    if not toks or len(toks) > 3 or toks[0].upper() not in ALL_COMMANDS or toks[0] == toks[0].upper():
+    if not toks or len(toks) > 3 or toks[0].upper() not in LENIENT or toks[0] == toks[0].upper():
         return None
     rest = [tok.upper() if tok.upper() in studies or tok.upper() == "NEW" else tok for tok in toks[1:]]
     try:
@@ -132,8 +263,9 @@ def _from_grammar(line: Line) -> Action:
     if line.approval:
         return Action("refused", study, command=cmd, reason="approval")
     if cmd == "FEAS":
-        return Action("new_feas" if study in (None, "NEW") else "feasibility", None if study == "NEW" else study,
-                      command=cmd)  # fmt: skip
+        return Action(
+            "new_feas" if study in (None, "NEW") else "feasibility", None if study == "NEW" else study, command=cmd
+        )
     if cmd in ("SCREEN", "MICROBATCH", "NAV", "COHORT"):
         return Action("request", study, command=cmd, params={"kind": "SCREEN"})
     if cmd == "STATUS":
@@ -146,8 +278,22 @@ def _from_grammar(line: Line) -> Action:
         return Action("refused", study, command=cmd, reason="patient_page")
     if cmd == "DIGEST":
         return Action("notice_settings", command=cmd)
-    if cmd in ("CONSENT", "RELEASE", "CASE", "ASK", "WHATIF", "QFILL", "MONITOR", "ATLAS", "STUDY", "CANCEL",
-               "ANSWERS", "OK", "SUBMIT", "FEEDBACK"):  # fmt: skip
+    if cmd in (
+        "CONSENT",
+        "RELEASE",
+        "CASE",
+        "ASK",
+        "WHATIF",
+        "QFILL",
+        "MONITOR",
+        "ATLAS",
+        "STUDY",
+        "CANCEL",
+        "ANSWERS",
+        "OK",
+        "SUBMIT",
+        "FEEDBACK",
+    ):
         return Action("refused", study, command=cmd, reason="mail_only")
     return Action("refused", study, command=cmd, reason="never")
 
@@ -181,7 +327,7 @@ def interpret(text: str, studies: Iterable[str], role: str) -> Action:
         study = _find_study(t, studies)
         if study and normalise(t).upper() == study:
             act = Action("status", study)
-        elif _PID.match(t) and not t.isalpha():
+        elif _PID.match(t) and (_HEX.match(t) or not t.isalpha()):  # a pseudonym (hex) or a coded id
             act = Action("search", target=t)
         elif study:
             act = Action("status", study)

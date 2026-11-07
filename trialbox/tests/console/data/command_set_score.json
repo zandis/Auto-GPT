@@ -1,0 +1,29 @@
+{
+ "by_lang": {
+  "en": {
+   "n": 40,
+   "right": 40,
+   "unsure": 0,
+   "wrong": 0
+  },
+  "ja": {
+   "n": 28,
+   "right": 28,
+   "unsure": 0,
+   "wrong": 0
+  },
+  "zh-TW": {
+   "n": 28,
+   "right": 28,
+   "unsure": 0,
+   "wrong": 0
+  }
+ },
+ "misses": [],
+ "n": 96,
+ "right": 96,
+ "right_pct": 100.0,
+ "unsure": 0,
+ "wrong": 0,
+ "wrong_pct": 0.0
+}

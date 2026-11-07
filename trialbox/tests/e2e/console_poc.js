@@ -33,7 +33,11 @@ async function login(page, args) {
   await page.goto(args.base + "/login", { waitUntil: "load" });
   await page.fill("#username", args.user);
   await page.fill("#password", args.password);
-  await Promise.all([page.waitForURL(args.base + "/"), page.click("[data-testid=login-submit]")]);
+  await Promise.all([
+    page.waitForURL((u) => u.pathname === "/" || u.pathname === "/home"), // D-110: the pilot lands on the role home
+    page.click("[data-testid=login-submit]"),
+  ]);
+  await page.goto(args.base + "/", { waitUntil: "load" });
   const who = await page.locator("[data-testid=whoami]").innerText();
   check(who.includes(args.user), `signed in as ${args.user} (${who})`);
 }
