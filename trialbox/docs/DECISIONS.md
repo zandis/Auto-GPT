@@ -1071,3 +1071,62 @@ of `20-build-map.md` §2 (list and mail). What was decided, and why:
 Matching is unchanged: no file under `services/matching`, `services/criteria_compiler` or the evaluation in
 `orchestrator/scenarios/screen.py` changed (the SCREEN edit is the cohort list's delivery address only), so the
 SIGIR lost-pairs check was not rerun. Demo: `python -m tools.list_demo --dir /tmp/tb-list [--serve]`.
+
+**D-109 Build step 3: the REDCap simulator, the read connector, the project link and the S-28 study store.** Build
+step 3 of `20-build-map.md` §2 (REDCap link). What was decided, and why:
+
+* **REDCap API simulator** (`services/rc_sim`, FR-RC-09/17, TB-DS-08 §4.4 ICD-04S): `POST /api/` with REDCap's form
+  fields answers R1 version (configurable, default `16.0.10`), R2 project, R3 metadata, R7 flat record export
+  (`records[]`, `fields[]`, `events[]`, `dateRangeBegin`, `exportDataAccessGroups`) and R8 dag; every other
+  `content` answers 501 with a REDCap-style `{"error"}`; a wrong token answers 403 with REDCap's text; an optional
+  rate limit answers 429. Two JSON fixture projects with differently named fields: A (classic, `record_id`,
+  `tb_screening_no`, `consent_date`, `enrolled`, `sf_reason` radio, `subject_no`) and B (longitudinal, events
+  `screening_arm_1` / `m12_arm_1`, DAGs, `rec_id`, `icf_dt`, `rand_yn`, `withdrawn`). `POST /sim/records` adds or
+  edits records (stamped in the site zone) and `POST /sim/metadata/rename` renames a field, the demo's and tests'
+  levers. Written from the public REDCap API documentation only. It is in the demo image (`COPY .`), reachable as
+  `inproc://rc-sim` from the console only when `TB_ENV` is DEV or TEST (FR-RC-17a), or standalone as
+  `python -m rc_sim` (port 8790). The fixtures live in `services/rc_sim/fixtures/`, not `fixtures/rc_sim/` as
+  ICD-04S says, so the simulator ships as one package.
+* **rc-bridge read connector** (`services/rc_bridge/client.py`, IR-03a): one httpx form post per method. The ICD names
+  PyCap; it is not a dependency of the build and five read methods do not need it. Errors map to the register:
+  403 → RC-TOKEN, 429/503 → RC-RATE, other errors → RC-UPSTREAM, majors other than 14–16 → RC-VERSION. The token
+  is never logged, put in an error, an audit record or `studies.db`.
+* **Project link** (`services/rc_bridge/link.py`, ICD-04 §4.1a, FR-RC-16) in the `tb_screening_no` mode only (the
+  `mrn` mode is H and is refused with RC-LINK-MODE). Saving a link reads R1–R3 and checks every named field, the
+  enrolment and withdrawal codes and the screen-fail choice map against the data dictionary (RC-LINK-FIELD, with the
+  fields named). A read-back joins records by the screening number the console issued; a longitudinal record is
+  merged across events and the consent date is taken only from `consent_event`; records outside the link's DAG are
+  ignored. One status per record: withdrawn > enrolled > screen-failed (reason category from the choice map:
+  inclusion, exclusion, consent_withdrawn, lost_contact, other) > consented. Two records with one screening number
+  (in one read or against a record already joined) are RC-LINK-DUP and change nothing; a number no TrialBox patient
+  has is "in REDCap, not in TrialBox".
+* **Status read-back** (`orchestrator/study_api.py`): REDCap wins for its four statuses, written to the registry with
+  `source=import` and `by=rc-bridge`; a patient goes through *consented* where the registry has no direct step (a
+  new row starts as a candidate, so enrolment records the consent first). A transition the registry does not record
+  (TrialBox *declined*, REDCap has a consent date) is a conflict listed for the coordinator, never forced. A renamed
+  field turns the link off with its problem shown; the next good save turns it on. R7 reads changes since the last
+  read minus one day (a clock or zone skew never loses a change; applying a status twice is a no-op).
+* **S-28 study store** (`orchestrator/studystore.py`, `<data_dir>/studies.db`): `study_settings` (study type, cohort
+  kind, consent scope, screening-number format and next number, "Not suitable" reasons, entered by/at),
+  `rc_connection` (token name, base URL, version and project found, last test), `rc_project_link`, `rc_record`
+  (record id, link value, pid, consent date, sponsor subject number) and `rc_read_log`. Tokens are 0600 files
+  under `<secrets_dir>/redcap/<name>`. The console edits the store only through the orchestrator routes listed in
+  the module docstring. **The step-2 study settings moved here**: S21 saves to S-28 and the list, the numbers and
+  the reasons read S-28 first (`console/s28.py`, 5-second cache on the backend); a study never saved on S21 keeps
+  its step-2 site-store value or the default by ruleset, so nothing changes until a coordinator saves. The
+  screening numbers themselves stay in the console's site store, which issues them; each read sends the number →
+  pid map.
+* **S21 Study set-up** (`/studies/{rs}/setup`) in three sections: 1 Study (type, cohort kind, consent), 2 REDCap link
+  (field map, Test link with the first three joins, the last read-back with changes, duplicates, conflicts and
+  unmatched numbers, **Run now**), 3 Screening log (number prefix, next number, reason list). The coordinator edits;
+  the investigator and others on the study read (the investigator's confirm step is H). **S36 REDCap connection**
+  (`/admin/redcap`, administrators; viewers read): base URL and named tokens, entered once into a password field and
+  shown masked (`••••8F90`), **Test connection** (R1 + R2). The screening log shows the REDCap record id and the
+  subject number, the read-back block and Run now; its XLSX gains `redcap_record_id` and `subject_no`.
+* **Site time zone** (step-2 follow-up): `console.timefmt.site_zone` prefers `site.tz` over `env.tz`, and the demo's
+  in-process backend exposes the box's config, so demo pages no longer fall back to UTC.
+* **Nightly read-back**: `python -m console.rc_read [--study RS]` for the box's timer after the nightly ingest, the
+  same call as Run now; it skips links that are off.
+
+Demo: `python -m tools.rc_demo --dir /tmp/tb-rc [--serve]` (after the step-2 run: S36 connect, S21 link, create then
+change the record in the simulator, Run now twice, see consented then enrolled in the log).

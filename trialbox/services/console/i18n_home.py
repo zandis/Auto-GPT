@@ -1052,3 +1052,12 @@ from console.i18n_step2 import ZH as _S2_ZH  # noqa: E402
 EN.update(_S2_EN)
 JA.update(_S2_JA)
 ZH.update(_S2_ZH)
+
+# D-109 build step 3: S21 study set-up, S36 REDCap connection and the read-back
+from console.i18n_step3 import EN as _S3_EN  # noqa: E402
+from console.i18n_step3 import JA as _S3_JA  # noqa: E402
+from console.i18n_step3 import ZH as _S3_ZH  # noqa: E402
+
+EN.update(_S3_EN)
+JA.update(_S3_JA)
+ZH.update(_S3_ZH)

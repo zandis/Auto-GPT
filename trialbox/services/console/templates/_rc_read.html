@@ -1,0 +1,14 @@
+{# The REDCap read-back state of one study (S21 section 2 and the screening log); needs rs, link, last. #}
+<div data-testid="rc-read">
+{% if last %}
+  {% if last.ok %}<p data-testid="rc-last">{{ t('rc.read.last', at=last.at|local, rows=last.result.rows, n=last.result.changes|length) }}</p>
+  {% else %}<p class="error" data-testid="rc-last">{{ t('rc.read.failed', at=last.at|local, msg=t('rc.err.' + last.result.code, fields=(last.result.fields or [])|join(', '), msg=last.result.message)) }}</p>{% endif %}
+  {% if last.ok %}
+  {% if last.result.changes %}<ul class="plain" data-testid="rc-changes">{% for c in last.result.changes %}<li>{{ t('rc.change', v=c.link_value, a=t('registry.status.' + (c['from'] or 'candidate')), b=t('registry.status.' + c.to)) }}</li>{% endfor %}</ul>{% endif %}
+  {% for d in last.result.duplicates %}<p class="warn" data-testid="rc-dup">{{ t('rc.dup', v=d.link_value, ids=d.record_ids|join(', ')) }} <span class="hint mono">RC-LINK-DUP</span></p>{% endfor %}
+  {% for c in last.result.conflicts %}<p class="warn" data-testid="rc-conflict">{{ t('rc.conflict', a=t('registry.status.' + c.trialbox), b=t('registry.status.' + c.redcap), v=c.link_value, r=c.record_id) }}</p>{% endfor %}
+  {% if last.result.unmatched %}<p class="hint" data-testid="rc-unmatched">{{ t('rc.unmatched', n=last.result.unmatched|length, list=last.result.unmatched|map(attribute='link_value')|join(', ')) }}</p>{% endif %}
+  {% endif %}
+{% elif link %}<p class="hint">{{ t('rc.read.never') }}</p>{% endif %}
+{% if link and link.enabled and user.can_request %}<form method="post" action="/studies/{{ rs }}/redcap-read" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back or 'setup' }}"><button type="submit" data-testid="run-now">{{ t('rc.read.now') }}</button></form>{% endif %}
+</div>

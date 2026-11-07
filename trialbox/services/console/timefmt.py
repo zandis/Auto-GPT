@@ -13,7 +13,9 @@ from zoneinfo import ZoneInfo
 
 def site_zone(backend: object) -> ZoneInfo:
     """The site's time zone (site.tz, which also sets env.tz) for user-facing times; UTC if unknown."""
-    name = getattr(getattr(getattr(backend, "cfg", None), "env", None), "tz", None) or os.environ.get("TB_TZ") or "UTC"
+    cfg = getattr(backend, "cfg", None)
+    site = getattr(getattr(getattr(cfg, "settings", None), "site", None), "tz", None)
+    name = site or getattr(getattr(cfg, "env", None), "tz", None) or os.environ.get("TB_TZ") or "UTC"
     try:
         return ZoneInfo(str(name))
     except Exception:

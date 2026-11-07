@@ -1,0 +1,166 @@
+"""REDCap API read client (ICD-04 R1-R3, R7, R8) over plain httpx form posts.
+
+The ICD names PyCap as the client; PyCap is not a dependency of the build, and the five read methods are one form
+post each, so the connector posts the documented form fields itself (D-109). Errors map to the ICD register:
+403 -> RC-TOKEN, 429/503 -> RC-RATE, any other error -> RC-UPSTREAM, unsupported major version -> RC-VERSION. The
+token is never logged or put in an error message.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable
+from typing import Any, ClassVar
+
+import httpx
+
+SUPPORTED_MAJORS = (14, 15, 16)  # LTS lines the connector is tested on; the pilot sites run 16.x (FR-RC-14)
+TOKEN_RE = re.compile(r"^[0-9A-F]{32}$")
+INPROC_PREFIX = "inproc://"  # demo and test only: a URL served by an in-process ASGI app (the simulator)
+_LOCAL: dict[str, Callable[[], httpx.Client]] = {}
+
+
+class RcError(RuntimeError):
+    """An ICD-04 error: ``code`` from the register, ``status`` the HTTP status TrialBox answers with."""
+
+    STATUS: ClassVar[dict[str, int]] = {
+        "RC-TOKEN": 409,
+        "RC-VERSION": 409,
+        "RC-UPSTREAM": 502,
+        "RC-RATE": 503,
+        "RC-FORBIDDEN": 403,
+    }
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.message = message
+        self.status = self.STATUS.get(code, 409)
+
+
+def register_local(url: str, factory: Callable[[], httpx.Client]) -> None:
+    """Route an ``inproc://`` base URL to an in-process client (the demo's and tests' simulator)."""
+    if not url.startswith(INPROC_PREFIX):
+        raise ValueError("only inproc:// URLs are routed in-process")
+    _LOCAL[url.rstrip("/")] = factory
+
+
+def check_token(token: str) -> str:
+    tok = token.strip().upper()
+    if not TOKEN_RE.match(tok):
+        raise RcError("RC-TOKEN", "a REDCap API token is 32 hexadecimal characters")
+    return tok
+
+
+def api_url(base: str) -> str:
+    """The ``/api/`` endpoint of a REDCap base URL (``https://redcap.example/`` or ``.../api/``)."""
+    b = base.strip()
+    if not (b.startswith("https://") or b.startswith("http://") or b.startswith(INPROC_PREFIX)):
+        raise RcError("RC-UPSTREAM", "the REDCap URL must start with https://")
+    b = b.rstrip("/")
+    return b if b.endswith("/api") else b + "/api"
+
+
+def major_of(version: str) -> int:
+    m = re.match(r"^\s*(\d+)\.", version or "")
+    if not m:
+        raise RcError("RC-VERSION", f"REDCap reported an unreadable version {version!r}")
+    return int(m.group(1))
+
+
+class RedcapClient:
+    def __init__(self, base_url: str, token: str, http: httpx.Client | None = None, timeout: float = 10.0) -> None:
+        self.url = api_url(base_url)
+        self.token = check_token(token)
+        self._own = http is None
+        if http is None:
+            key = self.url[: -len("/api")]
+            if key.startswith(INPROC_PREFIX):
+                if key not in _LOCAL:
+                    raise RcError("RC-UPSTREAM", f"no in-process REDCap is registered at {key}")
+                http = _LOCAL[key]()
+                self.url = "/api/"
+            else:
+                http = httpx.Client(timeout=timeout)
+        self.http = http
+
+    def close(self) -> None:
+        if self._own:
+            self.http.close()
+
+    def __enter__(self) -> RedcapClient:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def _post(self, content: str, extra: dict[str, str] | None = None) -> Any:
+        data = {"token": self.token, "content": content, "format": "json", "returnFormat": "json", **(extra or {})}
+        url = self.url if self.url.endswith("/") else self.url + "/"
+        try:
+            resp = self.http.post(url, data=data)
+        except httpx.HTTPError as exc:
+            raise RcError("RC-UPSTREAM", f"REDCap did not answer ({type(exc).__name__})") from exc
+        if resp.status_code == 200:
+            try:
+                return resp.json()
+            except ValueError as exc:
+                raise RcError("RC-UPSTREAM", "REDCap answered with something that is not JSON") from exc
+        if resp.status_code == 403:
+            raise RcError("RC-TOKEN", "REDCap refused the token (no API rights for this project)")
+        if resp.status_code in (429, 503):
+            raise RcError("RC-RATE", "REDCap's API rate limit was reached; try again later")
+        try:
+            msg = str(resp.json().get("error") or "")
+        except (ValueError, AttributeError):
+            msg = ""
+        raise RcError("RC-UPSTREAM", f"REDCap returned {resp.status_code}" + (f": {msg[:200]}" if msg else ""))
+
+    # ------------------------------------------------------------------ ICD-04 R1-R3, R7, R8
+    def version(self) -> str:
+        return str(self._post("version")).strip().strip('"')
+
+    def check_version(self) -> str:
+        v = self.version()
+        if major_of(v) not in SUPPORTED_MAJORS:
+            raise RcError(
+                "RC-VERSION", f"REDCap {v} is not a supported version ({', '.join(map(str, SUPPORTED_MAJORS))}.x)"
+            )
+        return v
+
+    def project(self) -> dict[str, Any]:
+        out = self._post("project")
+        if not isinstance(out, dict):
+            raise RcError("RC-UPSTREAM", "project info is not an object")
+        return out
+
+    def metadata(self) -> list[dict[str, Any]]:
+        out = self._post("metadata")
+        if not isinstance(out, list):
+            raise RcError("RC-UPSTREAM", "the data dictionary is not a list")
+        return [dict(m) for m in out]
+
+    def dags(self) -> list[dict[str, Any]]:
+        out = self._post("dag")
+        return [dict(d) for d in out] if isinstance(out, list) else []
+
+    def records(
+        self,
+        fields: list[str] | None = None,
+        events: list[str] | None = None,
+        since: str | None = None,
+        records: list[str] | None = None,
+        dags: bool = False,
+    ) -> list[dict[str, Any]]:
+        extra: dict[str, str] = {"type": "flat", "rawOrLabel": "raw", "rawOrLabelHeaders": "raw"}
+        for name, vals in (("fields", fields), ("events", events), ("records", records)):
+            for i, v in enumerate(vals or []):
+                extra[f"{name}[{i}]"] = v
+        if since:
+            extra["dateRangeBegin"] = since
+        if dags:
+            extra["exportDataAccessGroups"] = "true"
+        out = self._post("record", extra)
+        if not isinstance(out, list):
+            raise RcError("RC-UPSTREAM", "the record export is not a list")
+        return [dict(r) for r in out]

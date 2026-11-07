@@ -755,7 +755,7 @@ def create_app(
     if not settings.pilot:
         return app
 
-    from console import approval, notify, screening_log
+    from console import approval, notify, screening_log, study_setup
     from console.home import Helpers
     from console.home import register as register_home
     from console.sitestore import SiteStore
@@ -778,6 +778,7 @@ def create_app(
     approval.register(app, helpers, submit)  # S20 (D-108): the investigator approves, on one page
     screening_log.register(app, helpers)
     notify.register(app, helpers)
+    study_setup.register(app, helpers)  # S21 and S36 (D-109)
 
     def _job_or_404(job_id: str) -> Job:
         if not _ULID.match(job_id):

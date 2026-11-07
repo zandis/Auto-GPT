@@ -20,8 +20,10 @@ from typing import Any
 from fastapi import FastAPI, Request, Response
 from tb_contracts import Job
 
+from console import s28
 from console import studies as st
 from console.auth import Session
+from console.backend import Problem, Unavailable
 from console.home import Helpers
 from console.timefmt import local_date, site_zone
 
@@ -61,8 +63,28 @@ def register(app: FastAPI, h: Helpers) -> None:
         except Exception:
             return {}
 
+    def rc_records(rs: str) -> dict[str, dict[str, Any]]:
+        """What the last REDCap read-back found per pid: record id, sponsor subject number (D-109)."""
+        if not s28.has_api(bk):
+            return {}
+        try:
+            rows = s28.call(bk, "GET", f"/studies/{rs}/redcap-records")
+        except (Problem, Unavailable):
+            return {}
+        return {str(r["pid"]): r for r in rows or [] if r.get("pid")}
+
+    def rc_link(rs: str) -> dict[str, Any] | None:
+        if not s28.has_api(bk):
+            return None
+        try:
+            out = s28.call(bk, "GET", f"/studies/{rs}/redcap-link")
+        except (Problem, Unavailable):
+            return None
+        return out if isinstance(out, dict) else None
+
     def log_rows(rs: str) -> list[dict[str, Any]]:
         reg = registry_rows(rs)
+        rc = rc_records(rs)
         marks: dict[str, list[Any]] = {}
         for m in store.all_marks(rs):
             marks.setdefault(m.pid, []).append(m)
@@ -87,7 +109,9 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "attempts": len(oc),
                     "status": e.status if e else "candidate",
                     "reason": (e.reason if e else "") or "",
-                    "updated": e.updated_at.date().isoformat() if e else "",
+                    "updated": local_date(e.updated_at.isoformat(), tz) if e else "",
+                    "record_id": (rc.get(pid) or {}).get("record_id") or "",
+                    "subject_no": (rc.get(pid) or {}).get("subject_no") or "",
                 }
             )
         return rows
@@ -98,7 +122,18 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if not sess.user.can_view_phi:
             raise h.problem(403, "forbidden")
-        return h.page(request, "screening_log.html", sess, rs=rid, rows=log_rows(rid))
+        link = rc_link(rid)
+        reads = (link or {}).get("reads") or []
+        return h.page(
+            request,
+            "screening_log.html",
+            sess,
+            rs=rid,
+            rows=log_rows(rid),
+            link=link,
+            last=reads[0] if reads else None,
+            back="log",
+        )
 
     @app.get("/studies/{rs}/screening-log.xlsx")
     def screening_log_xlsx(request: Request, rs: str) -> Response:
@@ -126,6 +161,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "status",
                 "reason",
                 "status_date",
+                "redcap_record_id",
+                "subject_no",
             ]
         )
         for r in log_rows(rid):
@@ -144,6 +181,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                     r["status"],
                     r["reason"],
                     r["updated"],
+                    r["record_id"],
+                    r["subject_no"],
                 ]
             )
         about = wb.create_sheet("about")
@@ -167,7 +206,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         info = next((r for r in bk.rulesets() if r.id == rid), None)
         kind = info.kind if info else ""
-        conf = store.study_settings(rid, st.study_defaults(rid, kind))
+        conf = s28.load(bk, store, rid, st.study_defaults(rid, kind))
         jobs = [
             j
             for j in bk.list_jobs(limit=500)

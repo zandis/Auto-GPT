@@ -45,6 +45,7 @@ class InprocBackend:
 
     def __init__(self, box: Any, client: Any, rulesets_dir: Path) -> None:
         self.box, self.c, self.rulesets_dir = box, client, rulesets_dir
+        self.cfg = box.orch.cfg  # the site time zone for user-facing times (console.timefmt)
 
     # jobs
     def list_jobs(self, limit: int = 100) -> list[Any]:
@@ -162,6 +163,14 @@ class InprocBackend:
             raise Refused(r.text[:200])
         return str(r.json().get("mrn") or "") or None
 
+    def study_api(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+        from console.backend import problem_of
+
+        r = self.c.request(method, path, json=body) if body is not None else self.c.request(method, path)
+        if r.status_code >= 400:
+            raise problem_of(r.status_code, r.text)
+        return r.json()
+
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
         from console.backend import Refused
 
@@ -187,6 +196,9 @@ def build(work: Path) -> tuple[Any, Any, Path]:
     ingest_site(synth / "site-a", work / "lake", sec, "2026-10-04")
     box = make_box(work / "box", work / "lake", sec, RUN)
     orch_app._orch = box.orch  # the orchestrator's routes now serve this box
+    from rc_sim.app import register_inproc
+
+    register_inproc()  # S36 accepts inproc://rc-sim, the REDCap simulator of the demo image (FR-RC-17a, D-109)
     client = TestClient(orch_app.app)
     for subject in ("FEAS GZQO", "SCREEN GZQO version=1.0.0", "MICROBATCH GZQO"):
         box.mail(subject)

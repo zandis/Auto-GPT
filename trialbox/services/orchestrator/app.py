@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException, Response
 from lake.client import LakeHttp
 from pydantic import BaseModel, Field
 from tb_common.audit import AuditLog
-from tb_common.config import get_config
+from tb_common.config import get_config, tb_env
 from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
@@ -28,6 +28,9 @@ from orchestrator.clients import AdapterHttp, CompilerHttp, MailHttp, ParserHttp
 from orchestrator.core import Orchestrator, Rejected, Services
 from orchestrator.db import JobDB
 from orchestrator.scenarios import registry
+from orchestrator.study_api import StudyService
+from orchestrator.study_api import router as study_router
+from orchestrator.studystore import StudyStore
 
 _orch: Orchestrator | None = None
 
@@ -267,6 +270,27 @@ def registry_of(o: Orchestrator) -> CandidateRegistry:
 
 def _now(o: Orchestrator) -> datetime:
     return datetime.now(ZoneInfo(o.cfg.settings.site.tz))
+
+
+# ---------------------------------------------------------------------------- S-28 study store, REDCap (D-109)
+_studies: dict[str, StudyStore] = {}
+
+
+def study_service_of(o: Orchestrator) -> StudyService:
+    key = str(o.data_dir)
+    if key not in _studies:
+        _studies[key] = StudyStore(Path(o.data_dir) / "studies.db", Path(o.cfg.env.secrets_dir))
+        if (tb_env(o.cfg.env) if o.cfg.env.extra.get("TB_ENV") else os.environ.get("TB_ENV", "").upper()) in (
+            "DEV",
+            "TEST",
+        ):
+            from rc_sim.app import register_inproc
+
+            register_inproc()  # FR-RC-17a: the simulator answers inproc://rc-sim only in demo and test boxes
+    return StudyService(_studies[key], registry_of(o), o.audit, lambda: _now(o))
+
+
+app.include_router(study_router(lambda: study_service_of(orch())))
 
 
 @app.get("/registry")

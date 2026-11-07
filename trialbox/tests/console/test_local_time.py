@@ -32,6 +32,12 @@ def test_site_zone_comes_from_the_backend_config() -> None:
     assert site_zone(bk) == TOKYO
     bad = SimpleNamespace(cfg=SimpleNamespace(env=SimpleNamespace(tz="Mars/Olympus")))
     assert site_zone(bad) == ZoneInfo("UTC")
+    both = SimpleNamespace(
+        cfg=SimpleNamespace(
+            env=SimpleNamespace(tz="Asia/Taipei"), settings=SimpleNamespace(site=SimpleNamespace(tz="Asia/Tokyo"))
+        )
+    )
+    assert site_zone(both) == TOKYO  # site.tz wins over env.tz (a box built without config.load)
 
 
 def test_templates_use_the_local_filter(tmp_path) -> None:  # type: ignore[no-untyped-def]

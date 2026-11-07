@@ -26,6 +26,7 @@ from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_contracts import Job
 
+from console import s28
 from console import studies as st
 from console.auth import Session
 from console.backend import Refused
@@ -81,7 +82,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def settings_of(rs: str) -> StudySettings:
         kind = next((r.kind for r in bk.rulesets() if r.id == rs), "trial")
-        return store.study_settings(rs, st.study_defaults(rs, kind))
+        return s28.load(bk, store, rs, st.study_defaults(rs, kind))
 
     def approvals(sess: Session) -> list[Job]:
         """Criteria waiting for approval in the studies this account sees (the investigator's S20 queue)."""

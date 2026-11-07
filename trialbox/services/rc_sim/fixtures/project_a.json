@@ -1,0 +1,26 @@
+{
+  "token": "A1B2C3D4E5F60718293A4B5C6D7E8F90",
+  "project": {
+    "project_id": 101,
+    "project_title": "GZQO screening (simulated)",
+    "is_longitudinal": 0,
+    "has_repeating_instruments_or_events": 0,
+    "project_language": "Japanese",
+    "record_autonumbering_enabled": 1,
+    "in_production": 1
+  },
+  "metadata": [
+    {"field_name": "record_id", "form_name": "screening", "field_type": "text", "field_label": "Record ID", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""},
+    {"field_name": "tb_screening_no", "form_name": "screening", "field_type": "text", "field_label": "TrialBox screening number", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""},
+    {"field_name": "consent_date", "form_name": "screening", "field_type": "text", "field_label": "Date ICF signed", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "date_ymd", "branching_logic": "", "field_annotation": ""},
+    {"field_name": "enrolled", "form_name": "screening", "field_type": "yesno", "field_label": "Enrolled", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""},
+    {"field_name": "sf_reason", "form_name": "screening", "field_type": "radio", "field_label": "Screen-fail reason", "select_choices_or_calculations": "1, Inclusion not met | 2, Exclusion met | 3, Withdrew consent | 9, Other", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""},
+    {"field_name": "subject_no", "form_name": "screening", "field_type": "text", "field_label": "Sponsor subject number", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""}
+  ],
+  "dags": [],
+  "events": [],
+  "records": [
+    {"record_id": "1", "tb_screening_no": "GZQO-0901", "consent_date": "2026-10-20", "enrolled": "1", "sf_reason": "", "subject_no": "S-0001", "_changed": "2026-10-21T09:00:00"},
+    {"record_id": "2", "tb_screening_no": "GZQO-0902", "consent_date": "", "enrolled": "", "sf_reason": "2", "subject_no": "", "_changed": "2026-10-22T09:00:00"}
+  ]
+}
