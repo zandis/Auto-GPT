@@ -478,3 +478,14 @@ Matching unchanged (no change to matching, the compiler or the SCREEN evaluation
 - S21 Study set-up (three sections, Test link, Run now), S36 REDCap connection (token once, masked, Test).
 - Screening log: REDCap record id, subject number, read-back block, Run now; nightly `python -m console.rc_read`.
 - Demo: `python -m tools.rc_demo --dir /tmp/tb-rc [--serve]`.
+
+## Build step 4: role homes, header command field, three languages (2026-11-07, D-110)
+
+- Every pilot role lands on its home after sign-in; the administrator's home is the S13 admin page.
+- Header command field on every page (mail grammar + ja/zh-TW/en phrases + search); it only opens pages.
+- Command test set: 96 phrasings, 100 % right, 0 % wrong (`tests/console/data/command_set_score.json`).
+- S22 My account, S29 Help panel, S37 Notices received.
+- S13 admin tabs: Health, S26 Jobs (filters, Cancel, Retry; confirmed and audited), S24 Data sources.
+- Every key in every language with the same placeholders; REDCap read-back caption localised; "Ask treating doctor".
+- Phone header layout; browser walk of 5 roles × 3 languages × desktop/phone (210 checks).
+- Demo: `python -m tools.role_demo --fresh --dir /tmp/tb-roles`.
