@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ t('received.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('received.title') }}</h1>
+<p class="hint">{{ t('received.help') }}</p>
+{% if rows %}
+<div class="scroll"><table data-testid="received">
+<thead><tr><th scope="col">{{ t('received.when') }}</th><th scope="col">{{ t('received.kind') }}</th><th scope="col">{{ t('received.subject') }}</th><th scope="col"></th></tr></thead>
+<tbody>{% for r in rows %}<tr><td class="nowrap">{{ r.at }}</td><td>{{ t('received.kind.' + r.kind) }}</td><td>{{ r.subject }}</td><td><a href="{{ r.href }}">{{ t('received.open') }}</a></td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p data-testid="received-empty">{{ t('received.empty') }}</p>{% endif %}
+<p class="hint"><a href="/settings/notices">{{ t('account.notice_settings') }}</a></p>
+{% endblock %}

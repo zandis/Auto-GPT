@@ -1061,3 +1061,12 @@ from console.i18n_step3 import ZH as _S3_ZH  # noqa: E402
 EN.update(_S3_EN)
 JA.update(_S3_JA)
 ZH.update(_S3_ZH)
+
+# D-110 build step 4: the header command field, S22, S29, S37, the S13 tabs (S24, S26) and the language fixes
+from console.i18n_step4 import EN as _S4_EN  # noqa: E402
+from console.i18n_step4 import JA as _S4_JA  # noqa: E402
+from console.i18n_step4 import ZH as _S4_ZH  # noqa: E402
+
+EN.update(_S4_EN)
+JA.update(_S4_JA)
+ZH.update(_S4_ZH)

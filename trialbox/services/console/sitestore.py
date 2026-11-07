@@ -467,3 +467,12 @@ class SiteStore:
                 "INSERT OR REPLACE INTO notify_log (kind, username, day, at, subject) VALUES (?,?,?,?,?)",
                 (kind, username, day, at, subject),
             )
+
+    def notices_for(self, username: str, limit: int = 50) -> list[tuple[str, str, str, str]]:
+        """S37 Notices received (step 4, FR-PLAT-17): (kind, day, at, subject) of one person, newest first."""
+        with self._lock:
+            rows = self._con.execute(
+                "SELECT kind, day, at, subject FROM notify_log WHERE username = ? ORDER BY at DESC LIMIT ?",
+                (username, limit),
+            ).fetchall()
+        return [(str(r[0]), str(r[1]), str(r[2]), str(r[3])) for r in rows]

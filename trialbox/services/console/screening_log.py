@@ -33,6 +33,16 @@ SMALL_CELL = 5  # FR-REP-09: the site's small-cell threshold (k) for counts that
 COUNT_KEYS = ("listed", "reviewed", "approached", "contacted", "consented", "enrolled", "screen_fail", "declined")
 
 
+_RC_NOTE = re.compile(r"^REDCap record (\S+)(?: \((.*)\))?$")
+
+
+def _rc_note(reason: str) -> tuple[str, str] | None:
+    """The read-back writes a language-neutral note "REDCap record <id> (<reason>)" into the registry (D-109); the
+    page shows it in the reader's language (step 4, FR-I18N-01)."""
+    m = _RC_NOTE.match(reason)
+    return (m.group(1), m.group(2) or "") if m else None
+
+
 def suppress(n: int, k: int) -> int | str:
     return f"<{k}" if 0 < n < k else n
 
@@ -109,6 +119,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "attempts": len(oc),
                     "status": e.status if e else "candidate",
                     "reason": (e.reason if e else "") or "",
+                    "reason_rc": _rc_note((e.reason if e else "") or ""),
                     "updated": local_date(e.updated_at.isoformat(), tz) if e else "",
                     "record_id": (rc.get(pid) or {}).get("record_id") or "",
                     "subject_no": (rc.get(pid) or {}).get("subject_no") or "",

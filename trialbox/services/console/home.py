@@ -251,7 +251,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if role in ("cro", "viewer"):
             return RedirectResponse("/reports", status_code=303)
         if role == "admin" and view != "studies":
-            return admin_home(request, sess)
+            admin_page = getattr(h, "admin_page", None)  # step 4: S13 with its tabs (console.step4)
+            return admin_page(request, sess, "health") if admin_page else admin_home(request, sess)
         jobs = bk.list_jobs(limit=500)
         cards = [study_card(sess, r, jobs) for r in trials(sess)]
         tasks = sorted((tk for c in cards for tk in c["tasks"]), key=lambda tk: (tk["due"], tk["rs"]))

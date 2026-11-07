@@ -8,7 +8,7 @@
 <h2>{{ t('overview.health') }}</h2>
 <table data-testid="health">
 <thead><tr><th scope="col">{{ t('col.service') }}</th><th scope="col">{{ t('col.status') }}</th><th scope="col">{{ t('col.detail') }}</th></tr></thead>
-<tbody>{% for h in health %}<tr><td>{{ h.service }}</td><td>{% if h.ok %}<span class="pill ok">OK</span>{% else %}<span class="pill bad">DOWN</span>{% endif %}</td><td>{{ h.detail }}</td></tr>{% endfor %}</tbody>
+<tbody>{% for h in health %}<tr><td>{{ h.service }}</td><td>{% if h.ok %}<span class="pill ok">{{ t('health.ok') }}</span>{% else %}<span class="pill bad">{{ t('health.down') }}</span>{% endif %}</td><td>{{ h.detail }}</td></tr>{% endfor %}</tbody>
 </table>
 <h2 class="mt">{{ t('overview.models') }}</h2>
 {% if models %}

@@ -20,10 +20,14 @@
       {{ item('/reports', 'nav.reports', path.startswith('/reports') or path.endswith('/feasibility')) }}
       {{ item('/pilot/registry', 'nav.patients', path.startswith('/pilot/registry')) }}
     {% endif %}
-    {% if r != 'cro' %}
     <details class="more" data-testid="nav-more">
       <summary>{{ t('nav.more') }}</summary>
       <div class="more-items">
+        <a href="/account" data-testid="more-account">{{ t('account.title') }}</a>
+        <a href="/help?back={{ path|urlencode }}">{{ t('help.title') }}</a>
+        {% if r in ('investigator', 'coordinator', 'admin') %}<a href="/notices/received" data-testid="more-notices">{{ t('received.title') }}</a>{% endif %}
+        {% if r == 'cro' %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}
+        {% if r == 'admin' %}<a href="/admin?tab=health">{{ t('admin.tab.health') }}</a><a href="/admin?tab=jobs">{{ t('admin.tab.jobs') }}</a><a href="/admin?tab=sources">{{ t('admin.tab.sources') }}</a>{% endif %}
         <a href="/">{{ t('nav.overview') }}</a>
         <a href="/jobs">{{ t('nav.jobs') }}</a>
         {% if user.can_request %}
@@ -40,9 +44,9 @@
         {% if r in ('admin', 'viewer') %}<a href="/admin/redcap">{{ t('s36.title') }}</a>{% endif %}
         {% if user.role in ('admin', 'viewer', 'coordinator') %}<a href="/reports/research-office">{{ t('office.title') }}</a>{% endif %}
         {% if user.is_admin %}<a href="/ops/users">{{ t('nav.users') }}</a>{% endif %}
+        {% endif %}
       </div>
     </details>
-    {% endif %}
   {% else %}
     <a href="/" class="{{ 'active' if path == '/' else '' }}">{{ t('nav.overview') }}</a>
     <a href="/jobs" class="{{ 'active' if path.startswith('/jobs') else '' }}">{{ t('nav.jobs') }}</a>

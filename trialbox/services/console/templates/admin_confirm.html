@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.jobs.' + action) }}{% endblock %}
+{% block content %}
+<section class="card narrow" data-testid="admin-confirm">
+<h1>{{ t('admin.jobs.' + action) }}</h1>
+<p>{{ t('admin.jobs.confirm.' + action, job=job.job_id[-8:], type=job.type, rs=job.ruleset or '–') }}</p>
+<form method="post" action="/admin/jobs/{{ job.job_id }}/{{ action }}" class="row">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="confirm" value="yes">
+  <button type="submit" data-testid="confirm-{{ action }}">{{ t('admin.jobs.' + action) }}</button>
+  <a class="button secondary" href="/admin?tab=jobs">{{ t('admin.jobs.keep') }}</a>
+</form>
+</section>
+{% endblock %}

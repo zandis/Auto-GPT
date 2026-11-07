@@ -70,6 +70,15 @@ class InprocBackend:
         self.box.orch.drain()
         return self.get_job(job.job_id) or job
 
+    def cancel_job(self, job_id: str, by: str) -> Any:
+        from console.backend import Refused
+        from tb_contracts import Job
+
+        r = self.c.post(f"/jobs/{job_id}/cancel", params={"by": by})
+        if r.status_code != 200:
+            raise Refused(r.text[:300])
+        return Job.model_validate(r.json())
+
     def put_input(self, job_id: str, filename: str, data: bytes, content_type: str) -> Any:
         from tb_common.crypto import sha256_bytes
         from tb_contracts import JobFile

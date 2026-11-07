@@ -135,7 +135,10 @@ def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, str]]:
 
 
 # ---------------------------------------------------------------------------------------------- audit reading
-_SHOWN_DETAIL = ("from", "to", "type", "filename", "tag", "bytes", "subject", "reason", "action", "line", "role", "run")
+_SHOWN_DETAIL = (
+    "from", "to", "type", "filename", "tag", "bytes", "subject", "reason", "action", "line", "role", "run",
+    "source", "validation_error_pct", "intent",  # S24 ingest rows, the header command field (step 4)
+)  # fmt: skip
 
 
 def read_audit(directory: Path, job_id: str | None = None, limit: int = 200) -> list[AuditRecord]:
@@ -152,6 +155,13 @@ def read_audit(directory: Path, job_id: str | None = None, limit: int = 200) -> 
                 if job_id and rec.get("job_id") != job_id:
                     continue
                 det = rec.get("detail") or {}
+                shown = {k: det[k] for k in _SHOWN_DETAIL if k in det and isinstance(det[k], str | int | float)}
+                counts = det.get("counts")
+                if isinstance(counts, dict):  # an ingest's resource counts: totals only (S24)
+                    nums = {str(k): v for k, v in counts.items() if isinstance(v, int)}
+                    shown["records"] = sum(nums.values())
+                    if "Patient" in nums:
+                        shown["patients"] = nums["Patient"]
                 out.append(
                     AuditRecord(
                         ts=str(rec.get("ts", "")),
@@ -160,7 +170,7 @@ def read_audit(directory: Path, job_id: str | None = None, limit: int = 200) -> 
                         job_id=rec.get("job_id"),
                         ruleset=rec.get("ruleset"),
                         hash=str(rec.get("hash", ""))[:12],
-                        detail={k: det[k] for k in _SHOWN_DETAIL if k in det and isinstance(det[k], str | int)},
+                        detail=shown,
                     )
                 )
     return list(reversed(out))
@@ -234,6 +244,19 @@ class HttpBackend:
                     detail = exc.detail
                 raise Refused(detail) from exc
             raise Unavailable(str(exc)) from exc
+
+    def cancel_job(self, job_id: str, by: str) -> Job:
+        """S26 Cancel (step 4, FR-PLAT-12): the orchestrator's ``POST /jobs/{id}/cancel``; a queued job fails at once,
+        a running one stops at its next step."""
+        from urllib.parse import quote
+
+        try:
+            resp = self.orch.post_raw(f"/jobs/{job_id}/cancel?by={quote(by, safe='')}", {})
+        except ServiceError as exc:
+            if exc.status == 404:
+                raise Refused("no such job") from exc
+            raise Unavailable(str(exc)) from exc
+        return Job.model_validate(resp.json())
 
     def put_input(self, job_id: str, filename: str, data: bytes, content_type: str) -> JobFile:
         key = f"attachments/{job_id}/{filename}"
