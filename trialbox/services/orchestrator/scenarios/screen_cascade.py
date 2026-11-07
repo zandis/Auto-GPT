@@ -32,6 +32,7 @@ from tb_contracts import CriterionVerdict, Evidence
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx
 from orchestrator.scenarios.evaluate import MAX_JUDGE_FAILURE_SHARE, NoteJudge, PatientVerdicts, effective_note_block
+from orchestrator.twophase import two_phase
 
 PIPELINES = ("cascade", "v1")
 
@@ -320,7 +321,10 @@ def screen_with_cascade(
         absence_semantics=False,
     )
     try:
-        res = run_cascade(ctx.services.lake, rs, cfg, judge=judge, embedder=HashEmbedder(), reviewer=None)
+        res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
+            judge,
+            lambda j: run_cascade(ctx.services.lake, rs, cfg, judge=j, embedder=HashEmbedder(), reviewer=None),
+        )
     except CascadeError as exc:
         raise StepFailed("running", f"The screening cascade could not run for {rs.id} v{rs.version}: {exc}") from exc
     check_failures(judge)

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import ssl
 import threading
@@ -39,8 +40,12 @@ from channels.native.engine import EngineTurn, EngineUnavailable
 from integrations.hermes.lock import HermesLock, pin_problems
 
 ADAPTER_MISSING = "Hermes relay-adapter connection not configured"
-TURN_TIMEOUT_S = 180.0
+TURN_TIMEOUT_S = float(os.environ.get("TB_CHAT_TURN_TIMEOUT_S") or 90)  # a person is waiting; busy text after
 FAILED_TEXT = "The assistant could not complete this request. You can type one of these lines instead:"
+BUSY_TEXT = (
+    "The assistant is busy (a screening run is using the GPU); please try again in a few minutes. "
+    "You can type one of these lines instead:"
+)
 OpenProposals = Callable[[str, str], list[str]]  # (conv, sender) -> open proposal ticket ids
 ProposalText = Callable[[str], str | None]  # ticket id -> the orchestrator-rendered proposal block
 _ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})")
@@ -208,7 +213,8 @@ class HermesEngine:
         texts = [t for t in turn.texts if t.strip()]
         if not finished or turn.outcome != "success" or not texts:
             reason = "hermes_timeout" if not finished else f"hermes_{turn.outcome or 'silent'}"
-            return EngineTurn("\n".join([FAILED_TEXT, *HELP_LINES]), refused=reason)
+            head = BUSY_TEXT if not finished else FAILED_TEXT
+            return EngineTurn("\n".join([head, *HELP_LINES]), refused=reason)
         new = [t for t in (self.open_proposals(conv, sender) if self.open_proposals else []) if t not in before]
         ticket = new[-1] if new else None
         reply = clean_reply(texts[-1])

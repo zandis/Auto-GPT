@@ -8,7 +8,7 @@
 # Endpoint zones: perimeter (on box or the attested tenant), tre (Z-TRE), external (vendor model, topology C),
 # dev_public (developer / bake-off endpoints, Z-DEV). Only tb-gateway reads endpoint addresses (LLM-1);
 # deploy/egress.py turns the non-perimeter hosts into egress rules for the gateway container only (NFR-B9).
-version: routing-2026-10-25.4
+version: routing-2026-11-07.1
 
 # MOD-4 sampling the gateway forces on every role except free-form ones (frontdesk_converse)
 sampling: {temperature: 0, top_p: 1, seed: 20261025}
@@ -74,8 +74,8 @@ purposes: [feasibility, validation, evaluation, qa, "prescreen:*", screening, pr
 
 # Role table (§8.15). cacheable: the gateway response cache may serve it (D0/D1 only, §8.12).
 roles:
-  classify_intent: {group: converse, degraded: queue}
-  frontdesk_converse: {group: converse, degraded: native, free_form: true}
+  classify_intent: {group: converse, degraded: queue, interactive: true}
+  frontdesk_converse: {group: converse, degraded: native, free_form: true, interactive: true}
   summarise_external: {group: documents, degraded: manual}
   match_criterion_library: {group: protocol, degraded: queue, cacheable: true}
   extract_criteria: {group: protocol, degraded: queue, cacheable: true}
@@ -96,7 +96,7 @@ roles:
   rerank: {group: vectors, degraded: s2b_off}
   draft_narrative: {group: aggregate, degraded: queue}
   summarise_aggregate: {group: aggregate, degraded: native_table}
-  ops_explain: {group: ops, degraded: none}
+  ops_explain: {group: ops, degraded: none, interactive: true}
   guard_policy: {group: guard, degraded: fail_closed}
   guard_injection: {group: guard, degraded: fail_closed}
   phi_ner: {group: guard, degraded: fail_closed}

@@ -13,7 +13,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e poc poc-down poc-status poc-hermes poc-hermes-down test-hermes-e2e test-console test-console-e2e site site-preview clean
+.PHONY: fonts jvm-deps venv contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest poc poc-down poc-status poc-hermes poc-hermes-down test-hermes-e2e test-console test-console-e2e site site-preview clean
 
 venv:
 	uv venv --allow-existing --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
@@ -128,6 +128,13 @@ e2e-cascade:
 # default; TB_LLM_MODE=stub on any Docker host without a GPU. One PASS/FAIL report under build/spark-e2e/.
 spark-e2e:
 	PY=$(PY) tools/spark_e2e.sh
+
+# model robustness (survey 2026-11-07): re-check pinned weights; run the 54-question canary inside the orchestrator
+verify-models:
+	PYTHONPATH=libs:services:. $(PY) -m tools.pin_model --verify-all deploy/models
+
+selftest:
+	docker compose --project-directory deploy -f deploy/docker-compose.yml exec orchestrator python -m orchestrator.selftest
 
 # proof of concept in one command (README "Try the POC in 10 minutes", RUNBOOK §9): box + GreenMail/MailHog + admin
 # console with the pilot workspace; TB_LLM_MODE=stub|openrouter|gpu. Windows: deploy/poc.ps1.

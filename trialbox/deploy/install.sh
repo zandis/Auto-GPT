@@ -112,7 +112,15 @@ grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPO
 chmod 600 deploy/.env deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
 if [ "$MODE" = gpu ]; then
-  ls deploy/site/registry.site.yaml >/dev/null 2>&1 || echo "install: note: no model pinned yet (deploy/site/registry.site.yaml): run tools/pin_model.py or make spark-e2e after install (RUNBOOK §8)" >&2
+  if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then
+    # SEC-64: every pinned build's weights must still hash to its pin, or the box does not start on them
+    say "checking the pinned model weights (tools/pin_model.py --verify-all)"
+    docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" \
+      python -m tools.pin_model --verify-all /d/models --out /d/site/registry.site.yaml \
+      || die "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)"
+  else
+    echo "install: note: no model pinned yet (deploy/site/registry.site.yaml): the gateway routes nothing to a local model until you run tools/pin_model.py or make spark-e2e (RUNBOOK §8)" >&2
+  fi
 fi
 
 # ------------------------------------------------------------------------------------------------ 4. start

@@ -1,4 +1,6 @@
 # ruff: noqa: E501
+# mypy: ignore-errors
+# (one-off evaluation script of the 2026-11-07 survey; not imported by the product)
 """Front-desk chat check: request understanding, tile routing, tool calls and simple instructions in ja / zh-TW / en.
 
     OPENROUTER_API_KEY=... python tools/chat_eval.py google/gemma-4-26b-a4b-it qwen/qwen3.5-9b

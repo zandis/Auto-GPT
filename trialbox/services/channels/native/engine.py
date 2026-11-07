@@ -31,6 +31,7 @@ _TEXT: dict[str, dict[str, str]] = {
     "zh-TW": {
         "help": "我可以處理以下指令（直接輸入即可，不經模型）：",
         "unavailable": "目前無法理解這則訊息，請改用下列指令：",
+        "busy": "模型正忙（夜間篩選正在使用 GPU），請幾分鐘後再試，或改用下列指令：",
         "refused": "無法處理此請求（{reason}）。",
         "need_study": "請問是哪一個研究？(1) 研究代碼，例如 GZQO。",
         "status": "您的請求：",
@@ -39,6 +40,10 @@ _TEXT: dict[str, dict[str, str]] = {
     "en": {
         "help": "I accept these lines (typed exactly, no model involved):",
         "unavailable": "I could not understand the message; please use one of these lines:",
+        "busy": (
+            "The model is busy (a screening run is using the GPU); please try again in a few minutes, "
+            "or use one of these lines:"
+        ),
         "refused": "The request was refused ({reason}).",
         "need_study": "Which study do you mean? (1) the study code, for example GZQO.",
         "status": "Your requests:",
@@ -47,6 +52,10 @@ _TEXT: dict[str, dict[str, str]] = {
     "ja": {
         "help": "次の行をそのまま入力できます（モデルは使いません）：",
         "unavailable": "メッセージを理解できませんでした。次の行を使ってください：",
+        "busy": (
+            "モデルは使用中です（スクリーニングがGPUを使っています）。"
+            "数分後にもう一度お試しいただくか、次の行を使ってください："
+        ),
         "refused": "リクエストは拒否されました（{reason}）。",
         "need_study": "どの試験ですか？ (1) 試験コード（例：GZQO）。",
         "status": "あなたのリクエスト：",
@@ -77,6 +86,10 @@ class EngineTurn:
 
 class EngineUnavailable(RuntimeError):
     pass
+
+
+class EngineBusy(EngineUnavailable):
+    """The gateway answered ``model_busy``: the model is swapped out or slower than the chat limit."""
 
 
 class NativeEngine:
@@ -115,6 +128,8 @@ class NativeEngine:
         try:
             res = self.gateway.chat(msgs, labels, response_format=json_schema_format("classify_intent", schema))
         except GatewayError as e:
+            if getattr(e, "reason", "") == "model_busy":
+                raise EngineBusy(str(e)) from e
             raise EngineUnavailable(str(e)) from e
         try:
             return ClassifiedIntent.model_validate(res.data)
@@ -144,6 +159,8 @@ class NativeEngine:
         t = _TEXT[lang]
         try:
             intent = self.classify(text, attachments, lang, data_class)
+        except EngineBusy:
+            return EngineTurn("\n".join([t["busy"], *HELP_LINES]), refused="model_busy")
         except EngineUnavailable:
             return EngineTurn("\n".join([t["unavailable"], *HELP_LINES]), refused="engine_unavailable")
         lang = intent.language if intent.language in _TEXT else lang

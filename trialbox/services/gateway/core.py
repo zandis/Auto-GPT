@@ -45,9 +45,14 @@ from tb_common.ulid import new_ulid
 from tb_contracts.dataclass import ClassLabel, DataClass
 from tracestore.store import TraceStore
 
-from gateway.policy import Candidate, Refusal, RoutingPolicy, parse_label
+from gateway.policy import Candidate, Refusal, RoutingPolicy, _match, parse_label
+from gateway.swap import ModelSwap
 
 StepConfirm = Callable[[str, str, str], bool]  # (caller, study, step) -> live and delegated
+# interactive roles (routing.yaml ``interactive: true``, the front desk) wait this long for the model, then get
+# ``model_busy``: a person is waiting, while batch roles keep the long limit of the HTTP client
+INTERACTIVE_TIMEOUT_S = 30.0
+BUSY_MESSAGE = "the model is busy (a screening run is using the GPU); try again in a few minutes"
 REQUIRED = ("x-tb-caller", "x-tb-data-class", "x-tb-purpose", "x-tb-role", "x-tb-study", "x-tb-context-of-use")
 
 
@@ -145,6 +150,7 @@ class Gateway:
         step_confirm: StepConfirm | None = None,
         env: Mapping[str, str] | None = None,
         cache_size: int = 1024,
+        swap: ModelSwap | None = None,
     ) -> None:
         self.policy = policy
         self.registry = registry
@@ -155,11 +161,34 @@ class Gateway:
         self.traces = traces
         self.step_confirm = step_confirm
         self.env: Mapping[str, str] = os.environ if env is None else env
+        self.swap = swap  # TB_MODEL_SWAP=sleep: judge and verifier time-share one GPU (gateway.swap)
+        self.interactive_timeout_s = float(self.env.get("TB_GATEWAY_INTERACTIVE_TIMEOUT_S") or INTERACTIVE_TIMEOUT_S)
         self.cache: OrderedDict[tuple[str, str, str], dict[str, Any]] = OrderedDict()
         self.cache_size = cache_size
         self._cache_lock = threading.Lock()  # the HTTP app runs calls in a thread pool
 
     # ------------------------------------------------------------------------------------------------ public
+    def activate(self, caller: str, endpoint: str) -> GatewayResponse:
+        """Wake ``endpoint`` and put the other swappable one to sleep (``POST /v1/serving/activate``). Allowed for
+        callers whose allowlist entry may use the ``judge`` role (the orchestrator, matching, eval)."""
+        from gateway.swap import SwapError
+
+        if self.swap is None:
+            return GatewayResponse(200, {"swap": "off", "active": None})
+        c = self.policy.callers.get(caller)
+        if c is None or not _match("judge", c.roles):
+            msg = f"caller {caller!r} may not swap models"
+            return GatewayResponse(403, {"error": {"type": "tb_refusal", "code": "caller_unknown", "message": msg}})
+        try:
+            st = self.swap.activate(endpoint)
+        except SwapError as e:
+            self.audit.append(
+                "llm.gateway.swap_failed", detail={"caller": caller, "endpoint": endpoint, "error": str(e)}
+            )
+            return GatewayResponse(502, {"error": {"type": "swap_failed", "message": str(e)}})
+        self.audit.append("llm.gateway.swap", detail={"caller": caller, **st})
+        return GatewayResponse(200, st)
+
     def models(self) -> list[str]:
         """Aliases only (§8.2): no builds, hashes or endpoint addresses."""
         return sorted(self.registry.aliases)
@@ -260,6 +289,8 @@ class Gateway:
             if out is not None:
                 return out
             call.fallbacks += 1
+        if upstream_errors and all(e.endswith(": busy") for e in upstream_errors):
+            raise Refusal("model_busy", BUSY_MESSAGE, status=503)
         if upstream_errors:
             raise Refusal("upstream_failed", "; ".join(upstream_errors)[:500], status=502)
         first = registry_refusals[0] if registry_refusals else None
@@ -310,9 +341,27 @@ class Gateway:
         if not url:
             errors.append(f"{ep.name}: no URL configured")
             return None
+        interactive = bool(self.policy.roles.get(call.role, {}).get("interactive"))
+        if self.swap is not None and not self.swap.awake(ep.name):
+            # swapped out: not sent, and no fallback either (the judge's route falls back to the verifier build,
+            # which must never answer in the judge's place while it is awake for the verifier pass)
+            if interactive:
+                raise Refusal("model_busy", BUSY_MESSAGE, status=503)
+            raise Refusal("model_asleep", f"{ep.name} is asleep (one-GPU swap); activate it first", status=503)
         t0 = time.perf_counter()
         try:
-            resp = self.http.post(f"{url.rstrip('/')}/chat/completions", json=upstream, headers=headers)
+            if interactive:
+                resp = self.http.post(
+                    f"{url.rstrip('/')}/chat/completions",
+                    json=upstream,
+                    headers=headers,
+                    timeout=self.interactive_timeout_s,
+                )
+            else:
+                resp = self.http.post(f"{url.rstrip('/')}/chat/completions", json=upstream, headers=headers)
+        except httpx.TimeoutException as e:
+            errors.append(f"{ep.name}: busy" if interactive else f"{ep.name}: {type(e).__name__}")
+            return None
         except httpx.HTTPError as e:
             errors.append(f"{ep.name}: {type(e).__name__}")
             return None

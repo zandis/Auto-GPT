@@ -28,6 +28,7 @@ from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, PatientEvaluation
 
 from orchestrator.scenarios.terms import keywords
+from orchestrator.twophase import two_phase
 
 Verdict = Literal["pass", "fail", "unknown", "pending_human"]
 CHUNK_TOKENS = 2500
@@ -471,17 +472,21 @@ def evaluate_patients(
     if judge is not None and notes and cands:
         tasks = [(p, c) for p in cands for c in notes if not coded_settles(c, evals.get(p))]
 
-        def run(task: tuple[str, CriterionIR]) -> tuple[tuple[str, str], NoteResult]:
-            p, c = task
-            r = judge.judge(p, c, index_date)
-            if r.predicate == "unknown" and full_record_fallback and len(cands) <= FULL_RECORD_MAX_CANDIDATES:
-                r2 = judge.judge(p, c, index_date, full=True)
-                if r2.predicate != "unknown" or r.reason == "no notes in the window":
-                    r = r2
-            return (p, c.id), r
+        def judge_all(j: NoteJudge) -> dict[tuple[str, str], NoteResult]:
+            def run(task: tuple[str, CriterionIR]) -> tuple[tuple[str, str], NoteResult]:
+                p, c = task
+                r = j.judge(p, c, index_date)
+                if r.predicate == "unknown" and full_record_fallback and len(cands) <= FULL_RECORD_MAX_CANDIDATES:
+                    r2 = j.judge(p, c, index_date, full=True)
+                    if r2.predicate != "unknown" or r.reason == "no notes in the window":
+                        r = r2
+                return (p, c.id), r
 
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            note_res = dict(ex.map(run, tasks))
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                return dict(ex.map(run, tasks))
+
+        # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, then the verifier pass, then the merge
+        note_res = two_phase(judge, judge_all, workers=workers)
     out: dict[str, PatientVerdicts] = {}
     for p in pids:
         ev = evals.get(p)

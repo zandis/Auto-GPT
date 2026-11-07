@@ -1,4 +1,6 @@
 # ruff: noqa: E501
+# mypy: ignore-errors
+# (one-off evaluation script of the 2026-11-07 survey; not imported by the product)
 """PHI detectors on synthetic Japanese / Traditional Chinese / English notes (eval/phi_synth, 2026-11-07).
 
     python tools/phi_synth_eval.py eval/phi_synth/notes.jsonl regex            # TrialBox guard recognisers

@@ -172,6 +172,21 @@ three languages.
 - No new run on a real GPU; the GCP VM is stopped and this session has no GCP credentials.
 - Medical and Japanese fine-tunes listed above (not on any API).
 
+## Built after this survey (robust serving on one card)
+
+Four changes, all tested offline in `tests/unit/test_model_swap.py`; how to run them is in `docs/RUNBOOK.md` §10:
+
+1. **Pinned serving and weights.** vLLM is pinned to v0.32.0 (the release the 6 Nov run used) with the same flags;
+   install re-checks every pinned model's weight hashes and stops on a mismatch.
+2. **One model awake at a time.** Both vLLM servers use sleep mode; the gateway wakes one and sleeps the other. A
+   screening run asks the judge everything first, then the verifier, then merges: same answers as the inline run.
+3. **Night self-test.** 54 known questions in three languages to each model before the night's LLM jobs; the jobs
+   wait if either model fails.
+4. **Chat time limit.** A chat model call gets 30 s; past that, or while the verifier pass holds the card, the person
+   gets "busy, try again" in their language instead of a hang.
+
+Still to measure on a real card: memory while awake, swap time and the start order (item 1 below).
+
 ## Next steps
 
 1. Make the pair fit one 5090: first measure the time-shared mode and tighter vLLM caps (see Memory); then, if still needed, run Google's QAT 4-bit Gemma build (`cyankiwi/gemma-4-26B-A4B-it-qat-AWQ-INT4` or

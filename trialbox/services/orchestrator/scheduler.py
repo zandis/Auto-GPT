@@ -54,6 +54,28 @@ def _submit(orch: Orchestrator, jtype: str, ruleset: str | None = None) -> None:
         log.warning("scheduled %s not created: %s", jtype, exc)
 
 
+LLM_JOBS = ("MICROBATCH", "NAV", "COHORT", "CALIBRATION")  # night jobs that ask the models
+_gate: dict[str, bool] = {}  # date -> canary result, so the self-test runs once a night
+
+
+def night_gate(orch: Orchestrator, today: str | None = None) -> bool:
+    """The night's model self-test (:mod:`orchestrator.selftest`), run before the first LLM job of the day; the LLM
+    jobs start only when it passed. Its result is kept for the day, so a failed canary holds every LLM job that
+    night and a passed one runs once."""
+    from datetime import date
+
+    from orchestrator.selftest import preflight
+
+    day = today or date.today().isoformat()
+    if day not in _gate:
+        try:
+            _gate[day] = preflight(orch)
+        except Exception as exc:  # the gate itself must not take the scheduler down
+            log.exception("night self-test errored: %s", exc)
+            _gate[day] = False
+    return _gate[day]
+
+
 def plan(settings: Settings) -> list[tuple[str, dict[str, Any]]]:
     sch = settings.schedule
 
@@ -91,6 +113,9 @@ def start(orch: Orchestrator) -> Any:
         if jtype in ("MICROBATCH", "CALIBRATION"):
 
             def per_ruleset(jt: str = jtype) -> None:
+                if not night_gate(orch):
+                    log.error("%s held: the night model self-test did not pass", jt)
+                    return
                 db = orch.db
                 for rid in db.pool_rulesets() if jt == "MICROBATCH" else db.feedback_rulesets():
                     _submit(orch, jt, rid)
@@ -99,6 +124,9 @@ def start(orch: Orchestrator) -> Any:
         elif jtype == "NAV":
 
             def nav() -> None:
+                if not night_gate(orch):
+                    log.error("NAV held: the night model self-test did not pass")
+                    return
                 for rid in list_rulesets(orch.rulesets_dir):
                     body = yaml.safe_load((orch.rulesets_dir / rid / "manifest.yaml").read_text(encoding="utf-8"))
                     if (body or {}).get("kind") == "nhi" and body.get("status") == "approved":
@@ -108,6 +136,9 @@ def start(orch: Orchestrator) -> Any:
         elif jtype == "COHORT":
 
             def cohort() -> None:
+                if not night_gate(orch):
+                    log.error("COHORT held: the night model self-test did not pass")
+                    return
                 for rid in cohort_rulesets(orch):
                     _submit(orch, "COHORT", rid)
 
