@@ -44,16 +44,16 @@ def filler(rng: random.Random, n: int) -> str:
     return "".join(rng.sample(FILLER, k=min(n, len(FILLER))))
 
 
-def flare_sentence(d: date, joint: str) -> str:
-    return f"病人於{roc(d)}{joint}紅腫熱痛，臨床診斷為急性痛風發作，給予秋水仙素治療後緩解。"
+def flare_sentence(d: date, joint: str, date_text: str | None = None) -> str:
+    return f"病人於{date_text or roc(d)}{joint}紅腫熱痛，臨床診斷為急性痛風發作，給予秋水仙素治療後緩解。"
 
 
 def no_flare_sentence() -> str:
     return "病人表示過去一年內沒有任何痛風發作，關節無紅腫熱痛。"
 
 
-def single_flare_sentence(d: date) -> str:
-    return f"過去一年僅於{roc(d)}有一次痛風發作，其後無再發作。"
+def single_flare_sentence(d: date, date_text: str | None = None) -> str:
+    return f"過去一年僅於{date_text or roc(d)}有一次痛風發作，其後無再發作。"
 
 
 def current_flare_sentence() -> str:
@@ -79,6 +79,10 @@ def injection_willing_sentence(willing: bool) -> str:
         return "病人表示願意接受每週一次自行皮下注射。"
     return "病人表示害怕打針，不願意自行注射藥物。"
 
+
+ECOG_SENTENCE = "ECOG體能狀態1分，可自理日常生活。"
+CXR_CLEAR = "雙側肺野清晰，無活動性結核病灶。"
+LUNG_MASS = "右上肺葉腫塊約3.2公分，懷疑為原發性肺癌，無遠端轉移跡象。"
 
 JOINTS = ["右側第一蹠趾關節", "左側第一蹠趾關節", "右側踝關節", "左膝關節", "右手腕關節"]
 

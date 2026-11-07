@@ -185,6 +185,11 @@ EN: dict[str, str] = {
     "protocol.file": "Protocol file",
     "protocol.sample": "No file at hand? Use the synthetic GZQO protocol shipped with TrialBox",
     "protocol.submit": "Compile",
+    "protocol.paste": "Or paste the criteria",
+    "protocol.paste_help": 'One criterion per line. A line "Inclusion criteria" or "Exclusion criteria" starts that '
+    "list; lines before it are inclusion. Criteria that match an approved ruleset with this id run at once; new ones "
+    "are compiled for review first.",
+    "protocol.no_criteria": "No criteria found in the pasted text. Paste one criterion per line.",
     "cascade.title": "v4 cascade, DL-1 feasibility pack and recall certificate",
     "cascade.help": "Runs the v4 MS1 slice on the synthetic site: data platform, cascade S0–S5 (note judging through "
     "tb-gateway), DL-1 pack (sponsor profile) and the recall certificate. Only released (D1) numbers are shown.",
@@ -542,6 +547,10 @@ JA: dict[str, str] = {
     "protocol.file": "プロトコルファイル",
     "protocol.sample": "手元にファイルがない場合：TrialBox 同梱の合成 GZQO プロトコルを使う",
     "protocol.submit": "コンパイル",
+    "protocol.paste": "または基準を貼り付ける",
+    "protocol.paste_help": "1 行に 1 基準。「選択基準」「除外基準」だけの行でその一覧が始まり、それより前の行は選択基準です。"
+    "この ID の承認済みルールセットと一致する基準はすぐに実行し、新しい基準は先にコンパイルしてレビューに回します。",
+    "protocol.no_criteria": "貼り付けたテキストに基準が見つかりません。1 行に 1 基準を貼り付けてください。",
     "cascade.title": "v4 カスケード、DL-1 実施可能性パック、リコール証明書",
     "cascade.help": "合成サイトで v4 MS1 スライスを実行します：データ基盤、カスケード S0–S5（tb-gateway 経由のノート判定）、"
     "DL-1 パック（スポンサー向け）とリコール証明書。公開可能な (D1) 数値のみ表示します。",
@@ -888,6 +897,10 @@ ZH: dict[str, str] = {
     "protocol.file": "計畫書檔案",
     "protocol.sample": "手邊沒有檔案？使用 TrialBox 內附的合成 GZQO 計畫書",
     "protocol.submit": "編譯",
+    "protocol.paste": "或貼上收案條件",
+    "protocol.paste_help": "每行一個條件。只有「納入條件」或「排除條件」的一行會開始該清單，之前的各行視為納入條件。"
+    "與此代碼已核准規則集相同的條件會立即執行；新的條件會先編譯送審。",
+    "protocol.no_criteria": "貼上的文字中找不到條件，請每行貼上一個條件。",
     "cascade.title": "v4 串聯篩選、DL-1 可行性報告與檢出率證明",
     "cascade.help": "在合成醫院上執行 v4 MS1：資料平台、串聯篩選 S0–S5（經 tb-gateway 判讀病歷）、DL-1 報告（贊助者版本）與檢出率證明。僅顯示可公開 (D1) 的數字。",
     "cascade.trial": "試驗",

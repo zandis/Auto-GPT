@@ -434,3 +434,18 @@ host; the v1 compiler's cloud egress moved to `gateway`, which has no compose se
   (in-process stub stays the default).
 - `make spark-e2e` (`tools/spark_e2e.sh`): one PASS/FAIL report; `TB_LLM_MODE=stub` on hosts without a GPU
   (RUNBOOK section 8).
+
+## Build step 1: feasibility on the synthetic hospital (2026-11-07, D-106)
+
+- `tools/synth` + `python -m tools.synth_hospital`: JP- and TW-style sites, notes in JA / zh-TW / EN, planted
+  findings and PHI spans in `gold/notes.jsonl`, rates in `tools/synth/rates.yaml`, chunked streaming writer, the
+  TB-DS-21 §6 checks. `--profile ci` (5,000 patients) 2.9 s; `--profile full` (500,000) 291 s, 126/126 rate cells
+  within ±2 points. Default output unchanged (`tests/fixtures/synthetic_patients` regenerates byte for byte).
+- Console S2 takes pasted criteria; criteria matching an approved ruleset go straight to the S3 report.
+- Settings `ethics_gate` (off in DEV/TEST) and `schedule.mode` (DEV on demand, FR-OPS-12).
+- Demo: `python -m tools.feas_demo --dir /tmp/tb-feas [--serve]`: paste GOUT-COH on S2, S3 funnel on 5,000
+  patients in Japanese.
+
+**Evidence:** `make lint` clean (535 files formatted, mypy 441 files); default suite 1,068 passed, 16 skipped
+(baseline 1,054 passed, 16 skipped); `tests/console` 80 passed; `tests/integration/test_mail_feas_inproc.py` +
+`test_feas_lake.py` 6 passed; `tests/integration/test_feas_demo.py` 1 passed.

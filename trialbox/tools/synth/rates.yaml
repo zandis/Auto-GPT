@@ -1,0 +1,186 @@
+# Planted-state rates of the synthetic hospital (TB-DS-21 §3.1): archetype -> attribute -> state -> weight.
+# The generator draws each state with these weights (in this order: the order is part of the deterministic draw),
+# and tools.synth_hospital checks the observed shares against them. ``site.mix`` is the patient mix per site.
+# Moved unchanged from the literals in generator.py (same seed -> same fixtures).
+site:
+  mix:
+    gout: 0.3
+    ra: 0.26
+    onc: 0.04
+    general: 0.4
+gout:
+  injection:
+    willing: 0.5
+    unwilling: 0.15
+    no_info: 0.35
+  rheu_meta_visits:
+    '0': 0.2
+    '1': 0.3
+    3+: 0.5
+  ult:
+    long: 0.4
+    short: 0.12
+    gappy_ok: 0.12
+    gappy_bad: 0.1
+    none: 0.18
+    old: 0.08
+  flare_12m:
+    two_plus: 0.45
+    single: 0.15
+    none: 0.15
+    no_info: 0.25
+  current_flare:
+    current: 0.12
+    none: 0.4
+    no_info: 0.48
+  gout_dx:
+    coded: 0.9
+    uncoded: 0.1
+  bmi:
+    <24: 0.12
+    24-25: 0.08
+    25-27: 0.15
+    27-30: 0.22
+    '>30': 0.25
+    missing: 0.08
+    stale: 0.05
+    no_height: 0.05
+  urate:
+    good: 0.6
+    bad: 0.25
+    missing: 0.1
+    stale: 0.05
+  creatinine:
+    normal: 0.75
+    low: 0.15
+    missing: 0.1
+  hba1c:
+    good: 0.6
+    bad: 0.15
+    missing: 0.25
+  alt:
+    good: 0.7
+    bad: 0.12
+    missing: 0.18
+  sbp:
+    good: 0.65
+    bad: 0.15
+    missing: 0.2
+  glp1:
+    recent: 0.08
+    old: 0.06
+    'no': 0.86
+  malignancy:
+    recent: 0.05
+    old: 0.04
+    skin: 0.03
+    'no': 0.88
+  mi_stroke:
+    recent: 0.05
+    old: 0.05
+    'no': 0.9
+  t1dm:
+    'yes': 0.06
+    'no': 0.94
+  pancreatitis:
+    acute: 0.04
+    chronic: 0.03
+    'no': 0.93
+  mtc_men2:
+    mtc: 0.02
+    men2: 0.02
+    'no': 0.96
+  bariatric:
+    'yes': 0.04
+    'no': 0.96
+  pregnancy:
+    dx: 0.12
+    hcg_pos: 0.08
+    hcg_neg: 0.3
+    'no': 0.5
+ra:
+  ra_dx:
+    long: 0.8
+    recent: 0.12
+    none: 0.08
+  das28_recent:
+    high: 0.4
+    moderate: 0.2
+    low: 0.15
+    missing_component: 0.1
+    none: 0.15
+  das28_earlier:
+    high: 0.55
+    low: 0.25
+    none: 0.2
+  doc_tb:
+    igra: 0.35
+    cxr: 0.3
+    none: 0.35
+  response:
+    good: 0.4
+    poor: 0.2
+    no_info: 0.4
+  mtx: &id001
+    long: 0.55
+    short: 0.15
+    gappy_bad: 0.1
+    none: 0.2
+  csdmard2: *id001
+  doc_hbsag:
+    'yes': 0.7
+    'no': 0.3
+  doc_ahbc:
+    'yes': 0.6
+    'no': 0.4
+  tb:
+    none: 0.55
+    active: 0.05
+    igra_pos_untreated: 0.08
+    igra_pos_treated: 0.1
+    igra_neg: 0.22
+  hbv:
+    none: 0.5
+    pos_no_av: 0.08
+    pos_av: 0.1
+    neg: 0.32
+  malignancy:
+    recent: 0.05
+    old: 0.05
+    'no': 0.9
+  infection:
+    recent: 0.06
+    mid: 0.06
+    old: 0.08
+    'no': 0.8
+  hf:
+    'yes': 0.05
+    'no': 0.95
+  pregnancy:
+    dx: 0.12
+    'no': 0.88
+  approval:
+    none: 0.4
+    active_far: 0.15
+    renewal_due: 0.15
+    expired: 0.1
+    pending_recent: 0.1
+    denied_recent: 0.1
+onc:
+  egfr_mut:
+    pos: 0.75
+    neg: 0.25
+# PHI planted in notes in gold mode only (tools.synth_hospital; TB-DS-21 §3.1, rates proposed there): the share of
+# notes that carry PHI, then the chance of each span type in such a note (3.0 spans per PHI-bearing note on average).
+phi:
+  note_rate:
+    carries: 0.7
+    clean: 0.3
+  types:
+    name: 1.0
+    date: 1.0
+    chart: 0.4
+    phone: 0.2
+    address: 0.2
+    insurer: 0.1
+    hospital: 0.1

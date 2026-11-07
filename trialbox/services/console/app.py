@@ -270,6 +270,39 @@ def build_sponsor_pack(
     return buf.getvalue()
 
 
+_INC_HEAD = re.compile(r"^\W*(inclusion( criteria)?|納入(條件|標準|基準)?|收案條件|選択基準|組入れ基準)\W*$", re.I)
+_EXC_HEAD = re.compile(r"^\W*(exclusion( criteria)?|排除(條件|標準|基準)?|除外基準)\W*$", re.I)
+_BULLET = re.compile(r"^\s*(?:[-*•・]|\(?\d{1,3}[.)、．]|[（(]\d{1,3}[）)])\s*")
+
+
+def criteria_markdown(text: str) -> str | None:
+    """Pasted criteria (S2) -> Markdown with ``## Inclusion criteria`` / ``## Exclusion criteria`` sections. A line
+    that is only a heading (EN, JA or zh-TW) switches section; lines before any heading are inclusion criteria;
+    bullets and numbers are dropped. ``None`` when nothing is left."""
+    sections: dict[str, list[str]] = {"inclusion": [], "exclusion": []}
+    cur = "inclusion"
+    for raw in text.replace("\r\n", "\n").split("\n"):
+        line = raw.strip().lstrip("#").strip()
+        if not line:
+            continue
+        if _INC_HEAD.match(line):
+            cur = "inclusion"
+            continue
+        if _EXC_HEAD.match(line):
+            cur = "exclusion"
+            continue
+        item = _BULLET.sub("", line).strip()
+        if item:
+            sections[cur].append(item[:2000])
+    if not any(sections.values()):
+        return None
+    out = ["# Criteria", ""]
+    for key, head in (("inclusion", "Inclusion criteria"), ("exclusion", "Exclusion criteria")):
+        if sections[key]:
+            out += [f"## {head}", ""] + [f"{i}. {c}" for i, c in enumerate(sections[key], 1)] + [""]
+    return "\n".join(out)
+
+
 def create_app(
     env: Mapping[str, str] | None = None,
     *,
@@ -1151,6 +1184,7 @@ def create_app(
         csrf: str = Form(""),
         ruleset: str = Form(""),
         use_sample: str = Form(""),
+        criteria: str = Form(""),
         protocol: Annotated[UploadFile | None, File()] = None,
     ) -> Response:
         sess = need_requester(request, csrf)
@@ -1158,6 +1192,16 @@ def create_app(
         if not _RULESET_ID.match(rs):
             raise _Problem(400, "request.refused", reason="ruleset ids are 1-16 letters, digits, '-' or '_'")
         sample = _sample()
+        if criteria.strip() and not (protocol is not None and protocol.filename):
+            # S2 (step 1): pasted criteria become a small Markdown protocol with the I/E headings the parser reads
+            md = criteria_markdown(criteria)
+            if md is None:
+                msg = translate(lang_of(request, sess), "protocol.no_criteria")
+                return page(request, "protocol.html", sess, 422, sample=sample is not None, error=msg)
+            job = submit(sess, f"FEAS {rs}", [("criteria.md", md.encode("utf-8"), "text/markdown")])
+            if job.state == "done":  # an in-process box runs it at once: straight to the report (S3)
+                return RedirectResponse(f"/studies/{rs}/feasibility", status_code=303)
+            return RedirectResponse(f"/pilot/jobs/{job.job_id}", status_code=303)
         if protocol is not None and protocol.filename:
             name = re.sub(r"[^\w.\-]+", "_", protocol.filename)[-120:]
             data = await protocol.read(MAX_UPLOAD + 1)

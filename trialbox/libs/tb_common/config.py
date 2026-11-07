@@ -226,6 +226,29 @@ def load(dotenv: Path | None = None, settings_path: Path | None = None) -> Confi
     return Config(env=env, settings=settings)
 
 
+def tb_env(env: Env) -> str:
+    """``TB_ENV`` upper-cased; PRODUCTION when unset (as the console reads it), so an install that forgets to set it
+    keeps its nightly schedule and its ethics gate."""
+    return (env.extra.get("TB_ENV") or "PRODUCTION").upper()
+
+
+def ethics_gate_on(settings: Settings, environment: str) -> bool:
+    """The study ethics gate (FR-STUDY-06; 20-build-map F6-03): always off with ``TB_ENV`` DEV or TEST, so the build
+    and the synthetic hospital never wait for one; elsewhere ``settings.ethics_gate``, on when unset."""
+    if environment.upper() in ("DEV", "TEST"):
+        return False
+    return True if settings.ethics_gate is None else bool(settings.ethics_gate)
+
+
+def schedule_on_demand(settings: Settings, environment: str) -> bool:
+    """FR-OPS-12: with ``schedule.mode`` auto (the default) DEV runs on demand (no timed jobs); ``nightly`` and
+    ``on_demand`` force either way."""
+    mode = settings.schedule.mode if settings.schedule else "auto"
+    if mode == "auto":
+        return environment.upper() == "DEV"
+    return mode == "on_demand"
+
+
 @lru_cache(maxsize=1)
 def get_config() -> Config:
     """Process-wide cached configuration."""

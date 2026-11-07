@@ -119,5 +119,6 @@ No code changes are needed for a new site.
 | `tools/testbench/` | Test Bench: dev/test-only web UI (`make testbench`, then <http://127.0.0.1:8765>) |
 | `tests/` | unit, integration (in process + services), e2e (mail), LLM, fixtures (synthetic hospitals A/B, protocols, onboarding) |
 
-All patient data in this repository is synthetic (`tools/make_fixtures.py`, 600 + 520 patients). ClinicalTrials.gov
+All patient data in this repository is synthetic (`tools/make_fixtures.py`, 600 + 520 patients; the larger
+JP/TW-style hospital with JA, zh-TW and EN notes and gold files is `python -m tools.synth_hospital`, D-106). ClinicalTrials.gov
 records in the cassettes are fictional (`NCT990000xx`, titled `[SYNTHETIC]`).

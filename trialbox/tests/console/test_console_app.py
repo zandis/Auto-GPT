@@ -625,6 +625,31 @@ def test_protocol_sample_and_bad_upload(box: dict[str, Any]) -> None:
     assert r.status_code == 400
 
 
+def test_pasted_criteria_become_a_markdown_protocol(box: dict[str, Any]) -> None:
+    """S2 (step 1): pasted criteria are sent as FEAS with a criteria.md the parser reads (I/E headings)."""
+    c, csrf = login(box["app"])
+    assert 'name="criteria"' in c.get("/pilot/protocol").text
+    text = "1. 痛風と診断された患者\n2. BMI ≥ 27\n\n除外基準\n・妊娠中\n"
+    r = c.post("/pilot/protocol", data={"csrf": csrf, "ruleset": "P1", "criteria": text}, follow_redirects=False)
+    assert r.status_code == 303
+    job = box["backend"].created[-1]
+    assert job.type == "FEAS" and job.ruleset == "P1" and job.inputs[0].filename == "criteria.md"
+    md = box["backend"].objects[job.inputs[0].minio_key].decode()
+    assert "## Inclusion criteria\n\n1. 痛風と診断された患者\n2. BMI ≥ 27" in md
+    assert "## Exclusion criteria\n\n1. 妊娠中" in md
+    r = c.post("/pilot/protocol", data={"csrf": csrf, "ruleset": "P2", "criteria": "除外基準\n\n"})
+    assert r.status_code == 422 and 'data-testid="protocol-error"' in r.text
+
+
+def test_criteria_markdown_headings_in_three_languages() -> None:
+    from console.app import criteria_markdown
+
+    for inc, exc in (("Inclusion criteria", "Exclusion criteria"), ("選択基準", "除外基準"), ("納入條件", "排除條件")):
+        md = criteria_markdown(f"{inc}:\n- a\n{exc}\n(1) b\n")
+        assert md == "# Criteria\n\n## Inclusion criteria\n\n1. a\n\n## Exclusion criteria\n\n1. b\n"
+    assert criteria_markdown("  \n") is None
+
+
 # ---------------------------------------------------------------------------------------------- consent explainer
 def _consent_done(backend: FakeBackend, jid: str) -> Job:
     now = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)

@@ -11,14 +11,65 @@ from __future__ import annotations
 import math
 import operator
 import random
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from typing import Any
 
+import yaml
+
+from tools.synth import names_en, names_ja
 from tools.synth import notes as N
 from tools.synth.catalog import BIOLOGICS, DRUGS, DX, LABS, PRACTITIONERS, PROCS
+from tools.synth.lang import PHI_TEMPLATES, Lang
+from tools.synth.reserved import is_reserved
 
 Row = dict[str, Any]
+STYLES = ("TW", "JP")
+
+
+@dataclass(frozen=True)
+class Find:
+    """A note sentence that answers one ruleset criterion (a finding slot, TB-DS-21 §5.1)."""
+
+    text: str
+    criterion: str
+    value: str
+
+
+@dataclass(frozen=True)
+class Phi:
+    """A sentence carrying PHI spans: (type, start, end) relative to ``text``."""
+
+    text: str
+    spans: tuple[tuple[str, int, int], ...]
+
+
+Part = str | Find | Phi
+
+
+def tw_id_valid(id_no: str) -> bool:
+    """True when a Taiwanese national-ID-shaped string has a valid check digit (so it could be a real one)."""
+    codes = "ABCDEFGHJKLMNPQRSTUVXYWZIO"  # A=10 ... in issuing order
+    if len(id_no) != 10 or id_no[0] not in codes or not id_no[1:].isdigit():
+        return False
+    n = codes.index(id_no[0]) + 10
+    digits = [n // 10, n % 10] + [int(c) for c in id_no[1:]]
+    weights = [1, 9, 8, 7, 6, 5, 4, 3, 2, 1, 1]
+    return sum(d * w for d, w in zip(digits, weights, strict=True)) % 10 == 0
+
+
+# every planted-state rate lives in one file (TB-DS-21 §3.1), so a check can read the numbers the generator used
+RATES: dict[str, dict[str, dict[str, float]]] = yaml.safe_load(
+    (Path(__file__).with_name("rates.yaml")).read_text(encoding="utf-8")
+)
+
+
+def rate(archetype: str, attribute: str) -> dict[str, float]:
+    """The planted-state weights for ``attribute`` of ``archetype`` patients (``rates.yaml``)."""
+    return {str(k): float(v) for k, v in RATES[archetype][attribute].items()}
+
 
 # thresholds used by the rulesets, per value kind, and the margin kept from each
 THRESHOLDS = {
@@ -83,8 +134,42 @@ TABLES = [
 
 
 class Generator:
-    def __init__(self, seed: int, site_id: str, ref_date: date, n: int, mrn_prefix: str) -> None:
+    def __init__(
+        self,
+        seed: int,
+        site_id: str,
+        ref_date: date,
+        n: int,
+        mrn_prefix: str,
+        *,
+        style: str = "TW",
+        lang_mix: dict[str, float] | None = None,
+        gold: bool = False,
+        index_offset: int = 0,
+        counter_base: int = 0,
+        plant_needles: bool = True,
+        practitioners: bool = True,
+    ) -> None:
+        """``style``/``lang_mix``/``gold`` default to the original generator (TW records, zh-TW notes, no gold), which
+        keeps ``tools/make_fixtures.py`` byte-identical. ``gold=True`` plants PHI spans, alternative date forms and
+        safe identifiers and records ``gold_notes`` (TB-DS-21 §5). ``index_offset``/``counter_base`` let
+        ``tools.synth_hospital`` write one site in chunks."""
+        if style not in STYLES:
+            raise ValueError(f"unknown record style {style!r}")
         self.rng = random.Random(seed)
+        # separate streams: language, date form and PHI draws never shift the main stream
+        self.lrng = random.Random(f"{seed}:lang")
+        self.prng = random.Random(f"{seed}:phi")
+        self.style = style
+        self.gold = gold
+        self.index_offset = index_offset
+        self.with_practitioners = practitioners
+        self.lang_mix = dict(lang_mix or {"zh-TW": 1.0})
+        self.langs = {code: Lang(code, alt_dates=gold, rng=self.lrng) for code in self.lang_mix}
+        self.primary_lang = max(self.lang_mix, key=lambda k: self.lang_mix[k])
+        self.L = self.langs[self.primary_lang]
+        self.note_lang: dict[str, str] = {}  # mrn -> note language
+        self.gold_notes: list[Row] = []
         self.site_id = site_id
         self.ref = ref_date
         self.snapshot = ref_date - timedelta(days=1)
@@ -92,12 +177,13 @@ class Generator:
         self.prefix = mrn_prefix
         self.t: dict[str, list[Row]] = {k: [] for k in TABLES}
         self.counters: dict[str, int] = {}
+        self.counter_base = counter_base
         self.data = SiteData(site_id, ref_date, self.t)
-        self.needle_queue = list(N.NEEDLES)
+        self.needle_queue = list(self.L.NEEDLES) if plant_needles else []
 
     # ---------------------------------------------------------------- helpers
     def nid(self, kind: str) -> str:
-        self.counters[kind] = self.counters.get(kind, 0) + 1
+        self.counters[kind] = self.counters.get(kind, self.counter_base) + 1
         return f"{kind.upper()}{self.prefix}{self.counters[kind]:07d}"
 
     def days_ago(self, lo: int, hi: int) -> date:
@@ -224,14 +310,15 @@ class Generator:
             remaining -= length
             d = end + timedelta(days=1 + gap)
 
-    def note(self, mrn: str, d: date, dept: str, body: list[str], note_type: str = "progress") -> str:
+    def note(self, mrn: str, d: date, dept: str, body: list[Part], note_type: str = "progress") -> str:
+        lang = self.L
         enc = self.encounter(mrn, d, dept)
-        parts = [N.filler(self.rng, self.rng.randint(4, 9))]
+        parts: list[Part] = [lang.filler(self.rng, self.rng.randint(4, 9))]
         parts.extend(body)
-        parts.append(N.filler(self.rng, self.rng.randint(5, 11)))
-        if self.needle_queue and self.rng.random() < 0.06:
+        parts.append(lang.filler(self.rng, self.rng.randint(5, 11)))
+        if self.needle_queue and self.rng.random() < 0.06 and lang.code == self.primary_lang:
             sentence, query = self.needle_queue.pop(0)
-            parts.insert(self.rng.randint(1, len(parts)), sentence + "。")
+            parts.insert(self.rng.randint(1, len(parts)), sentence + lang.stop)
             note_no = self.nid("n")
             self.data.needles.append({"mrn": mrn, "query": query, "fragment": sentence, "note_no": note_no})
         else:
@@ -243,10 +330,99 @@ class Generator:
                 "enc_no": enc,
                 "note_datetime": self.dt(d),
                 "note_type": note_type,
-                "text": "".join(parts),
+                "text": self.assemble(note_no, mrn, d, parts),
             }
         )
         return note_no
+
+    def assemble(self, note_no: str, mrn: str, d: date, parts: list[Part]) -> str:
+        """Join the note parts; in gold mode also plant PHI and record findings and spans (code points, end excl.)."""
+        if not self.gold:
+            return "".join(p if isinstance(p, str) else p.text for p in parts)
+        phi = self.phi_sentences(mrn, d)
+        for chunk in phi:
+            parts.insert(self.prng.randint(0, len(parts)), chunk)
+        text: list[str] = []
+        findings: list[Row] = []
+        spans: list[Row] = []
+        pos = 0
+        for p in parts:
+            t = p if isinstance(p, str) else p.text
+            if isinstance(p, Find):
+                findings.append({"criterion": p.criterion, "value": p.value, "start": pos, "end": pos + len(t)})
+            elif isinstance(p, Phi):
+                spans.extend({"type": k, "start": pos + a, "end": pos + b} for k, a, b in p.spans)
+            text.append(t)
+            pos += len(t)
+        self.gold_notes.append(
+            {"note_no": note_no, "mrn": mrn, "lang": self.L.code, "findings": findings, "phi": spans}
+        )
+        return "".join(text)
+
+    def phi_sentences(self, mrn: str, d: date) -> list[Phi]:
+        """PHI written the way it appears in real notes (signature, family call, referral), rates in ``rates.yaml``."""
+        rates = RATES["phi"]
+        r = self.prng
+        if r.random() >= float(rates["note_rate"]["carries"]):
+            return []
+        row = self.patient_row(mrn)
+        tpl = PHI_TEMPLATES[self.L.code]
+        out: list[Phi] = []
+        for kind, p in rates["types"].items():
+            if r.random() >= float(p):
+                continue
+            if kind == "name":
+                key = r.choice(["name", "family"])
+                value = row["name"] if key == "family" else self.fake_person_name(r)
+            else:
+                key = kind
+                getters: dict[str, Callable[[], str]] = {
+                    "date": lambda: self.L.fmt_date(d),
+                    "chart": lambda: mrn,
+                    "phone": lambda: str(row["phone"]),
+                    "address": lambda: self.fake_address(r),
+                    "insurer": lambda: str(row["id_no"]),
+                    "hospital": lambda: self.fake_hospital(r),
+                }
+                value = getters[kind]()
+            before, after = tpl[key].split("{" + key.replace("family", "name") + "}")
+            out.append(Phi(before + value + after, ((kind, len(before), len(before) + len(value)),)))
+        return out
+
+    def patient_row(self, mrn: str) -> Row:
+        return next(r for r in reversed(self.t["patient"]) if r["mrn"] == mrn)
+
+    def fake_person_name(self, r: random.Random, sex: str | None = None) -> str:
+        name = self._person_name(r, sex)
+        while self.gold and is_reserved("name", name):
+            name = self._person_name(self.prng, sex)
+        return name
+
+    def _person_name(self, r: random.Random, sex: str | None = None) -> str:
+        sex = sex or r.choice("MF")
+        if self.L.code == "ja" or (self.style == "JP" and self.L.code != "en"):
+            fam = r.choice(names_ja.FAMILY)[0]
+            giv = r.choice(names_ja.GIVEN_M if sex == "M" else names_ja.GIVEN_F)[0]
+            return f"{fam}　{giv}"
+        if self.L.code == "en":
+            return f"{r.choice(names_en.GIVEN_M if sex == 'M' else names_en.GIVEN_F)} {r.choice(names_en.FAMILY)}"
+        return N.fake_name(r)
+
+    def fake_address(self, r: random.Random) -> str:
+        if self.L.code == "en":
+            return f"{r.randint(1, 199)} {r.choice(names_en.STREETS)}, {r.choice(names_en.CITIES)}"
+        if self.L.code == "ja":
+            return f"{r.choice(names_ja.CITIES)}{r.choice(names_ja.TOWNS)}{r.randint(1, 9)}丁目{r.randint(1, 30)}番"
+        return (
+            f"{r.choice(['虛擬市', '範例市', '測試市'])}{r.choice(['中正路', '民生路', '和平路'])}{r.randint(1, 300)}號"
+        )
+
+    def fake_hospital(self, r: random.Random) -> str:
+        if self.L.code == "en":
+            return r.choice(names_en.HOSPITALS)
+        if self.L.code == "ja":
+            return r.choice(names_ja.HOSPITALS)
+        return r.choice(["杏林綜合醫院", "青山診所", "晨光紀念醫院"])
 
     def appointment(self, mrn: str, days_ahead: int, dept: str, staff: str | None = None, status: str = "B") -> None:
         d = self.ref + timedelta(days=days_ahead)
@@ -268,16 +444,30 @@ class Generator:
         bdate = self.snapshot - timedelta(days=int(age * 365.25) + self.rng.randint(15, 340))
         if bdate.month == 2 and bdate.day == 29:
             bdate = bdate.replace(day=28)
-        letter = self.rng.choice("ABCDEFGHJKLMNPQRSTUVXYWZIO")
+        if len(self.langs) > 1:
+            codes = list(self.lang_mix)
+            self.L = self.langs[self.lrng.choices(codes, weights=[self.lang_mix[c] for c in codes])[0]]
+        self.note_lang[mrn] = self.L.code
+        if self.style == "JP":
+            name, id_no, phone = self.jp_identity(sex)
+        else:
+            letter = self.rng.choice("ABCDEFGHJKLMNPQRSTUVXYWZIO")
+            name = N.fake_name(self.rng) if self.L.code != "en" else self.fake_person_name(self.rng, sex)
+            id_no = f"{letter}{1 if sex == 'M' else 2}{self.rng.randint(10_000_000, 99_999_999)}"
+            phone = f"09{self.rng.randint(10_000_000, 99_999_999)}"
+            if self.gold and tw_id_valid(id_no):  # never a number that could be issued to a real person
+                id_no = id_no[:-1] + str((int(id_no[-1]) + 1) % 10)
+        while self.gold and is_reserved("name", name):  # never a well-known real person's name
+            name = self.fake_person_name(self.prng, sex)
         self.t["patient"].append(
             {
                 "mrn": mrn,
-                "name": N.fake_name(self.rng),
-                "id_no": f"{letter}{1 if sex == 'M' else 2}{self.rng.randint(10_000_000, 99_999_999)}",
+                "name": name,
+                "id_no": id_no,
                 "birth_date": bdate.isoformat(),
                 "sex": sex,
                 "death_date": "",
-                "phone": f"09{self.rng.randint(10_000_000, 99_999_999)}",
+                "phone": phone,
             }
         )
         if self.rng.random() < 0.65:
@@ -289,6 +479,18 @@ class Generator:
                 }
             )
         return mrn
+
+    def jp_identity(self, sex: str) -> tuple[str, str, str]:
+        """Japanese name (kanji), insurer number and phone. Insurer numbers use 法別番号 00, which is never issued."""
+        if self.L.code == "en":
+            name = self.fake_person_name(self.rng, sex)
+        else:
+            fam = self.rng.choice(names_ja.FAMILY)[0]
+            giv = self.rng.choice(names_ja.GIVEN_M if sex == "M" else names_ja.GIVEN_F)[0]
+            name = f"{fam}　{giv}"
+        insurer = f"00{self.rng.randint(100_000, 999_999)}"
+        phone = f"0{self.rng.choice([70, 80, 90])}-{self.rng.randint(1000, 9999)}-{self.rng.randint(1000, 9999)}"
+        return name, insurer, phone
 
     def age_of(self, mrn: str) -> float:
         row = next(r for r in reversed(self.t["patient"]) if r["mrn"] == mrn)
@@ -389,13 +591,13 @@ class Generator:
         mrn = self.patient(i, sex, age)
         g(mrn, "archetype", "gout")
         dept_main = self.rng.choice(["RHEU", "RHEU", "META", "FM"])
-        if g(mrn, "gout_dx", self.pick({"coded": 0.9, "uncoded": 0.1})) == "coded":
+        if g(mrn, "gout_dx", self.pick(rate("gout", "gout_dx"))) == "coded":
             onset = self.days_ago(200, 4500)
             self.dx(mrn, self.rng.choice(["gout", "gout_foot", "gout_chronic"]), onset, dept_main)
             for _ in range(self.rng.randint(0, 3)):
                 self.dx(mrn, "gout", self.days_ago(10, 700), dept_main)
         # visits to RHEU/META in the last 12 months (GZQO-INC-09: >= 1)
-        visits = g(mrn, "rheu_meta_visits", self.pick({"0": 0.2, "1": 0.3, "3+": 0.5}))
+        visits = g(mrn, "rheu_meta_visits", self.pick(rate("gout", "rheu_meta_visits")))
         for _ in range({"0": 0, "1": 1, "3+": self.rng.randint(3, 6)}[visits]):
             self.encounter(mrn, self.days_ago(5, 350), self.rng.choice(["RHEU", "META"]))
         if visits == "0":
@@ -407,34 +609,23 @@ class Generator:
             g(
                 mrn,
                 "bmi",
-                self.pick(
-                    {
-                        "<24": 0.12,
-                        "24-25": 0.08,
-                        "25-27": 0.15,
-                        "27-30": 0.22,
-                        ">30": 0.25,
-                        "missing": 0.08,
-                        "stale": 0.05,
-                        "no_height": 0.05,
-                    }
-                ),
+                self.pick(rate("gout", "bmi")),
             ),
         )
         self.series(
             mrn,
             "UA",
-            g(mrn, "urate", self.pick({"good": 0.6, "bad": 0.25, "missing": 0.1, "stale": 0.05})),
+            g(mrn, "urate", self.pick(rate("gout", "urate"))),
             "urate",
             (7.0, 11.5),
             (3.5, 6.6),
             365,
         )
-        self.creatinine(mrn, sex, g(mrn, "creatinine", self.pick({"normal": 0.75, "low": 0.15, "missing": 0.1})))
+        self.creatinine(mrn, sex, g(mrn, "creatinine", self.pick(rate("gout", "creatinine"))))
         self.series(
             mrn,
             "HBA1C",
-            g(mrn, "hba1c", self.pick({"good": 0.6, "bad": 0.15, "missing": 0.25})),
+            g(mrn, "hba1c", self.pick(rate("gout", "hba1c"))),
             "hba1c",
             (5.0, 9.6),
             (10.3, 13.5),
@@ -443,7 +634,7 @@ class Generator:
         self.series(
             mrn,
             "ALT",
-            g(mrn, "alt", self.pick({"good": 0.7, "bad": 0.12, "missing": 0.18})),
+            g(mrn, "alt", self.pick(rate("gout", "alt"))),
             "alt",
             (8, 95),
             (130, 420),
@@ -452,7 +643,7 @@ class Generator:
         self.series(
             mrn,
             "SBP",
-            g(mrn, "sbp", self.pick({"good": 0.65, "bad": 0.15, "missing": 0.2})),
+            g(mrn, "sbp", self.pick(rate("gout", "sbp"))),
             "sbp",
             (100, 156),
             (163, 195),
@@ -462,7 +653,7 @@ class Generator:
         ult = g(
             mrn,
             "ult",
-            self.pick({"long": 0.4, "short": 0.12, "gappy_ok": 0.12, "gappy_bad": 0.1, "none": 0.18, "old": 0.08}),
+            self.pick(rate("gout", "ult")),
         )
         drug = self.rng.choice(["allopurinol", "febuxostat", "benzbromarone"])
         if ult == "long":
@@ -480,7 +671,7 @@ class Generator:
             self.rx(mrn, "colchicine", self.days_ago(20, 300), self.days_ago(0, 15), dept_main)
         self.common_exclusions(mrn, sex, age)
         # notes: flares (INC-05), current flare (EXC-11), injection willingness (INC-07, human)
-        flare = g(mrn, "flare_12m", self.pick({"two_plus": 0.45, "single": 0.15, "none": 0.15, "no_info": 0.25}))
+        flare = g(mrn, "flare_12m", self.pick(rate("gout", "flare_12m")))
         truth = self.data.note_truth.setdefault(mrn, {})
         if flare == "two_plus":
             for _ in range(self.rng.randint(2, 3)):
@@ -489,47 +680,48 @@ class Generator:
                     mrn,
                     fd + timedelta(days=self.rng.randint(1, 10)),
                     dept_main,
-                    [N.flare_sentence(fd, self.rng.choice(N.JOINTS))],
+                    [Find(self.L.flare(fd, self.rng.choice(self.L.JOINTS)), "GZQO-INC-05", "yes")],
                 )
             truth["GZQO-INC-05"] = "yes"
         elif flare == "single":
             fd = self.days_ago(30, 300)
-            self.note(mrn, self.days_ago(5, 25), dept_main, [N.single_flare_sentence(fd)])
+            self.note(mrn, self.days_ago(5, 25), dept_main, [Find(self.L.single_flare(fd), "GZQO-INC-05", "no")])
             truth["GZQO-INC-05"] = "no"
         elif flare == "none":
-            self.note(mrn, self.days_ago(5, 80), dept_main, [N.no_flare_sentence()])
+            self.note(mrn, self.days_ago(5, 80), dept_main, [Find(self.L.no_flare(), "GZQO-INC-05", "no")])
             truth["GZQO-INC-05"] = "no"
         else:
             self.note(mrn, self.days_ago(5, 200), dept_main, [])
             truth["GZQO-INC-05"] = "unknown"
-        cur = g(mrn, "current_flare", self.pick({"current": 0.12, "none": 0.4, "no_info": 0.48}))
+        cur = g(mrn, "current_flare", self.pick(rate("gout", "current_flare")))
         if cur == "current":
-            self.note(mrn, self.days_ago(1, 10), dept_main, [N.current_flare_sentence()])
+            self.note(mrn, self.days_ago(1, 10), dept_main, [Find(self.L.current_flare(), "GZQO-EXC-11", "yes")])
             truth["GZQO-EXC-11"] = "yes"
         elif cur == "none":
-            self.note(mrn, self.days_ago(1, 12), dept_main, [N.no_current_flare_sentence()])
+            self.note(mrn, self.days_ago(1, 12), dept_main, [Find(self.L.no_current_flare(), "GZQO-EXC-11", "no")])
             truth["GZQO-EXC-11"] = "no"
         else:
             truth["GZQO-EXC-11"] = "unknown"
-        inj = self.pick({"willing": 0.5, "unwilling": 0.15, "no_info": 0.35})
+        inj = self.pick(rate("gout", "injection"))
         if inj != "no_info":
-            self.note(mrn, self.days_ago(5, 90), dept_main, [N.injection_willing_sentence(inj == "willing")])
+            sentence = Find(self.L.injection(inj == "willing"), "GZQO-INC-07", inj)
+            self.note(mrn, self.days_ago(5, 90), dept_main, [sentence])
         self.data.human_truth.setdefault(mrn, {})["GZQO-INC-07"] = inj
         self.appointments(mrn, dept_main, screen=True)
 
     def common_exclusions(self, mrn: str, sex: str, age: int) -> None:
         g = self.state
-        if g(mrn, "t1dm", self.pick({"yes": 0.06, "no": 0.94})) == "yes":
+        if g(mrn, "t1dm", self.pick(rate("gout", "t1dm"))) == "yes":
             self.dx(mrn, "t1dm", self.days_ago(300, 4000), "META")
         elif self.rng.random() < 0.25:
             self.dx(mrn, "t2dm", self.days_ago(100, 3000), "META")
             self.rx_course(mrn, "metformin", self.days_ago(100, 300), 200, 0, "META")
-        if g(mrn, "pancreatitis", self.pick({"acute": 0.04, "chronic": 0.03, "no": 0.93})) != "no":
+        if g(mrn, "pancreatitis", self.pick(rate("gout", "pancreatitis"))) != "no":
             key = "pancreatitis_acute" if self.data.states[mrn]["pancreatitis"] == "acute" else "pancreatitis_chronic"
             self.dx(mrn, key, self.days_ago(100, 3000), "FM")
-        if g(mrn, "mtc_men2", self.pick({"mtc": 0.02, "men2": 0.02, "no": 0.96})) != "no":
+        if g(mrn, "mtc_men2", self.pick(rate("gout", "mtc_men2"))) != "no":
             self.dx(mrn, "mtc" if self.data.states[mrn]["mtc_men2"] == "mtc" else "men2", self.days_ago(200, 3000))
-        glp = g(mrn, "glp1", self.pick({"recent": 0.08, "old": 0.06, "no": 0.86}))
+        glp = g(mrn, "glp1", self.pick(rate("gout", "glp1")))
         if glp != "no":
             d = self.days_ago(5, 80) if glp == "recent" else self.days_ago(100, 400)
             self.rx(
@@ -539,7 +731,7 @@ class Generator:
                 d + timedelta(days=27),
                 "META",
             )
-        if g(mrn, "bariatric", self.pick({"yes": 0.04, "no": 0.96})) == "yes":
+        if g(mrn, "bariatric", self.pick(rate("gout", "bariatric"))) == "yes":
             code, name = PROCS[self.rng.choice(["bariatric_sleeve", "bariatric_bypass"])]
             self.t["procedure"].append(
                 {
@@ -550,7 +742,7 @@ class Generator:
                     "proc_date": self.days_ago(200, 3000).isoformat(),
                 }
             )
-        mal = g(mrn, "malignancy", self.pick({"recent": 0.05, "old": 0.04, "skin": 0.03, "no": 0.88}))
+        mal = g(mrn, "malignancy", self.pick(rate("gout", "malignancy")))
         if mal == "recent":
             self.dx(mrn, self.rng.choice(["breast_ca", "colon_ca", "lung_ca"]), self.days_ago(30, 1700), "ONC")
         elif mal == "old":
@@ -558,14 +750,14 @@ class Generator:
         elif mal == "skin":
             self.dx(mrn, "skin_bcc", self.days_ago(30, 1000), "FM")
         if sex == "F" and 18 <= age <= 45:
-            preg = g(mrn, "pregnancy", self.pick({"dx": 0.12, "hcg_pos": 0.08, "hcg_neg": 0.3, "no": 0.5}))
+            preg = g(mrn, "pregnancy", self.pick(rate("gout", "pregnancy")))
             if preg == "dx":
                 self.dx(mrn, "pregnancy", self.days_ago(10, 200), "FM")
             elif preg == "hcg_pos":
                 self.lab(mrn, "HCGU", "POS", self.days_ago(2, 25))
             elif preg == "hcg_neg":
                 self.lab(mrn, "HCGU", "NEG", self.days_ago(2, 25))
-        cv = g(mrn, "mi_stroke", self.pick({"recent": 0.05, "old": 0.05, "no": 0.9}))
+        cv = g(mrn, "mi_stroke", self.pick(rate("gout", "mi_stroke")))
         if cv != "no":
             d = self.days_ago(5, 80) if cv == "recent" else self.days_ago(120, 1500)
             self.dx(mrn, self.rng.choice(["ami", "stroke"]), d, "CARD")
@@ -591,7 +783,7 @@ class Generator:
         age = self.rng.randint(14, 17) if self.rng.random() < 0.03 else self.rng.randint(25, 80)
         mrn = self.patient(i, sex, age)
         g(mrn, "archetype", "ra")
-        dx_state = g(mrn, "ra_dx", self.pick({"long": 0.8, "recent": 0.12, "none": 0.08}))
+        dx_state = g(mrn, "ra_dx", self.pick(rate("ra", "ra_dx")))
         if dx_state == "long":
             self.dx(mrn, self.rng.choice(["ra_seropos", "ra_other"]), self.days_ago(200, 4000), "RHEU")
         elif dx_state == "recent":
@@ -606,7 +798,7 @@ class Generator:
             ("mtx", ["methotrexate"]),
             ("csdmard2", ["hydroxychloroquine", "sulfasalazine", "leflunomide"]),
         ):
-            st = g(mrn, drug_state_key, self.pick({"long": 0.55, "short": 0.15, "gappy_bad": 0.1, "none": 0.2}))
+            st = g(mrn, drug_state_key, self.pick(rate("ra", drug_state_key)))
             drug = self.rng.choice(drugs)
             if st == "long":
                 self.rx_course(mrn, drug, self.days_ago(250, 700), self.rng.randint(200, 600), 0, "RHEU")
@@ -622,33 +814,43 @@ class Generator:
         recent = g(
             mrn,
             "das28_recent",
-            self.pick({"high": 0.4, "moderate": 0.2, "low": 0.15, "missing_component": 0.1, "none": 0.15}),
+            self.pick(rate("ra", "das28_recent")),
         )
         use_esr = self.rng.random() < 0.7
         g(mrn, "das28_marker", "esr" if use_esr else "crp")
         self.das28_assessment(mrn, recent, self.days_ago(3, 80), use_esr)
-        earlier = g(mrn, "das28_earlier", self.pick({"high": 0.55, "low": 0.25, "none": 0.2}))
+        earlier = g(mrn, "das28_earlier", self.pick(rate("ra", "das28_earlier")))
         self.das28_assessment(mrn, earlier, self.days_ago(100, 175), use_esr)
         self.ra_safety(mrn, sex, age)
         self.ra_claims(mrn)
         # documentation items
-        if g(mrn, "doc_hbsag", self.pick({"yes": 0.7, "no": 0.3})) == "yes":
+        if g(mrn, "doc_hbsag", self.pick(rate("ra", "doc_hbsag"))) == "yes":
             self.lab(mrn, "HBSAG", self.data.states[mrn].get("hbv_result", "NEG"), self.days_ago(10, 340))
-        if g(mrn, "doc_ahbc", self.pick({"yes": 0.6, "no": 0.4})) == "yes":
+        if g(mrn, "doc_ahbc", self.pick(rate("ra", "doc_ahbc"))) == "yes":
             self.lab(mrn, "AHBC", self.rng.choice(["NEG", "NEG", "POS"]), self.days_ago(10, 340))
-        tbdoc = g(mrn, "doc_tb", self.pick({"igra": 0.35, "cxr": 0.3, "none": 0.35}))
+        tbdoc = g(mrn, "doc_tb", self.pick(rate("ra", "doc_tb")))
         if tbdoc == "cxr":
-            self.report(mrn, self.days_ago(10, 170), "雙側肺野清晰，無活動性結核病灶。")
+            self.report(mrn, self.days_ago(10, 170), self.L.CXR_CLEAR)
         elif tbdoc == "igra" and "igra_done" not in self.data.states[mrn]:
             self.lab(mrn, "IGRA", "NEG", self.days_ago(10, 170))
         # note: response to biologic (REN-02)
-        resp = g(mrn, "response", self.pick({"good": 0.4, "poor": 0.2, "no_info": 0.4}))
+        resp = g(mrn, "response", self.pick(rate("ra", "response")))
         truth = self.data.note_truth.setdefault(mrn, {})
         if resp == "good":
-            self.note(mrn, self.days_ago(3, 80), "RHEU", [N.response_sentence(self.rng.uniform(1.3, 2.8), True)])
+            self.note(
+                mrn,
+                self.days_ago(3, 80),
+                "RHEU",
+                [Find(self.L.response(self.rng.uniform(1.3, 2.8), True), "RA-BIO-REN-02", "yes")],
+            )
             truth["RA-BIO-REN-02"] = "yes"
         elif resp == "poor":
-            self.note(mrn, self.days_ago(3, 80), "RHEU", [N.response_sentence(self.rng.uniform(0.1, 0.9), False)])
+            self.note(
+                mrn,
+                self.days_ago(3, 80),
+                "RHEU",
+                [Find(self.L.response(self.rng.uniform(0.1, 0.9), False), "RA-BIO-REN-02", "no")],
+            )
             truth["RA-BIO-REN-02"] = "no"
         else:
             self.note(mrn, self.days_ago(3, 200), "RHEU", [])
@@ -685,7 +887,7 @@ class Generator:
             self.lab(mrn, "ESR", str(int(esr or 0)), d)
         else:
             self.lab(mrn, "CRP", float(crp or 0), d)
-        self.note(mrn, d, "RHEU", [N.ra_assessment_sentence(tjc, sjc, ptga)])
+        self.note(mrn, d, "RHEU", [self.L.ra_assessment(tjc, sjc, ptga)])
 
     def report(self, mrn: str, d: date, conclusion: str) -> None:
         self.t["report"].append(
@@ -704,15 +906,7 @@ class Generator:
         tb = g(
             mrn,
             "tb",
-            self.pick(
-                {
-                    "none": 0.55,
-                    "active": 0.05,
-                    "igra_pos_untreated": 0.08,
-                    "igra_pos_treated": 0.1,
-                    "igra_neg": 0.22,
-                }
-            ),
+            self.pick(rate("ra", "tb")),
         )
         if tb == "active":
             self.dx(mrn, "tb_pulm", self.days_ago(10, 300), "FM")
@@ -724,7 +918,7 @@ class Generator:
         elif tb == "igra_neg":
             self.lab(mrn, "IGRA", "NEG", self.days_ago(20, 300))
             self.data.states[mrn]["igra_done"] = "1"
-        hbv = g(mrn, "hbv", self.pick({"none": 0.5, "pos_no_av": 0.08, "pos_av": 0.1, "neg": 0.32}))
+        hbv = g(mrn, "hbv", self.pick(rate("ra", "hbv")))
         if hbv.startswith("pos"):
             self.data.states[mrn]["hbv_result"] = "POS"
             self.lab(mrn, "HBSAG", "POS", self.days_ago(30, 300))
@@ -733,14 +927,14 @@ class Generator:
                 self.rx_course(mrn, "entecavir", self.days_ago(60, 85), 120, 0, "FM")
         elif hbv == "neg":
             self.lab(mrn, "HBSAG", "NEG", self.days_ago(30, 300))
-        mal = g(mrn, "malignancy", self.pick({"recent": 0.05, "old": 0.05, "no": 0.9}))
+        mal = g(mrn, "malignancy", self.pick(rate("ra", "malignancy")))
         if mal == "recent":
             self.dx(mrn, "breast_ca", self.days_ago(60, 1500), "ONC")
         elif mal == "old":
             self.dx(mrn, "colon_ca", self.days_ago(1900, 3000), "ONC")
-        if sex == "F" and 18 <= age <= 45 and g(mrn, "pregnancy", self.pick({"dx": 0.12, "no": 0.88})) == "dx":
+        if sex == "F" and 18 <= age <= 45 and g(mrn, "pregnancy", self.pick(rate("ra", "pregnancy"))) == "dx":
             self.dx(mrn, "pregnancy", self.days_ago(10, 200), "FM")
-        inf = g(mrn, "infection", self.pick({"recent": 0.06, "mid": 0.06, "old": 0.08, "no": 0.8}))
+        inf = g(mrn, "infection", self.pick(rate("ra", "infection")))
         if inf != "no":
             d = {
                 "recent": self.days_ago(3, 25),
@@ -748,7 +942,7 @@ class Generator:
                 "old": self.days_ago(200, 900),
             }[inf]
             self.dx(mrn, self.rng.choice(["sepsis", "pneumonia"]), d, "FM")
-        if g(mrn, "hf", self.pick({"yes": 0.05, "no": 0.95})) == "yes":
+        if g(mrn, "hf", self.pick(rate("ra", "hf"))) == "yes":
             self.dx(mrn, "hf", self.days_ago(60, 2000), "CARD")
 
     def ra_claims(self, mrn: str) -> None:
@@ -756,16 +950,7 @@ class Generator:
         st = g(
             mrn,
             "approval",
-            self.pick(
-                {
-                    "none": 0.4,
-                    "active_far": 0.15,
-                    "renewal_due": 0.15,
-                    "expired": 0.1,
-                    "pending_recent": 0.1,
-                    "denied_recent": 0.1,
-                }
-            ),
+            self.pick(rate("ra", "approval")),
         )
         bio = DRUGS[self.rng.choice(BIOLOGICS)]
         if st == "none":
@@ -812,15 +997,15 @@ class Generator:
         mrn = self.patient(i, sex, self.rng.randint(45, 82))
         self.state(mrn, "archetype", "onc")
         self.dx(mrn, "nsclc_egfr", self.days_ago(30, 400), "ONC")
-        egfr = self.state(mrn, "egfr_mut", self.pick({"pos": 0.75, "neg": 0.25}))
+        egfr = self.state(mrn, "egfr_mut", self.pick(rate("onc", "egfr_mut")))
         self.lab(mrn, "EGFRT", "POS" if egfr == "pos" else "NEG", self.days_ago(20, 380))
-        self.report(mrn, self.days_ago(5, 60), "右上肺葉腫塊約3.2公分，懷疑為原發性肺癌，無遠端轉移跡象。")
+        self.report(mrn, self.days_ago(5, 60), self.L.LUNG_MASS)
         self.anthropometrics(mrn, sex, self.rng.choice(["<24", "24-25", "25-27"]))
         self.series(mrn, "ALT", "good", "alt", (8, 95), (130, 420), 180)
         self.creatinine(mrn, sex, "normal")
         if self.state(mrn, "osi", "on" if self.rng.random() < 0.5 else "none") == "on":  # renewal-type patient
             self.rx_course(mrn, "osimertinib", self.days_ago(30, 200), 90, 0, "ONC")
-        self.note(mrn, self.days_ago(3, 40), "ONC", ["ECOG體能狀態1分，可自理日常生活。"])
+        self.note(mrn, self.days_ago(3, 40), "ONC", [Find(self.L.ECOG, "ONC-OSI-INC-04", "yes")])
         self.appointment(mrn, self.rng.randint(0, 20), "ONC")
 
     def general_patient(self, i: int) -> None:
@@ -862,14 +1047,18 @@ class Generator:
 
     # ---------------------------------------------------------------- driver
     def run(self) -> SiteData:
-        for pid, name, dept in PRACTITIONERS:
+        for k, (pid, name, dept) in enumerate(PRACTITIONERS if self.with_practitioners else []):
+            if self.style == "JP":
+                name = (
+                    f"{names_ja.FAMILY[k % len(names_ja.FAMILY)][0]}　{names_ja.GIVEN_M[k % len(names_ja.GIVEN_M)][0]}"
+                )
             self.t["practitioner"].append({"staff_id": pid, "name": name, "dept_code": dept})
-        mix = [("gout", 0.30), ("ra", 0.26), ("onc", 0.04), ("general", 0.40)]
+        mix = list(rate("site", "mix").items())
         kinds = [k for k, w in mix for _ in range(round(w * self.n))]
         while len(kinds) < self.n:
             kinds.append("general")
         self.rng.shuffle(kinds)
-        for i, kind in enumerate(kinds[: self.n], start=1):
+        for i, kind in enumerate(kinds[: self.n], start=1 + self.index_offset):
             getattr(self, f"{kind}_patient")(i)
         # guarantee all 20 retrieval needles are planted
         while self.needle_queue:
@@ -878,7 +1067,12 @@ class Generator:
             note_no = self.nid("n")
             d = self.days_ago(5, 300)
             enc = self.encounter(row["mrn"], d, "FM")
-            text = N.filler(self.rng, 2) + sentence + "。" + N.filler(self.rng, 3)
+            self.L = self.langs[self.primary_lang]
+            text = self.L.filler(self.rng, 2) + sentence + self.L.stop + self.L.filler(self.rng, 3)
+            if self.gold:
+                self.gold_notes.append(
+                    {"note_no": note_no, "mrn": row["mrn"], "lang": self.L.code, "findings": [], "phi": []}
+                )
             self.t["note"].append(
                 {
                     "note_no": note_no,
