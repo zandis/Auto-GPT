@@ -42,6 +42,7 @@ from console.sitestore import (
     SiteStore,
     StudySettings,
 )
+from console.timefmt import local_date, site_zone
 
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -205,11 +206,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             href = f"/studies/{rs}/week?list=all&pid={w['pid']}#chart"
             open_items = " · ".join((w["fit"].not_met + w["fit"].open + w["fit"].person)[:3])
             if mk is not None and mk.mark == "approach" and reg.get(w["pid"]) in (None, "candidate"):
-                due = date.fromisoformat(mk.at[:10]) + timedelta(days=2)
+                due = date.fromisoformat(local_date(mk.at, site_zone(h.bk))) + timedelta(days=2)
                 tasks.append({"kind": "call", "rs": rs, "short": w["short"], "href": href, "due": due,
                               "detail": mk.note or open_items})  # fmt: skip
             elif mk is not None and mk.mark == "need_info":
-                due = date.fromisoformat(mk.at[:10]) + timedelta(days=3)
+                due = date.fromisoformat(local_date(mk.at, site_zone(h.bk))) + timedelta(days=3)
                 tasks.append({"kind": "info", "rs": rs, "short": w["short"], "href": href, "due": due,
                               "detail": mk.note or open_items})  # fmt: skip
             if when is not None and today <= when <= today + timedelta(days=14):

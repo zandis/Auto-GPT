@@ -137,7 +137,7 @@
 <div class="scroll"><table data-testid="thread">
 <thead><tr><th scope="col">{{ t('col.direction') }}</th><th scope="col">{{ t('col.time') }}</th><th scope="col">{{ t('col.subject') }}</th><th scope="col">{{ t('col.party') }}</th><th scope="col">{{ t('col.class') }}</th></tr></thead>
 <tbody>{% for m, subj in thread %}
-{% if m %}<tr><td class="nowrap">{{ t('thread.in') if m.direction == 'in' else t('thread.out') }}</td><td class="mono nowrap">{{ m.at[:19]|replace('T', ' ') }}</td><td>{{ subj }}</td><td>{{ m.party }}</td><td>{{ t('class.' + m.tag) if m.tag in ('aggregate', 'phi') else m.tag }}</td></tr>
+{% if m %}<tr><td class="nowrap">{{ t('thread.in') if m.direction == 'in' else t('thread.out') }}</td><td class="mono nowrap">{{ m.at|local(19) }}</td><td>{{ subj }}</td><td>{{ m.party }}</td><td>{{ t('class.' + m.tag) if m.tag in ('aggregate', 'phi') else m.tag }}</td></tr>
 {% else %}<tr><td class="nowrap">{{ t('thread.web') }}</td><td class="mono nowrap">{{ job.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</td><td>{{ subj }}</td><td>{{ job.requested_by }}</td><td>{{ t('thread.web_class') }}</td></tr>{% endif %}
 {% endfor %}</tbody></table></div>
 {% if settings.webmail_url %}<p class="hint"><a href="{{ settings.webmail_url }}" target="_blank" rel="noopener noreferrer">{{ t('overview.webmail') }}</a></p>{% endif %}

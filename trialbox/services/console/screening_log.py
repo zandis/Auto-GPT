@@ -23,6 +23,7 @@ from tb_contracts import Job
 from console import studies as st
 from console.auth import Session
 from console.home import Helpers
+from console.timefmt import local_date, site_zone
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -36,6 +37,7 @@ def suppress(n: int, k: int) -> int | str:
 
 def register(app: FastAPI, h: Helpers) -> None:
     bk, au, store = h.bk, h.au, h.store
+    tz = site_zone(bk)
 
     def study_or_404(sess: Session, rs: str) -> str:
         rid = rs.strip().upper()
@@ -78,8 +80,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "no": no,
                     "pid": pid,
                     "short": pid[:8],
-                    "listed": (seen.get(pid) or ("", ""))[1][:10],
-                    "assigned": at[:10],
+                    "listed": local_date((seen.get(pid) or ("", ""))[1], tz),
+                    "assigned": local_date(at, tz),
                     "mark": mk[-1] if mk else None,
                     "outcome": oc[-1] if oc else None,
                     "attempts": len(oc),
@@ -136,7 +138,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                     r["assigned"],
                     mk.mark if mk else "",
                     (mk.reason or "") if mk else "",
-                    mk.at[:10] if mk else "",
+                    local_date(mk.at, tz) if mk else "",
                     oc.outcome if oc else "",
                     r["attempts"],
                     r["status"],

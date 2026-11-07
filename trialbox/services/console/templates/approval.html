@@ -29,7 +29,7 @@
 {% if r.codes_list %}<ul class="codes">{% for c in r.codes_list %}<li class="mono">{{ c }}</li>{% endfor %}</ul>{% else %}<p class="hint">{{ t('s20.codes.none') }}</p>{% endif %}
 {% if r.equivalence_pct is not none %}<p class="hint">{{ t('s20.eq', pct=r.equivalence_pct) }}</p>{% endif %}
 </details>
-{% if r.id in ticks %}<p class="hint" data-testid="tick-{{ r.id }}">✓ {{ t('s20.ticked_by', by=ticks[r.id][0], at=ticks[r.id][1][:16].replace('T', ' ')) }}</p>{% endif %}
+{% if r.id in ticks %}<p class="hint" data-testid="tick-{{ r.id }}">✓ {{ t('s20.ticked_by', by=ticks[r.id][0], at=ticks[r.id][1]|local) }}</p>{% endif %}
 </td>
 <td>{{ t('s20.class.' + (r['class'] or 'structured')) }}</td>
 <td class="nowrap">{% if is_amber %}{% if seen %}<span class="pill ok">{{ t('s20.opened') }}</span>{% elif user.can_approve %}<a class="button small" href="?open={{ r.id }}#{{ r.id }}" data-testid="open-{{ r.id }}">{{ t('s20.open_row') }}</a>{% else %}<span class="pill warn">{{ t('s20.amber') }}</span>{% endif %}{% else %}<span class="hint">{{ t('s20.ok') }}</span>{% endif %}

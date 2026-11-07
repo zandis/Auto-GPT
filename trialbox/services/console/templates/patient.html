@@ -33,6 +33,6 @@
 <td>{{ t('how.' + c.source) }}</td>
 </tr>{% endfor %}</tbody></table></div>
 </section>
-{% if history %}<section class="card"><h2>{{ t('patient.history') }}</h2><ul>{% for m in history %}<li>{{ m.at[:16].replace('T', ' ') }} · {{ m.by }} · {{ t('mark.' + m.mark) }}{% if m.mark == 'not_now' and m.reason %}: {{ t('mark.recheck_on', d=m.reason) }}{% elif m.reason %}: {{ t('reason.' + m.reason) }}{% endif %}{% if m.note %} — {{ m.note }}{% endif %}</li>{% endfor %}</ul></section>{% endif %}
+{% if history %}<section class="card"><h2>{{ t('patient.history') }}</h2><ul>{% for m in history %}<li>{{ m.at|local }} · {{ m.by }} · {{ t('mark.' + m.mark) }}{% if m.mark == 'not_now' and m.reason %}: {{ t('mark.recheck_on', d=m.reason) }}{% elif m.reason %}: {{ t('reason.' + m.reason) }}{% endif %}{% if m.note %} — {{ m.note }}{% endif %}</li>{% endfor %}</ul></section>{% endif %}
 <p class="hint">{{ t('patient.footer2', job=job.job_id) }}</p>
 {% endblock %}

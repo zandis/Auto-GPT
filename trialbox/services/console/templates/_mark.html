@@ -30,7 +30,7 @@
   <div class="markrow">{% for k in keys %}<button type="submit" name="outcome" value="{{ k }}" class="{{ '' if k == 'reached_booked' else 'secondary' }} small" data-testid="outcome-{{ k }}">{{ t('outcome.' + k) }}</button>{% endfor %}</div>
   <label for="retry-{{ pid[:8] }}">{{ t('outcome.retry') }}</label><input id="retry-{{ pid[:8] }}" name="retry" type="date">
   <label class="sr" for="onote-{{ pid[:8] }}">{{ t('mark.note') }}</label><input id="onote-{{ pid[:8] }}" name="note" maxlength="300" placeholder="{{ t('outcome.note') }}">
-  {% if outcomes %}<ul class="plain hint">{% for o in outcomes[-3:] %}<li>{{ o.at[:16].replace('T', ' ') }} · {{ o.by }} · {{ t('outcome.' + o.outcome) }}{% if o.retry %} · {{ t('outcome.retry_on', d=o.retry) }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+  {% if outcomes %}<ul class="plain hint">{% for o in outcomes[-3:] %}<li>{{ o.at|local }} · {{ o.by }} · {{ t('outcome.' + o.outcome) }}{% if o.retry %} · {{ t('outcome.retry_on', d=o.retry) }}{% endif %}</li>{% endfor %}</ul>{% endif %}
 </form>
 {% endif %}
 {% endmacro %}

@@ -57,6 +57,7 @@ from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
 from console.registry_view import STATUSES, status_options
+from console.timefmt import local_time, site_zone
 
 HERE = Path(__file__).resolve().parent
 COOKIE = "tb_console"
@@ -328,6 +329,8 @@ def create_app(
         cascades = CascadeRuns(settings.data_dir / "cascade", settings.source_dir)
     pending: dict[str, _Pending] = {}
     templates = Jinja2Templates(directory=str(HERE / "templates"))
+    site_tz = site_zone(backend)
+    templates.env.filters["local"] = lambda v, n=16: local_time(v, site_tz, n)
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users
