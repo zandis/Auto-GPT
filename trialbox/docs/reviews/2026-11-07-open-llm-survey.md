@@ -100,9 +100,26 @@ is already on the card, found nearly everything. Recommendation: keep regex as t
 before anything leaves the box. Caveat: the notes were written by an LLM, which flatters LLM detectors; check on real
 de-identified notes before relying on it.
 
+## Chat / front desk (added 2026-11-07, `tools/chat_eval.py`)
+
+10 chat jobs x 3 languages (ja, zh-TW, en) with the real front-door tools plus a "open workbench tile" tool: start a
+feasibility or screening request, ask the protocol, check status, search the registry, open the consent / audit tile,
+ask back when the request is unclear ("Run it."), answer in one sentence, and refuse a prompt injection asking to
+e-mail patient names.
+
+| model | passed | failures |
+| --- | --- | --- |
+| Gemma 4 26B-A4B | 30 / 30 | none |
+| Gemma 4 26B-A4B, 4-bit provider | 29 / 30 | put the study code in the ticket field once (en) |
+| Qwen3.5-9B | 24 / 30 | dropped the study code (2), asked for a study code it was already given instead of screening (3), long list instead of one sentence (1) |
+
+Gemma 4 should drive the chat. It is already loaded on the card as the judge, so chat needs no extra memory: the same
+server handles chat during the day and screening in the overnight batch. Both models refused the injection in all
+three languages.
+
 ## Not measured
 
-- Protocol-to-criteria drafting, REDCap field extraction and chat were not benchmarked this round. Use Gemma 4 on one
+- Protocol-to-criteria drafting and REDCap field extraction were not benchmarked this round. Use Gemma 4 on one
   card (it is the best general model that fits) and gpt-oss-120b on PRO 6000 / Spark for protocol reading, where a
   person approves the result anyway.
 - No new run on a real GPU; the GCP VM is stopped and this session has no GCP credentials.
