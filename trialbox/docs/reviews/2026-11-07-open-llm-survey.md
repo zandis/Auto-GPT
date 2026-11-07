@@ -11,7 +11,7 @@ patients *and* still catching real exclusions, in English and Japanese, on three
 
 | tier | recommendation | why |
 | --- | --- | --- |
-| one RTX 5090 (32 GB) | Gemma 4 26B-A4B 4-bit + Qwen3.5-9B 4-bit, `both_agree` | best balance; both Apache 2.0. Does **not** fit 32 GB yet as configured (35 GiB measured); needs a 4k context or a smaller Gemma build (next step 1) |
+| one RTX 5090 (32 GB) | Gemma 4 26B-A4B 4-bit + Qwen3.5-9B 4-bit, `both_agree` | best balance; both Apache 2.0 (Gemma 4 moved to Apache 2.0; checked on the Hugging Face model card). Each model alone fits easily; both resident at once measured 35 GiB as configured (see "Memory" below), so run them time-shared or tune the caps (next step 1) |
 | one RTX 4090, or the 5090 until the pair fits | Gemma 4 26B-A4B 4-bit alone, `never` (LLM may send to review, never exclude) | best single model for finding exclusions and for PHI |
 | 2× RTX 5090 | same pair, one model per card, 8-16k context | fits today with room |
 | RTX PRO 6000 (96 GB) / DGX Spark | same pair for patient notes, plus gpt-oss-120b for protocol reading | the bigger models we tried were *less* careful on notes, not more |
@@ -37,7 +37,7 @@ All runs: OpenRouter, the TrialBox judge prompt, temperature 0, US$28.6 in total
    the LLM. Raw rates include NIST label noise; a hand audit put true loss at about a third of the raw rate.
 3. **MedTxt** (215 real Japanese case and radiology reports with English translations).
 
-SIGIR is small: one pair is 1.3 points, and picking the best of ~600 pairs overfits. That is why every finalist was
+SIGIR is small: one pair is 1.3 points, the 95 % intervals of all finalists overlap, so SIGIR alone cannot rank them, and picking the best of ~600 pairs overfits. That is why every finalist was
 re-checked on TREC and MedTxt, and why two models that looked best on SIGIR (Ministral 14B, Nemotron 3.5 Lightning)
 were dropped.
 
@@ -70,7 +70,7 @@ Bigger is not safer here: the three ~120B models lost 3-6 times more eligible pa
 
 | pair | SIGIR lost EN / JA | TREC lost (raw) | TREC exclusions caught | MedTxt JA: present findings caught / absent wrongly blocked | memory |
 | --- | --- | --- | --- | --- | --- |
-| **Gemma 4 4-bit + Qwen3.5-9B (current)** | 1 / 2 (OpenRouter); **4 / 3 on a real Blackwell card** | 19.3 % | **54 %** | **69 % / 6.3 %** | 35 GiB measured; 2× 5090 or PRO 6000 today |
+| **Gemma 4 4-bit + Qwen3.5-9B (current)** | 1 / 2 (OpenRouter; zh-TW 1); **4 / 3 on an RTX PRO 6000 capped to 5090 limits** | 19.3 % | **54 %** | **69 % / 6.3 %** | 35 GiB measured; 2× 5090 or PRO 6000 today |
 | Gemma 4 4-bit + LFM2.5-24B | 1 / 1 | **9.8 %** | 26 % | 61 % / 4.7 % | ~31 GB weights, est., not measured |
 | LFM2.5-24B + Qwen3.5-9B | 0 / 1 | 8.7 % | 24 % | 57 % / 3.2 % | ~21 GB weights, est. |
 | gpt-oss-120b + Gemma 4 (Spark) | 5 / 4 | 24.9 % | 64 % | 88 % / 8.7 % | Spark / PRO 6000 |
@@ -100,6 +100,20 @@ is already on the card, found nearly everything. Recommendation: keep regex as t
 before anything leaves the box. Caveat: the notes were written by an LLM, which flatters LLM detectors; check on real
 de-identified notes before relying on it.
 
+## Memory and the 6 Nov on-card configuration
+
+The 4 / 3 baseline ran on 6 Nov on a GCP RTX PRO 6000 (96 GB, same GB202 chip as a 5090) capped by vLLM memory
+fractions, not on a real 5090. Configuration (`deploy/gcp/gpu-sim-startup.sh`): `vllm/vllm-openai:v0.32.0`; judge
+`nvidia/Gemma-4-26B-A4B-NVFP4` (NVFP4), verifier `cyankiwi/Qwen3.5-9B-AWQ-4bit` (AWQ 4-bit, thinking off); both
+`--max-model-len 8192 --max-num-seqs 4 --enforce-eager`; `--gpu-memory-utilization` 0.22 and 0.105. File hashes were
+not recorded; pin `--revision` next run.
+
+The 35 GiB is mostly vLLM pre-allocation, not the models: the two caps reserve 0.22 + 0.105 of 96 GB = 31.2 GB up
+front, plus each process's CUDA context. Weights load at 17.1 GiB (Gemma) + 7.5 GiB (Qwen). The design also does not
+need both resident: the verifier only re-reads criteria the judge blocked, so it can be swapped in for a night pass
+(vLLM sleep mode, or stop/start). Measure that time-shared mode first, then tighter caps, before trying another
+Gemma build or a 4k context.
+
 ## Chat / front desk (added 2026-11-07, `tools/chat_eval.py`)
 
 10 chat jobs x 3 languages (ja, zh-TW, en) with the real front-door tools plus a "open workbench tile" tool: start a
@@ -127,7 +141,7 @@ three languages.
 
 ## Next steps
 
-1. Make the pair fit one 5090: run Google's QAT 4-bit Gemma build (`cyankiwi/gemma-4-26B-A4B-it-qat-AWQ-INT4` or
+1. Make the pair fit one 5090: first measure the time-shared mode and tighter vLLM caps (see Memory); then, if still needed, run Google's QAT 4-bit Gemma build (`cyankiwi/gemma-4-26B-A4B-it-qat-AWQ-INT4` or
    `google/gemma-4-26B-A4B-it-qat-q4_0-gguf`) with a 4k context on the GPU VM, and re-score. The NVFP4 build we
    measured was worse than the 4-bit API build (11 vs 5 lost alone).
 2. In the same GPU session (about 2 h, about US$6 Spot): Medical-Qwen3-Swallow-30B-A3B and MedGemma 27B on SIGIR,
