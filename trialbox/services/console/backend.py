@@ -93,6 +93,7 @@ class Backend(Protocol):
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
     def registry_export(self, ruleset: str) -> bytes: ...
     def reveal(self, job_id: str, pid: str, by: str) -> str | None: ...
+    def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str: ...
 
 
 def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, str]]:
@@ -324,6 +325,17 @@ class HttpBackend:
             raise Unavailable(str(exc)) from exc
         mrn = data.get("mrn") if isinstance(data, dict) else None
         return str(mrn) if mrn else None
+
+    def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
+        """N1 / N2 (D-108) through the orchestrator's ``POST /notices`` and the mail gateway; the message id."""
+        body = {"kind": kind, "to": to, "subject": subject, "body_md": body_md, "by": by}
+        try:
+            data = self.orch.post_raw("/notices", body).json()
+        except ServiceError as exc:
+            if exc.status in (400, 422):
+                raise Refused(exc.detail) from exc
+            raise Unavailable(str(exc)) from exc
+        return str(data.get("message_id") or "")
 
     def registry_export(self, ruleset: str) -> bytes:
         try:

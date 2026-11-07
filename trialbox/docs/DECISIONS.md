@@ -1011,3 +1011,63 @@ procedure bar (protocol in, criteria approved, feasibility report, weekly PI lis
 which also heads the PI's workbench. Tasks are computed on each view, never stored, so they cannot drift from the
 marks and the registry. No scripts were added (the console's CSP stays `script-src 'none'`); selection is a link.
 `tools/role_demo.py` seeds a few PI decisions and registry steps so the demo opens in a working state.
+
+**D-108 Build step 2: one approval page, one mark vocabulary, the screening log and the clinic mail.** Build step 2
+of `20-build-map.md` §2 (list and mail). What was decided, and why:
+
+* **S20 approval** (`console/approval.py`, `/pilot/jobs/{id}/approval`): one page per draft, one row per criterion
+  from the compiler's review workbook, the codes folded under the row, and one **Approve all**. Only the
+  investigator approves (FR-AUTH-13): the approve route checks `User.can_approve` (role investigator); administrators
+  and coordinators prepare the approval by ticking a row's codes as checked, which is its own audit event
+  (`console.code_tick`) shown on the row. Amber rows (compiler flags, CQL/SQL equivalence below 100 %, left to a
+  person, or new or changed since the approved version) must each be opened by the approving investigator before
+  Approve all is offered; opening is a link the server records (`console.approval_open`), since the console runs no
+  script. A re-approval shows **Changes since vN** (added, new wording, new check class, removed) against the
+  approved ruleset. Approve all sends the same `APPROVE <study> version=<v>` with the stored workbook as a reply to
+  the review mail; the orchestrator still checks the approver against `reviewers`. Line edits on the page
+  (FR-FEAS-12b/c) are not built: an edited workbook still goes by mail. The old job-page approve buttons are gone.
+* **Feasibility Refresh** (FR-FEAS-13): a button on S3 for the coordinator that runs `FEAS <study>` again with the
+  approved criteria on today's snapshot.
+* **No model confidence and no judge model name on clinical pages** (FR-UI-17): removed from S5, from the weekly
+  list rows and from the SCREEN job page's quotes; the judge line on the job page shows for administrators only. The
+  admin home keeps the models; the audit trail keeps everything.
+* **One mark vocabulary** (FR-SCR-07, TB-DS-09 §6): Approach (声をかける / 邀請), Need info (情報が必要 / 需要更多資訊),
+  Not suitable now (今回は見合わせる / 暫不邀請) with a per-study reason, and Not now, re-check on a date (後日再確認 /
+  稍後再評估). No mark is ever labelled "not eligible" (FR-SCR-07f, tested). A new mark replaces the current one;
+  **Withdraw** stores a `withdrawn` event so the history keeps both. "Not now" hides the patient until the date. The
+  weekly-list status `not_eligible` is split into `set_aside` (a PI's mark) and `closed` (excluded by the records or a
+  terminal registry status). Reasons per study come from study settings, defaulting by disease (FR-STUDY-09: AD,
+  RA, other); the settings live in the console's site store until S21 (step 3) edits them.
+* **Screening numbers and the ICH E6(R3) screening log**: Approach gives the patient the study's next screening
+  number (`<STUDY>-0001`, prefix and first number per study; never re-used or moved); so does a first contact
+  outcome. `/studies/{rs}/screening-log` (and `.xlsx` for the coordinator) lists everyone approached: number,
+  pseudonym, first listed, the PI's mark, the last contact outcome and attempts, the registry status and reason. It is
+  pseudonymous; chart numbers stay with the existing registry export.
+* **Contact outcomes in two taps** (FR-SCR-10c, TB-DS-07 §4.1) for the coordinator on S5 and the list panel: reached,
+  visit booked → contacted; reached, declined → declined; not reached → status unchanged, a retry date (default two
+  days); not approached (physician decision) → unchanged, reason recorded; lost contact → screen_fail "lost contact".
+* **Cohort list** for registry and observational rulesets (kind cohort or nhi: GOUT-COH, RA-COH, RA-BIO):
+  `/studies/{rs}/cohort` lists the members a SCREEN run found that were never listed before; no marks, no contact
+  step; a dynamic cohort also counts members who no longer meet the definition. A cohort ruleset has no
+  `routing.list_to`, so SCREEN now sends its member list to the coordinator who asked (and only them); the SCREEN form
+  takes the clinics (practitioner ids) a cohort list reads. Nothing in the evaluation changed.
+* **N1, the investigator's list before clinic** (FR-NOTIF-01, `console/notify.py`): one mail per investigator across
+  their studies on each clinic day, with today's candidates first and the rest of the week folded below. A clinic day
+  is a day the investigator's practitioner id (set on the notice settings page) has a listed candidate booked, read
+  from the appointment source the SCREEN run used; without an id the mail goes on Mondays with the next seven days.
+  **N2, the coordinator's digest** (FR-NOTIF-02): working days, today's visits, next steps (call an approved patient,
+  retry a call when due, find requested information), new pre-screens and the PI's marks since the last digest. Both
+  carry pseudonyms, times and counts only, never a chart number, a name or a screening number; each says why it was
+  sent and links to the person's notice settings (FR-NOTIF-09). They leave through a new orchestrator `POST /notices`
+  (aggregate tag, internal addresses only, audited `notice.sent`) and are sent at most once per person and day.
+  Sending is `python -m console.notify` (for the site's 07:00 / 07:30 timer) or "Send today's notices now" for an
+  administrator; the orchestrator's own scheduler does not send them yet.
+* **Research office counts** (FR-REP-09): `/reports/research-office` and `.xlsx`, per study and calendar year:
+  listed, reviewed by the PI, approached, contacted, consented, enrolled, screen fail, declined; counts 1 to 4 are
+  shown as `<5`. Administrators, viewers and coordinators; not the CRO.
+* **The clinic workbench (D-107) was merged in step 2, not step 4**, because the step-2 list, marks and S5 are built on
+  its pages; merging it later would have rewritten the same templates twice.
+
+Matching is unchanged: no file under `services/matching`, `services/criteria_compiler` or the evaluation in
+`orchestrator/scenarios/screen.py` changed (the SCREEN edit is the cohort list's delivery address only), so the
+SIGIR lost-pairs check was not rerun. Demo: `python -m tools.list_demo --dir /tmp/tb-list [--serve]`.

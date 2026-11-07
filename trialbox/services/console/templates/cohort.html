@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ t('cohort.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('cohort.title') }}</h1>
+{% if job %}<span class="hint" data-testid="cohort-counts">{{ t('cohort.counts', n=rows|length, members=n_members) }}{% if conf.cohort_kind == 'dynamic' %} · {{ t('cohort.dropped', n=dropped) }}{% endif %}</span>{% endif %}</div>
+<p class="hint">{{ t('cohort.help.' + conf.cohort_kind) }}</p>
+{% if not job %}
+<section class="card"><p>{{ t('cohort.none') }}</p>{% if user.can_request %}<a class="button" href="/pilot/request?ruleset={{ rs }}">{{ t('next.screen') }}</a>{% endif %}</section>
+{% else %}
+<section class="card">
+{% if not rows %}<p class="empty" data-testid="cohort-empty">{{ t('cohort.empty') }}</p>{% else %}
+<div class="scroll"><table class="worklist" data-testid="cohort">
+<thead><tr><th>{{ t('wb.c.patient') }}</th><th>{{ t('wb.c.met') }}</th><th>{{ t('patient.visit') }}</th><th>{{ t('cohort.c.dept') }}</th></tr></thead>
+<tbody>{% for r in rows %}<tr data-testid="member-{{ r.short }}"><td><b>{{ t('week.patient', p=r.short) }}</b> <span class="pill stt-new">{{ t('cohort.new') }}</span></td><td class="num">{{ r.met }}/{{ r.total }}</td><td class="num">{{ r.visit or t('week.no_visit') }}</td><td>{{ r.department or '–' }}</td></tr>{% endfor %}</tbody>
+</table></div>{% endif %}
+<p class="hint">{{ t('cohort.no_contact') }}</p>
+<p class="hint">{{ t('week.meta', job=job.type, date=job.updated_at.date().isoformat(), snapshot=(job.snapshot_date.isoformat() if job.snapshot_date else '–')) }}</p>
+</section>
+{% endif %}
+{% endblock %}

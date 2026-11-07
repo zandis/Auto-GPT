@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_fit.html" import fit_line, open_items with context %}
+{% from "_mark.html" import mark_box, outcome_box with context %}
 {% block title %}{{ t('patient.title') }} · {{ rs }}{% endblock %}
 {% block content %}
 <p><a href="/studies/{{ rs }}/week">← {{ t('week.title') }}</a></p>
@@ -17,18 +18,9 @@
   <dt>{{ t('patient.why') }}</dt><dd data-testid="why">{{ fit_line(fit) }}</dd>
   <dt>{{ t('patient.open') }}</dt><dd>{{ open_items(fit, row.actions or []) }}</dd>
 </dl>
-{% if user.can_mark %}
-<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" class="card markform">
-  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="patient">
-  <strong>{{ t('patient.your_mark') }}</strong>
-  <button type="submit" name="mark" value="approach" data-testid="approach">{{ t('mark.approach') }}</button>
-  <button type="submit" name="mark" value="need_info" class="secondary">{{ t('mark.need_info') }}</button>
-  <label for="reason">{{ t('mark.reason') }}</label>
-  <select id="reason" name="reason">{% for x in reasons %}<option value="{{ x }}">{{ t('reason.' + x) }}</option>{% endfor %}</select>
-  <label for="note">{{ t('mark.note') }}</label><input id="note" name="note" maxlength="300">
-  <button type="submit" name="mark" value="not_suitable" class="secondary">{{ t('mark.not_suitable') }}</button>
-</form>
-{% endif %}
+{% if request.query_params.get('done') %}<p class="toastp" data-testid="done">{{ t('wb.done.' + request.query_params.get('done')) }}</p>{% endif %}
+<section class="card">{% if user.can_mark %}<strong>{{ t('patient.your_mark') }}</strong>{{ mark_box(rs, pid, 'patient', reasons, mark, today) }}{% endif %}
+{{ outcome_box(rs, pid, 'patient', outcome_keys, screening_no, outcomes) }}</section>
 <section class="card">
 <h2>{{ t('patient.criteria') }}</h2>
 <div class="scroll"><table class="candidates stack" data-testid="criteria">
@@ -37,10 +29,10 @@
 <td class="crit"><strong>{{ c.id }}</strong> {{ c.label }}{% if c.text and c.text != c.label %}<br><span class="hint">{{ c.text }}</span>{% endif %}</td>
 <td>{{ t_or('kind.' + c.kind, c.kind) }}</td>
 <td><span class="pill vd-{{ c.verdict }}">{{ t('verdict.' + c.verdict) }}</span></td>
-<td>{% if c.quote %}<blockquote class="quote">{{ c.quote }}</blockquote>{% endif %}{% if c.date %}<span class="hint">{{ c.date }}</span>{% endif %}{% if c.confidence is not none %} <span class="hint">· {{ '%.2f'|format(c.confidence) }}</span>{% endif %}{% if c.reason and not c.quote %}<span class="hint">{{ c.reason }}</span>{% endif %}</td>
+<td>{% if c.quote %}<blockquote class="quote">{{ c.quote }}</blockquote>{% endif %}{% if c.date %}<span class="hint">{{ c.date }}</span>{% endif %}{% if c.reason and not c.quote %}<span class="hint">{{ c.reason }}</span>{% endif %}</td>
 <td>{{ t('how.' + c.source) }}</td>
 </tr>{% endfor %}</tbody></table></div>
 </section>
-{% if history %}<section class="card"><h2>{{ t('patient.history') }}</h2><ul>{% for m in history %}<li>{{ m.at[:16].replace('T', ' ') }} · {{ m.by }} · {{ t('mark.' + m.mark) }}{% if m.reason %}: {{ t('reason.' + m.reason) }}{% endif %}{% if m.note %} — {{ m.note }}{% endif %}</li>{% endfor %}</ul></section>{% endif %}
-<p class="hint">{{ t('patient.footer', job=job.job_id, judge=(judging.get('judge_model') or judging.get('mode') or '–')) }}</p>
+{% if history %}<section class="card"><h2>{{ t('patient.history') }}</h2><ul>{% for m in history %}<li>{{ m.at[:16].replace('T', ' ') }} · {{ m.by }} · {{ t('mark.' + m.mark) }}{% if m.mark == 'not_now' and m.reason %}: {{ t('mark.recheck_on', d=m.reason) }}{% elif m.reason %}: {{ t('reason.' + m.reason) }}{% endif %}{% if m.note %} — {{ m.note }}{% endif %}</li>{% endfor %}</ul></section>{% endif %}
+<p class="hint">{{ t('patient.footer2', job=job.job_id) }}</p>
 {% endblock %}

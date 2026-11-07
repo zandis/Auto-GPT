@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from tb_common.authz import norm
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
 from tb_common.timeutil import add_months
@@ -431,6 +432,11 @@ def deliver_lists(
     """Candidate workbook + JSON to list_to; one referral workbook per routed department (phi)."""
     routing: Routing | None = rs.manifest.routing
     list_to = sorted(set(routing.list_to or [])) if routing else []
+    if not list_to and rs.manifest.kind == "cohort":
+        # D-108: a cohort (registry) ruleset has no clinic list address; its member list goes to the coordinator who
+        # asked (already allowed to request this study), never to the aggregate recipients
+        list_to = [norm(ctx.job.requested_by)]
+        routing = routing.model_copy(update={"list_to": list_to}) if routing else Routing(list_to=list_to)
     if not list_to:
         raise StepFailed("routing", f"Ruleset {rs.id} has no routing.list_to; patient lists cannot be sent.")
     listed = [r for r in rows if r.tier in ("high", "review") or (changes is not None and r.changed)]

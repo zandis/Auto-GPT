@@ -162,6 +162,14 @@ class InprocBackend:
             raise Refused(r.text[:200])
         return str(r.json().get("mrn") or "") or None
 
+    def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
+        from console.backend import Refused
+
+        r = self.c.post("/notices", json={"kind": kind, "to": to, "subject": subject, "body_md": body_md, "by": by})
+        if r.status_code != 200:
+            raise Refused(r.text[:200])
+        return str(r.json().get("message_id") or "")
+
 
 def build(work: Path) -> tuple[Any, Any, Path]:
     from fastapi.testclient import TestClient

@@ -752,25 +752,29 @@ def create_app(
     if not settings.pilot:
         return app
 
+    from console import approval, notify, screening_log
     from console.home import Helpers
     from console.home import register as register_home
     from console.sitestore import SiteStore
 
-    register_home(
-        app,
-        Helpers(
-            need=need,
-            page=page,
-            problem=_Problem,
-            csrf_ok=csrf_ok,
-            actor=actor,
-            bk=bk,
-            au=au,
-            store=SiteStore(settings.data_dir / "site.sqlite"),
-            users=us,
-            clock=us.clock,
-        ),
+    helpers = Helpers(
+        need=need,
+        page=page,
+        problem=_Problem,
+        csrf_ok=csrf_ok,
+        actor=actor,
+        bk=bk,
+        au=au,
+        store=SiteStore(settings.data_dir / "site.sqlite"),
+        users=us,
+        clock=us.clock,
+        submit=submit,
     )
+    app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
+    register_home(app, helpers)
+    approval.register(app, helpers, submit)  # S20 (D-108): the investigator approves, on one page
+    screening_log.register(app, helpers)
+    notify.register(app, helpers)
 
     def _job_or_404(job_id: str) -> Job:
         if not _ULID.match(job_id):
@@ -981,7 +985,6 @@ def create_app(
                             "verdict": v.get("verdict"),
                             "quote": (v.get("evidence") or {}).get("quote"),
                             "date": (v.get("evidence") or {}).get("quote_date"),
-                            "confidence": (v.get("evidence") or {}).get("confidence"),
                         }
                         for v in r.get("criteria") or []
                         if (v.get("evidence") or {}).get("quote")
@@ -1075,25 +1078,6 @@ def create_app(
             headers={"Content-Disposition": f'attachment; filename="{filename}"', "X-Download-Options": "noopen"},
         )
 
-    @app.post("/pilot/jobs/{job_id}/approve")
-    async def approve(
-        request: Request, job_id: str, csrf: str = Form(""), workbook: Annotated[UploadFile | None, File()] = None
-    ) -> Response:
-        sess = need_requester(request, csrf)
-        job = _job_or_404(job_id)
-        book = _review_book(job)
-        if job.state != "awaiting_approval" or book is None or not job.ruleset or not job.ruleset_version:
-            raise _Problem(409, "request.refused", reason="this job is not waiting for approval")
-        if workbook is not None and workbook.filename:
-            data = await workbook.read(MAX_UPLOAD + 1)
-            if len(data) > MAX_UPLOAD or not workbook.filename.lower().endswith(".xlsx"):
-                raise _Problem(400, "request.refused", reason="upload the review workbook (.xlsx, at most 50 MB)")
-        else:
-            data = bk.get_object(book.minio_key)
-        ctype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        new = submit(sess, f"APPROVE {job.ruleset} version={job.ruleset_version}", [("review.xlsx", data, ctype)])
-        return RedirectResponse(f"/pilot/jobs/{new.job_id}", status_code=303)
-
     def _request_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> HTMLResponse:
         approved = [r for r in bk.rulesets() if r.status == "approved"]
         return page(request, "request.html", sess, status, rulesets=approved, **ctx)
@@ -1111,6 +1095,7 @@ def create_app(
         ruleset: str = Form(""),
         lookback: str = Form(""),
         version: str = Form(""),
+        pract: str = Form(""),
     ) -> Response:
         sess = need_requester(request, csrf)
         rs = ruleset.strip().upper()
@@ -1130,6 +1115,13 @@ def create_app(
             if not _VERSION.match(version.strip()):
                 raise _Problem(400, "request.refused", reason="version is x.y.z")
             parts.append(f"version={version.strip()}")
+        if kind == "SCREEN" and pract.strip():  # D-108: a cohort study's list names the clinics it reads
+            ids = re.sub(r"\s+", "", pract).upper().strip(",")
+            if not re.fullmatch(r"[A-Z0-9_-]{1,32}(,[A-Z0-9_-]{1,32}){0,19}", ids):
+                raise _Problem(
+                    400, "request.refused", reason="practitioner ids are letters and digits, comma separated"
+                )
+            parts.append(f"pract={ids}")
         job = submit(sess, " ".join(parts))
         return RedirectResponse(f"/pilot/jobs/{job.job_id}", status_code=303)
 

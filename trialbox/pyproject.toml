@@ -95,6 +95,7 @@ ignore = [
 "services/criteria_compiler/review.py" = ["E501"]
 "services/console/i18n.py" = ["E501"]
 "services/console/i18n_home.py" = ["E501"]
+"services/console/i18n_step2.py" = ["E501"]
 "services/criteria_compiler/compile_cql/generator.py" = ["E501", "S701"]
 "tools/**" = ["PLR", "S"]
 

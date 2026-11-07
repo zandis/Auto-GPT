@@ -277,7 +277,6 @@ EN: dict[str, str] = {
     "wstatus.contacted": "contacted",
     "wstatus.screened": "consented",
     "wstatus.enrolled": "enrolled",
-    "wstatus.not_eligible": "not eligible",
     "fit.inc": "{met}/{total} inclusion met from records",
     "fit.exc": "{clear}/{total} exclusions clear",
     "fit.note_exc": "exclusion found in the notes:",
@@ -542,7 +541,6 @@ JA: dict[str, str] = {
     "wstatus.contacted": "連絡済み",
     "wstatus.screened": "同意取得",
     "wstatus.enrolled": "登録済み",
-    "wstatus.not_eligible": "対象外",
     "fit.inc": "記録で選択基準 {total} 件中 {met} 件を満たす",
     "fit.exc": "除外基準 {total} 件中 {clear} 件に該当なし",
     "fit.note_exc": "診療記録に除外の記載：",
@@ -807,7 +805,6 @@ ZH: dict[str, str] = {
     "wstatus.contacted": "已聯絡",
     "wstatus.screened": "已同意",
     "wstatus.enrolled": "已收案",
-    "wstatus.not_eligible": "不符合",
     "fit.inc": "病歷顯示納入條件 {total} 項中符合 {met} 項",
     "fit.exc": "排除條件 {total} 項中 {clear} 項未出現",
     "fit.note_exc": "病程紀錄中有排除記載：",
@@ -1046,3 +1043,12 @@ ZH.update(
         "wb.pipe.enrolled": "已收案",
     }
 )
+
+# D-108 build step 2: its strings (and the one mark vocabulary, which replaces the D-104 labels) join here
+from console.i18n_step2 import EN as _S2_EN  # noqa: E402
+from console.i18n_step2 import JA as _S2_JA  # noqa: E402
+from console.i18n_step2 import ZH as _S2_ZH  # noqa: E402
+
+EN.update(_S2_EN)
+JA.update(_S2_JA)
+ZH.update(_S2_ZH)

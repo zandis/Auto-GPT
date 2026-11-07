@@ -170,7 +170,7 @@ svg .axis { stroke: var(--line); stroke-width: 1; }
 .markrow form.inline select { width: auto; max-width: 180px; min-height: 28px; padding: 2px 6px; }
 .pill.mk-approach, .pill.stt-contacted, .pill.stt-screened, .pill.stt-enrolled { background: var(--ok-bg); color: var(--ok); }
 .pill.mk-need_info, .pill.stt-new { background: var(--warn-bg); color: var(--warn); }
-.pill.mk-not_suitable, .pill.stt-not_eligible { background: var(--bad-bg); color: var(--bad); }
+.pill.mk-not_suitable, .pill.mk-not_now, .pill.stt-set_aside, .pill.stt-closed { background: var(--bad-bg); color: var(--bad); }
 .pill.stt-pending { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
 .pill.vd-pass { background: var(--ok-bg); color: var(--ok); }
 .pill.vd-fail { background: var(--bad-bg); color: var(--bad); }
@@ -281,3 +281,15 @@ table.worklist .bad { color: var(--bad); font-weight: 600; }
 main:has(.bench), main:has(.crcgrid) { max-width: 1480px; }
 .crcgrid .empty { margin: 0; padding: 4px 12px 12px; }
 @media (max-width: 760px) { .steps li { flex-basis: 30%; padding: 6px 8px; } .steps span { display: none; } }
+
+/* D-108 build step 2: S20 approval, mark and outcome boxes */
+table.approval tr.amber td { background: var(--warn-bg, #fff6db); }
+table.approval tr.amber.seen td { background: transparent; }
+table.approval td.crit { max-width: 46rem; }
+details.codes { margin-top: .35rem; }
+details.codes summary { cursor: pointer; color: var(--muted, #555); font-size: .9em; }
+ul.codes { margin: .25rem 0 .25rem 1rem; padding: 0; font-size: .85em; }
+.amberwhy { margin: .3rem 0 0; }
+.markrow { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .25rem 0; }
+.markform input[type=date], .outform input[type=date] { max-width: 11rem; }
+.outform { margin-top: .6rem; border-top: 1px solid var(--line, #ddd); padding-top: .5rem; }

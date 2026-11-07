@@ -1,11 +1,13 @@
 {% extends "base.html" %}
 {% from "_fit.html" import fit_line, open_items with context %}
 {% from "_steps.html" import steps_bar with context %}
+{% from "_mark.html" import mark_box, outcome_box with context %}
 {% block title %}{{ t('week.title') }} · {{ rs }}{% endblock %}
 {% block content %}
 <div class="headrow"><h1>{{ t('wb.title') }} · {{ rs }}</h1>
 {% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }}</span>{% endif %}</div>
 {{ steps_bar(steps, step) }}
+{% for j in approvals or [] %}<p class="warn" data-testid="approval-waiting"><a href="/pilot/jobs/{{ j.job_id }}/approval">{{ t('s20.waiting', rs=j.ruleset, v=j.ruleset_version) }}</a></p>{% endfor %}
 {% if not wk %}
 <section class="card"><p>{{ t('week.none') }}</p>{% if user.can_request %}<a class="button" href="/pilot/request?ruleset={{ rs }}">{{ t('next.screen') }}</a>{% endif %}</section>
 {% else %}
@@ -43,16 +45,8 @@
     <p class="whyp" data-testid="why"><b>{{ t('patient.why') }}</b> {{ fit_line(p.fit) }}</p>
     {% if p.fit.not_met or p.fit.open or p.fit.person or p.row.actions %}<p class="openp">{{ open_items(p.fit, p.row.actions or []) }}</p>{% endif %}
     {% if request.query_params.get('done') %}<p class="toastp" data-testid="done">{{ t('wb.done.' + request.query_params.get('done')) }}</p>{% endif %}
-    {% if user.can_mark %}
-    <form method="post" action="/studies/{{ rs }}/patients/{{ p.pid }}/mark" class="actp" data-testid="actions">
-      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="list:{{ lst }}">
-      <button type="submit" name="mark" value="approach" data-testid="approach-{{ p.pid[:8] }}">{{ t('wb.approach') }}</button>
-      <button type="submit" name="mark" value="need_info" class="secondary">{{ t('wb.need_info') }}</button>
-      <span class="ns"><label class="sr" for="reason">{{ t('mark.reason') }}</label><select id="reason" name="reason">{% for x in reasons %}<option value="{{ x }}">{{ t('reason.' + x) }}</option>{% endfor %}</select>
-      <button type="submit" name="mark" value="not_suitable" class="secondary danger">{{ t('mark.not_suitable') }}</button></span>
-      <label class="sr" for="note">{{ t('mark.note') }}</label><input id="note" name="note" maxlength="300" placeholder="{{ t('mark.note') }}">
-    </form>
-    {% else %}<p class="hint">{{ t('wb.crc_hint') }}</p>{% endif %}
+    {% if user.can_mark %}{{ mark_box(rs, p.pid, 'list:' + lst, reasons, p.mark, p.today) }}
+    {% else %}<p class="hint">{{ t('wb.crc_hint') }}</p>{{ outcome_box(rs, p.pid, 'list:' + lst, p.outcome_keys, p.screening_no, p.outcomes) }}{% endif %}
     {% for kind in ('inclusion', 'exclusion') %}{% set cs = p.crits|selectattr('kind', 'equalto', kind)|list %}{% if cs %}
     <h3 class="grp">{{ t('wb.' + kind) }}</h3>
     <ul class="critl">{% for c in cs %}<li>
@@ -61,7 +55,7 @@
       <div class="hint">{{ t('verdict.' + c.verdict) }} · {{ t('how.' + c.source) }}{% if c.date %} · {{ c.date }}{% endif %}</div>
       {% if c.quote %}<q class="quote">{{ c.quote }}</q>{% endif %}</div>
     </li>{% endfor %}</ul>{% endif %}{% endfor %}
-    <p class="chartlinks"><a href="/studies/{{ rs }}/patients/{{ p.pid }}" data-testid="full-chart">{{ t('wb.full') }}</a>{% if user.can_request %} · <a href="/pilot/registry/{{ rs }}">{{ t('nav.patients') }}</a>{% endif %}</p>
+    <p class="chartlinks"><a href="/studies/{{ rs }}/patients/{{ p.pid }}" data-testid="full-chart">{{ t('wb.full') }}</a> · <a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a>{% if user.can_request %} · <a href="/pilot/registry/{{ rs }}">{{ t('nav.patients') }}</a>{% endif %}</p>
   </aside>
   {% endif %}
 </div>
