@@ -114,6 +114,39 @@ need both resident: the verifier only re-reads criteria the judge blocked, so it
 (vLLM sleep mode, or stop/start). Measure that time-shared mode first, then tighter caps, before trying another
 Gemma build or a 4k context.
 
+## One 5090 with a day / night schedule (answer to "bigger GPU or schedule?")
+
+No bigger GPU is needed. The two models never have to be loaded at the same time:
+
+| when | loaded | work | load |
+| --- | --- | --- | --- |
+| day (08-20) | Gemma 4 only (~17 GiB weights, rest for context) | chat, PHI check on anything leaving the box, REDCap extraction, protocol drafting, single-case checks | 10 users at peak: light |
+| night pass 1 | Gemma 4 | screen every note criterion for new or changed patients | see below |
+| night pass 2 | Qwen3.5-9B (Gemma put to sleep) | re-read only the criteria Gemma wanted to block; exclude only where both agree | about 10-20 % of pass 1 |
+| morning | Gemma back | lists ready for coordinators | |
+
+Swapping: vLLM "sleep mode" (weights parked in CPU RAM, back in seconds) or a plain stop/start (about 1-2 minutes).
+llama.cpp with `llama-swap` does the same with less memory overhead but lower batch throughput; SGLang is similar to
+vLLM. Recommendation: vLLM, one model at a time, FP8 KV cache. Not yet measured on a card.
+
+Overnight window at 500,000 patients, 50 trials a year (CGMH), `python -m tools.hospital_sim project`
+(synthetic funnel, estimate): 681,000 model calls a year, about 13,600 per trial. On 6 Nov the pair did 4.8 checks per
+second on the card, so one full trial screen is about 50 minutes and a nightly update for changed patients is minutes.
+Fifty new trials at once would take about 5 nights. Compute is not the bottleneck; coordinator review is.
+
+Why two models: the second model is a safety check, not extra capacity. Gemma alone wrongly excluded more eligible
+patients in every test:
+
+| set | Gemma 4 alone | Gemma 4 + Qwen3.5-9B (both must agree) |
+| --- | --- | --- |
+| SIGIR, filter first, on card (EN / JA, of 79) | 11 / 12 | 4 / 3 |
+| SIGIR, filter first, API 4-bit (EN / JA / zh-TW) | 5 / 5 / 6 | 1 / 2 / 1 |
+| TREC raw, eligible pairs lost | 31.0 % | 19.3 % |
+
+With one model only, the safe mode is `never`: the LLM may send a patient to review but never exclude, so it loses no
+one but catches fewer exclusions (block recall 0.39 from filters alone vs 0.52-0.58 with the pair), which means more
+coordinator review.
+
 ## Chat / front desk (added 2026-11-07, `tools/chat_eval.py`)
 
 10 chat jobs x 3 languages (ja, zh-TW, en) with the real front-door tools plus a "open workbench tile" tool: start a
