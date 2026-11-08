@@ -1785,6 +1785,9 @@ patient, per-actor rate limit) was done in step 2.
   local code reaches the lake instead of an empty code) belongs to step 7. Misfire: no catch-up run on start for a
   job missed by more than six hours, and no "last run" per timer on the admin page. Per-service tokens stay with
   D-128.
+* **N-12 on the deployed files (2026-11-08).** TREC CT 2021/22, 1,700 pairs and 20,096 criteria, judge and verifier
+  as deployed on the RTX PRO 6000 profile: eligible pairs wrongly dropped, audit-adjusted, **3.1 %** (95 % 1.8–5.0 %),
+  gate ≤ 5 %: **pass** (API 4-bit was 3.6 %); excluded pairs caught 50.8 %. `eval/trec_ct/results/n12_deployed_2026-11-08.md`.
 
 **D-131 Site setup and data harmonization: three questions, one rule, one readiness page.** Owner's answers,
 2026-11-08; a new plan step 5b, after the lifecycle and before handover.
