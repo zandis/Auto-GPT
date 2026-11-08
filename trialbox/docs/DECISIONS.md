@@ -953,3 +953,41 @@ and the whole `document_chunk` table was built as one Arrow table from Python ro
 (4 KB), read from the embedding cache through Arrow, inserted in batches of 4,096 rows, and the resource dicts and
 non-document flat rows are freed once their Parquet file is written. The stored values are unchanged (the column was
 already FLOAT[1024]). Peak memory of a 5,000-patient cycle fell from 2.6 GB to 1.8 GB. Reviewed 2026-11-05.
+
+## Simple build plan, step 1: feasibility (2026-11)
+
+**D-106 Synthetic hospital for the build (TB-DS-21) and the paste-criteria feasibility path.** Build step 1 of
+TB-PLAN-02 (`20-build-map.md` §2). (1) `tools/synth` becomes the generator of the synthetic hospital without changing
+its default output: every planted-state rate moved unchanged into `tools/synth/rates.yaml` (TB-DS-21 §3.1, order
+kept, so `tools/make_fixtures.py` still writes the committed `tests/fixtures/synthetic_patients` byte for byte); the
+generator takes a record style (TW as before, or JP: kanji names from `names_ja.py`, 8-digit chart numbers, insurer
+numbers with the never-issued 法別番号 00, Japanese phone format, Japanese practitioner names) and a note-language mix
+(zh-TW, ja, en; templates `notes.py`, `notes_ja.py`, `notes_en.py` behind `lang.Lang`, same draw shape in every
+language). With `gold=True` it also plants PHI spans (name, date, chart number, phone, address, insurer number,
+hospital name; rates in `rates.yaml` `phi`, proposed in TB-DS-21 and adopted here: 70 % of notes carry PHI, 3 spans
+each on average, so 2.1 per note overall), writes 10 % of note dates as 和暦 (JA) or 民國 years (zh-TW), never emits
+a Taiwanese ID with a valid check digit or a reserved name (`tools/synth/reserved.py`), and records `gold/notes.jsonl`
+(findings per §5.1 slot and PHI spans, Unicode code-point offsets). Language, date-form and PHI draws use their own
+random streams, so the main stream is untouched. (2) `python -m tools.synth_hospital` writes one or more sites in
+chunks of 10,000 patients (streaming CSV and truth files) and runs the §6 checks: determinism (sha256 manifest and
+digest), every finding and PHI span re-found against the text after a CSV round trip, every note criterion of the
+listed rulesets has a slot, no reserved identifier, every planted-state share within ±5 points (`--profile ci`, 5,000
+patients: JP-A + TW-A) or ±2 points (`--profile full`, 500,000: JP-HEAD 300,000 + TW-A 200,000); a cell is compared
+only when 3 binomial standard deviations fit in the tolerance (8 small cells such as pregnancy among women aged
+18–45 are skipped on ci; none on full). Measured on the build container (2026-11-07): ci 2.9 s; full 291 s, 2.4 GB on
+disk, 975 MB peak memory, 126 of 126 rate cells within ±2 points (largest gap 0.27 points). The full profile is not
+run in CI. Synthea stays optional and off (`--synthea` only reports that). (3) Console S2: the protocol page takes
+pasted criteria (`criteria`, one per line; a line that is only "Inclusion/Exclusion criteria", 選択基準/除外基準 or
+納入條件/排除條件 switches list) and sends `FEAS <id>` with a `criteria.md` the parser reads; criteria that match the
+approved ruleset of that id run at once and the browser lands on S3 (`/studies/{id}/feasibility`), anything else is
+compiled for review as before (approval is step 2). (4) Settings: `ethics_gate` (always off with `TB_ENV` DEV or
+TEST, else the value, on when unset; F6-03) and `schedule.mode` (`auto`: DEV runs on demand, no timed jobs, FR-OPS-12
+/ F6-30; `nightly`; `on_demand`), with `orchestrator.scheduler.run_now` for the on-demand path. An unset `TB_ENV` is
+read as PRODUCTION for both, so an install that forgets it keeps its schedule and its gate. (5) `python -m
+tools.feas_demo` builds the ci hospital, joins the two sites into one 5,000-patient lake, signs in as the coordinator
+in Japanese, pastes the GOUT-COH criteria on S2 and lands on the S3 funnel (5,000 → 1,485 gout diagnosis → … → 5);
+`tests/integration/test_feas_demo.py` runs the same path. Not done here: JLAC10 lab codes, YJ drug codes and 保険病名
+on JP sites (JP sites reuse the TW code columns so the existing `tw_core/demo_his.yaml` mapping and rulesets read
+them; terminology is TB-DS-10 work); the SS-MIX2 folder writer (H); per-study expected eligible rate in the generator
+summary (the FEAS funnel on the demo gives it); the GOUT-COH criterion labels stay as authored (zh-TW) inside a
+Japanese report. TB-DS-21 §5 calls GZQO "the early-Alzheimer study"; in this repository GZQO is the gout trial.

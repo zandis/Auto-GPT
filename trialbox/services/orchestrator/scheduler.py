@@ -70,6 +70,20 @@ def plan(settings: Settings) -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
+def run_now(orch: Orchestrator, jtype: str, ruleset: str | None = None) -> None:
+    """Run one scheduled job type now (the on-demand path of FR-OPS-12), with the same fan-out as the timer."""
+    if jtype == "MICROBATCH":
+        targets: list[str | None] = list(orch.db.pool_rulesets())
+    elif jtype == "CALIBRATION":
+        targets = list(orch.db.feedback_rulesets())
+    elif jtype == "COHORT":
+        targets = list(cohort_rulesets(orch))
+    else:
+        targets = [ruleset]
+    for rid in [ruleset] if ruleset and jtype != "INGEST" else targets:
+        _submit(orch, jtype, rid)
+
+
 def cohort_rulesets(orch: Orchestrator) -> list[str]:
     """``settings.cohort.rulesets`` when given, else every approved cohort ruleset."""
     cs = orch.cfg.settings.cohort
@@ -84,7 +98,14 @@ def cohort_rulesets(orch: Orchestrator) -> list[str]:
 
 
 def start(orch: Orchestrator) -> Any:
+    """Start the timed jobs, or nothing when the schedule is on demand (DEV by default, FR-OPS-12): then INGEST,
+    MICROBATCH and the rest run only when requested (mail command, console or ``run_now``)."""
     from apscheduler.schedulers.background import BackgroundScheduler
+    from tb_common.config import schedule_on_demand, tb_env
+
+    if schedule_on_demand(orch.cfg.settings, tb_env(orch.cfg.env)):
+        log.info("schedule is on demand (TB_ENV=%s): no timed jobs", tb_env(orch.cfg.env))
+        return None
 
     sched = BackgroundScheduler(timezone=orch.cfg.env.tz)
     for jtype, kw in plan(orch.cfg.settings):

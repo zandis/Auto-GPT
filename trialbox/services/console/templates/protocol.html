@@ -11,6 +11,9 @@
   <input id="ruleset" name="ruleset" required maxlength="16" pattern="[A-Za-z0-9][A-Za-z0-9_\-]{0,15}">
   <label for="protocol">{{ t('protocol.file') }}</label>
   <input id="protocol" name="protocol" type="file" accept=".pdf,.docx,.txt,.md">
+  <label for="criteria">{{ t('protocol.paste') }}</label>
+  <textarea id="criteria" name="criteria" rows="10" maxlength="40000" data-testid="criteria" aria-describedby="criteria-help">{{ criteria or '' }}</textarea>
+  <p class="hint" id="criteria-help">{{ t('protocol.paste_help') }}</p>
   {% if sample %}<label class="check"><input type="checkbox" name="use_sample" value="1" data-testid="use-sample"> {{ t('protocol.sample') }}</label>{% endif %}
   <button type="submit" {{ 'disabled' if not user.can_request else '' }} data-testid="compile">{{ t('protocol.submit') }}</button>
 </form>
