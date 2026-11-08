@@ -59,10 +59,10 @@ def status_of(html: str, no: str) -> str:
 
 def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     from fastapi.testclient import TestClient
-    from rc_sim.app import app as sim
-    from rc_sim.app import load_projects, register_inproc
+    from rc_sim.app import create_app, load_projects, register_inproc
 
-    register_inproc()  # demo box only (FR-RC-17a)
+    sim = create_app()  # a fresh simulator per run: records from an earlier run in this process never leak in
+    register_inproc(sim)  # demo box only (FR-RC-17a)
     token_a = next(t for t, p in load_projects().items() if p["project"]["project_id"] == 101)
     res = ld.run(work, password, lang)
     app, h, crc = res["app"], res["app"].state.helpers, res["crc"]

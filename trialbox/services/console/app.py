@@ -50,6 +50,7 @@ from console.auth import (
     UserStore,
     csrf_ok,
     random_password,
+    reveal_reason,
     scope_values,
 )
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
@@ -1015,7 +1016,9 @@ def create_app(
         return card
 
     @app.post("/pilot/jobs/{job_id}/reveal")
-    def job_reveal(request: Request, job_id: str, csrf: str = Form(""), pid: str = Form("")) -> Response:
+    def job_reveal(
+        request: Request, job_id: str, csrf: str = Form(""), pid: str = Form(""), reason: str = Form("")
+    ) -> Response:
         """One chart number for one listed pseudonym, shown once on the page and audited on both sides (D-99)."""
         sess = need_requester(request, csrf)
         job = _job_or_404(job_id)
@@ -1024,7 +1027,13 @@ def create_app(
         pid = pid.strip()
         if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", pid):
             raise _Problem(400, "request.refused", reason="bad pseudonym")
-        au.append("console.reveal", job_id=job_id, actor=actor(sess), detail={"pid": pid})
+        au.append(
+            "console.reveal",
+            job_id=job_id,
+            ruleset=job.ruleset,
+            actor=actor(sess),
+            detail={"pid": pid, "reason": reveal_reason(reason)},
+        )
         try:
             mrn = bk.reveal(job_id, pid, actor(sess))
         except Refused as exc:

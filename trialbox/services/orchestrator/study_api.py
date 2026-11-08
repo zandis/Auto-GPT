@@ -195,7 +195,10 @@ class StudyService:
         self.store.log_read(rs, at, by, True, result)
         self.audit.append("redcap.read", ruleset=rs, actor=by,
                           detail={"result": "ok", "changes": len(changes), "duplicates": len(rb.duplicates),
-                                  "conflicts": len(conflicts)})  # fmt: skip
+                                  "conflicts": len(conflicts),
+                                  # FR-AUD-01e: every registry status change, by pseudonym (no chart number)
+                                  "status_changes": [{"pid": c["pid"], "from": c["from"], "to": c["to"],
+                                                      "record_id": c["record_id"]} for c in changes]})  # fmt: skip
         return result
 
 

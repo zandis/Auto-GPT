@@ -16,7 +16,7 @@ from orchestrator.reports.common import ReportMeta, fmt_count
 from orchestrator.scenarios import calibration, feas_profile
 from orchestrator.scenarios.feas_compute import FeasError, FeasParams, compute, parse_variant_option, raw_json
 from orchestrator.scenarios.review import approved_or_none, compile_draft, protocol_input, recipients, require_approved
-from orchestrator.scenarios.screen import NO_MODEL, pinned_clock_note
+from orchestrator.scenarios.screen import NO_MODEL, pinned_clock_note, provenance
 
 
 def capacity(settings: Settings, practitioners: list[str] | None) -> float | None:
@@ -103,7 +103,12 @@ def run(ctx: Ctx) -> Outcome:
     caps = dict(settings.site_capabilities or {})
     pdf = ctx.publish(f"{stem}.pdf", feasibility_pdf.render(result, rs, meta, caps, small_cell), "aggregate", to)
     xlsx = ctx.publish(f"{stem}.xlsx", feasibility_xlsx.render(result, rs, meta), "aggregate", to)
-    body = json.dumps(dump(result), ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+    body = (
+        json.dumps(
+            {**dump(result), "provenance": provenance(ctx, rs, meta)}, ensure_ascii=False, indent=1, sort_keys=True
+        )
+        + "\n"
+    )
     js = ctx.publish(f"{stem}.json", body.encode("utf-8"), "aggregate", to)
     # unsuppressed counts stay in the box (funnel-compare harness); hashed + audited, never mailed
     ctx.publish(f"{stem}.raw.json", raw_json(raw), "phi", [])

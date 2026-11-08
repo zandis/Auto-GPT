@@ -407,3 +407,14 @@ class UserStore:
 
 def csrf_ok(session: Session, submitted: str | None) -> bool:
     return bool(submitted) and hmac.compare_digest(session.csrf, submitted or "")
+
+
+REVEAL_REASONS = ("contact", "eligibility", "consent", "other")
+
+
+def reveal_reason(value: str) -> str:
+    """FR-AUD-01b: the reason recorded with a chart-number reveal. The console forms always send one of
+    ``REVEAL_REASONS``; anything else (an old page, a scripted call) is recorded as ``not given`` so the audit never
+    invents one."""
+    v = (value or "").strip().lower()
+    return v if v in REVEAL_REASONS else "not given"

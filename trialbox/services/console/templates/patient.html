@@ -8,7 +8,7 @@
   <h1>{{ rs }} · {{ t('week.patient', p=pid[:8]) }}</h1>
   <div>
   {% if mrn is not none %}<span class="pill ok" data-testid="mrn">{{ t('patient.mrn') }} {{ mrn or t('patient.mrn.none') }}</span>
-  {% else %}<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/reveal" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="reveal">{{ t('patient.reveal') }}</button></form>{% endif %}
+  {% else %}<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/reveal" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><label class="inline">{{ t('reveal.reason') }} <select name="reason" data-testid="reveal-reason">{% for k in ['contact', 'eligibility', 'consent', 'other'] %}<option value="{{ k }}">{{ t('reveal.reason.' ~ k) }}</option>{% endfor %}</select></label><button type="submit" class="small secondary" data-testid="reveal">{{ t('patient.reveal') }}</button></form>{% endif %}
   </div>
 </div>
 {% if mrn is not none %}<p class="hint">{{ t('patient.mrn.help') }}</p>{% endif %}

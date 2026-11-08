@@ -189,6 +189,41 @@ def models_used(j: dict[str, Any] | None) -> str:
     return f"{j['judge_model']} (single, {j['note_block']}-exclude)"
 
 
+def provenance(ctx: Ctx, rs: Ruleset, meta: ReportMeta, judging: dict[str, Any] | None = None) -> dict[str, Any]:
+    """FR-REP-01: what every report says about how it was made, as one block in the machine-readable JSON (the PDF
+    and XLSX print the same values in their footer). Built only from the job, the ruleset and the run's ``judging``
+    record, so a re-run of the job (same id, pinned clock and snapshot) writes the same bytes (FR-REP-02)."""
+    s = ctx.cfg.settings
+    ran = models_used(judging) != NO_MODEL
+    prompts: list[str] = []
+    if ran:
+        pid = rs.manifest.models.judge_prompt if rs.manifest.models and rs.manifest.models.judge_prompt else "judge"
+        try:
+            from tb_common.llm import load_prompt
+
+            pr = load_prompt(pid)
+            prompts.append(f"{pr.meta.id}_v{pr.meta.version}")
+        except Exception:  # a missing prompt file is reported as the id alone, never fails the report
+            prompts.append(pid)
+    return {
+        "study": rs.manifest.trial_alias or rs.id,
+        "ruleset": rs.id,
+        "ruleset_version": rs.version,
+        "snapshot": meta.snapshot,
+        "data_sources": [f"{s.data_source.type} (lake snapshot {meta.snapshot})"],
+        "models": [m for m in [(judging or {}).get("judge_model"), (judging or {}).get("verifier_model")] if m]
+        if ran
+        else [],
+        "model_summary": meta.model,
+        "prompt_versions": prompts,
+        "run_date": meta.run_date,
+        "clock": meta.clock or "system clock",
+        "job_id": meta.job_id,
+        "language": meta.locale,
+        "site": meta.site_id,
+    }
+
+
 def stage_funnel(rs: Ruleset, srun: ScreenRun, listed: int, n: Callable[[int], int]) -> list[list[Any]]:
     """The run as the one named funnel every page shows (M7), with the cascade's stage ids: S0 in scope, S1 after
     the coded filters, S3 patients whose notes the model read, S4 candidates (high + review) for a person. When the
@@ -574,6 +609,7 @@ def run(ctx: Ctx) -> Outcome:
                 "referrals": {k: n(v) for k, v in info["referrals"].items()},
                 "unknown_by_criterion": {k: n(v) for k, v in sorted(unknown_by.items())},
                 "judging": judging,
+                "provenance": provenance(ctx, rs, meta, judging),
             },
             ensure_ascii=False,
             indent=1,

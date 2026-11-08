@@ -158,6 +158,12 @@ EN: dict[str, str] = {
     "health.down": "Down",
     "log.from_redcap": "REDCap record {r}",
     "mark.ask_doctor": "Ask treating doctor",
+    # FR-AUD-01b: the reason recorded with every chart-number reveal (step 5, D-111)
+    "reveal.reason": "Why",
+    "reveal.reason.contact": "to contact the patient",
+    "reveal.reason.eligibility": "to check eligibility in the chart",
+    "reveal.reason.consent": "consent visit",
+    "reveal.reason.other": "other (study work)",
 }
 
 JA: dict[str, str] = {
@@ -305,6 +311,12 @@ JA: dict[str, str] = {
     "health.down": "停止",
     "log.from_redcap": "REDCap レコード {r}",
     "mark.ask_doctor": "主治医に確認",
+    # FR-AUD-01b: the reason recorded with every chart-number reveal (step 5, D-111)
+    "reveal.reason": "理由",
+    "reveal.reason.contact": "患者への連絡",
+    "reveal.reason.eligibility": "カルテで適格性を確認",
+    "reveal.reason.consent": "同意取得の面談",
+    "reveal.reason.other": "その他（研究業務）",
 }
 
 ZH: dict[str, str] = {
@@ -452,4 +464,10 @@ ZH: dict[str, str] = {
     "health.down": "停止",
     "log.from_redcap": "REDCap 紀錄 {r}",
     "mark.ask_doctor": "詢問主治醫師",
+    # FR-AUD-01b: the reason recorded with every chart-number reveal (step 5, D-111)
+    "reveal.reason": "原因",
+    "reveal.reason.contact": "聯絡病人",
+    "reveal.reason.eligibility": "於病歷確認是否符合條件",
+    "reveal.reason.consent": "知情同意訪視",
+    "reveal.reason.other": "其他（研究業務）",
 }
