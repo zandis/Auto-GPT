@@ -251,6 +251,12 @@ WHERE EXISTS (SELECT 1 FROM encounter e WHERE e.pid = p.pid
 ORDER BY p.pid
 """
 CONSENT_SQL = "SELECT pid, status, contact_ok FROM consent ORDER BY pid, date"
+
+
+def missing_table(exc: BaseException, table: str) -> bool:
+    """The lake (in process: DuckDB's catalog error; over HTTP: its text) says ``table`` does not exist."""
+    msg = str(exc)
+    return f"{table}" in msg and ("does not exist" in msg or "Catalog Error" in msg)
 NOTES_SQL = """
 SELECT did, pid, CAST(date AS DATE) AS d, type, text FROM document
 WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND CAST(date AS DATE) BETWEEN CAST($2 AS DATE) AND CAST($3 AS DATE)
@@ -336,7 +342,11 @@ class _Run:
         try:
             for r in self.lake.query(CONSENT_SQL, [], cfg.snapshot).to_pylist():
                 consent[str(r["pid"])] = (str(r["status"] or ""), r["contact_ok"])
-        except Exception:  # a lake without the consent table has no opt-outs to apply
+        except Exception as exc:
+            # only a lake that has no consent table at all has no opt-outs to apply; any other failure stops the
+            # run, because skipping opt-outs would list patients who said no (D-127, review F-04)
+            if not missing_table(exc, "consent"):
+                raise
             consent = {}
         opted_out = 0
         for r in rows:
@@ -477,7 +487,11 @@ class _Run:
         hi = max(self.traces[p].index_date for p in pids)
         try:
             rows = self.lake.query(NOTES_SQL, [pids, lo.isoformat(), hi.isoformat()], self.cfg.snapshot).to_pylist()
-        except Exception:  # a lake without notes (MIMIC demo): every note pair is a data gap
+        except Exception as exc:
+            # a lake without a note table (MIMIC demo): every note pair is a data gap; any other failure stops the
+            # run instead of turning every note criterion into "unknown" without saying why (D-127, review F-04)
+            if not missing_table(exc, "document"):
+                raise
             rows = []
         out: dict[str, list[_Note]] = {}
         for r in rows:
