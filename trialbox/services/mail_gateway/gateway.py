@@ -5,12 +5,14 @@ from __future__ import annotations
 import contextlib
 import imaplib
 import logging
+import smtplib
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import format_datetime, make_msgid
 from pathlib import Path
+from typing import Any
 
 from tb_common.audit import AuditLog
 from tb_common.config import Config
@@ -51,6 +53,18 @@ def http_job_sink(base_url: str) -> JobSink:
     return create
 
 
+# the transport refused before the server accepted the message (D-127, F-02): safe to try again later
+REFUSED_BEFORE_SENDING = (
+    ConnectionRefusedError,
+    smtplib.SMTPConnectError,
+    smtplib.SMTPHeloError,
+    smtplib.SMTPAuthenticationError,
+    smtplib.SMTPSenderRefused,
+    smtplib.SMTPRecipientsRefused,
+    smtplib.SMTPNotSupportedError,
+)
+
+
 @dataclass
 class Gateway:
     cfg: Config
@@ -72,7 +86,32 @@ class Gateway:
 
     # ------------------------------------------------------------------ outbound
     def send(self, req: SendRequest) -> SendResult:
-        p = prepare(
+        key = req.idempotency_key
+        if key:
+            done = self.db.claim_send(key, req.job_id, now(self.cfg.env.tz).isoformat())  # SendUncertain propagates
+            if done is not None:
+                self.audit.append("mail.duplicate_suppressed", job_id=req.job_id, detail={"key": key})
+                return SendResult.model_validate_json(done)
+        try:
+            p = self._prepare(req)  # routing, encryption, attachments: nothing has left yet
+        except BaseException:
+            if key:
+                self.db.release_send(key)
+            raise
+        try:
+            self.transport(self.sender, p.recipients, p.data)
+        except REFUSED_BEFORE_SENDING:
+            if key:
+                self.db.release_send(key)  # refused before the server accepted anything: a later try may send it
+            raise
+        # from here on the message has left: any failure keeps the key in "sending", so it is never resent
+        res = self._after_main(req, p)
+        if key:
+            self.db.finish_send(key, res.message_id, res.model_dump_json(), now(self.cfg.env.tz).isoformat())
+        return res
+
+    def _prepare(self, req: SendRequest) -> Any:
+        return prepare(
             req,
             store=self.store,
             sender=self.sender,
@@ -82,7 +121,8 @@ class Gateway:
             smime_dir=self.secrets_dir / "smime",
             tz=self.cfg.env.tz,
         )
-        self.transport(self.sender, p.recipients, p.data)
+
+    def _after_main(self, req: SendRequest, p: Any) -> SendResult:
         for rcpt, pw in p.password_mails:  # separately, to the same recipient only
             self.transport(self.sender, [rcpt], pw)
         ts = now(self.cfg.env.tz).isoformat()

@@ -281,3 +281,73 @@ def test_outbound_subject_with_a_middle_dot_has_no_empty_encoded_word(tmp_path: 
     enc = prepare(_req(["pi@hospa.test"]), store=store, sender="trialbox@hospa.test", internal_domains=["hospa.test"])
     pw = message_from_bytes(enc.password_mails[0][1], policy=policy.default)
     assert str(pw["Subject"]).startswith("Password: ")
+
+
+def _send_gateway(tmp_path: Path, transport):  # type: ignore[no-untyped-def]
+    from mail_gateway.gateway import Gateway
+    from tb_common.audit import AuditLog
+    from tb_common.config import Config, load_env
+
+    env = load_env(dotenv=tmp_path / "none.env", environ={"MAIL_FROM_ADDR": "trialbox@hospa.test"})
+    return Gateway(
+        Config(env=env, settings=SETTINGS),
+        _store(tmp_path),
+        MailDB(),
+        AuditLog(tmp_path / "audit", "Asia/Taipei"),
+        transport,
+        jobs=lambda req: pytest.fail("no job"),
+        secrets_dir=tmp_path,
+    )
+
+
+def test_the_same_send_key_never_mails_twice(tmp_path: Path) -> None:
+    """D-127 (review F-02): a step re-run after a restart sends the same key; the PI gets one mail and one password."""
+    sent: list[list[str]] = []
+    gw = _send_gateway(tmp_path, lambda _f, to, _d: sent.append(list(to)))
+    req = _req(["pi@hospa.test"], tag="phi", enc=True).model_copy(update={"idempotency_key": "tbmail-k1"})
+    first = gw.send(req)
+    n = len(sent)
+    again = gw.send(req)
+    assert again.message_id == first.message_id and len(sent) == n  # nothing sent the second time
+    assert gw.send(req.model_copy(update={"idempotency_key": "tbmail-k2"})).message_id != first.message_id
+
+
+def test_a_refusal_before_sending_frees_the_key_and_a_lost_answer_never_resends(tmp_path: Path) -> None:
+    import smtplib
+
+    from mail_gateway.store import SendUncertain
+
+    state = {"fail": "refused"}
+    sent: list[bytes] = []
+
+    def transport(_f: str, to: list[str], data: bytes) -> None:
+        if state["fail"] == "refused":
+            raise smtplib.SMTPRecipientsRefused({to[0]: (550, b"no")})
+        if state["fail"] == "lost":
+            sent.append(data)  # the server took it, then the connection dropped before the answer
+            raise TimeoutError("answer lost")
+        sent.append(data)
+
+    gw = _send_gateway(tmp_path, transport)
+    req = _req(["pi@hospa.test"], tag="aggregate", enc=False).model_copy(update={"idempotency_key": "tbmail-a"})
+    with pytest.raises(smtplib.SMTPRecipientsRefused):
+        gw.send(req)
+    state["fail"] = ""
+    gw.send(req)  # the refused key was freed: this try sends
+    assert len(sent) == 1
+    req2 = req.model_copy(update={"idempotency_key": "tbmail-b"})
+    state["fail"] = "lost"
+    with pytest.raises(TimeoutError):
+        gw.send(req2)
+    state["fail"] = ""
+    with pytest.raises(SendUncertain):
+        gw.send(req2)  # may have arrived: never resent automatically
+    assert len(sent) == 2
+
+
+def test_orchestrator_send_keys_are_stable() -> None:
+    from orchestrator.core import send_key
+
+    a = send_key("J1", "done", ["b@x", "a@x"], "S", ["list.xlsx", "r.pdf"])
+    assert a == send_key("J1", "done", ["a@x", "b@x"], "S", ["r.pdf", "list.xlsx"])
+    assert a != send_key("J1", "failed", ["a@x", "b@x"], "S", ["r.pdf", "list.xlsx"])

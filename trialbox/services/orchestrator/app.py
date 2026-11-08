@@ -290,8 +290,15 @@ def notice(req: NoticeRequest, x_tb_actor: str | None = Header(default=None, ali
     external = [r for r in req.to if not is_internal(r, o.cfg.settings.internal_domains)]
     if external:
         raise HTTPException(status_code=400, detail=f"notices go to hospital addresses only, not {external[0]}")
+    from orchestrator.core import send_key
+
+    day = o._now().date().isoformat()
+    # D-127 (F-02): one notice of a kind per recipients, subject and day, even when the console's timer retries
+    key = send_key(f"notice:{day}", req.kind, list(req.to), req.subject, [])
     res = o.services.mail.send(
-        SendRequest(job_id=None, to=req.to, subject=req.subject, body_md=req.body_md, tag="aggregate")
+        SendRequest(
+            job_id=None, to=req.to, subject=req.subject, body_md=req.body_md, tag="aggregate", idempotency_key=key
+        )
     )
     o.audit.append(
         "notice.sent",

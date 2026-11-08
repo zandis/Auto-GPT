@@ -28,11 +28,30 @@ CREATE TABLE IF NOT EXISTS sent (
 """
 
 
+# D-127 (review F-02): one row per idempotency key. "sending" is written before the transport is called and "sent"
+# after it returned; a key found in "sending" belongs to a send that may or may not have left (a crash in between),
+# so it is never sent again automatically: a person checks the mailbox and resolves it.
+SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS send_keys (
+  key TEXT PRIMARY KEY,
+  state TEXT NOT NULL,
+  message_id TEXT,
+  job_id TEXT,
+  result TEXT,
+  at TEXT NOT NULL
+)
+"""
+
+
+class SendUncertain(RuntimeError):
+    """A send with this key started and never finished: it may have reached the recipients. Never resent."""
+
+
 class MailDB:
     def __init__(self, url: str | None = None) -> None:
         """``url``: the trial database (``TB_DB_URL`` when ``None``; :class:`~tb_common.db.DatabaseError` if unset)."""
         self.db = Database.connect(url or os.environ.get(ENV), "mail")
-        self.db.migrate([SCHEMA_V1])
+        self.db.migrate([SCHEMA_V1, SCHEMA_V2])
 
     def close(self) -> None:
         self.db.close()
@@ -68,6 +87,32 @@ class MailDB:
             "recipients = EXCLUDED.recipients, tag = EXCLUDED.tag, sent_at = EXCLUDED.sent_at",
             (message_id, job_id, subject, ",".join(recipients), tag, at),
         )
+
+    def claim_send(self, key: str, job_id: str | None, at: str) -> str | None:
+        """Reserve ``key`` for a send. ``None``: go ahead. A JSON result: already sent (return it, send nothing).
+        Raises :class:`SendUncertain` when an earlier send with this key never finished."""
+        with self.db.transaction() as tx:
+            n = tx.execute(
+                "INSERT INTO send_keys (key, state, job_id, at) VALUES (?, 'sending', ?, ?) "
+                "ON CONFLICT (key) DO NOTHING",
+                (key, job_id, at),
+            )
+            if n == 1:
+                return None
+            row = tx.fetchone("SELECT state, result FROM send_keys WHERE key = ?", (key,))
+        if row and row[0] == "sent":
+            return str(row[1])
+        raise SendUncertain(f"send {key[:12]} started earlier and did not finish: check the mailbox, then resolve it")
+
+    def finish_send(self, key: str, message_id: str, result_json: str, at: str) -> None:
+        self.db.execute(
+            "UPDATE send_keys SET state = 'sent', message_id = ?, result = ?, at = ? WHERE key = ?",
+            (message_id, result_json, at, key),
+        )
+
+    def release_send(self, key: str) -> None:
+        """The transport refused before accepting anything: the key may be used again."""
+        self.db.execute("DELETE FROM send_keys WHERE key = ? AND state = 'sending'", (key,))
 
     def sent(self, message_id: str) -> tuple[str | None, str] | None:
         row = self.db.fetchone("SELECT job_id, subject FROM sent WHERE message_id = ?", (message_id,))

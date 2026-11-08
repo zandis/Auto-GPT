@@ -19,7 +19,7 @@ from tb_contracts import SendRequest, SendResult
 
 from mail_gateway.gateway import Gateway, http_job_sink, log
 from mail_gateway.outbound import EncryptionError, RoutingRefused, smtp_transport
-from mail_gateway.store import MailDB
+from mail_gateway.store import MailDB, SendUncertain
 
 _gw: Gateway | None = None
 
@@ -79,6 +79,8 @@ def send(req: SendRequest) -> SendResult:
         raise HTTPException(status_code=422, detail={"step": "routing", "message": str(exc)}) from exc
     except EncryptionError as exc:
         raise HTTPException(status_code=422, detail={"step": "mail", "message": str(exc)}) from exc
+    except SendUncertain as exc:  # D-127 (F-02): may have left already; a person must check, never an automatic resend
+        raise HTTPException(status_code=409, detail={"step": "mail", "message": str(exc)}) from exc
     except KeyError as exc:
         raise HTTPException(
             status_code=422, detail={"step": "mail", "message": f"attachment not found: {exc}"}

@@ -59,6 +59,15 @@ SYSTEM_SENDERS = ("scheduler", "system")
 FAST_LANE = ("STATUS", "CANCEL")
 
 
+def send_key(job_id: str, kind: str, to: list[str], subject: str, filenames: list[str]) -> str:
+    """The idempotency key of one mail (D-127, review F-02): the same job, kind, recipients, subject and attachment
+    names give the same key, so a step re-run after a restart never mails the PI or the password twice."""
+    import hashlib
+
+    parts = [job_id, kind, ",".join(sorted(to)), subject, ",".join(sorted(filenames))]
+    return "tbmail-" + hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+
 class Cancelled(RuntimeError):
     pass
 
@@ -412,6 +421,7 @@ class Orchestrator:
             encrypt=tag == "phi",
             tag=tag,
             in_reply_to=job.message_id,
+            idempotency_key=send_key(job.job_id, kind, to, subject, [o.filename for o in outputs]),
         )
         res = self.services.mail.send(req)
         self.db.add_mail(res.message_id, job.job_id, kind, subject, self._now().isoformat())
