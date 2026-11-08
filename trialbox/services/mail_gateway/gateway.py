@@ -120,6 +120,7 @@ class Gateway:
             smime_certs=dict(self.cfg.settings.smime_certs or {}),
             smime_dir=self.secrets_dir / "smime",
             tz=self.cfg.env.tz,
+            link_base=self.cfg.env.extra.get("TB_CONSOLE_URL", ""),
         )
 
     def _after_main(self, req: SendRequest, p: Any) -> SendResult:

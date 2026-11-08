@@ -351,3 +351,20 @@ def test_orchestrator_send_keys_are_stable() -> None:
     a = send_key("J1", "done", ["b@x", "a@x"], "S", ["list.xlsx", "r.pdf"])
     assert a == send_key("J1", "done", ["a@x", "b@x"], "S", ["r.pdf", "list.xlsx"])
     assert a != send_key("J1", "failed", ["a@x", "b@x"], "S", ["r.pdf", "list.xlsx"])
+
+
+def test_link_mode_sends_no_patient_file_and_no_password(tmp_path: Path) -> None:
+    """D-127: a site that chose 'link' gets a mail with a sign-in link instead of a zip and a password mail."""
+    from mail_gateway.outbound import EncryptionError
+
+    store = _store(tmp_path)
+    req = _req(["pi@hospa.test"], tag="phi", enc=True)
+    p = prepare(req, store=store, sender="trialbox@hospa.test", internal_domains=["hospa.test"], mode="link",
+                link_base="https://trialbox.hospa.test/")  # fmt: skip
+    msg = message_from_bytes(p.data, policy=policy.default)
+    assert not p.password_mails and not p.encrypted
+    assert not [part for part in msg.iter_attachments()]
+    text = msg.get_body(preferencelist=("plain",)).get_content()  # type: ignore[union-attr]
+    assert f"https://trialbox.hospa.test/pilot/jobs/{req.job_id}" in text and "サインイン" in text and "登入" in text
+    with pytest.raises(EncryptionError, match="TB_CONSOLE_URL"):
+        prepare(req, store=store, sender="trialbox@hospa.test", internal_domains=["hospa.test"], mode="link")

@@ -160,6 +160,7 @@ def prepare(
     smime_certs: dict[str, str] | None = None,
     smime_dir: Path | None = None,
     tz: str = "Asia/Taipei",
+    link_base: str = "",
 ) -> Prepared:
     to = sorted({norm(r) for r in req.to if r})
     if not to:
@@ -175,6 +176,20 @@ def prepare(
     domain = sender.rsplit("@", 1)[-1] or "trialbox.local"
     mid = make_msgid(idstring=(req.job_id or "trialbox")[:26], domain=domain)
     text, html = render_body(req.body_md)
+    if encrypt and mode == "link":
+        # D-127: the site chose no patient files by mail; the mail says where to sign in and download them
+        if not link_base:
+            raise EncryptionError("attachment_encryption is 'link' but TB_CONSOLE_URL (the console's address) is unset")
+        url = f"{link_base.rstrip('/')}/pilot/jobs/{req.job_id}"
+        names = ", ".join(a.filename for a in atts)
+        lines = [
+            f"Files ({names}) are on TrialBox. Sign in to download: {url}",
+            f"ファイル（{names}）は TrialBox にあります。サインインしてダウンロードしてください: {url}",
+            f"檔案（{names}）在 TrialBox 上，請登入後下載: {url}",
+        ]
+        text += "\n\n" + "\n".join(lines)
+        html += "".join(f"<p>{ln.replace(url, f'<a href="{url}">{url}</a>')}</p>" for ln in lines)
+        atts, encrypt = [], False  # nothing attached, so nothing to encrypt
     files = [(a.filename, store.get(a.minio_key)) for a in atts]
 
     def headers(m: Message, subject: str, rcpt: list[str], msg_id: str) -> None:

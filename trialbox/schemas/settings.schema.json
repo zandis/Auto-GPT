@@ -211,7 +211,11 @@
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["auto", "nightly", "on_demand"],
+          "enum": [
+            "auto",
+            "nightly",
+            "on_demand"
+          ],
           "default": "auto",
           "description": "auto: on_demand with TB_ENV DEV, nightly otherwise (FR-OPS-12). on_demand: no timed runs; jobs run when requested."
         },
@@ -270,9 +274,11 @@
     "attachment_encryption": {
       "enum": [
         "zip",
-        "smime"
+        "smime",
+        "link"
       ],
-      "default": "zip"
+      "default": "zip",
+      "description": "Patient files by mail, chosen per site: zip (7z + password in a second mail, PPAP), smime, or link (no attachment; a link to the job on the box, sign-in to download; needs TB_CONSOLE_URL). D-127."
     },
     "smime_certs": {
       "type": "object",
@@ -391,7 +397,10 @@
       }
     },
     "ethics_gate": {
-      "type": ["boolean", "null"],
+      "type": [
+        "boolean",
+        "null"
+      ],
       "default": null,
       "description": "Study ethics gate (FR-STUDY-06, 20-build-map F6-03): always off with TB_ENV DEV or TEST; elsewhere this value, on when unset."
     },
