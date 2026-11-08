@@ -40,6 +40,7 @@ from typing import Any
 
 import httpx
 from tb_common.llm import LlmClient, LlmError, LlmResult
+from tb_common.service_auth import auth_headers
 
 log = logging.getLogger(__name__)
 
@@ -170,7 +171,7 @@ class GatewaySwap:
             r = self.http.post(
                 f"{self.url}/serving/activate",
                 json={"endpoint": endpoint, "hold": True},
-                headers={"X-TB-Caller": self.caller},
+                headers={"X-TB-Caller": self.caller, **auth_headers()},
             )
         except httpx.HTTPError as exc:
             raise LlmError(f"model swap to {endpoint} failed: {type(exc).__name__}") from exc
@@ -181,7 +182,7 @@ class GatewaySwap:
         """Let go of the card; the gateway wakes the judge when the next call needs it. Never raises: a release that
         fails only means the hold lapses on its own (``TB_SWAP_HOLD_S``)."""
         try:
-            self.http.post(f"{self.url}/serving/release", headers={"X-TB-Caller": self.caller})
+            self.http.post(f"{self.url}/serving/release", headers={"X-TB-Caller": self.caller, **auth_headers()})
         except httpx.HTTPError as exc:
             log.warning("model swap release failed: %s", type(exc).__name__)
 

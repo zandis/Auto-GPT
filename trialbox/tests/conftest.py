@@ -71,6 +71,9 @@ def pytest_configure(config: pytest.Config) -> None:
     # fake models are not the pair and never pass a canary, so the gate is off for the suite; the gate's own tests
     # (tests/unit/test_canary_gate.py) switch it on with monkeypatch.
     os.environ.setdefault("TB_CANARY_GATE", "off")
+    # D-127 (F-06): an unset TB_ENV now means PRODUCTION (token required, timers on). The suite is a TEST box; the
+    # tests of the PRODUCTION default set or clear TB_ENV themselves.
+    os.environ.setdefault("TB_ENV", "TEST")
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

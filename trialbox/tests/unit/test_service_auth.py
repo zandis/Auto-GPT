@@ -87,7 +87,7 @@ def test_reveal_audits_the_header_actor_not_the_body(client: TestClient, monkeyp
     assert r.status_code == 400 and len(events) == 1
 
 
-def test_service_client_sends_the_token_to_the_orchestrator_only(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_service_client_sends_the_token_to_every_trialbox_service(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
     seen: dict[str, httpx.Headers] = {}
 
@@ -101,4 +101,4 @@ def test_service_client_sends_the_token_to_the_orchestrator_only(monkeypatch: py
         c.post_raw("/x", {}, sa.actor_header("佐藤"))
     assert seen["orchestrator"][sa.TOKEN_HEADER] == TOKEN
     assert sa.actor_of(seen["orchestrator"][sa.ACTOR_HEADER], None) == "佐藤"
-    assert sa.TOKEN_HEADER not in seen["mail"]
+    assert seen["mail"][sa.TOKEN_HEADER] == TOKEN  # D-127 (F-11): every service checks it now

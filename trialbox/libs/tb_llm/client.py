@@ -121,7 +121,9 @@ class GatewayClient:
             rf = body.get("response_format")
             if not isinstance(rf, dict) or rf.get("type") != "json_schema":
                 raise ValueError("tb_llm: a json_schema response_format is required (ENG-04, LLM-22)")
-        headers = labels.headers(self.caller)
+        from tb_common.service_auth import auth_headers
+
+        headers = {**auth_headers(), **labels.headers(self.caller)}  # D-127 (F-11): the gateway checks the token
         if self.model and not body.get("model"):
             body = {**body, "model": self.model}
         try:

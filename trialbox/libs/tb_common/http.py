@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
@@ -29,9 +30,17 @@ class ServiceError(RuntimeError):
 
 
 def make_app(
-    service: str, checks: list[HealthCheck] | None = None, level: str = "INFO", lifespan: Any = None
+    service: str,
+    checks: list[HealthCheck] | None = None,
+    level: str = "INFO",
+    lifespan: Any = None,
+    service_token: bool = True,
 ) -> FastAPI:
-    """Create a FastAPI app with ``GET /healthz`` and structured logging (optional ``lifespan`` context)."""
+    """Create a FastAPI app with ``GET /healthz`` and structured logging (optional ``lifespan`` context).
+
+    ``service_token`` (default on; D-127, review F-11): every changing call must carry the box's
+    ``X-TB-Service-Token`` (``tb_common.service_auth.check``), on every internal service, not only the orchestrator.
+    ``/healthz`` stays open for the compose health checks."""
     log = setup_logging(service, level)
     app = FastAPI(title=f"trialbox-{service}", version=VERSION, lifespan=lifespan)
     health_checks = list(checks or [])
@@ -54,6 +63,21 @@ def make_app(
             "checks": detail,
         }
         return JSONResponse(body, status_code=200 if ok else 503)
+
+    if service_token:
+
+        @app.middleware("http")
+        async def require_service_token(
+            request: Request, call_next: Callable[[Request], Awaitable[Response]]
+        ) -> Response:
+            from tb_common.config import environment_name
+            from tb_common.service_auth import TOKEN_HEADER, check
+
+            if request.url.path != "/healthz":
+                refused = check(request.method, request.headers.get(TOKEN_HEADER), environment_name(os.environ))
+                if refused is not None:
+                    return JSONResponse({"detail": refused[1]}, status_code=refused[0])
+            return await call_next(request)
 
     @app.middleware("http")
     async def access_log(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
@@ -96,8 +120,8 @@ class ServiceClient:
     def _request(self, method: str, path: str, **kw: Any) -> httpx.Response:
         from tb_common.service_auth import auth_headers
 
-        # D-114: the box's service token goes to the orchestrator only
-        token = auth_headers() if self.service == "orchestrator" else {}
+        # D-114, D-127 (F-11): the box's service token goes to every TrialBox service
+        token = auth_headers()
         headers = {**token, **(kw.pop("headers", None) or {})}
         last: Exception | None = None
         for attempt in range(self.retries + 1):

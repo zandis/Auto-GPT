@@ -62,7 +62,9 @@ class HttpEmbedder:
         import httpx
 
         self.base_url = base_url.rstrip("/")
-        self.client = httpx.Client(timeout=timeout)
+        from tb_common.service_auth import auth_headers
+
+        self.client = httpx.Client(timeout=timeout, headers=auth_headers())  # D-127 (F-11)
         self.model = model
         self.dim = DIM
 
