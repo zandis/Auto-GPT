@@ -68,7 +68,7 @@ def _mode() -> dict[str, Any]:
     return {"encryption": gateway().mode}
 
 
-app = make_app("mail-gateway", checks=[_mode], lifespan=lifespan)
+app = make_app("mail-gateway", checks=[_mode], lifespan=lifespan, protect_reads=True)  # D-130: threads
 
 
 @app.post("/send")

@@ -8,6 +8,11 @@ takes the audit actor from it, not from a body field, because only a token holde
 
 Without a token: DEV and TEST boxes (tests, ``make demo``) accept unauthenticated calls; any other ``TB_ENV`` refuses
 every changing call with 503 until a token is configured (fail closed).
+
+Reads (D-130, plan v4 F4): a service whose reads carry patient-level data (the orchestrator: jobs, outputs, registry,
+studies; the lake; the mail gateway's threads; the trace store) turns on ``protect_reads`` in ``make_app``, and then
+``GET`` / ``HEAD`` follow the same rule. Every internal client sends the token on every call (``ServiceClient``,
+``LakeHttp``, the console backend). ``/healthz`` stays open for the compose health checks.
 """
 
 from __future__ import annotations
@@ -51,15 +56,18 @@ def actor_header(actor: str) -> dict[str, str]:
     return {ACTOR_HEADER: quote(actor, safe="@._-+")}
 
 
-def check(method: str, presented: str | None, environment: str) -> tuple[int, str] | None:
-    """None when the call may proceed; else (status, detail). Read-only methods always pass."""
-    if method.upper() in SAFE_METHODS:
+def check(method: str, presented: str | None, environment: str, protect_reads: bool = False) -> tuple[int, str] | None:
+    """None when the call may proceed; else (status, detail). Read-only methods pass unless ``protect_reads``
+    (D-130, plan v4 F4): then GET and HEAD need the token exactly like a write (401 / 403; DEV and TEST without a
+    token stay open; any other box without one answers 503). ``OPTIONS`` always passes."""
+    m = method.upper()
+    if m == "OPTIONS" or (m in SAFE_METHODS and not protect_reads):
         return None
     tok = service_token()
     if not tok:
         if environment.upper() in OPEN_ENVS:
             return None
-        return 503, "no service token configured (TB_SERVICE_TOKEN): changing calls are refused"
+        return 503, "no service token configured (TB_SERVICE_TOKEN): calls are refused"
     if not presented:
         return 401, f"missing {TOKEN_HEADER}"
     if not hmac.compare_digest(presented.encode("utf-8"), tok.encode("utf-8")):

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from matching.coverage import unknown_system_counts
 from tb_common.authz import norm
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
@@ -156,7 +157,7 @@ def judge_for(ctx: Ctx, rs: Ruleset) -> NoteJudge | None:
 
 
 def structured_engine(ctx: Ctx, snapshot: str) -> StructuredEngine:
-    return engine_from_env(os.environ.get("TB_SCREEN_ENGINE", "cql"), ctx.services.fhir, ctx.services.lake, snapshot)
+    return engine_from_env(os.environ.get("TB_SCREEN_ENGINE", "sql"), ctx.services.fhir, ctx.services.lake, snapshot)
 
 
 def threshold(ctx: Ctx, rs: Ruleset) -> float:
@@ -587,6 +588,10 @@ def run(ctx: Ctx) -> Outcome:
         judging_sentence(judging, lang),
         *([population_line(lang, rs.manifest.population)] if population_line(lang, rs.manifest.population) else []),
     ]
+    # D-130 (review F-10): patients kept because a record is coded in a system the mapping does not know
+    unknown_system = unknown_system_counts(srun.rows)
+    if unknown_system:
+        scope_lines.append(t(lang, "screen.unknown_system", n=n(unknown_system)))
     unknown_by: dict[str, int] = {}
     for r in srun.rows:
         if r.tier in ("high", "review"):
@@ -620,6 +625,7 @@ def run(ctx: Ctx) -> Outcome:
                 "cascade": srun.cascade,
                 "referrals": {k: n(v) for k, v in info["referrals"].items()},
                 "unknown_by_criterion": {k: n(v) for k, v in sorted(unknown_by.items())},
+                "unknown_code_system": n(unknown_system),
                 "judging": judging,
                 "provenance": provenance(ctx, rs, meta, judging),
             },

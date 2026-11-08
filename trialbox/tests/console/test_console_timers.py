@@ -77,6 +77,8 @@ def test_start_schedules_three_jobs_in_the_site_zone() -> None:
     try:
         assert sorted(j.id for j in sched.get_jobs()) == ["notice_n1", "notice_n2", "redcap_read"]
         assert str(sched.timezone) == "Asia/Tokyo"
+        # review F-14 (D-130): a run missed by a reboot (up to 6 h) still runs once; missed runs coalesce
+        assert all(j.misfire_grace_time == 6 * 3600 and j.coalesce for j in sched.get_jobs())
     finally:
         sched.shutdown(wait=False)
     assert timers.start(_Helpers(), {"TB_ENV": "DEV"}, ZoneInfo("Asia/Tokyo")) is None

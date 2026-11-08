@@ -47,6 +47,23 @@ NOTES: dict[str, dict[str, str]] = {
         "ja": "{id}：値の記録がないため除外していない患者が {n} 人います。",
         "zh-TW": "{id}：{n} 位病人僅因無紀錄數值而未被排除。",
     },
+    # D-130 (review F-10): records whose code no ValueSet can read (an unknown code system)
+    "feas.note.unknown_system.condition": {
+        "en": "Diagnoses in an unknown code system: {n} patients. Their coded inclusions cannot be read and are not "
+        "counted here; screening keeps them as unknown for a person to check.",
+        "ja": "不明なコード体系の病名：{n} 人。コードによる選択基準を読めないためこの件数には入りません。"
+        "スクリーニングでは「不明」として残し、担当者が確認します。",
+        "zh-TW": "診斷使用無法辨識的代碼系統：{n} 位。其結構化納入條件無法判讀，不計入此數；"
+        "篩選時列為未知，由人員確認。",
+    },
+    "feas.note.unknown_system.medication": {
+        "en": "Medicines without a code TrialBox can read (no ATC): {n} patients. Their coded inclusions cannot be "
+        "read and are not counted here; screening keeps them as unknown for a person to check.",
+        "ja": "読めるコード（ATC）のない薬剤：{n} 人。コードによる選択基準を読めないためこの件数には入りません。"
+        "スクリーニングでは「不明」として残し、担当者が確認します。",
+        "zh-TW": "藥品缺少可辨識的代碼（無 ATC）：{n} 位。其結構化納入條件無法判讀，不計入此數；"
+        "篩選時列為未知，由人員確認。",
+    },
     "feas.note.not_applied": {
         "en": "Not applied in counts (note/human criteria, checked at screening): {ids}.",
         "ja": "集計に使っていない基準（記録の文章・担当者が判断する基準。スクリーニング時に確認）：{ids}。",

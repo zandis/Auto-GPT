@@ -78,7 +78,8 @@
 {% for g in bridge.gaps %}<li data-testid="bridge-gap">{{ t('feas.bridge.gap', label=g.label, n=g.n) }}</li>{% endfor %}
 {% for k in bridge.kept %}<li data-testid="bridge-kept">{{ t('feas.bridge.kept', label=k.label, n=k.n) }}</li>{% endfor %}
 {% if bridge.listed is defined %}<li data-testid="bridge-list">{{ t('feas.bridge.list', listed=bridge.listed, ready=bridge.ready, needs=bridge.needs) }}</li>
-<li data-testid="bridge-outside">{{ t('feas.bridge.outside', n=bridge.outside) }}</li>{% endif %}
+<li data-testid="bridge-outside">{{ t('feas.bridge.outside', n=bridge.outside) }}</li>
+<li data-testid="bridge-unknown-system">{{ t('feas.bridge.unknown_system', n=bridge.unknown_system) }}</li>{% endif %}
 </ul>
 </section>{% endif %}
 

@@ -13,8 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Header, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Header, HTTPException, Response
 from lake.client import LakeHttp
 from pydantic import BaseModel, Field
 from tb_common.audit import AuditLog
@@ -23,8 +22,7 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
-from tb_common.service_auth import TOKEN_HEADER, actor_of
-from tb_common.service_auth import check as auth_check
+from tb_common.service_auth import actor_of
 from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
 from orchestrator.candidates import CandidateRegistry, RegistryError
@@ -127,16 +125,9 @@ def _queue() -> dict[str, Any]:
     return {"queued_or_running": len(o.db.find(state="running")) + len(o.db.find(state="received"))}
 
 
-app = make_app("orchestrator", checks=[_queue], lifespan=lifespan)
-
-
-@app.middleware("http")
-async def service_token(request: Request, call_next: Callable[[Request], Any]) -> Any:
-    """D-114: every changing call carries the box's service token (tb_common.service_auth)."""
-    refused = auth_check(request.method, request.headers.get(TOKEN_HEADER), os.environ.get("TB_ENV") or "PRODUCTION")
-    if refused is not None:
-        return JSONResponse(status_code=refused[0], content={"detail": refused[1]})
-    return await call_next(request)
+# D-114: every changing call carries the box's service token; D-130 (plan v4 F4): every read too (jobs and their
+# outputs, the registry, studies, the data core), since they are patient level. /healthz stays open.
+app = make_app("orchestrator", checks=[_queue], lifespan=lifespan, protect_reads=True)
 
 
 def _actor(header: str | None, fallback: str | None) -> str:
@@ -163,7 +154,7 @@ def models() -> dict[str, Any]:
 
     canary_gate.GATE.configure(o.data_dir)
     return {
-        "engine": os.environ.get("TB_SCREEN_ENGINE", "cql"),
+        "engine": "sql",  # the only runtime engine (owner decision 3)
         "pipeline": pipeline(),
         "screen_judge": mode,
         "gateway": bool(os.environ.get("TB_GATEWAY_URL", "").strip()),

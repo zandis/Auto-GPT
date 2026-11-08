@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 from lake.client import LakeAPI
+from matching.coverage import DOMAINS, Coverage, known_systems
 from tb_common.feas_notes import render as render_note
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import round_count
@@ -101,6 +102,9 @@ class FeasRaw:
     index_dates: list[date]
     # pids eligible at the latest month-end (the "pool now"); in-box only, for the D-104 report profile
     prevalent_pids: list[str] = field(default_factory=list)
+    # D-130 (review F-10): patients of the population with a diagnosis / a medicine in a code system the mapping does
+    # not know; their coded inclusions are not "false" but unreadable, so the count says so
+    unknown_system: dict[str, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------------------------- steps & variants
@@ -302,7 +306,10 @@ def compute(lake: LakeAPI, rs: Ruleset, p: FeasParams) -> tuple[FeasibilityResul
             first[key] = first.get(key, 0) + 1
     prevalent = sum(1 for x in cols["prevalent"] if x)
     pool = [str(pid) for pid, x in zip(cols["pid"], cols["prevalent"], strict=True) if x]
-    raw = FeasRaw(n, remaining, unknown, var_counts, first, prevalent, idx, pool)
+    population = {str(x) for x in cols["pid"]}
+    cov = Coverage.load(lake, None, p.snapshot, known_systems(rs.valuesets))
+    gaps = {d: len(cov.patients(d) & population) for d in DOMAINS}
+    raw = FeasRaw(n, remaining, unknown, var_counts, first, prevalent, idx, pool, {d: k for d, k in gaps.items() if k})
     return _result(rs, p, st, variants, raw), raw
 
 
@@ -419,6 +426,8 @@ def _result(rs: Ruleset, p: FeasParams, st: list[Step], variants: list[Variant],
             keys.append(
                 ("feas.note.dropped" if s.inclusion else "feas.note.kept", {"id": s.id, "n": pub(raw.unknown[s.id])})
             )
+    for domain, k in sorted(raw.unknown_system.items()):
+        keys.append((f"feas.note.unknown_system.{domain}", {"n": pub(k)}))
     not_applied = [s.id for s in st if not s.applied]
     if not_applied:
         keys.append(("feas.note.not_applied", {"ids": ", ".join(not_applied)}))

@@ -1726,6 +1726,69 @@ answers of 2026-11-08.
   field notes, section headers and matrix groups are not shown; an ownership refusal names the source by its id
   (`redcap`).
 
+**D-130 The screening engine finished: unreadable codes are unknown, CQL fails closed in the gate, reads need the
+token.** TB-PLAN-04 step 6 (plan v4 F3, F4; review findings F-05, F-10, F-14, F-27). F-05 (SQL the only runtime
+engine, CQL only in the compile-time gate) is the first commit of the step (432de3c); F-12 (reveal only for a listed
+patient, per-actor rate limit) was done in step 2.
+
+* **Codes in a system nobody can read are not a "no" (F-10).** A structured inclusion that is FALSE is a hard
+  exclusion outside the two-model rule. A diagnosis or medicine whose code no ValueSet can read used to make it FALSE
+  silently: a 標準病名 with no ICD-10 alternate and no lookup row (the SS-MIX2 reader leaves the code empty), WHO
+  ICD-10 or ICD-9-CM under their own URIs, a free-text diagnosis, a medicine without ATC (a YJ or local code).
+  `matching/coverage.py` reads, from the same lake snapshot, the rows of `condition` whose system is neither
+  ICD-10-CM nor a system of the ruleset's ValueSets (or that have no code) and the rows of `medication` without ATC.
+  When the compiled SQL says FALSE for an inclusion with a positive condition / medication atom (not under `not`, not
+  `none`) and the patient has such a row in that atom's window, the answer becomes `unknown` with the new reason code
+  `unknown_code_system` (words in en / ja / zh-TW) and the rows as evidence, so a person checks. Both runtime paths
+  do it: the SCREEN cascade at S1 (`_s1_outcome`; the S1 stage log counts the patients) and the SQL engine of NAV,
+  MICROBATCH and CASE (`PatientEvaluation.reasons`, a new optional contract field, read by `structured_verdict`).
+  The approved SQL is unchanged byte for byte, so no approved ruleset needs re-approval; exclusions are untouched.
+* **Counts.** S3 (the feasibility page's list bridge) prints "Diagnoses or medicines in an unknown code system: n
+  patients on the list"; the SCREEN report JSON has `unknown_code_system` and its summary PDF a scope line; FEAS adds
+  the notes `feas.note.unknown_system.condition` / `.medication` with the rounded number of patients in the
+  population (all three languages). `tools/mapping_check.py` reports the rows per table without ICD-10 / ATC and
+  now accepts `--source ssmix2`.
+* **CQL fails closed like SQL (F3).** The CQL generator adds, for a grouper ValueSet with code families, an `O_`
+  query (records in the window coded inside a family and not in the ValueSet) and the same three-valued rule as the
+  SQL's `_off` CTE (D-113): listed codes settle the atom, else an off-list family code makes it null. CQL stays
+  compile-time only. The ATOMS library (no families) renders as before.
+* **Fixtures with off-list codes** (`tests/fixtures/equivalence/offlist/`): 14 patients, a malignancy and a
+  urate-lowering-therapy grouper, codes inside a family but off the list (C50.9Z, M04AA99), codes in unknown systems
+  (WHO ICD-10, a MEDIS 病名 code, ICD-9-CM, free text, a YJ code without ATC, one outside the window), and the oracle
+  `expected.json` both engines are held to.
+* **Reads behind the token (F4).** `make_app(..., protect_reads=True)` puts GET and HEAD under the same rule as the
+  writes (`service_auth.check`): 401 without the token, 403 with a wrong one, open on a DEV/TEST box without a token,
+  503 on any other box without one; `/healthz` stays open. On for the orchestrator (jobs, outputs, registry, studies,
+  rulesets, models, the data core API), the lake, the mail gateway (threads) and the trace store. `ServiceClient`,
+  `LakeHttp` and the console backend already send the token on every call; the compose e2e test sends it on its reads.
+  The orchestrator's own token middleware is gone (one rule, in `make_app`). The console's pages stay cookie-based.
+* **Small review items.** F-14: both schedulers (orchestrator, console timers) run a missed cron run once within six
+  hours and coalesce missed runs (`tb_common.config.SCHEDULER_JOB_DEFAULTS`). F-27: the note judge's counters are
+  bumped under a lock (they come from the evaluator's worker threads).
+* **Evidence.** `tests/unit/test_code_coverage.py` (SQL equals the oracle and is null on off-list codes; the CQL has
+  the family check and translates with cql-to-elm 5.4.0 on the host; the SQL engine and the cascade keep the
+  unreadable patients unknown with the reason, and still fail a readable code outside the family);
+  `tests/integration/test_ssmix2_path.py::test_unmapped_diagnoses_are_not_silently_excluded`: the 400-patient SS-MIX2
+  hospital read without the 標準病名 and YJ lookups (every third message has no alternate code): of 118 gout patients,
+  15 had only code-less gout records and were "not gout" (excluded); all 15 are now unknown with the reason, readable
+  non-gout patients still fail, and FEAS counts 287 patients with unreadable diagnoses and 276 with unreadable
+  medicines. `tests/unit/test_service_auth.py` and `test_service_token_everywhere.py`: `GET /jobs` without the token
+  is 401 (and every other orchestrator read), 403 with a wrong one, 503 without a token in PRODUCTION, open in DEV
+  and TEST; the lake, mail gateway and trace store too; the clients send the token on reads.
+  `tests/integration/test_compile_compose.py::test_offlist_gate_on_hapi` runs the gate on HAPI over the fixture
+  (100 % and the oracle); it needs the compose stack and is skipped without it.
+* **Not done.** N-12 (TREC on the deployed files) is the GPU run of this step and is recorded separately. The CQL side
+  of the off-list fixture has been translated, not executed, here (no HAPI in this environment); the compose test
+  executes it. A TRUE inclusion with a `none` atom (e.g. "no malignancy") is not widened when an unreadable row exists
+  (the patient is listed, not excluded, and a person sees the record); exclusions are not widened either. YJ / local
+  drug codes that are carried with an ATC count as readable; a JP Core profile for the unreadable 標準病名 code (so the
+  local code reaches the lake instead of an empty code) belongs to step 7. Misfire: no catch-up run on start for a
+  job missed by more than six hours, and no "last run" per timer on the admin page. Per-service tokens stay with
+  D-128.
+* **N-12 on the deployed files (2026-11-08).** TREC CT 2021/22, 1,700 pairs and 20,096 criteria, judge and verifier
+  as deployed on the RTX PRO 6000 profile: eligible pairs wrongly dropped, audit-adjusted, **3.1 %** (95 % 1.8–5.0 %),
+  gate ≤ 5 %: **pass** (API 4-bit was 3.6 %); excluded pairs caught 50.8 %. `eval/trec_ct/results/n12_deployed_2026-11-08.md`.
+
 **D-131 Site setup and data harmonization: three questions, one rule, one readiness page.** Owner's answers,
 2026-11-08; a new plan step 5b, after the lifecycle and before handover.
 
@@ -1770,3 +1833,23 @@ answers of 2026-11-08.
 * **Step 5b grows to L** (about 2–3 weeks). Its `e2e_simple` stage sets up a site the hard way: a protocol, a messy
   Excel sheet (era dates, full-width digits, merged cells, a title row), an IT dump with local codes, and two pasted
   charts. It ends with the readiness page green and a "please check" list that a scripted CRC works through.
+
+
+**D-133 Step 4b: easy for novices.** Owner approved, 2026-11-08, after the novice UI/UX review
+(`docs/reviews/2026-11-08-ux-review-novice.md`, 2.5 of 5) and the field research
+(`docs/reviews/2026-11-08-field-research-tw-jp-sites.md`). Before the lifecycle (step 5), so every later page follows
+the same patterns.
+
+* **Safety first.** The one-time password leaves the URL and is shown in a readable form with hand-over steps. "Not
+  suitable" needs a reason and has an undo. A contact outcome is recorded only after the PI has approved the patient.
+  The PI's reveal follows the role text. (The chart number in job lines and subjects was fixed in PR #35.)
+* **Phone.** A patient sheet with Back and Next and a sticky mark bar; compact headers; IDs that never wrap one
+  character per line; touch targets of at least 44 px and text of at least 15 px.
+* **Setup.** One wizard with an unsaved-changes guard; REDCap linking guided step by step, with the variable names
+  read from the dictionary instead of typed.
+* **Words.** One plain vocabulary per concept, from the review's glossary, checked against the field research
+  (選択・除外基準 / 納入／排除條件, 処理 / 作業, 治験依頼者 / 試驗委託者); every label and name translated before the first run.
+* **Sign-in and errors.** Lockout shown with a countdown and the admin to contact, plus a language choice; error pages
+  with a heading and three clear buttons; unknown studies answer 404.
+* **Guarded by tests.** axe-core in the walk (no serious or critical issue), a 44 px target check and an English-leak
+  check on ja and zh-TW pages; tap counts for the core tasks recorded before and after.

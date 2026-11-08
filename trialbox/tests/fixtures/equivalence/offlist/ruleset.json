@@ -1,0 +1,25 @@
+{
+ "id": "OFFL",
+ "version": "1.0.0",
+ "index_date": "2026-10-05",
+ "valuesets": {
+  "VS_MALIGNANCY": ["condition", "malignancy"],
+  "VS_URATE_LOWERING_THERAPY": ["medication", "urate-lowering therapy"]
+ },
+ "criteria": [
+  {"id": "OFFL-INC-01", "ruleset": "OFFL", "kind": "inclusion", "class": "structured", "text": "Any malignancy",
+   "logic": {"domain": "condition", "quantifier": "any", "valueset": "VS_MALIGNANCY"}},
+  {"id": "OFFL-INC-02", "ruleset": "OFFL", "kind": "inclusion", "class": "structured",
+   "text": "Urate-lowering therapy in the last 180 days",
+   "logic": {"domain": "medication", "quantifier": "any", "valueset": "VS_URATE_LOWERING_THERAPY",
+             "window": {"anchor": "index", "from_days": -180, "to_days": 0}}},
+  {"id": "OFFL-INC-03", "ruleset": "OFFL", "kind": "inclusion", "class": "structured", "text": "No malignancy",
+   "logic": {"domain": "condition", "quantifier": "none", "valueset": "VS_MALIGNANCY"}},
+  {"id": "OFFL-INC-04", "ruleset": "OFFL", "kind": "inclusion", "class": "structured",
+   "text": "A malignancy recorded in the last year",
+   "logic": {"domain": "condition", "quantifier": "any", "valueset": "VS_MALIGNANCY",
+             "window": {"anchor": "index", "from_days": -365, "to_days": 0}}},
+  {"id": "OFFL-EXC-01", "ruleset": "OFFL", "kind": "exclusion", "class": "structured", "text": "Any malignancy",
+   "logic": {"domain": "condition", "quantifier": "any", "valueset": "VS_MALIGNANCY"}}
+ ]
+}

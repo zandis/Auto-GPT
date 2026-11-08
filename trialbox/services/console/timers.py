@@ -97,8 +97,9 @@ def start(h: Any, env: Mapping[str, str], tz: Any) -> Any:
         log.info("console timers off (TB_CONSOLE_TIMERS / TB_ENV)")
         return None
     from apscheduler.schedulers.background import BackgroundScheduler
+    from tb_common.config import SCHEDULER_JOB_DEFAULTS
 
-    sched = BackgroundScheduler(timezone=tz)
+    sched = BackgroundScheduler(timezone=tz, job_defaults=SCHEDULER_JOB_DEFAULTS)  # review F-14 (D-130)
     calls = jobs(h)
     for t in plan(env):
         sched.add_job(_guarded(t.name, calls[t.name]), "cron", id=t.name, hour=t.hour, minute=t.minute)

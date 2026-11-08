@@ -1,0 +1,29 @@
+{
+ "about": "D-113 / D-130 equivalence fixture (review F3, F-10). 'compiled': the answer both engines must give (CQL in the compile-time gate, SQL at runtime) per criterion, null = unknown. 'runtime': the criteria the runtime then turns from FALSE into unknown because a record in the atom's window is coded in a system no ValueSet can read.",
+ "index_date": "2026-10-05",
+ "criteria": ["OFFL-INC-01", "OFFL-INC-02", "OFFL-INC-03", "OFFL-INC-04", "OFFL-EXC-01"],
+ "compiled": {
+  "OFF-LISTED":  [true,  false, false, true,  true],
+  "OFF-OFFLIST": [null,  false, null,  null,  null],
+  "OFF-SKIN":    [false, false, true,  false, false],
+  "OFF-BOTH":    [true,  false, false, true,  true],
+  "OFF-NONE":    [false, false, true,  false, false],
+  "UNK-WHO":     [false, false, true,  false, false],
+  "UNK-MEDIS":   [false, false, true,  false, false],
+  "UNK-TEXT":    [false, false, true,  false, false],
+  "UNK-ICD9":    [false, false, true,  false, false],
+  "UNK-OLD":     [false, false, true,  false, false],
+  "ULT-LISTED":  [false, true,  true,  false, false],
+  "ULT-OFFLIST": [false, null,  true,  false, false],
+  "ULT-YJ":      [false, false, true,  false, false],
+  "ULT-OTHER":   [false, false, true,  false, false]
+ },
+ "runtime": {
+  "UNK-WHO":   {"OFFL-INC-01": "c-who", "OFFL-INC-04": "c-who"},
+  "UNK-MEDIS": {"OFFL-INC-01": "c-medis", "OFFL-INC-04": "c-medis"},
+  "UNK-TEXT":  {"OFFL-INC-01": "c-text", "OFFL-INC-04": "c-text"},
+  "UNK-ICD9":  {"OFFL-INC-01": "c-icd9", "OFFL-INC-04": "c-icd9"},
+  "UNK-OLD":   {"OFFL-INC-01": "c-old"},
+  "ULT-YJ":    {"OFFL-INC-02": "m-yj"}
+ }
+}

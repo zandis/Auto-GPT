@@ -15,7 +15,7 @@ from tracestore.store import TraceAccessDenied, TraceStore
 
 def create_app(store: TraceStore | None = None) -> FastAPI:
     ts = store or TraceStore()  # schema "trace" of the trial database (TB_DB_URL, D-126)
-    app = make_app("tracestore", checks=[lambda: {"traces": ts.count()}])
+    app = make_app("tracestore", checks=[lambda: {"traces": ts.count()}], protect_reads=True)  # D-130
 
     @app.post("/v1/traces")
     def write(trace: dict[str, Any]) -> dict[str, Any]:
