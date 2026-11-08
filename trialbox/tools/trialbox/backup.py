@@ -286,12 +286,15 @@ def _drop_schemas(src: DbSource) -> None:
                 con.execute(f'DROP SCHEMA "{n}" CASCADE')
 
 
-def row_counts(src: DbSource) -> dict[str, int]:
-    """``schema.table -> rows`` for every table of the source (the manifest's database check)."""
+def row_counts(src: DbSource) -> dict[str, list[Any]]:
+    """``schema.table -> [rows, md5 of the sorted rows as text]`` for every table of the source.
+
+    The manifest keeps it; a restore must give the same pair for every table (content, not only counts).
+    """
     import psycopg
 
     likes = [p.replace("*", "%") for p in src.schemas] or ["%"]
-    out: dict[str, int] = {}
+    out: dict[str, list[Any]] = {}
     with psycopg.connect(src.dsn, autocommit=True) as con:
         rows = con.execute(
             "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' "
@@ -300,8 +303,10 @@ def row_counts(src: DbSource) -> dict[str, int]:
             (likes,),
         ).fetchall()
         for schema, table in rows:
-            n = con.execute(f'SELECT count(*) FROM "{schema}"."{table}"').fetchone()
-            out[f"{schema}.{table}"] = int(n[0]) if n else 0
+            agg = "md5(COALESCE(string_agg(t::text, chr(10) ORDER BY t::text), ''))"
+            q = f'SELECT count(*), {agg} FROM "{schema}"."{table}" t'
+            n = con.execute(q).fetchone()
+            out[f"{schema}.{table}"] = [int(n[0]), str(n[1])] if n else [0, ""]
     return out
 
 
@@ -445,7 +450,7 @@ def verify(file: Path, key: Path) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="tb-verify-") as tmp:
         m = unpack(file, key, Path(tmp))
     return {"ok": True, "site": m["site"], "created_at": m["created_at"], "files": len(m["files"]),
-            "databases": {k: sum(v["rows"].values()) for k, v in m["databases"].items()}}  # fmt: skip
+            "databases": {k: sum(r[0] for r in v["rows"].values()) for k, v in m["databases"].items()}}  # fmt: skip
 
 
 def restore(
@@ -483,12 +488,9 @@ def restore(
         checked = {}
         for name, want in manifest["databases"].items():
             got = row_counts(srcs[name])
-            if _strip_prefix(got) != _strip_prefix(want["rows"]):
-                raise BackupError(f"restored {name} row counts differ from the backup's manifest")
-            checked[name] = sum(got.values())
+            diff = sorted(k for k in set(got) | set(want["rows"]) if got.get(k) != want["rows"].get(k))
+            if diff:
+                raise BackupError(f"restored {name} differs from the backup in {len(diff)} tables: {diff[:5]}")
+            checked[name] = sum(r[0] for r in got.values())
     return {"ok": True, "site": manifest["site"], "created_at": manifest["created_at"], "rows": checked,
             "dirs": sorted(manifest["dirs"])}  # fmt: skip
-
-
-def _strip_prefix(rows: Mapping[str, int]) -> dict[str, int]:
-    return dict(rows)

@@ -1561,3 +1561,30 @@ D-123 is the data core on the step-3 branch (PR #31).
   needs a secure path in (hospital VPN or a relay) and the hospital's approval when real data is used.
 * **Rule from now on:** every screen action goes through a documented, token-protected API, so the apps need no
   screen rework later.
+
+**D-126 One trial database, backed up to the hospital's key.** TB-PLAN-04 step 2 (fixes F2), with the owner's
+answers of 2026-11-08.
+
+* **One database.** Everything TrialBox creates lives in PostgreSQL `trialbox_wf`, one schema per store:
+  `wf` (durable steps, outbox, recall ledger), `orch` (jobs), `study` (REDCap link and records), `site` (marks,
+  outcomes, labels, numbers), `auth` (users, sessions), `mail`, `pidmap`, `trace`, `mpi`, `library`. No SQLite file
+  is left in `services/` or `libs/`. `tb_common.db` is the one access layer: `?` placeholders, versioned migrations
+  under an advisory lock, `TB_DB_URL` for every service. HAPI keeps database `hapi` on the same server; the DuckDB
+  lake and the object files stay as they are (clinical facts and documents).
+* **Tests and demos run on real PostgreSQL.** `tools/pglocal.py` starts a socket-only throwaway cluster; each test
+  and each work directory gets its own schema prefix (`tb_prefix`). No SQLite path for tests.
+* **Backup and restore** (`trialbox backup`, `backup-verify`, `restore`, `backup-keygen`). One `.tbbak` file: a
+  `pg_dump` of both databases, every data folder, and a manifest of hashes and row counts, encrypted with
+  AES-256-GCM in chunks to an X25519 public key.
+  * **Key custody:** the box holds only the public key. The private key is printed and put on a USB stick at install
+    and kept by hospital IT in a sealed envelope. Aimedics never holds it, and the box cannot read its own backups.
+  * **Targets:** the same file goes to every target the site configures: a hospital NAS share (default), a USB
+    disk, a second disk and an off-site mount. Each target keeps the newest `--keep` (default 14).
+  * **Restore:** every hash is checked before anything is touched, replaced folders are moved aside rather than
+    deleted, and row counts are compared after.
+* **Owner's answers recorded here.**
+  * **Sign-in:** hospital AD/LDAP or local TrialBox accounts, chosen per site at install; local accounts stay as
+    the fallback.
+  * **First sites run all three kinds of study:** investigator-initiated, sponsor and observational/registry. The
+    lifecycle (steps 4–5) must fit all three: for sponsor trials TrialBox does pre-screening and site tracking, not
+    the sponsor's CRF.
