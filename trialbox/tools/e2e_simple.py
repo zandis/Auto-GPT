@@ -286,6 +286,40 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
+    # ---------------------------------------------------------------- stage 5: ready vs needs information (D-120)
+    s = Stage("5 ready and needs-information lists")
+    t = time.perf_counter()
+    from console import studies as st
+
+    today = h.clock().date()
+    wrows = h.week_bundle(None, TRIAL)["rows"]
+    ready = [r for r in wrows if st.in_worklist(r, "ready", today)]
+    needs = [r for r in wrows if st.in_worklist(r, "needs", today)]
+    s.check("ready and needs information do not overlap", not {r["pid"] for r in ready} & {r["pid"] for r in needs})
+    s.check("ready rows have no unknown", all(st.n_open(r) == 0 for r in ready), len(ready))
+    s.check("needs-information rows have an unknown", all(st.n_open(r) > 0 for r in needs), len(needs))
+    rail = {}
+    for k in ("ready", "needs"):
+        page = pi.get(f"/studies/{TRIAL}/week?list={k}").text
+        m = re.search(rf'data-testid="list-{k}"[^>]*>.*?<span class="n[^"]*">(\d+)</span>', page, re.S)
+        rail[k] = int(m.group(1)) if m else -1
+        shown = [int(x) for x in re.findall(r'data-testid="open-n-[0-9a-f]{8}">\D*(\d+)', page)]
+        if k == "needs":
+            s.check("needs information: fewest unknowns first", shown == sorted(shown), shown[:10])
+        n_rows = len(re.findall(r'data-testid="row-[0-9a-f]{8}"', page))
+        s.check(f"{k}: at most {st.PAGE_SIZE} rows a page", n_rows <= st.PAGE_SIZE, n_rows)
+    s.check("rail counts = the split", rail == {"ready": len(ready), "needs": len(needs)}, rail)
+    feas = pi.get(f"/studies/{TRIAL}/feasibility").text
+    m = re.search(r'data-testid="bridge-list">([^<]*)<', feas)
+    nums = [int(x) for x in re.findall(r"\d+", m.group(1))] if m else []
+    s.check(
+        "S3 explains the list: listed, ready, needs",
+        nums[:3] == [len(wrows), len(ready), len(needs)],
+        f"{nums[:3]} vs {[len(wrows), len(ready), len(needs)]}",
+    )
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
     # ---------------------------------------------------------------- stage 7: REDCap and the screening log
     s = Stage("7 REDCap read-back and screening log")
     t = time.perf_counter()

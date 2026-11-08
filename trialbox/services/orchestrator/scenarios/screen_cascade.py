@@ -27,7 +27,7 @@ from matching.cascade.judge import JudgeReply
 from matching.cascade.model import Outcome, PatientTrace
 from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
-from tb_contracts import CriterionVerdict, Evidence
+from tb_contracts import CriterionVerdict, Evidence, Opinion
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx
@@ -103,6 +103,7 @@ class OrchestratorJudge(NoteJudge):
             prompt=r.prompt,
             tokens_in=r.tokens_in,
             tokens_out=r.tokens_out,
+            opinions=list(r.opinions),
         )
 
 
@@ -128,7 +129,10 @@ def verdict_of(o: Outcome) -> CriterionVerdict:
     quote: str | None = None
     quote_date: str | None = None
     confidence: float | None = None
+    opinions: list[Opinion] = []
     for e in o.evidence:
+        if e.get("opinions"):
+            opinions = [Opinion(**x) for x in e["opinions"]]
         if e.get("did"):
             refs.append(f"DocumentReference/{e['did']}")
             quote = str(e.get("quote")) if e.get("quote") else quote
@@ -149,6 +153,7 @@ def verdict_of(o: Outcome) -> CriterionVerdict:
             quote_date=quote_date,
             confidence=confidence,
             reason=code_of(o.reason, status, bool(quote)),  # a code, never the engine's or the model's words (D-118)
+            opinions=opinions or None,  # both quotes when the two checks disagree (D-120)
         ),
     )
 

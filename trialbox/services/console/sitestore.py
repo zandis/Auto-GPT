@@ -117,6 +117,15 @@ CREATE TABLE IF NOT EXISTS approval_opened (
   at TEXT NOT NULL,
   PRIMARY KEY (job_id, crit, by)
 );
+CREATE TABLE IF NOT EXISTS criterion_labels (
+  ruleset TEXT NOT NULL,
+  crit TEXT NOT NULL,
+  lang TEXT NOT NULL,
+  label TEXT NOT NULL,
+  by TEXT NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY (ruleset, crit, lang)
+);
 CREATE TABLE IF NOT EXISTS code_ticks (
   job_id TEXT NOT NULL,
   crit TEXT NOT NULL,
@@ -421,6 +430,27 @@ class SiteStore:
             self._con.execute(
                 "INSERT OR REPLACE INTO code_ticks (job_id, crit, by, at) VALUES (?,?,?,?)", (job_id, crit, by, at)
             )
+
+    # ------------------------------------------------------------------ criterion labels in the site language (D-120)
+    def save_label(self, ruleset: str, crit: str, lang: str, label: str, by: str, at: str) -> None:
+        with self._lock:
+            if label:
+                self._con.execute(
+                    "INSERT OR REPLACE INTO criterion_labels (ruleset, crit, lang, label, by, at) VALUES (?,?,?,?,?,?)",
+                    (ruleset.upper(), crit, lang, label, by, at),
+                )
+            else:
+                self._con.execute(
+                    "DELETE FROM criterion_labels WHERE ruleset = ? AND crit = ? AND lang = ?",
+                    (ruleset.upper(), crit, lang),
+                )
+
+    def labels(self, ruleset: str, lang: str) -> dict[str, str]:
+        with self._lock:
+            rows = self._con.execute(
+                "SELECT crit, label FROM criterion_labels WHERE ruleset = ? AND lang = ?", (ruleset.upper(), lang)
+            ).fetchall()
+        return {str(c): str(v) for c, v in rows}
 
     def code_ticks(self, job_id: str) -> dict[str, tuple[str, str]]:
         with self._lock:

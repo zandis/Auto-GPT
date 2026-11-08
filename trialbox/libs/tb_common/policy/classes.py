@@ -216,6 +216,7 @@ _D3 = {
     "ChunkSearchResult",
     "CriterionVerdict",
     "Evidence",
+    "Opinion",  # each model's answer and quote when the two checks disagree (D-120): patient level, as Evidence
     "LakeQuery",
     "LlmJudgeOutput",
     "LlmDraftDocOutput",

@@ -37,6 +37,7 @@ class JudgeReply:
     tokens_in: int = 0
     tokens_out: int = 0
     refused: str | None = None  # gateway refusal code: the pair stays unknown, never excluded
+    opinions: list[dict[str, Any]] = field(default_factory=list)  # both answers when the checks disagree (D-120)
 
 
 class JudgeClient(Protocol):
@@ -164,7 +165,12 @@ class AgreementJudge:
             tokens_in=first.tokens_in + second.tokens_in,
             tokens_out=first.tokens_out + second.tokens_out,
             refused=second.refused,
+            opinions=[_opinion("judge", first), _opinion("verifier", second)] if d.disagreement else [],
         )
+
+
+def _opinion(role: str, r: JudgeReply) -> dict[str, Any]:
+    return {"role": role, "verdict": r.verdict, "quote": r.quote, "quote_date": r.quote_date}
 
 
 def _vote(r: JudgeReply) -> Vote:

@@ -3,7 +3,7 @@
 {% block content %}
 <div class="headrow"><h1>{{ rs }} v{{ version }} · {{ t('s20.title') }}</h1>
 <span class="hint" data-testid="s20-split">{{ t('s20.split', n=rows|length, s=split.structured, m=split.note, x=split.mixed, h=split.human) }}</span></div>
-{% if done == 'tick' %}<p class="ok" role="status">{{ t('s20.ticked') }}</p>{% endif %}
+{% if done == 'tick' %}<p class="ok" role="status">{{ t('s20.ticked') }}</p>{% endif %}{% if done == 'label' %}<p class="ok" role="status">{{ t('wb.done.label') }}</p>{% endif %}
 <p>{{ t('s20.help') }}</p>
 {% if prev %}
 <section class="card attention" data-testid="changes">
@@ -29,6 +29,7 @@
 {% if r.codes_list %}<ul class="codes">{% for c in r.codes_list %}<li class="mono">{{ c }}</li>{% endfor %}</ul>{% else %}<p class="hint">{{ t('s20.codes.none') }}</p>{% endif %}
 {% if r.equivalence_pct is not none %}<p class="hint">{{ t('s20.eq', pct=r.equivalence_pct) }}</p>{% endif %}
 </details>
+{% if lang != 'en' and (user.can_request or user.can_approve) %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/label" class="inline labelform"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ r.id }}"><label for="lbl-{{ r.id }}">{{ t('s20.label', language=t('lang.name.' + lang)) }}</label> <input id="lbl-{{ r.id }}" name="text" maxlength="80" value="{{ labels.get(r.id, '') }}" data-testid="label-{{ r.id }}"> <button type="submit" class="small secondary">{{ t('s20.label.save') }}</button></form>{% endif %}
 {% if r.id in ticks %}<p class="hint" data-testid="tick-{{ r.id }}">✓ {{ t('s20.ticked_by', by=ticks[r.id][0], at=ticks[r.id][1]|local) }}</p>{% endif %}
 </td>
 <td>{{ t('s20.class.' + (r['class'] or 'structured')) }}</td>

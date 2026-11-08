@@ -375,7 +375,7 @@ def test_worklists_pipeline_and_procedure_step() -> None:
         {"pid": "e", "status": "new", "mark": None, "visit": datetime(2026, 12, 30, 9, 0)},
     ]
     counts = st.worklist_counts(rows, today)
-    assert counts == {"clinic": 1, "review": 2, "info": 1, "approached": 1, "all": 4}
+    assert counts == {"clinic": 1, "ready": 3, "needs": 0, "review": 2, "info": 1, "approached": 1, "all": 4}
     assert st.met_score(fit) == (17, 23)
     pipe = st.pipeline_counts(rows, {"c": "contacted", "z": "consented"})
     assert pipe == {"found": 5, "reviewed": 3, "contacted": 2, "consented": 1, "enrolled": 0}
@@ -415,3 +415,41 @@ def test_pi_workbench_selects_marks_and_creates_coordinator_task(box: dict[str, 
     for lang in ("ja", "zh-TW"):
         for key in ("wb.task.call", "wb.list.clinic", "steps.weekly", "wb.pipe.consented"):
             assert key in CATALOGUES[lang], (lang, key)
+
+
+def test_ready_and_needs_information_lists_sort_by_unknowns_and_page() -> None:
+    """D-120: ready (every criterion answered) vs needs information (an unknown), fewest unknowns first, 25 a page."""
+    from datetime import date as d
+
+    def row(pid: str, unknown: int, not_met: bool = False, visit: datetime | None = None) -> dict[str, Any]:
+        fit = st.Fit(open=[f"c{i}" for i in range(unknown)], not_met=["x"] if not_met else [])
+        return {"pid": pid, "status": "new", "mark": None, "visit": visit, "visit_text": "", "fit": fit}
+
+    rows = [row("p3", 3), row("p0", 0), row("p1", 1), row("pn", 0, not_met=True), row("p1b", 1)]
+    today = d(2026, 11, 9)
+    ready = [r["pid"] for r in rows if st.in_worklist(r, "ready", today)]
+    needs = st.worklist_sorted([r for r in rows if st.in_worklist(r, "needs", today)], "needs")
+    assert ready == ["p0"] and [r["pid"] for r in needs] == ["p1", "p1b", "p3"]
+    many = [row(f"q{i:03d}", i % 4) for i in range(60)]
+    page, n, pages = st.paged(st.worklist_sorted(many, "all"), 3)
+    assert (n, pages, len(page)) == (3, 3, 10) and all(st.n_open(r) == 3 for r in page)
+    assert st.paged(many, 99)[1] == 3 and st.paged([], 1) == ([], 1, 1)
+
+
+def test_public_data_banner_own_studies_and_site_labels(tmp_path: Path) -> None:
+    """D-120: a public-data site's banner, its own study list, and the site's criterion labels per language."""
+    from console.app import ConsoleSettings
+    from console.i18n import CATALOGUES
+
+    base = {"TB_ENV": "DEV", "TB_CONSOLE_PILOT": "1", "TB_DATA_CLASS": "D0", "TB_CONSOLE_DIR": str(tmp_path)}
+    s = ConsoleSettings.from_env({**base, "TB_CONSOLE_DATA_SOURCE": "public", "TB_CONSOLE_STUDIES": "pub-onc, PUB-CA"})
+    assert s.data_source == "public" and s.studies == ("PUB-ONC", "PUB-CA")
+    assert ConsoleSettings.from_env(base).data_source == "synthetic" and ConsoleSettings.from_env(base).studies == ()
+    for lang in ("en", "ja", "zh-TW"):
+        words = CATALOGUES[lang]["pilot.banner.public"]
+        assert "D0" in words and words != CATALOGUES[lang]["pilot.banner"]
+    store = SiteStore(tmp_path / "site.sqlite")
+    store.save_label("pub-onc", "PUB-ONC-INC-01", "ja", "18歳以上", "crc", "2026-11-08T00:00:00Z")
+    assert store.labels("PUB-ONC", "ja") == {"PUB-ONC-INC-01": "18歳以上"} and store.labels("PUB-ONC", "zh-TW") == {}
+    store.save_label("PUB-ONC", "PUB-ONC-INC-01", "ja", "", "crc", "2026-11-08T00:00:01Z")  # empty clears it
+    assert store.labels("PUB-ONC", "ja") == {}

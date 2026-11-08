@@ -121,6 +121,11 @@ class ConsoleSettings:
     sso_trusted: tuple[str, ...] = ()
     sso_role_map: tuple[tuple[str, str], ...] = ()
     sso_default_role: str = "viewer"
+    # D-120: where the box's records come from ("synthetic" or "public": a public-data site), for the banner
+    data_source: str = "synthetic"
+    # D-120: the studies this site runs (TB_CONSOLE_STUDIES); the request menu lists only these. Empty: every
+    # approved study
+    studies: tuple[str, ...] = ()
 
     @property
     def sso(self) -> bool:
@@ -171,6 +176,10 @@ class ConsoleSettings:
                 if k.strip() and v.strip().lower() in ROLES
             ),
             sso_default_role=(env.get("TB_CONSOLE_SSO_DEFAULT_ROLE") or "viewer").strip().lower(),
+            data_source=(
+                "public" if (env.get("TB_CONSOLE_DATA_SOURCE") or "").strip().lower() == "public" else "synthetic"
+            ),
+            studies=tuple(x.strip().upper() for x in (env.get("TB_CONSOLE_STUDIES") or "").split(",") if x.strip()),
         )
         if obj.sso_header and not obj.sso_trusted:
             raise PilotRefused("TB_CONSOLE_SSO_HEADER needs TB_CONSOLE_SSO_TRUSTED_PROXIES (the proxy addresses)")
@@ -1109,7 +1118,13 @@ def create_app(
         )
 
     def _request_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> HTMLResponse:
-        approved = [r for r in bk.rulesets() if r.status == "approved"]
+        approved = [
+            r
+            for r in bk.rulesets()
+            if r.status == "approved"
+            and (not settings.studies or r.id in settings.studies)
+            and sess.user.sees_study(r.id)
+        ]  # D-120: this site's own studies, and only those the account may see
         return page(request, "request.html", sess, status, rulesets=approved, **ctx)
 
     @app.get("/pilot/request", response_class=HTMLResponse)

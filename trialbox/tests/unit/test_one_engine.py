@@ -177,3 +177,32 @@ def test_consent_draft_runs_in_two_phases_with_a_swap() -> None:
     )
     assert awake == ["serving", "verifier"]  # draft, then the checks; no direct call to a sleeping model
     assert out["items"][0]["texts"]["en"]["status"] == "ok" and not out["issues"]
+
+
+# ---------------------------------------------------------------------------------------------- both quotes (D-120)
+def test_a_disagreement_keeps_both_answers_and_quotes_on_both_paths() -> None:
+    from orchestrator.scenarios.evaluate import note_verdict
+
+    other = "Known HIV infection"  # also in the notes: the second check quotes its own words
+    nj = NoteJudge(lake=None, llm=Model("fail"), verifier=Model("pass", quote=other))  # type: ignore[arg-type]
+    r = nj.judge_excerpts("Known HIV", "HIV?", IDX, EXCERPTS)
+    assert (r.predicate, r.reason) == ("unknown", "disagree")
+    assert [(o["role"], o["verdict"], o["quote"]) for o in r.opinions] == [
+        ("judge", "fail", QUOTE),
+        ("verifier", "pass", other),
+    ]
+    c = next(c for c in GZQO.active() if c.kind == "exclusion")
+    ev = note_verdict(c, r).evidence
+    assert ev is not None and ev.opinions and [o.role for o in ev.opinions] == ["judge", "verifier"]
+    cas = _cascade_ask(OrchestratorJudge(lake=None, llm=Model("fail"), verifier=Model("pass", quote=other)))  # type: ignore[arg-type]
+    assert [o["quote"] for o in cas.opinions] == [QUOTE, other]
+    agree = NoteJudge(lake=None, llm=Model("fail"), verifier=Model("fail")).judge_excerpts("x", "x?", IDX, EXCERPTS)  # type: ignore[arg-type]
+    assert agree.opinions == []
+    from matching.cascade.model import Outcome
+    from orchestrator.scenarios.screen_cascade import verdict_of
+
+    o = Outcome(
+        "X-EXC-01", "unknown", "S3", unknown_kind="uncertain", evidence=[{"opinions": cas.opinions}], reason="disagree"
+    )
+    v = verdict_of(o)
+    assert v.evidence is not None and v.evidence.reason == "disagree" and len(v.evidence.opinions or []) == 2

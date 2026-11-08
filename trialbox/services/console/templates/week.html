@@ -25,12 +25,15 @@
       <tbody>{% for r in rows %}{% set on = sel and sel.pid == r.pid %}
       <tr class="{{ 'sel' if on else '' }} st-{{ r.status }}" id="p-{{ r.short }}" data-testid="row-{{ r.short }}">
         <td class="num">{{ r.visit_text or t('week.no_visit') }}</td>
-        <td><a href="?list={{ lst }}&amp;pid={{ r.pid }}#chart" data-testid="open-{{ r.short }}"{% if on %} aria-current="true"{% endif %}><b>{{ t('week.patient', p=r.short) }}</b></a><br><span class="hint">{{ r.practitioner }}</span></td>
+        <td><a href="?list={{ lst }}&amp;page={{ page_no }}&amp;pid={{ r.pid }}#chart" data-testid="open-{{ r.short }}"{% if on %} aria-current="true"{% endif %}><b>{{ t('week.patient', p=r.short) }}</b></a><br><span class="hint">{{ r.practitioner }}</span></td>
         <td class="num nowrap"><span class="meter" aria-hidden="true"><i class="w{{ ((r.score[0] * 10) // (r.score[1] or 1)) }}"></i></span>{{ r.score[0] }}/{{ r.score[1] }}</td>
-        <td class="needed">{% if r.fit.not_met %}<span class="bad">{{ t('fit.not_met') }} {{ r.fit.not_met[:2]|join(' · ') }}</span><br>{% endif %}{{ (r.fit.open + r.fit.person)[:3]|join(' · ') or '–' }}</td>
-        <td><span class="pill tier-{{ r.tier }}">{{ t('tier.' + r.tier) }}</span> <span class="pill stt-{{ r.status }}">{{ t('wstatus.' + r.status) }}</span>{% if r.mark %}<br><span class="pill mk-{{ r.mark.mark }}" data-testid="mark-{{ r.short }}">{{ t('mark.' + r.mark.mark) }}</span>{% endif %}</td>
+        <td class="needed">{% if r.n_open %}<span class="pill warn" data-testid="open-n-{{ r.short }}">{{ t('wb.n_open', n=r.n_open) }}</span><br>{% endif %}{% if r.fit.not_met %}<span class="bad">{{ t('fit.not_met') }} {{ r.fit.not_met[:2]|join(' · ') }}</span><br>{% endif %}{{ (r.fit.open + r.fit.person)[:3]|join(' · ') or '–' }}</td>
+        <td><span class="pill tier-{{ r.tier }}">{{ t('tier.' + r.tier) }}</span> <span class="pill stt-{{ r.status }}">{{ t('wstatus.' + r.status) }}</span>{% if r.mark %}<br><span class="pill mk-{{ r.mark.mark }}" data-testid="mark-{{ r.short }}">{{ t('mark.' + r.mark.mark) }}</span>{% endif %}
+        {% if quick_outcomes and r.mark and r.mark.mark == 'approach' and r.status not in ('contacted', 'screened') %}<details class="quick" data-testid="quick-{{ r.short }}"><summary>{{ t('outcome.quick') }}</summary><form method="post" action="/studies/{{ rs }}/patients/{{ r.pid }}/outcome" class="markrow"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="list:{{ lst }}">{% for k in quick_outcomes %}<button type="submit" name="outcome" value="{{ k }}" class="{{ '' if k == 'reached_booked' else 'secondary' }} small" data-testid="quick-{{ r.short }}-{{ k }}">{{ t('outcome.' + k) }}</button>{% endfor %}</form></details>{% endif %}</td>
       </tr>{% endfor %}</tbody>
-    </table></div>{% endif %}
+    </table></div>
+    {% if pages > 1 %}<nav class="pager" aria-label="{{ t('wb.pages') }}" data-testid="pager">{% if page_no > 1 %}<a href="?list={{ lst }}&amp;page={{ page_no - 1 }}" rel="prev">← {{ t('wb.prev') }}</a>{% endif %}<span class="hint" data-testid="page-of">{{ t('wb.page_of', n=page_no, of=pages) }}</span>{% if page_no < pages %}<a href="?list={{ lst }}&amp;page={{ page_no + 1 }}" rel="next" data-testid="next-page">{{ t('wb.next') }} →</a>{% endif %}</nav>{% endif %}
+    {% endif %}
   </section>
   {% if sel %}{% set p = sel %}
   <aside class="chartp" id="chart" data-testid="chart">
@@ -51,9 +54,9 @@
     <h3 class="grp">{{ t('wb.' + kind) }}</h3>
     <ul class="critl">{% for c in cs %}<li>
       {% set vk = 'verdict.exclusion.' + c.verdict if c.kind == 'exclusion' and c.verdict in ('pass', 'fail') else 'verdict.' + c.verdict %}<span class="ic vd-{{ c.verdict }}" aria-label="{{ t(vk) }}">{{ {'pass': '✓', 'fail': '✕', 'unknown': '?', 'pending_human': 'P'}.get(c.verdict, '·') }}</span>
-      <div><span class="clab">{{ c.label }}</span> <span class="hint">{{ c.id }}</span>
+      <div><span class="clab">{{ c.label }}</span>{% if c.original %} <span class="hint">({{ c.original }})</span>{% endif %} <span class="hint">{{ c.id }}</span>
       <div class="hint">{{ t(vk) }} · {{ t('how.' + c.source) }}{% if c.date %} · {{ c.date }}{% endif %}</div>
-      {% if c.quote %}<q class="quote">{{ c.quote }}</q>{% endif %}</div>
+      {% if c.quote %}<q class="quote">{{ c.quote }}</q>{% endif %}{% for o in c.opinions or [] %}<div class="hint" data-testid="opinion-{{ c.id }}-{{ o.role }}">{{ t('opinion.' + o.role) }} · {{ t('opinion.says.' + o.verdict) if o.verdict in ('pass', 'fail') else t('verdict.unknown') }}: <q class="quote">{{ o.quote }}</q></div>{% endfor %}</div>
     </li>{% endfor %}</ul>{% endif %}{% endfor %}
     <p class="chartlinks"><a href="/studies/{{ rs }}/patients/{{ p.pid }}" data-testid="full-chart">{{ t('wb.full') }}</a> · <a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a>{% if user.can_request %} · <a href="/pilot/registry/{{ rs }}">{{ t('nav.patients') }}</a>{% endif %}</p>
   </aside>

@@ -69,6 +69,18 @@
 </tbody></table></div>
 <p class="hint">{{ t('feas.f.help') }}</p>
 </section>
+{% if bridge and (bridge.kept or bridge.gaps or bridge.listed is defined) %}
+<section class="card" id="bridge" data-testid="bridge">
+<h2>{{ t('feas.bridge.title') }}</h2>
+<p>{{ t('feas.bridge.why') }}</p>
+<ul>
+{% if bridge.eligible is not none %}<li data-testid="bridge-eligible">{{ t('feas.bridge.eligible', n=bridge.eligible) }}</li>{% endif %}
+{% for g in bridge.gaps %}<li data-testid="bridge-gap">{{ t('feas.bridge.gap', label=g.label, n=g.n) }}</li>{% endfor %}
+{% for k in bridge.kept %}<li data-testid="bridge-kept">{{ t('feas.bridge.kept', label=k.label, n=k.n) }}</li>{% endfor %}
+{% if bridge.listed is defined %}<li data-testid="bridge-list">{{ t('feas.bridge.list', listed=bridge.listed, ready=bridge.ready, needs=bridge.needs) }}</li>
+<li data-testid="bridge-outside">{{ t('feas.bridge.outside', n=bridge.outside) }}</li>{% endif %}
+</ul>
+</section>{% endif %}
 
 <section class="card" id="barriers">
 <h2>4 · {{ t('feas.s4') }}</h2>

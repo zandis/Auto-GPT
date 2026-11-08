@@ -38,6 +38,29 @@ from tools import list_demo as ld  # noqa: E402
 from tools import public_site as ps  # noqa: E402
 
 TRIAL, COHORT = "PUB-ONC", "PUB-CA"
+# D-120: the console says the records are public data, and its request menu lists this site's own studies only
+SITE_ENV = {"TB_CONSOLE_DATA_SOURCE": "public", "TB_CONSOLE_STUDIES": f"{TRIAL},{COHORT}"}
+# D-120: the site's short labels for the trial's criteria, given at approval (the study's own words stay beside them)
+SITE_LABELS = {
+    "ja": {
+        "PUB-ONC-INC-01": "18歳以上",
+        "PUB-ONC-INC-02": "悪性腫瘍",
+        "PUB-ONC-INC-03": "ECOG 0〜1",
+        "PUB-ONC-EXC-01": "妊娠中・授乳中",
+        "PUB-ONC-EXC-02": "活動性結核",
+        "PUB-ONC-EXC-03": "間質性肺疾患・肺臓炎",
+        "PUB-ONC-EXC-04": "30日以内の他の治験参加",
+    },
+    "zh-TW": {
+        "PUB-ONC-INC-01": "18歲以上",
+        "PUB-ONC-INC-02": "惡性腫瘤",
+        "PUB-ONC-INC-03": "ECOG 0–1",
+        "PUB-ONC-EXC-01": "懷孕或哺乳中",
+        "PUB-ONC-EXC-02": "活動性結核",
+        "PUB-ONC-EXC-03": "間質性肺病或肺炎",
+        "PUB-ONC-EXC-04": "30天內參加其他介入性試驗",
+    },
+}
 PROFILES = ROOT / "eval" / "public_site" / "profiles"
 CASSETTES = ROOT / "services" / "llm_stub" / "cassettes" / "ir_extract"
 SIM_URL = "inproc://rc-sim"
@@ -193,7 +216,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     t0 = time.perf_counter()
     box, client, repo, site = build(work, llm, verifier)
     clock = ld.Clock(box.today[0])
-    app = ld.console(work, box, client, repo, password, clock)
+    app = ld.console(work, box, client, repo, password, clock, extra_env=SITE_ENV)
     h = app.state.helpers
     cat = CATALOGUES[lang]
     hosp = work / "hospital"
@@ -275,6 +298,22 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         s.check("coordinator ticks a criterion's codes on S20", r.status_code == 200, r.status_code)
     r = crc.post(f"/pilot/jobs/{jobs[TRIAL].job_id}/approve", data={"csrf": fd._csrf(s20.text)}, follow_redirects=False)
     s.check("coordinator's approve refused (403)", r.status_code == 403, r.status_code)
+    # D-120: at approval the coordinator gives each criterion a short label in the site's languages; the pages show
+    # it with the study's own words beside it
+    saved = 0
+    for lg, words in SITE_LABELS.items():
+        page = crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval")
+        crc.post("/lang", data={"csrf": fd._csrf(page.text), "lang": lg, "back": "/home"})
+        for cid, text in words.items():
+            r = crc.post(
+                f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/label",
+                data={"csrf": fd._csrf(page.text), "crit": cid, "text": text},
+                follow_redirects=False,
+            )
+            saved += r.status_code == 303
+    crc.post("/lang", data={"csrf": fd._csrf(page.text), "lang": lang, "back": "/home"})
+    n_labels = sum(len(w) for w in SITE_LABELS.values())
+    s.check("S20: criterion labels in Japanese and Chinese saved", saved == n_labels, f"{saved}/{n_labels}")
     for rs, job in jobs.items():
         page = pi.get(f"/pilot/jobs/{job.job_id}/approval")
         for cid in re.findall(r'data-testid="open-([A-Z0-9-]+)"', page.text):
@@ -544,6 +583,14 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         for path in ("/home", "/week", "/account", "/help", "/notices/received", "/reports", "/settings/notices"):
             r = c.get(path)
             s.check(f"{who} {path}", r.status_code == 200, r.status_code)
+    # D-120: a public-data site says so (not "synthetic"), lists its own studies only, and names its clinicians
+    # from the records
+    home = crc.get("/home").text
+    s.check("banner says public data", 'data-testid="banner"' in home and "synthetic" not in home.lower(), "")
+    menu = re.findall(r'<option value="([A-Z0-9-]+)"', crc.get("/pilot/request").text)
+    s.check("request menu: this site's studies only", bool(menu) and set(menu) <= {TRIAL, COHORT}, menu)
+    wk = pi.get(f"/studies/{TRIAL}/week?list=all").text
+    s.check("clinician names from the records", "public-data site" in wk and "(synthetic)" not in wk, "")
     r = crc.get("/reports/research-office")
     s.check("research-office counts", r.status_code == 200, r.status_code)
     r = crc.get("/reports/research-office.xlsx")
@@ -714,6 +761,7 @@ def authored_strings(box: Any, rulesets: list[str]) -> list[str]:
     for p in (box.orch.cfg.settings.practitioners or {}).values():
         if p.name:
             out.add(p.name)
+    out.update(name for _, name, _ in ps.STAFF)  # the clinicians' names as the records hold them (D-120)
     return sorted(out, key=len, reverse=True)
 
 

@@ -698,6 +698,8 @@ class _Run:
             "prompt": reply.prompt,
             "confidence": reply.confidence,
         }
+        if reply.opinions:
+            meta["opinions"] = list(reply.opinions)
         if reply.verdict not in ("pass", "fail"):  # keep the judge's coded reason (disagree, low_confidence, ...)
             why = reply.reason if reply.reason in REASON_CODES else "abstained"
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason=why)

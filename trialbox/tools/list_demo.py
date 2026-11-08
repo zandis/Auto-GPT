@@ -66,7 +66,15 @@ def criteria_text(ruleset: str) -> str:
     return text.rstrip("\n") + f"\n15. {EXTRA_EXCLUSION}\n"  # one exclusion added to the trial
 
 
-def console(work: Path, box: Any, client: Any, repo: Path, password: str, clock: Clock) -> Any:
+def console(
+    work: Path,
+    box: Any,
+    client: Any,
+    repo: Path,
+    password: str,
+    clock: Clock,
+    extra_env: dict[str, str] | None = None,
+) -> Any:
     from console.app import create_app
     from console.auth import UserStore
     from tb_common.audit import AuditLog
@@ -87,6 +95,7 @@ def console(work: Path, box: Any, client: Any, repo: Path, password: str, clock:
         "TB_CONSOLE_DIR": str(work / "console"),
         "TB_CONSOLE_ADMIN_EMAIL": "admin@hospa.test",
         "TB_CONSOLE_SECURE_COOKIE": os.environ.get("TB_CONSOLE_SECURE_COOKIE", "0"),  # 1 behind https (demo image)
+        **(extra_env or {}),
     }
     return create_app(env, backend=InprocBackend(box, client, repo), audit=AuditLog(box.audit_dir), users=users)
 

@@ -15,7 +15,7 @@ LOINC = "http://loinc.org"
 
 SCHEMAS: dict[str, list[tuple[str, str]]] = {
     "patient": [("pid", "VARCHAR"), ("birth_date", "DATE"), ("sex", "VARCHAR"), ("deceased_date", "DATE")],
-    "practitioner": [("practitioner_id", "VARCHAR"), ("staff_id", "VARCHAR")],
+    "practitioner": [("practitioner_id", "VARCHAR"), ("staff_id", "VARCHAR"), ("name", "VARCHAR")],
     "encounter": [
         ("eid", "VARCHAR"),
         ("pid", "VARCHAR"),
@@ -158,7 +158,9 @@ class Flattener:
 
     def practitioner(self, r: Resource) -> Row:
         ident = (r.get("identifier") or [{}])[0]
-        return {"practitioner_id": r["id"], "staff_id": ident.get("value")}
+        nm = (r.get("name") or [{}])[0]
+        name = nm.get("text") or " ".join([*(nm.get("given") or []), nm.get("family") or ""]).strip() or None
+        return {"practitioner_id": r["id"], "staff_id": ident.get("value"), "name": name}
 
     def encounter(self, r: Resource) -> Row:
         dept, _ = self.coding(r.get("serviceType") or {})

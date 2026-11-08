@@ -26,7 +26,7 @@ from tb_common.pair import Vote, combine, needs_verifier
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
-from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, PatientEvaluation
+from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, Opinion, PatientEvaluation
 
 from orchestrator.scenarios.terms import keywords
 from orchestrator.twophase import two_phase
@@ -139,6 +139,12 @@ class NoteResult:
     prompt: str = ""
     tokens_in: int = 0
     tokens_out: int = 0
+    # D-120: when the two checks disagree, each model's answer and verified quote, so a person sees both
+    opinions: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _opinion(role: str, r: NoteResult) -> dict[str, Any]:
+    return {"role": role, "verdict": r.predicate, "quote": r.quote, "quote_date": r.quote_date}
 
 
 def _vote(r: NoteResult) -> Vote:
@@ -278,6 +284,7 @@ class NoteJudge:
             self.disagreements += 1
         t_in = first.tokens_in + (second.tokens_in if second else 0)
         t_out = first.tokens_out + (second.tokens_out if second else 0)
+        opinions = [_opinion("judge", first), _opinion("verifier", second)] if d.disagreement and second else []
         if d.verdict != first.predicate:  # the pair (or the confidence floor) did not keep the judge's answer
             return replace(
                 first,
@@ -289,6 +296,7 @@ class NoteJudge:
                 reason=d.reason,
                 tokens_in=t_in,
                 tokens_out=t_out,
+                opinions=opinions,
             )
         return replace(first, confidence=d.confidence, reason=d.reason, tokens_in=t_in, tokens_out=t_out)
 
@@ -371,7 +379,12 @@ def note_verdict(c: CriterionIR, r: NoteResult) -> CriterionVerdict:
         id=c.id,
         verdict=eligibility(c.kind, pred),
         evidence=Evidence(
-            resource_refs=refs, quote=r.quote, quote_date=r.quote_date, confidence=r.confidence, reason=r.reason
+            resource_refs=refs,
+            quote=r.quote,
+            quote_date=r.quote_date,
+            confidence=r.confidence,
+            reason=r.reason,
+            opinions=[Opinion(**o) for o in r.opinions] or None,
         ),
     )
 

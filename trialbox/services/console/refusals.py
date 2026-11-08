@@ -13,6 +13,10 @@ from collections.abc import Mapping
 
 # English sentence -> (Japanese, Traditional Chinese)
 REFUSALS: dict[str, tuple[str, str]] = {
+    "choose the page language the label is in first": (
+        "先に表示名の言語をページの言語として選んでください",
+        "請先將頁面語言切換為標籤的語言",
+    ),
     "approve the criteria first": ("先に選択基準を承認してください", "請先核准收案條件"),
     "attach a protocol file": ("プロトコルのファイルを添付してください", "請附上計畫書檔案"),
     "attach the informed-consent form": ("同意説明文書を添付してください", "請附上受試者同意書"),

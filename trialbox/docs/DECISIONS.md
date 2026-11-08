@@ -1415,3 +1415,29 @@ in the window", "abstained") and Markdown marks in the N1 mail's text part.
   Walk on this head: 422 checks, 0 failures; screenshots in `trialbox-build/walk-2026-11-08/`.
 * **Not changed.** An orchestrator failure message (the job's `error.message`) is still English inside a ja/zh-TW
   failure mail; criterion labels stay as the study wrote them (step 5 decides translated labels).
+
+**D-120 PI and CRC lists you can work through; translated criterion labels at approval.** TB-PLAN-03 step 5 (Fable
+review 2026-11-08, finding 8; plan §6). On real data the PI list was 65 patients, all "to review", unranked, in one
+column, and the feasibility count (23) did not explain the list (65/90).
+
+* **Ready vs needs information.** Two new worklists: *ready* (every criterion answered: no unknown, nothing not met)
+  and *needs information* (at least one unknown). Every list but the clinic list (visit order) puts the fewest
+  unknowns first, then the visit; 25 rows a page (`?page=`); each row shows its unknown count. `e2e_simple` stage 5
+  asserts the split, the order, the page size, the rail counts and the S3 sentence against the rows.
+* **Both quotes.** `candidate_list` 1.1.0 adds optional `evidence.opinions` (`role`, `verdict`, `quote`,
+  `quote_date`); a disagreement keeps each model's answer and verified quote on both paths (v1 `NoteJudge`, the
+  cascade through `JudgeReply.opinions`), and the patient page and the chart panel show both.
+* **S3 explains the list.** Under the funnel: the coded-only count, each criterion's unknown inclusions (not counted,
+  on the list as needing information) and unknown exclusions kept, the latest list's size split into ready / needs
+  information, and the patients coded inside a grouper's family but outside its list (D-113).
+* **CRC.** A patient the investigator approved has "Record the call" on its list row: open, tap the outcome (two taps).
+  On the phone the menu wraps instead of scrolling sideways, so "More" is never clipped.
+* **Public-data site.** `TB_CONSOLE_DATA_SOURCE=public` makes the banner say "public data only, no real patients
+  (D0)", not "synthetic". `TB_CONSOLE_STUDIES` limits the request menu to the site's own studies (and the account's
+  study scope always applies). The clinician's name comes from the records: the HIS practitioner name is mapped to
+  `Practitioner.name` and the lake's `practitioner.name`; `settings.practitioners` only fills a missing name.
+* **Translated labels (reverses D-110 for labels only).** At approval (S20), on a Japanese or Chinese page, the
+  coordinator or investigator may give each criterion a short label in that language (`console.criterion_label`,
+  audited; stored per study, criterion and language in the site store). Pages in that language show the site's
+  label with the study's own label beside it and the protocol text under it; the ruleset, the engine and the
+  reports keep the study's words. No machine translation: a person writes the label and sees the original.
