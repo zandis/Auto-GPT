@@ -130,6 +130,9 @@ def make_box(
 ) -> Box:
     """``extra_profiles``: a folder of ``<RULESET>.yaml`` site profiles added to the seed (studies that exist only for
     a test, such as the public-data studies of ``tools.public_site``)."""
+    from tools import pglocal
+
+    pglocal.for_work(tmp_path)  # D-126: the box's trial database (TB_DB_URL, or a local throwaway one)
     upd = settings_update or {}
     domain = str((upd.get("internal_domains") or ["hospa.test"])[0])
     env = load_env(
