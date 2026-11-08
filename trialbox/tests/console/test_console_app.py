@@ -1353,35 +1353,28 @@ def test_sso_header_ignored_from_an_untrusted_peer(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------------------------- surface rules
-@pytest.mark.req("FR-UX-12", "FR-UX-21")
 @pytest.mark.parametrize("env", ["PRODUCTION", "VALIDATION"])
-def test_pilot_refused_outside_dev_test(env: str, tmp_path: Path) -> None:
-    with pytest.raises(PilotRefused):
-        create_app(
-            {**PILOT_ENV, "TB_ENV": env, "TB_CONSOLE_DIR": str(tmp_path)},
-            backend=FakeBackend(),
-            audit=AuditLog(tmp_path / "a"),
-        )
+@pytest.mark.parametrize("data_class", ["D0", "D3"])
+def test_workspace_is_the_product_in_every_environment(env: str, data_class: str, tmp_path: Path) -> None:
+    """D-127 (review F-01): the clinical workspace runs in PRODUCTION and VALIDATION, on real-data classes too."""
+    app = create_app(
+        {**PILOT_ENV, "TB_ENV": env, "TB_DATA_CLASS": data_class, "TB_CONSOLE_DIR": str(tmp_path)},
+        backend=FakeBackend(),
+        audit=AuditLog(tmp_path / "a"),
+    )
+    paths = {getattr(r, "path", "") for r in app.routes}
+    assert any(p.startswith("/pilot") for p in paths)
 
 
-def test_pilot_refused_without_d0(tmp_path: Path) -> None:
-    with pytest.raises(PilotRefused, match="D0"):
-        create_app(
-            {**PILOT_ENV, "TB_DATA_CLASS": "D3", "TB_CONSOLE_DIR": str(tmp_path)},
-            backend=FakeBackend(),
-            audit=AuditLog(tmp_path / "a"),
-        )
-
-
-@pytest.mark.req("FR-UX-12", "FR-UX-21")
-def test_production_console_has_only_control_plane_routes(tmp_path: Path) -> None:
+@pytest.mark.req("FR-UX-21")
+def test_workspace_off_leaves_only_control_plane_routes(tmp_path: Path) -> None:
     backend = FakeBackend()
     backend.audit_dir = tmp_path / "audit"
     _done_feas(backend)
     users = UserStore()
     users.create("admin", "admin", ADMIN_PW, "admin@hospa.test")
     app = create_app(
-        {"TB_ENV": "PRODUCTION", "TB_CONSOLE_DIR": str(tmp_path)},
+        {"TB_ENV": "PRODUCTION", "TB_CONSOLE_WORKSPACE": "off", "TB_CONSOLE_DIR": str(tmp_path)},
         backend=backend,
         audit=AuditLog(backend.audit_dir),
         users=users,
