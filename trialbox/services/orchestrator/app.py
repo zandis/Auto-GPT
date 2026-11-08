@@ -286,7 +286,7 @@ def study_service_of(o: Orchestrator) -> StudyService:
         ):
             from rc_sim.app import register_inproc
 
-            register_inproc()  # FR-RC-17a: the simulator answers inproc://rc-sim only in demo and test boxes
+            register_inproc(replace=False)  # FR-RC-17a: inproc://rc-sim only in demo and test boxes
     return StudyService(_studies[key], registry_of(o), o.audit, lambda: _now(o))
 
 

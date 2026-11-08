@@ -71,6 +71,11 @@ datasets:
     data_class: D0
     kind: synthetic
     licence: generated (tools/synth via tools/hospital_sim.py)
+  parity:
+    path: eval/parity (offline model-gate replay of recorded SIGIR/TREC answers and serving-configuration records, D-111)
+    data_class: D0
+    kind: open
+    licence: derived scores of trialgpt_compare and trec_ct recordings (see those entries); serving records are configuration, no patient data
   open_cohorts:
     path: eval/open_cohorts (model answers and scores; SIGIR/TREC 2023 topics, qrels and trial texts in .cache, never committed)
     data_class: D0

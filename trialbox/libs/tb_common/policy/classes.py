@@ -194,6 +194,7 @@ _D1 = {
     "Job",
     # aggregates released after small-cell suppression
     "FeasibilityResult",
+    "ReportProvenance",  # its provenance block (D-111): ids, versions, dates, no patient data
     "FunnelStep",
     "MonthlyCount",
     "SensitivityRow",

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Role demo (D-104): the whole TrialBox box in one process on the SYNTHETIC hospital, one sign-in per role.
+# Demo image (D-104, D-111): the whole TrialBox box in one process on the SYNTHETIC hospital, one sign-in per role.
 # For trying the product on a public host (Hugging Face Spaces, Render, Cloud Run, any Docker host). Never real data.
 #   docker build -f demo/Dockerfile -t trialbox-demo .        (context = the trialbox/ folder)
 #   docker run -p 8080:8080 -e TB_DEMO_PASSWORD=... trialbox-demo
@@ -21,5 +21,8 @@ RUN --mount=type=secret,id=extra_ca,required=false \
     python tools/fetch_fonts.py && chown -R tb:tb /app/.cache
 USER tb
 EXPOSE 8080
-# --fresh: every start rebuilds the synthetic hospital, so a restart resets the demo
-CMD ["python", "-m", "tools.role_demo", "--fresh"]
+# Every start rebuilds the synthetic hospital, so a restart resets the demo. Default (step 5, D-111): the whole step
+# 1-4 flow seeded and checked by tools.demo (about 70 s before the console answers). TB_DEMO_TOOL=role_demo gives the
+# older role-only demo (600 patients, ready in about 30 s).
+ENV TB_DEMO_TOOL=demo
+CMD ["sh", "-c", "exec python -m tools.${TB_DEMO_TOOL} --fresh"]

@@ -489,3 +489,22 @@ Matching unchanged (no change to matching, the compiler or the SCREEN evaluation
 - Every key in every language with the same placeholders; REDCap read-back caption localised; "Ask treating doctor".
 - Phone header layout; browser walk of 5 roles × 3 languages × desktop/phone (210 checks).
 - Demo: `python -m tools.role_demo --fresh --dir /tmp/tb-roles`.
+
+## Build step 5: end to end and the demo (2026-11-08, D-111)
+
+- `e2e_simple` build gate: `make e2e-simple`, `tests/integration/test_e2e_simple.py`, GitHub Actions
+  `trialbox-e2e.yml` on PRs touching `trialbox/`. 48 checks in 9 stages; 74 s locally (budget 15 min).
+- FR-REP-01 provenance block in the feasibility (contract 1.1.0, `ReportProvenance`) and screening JSON; FR-REP-02
+  re-run byte-identical asserted in the gate.
+- FR-AUD-01b reveal reason; FR-AUD-01e per-patient REDCap status changes in the audit; 01a asserted.
+- Fix: a demo's own REDCap simulator is no longer replaced by the box's DEV registration.
+- Offline model gate `python -m tools.parity_replay`: N-11 deployed files 4/79 EN, 3/79 JA, zh-TW not recorded;
+  API 4-bit proxy 1/2/1; N-12 3.6 % projected (pass, API precision).
+- FR-MOD-10 record format `tools/serving_config.py`, capture on the GPU VM's boot (`capture-serving-config.sh`),
+  6 Nov record without hashes. Not run (no GPU).
+- One-command demo `make demo` / `make demo-bundle` / `demo/Dockerfile`; CPU VM start written in `docs/DEMO_VM.md`,
+  not started.
+
+**Evidence:** `make lint` clean (579 files formatted, mypy 483 files). Default suite by folder: unit 896 passed,
+9 skipped; console 129 passed; testbench 44 passed; integration 75 passed, 7 skipped; llm and e2e folders all
+deselected by marker. Total 1,144 passed, 16 skipped, 0 failed.

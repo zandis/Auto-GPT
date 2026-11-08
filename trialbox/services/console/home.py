@@ -28,7 +28,7 @@ from tb_contracts import Job
 
 from console import s28
 from console import studies as st
-from console.auth import Session
+from console.auth import Session, reveal_reason
 from console.backend import Refused
 from console.sitestore import (
     CAP_VALUES,
@@ -522,7 +522,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.page(request, "patient.html", sess, **patient_ctx(sess, rid, pid))
 
     @app.post("/studies/{rs}/patients/{pid}/reveal")
-    def patient_reveal(request: Request, rs: str, pid: str, csrf: str = Form("")) -> Response:
+    def patient_reveal(request: Request, rs: str, pid: str, csrf: str = Form(""), reason: str = Form("")) -> Response:
         """One chart number, shown once, audited on both sides (D-99). Investigators may too (D-104): they already
         treat these patients; the reveal names the investigator in the audit trail."""
         sess = h.need(request)
@@ -539,7 +539,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             job_id=job.job_id,
             ruleset=rid,
             actor=h.actor(sess),
-            detail={"pid": pid, "role": sess.user.role, "affiliation": sess.user.affiliation},
+            detail={
+                "pid": pid,
+                "role": sess.user.role,
+                "affiliation": sess.user.affiliation,
+                "reason": reveal_reason(reason),
+            },
         )
         try:
             mrn = bk.reveal(job.job_id, pid, h.actor(sess))

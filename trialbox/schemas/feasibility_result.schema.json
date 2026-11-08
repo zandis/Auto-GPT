@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/feasibility_result.schema.json",
   "title": "FeasibilityResult",
-  "description": "SPEC 3.6 feasibility_result. Counts are integers or a suppressed string like '<5'. Schema version 1.0.0.",
+  "description": "SPEC 3.6 feasibility_result. Counts are integers or a suppressed string like '<5'. Schema version 1.1.0 (1.1.0: optional provenance block, FR-REP-01, D-111).",
   "type": "object",
   "required": [
     "ruleset",
@@ -66,6 +66,9 @@
       "items": {
         "type": "string"
       }
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
     }
   },
   "$defs": {
@@ -213,6 +216,77 @@
         },
         "monthly_eligible_mean": {
           "type": "number"
+        }
+      }
+    },
+    "provenance": {
+      "title": "ReportProvenance",
+      "description": "FR-REP-01 (D-111): how the report was made. Built from the job only, so a re-run writes the same bytes (FR-REP-02).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "study",
+        "ruleset",
+        "ruleset_version",
+        "snapshot",
+        "data_sources",
+        "models",
+        "model_summary",
+        "prompt_versions",
+        "run_date",
+        "clock",
+        "job_id",
+        "language",
+        "site"
+      ],
+      "properties": {
+        "study": {
+          "type": "string"
+        },
+        "ruleset": {
+          "type": "string"
+        },
+        "ruleset_version": {
+          "type": "string"
+        },
+        "snapshot": {
+          "type": "string"
+        },
+        "data_sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "model_summary": {
+          "type": "string"
+        },
+        "prompt_versions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "run_date": {
+          "type": "string"
+        },
+        "clock": {
+          "type": "string"
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "site": {
+          "type": "string"
         }
       }
     }

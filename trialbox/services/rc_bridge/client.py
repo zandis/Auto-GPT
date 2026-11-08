@@ -38,11 +38,13 @@ class RcError(RuntimeError):
         self.status = self.STATUS.get(code, 409)
 
 
-def register_local(url: str, factory: Callable[[], httpx.Client]) -> None:
-    """Route an ``inproc://`` base URL to an in-process client (the demo's and tests' simulator)."""
+def register_local(url: str, factory: Callable[[], httpx.Client], replace: bool = True) -> None:
+    """Route an ``inproc://`` base URL to an in-process client (the demo's and tests' simulator). ``replace=False``
+    keeps a route someone registered first (a demo's own fresh simulator)."""
     if not url.startswith(INPROC_PREFIX):
         raise ValueError("only inproc:// URLs are routed in-process")
-    _LOCAL[url.rstrip("/")] = factory
+    if replace or url.rstrip("/") not in _LOCAL:
+        _LOCAL[url.rstrip("/")] = factory
 
 
 def check_token(token: str) -> str:
