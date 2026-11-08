@@ -1515,6 +1515,33 @@ TB-PLAN-03 step 7 (`22-optimization-plan.md` §5, §10; finding 2's root cause; 
   WHO ICD-10, mostly a subset of ICD-10-CM at category level); ADT-52 discharge and OMP-11/12 administrations;
   extended-storage `_contents.xml` documents; the CQL path still reads enumerated lists only.
 
+**D-123 REDCap write-back: TrialBox fills its own instrument and never a REDCap-owned field (TB-PLAN-03 step 8).**
+* **What is written.** Three fields on TrialBox's own instrument (`write_form`, default `trialbox_screening`):
+  `tb_screen_date` (the day the screening number was issued), `tb_status` (the registry status as a code,
+  1 candidate … 7 withdrawn) and `tb_status_date`. Nothing else is ever sent for an existing record. A new record
+  (create mode only) also carries the link field `tb_screening_no` and, in a multi-site project, the link's DAG.
+* **Modes** (`write_mode` on the project link, S21 section 2): `off` (read only, the default and the old behaviour),
+  `existing` (fill the records the coordinator created; screening numbers without a record are listed as waiting),
+  `create` (also create a record per new screening number, auto-numbered by REDCap: a screening-log project).
+* **Never overwrite.** Saving the link refuses (`RC-LINK-WRITE`) an instrument that holds any field the link reads
+  (consent, enrolment, screen-fail, withdrawal, subject number, link field), so the fields TrialBox writes and the
+  fields REDCap owns cannot overlap. The import uses `overwriteBehavior=normal` (a blank never erases). A screening
+  number on two REDCap records is never written (RC-LINK-DUP stays the coordinator's call).
+* **When.** Run now and the nightly read: the read first (REDCap's statuses into the registry), then the write
+  (TrialBox's now current status into its instrument). A ledger (`rc_write`, hash per screening number) skips rows
+  that did not change. A failed write is reported on the log and retried on the next run; the read stands.
+* **API, no module.** The record import (`content=record` with `data`, `forceAutoNumber`, `returnContent=auto_ids`)
+  is a form post like the reads (`RedcapClient.import_records`); no REDCap External Module or PHP on the site's
+  REDCap. The simulator implements the import with REDCap's checks: unknown fields, unknown or missing events
+  (longitudinal), fields on a form the event does not carry (`form_event_mapping`) and unknown DAGs are refused whole.
+* **Evidence.** `tests/unit/test_rc_writeback.py` (import rules, plan modes, unchanged and duplicate handling, the
+  link check, read-then-write leaving every REDCap-owned field as it was, create mode then consent read back).
+  `e2e_simple` stage 8: write-back on through S21 → Run now → every screening number has its REDCap record with
+  TrialBox's instrument filled and no REDCap-owned field changed → consent entered in REDCap → the next Run now
+  shows *consented* on the log and `tb_status` follows → a third run writes nothing.
+* **Not done.** The REDCap project's instrument is created by the site's REDCap builder from the three-field data
+  dictionary in `services/rc_sim/fixtures/` (TrialBox does not change a project's design); repeating instruments.
+
 **D-124 A hardware profile for every box we sell, each serving the measured pair.** TB-PLAN-04 step 1 (fixes F1).
 D-123 is the data core on the step-3 branch (PR #31).
 

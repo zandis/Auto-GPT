@@ -40,6 +40,9 @@ LINK_TEXT = (
     "withdraw_field",
     "withdraw_value",
     "subject_no_field",
+    "write_mode",
+    "write_form",
+    "write_event",
 )
 
 
@@ -64,7 +67,8 @@ def screening_map(store: Any, rs: str) -> dict[str, str]:
 
 def read_now(h: Helpers, rs: str, by: str) -> dict[str, Any]:
     """Run now and the nightly job: the orchestrator reads REDCap through the study's link and updates the log."""
-    body = {"screening": screening_map(h.store, rs), "by": by}
+    issued = {no: at for _pid, no, at in h.store.screening_rows(rs)}
+    body = {"screening": screening_map(h.store, rs), "issued": issued, "by": by}
     out = s28.call(h.bk, "POST", f"/studies/{rs}/redcap-read", body)
     return dict(out)
 
@@ -202,6 +206,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         body["link_field"] = body["link_field"] or "tb_screening_no"
         body["enrol_value"] = body["enrol_value"] or "1"
         body["withdraw_value"] = body["withdraw_value"] or "1"
+        body["write_mode"] = body["write_mode"] if body["write_mode"] in ("off", "existing", "create") else "off"
+        body["write_form"] = body["write_form"] or "trialbox_screening"
         return body
 
     @app.post("/studies/{rs}/setup/redcap")

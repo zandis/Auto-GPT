@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS rc_record (
   read_at TEXT NOT NULL,
   PRIMARY KEY (ruleset, record_id)
 );
+CREATE TABLE IF NOT EXISTS rc_write (
+  ruleset TEXT NOT NULL,
+  link_value TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  written_at TEXT NOT NULL,
+  PRIMARY KEY (ruleset, link_value)
+);
 CREATE TABLE IF NOT EXISTS rc_read_log (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   ruleset TEXT NOT NULL,
@@ -269,6 +277,19 @@ class StudyStore:
                 rec.get("subject_no") or None,
                 at,
             ),
+        )
+
+    # ------------------------------------------------------------------ rc_write (the write-back ledger, D-123)
+    def written(self, ruleset: str) -> dict[str, dict[str, Any]]:
+        rows = self._all("SELECT * FROM rc_write WHERE ruleset = ?", (ruleset,))
+        return {r["link_value"]: r for r in rows}
+
+    def put_written(self, ruleset: str, link_value: str, record_id: str, digest: str, at: str) -> None:
+        self._run(
+            "INSERT INTO rc_write (ruleset, link_value, record_id, hash, written_at) VALUES (?,?,?,?,?) "
+            "ON CONFLICT(ruleset, link_value) DO UPDATE SET record_id = excluded.record_id, hash = excluded.hash, "
+            "written_at = excluded.written_at",
+            (ruleset, link_value, record_id, digest, at),
         )
 
     def log_read(self, ruleset: str, at: str, by: str, ok: bool, result: dict[str, Any]) -> None:

@@ -5,6 +5,7 @@ network, no secrets, run in process:
 
     criteria pasted -> FEAS report (funnel) -> the investigator approves -> SCREEN -> the list (GZQO) and the cohort
     list (GOUT-COH) -> marks -> N1/N2 mail -> REDCap simulator record -> Run now -> screening log (HTML and XLSX)
+    -> write-back of TrialBox's instrument -> consent in REDCap -> read back on the next run (D-123)
 
 and each stage is checked against something it did not compute itself: the generator's own counts, a recount from
 the hospital CSVs, the sent mail, the hash-chained audit log and a byte-identical re-run of the FEAS and SCREEN jobs.
@@ -396,6 +397,66 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     s.check("hash chain verifies", chain.ok, chain.errors[:3])
     trail = "\n".join(json.dumps(r, ensure_ascii=False) for r in recs)
     s.check("no patient name in the audit", not [n for n in names if n in trail][:1])
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
+    # ---------------------------------------------------------------- stage 8: REDCap write-back (D-123)
+    s = Stage("8 REDCap write-back")
+    t = time.perf_counter()
+    from fastapi.testclient import TestClient as SimClient
+
+    sim = SimClient(res["sim"])
+    token_a = next(k for k, v in res["sim"].state.sim.projects.items() if v["project"]["project_id"] == 101)
+
+    def sim_rows() -> dict[str, dict[str, str]]:
+        r = sim.post("/api/", data={"token": token_a, "content": "record", "format": "json", "type": "flat"})
+        return {str(x["record_id"]): x for x in r.json()}
+
+    before = sim_rows()
+    page = crc.get(f"/studies/{TRIAL}/setup")
+    form = {**rc_demo.LINK_FORM, "write_mode": "create", "write_form": "trialbox_screening"}
+    r = crc.post(f"/studies/{TRIAL}/setup/redcap", data={"csrf": fd._csrf(page.text), **form})
+    s.check("S21 saves the link with write-back on", r.status_code == 200 and 'data-testid="link-on"' in r.text)
+    nos = {no: pid for pid, no, _at in h.store.screening_rows(TRIAL)}
+    s.check("at least two screening numbers on the log", len(nos) >= 2, sorted(nos))
+    log = crc.get(f"/studies/{TRIAL}/screening-log")
+    r = crc.post(f"/studies/{TRIAL}/redcap-read", data={"csrf": fd._csrf(log.text), "back": "log"})
+    s.check("Run now reports the write", 'data-testid="rc-write"' in r.text, r.status_code)
+    after = sim_rows()
+    by_no = {x["tb_screening_no"]: x for x in after.values() if x.get("tb_screening_no")}
+    s.check("every screening number has its REDCap record", set(nos) <= set(by_no), sorted(set(nos) - set(by_no)))
+    s.check(
+        "TrialBox's instrument is filled for each",
+        all(by_no[n]["tb_status"] and by_no[n]["tb_screen_date"] for n in nos if n in by_no),
+        {n: by_no[n].get("tb_status") for n in nos if n in by_no},
+    )
+    enrolled_code = "4"
+    s.check("the enrolled patient reads 4 (enrolled) in tb_status", by_no.get(res["screening_no"], {}).get("tb_status")
+            == enrolled_code, by_no.get(res["screening_no"]))  # fmt: skip
+    owned = {"tb_screen_date", "tb_status", "tb_status_date"}
+    touched = [
+        (rid, f)
+        for rid, old in before.items()
+        for f, v in old.items()
+        if f not in owned and after.get(rid, {}).get(f) != v
+    ]
+    s.check("no REDCap-owned field changed", not touched, touched[:5])
+    new_no = next((n for n in sorted(nos) if n != res["screening_no"]), "")
+    new_rid = str(by_no.get(new_no, {}).get("record_id", ""))
+    s.check("a new screening number got a new REDCap record", new_rid and new_rid not in before, (new_no, new_rid))
+    # the coordinator records consent in REDCap; the next Run now reads it back and TrialBox's status follows
+    day = h.clock().date().isoformat()
+    sim.post("/sim/records", json={"project_id": 101, "records": [{"record_id": new_rid, "consent_date": day}]})
+    r = crc.post(f"/studies/{TRIAL}/redcap-read", data={"csrf": fd._csrf(r.text), "back": "log"})
+    s.check(
+        "next run: consent read back on the log",
+        rc_demo.status_of(r.text, new_no).startswith(cat["registry.status.consented"]),
+        rc_demo.status_of(r.text, new_no),
+    )
+    s.check("next run: tb_status follows (3, consented)", sim_rows().get(new_rid, {}).get("tb_status") == "3")
+    r = crc.post(f"/studies/{TRIAL}/redcap-read", data={"csrf": fd._csrf(r.text), "back": "log"})
+    s.check("a third run writes nothing new", len(sim_rows()) == len(after), len(sim_rows()))
+    s.check("the write is in the audit", any(x["event"] == "redcap.write" for x in _audit(box)))
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
