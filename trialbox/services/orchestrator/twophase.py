@@ -16,6 +16,13 @@ After :data:`MAX_ROUNDS` the last run is strict: a verifier question still witho
 which the pipelines count as a failure and turn into ``unknown`` (never an exclusion, SAFE-13). The returned result is
 the last run's, so it is the inline two-model result with the same prompts and inputs; only the call order changed.
 
+Swaps are lazy (TB-PLAN-03 step 1, D-116): the judge is woken only when a judge question has no memo answer, the
+verifier only when questions are pending, and a swap to the model already awake is skipped. A run that opens no new
+path after the verifier pass therefore costs one swap (judge -> verifier), and at the end the run *releases* the card
+instead of swapping back: the gateway wakes the judge when the next chat or run needs it. Each real swap is followed
+by an optional wake check (``probe``): a model that answers its wake questions
+wrongly is not trusted for the rest of the run (its answers become errors, so ``unknown``, never an exclusion).
+
 Without ``TB_MODEL_SWAP=sleep`` (both models resident, the GB10 and RTX PRO 6000 layouts) :func:`two_phase` simply
 calls the function once with the judge as given.
 """
@@ -56,6 +63,8 @@ class MemoClient:
         self.inner = inner
         self.memo: dict[str, LlmResult | LlmError] = {}
         self.live_calls = 0
+        self.on_live: Callable[[], None] | None = None  # wakes the judge before a call the memo cannot answer
+        self.broken: str | None = None  # the judge failed its wake check: live calls fail (-> unknown)
         self._lock = threading.Lock()
 
     def __getattr__(self, name: str) -> Any:  # model, base_url, gateway ... of the wrapped client
@@ -70,6 +79,10 @@ class MemoClient:
         hit = self.lookup(k)
         if hit is None:
             try:
+                if self.on_live is not None:
+                    self.on_live()
+                if self.broken:
+                    raise LlmError(self.broken)
                 hit = self.inner.chat_json(prompt_id, variables, schema, **kw)
             except LlmError as exc:
                 hit = exc
@@ -113,14 +126,17 @@ class DeferredVerifier:
             return mine
         raise LlmError("deferred verifier: no judge answer to stand in for")
 
-    def resolve(self, workers: int) -> int:
-        """Answer every pending question with the real verifier (the verifier must be awake). Returns the count."""
+    def resolve(self, workers: int, broken: str | None = None) -> int:
+        """Answer every pending question with the real verifier (the verifier must be awake). Returns the count.
+        ``broken``: the verifier failed its wake check, so every pending question gets that error instead."""
         with self._lock:
             todo, self.pending = dict(self.pending), {}
 
         def one(item: tuple[str, tuple[str, dict[str, Any], str | None, dict[str, Any]]]) -> None:
             k, (pid, variables, schema, kw) = item
             try:
+                if broken:
+                    raise LlmError(broken)
                 res: LlmResult | LlmError = self.inner.chat_json(pid, variables, schema, **kw)
             except LlmError as exc:
                 res = exc
@@ -149,53 +165,110 @@ class GatewaySwap:
         return cls(url, os.environ.get("TB_SERVICE_NAME") or "orchestrator")
 
     def use(self, endpoint: str) -> None:
+        """Wake ``endpoint`` and hold the card for this run (D-116)."""
         try:
             r = self.http.post(
-                f"{self.url}/serving/activate", json={"endpoint": endpoint}, headers={"X-TB-Caller": self.caller}
+                f"{self.url}/serving/activate",
+                json={"endpoint": endpoint, "hold": True},
+                headers={"X-TB-Caller": self.caller},
             )
         except httpx.HTTPError as exc:
             raise LlmError(f"model swap to {endpoint} failed: {type(exc).__name__}") from exc
         if r.status_code >= 400:
             raise LlmError(f"model swap to {endpoint} failed: HTTP {r.status_code} {r.text[:200]}")
 
+    def release(self) -> None:
+        """Let go of the card; the gateway wakes the judge when the next call needs it. Never raises: a release that
+        fails only means the hold lapses on its own (``TB_SWAP_HOLD_S``)."""
+        try:
+            self.http.post(f"{self.url}/serving/release", headers={"X-TB-Caller": self.caller})
+        except httpx.HTTPError as exc:
+            log.warning("model swap release failed: %s", type(exc).__name__)
+
 
 Swap = Callable[[str], None]
+Probe = Callable[[str], str | None]  # endpoint just woken -> None when its wake check passed, else why not
 
 
-def two_phase[J, R](judge: J, run: Callable[[J], R], swap: Swap | None = None, *, workers: int | None = None) -> R:
+class Gpu:
+    """Which model this run last woke; skips a swap to the model already awake and runs the wake check after each
+    real one. ``swaps`` counts the real swaps (the first wake of a run included when it changed the model)."""
+
+    def __init__(self, swap: Swap, probe: Probe | None = None) -> None:
+        self.swap = swap
+        self.probe = probe
+        self.awake: str | None = None
+        self.swaps = 0
+        self.broken: dict[str, str] = {}  # endpoint -> why it failed its wake check (kept for the rest of the run)
+        self._lock = threading.Lock()
+
+    def use(self, endpoint: str) -> None:
+        with self._lock:
+            if self.awake == endpoint:
+                return
+            self.swap(endpoint)
+            first, self.awake = self.awake is None, endpoint
+            if not first:
+                self.swaps += 1
+            if self.probe is not None and endpoint not in self.broken:
+                why = self.probe(endpoint)
+                if why:
+                    self.broken[endpoint] = why
+                    log.error("%s failed its wake check, its answers are not used this run: %s", endpoint, why)
+
+
+def two_phase[J, R](
+    judge: J,
+    run: Callable[[J], R],
+    swap: Swap | None = None,
+    *,
+    workers: int | None = None,
+    release: Callable[[], None] | None = None,
+    probe: Probe | None = None,
+) -> R:
     """Run ``run(judge)`` with the verifier deferred to after the judge pass when the GPU is time-shared.
 
     ``judge`` is a :class:`NoteJudge` or ``OrchestratorJudge`` (anything with ``llm``, ``verifier`` and the
-    :data:`COUNTERS` fields); its counters end up as those of the final round. ``swap`` defaults to
-    :meth:`GatewaySwap.from_env`; ``None`` there (no swap configured) means one plain run."""
+    :data:`COUNTERS` fields); its counters end up as those of the final round. ``swap`` (and ``release``) default to
+    :meth:`GatewaySwap.from_env`; ``None`` there (no swap configured) means one plain run.
+    ``probe``: the wake check run after each real swap."""
     if swap is None:
         gs = GatewaySwap.from_env()
-        swap = gs.use if gs is not None else None
+        if gs is not None:
+            swap, release = gs.use, release or gs.release
     if swap is None or judge is None or getattr(judge, "verifier", None) is None:
         return run(judge)
     n = workers or int(os.environ.get("TB_SCREEN_WORKERS") or 4)
+    gpu = Gpu(swap, probe)
     memo = MemoClient(judge.llm)  # type: ignore[attr-defined]
     dv = DeferredVerifier(judge.verifier, memo)  # type: ignore[attr-defined]
+
+    def wake_judge() -> None:
+        gpu.use("serving")
+        memo.broken = gpu.broken.get("serving")
+
+    memo.on_live = wake_judge
     names = {f.name for f in fields(judge)}  # type: ignore[arg-type]
     reset = {c: 0 for c in COUNTERS if c in names}
     out: R
     j: J = judge
-    for rnd in range(1, MAX_ROUNDS + 1):
-        dv.strict = rnd == MAX_ROUNDS
-        swap("serving")
-        j = replace(judge, llm=memo, verifier=dv, **reset)  # type: ignore[type-var]
-        out = run(j)
-        if not dv.pending:
-            break
-        if dv.strict:  # unreachable: strict rounds record nothing
-            break
-        swap("verifier")
-        asked = dv.resolve(n)
-        log.info("two_phase round %d: %d verifier questions answered", rnd, asked)
-    swap("serving")  # daytime state: the judge serves chat and the next run
+    try:
+        for rnd in range(1, MAX_ROUNDS + 1):
+            dv.strict = rnd == MAX_ROUNDS
+            j = replace(judge, llm=memo, verifier=dv, **reset)  # type: ignore[type-var]
+            out = run(j)
+            if not dv.pending or dv.strict:  # strict rounds record nothing
+                break
+            gpu.use("verifier")
+            asked = dv.resolve(n, broken=gpu.broken.get("verifier"))
+            log.info("two_phase round %d: %d verifier questions answered", rnd, asked)
+    finally:
+        if release is not None:
+            release()  # the gateway wakes the judge for the next chat or run (no swap back here)
+    log.info("two_phase: %d swap(s), wake checks failed: %s", gpu.swaps, sorted(gpu.broken) or "none")
     for c in reset:
         setattr(judge, c, getattr(j, c))
     return out
 
 
-__all__ = ["MAX_ROUNDS", "DeferredVerifier", "GatewaySwap", "MemoClient", "swap_enabled", "two_phase"]
+__all__ = ["MAX_ROUNDS", "DeferredVerifier", "GatewaySwap", "Gpu", "MemoClient", "swap_enabled", "two_phase"]

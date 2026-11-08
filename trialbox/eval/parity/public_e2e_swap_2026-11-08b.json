@@ -1,0 +1,241 @@
+{
+ "feas": {
+  "start": 268,
+  "remaining": {
+   "PUB-ONC-EXC-01": 40,
+   "PUB-ONC-EXC-02": 40,
+   "PUB-ONC-INC-01": 129,
+   "PUB-ONC-INC-02": 41
+  },
+  "funnel": [
+   {
+    "applied": true,
+    "criterion_id": "PUB-ONC-INC-01",
+    "dropped": 140,
+    "label": "Age \u226518",
+    "pct": 48.1,
+    "remaining": 130,
+    "unknown": 120
+   },
+   {
+    "applied": true,
+    "criterion_id": "PUB-ONC-INC-02",
+    "dropped": 90,
+    "label": "Malignancy",
+    "pct": 14.8,
+    "remaining": 40,
+    "unknown": 0
+   },
+   {
+    "applied": false,
+    "criterion_id": "PUB-ONC-INC-03",
+    "dropped": 0,
+    "label": "ECOG 0\u20131",
+    "pct": 14.8,
+    "remaining": 40
+   },
+   {
+    "applied": true,
+    "criterion_id": "PUB-ONC-EXC-01",
+    "dropped": 0,
+    "label": "Pregnancy",
+    "pct": 14.8,
+    "remaining": 40,
+    "unknown": 0
+   },
+   {
+    "applied": true,
+    "criterion_id": "PUB-ONC-EXC-02",
+    "dropped": 0,
+    "label": "Active TB",
+    "pct": 14.8,
+    "remaining": 40,
+    "unknown": 0
+   },
+   {
+    "applied": false,
+    "criterion_id": "PUB-ONC-EXC-03",
+    "dropped": 0,
+    "label": "ILD / pneumonitis",
+    "pct": 14.8,
+    "remaining": 40
+   },
+   {
+    "applied": false,
+    "criterion_id": "PUB-ONC-EXC-04",
+    "dropped": 0,
+    "label": "Other trial \u226430 d",
+    "pct": 14.8,
+    "remaining": 40
+   }
+  ]
+ },
+ "screen": {
+  "funnel": {
+   "S0": 268,
+   "S1": 90,
+   "S3": 90,
+   "S4": 90
+  },
+  "tiers": {
+   "excluded": 178,
+   "high": 0,
+   "review": 90
+  },
+  "listed": 90,
+  "judging": {
+   "configured_note_block": "both_agree",
+   "disagreements": 1,
+   "failures": 0,
+   "judge_model": "local/gemma-4-26b-a4b-nvfp4",
+   "may_block": true,
+   "mode": "agreement",
+   "note_block": "both_agree",
+   "note_block_reason": "judge and verifier must both say fail",
+   "verifier_model": "local/qwen3.5-9b-awq"
+  },
+  "request_seconds": {
+   "PUB-ONC": 453.1,
+   "PUB-CA": 0.9
+  },
+  "stage_seconds": 454.0
+ },
+ "cohort_members": 41,
+ "seconds": 1400.9281769260015,
+ "site": {
+  "patients": 268,
+  "by_source": {
+   "SIGIR": 53,
+   "MedTxt-CR": 123,
+   "MedTxt-RR": 92
+  },
+  "age_stated": 141,
+  "age_approx": 7,
+  "age_missing": 120,
+  "sex_stated": 149,
+  "with_dx": 127,
+  "dx_rows": 149,
+  "dx_counts": {
+   "C34.90 lung cancer": 44,
+   "C80.1 malignancy, other site": 24,
+   "C18.9 colorectal cancer": 11,
+   "C16.9 gastric cancer": 9,
+   "I10 hypertension": 8,
+   "E11.9 type 2 diabetes": 8,
+   "J18.9 pneumonia": 7,
+   "E66.9 obesity": 6,
+   "A15.9 tuberculosis": 6,
+   "Z33.1 pregnancy": 5,
+   "E78.5 hyperlipidaemia": 4,
+   "J45.9 asthma": 4,
+   "C22.0 hepatocellular carcinoma": 3,
+   "C50.9 breast cancer": 2,
+   "K85.90 pancreatitis": 2,
+   "I21.9 myocardial infarction": 1,
+   "I63.9 cerebral infarction": 1,
+   "B18.2 chronic hepatitis C": 1,
+   "I50.9 heart failure": 1,
+   "B18.1 chronic hepatitis B": 1,
+   "I48.9 atrial fibrillation": 1
+  },
+  "appointments_placed": 89
+ },
+ "terminology_missed": {
+  "codes": [],
+  "patients": 0
+ },
+ "swap": {
+  "swap": "sleep",
+  "active": "verifier",
+  "held": false,
+  "swaps": 8,
+  "on_demand": 2,
+  "last_swap_s": 1.31
+ },
+ "canary_at_start": {
+  "ok": true,
+  "cases": 54,
+  "models": [
+   {
+    "role": "judge",
+    "model": "local/gemma-4-26b-a4b-nvfp4",
+    "cases": 54,
+    "answered": 54,
+    "correct": 53,
+    "flips": 1,
+    "seconds": 121.5,
+    "errors": [],
+    "wrong": [
+     {
+      "id": "ja:preg:yes",
+      "expected": "pass",
+      "got": "fail"
+     }
+    ],
+    "ok": true
+   },
+   {
+    "role": "verifier",
+    "model": "local/qwen3.5-9b-awq",
+    "cases": 54,
+    "answered": 54,
+    "correct": 49,
+    "flips": 1,
+    "seconds": 104.7,
+    "errors": [],
+    "wrong": [
+     {
+      "id": "en:preg:silent",
+      "expected": "unknown",
+      "got": "fail"
+     },
+     {
+      "id": "en:stroke:silent",
+      "expected": "unknown",
+      "got": "fail"
+     },
+     {
+      "id": "ja:preg:silent",
+      "expected": "unknown",
+      "got": "fail"
+     },
+     {
+      "id": "ja:chemo:yes",
+      "expected": "pass",
+      "got": "fail"
+     },
+     {
+      "id": "zh-TW:stroke:silent",
+      "expected": "unknown",
+      "got": "fail"
+     }
+    ],
+    "ok": true
+   }
+  ],
+  "pair": {
+   "cases": 54,
+   "correct": 52,
+   "decided_wrong": 0,
+   "disagreed": 2,
+   "wrong": []
+  },
+  "problems": [],
+  "thresholds": {
+   "min_answered": 0.95,
+   "max_flips": 1,
+   "min_accuracy": 0.85,
+   "max_pair_wrong": 0
+  },
+  "at": "2026-11-08T08:04:33",
+  "at_epoch": 1794125073.9
+ },
+ "gpu_peak": {
+  "at": "2026-11-08T08:24:57Z",
+  "used_mib": 27406,
+  "peak_mib": 29631,
+  "total_mib": 97887,
+  "judge_awake": true,
+  "verifier_awake": false
+ }
+}

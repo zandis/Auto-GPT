@@ -1,5 +1,6 @@
 """tb-gateway HTTP app (spec v4 §8.2; S1-06): OpenAI-compatible ``POST /v1/chat/completions`` and ``GET /v1/models``;
-``POST /v1/serving/activate`` and ``GET /v1/serving/status`` drive the one-GPU model swap (:mod:`gateway.swap`).
+``POST /v1/serving/activate``, ``POST /v1/serving/release`` and ``GET /v1/serving/status`` drive the one-GPU model
+swap (:mod:`gateway.swap`).
 
 ``create_app(gateway)`` wraps a configured :class:`gateway.core.Gateway`; ``create_app()`` builds one from the
 environment (``TB_TOPOLOGY``, ``TB_ENV``, ``TB_PROFILE``, ``TB_CLOUD_OPT_IN``, ``TB_ROUTING_PATH``,
@@ -79,7 +80,8 @@ def create_app(gateway: Gateway | None = None) -> FastAPI:
 
     @app.post("/v1/serving/activate")
     async def serving_activate(request: Request) -> JSONResponse:
-        """Wake one model and sleep the other (TB_MODEL_SWAP=sleep); body ``{"endpoint": "serving" | "verifier"}``."""
+        """Wake one model and sleep the other (TB_MODEL_SWAP=sleep); body ``{"endpoint": "serving" | "verifier",
+        "hold": true}`` (hold: a screening run keeps the card until ``/v1/serving/release``)."""
         try:
             body = await request.json()
         except ValueError:
@@ -87,7 +89,14 @@ def create_app(gateway: Gateway | None = None) -> FastAPI:
         endpoint = body.get("endpoint") if isinstance(body, dict) else None
         if not isinstance(endpoint, str):
             return JSONResponse({"error": {"type": "invalid_request", "message": "endpoint required"}}, 400)
-        res = await run_in_threadpool(gw.activate, request.headers.get("x-tb-caller", ""), endpoint)
+        hold = bool(body.get("hold")) if isinstance(body, dict) else False
+        res = await run_in_threadpool(gw.activate, request.headers.get("x-tb-caller", ""), endpoint, hold)
+        return JSONResponse(res.body, status_code=res.status)
+
+    @app.post("/v1/serving/release")
+    def serving_release(request: Request) -> JSONResponse:
+        """A screening run lets go of the card (D-116): nothing swaps back now; the next call wakes what it needs."""
+        res = gw.release(request.headers.get("x-tb-caller", ""))
         return JSONResponse(res.body, status_code=res.status)
 
     app.mount("/registry", registry_app(gw.registry))

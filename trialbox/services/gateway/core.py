@@ -168,9 +168,10 @@ class Gateway:
         self._cache_lock = threading.Lock()  # the HTTP app runs calls in a thread pool
 
     # ------------------------------------------------------------------------------------------------ public
-    def activate(self, caller: str, endpoint: str) -> GatewayResponse:
+    def activate(self, caller: str, endpoint: str, hold: bool = False) -> GatewayResponse:
         """Wake ``endpoint`` and put the other swappable one to sleep (``POST /v1/serving/activate``). Allowed for
-        callers whose allowlist entry may use the ``judge`` role (the orchestrator, matching, eval)."""
+        callers whose allowlist entry may use the ``judge`` role (the orchestrator, matching, eval). ``hold``: a
+        screening run keeps the card until :meth:`release` (no wake on demand meanwhile, D-116)."""
         from gateway.swap import SwapError
 
         if self.swap is None:
@@ -180,13 +181,25 @@ class Gateway:
             msg = f"caller {caller!r} may not swap models"
             return GatewayResponse(403, {"error": {"type": "tb_refusal", "code": "caller_unknown", "message": msg}})
         try:
-            st = self.swap.activate(endpoint)
+            st = self.swap.activate(endpoint, hold=hold)
         except SwapError as e:
             self.audit.append(
                 "llm.gateway.swap_failed", detail={"caller": caller, "endpoint": endpoint, "error": str(e)}
             )
             return GatewayResponse(502, {"error": {"type": "swap_failed", "message": str(e)}})
         self.audit.append("llm.gateway.swap", detail={"caller": caller, **st})
+        return GatewayResponse(200, st)
+
+    def release(self, caller: str) -> GatewayResponse:
+        """``POST /v1/serving/release``: the screening run lets go of the card; nothing is swapped back now."""
+        if self.swap is None:
+            return GatewayResponse(200, {"swap": "off", "active": None})
+        c = self.policy.callers.get(caller)
+        if c is None or not _match("judge", c.roles):
+            msg = f"caller {caller!r} may not swap models"
+            return GatewayResponse(403, {"error": {"type": "tb_refusal", "code": "caller_unknown", "message": msg}})
+        st = self.swap.release()
+        self.audit.append("llm.gateway.swap_release", detail={"caller": caller, **st})
         return GatewayResponse(200, st)
 
     def models(self) -> list[str]:
@@ -342,12 +355,21 @@ class Gateway:
             errors.append(f"{ep.name}: no URL configured")
             return None
         interactive = bool(self.policy.roles.get(call.role, {}).get("interactive"))
-        if self.swap is not None and not self.swap.awake(ep.name):
-            # swapped out: not sent, and no fallback either (the judge's route falls back to the verifier build,
-            # which must never answer in the judge's place while it is awake for the verifier pass)
-            if interactive:
-                raise Refusal("model_busy", BUSY_MESSAGE, status=503)
-            raise Refusal("model_asleep", f"{ep.name} is asleep (one-GPU swap); activate it first", status=503)
+        if self.swap is not None and ep.name in self.swap.urls:
+            if not self.swap.awake(ep.name):
+                was = self.swap.active
+                if not self.swap.ensure(ep.name):
+                    # held by a screening run: not sent, and no fallback either (the judge's route falls back to
+                    # the verifier build, which must never answer in the judge's place during the verifier pass)
+                    if interactive:
+                        raise Refusal("model_busy", BUSY_MESSAGE, status=503)
+                    raise Refusal("model_asleep", f"{ep.name} is asleep (one-GPU swap); activate it first", status=503)
+                self.audit.append(
+                    "llm.gateway.swap",
+                    detail={"caller": "on-demand", "from": was, "role": call.role, **self.swap.status()},
+                )
+            elif not interactive:
+                self.swap.touch()
         t0 = time.perf_counter()
         try:
             if interactive:

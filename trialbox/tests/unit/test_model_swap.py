@@ -135,13 +135,43 @@ def test_gateway_does_not_send_to_a_sleeping_model_and_chat_gets_busy(tmp_path: 
     fake = FakeVllm()
     sw = _swap(fake)
     gw = _gw(tmp_path, fake, sw)
-    sw.activate("verifier")  # night: verifier pass running
+    sw.activate("verifier", hold=True)  # night: a screening run holds the card for its verifier pass
     res = gw.chat(JH, _judge_body())  # a judge call while the judge sleeps
     assert res.status == 503 and res.body["error"]["code"] == "model_asleep"
     assert not any(x.endswith("/chat/completions") for x in fake.log)  # not sent, and no fallback to the verifier
     sw.activate("serving")
     ok = gw.chat(JH, _judge_body())
     assert ok.status == 200 and ok.body["tb"]["alias"] == "j-workhorse"
+
+
+def test_a_released_card_wakes_the_judge_on_demand(tmp_path: Path) -> None:
+    """D-116: the run ends on the verifier and releases; the next judge call wakes the judge (no swap back)."""
+    fake = FakeVllm()
+    sw = _swap(fake)
+    gw = _gw(tmp_path, fake, sw)
+    sw.activate("verifier", hold=True)
+    assert sw.held
+    sw.release()
+    assert not sw.held and sw.active == "verifier"
+    ok = gw.chat(JH, _judge_body())
+    assert ok.status == 200 and sw.active == "serving" and sw.on_demand == 1
+    assert fake.sleeping == {"llm-service": False, "llm-verifier": True}
+
+
+def test_a_hold_lapses_and_batch_calls_keep_it_alive(tmp_path: Path) -> None:
+    fake = FakeVllm()
+    sw = ModelSwap(URLS, http=fake.client(), wake_timeout_s=2, poll_s=0.01, hold_s=0.05)
+    gw = _gw(tmp_path, fake, sw)
+    sw.activate("verifier", hold=True)
+    import time as _t
+
+    _t.sleep(0.03)
+    sw.touch()  # a verifier call during the pass
+    _t.sleep(0.03)
+    assert sw.held  # 0.06 s after the start, kept alive by the call
+    _t.sleep(0.06)
+    assert not sw.held  # the orchestrator died mid-run: the hold lapses, chat can wake the judge again
+    assert gw.chat(CHAT_H, CHAT_BODY).status == 200
 
 
 def test_interactive_roles_are_marked_in_the_routing_table() -> None:
@@ -193,6 +223,13 @@ def test_activate_endpoint_needs_a_judge_caller(tmp_path: Path) -> None:
     assert r.status_code == 200 and r.json()["active"] == "verifier"
     assert c.get("/v1/serving/status").json()["active"] == "verifier"
     assert c.post("/v1/serving/activate", json={}, headers={"X-TB-Caller": "orchestrator"}).status_code == 400
+    held = c.post(
+        "/v1/serving/activate", json={"endpoint": "verifier", "hold": True}, headers={"X-TB-Caller": "orchestrator"}
+    )
+    assert held.json()["held"] is True
+    assert c.post("/v1/serving/release", headers={"X-TB-Caller": "hermes"}).status_code == 403
+    rel = c.post("/v1/serving/release", headers={"X-TB-Caller": "orchestrator"})
+    assert rel.status_code == 200 and rel.json()["held"] is False and rel.json()["active"] == "verifier"
     off = TestClient(create_app(_gw(tmp_path, fake, None)))
     assert off.post("/v1/serving/activate", json={"endpoint": "verifier"}).json() == {"swap": "off", "active": None}
 
@@ -282,14 +319,58 @@ def test_two_phase_equals_the_inline_two_model_run_with_one_model_awake_at_a_tim
         swaps.append(endpoint)
         awake["J"], awake["V"] = endpoint == "serving", endpoint == "verifier"
 
+    released: list[bool] = []
     tj = ToyJudge(jc, vc)
-    phased = two_phase(tj, screen, swap, workers=2)
+    phased = two_phase(tj, screen, swap, workers=2, release=lambda: released.append(True))
     assert phased == inline == {"q1": "pass", "q2": "unknown", "q3": "unknown", "q2-full": "fail"}
     assert (len(jc.calls), len(vc.calls)) == inline_calls == (4, 3)  # every question asked once per model
     assert sorted(vc.calls) == ["q1", "q2", "q2-full"]
-    assert swaps[-1] == "serving" and awake == {"J": True, "V": False}  # the judge is left awake for the day
-    assert swaps.count("verifier") == 2  # round 1 found q1, q2; round 2 found the retry q2-full
+    # round 1: judge, verifier (q1, q2); round 2 opens the retry q2-full: judge again (new question), verifier again
+    assert swaps == ["serving", "verifier", "serving", "verifier"]
+    assert released == [True] and awake == {"J": False, "V": True}  # no swap back: the gateway wakes on demand
     assert tj.disagreements == 1 and tj.failures == 0 and tj.calls == 7
+
+
+def test_a_run_without_a_new_path_costs_one_swap_and_releases_the_card() -> None:
+    """TB-PLAN-03 step 1 (D-116): judge batch -> sleep -> verifier batch; the merge round is answered from memory."""
+    jc, vc, awake, swaps = _pair()
+
+    def swap(endpoint: str) -> None:
+        swaps.append(endpoint)
+        awake["J"], awake["V"] = endpoint == "serving", endpoint == "verifier"
+
+    def no_retry(j: ToyJudge) -> dict[str, str]:
+        return {q: j.ask(q) for q in ("q1", "q2", "q3")}
+
+    released: list[bool] = []
+    out = two_phase(ToyJudge(jc, vc), no_retry, swap, workers=2, release=lambda: released.append(True))
+    assert out == {"q1": "pass", "q2": "unknown", "q3": "unknown"}
+    assert swaps == ["serving", "verifier"] and released == [True]
+    assert sorted(jc.calls) == ["q1", "q2", "q3"]  # the merge round asked the judge nothing
+
+
+def test_a_run_with_no_note_question_swaps_nothing() -> None:
+    jc, vc, _, swaps = _pair()
+    assert two_phase(ToyJudge(jc, vc), lambda j: "filters only", swaps.append, release=lambda: None) == "filters only"
+    assert swaps == []
+
+
+def test_a_model_failing_its_wake_check_is_not_trusted_for_the_run() -> None:
+    """A woken model that answers its wake questions wrongly: its answers become errors, so unknown, not exclusions."""
+    jc, vc, awake, swaps = _pair()
+
+    def swap(endpoint: str) -> None:
+        swaps.append(endpoint)
+        awake["J"], awake["V"] = endpoint == "serving", endpoint == "verifier"
+
+    def probe(endpoint: str) -> str | None:
+        return "wake check: 2 wrong" if endpoint == "verifier" else None
+
+    tj = ToyJudge(jc, vc)
+    out = two_phase(tj, screen, swap, workers=2, probe=probe)
+    assert out["q1"] == "unknown" and "fail" not in out.values()  # the verifier's answers were not used
+    assert vc.calls == []  # not even asked
+    assert tj.failures >= 1
 
 
 def test_two_phase_is_one_plain_run_without_a_swap_or_verifier(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -433,7 +514,7 @@ def test_chat_during_the_verifier_pass_is_told_busy_at_once(tmp_path: Path) -> N
     fake = FakeVllm()
     sw = _swap(fake)
     gw = _gw(tmp_path, fake, sw)
-    sw.activate("verifier")
+    sw.activate("verifier", hold=True)
     res = gw.chat(CHAT_H, CHAT_BODY)
     assert res.status == 503 and res.body["error"]["code"] == "model_busy"
 

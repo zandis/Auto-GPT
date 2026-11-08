@@ -136,6 +136,45 @@ def real_models(judge_url: str, verifier_url: str, key: str) -> tuple[Any, Any]:
     return out[0], out[1]
 
 
+def direct_swap(judge_url: str, verifier_url: str, key: str, llm: Any = None, verifier: Any = None) -> Any:
+    """The gateway's own swap (:class:`gateway.swap.ModelSwap`, hold and release) driven straight at the VM's two
+    servers, for a run with no tb-gateway in between: the orchestrator's :func:`orchestrator.twophase.two_phase`
+    then holds the card, swaps judge -> verifier and releases it exactly as on the box (D-116). Every model call of
+    ``llm`` / ``verifier`` first does what the gateway does on its request path: wake the model on demand when no
+    run holds the card, refuse the call (``model_asleep``) when one does. (A call sent to a sleeping vLLM server
+    directly waits for ever; through the gateway it never reaches one.)"""
+    from gateway.swap import ModelSwap, SwapError
+    from orchestrator import twophase
+    from tb_common.llm import LlmError
+
+    sw = ModelSwap({"serving": judge_url, "verifier": verifier_url}, headers={"Authorization": f"Bearer {key}"})
+
+    class Direct:
+        def use(self, endpoint: str) -> None:
+            try:
+                sw.activate(endpoint, hold=True)
+            except SwapError as exc:
+                raise LlmError(f"model swap to {endpoint} failed: {exc}") from exc
+
+        def release(self) -> None:
+            sw.release()  # the next call wakes what it needs (guarded below), as the gateway does
+
+    for endpoint, client in (("serving", llm), ("verifier", verifier)):
+        if client is None:
+            continue
+        inner = client.chat_json
+
+        def guarded(*a: Any, _inner: Any = inner, _ep: str = endpoint, **kw: Any) -> Any:
+            if not sw.ensure(_ep):
+                raise LlmError(f"{_ep} is asleep (one-GPU swap); activate it first")
+            return _inner(*a, **kw)
+
+        client.chat_json = guarded
+    os.environ["TB_MODEL_SWAP"] = "sleep"
+    twophase.GatewaySwap.from_env = staticmethod(Direct)  # type: ignore[method-assign,assignment]
+    return sw
+
+
 def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: Any = None) -> dict[str, Any]:
     from console import notify
     from console.i18n import CATALOGUES
@@ -669,6 +708,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--judge-url", default="", help="real judge, e.g. http://<vm>/judge/v1 (key in TB_GPU_KEY)")
     ap.add_argument("--verifier-url", default="")
     ap.add_argument("--single", action="store_true", help="judge only, no verifier")
+    ap.add_argument(
+        "--swap",
+        action="store_true",
+        help="one GPU, one model awake (TB_MODEL_SWAP=sleep): the run swaps the VM's servers as the gateway would",
+    )
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     ap.add_argument("--host", default="127.0.0.1")
     a = ap.parse_args(argv)
@@ -679,7 +723,13 @@ def main(argv: list[str] | None = None) -> int:
         llm, verifier = real_models(a.judge_url, a.verifier_url, os.environ["TB_GPU_KEY"])
         if a.single:
             verifier = None
+    swap = None
+    if a.swap:
+        swap = direct_swap(a.judge_url, a.verifier_url, os.environ["TB_GPU_KEY"], llm, verifier)
     res = run(a.dir, password, a.lang, llm, verifier)
+    if swap is not None:
+        res["swap"] = swap.status()
+        print(f"swap: {json.dumps(res['swap'])}")
     print(table(res["stages"]))
     n = sum(len(st.checks) for st in res["stages"])
     bad = sum(1 for st in res["stages"] for c in st.checks if not c[1])
@@ -689,7 +739,20 @@ def main(argv: list[str] | None = None) -> int:
     (a.dir / "stages.md").write_text(table(res["stages"]), encoding="utf-8")
     (a.dir / "result.json").write_text(
         json.dumps(
-            {k: res[k] for k in ("feas", "screen", "cohort_members", "seconds", "site", "terminology_missed")},
+            {
+                k: res[k]
+                for k in (
+                    "feas",
+                    "screen",
+                    "cohort_members",
+                    "seconds",
+                    "site",
+                    "terminology_missed",
+                    "swap",
+                    "judging",
+                )
+                if k in res
+            },
             default=str,
             indent=1,
         ),

@@ -105,9 +105,11 @@ def run_selftest(
     verifier: LlmClient | None,
     swap: Callable[[str], None] | None = None,
     cases: list[dict[str, Any]] | None = None,
+    release: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Check the judge and (when wired) the verifier; with ``swap`` each is woken in turn and the judge is left
-    awake. Returns the report; ``report["ok"]`` gates the night's jobs."""
+    awake, or, with ``release`` (the gateway's hold, D-116), the card is released and the gateway wakes the judge
+    when the next call needs it. Returns the report; ``report["ok"]`` gates the night's jobs."""
     cs = cases if cases is not None else load_cases()
     models: list[ModelReport] = []
     problems: list[str] = []
@@ -122,7 +124,9 @@ def run_selftest(
             models.append(check_model(role, client, cs))
         except LlmError as exc:  # the swap itself failed
             problems.append(f"{role}: {exc}")
-    if swap is not None and verifier is not None:
+    if release is not None:
+        release()
+    elif swap is not None and verifier is not None:
         try:
             swap("serving")
         except LlmError as exc:
@@ -181,10 +185,16 @@ def preflight(orch: Any) -> bool:
     from orchestrator.twophase import GatewaySwap
 
     gs = GatewaySwap.from_env()
-    report = run_selftest(orch.services.llm, orch.services.verifier, gs.use if gs is not None else None)
+    report = run_selftest(
+        orch.services.llm,
+        orch.services.verifier,
+        gs.use if gs is not None else None,
+        release=gs.release if gs is not None else None,
+    )
     report["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     try:
         out = Path(orch.data_dir) / "selftest.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     except (AttributeError, OSError) as exc:
         log.warning("selftest report not written: %s", exc)
@@ -213,7 +223,12 @@ def main(argv: list[str] | None = None) -> int:
     cfg = get_config()
     audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
     gs = GatewaySwap.from_env()
-    report = run_selftest(LlmClient.from_config(audit), verifier_client(audit), gs.use if gs is not None else None)
+    report = run_selftest(
+        LlmClient.from_config(audit),
+        verifier_client(audit),
+        gs.use if gs is not None else None,
+        release=gs.release if gs is not None else None,
+    )
     print(json.dumps(report, ensure_ascii=False, indent=1))
     return 0 if report["ok"] else 1
 

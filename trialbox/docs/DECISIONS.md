@@ -1300,3 +1300,38 @@ model.
   runs it from a checkout against the configured models; the audit line carries the pair summary.
 * **Not done.** The pair canary has not yet been run on the card; the 8 Nov per-model numbers (judge 53/54, verifier
   47/54 before the CJK quote fix) suggest it passes.
+
+**D-116 One swap per screening run on the one-5090 box; the run holds the card and releases it.** TB-PLAN-03 step
+1 (Fable review 2026-11-08, finding 1). PR #23's sleep swap (D-112) asked judge, verifier, judge for every run: two
+swaps, and the judge woken at the end even when nothing needed it.
+
+* **Hold and release** (`services/gateway/swap.py`). `POST /v1/serving/activate` takes `"hold": true`: a screening
+  run keeps the card until `POST /v1/serving/release`. While held, a call to the sleeping model is refused as before
+  (`model_busy` for chat, `model_asleep` for a batch caller). When nobody holds it, a call to the sleeping model
+  wakes it on demand (`ModelSwap.ensure`, audited as `llm.gateway.swap` by `on-demand`); a batch call keeps the hold
+  alive, and a hold that is never released lapses after `TB_SWAP_HOLD_S` (3600 s).
+* **Lazy rounds** (`orchestrator/twophase.py`). The judge is woken only when a judge question has no memo answer,
+  the verifier only when questions are pending, and a swap to the model already awake is skipped (`Gpu`). A run
+  whose merge round opens no new path costs one swap (judge -> verifier); a run that opens one (the v1 full-record
+  retry) adds a judge and a verifier batch. At the end the run releases the card instead of swapping back. The
+  night canary does the same (`run_selftest(..., release=)`).
+* **Fit script.** `deploy/gcp/gpu-fit-test.sh`'s `ask` ran `docker exec` without `-i`, so the model never saw the
+  question and 8 Nov's `fit.json` stored every case unparsed; it now uses `-i`, escapes the log lines as JSON and
+  writes `null` for a missing reading.
+* **On the card** (`deploy/gcp/gpu-swap-run.sh`, `tools/wake_check.py`, `tools/public_e2e.py --swap`): the RTX PRO
+  6000 capped to the 5090 (0.27 of 96 GB each, `--enable-sleep-mode`, vLLM v0.32.0). Results of the 2026-11-08b
+  run (`eval/parity/*2026-11-08b*`, raw files in `trialbox-build/gpu-run-2026-11-08b/`):
+  * *Answers after a wake.* SIGIR EN, filter first, both-block rule, 1000 calls a pass: the pair resident and the
+    pair after a wake both lose 4 of 79 eligible pairs, false-block rate 0.00517, block recall 0.515: equal. Per
+    model: verifier 4 and 4 (label agreement 0.998), judge 11 resident and 10 after the wake (agreement 0.904). A
+    second judge pass after another wake agrees 0.912 with the first wake and 0.903 with resident, so the judge's
+    ~9 % label drift is run-to-run nondeterminism, not the wake.
+  * *Swap cost.* Sleep (level 1) 3.8 s first, 0.6 s after; wake 0.4-0.6 s; a pass of 1000 calls 317 s (judge),
+    343-387 s (verifier). Peak card memory 29,631 MiB with the judge awake (5090: 32,607); verifier awake with the
+    judge asleep 28,414 MiB.
+  * *Boot to SCREEN* (`public_e2e --swap`): 94/94 checks in 1401 s; each SCREEN run 1 swap (0 when every answer was
+    in the memo), no wake check failed; 8 swaps in all, 2 of them on-demand wakes.
+  * *Found.* The CONSENT job asks the verifier inline, outside `two_phase`: on the box the gateway's on-demand wake
+    covers it (a direct call to a sleeping vLLM hangs), and the harness drives the same `ensure` path.
+  * `serving_config measured rtx5090` correctly refuses the record (capped card, not a 5090); a real 5090 is still
+    needed for that profile's measured record.
