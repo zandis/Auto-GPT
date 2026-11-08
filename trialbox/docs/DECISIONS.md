@@ -138,7 +138,7 @@ TrialBox emits `http://hl7.org/fhir/sid/icd-10-cm`, `http://www.whocc.no/atc`, L
 `https://trialbox.local/fhir/CodeSystem/{nhi-drug,nhi-order,department}` for NHI lists; TWPAS bundles re-code to the
 IG's required systems at build time (phase 6).
 
-**D-28 `ssmix2` source.** Not in v1.0 for Taiwan sites; the reader raises an explicit `NotImplementedError` pointing to
+**D-28 `ssmix2` source.** (Superseded by D-122: the reader exists.) Not in v1.0 for Taiwan sites; the reader raises an explicit `NotImplementedError` pointing to
 the CSV route with a JP Core mapping (`services/adapter/mapping/jp_core/README.md`). `fhir_bulk` is implemented
 (pseudonymises ids/references and drops direct identifiers).
 
@@ -1224,3 +1224,293 @@ step 5 of `20-build-map.md` §2, stub model, no keys, no cloud.
   eligible patients are listed" has no generator truth list in the ci profile; stage 3 checks that no note answer can
   exclude a patient (single stub judge, `note_block` never) instead. The demo image was not built here (no Docker
   daemon in the build container).
+
+**D-112 One RTX 5090: the sleep swap ships, the profile follows the 8 Nov measurement, install needs a real-card
+record.** Fable review 2026-11-08 finding 1: the shipped `docker-compose.rtx5090.yml` was the resident pair measured
+not to fit (35,810 MiB on the 8 Nov card run; "pair-tight" short of KV cache).
+
+* **From PR #23** (LLM survey thread, branch `claude/project-thread-9eosz0`, merged here as is rather than rebuilt):
+  the sleep swap (`services/gateway/swap.py`, `POST /v1/serving/activate`), the judge-then-verifier run
+  (`services/orchestrator/twophase.py`, used by SCREEN and the cascade), the compose start order
+  (`judge-sleep-init`, `model-swap-init`), vLLM v0.32.0, the night self-test (`orchestrator/selftest.py`, the
+  54-case canary), weight re-check at install, the 30 s chat limit and the CJK quote-space fix
+  (`tb_common/quotes.py`). Whichever of the two branches merges second carries no extra work.
+* **Measured values.** Both servers at 0.81 of a 5090 (the 26.4 GB budget measured as 0.27 of 97,887 MiB on
+  2026-11-08: judge awake 29.6 GB in all, asleep 1.3 GB; sleep 0.4–3.7 s, wake 0.3–0.5 s), 8k context, 4 sequences,
+  eager, default guided backend.
+* **Install guard.** `install.sh --gpu rtx5090` refuses to start the pair unless `deploy/site/serving_config.rtx5090.json`
+  passes `tools.serving_config measured rtx5090` (complete record, a 5090 card that is not a capped larger card,
+  `--enable-sleep-mode` on both servers), or the operator sets `TB_ACCEPT_UNMEASURED_GPU=1` for a first trial boot.
+* **Not done.** The answers after a wake were not captured on the 8 Nov run (empty smoke answers in `fit.json`), and
+  nothing has run on a physical 5090.
+
+**D-113 A code-prefix grouper fails closed: coded inside the family but not in the list is unknown.** Fable review
+2026-11-08, finding 2: on the public-data run 26 patients coded C80.1 / C50.9 / C25.9 were counted "not malignant"
+because the demo terminology did not list those codes, and a structured inclusion false drops a patient outside the
+two-model rule.
+
+* **The grouper keeps its families.** A synonym row with `match=prefix` ("malignancy" = C0…C9 families) now records
+  `(system, prefix)` on the ValueSet as the `code-family` extension (`terminology/mapper.py` `FAMILY_EXT`,
+  `ValueSets.families`). Plain lists and exact synonyms carry none, and their SQL is unchanged byte for byte.
+* **SQL.** For a presence atom on a grouper ValueSet the generator adds a `<atom>_off` CTE: records in the window
+  coded inside a family but not listed. When the listed codes do not settle the atom and such a record exists, the
+  atom is NULL (unknown), never false (or, for `none`, never true). FEAS, SCREEN v1 and the v4 cascade all read the
+  same SQL. The unknown carries the records and the reason `code_outside_list` (cascade `CODE_OUTSIDE_LIST`,
+  `structured_verdict`), so the reviewer sees which record caused it.
+* **Terminology.** The demo `icd10cm_tw` adds C25.9, C50.9 (WHO ICD-10), C79.9, C80.0 and C80.1.
+* **Evidence.** `tools/public_e2e.py` now recounts the malignancy step from `diagnosis.csv` by ICD-10 family, not by
+  the list, and asserts that every cancer code in the data is listed (the always-true check is gone). Public run:
+  INC-02 41 (was 15), SCREEN listed 90 (was 65).
+* **Not done.** The CQL path (HAPI `$evaluate`) still reads the enumerated list only; the SQL engine is the default
+  and the equivalence gate's fixtures have no off-list family codes. A family is matched within its own code system
+  only, so a site exporting WHO ICD-10 under another system URI needs its mapping first.
+
+**D-114 A service token on every changing call to the orchestrator; the audit actor comes from the caller's
+header.** Fable review 2026-11-08, finding 3: `POST /jobs/{id}/reveal` returned a chart number to anything on the
+compose network, with a free-text `by` as the audit actor.
+
+* **Token** (`tb_common/service_auth.py`): one shared secret per box, `TB_SERVICE_TOKEN` in `deploy/.env`
+  (`install.sh` and `poc.sh` generate it; a `change-me` placeholder counts as none) or a file named by
+  `TB_SERVICE_TOKEN_FILE`. The orchestrator's middleware refuses every POST/PUT/PATCH/DELETE without
+  `X-TB-Service-Token` (401) or with a wrong one (403, constant-time compare). With no token, DEV and TEST boxes
+  stay open (tests, `make demo`); any other `TB_ENV`, and an unset one, refuses changing calls with 503.
+* **Callers.** `ServiceClient` adds the token on calls to the orchestrator only (console, mail gateway); the channel
+  relay adds it to its `POST /jobs`.
+* **Actor.** Reveal, notices and cancel take the actor from `X-TB-Actor` (the console's signed-in user,
+  percent-encoded so Japanese names pass), not from the body or query. A token holder that names no user gets 400.
+  The body `by` is read only on a DEV/TEST box without a token.
+* **Not done.** Reads (`GET /jobs`, pseudonyms and counts only) stay open on the internal network; no mTLS; no
+  per-actor rate limit on reveals; registry writes still record the body's `by` (behind the token).
+
+**D-115 The two-model rule is tested on both SCREEN paths; the canary scores the pair.** Fable review 2026-11-08,
+finding 4: only the cascade's `AgreementJudge` had a disagreement test, and the 54-case canary was a one-off per
+model.
+
+* **Tests** (`tests/unit/test_note_pair_disagreement.py`) on v1 `NoteJudge.judge_excerpts` and the v4 cascade's
+  `OrchestratorJudge`, with fake models: judge pass / verifier fail and the reverse → `unknown`, one disagreement,
+  tier `review`; agreement → excluded at the threshold; verifier down → `unknown` and a failure, never an exclusion;
+  judge `unknown` → the verifier is not asked.
+* **Confidence.** When both agree the answer carries the lower of the two confidences (it was the judge's alone),
+  so a confident judge and an unsure verifier send the patient to review rather than out.
+* **Reason.** A verifier whose quote is not in the notes is named as such, not as a plain disagreement.
+* **Canary as the pair.** The 54-case file is in the product (`orchestrator/canary/judge_canary.jsonl`, from PR #23)
+  and the night self-test (`orchestrator/selftest.py`, run by the scheduler before LLM jobs) now also scores the
+  pair as the box decides: `pair_report` counts the cases where both models give the same decided answer and it is
+  wrong; more than `MAX_PAIR_WRONG` (1) fails the self-test, and the night's LLM jobs do not start. `make canary`
+  runs it from a checkout against the configured models; the audit line carries the pair summary.
+* **Not done.** The pair canary has not yet been run on the card; the 8 Nov per-model numbers (judge 53/54, verifier
+  47/54 before the CJK quote fix) suggest it passes.
+
+**D-116 One swap per screening run on the one-5090 box; the run holds the card and releases it.** TB-PLAN-03 step
+1 (Fable review 2026-11-08, finding 1). PR #23's sleep swap (D-112) asked judge, verifier, judge for every run: two
+swaps, and the judge woken at the end even when nothing needed it.
+
+* **Hold and release** (`services/gateway/swap.py`). `POST /v1/serving/activate` takes `"hold": true`: a screening
+  run keeps the card until `POST /v1/serving/release`. While held, a call to the sleeping model is refused as before
+  (`model_busy` for chat, `model_asleep` for a batch caller). When nobody holds it, a call to the sleeping model
+  wakes it on demand (`ModelSwap.ensure`, audited as `llm.gateway.swap` by `on-demand`); a batch call keeps the hold
+  alive, and a hold that is never released lapses after `TB_SWAP_HOLD_S` (3600 s).
+* **Lazy rounds** (`orchestrator/twophase.py`). The judge is woken only when a judge question has no memo answer,
+  the verifier only when questions are pending, and a swap to the model already awake is skipped (`Gpu`). A run
+  whose merge round opens no new path costs one swap (judge -> verifier); a run that opens one (the v1 full-record
+  retry) adds a judge and a verifier batch. At the end the run releases the card instead of swapping back. The
+  night canary does the same (`run_selftest(..., release=)`).
+* **Fit script.** `deploy/gcp/gpu-fit-test.sh`'s `ask` ran `docker exec` without `-i`, so the model never saw the
+  question and 8 Nov's `fit.json` stored every case unparsed; it now uses `-i`, escapes the log lines as JSON and
+  writes `null` for a missing reading.
+* **On the card** (`deploy/gcp/gpu-swap-run.sh`, `tools/wake_check.py`, `tools/public_e2e.py --swap`): the RTX PRO
+  6000 capped to the 5090 (0.27 of 96 GB each, `--enable-sleep-mode`, vLLM v0.32.0). Results of the 2026-11-08b
+  run (`eval/parity/*2026-11-08b*`, raw files in `trialbox-build/gpu-run-2026-11-08b/`):
+  * *Answers after a wake.* SIGIR EN, filter first, both-block rule, 1000 calls a pass: the pair resident and the
+    pair after a wake both lose 4 of 79 eligible pairs, false-block rate 0.00517, block recall 0.515: equal. Per
+    model: verifier 4 and 4 (label agreement 0.998), judge 11 resident and 10 after the wake (agreement 0.904). A
+    second judge pass after another wake agrees 0.912 with the first wake and 0.903 with resident, so the judge's
+    ~9 % label drift is run-to-run nondeterminism, not the wake.
+  * *Swap cost.* Sleep (level 1) 3.8 s first, 0.6 s after; wake 0.4-0.6 s; a pass of 1000 calls 317 s (judge),
+    343-387 s (verifier). Peak card memory 29,631 MiB with the judge awake (5090: 32,607); verifier awake with the
+    judge asleep 28,414 MiB.
+  * *Boot to SCREEN* (`public_e2e --swap`): 94/94 checks in 1401 s; each SCREEN run 1 swap (0 when every answer was
+    in the memo), no wake check failed; 8 swaps in all, 2 of them on-demand wakes.
+  * *Found.* The CONSENT job asks the verifier inline, outside `two_phase`: on the box the gateway's on-demand wake
+    covers it (a direct call to a sleeping vLLM hangs), and the harness drives the same `ensure` path.
+  * `serving_config measured rtx5090` correctly refuses the record (capped card, not a 5090); a real 5090 is still
+    needed for that profile's measured record.
+
+**D-117 The pair canary gates note exclusions.** TB-PLAN-03 step 2 (Fable review 2026-11-08, finding 5). The 54-case
+canary only held the night's LLM jobs; a box whose models had drifted could still exclude on a note answer by day.
+
+* **The gate** (`orchestrator/canary_gate.py`). `effective_note_block` lets a note answer exclude only with a
+  passing *pair* canary younger than `TB_CANARY_MAX_AGE_H` (36 h) and no failed wake check since; otherwise the run
+  falls back to `never` (review, never out) and says why. The report is kept in `<data dir>/selftest.json`, so a
+  restart keeps the gate. `MAX_PAIR_WRONG` is now 0: one case where both models agree on a wrong decided answer
+  fails the canary (it was 1).
+* **When it runs.** At orchestrator start in the background (`TB_CANARY_AT_START`, default on), before each night's
+  LLM jobs (scheduler, as before), and from the admin Models tile's "Run now" (`POST /models/canary` on the
+  orchestrator, behind the service token; `POST /admin/models/canary` in the console).
+* **After each swap.** On a one-GPU box every woken model first answers six canary cases (`wake_cases`: one per
+  criterion; each language and each expected answer twice). A flip, fewer than five right or more than one
+  unanswered: the model is not used for the rest of the run (its answers become errors, so `unknown`) and the
+  gate stays shut until the next full pass.
+* **Switch.** `TB_CANARY_GATE` on | off; unset it is on except with `TB_ENV` DEV or TEST, whose stub models never
+  pass a canary. The test suite sets it off and the gate's own tests switch it on.
+* **Shown.** The admin Models tile shows the gate's state, the date and the pair's score, translated, with a Run now
+  button; `GET /models` carries it as `canary`. `make canary` runs `tools/canary.py` from a checkout (environment
+  models, or two servers directly with `--swap`, which also runs the wake check after each wake).
+* **On the card** (2026-11-08b, `eval/parity/canary_pair_2026-11-08b.json`): the pair canary with swaps passes,
+  pair 52 of 54 right, 0 decided wrong, 2 disagreements (left to review); judge 53/54 (`ja:preg:yes`), verifier
+  49/54 (four silent cases answered `fail`, `ja:chemo:yes`), one flip each. The three wake checks (judge twice,
+  verifier once) all pass; each swap measured 13-17 s by the tool (sleep of one plus wake of the other, after the
+  long run). The start canary in `public_e2e --swap` gave the same pair score and opened the gate.
+* **Test note.** `test_frontdoor_mcp::test_small_cells_are_suppressed_and_rounded` failed once in a full-suite
+  order and did not reproduce alone or in its file order. Its counts and rounding are deterministic and the
+  privacy accountant is per box, so the likely cause is shared rate-limit state left by an earlier frontdoor test
+  (`test_roles_profiles_and_rate_limits`); not chased further, since Hermes and the front door go in step 6.
+
+**D-118 One note-judge path; reasons are codes.** TB-PLAN-03 step 3 (Fable review 2026-11-08, findings 4, 6 and
+10). Three copies of the two-model rule (v1 `NoteJudge`, the cascade's `OrchestratorJudge`, the tools'
+`AgreementJudge`) and free-text reasons on every candidate row.
+
+* **One rule.** `tb_common/pair.py` `combine()` is the only place a pair's answer is decided: an undecided judge
+  answer is not put to the verifier; a verifier that did not answer → `unknown` / `model_down` (a failure for the
+  >10 % gate); a verifier quote not in the notes → `verifier_quote_missing`; another verdict → `disagree`; agreement
+  keeps `min` of the two confidences.
+* **One judge.** `NoteJudge.judge_excerpts(criterion_text, note_question, index_date, excerpts, ...)` is the one
+  method that puts a note question to the models (`grep -n "def judge_excerpts"` finds one). The v1 evaluator
+  (`judge_patient`), CASE chart uploads and the cascade call it: `OrchestratorJudge` is now a `NoteJudge` subclass
+  whose `judge(role=...)` only adapts the reply; `AgreementJudge` calls `combine()`.
+* **Minimum confidence.** A decided answer below `MIN_CONFIDENCE` (0.5) is not used: `unknown` / `low_confidence`,
+  so a person looks. The tier threshold (0.75, review below) is unchanged.
+* **Reasons.** `Evidence.reason` on every candidate row is a `tb_common.reasons.Reason` code (`coded`, `note`,
+  `data_gap`, `no_notes`, `not_mentioned`, `code_outside_list`, `abstained`, `quote_not_found`,
+  `verifier_quote_missing`, `disagree`, `low_confidence`, `model_down`, `refused`, `human`, `not_evaluated`,
+  `not_in_snapshot`), with words in en/ja/zh-TW in `LABELS`. The model's own sentence stays on `NoteResult.model_reason`
+  (audit, debugging) and never reaches a page; an endpoint's error text never reaches a reason. The cascade keeps its
+  stage strings internally; `code_of()` maps them where its traces become rows.
+* **Not in the snapshot.** A scoped patient the lake does not hold is `review` with every criterion `unknown` /
+  `not_in_snapshot`, on both paths (it was excluded).
+* **CONSENT and the swap.** `consent.Models` is shaped like a judge (`llm`, `verifier`, counters) and the draft runs
+  through `two_phase`: drafting and translation with the judge awake, every statement check with the verifier awake;
+  no direct call to a sleeping model.
+* **Not changed.** The v1 evaluator stays for NAV, MICROBATCH and CASE and the `TB_SCREEN_PIPELINE=v1` comparison;
+  SCREEN runs the cascade (D-103). Both now share the judge, the rule and the reasons, which is what finding 4 asked.
+
+**D-119 Every user-facing word in the page's language.** TB-PLAN-03 step 4 (Fable review 2026-11-08, finding 6).
+Japanese and Chinese pages still carried English refusals, feasibility notes, engine tokens (`unknown_kept`, "no value
+in the window", "abstained") and Markdown marks in the N1 mail's text part.
+
+* **Refusals.** `console/refusals.py` holds the Japanese and Chinese words for every static refusal the console gives
+  (38 today; a test scans the console for `problem(..., reason="...")` and fails on one without words). A refusal the
+  table does not hold (an exception's own text) is never shown on a ja/zh-TW page: the page says the request could not
+  be done and to ask the administrator; the English stays in the log.
+* **Feasibility notes.** `FeasibilityResult` 1.2.0 adds optional `note_keys` (`{key, args}`); `notes` stays the
+  English record (XLSX, audit). `tb_common/feas_notes.py` renders them in en/ja/zh-TW for the console and the PDF.
+* **Reasons.** `unknown_kept` (an exclusion with no value: not excluded) is its own `Reason` code with words; the
+  patient page shows `reason_label(code, lang)`, never the code.
+* **Mail.** The text part of every outbound mail is rendered from the Markdown (`markdown_text`): no `##`, `**`,
+  table rules or link brackets.
+* **Walk check.** `tools/public_walk.js` fails a ja/zh-TW page with a visible leaf cell made only of ASCII words.
+  Not counted: codes, ids, numbers, dates, file names (`data-file`), audit details and mail subjects (`data-src`),
+  quotes from the notes, user names and anything `.mono`, a person's own typed note (`data-authored`), and the
+  study's own words (criterion labels, texts, actions; listed in `walk.json` `authored`), which are shown as written.
+  Walk on this head: 422 checks, 0 failures; screenshots in `trialbox-build/walk-2026-11-08/`.
+* **Not changed.** An orchestrator failure message (the job's `error.message`) is still English inside a ja/zh-TW
+  failure mail; criterion labels stay as the study wrote them (step 5 decides translated labels).
+
+**D-120 PI and CRC lists you can work through; translated criterion labels at approval.** TB-PLAN-03 step 5 (Fable
+review 2026-11-08, finding 8; plan §6). On real data the PI list was 65 patients, all "to review", unranked, in one
+column, and the feasibility count (23) did not explain the list (65/90).
+
+* **Ready vs needs information.** Two new worklists: *ready* (every criterion answered: no unknown, nothing not met)
+  and *needs information* (at least one unknown). Every list but the clinic list (visit order) puts the fewest
+  unknowns first, then the visit; 25 rows a page (`?page=`); each row shows its unknown count. `e2e_simple` stage 5
+  asserts the split, the order, the page size, the rail counts and the S3 sentence against the rows.
+* **Both quotes.** `candidate_list` 1.1.0 adds optional `evidence.opinions` (`role`, `verdict`, `quote`,
+  `quote_date`); a disagreement keeps each model's answer and verified quote on both paths (v1 `NoteJudge`, the
+  cascade through `JudgeReply.opinions`), and the patient page and the chart panel show both.
+* **S3 explains the list.** Under the funnel: the coded-only count, each criterion's unknown inclusions (not counted,
+  on the list as needing information) and unknown exclusions kept, the latest list's size split into ready / needs
+  information, and the patients coded inside a grouper's family but outside its list (D-113).
+* **CRC.** A patient the investigator approved has "Record the call" on its list row: open, tap the outcome (two taps).
+  On the phone the menu wraps instead of scrolling sideways, so "More" is never clipped.
+* **Public-data site.** `TB_CONSOLE_DATA_SOURCE=public` makes the banner say "public data only, no real patients
+  (D0)", not "synthetic". `TB_CONSOLE_STUDIES` limits the request menu to the site's own studies (and the account's
+  study scope always applies). The clinician's name comes from the records: the HIS practitioner name is mapped to
+  `Practitioner.name` and the lake's `practitioner.name`; `settings.practitioners` only fills a missing name.
+* **Translated labels (reverses D-110 for labels only).** At approval (S20), on a Japanese or Chinese page, the
+  coordinator or investigator may give each criterion a short label in that language (`console.criterion_label`,
+  audited; stored per study, criterion and language in the site store). Pages in that language show the site's
+  label with the study's own label beside it and the protocol text under it; the ruleset, the engine and the
+  reports keep the study's words. No machine translation: a person writes the label and sees the original.
+
+**D-121 One conversation engine, one object store, one Postgres server; the box's own timers.** TB-PLAN-03 step 6
+(plan §2; Fable review 2026-11-08, finding 10). The owner approved removing the Hermes agent layer (2026-11-08).
+
+* **Removed:** the Hermes agent (`integrations/hermes/`, `deploy/hermes/`, `make poc-hermes`, `test-hermes-e2e`),
+  the front-door MCP server (`services/frontdoor_mcp/`, `tools/mcp_snapshot.py`, `libs/tb_contracts/frontdoor.py`,
+  `libs/tb_common/mtls.py`), the channel relay with its email and fake-Teams adapters (`services/channels/relay/`,
+  `native/email.py`, `native/teams.py`, `tools/relay_send.py`), the stub's agent turn (`llm_stub/agent.py`), the
+  chat survey tool (`tools/chat_eval.py`), the `hermes` and `frontdoor-mcp` gateway callers, and the doctor's
+  `hermes_pin` check. The code stays in git history (before this commit).
+* **Kept:** the native engine as the one engine. `NativeEngine(gateway, today=…)` classifies free text
+  (`classify_intent` through the gateway, caller `converse-native`); the console's header command box turns the
+  intent into a proposal line (D-110). Mail stays the mail gateway's subject grammar; free-text mail is no longer
+  understood (it was only the relay's). `channels.engine: hermes` in a site file fails with the removal named.
+* **Objects on the filesystem (ADR-16).** `TB_OBJECT_STORE` defaults to `fs:/data/objects`; `minio` is refused with
+  a message. Compose drops the MinIO service and mounts one `objects-data` volume at `/data/objects` in doc-parser,
+  criteria-compiler, orchestrator, mail-gateway and the POC console. The test stack bind-mounts it on the host
+  (`TB_HOST_OBJECTS_DIR`, default `deploy/.objects`) so the compose tests read objects directly. The `minio`
+  package left `pyproject.toml` and the lock (`uv pip compile`: minio, argon2-cffi, pycryptodome removed, nothing
+  else moved). Contract field names `minio_key` stay (a rename would change every contract for no behaviour).
+* **One Postgres server.** `fhir-db` and `workflow-db` become one `db` service with two databases, `hapi` and
+  `trialbox_wf` (role `trialbox`, made by `deploy/docker/db-init/10-trialbox-wf.sh` on an empty volume). Volume
+  `db-pg` replaces `fhir-pg` and `workflow-pg`: a POC that kept its volumes starts with an empty FHIR store and
+  re-ingests. The orchestrator itself still keeps its state in SQLite (`orch-data`); moving it to `trialbox_wf` is
+  left for step 10 (backup and restore), where one restore test covers both. `deploy/topology_a/` is unchanged.
+* **The box's own timers** (`console/timers.py`). The console schedules N1 (07:00), N2 (07:30) and the REDCap
+  read-back (03:00) in the site's zone; `TB_CONSOLE_TIMERS=auto` is on when `TB_ENV` is VALIDATION or PRODUCTION
+  and off otherwise (`on`/`off` force it), `TB_NOTICE_N1_AT`, `TB_NOTICE_N2_AT`, `TB_REDCAP_READ_AT` move the times;
+  a bad `HH:MM` fails at start. Each timer is the same call as its button and a notice still goes once per person
+  and day. They live in the console, not the orchestrator scheduler, because both jobs need the console's site
+  store (people, notice settings, project links). `python -m console.notify` / `console.rc_read` stay for scripts.
+* **Secure cookie.** The doctor's `secure_cookie` check fails in VALIDATION and PRODUCTION unless
+  `TB_CONSOLE_SECURE_COOKIE=1`, and warns in DEV/TEST.
+* **Japanese PHI in the log scrubber** (`tb_common.logging.redact`): マイナンバー/個人番号 (12 digits, 4-4-4, ASCII or
+  full-width), 保険者番号/被保険者番号/記号番号 after their label, 〒 postcodes, +81 and domestic JP phone numbers
+  (mobile 0X0, landline 0X-XXXX-XXXX and 0XXX-XX-XXXX, full-width digits and dashes). The guard's recognisers already
+  had them; logs did not.
+* **Compose tests without a stack.** With `TB_INTEGRATION=1` and no stack answering on the lake port, the
+  `*compose*` integration tests are skipped by name instead of erroring on a refused connection.
+
+**D-122 The Japan data path: an SS-MIX2 reader, a JP mapping, the full ICD-10-CM list and delta FHIR loads.**
+TB-PLAN-03 step 7 (`22-optimization-plan.md` §5, §10; finding 2's root cause; `23-fhir-platform-comparison.md`).
+
+* **SS-MIX2 standardized storage reader** (`services/adapter/sources/ssmix2/`, replaces the D-28 stub). It walks
+  `<id[0:3]>/<id[3:6]>/<id>/<date>/<type>/` and keeps the newest timestamp per (patient, type, order no); flag `0`
+  deletes. HL7 v2.5 text, decoded by MSH-18 (`~ISO IR87` = ISO-2022-JP, or UTF-8), escapes undone. ADT-00 →
+  patient, ADT-12/22 → encounter, PPR-01 PRB → diagnosis (標準病名 with the ICD-10 alternate code, or
+  `byomei_to_icd10.csv`), OMP-01/02 ORC/RXE/TQ1 → medication (YJ with the ATC alternate code, or `yj_to_atc.csv`),
+  OML-11 OBX → lab with the JLAC10 code as `local_code`. Rows are the canonical tables, so the mapping engine and
+  `--since` delta work unchanged. Codes that resolve nowhere are counted on the reader (`missed`). Tables SS-MIX2
+  does not standardize (vitals, notes, reports, claims, registry, staff, appointments) come from
+  `<root>/extended/<table>.csv`. No MLLP listener: SS-MIX2 storage is what Japanese vendors expose.
+* **JP mapping template** `mapping/jp_core/ssmix2_site.yaml`: extends the shared resources, tz Asia/Tokyo, YJ and
+  JLAC10 code-system OIDs (JP Core), lab lookup `jlac10_to_loinc.csv`. The sample JLAC10, YJ and 標準病名 rows are
+  synthetic and marked `verify`. Profiles stay the base mapping's TW Core URLs; a JP Core resource set is not done.
+* **Full ICD-10-CM in the terminology.** `terminology/src/icd10cm_2026.csv.gz` (CMS/CDC NCHS 2026 order file, public
+  domain, 98,186 header and billable codes) builds `icd10cm_full.parquet`. The mapper uses it for code lookups and
+  prefix groupers only: "malignancy" now lists every code in its families (1,359), so a valid ICD-10-CM code is never
+  off the list for want of a demo row. Name matching and LLM candidates still read the curated `icd10cm_tw`, so a
+  header row such as M10 "Gout" never shadows the grouper. D-113's fail-closed family check stays for local codes.
+  Rulesets already compiled keep their approved lists until they are recompiled; the ATOMS snapshots grew.
+* **Delta FHIR loads** (`adapter/load_fhir.py`). The ledger now stores a content hash per id (sha256 of the
+  canonical JSON without `meta`); a night PUTs only new or changed resources and deletes the ones that left.
+  Changing 1 % of 1,000 patients reloads their 20 resources, not 1,000+. The ledger is widened before the load and
+  rewritten after it, so a failed night reloads its changes the next night. Old ledgers (ids only) load everything
+  once. `full=True` forces a full reload. A 500k reload took ~8 h on HAPI; a typical night is now its changes.
+* **Evidence.** `tests/integration/test_ssmix2_path.py`: a 400-patient synthetic JP hospital exported by
+  `tools/ssmix2_export.py` (ISO-2022-JP; every third message without the alternate code, so the lookups are used)
+  gives the CSV path's GOUT-COH funnel exactly, with no missed 標準病名/YJ code and every JLAC10 code mapped.
+  `tests/unit/test_fhir_delta_load.py`: the 1 % delta, a failed night and a legacy ledger.
+* **Not done.** Real MEDIS/JLAC10/YJ releases (licensed; sites load theirs); WHO ICD-10 (Japan's 標準病名 maps to
+  WHO ICD-10, mostly a subset of ICD-10-CM at category level); ADT-52 discharge and OMP-11/12 administrations;
+  extended-storage `_contents.xml` documents; the CQL path still reads enumerated lists only.

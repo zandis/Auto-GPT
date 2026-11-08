@@ -95,7 +95,9 @@ def postprocess(
             res = term.map(cand.domain, cand.name, cand.synonyms or [], llm_map)
             mappings[vs_name] = res
             concept_vs[key] = vs_name
-            valuesets[vs_name] = valueset(ruleset, vs_name, cand.name, res.concepts, version, res.needs_review)
+            valuesets[vs_name] = valueset(
+                ruleset, vs_name, cand.name, res.concepts, version, res.needs_review, families=res.families
+            )
             if res.method == "none":
                 warnings.append(f"concept '{cand.name}' ({cand.domain}) could not be mapped")
     # 2. criteria -> IR

@@ -162,6 +162,10 @@ class FakeBackend:
     def models(self) -> dict[str, Any] | None:
         return self.models_info
 
+    def run_canary(self) -> bool:
+        self.canary_runs = getattr(self, "canary_runs", 0) + 1
+        return True
+
     def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None:
         if ruleset != "GZQO":
             return None
@@ -862,7 +866,7 @@ def _done_screen(backend: FakeBackend, jid: str) -> Job:
             "practitioner_id": "DR-LIN",
             "department": "RHEU",
             "criteria": [
-                {"id": "GZQO-INC-01", "verdict": "pass", "evidence": {"resource_refs": []}},
+                {"id": "GZQO-INC-01", "verdict": "pass", "evidence": {"resource_refs": [], "reason": "coded"}},
                 {
                     "id": "GZQO-INC-05",
                     "verdict": "pass",

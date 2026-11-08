@@ -38,10 +38,35 @@ from tools import list_demo as ld  # noqa: E402
 from tools import public_site as ps  # noqa: E402
 
 TRIAL, COHORT = "PUB-ONC", "PUB-CA"
+# D-120: the console says the records are public data, and its request menu lists this site's own studies only
+SITE_ENV = {"TB_CONSOLE_DATA_SOURCE": "public", "TB_CONSOLE_STUDIES": f"{TRIAL},{COHORT}"}
+# D-120: the site's short labels for the trial's criteria, given at approval (the study's own words stay beside them)
+SITE_LABELS = {
+    "ja": {
+        "PUB-ONC-INC-01": "18歳以上",
+        "PUB-ONC-INC-02": "悪性腫瘍",
+        "PUB-ONC-INC-03": "ECOG 0〜1",
+        "PUB-ONC-EXC-01": "妊娠中・授乳中",
+        "PUB-ONC-EXC-02": "活動性結核",
+        "PUB-ONC-EXC-03": "間質性肺疾患・肺臓炎",
+        "PUB-ONC-EXC-04": "30日以内の他の治験参加",
+    },
+    "zh-TW": {
+        "PUB-ONC-INC-01": "18歲以上",
+        "PUB-ONC-INC-02": "惡性腫瘤",
+        "PUB-ONC-INC-03": "ECOG 0–1",
+        "PUB-ONC-EXC-01": "懷孕或哺乳中",
+        "PUB-ONC-EXC-02": "活動性結核",
+        "PUB-ONC-EXC-03": "間質性肺病或肺炎",
+        "PUB-ONC-EXC-04": "30天內參加其他介入性試驗",
+    },
+}
 PROFILES = ROOT / "eval" / "public_site" / "profiles"
 CASSETTES = ROOT / "services" / "llm_stub" / "cassettes" / "ir_extract"
 SIM_URL = "inproc://rc-sim"
-TERMINOLOGY = ROOT / "services" / "criteria_compiler" / "terminology" / "icd10cm_tw.parquet"
+TERM_DIR = ROOT / "services" / "criteria_compiler" / "terminology"
+# curated demo rows + the full ICD-10-CM list the prefix groupers expand over (D-122)
+TERMINOLOGY = [TERM_DIR / f"{name}.parquet" for name in ("icd10cm_tw", "icd10cm_full")]
 MALIGNANT = ("C0", "C1", "C2", "C3", "C40", "C41", "C43", "C45", "C46", "C47", "C48", "C49", "C5", "C6", "C7", "C8")
 
 
@@ -73,10 +98,10 @@ def criteria(ruleset: str) -> str:
 
 def build(work: Path, llm: Any = None, verifier: Any = None) -> tuple[Any, Any, Path, dict[str, Any]]:
     """Public site -> ingest -> in-process box (stub model unless ``llm`` is given)."""
-    from fastapi.testclient import TestClient
     from orchestrator import app as orch_app
 
     from tests.inproc_box import ingest_site, make_box
+    from tools.role_demo import orch_client
 
     hospital = work / "hospital"
     site = ps.build(hospital)
@@ -94,8 +119,13 @@ def build(work: Path, llm: Any = None, verifier: Any = None) -> tuple[Any, Any, 
                 c.audit = box.orch.audit  # every real model call is an llm.call audit record, as in the box
         box.orch.services.llm = llm
         box.orch.services.verifier = verifier
+        from orchestrator import canary_gate
+
+        if canary_gate.gate_on():  # D-117: as at box start, the pair canary first; it gates note exclusions
+            canary_gate.run_canary(box.orch)
+            site["canary"] = canary_gate.status()
     orch_app._orch = box.orch
-    return box, TestClient(orch_app.app), work / "box" / "repo", site
+    return box, orch_client(orch_app.app), work / "box" / "repo", site
 
 
 def _rows(path: Path) -> list[dict[str, str]]:
@@ -136,6 +166,45 @@ def real_models(judge_url: str, verifier_url: str, key: str) -> tuple[Any, Any]:
     return out[0], out[1]
 
 
+def direct_swap(judge_url: str, verifier_url: str, key: str, llm: Any = None, verifier: Any = None) -> Any:
+    """The gateway's own swap (:class:`gateway.swap.ModelSwap`, hold and release) driven straight at the VM's two
+    servers, for a run with no tb-gateway in between: the orchestrator's :func:`orchestrator.twophase.two_phase`
+    then holds the card, swaps judge -> verifier and releases it exactly as on the box (D-116). Every model call of
+    ``llm`` / ``verifier`` first does what the gateway does on its request path: wake the model on demand when no
+    run holds the card, refuse the call (``model_asleep``) when one does. (A call sent to a sleeping vLLM server
+    directly waits for ever; through the gateway it never reaches one.)"""
+    from gateway.swap import ModelSwap, SwapError
+    from orchestrator import twophase
+    from tb_common.llm import LlmError
+
+    sw = ModelSwap({"serving": judge_url, "verifier": verifier_url}, headers={"Authorization": f"Bearer {key}"})
+
+    class Direct:
+        def use(self, endpoint: str) -> None:
+            try:
+                sw.activate(endpoint, hold=True)
+            except SwapError as exc:
+                raise LlmError(f"model swap to {endpoint} failed: {exc}") from exc
+
+        def release(self) -> None:
+            sw.release()  # the next call wakes what it needs (guarded below), as the gateway does
+
+    for endpoint, client in (("serving", llm), ("verifier", verifier)):
+        if client is None:
+            continue
+        inner = client.chat_json
+
+        def guarded(*a: Any, _inner: Any = inner, _ep: str = endpoint, **kw: Any) -> Any:
+            if not sw.ensure(_ep):
+                raise LlmError(f"{_ep} is asleep (one-GPU swap); activate it first")
+            return _inner(*a, **kw)
+
+        client.chat_json = guarded
+    os.environ["TB_MODEL_SWAP"] = "sleep"
+    twophase.GatewaySwap.from_env = staticmethod(Direct)  # type: ignore[method-assign,assignment]
+    return sw
+
+
 def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: Any = None) -> dict[str, Any]:
     from console import notify
     from console.i18n import CATALOGUES
@@ -149,7 +218,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     t0 = time.perf_counter()
     box, client, repo, site = build(work, llm, verifier)
     clock = ld.Clock(box.today[0])
-    app = ld.console(work, box, client, repo, password, clock)
+    app = ld.console(work, box, client, repo, password, clock, extra_env=SITE_ENV)
     h = app.state.helpers
     cat = CATALOGUES[lang]
     hosp = work / "hospital"
@@ -231,6 +300,22 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         s.check("coordinator ticks a criterion's codes on S20", r.status_code == 200, r.status_code)
     r = crc.post(f"/pilot/jobs/{jobs[TRIAL].job_id}/approve", data={"csrf": fd._csrf(s20.text)}, follow_redirects=False)
     s.check("coordinator's approve refused (403)", r.status_code == 403, r.status_code)
+    # D-120: at approval the coordinator gives each criterion a short label in the site's languages; the pages show
+    # it with the study's own words beside it
+    saved = 0
+    for lg, words in SITE_LABELS.items():
+        page = crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval")
+        crc.post("/lang", data={"csrf": fd._csrf(page.text), "lang": lg, "back": "/home"})
+        for cid, text in words.items():
+            r = crc.post(
+                f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/label",
+                data={"csrf": fd._csrf(page.text), "crit": cid, "text": text},
+                follow_redirects=False,
+            )
+            saved += r.status_code == 303
+    crc.post("/lang", data={"csrf": fd._csrf(page.text), "lang": lang, "back": "/home"})
+    n_labels = sum(len(w) for w in SITE_LABELS.values())
+    s.check("S20: criterion labels in Japanese and Chinese saved", saved == n_labels, f"{saved}/{n_labels}")
     for rs, job in jobs.items():
         page = pi.get(f"/pilot/jobs/{job.job_id}/approval")
         for cid in re.findall(r'data-testid="open-([A-Z0-9-]+)"', page.text):
@@ -253,9 +338,10 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     adults = {p["mrn"] for p in patients if (a := _age(p["birth_date"], ref)) is not None and a >= 18}
     import pyarrow.parquet as pq
 
-    known = {r["code"] for r in pq.read_table(TERMINOLOGY, columns=["code"]).to_pylist()}
+    known = {r["code"] for t in TERMINOLOGY for r in pq.read_table(t, columns=["code"]).to_pylist()}
     vs = {c for c in known if c.startswith(MALIGNANT)}  # the "malignancy" grouper expands over the terminology
-    malig = {d["mrn"] for d in dx if d["icd10"] in vs}
+    # clinical truth, independent of the terminology: any code in the malignancy families (D-113)
+    cancer = {d["mrn"] for d in dx if d["icd10"].startswith(MALIGNANT)}
     term = sorted({d["icd10"] for d in dx if d["icd10"].startswith(MALIGNANT) and d["icd10"] not in vs})
     inc = {k: v for k, v in raw["remaining"].items()}
     s.check("start = every patient", raw["start_n"] == len(patients), raw["start_n"])
@@ -265,15 +351,16 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         (inc.get(f"{TRIAL}-INC-01"), len(adults)),
     )
     s.check(
-        "malignancy = recount from diagnosis.csv (codes in the value set)",
-        inc.get(f"{TRIAL}-INC-02") == len(adults & malig),
-        (inc.get(f"{TRIAL}-INC-02"), len(adults & malig)),
+        "malignancy = every adult with a cancer code in diagnosis.csv (recount by ICD-10 family, not by the list)",
+        inc.get(f"{TRIAL}-INC-02") == len(adults & cancer),
+        (inc.get(f"{TRIAL}-INC-02"), len(adults & cancer)),
     )
-    missed = {d["mrn"] for d in dx if d["icd10"] in term} - malig
+    listed = {d["mrn"] for d in dx if d["icd10"] in vs}
+    missed = cancer - listed  # patients whose only cancer codes are outside the list (kept as unknown, D-113)
     s.check(
-        "cancer codes outside the demo terminology are reported, not silently counted",
-        True,
-        f"{len(missed)} patients only coded {term}",
+        "every cancer code in the data is in the malignancy value set",
+        term == [] and not missed,
+        f"not listed: {term}, {len(missed)} patients",
     )
     rem = [row["remaining"] for row in rep["funnel"]]
     s.check("funnel never grows", all(a >= b for a, b in itertools.pairwise(rem)), rem)
@@ -498,6 +585,14 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         for path in ("/home", "/week", "/account", "/help", "/notices/received", "/reports", "/settings/notices"):
             r = c.get(path)
             s.check(f"{who} {path}", r.status_code == 200, r.status_code)
+    # D-120: a public-data site says so (not "synthetic"), lists its own studies only, and names its clinicians
+    # from the records
+    home = crc.get("/home").text
+    s.check("banner says public data", 'data-testid="banner"' in home and "synthetic" not in home.lower(), "")
+    menu = re.findall(r'<option value="([A-Z0-9-]+)"', crc.get("/pilot/request").text)
+    s.check("request menu: this site's studies only", bool(menu) and set(menu) <= {TRIAL, COHORT}, menu)
+    wk = pi.get(f"/studies/{TRIAL}/week?list=all").text
+    s.check("clinician names from the records", "public-data site" in wk and "(synthetic)" not in wk, "")
     r = crc.get("/reports/research-office")
     s.check("research-office counts", r.status_code == 200, r.status_code)
     r = crc.get("/reports/research-office.xlsx")
@@ -633,12 +728,16 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         "approval_job": jobs[TRIAL].job_id,
         "case_job": cj.job_id if cj else "",
         "consent_job": kj.job_id if kj else "",
+        # the study's own words (criterion labels, texts, actions) and the staff names from the data: shown as
+        # written, so the walk's language check (D-119) does not count them as untranslated page text
+        "authored": authored_strings(box, [TRIAL, COHORT]),
     }
     out.update(
         {
             "stages": stages,
             "seconds": time.perf_counter() - t0,
             "site": site["summary"],
+            "canary": site.get("canary"),
             "app": app,
             "box": box,
             "day": day,
@@ -648,6 +747,24 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         }
     )
     return out
+
+
+def authored_strings(box: Any, rulesets: list[str]) -> list[str]:
+    from tb_common.ruleset import RulesetNotApproved, load_approved
+
+    out: set[str] = set()
+    for rid in rulesets:
+        try:
+            r = load_approved(box.orch.rulesets_dir, rid)
+        except (FileNotFoundError, RulesetNotApproved):
+            continue
+        for c in r.criteria:
+            out.update(x for x in (c.label, c.text, c.action, c.note_question, c.human_question) if x)
+    for p in (box.orch.cfg.settings.practitioners or {}).values():
+        if p.name:
+            out.add(p.name)
+    out.update(name for _, name, _ in ps.STAFF)  # the clinicians' names as the records hold them (D-120)
+    return sorted(out, key=len, reverse=True)
 
 
 def table(stages: list[Stage]) -> str:
@@ -667,6 +784,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--judge-url", default="", help="real judge, e.g. http://<vm>/judge/v1 (key in TB_GPU_KEY)")
     ap.add_argument("--verifier-url", default="")
     ap.add_argument("--single", action="store_true", help="judge only, no verifier")
+    ap.add_argument(
+        "--swap",
+        action="store_true",
+        help="one GPU, one model awake (TB_MODEL_SWAP=sleep): the run swaps the VM's servers as the gateway would",
+    )
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     ap.add_argument("--host", default="127.0.0.1")
     a = ap.parse_args(argv)
@@ -677,7 +799,13 @@ def main(argv: list[str] | None = None) -> int:
         llm, verifier = real_models(a.judge_url, a.verifier_url, os.environ["TB_GPU_KEY"])
         if a.single:
             verifier = None
+    swap = None
+    if a.swap:
+        swap = direct_swap(a.judge_url, a.verifier_url, os.environ["TB_GPU_KEY"], llm, verifier)
     res = run(a.dir, password, a.lang, llm, verifier)
+    if swap is not None:
+        res["swap"] = swap.status()
+        print(f"swap: {json.dumps(res['swap'])}")
     print(table(res["stages"]))
     n = sum(len(st.checks) for st in res["stages"])
     bad = sum(1 for st in res["stages"] for c in st.checks if not c[1])
@@ -687,7 +815,21 @@ def main(argv: list[str] | None = None) -> int:
     (a.dir / "stages.md").write_text(table(res["stages"]), encoding="utf-8")
     (a.dir / "result.json").write_text(
         json.dumps(
-            {k: res[k] for k in ("feas", "screen", "cohort_members", "seconds", "site", "terminology_missed")},
+            {
+                k: res[k]
+                for k in (
+                    "feas",
+                    "screen",
+                    "cohort_members",
+                    "seconds",
+                    "site",
+                    "terminology_missed",
+                    "swap",
+                    "judging",
+                    "canary",
+                )
+                if k in res
+            },
             default=str,
             indent=1,
         ),

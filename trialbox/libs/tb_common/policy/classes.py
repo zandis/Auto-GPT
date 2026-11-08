@@ -197,6 +197,7 @@ _D1 = {
     "ReportProvenance",  # its provenance block (D-111): ids, versions, dates, no patient data
     "FunnelStep",
     "MonthlyCount",
+    "NoteKey",  # a feasibility note as a catalogue key and its counts (D-119), already suppressed
     "SensitivityRow",
     "TierSummary",
     "Judging",  # models and note-block policy of a run, no patient data
@@ -215,6 +216,7 @@ _D3 = {
     "ChunkSearchResult",
     "CriterionVerdict",
     "Evidence",
+    "Opinion",  # each model's answer and quote when the two checks disagree (D-120): patient level, as Evidence
     "LakeQuery",
     "LlmJudgeOutput",
     "LlmDraftDocOutput",

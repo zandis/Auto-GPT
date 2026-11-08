@@ -101,15 +101,25 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(404, "notfound")
         return rid
 
-    def crit_of(rs: str) -> dict[str, st.CriterionMeta]:
+    def crit_of(rs: str, lang: str = "en") -> dict[str, st.CriterionMeta]:
+        """The approved criteria; with a label the site gave in ``lang`` at approval (D-120) the page shows that label
+        and keeps the study's own label and text beside it."""
         fn = getattr(bk, "criteria", None)
         rows = fn(rs) if fn else []
-        return {
-            r["id"]: st.CriterionMeta(
-                r["id"], r["kind"], r.get("class", "structured"), r.get("label") or r["id"], r.get("text", "")
+        mine = store.labels(rs, lang) if lang != "en" else {}
+        out = {}
+        for r in rows:
+            written = r.get("label") or r["id"]
+            local = mine.get(r["id"], "")
+            out[r["id"]] = st.CriterionMeta(
+                r["id"],
+                r["kind"],
+                r.get("class", "structured"),
+                local or written,
+                r.get("text", ""),
+                written if local else "",
             )
-            for r in rows
-        }
+        return out
 
     def load(job: Job | None, prefix: str, suffix: str = ".json", tag: str | None = None) -> dict[str, Any] | None:
         out = st.output(job, prefix, suffix, tag)
@@ -140,7 +150,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if job is None or result is None:
             return None
         prof = load(job, "feasprofile_", ".json", "aggregate")
-        rep = st.feas_report(result, prof, store.profile(rs), crit_of(rs), sponsor=sponsor)
+        rep = st.feas_report(result, prof, store.profile(rs), crit_of(rs, sess.lang if sess else "en"), sponsor=sponsor)
         rep["job"] = job
         rep["has_profile"] = prof is not None
         rep["files"] = [
@@ -159,7 +169,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         pids = [str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") in ("high", "review")]
         seen = store.seen(rs, pids, job.job_id, (job.updated_at or job.received_at).isoformat())
         rows = st.weekly_rows(
-            cl, crit_of(rs), registry_map(rs), store.latest_marks(rs), seen, job.job_id, names, today=h.clock().date()
+            cl,
+            crit_of(rs, sess.lang if sess else "en"),
+            registry_map(rs),
+            store.latest_marks(rs),
+            seen,
+            job.job_id,
+            names,
+            today=h.clock().date(),
         )
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl}
 
@@ -344,6 +361,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         sponsor = view == "sponsor" or sess.user.role == "cro"
         rep = feas_bundle(sess, rid, sponsor)
         site = store.profile(rid)
+        wk = week_bundle(sess, rid) if rep and sess.user.can_view_phi and not sponsor else None
+        bridge = st.list_bridge(rep, wk["rows"] if wk else None, h.clock().date()) if rep else None
         ad = bool(rep and rep["summary"].get("screen_fail_ref"))
         keys = CAPABILITIES_AD if ad else CAPABILITIES_GENERAL
         return h.page(
@@ -352,6 +371,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             sess,
             rs=rid,
             rep=rep,
+            bridge=bridge,
             site=site,
             cap_keys=keys,
             cap_values=CAP_VALUES,
@@ -440,10 +460,19 @@ def register(app: FastAPI, h: Helpers) -> None:
         lst = request.query_params.get("list", "")
         if lst not in st.WORKLISTS:  # open on the first list with work in it
             lst = next((k for k in ("clinic", "review") if counts.get(k)), "all")
-        rows = [r for r in wk["rows"] if st.in_worklist(r, lst, today)] if wk else []
+        rows = st.worklist_sorted([r for r in wk["rows"] if st.in_worklist(r, lst, today)] if wk else [], lst)
+        try:
+            want = int(request.query_params.get("page") or 1)
+        except ValueError:
+            want = 1
+        pid = request.query_params.get("pid", "")
+        if pid and "page" not in request.query_params:  # a chart link opens the page that holds the patient
+            at = next((i for i, r in enumerate(rows) if r["pid"] == pid), 0)
+            want = at // st.PAGE_SIZE + 1
+        rows, page_no, pages = st.paged(rows, want)
         for r in rows:
             r["score"] = st.met_score(r["fit"])
-        pid = request.query_params.get("pid", "")
+            r["n_open"] = st.n_open(r)
         sel = None
         if wk and rows:
             if not any(r["pid"] == pid for r in rows):
@@ -459,6 +488,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             lists=st.WORKLISTS,
             counts=counts,
             rows=rows,
+            page_no=page_no,
+            pages=pages,
+            # D-120: the coordinator records a call from the list in two taps (open, then the outcome)
+            quick_outcomes=tuple(OUTCOMES) if sess.user.can_request and not sess.user.can_mark else (),
             sel=sel,
             marks=MARKS,
             reasons=settings_of(rid).reasons,
@@ -488,7 +521,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         row = next((r for r in (wk["cl"] or {}).get("rows") or [] if str(r.get("pid")) == pid), None)
         if row is None:
             raise h.problem(404, "notfound")
-        crit = crit_of(rid)
+        crit = crit_of(rid, sess.lang)
         listed = next((r for r in wk["rows"] if r["pid"] == pid), None)
         names = (wk["summary"] or {}).get("practitioner_names") or {}
         return {

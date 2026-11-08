@@ -142,7 +142,9 @@ def test_rejections_status_cancel(box: Box) -> None:
     assert box.orch.db.get(job.job_id).state == "failed"  # type: ignore[union-attr]
     box.mail(f"STATUS {job.job_id}")
     failed = box.find_job("failed", job.job_id)[0]
-    assert "**ruleset**" in failed.text()  # the failed step, in the site's language (zh-TW here, D-100)
+    assert (
+        "ruleset" in failed.text() and "**" not in failed.text()
+    )  # D-119: no Markdown marks; the failed step, in the site's language (zh-TW here, D-100)
     status = box.find("[NOPE] FEAS status: failed")
     assert status and '"job_id"' in status[0].text()
     box.mail("FEAS GZQO")

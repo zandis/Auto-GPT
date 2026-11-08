@@ -34,6 +34,7 @@ from tb_contracts import JobOutput, ParseRequest
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.reports import consent_html
+from orchestrator.twophase import two_phase
 
 SCHEMA = "trialbox.consent@1"
 LANGS = ("en", "ja", "zh-TW")
@@ -239,11 +240,20 @@ class ContactMask:
 # ------------------------------------------------------------------------------------------------ drafting
 @dataclass
 class Models:
-    draft: LlmClient
+    """The drafting model (``llm``, the judge build) and the second model that checks each statement. Shaped like a
+    note judge (``llm``, ``verifier``, counters) so :func:`orchestrator.twophase.two_phase` can run the draft on a
+    card that holds one model at a time: drafting and translation with the judge awake, then every check with the
+    verifier awake, never a direct call to a sleeping model (D-118)."""
+
+    llm: LlmClient
     verifier: LlmClient | None
     calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
+
+    @property
+    def draft(self) -> LlmClient:
+        return self.llm
 
     def chat(self, llm: LlmClient, prompt: str, variables: dict[str, Any], job_id: str) -> dict[str, Any]:
         res = llm.chat_json(prompt, variables, job_id=job_id)  # data class: TB_DATA_CLASS, else D1 (phi: false)
@@ -458,7 +468,8 @@ def run(ctx: Ctx) -> Outcome:
     ctx.state("running")
     mask = ContactMask(ctx.cfg.settings.mrn_regex)
     masked = [{**p, "text": mask.mask(p["text"]), "heading": mask.mask(p["heading"])} for p in paras]
-    body = mask.unmask(draft(m, study, masked, source, langs, job.job_id))
+    # one GPU for both models (TB_MODEL_SWAP=sleep): the draft with the judge awake, the checks with the verifier
+    body = mask.unmask(two_phase(m, lambda mm: draft(mm, study, masked, source, langs, job.job_id)))
     rec: dict[str, Any] = {
         "schema": SCHEMA,
         "study": study,
@@ -468,7 +479,7 @@ def run(ctx: Ctx) -> Outcome:
         "requested_by": job.requested_by,
         "icf": {"filename": filename, "sha256": icf_sha, "language": source, "paragraphs": len(paras)},
         "source_language": source,
-        "models": {"draft": m.draft.model, "verifier": m.verifier.model if m.verifier else None},
+        "models": {"draft": m.llm.model, "verifier": m.verifier.model if m.verifier else None},
         **body,
         "release": None,
     }

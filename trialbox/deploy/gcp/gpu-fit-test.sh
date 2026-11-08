@@ -28,7 +28,7 @@ http { server { listen 80; location /record/ { alias /srv/record/; default_type 
 NG
 docker run -d --name front -p 80:80 -v /root/nginx-fit.conf:/etc/nginx/nginx.conf:ro -v $REC:/srv/record:ro nginx:1.27-alpine
 
-used() { nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1; }
+used() { local u; u=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1); echo "${u:-null}"; }
 add() {  # add one case result (a JSON object) to fit.json
   python3 - "$1" <<'PY'
 import json, sys
@@ -56,8 +56,11 @@ ready() {  # name timeout_s -> prints seconds to ready or -1
   done
   echo -1
 }
-ask() {  # name served -> prints the answer's first 80 chars (or ERROR)
-  docker exec "$1" python3 - "$2" "$KEY" <<'PY' 2>&1 | tail -1
+ask() {  # name served -> prints the answer's first 80 chars as a JSON string (or "ERROR ...")
+  # -i: the script comes on stdin (without it python3 read nothing and printed nothing, so 8 Nov's fit.json had
+  # empty answer fields and every case was stored unparsed)
+  local out
+  out=$(docker exec -i "$1" python3 - "$2" "$KEY" <<'PY' 2>/dev/null | tail -1
 import json, sys, urllib.request
 body = {"model": sys.argv[1], "max_tokens": 40, "temperature": 0,
         "messages": [{"role": "user", "content": "Patient note: 'A 64-year-old man with lung adenocarcinoma, ECOG 1.' "
@@ -70,13 +73,18 @@ try:
 except Exception as e:  # noqa: BLE001
     print(json.dumps("ERROR " + str(e)[:70]))
 PY
+)
+  case "$out" in \"*) echo "$out" ;; *) echo '"ERROR no answer"' ;; esac
 }
+jstr() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }  # any text as a JSON string
 post() {  # name path -> seconds the POST took
   local t0=$(date +%s.%N)
   docker exec "$1" python3 -c "import urllib.request;urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000$2',data=b'',method='POST',headers={'Authorization':'Bearer $KEY'}),timeout=600)" 2>&1 | tail -1
   python3 -c "import time;print(round(time.time()-$t0,1))"
 }
-logs() { docker logs "$1" 2>&1 | grep -aE 'Error|out of memory|KV cache|Available|Loading weights took|Model loading took' | tail -4 | tr '"' "'" | tr '\n' ' ' | cut -c1-600; }
+logs() {  # the last memory/error lines of a server, as a JSON string (quotes, backslashes and control bytes escaped)
+  jstr "$(docker logs "$1" 2>&1 | grep -aE 'Error|out of memory|KV cache|Available|Loading weights took|Model loading took' | tail -4 | tr '\n' ' ' | cut -c1-600)"
+}
 clear_card() { docker rm -f judge verifier >/dev/null 2>&1; sleep 10; }
 nvidia-smi
 BASE=$(used)
@@ -88,7 +96,7 @@ for spec in "judge $J local/gemma-4-26b-a4b-nvfp4" "verifier $V local/qwen3.5-9b
   [ "$1" = verifier ] && extra=(--limit-mm-per-prompt '{"image":0,"video":0}' --default-chat-template-kwargs '{"enable_thinking": false}')
   start "$1" "$2" "$3" 0.30 8192 4 "${extra[@]}"
   s=$(ready "$1" 1200); u0=$(used); a=$(ask "$1" "$3"); u1=$(used)
-  add "{\"case\": \"$1-alone\", \"util\": 0.30, \"max_model_len\": 8192, \"max_num_seqs\": 4, \"started\": $([ "$s" -ge 0 ] && echo true || echo false), \"seconds_to_ready\": $s, \"base_mib\": $BASE, \"used_mib_ready\": $u0, \"used_mib_after_request\": $u1, \"answer\": $a, \"log\": \"$(logs "$1")\"}"
+  add "{\"case\": \"$1-alone\", \"util\": 0.30, \"max_model_len\": 8192, \"max_num_seqs\": 4, \"started\": $([ "$s" -ge 0 ] && echo true || echo false), \"seconds_to_ready\": $s, \"base_mib\": $BASE, \"used_mib_ready\": $u0, \"used_mib_after_request\": $u1, \"answer\": $a, \"log\": $(logs "$1")}"
   clear_card
 done
 
@@ -98,7 +106,7 @@ sj=$(ready judge 1200)
 start verifier $V local/qwen3.5-9b-awq 0.093 4096 2 --limit-mm-per-prompt '{"image":0,"video":0}' --default-chat-template-kwargs '{"enable_thinking": false}'
 sv=$(ready verifier 1200); u0=$(used)
 aj=$(ask judge local/gemma-4-26b-a4b-nvfp4); av=$(ask verifier local/qwen3.5-9b-awq); u1=$(used)
-add "{\"case\": \"pair-tight\", \"util\": [0.20, 0.093], \"max_model_len\": 4096, \"max_num_seqs\": 2, \"judge_seconds\": $sj, \"verifier_seconds\": $sv, \"base_mib\": $BASE, \"used_mib_ready\": $u0, \"used_mib_after_request\": $u1, \"answer_judge\": $aj, \"answer_verifier\": $av, \"log_judge\": \"$(logs judge)\", \"log_verifier\": \"$(logs verifier)\"}"
+add "{\"case\": \"pair-tight\", \"util\": [0.20, 0.093], \"max_model_len\": 4096, \"max_num_seqs\": 2, \"judge_seconds\": $sj, \"verifier_seconds\": $sv, \"base_mib\": $BASE, \"used_mib_ready\": $u0, \"used_mib_after_request\": $u1, \"answer_judge\": $aj, \"answer_verifier\": $av, \"log_judge\": $(logs judge), \"log_verifier\": $(logs verifier)}"
 clear_card
 
 # ---- 4: time-shared with sleep mode, 8k context, 4 sequences, each 0.27 of 96 GB (25.9 GB) when awake
@@ -110,7 +118,7 @@ sv=$(ready verifier 1200); uv=$(used); av=$(ask verifier local/qwen3.5-9b-awq); 
 tsv=$(post verifier /sleep?level=1 | tail -1); uvs=$(used)
 twj=$(post judge /wake_up | tail -1); ujw=$(used); aj2=$(ask judge local/gemma-4-26b-a4b-nvfp4); ujwa=$(used)
 tsj2=$(post judge /sleep?level=1 | tail -1); twv=$(post verifier /wake_up | tail -1); uvw=$(used); av2=$(ask verifier local/qwen3.5-9b-awq)
-add "{\"case\": \"sleep-swap\", \"util\": 0.27, \"max_model_len\": 8192, \"max_num_seqs\": 4, \"judge_seconds\": $sj, \"verifier_seconds\": $sv, \"base_mib\": $BASE, \"used_mib_judge_awake\": $uj, \"used_mib_judge_asleep\": $ujs, \"used_mib_verifier_awake_judge_asleep\": $uv, \"used_mib_after_verifier_request\": $uva, \"used_mib_both_asleep\": $uvs, \"used_mib_judge_rewoken\": $ujw, \"used_mib_after_judge_request\": $ujwa, \"used_mib_verifier_rewoken\": $uvw, \"seconds_sleep_judge\": $tsj, \"seconds_sleep_verifier\": $tsv, \"seconds_wake_judge\": $twj, \"seconds_sleep_judge_2\": $tsj2, \"seconds_wake_verifier\": $twv, \"answer_judge_first\": $aj1, \"answer_judge_after_wake\": $aj2, \"answer_verifier\": $av, \"answer_verifier_after_wake\": $av2, \"log_judge\": \"$(logs judge)\", \"log_verifier\": \"$(logs verifier)\"}"
+add "{\"case\": \"sleep-swap\", \"util\": 0.27, \"max_model_len\": 8192, \"max_num_seqs\": 4, \"judge_seconds\": $sj, \"verifier_seconds\": $sv, \"base_mib\": $BASE, \"used_mib_judge_awake\": $uj, \"used_mib_judge_asleep\": $ujs, \"used_mib_verifier_awake_judge_asleep\": $uv, \"used_mib_after_verifier_request\": $uva, \"used_mib_both_asleep\": $uvs, \"used_mib_judge_rewoken\": $ujw, \"used_mib_after_judge_request\": $ujwa, \"used_mib_verifier_rewoken\": $uvw, \"seconds_sleep_judge\": $tsj, \"seconds_sleep_verifier\": $tsv, \"seconds_wake_judge\": $twj, \"seconds_sleep_judge_2\": $tsj2, \"seconds_wake_verifier\": $twv, \"answer_judge_first\": $aj1, \"answer_judge_after_wake\": $aj2, \"answer_verifier\": $av, \"answer_verifier_after_wake\": $av2, \"log_judge\": $(logs judge), \"log_verifier\": $(logs verifier)}"
 clear_card
 python3 - <<'PY'
 import json
@@ -124,7 +132,7 @@ start judge $Q local/gemma-4-26b-a4b-qat-awq 0.22 8192 4 --limit-mm-per-prompt '
 sq=$(ready judge 2400); uq=$(used); aq=$(ask judge local/gemma-4-26b-a4b-qat-awq)
 start verifier $V local/qwen3.5-9b-awq 0.105 8192 4 --limit-mm-per-prompt '{"image":0,"video":0}' --default-chat-template-kwargs '{"enable_thinking": false}'
 sv=$(ready verifier 1200); up=$(used)
-add "{\"case\": \"qat-pair\", \"util\": [0.22, 0.105], \"max_model_len\": 8192, \"max_num_seqs\": 4, \"judge_seconds\": $sq, \"verifier_seconds\": $sv, \"base_mib\": $BASE, \"used_mib_qat_alone\": $uq, \"used_mib_pair\": $up, \"answer_qat\": $aq, \"log_qat\": \"$(logs judge)\"}"
+add "{\"case\": \"qat-pair\", \"util\": [0.22, 0.105], \"max_model_len\": 8192, \"max_num_seqs\": 4, \"judge_seconds\": $sq, \"verifier_seconds\": $sv, \"base_mib\": $BASE, \"used_mib_qat_alone\": $uq, \"used_mib_pair\": $up, \"answer_qat\": $aq, \"log_qat\": $(logs judge)}"
 cat > /root/nginx.conf <<'NG'
 events {}
 http { server { listen 80; client_max_body_size 10m; proxy_read_timeout 600s;

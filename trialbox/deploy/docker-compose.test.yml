@@ -32,6 +32,7 @@ services:
       - orch-data:/data/orchestrator
       - audit-data:/data/audit
       - rulesets-data:/data/rulesets:ro
+      - objects-data:/data/objects
       - ../.cache/test-secrets:/run/secrets/trialbox
   fhir-store:
     networks: [trialbox-net, host-net]
@@ -52,9 +53,6 @@ services:
     environment: {TB_DATA_CLASS: "${TB_DATA_CLASS:-D0}"}
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_PARSER_PORT:-8011}:8011"]
-  minio:
-    networks: [trialbox-net, host-net]
-    ports: ["127.0.0.1:${TB_HOST_MINIO_PORT:-9000}:9000"]
   criteria-compiler:
     networks: [trialbox-net, egress-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_COMPILER_PORT:-8012}:8012"]
@@ -63,9 +61,13 @@ services:
     environment: {TB_ENV: "${TB_ENV:-TEST}"}
     networks: [trialbox-net, model-net, egress-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_GATEWAY_PORT:-8020}:8020"]
-  workflow-db:   # host access for the outbox / recall-ledger Postgres tests (TB_PG_DSN)
+  db:   # host access for the outbox / recall-ledger Postgres tests (TB_PG_DSN, database trialbox_wf)
     networks: [trialbox-net, host-net]
     ports: ["127.0.0.1:${TB_HOST_WORKFLOW_DB_PORT:-5433}:5432"]
+volumes:
+  objects-data:   # bind-mounted on the host so the integration tests read and write objects directly (D-121)
+    driver: local
+    driver_opts: {type: none, o: bind, device: "${TB_HOST_OBJECTS_DIR:-${PWD}/deploy/.objects}"}
 networks:
   host-net:
     name: trialbox-hostnet

@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import hashlib
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Protocol
+
+from tb_common.pair import Vote, combine, needs_verifier
+from tb_common.quotes import quote_key
 
 JUDGE_PROMPT = "judge"
 
@@ -34,6 +37,7 @@ class JudgeReply:
     tokens_in: int = 0
     tokens_out: int = 0
     refused: str | None = None  # gateway refusal code: the pair stays unknown, never excluded
+    opinions: list[dict[str, Any]] = field(default_factory=list)  # both answers when the checks disagree (D-120)
 
 
 class JudgeClient(Protocol):
@@ -141,26 +145,39 @@ class AgreementJudge:
             reply: JudgeReply = self.verifier.judge(role=role, **kw)
             return reply
         first: JudgeReply = self.primary.judge(role=role, **kw)
-        if first.verdict not in ("pass", "fail"):
+        if not needs_verifier(_vote(first)):
             return first
         second: JudgeReply = self.verifier.judge(role=role, **kw)
-        if second.verdict == first.verdict:
-            return first
-        self.disagreements += 1
-        refused = f"; {second.refused}" if second.refused else ""
-        reason = f"judge/verifier disagree ({first.verdict}/{second.verdict}{refused})"
+        d = combine(_vote(first), _vote(second))  # the one two-model rule (tb_common.pair, D-118)
+        if d.disagreement:
+            self.disagreements += 1
+        if d.verdict == first.verdict:
+            return replace(first, confidence=d.confidence)
         return JudgeReply(
             "unknown",
             0.0,
             None,
             None,
-            reason,
+            d.reason or "",
             call_id=first.call_id,
             build_sha=first.build_sha,
             prompt=first.prompt,
             tokens_in=first.tokens_in + second.tokens_in,
             tokens_out=first.tokens_out + second.tokens_out,
+            refused=second.refused,
+            opinions=[_opinion("judge", first), _opinion("verifier", second)] if d.disagreement else [],
         )
+
+
+def _opinion(role: str, r: JudgeReply) -> dict[str, Any]:
+    return {"role": role, "verdict": r.verdict, "quote": r.quote, "quote_date": r.quote_date}
+
+
+def _vote(r: JudgeReply) -> Vote:
+    """A cascade reply as a vote: a refusal counts as a model that did not answer (never an agreement)."""
+    if r.refused:
+        return Vote("unknown", 0.0, "model_down")
+    return Vote(r.verdict, r.confidence, None)
 
 
 def norm(text: str) -> str:
@@ -175,9 +192,9 @@ def verify_span(reply: JudgeReply, excerpts: list[dict[str, Any]], lo: date, hi:
     """CAS-16: the verified span (excerpt id, offsets, date, sentence hash) or None when it does not verify."""
     if not reply.quote:
         return None
-    q = norm(reply.quote)
+    q = quote_key(reply.quote)  # stray spaces next to CJK characters do not count (tb_common.quotes)
     for ex in excerpts:
-        text = norm(str(ex.get("text", "")))
+        text = quote_key(str(ex.get("text", "")))
         start = text.find(q)
         if start < 0:
             continue

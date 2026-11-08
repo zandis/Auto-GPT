@@ -11,7 +11,7 @@
     <h2>{{ t('admin.system') }}</h2>
     {% set up = health|selectattr('ok')|list|length %}
     <p class="big"><span class="pill {{ 'ok' if up == health|length else 'bad' }}">{{ up }}/{{ health|length }} {{ t('health.ok') }}</span></p>
-    <ul class="plain">{% for hh in health %}<li>{{ hh.service }} · {% if hh.ok %}<span class="pill ok">{{ t('health.ok') }}</span>{% else %}<span class="pill bad">{{ t('health.down') }}</span> <a href="/help?back=/admin">{{ t('admin.what_to_do') }}</a>{% endif %}{% if hh.detail %} <span class="hint">{{ hh.detail }}</span>{% endif %}</li>{% endfor %}</ul>
+    <ul class="plain">{% for hh in health %}<li>{{ hh.service }} · {% if hh.ok %}<span class="pill ok">{{ t('health.ok') }}</span>{% else %}<span class="pill bad">{{ t('health.down') }}</span> <a href="/help?back=/admin">{{ t('admin.what_to_do') }}</a>{% endif %}{% if hh.detail %} <span class="hint" data-src="service">{{ hh.detail }}</span>{% endif %}</li>{% endfor %}</ul>
   </section>
   <section class="card tile" data-testid="tile-queue">
     <h2>{{ t('admin.queue') }}</h2>
@@ -23,6 +23,14 @@
     <h2>{{ t('overview.models') }}</h2>
     {% if models %}<p class="hint">{{ t('overview.models.judge') }}: {{ models.judge_model or t('overview.models.none') }} · {{ t('overview.models.verifier') }}: {{ models.verifier_model or t('overview.models.none') }}</p>
     <p>{% if models.mode == 'none' %}<span class="pill warn">{{ t('overview.models.no_judge') }}</span>{% elif models.may_block %}<span class="pill ok">{{ t('overview.models.both_agree') }}</span>{% else %}<span class="pill warn">{{ t('overview.models.never') }}</span>{% endif %}</p>
+    {% if models.canary and models.mode != 'none' %}{% set c = models.canary %}{% set at = (c.at or '')[:16]|replace('T', ' ') %}
+    <p data-testid="models-canary">{{ t('overview.models.canary') }}:
+    {% if c.running %}<span class="pill warn">{{ t('overview.models.canary.running') }}</span>
+    {% elif c.code == 'ok' %}<span class="pill ok">{{ t('overview.models.canary.ok', at=at, correct=c.pair_correct, cases=c.cases) }}</span>
+    {% elif c.code == 'off' %}<span class="pill">{{ t('overview.models.canary.off') }}</span>
+    {% else %}<span class="pill warn">{{ t('overview.models.canary.' ~ c.code, at=at) }}</span>{% endif %}</p>
+    {% if c.code != 'off' and not c.running %}<form method="post" action="/admin/models/canary" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="canary-run">{{ t('overview.models.canary.run') }}</button></form>{% endif %}
+    {% endif %}
     {% else %}<p class="hint">{{ t('overview.models.unavailable') }}</p>{% endif %}
     <a href="/">{{ t('admin.overview') }}</a>
   </section>
@@ -66,8 +74,8 @@
 <div class="scroll"><table data-testid="admin-jobs">
 <thead><tr><th scope="col">{{ t('col.job') }}</th><th scope="col">{{ t('col.type') }}</th><th scope="col">{{ t('col.ruleset') }}</th><th scope="col">{{ t('col.state') }}</th><th scope="col">{{ t('col.received') }}</th><th scope="col">{{ t('admin.jobs.actions') }}</th></tr></thead>
 <tbody>{% for j in jobs %}<tr data-job="{{ j.job_id }}">
-<td class="mono"><a href="/pilot/jobs/{{ j.job_id }}">{{ j.job_id[-8:] }}</a></td><td>{{ j.type }}</td><td>{{ j.ruleset or '–' }}</td>
-<td><span class="state s-{{ j.state }}" data-state="{{ j.state }}">{{ state(j.state) }}</span>{% if j.error %}<br><span class="hint">{{ j.error.step }}</span>{% endif %}</td>
+<td class="mono"><a href="/pilot/jobs/{{ j.job_id }}">{{ j.job_id[-8:] }}</a></td><td>{{ j.type|upper }}</td><td>{{ j.ruleset or '–' }}</td>
+<td><span class="state s-{{ j.state }}" data-state="{{ j.state }}">{{ state(j.state) }}</span>{% if j.error %}<br><span class="hint mono">{{ j.error.step }}</span>{% endif %}</td>
 <td class="nowrap">{{ j.received_at.strftime('%Y-%m-%d %H:%M') }}</td>
 <td>{% if j.state not in terminal and can_cancel %}<form method="post" action="/admin/jobs/{{ j.job_id }}/cancel" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="cancel-{{ j.job_id }}">{{ t('admin.jobs.cancel') }}</button></form>{% endif %}
 {% if j.state == 'failed' %}<form method="post" action="/admin/jobs/{{ j.job_id }}/retry" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small" data-testid="retry-{{ j.job_id }}">{{ t('admin.jobs.retry') }}</button></form>{% endif %}</td>

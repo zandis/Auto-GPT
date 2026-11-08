@@ -29,7 +29,6 @@ dependencies = [
   "py7zr>=0.22",
   "cryptography>=43",
   "apscheduler>=3.10,<4",
-  "minio>=7.2",
   "numpy>=1.26",
   "fhir.resources>=8.0,<9",
   "python-dateutil>=2.9",
@@ -69,7 +68,7 @@ where = ["libs", "services", "."]
 include = [
   "tb_contracts*", "tb_common*", "mail_gateway*", "doc_parser*", "criteria_compiler*",
   "adapter*", "lake*", "orchestrator*", "llm_stub*", "embed_service*", "tools*",
-  "tb_testkit*", "tb_llm*", "dataplat*", "gateway*", "registry*", "guard*", "tracestore*", "matching*", "frontdoor_mcp*", "channels*", "deliverables*", "console*",
+  "tb_testkit*", "tb_llm*", "dataplat*", "gateway*", "registry*", "guard*", "tracestore*", "matching*", "channels*", "deliverables*", "console*",
 ]
 
 [tool.setuptools.package-data]
@@ -113,7 +112,7 @@ warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
 module = [
-  "docxtpl.*", "docx.*", "py7zr.*", "apscheduler.*", "minio.*", "sqlglot.*", "duckdb.*",
+  "docxtpl.*", "docx.*", "py7zr.*", "apscheduler.*", "sqlglot.*", "duckdb.*",
   "pyarrow.*", "matplotlib.*", "fhir.*", "docling.*", "sentence_transformers.*", "pypdf.*",
   "uvicorn.*", "numpy.*", "duckdb_extension_fts.*", "paddleocr.*", "fontTools.*", "markdown.*",
 ]
@@ -129,7 +128,7 @@ testpaths = ["tests"]
 pythonpath = [".", "libs", "services"]
 addopts = "-ra --strict-markers"
 markers = [
-  "integration: needs docker compose services (fhir-store, minio, mail)",
+  "integration: needs docker compose services (fhir-store, mail)",
   "e2e: end-to-end through email against the compose test profile",
   "llm: requires a real LLM endpoint (GPU or cloud)",
   "perf: performance benchmarks",

@@ -18,20 +18,27 @@ one named funnel (S0 / S1 / S3 / S4, D-102) is now the engine's own stage log.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 from matching.cascade import CascadeConfig, CascadeError, CascadeResult, run_cascade
 from matching.cascade.judge import JudgeReply
 from matching.cascade.model import Outcome, PatientTrace
-from tb_common.llm import LlmClient, LlmError
+from tb_common.reasons import Reason, code_of
 from tb_common.ruleset import Ruleset
-from tb_contracts import CriterionVerdict, Evidence
+from tb_contracts import CriterionVerdict, Evidence, Opinion
 
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx
-from orchestrator.scenarios.evaluate import MAX_JUDGE_FAILURE_SHARE, NoteJudge, PatientVerdicts, effective_note_block
+from orchestrator.scenarios.evaluate import (
+    MAX_JUDGE_FAILURE_SHARE,
+    NoteJudge,
+    PatientVerdicts,
+    effective_note_block,
+    not_in_snapshot,
+)
+from orchestrator.twophase import two_phase
 
 PIPELINES = ("cascade", "v1")
 
@@ -55,46 +62,17 @@ def pipeline() -> str:
 
 
 @dataclass
-class OrchestratorJudge:
-    """The cascade's ``JudgeClient`` over the orchestrator's LLM client(s).
+class OrchestratorJudge(NoteJudge):
+    """The cascade's ``JudgeClient`` over the orchestrator's note judge (D-118: one note-judge path).
 
-    Same prompt, same gateway route and audit line as :class:`NoteJudge`; with a ``verifier`` every decided S3 answer
-    is put to the second model and stands only when both agree (D-89, D-95). The S4 second opinion goes to the
-    verifier when there is one, else back to the judge. Failures count like the v1 judge's (:func:`check_failures`)."""
-
-    llm: LlmClient
-    prompt: str = "judge"
-    job_id: str | None = None
-    verifier: LlmClient | None = None
-    calls: int = 0
-    tokens_in: int = 0
-    tokens_out: int = 0
-    failures: int = 0
-    disagreements: int = 0
+    It *is* the :class:`NoteJudge`: the S3 question goes through :meth:`NoteJudge.judge_excerpts`, so the same prompt,
+    gateway route, audit line, quote check and two-model rule (:func:`tb_common.pair.combine`) apply as on every other
+    path. The S4 second opinion goes to the verifier when there is one, else back to the judge, as one plain call.
+    Failures count like the v1 judge's (:func:`check_failures`)."""
 
     @classmethod
     def from_note_judge(cls, nj: NoteJudge) -> OrchestratorJudge:
-        return cls(nj.llm, nj.prompt, nj.job_id, nj.verifier)
-
-    def _ask(self, client: LlmClient, variables: dict[str, Any]) -> JudgeReply:
-        res = client.chat_json(self.prompt, variables, job_id=self.job_id)
-        self.calls += 1
-        self.tokens_in += res.tokens_in
-        self.tokens_out += res.tokens_out
-        d = res.data if isinstance(res.data, dict) else {}
-        qd = d.get("quote_date")
-        return JudgeReply(
-            verdict=str(d.get("verdict", "unknown")),
-            confidence=float(d.get("confidence") or 0.0),
-            quote=d.get("quote"),
-            quote_date=None if qd is None else str(qd),
-            reason=str(d.get("reason") or ""),
-            call_id=res.output_sha[:16],
-            build_sha=res.model,
-            prompt=f"{res.prompt_id}@{res.prompt_version}",
-            tokens_in=res.tokens_in,
-            tokens_out=res.tokens_out,
-        )
+        return cls(lake=nj.lake, llm=nj.llm, prompt=nj.prompt, job_id=nj.job_id, verifier=nj.verifier)
 
     def judge(
         self,
@@ -109,40 +87,23 @@ class OrchestratorJudge:
         step_id: str,
         purpose: str,
     ) -> JudgeReply:
-        variables = {
-            "criterion_text": criterion_text,
-            "note_question": note_question,
-            "index_date": index_date.isoformat(),
-            "excerpts": [{k: e.get(k) for k in ("date", "note_type", "text")} for e in excerpts],
-        }
-        primary = self.verifier if role != "judge" and self.verifier is not None else self.llm
-        try:
-            first = self._ask(primary, variables)
-        except LlmError as exc:
-            self.failures += 1
-            return JudgeReply("unknown", 0.0, None, None, f"judge unavailable: {str(exc)[:120]}")
-        if role != "judge" or self.verifier is None or first.verdict not in ("pass", "fail"):
-            return first
-        try:
-            second = self._ask(self.verifier, variables)
-        except LlmError as exc:
-            self.failures += 1
-            return JudgeReply("unknown", 0.0, None, None, f"verifier unavailable: {str(exc)[:120]}")
-        t_in, t_out = first.tokens_in + second.tokens_in, first.tokens_out + second.tokens_out
-        if second.verdict == first.verdict:
-            return replace(first, tokens_in=t_in, tokens_out=t_out)
-        self.disagreements += 1
+        if role == "judge":
+            r = self.judge_excerpts(criterion_text, note_question, index_date, excerpts)
+        else:  # S4: one opinion from the other model
+            other = self.verifier if self.verifier is not None else self.llm
+            r = self.judge_excerpts(criterion_text, note_question, index_date, excerpts, verify=False, primary=other)
         return JudgeReply(
-            "unknown",
-            0.0,
-            None,
-            None,
-            f"judge/verifier disagree ({first.verdict}/{second.verdict}); needs a human look",
-            call_id=first.call_id,
-            build_sha=first.build_sha,
-            prompt=first.prompt,
-            tokens_in=t_in,
-            tokens_out=t_out,
+            verdict=r.predicate,
+            confidence=r.confidence,
+            quote=r.quote,
+            quote_date=r.quote_date,
+            reason=r.reason or "",
+            call_id=r.call_id,
+            build_sha=r.model,
+            prompt=r.prompt,
+            tokens_in=r.tokens_in,
+            tokens_out=r.tokens_out,
+            opinions=list(r.opinions),
         )
 
 
@@ -168,7 +129,10 @@ def verdict_of(o: Outcome) -> CriterionVerdict:
     quote: str | None = None
     quote_date: str | None = None
     confidence: float | None = None
+    opinions: list[Opinion] = []
     for e in o.evidence:
+        if e.get("opinions"):
+            opinions = [Opinion(**x) for x in e["opinions"]]
         if e.get("did"):
             refs.append(f"DocumentReference/{e['did']}")
             quote = str(e.get("quote")) if e.get("quote") else quote
@@ -184,7 +148,12 @@ def verdict_of(o: Outcome) -> CriterionVerdict:
         id=o.criterion_id,
         verdict=status,
         evidence=Evidence(
-            resource_refs=refs[:20], quote=quote, quote_date=quote_date, confidence=confidence, reason=o.reason or None
+            resource_refs=refs[:20],
+            quote=quote,
+            quote_date=quote_date,
+            confidence=confidence,
+            reason=code_of(o.reason, status, bool(quote)),  # a code, never the engine's or the model's words (D-118)
+            opinions=opinions or None,  # both quotes when the two checks disagree (D-120)
         ),
     )
 
@@ -202,7 +171,7 @@ def verdicts_of(rs: Ruleset, t: PatientTrace) -> PatientVerdicts:
         if o is None:
             vs.append(
                 CriterionVerdict(
-                    id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason="not evaluated")
+                    id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value)
                 )
             )
             continue
@@ -320,14 +289,17 @@ def screen_with_cascade(
         absence_semantics=False,
     )
     try:
-        res = run_cascade(ctx.services.lake, rs, cfg, judge=judge, embedder=HashEmbedder(), reviewer=None)
+        res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
+            judge,
+            lambda j: run_cascade(ctx.services.lake, rs, cfg, judge=j, embedder=HashEmbedder(), reviewer=None),
+        )
     except CascadeError as exc:
         raise StepFailed("running", f"The screening cascade could not run for {rs.id} v{rs.version}: {exc}") from exc
     check_failures(judge)
     results = {pid: verdicts_of(rs, res.traces[pid]) for pid in pids if pid in res.traces}
     for pid in pids:
-        if pid not in results:  # not in the lake's patient table on this snapshot: nothing to say
-            results[pid] = PatientVerdicts(pid, [], "excluded", ["not in the snapshot"], 0)
+        if pid not in results:  # not in the lake's patient table on this snapshot: a person looks (D-118)
+            results[pid] = not_in_snapshot(rs, pid)
     if judge is not None:
         judging = {**judging, "disagreements": judge.disagreements, "failures": judge.failures}
         m = ctx.job.metrics

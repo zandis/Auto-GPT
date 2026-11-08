@@ -129,6 +129,8 @@ def test_registry_api_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     from orchestrator import app as oapp
 
     reg = _reg_for_api(tmp_path)
+    monkeypatch.setenv("TB_ENV", "TEST")  # a test box: no service token needed (D-114)
+    monkeypatch.delenv("TB_SERVICE_TOKEN", raising=False)
 
     fake = SimpleNamespace(
         db=reg.db,

@@ -18,6 +18,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+export TB_HOST_OBJECTS_DIR="${TB_HOST_OBJECTS_DIR:-$ROOT/deploy/.objects}"; mkdir -p "$TB_HOST_OBJECTS_DIR"  # test-stack object store (D-121)
 MODE="${TB_LLM_MODE:-stub}"
 ACTION="${1:-up}"
 POC="$ROOT/deploy/poc"
@@ -90,12 +91,17 @@ mkdir -p "$POC/secrets" "$POC/site"
 chmod 700 "$POC/secrets"
 if [ ! -f deploy/.env ]; then
   say "creating deploy/.env with random service passwords"
-  sed -e "s/^MINIO_SECRET_KEY=.*/MINIO_SECRET_KEY=$(rand 32)/" \
-      -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(rand 32)/" \
-      -e "s/^POSTGRES_WF_PASSWORD=.*/POSTGRES_WF_PASSWORD=$(rand 32)/" .env.example > deploy/.env
+  sed -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(rand 32)/" \
+      -e "s/^POSTGRES_WF_PASSWORD=.*/POSTGRES_WF_PASSWORD=$(rand 32)/" \
+      -e "s/^TB_SERVICE_TOKEN=.*/TB_SERVICE_TOKEN=$(rand 32)/" .env.example > deploy/.env
   chmod 600 deploy/.env
 elif grep -q 'change-me' deploy/.env; then
   echo "poc: note: deploy/.env still has change-me passwords (kept: existing volumes were created with them)" >&2
+fi
+# D-114: the orchestrator refuses changing calls without the box's service token (no volume depends on it)
+if ! grep -q '^TB_SERVICE_TOKEN=' deploy/.env || grep -q '^TB_SERVICE_TOKEN=change-me' deploy/.env; then
+  sed -i.bak '/^TB_SERVICE_TOKEN=/d' deploy/.env && rm -f deploy/.env.bak
+  printf 'TB_SERVICE_TOKEN=%s\n' "$(rand 32)" >> deploy/.env
 fi
 if [ ! -s .cache/test-secrets/site_hmac.key ]; then  # pseudonymisation key of the synthetic site (test overlay mount)
   install -d -m 0777 .cache/test-secrets

@@ -43,7 +43,7 @@
 <tbody>
 {% for u, is_sso in users %}
 <tr data-user="{{ u.username }}">
-<td>{{ u.username }}</td><td>{{ t('role.' + u.role) }}</td><td>{{ u.mailbox or '' }}</td>
+<td class="mono">{{ u.username }}</td><td>{{ t('role.' + u.role) }}</td><td>{{ u.mailbox or '' }}</td>
 <td>{{ t('aff.' + u.affiliation) }}</td><td>{{ u.studies|join(', ') if u.studies else t('users.studies.all') }}</td><td>{{ u.expires or '–' }}</td>
 <td>{% if is_sso %}{{ t('users.signin.sso') }}{% else %}{{ t('users.signin.password') }}{% endif %}</td>
 <td>

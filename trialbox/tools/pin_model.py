@@ -16,7 +16,9 @@ refused (SEC-63: no pickle loading, no ``trust_remote_code``). Hidden files and 
 are not part of the manifest.
 
 ``--verify`` recomputes the manifest and exits 1 when it differs from the pinned sha256 (SEC-64: weights changed
-since the pin); it writes nothing. Exit 2 on a usage error or a refused model directory.
+since the pin); it writes nothing. ``--verify-all deploy/models`` does that for every build in the override (each
+under its recorded ``model_dir``); ``deploy/install.sh`` runs it before a GPU stack starts. Exit 2 on a usage error
+or a refused model directory.
 """
 
 from __future__ import annotations
@@ -165,17 +167,64 @@ def verify(build_id: str, model_dir: Path, out: Path = DEFAULT_OVERRIDE) -> tupl
     return True, f"{build_id}: {m.files} files match the pinned manifest {pinned[:12]}"
 
 
+def verify_all(models_root: Path, out: Path = DEFAULT_OVERRIDE) -> tuple[bool, list[str]]:
+    """Re-check every build pinned in the override against ``models_root/<weights.model_dir>`` (install and start:
+    a box whose weights changed since the pin does not start, SEC-64). An override with no pins is not ok."""
+    doc = load_override(out)
+    builds = doc.get("builds") or {}
+    if not builds:
+        return False, [f"nothing is pinned in {out}"]
+    ok, lines = True, []
+    for build_id, entry in sorted(builds.items()):
+        model_dir = ((entry or {}).get("weights") or {}).get("model_dir")
+        if not model_dir:
+            if (entry or {}).get("provider_pin"):
+                lines.append(f"{build_id}: provider-pinned remote build, no local weights to check")
+                continue
+            ok = False
+            lines.append(f"{build_id}: no weights.model_dir in the pin; re-pin it with tools/pin_model.py")
+            continue
+        d = models_root / str(model_dir)
+        if not d.is_dir():
+            ok = False
+            lines.append(f"{build_id}: model directory {d} is missing")
+            continue
+        try:
+            good, msg = verify(str(build_id), d, out)
+        except PinError as exc:
+            good, msg = False, f"{build_id}: {exc}"
+        ok = ok and good
+        lines.append(msg)
+    return ok, lines
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--build", required=True, help="build_id in models/registry.yaml")
-    ap.add_argument("--model-dir", type=Path, required=True)
+    ap.add_argument("--build", help="build_id in models/registry.yaml")
+    ap.add_argument("--model-dir", type=Path)
     ap.add_argument("--served-name", default="", help="name the endpoint reports (vLLM --served-model-name)")
     ap.add_argument("--endpoint", default="serving", help="routing.yaml endpoint that serves the build")
     ap.add_argument("--out", type=Path, default=DEFAULT_OVERRIDE, help="site override file")
     ap.add_argument("--status", default=None, choices=["candidate", "qualified", "shadow", "champion"])
     ap.add_argument("--revision", default=None, help="upstream revision (commit or tag) of the weights")
     ap.add_argument("--verify", action="store_true", help="re-check the weights against the pin; write nothing")
+    ap.add_argument(
+        "--verify-all",
+        type=Path,
+        metavar="MODELS_ROOT",
+        help="re-check every pinned build against MODELS_ROOT/<model_dir>; exit 1 on any mismatch or no pins",
+    )
     args = ap.parse_args(argv)
+    if args.verify_all is not None:
+        try:
+            good, lines = verify_all(args.verify_all, args.out)
+        except PinError as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 2
+        print("\n".join(lines))
+        return 0 if good else 1
+    if not args.build or args.model_dir is None:
+        ap.error("--build and --model-dir are required (or use --verify-all MODELS_ROOT)")
     try:
         if args.verify:
             good, msg = verify(args.build, args.model_dir, args.out)

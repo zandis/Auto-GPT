@@ -16,7 +16,7 @@
     <ul class="tasks">{% for tk in tasks %}<li data-testid="task-{{ tk.kind }}">
       <a href="{{ tk.href }}">{{ t('wb.task.' + tk.kind, p=tk.short, rs=tk.rs) }}</a>
       <span class="due{{ ' late' if tk.late else '' }}">{{ t('wb.overdue') if tk.late else tk.due.isoformat() }}</span>
-      {% if tk.detail %}<span class="hint">{{ tk.detail }}</span>{% endif %}
+      {% if tk.detail %}<span class="hint" data-authored>{{ tk.detail }}</span>{% endif %}
     </li>{% endfor %}</ul>
   </section>
   <section data-testid="clinic">

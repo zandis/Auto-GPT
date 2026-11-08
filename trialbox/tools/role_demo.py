@@ -30,6 +30,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from tb_common.service_auth import actor_header, auth_headers
+
 ROOT = Path(__file__).resolve().parents[1]
 for p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(p) not in sys.path:
@@ -37,6 +39,15 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
 
 KEY = b"trialbox-demo-site-key-0123456789abcdef"
 RUN = date(2026, 10, 5)  # a Monday, the synthetic reference date
+
+
+def orch_client(app: Any) -> Any:
+    """The demo box's client for the in-process orchestrator. D-114: it authenticates like a real console, with a
+    per-process service token on every changing call."""
+    from fastapi.testclient import TestClient
+
+    os.environ.setdefault("TB_SERVICE_TOKEN", secrets.token_hex(16))
+    return TestClient(app, headers=auth_headers())
 
 
 class InprocBackend:
@@ -74,7 +85,7 @@ class InprocBackend:
         from console.backend import Refused
         from tb_contracts import Job
 
-        r = self.c.post(f"/jobs/{job_id}/cancel", params={"by": by})
+        r = self.c.post(f"/jobs/{job_id}/cancel", params={"by": by}, headers=actor_header(by))
         if r.status_code != 200:
             raise Refused(r.text[:300])
         return Job.model_validate(r.json())
@@ -121,6 +132,9 @@ class InprocBackend:
         r = self.c.get("/models")
         return r.json() if r.status_code == 200 else None
 
+    def run_canary(self) -> bool:
+        return bool(self.c.post("/models/canary").status_code == 200)
+
     def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None:
         r = self.c.get(f"/rulesets/{ruleset}")
         return r.json() if r.status_code == 200 else None
@@ -165,7 +179,7 @@ class InprocBackend:
     def reveal(self, job_id: str, pid: str, by: str) -> str | None:
         from console.backend import Refused
 
-        r = self.c.post(f"/jobs/{job_id}/reveal", json={"pid": pid, "by": by})
+        r = self.c.post(f"/jobs/{job_id}/reveal", json={"pid": pid}, headers=actor_header(by))
         if r.status_code == 404:
             return None
         if r.status_code != 200:
@@ -183,14 +197,14 @@ class InprocBackend:
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
         from console.backend import Refused
 
-        r = self.c.post("/notices", json={"kind": kind, "to": to, "subject": subject, "body_md": body_md, "by": by})
+        body = {"kind": kind, "to": to, "subject": subject, "body_md": body_md}
+        r = self.c.post("/notices", json=body, headers=actor_header(by))
         if r.status_code != 200:
             raise Refused(r.text[:200])
         return str(r.json().get("message_id") or "")
 
 
 def build(work: Path) -> tuple[Any, Any, Path]:
-    from fastapi.testclient import TestClient
     from orchestrator import app as orch_app
 
     from tests.inproc_box import ingest_site, make_box
@@ -208,7 +222,7 @@ def build(work: Path) -> tuple[Any, Any, Path]:
     from rc_sim.app import register_inproc
 
     register_inproc()  # S36 accepts inproc://rc-sim, the REDCap simulator of the demo image (FR-RC-17a, D-109)
-    client = TestClient(orch_app.app)
+    client = orch_client(orch_app.app)
     for subject in ("FEAS GZQO", "SCREEN GZQO version=1.0.0", "MICROBATCH GZQO"):
         box.mail(subject)
         box.orch.drain()

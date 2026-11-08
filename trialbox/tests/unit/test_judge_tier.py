@@ -135,7 +135,7 @@ def test_both_agree_without_a_verifier_falls_back_to_never(monkeypatch) -> None:
             raise AssertionError("no structured criteria asked for")
 
     class LoneJudge(NoteJudge):
-        def judge(self, pid, c, index_date, full=False):  # type: ignore[no-untyped-def]
+        def judge_patient(self, pid, c, index_date, full=False):  # type: ignore[no-untyped-def]
             return NoteResult("fail", 0.99, quote="documented tophus", reason="note says so")
 
     lone = LoneJudge(SimpleNamespace(), SimpleNamespace(model="j"), "judge", verifier=None)  # type: ignore[arg-type]

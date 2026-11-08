@@ -14,7 +14,6 @@ from typing import Any
 from fastapi import HTTPException, Request
 from tb_common.http import make_app
 
-from llm_stub.agent import agent_turn
 from llm_stub.handlers import HANDLERS, MESSAGE_HANDLERS
 
 app = make_app("llm-stub")
@@ -30,9 +29,6 @@ def models() -> dict[str, Any]:
 async def completions(request: Request) -> dict[str, Any]:
     body = await request.json()
     prompt_id = request.headers.get("x-tb-prompt-id", "")
-    if not prompt_id and body.get("tools"):  # an agent turn (Hermes frontdesk_converse): tool call or answer
-        message, finish = agent_turn(body)
-        return _completion(body, message, finish)
     if prompt_id in MESSAGE_HANDLERS:
         try:
             answer = MESSAGE_HANDLERS[prompt_id](list(body.get("messages", [])))

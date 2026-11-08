@@ -63,35 +63,35 @@ def _ask(j: OrchestratorJudge, role: str = "judge") -> Any:
 @pytest.mark.req("CAS-1")
 def test_judge_adapter_single_and_agreement() -> None:
     fake = FakeLlm([_res("pass")])
-    single = OrchestratorJudge(fake)  # type: ignore[arg-type]
+    single = OrchestratorJudge(None, fake)  # type: ignore[arg-type]
     r = _ask(single)
     assert r.verdict == "pass" and r.confidence == 0.9 and r.quote == "gout flare" and r.prompt == "judge@4"
     assert single.calls == 1 and single.tokens_in == 10 and single.failures == 0
     assert fake.seen[0]["excerpts"] == [{"date": "2026-09-01", "note_type": "progress", "text": EXCERPTS[0]["text"]}]
 
-    agree = OrchestratorJudge(FakeLlm([_res("fail")]), verifier=FakeLlm([_res("fail")]))  # type: ignore[arg-type]
+    agree = OrchestratorJudge(None, FakeLlm([_res("fail")]), verifier=FakeLlm([_res("fail")]))  # type: ignore[arg-type]
     assert _ask(agree).verdict == "fail" and agree.calls == 2 and agree.disagreements == 0
-    disagree = OrchestratorJudge(FakeLlm([_res("fail")]), verifier=FakeLlm([_res("pass")]))  # type: ignore[arg-type]
+    disagree = OrchestratorJudge(None, FakeLlm([_res("fail")]), verifier=FakeLlm([_res("pass")]))  # type: ignore[arg-type]
     r = disagree.judge if False else _ask(disagree)
-    assert r.verdict == "unknown" and "disagree" in r.reason and disagree.disagreements == 1 and r.tokens_in == 20
+    assert r.verdict == "unknown" and r.reason == "disagree" and disagree.disagreements == 1 and r.tokens_in == 20
     # an abstaining judge is not put to the verifier
-    abstain = OrchestratorJudge(FakeLlm([_res("unknown", None, 0.0)]), verifier=FakeLlm([]))  # type: ignore[arg-type]
+    abstain = OrchestratorJudge(None, FakeLlm([_res("unknown", None, 0.0)]), verifier=FakeLlm([]))  # type: ignore[arg-type]
     assert _ask(abstain).verdict == "unknown" and abstain.calls == 1
     # the S4 second opinion goes to the verifier when there is one
-    second = OrchestratorJudge(FakeLlm([]), verifier=FakeLlm([_res("pass")]))  # type: ignore[arg-type]
+    second = OrchestratorJudge(None, FakeLlm([]), verifier=FakeLlm([_res("pass")]))  # type: ignore[arg-type]
     assert _ask(second, role="second_opinion").verdict == "pass" and second.calls == 1
 
 
 @pytest.mark.req("CAS-1")
 def test_judge_adapter_failures_fail_closed_and_gate() -> None:
-    down = OrchestratorJudge(FakeLlm([LlmError("boom"), _res("pass")]), verifier=FakeLlm([LlmError("v down")]))  # type: ignore[arg-type]
+    down = OrchestratorJudge(None, FakeLlm([LlmError("boom"), _res("pass")]), verifier=FakeLlm([LlmError("v down")]))  # type: ignore[arg-type]
     r = _ask(down)
-    assert r.verdict == "unknown" and r.reason.startswith("judge unavailable") and down.failures == 1
+    assert r.verdict == "unknown" and r.reason == "model_down" and down.failures == 1
     r = _ask(down)
-    assert r.verdict == "unknown" and r.reason.startswith("verifier unavailable") and down.failures == 2
+    assert r.verdict == "unknown" and r.reason == "model_down" and down.failures == 2
     with pytest.raises(Exception, match="did not answer"):
         check_failures(down)  # 2 failures of 3 > 10 %
-    ok = OrchestratorJudge(FakeLlm([]))  # type: ignore[arg-type]
+    ok = OrchestratorJudge(None, FakeLlm([]))  # type: ignore[arg-type]
     ok.calls, ok.failures = 100, 5
     check_failures(ok)
     check_failures(None)
@@ -119,7 +119,7 @@ def test_trace_to_candidate_rows() -> None:
     v = verdict_of(Outcome("GZQO-INC-05", "pass", "S3", evidence=[span, meta], reason="two flares"))
     assert v.verdict == "pass" and v.evidence is not None
     assert v.evidence.resource_refs == ["DocumentReference/d9"] and v.evidence.quote == "flare"
-    assert v.evidence.quote_date == "2026-09-01" and v.evidence.confidence == 0.93 and v.evidence.reason == "two flares"
+    assert v.evidence.quote_date == "2026-09-01" and v.evidence.confidence == 0.93 and v.evidence.reason == "note"
     # a coded answer keeps the lake record; a null exclusion value the cascade kept reads "unknown" as in v1
     assert verdict_of(Outcome("GZQO-EXC-01", "pass", "S1", evidence=[lake])).evidence.resource_refs == ["Condition/77"]  # type: ignore[union-attr]
     kept = verdict_of(Outcome("GZQO-EXC-02", "pass", "S1", unknown_kind="data_gap", reason="unknown kept"))
@@ -131,7 +131,7 @@ def test_trace_to_candidate_rows() -> None:
     assert pv.tier == "high" and pv.n_unknown == 0 and pv.pid == "p1"
     ids = [c.id for c in rs.active() if c.kind in ("inclusion", "exclusion")]
     assert [x.id for x in pv.verdicts] == ids  # protocol order, every criterion present
-    assert next(x for x in pv.verdicts if x.id == "GZQO-EXC-01").evidence.reason == "not evaluated"  # type: ignore[union-attr]
+    assert next(x for x in pv.verdicts if x.id == "GZQO-EXC-01").evidence.reason == "not_evaluated"  # type: ignore[union-attr]
     assert judged(strong) and not judged(_trace("p0"))
 
     # a strong trace with an open coded question is a person's check (review), as v1 tiered it

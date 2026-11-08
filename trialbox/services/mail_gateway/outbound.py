@@ -75,11 +75,32 @@ _TEXT_BREAKS = (
 )
 
 
-def plain_text(body_md: str) -> str:
-    """Text part of a Markdown body: embedded HTML blocks (review tables) become readable lines, not raw tags."""
-    if "<" not in body_md:
-        return body_md
+_MD = (
+    (re.compile(r"^\s{0,3}#{1,6}\s+", re.M), ""),  # headings
+    (re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$", re.M), ""),  # table rule rows
+    (re.compile(r"\*\*(.+?)\*\*|__(.+?)__"), r"\1\2"),  # bold
+    (re.compile(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])"), r"\1"),  # italic
+    (re.compile(r"`([^`]+)`"), r"\1"),  # inline code
+    (re.compile(r"!?\[([^\]]+)\]\(([^)\s]+)\)"), r"\1 (\2)"),  # links keep their address
+    (re.compile(r"^(\s*)[*+]\s+", re.M), r"\1- "),  # list markers
+    (re.compile(r"^\s*>\s?", re.M), ""),  # quotes
+)
+
+
+def markdown_text(body_md: str) -> str:
+    """The Markdown body as plain lines: no ``#``, ``**`` or link brackets in the text part (D-119)."""
     text = body_md
+    for pattern, repl in _MD:
+        text = pattern.sub(repl, text)
+    return re.sub(r"\n{3,}", "\n\n", text)
+
+
+def plain_text(body_md: str) -> str:
+    """Text part of a Markdown body: Markdown marks are rendered away and embedded HTML blocks (review tables) become
+    readable lines, not raw tags."""
+    if "<" not in body_md:
+        return markdown_text(body_md)
+    text = markdown_text(body_md)
     for pattern, repl in _TEXT_BREAKS:
         text = pattern.sub(repl, text)
     text = html_lib.unescape(_TAG.sub("", text))

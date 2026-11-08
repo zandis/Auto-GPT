@@ -5,7 +5,8 @@
 //
 // For every page a role can open it checks: HTTP status (200, or the expected 403/404), the page language (html
 // lang), no raw catalogue key left on the page (an untranslated string such as "admin.health.title"), no "None" or
-// "undefined" in the text, and on the phone no horizontal scroll. One screenshot per role/language/view/page
+// "undefined" in the text, on a Japanese or Chinese page no cell in English (D-119), and on the phone no horizontal
+// scroll. One screenshot per role/language/view/page
 // (viewport, scale 1) and a few full-page ones at scale 2. Then the investigator marks a patient by pressing the
 // buttons (Need info, then Withdraw) and the coordinator uses the command field. Prints one JSON line.
 "use strict";
@@ -90,6 +91,41 @@ function slug(p) {
 }
 const KEY = /\b(?:admin|mark|outcome|log|week|home|help|account|notice|notices|report|reports|feas|screen|study|studies|patient|case|consent|setup|redcap|lang|cmd|registry|problem|reason|job|jobs|approval|protocol|request|ops|users)\.[a-z_]+(?:\.[a-z_]+)*\b/;
 
+// the study's own words and the names from the data are shown as written (walk.json "authored", D-119)
+const AUTHORED = (W.authored || []).filter((x) => x && x.length >= 3);
+
+// D-119: on a Japanese or Chinese page, a user-facing cell (a leaf element's own text) made only of ASCII words is
+// untranslated text. Codes, numbers, dates, ids, quotes from the notes, code blocks, the study's own words and
+// anything marked with its own lang (a language name in the language menu) are not counted.
+function englishCells(authored) {
+  const SKIP = "script,style,code,pre,kbd,samp,blockquote,q,textarea,.quote,.mono,.code,[data-src],[data-file],[data-authored],[lang]:not(html),[aria-hidden=true],option";
+  const out = [];
+  const seen = new Set();
+  const visible = (el) => {
+    const s = getComputedStyle(el);
+    return s.display !== "none" && s.visibility !== "hidden" && el.getClientRects().length > 0;
+  };
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const el = n.parentElement;
+    if (!el || el.closest(SKIP) || !visible(el)) continue;
+    let t = n.nodeValue.replace(/\s+/g, " ").trim();
+    if (!t || !/^[\x00-\x7F]+$/.test(t)) continue;
+    for (const a of authored) if (t.includes(a)) t = t.split(a).join(" ");
+    // what is left once codes, ids, emails, urls, numbers and units are gone
+    const words = t
+      .replace(/https?:\/\/\S+|\S+@\S+|\b[A-Z0-9][A-Z0-9_.:\/-]*\d[A-Z0-9_.:\/-]*\b|\b[A-Z]{2,}[A-Z0-9-]*\b|\b[0-9a-f]{6,}\b/g, " ")
+      .match(/[A-Za-z]{3,}/g);
+    if (!words || words.length < 1) continue;
+    if (words.length === 1 && /^(ok|csv|pdf|json|xlsx|html|ecog|redcap|fhir|trialbox|sql|cql|api|mrn|ulid|utc|jst|cst)$/i.test(words[0])) continue;
+    if (!seen.has(t)) {
+      seen.add(t);
+      out.push(t.slice(0, 80));
+    }
+  }
+  return out;
+}
+
 async function signIn(page, user, L) {
   await page.goto(args.base + "/login", { waitUntil: "load" });
   await page.fill("#username", user);
@@ -117,6 +153,12 @@ async function visit(page, tag, p, expect) {
     if (k) r.why.push(`raw key "${k[0]}"`);
     const bad = text.match(/\b(None|undefined|NaN|Traceback)\b/);
     if (bad) r.why.push(`"${bad[0]}" on the page`);
+    const lng = tag.split("/")[1];
+    if (lng !== "en" && !p.startsWith("/audit")) {
+      const eng = await page.evaluate(englishCells, AUTHORED);
+      if (eng.length) r.why.push(`English on a ${lng} page: ${eng.slice(0, 4).map((x) => JSON.stringify(x)).join(", ")}${eng.length > 4 ? ` (+${eng.length - 4})` : ""}`);
+      r.english = eng;
+    }
     if (tag.endsWith("/phone")) {
       const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       if (over > 1) r.why.push(`horizontal scroll ${over}px`);

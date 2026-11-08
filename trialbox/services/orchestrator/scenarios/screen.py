@@ -304,7 +304,18 @@ def resolve_mrns(sec: Path, pids: list[str]) -> dict[str, str]:
 
 
 def practitioner_names(ctx: Ctx) -> dict[str, str]:
-    return {k: f"{v.name or k} ({k})" for k, v in (ctx.cfg.settings.practitioners or {}).items()}
+    """``id -> "Name (id)"`` for the lists. The name comes from the records (the HIS practitioner table, D-120);
+    ``settings.practitioners`` only fills a name the records do not hold (a settings name such as "Dr. A
+    (synthetic)" is a placeholder, and showed on a public-data site before D-120)."""
+    names = {k: v.name for k, v in (ctx.cfg.settings.practitioners or {}).items() if v.name}
+    try:
+        rows = ctx.services.lake.query("SELECT practitioner_id, name FROM practitioner WHERE name IS NOT NULL")
+        found = rows.to_pylist()
+    except Exception:  # an older snapshot without the name column: settings only
+        found = []
+    names.update({str(r["practitioner_id"]): str(r["name"]) for r in found if r.get("name")})
+    ids = set(names) | set(ctx.cfg.settings.practitioners or {})
+    return {k: f"{names.get(k) or k} ({k})" for k in sorted(ids)}
 
 
 def evaluate_scope(

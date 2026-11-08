@@ -151,7 +151,7 @@ class _Judge(NoteJudge):
         self.answer, self.conf = answer, conf
         self.asked: list[tuple[str, str]] = []
 
-    def judge(self, pid: str, c: Any, index_date: date, full: bool = False) -> NoteResult:
+    def judge_patient(self, pid: str, c: Any, index_date: date, full: bool = False) -> NoteResult:
         self.asked.append((pid, c.id))
         return NoteResult(self.answer, self.conf, quote="note text", reason="from the notes")
 

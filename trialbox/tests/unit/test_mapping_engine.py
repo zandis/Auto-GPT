@@ -190,8 +190,10 @@ def test_fhir_store_follows_the_snapshot(tmp_path: Path, monkeypatch: pytest.Mon
     ledger = tmp_path / "ledger"
     assert load_fhir.sync_snapshot("http://hapi/fhir", snap("s1", ["c1", "c2"], ["p1", "p2"]), ledger) == (4, 0)
     sent.clear()
-    # c2 (a diagnosis deleted in the HIS) and p2 with it disappear; the Condition goes before the Patient
-    assert load_fhir.sync_snapshot("http://hapi/fhir", snap("s2", ["c1", "c3"], ["p1"]), ledger) == (3, 2)
+    # c2 (a diagnosis deleted in the HIS) and p2 with it disappear; the Condition goes before the Patient. Only the new
+    # c3 is sent: c1 and p1 did not change (delta load, D-122)
+    assert load_fhir.sync_snapshot("http://hapi/fhir", snap("s2", ["c1", "c3"], ["p1"]), ledger) == (1, 2)
+    assert [x for x in sent if x[0] == "PUT"] == [("PUT", "Condition/c3")]
     assert [x for x in sent if x[0] == "DELETE"] == [("DELETE", "Condition/c2"), ("DELETE", "Patient/p2")]
     # a load that fails half way still remembers c4, so the next run removes it
     fail["on"] = True

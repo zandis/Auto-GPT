@@ -17,13 +17,18 @@ def repo_root() -> Path:
 @pytest.fixture
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     for key in list(os.environ):
-        if key.startswith(("TB_", "IMAP_", "SMTP_", "MINIO_", "LLM_", "CLOUD_LLM", "MAIL_")):
+        if key.startswith(("TB_", "IMAP_", "SMTP_", "LLM_", "CLOUD_LLM", "MAIL_")):
             monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("TB_CANARY_GATE", "off")  # see pytest_configure
     yield
 
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "req(*ids): spec v4 requirement ids this test verifies (§17.4)")
+    # D-117: on a box the pair canary gates note exclusions (on unless TB_ENV is DEV or TEST). The suite's stub and
+    # fake models are not the pair and never pass a canary, so the gate is off for the suite; the gate's own tests
+    # (tests/unit/test_canary_gate.py) switch it on with monkeypatch.
+    os.environ.setdefault("TB_CANARY_GATE", "off")
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -37,11 +42,35 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         if item.get_closest_marker("egress") and os.environ.get("TB_EGRESS_TEST") != "1":
             item.add_marker(egress)
     if os.environ.get("TB_INTEGRATION") == "1":
+        _skip_compose_tests_without_a_stack(items)
         return
     skip = pytest.mark.skip(reason="needs compose services (set TB_INTEGRATION=1, run `make up-test`)")
     for item in items:
         if item.get_closest_marker("integration") or item.get_closest_marker("e2e"):
             item.add_marker(skip)
+
+
+def _stack_up() -> bool:
+    """The compose test stack answers on the lake's host port (tests/stack.py)."""
+    import socket
+
+    from tests.stack import host_port
+
+    try:
+        with socket.create_connection(("127.0.0.1", host_port("LAKE")), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _skip_compose_tests_without_a_stack(items: list[pytest.Item]) -> None:
+    """``TB_INTEGRATION=1`` runs the in-process integration tests anywhere; the ``*compose*`` ones need `make
+    up-test`, so without a running stack they are skipped by name instead of erroring on a refused connection."""
+    compose = [i for i in items if "compose" in Path(str(i.fspath)).name and i.get_closest_marker("integration")]
+    if compose and not _stack_up():
+        mark = pytest.mark.skip(reason="compose test stack not running (`make up-test`)")
+        for item in compose:
+            item.add_marker(mark)
 
 
 # ----------------------------------------------------------------------------- synthetic data fixtures

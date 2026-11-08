@@ -94,10 +94,15 @@ class ServiceClient:
         self.log = logging.getLogger(f"client.{service}")
 
     def _request(self, method: str, path: str, **kw: Any) -> httpx.Response:
+        from tb_common.service_auth import auth_headers
+
+        # D-114: the box's service token goes to the orchestrator only
+        token = auth_headers() if self.service == "orchestrator" else {}
+        headers = {**token, **(kw.pop("headers", None) or {})}
         last: Exception | None = None
         for attempt in range(self.retries + 1):
             try:
-                resp = self.client.request(method, f"{self.base_url}{path}", **kw)
+                resp = self.client.request(method, f"{self.base_url}{path}", headers=headers, **kw)
             except httpx.TransportError as exc:
                 last = exc
                 if not self.idempotent and not isinstance(exc, httpx.ConnectError | httpx.ConnectTimeout):
@@ -119,9 +124,11 @@ class ServiceClient:
         resp = self._request("POST", path, json=payload)
         return response.model_validate(resp.json())
 
-    def post_raw(self, path: str, body: BaseModel | dict[str, Any]) -> httpx.Response:
+    def post_raw(
+        self, path: str, body: BaseModel | dict[str, Any], headers: dict[str, str] | None = None
+    ) -> httpx.Response:
         payload = dump(body) if isinstance(body, BaseModel) else body
-        return self._request("POST", path, json=payload)
+        return self._request("POST", path, json=payload, headers=headers or {})
 
     def get(self, path: str, response: type[M]) -> M:
         return response.model_validate(self._request("GET", path).json())

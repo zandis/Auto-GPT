@@ -10,6 +10,8 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from tb_common.reasons import label as reason_label
+
 TITLE = {
     "en": "Eligibility sheet: {ruleset} v{version}",
     "ja": "適格性シート：{ruleset} v{version}",
@@ -149,8 +151,8 @@ def _row(r: dict[str, Any], lang: str) -> str:
             ev += f'<div class="d">{escape(str(r["quote_date"]))}</div>'
     elif r.get("refs"):
         ev = f'<div class="d">{escape(", ".join(str(x) for x in r["refs"]))}</div>'
-    if r.get("reason") and verdict in ("unknown",):
-        ev += f'<div class="d">{escape(str(r["reason"]))}</div>'
+    if r.get("reason") and verdict in ("unknown",) and reason_label(str(r["reason"]), lang):
+        ev += f'<div class="d">{escape(reason_label(str(r["reason"]), lang))}</div>'
     return (
         f'<tr data-id="{escape(str(r["id"]))}" data-verdict="{escape(verdict)}">'
         f"<td><strong>{escape(str(r['id']))}</strong><br>{escape(str(r['text']))}</td>"

@@ -35,7 +35,7 @@ def test_agreement_judge_blocks_only_on_agreement() -> None:
     out = j.judge(role="judge", **KW)
     assert out.verdict == "unknown" and "disagree" in out.reason and j.disagreements == 1
     refused = AgreementJudge(Fixed("pass"), Fixed("unknown", refused="phi_tripwire")).judge(role="judge", **KW)
-    assert refused.verdict == "unknown" and "phi_tripwire" in refused.reason
+    assert refused.verdict == "unknown" and refused.reason == "model_down" and refused.refused == "phi_tripwire"
     abstain, never = Fixed("unknown"), Fixed("fail")
     assert AgreementJudge(abstain, never).judge(role="judge", **KW).verdict == "unknown" and never.roles == []
     p, v = Fixed("pass"), Fixed("fail")

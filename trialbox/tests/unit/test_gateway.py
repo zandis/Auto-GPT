@@ -346,7 +346,7 @@ INTAKE_BODY: dict[str, Any] = {
 
 
 @pytest.mark.req("LLM-2", "FR-CONV-8")
-@pytest.mark.parametrize(("caller", "role"), [("hermes", "frontdesk_converse"), ("converse-native", "classify_intent")])
+@pytest.mark.parametrize(("caller", "role"), [("converse-native", "classify_intent")])
 def test_d3_intake_role_needs_no_study_step(tmp_path: Path, caller: str, role: str) -> None:
     # no step confirmer at all: the exemption must not depend on one
     gw = _gw(tmp_path, env=Environment.PRODUCTION, registry=_pinned_registry(), http=_mock("j-test"))
@@ -361,13 +361,11 @@ def test_d3_intake_role_needs_no_study_step(tmp_path: Path, caller: str, role: s
 @pytest.mark.parametrize(
     "headers",
     [
-        _intake("hermes", "frontdesk_converse", "D4"),  # D4 never, even on the intake role
         _intake("converse-native", "classify_intent", "D4"),
-        _intake("hermes", "classify_intent"),  # hermes' intake role is frontdesk_converse
         _intake("converse-native", "frontdesk_converse"),  # converse-native's is classify_intent
         _intake("eval", "classify_intent", Purpose="evaluation"),  # a caller without the flag
         _intake("orchestrator", "judge", Purpose="screening", Prompt="judge@3"),
-        _intake("hermes", "frontdesk_converse", Step="step-1"),  # a step that is named must still be confirmed
+        _intake("converse-native", "classify_intent", Step="step-1"),  # a named step must still be confirmed
     ],
 )
 def test_d3_without_step_still_refused_outside_the_intake_rule(tmp_path: Path, headers: dict[str, str]) -> None:
@@ -380,11 +378,12 @@ def test_d3_without_step_still_refused_outside_the_intake_rule(tmp_path: Path, h
 def test_intake_flag_only_on_conversation_engines() -> None:
     doc = yaml.safe_load((ROOT / "models" / "routing.yaml").read_text(encoding="utf-8"))
     flagged = {n: c["intake_role"] for n, c in doc["callers"].items() if c.get("d3_intake_without_step")}
-    assert flagged == {"hermes": "frontdesk_converse", "converse-native": "classify_intent"}
+    assert flagged == {"converse-native": "classify_intent"}
     bad = {**doc, "callers": {**doc["callers"], "eval": {**doc["callers"]["eval"], "d3_intake_without_step": True}}}
     with pytest.raises(ValueError, match="intake_role"):
         RoutingPolicy(bad)
-    wrong = {**doc, "callers": {**doc["callers"], "hermes": {**doc["callers"]["hermes"], "intake_role": "judge"}}}
+    native = doc["callers"]["converse-native"]
+    wrong = {**doc, "callers": {**doc["callers"], "converse-native": {**native, "intake_role": "judge"}}}
     with pytest.raises(ValueError, match="intake_role"):
         RoutingPolicy(wrong)
 

@@ -4,6 +4,11 @@ Tables (``terminology/*.parquet``, built by ``tools/build_terminology.py`` from 
 official NHI / LOINC releases): ``icd10cm_tw``, ``nhi_drug`` (with ATC), ``atc``, ``loinc_tw`` (with
 ``component_of`` for panel members), ``nhi_order``, ``department``, ``synonyms``.
 
+Full code lists (D-122): ``icd10cm_full`` holds every ICD-10-CM code (CMS/CDC 2026 release, public domain, built
+from ``src/icd10cm_2026.csv.gz``). It answers code lookups and code-prefix groupers ("malignancy" = C0..C9 lists
+every code in the families, so a valid code is never outside the list for want of a demo row); name matching and
+the LLM candidates still read the curated ``icd10cm_tw`` only, so a grouper name is never shadowed by a header row.
+
 Steps: exact display-name match -> synonym table (exact codes or code-prefix groups expanded against the tables) ->
 LLM ``concept_map`` over the top-20 lexical candidates, always flagged ``needs_review``. Output ValueSets carry only
 ``compose.include[].concept[]`` (no implicit expansions).
@@ -25,6 +30,10 @@ import pyarrow.parquet as pq
 TERM_DIR = Path(__file__).resolve().parent
 VS_BASE = "http://trialbox.local/fhir/ValueSet"
 REVIEW_TAG_SYSTEM = "https://trialbox.local/fhir/CodeSystem/review-flag"
+# D-113: a code-prefix grouper ("malignancy" = C0..C9) keeps its prefixes on the ValueSet, so a record coded inside
+# the family but outside the enumerated concepts (a local or newer code the demo tables lack, e.g. C80.1) makes the
+# criterion unknown instead of silently false. ``valueString`` is ``<system>|<prefix>``.
+FAMILY_EXT = "https://trialbox.local/fhir/StructureDefinition/code-family"
 
 SYSTEMS = {
     "icd10cm": "http://hl7.org/fhir/sid/icd-10-cm",
@@ -53,6 +62,8 @@ TABLE_FILES = {
     "loinc": "loinc_tw",
 }
 
+FULL_FILES = {"icd10cm": "icd10cm_full"}
+
 
 def norm(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text).strip().lower())
@@ -74,6 +85,7 @@ class MappingResult:
     method: str  # exact | synonym | llm | none
     needs_review: bool
     notes: list[str] = field(default_factory=list)
+    families: list[tuple[str, str]] = field(default_factory=list)  # (system, code prefix) of prefix groupers
 
 
 ConceptMapLLM = Callable[[str, str, list[Concept]], tuple[list[tuple[str, str, float]], bool]]
@@ -103,10 +115,20 @@ class Terminology:
         for key, fname in TABLE_FILES.items():
             path = directory / f"{fname}.parquet"
             self.rows[key] = pq.read_table(path).to_pylist() if path.exists() else []
+        # full code lists (D-122): code lookups and prefix groupers only, never name matching
+        self.full: dict[str, list[dict[str, Any]]] = {}
+        for key, fname in FULL_FILES.items():
+            path = directory / f"{fname}.parquet"
+            if path.exists():
+                self.full[key] = pq.read_table(path).to_pylist()
         syn = directory / "synonyms.parquet"
         self.synonyms = pq.read_table(syn).to_pylist() if syn.exists() else []
         self._by_code: dict[tuple[str, str], Concept] = {}
-        for key, rows in self.rows.items():
+        for key, rows in self.full.items():
+            for r in rows:
+                c = self._concept(key, r)
+                self._by_code[(c.system, c.code)] = c
+        for key, rows in self.rows.items():  # curated rows win (zh displays, demo spellings)
             for r in rows:
                 c = self._concept(key, r)
                 self._by_code[(c.system, c.code)] = c
@@ -131,6 +153,11 @@ class Terminology:
             c = self._concept(table, r)
             if (match == "exact" and c.code == code) or (match == "prefix" and c.code.startswith(code)):
                 out.append(c)
+        if match == "prefix" and table in self.full:  # every code of the family, curated display first (D-122)
+            seen = {c.code for c in out}
+            for r in self.full[table]:
+                if r["code"].startswith(code) and r["code"] not in seen:
+                    out.append(self._concept(table, r))
         return out
 
     def map(
@@ -155,11 +182,14 @@ class Terminology:
         #    "urate-lowering therapy" must win over exact matches of individual example drugs
         for candidates in ([primary], names):
             hits = []
+            fams: set[tuple[str, str]] = set()
             for s in self.synonyms:
                 if s["domain"] == domain and norm(s["name"]) in candidates:
                     hits.extend(self.expand(s["table"], s["code"], s["match"]))
+                    if s["match"] == "prefix":
+                        fams.add((SYSTEMS[s["table"]], s["code"]))
             if hits:
-                return MappingResult(name, domain, _dedupe(hits), "synonym", False)
+                return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
         # 2b. exact match on the synonyms (flagged for review: the grouping came from the model)
         hits = exact(names[1:])
         if hits:
@@ -204,6 +234,7 @@ def valueset(
     version: str,
     needs_review: bool = False,
     status: str = "draft",
+    families: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     by_system: dict[str, list[Concept]] = {}
     for c in concepts:
@@ -230,6 +261,8 @@ def valueset(
         "status": status,
         "compose": compose,
     }
+    if families:
+        vs["extension"] = [{"url": FAMILY_EXT, "valueString": f"{sy}|{pre}"} for sy, pre in sorted(set(families))]
     if needs_review:
         vs["meta"] = {"tag": [{"system": REVIEW_TAG_SYSTEM, "code": "needs_review"}]}
     return vs
@@ -254,6 +287,16 @@ class ValueSets:
         if vs is None:
             raise KeyError(f"ValueSet {name} not defined for ruleset {self.ruleset}")
         return [(inc["system"], c["code"]) for inc in vs["compose"]["include"] for c in inc.get("concept", [])]
+
+    def families(self, name: str) -> list[tuple[str, str]]:
+        """(system, prefix) of the code families a grouper ValueSet stands for (D-113); empty for plain lists."""
+        vs = self.by_name.get(name) or {}
+        out = []
+        for ext in vs.get("extension") or []:
+            if ext.get("url") == FAMILY_EXT and "|" in str(ext.get("valueString", "")):
+                sy, pre = str(ext["valueString"]).rsplit("|", 1)
+                out.append((sy, pre))
+        return out
 
     def is_component_set(self, name: str) -> bool:
         """True when every code is a panel component (e.g. systolic BP inside 85354-9)."""

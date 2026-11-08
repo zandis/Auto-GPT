@@ -8,6 +8,7 @@ import math
 from typing import Any
 from xml.sax.saxutils import escape
 
+from tb_common.feas_notes import notes_for
 from tb_common.ruleset import Ruleset
 from tb_contracts import FeasibilityResult
 
@@ -249,7 +250,7 @@ def render(
         ),
         Paragraph(L("pdf.notes"), h2),
     ]
-    story += [Paragraph("• " + escape(n), small) for n in result.notes]
+    story += [Paragraph("• " + escape(n), small) for n in notes_for(result, lang) or result.notes]
     # 7 criterion definitions
     story += [PageBreak(), Paragraph(L("pdf.appendix_a"), h2)]
     drows: list[list[Any]] = [[L("pdf.id"), L("pdf.protocol_text"), L("pdf.how"), L("pdf.class")]]

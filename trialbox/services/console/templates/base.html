@@ -10,7 +10,7 @@
 </head>
 <body>
 <a class="skip" href="#main">{{ t('skip') }}</a>
-{% if pilot %}<div class="banner" role="note" data-testid="banner">{{ t('pilot.banner', env=settings.environment) }}</div>
+{% if pilot %}<div class="banner" role="note" data-testid="banner">{{ t('pilot.banner.public' if settings.data_source == 'public' else 'pilot.banner', env=settings.environment) }}</div>
 {% else %}<div class="banner prod" role="note" data-testid="banner">{{ t('prod.banner') }}</div>{% endif %}
 <header class="top">
   <a class="brand" href="/">{{ t('brand') }}</a>

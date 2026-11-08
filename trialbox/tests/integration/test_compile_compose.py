@@ -12,9 +12,9 @@ import httpx
 import pytest
 from openpyxl import load_workbook
 from tb_common.config import _read_dotenv
-from tb_common.objstore import MinioStore
+from tb_common.objstore import FsStore
 
-from tests.stack import ensure_ingested, host_port, url
+from tests.stack import ensure_ingested, url
 
 pytestmark = pytest.mark.integration
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,12 +27,13 @@ def lake_has_data() -> None:
 
 
 @pytest.fixture(scope="module")
-def minio() -> MinioStore:
+def minio() -> FsStore:
+    """The test stack bind-mounts the shared objects volume here (docker-compose.test.yml, D-121)."""
     env = _read_dotenv(ROOT / "deploy" / ".env")
-    return MinioStore(f"127.0.0.1:{host_port('MINIO')}", env["MINIO_ACCESS_KEY"], env["MINIO_SECRET_KEY"])
+    return FsStore(Path(env.get("TB_HOST_OBJECTS_DIR") or ROOT / "deploy" / ".objects"))
 
 
-def test_compile_and_approve_round_trip(minio: MinioStore) -> None:
+def test_compile_and_approve_round_trip(minio: FsStore) -> None:
     job = "01JITCOMPILE00000000000000"
     pdf = (ROOT / "tests/fixtures/protocols/GZQO_protocol_v3.pdf").read_bytes()
     minio.put(f"attachments/{job}/GZQO_protocol_v3.pdf", pdf)

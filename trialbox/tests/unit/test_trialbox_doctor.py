@@ -1,6 +1,6 @@
 """``trialbox doctor`` for v4 (spec v4 §18.1; S1-16).
 
-Done-when: doctor fails closed on a D3/D4 route outside the perimeter, an unpinned Hermes image, or D3 data in DEV.
+Done-when: doctor fails closed on a D3/D4 route outside the perimeter, a non-Secure cookie in PRODUCTION, or D3 data in DEV.
 Also: gateway-only model reach from ``deploy/egress.py``, channel engine and fallback, publish-gate state, and a
 check that cannot run counts as a failure.
 """
@@ -31,18 +31,18 @@ def inputs(**kw: Any) -> doctor.DoctorInputs:
 
 
 @pytest.mark.req("S1-16", "OPS-02")
-def test_default_install_passes_with_hermes_disabled() -> None:
+def test_default_install_passes() -> None:
     checks = doctor.run(inputs())
     assert doctor.ok(checks), doctor.render(checks)
     assert status(checks, "channel_engine").status == "PASS"
-    assert status(checks, "hermes_pin").status == "WARN"  # disabled and unpinned is the install default
+    assert status(checks, "secure_cookie").status == "WARN"  # DEV may serve http on localhost
     assert {c.name for c in checks} == {
         "topology",
         "env_class_ceiling",
         "routing_perimeter",
         "gateway_only_model_reach",
         "channel_engine",
-        "hermes_pin",
+        "secure_cookie",
         "publish_gate",
         "note_block",
         "registry_pins",
@@ -74,53 +74,21 @@ def test_fails_closed_on_d3_d4_route_outside_the_perimeter(tmp_path: Path, cls: 
     assert cli(["doctor", "--routing", str(rogue)]) == 1
 
 
-def _lock(tmp_path: Path, **over: Any) -> Path:
-    raw: dict[str, Any] = {
-        "version": "v0.22.2",
-        "tag": "v0.22.2",
-        "commit_sha": "0123456789abcdef0123456789abcdef01234567",
-        "upstream_image": f"nousresearch/hermes-agent:v0.22.2@{DIGEST}",
-        "upstream_digest": DIGEST,
-        "mirror_image": f"registry.internal/hermes-agent@{DIGEST}",
-        "mirror_digest": DIGEST,
-        "verified": True,
-    }
-    raw.update(over)
-    p = tmp_path / "hermes.lock"
-    p.write_text(yaml.safe_dump(raw), encoding="utf-8")
-    return p
+@pytest.mark.req("S1-16")
+@pytest.mark.parametrize(
+    ("env", "want"), [("DEV", "WARN"), ("TEST", "WARN"), ("VALIDATION", "FAIL"), ("PRODUCTION", "FAIL")]
+)
+def test_secure_cookie_is_required_in_production(env: str, want: str) -> None:
+    off = doctor.run(inputs(env={"TB_ENV": env, "TB_TOPOLOGY": "A"}))
+    assert status(off, "secure_cookie").status == want
+    on = doctor.run(inputs(env={"TB_ENV": env, "TB_TOPOLOGY": "A", "TB_CONSOLE_SECURE_COOKIE": "1"}))
+    assert status(on, "secure_cookie").status == "PASS"
 
 
-@pytest.mark.req("S1-16", "HER-18", "ENG-08")
-def test_fails_closed_on_unpinned_hermes_when_engine_is_hermes(tmp_path: Path) -> None:
-    # shipped lock: pinned v0.22.2, internal mirror pending -> DEV may run the upstream digest (WARN), PRODUCTION not
-    shipped = doctor.run(inputs(settings={"channels": {"engine": "hermes"}}))
-    c = status(shipped, "hermes_pin")
-    assert c.status == "WARN" and "mirror" in c.detail
-    prod = doctor.run(
-        inputs(env={"TB_ENV": "PRODUCTION", "TB_TOPOLOGY": "A"}, settings={"channels": {"engine": "hermes"}})
-    )
-    c = status(prod, "hermes_pin")
-    assert c.status == "FAIL" and "must not start" in c.detail and "mirror pending" in c.detail and not doctor.ok(prod)
-    unpinned = _lock(tmp_path, commit_sha=None, upstream_digest=None)
-    bad = doctor.run(inputs(settings={"channels": {"engine": "hermes", "hermes_lock": str(unpinned)}}))
-    assert status(bad, "hermes_pin").status == "FAIL" and not doctor.ok(bad)
-    pinned = _lock(tmp_path)
-    ok = doctor.run(inputs(settings={"channels": {"engine": "hermes", "hermes_lock": str(pinned)}}))
-    assert status(ok, "hermes_pin").status == "PASS"
-    drift = doctor.run(
-        inputs(
-            settings={"channels": {"engine": "hermes", "hermes_lock": str(pinned)}},
-            hermes_running_digest="sha256:" + "cd" * 32,
-        )
-    )
-    assert status(drift, "hermes_pin").status == "FAIL"
-    mutable = _lock(tmp_path, mirror_image="registry.internal/hermes-agent:v0.22.2")
-    tag_only = doctor.run(inputs(settings={"channels": {"engine": "hermes", "hermes_lock": str(mutable)}}))
-    assert status(tag_only, "hermes_pin").status == "FAIL"
-    old = _lock(tmp_path, version="v0.21.5", tag="v0.21.5")
-    below = doctor.run(inputs(settings={"channels": {"engine": "hermes", "hermes_lock": str(old)}}))
-    assert "floor" in status(below, "hermes_pin").detail
+@pytest.mark.req("S1-16")
+def test_hermes_engine_is_refused_with_its_removal_named() -> None:
+    c = status(doctor.run(inputs(settings={"channels": {"engine": "hermes"}})), "channel_engine")
+    assert c.status == "FAIL" and "D-121" in c.detail
 
 
 @pytest.mark.req("S1-16", "ENG-16", "ENG-09")
@@ -152,7 +120,7 @@ def test_gateway_only_model_reach() -> None:
 @pytest.mark.req("S1-16")
 def test_channel_engine_and_topology_checks() -> None:
     bad = doctor.run(inputs(settings={"channels": {"engine": "slack"}}))
-    assert status(bad, "channel_engine").status == "FAIL" and status(bad, "hermes_pin").status == "FAIL"
+    assert status(bad, "channel_engine").status == "FAIL"
     topo = doctor.run(inputs(env={"TB_ENV": "DEV", "TB_TOPOLOGY": "Z"}))
     assert status(topo, "topology").status == "FAIL"
 

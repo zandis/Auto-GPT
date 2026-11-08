@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from lake.client import LakeHttp
 from pydantic import BaseModel, Field
 from tb_common.audit import AuditLog
@@ -21,6 +22,8 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
+from tb_common.service_auth import TOKEN_HEADER, actor_of
+from tb_common.service_auth import check as auth_check
 from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
 from orchestrator.candidates import CandidateRegistry, RegistryError
@@ -101,6 +104,9 @@ def orch() -> Orchestrator:
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     o = orch()
     o.start()
+    from orchestrator import canary_gate
+
+    canary_gate.startup(o)  # D-117: the pair canary at start, in the background; it gates note exclusions
     sched: Any = None
     if os.environ.get("TB_SCHEDULER", "1") != "0":
         from orchestrator.scheduler import start
@@ -122,6 +128,22 @@ def _queue() -> dict[str, Any]:
 app = make_app("orchestrator", checks=[_queue], lifespan=lifespan)
 
 
+@app.middleware("http")
+async def service_token(request: Request, call_next: Callable[[Request], Any]) -> Any:
+    """D-114: every changing call carries the box's service token (tb_common.service_auth)."""
+    refused = auth_check(request.method, request.headers.get(TOKEN_HEADER), os.environ.get("TB_ENV") or "PRODUCTION")
+    if refused is not None:
+        return JSONResponse(status_code=refused[0], content={"detail": refused[1]})
+    return await call_next(request)
+
+
+def _actor(header: str | None, fallback: str | None) -> str:
+    who = actor_of(header, fallback)
+    if who is None:
+        raise HTTPException(status_code=400, detail="no signed-in user (X-TB-Actor) on this call")
+    return who
+
+
 @app.get("/models")
 def models() -> dict[str, Any]:
     """What judges notes on this box and whether a note answer may exclude a patient (D-95, D-97). Aggregate
@@ -134,15 +156,35 @@ def models() -> dict[str, Any]:
     mode = os.environ.get("TB_SCREEN_JUDGE", "agreement").strip().lower()
     verifier = s.verifier if mode != "single" else None
     judge = NoteJudge(s.lake, s.llm, "judge", job_id="", verifier=verifier) if s.llm is not None else None
+    from orchestrator import canary_gate
     from orchestrator.scenarios.screen_cascade import pipeline
 
+    canary_gate.GATE.configure(o.data_dir)
     return {
         "engine": os.environ.get("TB_SCREEN_ENGINE", "cql"),
         "pipeline": pipeline(),
         "screen_judge": mode,
         "gateway": bool(os.environ.get("TB_GATEWAY_URL", "").strip()),
         **judging_info(judge),
+        "canary": canary_gate.status(),
     }
+
+
+@app.post("/models/canary")
+def models_canary() -> dict[str, Any]:
+    """Run the 54-case pair canary now (the admin Models tile's "Run now"); it takes a few minutes on the card and
+    runs in the background. Changing call: needs the service token (D-114)."""
+    import threading
+
+    from orchestrator import canary_gate
+
+    o = orch()
+    if o.services.llm is None:
+        raise HTTPException(status_code=409, detail="no model configured on this box")
+    if canary_gate.GATE.running:
+        return {"started": False, "running": True}
+    threading.Thread(target=canary_gate.run_canary, args=(o,), name="canary-run-now", daemon=True).start()
+    return {"started": True, "running": True}
 
 
 @app.get("/rulesets/{ruleset}")
@@ -196,15 +238,18 @@ def list_jobs(
 
 class RevealRequest(BaseModel):
     pid: str = Field(min_length=8, max_length=64)
-    by: str = Field(min_length=1, max_length=200)
+    by: str | None = Field(default=None, max_length=200)  # DEV/TEST without a token only; else X-TB-Actor
 
 
 @app.post("/jobs/{job_id}/reveal")
-def reveal(job_id: str, req: RevealRequest) -> dict[str, Any]:
+def reveal(
+    job_id: str, req: RevealRequest, x_tb_actor: str | None = Header(default=None, alias="X-TB-Actor")
+) -> dict[str, Any]:
     """Chart number of one listed pseudonym for a coordinator on the console (D-99). On-prem only: the pid map
     never leaves the box, every reveal is one audit event with the actor, and nothing is stored."""
     from orchestrator.scenarios.screen import resolve_mrns
 
+    who = _actor(x_tb_actor, req.by)
     o = orch()
     job = o.db.get(job_id)
     if job is None:
@@ -216,7 +261,7 @@ def reveal(job_id: str, req: RevealRequest) -> dict[str, Any]:
         "screen.reveal",
         job_id=job_id,
         ruleset=job.ruleset,
-        actor=req.by,
+        actor=who,
         detail={"pid": req.pid, "found": req.pid in found},
     )
     if req.pid not in found:
@@ -232,14 +277,15 @@ class NoticeRequest(BaseModel):
     to: list[str] = Field(min_length=1, max_length=5)
     subject: str = Field(min_length=1, max_length=200)
     body_md: str = Field(min_length=1, max_length=20_000)
-    by: str = Field(min_length=1, max_length=200)
+    by: str | None = Field(default=None, max_length=200)  # DEV/TEST without a token only; else X-TB-Actor
 
 
 @app.post("/notices")
-def notice(req: NoticeRequest) -> dict[str, Any]:
+def notice(req: NoticeRequest, x_tb_actor: str | None = Header(default=None, alias="X-TB-Actor")) -> dict[str, Any]:
     from tb_common.routing import is_internal
     from tb_contracts import SendRequest
 
+    who = _actor(x_tb_actor, req.by)
     o = orch()
     external = [r for r in req.to if not is_internal(r, o.cfg.settings.internal_domains)]
     if external:
@@ -249,16 +295,19 @@ def notice(req: NoticeRequest) -> dict[str, Any]:
     )
     o.audit.append(
         "notice.sent",
-        actor=req.by,
+        actor=who,
         detail={"kind": req.kind, "to": req.to, "subject": req.subject, "message_id": res.message_id},
     )
     return {"message_id": res.message_id}
 
 
 @app.post("/jobs/{job_id}/cancel")
-def cancel_job(job_id: str, by: str) -> Job:
+def cancel_job(
+    job_id: str, by: str | None = None, x_tb_actor: str | None = Header(default=None, alias="X-TB-Actor")
+) -> Job:
+    who = _actor(x_tb_actor, by)
     try:
-        return orch().cancel(job_id, by)
+        return orch().cancel(job_id, who)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="no such job") from exc
 

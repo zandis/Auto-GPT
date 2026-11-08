@@ -329,7 +329,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             request,
             sess,
             tab,
-            notice if notice in ("cancelled", "retried", "ingested") else "",
+            notice if notice in ("cancelled", "retried", "ingested", "canary", "canary_down") else "",
             study=study,
             type=type,
             state=state,
@@ -397,3 +397,14 @@ def register(app: FastAPI, h: Helpers) -> None:
             detail={"action": "retry", "from": job.job_id, "type": job.type},
         )
         return RedirectResponse("/admin?tab=jobs&notice=retried", status_code=303)
+
+    @app.post("/admin/models/canary")
+    def models_canary(request: Request, csrf: str = Form("")) -> Response:
+        """The Models tile's "Run now" (D-117): the 54-case pair canary, in the background on the orchestrator."""
+        sess = need_admin(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        run = getattr(bk, "run_canary", None)
+        ok = bool(run()) if callable(run) else False
+        au.append("console.operate", actor=h.actor(sess), detail={"action": "canary", "started": ok})
+        return RedirectResponse(f"/admin?notice={'canary' if ok else 'canary_down'}", status_code=303)

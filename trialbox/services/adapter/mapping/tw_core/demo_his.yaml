@@ -76,6 +76,7 @@ resources:
       identifier[0].system: {template: "{sys.staff}"}
       identifier[0].value: {column: staff_id}
       identifier[0].type.coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: EI}}
+      name[0].text: {column: name}  # the clinician's name as the HIS holds it (D-120): the lists show it
   - type: Encounter
     table: encounter
     id: {hid: enc_no}

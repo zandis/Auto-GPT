@@ -1,66 +1,151 @@
-# One RTX 5090 (32 GB, x86-64) override: the consumer-card pair of the 2026-11-05 assessment
-# (docs/reviews/2026-11-05-consumer-gpu-filter-first.md; DECISIONS D-95).
+# One RTX 5090 (32 GB, x86-64) override: the consumer-card pair of the 2026-11-05 assessment, time-shared on the one
+# card (docs/reviews/2026-11-05-consumer-gpu-filter-first.md, docs/reviews/2026-11-07-open-llm-survey.md; D-95).
 #
 #   cd deploy && docker compose -f docker-compose.yml -f docker-compose.rtx5090.yml --profile gpu up -d --wait
 #   deploy/install.sh <bundle> --mode gpu --gpu rtx5090
 #
 # Filter first: CQL/SQL decide every structured criterion; the two models below read notes only for patients the
 # filters kept. llm-service serves the judge (j-workhorse: Gemma 4 26B-A4B-it, 4-bit) and llm-verifier the verifier
-# (v-verifier: Qwen3.5-9B, 4-bit), both resident on the one card; a note criterion excludes a patient only when both
-# agree (D-89, TB_NOTE_BLOCK=both_agree). On a 24 GB card run the judge alone: --scale llm-verifier=0 and
-# TB_NOTE_BLOCK=never (a note answer then only sends a patient to review).
+# (v-verifier: Qwen3.5-9B, 4-bit, thinking off); a note criterion excludes a patient only when both agree (D-89,
+# TB_NOTE_BLOCK=both_agree). On a 24 GB card run the judge alone: --scale llm-verifier=0 and TB_NOTE_BLOCK=never
+# (a note answer then only sends a patient to review).
 #
-# Memory (estimate, tools/gpu_sizing.py --hardware rtx-5090 --model gemma-4-26b-a4b-q4 --model qwen3.5-9b-q4
-# --context 8192 --sequences 2: 28.8 of 32 GB; TO BE MEASURED on the card, RUNBOOK §8):
-#   llm-service   JUDGE_GPU_MEM_UTIL 0.60     Gemma 4 26B-A4B 4-bit ~15 GB + KV at 8k
-#   llm-verifier  VERIFIER_GPU_MEM_UTIL 0.28  Qwen3.5-9B 4-bit ~5.5 GB + KV at 8k
+# One model awake at a time (TB_MODEL_SWAP=sleep, services/gateway/swap.py). Side by side the pair needed ~35 GiB
+# on 2026-11-06 (weights 17.1 + 7.5 GiB, two CUDA contexts, KV), more than the card has. So both servers start with
+# vLLM sleep mode: the judge is awake by day (chat, protocol help, the judge pass of a run); a screening run holds
+# the card, asks the judge everything first, then the gateway puts the judge to sleep (weights to host RAM, ~18 GB of
+# it) and wakes the verifier for the second opinions: one swap per run (orchestrator/twophase.py, D-116). The run then
+# releases the card instead of swapping back; the next chat or run wakes the judge on demand (~0.5 s). Each woken
+# model first answers six canary cases (orchestrator/canary_gate.py, D-117). Chat during the verifier pass gets
+# "busy, try again" within 30 s instead of hanging. Host RAM: 64 GB or more.
+#
+# Start order: the judge loads and is put to sleep; then the verifier loads (it needs the card's memory free) and
+# is put to sleep; then model-swap-init wakes the judge. Measured 2026-11-08 on an RTX PRO 6000 capped to the 5090's
+# 32 GB (the same caps, 0.27 of 96 GB): judge awake 29.6 GB in all, asleep 1.3 GB; the verifier starts while the
+# judge sleeps (28.4 GB awake); sleep 0.4-3.7 s, wake 0.3-0.5 s. Side by side the pair does not fit (verifier short
+# of KV cache). Google's QAT 4-bit Gemma was tried and not taken (same pair result, worse alone in Japanese 12 vs 7,
+# 4x slower, broken JSON on 3 of 54 canary cases); the NVFP4 build stays. Not yet run on a physical 5090:
+#   llm-service   JUDGE_GPU_MEM_UTIL 0.81     Gemma 4 26B-A4B 4-bit 17.1 GiB + KV at 8k for 4 sequences
+#   llm-verifier  VERIFIER_GPU_MEM_UTIL 0.81  Qwen3.5-9B 4-bit 7.5 GiB + KV at 8k
+# 0.81 of a 5090's 32,607 MiB is the 26.4 GB budget measured (0.27 of 97,887 MiB; gpu-run-2026-11-08/fit.json); the
+# answers after a wake were not captured on that run, so install.sh asks for a serving-config record taken on the
+# real card (tools/serving_config.py measured rtx5090) or TB_ACCEPT_UNMEASURED_GPU=1 for the first boot (D-112).
 # A criterion check is ~500 tokens, so 8k context is ample for SCREEN and CASE; protocol reading (ir_extract) needs
 # 16-32k and runs on the cloud route behind the PHI guard or on a larger box.
 #
 # Weights: 4-bit builds (NVFP4 or AWQ; the recipe is recorded at qualification) under deploy/models, pinned with
 # tools/pin_model.py (builds gemma-4-26b-a4b-it-rtx5090 on endpoint `serving`, qwen3.5-9b-rtx5090 on `verifier`).
-# The 2026-11-05 OpenRouter runs measured fp4 providers, not these files: qualify the exact files on the card
-# (python -m tools.trialgpt_compare run --base-url http://<gateway>/v1 ...) before go-live.
+# install.sh re-checks every pinned build's weight hashes before it starts the stack (pin_model --verify-all), and
+# the scheduler runs the canary (orchestrator/selftest.py) before each night's LLM jobs.
+#
+# vLLM v0.32.0 is the release the 2026-11-06 run used (deploy/gcp/gpu-sim-startup.sh), with the same flags; moving
+# the tag is a model change (re-run `make selftest` and the TrialGPT check).
+
+x-vllm-5090: &vllm5090
+  logging:
+    driver: json-file
+    options: {max-size: "50m", max-file: "5"}
+  profiles: [gpu]
+  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+  environment:
+    HF_HUB_OFFLINE: "1"
+    VLLM_NO_USAGE_STATS: "1"
+    VLLM_SERVER_DEV_MODE: "1"   # exposes /sleep, /wake_up, /is_sleeping (model-net only; the gateway drives them)
+  volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
+  ipc: host
+  networks: [model-net]
+  restart: unless-stopped
+  deploy:
+    resources:
+      reservations:
+        devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+    interval: 30s
+    timeout: 10s
+    retries: 40
+    start_period: 300s
+
+x-sleep: &sleep
+  # put this server to sleep once it is healthy, so the next one finds the card free (python of the vLLM image)
+  - python3
+  - -c
+  - |
+    import sys, time, urllib.request
+    url = sys.argv[1]
+    for _ in range(600):
+        try:
+            urllib.request.urlopen(url + "/health", timeout=4)
+            break
+        except OSError:
+            time.sleep(2)
+    for path in sys.argv[2:]:
+        urllib.request.urlopen(urllib.request.Request(url + path, method="POST"), timeout=120)
+        print("ok", url + path)
 
 services:
   llm-service:
+    <<: *vllm5090
     command:
       - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
       - --served-model-name=${JUDGE_MODEL:-gemma-4-26b-a4b-it}
       - --max-model-len=${JUDGE_MAX_LEN:-8192}
-      - --max-num-seqs=8
-      - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.60}
-      - --guided-decoding-backend=${GUIDED_BACKEND:-outlines}
+      - --max-num-seqs=${JUDGE_MAX_SEQS:-4}
+      - --enforce-eager
+      - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.81}
+      - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
+      - --enable-sleep-mode
+
+  judge-sleep-init:
+    profiles: [gpu]
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+    entrypoint: *sleep
+    command: ["http://llm-service:8000", "/sleep?level=1"]
+    networks: [model-net]
+    restart: "no"
+    depends_on:
+      llm-service: {condition: service_healthy}
 
   llm-verifier:
-    logging:
-      driver: json-file
-      options: {max-size: "50m", max-file: "5"}
-    profiles: [gpu]
-    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.11.0}
+    <<: *vllm5090
     command:
       - --model=/models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}
       - --served-model-name=${VERIFIER_MODEL:-qwen3.5-9b}
       - --max-model-len=${VERIFIER_MAX_LEN:-8192}
-      - --max-num-seqs=8
-      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.28}
-      - --guided-decoding-backend=${GUIDED_BACKEND:-outlines}
-    environment:
-      HF_HUB_OFFLINE: "1"
-      VLLM_NO_USAGE_STATS: "1"
-    volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
-    ipc: host
-    networks: [model-net]
-    restart: unless-stopped
+      - --max-num-seqs=${VERIFIER_MAX_SEQS:-4}
+      - --enforce-eager
+      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.81}
+      - --limit-mm-per-prompt={"image":0,"video":0}
+      - --default-chat-template-kwargs={"enable_thinking":false}
+      - --enable-sleep-mode
     depends_on:
-      llm-service: {condition: service_healthy}  # vLLM checks free memory at start: load the judge first
-    deploy:
-      resources:
-        reservations:
-          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
-      interval: 30s
-      timeout: 10s
-      retries: 40
-      start_period: 300s
+      judge-sleep-init: {condition: service_completed_successfully}  # vLLM checks free memory at start
+
+  model-swap-init:
+    # daytime state: verifier asleep, judge awake (the gateway's first activate call confirms it)
+    profiles: [gpu]
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+    entrypoint: *sleep
+    command: ["http://llm-verifier:8000", "/sleep?level=1"]
+    networks: [model-net]
+    restart: "no"
+    depends_on:
+      llm-verifier: {condition: service_healthy}
+
+  judge-wake-init:
+    profiles: [gpu]
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+    entrypoint: *sleep
+    command: ["http://llm-service:8000", "/wake_up"]
+    networks: [model-net]
+    restart: "no"
+    depends_on:
+      model-swap-init: {condition: service_completed_successfully}
+
+  gateway:
+    environment:
+      TB_MODEL_SWAP: "${TB_MODEL_SWAP:-sleep}"
+
+  orchestrator:
+    environment:
+      TB_MODEL_SWAP: "${TB_MODEL_SWAP:-sleep}"

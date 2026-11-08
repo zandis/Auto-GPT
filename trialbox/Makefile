@@ -4,7 +4,7 @@ PY ?= .venv/bin/python
 COMPOSE := docker compose --project-directory deploy -f deploy/docker-compose.yml
 # the test stack uses the example settings with a high per-sender limit: e2e suites run many times a day
 TEST_SETTINGS := .cache/test-settings.yaml
-COMPOSE_TEST := TB_SETTINGS_FILE=../$(TEST_SETTINGS) $(COMPOSE) -f deploy/docker-compose.test.yml --profile stub --profile test
+COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) $(COMPOSE) -f deploy/docker-compose.test.yml --profile stub --profile test
 BUILD_ARGS := $(if $(HTTPS_PROXY),--network host --build-arg HTTPS_PROXY=$(HTTPS_PROXY) --build-arg https_proxy=$(HTTPS_PROXY),)
 comma := ,
 # test-stack host ports moved in deploy/.env reach every tool and test run from make (the shell environment wins)
@@ -13,7 +13,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: fonts jvm-deps venv e2e-simple demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e poc poc-down poc-status poc-hermes poc-hermes-down test-hermes-e2e test-console test-console-e2e site site-preview clean
+.PHONY: fonts jvm-deps venv e2e-simple demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status test-console test-console-e2e site site-preview clean
 
 venv:
 	uv venv --allow-existing --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
@@ -28,8 +28,7 @@ contracts-check:
 lint: contracts-check
 	$(PY) -m ruff check .
 	$(PY) -m ruff format --check .
-	$(PY) -m mypy libs services tools tests integrations
-	PYTHONPATH=libs:services:. $(PY) -m tools.mcp_snapshot --check
+	$(PY) -m mypy libs services tools tests
 
 FONTS := .cache/fonts/NotoSansTC-Regular.ttf
 
@@ -100,7 +99,7 @@ $(TEST_SETTINGS): deploy/settings.example.yaml
 	sed 's/^rate_limit_per_sender_per_day: .*/rate_limit_per_sender_per_day: 1000/' $< > $@
 
 up-test: deploy/.env .cache/test-secrets/site_hmac.key $(TEST_SETTINGS)
-	$(COMPOSE_TEST) up -d --wait
+	mkdir -p deploy/.objects && $(COMPOSE_TEST) up -d --wait
 
 # load synthetic site A into the running test stack (adapter -> lake + FHIR store)
 ingest-test:
@@ -145,6 +144,20 @@ e2e-cascade:
 spark-e2e:
 	PY=$(PY) tools/spark_e2e.sh
 
+# model robustness (survey 2026-11-07): re-check pinned weights; run the 54-question canary inside the orchestrator
+verify-models:
+	PYTHONPATH=libs:services:. $(PY) -m tools.pin_model --verify-all deploy/models
+
+selftest:
+	docker compose --project-directory deploy -f deploy/docker-compose.yml exec orchestrator python -m orchestrator.selftest
+
+# the same 54-case canary from this checkout against the models in the environment (TB_GATEWAY_URL ...): each model,
+# then the pair as the box decides (both must give the same decided answer); exit 1 when it fails (D-115). The box
+# runs it itself at start, nightly and from the admin Models tile; a passing pair is what lets a note answer exclude
+# (D-117). Two servers directly: ARGS="--judge-url http://<vm>/judge/v1 --verifier-url http://<vm>/verifier/v1 --swap"
+canary:
+	PYTHONPATH=libs:services:. $(PY) -m tools.canary $(ARGS)
+
 # proof of concept in one command (README "Try the POC in 10 minutes", RUNBOOK §9): box + GreenMail/MailHog + admin
 # console with the pilot workspace; TB_LLM_MODE=stub|openrouter|gpu. Windows: deploy/poc.ps1.
 poc:
@@ -155,17 +168,6 @@ poc-down:
 
 poc-status:
 	deploy/poc.sh status
-
-# Hermes serving through channel-relay and frontdoor-mcp on the running POC (spec v4 §9; make poc first)
-poc-hermes:
-	deploy/hermes/up.sh up
-
-poc-hermes-down:
-	deploy/hermes/up.sh down
-
-# Hermes end to end against the running POC + Hermes fragment (make poc-hermes first)
-test-hermes-e2e:
-	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_hermes_relay.py
 
 test-console:
 	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console

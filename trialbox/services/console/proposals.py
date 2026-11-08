@@ -179,10 +179,7 @@ def gateway_classifier(gateway_url: str, model: str | None, data_class: str, tod
     # a person is waiting on the page: a slow hosted model answers "not available" instead of a two-minute spinner
     client = GatewayClient(gateway_url, "converse-native", model=model, timeout=45)
 
-    def _unused_frontdoor(_msg: dict[str, Any], _assertion: str, _conv: str) -> dict[str, Any]:
-        raise RuntimeError("the console does not call front-door tools")
-
-    engine = NativeEngine(client, _unused_frontdoor, today=today)
+    engine = NativeEngine(client, today=today)
 
     def classify(text: str, language: str) -> ClassifiedIntent:
         return engine.classify(text, (), language, data_class)

@@ -314,3 +314,53 @@ def test_step4_pages_have_no_english(b4: dict[str, Any], lang: str) -> None:
             page = c.get(path).text
             leaked = [e for e in english if e in page]
             assert leaked == [], (user, path, leaked[:3])
+
+
+# ---------------------------------------------------------------------------------------------- canary on the Models tile
+def test_models_tile_shows_the_canary_date_and_result_and_runs_it(b4: dict[str, Any]) -> None:
+    """TB-PLAN-03 step 2 (D-117): the admin Models tile shows when the pair canary last ran and how it went."""
+    from tests.console.test_console_app import MODELS_INFO
+
+    bk = b4["backend"]
+    pair = {
+        **MODELS_INFO,
+        "mode": "agreement",
+        "verifier_model": "v-verifier",
+        "note_block": "both_agree",
+        "may_block": True,
+    }
+    bk.models_info = {
+        **pair,
+        "canary": {
+            "gate": "on",
+            "code": "ok",
+            "running": False,
+            "at": "2026-11-08T03:10:00",
+            "cases": 54,
+            "pair_correct": 52,
+        },
+    }
+    c, csrf = login(b4["app"])
+    page = c.get("/admin").text
+    tile = page[page.index('data-testid="tile-models"') :]
+    assert 'data-testid="models-canary"' in tile and "passed 2026-11-08 03:10, the pair 52 of 54 correct" in tile
+    assert 'data-testid="canary-run"' in tile
+    _ja(c, csrf)
+    assert "2026-11-08 03:10 に合格" in c.get("/admin").text
+    _ja(c, csrf, "zh-TW")
+    assert "2026-11-08 03:10 通過" in c.get("/admin").text
+    _ja(c, csrf, "en")
+    bk.models_info = {
+        **pair,
+        "may_block": False,
+        "canary": {"gate": "on", "code": "failed", "running": False, "at": "2026-11-08T03:10:00"},
+    }
+    page = c.get("/admin").text
+    assert "failed 2026-11-08 03:10: note answers cannot exclude until it passes" in page
+    r = c.post("/admin/models/canary", data={"csrf": csrf}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/admin?notice=canary" and bk.canary_runs == 1
+    assert "The model self-test is running" in c.get(r.headers["location"]).text
+    assert c.post("/admin/models/canary", data={"csrf": "x"}).status_code == 400
+    bk.models_info = {**pair, "canary": {"gate": "off", "code": "off", "running": False, "at": None}}
+    page = c.get("/admin").text
+    assert "off on this box" in page and 'data-testid="canary-run"' not in page

@@ -6,7 +6,7 @@
 {% if error %}<p class="error" role="alert" data-testid="account-error">{{ t(error) }}</p>{% endif %}
 <section class="card" data-testid="account-facts">
 <dl class="facts">
-  <dt>{{ t('account.name') }}</dt><dd>{{ me.username }}</dd>
+  <dt>{{ t('account.name') }}</dt><dd class="mono">{{ me.username }}</dd>
   <dt>{{ t('account.role') }}</dt><dd>{{ t('role.' + me.role) }}</dd>
   <dt>{{ t('account.affiliation') }}</dt><dd>{{ t('aff.' + me.affiliation) }}</dd>
   <dt>{{ t('account.studies') }}</dt><dd>{% if me.studies %}{{ me.studies|join(', ') }}{% else %}{{ t('account.studies.all') }}{% if studies %} ({{ studies|join(', ') }}){% endif %}{% endif %}</dd>

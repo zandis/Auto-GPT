@@ -96,10 +96,10 @@ def merge_sites(sites: list[Path], out: Path) -> int:
 
 
 def build(work: Path) -> tuple[Any, Any, Path, dict[str, Any]]:
-    from fastapi.testclient import TestClient
     from orchestrator import app as orch_app
 
     from tests.inproc_box import ingest_site, make_box
+    from tools.role_demo import orch_client
     from tools.synth_hospital import run as synth_run
 
     synth = work / "synth"
@@ -119,7 +119,7 @@ def build(work: Path) -> tuple[Any, Any, Path, dict[str, Any]]:
     shutil.rmtree(work / "box", ignore_errors=True)  # the box (jobs, mail, repo) starts fresh on every run
     box = make_box(work / "box", work / "lake", sec, REF + timedelta(days=1))
     orch_app._orch = box.orch
-    return box, TestClient(orch_app.app), work / "box" / "repo", summary
+    return box, orch_client(orch_app.app), work / "box" / "repo", summary
 
 
 def console(work: Path, box: Any, client: Any, repo: Path, password: str) -> Any:

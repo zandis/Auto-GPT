@@ -71,11 +71,7 @@ class Env:
     cloud_llm_api_key: str = ""
     embed_url: str = "http://embed-service:8014"
     embed_mode: str = "bge-m3"
-    object_store: str = "minio"
-    minio_endpoint: str = "minio:9000"
-    minio_access_key: str = ""
-    minio_secret_key: str = ""
-    minio_secure: bool = False
+    object_store: str = "fs:/data/objects"
     nhi_twpas_base_url: str = ""
     attach_password_mode: str = "zip"
     log_level: str = "INFO"
@@ -130,10 +126,6 @@ _ENV_MAP: dict[str, str] = {
     "EMBED_URL": "embed_url",
     "TB_EMBED_MODE": "embed_mode",
     "TB_OBJECT_STORE": "object_store",
-    "MINIO_ENDPOINT": "minio_endpoint",
-    "MINIO_ACCESS_KEY": "minio_access_key",
-    "MINIO_SECRET_KEY": "minio_secret_key",
-    "MINIO_SECURE": "minio_secure",
     "NHI_TWPAS_BASE_URL": "nhi_twpas_base_url",
     "ATTACH_PASSWORD_MODE": "attach_password_mode",
     "LOG_LEVEL": "log_level",

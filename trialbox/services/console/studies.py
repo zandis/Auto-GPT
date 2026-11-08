@@ -77,6 +77,7 @@ class CriterionMeta:
     cls: str  # structured / note / human / mixed
     label: str
     text: str = ""
+    original: str = ""  # the label as the study wrote it, when ``label`` is the site's translation (D-120)
 
 
 VERIFIED_BY = {"structured": "records", "note": "notes", "human": "person", "mixed": "records_notes"}
@@ -390,6 +391,35 @@ def weekly_rows(
     return rows
 
 
+def list_bridge(rep: Mapping[str, Any] | None, rows: Sequence[Mapping[str, Any]] | None, today: date) -> dict[str, Any]:
+    """S3 (D-120): why the screening list is longer than the feasibility count. The count leaves out unknown
+    inclusions and keeps unknown exclusions; the list keeps every patient whose answer is unknown (needs information)
+    and every coded patient whose code is in the criterion's family but outside its list (D-113)."""
+    funnel = (rep or {}).get("funnel") or []
+    kept = [
+        {"label": f["label"], "n": f["unknown"]}
+        for f in funnel
+        if f["applied"] and f["unknown"] and f["kind"] == "exclusion"
+    ]
+    gaps = [
+        {"label": f["label"], "n": f["unknown"]}
+        for f in funnel
+        if f["applied"] and f["unknown"] and f["kind"] != "exclusion"
+    ]
+    out: dict[str, Any] = {"eligible": ((rep or {}).get("summary") or {}).get("pool_now"), "kept": kept, "gaps": gaps}
+    if rows is not None:
+        live = list(rows)
+        out["listed"] = len(live)
+        out["ready"] = sum(1 for r in live if in_worklist(r, "ready", today))
+        out["needs"] = sum(1 for r in live if in_worklist(r, "needs", today))
+        out["outside"] = sum(
+            1
+            for r in live
+            if any(((v.get("evidence") or {}).get("reason") == "code_outside_list") for v in r.get("criteria") or [])
+        )
+    return out
+
+
 def recheck_due(mk: Any, today: date) -> bool:
     """A "Not now" mark keeps its re-check date in ``reason`` (ISO date)."""
     try:
@@ -420,11 +450,13 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 "id": cid,
                 "kind": meta.kind if meta else "",
                 "label": meta.label if meta else cid,
+                "original": meta.original if meta else "",
                 "text": meta.text if meta else "",
                 "verdict": v.get("verdict"),
                 "quote": ev.get("quote"),
                 "date": ev.get("quote_date"),
                 "reason": ev.get("reason"),
+                "opinions": [o for o in ev.get("opinions") or [] if o.get("quote")],  # both quotes (D-120)
                 "source": VERIFIED_BY.get(meta.cls, "records") if meta else "records",
             }
         )
@@ -432,7 +464,32 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
 
 
 # ---------------------------------------------------------------------------------------------- workbench (D-105)
-WORKLISTS: tuple[str, ...] = ("clinic", "review", "info", "approached", "all")
+WORKLISTS: tuple[str, ...] = ("clinic", "ready", "needs", "review", "info", "approached", "all")
+# D-120: ready = every criterion has an answer (nothing unknown, nothing not met); needs = at least one unknown
+PAGE_SIZE = 25
+
+
+def n_open(row: Mapping[str, Any]) -> int:
+    """How many criteria of the row are still unknown (the information a person has to find)."""
+    fit = row.get("fit")
+    return len(getattr(fit, "open", []) or [])
+
+
+def worklist_sorted(rows: Sequence[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    """The clinic list stays in visit order; every other list puts the fewest unknowns first (the patients closest
+    to a decision), then the visit (none last), then the pseudonym (D-120)."""
+    if key == "clinic":
+        return list(rows)
+    return sorted(rows, key=lambda r: (n_open(r), r["visit"] is None, r["visit_text"] or "9", r["pid"]))
+
+
+def paged(rows: Sequence[dict[str, Any]], page: int, size: int = PAGE_SIZE) -> tuple[list[dict[str, Any]], int, int]:
+    """One page of a list: (rows, page, pages); ``page`` is clamped to 1..pages."""
+    pages = max(1, -(-len(rows) // size))
+    page = min(max(1, page), pages)
+    return list(rows[(page - 1) * size : page * size]), page, pages
+
+
 PIPELINE: tuple[str, ...] = ("found", "reviewed", "contacted", "consented", "enrolled")
 STEPS: tuple[str, ...] = ("protocol", "criteria", "feasibility", "weekly", "contact", "enrolled")
 
@@ -446,6 +503,11 @@ def in_worklist(row: Mapping[str, Any], key: str, today: date, days: int = 14) -
     if key == "clinic":
         when = row.get("visit")
         return when is not None and today <= when.date() <= today + timedelta(days=days)
+    if key == "ready":
+        fit = row.get("fit")
+        return n_open(row) == 0 and not getattr(fit, "not_met", None) and status not in ("contacted", "screened")
+    if key == "needs":
+        return n_open(row) > 0 and status not in ("contacted", "screened")
     if key == "review":
         return (mark is None or mark == "not_now") and status in ("new", "pending")
     if key == "info":

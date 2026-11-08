@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from tools import serving_config as sc
 
@@ -56,3 +57,46 @@ def test_validate_lists_what_is_missing() -> None:
     assert sc.validate(rec) == []
     rec["servers"][0]["gpu_memory_utilization"] = 1.5
     assert sc.validate(rec) == ["judge.gpu_memory_utilization out of (0, 1]"]
+
+
+def _rec_5090(name: str = "NVIDIA GeForce RTX 5090", capped: str | None = None, sleep: bool = True) -> dict[str, Any]:
+    files = [{"path": "a", "bytes": 1, "sha256": "0" * 64}]
+    srv = {
+        "image": "vllm/vllm-openai:v0.32.0", "vllm_version": "0.32.0", "model": "/models/m", "max_model_len": 8192,
+        "max_num_seqs": 4, "enforce_eager": True, "gpu_memory_utilization": 0.81, "model_files": files,
+        "model_files_sha256": sc.files_digest(files), "extra_args": ["--enable-sleep-mode"] if sleep else [],
+    }  # fmt: skip
+    return {
+        "schema": sc.SCHEMA, "card": {"name": name, "memory_total_mib": 32607, "driver": "580", "capped_to": capped},
+        "servers": [{**srv, "role": "judge"}, {**srv, "role": "verifier"}],
+    }  # fmt: skip
+
+
+def test_measured_accepts_a_real_5090_record_with_sleep_mode(tmp_path: Path) -> None:
+    assert sc.measured_for(_rec_5090(), "rtx5090") == []
+    p = tmp_path / "rec.json"
+    p.write_text(json.dumps(_rec_5090()))
+    assert sc.main(["measured", "rtx5090", str(p)]) == 0
+
+
+def test_measured_refuses_capped_cards_other_cards_and_no_sleep(tmp_path: Path) -> None:
+    capped = sc.measured_for(_rec_5090("NVIDIA RTX PRO 6000 Blackwell", capped="RTX 5090 (32 GB)"), "rtx5090")
+    assert any("not an 5090" in w for w in capped) and any("capped card" in w for w in capped)
+    assert sc.measured_for(_rec_5090(sleep=False), "rtx5090") == [
+        "judge ran without --enable-sleep-mode", "verifier ran without --enable-sleep-mode"]  # fmt: skip
+    # the 8 Nov bench record (RTX PRO 6000 capped to 5090 limits) is not a 5090 measurement
+    bench = json.loads(
+        (Path(__file__).resolve().parents[2] / "eval/parity/serving_config_2026-11-08_tb-gpu-sim.json").read_text()
+    )
+    assert sc.measured_for(bench, "rtx5090")
+    p = tmp_path / "rec.json"
+    p.write_text(json.dumps(bench))
+    assert sc.main(["measured", "rtx5090", str(p)]) == 1
+
+
+def test_install_guards_the_rtx5090_profile() -> None:
+    sh = (Path(__file__).resolve().parents[2] / "deploy/install.sh").read_text()
+    assert "tools.serving_config measured rtx5090" in sh and "TB_ACCEPT_UNMEASURED_GPU" in sh
+    compose = (Path(__file__).resolve().parents[2] / "deploy/docker-compose.rtx5090.yml").read_text()
+    assert compose.count("--enable-sleep-mode") == 2 and "vllm/vllm-openai:v0.32.0" in compose
+    assert "GPU_MEM_UTIL:-0.81" in compose and "outlines" not in compose

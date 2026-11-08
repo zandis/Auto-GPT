@@ -9,10 +9,21 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
+_D = "[0-9０-９]"  # ASCII or full-width digits (Japanese forms often use full-width)
+_SEP = "[-\\s‐－ー]?"
 _PHI_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?<![A-Za-z0-9])[A-Z][12]\d{8}(?!\d)"), "[TWID]"),
+    # Japan (D-121): マイナンバー (12 digits, 4-4-4), insurer and insured numbers after their label, 〒 postcodes,
+    # +81 and domestic phone numbers. Labelled numbers go first so the bare-digit rules do not split them.
+    (re.compile(rf"(?:個人番号|マイナンバー)[\s:：]*{_D}{{4}}{_SEP}{_D}{{4}}{_SEP}{_D}{{4}}"), "[MYNUMBER]"),
+    (re.compile(rf"(?<!{_D}){_D}{{4}}[-\s‐－]{_D}{{4}}[-\s‐－]{_D}{{4}}(?!{_D})"), "[MYNUMBER]"),
+    (re.compile(rf"(?:保険者番号|被保険者番号|記号番号|記号|番号)[\s:：]*(?:{_D}|[・･\-－]){{6,12}}"), "[INSURANCE]"),
+    (re.compile(rf"〒[\s]?{_D}{{3}}{_SEP}{_D}{{4}}"), "[POSTCODE]"),
+    (re.compile(rf"(?<!{_D})\+81{_SEP}\(?{_D}{{1,4}}\)?{_SEP}{_D}{{1,4}}{_SEP}{_D}{{4}}(?!{_D})"), "[PHONE]"),
+    (re.compile(rf"(?<!{_D})[0０][5-9５-９]0{_SEP}{_D}{{4}}{_SEP}{_D}{{4}}(?!{_D})"), "[PHONE]"),
     (re.compile(r"(?<!\d)(?:\+886[-\s]?|0)9\d{2}[-\s]?\d{3}[-\s]?\d{3}(?!\d)"), "[PHONE]"),
     (re.compile(r"(?<!\d)\(?0\d{1,2}\)?[-\s]?\d{3,4}[-\s]?\d{4}(?!\d)"), "[PHONE]"),
+    (re.compile(rf"(?<!{_D})[0０]{_D}{{1,3}}[-‐－]{_D}{{1,4}}[-‐－]{_D}{{4}}(?!{_D})"), "[PHONE]"),
 ]
 _EXTRA_MRN: list[re.Pattern[str]] = []
 
@@ -27,7 +38,7 @@ def set_mrn_regex(pattern: str) -> None:
 
 
 def redact(text: str) -> str:
-    """Replace Taiwan IDs, phone numbers and MRN-shaped tokens by placeholders."""
+    """Replace Taiwan IDs, Japanese My Number / insurance numbers / postcodes, phone numbers and MRN-shaped tokens."""
     for pat, repl in _PHI_PATTERNS:
         text = pat.sub(repl, text)
     for pat in _EXTRA_MRN:

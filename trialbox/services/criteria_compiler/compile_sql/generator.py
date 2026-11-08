@@ -7,6 +7,9 @@ NULL for every living patient). ValueSet codes are inlined as a ``vs`` VALUES CT
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import ClassVar
+
 from tb_common.derived import ASDAS, CODES, COMPONENTS, DAS28, EGFR
 from tb_contracts import Atom, BoolExpr, CriterionIR
 
@@ -82,50 +85,48 @@ class SqlGenerator:
         )
 
     # ------------------------------------------------------------------ per-atom CTEs; returns (ctes, expr, ev)
+    def _family_offlist(self, vsname: str, system_col: str, code_col: str) -> str:
+        """A code inside one of the grouper's families (D-113) that the ValueSet does not list."""
+        return (
+            f"(EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = {lit(vsname)} AND vsf.system = {system_col} "
+            f"AND starts_with({code_col}, vsf.prefix)) AND NOT {self._vs_match(vsname, system_col, code_col)})"
+        )
+
+    # (table, record id, date, [(system column, code column)]) per presence domain
+    PRESENCE: ClassVar[dict[str, tuple[str, str, str, list[tuple[str, str]]]]] = {
+        "condition": ("condition", "cid", "coalesce(onset, recorded)", [("x.system", "x.code")]),
+        "medication": (
+            "medication",
+            "mid",
+            "authored",
+            [(lit(SYSTEMS["atc"]), "x.atc"), (lit(SYSTEMS["nhi_drug"]), "x.nhi_code")],
+        ),
+        "procedure": ("procedure", "prid", "performed", [("x.system", "x.code")]),
+        "report": ("report", "rid", "effective", [("x.system", "x.code")]),
+        "observation": ("observation", "oid", "effective::DATE", [("x.system", "x.code")]),
+        "encounter": ("encounter", "eid", "start::DATE", [(lit(SYSTEMS["department"]), "x.dept")]),
+        "claim": ("claim", "kid", "created", [(lit(SYSTEMS["nhi_drug"]), "x.product")]),
+    }
+
     def _presence(self, name: str, atom: Atom, w: Window) -> tuple[list[str], str, str]:
         vsn = atom.valueset
-        match atom.domain:
-            case "condition":
-                src = (
-                    f"SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x "
-                    f"WHERE {self._vs_match(vsn, 'x.system', 'x.code')}"
-                )
-            case "medication":
-                src = (
-                    f"SELECT pid, mid AS rid, authored AS d FROM medication x WHERE "
-                    f"{self._vs_match(vsn, lit(SYSTEMS['atc']), 'x.atc')} OR "
-                    f"{self._vs_match(vsn, lit(SYSTEMS['nhi_drug']), 'x.nhi_code')}"
-                )
-            case "procedure":
-                src = (
-                    f"SELECT pid, prid AS rid, performed AS d FROM procedure x "
-                    f"WHERE {self._vs_match(vsn, 'x.system', 'x.code')}"
-                )
-            case "report":
-                src = f"SELECT pid, rid, effective AS d FROM report x WHERE {self._vs_match(vsn, 'x.system', 'x.code')}"
-            case "observation":
-                src = (
-                    f"SELECT pid, oid AS rid, effective::DATE AS d FROM observation x "
-                    f"WHERE {self._vs_match(vsn, 'x.system', 'x.code')}"
-                )
-            case "encounter":
-                src = (
-                    f"SELECT pid, eid AS rid, start::DATE AS d FROM encounter x "
-                    f"WHERE {self._vs_match(vsn, lit(SYSTEMS['department']), 'x.dept')}"
-                )
-            case "claim":
-                src = (
-                    f"SELECT pid, kid AS rid, created AS d FROM claim x "
-                    f"WHERE {self._vs_match(vsn, lit(SYSTEMS['nhi_drug']), 'x.product')}"
-                )
-            case _:
-                raise CompileError(f"unsupported domain {atom.domain}")
-        cte = (
-            f"{name} AS (\n  SELECT b.pid, b.index_date, count(*) AS n,\n"
-            f"         string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev\n"
-            f"  FROM base b JOIN ({src}) e ON e.pid = b.pid AND {in_window('e.d', w)}\n"
-            f"  GROUP BY b.pid, b.index_date)"
-        )
+        if atom.domain not in self.PRESENCE:
+            raise CompileError(f"unsupported domain {atom.domain}")
+        table, rid, d, cols = self.PRESENCE[atom.domain]
+        rid_sel = "rid" if rid == "rid" else f"{rid} AS rid"
+
+        def src(match: Callable[[str, str, str], str]) -> str:
+            cond = " OR ".join(match(vsn, sc, cc) for sc, cc in cols)
+            return f"SELECT pid, {rid_sel}, {d} AS d FROM {table} x WHERE {cond}"
+
+        def cte(n: str, source: str) -> str:
+            return (
+                f"{n} AS (\n  SELECT b.pid, b.index_date, count(*) AS n,\n"
+                f"         string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev\n"
+                f"  FROM base b JOIN ({source}) e ON e.pid = b.pid AND {in_window('e.d', w)}\n"
+                f"  GROUP BY b.pid, b.index_date)"
+            )
+
         quant = atom.quantifier or "any"
         n = f"coalesce({name}.n, 0)"
         if quant == "count>=":
@@ -134,7 +135,18 @@ class SqlGenerator:
             expr = f"({n} = 0)"
         else:
             expr = f"({n} > 0)"
-        return [cte], expr, f"{name}.ev"
+        ctes = [cte(name, src(self._vs_match))]
+        if not self.vs.families(vsn):
+            return ctes, expr, f"{name}.ev"
+        # fail closed (D-113): when the listed codes do not settle the atom but the patient has a record coded inside
+        # the grouper's family that the list lacks, the answer is unknown (NULL), never a silent false / true
+        off = f"{name}_off"
+        ctes.append(cte(off, src(self._family_offlist)))
+        settled = f"({n} > 0)" if quant != "count>=" else f"({n} >= {atom.count})"
+        hit = "TRUE" if quant != "none" else "FALSE"
+        miss = "FALSE" if quant != "none" else "TRUE"
+        expr = f"(CASE WHEN {settled} THEN {hit} WHEN coalesce({off}.n, 0) > 0 THEN NULL ELSE {miss} END)"
+        return ctes, expr, f"coalesce({name}.ev, {off}.ev)"
 
     def _obs_source(self, vsname: str, w: Window) -> str:
         return (
@@ -328,6 +340,9 @@ class SqlGenerator:
                 ctes.extend(cs)
                 if cs:
                     joins.append(f"LEFT JOIN {aname} ON {aname}.pid = b.pid AND {aname}.index_date = b.index_date")
+                if len(cs) > 1 and k is Kind.PRESENCE:
+                    off = f"{aname}_off"
+                    joins.append(f"LEFT JOIN {off} ON {off}.pid = b.pid AND {off}.index_date = b.index_date")
                 names[id(atom)] = expr
                 evs.append(ev)
             crit = f"c_{ident(c.id)}".lower()
@@ -346,6 +361,11 @@ class SqlGenerator:
                 vs_rows.append(f"({lit(v)}, {lit(system)}, {lit(code)})")
         if not vs_rows:
             vs_rows.append("('__none__', '', '')")
+        fam_rows = [
+            f"({lit(v)}, {lit(system)}, {lit(prefix)})"
+            for v in sorted(used_vs)
+            for system, prefix in self.vs.families(v)
+        ]
         prelude = [
             "params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids)",
             "idx AS (SELECT unnest(idx_dates) AS index_date FROM params)",
@@ -357,6 +377,8 @@ class SqlGenerator:
             ),
             "vs(vs_id, system, code) AS (VALUES\n  " + ",\n  ".join(vs_rows) + ")",
         ]
+        if fam_rows:
+            prelude.append("vsf(vs_id, system, prefix) AS (VALUES\n  " + ",\n  ".join(fam_rows) + ")")
         body = ",\n".join(prelude + ctes)
         return (
             HEADER.format(ruleset=self.ruleset, version=self.version)

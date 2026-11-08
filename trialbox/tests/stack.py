@@ -25,10 +25,9 @@ DEFAULT_PORTS = {
     "LAKE": 8013,
     "MAIL_GATEWAY": 8015,
     "ADAPTER": 8016,
-    "MINIO": 9000,
     "FHIR": 8080,
     "GATEWAY": 8020,  # tb-gateway: the only model path (llm-stub / llm-service are not published)
-    "WORKFLOW_DB": 5433,  # workflow-db (outbox, recall ledger)
+    "WORKFLOW_DB": 5433,  # the box's one Postgres, database trialbox_wf (outbox, recall ledger)
 }
 
 

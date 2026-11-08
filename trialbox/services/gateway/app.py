@@ -1,4 +1,6 @@
-"""tb-gateway HTTP app (spec v4 §8.2; S1-06): OpenAI-compatible ``POST /v1/chat/completions`` and ``GET /v1/models``.
+"""tb-gateway HTTP app (spec v4 §8.2; S1-06): OpenAI-compatible ``POST /v1/chat/completions`` and ``GET /v1/models``;
+``POST /v1/serving/activate``, ``POST /v1/serving/release`` and ``GET /v1/serving/status`` drive the one-GPU model
+swap (:mod:`gateway.swap`).
 
 ``create_app(gateway)`` wraps a configured :class:`gateway.core.Gateway`; ``create_app()`` builds one from the
 environment (``TB_TOPOLOGY``, ``TB_ENV``, ``TB_PROFILE``, ``TB_CLOUD_OPT_IN``, ``TB_ROUTING_PATH``,
@@ -28,17 +30,21 @@ from tracestore.store import TraceStore
 from gateway.core import Gateway, GatewayConfig
 from gateway.policy import DEFAULT_PATH as ROUTING_PATH
 from gateway.policy import RoutingPolicy
+from gateway.swap import SWAPPABLE, ModelSwap
 
 
 def from_env() -> Gateway:
     e = os.environ
     traces = TraceStore(Path(e["TB_TRACESTORE_PATH"])) if e.get("TB_TRACESTORE_PATH") else None
+    policy = RoutingPolicy.load(Path(e.get("TB_ROUTING_PATH") or ROUTING_PATH))
+    swap = ModelSwap.from_env({k: ep.url(dict(e)) for k, ep in policy.endpoints.items() if k in SWAPPABLE}, e)
     return Gateway(
-        RoutingPolicy.load(Path(e.get("TB_ROUTING_PATH") or ROUTING_PATH)),
+        policy,
         Registry.from_env(e),
         AuditLog(Path(e.get("TB_AUDIT_DIR") or "/data/audit"), e.get("TZ_SITE", "Asia/Taipei")),
         GatewayConfig.from_env(),
         traces=traces,
+        swap=swap,
     )
 
 
@@ -67,6 +73,31 @@ def create_app(gateway: Gateway | None = None) -> FastAPI:
             return JSONResponse({"error": {"type": "invalid_request", "message": "JSON object body required"}}, 400)
         res = await run_in_threadpool(gw.chat, dict(request.headers), body)  # upstream calls block; keep the loop free
         return JSONResponse(res.body, status_code=res.status, headers=res.headers)
+
+    @app.get("/v1/serving/status")
+    def serving_status() -> dict[str, Any]:
+        return gw.swap.status() if gw.swap is not None else {"swap": "off", "active": None}
+
+    @app.post("/v1/serving/activate")
+    async def serving_activate(request: Request) -> JSONResponse:
+        """Wake one model and sleep the other (TB_MODEL_SWAP=sleep); body ``{"endpoint": "serving" | "verifier",
+        "hold": true}`` (hold: a screening run keeps the card until ``/v1/serving/release``)."""
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        endpoint = body.get("endpoint") if isinstance(body, dict) else None
+        if not isinstance(endpoint, str):
+            return JSONResponse({"error": {"type": "invalid_request", "message": "endpoint required"}}, 400)
+        hold = bool(body.get("hold")) if isinstance(body, dict) else False
+        res = await run_in_threadpool(gw.activate, request.headers.get("x-tb-caller", ""), endpoint, hold)
+        return JSONResponse(res.body, status_code=res.status)
+
+    @app.post("/v1/serving/release")
+    def serving_release(request: Request) -> JSONResponse:
+        """A screening run lets go of the card (D-116): nothing swaps back now; the next call wakes what it needs."""
+        res = gw.release(request.headers.get("x-tb-caller", ""))
+        return JSONResponse(res.body, status_code=res.status)
 
     app.mount("/registry", registry_app(gw.registry))
     return app

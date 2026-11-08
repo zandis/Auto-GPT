@@ -99,7 +99,7 @@ else
 fi
 [ -f deploy/.env ] || cp .env.example deploy/.env
 # random service passwords where the example ones are still in place
-for k in MINIO_SECRET_KEY POSTGRES_PASSWORD POSTGRES_WF_PASSWORD; do
+for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD TB_SERVICE_TOKEN; do
   if grep -q "^$k=change-me" deploy/.env || ! grep -q "^$k=" deploy/.env; then
     sed -i.bak "/^$k=/d" deploy/.env && printf '%s=%s\n' "$k" "$(rand 32)" >> deploy/.env
   fi
@@ -112,7 +112,30 @@ grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPO
 chmod 600 deploy/.env deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
 if [ "$MODE" = gpu ]; then
-  ls deploy/site/registry.site.yaml >/dev/null 2>&1 || echo "install: note: no model pinned yet (deploy/site/registry.site.yaml): run tools/pin_model.py or make spark-e2e after install (RUNBOOK §8)" >&2
+  if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then
+    # SEC-64: every pinned build's weights must still hash to its pin, or the box does not start on them
+    say "checking the pinned model weights (tools/pin_model.py --verify-all)"
+    docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" \
+      python -m tools.pin_model --verify-all /d/models --out /d/site/registry.site.yaml \
+      || die "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)"
+  else
+    echo "install: note: no model pinned yet (deploy/site/registry.site.yaml): the gateway routes nothing to a local model until you run tools/pin_model.py or make spark-e2e (RUNBOOK §8)" >&2
+  fi
+fi
+
+if [ "$MODE:$GPU" = gpu:rtx5090 ]; then
+  # D-112: the one-card pair is only known to fit with the sleep swap, measured so far on a capped RTX PRO 6000.
+  # Start it only on a serving-config record taken on a real 5090 with this profile (deploy/gcp/capture-serving-
+  # config.sh after a first boot), or when the operator accepts an unmeasured card for a trial boot.
+  REC=deploy/site/serving_config.rtx5090.json
+  if [ -f "$REC" ]; then
+    docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" python -m tools.serving_config measured rtx5090 "/d/site/$(basename "$REC")" \
+      || die "$REC is not a measurement of the rtx5090 profile on a real 5090 (see above)"
+  elif [ "${TB_ACCEPT_UNMEASURED_GPU:-0}" = 1 ]; then
+    echo "install: warning: rtx5090 profile not yet measured on this card (TB_ACCEPT_UNMEASURED_GPU=1): capture $REC after the first boot (RUNBOOK §8)" >&2
+  else
+    die "the rtx5090 profile has no measurement on a real 5090 ($REC). For a first trial boot re-run with TB_ACCEPT_UNMEASURED_GPU=1, then capture the record (RUNBOOK §8)"
+  fi
 fi
 
 # ------------------------------------------------------------------------------------------------ 4. start

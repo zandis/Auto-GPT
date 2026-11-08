@@ -101,9 +101,7 @@ services:
   gateway: *arm
   llm-stub: *arm
   # Third-party services: multi-arch digests from docker-compose.yml resolve to their arm64 manifests here.
-  minio: *arm
-  fhir-db: *arm
-  workflow-db: *arm
+  db: *arm
   fhir-store:
     <<: *arm
     environment:

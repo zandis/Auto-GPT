@@ -26,7 +26,8 @@ import re
 import secrets
 import time
 import zipfile
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -39,6 +40,8 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import AuditLog
 from tb_common.crypto import sha256_bytes
+from tb_common.feas_notes import notes_for as feas_notes
+from tb_common.reasons import label as reason_label
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
@@ -58,6 +61,7 @@ from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
+from console.refusals import localize as localize_refusal
 from console.registry_view import STATUSES, status_options
 from console.timefmt import local_time, site_zone
 
@@ -118,6 +122,11 @@ class ConsoleSettings:
     sso_trusted: tuple[str, ...] = ()
     sso_role_map: tuple[tuple[str, str], ...] = ()
     sso_default_role: str = "viewer"
+    # D-120: where the box's records come from ("synthetic" or "public": a public-data site), for the banner
+    data_source: str = "synthetic"
+    # D-120: the studies this site runs (TB_CONSOLE_STUDIES); the request menu lists only these. Empty: every
+    # approved study
+    studies: tuple[str, ...] = ()
 
     @property
     def sso(self) -> bool:
@@ -168,6 +177,10 @@ class ConsoleSettings:
                 if k.strip() and v.strip().lower() in ROLES
             ),
             sso_default_role=(env.get("TB_CONSOLE_SSO_DEFAULT_ROLE") or "viewer").strip().lower(),
+            data_source=(
+                "public" if (env.get("TB_CONSOLE_DATA_SOURCE") or "").strip().lower() == "public" else "synthetic"
+            ),
+            studies=tuple(x.strip().upper() for x in (env.get("TB_CONSOLE_STUDIES") or "").split(",") if x.strip()),
         )
         if obj.sso_header and not obj.sso_trusted:
             raise PilotRefused("TB_CONSOLE_SSO_HEADER needs TB_CONSOLE_SSO_TRUSTED_PROXIES (the proxy addresses)")
@@ -333,11 +346,25 @@ def create_app(
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     site_tz = site_zone(backend)
     templates.env.filters["local"] = lambda v, n=16: local_time(v, site_tz, n)
+    templates.env.globals["reason_label"] = reason_label  # a candidate row's reason code in the page language (D-118)
+    templates.env.globals["feas_notes"] = feas_notes  # a feasibility result's notes in the page language (D-119)
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users
 
-    app = FastAPI(title="trialbox-console", docs_url=None, redoc_url=None, openapi_url=None)
+    boot: list[Callable[[], Any]] = []  # started with the app (the box's own timers, D-121)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        running = [fn() for fn in boot]
+        try:
+            yield
+        finally:
+            for sched in running:
+                if sched is not None:
+                    sched.shutdown(wait=False)
+
+    app = FastAPI(title="trialbox-console", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     app.state.settings = settings
 
@@ -513,7 +540,8 @@ def create_app(
     @app.exception_handler(_Problem)
     async def _problem(request: Request, exc: _Problem) -> Response:
         sess = session_of(request)
-        return page(request, "problem.html", sess, status=exc.status, key=exc.key, values=exc.values)
+        values = localize_refusal(exc.values, lang_of(request, sess))  # no English refusal on a JA/zh-TW page
+        return page(request, "problem.html", sess, status=exc.status, key=exc.key, values=values)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
@@ -526,7 +554,8 @@ def create_app(
     @app.exception_handler(Unavailable)
     async def _unavailable(request: Request, exc: Unavailable) -> Response:
         sess = session_of(request)
-        return page(request, "problem.html", sess, status=503, key="unavailable", values={"detail": str(exc)[:300]})
+        detail = str(exc)[:300] if lang_of(request, sess) not in ("ja", "zh-TW") else ""
+        return page(request, "problem.html", sess, status=503, key="unavailable", values={"detail": detail})
 
     def actor(sess: Session) -> str:
         return f"console:{sess.user.username}"
@@ -790,6 +819,11 @@ def create_app(
     notify.register(app, helpers)
     study_setup.register(app, helpers)  # S21 and S36 (D-109)
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
+    from console import timers
+
+    raw_env = _env_map(env)
+    timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00
+    boot.append(lambda: timers.start(helpers, raw_env, site_tz))
 
     def _job_or_404(job_id: str) -> Job:
         if not _ULID.match(job_id):
@@ -1102,7 +1136,13 @@ def create_app(
         )
 
     def _request_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> HTMLResponse:
-        approved = [r for r in bk.rulesets() if r.status == "approved"]
+        approved = [
+            r
+            for r in bk.rulesets()
+            if r.status == "approved"
+            and (not settings.studies or r.id in settings.studies)
+            and sess.user.sees_study(r.id)
+        ]  # D-120: this site's own studies, and only those the account may see
         return page(request, "request.html", sess, status, rulesets=approved, **ctx)
 
     @app.get("/pilot/request", response_class=HTMLResponse)

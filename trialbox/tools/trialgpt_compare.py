@@ -365,24 +365,34 @@ def filter_first_table(lang: str = "en") -> list[tuple[str, dict[str, Any]]]:
     out = []
     names = sorted(runs)
     for n in names:
-        rows = filter_first(runs[n], by_id, rt)
-        m = mlbench.score(rows, by_id)
-        m["llm_share"] = sum(r["route"] in ("notes", "mixed") for r in rows) / max(1, len(rows))
-        out.append((n, m))
+        out.append((n, ff_metrics(runs[n], by_id, rt)))
     for i, a in enumerate(names):
         for b in names[i + 1 :]:
-            rb = {r["annotation_id"]: r for r in runs[b]}
-            both = []
-            for r in runs[a]:
-                o = rb.get(r["annotation_id"]) or {"label": None}
-                block = (r["label"] or "") in mlbench.BLOCKS and (o["label"] or "") in mlbench.BLOCKS
-                lab = r["label"] if block or (r["label"] or "") not in mlbench.BLOCKS else "not enough information"
-                both.append(r | {"label": lab})
-            rows = filter_first(both, by_id, rt)
-            m = mlbench.score(rows, by_id)
-            m["llm_share"] = sum(r["route"] in ("notes", "mixed") for r in rows) / max(1, len(rows))
-            out.append((f"{a}+{b}", m))
+            out.append((f"{a}+{b}", ff_metrics(both_block(runs[a], runs[b]), by_id, rt)))
     return sorted(out, key=lambda x: (x[1]["trial_false_exclusion"], -x[1]["block_recall"]))
+
+
+def both_block(rows_a: list[dict[str, Any]], rows_b: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The pair as the box decides (D-89): a criterion blocks only when both runs block it; else ``a`` abstains."""
+    rb = {r["annotation_id"]: r for r in rows_b}
+    both = []
+    for r in rows_a:
+        o = rb.get(r["annotation_id"]) or {"label": None}
+        block = (r["label"] or "") in mlbench.BLOCKS and (o["label"] or "") in mlbench.BLOCKS
+        lab = r["label"] if block or (r["label"] or "") not in mlbench.BLOCKS else "not enough information"
+        both.append(r | {"label": lab})
+    return both
+
+
+def ff_metrics(
+    rows: list[dict[str, Any]], by_id: dict[str, mlbench.Pair], rt: dict[tuple[str, str], str]
+) -> dict[str, Any]:
+    """One run (or a :func:`both_block` pair) scored under filter-first."""
+    ff = filter_first(rows, by_id, rt)
+    m = mlbench.score(ff, by_id)
+    m["llm_share"] = sum(r["route"] in ("notes", "mixed") for r in ff) / max(1, len(ff))
+    m["pairs_lost"] = round(m["trial_false_exclusion"] * m["trials_open"])
+    return m
 
 
 def main(argv: list[str] | None = None) -> None:

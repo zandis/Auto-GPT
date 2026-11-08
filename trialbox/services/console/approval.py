@@ -95,6 +95,7 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             "opened": opened,
             "missing": [a for a in ambers if a not in opened],
             "ticks": store.code_ticks(job.job_id),
+            "labels": store.labels(job.ruleset or "", sess.lang) if sess.lang != "en" else {},
             "split": {c: sum(1 for r in rows if r.get("class") == c) for c in ("structured", "note", "mixed", "human")},
         }
 
@@ -150,6 +151,35 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             detail={"action": crit, "role": sess.user.role},
         )
         return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=tick#{crit}", status_code=303)
+
+    @app.post("/pilot/jobs/{job_id}/approval/label")
+    def label(
+        request: Request, job_id: str, csrf: str = Form(""), crit: str = Form(""), text: str = Form("")
+    ) -> Response:
+        """D-120: a criterion's label in the site's language, given at approval. The study's own label and text stay
+        on every page beside it; the label is the site's words, not the protocol's."""
+        sess = h.need(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        if not (sess.user.can_request or sess.user.can_approve):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+        if sess.lang == "en":
+            raise h.problem(400, "request.refused", reason="choose the page language the label is in first")
+        job, book = waiting_job(sess, job_id)
+        ids = {str(r["id"]) for r in review_rows(bk.get_object(book.minio_key))}
+        if crit not in ids:
+            raise h.problem(404, "notfound")
+        words = " ".join(text.split())[:80]
+        store.save_label(job.ruleset or "", crit, sess.lang, words, sess.user.username, h.clock().isoformat())
+        au.append(
+            "console.criterion_label",
+            job_id=job.job_id,
+            ruleset=job.ruleset,
+            actor=h.actor(sess),
+            detail={"action": crit, "role": sess.user.role, "lang": sess.lang},
+        )
+        return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=label#{crit}", status_code=303)
 
     @app.post("/pilot/jobs/{job_id}/approve")
     def approve(request: Request, job_id: str, csrf: str = Form("")) -> Response:
