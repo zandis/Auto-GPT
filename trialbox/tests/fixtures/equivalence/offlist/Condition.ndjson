@@ -1,0 +1,11 @@
+{"resourceType": "Condition", "id": "c-listed", "subject": {"reference": "Patient/OFF-LISTED"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "C50.911"}]}, "onsetDateTime": "2026-03-01"}
+{"resourceType": "Condition", "id": "c-offlist", "subject": {"reference": "Patient/OFF-OFFLIST"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "C50.9Z"}]}, "onsetDateTime": "2026-03-01"}
+{"resourceType": "Condition", "id": "c-skin", "subject": {"reference": "Patient/OFF-SKIN"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "C44.91"}]}, "onsetDateTime": "2026-03-01"}
+{"resourceType": "Condition", "id": "c-both-off", "subject": {"reference": "Patient/OFF-BOTH"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "C50.9Z"}]}, "onsetDateTime": "2026-03-01"}
+{"resourceType": "Condition", "id": "c-both-c61", "subject": {"reference": "Patient/OFF-BOTH"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "C61"}]}, "onsetDateTime": "2026-04-01"}
+{"resourceType": "Condition", "id": "c-none", "subject": {"reference": "Patient/OFF-NONE"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10-cm", "code": "M10.00"}]}, "onsetDateTime": "2026-03-01"}
+{"resourceType": "Condition", "id": "c-who", "subject": {"reference": "Patient/UNK-WHO"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10", "code": "C50.9"}]}, "onsetDateTime": "2026-03-01"}
+{"resourceType": "Condition", "id": "c-medis", "subject": {"reference": "Patient/UNK-MEDIS"}, "code": {"coding": [{"system": "urn:oid:1.2.392.200119.4.101.6", "code": "ZZ1234", "display": "乳癌"}]}, "onsetDateTime": "2026-03-01"}
+{"resourceType": "Condition", "id": "c-text", "subject": {"reference": "Patient/UNK-TEXT"}, "code": {"text": "breast cancer (free text)"}, "onsetDateTime": "2026-03-01"}
+{"resourceType": "Condition", "id": "c-icd9", "subject": {"reference": "Patient/UNK-ICD9"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-9-cm", "code": "174.9"}]}, "onsetDateTime": "2026-03-01"}
+{"resourceType": "Condition", "id": "c-old", "subject": {"reference": "Patient/UNK-OLD"}, "code": {"coding": [{"system": "http://hl7.org/fhir/sid/icd-10", "code": "C50.9"}]}, "onsetDateTime": "2020-01-01"}

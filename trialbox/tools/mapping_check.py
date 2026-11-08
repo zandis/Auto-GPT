@@ -31,6 +31,7 @@ for _p in ("libs", "services"):
 
 _TOKEN = re.compile(r"\{([A-Za-z_][\w.]*)\}")
 COLUMN_KEYS = ("column", "pid", "hid", "display_column", "start", "end", "add_minutes", "base64")
+UNREADABLE = {"diagnosis": "icd10", "medication": "atc"}  # the column whose absence makes a row unreadable (D-130)
 
 
 def referenced_columns(spec: Any) -> set[str]:
@@ -120,6 +121,12 @@ def check(mapping_path: Path, source_kind: str, where: str, rows: int = 500) -> 
                 if code not in (None, "") and str(code) not in lk.rows:
                     unmapped[f"lab {lk.key}={code} (not in lookup)"] += 1
         t["unmapped_codes"] = dict(unmapped.most_common(20))
+        # D-130 (review F-10): diagnoses without an ICD-10 code and medicines without ATC reach the lake in a code
+        # system no ValueSet reads; screening keeps those patients unknown, so the site should know the share now
+        col = UNREADABLE.get(table)
+        if col:
+            n_bad = sum(1 for row in got if not str(row.get(col) or "").strip())
+            t["unknown_code_system"] = {"rows": n_bad, "share": round(n_bad / len(got), 3)}
         if missing:
             report["tables"][table] = t
             continue
@@ -136,8 +143,8 @@ def check(mapping_path: Path, source_kind: str, where: str, rows: int = 500) -> 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--mapping", type=Path, required=True)
-    ap.add_argument("--source", choices=["csv", "cgrd_sql"], default="csv")
-    ap.add_argument("--path", help="export directory (csv)")
+    ap.add_argument("--source", choices=["csv", "cgrd_sql", "ssmix2"], default="csv")
+    ap.add_argument("--path", help="export directory (csv) or storage root (ssmix2)")
     ap.add_argument("--dsn", help="SQLAlchemy DSN (cgrd_sql)")
     ap.add_argument("--rows", type=int, default=500)
     ap.add_argument("--json", action="store_true")
@@ -156,6 +163,9 @@ def main(argv: list[str] | None = None) -> int:
                 line += f"  (optional, not provided: {', '.join(t['absent_optional'])})"
             if t.get("unmapped_codes"):
                 line += f"  unmapped: {', '.join(f'{k} ×{v}' for k, v in t['unmapped_codes'].items())}"
+            if (t.get("unknown_code_system") or {}).get("rows"):
+                u = t["unknown_code_system"]
+                line += f"  unknown code system: {u['rows']} rows ({u['share']:.1%})"
             if t.get("note"):
                 line += f"  ({t['note']})"
             print(line)

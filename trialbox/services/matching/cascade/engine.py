@@ -58,6 +58,7 @@ from matching.cascade.model import (
     StageLog,
 )
 from matching.cascade.s2b_semantic import BatchEmbedder, Embedder, ThresholdTable, screen
+from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 
 PATIENT_CLASS = "D3"  # every cascade output is patient level (§7.1)
 UNKNOWN_KEPT = "unknown_kept"  # v1: an unknown exclusion does not exclude (FEAS D-18)
@@ -311,6 +312,7 @@ class _Run:
         self.cache: dict[str, JudgeReply] = {}
         self.items = 0
         self.tokens = 0
+        self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
 
     def log(self, stage: Stage, p_in: int, p_out: int, q_in: int, q_out: int, **detail: Any) -> None:
         self.stages.append(StageLog(stage, p_in, p_out, q_in, q_out, PATIENT_CLASS, self.ir_hash, dict(detail)))
@@ -395,6 +397,7 @@ class _Run:
         if not applied:
             raise CascadeError(f"ruleset {self.rs.id} has no compiled structured criteria")
         table = self.lake.query(self.rs.sql, [[d.isoformat() for d in idx], scope], self.cfg.snapshot).to_pylist()
+        self.coverage = Coverage.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         by_pid: dict[str, list[dict[str, Any]]] = {}
         for row in table:
             by_pid.setdefault(str(row["pid"]), []).append(row)
@@ -444,6 +447,9 @@ class _Run:
             semantics=self.semantics,
             index_dates=len(idx),
             deferred_index=sum(1 for t in alive for o in t.outcomes.values() if o.reason == "index_absent"),
+            unknown_code_system=sum(
+                1 for t in alive if any(o.reason == UNKNOWN_CODE_SYSTEM for o in t.outcomes.values())
+            ),
         )
         self.metrics.n_after["S1"] = len(alive)
         return applied
@@ -474,7 +480,27 @@ class _Run:
             return Outcome(c.id, "unknown", "S1", unknown_kind="data_gap", evidence=ev, reason=CODE_OUTSIDE_LIST)
         if v is None:
             return Outcome(c.id, "unknown", "S1", unknown_kind="data_gap", reason="no value in the window")
-        # inclusion FALSE
+        # inclusion FALSE. F-10 (D-130): with a record in the atom's window coded in a system no ValueSet can read,
+        # FALSE only means "not among the codes we can read": unknown, a person checks, never a silent exclusion
+        gap = self.coverage.refs(c, str(row["pid"]), row["index_date"])
+        if gap:
+            return Outcome(
+                c.id,
+                "unknown",
+                "S1",
+                unknown_kind="data_gap",
+                evidence=[
+                    {
+                        "source": "lake",
+                        "record": x.split("|")[0],
+                        "date": x.split("|")[1] if "|" in x else None,
+                        "lineage": f"snapshot:{self.cfg.snapshot or ''}",
+                        "index_date": row["index_date"].isoformat(),
+                    }
+                    for x in gap[:20]
+                ],
+                reason=UNKNOWN_CODE_SYSTEM,
+            )
         if self.semantics == "v1" or is_value_criterion(c):
             return Outcome(c.id, "fail", "S1", hard=True, stratum=STRATUM_S1, evidence=ev, reason="failing value")
         if is_index_criterion(c):

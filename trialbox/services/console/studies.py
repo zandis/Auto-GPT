@@ -417,6 +417,12 @@ def list_bridge(rep: Mapping[str, Any] | None, rows: Sequence[Mapping[str, Any]]
             for r in live
             if any(((v.get("evidence") or {}).get("reason") == "code_outside_list") for v in r.get("criteria") or [])
         )
+        # D-130 (review F-10): a record in a code system nobody can read made a coded inclusion unknown
+        out["unknown_system"] = sum(
+            1
+            for r in live
+            if any(((v.get("evidence") or {}).get("reason") == "unknown_code_system") for v in r.get("criteria") or [])
+        )
     return out
 
 

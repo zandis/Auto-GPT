@@ -107,3 +107,44 @@ def test_atoms_gate_on_hapi() -> None:
     )
     assert rep.failing == [], [d.model_dump() for d in (rep.disagreements or [])[:5]]
     assert rep.overall_pct >= 98.0
+
+
+def test_offlist_gate_on_hapi(tmp_path: Path) -> None:
+    """Review F3 (D-113, D-130): records coded inside a grouper's family but off its list, and in systems no ValueSet
+    reads, on both engines. The CQL now fails closed like the SQL, so the gate agrees on every patient and both give
+    the oracle of ``tests/fixtures/equivalence/offlist/expected.json``."""
+    from criteria_compiler.compile_cql.generator import CqlGenerator, render_common
+    from criteria_compiler.compile_cql.translator import Translator, available, fhirhelpers_source
+    from criteria_compiler.compile_sql.generator import SqlGenerator
+    from criteria_compiler.equivalence.gate import run_gate
+    from embed_service.embedder import HashEmbedder
+    from lake.client import LakeLocal
+    from tb_common.fhir import FhirEvaluator, library_resource
+
+    from tests.offlist_fixture import build_lake, compiled, index_date, offlist_ruleset, resources
+
+    if not available():
+        pytest.skip("cql-translator jars not available on the host (.cache/jvm)")
+    crit, vs, vsi, expected = offlist_ruleset()
+    gen = CqlGenerator("OFFL", "1.0.0", vsi)
+    cql = gen.render(crit)
+    tr = Translator().translate({"FHIRHelpers": fhirhelpers_source(), "TB_Common": render_common(), gen.library: cql})
+    fh = FhirEvaluator(FHIR)
+    fh.load(
+        [
+            library_resource("FHIRHelpers", "4.0.1", fhirhelpers_source(), tr.elm["FHIRHelpers"]),
+            library_resource("TB_Common", "1.0.0", render_common(), tr.elm["TB_Common"]),
+            library_resource(gen.library, gen.library_version, cql, tr.elm[gen.library]),
+        ],
+        vs.values(),
+    )
+    for r in resources():
+        fh.put(r)
+    lake = LakeLocal(build_lake(tmp_path / "lake"), HashEmbedder())
+    rep = run_gate(crit, SqlGenerator("OFFL", "1.0.0", vsi).render(crit), gen.library, lake, fh,
+                   index_date(expected), "OFFL|1.0.0")  # fmt: skip
+    assert rep.overall_pct == 100.0 and rep.failing == [], [d.model_dump() for d in (rep.disagreements or [])[:5]]
+    assert rep.sample_size == len(expected["compiled"])
+    cql_got = fh.evaluate_many(gen.library, sorted(expected["compiled"]), index_date(expected),
+                               CqlGenerator.expression_names(crit))  # fmt: skip
+    assert {e.pid: e.results for e in cql_got} == compiled(expected)

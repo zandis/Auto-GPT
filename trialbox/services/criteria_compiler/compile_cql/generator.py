@@ -34,6 +34,14 @@ _env = Environment(
     loader=FileSystemLoader(TEMPLATES), undefined=StrictUndefined, keep_trailing_newline=True, autoescape=False
 )
 CS_NAMES = {LOINC: "LOINC", SCORE: "TBSCORE"}
+# resource type and coding list of a presence atom whose ValueSet is a code-prefix grouper (D-113 families)
+FAMILY_CODINGS = {
+    "condition": ("Condition", "X.code.coding"),
+    "medication": ("MedicationRequest", "(X.medication as FHIR.CodeableConcept).coding"),
+    "procedure": ("Procedure", "X.code.coding"),
+    "report": ("DiagnosticReport", "X.code.coding"),
+    "observation": ("Observation", "X.code.coding"),
+}
 
 
 def render_common() -> str:
@@ -122,6 +130,29 @@ class CqlGenerator:
         else:
             a = f"exists ({q('Q_' + p)})"
         ev = f"{q('Q_' + p)} X return X.id + '|' + ToString({date})"
+        fams = self.vs.families(atom.valueset)
+        if not fams:
+            return defs, a, ev
+        # D-113 in CQL too (review F3, D-130): when the listed codes do not settle the atom but a record in the window
+        # is coded inside the grouper's family and outside its list, the answer is null (unknown), as the SQL says
+        if atom.domain not in FAMILY_CODINGS:
+            raise CompileError(f"code families are not supported on {atom.domain} atoms")
+        on, qn = q("O_" + p), q("Q_" + p)
+        in_family = " or ".join(
+            f"(Cd.system.value = '{sy}' and StartsWith(Cd.code.value, '{pre}'))" for sy, pre in sorted(set(fams))
+        )
+        defs.append(
+            f"define {on}:\n  [{FAMILY_CODINGS[atom.domain][0]}] X where ({date} in {win})\n"
+            f"    and exists (({FAMILY_CODINGS[atom.domain][1]}) Cd where ({in_family}) "
+            f"and not (FHIRHelpers.ToCode(Cd) in {vs}))"
+        )
+        if quant == "count>=":
+            settled = f"Count({qn}) >= {atom.count}"
+        else:
+            settled = f"exists ({qn})"
+        hit, miss = ("false", "true") if quant == "none" else ("true", "false")
+        a = f"if {settled} then {hit} else if exists ({on}) then null as Boolean else {miss}"
+        ev = f"if exists ({qn}) then ({ev}) else ({on} X return X.id + '|' + ToString({date}))"
         return defs, a, ev
 
     def _obs_value(self, cid: str, n: int, atom: Atom, w: Window) -> tuple[list[str], str, str]:

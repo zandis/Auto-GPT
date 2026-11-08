@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
@@ -20,6 +21,7 @@ from datetime import date, timedelta
 from typing import Any, Literal, Protocol, cast
 
 from lake.client import LakeAPI
+from matching.coverage import Coverage
 from tb_common.fhir import FhirEvaluator
 from tb_common.llm import LlmClient, LlmError
 from tb_common.pair import Vote, combine, needs_verifier
@@ -91,14 +93,21 @@ class SqlEngine:
         if not pids:
             return {}
         t = self.lake.query(rs.sql, [[index_date.isoformat()], list(pids)], self.snapshot).to_pylist()
+        crit = [c for c in rs.active() if c.id in set(ids)]
+        cov = Coverage.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
         out: dict[str, PatientEvaluation] = {}
         for row in t:
             res = {k[2:]: row[k] for k in row if k.startswith("C_") and k[2:] in ids}
             ev = {
                 k[2:]: [x for x in (row[k] or "").split(";") if x] for k in row if k.startswith("E_") and k[2:] in ids
             }
+            reasons: dict[str, str] = {}
+            for c in crit:  # F-10 (D-130): FALSE beside an unreadable code is unknown, not an exclusion
+                gap = cov.refs(c, str(row["pid"]), index_date) if res.get(c.id) is False else []
+                if gap:
+                    res[c.id], ev[c.id], reasons[c.id] = None, gap, Reason.UNKNOWN_CODE_SYSTEM.value
             out[row["pid"]] = PatientEvaluation(
-                pid=row["pid"], index_date=index_date, engine="sql", results=res, evidence=ev
+                pid=row["pid"], index_date=index_date, engine="sql", results=res, evidence=ev, reasons=reasons or None
             )
         return out
 
@@ -176,6 +185,14 @@ class NoteJudge:
     tokens_out: int = 0
     failures: int = 0  # model calls that got no answer (model down, timeout, out-of-schema)
     disagreements: int = 0  # decided answers the verifier did not confirm (became unknown)
+    # the counters are bumped from the evaluator's worker threads: one lock, so the >10 % model-down rule and the
+    # audit counts never lose an increment (review F-27)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def _count(self, **inc: int) -> None:
+        with self._lock:
+            for name, n in inc.items():
+                setattr(self, name, getattr(self, name) + n)
 
     @property
     def mode(self) -> str:
@@ -245,11 +262,9 @@ class NoteJudge:
         try:
             res = client.chat_json(self.prompt, variables, job_id=self.job_id)
         except LlmError:
-            self.failures += 1
+            self._count(failures=1)
             return NoteResult("unknown", 0.0, reason=Reason.MODEL_DOWN.value, source=source)
-        self.calls += 1
-        self.tokens_in += res.tokens_in
-        self.tokens_out += res.tokens_out
+        self._count(calls=1, tokens_in=res.tokens_in, tokens_out=res.tokens_out)
         r = postprocess(res.data, excerpts, source)
         return replace(
             r,
@@ -284,7 +299,7 @@ class NoteJudge:
             second = self._ask(self.verifier, variables, excerpts, source)  # counts its own failure
         d = combine(_vote(first), None if second is None else _vote(second))
         if d.disagreement:
-            self.disagreements += 1
+            self._count(disagreements=1)
         t_in = first.tokens_in + (second.tokens_in if second else 0)
         t_out = first.tokens_out + (second.tokens_out if second else 0)
         opinions = [_opinion("judge", first), _opinion("verifier", second)] if d.disagreement and second else []
@@ -363,8 +378,12 @@ def structured_verdict(c: CriterionIR, ev: PatientEvaluation | None) -> Criterio
     pred = None if ev is None else ev.results.get(c.id)
     refs = [] if ev is None or not ev.evidence else list((ev.evidence or {}).get(c.id) or [])
     known = pred if isinstance(pred, bool) else None
-    # D-113: unknown with records attached = coded inside the grouper's family but outside its code list
-    if known is None:
+    told = (ev.reasons or {}).get(c.id) if ev is not None else None
+    # D-113: unknown with records attached = coded inside the grouper's family but outside its code list;
+    # D-130: or a record in a code system the mapping does not know (the engine says so in ``reasons``)
+    if known is None and told:
+        why = told
+    elif known is None:
         why = Reason.CODE_OUTSIDE_LIST.value if refs else Reason.DATA_GAP.value
     else:
         why = Reason.CODED.value
