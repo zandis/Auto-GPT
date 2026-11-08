@@ -25,6 +25,10 @@ import pyarrow.parquet as pq
 TERM_DIR = Path(__file__).resolve().parent
 VS_BASE = "http://trialbox.local/fhir/ValueSet"
 REVIEW_TAG_SYSTEM = "https://trialbox.local/fhir/CodeSystem/review-flag"
+# D-113: a code-prefix grouper ("malignancy" = C0..C9) keeps its prefixes on the ValueSet, so a record coded inside
+# the family but outside the enumerated concepts (a local or newer code the demo tables lack, e.g. C80.1) makes the
+# criterion unknown instead of silently false. ``valueString`` is ``<system>|<prefix>``.
+FAMILY_EXT = "https://trialbox.local/fhir/StructureDefinition/code-family"
 
 SYSTEMS = {
     "icd10cm": "http://hl7.org/fhir/sid/icd-10-cm",
@@ -74,6 +78,7 @@ class MappingResult:
     method: str  # exact | synonym | llm | none
     needs_review: bool
     notes: list[str] = field(default_factory=list)
+    families: list[tuple[str, str]] = field(default_factory=list)  # (system, code prefix) of prefix groupers
 
 
 ConceptMapLLM = Callable[[str, str, list[Concept]], tuple[list[tuple[str, str, float]], bool]]
@@ -155,11 +160,14 @@ class Terminology:
         #    "urate-lowering therapy" must win over exact matches of individual example drugs
         for candidates in ([primary], names):
             hits = []
+            fams: set[tuple[str, str]] = set()
             for s in self.synonyms:
                 if s["domain"] == domain and norm(s["name"]) in candidates:
                     hits.extend(self.expand(s["table"], s["code"], s["match"]))
+                    if s["match"] == "prefix":
+                        fams.add((SYSTEMS[s["table"]], s["code"]))
             if hits:
-                return MappingResult(name, domain, _dedupe(hits), "synonym", False)
+                return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
         # 2b. exact match on the synonyms (flagged for review: the grouping came from the model)
         hits = exact(names[1:])
         if hits:
@@ -204,6 +212,7 @@ def valueset(
     version: str,
     needs_review: bool = False,
     status: str = "draft",
+    families: list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     by_system: dict[str, list[Concept]] = {}
     for c in concepts:
@@ -230,6 +239,8 @@ def valueset(
         "status": status,
         "compose": compose,
     }
+    if families:
+        vs["extension"] = [{"url": FAMILY_EXT, "valueString": f"{sy}|{pre}"} for sy, pre in sorted(set(families))]
     if needs_review:
         vs["meta"] = {"tag": [{"system": REVIEW_TAG_SYSTEM, "code": "needs_review"}]}
     return vs
@@ -254,6 +265,16 @@ class ValueSets:
         if vs is None:
             raise KeyError(f"ValueSet {name} not defined for ruleset {self.ruleset}")
         return [(inc["system"], c["code"]) for inc in vs["compose"]["include"] for c in inc.get("concept", [])]
+
+    def families(self, name: str) -> list[tuple[str, str]]:
+        """(system, prefix) of the code families a grouper ValueSet stands for (D-113); empty for plain lists."""
+        vs = self.by_name.get(name) or {}
+        out = []
+        for ext in vs.get("extension") or []:
+            if ext.get("url") == FAMILY_EXT and "|" in str(ext.get("valueString", "")):
+                sy, pre = str(ext["valueString"]).rsplit("|", 1)
+                out.append((sy, pre))
+        return out
 
     def is_component_set(self, name: str) -> bool:
         """True when every code is a panel component (e.g. systolic BP inside 85354-9)."""

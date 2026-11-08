@@ -1243,3 +1243,24 @@ not to fit (35,810 MiB on the 8 Nov card run; "pair-tight" short of KV cache).
   `--enable-sleep-mode` on both servers), or the operator sets `TB_ACCEPT_UNMEASURED_GPU=1` for a first trial boot.
 * **Not done.** The answers after a wake were not captured on the 8 Nov run (empty smoke answers in `fit.json`), and
   nothing has run on a physical 5090.
+
+**D-113 A code-prefix grouper fails closed: coded inside the family but not in the list is unknown.** Fable review
+2026-11-08, finding 2: on the public-data run 26 patients coded C80.1 / C50.9 / C25.9 were counted "not malignant"
+because the demo terminology did not list those codes, and a structured inclusion false drops a patient outside the
+two-model rule.
+
+* **The grouper keeps its families.** A synonym row with `match=prefix` ("malignancy" = C0…C9 families) now records
+  `(system, prefix)` on the ValueSet as the `code-family` extension (`terminology/mapper.py` `FAMILY_EXT`,
+  `ValueSets.families`). Plain lists and exact synonyms carry none, and their SQL is unchanged byte for byte.
+* **SQL.** For a presence atom on a grouper ValueSet the generator adds a `<atom>_off` CTE: records in the window
+  coded inside a family but not listed. When the listed codes do not settle the atom and such a record exists, the
+  atom is NULL (unknown), never false (or, for `none`, never true). FEAS, SCREEN v1 and the v4 cascade all read the
+  same SQL. The unknown carries the records and the reason `code_outside_list` (cascade `CODE_OUTSIDE_LIST`,
+  `structured_verdict`), so the reviewer sees which record caused it.
+* **Terminology.** The demo `icd10cm_tw` adds C25.9, C50.9 (WHO ICD-10), C79.9, C80.0 and C80.1.
+* **Evidence.** `tools/public_e2e.py` now recounts the malignancy step from `diagnosis.csv` by ICD-10 family, not by
+  the list, and asserts that every cancer code in the data is listed (the always-true check is gone). Public run:
+  INC-02 41 (was 15), SCREEN listed 90 (was 65).
+* **Not done.** The CQL path (HAPI `$evaluate`) still reads the enumerated list only; the SQL engine is the default
+  and the equivalence gate's fixtures have no off-list family codes. A family is matched within its own code system
+  only, so a site exporting WHO ICD-10 under another system URI needs its mapping first.

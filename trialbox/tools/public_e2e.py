@@ -255,7 +255,8 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
 
     known = {r["code"] for r in pq.read_table(TERMINOLOGY, columns=["code"]).to_pylist()}
     vs = {c for c in known if c.startswith(MALIGNANT)}  # the "malignancy" grouper expands over the terminology
-    malig = {d["mrn"] for d in dx if d["icd10"] in vs}
+    # clinical truth, independent of the terminology: any code in the malignancy families (D-113)
+    cancer = {d["mrn"] for d in dx if d["icd10"].startswith(MALIGNANT)}
     term = sorted({d["icd10"] for d in dx if d["icd10"].startswith(MALIGNANT) and d["icd10"] not in vs})
     inc = {k: v for k, v in raw["remaining"].items()}
     s.check("start = every patient", raw["start_n"] == len(patients), raw["start_n"])
@@ -265,15 +266,16 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         (inc.get(f"{TRIAL}-INC-01"), len(adults)),
     )
     s.check(
-        "malignancy = recount from diagnosis.csv (codes in the value set)",
-        inc.get(f"{TRIAL}-INC-02") == len(adults & malig),
-        (inc.get(f"{TRIAL}-INC-02"), len(adults & malig)),
+        "malignancy = every adult with a cancer code in diagnosis.csv (recount by ICD-10 family, not by the list)",
+        inc.get(f"{TRIAL}-INC-02") == len(adults & cancer),
+        (inc.get(f"{TRIAL}-INC-02"), len(adults & cancer)),
     )
-    missed = {d["mrn"] for d in dx if d["icd10"] in term} - malig
+    listed = {d["mrn"] for d in dx if d["icd10"] in vs}
+    missed = cancer - listed  # patients whose only cancer codes are outside the list (kept as unknown, D-113)
     s.check(
-        "cancer codes outside the demo terminology are reported, not silently counted",
-        True,
-        f"{len(missed)} patients only coded {term}",
+        "every cancer code in the data is in the malignancy value set",
+        term == [] and not missed,
+        f"not listed: {term}, {len(missed)} patients",
     )
     rem = [row["remaining"] for row in rep["funnel"]]
     s.check("funnel never grows", all(a >= b for a, b in itertools.pairwise(rem)), rem)

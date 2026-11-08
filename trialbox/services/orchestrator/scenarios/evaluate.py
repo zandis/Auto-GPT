@@ -303,10 +303,13 @@ class PatientVerdicts:
 def structured_verdict(c: CriterionIR, ev: PatientEvaluation | None) -> CriterionVerdict:
     pred = None if ev is None else ev.results.get(c.id)
     refs = [] if ev is None or not ev.evidence else list((ev.evidence or {}).get(c.id) or [])
+    known = pred if isinstance(pred, bool) else None
+    # D-113: unknown with records attached = coded inside the grouper's family but outside its code list
+    why = "code_outside_list" if known is None and refs else None
     return CriterionVerdict(
         id=c.id,
-        verdict=eligibility(c.kind, pred if isinstance(pred, bool) else None),
-        evidence=Evidence(resource_refs=refs[:20]),
+        verdict=eligibility(c.kind, known),
+        evidence=Evidence(resource_refs=refs[:20], reason=why),
     )
 
 

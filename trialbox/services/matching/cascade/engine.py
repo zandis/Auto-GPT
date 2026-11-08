@@ -60,6 +60,7 @@ from matching.cascade.s2b_semantic import BatchEmbedder, Embedder, ThresholdTabl
 
 PATIENT_CLASS = "D3"  # every cascade output is patient level (§7.1)
 UNKNOWN_KEPT = "unknown_kept"  # v1: an unknown exclusion does not exclude (FEAS D-18)
+CODE_OUTSIDE_LIST = "code_outside_list"  # D-113: coded inside a grouper's family, not in its list: kept, unknown
 EXCERPT_TOKENS = 2500
 EXCLUSION_POWER_PRIOR = 0.5  # CAS-3 prior until the criterion library has site history
 _SENT = re.compile(r"[^。！？!?\n]+[。！？!?]?")
@@ -451,10 +452,13 @@ class _Run:
             if v is True:
                 return Outcome(c.id, "fail", "S1", hard=True, stratum=STRATUM_S1, evidence=ev, reason="matching record")
             if v is None:
-                return Outcome(c.id, "pass", "S1", unknown_kind="data_gap", reason=UNKNOWN_KEPT)
+                why = CODE_OUTSIDE_LIST if ev else UNKNOWN_KEPT
+                return Outcome(c.id, "pass", "S1", unknown_kind="data_gap", evidence=ev, reason=why)
             return Outcome(c.id, "pass", "S1", evidence=ev)
         if v is True:
             return Outcome(c.id, "pass", "S1", evidence=ev)
+        if v is None and ev:  # D-113: a record coded inside the grouper's family but outside its code list
+            return Outcome(c.id, "unknown", "S1", unknown_kind="data_gap", evidence=ev, reason=CODE_OUTSIDE_LIST)
         if v is None:
             return Outcome(c.id, "unknown", "S1", unknown_kind="data_gap", reason="no value in the window")
         # inclusion FALSE
