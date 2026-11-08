@@ -496,12 +496,17 @@ def run_end_to_end(
     pair, patient, historical = _oracles(truth, rs, res)
     rdir = out_dir / "recall"
     rdir.mkdir(parents=True, exist_ok=True)
-    ledger = rdir / "recall_ledger.sqlite"
-    for f in rdir.glob("recall_ledger.sqlite*"):
-        f.unlink()
+    from orchestrator.recall.ledger import RecallLedger
+
+    from tools import pglocal
+
+    ledger_url = pglocal.for_work(out_dir)  # TB_DB_URL, or this run's schemas in a throwaway local database
+    fresh = RecallLedger(url=ledger_url)
+    fresh.reset()  # every run certifies from an empty ledger (synthetic data only: TB_ENV DEV or TEST)
+    fresh.close()
     cert = certify(
         res,
-        ledger,
+        ledger_url,
         run_id=f"run:{trial_id}:{manifest.snapshot_id}",
         period=run_date.isoformat()[:7],
         plan=AuditPlan(),
@@ -512,7 +517,6 @@ def run_end_to_end(
     cert_path = rdir / ("recall_certificate.json" if cert.status == "issued" else "recall_refusal.json")
     cert_path.write_text(json.dumps(cert.as_pack_input(), indent=1, sort_keys=True, default=str) + "\n", "utf-8")
     artefacts["recall_certificate" if cert.status == "issued" else "recall_refusal"] = str(cert_path)
-    artefacts["recall_ledger"] = str(ledger)
     checks["certificate_or_refusal"] = cert.status == "issued" or bool(cert.reasons)
 
     # -------------------------------------------------------------------------------------- DL-1

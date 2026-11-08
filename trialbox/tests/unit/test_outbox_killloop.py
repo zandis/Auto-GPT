@@ -3,8 +3,8 @@
 The kill loop runs a three-step workflow for many jobs and delivers the outbox through a MailHog-like sink, while a
 seeded chaos source kills the "process" at every boundary: inside step bodies, between a step body and its commit,
 after a claim, before and after the transport's external effect, inside the mark transaction and after it. Each
-kill drops the dispatcher and its connection, advances the clock past the lease and starts a new incarnation from
-the database file. The assertion is exactly one delivery per outbox row.
+kill drops the dispatcher and its connection, advances the clock past the lease and starts a new incarnation on a new
+connection to the trial database (schema ``wf``). The assertion is exactly one delivery per outbox row.
 """
 
 from __future__ import annotations
@@ -13,18 +13,16 @@ import functools
 import multiprocessing
 import os
 import random
-import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
 from orchestrator.db_pg import (
     OutboxMessage,
-    SqliteBackend,
+    PostgresBackend,
     StepBusy,
     StepResult,
     StepStore,
@@ -42,6 +40,7 @@ from orchestrator.outbox import (
     TransportRejected,
     outbox_rows,
 )
+from tb_common.db import Database, DatabaseError
 
 LEASE_MS = 10_000
 T0 = datetime(2026, 10, 25, 9, 0, tzinfo=ZoneInfo("Asia/Taipei"))
@@ -75,33 +74,35 @@ class Chaos:
 
 
 class MailSink:
-    """MailHog stand-in persisted in its own SQLite file, so it outlives dispatcher restarts. It records every
-    delivery (duplicates included) and can be searched by idempotency key, like a Message-ID search."""
+    """MailHog stand-in persisted in its own schema (``sink``), so it outlives dispatcher restarts. Every call opens
+    its own connection, as the SQLite file did. It records every delivery (duplicates included) and can be searched by
+    idempotency key, like a Message-ID search."""
 
-    def __init__(self, path: Path, chaos: Chaos | None = None, probe_supported: bool = True) -> None:
-        self.path = path
+    DDL = (
+        "CREATE TABLE IF NOT EXISTS deliveries (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,"
+        " idempotency_key TEXT, message_id TEXT, recipient TEXT, payload TEXT)"
+    )
+
+    def __init__(self, url: str, chaos: Chaos | None = None, probe_supported: bool = True) -> None:
+        self.url = url
         self.chaos = chaos
         self.probe_supported = probe_supported
-        con = sqlite3.connect(path)
-        con.execute(
-            "CREATE TABLE IF NOT EXISTS deliveries (id INTEGER PRIMARY KEY AUTOINCREMENT, idempotency_key TEXT,"
-            " message_id TEXT, recipient TEXT, payload TEXT)"
-        )
-        con.commit()
-        con.close()
+        with self._db() as db:
+            db.migrate([self.DDL])
+
+    def _db(self) -> Database:
+        return Database.connect(self.url, "sink")
 
     def send(self, d: Delivery) -> str:
         if self.chaos:
             self.chaos.maybe("transport_before_effect")
             if self.chaos.rng.random() < 0.05:
                 raise TransportRejected("421 try again later")
-        con = sqlite3.connect(self.path)
-        con.execute(
-            "INSERT INTO deliveries (idempotency_key, message_id, recipient, payload) VALUES (?, ?, ?, ?)",
-            (d.idempotency_key, d.message_id, d.recipient, canonical_json(d.payload)),
-        )
-        con.commit()
-        con.close()
+        with self._db() as db:
+            db.execute(
+                "INSERT INTO deliveries (idempotency_key, message_id, recipient, payload) VALUES (?, ?, ?, ?)",
+                (d.idempotency_key, d.message_id, d.recipient, canonical_json(d.payload)),
+            )
         if self.chaos:
             self.chaos.maybe("transport_after_effect")  # the answer is lost with the process
             if self.chaos.rng.random() < 0.05:
@@ -114,20 +115,16 @@ class MailSink:
         return DeliveryStatus.DELIVERED if self.count(idempotency_key) else DeliveryStatus.NOT_DELIVERED
 
     def count(self, idempotency_key: str | None = None) -> int:
-        con = sqlite3.connect(self.path)
-        if idempotency_key is None:
-            n = con.execute("SELECT COUNT(*) FROM deliveries").fetchone()[0]
-        else:
-            n = con.execute("SELECT COUNT(*) FROM deliveries WHERE idempotency_key = ?", (idempotency_key,)).fetchone()[
-                0
-            ]
-        con.close()
+        with self._db() as db:
+            if idempotency_key is None:
+                n = db.fetchval("SELECT COUNT(*) FROM deliveries")
+            else:
+                n = db.fetchval("SELECT COUNT(*) FROM deliveries WHERE idempotency_key = ?", (idempotency_key,))
         return int(n)
 
     def per_key(self) -> dict[str, int]:
-        con = sqlite3.connect(self.path)
-        rows = con.execute("SELECT idempotency_key, COUNT(*) FROM deliveries GROUP BY idempotency_key").fetchall()
-        con.close()
+        with self._db() as db:
+            rows = db.fetchall("SELECT idempotency_key, COUNT(*) FROM deliveries GROUP BY idempotency_key")
         return {k: int(n) for k, n in rows}
 
 
@@ -170,21 +167,18 @@ class LoopResult:
     executions: dict[str, int]
 
 
-def kill_loop(
-    tmp_path: Path, seed: int, p: float, probe: bool, n_jobs: int = 60, max_incarnations: int = 2000
-) -> LoopResult:
+def kill_loop(url: str, seed: int, p: float, probe: bool, n_jobs: int = 60, max_incarnations: int = 2000) -> LoopResult:
     rng = random.Random(seed)
     chaos = Chaos(rng, p)
     clock = FakeClock()
-    db = tmp_path / f"wf-{seed}.db"
-    sink = MailSink(tmp_path / f"sink-{seed}.db", chaos, probe_supported=probe)
+    sink = MailSink(url, chaos, probe_supported=probe)
     jobs = [f"J{i:03d}" for i in range(n_jobs)]
     executions: dict[str, int] = {}
     surfaced: list[str] = []
     incarnations = 0
     while incarnations < max_incarnations:
         incarnations += 1
-        backend = SqliteBackend(db)
+        backend = PostgresBackend(url)  # a new incarnation: a new connection
         hook: Callable[[str, str], None] = lambda point, _m: chaos.maybe(point)  # noqa: E731
         try:
             store = StepStore(backend, owner=f"worker-{incarnations}", clock=clock, lease_ms=LEASE_MS)
@@ -215,7 +209,7 @@ def kill_loop(
         finally:
             backend.close()
         clock.advance(LEASE_MS + 1)  # the restart takes longer than a lease
-    backend = SqliteBackend(db)
+    backend = PostgresBackend(url)
     with backend.transaction() as tx:
         rows = outbox_rows(tx)
         steps = tx.fetchall("SELECT job_id, step, state FROM steps")
@@ -227,8 +221,8 @@ def kill_loop(
 
 @pytest.mark.req("FR-WF-1", "FR-WF-9")
 @pytest.mark.parametrize("seed", [11, 2026, 90210])
-def test_kill_loop_exactly_one_delivery_per_outbox_row(tmp_path: Path, seed: int) -> None:
-    r = kill_loop(tmp_path, seed, p=0.04, probe=True)
+def test_kill_loop_exactly_one_delivery_per_outbox_row(db_url: str, seed: int) -> None:
+    r = kill_loop(db_url, seed, p=0.04, probe=True)
     rows, sink, kills = r.rows, r.sink, r.kills
     # the chaos really hit every kind of boundary
     for point in ("step_body", "before_step_commit", "claimed", "before_send", "transport_after_effect", "in_mark"):
@@ -246,10 +240,10 @@ def test_kill_loop_exactly_one_delivery_per_outbox_row(tmp_path: Path, seed: int
 
 
 @pytest.mark.req("FR-WF-1")
-def test_without_probe_never_resends_uncertain_rows(tmp_path: Path) -> None:
+def test_without_probe_never_resends_uncertain_rows(db_url: str) -> None:
     """A channel that cannot answer "did it arrive?" turns every lost answer into ``uncertain``: never re-sent
     automatically, surfaced, and moved on only by a person."""
-    r = kill_loop(tmp_path, 7, p=0.03, probe=False)
+    r = kill_loop(db_url, 7, p=0.03, probe=False)
     rows, sink = r.rows, r.sink
     per_key = sink.per_key()
     assert all(n == 1 for n in per_key.values())  # at most one delivery, ever
@@ -262,7 +256,7 @@ def test_without_probe_never_resends_uncertain_rows(tmp_path: Path) -> None:
             assert per_key.get(row["idempotency_key"]) == 1
     # more dispatch rounds do not touch uncertain rows
     sink.chaos = None
-    backend = SqliteBackend(tmp_path / "wf-7.db")
+    backend = PostgresBackend(db_url)
     clock = FakeClock(T0 + timedelta(days=1))
     disp = Dispatcher(backend, {"email": sink, "teams": sink}, owner="later", clock=clock)
     before = sink.count()
@@ -287,7 +281,7 @@ def _notify(i: int) -> StepResult:
     return StepResult({"i": i}, [OutboxMessage("notice", "a@site.invalid", "email", {"i": i})])
 
 
-def _child(db: str, sink_path: str, incarnation: int, seed: int) -> None:  # pragma: no cover - runs in a fork
+def _child(url: str, incarnation: int, seed: int) -> None:  # pragma: no cover - runs in a fork
     rng = random.Random(seed * 1000 + incarnation)
     clock = FakeClock(T0 + timedelta(milliseconds=incarnation * (LEASE_MS + 1)))
 
@@ -302,8 +296,8 @@ def _child(db: str, sink_path: str, incarnation: int, seed: int) -> None:  # pra
             hook("transport_after_effect", d.msg_id)
             return receipt
 
-    backend = SqliteBackend(db)
-    sink = KillingSink(Path(sink_path))
+    backend = PostgresBackend(url)
+    sink = KillingSink(url)
     disp = Dispatcher(backend, {"email": sink}, owner=f"proc-{incarnation}", clock=clock, lease_ms=LEASE_MS, hook=hook)
     disp.run_until_idle(limit=3)
     backend.close()
@@ -311,10 +305,10 @@ def _child(db: str, sink_path: str, incarnation: int, seed: int) -> None:  # pra
 
 
 @pytest.mark.req("FR-WF-1")
-def test_process_kill_loop_exactly_once(tmp_path: Path) -> None:
-    """The dispatcher process is killed with ``os._exit`` (no cleanup, no rollback handler) at random points."""
-    db, sink_path = tmp_path / "wf.db", tmp_path / "sink.db"
-    backend = SqliteBackend(db)
+def test_process_kill_loop_exactly_once(db_url: str) -> None:
+    """The dispatcher process is killed with ``os._exit`` (no cleanup, no rollback handler: the server drops the open
+    transaction with the connection) at random points."""
+    backend = PostgresBackend(db_url)
     store = StepStore(backend, owner="seed", clock=FakeClock())
     for i in range(30):
         store.run_step(
@@ -324,23 +318,23 @@ def test_process_kill_loop_exactly_once(tmp_path: Path) -> None:
             functools.partial(_notify, i),
         )
     backend.close()
-    MailSink(sink_path)
+    MailSink(db_url)
     ctx = multiprocessing.get_context("fork")
     exits: list[int | None] = []
     for incarnation in range(1, 200):
-        p = ctx.Process(target=_child, args=(str(db), str(sink_path), incarnation, 5))
+        p = ctx.Process(target=_child, args=(db_url, incarnation, 5))
         p.start()
         p.join(60)
         exits.append(p.exitcode)
-        backend = SqliteBackend(db)
+        backend = PostgresBackend(db_url)
         disp = Dispatcher(backend, {}, owner="check", clock=FakeClock())
         counts = disp.counts()
         backend.close()
         if p.exitcode == 0 and counts[PENDING] == 0 and counts["claimed"] == 0:
             break
     assert 137 in exits and exits[-1] == 0
-    per_key = MailSink(sink_path).per_key()
-    backend = SqliteBackend(db)
+    per_key = MailSink(db_url).per_key()
+    backend = PostgresBackend(db_url)
     with backend.transaction() as tx:
         rows = outbox_rows(tx)
     backend.close()
@@ -351,8 +345,8 @@ def test_process_kill_loop_exactly_once(tmp_path: Path) -> None:
 
 # ----------------------------------------------------------------------------- step semantics
 @pytest.mark.req("FR-WF-3")
-def test_done_step_is_replayed_not_rerun(tmp_path: Path) -> None:
-    backend = SqliteBackend(tmp_path / "s.db")
+def test_done_step_is_replayed_not_rerun(db_url: str) -> None:
+    backend = PostgresBackend(db_url)
     store = StepStore(backend, owner="w1", clock=FakeClock())
     calls: list[int] = []
 
@@ -380,8 +374,8 @@ def test_done_step_is_replayed_not_rerun(tmp_path: Path) -> None:
 
 
 @pytest.mark.req("FR-WF-9")
-def test_step_lease_excludes_other_workers_until_expiry(tmp_path: Path) -> None:
-    backend = SqliteBackend(tmp_path / "s.db")
+def test_step_lease_excludes_other_workers_until_expiry(db_url: str) -> None:
+    backend = PostgresBackend(db_url)
     clock = FakeClock()
     a = StepStore(backend, owner="a", clock=clock, lease_ms=LEASE_MS)
     b = StepStore(backend, owner="b", clock=clock, lease_ms=LEASE_MS)
@@ -402,7 +396,7 @@ def test_step_lease_excludes_other_workers_until_expiry(tmp_path: Path) -> None:
 
 
 @pytest.mark.req("FR-WF-1")
-def test_rejections_back_off_then_fail(tmp_path: Path) -> None:
+def test_rejections_back_off_then_fail(db_url: str) -> None:
     class Refusing:
         sent = 0
 
@@ -412,7 +406,7 @@ def test_rejections_back_off_then_fail(tmp_path: Path) -> None:
         def probe(self, key: str) -> DeliveryStatus:
             return DeliveryStatus.NOT_DELIVERED
 
-    backend = SqliteBackend(tmp_path / "s.db")
+    backend = PostgresBackend(db_url)
     clock = FakeClock()
     StepStore(backend, owner="w", clock=clock).run_step(
         "J", "s", "h", lambda: StepResult({}, [OutboxMessage("k", "r@x.invalid", "email", {})])
@@ -428,33 +422,51 @@ def test_rejections_back_off_then_fail(tmp_path: Path) -> None:
     backend.close()
 
 
-def test_open_backend_urls(tmp_path: Path) -> None:
-    b = open_backend(f"sqlite://{tmp_path}/x.db")
-    assert isinstance(b, SqliteBackend) and b.path == f"{tmp_path}/x.db"
+def test_open_backend_urls(db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    b = open_backend()  # TB_DB_URL
+    assert isinstance(b, PostgresBackend) and b.schema.endswith("wf") and b.dialect == "postgres"
+    assert (b.lock_suffix, b.row_lock) == (" FOR UPDATE SKIP LOCKED", " FOR UPDATE")
     b.close()
-    m = open_backend("sqlite:///:memory:")
-    assert isinstance(m, SqliteBackend) and m.path == ":memory:"
-    m.close()
-    with pytest.raises(ValueError, match="unsupported"):
-        open_backend("mysql://h/db")
+    r = open_backend(db_url, "recall")
+    assert r.schema.endswith("recall")
+    r.close()
+    with pytest.raises(DatabaseError, match="postgresql"):
+        open_backend("sqlite:///x.db")
+    monkeypatch.delenv("TB_DB_URL")
+    with pytest.raises(DatabaseError, match="TB_DB_URL"):
+        open_backend()
 
 
-# ----------------------------------------------------------------------------- PostgreSQL (optional)
+# ----------------------------------------------------------------------------- two connections (two workers)
 @pytest.mark.req("FR-WF-1", "FR-WF-9")
-@pytest.mark.skipif(not os.environ.get("TB_PG_DSN"), reason="set TB_PG_DSN to a disposable PostgreSQL database")
-def test_postgres_backend_same_semantics(tmp_path: Path) -> None:
-    pytest.importorskip("psycopg")
-    backend = open_backend(os.environ["TB_PG_DSN"])
-    with backend.transaction() as tx:
-        tx.execute("DROP TABLE IF EXISTS steps")
-        tx.execute("DROP TABLE IF EXISTS outbox")
+def test_postgres_backend_same_semantics(db_url: str) -> None:
+    backend = open_backend(db_url)
     clock = FakeClock()
     store = StepStore(backend, owner="pg", clock=clock)
     for i in range(5):
         store.run_step(f"P{i}", "s", "h", functools.partial(_notify, i))
-    sink = MailSink(tmp_path / "sink.db")
+    sink = MailSink(db_url)
     disp = Dispatcher(backend, {"email": sink}, owner="pg-d", clock=clock)
     disp.run_until_idle()
     assert disp.counts()[DELIVERED] == 5 and all(n == 1 for n in sink.per_key().values())
     assert store.run_step("P0", "s", "h", lambda: StepResult({"i": -1})).replayed
     backend.close()
+
+
+@pytest.mark.req("FR-WF-9")
+def test_claims_skip_rows_locked_by_another_connection(db_url: str) -> None:
+    """``FOR UPDATE SKIP LOCKED``: a row another worker's open claim holds is skipped, not waited for."""
+    a, b = open_backend(db_url), open_backend(db_url)
+    clock = FakeClock()
+    store = StepStore(a, owner="w", clock=clock)
+    for i in range(2):
+        store.run_step(f"L{i}", "s", "h", functools.partial(_notify, i))
+    sink = MailSink(db_url)
+    disp = Dispatcher(b, {"email": sink}, owner="other", clock=clock)
+    with a.transaction() as tx:
+        held = tx.fetchall("SELECT msg_id FROM outbox ORDER BY created_ms, msg_id LIMIT 1" + a.lock_suffix)
+        first = disp.dispatch_once()
+    assert len(held) == 1 and len(first.delivered) == 1 and held[0][0] not in first.delivered
+    assert disp.dispatch_once().delivered == [held[0][0]]
+    a.close()
+    b.close()

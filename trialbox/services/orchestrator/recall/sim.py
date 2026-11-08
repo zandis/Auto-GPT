@@ -2,8 +2,10 @@
 
 Same experiment and random stream as ``tools/recall_sim.py`` (seed 11: p = 0.005 then p = 0.02, 300 ledgers of 12
 monthly looks of 40), but every look goes through the ledger: the month's observations are appended (which advances
-the stored sequence state in the same transaction), the backend is closed, and the next look resumes the sequence
-from the stored canonical state. A ledger "misses" if the printed 95 % upper bound fell below p at any look.
+the stored sequence state in the same transaction), the connection is closed, and the next look resumes the sequence
+from the stored canonical state on a new connection. A ledger "misses" if the printed 95 % upper bound fell below p at
+any look. The ledgers live in the trial database's ``recall`` schema (``TB_DB_URL``) under cell hashes tagged with the
+run, and are deleted when the run ends.
 
     python -m orchestrator.recall.sim --config eval/suites/recall_cert/config.yaml
 """
@@ -14,8 +16,8 @@ import argparse
 import functools
 import multiprocessing
 import random
+import secrets
 import sys
-import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -27,8 +29,8 @@ import yaml
 from tb_common.recall import cp_upper
 from tb_contracts.recall import RecallCell, RecallObservation, Stratum
 
-from orchestrator.db_pg import SqliteBackend, canonical_json
-from orchestrator.recall.ledger import RecallLedger
+from orchestrator.db_pg import canonical_json
+from orchestrator.recall.ledger import RecallLedger, open_ledger_backend
 
 T0 = datetime(2026, 1, 31, 12, 0, tzinfo=ZoneInfo("Asia/Taipei"))
 
@@ -91,14 +93,16 @@ def _month(m: int) -> datetime:
     return T0 + timedelta(days=30 * m)
 
 
-def _run_chunk(args: tuple[str, float, float, list[tuple[int, list[list[int]]]]]) -> list[tuple[int, bool, bool]]:
-    db, p, alpha, ledgers = args
+def _run_chunk(
+    args: tuple[str | None, str, float, float, list[tuple[int, list[list[int]]]]],
+) -> list[tuple[int, bool, bool]]:
+    url, tag, p, alpha, ledgers = args
     out: list[tuple[int, bool, bool]] = []
     for idx, months in ledgers:
-        cell = RecallCell(canonical_hash=f"sim-{p!r}-{idx:04d}", stratum=Stratum.S1_AFFIRMATIVE)
+        cell = RecallCell(canonical_hash=f"{tag}{p!r}-{idx:04d}", stratum=Stratum.S1_AFFIRMATIVE)
         cs_ok = cp_ok = True
         for m, batch in enumerate(months):
-            backend = SqliteBackend(db)  # a fresh "process" per look: the sequence is resumed from storage
+            backend = open_ledger_backend(url)  # a fresh "process" per look: the sequence is resumed from storage
             try:
                 ledger = RecallLedger(backend, clock=functools.partial(_month, m))
                 ledger.append(_observations(cell, idx, m, batch))
@@ -112,32 +116,49 @@ def _run_chunk(args: tuple[str, float, float, list[tuple[int, list[list[int]]]]]
     return out
 
 
-def run(cfg: SimConfig, workdir: Path) -> list[SimResult]:
+def run_tag() -> str:
+    """A cell-hash prefix of its own for one simulation run (runs share the ``recall`` schema)."""
+    return f"sim-{secrets.token_hex(6)}-"
+
+
+def run(cfg: SimConfig, url: str | None = None) -> list[SimResult]:
+    """``url``: the trial database (``TB_DB_URL`` when None)."""
     batches = draw_batches(cfg)
     results: list[SimResult] = []
-    for p in cfg.rates:
-        if cfg.run_rates is not None and p not in cfg.run_rates:
-            continue
-        ledgers = list(enumerate(batches[p]))
-        k = max(1, min(cfg.workers, len(ledgers)))
-        chunks = [(str(workdir / f"ledger-{p!r}-{w}.db"), p, cfg.alpha, ledgers[w::k]) for w in range(k)]
-        if k == 1:
-            parts = [_run_chunk(chunks[0])]
-        else:
-            with multiprocessing.get_context("fork").Pool(k) as pool:
-                parts = pool.map(_run_chunk, chunks)
-        flat = sorted(x for part in parts for x in part)
-        per = tuple((cp_ok, cs_ok) for _i, cp_ok, cs_ok in flat)
-        results.append(
-            SimResult(
-                rate=p,
-                reps=len(per),
-                cp_miss=sum(not cp for cp, _ in per) / len(per),
-                cs_miss=sum(not cs for _, cs in per) / len(per),
-                per_ledger=per,
-            )
-        )
+    tag = run_tag()
+    RecallLedger(url=url).close()  # schema and tables exist before the workers start (no connection is forked)
+    try:
+        for p in cfg.rates:
+            if cfg.run_rates is not None and p not in cfg.run_rates:
+                continue
+            results.append(_run_rate(cfg, url, tag, p, batches[p]))
+    finally:
+        ledger = RecallLedger(url=url)
+        try:
+            ledger.purge_cells(tag)
+        finally:
+            ledger.close()
     return results
+
+
+def _run_rate(cfg: SimConfig, url: str | None, tag: str, p: float, rate_batches: list[list[list[int]]]) -> SimResult:
+    ledgers = list(enumerate(rate_batches))
+    k = max(1, min(cfg.workers, len(ledgers)))
+    chunks = [(url, tag, p, cfg.alpha, ledgers[w::k]) for w in range(k)]
+    if k == 1:
+        parts = [_run_chunk(chunks[0])]
+    else:
+        with multiprocessing.get_context("fork").Pool(k) as pool:
+            parts = pool.map(_run_chunk, chunks)
+    flat = sorted(x for part in parts for x in part)
+    per = tuple((cp_ok, cs_ok) for _i, cp_ok, cs_ok in flat)
+    return SimResult(
+        rate=p,
+        reps=len(per),
+        cp_miss=sum(not cp for cp, _ in per) / len(per),
+        cs_miss=sum(not cs for _, cs in per) / len(per),
+        per_ledger=per,
+    )
 
 
 def load_config(path: Path) -> tuple[SimConfig, dict[str, Any]]:
@@ -172,8 +193,7 @@ def main(argv: list[str] | None = None) -> int:
             alpha=cfg.alpha,
             workers=a.workers or cfg.workers,
         )
-    with tempfile.TemporaryDirectory(prefix="recall_cert-") as tmp:
-        results = run(cfg, Path(tmp))
+    results = run(cfg)
     ok = True
     for r in results:
         print(canonical_json({"rate": r.rate, "reps": r.reps, "cp_miss": r.cp_miss, "cs_miss": r.cs_miss}))

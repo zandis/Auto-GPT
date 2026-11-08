@@ -26,13 +26,15 @@ import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from zoneinfo import ZoneInfo
 
 from tb_contracts.recall import KnownPositiveLineKind, RecallCell, RecallObservation, Stratum
 
 from matching.cascade.engine import CascadeResult
+
+if TYPE_CHECKING:
+    from orchestrator.recall.ledger import RecallLedger
 
 #: (pid, criterion id) → 1 wrongly excluded, 0 correctly excluded, None: no human label (the S4 label is used)
 PairOracle = Callable[[str, str], int | None]
@@ -59,7 +61,7 @@ class CertificateOutcome:
     reasons: list[str]
     cells: dict[str, int]
     never_excluded: dict[str, int]
-    ledger_path: Path
+    ledger: str  # the ledger's schema in the trial database
     observations: int = 0
     known_positive: dict[str, int] = field(default_factory=dict)
 
@@ -100,7 +102,7 @@ def exclusion_cells(res: CascadeResult) -> tuple[dict[RecallCell, list[str]], di
 
 def certify(
     res: CascadeResult,
-    ledger_path: Path,
+    ledger_url: str | None = None,
     *,
     run_id: str,
     period: str,
@@ -110,16 +112,38 @@ def certify(
     historical_enrollees: Sequence[str] = (),
     alpha: float = 0.05,
 ) -> CertificateOutcome:
-    from orchestrator.db_pg import SqliteBackend
-    from orchestrator.recall.ledger import RecallLedger, render_certificate
+    from orchestrator.recall.ledger import LEDGER_SCHEMA, RecallLedger
 
     cells, never = exclusion_cells(res)
     summary = {
         f"{c.stratum.value}|{c.criterion_type}": len(p) for c, p in sorted(cells.items(), key=lambda kv: kv[0].key)
     }
     if not cells:
-        return CertificateOutcome("refused", None, ["no exclusions to certify"], summary, never, ledger_path)
-    ledger = RecallLedger(SqliteBackend(ledger_path), clock=lambda: plan.start)
+        return CertificateOutcome("refused", None, ["no exclusions to certify"], summary, never, LEDGER_SCHEMA)
+    ledger = RecallLedger(url=ledger_url, clock=lambda: plan.start)
+    try:
+        return _certify(res, ledger, cells, never, summary, run_id, period, plan, pair_oracle, patient_oracle,
+                        historical_enrollees, alpha)  # fmt: skip
+    finally:
+        ledger.close()
+
+
+def _certify(
+    res: CascadeResult,
+    ledger: RecallLedger,
+    cells: dict[RecallCell, list[str]],
+    never: dict[str, int],
+    summary: dict[str, int],
+    run_id: str,
+    period: str,
+    plan: AuditPlan,
+    pair_oracle: PairOracle | None,
+    patient_oracle: PatientOracle | None,
+    historical_enrollees: Sequence[str],
+    alpha: float,
+) -> CertificateOutcome:
+    from orchestrator.recall.ledger import render_certificate
+
     ledger.record_run(
         run_id, res.study_id, f"{res.ruleset}/v{res.ruleset_version}", period, {c: len(p) for c, p in cells.items()}
     )
@@ -195,7 +219,8 @@ def certify(
     kp = {kp.line.value: kp.r for kp in cert.known_positive}
     if all(r == 0 for r in kp.values()):
         reasons.append("no known positive on line H or line B: no recall bound can be quoted (AI-13)")
-    return CertificateOutcome("refused" if reasons else "issued", body, reasons, summary, never, ledger_path, n_obs, kp)
+    status = "refused" if reasons else "issued"
+    return CertificateOutcome(status, body, reasons, summary, never, ledger.backend.schema, n_obs, kp)
 
 
 __all__ = ["AuditPlan", "CertificateOutcome", "PairOracle", "PatientOracle", "certify", "exclusion_cells", "pid_hash"]

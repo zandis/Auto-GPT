@@ -1,6 +1,6 @@
 """The recall ledger (spec v4 §10.14 SAFE-10/12/14, §6.7; sprint task S1-12).
 
-Tables (same SQL on PostgreSQL and SQLite, see :mod:`orchestrator.db_pg`):
+Tables, in schema ``recall`` of the trial database (D-126; the backend is :class:`orchestrator.db_pg.PostgresBackend`):
 
 ``recall_cell``
     one row per (canonical criterion hash, stratum, series) with the running ``n``, ``found`` and the head of a hash
@@ -42,7 +42,7 @@ from tb_contracts.recall import (
     StratumBound,
 )
 
-from orchestrator.db_pg import Clock, SqlBackend, Tx, apply_schema, canonical_json, sha256_text
+from orchestrator.db_pg import Clock, PostgresBackend, SqlBackend, Tx, canonical_json, sha256_text
 from orchestrator.recall import state as cs_state
 
 SCHEMA = """
@@ -122,6 +122,9 @@ CREATE TABLE IF NOT EXISTS recall_known_positive (
   UNIQUE (line, population, draw_id)
 )
 """
+#: the ledger's schema in the trial database, and its ``migrate`` versions (append-only)
+LEDGER_SCHEMA = "recall"
+MIGRATIONS = (SCHEMA,)
 
 CHAIN_GENESIS = "sha256:" + "0" * 64
 CS_METHOD = "1 − confidence-sequence upper bound on the miss rate (anytime)"
@@ -154,11 +157,44 @@ def _key(cell: RecallCell) -> CellKey:
     return (cell.canonical_hash, cell.stratum, cell.series)
 
 
+def open_ledger_backend(url: str | None = None) -> PostgresBackend:
+    """A new connection to the ledger's schema (``TB_DB_URL`` when ``url`` is None)."""
+    return PostgresBackend(url, LEDGER_SCHEMA)
+
+
 class RecallLedger:
-    def __init__(self, backend: SqlBackend, clock: Clock = timeutil.now) -> None:
-        self.backend = backend
+    """The ledger over a backend on schema ``recall`` (:func:`open_ledger_backend`); with no backend it opens one
+    from ``url`` (``TB_DB_URL`` when None) and :meth:`close` closes it."""
+
+    def __init__(
+        self, backend: SqlBackend | None = None, clock: Clock = timeutil.now, *, url: str | None = None
+    ) -> None:
+        self._owned = backend is None
+        self.backend: SqlBackend = backend if backend is not None else open_ledger_backend(url)
+        if not self.backend.schema.endswith(LEDGER_SCHEMA):  # its versions would collide with the other store's
+            raise LedgerError(f"the recall ledger lives in schema {LEDGER_SCHEMA!r}, not {self.backend.schema!r}")
         self.clock = clock
-        apply_schema(backend, SCHEMA)
+        self.backend.migrate(MIGRATIONS)
+
+    def close(self) -> None:
+        if self._owned:
+            self.backend.close()
+
+    def reset(self) -> None:
+        """Empty every ledger table (a synthetic run that starts from a fresh ledger, as from a new file)."""
+        with self.backend.transaction() as tx:
+            tx.execute(
+                "TRUNCATE recall_cell, recall_observation, recall_sequence_state, recall_run_cell,"
+                " recall_registration, recall_known_positive"
+            )
+
+    def purge_cells(self, hash_prefix: str) -> int:
+        """Delete the cells whose canonical hash starts with ``hash_prefix`` with all their rows (simulations
+        clean up after themselves). Returns the number of cells removed."""
+        with self.backend.transaction() as tx:
+            for t in ("recall_observation", "recall_sequence_state", "recall_run_cell"):
+                tx.execute(f"DELETE FROM {t} WHERE starts_with(canonical_hash, ?)", (hash_prefix,))
+            return tx.execute("DELETE FROM recall_cell WHERE starts_with(canonical_hash, ?)", (hash_prefix,))
 
     # ------------------------------------------------------------------------------------------------ cells
     def ensure_cell(self, cell: RecallCell) -> None:
@@ -549,11 +585,14 @@ def render_certificate(
 
 __all__ = [
     "CHAIN_GENESIS",
+    "LEDGER_SCHEMA",
+    "MIGRATIONS",
     "SCHEMA",
     "CellCounts",
     "LedgerError",
     "RecallLedger",
     "alpha_key",
     "chain",
+    "open_ledger_backend",
     "render_certificate",
 ]

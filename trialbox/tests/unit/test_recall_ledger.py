@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import os
 import random
+from collections.abc import Iterator
 from datetime import datetime, timedelta
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from orchestrator.db_pg import SqliteBackend, open_backend
+from orchestrator.db_pg import open_backend
 from orchestrator.recall import LedgerError, RecallLedger, render_certificate
 from orchestrator.recall import state as cs_state
+from orchestrator.recall.ledger import open_ledger_backend
 from orchestrator.recall.sim import SimConfig, run
 from pydantic import ValidationError
 from tb_common.recall import ConfidenceSequence
@@ -51,8 +52,10 @@ def obs(cell: RecallCell, i: int, label: int, run_id: str = "R1") -> RecallObser
 
 
 @pytest.fixture
-def ledger(tmp_path: Path) -> RecallLedger:
-    return RecallLedger(SqliteBackend(tmp_path / "ledger.db"), clock=clock)
+def ledger(db_url: str) -> Iterator[RecallLedger]:
+    led = RecallLedger(open_ledger_backend(db_url), clock=clock)
+    yield led
+    led.backend.close()
 
 
 @pytest.mark.req("S1-12", "SAFE-12")
@@ -74,15 +77,14 @@ def test_state_round_trips_byte_identically() -> None:
 
 
 @pytest.mark.req("S1-12", "SAFE-10")
-def test_ledger_persists_and_resumes_per_cell(tmp_path: Path) -> None:
-    db = tmp_path / "ledger.db"
+def test_ledger_persists_and_resumes_per_cell(db_url: str) -> None:
     a = RecallCell(canonical_hash="crit:egfr-mutation", stratum=Stratum.S1_AFFIRMATIVE)
     b = RecallCell(canonical_hash="crit:egfr-mutation", stratum=Stratum.S3_NOT_MET)
     rng = random.Random(5)
     ys_a: list[int] = []
     memory = ConfidenceSequence(alpha=0.05)
     for month in range(6):
-        backend = SqliteBackend(db)
+        backend = open_ledger_backend(db_url)  # a new connection per month: a new process
         led = RecallLedger(backend, clock=clock)
         batch = [int(rng.random() < 0.05) for _ in range(30)]
         assert led.append([obs(a, i, x, f"M{month}") for i, x in enumerate(batch)]) == 30
@@ -94,7 +96,7 @@ def test_ledger_persists_and_resumes_per_cell(tmp_path: Path) -> None:
         stored = led.state_json(a, 0.05)
         assert stored == cs_state.dumps(memory)
         backend.close()
-    led = RecallLedger(SqliteBackend(db), clock=clock)
+    led = RecallLedger(url=db_url, clock=clock)
     assert led.observations(a) == [float(x) for x in ys_a]
     counts = led.counts(a)
     assert (counts.n, counts.found) == (180, sum(ys_a))
@@ -106,18 +108,24 @@ def test_ledger_persists_and_resumes_per_cell(tmp_path: Path) -> None:
     fresh.extend(ys_a)
     assert led.state_json(a, 0.01) == cs_state.dumps(fresh)
     assert led.looks(a) == 6
+    led.close()
 
 
 @pytest.mark.req("S1-12", "SAFE-16", "SAFE-12")
-def test_twelve_looks_through_the_ledger_reproduce_the_reference(tmp_path: Path) -> None:
+def test_twelve_looks_through_the_ledger_reproduce_the_reference(db_url: str) -> None:
     """Seed 11, p = 0.02, 12 looks of 40, 300 ledgers; each look resumes the sequence from storage. The miss rates
     equal the in-memory reference of ``python -m tools.recall_sim``: CS 0.3 % (≤ 5 %), repeated CP 9.7 % (> 5 %)."""
     cfg = SimConfig(run_rates=(0.02,), workers=min(4, os.cpu_count() or 1))
-    (res,) = run(cfg, tmp_path)
+    (res,) = run(cfg, db_url)
     assert res.rate == 0.02 and res.reps == 300
     assert res.cs_miss <= 0.05
     assert res.cp_miss > 0.05
     assert (round(res.cp_miss, 3), round(res.cs_miss, 3)) == (0.097, 0.003)
+    led = RecallLedger(url=db_url)
+    with led.backend.transaction() as tx:  # the run's ledgers are deleted when it ends
+        assert tx.fetchone("SELECT COUNT(*) FROM recall_cell") == (0,)
+        assert tx.fetchone("SELECT COUNT(*) FROM recall_observation") == (0,)
+    led.close()
 
 
 def _example_ledger(ledger: RecallLedger) -> dict[RecallCell, int]:
@@ -265,20 +273,9 @@ def test_contracts_enforce_two_labelled_lines() -> None:
 
 
 @pytest.mark.req("S1-12")
-@pytest.mark.skipif(not os.environ.get("TB_PG_DSN"), reason="set TB_PG_DSN to a disposable PostgreSQL database")
-def test_postgres_ledger_round_trip() -> None:
-    pytest.importorskip("psycopg")
-    backend = open_backend(os.environ["TB_PG_DSN"])
-    with backend.transaction() as tx:
-        for t in (
-            "recall_cell",
-            "recall_observation",
-            "recall_sequence_state",
-            "recall_run_cell",
-            "recall_registration",
-            "recall_known_positive",
-        ):
-            tx.execute(f"DROP TABLE IF EXISTS {t}")
+def test_postgres_ledger_round_trip(db_url: str) -> None:
+    backend = open_backend(db_url, "recall")
+    assert backend.dialect == "postgres" and backend.row_lock == " FOR UPDATE"
     led = RecallLedger(backend, clock=clock)
     cell = RecallCell(canonical_hash="crit:pg", stratum=Stratum.S2B_BELOW)
     led.append([obs(cell, i, int(i == 7)) for i in range(40)])
@@ -289,3 +286,31 @@ def test_postgres_ledger_round_trip() -> None:
     memory.extend([0.0] * 40)
     assert led.state_json(cell, 0.05) == cs_state.dumps(memory)
     backend.close()
+
+
+def test_ledger_has_its_own_schema(db_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ledger's migrations are versioned per schema, so it refuses another store's backend (D-126)."""
+    wf = open_backend(db_url)
+    with pytest.raises(LedgerError, match="schema"):
+        RecallLedger(wf)
+    wf.close()
+    led = RecallLedger(url=db_url)
+    assert led.backend.schema.endswith("recall")
+    led.close()
+    monkeypatch.delenv("TB_DB_URL")
+    from tb_common.db import DatabaseError
+
+    with pytest.raises(DatabaseError, match="TB_DB_URL"):
+        RecallLedger()
+
+
+def test_reset_and_purge(ledger: RecallLedger) -> None:
+    a = RecallCell(canonical_hash="sim-x-1", stratum=Stratum.S1_AFFIRMATIVE)
+    b = RecallCell(canonical_hash="crit:keep", stratum=Stratum.S1_AFFIRMATIVE)
+    ledger.append([obs(a, i, 0) for i in range(3)] + [obs(b, i, 0) for i in range(4)])
+    ledger.state_json(a, 0.05)
+    assert ledger.purge_cells("sim-x-") == 1
+    assert ledger.counts(a).n == 0 and ledger.observations(a) == []
+    assert ledger.counts(b).n == 4
+    ledger.reset()
+    assert ledger.counts(b).n == 0
