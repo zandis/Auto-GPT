@@ -23,6 +23,7 @@ USER tb
 EXPOSE 8080
 # Every start rebuilds the synthetic hospital, so a restart resets the demo. Default (step 5, D-111): the whole step
 # 1-4 flow seeded and checked by tools.demo (about 70 s before the console answers). TB_DEMO_TOOL=role_demo gives the
-# older role-only demo (600 patients, ready in about 30 s).
+# older role-only demo (600 patients, ready in about 30 s). TB_DEMO_TOOL=public_e2e serves the public-data site
+# (tools.public_site: 268 real public notes, SIGIR + MedTxt; needs .cache/medtxt in the build context).
 ENV TB_DEMO_TOOL=demo
-CMD ["sh", "-c", "exec python -m tools.${TB_DEMO_TOOL} --fresh"]
+CMD ["sh", "-c", "if [ \"$TB_DEMO_TOOL\" = public_e2e ]; then exec python -m tools.public_e2e --dir /tmp/tb-public --serve --host 0.0.0.0 --port $PORT --lang ${TB_DEMO_LANG:-ja}; else exec python -m tools.${TB_DEMO_TOOL} --fresh; fi"]

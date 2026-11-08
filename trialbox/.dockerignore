@@ -10,3 +10,8 @@ tests/fixtures/synthetic_patients/site-*
 *.egg-info
 tools/testbench/
 deploy/site
+.cache/jvm/fhir-home
+.cache/jvm/validator_cli.jar*
+.cache/trec_ct
+.cache/trialgpt_compare
+.cache/medtxt/responses

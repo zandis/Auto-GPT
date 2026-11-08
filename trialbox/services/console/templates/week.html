@@ -50,9 +50,9 @@
     {% for kind in ('inclusion', 'exclusion') %}{% set cs = p.crits|selectattr('kind', 'equalto', kind)|list %}{% if cs %}
     <h3 class="grp">{{ t('wb.' + kind) }}</h3>
     <ul class="critl">{% for c in cs %}<li>
-      <span class="ic vd-{{ c.verdict }}" aria-label="{{ t('verdict.' + c.verdict) }}">{{ {'pass': '✓', 'fail': '✕', 'unknown': '?', 'pending_human': 'P'}.get(c.verdict, '·') }}</span>
+      {% set vk = 'verdict.exclusion.' + c.verdict if c.kind == 'exclusion' and c.verdict in ('pass', 'fail') else 'verdict.' + c.verdict %}<span class="ic vd-{{ c.verdict }}" aria-label="{{ t(vk) }}">{{ {'pass': '✓', 'fail': '✕', 'unknown': '?', 'pending_human': 'P'}.get(c.verdict, '·') }}</span>
       <div><span class="clab">{{ c.label }}</span> <span class="hint">{{ c.id }}</span>
-      <div class="hint">{{ t('verdict.' + c.verdict) }} · {{ t('how.' + c.source) }}{% if c.date %} · {{ c.date }}{% endif %}</div>
+      <div class="hint">{{ t(vk) }} · {{ t('how.' + c.source) }}{% if c.date %} · {{ c.date }}{% endif %}</div>
       {% if c.quote %}<q class="quote">{{ c.quote }}</q>{% endif %}</div>
     </li>{% endfor %}</ul>{% endif %}{% endfor %}
     <p class="chartlinks"><a href="/studies/{{ rs }}/patients/{{ p.pid }}" data-testid="full-chart">{{ t('wb.full') }}</a> · <a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a>{% if user.can_request %} · <a href="/pilot/registry/{{ rs }}">{{ t('nav.patients') }}</a>{% endif %}</p>

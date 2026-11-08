@@ -28,6 +28,7 @@ ALLOWED: dict[str, str] = {
     "tests/unit/test_gateway.py": "drives the stub app in-process as the gateway's upstream (no network)",
     "tests/unit/test_pin_model.py": "drives the stub app in-process as the gateway's upstream (no network)",
     "tests/unit/test_no_direct_model_calls.py": "holds the patterns of this check",
+    "deploy/gcp/gpu-fit-test.sh": "runs on the GPU VM: a one-line smoke prompt (no patient data) to its own servers",
 }
 
 

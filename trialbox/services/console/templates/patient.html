@@ -28,7 +28,7 @@
 <tbody>{% for c in crits %}<tr>
 <td class="crit"><strong>{{ c.id }}</strong> {{ c.label }}{% if c.text and c.text != c.label %}<br><span class="hint">{{ c.text }}</span>{% endif %}</td>
 <td>{{ t_or('kind.' + c.kind, c.kind) }}</td>
-<td><span class="pill vd-{{ c.verdict }}">{{ t('verdict.' + c.verdict) }}</span></td>
+<td>{% set vk = 'verdict.exclusion.' + c.verdict if c.kind == 'exclusion' and c.verdict in ('pass', 'fail') else 'verdict.' + c.verdict %}<span class="pill vd-{{ c.verdict }}" data-testid="verdict-{{ c.id }}">{{ t(vk) }}</span></td>
 <td>{% if c.quote %}<blockquote class="quote">{{ c.quote }}</blockquote>{% endif %}{% if c.date %}<span class="hint">{{ c.date }}</span>{% endif %}{% if c.reason and not c.quote %}<span class="hint">{{ c.reason }}</span>{% endif %}</td>
 <td>{{ t('how.' + c.source) }}</td>
 </tr>{% endfor %}</tbody></table></div>

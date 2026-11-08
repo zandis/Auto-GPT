@@ -126,7 +126,10 @@ def make_box(
     secrets_dir: Path,
     today: date = date(2026, 10, 5),
     settings_update: Mapping[str, Any] | None = None,
+    extra_profiles: Path | None = None,
 ) -> Box:
+    """``extra_profiles``: a folder of ``<RULESET>.yaml`` site profiles added to the seed (studies that exist only for
+    a test, such as the public-data studies of ``tools.public_site``)."""
     upd = settings_update or {}
     domain = str((upd.get("internal_domains") or ["hospa.test"])[0])
     env = load_env(
@@ -146,6 +149,9 @@ def make_box(
     audit = AuditLog(audit_dir)
     seed = tmp_path / "seed"
     shutil.copytree(ROOT / "rulesets", seed, ignore=shutil.ignore_patterns("tests"))
+    if extra_profiles is not None:
+        for f in sorted(extra_profiles.glob("*.yaml")):
+            shutil.copy2(f, seed / "profiles" / f.name)
     llm = LlmClient("http://stub/v1", "stub", audit=audit)
     llm.http = TestClient(stub)
     comp = Compiler(

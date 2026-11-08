@@ -1,0 +1,17 @@
+{
+ "model": "local/gemma-4-26b-a4b-nvfp4",
+ "cases": 54,
+ "answered": 54,
+ "correct": 53,
+ "flips": 1,
+ "wrong": [
+  {
+   "id": "ja:preg:yes",
+   "expected": "pass",
+   "got": "fail"
+  }
+ ],
+ "errors": [],
+ "truncated_retries": 2,
+ "seconds": 123.8
+}

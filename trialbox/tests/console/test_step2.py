@@ -160,3 +160,10 @@ def test_notice_log_once_per_day(tmp_path: Path) -> None:
     assert s.notice_sent("N1", "pi", "2026-11-02") and s.last_notice("N1", "pi")
     s.save_notify_person(NotifyPerson("pi", "P12345", "07:30", True, "ja"))
     assert s.notify_person("pi").practitioner_id == "P12345" and s.notify_person("pi").lang == "ja"
+
+
+def test_exclusion_results_say_present_or_not() -> None:
+    """A passed exclusion means the condition is absent: it must not reuse the inclusion's "met" / 該当 / 符合."""
+    for lang, cat in CATALOGUES.items():
+        assert cat["verdict.exclusion.pass"] not in (cat["verdict.pass"], cat["verdict.fail"]), lang
+        assert cat["verdict.exclusion.fail"] != cat["verdict.pass"], lang

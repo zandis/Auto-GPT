@@ -656,6 +656,12 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     assert appr.type == "APPROVE" and appr.ruleset == "GZQO-DEMO" and appr.options == {"version": "1.0.0"}
     assert appr.requested_by == "pi@hospa.test"
     assert box["backend"].objects[appr.inputs[0].minio_key] == book
+    # found by the public-data e2e walk: the review mail's S20 link, opened after the round is decided, gave a
+    # 409 "Refused" page in English; it now shows the job itself (state and audit) in the user's language
+    box["backend"].jobs[job.job_id] = box["backend"].jobs[job.job_id].model_copy(update={"state": "done"})
+    r = p.get(f"/pilot/jobs/{job.job_id}/approval", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/pilot/jobs/{job.job_id}"
+    assert p.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": pcsrf}).status_code == 409  # POST still refused
 
 
 def test_protocol_sample_and_bad_upload(box: dict[str, Any]) -> None:
@@ -1460,3 +1466,17 @@ def test_request_buttons_say_what_they_start_and_case_form_lists_trials_only(box
     case = c.get("/pilot/case").text
     assert "GZQO" in case and "RA-BIO" not in case  # the NHI ruleset is not a trial
     assert "Choose the trial" not in case  # one trial: nothing to pick
+
+
+# ---------------------------------------------------------------------------------------------- error pages
+def test_unknown_url_in_the_browser_gets_the_console_404_page(box: dict[str, Any]) -> None:
+    """Found by the public-data e2e walk: an unknown URL showed the framework's raw JSON, no page, no language."""
+    c, csrf = login(box["app"])
+    c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
+    r = c.get("/no-such-page", headers={"Accept": "text/html,application/xhtml+xml"})
+    assert r.status_code == 404
+    assert '<html lang="ja">' in r.text and 'data-testid="problem"' in r.text and "見つかりません" in r.text
+    anon = TestClient(box["app"]).get("/nope", headers={"Accept": "text/html"})
+    assert anon.status_code == 404 and 'data-testid="problem"' in anon.text  # signed out: same page, no session
+    api = c.get("/no-such-page", headers={"Accept": "application/json"})
+    assert api.status_code == 404 and api.json() == {"detail": "Not Found"}  # API clients keep JSON

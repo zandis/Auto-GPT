@@ -1,0 +1,15 @@
+{
+ "model": "local/gemma-4-26b-a4b-qat-awq",
+ "cases": 54,
+ "answered": 51,
+ "correct": 51,
+ "flips": 0,
+ "wrong": [],
+ "errors": [
+  "ja:t2dm:no: judge: output violated schema twice: [\"not JSON: Expecting ',' delimiter: line 1 column 49 (char 48)\"]",
+  "ja:ad:no: judge: output violated schema twice: [\"not JSON: Expecting ',' delimiter: line 1 column 49 (char 48)\"]",
+  "zh-TW:ad:no: judge: output violated schema twice: [\"not JSON: Expecting ',' delimiter: line 1 column 60 (char 59)\"]"
+ ],
+ "truncated_retries": 1,
+ "seconds": 463.8
+}

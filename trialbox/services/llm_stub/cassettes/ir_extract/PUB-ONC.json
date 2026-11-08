@@ -1,0 +1,122 @@
+{
+ "criteria": [
+  {
+   "text": "Age 18 years or older.",
+   "label": "Age ≥18",
+   "source_ref": "Inclusion #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "age": {
+     "min": 18
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "Diagnosis of a malignant tumour (any site).",
+   "label": "Malignancy",
+   "source_ref": "Inclusion #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "malignancy",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "malignancy",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "ECOG performance status 0 or 1.",
+   "label": "ECOG 0–1",
+   "source_ref": "Inclusion #3",
+   "kind": "inclusion",
+   "class": "note",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "quantifier": "any"
+   },
+   "concept_candidates": [],
+   "note_question": "Does the record state an ECOG performance status of 0 or 1?",
+   "fallback": "No structured substitute; the investigator confirms at clinic"
+  },
+  {
+   "text": "Pregnant or breastfeeding.",
+   "label": "Pregnancy",
+   "source_ref": "Exclusion #1",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "pregnancy",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "pregnancy",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Active tuberculosis.",
+   "label": "Active TB",
+   "source_ref": "Exclusion #2",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "active tuberculosis",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "active tuberculosis",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Interstitial lung disease or pneumonitis.",
+   "label": "ILD / pneumonitis",
+   "source_ref": "Exclusion #3",
+   "kind": "exclusion",
+   "class": "note",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "quantifier": "any"
+   },
+   "concept_candidates": [],
+   "note_question": "Does the record describe interstitial lung disease or pneumonitis?",
+   "fallback": "No structured substitute; the investigator confirms at clinic"
+  },
+  {
+   "text": "Participation in another interventional study within 30 days.",
+   "label": "Other trial ≤30 d",
+   "source_ref": "Exclusion #4",
+   "kind": "exclusion",
+   "class": "human",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic"
+   },
+   "concept_candidates": [],
+   "human_question": "Confirm with the patient: Participation in another interventional study within 30 days."
+  }
+ ]
+}
