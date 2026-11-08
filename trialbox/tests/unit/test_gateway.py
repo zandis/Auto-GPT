@@ -312,7 +312,7 @@ def test_response_cache_keyed_by_prompt_and_model_sha(tmp_path: Path) -> None:
 
 @pytest.mark.req("LLM-45", "LLM-46", "S1-08")
 def test_d3_production_call_traced_redacted(tmp_path: Path) -> None:
-    traces = TraceStore(tmp_path / "traces.sqlite", Guard("^\\d{8}$"))
+    traces = TraceStore(None, Guard("^\\d{8}$"))
     gw = _gw(
         tmp_path,
         env=Environment.PRODUCTION,
@@ -324,7 +324,7 @@ def test_d3_production_call_traced_redacted(tmp_path: Path) -> None:
     note = "患者陳志明先生，病歷號 20481234，聯絡電話 0912-345-678。目前急性痛風發作中。"
     res = gw.chat(H(Data_Class="D3"), _judge_body({**JUDGE_VARS, "excerpts": [{"date": "d", "text": note}]}))
     assert res.status == 200 and res.body["tb"]["build_sha"] == PIN and res.body["tb"]["route_id"] == "patient"
-    raw = (tmp_path / "traces.sqlite").read_bytes().decode("utf-8", "ignore")
+    raw = "\n".join(str(r[0]) for r in traces.db.fetchall("SELECT concat_ws(' ', call_id, body) FROM traces"))
     for planted in ("陳志明", "20481234", "0912-345-678"):
         assert planted not in raw
     (t,) = traces.read(res.body["tb"]["call_id"], user="qa1", purpose="dispute review", roles=frozenset({"trace:read"}))

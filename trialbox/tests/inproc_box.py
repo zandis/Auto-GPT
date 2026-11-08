@@ -183,7 +183,7 @@ def make_box(
     gw = Gateway(
         cfg,
         store,
-        MailDB(tmp_path / "mail.sqlite"),
+        MailDB(),
         audit,
         transport,
         jobs=lambda req: holder["o"].create(req),  # noqa: PLW0108 - orchestrator is created below

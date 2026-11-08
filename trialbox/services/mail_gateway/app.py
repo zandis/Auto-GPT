@@ -29,7 +29,6 @@ def gateway() -> Gateway:
     if _gw is None:
         cfg = get_config()
         env = cfg.env
-        data = Path(os.environ.get("TB_MAIL_DIR", str(Path(env.data_dir) / "mail")))
         authserv = os.environ.get("TB_MAIL_AUTHSERV_ID", "").strip()
         if not authserv:
             log.warning(
@@ -39,7 +38,7 @@ def gateway() -> Gateway:
         _gw = Gateway(
             cfg=cfg,
             store=from_config(),
-            db=MailDB(data / "mail.sqlite"),
+            db=MailDB(),  # schema "mail" of the trial database (TB_DB_URL, D-126)
             audit=AuditLog(env.audit_path, env.tz),
             transport=smtp_transport(env.smtp_host, env.smtp_port, env.smtp_user, env.smtp_pass, env.smtp_starttls),
             jobs=http_job_sink(env.orchestrator_url),

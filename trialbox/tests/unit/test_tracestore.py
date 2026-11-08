@@ -32,6 +32,14 @@ class Clock:
         return self.now
 
 
+def stored_text(store: TraceStore) -> str:
+    """Everything the store holds (every column of every row), as the raw file was read before D-126."""
+    rows = store.db.fetchall("SELECT concat_ws(' ', call_id, ts, body) FROM traces") + store.db.fetchall(
+        "SELECT concat_ws(' ', ts, \"user\", purpose, action, call_id, detail) FROM access_log"
+    )
+    return "\n".join(str(r[0]) for r in rows)
+
+
 def _digits(s: str) -> str:
     return re.sub(r"\D", "", s)
 
@@ -41,7 +49,7 @@ def test_no_planted_identifier_reaches_the_trace_store(tmp_path: Path) -> None:
     items = generate(SUITE)
     assert len(items) >= 200 and {it.lang for it in items} == {"zh-TW", "ja", "en"}
     assert generate(SUITE)[17].text == items[17].text  # fixed seed: reproducible
-    store = TraceStore(tmp_path / "traces.sqlite", GUARD, clock=Clock())
+    store = TraceStore(None, GUARD, clock=Clock())
     for it in items:
         store.write(
             {
@@ -52,7 +60,7 @@ def test_no_planted_identifier_reaches_the_trace_store(tmp_path: Path) -> None:
                 "output": json.dumps({"quote": it.text}, ensure_ascii=False),
             }
         )
-    raw = (tmp_path / "traces.sqlite").read_bytes().decode("utf-8", "ignore")
+    raw = stored_text(store)
     stored_digits = _digits(raw)
     planted = Counter[str]()
     caught = Counter[str]()
@@ -91,7 +99,7 @@ def test_false_positive_rate_on_negative_items_reported() -> None:
 
 @pytest.mark.req("LLM-45", "S1-08")
 def test_reads_need_purpose_and_role_and_are_logged(tmp_path: Path) -> None:
-    store = TraceStore(tmp_path / "t.sqlite", GUARD, clock=Clock())
+    store = TraceStore(None, GUARD, clock=Clock())
     store.write({"call_id": "c1", "span": "chat", "attributes": {"tb.call_id": "c1"}, "prompt": "MRN 20481234"})
     (t,) = store.read("c1", user="qa1", purpose="dispute review", roles=frozenset({"trace:read"}))
     assert t["prompt"] == "MRN [MRN]" and t["attributes"]["tb.call_id"] == "c1"
@@ -112,7 +120,7 @@ def test_reads_need_purpose_and_role_and_are_logged(tmp_path: Path) -> None:
 @pytest.mark.req("LLM-45", "S1-08")
 def test_retention_prune_with_injected_clock(tmp_path: Path) -> None:
     clock = Clock()
-    store = TraceStore(tmp_path / "t.sqlite", GUARD, clock=clock)
+    store = TraceStore(None, GUARD, clock=clock)
     store.write({"call_id": "old", "span": "chat"})
     store.write({"call_id": "sc", "span": "chat", "sc": True})
     clock.now += timedelta(days=45)
@@ -131,7 +139,7 @@ def test_retention_prune_with_injected_clock(tmp_path: Path) -> None:
 
 
 def test_tracestore_http_surface(tmp_path: Path) -> None:
-    http = TestClient(create_app(TraceStore(tmp_path / "t.sqlite", GUARD, clock=Clock())))
+    http = TestClient(create_app(TraceStore(None, GUARD, clock=Clock())))
     assert http.post("/v1/traces", json={"call_id": "c9", "prompt": "身分證 A123456789"}).status_code == 200
     denied = http.get("/v1/traces/c9", headers={"X-TB-User": "u", "X-TB-Purpose": "p"})
     assert denied.status_code == 403

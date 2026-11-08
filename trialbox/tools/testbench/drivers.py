@@ -116,6 +116,9 @@ def run_dataplat(source: Path, defect: str, log: Log, workdir: Path) -> Dataplat
     contracts = load_contracts(DEMO_HIS)
     write_source_totals(drop, {t: (c.keys.patient, c.keys.watermark) for t, c in contracts.items()})
     work = workdir / "work"
+    from tools import pglocal
+
+    pglocal.for_work(workdir)  # D-126: the MPI lives in the trial database (TB_DB_URL, or a local throwaway one)
     out = DataplatResult(defect=defect or "none")
     log("cycle 1: clean drop, snapshot 2026-10-04")
     r1 = run_pipeline(

@@ -1,7 +1,8 @@
 """Self-hosted trace store v0 (spec v4 §8.14, LLM-45, LLM-46; S1-08).
 
 * **Redaction at write.** Every string in a trace (prompt, output, attribute values) passes :meth:`Guard.redact`
-  before it touches disk; only the identifiers and enumerations listed in ``tracestore.yaml`` are stored as given.
+  before it is stored (schema ``trace`` of the trial database, D-126); only the identifiers and enumerations
+  listed in ``tracestore.yaml`` are stored as given.
 * **Access log.** Every read, refusal and prune is logged in the store's own ``access_log`` table with user and
   purpose; a read needs a purpose and the ``trace:read`` role.
 * **Retention.** :meth:`TraceStore.prune` deletes traces older than ``retention_days`` (90) by the injected clock;
@@ -12,9 +13,8 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,6 +22,7 @@ from typing import Any
 
 import yaml
 from guard.guard import Guard
+from tb_common.db import ENV, Database, Tx
 
 SETTINGS_PATH = Path(__file__).resolve().parent / "tracestore.yaml"
 Clock = Callable[[], datetime]
@@ -53,14 +54,15 @@ class TraceSettings:
         )
 
 
-_SCHEMA = """
+SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS traces (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, call_id TEXT NOT NULL, ts TEXT NOT NULL, sc INTEGER NOT NULL, body TEXT NOT NULL
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, call_id TEXT NOT NULL, ts TEXT NOT NULL, sc INTEGER NOT NULL,
+  body TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS traces_call ON traces(call_id);
 CREATE INDEX IF NOT EXISTS traces_ts ON traces(ts);
 CREATE TABLE IF NOT EXISTS access_log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, user TEXT NOT NULL, purpose TEXT NOT NULL,
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, ts TEXT NOT NULL, "user" TEXT NOT NULL, purpose TEXT NOT NULL,
   action TEXT NOT NULL, call_id TEXT, granted INTEGER NOT NULL, detail TEXT
 );
 """
@@ -69,28 +71,22 @@ CREATE TABLE IF NOT EXISTS access_log (
 class TraceStore:
     def __init__(
         self,
-        path: Path,
+        url: str | None = None,
         guard: Guard | None = None,
         *,
         clock: Clock = utcnow,
         settings: TraceSettings | None = None,
     ) -> None:
-        self.path = path
+        """``url``: the trial database (``TB_DB_URL`` when ``None``; :class:`~tb_common.db.DatabaseError` if unset).
+        The traces live in its schema ``trace``."""
         self.guard = guard or Guard.from_settings()
         self.clock = clock
         self.settings = settings or TraceSettings.load()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with self._db() as db:
-            db.executescript(_SCHEMA)
+        self.db = Database.connect(url or os.environ.get(ENV), "trace")
+        self.db.migrate([SCHEMA_V1])
 
-    @contextmanager
-    def _db(self) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path)
-        try:
-            yield db
-            db.commit()
-        finally:
-            db.close()
+    def close(self) -> None:
+        self.db.close()
 
     def _now(self) -> datetime:
         now = self.clock()
@@ -98,9 +94,9 @@ class TraceStore:
             raise ValueError("trace store clock must be timezone-aware")
         return now.astimezone(UTC)  # one offset, so ISO strings order like instants
 
-    def _log(self, db: sqlite3.Connection, user: str, purpose: str, action: str, call_id: str | None, ok: bool) -> None:
-        db.execute(
-            "INSERT INTO access_log (ts, user, purpose, action, call_id, granted) VALUES (?, ?, ?, ?, ?, ?)",
+    def _log(self, tx: Tx, user: str, purpose: str, action: str, call_id: str | None, ok: bool) -> None:
+        tx.execute(
+            'INSERT INTO access_log (ts, "user", purpose, action, call_id, granted) VALUES (?, ?, ?, ?, ?, ?)',
             (self._now().isoformat(), user, purpose, action, call_id, int(ok)),
         )
 
@@ -126,35 +122,31 @@ class TraceStore:
         body = self._redact_trace(trace)
         ts = self._now().isoformat()
         body["ts"] = ts
-        with self._db() as db:
-            db.execute(
-                "INSERT INTO traces (call_id, ts, sc, body) VALUES (?, ?, ?, ?)",
-                (call_id, ts, int(bool(trace.get("sc"))), json.dumps(body, ensure_ascii=False, sort_keys=True)),
-            )
+        self.db.execute(
+            "INSERT INTO traces (call_id, ts, sc, body) VALUES (?, ?, ?, ?)",
+            (call_id, ts, int(bool(trace.get("sc"))), json.dumps(body, ensure_ascii=False, sort_keys=True)),
+        )
         return call_id
 
     # ------------------------------------------------------------------------------------------------ read
     def read(self, call_id: str, *, user: str, purpose: str, roles: frozenset[str]) -> list[dict[str, Any]]:
         ok = bool(user) and bool(purpose.strip()) and self.settings.read_role in roles
-        with self._db() as db:
-            self._log(db, user or "?", purpose, "read", call_id, ok)
-            if not ok:
-                db.commit()
-                raise TraceAccessDenied(f"trace read needs a user, a purpose and the {self.settings.read_role} role")
-            rows = db.execute("SELECT body FROM traces WHERE call_id = ? ORDER BY id", (call_id,)).fetchall()
+        with self.db.transaction() as tx:
+            self._log(tx, user or "?", purpose, "read", call_id, ok)
+            rows = tx.fetchall("SELECT body FROM traces WHERE call_id = ? ORDER BY id", (call_id,)) if ok else []
+        if not ok:  # the refusal is logged (committed above) before it is raised
+            raise TraceAccessDenied(f"trace read needs a user, a purpose and the {self.settings.read_role} role")
         return [json.loads(r[0]) for r in rows]
 
     def access_log(self) -> list[dict[str, Any]]:
-        with self._db() as db:
-            rows = db.execute(
-                "SELECT ts, user, purpose, action, call_id, granted, detail FROM access_log ORDER BY id"
-            ).fetchall()
+        rows = self.db.fetchall(
+            'SELECT ts, "user", purpose, action, call_id, granted, detail FROM access_log ORDER BY id'
+        )
         keys = ("ts", "user", "purpose", "action", "call_id", "granted", "detail")
         return [dict(zip(keys, r, strict=True)) for r in rows]
 
     def count(self) -> int:
-        with self._db() as db:
-            return int(db.execute("SELECT COUNT(*) FROM traces").fetchone()[0])
+        return int(self.db.fetchval("SELECT COUNT(*) FROM traces", default=0))
 
     # ------------------------------------------------------------------------------------------------ retention
     def prune(self) -> int:
@@ -162,10 +154,13 @@ class TraceStore:
         now = self._now()
         cut = (now - timedelta(days=self.settings.retention_days)).isoformat()
         cut_sc = (now - timedelta(days=self.settings.sc_retention_days)).isoformat()
-        with self._db() as db:
-            n = db.execute("DELETE FROM traces WHERE ts < ? OR (sc = 1 AND ts < ?)", (cut, cut_sc)).rowcount
-            db.execute(
-                "INSERT INTO access_log (ts, user, purpose, action, call_id, granted, detail) "
+        with self.db.transaction() as tx:
+            # ISO strings in one offset; compared byte-wise as SQLite did
+            n = tx.execute(
+                'DELETE FROM traces WHERE ts < ? COLLATE "C" OR (sc = 1 AND ts < ? COLLATE "C")', (cut, cut_sc)
+            )
+            tx.execute(
+                'INSERT INTO access_log (ts, "user", purpose, action, call_id, granted, detail) '
                 "VALUES (?, 'system', 'retention', 'prune', NULL, 1, ?)",
                 (now.isoformat(), json.dumps({"deleted": n, "before": cut})),
             )

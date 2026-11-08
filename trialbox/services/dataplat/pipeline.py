@@ -10,7 +10,7 @@ Workdir layout::
     l0/                      landing zone (Z-IDN, D4, write-once)
     l1/<source>/<batch>/     validation report, quarantine sets (D4)
     l2/<source>/<cycle>/     L2 working set (D4: working tokens, not pids)
-    vault/mpi.sqlite         MPI stand-in for tb-vault (Z-IDN)
+    vault/mpi.scope          which index of the MPI stand-in for tb-vault (schema mpi, Z-IDN) is this work dir's
     l4/                      curated snapshots (Z-PSN, D3), l4/lake = the v1 lake
     l5/                      serving pointer and pin history
     gates/, notices/         publish-gate records and rendered steward notices
@@ -51,7 +51,7 @@ from dataplat.common import Clock, iso_utc, run_uuid, stable_id, utc_now, write_
 from dataplat.contracts import DEMO_HIS, MIMIC_FHIR, DataContract, load_contracts
 from dataplat.landing import LandingZone, iter_rows, read_drop
 from dataplat.lineage import LineageCheck, LineageLog, check_complete, dataset, facet
-from dataplat.mpi import MergeEvent, Mpi, SiteKeys
+from dataplat.mpi import MergeEvent, Mpi, SiteKeys, workdir_scope
 from dataplat.pseudonymise import L3Output, pseudonymise
 from dataplat.publish import GateInputs, evaluate
 from dataplat.reconcile import compute_totals, record
@@ -350,7 +350,7 @@ def run_pipeline(
                 )
             },
         )
-        with Mpi(workdir / "vault" / "mpi.sqlite", keys, clock=clock, id_factory=id_factory) as mpi:
+        with Mpi(keys, scope=workdir_scope(workdir), clock=clock, id_factory=id_factory) as mpi:
             l3 = pseudonymise(l2, mpi, merges=merges)
         equations += l3.equations
         counts["L3"] = l3.counts

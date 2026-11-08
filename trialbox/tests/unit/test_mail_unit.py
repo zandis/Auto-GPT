@@ -70,7 +70,7 @@ def test_authentication_results() -> None:
 
 
 def test_intake_decisions(tmp_path: Path) -> None:
-    db = MailDB(tmp_path / "m.sqlite")
+    db = MailDB()
     m = intake.read(_msg("Re: FEAS gzqo lookback=24 -- for sponsor"))
     d = intake.decide(m, SETTINGS, db, NOW)
     assert d.action == "job" and d.job is not None
@@ -236,7 +236,7 @@ def test_reply_to_subject_with_encoded_crlf(tmp_path: Path) -> None:
     gw = Gateway(
         Config(env=env, settings=SETTINGS),
         FsStore(tmp_path / "obj"),
-        MailDB(tmp_path / "m.sqlite"),
+        MailDB(),
         AuditLog(tmp_path / "audit", "Asia/Taipei"),
         lambda _frm, _to, data: sent.append(data),
         jobs=lambda req: pytest.fail("no job for a malformed subject"),

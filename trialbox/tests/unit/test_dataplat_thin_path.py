@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import itertools
 import json
+import os
 import re
 import shutil
 import uuid
@@ -20,7 +21,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from dataplat import curated
 from dataplat.common import fixed_clock
 from dataplat.lineage import check_complete, expected_jobs
-from dataplat.mpi import MergeEvent, Mpi, SiteKeys
+from dataplat.mpi import MergeEvent, Mpi, SiteKeys, workdir_scope
 from dataplat.pipeline import PipelineResult, run_pipeline
 from dataplat.serving import Serving, ServingError
 from tb_common.crypto import ed25519_generate
@@ -53,8 +54,30 @@ def _run(src: Path, work: Path, snapshot: str = "2026-10-04", **kw: Any) -> Pipe
 
 
 @pytest.fixture(scope="module")
-def published(synth_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> PipelineResult:
-    return _run(synth_dir / "site-a", tmp_path_factory.mktemp("dp_thin") / "work")
+def module_db(pg_cluster_url: str) -> str:
+    """The trial database of the module's shared run (module fixtures run before the per-test ``db_url``)."""
+    return f"{pg_cluster_url}{'&' if '?' in pg_cluster_url else '?'}tb_prefix=m{os.getpid()}thin_"
+
+
+@pytest.fixture(scope="module")
+def published(synth_dir: Path, tmp_path_factory: pytest.TempPathFactory, module_db: str) -> PipelineResult:
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("TB_DB_URL", module_db)
+        return _run(synth_dir / "site-a", tmp_path_factory.mktemp("dp_thin") / "work")
+
+
+MPI_TABLES = ("mpi_person", "mpi_identifier", "mpi_merge", "pid_alias")
+
+
+def mpi_bytes(mpi: Mpi) -> bytes:
+    """Every value the MPI holds for its scope (all columns of all tables), as the raw file was read before D-126."""
+    out = bytearray()
+    for table in MPI_TABLES:
+        for row in mpi.db.fetchall("SELECT * FROM " + table + " WHERE scope = ?", (mpi.scope,)):
+            for v in row:
+                out += v if isinstance(v, bytes) else str(v).encode("utf-8")
+                out += b"\n"
+    return bytes(out)
 
 
 def _mrns(synth_dir: Path) -> set[str]:
@@ -86,7 +109,7 @@ def test_site_a_becomes_a_signed_pinned_snapshot(published: PipelineResult) -> N
 
 
 @pytest.mark.req("PRIV-10", "DP-35")
-def test_no_mrn_leaves_l0_and_the_mpi(published: PipelineResult, synth_dir: Path) -> None:
+def test_no_mrn_leaves_l0_and_the_mpi(published: PipelineResult, synth_dir: Path, module_db: str) -> None:
     mrns = _mrns(synth_dir)
     work = published.workdir
     texts = [p.read_text(encoding="utf-8") for p in (work / "l4" / "snapshots").rglob("*.ndjson")]
@@ -96,14 +119,16 @@ def test_no_mrn_leaves_l0_and_the_mpi(published: PipelineResult, synth_dir: Path
     found = {v for t in texts for v in quoted.findall(t)}
     assert not (found & mrns)
     # the MPI holds MRNs only as HMAC lookups and AES-GCM ciphertext
-    raw = (work / "vault" / "mpi.sqlite").read_bytes()
+    with Mpi(SiteKeys.derive(SITE_KEY, SITE_ID), module_db, scope=workdir_scope(work)) as mpi:
+        raw = mpi_bytes(mpi)
+    assert len(raw) > 600 * 32  # the MPI holds every patient of the run
     assert not any(m.encode() in raw for m in list(mrns)[:50])
 
 
 @pytest.mark.req("PRIV-10", "DP-35")
 def test_pid_is_hmac_of_kpid_over_a_random_mpi_id(tmp_path: Path) -> None:
     keys = SiteKeys.derive(SITE_KEY, SITE_ID)
-    with Mpi(tmp_path / "a.sqlite", keys, clock=CLOCK) as a, Mpi(tmp_path / "b.sqlite", keys, clock=CLOCK) as b:
+    with Mpi(keys, scope="a", clock=CLOCK) as a, Mpi(keys, scope="b", clock=CLOCK) as b:
         ma, mb = a.register("10000001"), b.register("10000001")
         assert ma != mb and len(ma) == 32  # random 128-bit, never derived from the MRN
         assert a.register("10000001") == ma  # stable once registered
@@ -119,7 +144,7 @@ def test_a40_merge_maps_two_mrns_to_one_pid(synth_dir: Path, tmp_path: Path) -> 
     assert res.outcome == "PUBLISH" and res.manifest is not None
     assert res.counts["L3"]["Patient"] == res.counts["L2"]["Patient"] - 1 == 599
     keys = SiteKeys.derive(SITE_KEY, SITE_ID)
-    with Mpi(tmp_path / "work" / "vault" / "mpi.sqlite", keys) as mpi:
+    with Mpi(keys, scope=workdir_scope(tmp_path / "work")) as mpi:
         a, b = mpi.lookup(keep), mpi.lookup(gone)
         assert a is not None and a == b
         pid = mpi.pid(a)

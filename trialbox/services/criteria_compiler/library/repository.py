@@ -1,15 +1,17 @@
-"""Repository over the criterion-library tables (``ddl.py``), keyed by canonical hash (spec v4 §6.2.7, §6.3)."""
+"""Repository over the criterion-library tables (``ddl.py``), keyed by canonical hash (spec v4 §6.2.7, §6.3).
+
+The library is site-owned, mutable state (drafts, gate approvals, deprecations, the rulesets that use a criterion),
+so it lives in schema ``library`` of the trial database (D-126) like every other store the box owns."""
 
 from __future__ import annotations
 
 import json
-import sqlite3
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+import os
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any, Literal
 
+from tb_common.db import ENV, Database
 from tb_common.ulid import new_ulid
 from tb_contracts.criterion_ir import (
     CriterionIRv3,
@@ -42,29 +44,19 @@ def _valuesets_used(ir: CriterionIRv3) -> list[str]:
 
 
 class CriterionLibrary:
-    """SQLite-backed criterion library. ``path`` may be ``":memory:"`` (tests)."""
+    """The criterion library in schema ``library`` of the trial database."""
 
-    def __init__(self, path: str | Path = ":memory:") -> None:
-        self.db = sqlite3.connect(str(path))
-        self.db.execute("PRAGMA foreign_keys = ON")
-        self.db.executescript(DDL)
+    def __init__(self, url: str | None = None) -> None:
+        """``url``: the trial database (``TB_DB_URL`` when ``None``; :class:`~tb_common.db.DatabaseError` if unset)."""
+        self.db = Database.connect(url or os.environ.get(ENV), "library")
+        self.db.migrate([DDL])
         self.db.execute(
-            "INSERT OR IGNORE INTO criterion_library_meta (key, value) VALUES ('schema_version', ?)",
+            "INSERT INTO criterion_library_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT DO NOTHING",
             (str(SCHEMA_VERSION),),
         )
-        self.db.commit()
 
     def close(self) -> None:
         self.db.close()
-
-    @contextmanager
-    def _tx(self) -> Iterator[sqlite3.Connection]:
-        try:
-            yield self.db
-            self.db.commit()
-        except BaseException:
-            self.db.rollback()
-            raise
 
     # ------------------------------------------------------------------------------------------- hashing
     @staticmethod
@@ -78,36 +70,36 @@ class CriterionLibrary:
         return None if row is None else CriterionLibraryRecord.model_validate_json(row[0])
 
     def get(self, lib_id: str) -> CriterionLibraryRecord | None:
-        cur = self.db.execute("SELECT record_json FROM criterion_library WHERE lib_id = ?", (lib_id,))
-        return self._row_record(cur.fetchone())
+        row = self.db.fetchone("SELECT record_json FROM criterion_library WHERE lib_id = ?", (lib_id,))
+        return self._row_record(row)
 
     def by_hash(self, chash: str) -> CriterionLibraryRecord | None:
-        cur = self.db.execute("SELECT record_json FROM criterion_library WHERE canonical_hash = ?", (chash,))
-        return self._row_record(cur.fetchone())
+        row = self.db.fetchone("SELECT record_json FROM criterion_library WHERE canonical_hash = ?", (chash,))
+        return self._row_record(row)
 
     def records(self, status: str | None = None) -> list[CriterionLibraryRecord]:
         if status is None:
-            cur = self.db.execute("SELECT record_json FROM criterion_library ORDER BY lib_id")
+            rows = self.db.fetchall('SELECT record_json FROM criterion_library ORDER BY lib_id COLLATE "C"')
         else:
-            cur = self.db.execute(
-                "SELECT record_json FROM criterion_library WHERE status = ? ORDER BY lib_id", (status,)
+            rows = self.db.fetchall(
+                'SELECT record_json FROM criterion_library WHERE status = ? ORDER BY lib_id COLLATE "C"', (status,)
             )
-        return [CriterionLibraryRecord.model_validate_json(r[0]) for r in cur.fetchall()]
+        return [CriterionLibraryRecord.model_validate_json(r[0]) for r in rows]
 
     def used_by(self, ruleset: str) -> list[str]:
-        cur = self.db.execute(
-            "SELECT lib_id FROM criterion_library_usage WHERE ruleset = ? ORDER BY lib_id", (ruleset,)
+        rows = self.db.fetchall(
+            'SELECT lib_id FROM criterion_library_usage WHERE ruleset = ? ORDER BY lib_id COLLATE "C"', (ruleset,)
         )
-        return [str(r[0]) for r in cur.fetchall()]
+        return [str(r[0]) for r in rows]
 
     def with_valueset(self, sha: str) -> list[str]:
-        cur = self.db.execute(
-            "SELECT DISTINCT lib_id FROM criterion_library_valueset WHERE sha = ? ORDER BY lib_id", (sha,)
+        rows = self.db.fetchall(
+            'SELECT DISTINCT lib_id COLLATE "C" FROM criterion_library_valueset WHERE sha = ? ORDER BY 1', (sha,)
         )
-        return [str(r[0]) for r in cur.fetchall()]
+        return [str(r[0]) for r in rows]
 
     def count(self) -> int:
-        return int(self.db.execute("SELECT COUNT(*) FROM criterion_library").fetchone()[0])
+        return int(self.db.fetchval("SELECT COUNT(*) FROM criterion_library", default=0))
 
     # ------------------------------------------------------------------------------------------- writes
     def put(self, record: CriterionLibraryRecord) -> None:
@@ -116,18 +108,25 @@ class CriterionLibrary:
         if rec.ir.canonical_hash not in (None, rec.canonical_hash):
             raise LibraryError(f"{rec.lib_id}: ir.canonical_hash differs from the record's canonical_hash")
         now = _now()
-        with self._tx() as db:
-            other = db.execute(
+        with self.db.transaction() as tx:
+            other = tx.fetchone(
                 "SELECT lib_id FROM criterion_library WHERE canonical_hash = ? AND lib_id <> ?",
                 (rec.canonical_hash, rec.lib_id),
-            ).fetchone()
+            )
             if other:
                 raise LibraryError(f"canonical hash {rec.canonical_hash} already belongs to {other[0]}")
-            created = db.execute("SELECT created_at FROM criterion_library WHERE lib_id = ?", (rec.lib_id,)).fetchone()
-            db.execute(
-                "INSERT OR REPLACE INTO criterion_library (lib_id, canonical_hash, schema_version, ir_version, status,"
+            created = tx.fetchone("SELECT created_at FROM criterion_library WHERE lib_id = ?", (rec.lib_id,))
+            tx.execute(
+                "INSERT INTO criterion_library (lib_id, canonical_hash, schema_version, ir_version, status,"
                 " kind, class, seed_source, approved_gate, approval_id, supersedes, data_class, record_json,"
-                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT (lib_id) DO UPDATE SET canonical_hash = EXCLUDED.canonical_hash,"
+                " schema_version = EXCLUDED.schema_version, ir_version = EXCLUDED.ir_version,"
+                " status = EXCLUDED.status, kind = EXCLUDED.kind, class = EXCLUDED.class,"
+                " seed_source = EXCLUDED.seed_source, approved_gate = EXCLUDED.approved_gate,"
+                " approval_id = EXCLUDED.approval_id, supersedes = EXCLUDED.supersedes,"
+                " data_class = EXCLUDED.data_class, record_json = EXCLUDED.record_json,"
+                " created_at = EXCLUDED.created_at, updated_at = EXCLUDED.updated_at",
                 (
                     rec.lib_id,
                     rec.canonical_hash,
@@ -147,22 +146,24 @@ class CriterionLibrary:
                 ),
             )
             for table in ("text", "valueset", "lexicon_key", "usage"):
-                db.execute(f"DELETE FROM criterion_library_{table} WHERE lib_id = ?", (rec.lib_id,))
-            db.executemany(
-                "INSERT OR IGNORE INTO criterion_library_text (lib_id, lang, source, text) VALUES (?, ?, ?, ?)",
+                tx.execute(f"DELETE FROM criterion_library_{table} WHERE lib_id = ?", (rec.lib_id,))
+            tx.executemany(
+                "INSERT INTO criterion_library_text (lib_id, lang, source, text) VALUES (?, ?, ?, ?)"
+                " ON CONFLICT DO NOTHING",
                 [(rec.lib_id, t.lang, t.source, t.text) for t in rec.texts],
             )
-            db.executemany(
-                "INSERT OR REPLACE INTO criterion_library_valueset (lib_id, valueset_id, sha, terminology_version)"
-                " VALUES (?, ?, ?, ?)",
+            tx.executemany(
+                "INSERT INTO criterion_library_valueset (lib_id, valueset_id, sha, terminology_version)"
+                " VALUES (?, ?, ?, ?) ON CONFLICT (lib_id, valueset_id) DO UPDATE SET sha = EXCLUDED.sha,"
+                " terminology_version = EXCLUDED.terminology_version",
                 [(rec.lib_id, v.id, v.sha, v.terminology_version) for v in rec.valuesets],
             )
-            db.executemany(
-                "INSERT OR IGNORE INTO criterion_library_lexicon_key (lib_id, entry_id) VALUES (?, ?)",
+            tx.executemany(
+                "INSERT INTO criterion_library_lexicon_key (lib_id, entry_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
                 [(rec.lib_id, k) for k in rec.lexicon_keys],
             )
-            db.executemany(
-                "INSERT OR IGNORE INTO criterion_library_usage (lib_id, ruleset) VALUES (?, ?)",
+            tx.executemany(
+                "INSERT INTO criterion_library_usage (lib_id, ruleset) VALUES (?, ?) ON CONFLICT DO NOTHING",
                 [(rec.lib_id, r) for r in rec.used_by],
             )
 
