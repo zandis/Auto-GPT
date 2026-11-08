@@ -29,6 +29,10 @@ ALLOWED: dict[str, str] = {
     "tests/unit/test_pin_model.py": "drives the stub app in-process as the gateway's upstream (no network)",
     "tests/unit/test_no_direct_model_calls.py": "holds the patterns of this check",
     "deploy/gcp/gpu-fit-test.sh": "runs on the GPU VM: a one-line smoke prompt (no patient data) to its own servers",
+    "tests/unit/test_model_swap.py": "fake vLLM servers behind an httpx.MockTransport (no network)",
+    "tools/chat_eval.py": "survey 2026-11-07 chat check on fictional D0 requests (Z-DEV, OpenRouter); not shipped",
+    "tools/phi_synth_eval.py": "survey 2026-11-07 PHI check on fictional D0 notes (Z-DEV, OpenRouter); not shipped",
+    "tools/phi_synth_gen.py": "writes the fictional D0 notes for phi_synth_eval (Z-DEV); not shipped",
 }
 
 

@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Protocol
 
+from tb_common.quotes import quote_key
+
 JUDGE_PROMPT = "judge"
 
 
@@ -175,9 +177,9 @@ def verify_span(reply: JudgeReply, excerpts: list[dict[str, Any]], lo: date, hi:
     """CAS-16: the verified span (excerpt id, offsets, date, sentence hash) or None when it does not verify."""
     if not reply.quote:
         return None
-    q = norm(reply.quote)
+    q = quote_key(reply.quote)  # stray spaces next to CJK characters do not count (tb_common.quotes)
     for ex in excerpts:
-        text = norm(str(ex.get("text", "")))
+        text = quote_key(str(ex.get("text", "")))
         start = text.find(q)
         if start < 0:
             continue

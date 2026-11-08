@@ -310,3 +310,37 @@ resumed FEAS; plain words → proposal → confirm; cascade → DL-1 + certifica
 | "Refused: … not permitted" | the user's mailbox is not in `settings.permissions` groups: re-run `deploy/poc.sh` with the right `TB_POC_ADMIN_EMAIL` |
 | FEAS fails "no snapshot" | Overview → **Ingest synthetic site A** (or `console.cli ingest`) |
 | port 8090/8025/3025 taken | `TB_HOST_CONSOLE_PORT`, `TB_HOST_MAILHOG_PORT`, `TB_HOST_SMTP_PORT` |
+
+## 10. One RTX 5090: model swap, night self-test, chat time limit
+
+The 2026-11-07 survey (`docs/reviews/2026-11-07-open-llm-survey.md`) keeps Gemma 4 26B-A4B (judge) and Qwen3.5-9B
+(verifier) for one RTX 5090. Side by side they need about 35 GiB, so `docker-compose.rtx5090.yml` runs them **one at
+a time** (`TB_MODEL_SWAP=sleep`, the default there):
+
+| What | How it works | Where |
+|---|---|---|
+| Start | judge loads and sleeps, verifier loads and sleeps, judge wakes (`judge-sleep-init`, `model-swap-init`, `judge-wake-init`) | `deploy/docker-compose.rtx5090.yml` |
+| Day | judge awake: chat, protocol help, interactive CASE | |
+| Screening run | judge answers every note question first; the gateway then sleeps the judge and wakes the verifier for the second opinions; the judge wakes again at the end. Same answers as the inline two-model run, in a different order | `services/orchestrator/twophase.py`, `services/gateway/swap.py` |
+| Chat while the verifier is awake, or a model call over 30 s | the person gets "the model is busy, try again in a few minutes" in their language, at once; batch jobs keep the long limit | `TB_GATEWAY_INTERACTIVE_TIMEOUT_S` (30), `TB_CHAT_TURN_TIMEOUT_S` (90, Hermes turn) |
+| Before the night's LLM jobs | 54 known questions (EN/JA/zh-TW) to each model; MICROBATCH, NAV, COHORT and CALIBRATION start only when both pass (≥95% answered, ≤1 yes/no flip, ≥85% right). Result in the audit log (`selftest.passed` / `selftest.failed`) and `/data/orchestrator/selftest.json` | `services/orchestrator/selftest.py`; `make selftest` by hand; `TB_SELFTEST=off` to skip |
+| Install | every pinned model's weight hashes are re-checked; a mismatch stops the install | `python -m tools.pin_model --verify-all deploy/models`, `make verify-models` |
+| vLLM | `vllm/vllm-openai:v0.32.0`, the release the 2026-11-06 GPU run measured, with its flags (`--enforce-eager`, 4 sequences, 8k context, image inputs off, Qwen thinking off) | `VLLM_IMAGE` |
+
+Check the swap by hand: `curl -s http://gateway:8020/v1/serving/status` (inside trialbox-net) shows which model is
+awake and how long the last swap took.
+
+**Measured 2026-11-08** on an RTX PRO 6000 capped to 32 GB (same caps): one model awake uses 27-29.6 GB of the
+card in all, the sleeping one 1.3 GB; the second server starts while the first sleeps; sleep takes 0.4-3.7 s and
+wake 0.3-0.5 s. Side by side the pair does not fit. Not yet run on a physical 5090. Host RAM must hold the sleeping
+model (64 GB or more).
+
+**Install guard (D-112).** `install.sh --gpu rtx5090` starts the pair only on a serving-config record taken on a
+real 5090 with this profile (`deploy/site/serving_config.rtx5090.json`, checked by `python -m tools.serving_config
+measured rtx5090 <file>`: complete, the card is a 5090 and not a capped larger card, sleep mode on both servers). For
+the first boot on a new card set `TB_ACCEPT_UNMEASURED_GPU=1`, then capture the record
+(`deploy/gcp/capture-serving-config.sh`, or `python3 tools/serving_config.py capture ...` on the box) and copy it there.
+
+**After a host reboot** run `docker compose ... up -d --wait` again (or `deploy/install.sh --yes`): Docker restarts
+the two vLLM containers together and the start-order helpers run only under compose, so the second model can fail
+its start until the stack is brought up in order.

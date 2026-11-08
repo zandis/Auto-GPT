@@ -1,0 +1,670 @@
+{
+ "report": {
+  "role": "verifier",
+  "model": "dsv4pro",
+  "cases": 54,
+  "answered": 54,
+  "correct": 53,
+  "flips": 0,
+  "seconds": 2420.0,
+  "errors": [],
+  "wrong": [
+   {
+    "id": "ja:preg:silent",
+    "expected": "unknown",
+    "got": "fail"
+   }
+  ],
+  "ok": true
+ },
+ "rows": [
+  {
+   "id": "en:t2dm:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "Assessment: type 2 diabetes mellitus, on metformin 500 mg twice daily. HbA1c 7.4%.",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt explicitly states the patient has type 2 diabetes mellitus and is on treatment for it."
+   }
+  },
+  {
+   "id": "en:t2dm:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "No history of diabetes. Fasting glucose 92 mg/dL, HbA1c 5.3%.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states 'No history of diabetes' and provides normal fasting glucose and HbA1c values, which directly contradicts the presence of type 2 diabetes."
+   }
+  },
+  {
+   "id": "en:t2dm:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "Seen for right knee pain after a fall. X-ray shows no fracture.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt does not mention type 2 diabetes mellitus at all."
+   }
+  },
+  {
+   "id": "en:ad:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "Diagnosis: mild cognitive impairment due to Alzheimer's disease; amyloid PET positive.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states the diagnosis is 'mild cognitive impairment due to Alzheimer's disease', which confirms a clinical diagnosis of early Alzheimer's disease."
+   }
+  },
+  {
+   "id": "en:ad:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "No neurodegenerative disease.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states 'No neurodegenerative disease', which directly contradicts the criterion of having a clinical diagnosis of early Alzheimer's disease."
+   }
+  },
+  {
+   "id": "en:ad:suspected",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "Possible early Alzheimer's disease, to be ruled out with amyloid PET next month.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt states 'Possible early Alzheimer's disease', which is a suspected diagnosis, not confirmed. The criterion asks for a clinical diagnosis of early Alzheimer's disease, and the note explicitly says it is to be ruled out with further testing. Therefore, we cannot confirm the diagnosis."
+   }
+  },
+  {
+   "id": "en:ra:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "Rheumatoid arthritis, stable on methotrexate 15 mg weekly with folic acid.",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt explicitly states the patient is 'on methotrexate', directly answering yes to whether they are taking it."
+   }
+  },
+  {
+   "id": "en:ra:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "Methotrexate was stopped in 2024 because of liver enzyme rise; now on no DMARD.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states that methotrexate was stopped in 2024 and the patient is currently on no DMARD (disease-modifying antirheumatic drugs). Therefore, the patient is not taking methotrexate."
+   }
+  },
+  {
+   "id": "en:ra:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "Joint pain in both hands, morning stiffness 30 minutes. Labs pending.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt mentions joint pain and morning stiffness but does not mention methotrexate or any medication the patient is taking. The criterion asks if the patient is taking methotrexate, which cannot be confirmed from this note."
+   }
+  },
+  {
+   "id": "en:preg:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "Intrauterine pregnancy at 12 weeks confirmed on ultrasound today.",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt explicitly states that an intrauterine pregnancy was confirmed on ultrasound on 2026-10-01 at 12 weeks gestation. This directly supports the criterion 'Pregnancy' and answers the note question 'Is the patient currently pregnant?' with a yes."
+   }
+  },
+  {
+   "id": "en:preg:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "Urine pregnancy test negative today.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states a negative urine pregnancy test and that the patient is post-menopausal for 6 years, which directly contradicts current pregnancy."
+   }
+  },
+  {
+   "id": "en:preg:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "Routine pap smear taken. Patient has no complaints.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt does not mention pregnancy status; it only states a routine pap smear was taken and the patient has no complaints."
+   }
+  },
+  {
+   "id": "en:chemo:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "Cycle 3 of FOLFOX given today for metastatic colon cancer.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states that Cycle 3 of FOLFOX chemotherapy was administered on the date of the note (2026-10-01), which directly supports that the patient is currently receiving chemotherapy for active cancer."
+   }
+  },
+  {
+   "id": "en:chemo:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "Breast cancer treated in 2015; no chemotherapy since, in remission.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states 'no chemotherapy since' and the patient is 'in remission', indicating they are not currently receiving chemotherapy."
+   }
+  },
+  {
+   "id": "en:chemo:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "Referred to oncology for evaluation of a lung nodule.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt only mentions referral for evaluation of a lung nodule; it does not state that the patient is currently receiving chemotherapy."
+   }
+  },
+  {
+   "id": "en:stroke:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "Admitted on 2026-09-28 with acute left MCA ischemic stroke, thrombolysed.",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt explicitly states the patient was admitted for an acute ischemic stroke on 2026-09-28, which is within the past 6 months relative to the index date of 2026-11-01."
+   }
+  },
+  {
+   "id": "en:stroke:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "No history of stroke or TIA.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states 'No history of stroke', which directly contradicts the criterion 'Stroke within the past 6 months'. The date is before index_date and falls within the relevant timeframe."
+   }
+  },
+  {
+   "id": "en:stroke:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "Headache for two days, no focal signs reported by the patient.",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt mentions a headache but does not mention any stroke or related symptoms. The criterion asks about a stroke within the past 6 months (from index date 2026-11-01). The note from 2026-10-01 only reports headache and no focal signs, which is insufficient to confirm or rule out a stroke."
+   }
+  },
+  {
+   "id": "ja:t2dm:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "評価：2型糖尿病。メトホルミン500mg 1日2回内服中。HbA1c 7.4%。",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt explicitly states '評価：2型糖尿病' (Evaluation: Type 2 diabetes), confirming the patient has type 2 diabetes."
+   }
+  },
+  {
+   "id": "ja:t2dm:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "糖尿病の既往なし。空腹時血糖92mg/dL、HbA1c 5.3%。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states 'No history of diabetes' (糖尿病の既往なし), which directly contradicts the criterion that the patient has type 2 diabetes."
+   }
+  },
+  {
+   "id": "ja:t2dm:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "転倒後の右膝痛で受診。X線で骨折なし。",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt does not mention diabetes or any related condition. It only discusses a fall and knee pain with no fracture found on X-ray."
+   }
+  },
+  {
+   "id": "ja:ad:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "診断：アルツハイマー病による軽度認知障害。アミロイドPET陽性。",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt explicitly states the diagnosis is Alzheimer's disease-related mild cognitive impairment, confirming the patient has been diagnosed with Alzheimer's disease."
+   }
+  },
+  {
+   "id": "ja:ad:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "認知機能正常、MMSE 30/30。神経変性疾患なし。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states 'no neurodegenerative disease' and normal cognitive function (MMSE 30/30), which directly contradicts a diagnosis of Alzheimer's disease."
+   }
+  },
+  {
+   "id": "ja:ad:suspected",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "早期アルツハイマー病の疑い。来月アミロイドPETで精査予定。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt states 'early Alzheimer's disease suspected' (早期アルツハイマー病の疑い), which is a suspected diagnosis, not confirmed. The question asks if the patient has been diagnosed with Alzheimer's disease. Since it's only suspected and pending further investigation, we cannot confirm a diagnosis."
+   }
+  },
+  {
+   "id": "ja:ra:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "関節リウマチ、メトトレキサート週15mgと葉酸で安定。",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt explicitly states the patient is taking methotrexate (メトトレキサート) weekly at 15mg along with folic acid and is stable."
+   }
+  },
+  {
+   "id": "ja:ra:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "2024年に肝酵素上昇のためメトトレキサート中止。現在DMARDなし。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt states that methotrexate was discontinued in 2024 due to elevated liver enzymes and that the patient is currently not taking any DMARDs. Therefore, the patient is not currently taking methotrexate."
+   }
+  },
+  {
+   "id": "ja:ra:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "両手の関節痛、朝のこわばり30分。検査結果待ち。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt does not mention methotrexate use; it only describes symptoms and pending test results."
+   }
+  },
+  {
+   "id": "ja:preg:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "本日の超音波で妊娠12週の子宮内妊娠を確認。",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt explicitly confirms an intrauterine pregnancy at 12 weeks on the ultrasound performed that day (2026-10-01). The index date is 2026-11-01, which is after the confirmation date, so the patient was pregnant at the time of evaluation. This directly supports 'pass'."
+   }
+  },
+  {
+   "id": "ja:preg:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "本日の尿妊娠検査陰性。閉経後6年。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states a negative urine pregnancy test and that the patient has been postmenopausal for 6 years, directly contradicting the criterion of being pregnant."
+   }
+  },
+  {
+   "id": "ja:preg:silent",
+   "expected": "unknown",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "定期の子宮頸がん検診を実施。自覚症状なし。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt states that a cervical cancer screening was performed and there are no subjective symptoms. It does not mention pregnancy at all. Therefore, the patient is not confirmed to be pregnant."
+   }
+  },
+  {
+   "id": "ja:chemo:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "転移性大腸がんに対し本日FOLFOX 3コース目を投与。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt states that the patient received FOLFOX chemotherapy today (2026-10-01) for metastatic colorectal cancer. This directly confirms they are currently undergoing chemotherapy."
+   }
+  },
+  {
+   "id": "ja:chemo:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "その後化学療法なし、寛解中。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt states the patient has been in remission without chemotherapy since 2015 treatment for breast cancer. The criterion asks if the patient is currently receiving chemotherapy for active cancer. The note explicitly says 'no chemotherapy' and 'in remission', which contradicts the current use of chemotherapy."
+   }
+  },
+  {
+   "id": "ja:chemo:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "肺結節の精査目的で腫瘍内科へ紹介。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt only mentions a referral to oncology for further evaluation of lung nodules. It does not state that the patient is currently receiving chemotherapy or has active cancer. The criterion requires evidence of ongoing chemotherapy for active cancer, which is absent."
+   }
+  },
+  {
+   "id": "ja:stroke:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "2026-09-28 左中大脳動脈領域の急性脳梗塞で入院、血栓溶解療法施行。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt states the patient was admitted for acute cerebral infarction on 2026-09-28, which is within the past 6 months from the index date of 2026-11-01."
+   }
+  },
+  {
+   "id": "ja:stroke:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "脳卒中・TIAの既往なし。神経学的所見正常。",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt explicitly states 'no history of stroke or TIA', which directly contradicts the criterion requiring a stroke within the past 6 months."
+   }
+  },
+  {
+   "id": "ja:stroke:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "2 日前からの頭痛。患者の訴えでは局所症状なし。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt only mentions a headache starting two days ago and no local symptoms. It does not mention any stroke or cerebrovascular accident (脳卒中) within the past six months. Therefore, we cannot confirm whether the patient had a stroke in the past six months."
+   }
+  },
+  {
+   "id": "zh-TW:t2dm:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "評估：第二型糖尿病，服用 metformin 500 mg 每日兩次。HbA1c 7.4%。",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt explicitly states the patient has type 2 diabetes (第二型糖尿病) and is taking medication for it."
+   }
+  },
+  {
+   "id": "zh-TW:t2dm:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "無糖尿病病史。空腹血糖 92 mg/dL，HbA1c 5.3%。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states 'No history of diabetes' (無糖尿病病史), which directly contradicts the criterion of having type 2 diabetes."
+   }
+  },
+  {
+   "id": "zh-TW:t2dm:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "跌倒後右膝疼痛就診。X光無骨折。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt only mentions a fall and knee pain with no fracture on X-ray. It does not mention diabetes or any related condition."
+   }
+  },
+  {
+   "id": "zh-TW:ad:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "診斷：阿茲海默症所致輕度認知障礙；類澱粉蛋白 PET 陽性。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states the diagnosis is Alzheimer's disease (阿茲海默症) causing mild cognitive impairment."
+   }
+  },
+  {
+   "id": "zh-TW:ad:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "無神經退化性疾病。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states 'No neurodegenerative disease' (無神經退化性疾病), which directly contradicts a diagnosis of Alzheimer's disease."
+   }
+  },
+  {
+   "id": "zh-TW:ad:suspected",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "疑似早期阿茲海默症，下個月安排類澱粉蛋白 PET 排除。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt uses '疑似' (suspected) which indicates a suspected diagnosis, not a confirmed one. The criterion asks if the patient was diagnosed with Alzheimer's disease. Since it is only suspected and pending further testing, we cannot confirm a diagnosis."
+   }
+  },
+  {
+   "id": "zh-TW:ra:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "類風濕性關節炎，methotrexate 每週 15 mg 加葉酸，病情穩定。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states the patient is taking methotrexate weekly at 15 mg with folic acid and their condition is stable as of 2026-10-01. This directly supports that the patient currently uses methotrexate."
+   }
+  },
+  {
+   "id": "zh-TW:ra:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "2024 年因肝指數上升停用 methotrexate，目前未使用 DMARD。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states that the patient stopped using methotrexate in 2024 and currently does not use any DMARD (disease-modifying antirheumatic drugs). Therefore, the criterion '使用 methotrexate 的類風濕性關節炎' is not met at the current time."
+   }
+  },
+  {
+   "id": "zh-TW:ra:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "檢驗結果待回報。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt does not mention methotrexate or any medication use. It only describes symptoms and pending lab results."
+   }
+  },
+  {
+   "id": "zh-TW:preg:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "今日超音波確認子宮內懷孕 12 週。",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt explicitly states that an ultrasound confirmed a pregnancy of 12 weeks on 2026-10-01. The index date is 2026-11-01, which is after the confirmation date, so the patient is currently pregnant."
+   }
+  },
+  {
+   "id": "zh-TW:preg:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "今日驗孕陰性。停經 6 年。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt states that the pregnancy test was negative today (2026-10-01), and the patient has been amenorrheic for 6 years. This directly indicates she is not currently pregnant."
+   }
+  },
+  {
+   "id": "zh-TW:preg:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "病人無不適。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt does not mention pregnancy at all."
+   }
+  },
+  {
+   "id": "zh-TW:chemo:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "轉移性大腸癌，今日給予 FOLFOX 第 3 療程。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states that the patient is receiving chemotherapy (FOLFOX) today."
+   }
+  },
+  {
+   "id": "zh-TW:chemo:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "2015 年乳癌治療後未再化療，目前緩解中。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt states the patient has not received chemotherapy since 2015 and is currently in remission. This directly contradicts the criterion of 'receiving chemotherapy for active cancer'."
+   }
+  },
+  {
+   "id": "zh-TW:chemo:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "因肺結節轉介腫瘤科評估。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt only states the patient was referred to oncology for evaluation of lung nodules. It does not mention any active cancer or chemotherapy treatment. The criterion requires evidence of receiving chemotherapy due to active cancer, which is absent."
+   }
+  },
+  {
+   "id": "zh-TW:stroke:yes",
+   "expected": "pass",
+   "got": "pass",
+   "raw": {
+    "verdict": "pass",
+    "quote": "2026-09-28 因急性左側中大腦動脈缺血性中風住院，接受血栓溶解治療。",
+    "quote_date": "2026-10-01",
+    "confidence": 1.0,
+    "reason": "The excerpt states the patient was hospitalized for an ischemic stroke on 2026-09-28, which is within the past 6 months from the index date of 2026-11-01."
+   }
+  },
+  {
+   "id": "zh-TW:stroke:no",
+   "expected": "fail",
+   "got": "fail",
+   "raw": {
+    "verdict": "fail",
+    "quote": "無中風或 TIA 病史。神經學檢查正常。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt explicitly states 'No history of stroke or TIA', which directly contradicts the criterion that the patient had a stroke within the past 6 months."
+   }
+  },
+  {
+   "id": "zh-TW:stroke:silent",
+   "expected": "unknown",
+   "got": "unknown",
+   "raw": {
+    "verdict": "unknown",
+    "quote": "頭痛兩天，病人自述無局部神經症狀。",
+    "quote_date": "2026-10-01",
+    "confidence": 0.95,
+    "reason": "The excerpt only mentions a headache for two days and no local neurological symptoms. It does not mention any stroke (中風) occurrence in the past 6 months. Therefore, we cannot confirm or deny the criterion based on this information."
+   }
+  }
+ ]
+}

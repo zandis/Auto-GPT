@@ -152,6 +152,30 @@ def validate(rec: dict[str, Any]) -> list[str]:
     return bad
 
 
+def measured_for(rec: dict[str, Any], profile: str) -> list[str]:
+    """Why ``rec`` is not a measurement of ``profile`` on its own card; empty when it is (install.sh, D-112).
+
+    A record counts only when it is complete, was taken on the card the profile names (not a larger card capped to
+    its limits) and every server ran with vLLM sleep mode, the only way the rtx5090 pair fits (2026-11-08 fit run).
+    """
+    why = validate(rec)
+    card = rec.get("card") or {}
+    want = PROFILE_CARDS.get(profile)
+    if want is None:
+        return [f"no measurement rule for profile {profile}"]
+    if want not in str(card.get("name", "")):
+        why.append(f"card is {card.get('name') or '?'}, not an {want}")
+    if card.get("capped_to"):
+        why.append(f"measured on a capped card ({card['capped_to']}), not on the {want} itself")
+    for srv in rec.get("servers") or []:
+        if "--enable-sleep-mode" not in (srv.get("extra_args") or []):
+            why.append(f"{srv.get('role') or '?'} ran without --enable-sleep-mode")
+    return why
+
+
+PROFILE_CARDS = {"rtx5090": "5090"}
+
+
 # ---------------------------------------------------------------- capture (on the GPU box)
 def _run(cmd: list[str]) -> str:
     return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
@@ -214,6 +238,9 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--out", type=Path, required=True)
     v = sub.add_parser("validate", help="list what a record is missing")
     v.add_argument("record", type=Path)
+    m = sub.add_parser("measured", help="is the record a measurement of this GPU profile on its own card (install.sh)")
+    m.add_argument("profile", choices=sorted(PROFILE_CARDS))
+    m.add_argument("record", type=Path)
     a = ap.parse_args(argv)
     if a.cmd == "capture":
         pairs = [tuple(x.split("=", 1)) if "=" in x else (x, x) for x in a.container]
@@ -223,6 +250,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {a.out}" + (f"; incomplete: {', '.join(missing)}" if missing else "; complete"))
         return 1 if missing else 0
     rec = json.loads(a.record.read_text(encoding="utf-8"))
+    if a.cmd == "measured":
+        why = measured_for(rec, a.profile)
+        print(f"measured on {a.profile}" if not why else "not a measurement of this profile: " + "; ".join(why))
+        return 1 if why else 0
     missing = validate(rec)
     print("complete" if not missing else "missing: " + ", ".join(missing))
     return 1 if missing else 0

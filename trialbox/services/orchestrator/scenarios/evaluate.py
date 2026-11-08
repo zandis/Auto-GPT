@@ -13,8 +13,6 @@
 from __future__ import annotations
 
 import os
-import re
-import unicodedata
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -24,10 +22,12 @@ from typing import Any, Literal, Protocol, cast
 from lake.client import LakeAPI
 from tb_common.fhir import FhirEvaluator
 from tb_common.llm import LlmClient, LlmError
+from tb_common.quotes import quote_in
 from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, PatientEvaluation
 
 from orchestrator.scenarios.terms import keywords
+from orchestrator.twophase import two_phase
 
 Verdict = Literal["pass", "fail", "unknown", "pending_human"]
 CHUNK_TOKENS = 2500
@@ -108,10 +108,6 @@ def engine_from_env(name: str, fhir: FhirEvaluator | None, lake: LakeAPI, snapsh
 
 
 # --------------------------------------------------------------------------------------------- note criteria
-def _norm(text: str) -> str:
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text)).strip()
-
-
 def _tokens(text: str) -> int:
     """Conservative token estimate: CJK characters ~1 token each, Latin ~4 characters per token."""
     cjk = sum(1 for ch in text if "　" <= ch <= "鿿" or "豈" <= ch <= "﫿")
@@ -279,8 +275,8 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
     conf = float(d.get("confidence", 0.0))
     did = None
     if verdict != "unknown":
-        nq = _norm(str(quote or ""))
-        match = next((e for e in excerpts if nq and nq in _norm(str(e["text"]))), None)
+        q = str(quote or "")
+        match = next((e for e in excerpts if quote_in(q, str(e["text"]))), None)
         if match is None:
             return NoteResult("unknown", 0.0, reason="quote_not_found", source=source)
         did = match.get("did")
@@ -471,17 +467,21 @@ def evaluate_patients(
     if judge is not None and notes and cands:
         tasks = [(p, c) for p in cands for c in notes if not coded_settles(c, evals.get(p))]
 
-        def run(task: tuple[str, CriterionIR]) -> tuple[tuple[str, str], NoteResult]:
-            p, c = task
-            r = judge.judge(p, c, index_date)
-            if r.predicate == "unknown" and full_record_fallback and len(cands) <= FULL_RECORD_MAX_CANDIDATES:
-                r2 = judge.judge(p, c, index_date, full=True)
-                if r2.predicate != "unknown" or r.reason == "no notes in the window":
-                    r = r2
-            return (p, c.id), r
+        def judge_all(j: NoteJudge) -> dict[tuple[str, str], NoteResult]:
+            def run(task: tuple[str, CriterionIR]) -> tuple[tuple[str, str], NoteResult]:
+                p, c = task
+                r = j.judge(p, c, index_date)
+                if r.predicate == "unknown" and full_record_fallback and len(cands) <= FULL_RECORD_MAX_CANDIDATES:
+                    r2 = j.judge(p, c, index_date, full=True)
+                    if r2.predicate != "unknown" or r.reason == "no notes in the window":
+                        r = r2
+                return (p, c.id), r
 
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            note_res = dict(ex.map(run, tasks))
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                return dict(ex.map(run, tasks))
+
+        # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, then the verifier pass, then the merge
+        note_res = two_phase(judge, judge_all, workers=workers)
     out: dict[str, PatientVerdicts] = {}
     for p in pids:
         ev = evals.get(p)

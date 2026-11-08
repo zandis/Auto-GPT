@@ -1224,3 +1224,22 @@ step 5 of `20-build-map.md` §2, stub model, no keys, no cloud.
   eligible patients are listed" has no generator truth list in the ci profile; stage 3 checks that no note answer can
   exclude a patient (single stub judge, `note_block` never) instead. The demo image was not built here (no Docker
   daemon in the build container).
+
+**D-112 One RTX 5090: the sleep swap ships, the profile follows the 8 Nov measurement, install needs a real-card
+record.** Fable review 2026-11-08 finding 1: the shipped `docker-compose.rtx5090.yml` was the resident pair measured
+not to fit (35,810 MiB on the 8 Nov card run; "pair-tight" short of KV cache).
+
+* **From PR #23** (LLM survey thread, branch `claude/project-thread-9eosz0`, merged here as is rather than rebuilt):
+  the sleep swap (`services/gateway/swap.py`, `POST /v1/serving/activate`), the judge-then-verifier run
+  (`services/orchestrator/twophase.py`, used by SCREEN and the cascade), the compose start order
+  (`judge-sleep-init`, `model-swap-init`), vLLM v0.32.0, the night self-test (`orchestrator/selftest.py`, the
+  54-case canary), weight re-check at install, the 30 s chat limit and the CJK quote-space fix
+  (`tb_common/quotes.py`). Whichever of the two branches merges second carries no extra work.
+* **Measured values.** Both servers at 0.81 of a 5090 (the 26.4 GB budget measured as 0.27 of 97,887 MiB on
+  2026-11-08: judge awake 29.6 GB in all, asleep 1.3 GB; sleep 0.4–3.7 s, wake 0.3–0.5 s), 8k context, 4 sequences,
+  eager, default guided backend.
+* **Install guard.** `install.sh --gpu rtx5090` refuses to start the pair unless `deploy/site/serving_config.rtx5090.json`
+  passes `tools.serving_config measured rtx5090` (complete record, a 5090 card that is not a capped larger card,
+  `--enable-sleep-mode` on both servers), or the operator sets `TB_ACCEPT_UNMEASURED_GPU=1` for a first trial boot.
+* **Not done.** The answers after a wake were not captured on the 8 Nov run (empty smoke answers in `fit.json`), and
+  nothing has run on a physical 5090.
