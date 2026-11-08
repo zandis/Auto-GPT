@@ -40,7 +40,7 @@ def embedder() -> Embedder:
     return _embedder
 
 
-app = make_app("lake", checks=[lambda: {"snapshot": lake().current() or "none"}])
+app = make_app("lake", checks=[lambda: {"snapshot": lake().current() or "none"}], protect_reads=True)  # D-130
 
 
 def to_ipc(table: pa.Table) -> bytes:

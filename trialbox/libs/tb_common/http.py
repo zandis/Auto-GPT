@@ -35,12 +35,14 @@ def make_app(
     level: str = "INFO",
     lifespan: Any = None,
     service_token: bool = True,
+    protect_reads: bool = False,
 ) -> FastAPI:
     """Create a FastAPI app with ``GET /healthz`` and structured logging (optional ``lifespan`` context).
 
     ``service_token`` (default on; D-127, review F-11): every changing call must carry the box's
     ``X-TB-Service-Token`` (``tb_common.service_auth.check``), on every internal service, not only the orchestrator.
-    ``/healthz`` stays open for the compose health checks."""
+    ``protect_reads`` (D-130, plan v4 F4): reads need it too (the orchestrator, the lake, the mail gateway, the trace
+    store). ``/healthz`` stays open for the compose health checks."""
     log = setup_logging(service, level)
     app = FastAPI(title=f"trialbox-{service}", version=VERSION, lifespan=lifespan)
     health_checks = list(checks or [])
@@ -74,7 +76,9 @@ def make_app(
             from tb_common.service_auth import TOKEN_HEADER, check
 
             if request.url.path != "/healthz":
-                refused = check(request.method, request.headers.get(TOKEN_HEADER), environment_name(os.environ))
+                refused = check(
+                    request.method, request.headers.get(TOKEN_HEADER), environment_name(os.environ), protect_reads
+                )
                 if refused is not None:
                     return JSONResponse({"detail": refused[1]}, status_code=refused[0])
             return await call_next(request)
@@ -161,7 +165,7 @@ class ServiceClient:
         return self._request("GET", path).json()
 
     def healthy(self) -> bool:
-        try:
+        try:  # /healthz is open on every service; no token needed
             return self.client.get(f"{self.base_url}/healthz", timeout=5).status_code == 200
         except httpx.HTTPError:
             return False

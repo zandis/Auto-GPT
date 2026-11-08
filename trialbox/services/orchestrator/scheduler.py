@@ -123,13 +123,13 @@ def start(orch: Orchestrator) -> Any:
     """Start the timed jobs, or nothing when the schedule is on demand (DEV by default, FR-OPS-12): then INGEST,
     MICROBATCH and the rest run only when requested (mail command, console or ``run_now``)."""
     from apscheduler.schedulers.background import BackgroundScheduler
-    from tb_common.config import schedule_on_demand, tb_env
+    from tb_common.config import SCHEDULER_JOB_DEFAULTS, schedule_on_demand, tb_env
 
     if schedule_on_demand(orch.cfg.settings, tb_env(orch.cfg.env)):
         log.info("schedule is on demand (TB_ENV=%s): no timed jobs", tb_env(orch.cfg.env))
         return None
 
-    sched = BackgroundScheduler(timezone=orch.cfg.env.tz)
+    sched = BackgroundScheduler(timezone=orch.cfg.env.tz, job_defaults=SCHEDULER_JOB_DEFAULTS)  # F-14
     for jtype, kw in plan(orch.cfg.settings):
         if jtype in ("MICROBATCH", "CALIBRATION"):
 

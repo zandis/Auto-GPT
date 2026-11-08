@@ -48,10 +48,27 @@ def test_no_token_fails_closed_outside_dev_and_test(client: TestClient, monkeypa
     assert client.post("/no-such-route", json={}).status_code == 503  # unset TB_ENV is PRODUCTION
 
 
-def test_reads_stay_open(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reads_need_the_token_too(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plan v4 F4 (D-130): jobs, outputs, registry and study reads are patient level; only /healthz stays open."""
     monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
-    assert client.get("/healthz").status_code != 401
+    assert client.get("/healthz").status_code not in (401, 403)
+    for path in ("/jobs", "/jobs/J1", "/registry", "/registry/GZQO", "/registry/GZQO/events", "/models",
+                 "/rulesets/GZQO", "/studies", "/api/v1/studies/GZQO/forms"):  # fmt: skip
+        assert client.get(path).status_code == 401, path
+        assert client.get(path, headers={sa.TOKEN_HEADER: "wrong"}).status_code == 403, path
+    assert client.head("/jobs").status_code == 401
+    assert client.get("/no-such-route", headers={sa.TOKEN_HEADER: TOKEN}).status_code == 404  # reached the router
+
+
+def test_reads_without_a_token_open_only_in_dev_and_test(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TB_SERVICE_TOKEN", raising=False)
+    monkeypatch.delenv("TB_SERVICE_TOKEN_FILE", raising=False)
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    assert client.get("/no-such-route").status_code == 503
+    for env in ("DEV", "TEST"):
+        monkeypatch.setenv("TB_ENV", env)
+        assert client.get("/no-such-route").status_code == 404
 
 
 def test_token_from_file(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:

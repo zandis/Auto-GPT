@@ -21,6 +21,7 @@ from typing import Any
 import httpx
 import pytest
 from pypdf import PdfReader
+from tb_common.service_auth import auth_headers
 from tb_common.subject import is_job_mail
 
 from tests.stack import ensure_ingested, host_port, url
@@ -79,7 +80,7 @@ def final_job(job_id: object, timeout: float = 60) -> dict[str, Any]:
     the mail can land a moment before the state flips."""
     deadline = time.monotonic() + timeout
     while True:
-        job: dict[str, Any] = httpx.get(f"{ORCH}/jobs/{job_id}", timeout=30).json()
+        job: dict[str, Any] = httpx.get(headers=auth_headers(), url=f"{ORCH}/jobs/{job_id}", timeout=30).json()
         if job["state"] in ("done", "failed") or time.monotonic() > deadline:
             return job
         time.sleep(1)
@@ -115,7 +116,9 @@ def test_feas_email_to_pdf() -> None:
     job: dict[str, object] = {}
     deadline = time.monotonic() + 300
     while not job and time.monotonic() < deadline:  # the gateway polls IMAP every 5 s in the test profile
-        jobs = httpx.get(f"{ORCH}/jobs", params={"type": "FEAS", "limit": 50}, timeout=30).json()
+        jobs = httpx.get(
+            headers=auth_headers(), url=f"{ORCH}/jobs", params={"type": "FEAS", "limit": 50}, timeout=30
+        ).json()
         job = next((j for j in jobs if j.get("comment") == tag), {})
         time.sleep(2)
     assert job, "job not created from the email"
@@ -169,7 +172,9 @@ def test_screen_email_to_encrypted_list() -> None:
     job: dict[str, object] = {}
     deadline = time.monotonic() + 300
     while not job and time.monotonic() < deadline:
-        jobs = httpx.get(f"{ORCH}/jobs", params={"type": "SCREEN", "limit": 50}, timeout=30).json()
+        jobs = httpx.get(
+            headers=auth_headers(), url=f"{ORCH}/jobs", params={"type": "SCREEN", "limit": 50}, timeout=30
+        ).json()
         job = next((j for j in jobs if j.get("comment") == tag), {})
         time.sleep(2)
     assert job
@@ -194,7 +199,9 @@ def test_nav_email_to_lists_and_drafts() -> None:
     job: dict[str, object] = {}
     deadline = time.monotonic() + 300
     while not job and time.monotonic() < deadline:
-        jobs = httpx.get(f"{ORCH}/jobs", params={"type": "NAV", "limit": 50}, timeout=30).json()
+        jobs = httpx.get(
+            headers=auth_headers(), url=f"{ORCH}/jobs", params={"type": "NAV", "limit": 50}, timeout=30
+        ).json()
         job = next((j for j in jobs if j.get("comment") == tag), {})
         time.sleep(2)
     assert job
@@ -212,7 +219,9 @@ def test_nav_email_to_lists_and_drafts() -> None:
 def _job_by_tag(jtype: str, tag: str, timeout: float = 300) -> dict[str, object]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        jobs = httpx.get(f"{ORCH}/jobs", params={"type": jtype, "limit": 50}, timeout=30).json()
+        jobs = httpx.get(
+            headers=auth_headers(), url=f"{ORCH}/jobs", params={"type": jtype, "limit": 50}, timeout=30
+        ).json()
         job: dict[str, object] = next((j for j in jobs if j.get("comment") == tag), {})
         if job:
             return job

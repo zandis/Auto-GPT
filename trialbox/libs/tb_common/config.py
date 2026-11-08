@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
@@ -217,6 +218,12 @@ def load(dotenv: Path | None = None, settings_path: Path | None = None) -> Confi
     if settings.site.tz != env.tz:
         env = Env(**{**env.__dict__, "tz": settings.site.tz})
     return Config(env=env, settings=settings)
+
+
+# Review F-14 (D-130): APScheduler drops a cron run missed while the process was down (default grace 1 s). The box is a
+# Windows workstation that reboots for updates, so a run missed by up to six hours still runs once when the box is back,
+# and several missed runs of one job coalesce into one. Both schedulers (orchestrator, console timers) use these.
+SCHEDULER_JOB_DEFAULTS: dict[str, Any] = {"misfire_grace_time": 6 * 3600, "coalesce": True, "max_instances": 1}
 
 
 def environment_name(env: Mapping[str, str]) -> str:
