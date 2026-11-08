@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 4 (D-129): enter one form for one record and event; branching in the browser by a stylesheet
+   (no script), always on the server. #}
+{% block title %}{{ t('dc.entry.title') }} · {{ rs }}{% endblock %}
+{% block head %}{% if css %}<link rel="stylesheet" href="/studies/{{ rs }}/entry/{{ form.name }}.css">{% endif %}{% endblock %}
+{% macro lab(x) %}{{ x.labels.get(lang) or x.label }}{% endmacro %}
+{% macro src(name) %}{{ t('dc.owner.trialbox') if name == 'trialbox' else t_or('dc.source.' + name, name) }}{% endmacro %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('dc.entry.title') }}</h1></div>
+{% include "_data_nav.html" %}
+<p class="hint">{{ t('dc.entry.help') }}</p>
+{% if not editable %}<p class="hint" data-testid="dc-readonly">{{ t('dc.entry.readonly') }}</p>{% endif %}
+{% if err %}{% include "_data_err.html" %}{% endif %}
+
+<section class="card" data-testid="entry-choose">
+{% if not forms %}<p class="empty" data-testid="entry-noforms">{{ t('dc.entry.noforms') }} <a href="/studies/{{ rs }}/forms">{{ t('dc.forms.title') }}</a></p>{% else %}
+<form method="get" action="/studies/{{ rs }}/entry" class="choose">
+  <label for="record">{{ t('dc.entry.record') }}</label>
+  <input id="record" name="record" value="{{ record }}" list="records" class="mono" maxlength="64" autocomplete="off" required data-testid="entry-record">
+  <datalist id="records">{% for r in options %}<option value="{{ r }}"></option>{% endfor %}</datalist>
+  <p class="hint">{{ t('dc.entry.record.help') }}</p>
+  <label for="event">{{ t('dc.entry.event') }}</label>
+  <input id="event" name="event" value="{{ event }}" list="events" class="mono" maxlength="100" pattern="[a-z][a-z0-9_]*" autocomplete="off" data-testid="entry-event">
+  <datalist id="events">{% for e in events if e %}<option value="{{ e }}"></option>{% endfor %}</datalist>
+  <p class="hint">{{ t('dc.entry.event.help') }}</p>
+  <label for="form">{{ t('dc.entry.form') }}</label>
+  <select id="form" name="form" data-testid="entry-form-choice">{% for fm in forms %}<option value="{{ fm.name }}"{% if form and fm.name == form.name %} selected{% endif %}>{{ fm.titles.get(lang) or fm.titles.en }}</option>{% endfor %}</select>
+  <button type="submit" data-testid="entry-open">{{ t('dc.entry.open') }}</button>
+</form>
+{% endif %}
+</section>
+
+{% if form and record and not (err and err.code == 'DATA-RECORD') %}
+<section class="card" data-testid="entry-form">
+<h2>{{ form.titles.get(lang) or form.titles.en }} <span class="hint"><span class="mono">{{ record }}</span> · {% if event %}<span class="mono">{{ event }}</span>{% else %}{{ t('dc.entry.event.none') }}{% endif %}</span></h2>
+{% if n_problems %}<p class="error" role="alert" data-testid="entry-refused">{{ t('dc.entry.refused', n=n_problems) }}</p>{% endif %}
+<form method="post" action="/studies/{{ rs }}/entry" id="entry" class="entry">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="record" value="{{ record }}">
+  <input type="hidden" name="event" value="{{ event }}">
+  <input type="hidden" name="form" value="{{ form.name }}">
+  {% for f in form.fields %}{% set own = owners.get(f.name, 'trialbox') %}{% set ro = not editable or own != 'trialbox' or not f.entered %}{% set v = values.get(f.name, '') %}
+  <div class="q q-{{ f.name }}{% if problems.get(f.name) %} bad{% endif %}" data-testid="q-{{ f.name }}">
+  {% if f.kind == 'display' %}<p>{{ lab(f) }}</p>
+  {% elif f.kind in ('choice', 'multi') %}
+    <fieldset><legend>{{ lab(f) }}{% if f.required %} <span class="req" aria-label="{{ t('dc.required') }}">*</span>{% endif %}</legend>
+    {% for o in f.options %}<label class="check"><input type="{{ 'radio' if f.kind == 'choice' else 'checkbox' }}" name="f_{{ f.name }}" value="{{ o.code }}"{% if (f.kind == 'choice' and v == o.code) or (f.kind == 'multi' and o.code in v.split(',')) %} checked{% endif %}{% if ro %} disabled{% endif %} data-testid="f-{{ f.name }}-{{ o.code }}"> {{ o.labels.get(lang) or o.label }}</label>{% endfor %}
+    </fieldset>
+  {% else %}
+    <label for="f_{{ f.name }}">{{ lab(f) }}{% if f.required %} <span class="req" aria-label="{{ t('dc.required') }}">*</span>{% endif %}</label>
+    {% if f.kind == 'notes' %}<textarea id="f_{{ f.name }}" name="f_{{ f.name }}" rows="3"{% if ro %} disabled{% endif %} data-testid="f-{{ f.name }}">{{ v }}</textarea>
+    {% else %}<input id="f_{{ f.name }}" name="f_{{ f.name }}" value="{{ v }}"{% if f.kind == 'date' %} type="date"{% if f.vmin|length == 10 %} min="{{ f.vmin }}"{% endif %}{% if f.vmax|length == 10 %} max="{{ f.vmax }}"{% endif %}{% elif f.kind in ('integer', 'decimal') %} inputmode="decimal"{% else %} type="text"{% endif %}{% if ro %} disabled{% endif %} data-testid="f-{{ f.name }}">{% endif %}
+  {% endif %}
+  {% if f.kind in ('integer', 'decimal') and (f.vmin or f.vmax) %}<p class="hint">{{ t('dc.entry.range', min=f.vmin or '–', max=f.vmax or '–') }}</p>{% endif %}
+  {% if own != 'trialbox' %}<p class="hint" data-testid="owned-{{ f.name }}">{{ t('dc.owned_by', o=src(own)) }}</p>{% endif %}
+  {% for m in problems.get(f.name, []) %}<p class="error" data-testid="why-{{ f.name }}">{{ m }}</p>{% endfor %}
+  </div>
+  {% endfor %}
+  {% if editable %}<button type="submit" data-testid="entry-save">{{ t('dc.entry.save') }}</button>{% endif %}
+</form>
+<p class="hint">{{ t('dc.entry.branching') }}</p>
+<p><a href="/studies/{{ rs }}/history?record={{ record|urlencode }}" data-testid="to-history">{{ t('dc.history.of', r=record) }}</a></p>
+</section>
+{% endif %}
+
+<section class="card" data-testid="dc-exports">
+<h2>{{ t('dc.export.title') }}</h2>
+<p class="hint">{{ t('dc.export.help') }}</p>
+<p class="exports"><a class="button" href="/studies/{{ rs }}/export.odm.xml" data-testid="export-odm">{{ t('dc.export.odm') }}</a>
+<a class="button" href="/studies/{{ rs }}/export.csv" data-testid="export-csv">{{ t('dc.export.csv') }}</a>
+<a class="button" href="/studies/{{ rs }}/export.xlsx" data-testid="export-xlsx">{{ t('dc.export.xlsx') }}</a></p>
+</section>
+{% endblock %}

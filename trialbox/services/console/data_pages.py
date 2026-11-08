@@ -23,6 +23,7 @@ import re
 from typing import Annotated, Any
 from urllib.parse import quote
 
+from datacore.forms import fields_of, titles_of
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
@@ -135,20 +136,24 @@ def register(app: FastAPI, h: Helpers) -> None:
         for q in s28.call(bk, "GET", f"/studies/{rid}/forms"):
             items = [
                 {
-                    "name": str(it.get("linkId") or ""),
+                    "name": f.name,
                     "kind": kind_of(it),
-                    "label": str(it.get("text") or ""),
-                    "required": bool(it.get("required")),
+                    "label": f.label,
+                    "labels": f.labels,  # TB-PLAN-04 step 4: per language (the built-in forms)
+                    "required": f.required,
+                    "branching": f.branching,
+                    "vmin": f.vmin,
+                    "vmax": f.vmax,
                     "choices": [
-                        {"code": str(c.get("code", "")), "label": str(c.get("display", ""))}
-                        for c in (o["valueCoding"] for o in it.get("answerOption") or [] if "valueCoding" in o)
+                        {"code": c, "label": d, "labels": {g: v[c] for g, v in f.option_labels.items() if c in v}}
+                        for c, d in f.options.items()
                     ],
-                    "owner": owners.get(str(it.get("linkId") or ""), "trialbox"),
+                    "owner": owners.get(f.name, "trialbox"),
                 }
-                for it in q.get("item") or []
+                for it, f in zip(q.get("item") or [], fields_of(q), strict=True)
             ]
             out.append({"name": q.get("name", ""), "title": q.get("title") or q.get("name", ""),
-                        "url": q.get("url", ""), "fields": items})  # fmt: skip
+                        "titles": titles_of(q), "url": q.get("url", ""), "fields": items})  # fmt: skip
         return out
 
     def tokens() -> list[str]:
@@ -292,7 +297,9 @@ def register(app: FastAPI, h: Helpers) -> None:
     def conflicts_page(request: Request, sess: Session, rid: str, everything: bool, **extra: Any) -> Response:
         try:
             rows = read_conflicts(rid, everything)
-            labels = {f["name"]: f.get("label") or "" for f in read_sources(rid)["fields"]}
+            lang = sess.lang if sess.lang in ("ja", "zh-TW") else "en"
+            labels = {f["name"]: (f.get("labels") or {}).get(lang) or f.get("label") or ""
+                      for f in read_sources(rid)["fields"]}  # fmt: skip
             err = None
         except (Problem, Unavailable) as exc:
             rows, labels, err = [], {}, err_of(exc)

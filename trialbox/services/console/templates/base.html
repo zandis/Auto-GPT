@@ -7,6 +7,7 @@
 {% if refresh %}<meta http-equiv="refresh" content="5">{% endif %}
 <title>{% block title %}{{ t('brand') }}{% endblock %} · TrialBox</title>
 <link rel="stylesheet" href="/static/console.css">
+{% block head %}{% endblock %}
 </head>
 <body>
 <a class="skip" href="#main">{{ t('skip') }}</a>

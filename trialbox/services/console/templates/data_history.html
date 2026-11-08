@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 4 (D-129): every change of one record: when, who, event, field, old, new, source. #}
+{% block title %}{{ t('dc.history.title') }} · {{ rs }}{% endblock %}
+{% set q = request.query_params %}
+{% macro val(v) %}{% if v is none or v == '' %}<span class="hint">{{ t('dc.blank') }}</span>{% else %}<span class="mono">{{ v }}</span>{% endif %}{% endmacro %}
+{% macro src(s) %}{% set kind = s.split(':')[0] %}{% if kind == 'resolve' %}{{ t('dc.history.resolve', s=t_or('dc.source.' + s.split(':')[1], s.split(':')[1])) }}{% elif kind == 'trialbox' %}{{ t('dc.owner.trialbox') }}{% else %}{{ t_or('dc.source.' + kind, kind) }}{% endif %}{% endmacro %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('dc.history.title') }}</h1></div>
+{% include "_data_nav.html" %}
+<p class="hint">{{ t('dc.history.help') }}</p>
+{% if err %}{% include "_data_err.html" %}{% endif %}
+{% if q.get('saved') and record %}<p class="ok" role="status" data-testid="entry-saved">{{ t('dc.entry.saved') }}</p>{% endif %}
+
+<section class="card" data-testid="history-choose">
+<form method="get" action="/studies/{{ rs }}/history" class="choose">
+  <label for="record">{{ t('dc.entry.record') }}</label>
+  <input id="record" name="record" value="{{ record }}" list="records" class="mono" maxlength="64" autocomplete="off" required>
+  <datalist id="records">{% for r in records %}<option value="{{ r }}"></option>{% endfor %}</datalist>
+  <button type="submit" data-testid="history-open">{{ t('dc.history.open') }}</button>
+</form>
+</section>
+
+{% if record and not err %}
+<section class="card" data-testid="history">
+<h2>{{ t('dc.history.of', r=record) }}</h2>
+{% if not rows %}<p class="empty" data-testid="history-none">{{ t('dc.history.none') }}</p>{% else %}
+<div class="scroll"><table class="candidates">
+<thead><tr><th>{{ t('dc.col.at') }}</th><th>{{ t('dc.col.who') }}</th><th>{{ t('dc.col.event') }}</th><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.old') }}</th><th>{{ t('dc.col.new') }}</th><th>{{ t('dc.col.source') }}</th></tr></thead>
+<tbody>{% for h in rows %}<tr data-testid="hist-{{ h.id }}">
+<td class="nowrap">{{ h.at|local }}</td>
+<td class="mono">{{ h.by|replace('console:', '') }}</td>
+<td>{% if h.event %}<span class="mono">{{ h.event }}</span>{% else %}–{% endif %}</td>
+<td>{% if labels.get(h.field) %}{{ labels[h.field] }}<br>{% endif %}<span class="hint mono">{{ h.field }}</span></td>
+<td data-testid="hist-old-{{ h.id }}">{{ val(h.old) }}</td><td data-testid="hist-new-{{ h.id }}">{{ val(h.new) }}</td>
+<td>{{ src(h.source) }}</td>
+</tr>{% endfor %}</tbody></table></div>{% endif %}
+{% if editable %}<p><a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}{% if q.get('event') %}&amp;event={{ q.get('event')|urlencode }}{% endif %}{% if q.get('saved') %}&amp;form={{ q.get('saved')|urlencode }}{% endif %}" data-testid="back-to-entry">{{ t('dc.history.edit') }}</a></p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

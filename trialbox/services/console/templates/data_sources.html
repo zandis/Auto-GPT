@@ -42,7 +42,7 @@
   <div><label for="dag">{{ t('rc.dag') }}</label><input id="dag" name="dag" class="mono"></div>
   <div class="full"><label for="field_map">{{ t('dc.attach.map') }}</label><textarea id="field_map" name="field_map" class="mono" rows="6">{{ identity }}</textarea></div>
   <fieldset class="full"><legend>{{ t('dc.attach.owned') }}</legend>
-  <ul class="checks">{% for f in fields %}<li><label><input type="checkbox" name="owned" value="{{ f.name }}"> <span class="mono">{{ f.name }}</span>{% if f.label %} · {{ f.label }}{% endif %}</label></li>{% endfor %}</ul></fieldset>
+  <ul class="checks">{% for f in fields %}<li><label><input type="checkbox" name="owned" value="{{ f.name }}"> <span class="mono">{{ f.name }}</span>{% if f.label %} · {{ (f.labels or {}).get(lang) or f.label }}{% endif %}</label></li>{% endfor %}</ul></fieldset>
   <div class="full"><label><input type="checkbox" name="create" value="1"> {{ t('dc.attach.create') }}</label></div>
   <div class="full"><button type="submit" data-testid="attach-redcap">{{ t('dc.attach.save') }}</button></div>
 </form>
@@ -55,7 +55,7 @@
 {% if not fields %}<p class="empty">{{ t('dc.forms.none') }}</p>{% else %}
 <div class="scroll"><table class="candidates">
 <thead><tr><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.form') }}</th><th>{{ t('dc.col.label') }}</th><th>{{ t('dc.col.owner') }}</th></tr></thead>
-<tbody>{% for f in fields %}<tr data-testid="owner-{{ f.name }}"><td class="mono">{{ f.name }}</td><td class="mono">{{ f.form }}</td><td>{{ f.label }}</td><td data-testid="owned-by-{{ f.name }}">{{ t('dc.owner.trialbox') if f.owner == 'trialbox' else t_or('dc.source.' + f.owner, f.owner) }}</td></tr>{% endfor %}</tbody></table></div>
+<tbody>{% for f in fields %}<tr data-testid="owner-{{ f.name }}"><td class="mono">{{ f.name }}</td><td class="mono">{{ f.form }}</td><td>{{ (f.labels or {}).get(lang) or f.label }}</td><td data-testid="owned-by-{{ f.name }}">{{ t('dc.owner.trialbox') if f.owner == 'trialbox' else t_or('dc.source.' + f.owner, f.owner) }}</td></tr>{% endfor %}</tbody></table></div>
 {% endif %}
 </section>
 {% endblock %}

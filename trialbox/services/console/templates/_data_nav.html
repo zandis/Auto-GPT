@@ -2,4 +2,6 @@
 <p class="hint" data-testid="data-nav"><a href="/studies/{{ rs }}/setup"{% if path.endswith('/setup') %} aria-current="page"{% endif %}>{{ t('setup.title') }}</a>
  · <a href="/studies/{{ rs }}/sources" data-testid="to-sources"{% if path.endswith('/sources') %} aria-current="page"{% endif %}>{{ t('dc.sources.title') }}</a>
 {% if user.can_view_phi %} · <a href="/studies/{{ rs }}/conflicts" data-testid="to-conflicts"{% if path.endswith('/conflicts') %} aria-current="page"{% endif %}>{{ t('dc.conflicts.title') }}</a>{% endif %}
- · <a href="/studies/{{ rs }}/forms" data-testid="to-forms"{% if path.endswith('/forms') %} aria-current="page"{% endif %}>{{ t('dc.forms.title') }}</a></p>
+ · <a href="/studies/{{ rs }}/forms" data-testid="to-forms"{% if path.endswith('/forms') %} aria-current="page"{% endif %}>{{ t('dc.forms.title') }}</a>
+{% if user.can_view_phi %} · <a href="/studies/{{ rs }}/entry" data-testid="to-entry"{% if path.endswith('/entry') %} aria-current="page"{% endif %}>{{ t('dc.entry.title') }}</a>
+ · <a href="/studies/{{ rs }}/history" data-testid="to-history-nav"{% if path.endswith('/history') %} aria-current="page"{% endif %}>{{ t('dc.history.title') }}</a>{% endif %}</p>
