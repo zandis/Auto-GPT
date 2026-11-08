@@ -1663,3 +1663,24 @@ answers of 2026-11-08.
   it is done there, after the platform is finished, with the rest of the Windows/WSL2 hardening (BitLocker, WSL swap,
   key custody, TLS and MFA). Until then the box is used on synthetic and public data only (no development gates).
 
+
+**D-131 Site setup and data harmonization: three questions, one rule, one readiness page.** Owner's answers,
+2026-11-08; a new plan step 5b, after the lifecycle and before handover.
+
+* **Three questions, in order.** (1) *Which trial?* A protocol file, paste or registry id; the LLM drafts the
+  criteria and the PI approves each one (as today). (2) *Which patients could fit?* Any mix of a hospital feed
+  (SS-MIX2, FHIR, CSV export; nightly), candidate spreadsheets, and charts one by one (text, Word or EMR print to PDF,
+  scanned paper through OCR on the box, or text pasted from the EMR screen). (3) *Where do trial records live?*
+  TrialBox's forms by default; REDCap or a sheet attached when the site wants it.
+* **One rule.** Every fact has one home and the LLM never writes a fact silently. Coded data from the hospital or
+  REDCap is used as is. Facts the LLM extracts from a chart are *proposed*: shown next to the quote they came from,
+  confirmed or corrected by a CRC in one tap. A proposed fact can only send a patient to "needs information"; once a
+  CRC confirms it, it counts like coded data and may exclude, with the confirmation in the audit. Note text stays
+  notes, read by the two models at screening. A patient from two inputs is joined by pseudonym, never by name;
+  disagreements are listed.
+* **One readiness page** shows the three questions as green, amber or red with "what's missing" (unmapped local codes
+  with a once-per-site mapping, sheet rows without a key, criteria not yet approved, the share of diagnoses in an
+  unknown code system), and feasibility shows how much of each count rests on coded, confirmed or proposed facts.
+* **Plan.** TB-PLAN-04 step 5b, about 1–2 weeks: the readiness page, chart upload with extraction (OCR included),
+  the proposed-fact review list, the local code mapping, and the join by pseudonym; an `e2e_simple` stage that sets up
+  a site from a protocol, a CSV feed, a sheet and two uploaded charts.
