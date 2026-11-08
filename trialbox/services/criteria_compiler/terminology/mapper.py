@@ -4,6 +4,11 @@ Tables (``terminology/*.parquet``, built by ``tools/build_terminology.py`` from 
 official NHI / LOINC releases): ``icd10cm_tw``, ``nhi_drug`` (with ATC), ``atc``, ``loinc_tw`` (with
 ``component_of`` for panel members), ``nhi_order``, ``department``, ``synonyms``.
 
+Full code lists (D-122): ``icd10cm_full`` holds every ICD-10-CM code (CMS/CDC 2026 release, public domain, built
+from ``src/icd10cm_2026.csv.gz``). It answers code lookups and code-prefix groupers ("malignancy" = C0..C9 lists
+every code in the families, so a valid code is never outside the list for want of a demo row); name matching and
+the LLM candidates still read the curated ``icd10cm_tw`` only, so a grouper name is never shadowed by a header row.
+
 Steps: exact display-name match -> synonym table (exact codes or code-prefix groups expanded against the tables) ->
 LLM ``concept_map`` over the top-20 lexical candidates, always flagged ``needs_review``. Output ValueSets carry only
 ``compose.include[].concept[]`` (no implicit expansions).
@@ -57,6 +62,8 @@ TABLE_FILES = {
     "loinc": "loinc_tw",
 }
 
+FULL_FILES = {"icd10cm": "icd10cm_full"}
+
 
 def norm(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text).strip().lower())
@@ -108,10 +115,20 @@ class Terminology:
         for key, fname in TABLE_FILES.items():
             path = directory / f"{fname}.parquet"
             self.rows[key] = pq.read_table(path).to_pylist() if path.exists() else []
+        # full code lists (D-122): code lookups and prefix groupers only, never name matching
+        self.full: dict[str, list[dict[str, Any]]] = {}
+        for key, fname in FULL_FILES.items():
+            path = directory / f"{fname}.parquet"
+            if path.exists():
+                self.full[key] = pq.read_table(path).to_pylist()
         syn = directory / "synonyms.parquet"
         self.synonyms = pq.read_table(syn).to_pylist() if syn.exists() else []
         self._by_code: dict[tuple[str, str], Concept] = {}
-        for key, rows in self.rows.items():
+        for key, rows in self.full.items():
+            for r in rows:
+                c = self._concept(key, r)
+                self._by_code[(c.system, c.code)] = c
+        for key, rows in self.rows.items():  # curated rows win (zh displays, demo spellings)
             for r in rows:
                 c = self._concept(key, r)
                 self._by_code[(c.system, c.code)] = c
@@ -136,6 +153,11 @@ class Terminology:
             c = self._concept(table, r)
             if (match == "exact" and c.code == code) or (match == "prefix" and c.code.startswith(code)):
                 out.append(c)
+        if match == "prefix" and table in self.full:  # every code of the family, curated display first (D-122)
+            seen = {c.code for c in out}
+            for r in self.full[table]:
+                if r["code"].startswith(code) and r["code"] not in seen:
+                    out.append(self._concept(table, r))
         return out
 
     def map(

@@ -138,7 +138,7 @@ TrialBox emits `http://hl7.org/fhir/sid/icd-10-cm`, `http://www.whocc.no/atc`, L
 `https://trialbox.local/fhir/CodeSystem/{nhi-drug,nhi-order,department}` for NHI lists; TWPAS bundles re-code to the
 IG's required systems at build time (phase 6).
 
-**D-28 `ssmix2` source.** Not in v1.0 for Taiwan sites; the reader raises an explicit `NotImplementedError` pointing to
+**D-28 `ssmix2` source.** (Superseded by D-122: the reader exists.) Not in v1.0 for Taiwan sites; the reader raises an explicit `NotImplementedError` pointing to
 the CSV route with a JP Core mapping (`services/adapter/mapping/jp_core/README.md`). `fhir_bulk` is implemented
 (pseudonymises ids/references and drops direct identifiers).
 
@@ -1481,3 +1481,36 @@ column, and the feasibility count (23) did not explain the list (65/90).
 * **Compose tests without a stack.** With `TB_INTEGRATION=1` and no stack answering on the lake port, the
   `*compose*` integration tests are skipped by name instead of erroring on a refused connection.
 
+**D-122 The Japan data path: an SS-MIX2 reader, a JP mapping, the full ICD-10-CM list and delta FHIR loads.**
+TB-PLAN-03 step 7 (`22-optimization-plan.md` §5, §10; finding 2's root cause; `23-fhir-platform-comparison.md`).
+
+* **SS-MIX2 standardized storage reader** (`services/adapter/sources/ssmix2/`, replaces the D-28 stub). It walks
+  `<id[0:3]>/<id[3:6]>/<id>/<date>/<type>/` and keeps the newest timestamp per (patient, type, order no); flag `0`
+  deletes. HL7 v2.5 text, decoded by MSH-18 (`~ISO IR87` = ISO-2022-JP, or UTF-8), escapes undone. ADT-00 →
+  patient, ADT-12/22 → encounter, PPR-01 PRB → diagnosis (標準病名 with the ICD-10 alternate code, or
+  `byomei_to_icd10.csv`), OMP-01/02 ORC/RXE/TQ1 → medication (YJ with the ATC alternate code, or `yj_to_atc.csv`),
+  OML-11 OBX → lab with the JLAC10 code as `local_code`. Rows are the canonical tables, so the mapping engine and
+  `--since` delta work unchanged. Codes that resolve nowhere are counted on the reader (`missed`). Tables SS-MIX2
+  does not standardize (vitals, notes, reports, claims, registry, staff, appointments) come from
+  `<root>/extended/<table>.csv`. No MLLP listener: SS-MIX2 storage is what Japanese vendors expose.
+* **JP mapping template** `mapping/jp_core/ssmix2_site.yaml`: extends the shared resources, tz Asia/Tokyo, YJ and
+  JLAC10 code-system OIDs (JP Core), lab lookup `jlac10_to_loinc.csv`. The sample JLAC10, YJ and 標準病名 rows are
+  synthetic and marked `verify`. Profiles stay the base mapping's TW Core URLs; a JP Core resource set is not done.
+* **Full ICD-10-CM in the terminology.** `terminology/src/icd10cm_2026.csv.gz` (CMS/CDC NCHS 2026 order file, public
+  domain, 98,186 header and billable codes) builds `icd10cm_full.parquet`. The mapper uses it for code lookups and
+  prefix groupers only: "malignancy" now lists every code in its families (1,359), so a valid ICD-10-CM code is never
+  off the list for want of a demo row. Name matching and LLM candidates still read the curated `icd10cm_tw`, so a
+  header row such as M10 "Gout" never shadows the grouper. D-113's fail-closed family check stays for local codes.
+  Rulesets already compiled keep their approved lists until they are recompiled; the ATOMS snapshots grew.
+* **Delta FHIR loads** (`adapter/load_fhir.py`). The ledger now stores a content hash per id (sha256 of the
+  canonical JSON without `meta`); a night PUTs only new or changed resources and deletes the ones that left.
+  Changing 1 % of 1,000 patients reloads their 20 resources, not 1,000+. The ledger is widened before the load and
+  rewritten after it, so a failed night reloads its changes the next night. Old ledgers (ids only) load everything
+  once. `full=True` forces a full reload. A 500k reload took ~8 h on HAPI; a typical night is now its changes.
+* **Evidence.** `tests/integration/test_ssmix2_path.py`: a 400-patient synthetic JP hospital exported by
+  `tools/ssmix2_export.py` (ISO-2022-JP; every third message without the alternate code, so the lookups are used)
+  gives the CSV path's GOUT-COH funnel exactly, with no missed 標準病名/YJ code and every JLAC10 code mapped.
+  `tests/unit/test_fhir_delta_load.py`: the 1 % delta, a failed night and a legacy ledger.
+* **Not done.** Real MEDIS/JLAC10/YJ releases (licensed; sites load theirs); WHO ICD-10 (Japan's 標準病名 maps to
+  WHO ICD-10, mostly a subset of ICD-10-CM at category level); ADT-52 discharge and OMP-11/12 administrations;
+  extended-storage `_contents.xml` documents; the CQL path still reads enumerated lists only.

@@ -64,7 +64,9 @@ SITE_LABELS = {
 PROFILES = ROOT / "eval" / "public_site" / "profiles"
 CASSETTES = ROOT / "services" / "llm_stub" / "cassettes" / "ir_extract"
 SIM_URL = "inproc://rc-sim"
-TERMINOLOGY = ROOT / "services" / "criteria_compiler" / "terminology" / "icd10cm_tw.parquet"
+TERM_DIR = ROOT / "services" / "criteria_compiler" / "terminology"
+# curated demo rows + the full ICD-10-CM list the prefix groupers expand over (D-122)
+TERMINOLOGY = [TERM_DIR / f"{name}.parquet" for name in ("icd10cm_tw", "icd10cm_full")]
 MALIGNANT = ("C0", "C1", "C2", "C3", "C40", "C41", "C43", "C45", "C46", "C47", "C48", "C49", "C5", "C6", "C7", "C8")
 
 
@@ -336,7 +338,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     adults = {p["mrn"] for p in patients if (a := _age(p["birth_date"], ref)) is not None and a >= 18}
     import pyarrow.parquet as pq
 
-    known = {r["code"] for r in pq.read_table(TERMINOLOGY, columns=["code"]).to_pylist()}
+    known = {r["code"] for t in TERMINOLOGY for r in pq.read_table(t, columns=["code"]).to_pylist()}
     vs = {c for c in known if c.startswith(MALIGNANT)}  # the "malignancy" grouper expands over the terminology
     # clinical truth, independent of the terminology: any code in the malignancy families (D-113)
     cancer = {d["mrn"] for d in dx if d["icd10"].startswith(MALIGNANT)}

@@ -1,0 +1,34 @@
+# Site mapping template — Japan, source type `ssmix2` (SS-MIX2 standardized storage, D-122).
+# The reader (services/adapter/sources/ssmix2/source.py) turns ADT-00/12/22, PPR-01, OMP-01/02 and OML-11 into the
+# canonical tables (templates/CANONICAL.md), so no `rename` is needed here; extended-storage CSVs (vital, note, ...)
+# use canonical column names too.
+# 1. Copy to services/adapter/mapping/jp_core/<site>.yaml (keep `extends`: the resource definitions are shared).
+# 2. Replace the sample codes in jlac10_to_loinc.csv (JLAC10 -> LOINC), byomei_to_icd10.csv (標準病名 -> ICD-10, used
+#    only when PRB-3 carries no ICD-10) and yj_to_atc.csv (YJ -> ATC, used only when RXE-2 carries no ATC).
+#    Every sample row says `verify`: they are synthetic and must be checked against MEDIS / JLAC10 / YJ releases.
+# 3. python tools/mapping_check.py --mapping <file> --source ssmix2 --path <storage root>
+# 4. settings.yaml: data_source: {type: ssmix2, path: <storage root>, mapping: mapping/jp_core/<site>.yaml}
+# Profiles stay the TW Core ones of the base mapping until the JP Core resource set is added (D-122, not done).
+version: 1
+name: ssmix2_site
+extends: ../tw_core/demo_his.yaml
+tz: Asia/Tokyo
+systems:
+  nhi_drug: urn:oid:1.2.392.100495.20.2.74   # YJ code (JP Core); the canonical column keeps its name nhi_drug_code
+  lab_local: urn:oid:1.2.392.200119.4.504    # JLAC10 (JP Core)
+tables:
+  patient: {source: patient, key: mrn, identity: {name: name}}
+  practitioner: {source: practitioner, key: staff_id}
+  encounter: {source: encounter, key: enc_no, delta: visit_datetime}
+  appointment: {source: appointment, key: appt_no}
+  diagnosis: {source: diagnosis, key: diag_no, delta: recorded_date}
+  lab: {source: lab, key: lab_no, delta: sample_datetime}
+  vital: {source: vital, key: vital_no, delta: measure_datetime}
+  medication: {source: medication, key: rx_no, delta: order_date}
+  procedure: {source: procedure, key: proc_no, delta: proc_date}
+  report: {source: report, key: rpt_no, delta: exam_date}
+  note: {source: note, key: note_no, delta: note_datetime}
+  claim: {source: claim, key: claim_no, delta: created_date}
+  registry: {source: registry, key: mrn}
+lookups:
+  lab: {file: jlac10_to_loinc.csv, key: local_code}

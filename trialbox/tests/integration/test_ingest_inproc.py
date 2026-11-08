@@ -178,15 +178,17 @@ def test_hl7_validator_sample_zero_errors(ingested: dict[str, Any]) -> None:
     assert res.errors == 0, res.messages[:10]
 
 
-def test_ssmix2_is_explicitly_unsupported(site_key_dir: Path, tmp_path: Path, repo_root: Path) -> None:
+def test_ssmix2_source_reads_empty_storage(site_key_dir: Path, tmp_path: Path, repo_root: Path) -> None:
+    """The SS-MIX2 reader replaced the D-28 stub (D-122); an empty storage root ingests nothing, without error."""
     cfg = AdapterConfig(
-        lake_dir=tmp_path,
+        lake_dir=tmp_path / "lake",
         secrets_dir=site_key_dir,
-        mapping_path=repo_root / "services/adapter/mapping/tw_core/demo_his.yaml",
+        mapping_path=repo_root / "services/adapter/mapping/jp_core/ssmix2_site.yaml",
         site_id="X",
     )
-    with pytest.raises(NotImplementedError, match="v1.1"):
-        run_ingest(cfg, "ssmix2", str(tmp_path), snapshot=SNAPSHOT, load_fhir=False, rebuild_lake=False)
+    (tmp_path / "storage").mkdir()
+    rep = run_ingest(cfg, "ssmix2", str(tmp_path / "storage"), snapshot=SNAPSHOT, load_fhir=False, rebuild_lake=False)
+    assert rep.counts.get("Patient", 0) == 0
 
 
 _ = os

@@ -65,7 +65,7 @@ def make_source(kind: str, path: str) -> Source:
     if kind == "ssmix2":
         from adapter.sources.ssmix2.source import Ssmix2Source
 
-        return Ssmix2Source(Path(path))  # type: ignore[return-value]  # raises NotImplementedError (D-28)
+        return Ssmix2Source(Path(path))  # SS-MIX2 standardized storage (D-122)
     raise ValueError(f"unknown source {kind!r}")
 
 
