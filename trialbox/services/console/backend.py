@@ -36,6 +36,30 @@ class Unavailable(RuntimeError):
     """A service the console needs did not answer."""
 
 
+class Problem(Refused):
+    """A structured refusal from the orchestrator's study API (D-109): an ICD error code, a message, fields."""
+
+    def __init__(self, status: int, code: str, message: str, fields: list[str] | None = None) -> None:
+        super().__init__(f"{code}: {message}")
+        self.status = status
+        self.code = code
+        self.message = message
+        self.fields = list(fields or [])
+
+
+def problem_of(status: int, text: str) -> Exception:
+    """The console's view of an orchestrator error answer: ``Problem`` when it carries a code, else Unavailable."""
+    try:
+        detail = json.loads(text).get("detail")
+    except (ValueError, AttributeError):
+        detail = None
+    if isinstance(detail, dict) and detail.get("code"):
+        return Problem(status, str(detail["code"]), str(detail.get("message") or ""), detail.get("fields") or [])
+    if status == 0 or status >= 500:
+        return Unavailable(text[:200])
+    return Problem(status, "REFUSED", str(detail or text)[:200])
+
+
 @dataclass(frozen=True)
 class MailItem:
     direction: str  # "in" | "out"
@@ -336,6 +360,14 @@ class HttpBackend:
                 raise Refused(exc.detail) from exc
             raise Unavailable(str(exc)) from exc
         return str(data.get("message_id") or "")
+
+    def study_api(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+        """The orchestrator's S-28 study store and REDCap routes (D-109)."""
+        try:
+            kw: dict[str, Any] = {} if body is None else {"json": body}
+            return self.orch._request(method, path, **kw).json()
+        except ServiceError as exc:
+            raise problem_of(exc.status, exc.detail) from exc
 
     def registry_export(self, ruleset: str) -> bytes:
         try:

@@ -1,0 +1,32 @@
+{
+  "token": "0F1E2D3C4B5A69788796A5B4C3D2E1F0",
+  "project": {
+    "project_id": 202,
+    "project_title": "RA-BIO registry visits (simulated, longitudinal)",
+    "is_longitudinal": 1,
+    "has_repeating_instruments_or_events": 0,
+    "project_language": "Chinese",
+    "record_autonumbering_enabled": 1,
+    "in_production": 1
+  },
+  "metadata": [
+    {"field_name": "rec_id", "form_name": "enrolment", "field_type": "text", "field_label": "Record", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""},
+    {"field_name": "tb_screening_no", "form_name": "enrolment", "field_type": "text", "field_label": "TrialBox screening number", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""},
+    {"field_name": "icf_dt", "form_name": "enrolment", "field_type": "text", "field_label": "ICF date", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "date_ymd", "branching_logic": "", "field_annotation": ""},
+    {"field_name": "rand_yn", "form_name": "enrolment", "field_type": "radio", "field_label": "Randomised", "select_choices_or_calculations": "0, No | 1, Yes", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""},
+    {"field_name": "withdrawn", "form_name": "end_of_study", "field_type": "yesno", "field_label": "Withdrawn", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""}
+  ],
+  "dags": [
+    {"data_access_group_name": "CGMH Linkou", "unique_group_name": "cgmh_linkou", "data_access_group_id": 1},
+    {"data_access_group_name": "Japan head", "unique_group_name": "jp_head", "data_access_group_id": 2}
+  ],
+  "events": [
+    {"event_name": "Screening", "arm_num": 1, "unique_event_name": "screening_arm_1"},
+    {"event_name": "Month 12", "arm_num": 1, "unique_event_name": "m12_arm_1"}
+  ],
+  "records": [
+    {"rec_id": "7", "redcap_event_name": "screening_arm_1", "redcap_data_access_group": "cgmh_linkou", "tb_screening_no": "RB0901", "icf_dt": "2026-10-02", "rand_yn": "1", "withdrawn": "", "_changed": "2026-10-03T08:00:00"},
+    {"rec_id": "7", "redcap_event_name": "m12_arm_1", "redcap_data_access_group": "cgmh_linkou", "tb_screening_no": "", "icf_dt": "", "rand_yn": "", "withdrawn": "1", "_changed": "2026-10-30T08:00:00"},
+    {"rec_id": "8", "redcap_event_name": "screening_arm_1", "redcap_data_access_group": "jp_head", "tb_screening_no": "RB0902", "icf_dt": "2026-10-05", "rand_yn": "0", "withdrawn": "", "_changed": "2026-10-06T08:00:00"}
+  ]
+}

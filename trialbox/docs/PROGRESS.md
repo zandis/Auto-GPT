@@ -466,3 +466,15 @@ host; the v1 compiler's cloud egress moved to `gateway`, which has no compose se
 **Evidence:** `make lint` clean (543 files formatted, mypy 449 files); default suite 1,082 passed, 16 skipped
 (step 1: 1,068 passed, 16 skipped); `make test-console` 92 passed; `tests/integration/test_list_demo.py` 1 passed.
 Matching unchanged (no change to matching, the compiler or the SCREEN evaluation).
+
+## Build step 3: REDCap simulator and status read-back (2026-11-07, D-109)
+
+- REDCap API simulator `services/rc_sim`: R1–R3, R7, R8; 501 for other methods; token check; rate limit; two fixture
+  projects (classic A, longitudinal B with DAGs); `inproc://rc-sim` in DEV/TEST and the demo image.
+- rc-bridge read connector (httpx form posts) with the ICD-04 error register.
+- Project link on `tb_screening_no` (ICD-04 §4.1a): field map, choice map, RC-LINK-FIELD, RC-LINK-DUP, conflicts,
+  unmatched records; status read-back into the registry (`source=import`).
+- Orchestrator S-28 store `studies.db` and its API; the step-2 study settings moved there.
+- S21 Study set-up (three sections, Test link, Run now), S36 REDCap connection (token once, masked, Test).
+- Screening log: REDCap record id, subject number, read-back block, Run now; nightly `python -m console.rc_read`.
+- Demo: `python -m tools.rc_demo --dir /tmp/tb-rc [--serve]`.
