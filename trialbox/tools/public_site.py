@@ -58,14 +58,24 @@ DX: list[tuple[str, str, list[str], list[str]]] = [
     ("E10.9", "type 1 diabetes", [r"\btype 1 diabetes\b", r"\bT1DM\b"], ["1型糖尿病"]),
     ("E11.9", "type 2 diabetes", [r"\b(type 2 )?diabet(es|ic)\b(?! insipidus)", r"\bT2DM\b"], ["2型糖尿病", "糖尿病"]),
     ("E66.9", "obesity", [r"\bobes(e|ity)\b"], ["肥満"]),
-    ("E78.5", "hyperlipidaemia", [r"\bhyper(cholesterol|lipid)aemia\b", r"\bhyper(cholesterol|lipid)emia\b"], ["脂質異常症", "高脂血症"]),
+    (
+        "E78.5",
+        "hyperlipidaemia",
+        [r"\bhyper(cholesterol|lipid)aemia\b", r"\bhyper(cholesterol|lipid)emia\b"],
+        ["脂質異常症", "高脂血症"],
+    ),
     ("I50.9", "heart failure", [r"\bheart failure\b", r"\bCHF\b"], ["心不全"]),
     ("I21.9", "myocardial infarction", [r"\bmyocardial infarction\b"], ["心筋梗塞"]),
     ("I48.9", "atrial fibrillation", [r"\batrial fibrillation\b"], ["心房細動"]),
     ("I63.9", "cerebral infarction", [r"\b(ischemic )?stroke\b", r"\bcerebral infarction\b"], ["脳梗塞"]),
     ("J45.9", "asthma", [r"\basthma\b"], ["喘息"]),
     ("J44.9", "COPD", [r"\bCOPD\b", r"\bchronic obstructive pulmonary\b"], ["慢性閉塞性肺疾患", "COPD"]),
-    ("J84.9", "interstitial lung disease", [r"\binterstitial (lung disease|pneumonia)\b"], ["間質性肺炎", "間質性肺疾患"]),
+    (
+        "J84.9",
+        "interstitial lung disease",
+        [r"\binterstitial (lung disease|pneumonia)\b"],
+        ["間質性肺炎", "間質性肺疾患"],
+    ),
     ("J18.9", "pneumonia", [r"\bpneumonia\b"], ["肺炎"]),
     ("A15.9", "tuberculosis", [r"\btuberculosis\b"], ["結核"]),
     ("B18.1", "chronic hepatitis B", [r"\bhepatitis B\b"], ["B型肝炎", "Ｂ型肝炎"]),
@@ -74,14 +84,29 @@ DX: list[tuple[str, str, list[str], list[str]]] = [
     ("N18.9", "chronic kidney disease", [r"\bchronic kidney disease\b", r"\bCKD\b"], ["慢性腎臓病", "慢性腎不全"]),
     ("M06.9", "rheumatoid arthritis", [r"\brheumatoid arthritis\b"], ["関節リウマチ"]),
     ("M10.9", "gout", [r"\bgout\b"], ["痛風"]),
-    ("C34.90", "lung cancer", [r"\b(lung|bronchogenic) (cancer|carcinoma|adenocarcinoma)\b"], ["肺癌", "肺腺癌", "肺扁平上皮癌", "肺小細胞癌"]),
+    (
+        "C34.90",
+        "lung cancer",
+        [r"\b(lung|bronchogenic) (cancer|carcinoma|adenocarcinoma)\b"],
+        ["肺癌", "肺腺癌", "肺扁平上皮癌", "肺小細胞癌"],
+    ),
     ("C16.9", "gastric cancer", [r"\b(gastric|stomach) (cancer|carcinoma|adenocarcinoma)\b"], ["胃癌"]),
-    ("C18.9", "colorectal cancer", [r"\b(colon|colorectal|rectal) (cancer|carcinoma|adenocarcinoma)\b"], ["大腸癌", "結腸癌", "直腸癌"]),
+    (
+        "C18.9",
+        "colorectal cancer",
+        [r"\b(colon|colorectal|rectal) (cancer|carcinoma|adenocarcinoma)\b"],
+        ["大腸癌", "結腸癌", "直腸癌"],
+    ),
     ("C50.9", "breast cancer", [r"\bbreast (cancer|carcinoma)\b"], ["乳癌"]),
     ("C22.0", "hepatocellular carcinoma", [r"\bhepatocellular carcinoma\b", r"\bHCC\b"], ["肝細胞癌"]),
     ("C25.9", "pancreatic cancer", [r"\bpancreatic (cancer|carcinoma|adenocarcinoma)\b"], ["膵癌", "膵臓癌"]),
     ("C61", "prostate cancer", [r"\bprostate (cancer|carcinoma)\b"], ["前立腺癌"]),
-    ("C80.1", "malignancy, other site", [r"\b(metastatic )?(carcinoma|malignancy|lymphoma|sarcoma)\b"], ["癌", "悪性腫瘍", "リンパ腫", "肉腫"]),
+    (
+        "C80.1",
+        "malignancy, other site",
+        [r"\b(metastatic )?(carcinoma|malignancy|lymphoma|sarcoma)\b"],
+        ["癌", "悪性腫瘍", "リンパ腫", "肉腫"],
+    ),
     ("Z33.1", "pregnancy", [r"\bpregnan(t|cy)\b(?! test)", r"\bgravida\b"], ["妊娠"]),
 ]
 _CANCER_SPECIFIC = {code for code, *_ in DX if code.startswith("C") and code != "C80.1"}
@@ -116,7 +141,9 @@ def _nfkc(s: str) -> str:
 
 
 def derive_en(text: str) -> tuple[int | None, bool, str | None]:
-    m = re.search(r"\b(\d{1,3})[- ](year|yr)s?[- ]old\b", text, re.I) or re.search(r"\b(\d{1,3}) ?(yo|y/o)\b", text, re.I)
+    m = re.search(r"\b(\d{1,3})[- ](year|yr)s?[- ]old\b", text, re.I) or re.search(
+        r"\b(\d{1,3}) ?(yo|y/o)\b", text, re.I
+    )
     age = int(m.group(1)) if m else None
     if age is None and re.search(r"\b\d{1,2}[- ](month|week|day)s?[- ]old\b", text, re.I):
         age = 0
@@ -174,8 +201,8 @@ def derive_dx(text: str, lang: str) -> list[tuple[str, str, str]]:
                         break
             else:
                 for p in en_pats:
-                    m = re.search(p, sent, re.I)
-                    if m and not EN_NEG.search(sent[: m.start()]):
+                    hit = re.search(p, sent, re.I)
+                    if hit and not EN_NEG.search(sent[: hit.start()]):
                         found[code] = (code, label, sent.strip()[:200])
                         break
     # "1型糖尿病" also matches "糖尿病"; type 1 wins. A named cancer makes the generic one redundant.
@@ -238,10 +265,12 @@ def build(out: Path, ref: date = REF, sites: tuple[str, ...] = ("en", "ja")) -> 
         enc = f"E{70000000 + i}"
         encs.append([enc, mrn, visit.strftime("%Y-%m-%d %H:%M:%S"), "MED", PI_STAFF if i % 2 else "P23456", "OPD"])
         ntype = "radiology" if d.source == "MedTxt-RR" else "consult"
-        notes.append([f"N{70000000 + i}", mrn, enc, (visit + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"), ntype, d.text])
+        notes.append(
+            [f"N{70000000 + i}", mrn, enc, (visit + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"), ntype, d.text]
+        )
         for j, (code, _label, _ev) in enumerate(d.dx, 1):
-            day = visit.date().isoformat()
-            dxs.append([f"D{70000000 + i}{j:02d}", enc, mrn, code, day, day, "A"])
+            dx_day = visit.date().isoformat()
+            dxs.append([f"D{70000000 + i}{j:02d}", enc, mrn, code, dx_day, dx_day, "A"])
         if i % 3 == 0:  # placed: a next visit with the investigator in the coming two weeks (weekday, 09:00-11:30)
             day = ref + timedelta(days=1 + (i % 14))
             while day.weekday() >= 5:
@@ -271,7 +300,9 @@ def build(out: Path, ref: date = REF, sites: tuple[str, ...] = ("en", "ja")) -> 
     )
     _write(out / "practitioner.csv", ["staff_id", "name", "dept_code"], [list(s) for s in STAFF])
     summary = summarise(patients, len(appts))
-    (out / "derivation.json").write_text(json.dumps({"summary": summary, "patients": patients}, ensure_ascii=False, indent=1), encoding="utf-8")
+    (out / "derivation.json").write_text(
+        json.dumps({"summary": summary, "patients": patients}, ensure_ascii=False, indent=1), encoding="utf-8"
+    )
     (out / "PROVENANCE.md").write_text(provenance_md(summary), encoding="utf-8")
     return {"summary": summary, "patients": patients, "dir": str(out)}
 
@@ -296,25 +327,39 @@ def summarise(patients: list[dict[str, Any]], appointments: int) -> dict[str, An
 def provenance_md(s: dict[str, Any]) -> str:
     src = ", ".join(f"{k} {v}" for k, v in s["by_source"].items())
     dx = "\n".join(f"| {k} | {v} |" for k, v in s["dx_counts"].items())
-    return f"""# Public-data site: what is real and what is derived
-
-Built by `tools/public_site.py`. {s['patients']} patients, one per source document ({src}).
-
-| What | Where it comes from |
-| --- | --- |
-| Note text (every word) | **Real.** SIGIR 2016 patient descriptions (NCBI TrialGPT release, public domain); NTCIR-16 Real-MedNLP MedTxt-CR case reports and MedTxt-RR radiology reports (CC BY 4.0, Sociocom NAIST) |
-| Age | **Derived** from the text where stated ({s['age_stated']} exact, {s['age_approx']} from a decade such as 60歳代 -> 65, {s['age_missing']} not stated -> no birth date) |
-| Sex | **Derived** from the text where stated ({s['sex_stated']} of {s['patients']}) |
-| Diagnoses | **Derived** by a fixed EN/JA dictionary to ICD-10, skipping negated, family-history and suspected mentions ({s['dx_rows']} rows on {s['with_dx']} patients); rule-based, so it can miss or over-read a mention |
-| Chart number, visit date, birth month, clinic staff, {s['appointments_placed']} next-visit appointments | **Placed** (not in the sources; the box needs them to run) |
-| Names, ID numbers, phones, labs, medicines, contact consent | **None** (the sources do not give them; nothing is made up) |
-
-## Derived diagnoses
-
-| ICD-10 | Patients |
-| --- | --- |
-{dx}
-"""
+    rows = [
+        (
+            "Note text (every word)",
+            "**Real.** SIGIR 2016 patient descriptions (NCBI TrialGPT release, public domain); NTCIR-16 Real-MedNLP "
+            "MedTxt-CR case reports and MedTxt-RR radiology reports (CC BY 4.0, Sociocom NAIST)",
+        ),
+        (
+            "Age",
+            f"**Derived** from the text where stated ({s['age_stated']} exact, {s['age_approx']} from a decade such "
+            f"as 60歳代 -> 65, {s['age_missing']} not stated -> no birth date)",
+        ),
+        ("Sex", f"**Derived** from the text where stated ({s['sex_stated']} of {s['patients']})"),
+        (
+            "Diagnoses",
+            "**Derived** by a fixed EN/JA dictionary to ICD-10, skipping negated, family-history and suspected "
+            f"mentions ({s['dx_rows']} rows on {s['with_dx']} patients); rule-based, so it can miss or over-read",
+        ),
+        (
+            f"Chart number, visit date, birth month, clinic staff, {s['appointments_placed']} next-visit appointments",
+            "**Placed** (not in the sources; the box needs them to run)",
+        ),
+        (
+            "Names, ID numbers, phones, labs, medicines, contact consent",
+            "**None** (the sources do not give them; nothing is made up)",
+        ),
+    ]
+    table = "\n".join(f"| {a} | {b} |" for a, b in rows)
+    return (
+        "# Public-data site: what is real and what is derived\n\n"
+        f"Built by `tools/public_site.py`. {s['patients']} patients, one per source document ({src}).\n\n"
+        f"| What | Where it comes from |\n| --- | --- |\n{table}\n\n"
+        f"## Derived diagnoses\n\n| ICD-10 | Patients |\n| --- | --- |\n{dx}\n"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -71,7 +71,7 @@ def criteria(ruleset: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build(work: Path, llm: Any = None) -> tuple[Any, Any, Path, dict[str, Any]]:
+def build(work: Path, llm: Any = None, verifier: Any = None) -> tuple[Any, Any, Path, dict[str, Any]]:
     """Public site -> ingest -> in-process box (stub model unless ``llm`` is given)."""
     from fastapi.testclient import TestClient
     from orchestrator import app as orch_app
@@ -88,8 +88,9 @@ def build(work: Path, llm: Any = None) -> tuple[Any, Any, Path, dict[str, Any]]:
     site["ingest"] = {"passed": rep.passed, "counts": rep.counts, "missing_required": rep.missing_required}
     shutil.rmtree(work / "box", ignore_errors=True)
     box = make_box(work / "box", work / "lake", sec, ps.REF + timedelta(days=1), extra_profiles=PROFILES)
-    if llm is not None:
-        box.orch.services.llm = llm  # pragma: no cover - real-model runs (Part 2) swap the stub out
+    if llm is not None:  # real-model runs: the judge (and the verifier) read the notes; the compiler stays on the stub
+        box.orch.services.llm = llm
+        box.orch.services.verifier = verifier
     orch_app._orch = box.orch
     return box, TestClient(orch_app.app), work / "box" / "repo", site
 
@@ -119,7 +120,20 @@ def _text(html: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
 
 
-def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa: PLR0915 - one linear script
+def real_models(judge_url: str, verifier_url: str, key: str) -> tuple[Any, Any]:
+    """LlmClients for the GPU pair behind the VM's nginx (``/judge/v1``, ``/verifier/v1``), bearer key."""
+    import httpx
+    from tb_common.llm import LlmClient
+
+    out = []
+    for url, name in ((judge_url, "local/gemma-4-26b-a4b-nvfp4"), (verifier_url, "local/qwen3.5-9b-awq")):
+        c = LlmClient(url, name, timeout=600.0)
+        c.http = httpx.Client(timeout=600.0, headers={"Authorization": f"Bearer {key}"})
+        out.append(c)
+    return out[0], out[1]
+
+
+def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: Any = None) -> dict[str, Any]:
     from console import notify
     from console.i18n import CATALOGUES
     from fastapi.testclient import TestClient
@@ -130,7 +144,7 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
 
     stages: list[Stage] = []
     t0 = time.perf_counter()
-    box, client, repo, site = build(work)
+    box, client, repo, site = build(work, llm, verifier)
     clock = ld.Clock(box.today[0])
     app = ld.console(work, box, client, repo, password, clock)
     h = app.state.helpers
@@ -155,17 +169,35 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
         summ["by_source"],
     )
     s.check("ingest passed", site["ingest"]["passed"], site["ingest"])
-    got = {k: int(q(f"SELECT count(*) AS n FROM {tb}")[0]["n"]) for k, tb in (("patient", "patient"), ("note", "document"), ("dx", "condition"))}
+    got = {
+        k: int(q(f"SELECT count(*) AS n FROM {tb}")[0]["n"])
+        for k, tb in (("patient", "patient"), ("note", "document"), ("dx", "condition"))
+    }
     want = {"patient": len(patients), "note": len(_rows(hosp / "note.csv")), "dx": len(dx)}
     s.check("lake counts = CSV counts (patients, notes, diagnoses)", got == want, f"lake {got} csv {want}")
     texts = {r["text"] for r in _rows(hosp / "note.csv")}
-    lake_text = {r["text"] for r in q("SELECT text FROM document")} if "text" in lake.query("SELECT * FROM document LIMIT 1").column_names else set()
-    s.check("note text reaches the lake verbatim", not lake_text or len(texts & lake_text) == len(texts), len(texts & lake_text))
-    cols = {tb: set(lake.query(f"SELECT * FROM {tb} LIMIT 1").column_names) for tb in ("patient", "encounter", "document", "condition")}
+    lake_text = (
+        {r["text"] for r in q("SELECT text FROM document")}
+        if "text" in lake.query("SELECT * FROM document LIMIT 1").column_names
+        else set()
+    )
+    s.check(
+        "note text reaches the lake verbatim",
+        not lake_text or len(texts & lake_text) == len(texts),
+        len(texts & lake_text),
+    )
+    cols = {
+        tb: set(lake.query(f"SELECT * FROM {tb} LIMIT 1").column_names)
+        for tb in ("patient", "encounter", "document", "condition")
+    }
     s.check("no chart number column in the lake", not any(c & {"mrn", "id_no", "phone"} for c in cols.values()), cols)
     pids = {r["pid"] for r in q("SELECT pid FROM patient")}
     s.check("lake keys are pseudonyms", not pids & mrns, len(pids & mrns))
-    s.check("missing birth dates reported, not invented", site["ingest"]["missing_required"].get("Patient.birthDate") == summ["age_missing"], site["ingest"]["missing_required"])
+    s.check(
+        "missing birth dates reported, not invented",
+        site["ingest"]["missing_required"].get("Patient.birthDate") == summ["age_missing"],
+        site["ingest"]["missing_required"],
+    )
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
@@ -181,12 +213,18 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
         form = crc.get("/pilot/protocol")
         r = crc.post("/pilot/protocol", data={"csrf": fd._csrf(form.text), "ruleset": rs, "criteria": criteria(rs)})
         job = box.orch.db.get(r.url.path.rsplit("/", 1)[-1])
-        s.check(f"S2 paste {rs} -> draft waiting for approval", r.status_code == 200 and job is not None and job.state == "awaiting_approval", (r.status_code, job and job.state))
+        s.check(
+            f"S2 paste {rs} -> draft waiting for approval",
+            r.status_code == 200 and job is not None and job.state == "awaiting_approval",
+            (r.status_code, job and job.state),
+        )
         jobs[rs] = job
     s20 = crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval")
     first = re.search(r'data-testid="tick-btn-([A-Z0-9-]+)"', s20.text)
     if first:
-        r = crc.post(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/tick", data={"csrf": fd._csrf(s20.text), "crit": first.group(1)})
+        r = crc.post(
+            f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/tick", data={"csrf": fd._csrf(s20.text), "crit": first.group(1)}
+        )
         s.check("coordinator ticks a criterion's codes on S20", r.status_code == 200, r.status_code)
     r = crc.post(f"/pilot/jobs/{jobs[TRIAL].job_id}/approve", data={"csrf": fd._csrf(s20.text)}, follow_redirects=False)
     s.check("coordinator's approve refused (403)", r.status_code == 403, r.status_code)
@@ -196,10 +234,16 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
             page = pi.get(f"/pilot/jobs/{job.job_id}/approval?open={cid}")
         r = pi.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": fd._csrf(page.text)}, follow_redirects=False)
         after = box.orch.db.get(job.job_id)
-        s.check(f"investigator approves {rs}; FEAS finishes", r.status_code == 303 and after is not None and after.state == "done", (r.status_code, after and after.state, after and after.error))
+        s.check(
+            f"investigator approves {rs}; FEAS finishes",
+            r.status_code == 303 and after is not None and after.state == "done",
+            (r.status_code, after and after.state, after and after.error),
+        )
     fj = _done(box, "FEAS", TRIAL)[0]
     names = sorted(o.filename for o in fj.outputs or [])
-    s.check("FEAS PDF, XLSX and JSON", all(any(n.endswith(x) for n in names) for x in (".pdf", ".xlsx", ".json")), names)
+    s.check(
+        "FEAS PDF, XLSX and JSON", all(any(n.endswith(x) for n in names) for x in (".pdf", ".xlsx", ".json")), names
+    )
     rep = _json_out(box, fj, "feasibility_")
     raw = _json_out(box, fj, "feasibility_", ".raw.json")
     ref = date.fromisoformat(rep["snapshot"])
@@ -212,39 +256,86 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
     term = sorted({d["icd10"] for d in dx if d["icd10"].startswith(MALIGNANT) and d["icd10"] not in vs})
     inc = {k: v for k, v in raw["remaining"].items()}
     s.check("start = every patient", raw["start_n"] == len(patients), raw["start_n"])
-    s.check("age >= 18 = recount from patient.csv", inc.get(f"{TRIAL}-INC-01") == len(adults), (inc.get(f"{TRIAL}-INC-01"), len(adults)))
-    s.check("malignancy = recount from diagnosis.csv (codes in the value set)", inc.get(f"{TRIAL}-INC-02") == len(adults & malig), (inc.get(f"{TRIAL}-INC-02"), len(adults & malig)))
+    s.check(
+        "age >= 18 = recount from patient.csv",
+        inc.get(f"{TRIAL}-INC-01") == len(adults),
+        (inc.get(f"{TRIAL}-INC-01"), len(adults)),
+    )
+    s.check(
+        "malignancy = recount from diagnosis.csv (codes in the value set)",
+        inc.get(f"{TRIAL}-INC-02") == len(adults & malig),
+        (inc.get(f"{TRIAL}-INC-02"), len(adults & malig)),
+    )
     missed = {d["mrn"] for d in dx if d["icd10"] in term} - malig
-    s.check("cancer codes outside the demo terminology are reported, not silently counted", True, f"{len(missed)} patients only coded {term}")
+    s.check(
+        "cancer codes outside the demo terminology are reported, not silently counted",
+        True,
+        f"{len(missed)} patients only coded {term}",
+    )
     rem = [row["remaining"] for row in rep["funnel"]]
     s.check("funnel never grows", all(a >= b for a, b in itertools.pairwise(rem)), rem)
     s.check("FEAS ran without a model", (rep.get("provenance") or {}).get("models") == [], rep.get("provenance"))
     s3 = crc.get(f"/studies/{TRIAL}/feasibility")
     s.check("S3 feasibility page", s3.status_code == 200 and "funnel" in s3.text.lower(), s3.status_code)
     r = crc.post(f"/studies/{TRIAL}/feasibility/refresh", data={"csrf": fd._csrf(s3.text)}, follow_redirects=False)
-    s.check("S3 Refresh re-runs FEAS", r.status_code in (200, 303) and len(box.orch.db.find(type_="FEAS", ruleset=TRIAL)) >= 2, (r.status_code, len(box.orch.db.find(type_="FEAS", ruleset=TRIAL))))
-    out: dict[str, Any] = {"feas": {"start": raw["start_n"], "remaining": raw["remaining"], "funnel": rep["funnel"]}, "terminology_missed": {"codes": term, "patients": len(missed)}}
+    s.check(
+        "S3 Refresh re-runs FEAS",
+        r.status_code in (200, 303) and len(box.orch.db.find(type_="FEAS", ruleset=TRIAL)) >= 2,
+        (r.status_code, len(box.orch.db.find(type_="FEAS", ruleset=TRIAL))),
+    )
+    out: dict[str, Any] = {
+        "feas": {"start": raw["start_n"], "remaining": raw["remaining"], "funnel": rep["funnel"]},
+        "terminology_missed": {"codes": term, "patients": len(missed)},
+    }
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
     # ------------------------------------------------------------------ 2 SCREEN on real notes
     s = Stage("2 screening (patient list) on real notes")
     t = time.perf_counter()
+    screen_secs: dict[str, float] = {}
     for rs, pract in ((TRIAL, ""), (COHORT, "P12345,P23456")):
+        t_req = time.perf_counter()
         form = crc.get(f"/pilot/request?ruleset={rs}")
-        r = crc.post("/pilot/request", data={"csrf": fd._csrf(form.text), "kind": "SCREEN", "ruleset": rs, "pract": pract}, follow_redirects=False)
+        r = crc.post(
+            "/pilot/request",
+            data={"csrf": fd._csrf(form.text), "kind": "SCREEN", "ruleset": rs, "pract": pract},
+            follow_redirects=False,
+        )
         sj = box.orch.db.get(r.headers.get("location", "/").rsplit("/", 1)[-1]) if r.status_code == 303 else None
-        s.check(f"SCREEN {rs} done", sj is not None and sj.state == "done", (r.status_code, sj and sj.state, sj and sj.error))
+        screen_secs[rs] = round(time.perf_counter() - t_req, 1)
+        s.check(
+            f"SCREEN {rs} done",
+            sj is not None and sj.state == "done",
+            (r.status_code, sj and sj.state, sj and sj.error),
+        )
     sj = _done(box, "SCREEN", TRIAL)[0]
     scr = _json_out(box, sj, "screen_")
     fun = dict((k, v) for k, v in scr["funnel"])
     s.check("screen funnel S0 >= S1 >= S3 >= S4", fun["S0"] >= fun["S1"] >= fun["S3"] >= fun["S4"], fun)
     s.check("listed = high + review", scr["listed"] == scr["tiers"]["high"] + scr["tiers"]["review"], scr["tiers"])
-    s.check("no note-based exclusion without two models agreeing", scr["judging"]["note_block"] == "never", scr["judging"])
-    out["screen"] = {"funnel": fun, "tiers": scr["tiers"], "listed": scr["listed"], "judging": scr["judging"]}
+    want_block = "both_agree" if verifier is not None else "never"
+    s.check(
+        "note-based exclusion only when two models agree",
+        scr["judging"]["note_block"] == want_block and (verifier is not None or not scr["judging"]["may_block"]),
+        scr["judging"],
+    )
+
+    out["screen"] = {
+        "funnel": fun,
+        "tiers": scr["tiers"],
+        "listed": scr["listed"],
+        "judging": scr["judging"],
+        "request_seconds": screen_secs,
+        "stage_seconds": round(time.perf_counter() - t, 1),
+    }
     cohort = crc.get(f"/studies/{COHORT}/cohort")
     members = len(re.findall(r'data-testid="member-', cohort.text))
-    s.check("cohort list PUB-CA has members, no contact step", cohort.status_code == 200 and members > 0 and 'data-testid="mark-' not in cohort.text, members)
+    s.check(
+        "cohort list PUB-CA has members, no contact step",
+        cohort.status_code == 200 and members > 0 and 'data-testid="mark-' not in cohort.text,
+        members,
+    )
     out["cohort_members"] = members
     s.seconds = time.perf_counter() - t
     stages.append(s)
@@ -261,18 +352,36 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
     picks = rows[:3]
     lst = pi.get(f"/studies/{TRIAL}/week?list=all")
     s.check("PI list page", lst.status_code == 200 and all(p["pid"][:8] in lst.text for p in picks), lst.status_code)
-    marks = [("approach", {}), ("need_info", {"note": "ECOG not recorded"}), ("not_now", {"recheck": (day + timedelta(days=28)).isoformat()})]
+    marks = [
+        ("approach", {}),
+        ("need_info", {"note": "ECOG not recorded"}),
+        ("not_now", {"recheck": (day + timedelta(days=28)).isoformat()}),
+    ]
     for row, (mark, extra) in zip(picks, marks, strict=False):
         page = pi.get(f"/studies/{TRIAL}/week?list=all&pid={row['pid']}")
-        r = pi.post(f"/studies/{TRIAL}/patients/{row['pid']}/mark", data={"csrf": fd._csrf(page.text), "mark": mark, "back": "list:all", **extra}, follow_redirects=False)
+        r = pi.post(
+            f"/studies/{TRIAL}/patients/{row['pid']}/mark",
+            data={"csrf": fd._csrf(page.text), "mark": mark, "back": "list:all", **extra},
+            follow_redirects=False,
+        )
         s.check(f"mark {mark}", r.status_code == 303, r.status_code)
     if len(picks) >= 3:
         third = picks[2]["pid"]
         page = pi.get(f"/studies/{TRIAL}/week?list=all&pid={third}")
-        r = pi.post(f"/studies/{TRIAL}/patients/{third}/mark", data={"csrf": fd._csrf(page.text), "mark": "approach", "back": "list:all"}, follow_redirects=False)
+        r = pi.post(
+            f"/studies/{TRIAL}/patients/{third}/mark",
+            data={"csrf": fd._csrf(page.text), "mark": "approach", "back": "list:all"},
+            follow_redirects=False,
+        )
         hist = [m.mark for m in h.store.mark_history(TRIAL, third)]
-        s.check("replace a mark: history keeps both", r.status_code == 303 and hist[-2:] == ["not_now", "approach"], hist)
-        r = pi.post(f"/studies/{TRIAL}/patients/{third}/mark", data={"csrf": fd._csrf(page.text), "mark": "withdraw", "back": "list:all"}, follow_redirects=False)
+        s.check(
+            "replace a mark: history keeps both", r.status_code == 303 and hist[-2:] == ["not_now", "approach"], hist
+        )
+        r = pi.post(
+            f"/studies/{TRIAL}/patients/{third}/mark",
+            data={"csrf": fd._csrf(page.text), "mark": "withdraw", "back": "list:all"},
+            follow_redirects=False,
+        )
         hist = [m.mark for m in h.store.mark_history(TRIAL, third)]
         s.check("withdraw a mark", r.status_code == 303, (r.status_code, hist, _text(r.text)[-200:]))
         out["withdraw_hist"] = hist
@@ -280,7 +389,11 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
     p5 = pi.get(f"/studies/{TRIAL}/patients/{approached}")
     s.check("S5 patient page", p5.status_code == 200, p5.status_code)
     page = crc.get(f"/studies/{TRIAL}/patients/{approached}")
-    r = crc.post(f"/studies/{TRIAL}/patients/{approached}/outcome", data={"csrf": fd._csrf(page.text), "outcome": "not_reached", "back": "patient"}, follow_redirects=False)
+    r = crc.post(
+        f"/studies/{TRIAL}/patients/{approached}/outcome",
+        data={"csrf": fd._csrf(page.text), "outcome": "not_reached", "back": "patient"},
+        follow_redirects=False,
+    )
     s.check("coordinator records a contact outcome", r.status_code == 303, r.status_code)
     no = h.store.screening_no(TRIAL, approached)
     s.check("Approach gives a screening number", bool(no) and no.startswith(TRIAL), no)
@@ -288,7 +401,11 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
     s.check("screening log lists the approached patient", log.status_code == 200 and no in log.text, log.status_code)
     x = crc.get(f"/studies/{TRIAL}/screening-log.xlsx")
     wb = load_workbook(io.BytesIO(x.content)) if x.status_code == 200 else None
-    s.check("screening log XLSX opens", wb is not None and any(no in str(c.value) for ws in wb.worksheets for r_ in ws.iter_rows() for c in r_), x.status_code)
+    s.check(
+        "screening log XLSX opens",
+        wb is not None and any(no in str(c.value) for ws in wb.worksheets for r_ in ws.iter_rows() for c in r_),
+        x.status_code,
+    )
     out["picks"] = [p["pid"][:8] for p in picks]
     out["screening_no"] = no
     s.seconds = time.perf_counter() - t
@@ -316,23 +433,58 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
     register_inproc(sim)
     token = next(tk for tk, p in load_projects().items() if p["project"]["project_id"] == 101)
     page = admin.get("/admin/redcap")
-    admin.post("/admin/redcap", data={"csrf": fd._csrf(page.text), "token_ref": "pubonc", "url": SIM_URL, "token": token})
+    admin.post(
+        "/admin/redcap", data={"csrf": fd._csrf(page.text), "token_ref": "pubonc", "url": SIM_URL, "token": token}
+    )
     r = admin.post("/admin/redcap/pubonc/test", data={"csrf": fd._csrf(page.text)})
-    s.check("S36 Test connection (version shown, token never shown)", r.status_code == 200 and "16.0.10" in r.text and token not in r.text, r.status_code)
+    s.check(
+        "S36 Test connection (version shown, token never shown)",
+        r.status_code == 200 and "16.0.10" in r.text and token not in r.text,
+        r.status_code,
+    )
     page = crc.get(f"/studies/{TRIAL}/setup")
-    form = {**{"token_ref": "pubonc", "project_id": "101", "link_field": "tb_screening_no", "consent_field": "consent_date", "enrol_field": "enrolled", "enrol_value": "1", "screenfail_field": "sf_reason", "screenfail_choice_map": "1=inclusion, 2=exclusion, 3=consent_withdrawn, 9=other", "subject_no_field": "subject_no"}}
+    form = {
+        **{
+            "token_ref": "pubonc",
+            "project_id": "101",
+            "link_field": "tb_screening_no",
+            "consent_field": "consent_date",
+            "enrol_field": "enrolled",
+            "enrol_value": "1",
+            "screenfail_field": "sf_reason",
+            "screenfail_choice_map": "1=inclusion, 2=exclusion, 3=consent_withdrawn, 9=other",
+            "subject_no_field": "subject_no",
+        }
+    }
     r = crc.post(f"/studies/{TRIAL}/setup/redcap", data={"csrf": fd._csrf(page.text), **form})
-    s.check("S21 project link checked against the data dictionary", 'data-testid="link-on"' in r.text, _text(r.text)[-300:])
+    s.check(
+        "S21 project link checked against the data dictionary", 'data-testid="link-on"' in r.text, _text(r.text)[-300:]
+    )
     sc = TestClient(sim)
-    sc.post("/sim/records", json={"project_id": 101, "records": [{"record_id": "3", "tb_screening_no": no, "consent_date": day.isoformat()}]})
+    sc.post(
+        "/sim/records",
+        json={
+            "project_id": 101,
+            "records": [{"record_id": "3", "tb_screening_no": no, "consent_date": day.isoformat()}],
+        },
+    )
     log = crc.get(f"/studies/{TRIAL}/screening-log")
     r = crc.post(f"/studies/{TRIAL}/redcap-read", data={"csrf": fd._csrf(log.text), "back": "log"})
     from tools.rc_demo import status_of
 
-    s.check("Run now: consented", status_of(r.text, no).startswith(cat["registry.status.consented"]), status_of(r.text, no))
-    sc.post("/sim/records", json={"project_id": 101, "records": [{"record_id": "3", "enrolled": "1", "subject_no": "S-0003"}]})
+    s.check(
+        "Run now: consented", status_of(r.text, no).startswith(cat["registry.status.consented"]), status_of(r.text, no)
+    )
+    sc.post(
+        "/sim/records",
+        json={"project_id": 101, "records": [{"record_id": "3", "enrolled": "1", "subject_no": "S-0003"}]},
+    )
     r = crc.post(f"/studies/{TRIAL}/redcap-read", data={"csrf": fd._csrf(r.text), "back": "log"})
-    s.check("Run now: enrolled, subject number shown", status_of(r.text, no).startswith(cat["registry.status.enrolled"]) and "S-0003" in r.text, status_of(r.text, no))
+    s.check(
+        "Run now: enrolled, subject number shown",
+        status_of(r.text, no).startswith(cat["registry.status.enrolled"]) and "S-0003" in r.text,
+        status_of(r.text, no),
+    )
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
@@ -350,7 +502,15 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
     for qtext in (TRIAL, approached[:8], "help"):
         r = crc.get(f"/cmd?q={qtext}")
         s.check(f"command field: {qtext!r}", r.status_code in (200, 303), r.status_code)
-    for path in ("/admin", "/admin?tab=health", "/admin?tab=jobs", "/admin?tab=sources", "/ops/users", "/audit", "/jobs"):
+    for path in (
+        "/admin",
+        "/admin?tab=health",
+        "/admin?tab=jobs",
+        "/admin?tab=sources",
+        "/ops/users",
+        "/audit",
+        "/jobs",
+    ):
         r = admin.get(path)
         s.check(f"admin {path}", r.status_code == 200, r.status_code)
     r = pi.get("/admin")
@@ -367,38 +527,83 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
         if o.filename.endswith((".pdf", ".xlsx")):
             r = crc.get(f"/pilot/jobs/{fj.job_id}/files/{o.filename}")
             magic = b"%PDF" if o.filename.endswith(".pdf") else b"PK"
-            s.check(f"download {o.filename.rsplit('.', 1)[-1].upper()} feasibility report", r.status_code == 200 and r.content.startswith(magic), r.status_code)
+            s.check(
+                f"download {o.filename.rsplit('.', 1)[-1].upper()} feasibility report",
+                r.status_code == 200 and r.content.startswith(magic),
+                r.status_code,
+            )
     r = crc.get(f"/pilot/registry/{COHORT}/export.xlsx")
     s.check("cohort registry export XLSX", r.status_code == 200 and r.content[:2] == b"PK", r.status_code)
     # CASE: one real MedTxt case report, uploaded as the chart of its own patient
     case_p = next(p for p in site["patients"] if p["source"] == "MedTxt-CR" and p["dx"] and p["age"])
     note = next(n for n in _rows(hosp / "note.csv") if n["mrn"] == case_p["mrn"])
     form = crc.get("/pilot/case")
-    r = crc.post("/pilot/case", data={"csrf": fd._csrf(form.text), "ruleset": TRIAL, "mrn": case_p["mrn"], "lang": lang}, files={"charts": ("case.txt", note["text"].encode("utf-8"), "text/plain")}, follow_redirects=False)
+    r = crc.post(
+        "/pilot/case",
+        data={"csrf": fd._csrf(form.text), "ruleset": TRIAL, "mrn": case_p["mrn"], "lang": lang},
+        files={"charts": ("case.txt", note["text"].encode("utf-8"), "text/plain")},
+        follow_redirects=False,
+    )
     cj = box.orch.db.get(r.headers.get("location", "/").rsplit("/", 1)[-1]) if r.status_code == 303 else None
-    s.check("CASE on a real case report finishes", cj is not None and cj.state in ("done", "awaiting_release"), (r.status_code, cj and cj.state, cj and cj.error, _text(r.text)[-200:]))
+    s.check(
+        "CASE on a real case report finishes",
+        cj is not None and cj.state in ("done", "awaiting_release"),
+        (r.status_code, cj and cj.state, cj and cj.error, _text(r.text)[-200:]),
+    )
     form = crc.get("/pilot/consent")
     icf = next(ROOT.glob("tests/fixtures/**/GZQO_ICF_v2.md")).read_bytes()  # a synthetic ICF: no public one exists
-    r = crc.post("/pilot/consent", data={"csrf": fd._csrf(form.text), "study": TRIAL, "langs": ["en", "ja"]}, files={"icf": ("icf.md", icf, "text/markdown")}, follow_redirects=False)
+    r = crc.post(
+        "/pilot/consent",
+        data={"csrf": fd._csrf(form.text), "study": TRIAL, "langs": ["en", "ja"]},
+        files={"icf": ("icf.md", icf, "text/markdown")},
+        follow_redirects=False,
+    )
     kj = box.orch.db.get(r.headers.get("location", "/").rsplit("/", 1)[-1]) if r.status_code == 303 else None
-    s.check("consent explainer draft (ICF upload, EN + JA)", kj is not None and kj.state == "done", (r.status_code, kj and kj.state, kj and kj.error, _text(r.text)[-200:]))
+    s.check(
+        "consent explainer draft (ICF upload, EN + JA)",
+        kj is not None and kj.state == "done",
+        (r.status_code, kj and kj.state, kj and kj.error, _text(r.text)[-200:]),
+    )
     form = crc.get("/pilot/protocol")
-    r = crc.post("/pilot/protocol", data={"csrf": fd._csrf(form.text), "ruleset": TRIAL, "criteria": criteria(TRIAL) + "5. Known HIV infection.\n"})
+    r = crc.post(
+        "/pilot/protocol",
+        data={"csrf": fd._csrf(form.text), "ruleset": TRIAL, "criteria": criteria(TRIAL) + "5. Known HIV infection.\n"},
+    )
     draft = box.orch.db.get(r.url.path.rsplit("/", 1)[-1])
     page = admin.get("/admin?tab=jobs")
     r = admin.post(f"/admin/jobs/{draft.job_id}/cancel", data={"csrf": fd._csrf(page.text)})
     s.check("Cancel asks to confirm", r.status_code == 200 and "confirm" in r.text, r.status_code)
-    r = admin.post(f"/admin/jobs/{draft.job_id}/cancel", data={"csrf": fd._csrf(page.text), "confirm": "yes"}, follow_redirects=False)
+    r = admin.post(
+        f"/admin/jobs/{draft.job_id}/cancel",
+        data={"csrf": fd._csrf(page.text), "confirm": "yes"},
+        follow_redirects=False,
+    )
     gone = box.orch.db.get(draft.job_id)
-    s.check("Cancel a waiting job (failed, step cancelled)", r.status_code == 303 and gone is not None and gone.state == "failed" and gone.error is not None and gone.error.step == "cancelled", (r.status_code, gone and gone.state, gone and gone.error))
+    s.check(
+        "Cancel a waiting job (failed, step cancelled)",
+        r.status_code == 303
+        and gone is not None
+        and gone.state == "failed"
+        and gone.error is not None
+        and gone.error.step == "cancelled",
+        (r.status_code, gone and gone.state, gone and gone.error),
+    )
     # Retry needs a failed job: mark a finished SCREEN failed (simulated failure), then retry it
     from tb_contracts import JobError
 
-    failed = sj.model_copy(update={"state": "failed", "error": JobError(step="screen", message="simulated failure (public-data e2e)")})
+    failed = sj.model_copy(
+        update={"state": "failed", "error": JobError(step="screen", message="simulated failure (public-data e2e)")}
+    )
     box.orch.db.put(failed)
     n_before = len(box.orch.db.find(type_="SCREEN", ruleset=TRIAL))
-    r = admin.post(f"/admin/jobs/{sj.job_id}/retry", data={"csrf": fd._csrf(page.text), "confirm": "yes"}, follow_redirects=False)
-    s.check("Retry a failed job creates a new one", r.status_code == 303 and len(box.orch.db.find(type_="SCREEN", ruleset=TRIAL)) == n_before + 1, (r.status_code, _text(r.text)[-200:]))
+    r = admin.post(
+        f"/admin/jobs/{sj.job_id}/retry", data={"csrf": fd._csrf(page.text), "confirm": "yes"}, follow_redirects=False
+    )
+    s.check(
+        "Retry a failed job creates a new one",
+        r.status_code == 303 and len(box.orch.db.find(type_="SCREEN", ruleset=TRIAL)) == n_before + 1,
+        (r.status_code, _text(r.text)[-200:]),
+    )
     r = admin.post(f"/admin/jobs/{fj.job_id}/retry", data={"csrf": fd._csrf(page.text), "confirm": "yes"})
     s.check("Retry of a finished job is refused (409)", r.status_code == 409, r.status_code)
     r = admin.post(f"/admin/jobs/{fj.job_id}/cancel", data={"csrf": fd._csrf(page.text), "confirm": "yes"})
@@ -426,7 +631,19 @@ def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa:
         "case_job": cj.job_id if cj else "",
         "consent_job": kj.job_id if kj else "",
     }
-    out.update({"stages": stages, "seconds": time.perf_counter() - t0, "site": site["summary"], "app": app, "box": box, "day": day, "crc": crc, "pi": pi, "admin": admin})
+    out.update(
+        {
+            "stages": stages,
+            "seconds": time.perf_counter() - t0,
+            "site": site["summary"],
+            "app": app,
+            "box": box,
+            "day": day,
+            "crc": crc,
+            "pi": pi,
+            "admin": admin,
+        }
+    )
     return out
 
 
@@ -434,7 +651,8 @@ def table(stages: list[Stage]) -> str:
     lines = ["| stage | check | result | detail |", "| --- | --- | --- | --- |"]
     for st in stages:
         for what, ok, detail in st.checks:
-            lines.append(f"| {st.name} | {what} | {'pass' if ok else 'FAIL'} | {detail.replace('|', '/')[:160] if not ok else ''} |")
+            why = "" if ok else detail.replace("|", "/")[:160]
+            lines.append(f"| {st.name} | {what} | {'pass' if ok else 'FAIL'} | {why} |")
     return "\n".join(lines)
 
 
@@ -443,12 +661,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_PUBLIC_DIR", "/tmp/tb-public")))
     ap.add_argument("--lang", default="en", choices=["ja", "zh-TW", "en"])
     ap.add_argument("--serve", action="store_true")
+    ap.add_argument("--judge-url", default="", help="real judge, e.g. http://<vm>/judge/v1 (key in TB_GPU_KEY)")
+    ap.add_argument("--verifier-url", default="")
+    ap.add_argument("--single", action="store_true", help="judge only, no verifier")
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     ap.add_argument("--host", default="127.0.0.1")
     a = ap.parse_args(argv)
     a.dir.mkdir(parents=True, exist_ok=True)
     password = os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12)
-    res = run(a.dir, password, a.lang)
+    llm = verifier = None
+    if a.judge_url:  # the key comes from the environment only (never a flag, never printed)
+        llm, verifier = real_models(a.judge_url, a.verifier_url, os.environ["TB_GPU_KEY"])
+        if a.single:
+            verifier = None
+    res = run(a.dir, password, a.lang, llm, verifier)
     print(table(res["stages"]))
     n = sum(len(st.checks) for st in res["stages"])
     bad = sum(1 for st in res["stages"] for c in st.checks if not c[1])
@@ -456,6 +682,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"screen {json.dumps(res['screen'], default=str)}; cohort members {res['cohort_members']}")
     (a.dir / "walk.json").write_text(json.dumps(res["walk"]), encoding="utf-8")
     (a.dir / "stages.md").write_text(table(res["stages"]), encoding="utf-8")
+    (a.dir / "result.json").write_text(
+        json.dumps(
+            {k: res[k] for k in ("feas", "screen", "cohort_members", "seconds", "site", "terminology_missed")},
+            default=str,
+            indent=1,
+        ),
+        encoding="utf-8",
+    )
     if a.serve:
         import uvicorn
 

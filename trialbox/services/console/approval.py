@@ -104,7 +104,12 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         if sess.user.aggregate_only:
             raise h.problem(403, "forbidden")
         seen = bk.get_job(job_id) if _ULID.match(job_id) else None
-        if seen is not None and seen.ruleset and sess.user.sees_study(seen.ruleset) and seen.state != "awaiting_approval":
+        if (
+            seen is not None
+            and seen.ruleset
+            and sess.user.sees_study(seen.ruleset)
+            and seen.state != "awaiting_approval"
+        ):
             # an old link (the review mail, a bookmark) after the round is decided: show the job, not a refusal
             return RedirectResponse(f"/pilot/jobs/{job_id}", status_code=303)
         job, book = waiting_job(sess, job_id)
