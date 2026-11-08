@@ -63,6 +63,45 @@ def test_token_from_file(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None
     assert sa.check("POST", TOKEN, "PRODUCTION") is None
 
 
+def _fake_box(events: list[dict[str, Any]]) -> SimpleNamespace:
+    import json as _json
+
+    out = SimpleNamespace(filename="candidate_list_RS_v1.json", minio_key="outputs/J1/candidate_list_RS_v1.json")
+    job = SimpleNamespace(type="SCREEN", state="done", ruleset="RS", outputs=[out])
+    lists = {out.minio_key: _json.dumps({"rows": [{"pid": "PID-00000001"}, {"pid": "PID-00000002"}]}).encode()}
+    return SimpleNamespace(
+        db=SimpleNamespace(get=lambda _id: job, url=None),
+        cfg=SimpleNamespace(env=SimpleNamespace(secrets_dir="/nonexistent")),
+        audit=SimpleNamespace(append=lambda kind, **kw: events.append({"kind": kind, **kw})),
+        store=SimpleNamespace(get=lambda key: lists[key]),
+    )
+
+
+def test_reveal_only_for_a_patient_on_the_jobs_list_and_at_a_bounded_rate(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Security review 2026-11-08 F-03: reveal used to resolve any pseudonym in the hospital through any job."""
+    from orchestrator import app as oapp
+    from orchestrator.scenarios import screen
+
+    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "2")
+    monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())
+    events: list[dict[str, Any]] = []
+    monkeypatch.setattr(oapp, "orch", lambda: _fake_box(events))
+    monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
+    h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("crc1")}
+    r = client.post("/jobs/J1/reveal", json={"pid": "PID-99999999"}, headers=h)
+    assert r.status_code == 403 and events[-1]["kind"] == "screen.reveal_refused"
+    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=h).status_code == 200
+    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=h).status_code == 200
+    r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=h)
+    assert r.status_code == 429 and events[-1]["detail"]["reason"] == "rate limit"
+    other = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("crc2")}
+    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=other).status_code == 200
+
+
 def test_reveal_audits_the_header_actor_not_the_body(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from orchestrator import app as oapp
     from orchestrator.scenarios import screen
@@ -70,12 +109,7 @@ def test_reveal_audits_the_header_actor_not_the_body(client: TestClient, monkeyp
     monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
     monkeypatch.setenv("TB_ENV", "PRODUCTION")
     events: list[dict[str, Any]] = []
-    job = SimpleNamespace(type="SCREEN", state="done", ruleset="RS")
-    fake = SimpleNamespace(
-        db=SimpleNamespace(get=lambda _id: job, url=None),
-        cfg=SimpleNamespace(env=SimpleNamespace(secrets_dir="/nonexistent")),
-        audit=SimpleNamespace(append=lambda kind, **kw: events.append({"kind": kind, **kw})),
-    )
+    fake = _fake_box(events)
     monkeypatch.setattr(oapp, "orch", lambda: fake)
     monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
     ok = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("山田 花子")}
