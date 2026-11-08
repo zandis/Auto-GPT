@@ -128,7 +128,7 @@ def test_egress_extra_cannot_give_another_container_a_model_host() -> None:
     for item in (
         "orchestrator=openrouter.example:443",
         "criteria-compiler=llm.example.com:443",
-        "hermes=llm-stub:8000",
+        "console=llm-stub:8000",
     ):
         with pytest.raises(SystemExit, match="model host"):
             eg.allowlist({**MODEL_ENV, "EGRESS_EXTRA": item})

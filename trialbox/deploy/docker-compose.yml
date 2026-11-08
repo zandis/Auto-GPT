@@ -30,53 +30,24 @@ x-py: &py
     start_period: 20s
 
 services:
-  minio:
-    logging: *logging
-    # Official minio/minio images are no longer published on Docker Hub (DECISIONS D-21): community fork, multi-arch.
-    image: ${MINIO_IMAGE:-pgsty/minio:latest@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372}
-    command: ["server", "/data", "--console-address", ":9001"]
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
-    volumes: [minio-data:/data]
-    networks: [trialbox-net]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  fhir-db:
+  db:
+    # One PostgreSQL server for the box (TB-PLAN-03 step 6, D-121): database `hapi` for the FHIR store and
+    # `trialbox_wf` for durable steps, outbox and recall ledger (spec v4 §11.0), made by db-init on first start.
+    # Multi-arch index digest (linux/amd64 and linux/arm64 manifests). One volume, one backup, one restore.
     logging: *logging
     image: ${POSTGRES_IMAGE:-postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}
     environment:
       POSTGRES_DB: hapi
       POSTGRES_USER: hapi
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes: [fhir-pg:/var/lib/postgresql/data]
+      POSTGRES_WF_PASSWORD: ${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}
+    volumes:
+      - db-pg:/var/lib/postgresql/data
+      - ./docker/db-init:/docker-entrypoint-initdb.d:ro
     networks: [trialbox-net]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hapi -d hapi"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  workflow-db:
-    # spec v4 §11.0: durable steps, transactional outbox and recall ledger (services/orchestrator/outbox.py, recall/).
-    # Same multi-arch pin as fhir-db (index digest; linux/amd64 and linux/arm64 manifests), a separate database.
-    logging: *logging
-    image: ${POSTGRES_WF_IMAGE:-postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}
-    environment:
-      POSTGRES_DB: trialbox_wf
-      POSTGRES_USER: trialbox
-      POSTGRES_PASSWORD: ${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}
-    volumes: [workflow-pg:/var/lib/postgresql/data]
-    networks: [trialbox-net]
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trialbox -d trialbox_wf"]
+      test: ["CMD-SHELL", "pg_isready -U hapi -d hapi && psql -U hapi -d hapi -tAc \"SELECT 1 FROM pg_database WHERE datname='trialbox_wf'\" | grep -q 1"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -85,9 +56,9 @@ services:
     logging: *logging
     image: ${HAPI_IMAGE:-hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e}
     depends_on:
-      fhir-db: {condition: service_healthy}
+      db: {condition: service_healthy}
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://fhir-db:5432/hapi
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/hapi
       SPRING_DATASOURCE_USERNAME: hapi
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       SPRING_DATASOURCE_DRIVERCLASSNAME: org.postgresql.Driver
@@ -134,6 +105,9 @@ services:
     command: ["uvicorn", "doc_parser.app:app", "--host", "0.0.0.0", "--port", "8011"]
     environment: {PORT: "8011", TB_SERVICE_NAME: doc-parser, TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - objects-data:/data/objects
 
   criteria-compiler:
     <<: *py
@@ -149,6 +123,7 @@ services:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - rulesets-data:/data/rulesets
       - audit-data:/data/audit
+      - objects-data:/data/objects
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
 
   adapter:
@@ -180,6 +155,7 @@ services:
       - orch-data:/data/orchestrator
       - audit-data:/data/audit
       - rulesets-data:/data/rulesets:ro
+      - objects-data:/data/objects
       - tb-secrets:/run/secrets/trialbox
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
 
@@ -192,6 +168,7 @@ services:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - audit-data:/data/audit
       - mail-data:/data/mail
+      - objects-data:/data/objects
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
 
   gateway:
@@ -266,13 +243,12 @@ networks:
     name: trialbox-egress  # host-level nftables (network.sh) restricts destinations per container
 
 volumes:
-  minio-data:
-  fhir-pg:
+  objects-data:   # attachments and outputs (ADR-16 filesystem store; MinIO removed in D-121)
+  db-pg:
   lake-data:
   audit-data:
   orch-data:
   rulesets-data:
   mail-data:
   tb-secrets:
-  workflow-pg:
   traces-data:

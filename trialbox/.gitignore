@@ -22,3 +22,4 @@ deploy/site/*
 deploy/poc/
 # Hermes fragment runtime material (deploy/hermes/prepare.py): certificates, keys, directory, DEV profile
 deploy/secrets/
+deploy/.objects/

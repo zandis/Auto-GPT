@@ -38,6 +38,7 @@ services:
       - console-data:/data/console
       - audit-data:/data/audit
       - rulesets-data:/data/rulesets:ro
+      - objects-data:/data/objects
       - ${TB_SOURCE_DIR:-../tests/fixtures/synthetic_patients/site-a}:/data/source/site-a:ro
       - ../tests/fixtures/protocols:/data/samples:ro
       - ../tests/fixtures/consent:/data/consent-samples:ro

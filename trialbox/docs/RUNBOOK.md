@@ -97,7 +97,6 @@ record contact/consent/enrolment, export XLSX for the monitor). The **Single cas
 | Containers lost egress after a restart | `deploy/network.sh status` | `deploy/network.sh apply` (systemd unit re-applies it automatically) |
 | GB10 vLLM fails to start | `nvidia-smi`, `deploy/check_host.sh --gb10` | driver must be 580.142 |
 | `CERTIFICATE_VERIFY_FAILED` to a model endpoint, the registry or the mail server | hospital TLS inspection re-signs outbound HTTPS | put the hospital CA (PEM) on the host and set `TB_EXTRA_CA=/abs/path/hospital-ca.pem` in `deploy/.env`, then `docker compose up -d`; gateway, criteria-compiler, orchestrator and mail-gateway trust it next to the public CAs (`tb_common.extra_ca`) |
-| Hermes replies without proposing a run | `docker compose logs hermes`, audit `frontdoor.call` events with `reason: invalid_arguments` (the `fields` list names what the model got wrong) | the profile's `SOUL.md` must be mounted (`/opt/data/SOUL.md`); a weak model can be swapped for the native engine with `TB_CHANNELS_ENGINE=native` |
 
 Job errors always name the step (`received`, `parsing`, `compiling`, `running`, `reporting`) and come back to the
 requester as a "Failed" mail with a plain-language message.
@@ -322,7 +321,7 @@ a time** (`TB_MODEL_SWAP=sleep`, the default there):
 | Start | judge loads and sleeps, verifier loads and sleeps, judge wakes (`judge-sleep-init`, `model-swap-init`, `judge-wake-init`) | `deploy/docker-compose.rtx5090.yml` |
 | Day | judge awake: chat, protocol help, interactive CASE | |
 | Screening run | judge answers every note question first; the gateway then sleeps the judge and wakes the verifier for the second opinions; the judge wakes again at the end. Same answers as the inline two-model run, in a different order | `services/orchestrator/twophase.py`, `services/gateway/swap.py` |
-| Chat while the verifier is awake, or a model call over 30 s | the person gets "the model is busy, try again in a few minutes" in their language, at once; batch jobs keep the long limit | `TB_GATEWAY_INTERACTIVE_TIMEOUT_S` (30), `TB_CHAT_TURN_TIMEOUT_S` (90, Hermes turn) |
+| Chat while the verifier is awake, or a model call over 30 s | the person gets "the model is busy, try again in a few minutes" in their language, at once; batch jobs keep the long limit | `TB_GATEWAY_INTERACTIVE_TIMEOUT_S` (30) |
 | Before the night's LLM jobs | 54 known questions (EN/JA/zh-TW) to each model; MICROBATCH, NAV, COHORT and CALIBRATION start only when both pass (≥95% answered, ≤1 yes/no flip, ≥85% right) and the pair, scored as the box decides (a decided answer only when both models give it), agrees on a wrong decided answer in at most 1 case. Result in the audit log (`selftest.passed` / `selftest.failed`) and `/data/orchestrator/selftest.json` | `services/orchestrator/selftest.py`; `make selftest` by hand (in the box), `make canary` from a checkout; `TB_SELFTEST=off` to skip |
 | Install | every pinned model's weight hashes are re-checked; a mismatch stops the install | `python -m tools.pin_model --verify-all deploy/models`, `make verify-models` |
 | vLLM | `vllm/vllm-openai:v0.32.0`, the release the 2026-11-06 GPU run measured, with its flags (`--enforce-eager`, 4 sequences, 8k context, image inputs off, Qwen thinking off) | `VLLM_IMAGE` |

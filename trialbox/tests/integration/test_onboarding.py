@@ -97,7 +97,11 @@ def test_wizard_output(site: dict[str, Any]) -> None:
     assert s.cohort is not None and s.cohort.root_address == "trialbox@hospa.test" and not s.cohort.alliance_root
     assert oct(site["env"].stat().st_mode & 0o777) == "0o600"
     env = dict(line.split("=", 1) for line in site["env"].read_text().splitlines() if "=" in line and line[0] != "#")
-    assert env["MAIL_INTAKE_ADDR"] == "trialbox@hospc.test" and len(env["MINIO_SECRET_KEY"]) >= 24
+    assert (
+        env["MAIL_INTAKE_ADDR"] == "trialbox@hospc.test"
+        and len(env["TB_SERVICE_TOKEN"]) >= 24
+        and "MINIO_SECRET_KEY" not in env
+    )
 
 
 def test_wizard_refuses_inconsistent_answers() -> None:

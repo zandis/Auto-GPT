@@ -8,10 +8,9 @@ closed). Checks:
   DEV and TEST) or ``TB_DATA_CLASS`` exceeds the environment ceiling of §17.8 (D3 data in DEV fails);
 * ``routing_perimeter``: ``models/routing.yaml`` has no row, and no lookup, that sends D3/D4 outside the perimeter;
 * ``gateway_only_model_reach``: the egress allowlist (``deploy/egress.py``) gives a model host to the gateway only;
-* ``channel_engine``: ``channels.engine`` is valid and the fallback is native;
-* ``hermes_pin``: ``hermes.lock`` pins tag + commit SHA + mirrored digest ≥ v0.21.6. FAIL when the engine is
-  ``hermes``; WARN when Hermes is disabled (``native``), which is the install default (OPS-02). DEV/TEST may run
-  the upstream digest while the internal mirror is pending (WARN); VALIDATION/PRODUCTION require the mirror;
+* ``channel_engine``: ``channels.engine`` is valid (native is the only engine, D-121);
+* ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``). FAIL in
+  PRODUCTION and VALIDATION, WARN elsewhere (a DEV/TEST box may serve plain http on localhost; D-121);
 * ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known;
 * ``note_block``: ``TB_NOTE_BLOCK=both_agree`` (the default, D-95) needs a verifier build (``TB_GATEWAY_VERIFIER_MODEL``
   or ``LLM_VERIFIER_BASE_URL``) and ``TB_SCREEN_JUDGE`` other than ``single``; otherwise the box runs single-model
@@ -54,7 +53,6 @@ class DoctorInputs:
     routing_path: Path = ROOT / "models" / "routing.yaml"
     datasets_path: Path = ROOT / "eval" / "DATASETS.yaml"
     dataplat_workdir: Path | None = None
-    hermes_running_digest: str | None = None
 
 
 def _egress() -> ModuleType:
@@ -167,27 +165,17 @@ def check_channel_engine(inp: DoctorInputs) -> Check:
         cfg = ChannelsConfig.from_settings(inp.settings)
     except ChannelsConfigError as e:
         return Check("channel_engine", "FAIL", str(e))
-    return Check("channel_engine", "PASS", f"engine {cfg.engine}, fallback {cfg.fallback}, Teams {cfg.teams_mode}")
+    return Check("channel_engine", "PASS", f"engine {cfg.engine}")
 
 
-def check_hermes_pin(inp: DoctorInputs) -> Check:
-    from channels.config import ChannelsConfig, ChannelsConfigError
-
-    from integrations.hermes.lock import HermesLock, pin_notes, pin_problems
-
-    try:
-        cfg = ChannelsConfig.from_settings(inp.settings)
-    except ChannelsConfigError as e:
-        return Check("hermes_pin", "FAIL", f"channels config invalid: {e}")
-    lock, env = HermesLock.load(cfg.hermes_lock), inp.env.get("TB_ENV", "DEV")
-    problems = pin_problems(lock, running_digest=inp.hermes_running_digest, environment=env)
-    if not problems and (notes := pin_notes(lock, env)):
-        return Check("hermes_pin", "WARN", "hermes.lock pins tag, commit SHA and digest; " + "; ".join(notes))
-    if not problems:
-        return Check("hermes_pin", "PASS", "hermes.lock pins tag, commit SHA and mirrored digest")
-    if cfg.engine == "hermes":
-        return Check("hermes_pin", "FAIL", "Hermes must not start: " + "; ".join(problems))
-    return Check("hermes_pin", "WARN", "Hermes disabled (engine native); pin incomplete: " + "; ".join(problems[:3]))
+def check_secure_cookie(inp: DoctorInputs) -> Check:
+    on = inp.env.get("TB_CONSOLE_SECURE_COOKIE", "0").lower() in ("1", "true")
+    if on:
+        return Check("secure_cookie", "PASS", "console session cookie is Secure (https only)")
+    env = inp.env.get("TB_ENV", "DEV")
+    status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
+    why = f"TB_CONSOLE_SECURE_COOKIE is off in {env}: the session cookie can travel on http"
+    return Check("secure_cookie", status, why)
 
 
 def check_publish_gate(inp: DoctorInputs) -> Check:
@@ -260,7 +248,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_routing_perimeter,
     check_gateway_only_model_reach,
     check_channel_engine,
-    check_hermes_pin,
+    check_secure_cookie,
     check_publish_gate,
     check_note_block,
     check_registry_pins,

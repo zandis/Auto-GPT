@@ -519,17 +519,16 @@ def test_chat_during_the_verifier_pass_is_told_busy_at_once(tmp_path: Path) -> N
     assert res.status == 503 and res.body["error"]["code"] == "model_busy"
 
 
-@pytest.mark.parametrize(("text", "word"), [("How many patients?", "busy"), ("患者は何人ですか？", "使用中")])
-def test_native_engine_says_busy_in_the_users_language(text: str, word: str) -> None:
+def test_native_engine_reports_a_busy_model() -> None:
     from datetime import date
 
-    from channels.native.engine import NativeEngine
+    from channels.native.engine import EngineBusy, NativeEngine
     from tb_llm import GatewayRefused
 
     class BusyGateway:
         def chat(self, *a: Any, **kw: Any) -> Any:
             raise GatewayRefused("model_busy", 503, "busy")
 
-    eng = NativeEngine(BusyGateway(), lambda *a: {}, today=lambda: date(2026, 11, 7))  # type: ignore[arg-type]
-    turn = eng.converse(text=text, attachments=(), conv="c", assertion="a", data_class="D3")
-    assert turn.refused == "model_busy" and word in turn.text
+    eng = NativeEngine(BusyGateway(), today=lambda: date(2026, 11, 7))  # type: ignore[arg-type]
+    with pytest.raises(EngineBusy):
+        eng.classify("患者は何人ですか？", (), "ja", "D3")

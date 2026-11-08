@@ -18,6 +18,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+export TB_HOST_OBJECTS_DIR="${TB_HOST_OBJECTS_DIR:-$ROOT/deploy/.objects}"; mkdir -p "$TB_HOST_OBJECTS_DIR"  # test-stack object store (D-121)
 MODE="${TB_LLM_MODE:-stub}"
 ACTION="${1:-up}"
 POC="$ROOT/deploy/poc"
@@ -90,8 +91,7 @@ mkdir -p "$POC/secrets" "$POC/site"
 chmod 700 "$POC/secrets"
 if [ ! -f deploy/.env ]; then
   say "creating deploy/.env with random service passwords"
-  sed -e "s/^MINIO_SECRET_KEY=.*/MINIO_SECRET_KEY=$(rand 32)/" \
-      -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(rand 32)/" \
+  sed -e "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(rand 32)/" \
       -e "s/^POSTGRES_WF_PASSWORD=.*/POSTGRES_WF_PASSWORD=$(rand 32)/" \
       -e "s/^TB_SERVICE_TOKEN=.*/TB_SERVICE_TOKEN=$(rand 32)/" .env.example > deploy/.env
   chmod 600 deploy/.env

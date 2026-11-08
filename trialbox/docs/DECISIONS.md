@@ -1441,3 +1441,43 @@ column, and the feasibility count (23) did not explain the list (65/90).
   audited; stored per study, criterion and language in the site store). Pages in that language show the site's
   label with the study's own label beside it and the protocol text under it; the ruleset, the engine and the
   reports keep the study's words. No machine translation: a person writes the label and sees the original.
+
+**D-121 One conversation engine, one object store, one Postgres server; the box's own timers.** TB-PLAN-03 step 6
+(plan §2; Fable review 2026-11-08, finding 10). The owner approved removing the Hermes agent layer (2026-11-08).
+
+* **Removed:** the Hermes agent (`integrations/hermes/`, `deploy/hermes/`, `make poc-hermes`, `test-hermes-e2e`),
+  the front-door MCP server (`services/frontdoor_mcp/`, `tools/mcp_snapshot.py`, `libs/tb_contracts/frontdoor.py`,
+  `libs/tb_common/mtls.py`), the channel relay with its email and fake-Teams adapters (`services/channels/relay/`,
+  `native/email.py`, `native/teams.py`, `tools/relay_send.py`), the stub's agent turn (`llm_stub/agent.py`), the
+  chat survey tool (`tools/chat_eval.py`), the `hermes` and `frontdoor-mcp` gateway callers, and the doctor's
+  `hermes_pin` check. The code stays in git history (before this commit).
+* **Kept:** the native engine as the one engine. `NativeEngine(gateway, today=…)` classifies free text
+  (`classify_intent` through the gateway, caller `converse-native`); the console's header command box turns the
+  intent into a proposal line (D-110). Mail stays the mail gateway's subject grammar; free-text mail is no longer
+  understood (it was only the relay's). `channels.engine: hermes` in a site file fails with the removal named.
+* **Objects on the filesystem (ADR-16).** `TB_OBJECT_STORE` defaults to `fs:/data/objects`; `minio` is refused with
+  a message. Compose drops the MinIO service and mounts one `objects-data` volume at `/data/objects` in doc-parser,
+  criteria-compiler, orchestrator, mail-gateway and the POC console. The test stack bind-mounts it on the host
+  (`TB_HOST_OBJECTS_DIR`, default `deploy/.objects`) so the compose tests read objects directly. The `minio`
+  package left `pyproject.toml` and the lock (`uv pip compile`: minio, argon2-cffi, pycryptodome removed, nothing
+  else moved). Contract field names `minio_key` stay (a rename would change every contract for no behaviour).
+* **One Postgres server.** `fhir-db` and `workflow-db` become one `db` service with two databases, `hapi` and
+  `trialbox_wf` (role `trialbox`, made by `deploy/docker/db-init/10-trialbox-wf.sh` on an empty volume). Volume
+  `db-pg` replaces `fhir-pg` and `workflow-pg`: a POC that kept its volumes starts with an empty FHIR store and
+  re-ingests. The orchestrator itself still keeps its state in SQLite (`orch-data`); moving it to `trialbox_wf` is
+  left for step 10 (backup and restore), where one restore test covers both. `deploy/topology_a/` is unchanged.
+* **The box's own timers** (`console/timers.py`). The console schedules N1 (07:00), N2 (07:30) and the REDCap
+  read-back (03:00) in the site's zone; `TB_CONSOLE_TIMERS=auto` is on when `TB_ENV` is VALIDATION or PRODUCTION
+  and off otherwise (`on`/`off` force it), `TB_NOTICE_N1_AT`, `TB_NOTICE_N2_AT`, `TB_REDCAP_READ_AT` move the times;
+  a bad `HH:MM` fails at start. Each timer is the same call as its button and a notice still goes once per person
+  and day. They live in the console, not the orchestrator scheduler, because both jobs need the console's site
+  store (people, notice settings, project links). `python -m console.notify` / `console.rc_read` stay for scripts.
+* **Secure cookie.** The doctor's `secure_cookie` check fails in VALIDATION and PRODUCTION unless
+  `TB_CONSOLE_SECURE_COOKIE=1`, and warns in DEV/TEST.
+* **Japanese PHI in the log scrubber** (`tb_common.logging.redact`): マイナンバー/個人番号 (12 digits, 4-4-4, ASCII or
+  full-width), 保険者番号/被保険者番号/記号番号 after their label, 〒 postcodes, +81 and domestic JP phone numbers
+  (mobile 0X0, landline 0X-XXXX-XXXX and 0XXX-XX-XXXX, full-width digits and dashes). The guard's recognisers already
+  had them; logs did not.
+* **Compose tests without a stack.** With `TB_INTEGRATION=1` and no stack answering on the lake port, the
+  `*compose*` integration tests are skipped by name instead of erroring on a refused connection.
+

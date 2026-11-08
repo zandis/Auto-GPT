@@ -120,17 +120,9 @@ callers:
   matching:
     roles: [registry_match_patient, match_keywords, judge, embed, rerank]
     purposes: [screening, "prescreen:*", feasibility]
-  frontdoor-mcp:
-    roles: [answer_protocol, summarise_aggregate]
-    purposes: [intake, feasibility]
   # Conversation engines (FR-CONV-8, §9.6 item 7): staff conversation text is D3 before any study step exists, so a
   # D3 call (never D4) on the engine's intake_role is accepted without X-TB-Step. Every other D3/D4 call still needs a
   # live, delegated study step (LLM-2); no other caller may set d3_intake_without_step.
-  hermes:
-    roles: [frontdesk_converse, classify_intent]
-    purposes: [intake]
-    d3_intake_without_step: true
-    intake_role: frontdesk_converse
   converse-native:
     roles: [classify_intent, frontdesk_converse]
     purposes: [intake]

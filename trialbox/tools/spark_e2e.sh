@@ -229,7 +229,7 @@ eval_public() {
 
 workflow_store() {
   local pw; pw="$(envfile_get POSTGRES_WF_PASSWORD)"; pw="${pw:-$(envfile_get POSTGRES_PASSWORD)}"
-  "${COMPOSE[@]}" exec -T workflow-db sh -c \
+  "${COMPOSE[@]}" exec -T db sh -c \
     'psql -U trialbox -d trialbox_wf -tAc "SELECT 1 FROM pg_database WHERE datname='"'"'trialbox_wf_e2e'"'"'" | grep -q 1 \
      || createdb -U trialbox trialbox_wf_e2e' || return 1
   TB_PG_DSN="postgresql://trialbox:$pw@127.0.0.1:$WF_PORT/trialbox_wf_e2e" "$PY" -m pytest -q -p no:cacheprovider -rs \

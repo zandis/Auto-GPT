@@ -26,7 +26,8 @@ import re
 import secrets
 import time
 import zipfile
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -351,7 +352,19 @@ def create_app(
     au: AuditLog = audit
     us: UserStore = users
 
-    app = FastAPI(title="trialbox-console", docs_url=None, redoc_url=None, openapi_url=None)
+    boot: list[Callable[[], Any]] = []  # started with the app (the box's own timers, D-121)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        running = [fn() for fn in boot]
+        try:
+            yield
+        finally:
+            for sched in running:
+                if sched is not None:
+                    sched.shutdown(wait=False)
+
+    app = FastAPI(title="trialbox-console", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     app.state.settings = settings
 
@@ -806,6 +819,11 @@ def create_app(
     notify.register(app, helpers)
     study_setup.register(app, helpers)  # S21 and S36 (D-109)
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
+    from console import timers
+
+    raw_env = _env_map(env)
+    timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00
+    boot.append(lambda: timers.start(helpers, raw_env, site_tz))
 
     def _job_or_404(job_id: str) -> Job:
         if not _ULID.match(job_id):
