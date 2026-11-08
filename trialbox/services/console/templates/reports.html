@@ -3,7 +3,7 @@
 {% block content %}
 <h1>{{ t('reports.title') }}</h1>
 {% if user.role == 'cro' %}<p class="hint" data-testid="cro-note">{{ t('reports.cro') }}</p>{% endif %}
-<section class="card"><div class="scroll">
+<section class="card"><div class="scroll" tabindex="0">
 <table data-testid="reports">
 <thead><tr><th>{{ t('col.study') }}</th><th>{{ t('reports.run') }}</th><th class="num">{{ t('reports.per_month') }}</th><th>{{ t('reports.reading') }}</th><th class="num">{{ t('reports.pool') }}</th><th></th></tr></thead>
 <tbody>

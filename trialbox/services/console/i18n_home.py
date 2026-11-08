@@ -1142,3 +1142,12 @@ from console.i18n_entry import ZH as _DE_ZH  # noqa: E402
 EN.update(_DE_EN)
 JA.update(_DE_JA)
 ZH.update(_DE_ZH)
+
+# TB-PLAN-04 step 4b (D-133): plain words and the novice fixes; merged last, so a glossary word replaces an earlier one
+from console.i18n_4b import EN as _4B_EN  # noqa: E402
+from console.i18n_4b import JA as _4B_JA  # noqa: E402
+from console.i18n_4b import ZH as _4B_ZH  # noqa: E402
+
+EN.update(_4B_EN)
+JA.update(_4B_JA)
+ZH.update(_4B_ZH)

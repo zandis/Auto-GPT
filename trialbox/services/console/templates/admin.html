@@ -71,7 +71,7 @@
   <button type="submit" class="small">{{ t('admin.jobs.filter') }}</button>
 </form>
 {% if jobs %}
-<div class="scroll"><table data-testid="admin-jobs">
+<div class="scroll" tabindex="0"><table data-testid="admin-jobs">
 <thead><tr><th scope="col">{{ t('col.job') }}</th><th scope="col">{{ t('col.type') }}</th><th scope="col">{{ t('col.ruleset') }}</th><th scope="col">{{ t('col.state') }}</th><th scope="col">{{ t('col.received') }}</th><th scope="col">{{ t('admin.jobs.actions') }}</th></tr></thead>
 <tbody>{% for j in jobs %}<tr data-job="{{ j.job_id }}">
 <td class="mono"><a href="/pilot/jobs/{{ j.job_id }}">{{ j.job_id[-8:] }}</a></td><td>{{ j.type|upper }}</td><td>{{ j.ruleset or '–' }}</td>
@@ -86,7 +86,7 @@
 {% else %}
 <section class="card" data-testid="admin-sources">
 {% if sources %}
-<div class="scroll"><table>
+<div class="scroll" tabindex="0"><table>
 <thead><tr><th scope="col">{{ t('sources.source') }}</th><th scope="col">{{ t('sources.last_ok') }}</th><th scope="col">{{ t('sources.patients') }}</th><th scope="col">{{ t('sources.records') }}</th><th scope="col">{{ t('sources.error_pct') }}</th><th scope="col">{{ t('sources.next') }}</th></tr></thead>
 <tbody>{% for s in sources %}<tr data-source="{{ s.source }}"{% if s.amber %} class="amber"{% endif %}>
 <td>{{ s.source }}</td><td class="nowrap">{% if s.amber %}<span class="pill warn">{{ s.last_ok_text or t('sources.never') }}</span>{% else %}{{ s.last_ok_text }}{% endif %}</td>

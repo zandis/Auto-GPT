@@ -34,6 +34,7 @@ from console.backend import Problem, Unavailable
 from console.data_pages import err_of
 from console.home import Helpers
 from console.i18n import translate
+from console.studies import known_study
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -86,7 +87,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def study_or_404(sess: Session, rs: str) -> str:
         """A study this account sees, and a role that reads record-level rows (the trial values)."""
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.role == "cro":
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.role == "cro" or not known_study(bk, rid):
             raise h.problem(404, "notfound")
         if not sess.user.can_view_phi:
             au.append("console.denied", actor=h.actor(sess), detail={"action": f"entry {rid}"})

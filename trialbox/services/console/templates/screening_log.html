@@ -10,7 +10,7 @@
 {% if link %}<section class="card" id="redcap"><h2>{{ t('rc.read.title') }}</h2>{% if not link.enabled %}<p class="error" data-testid="link-off">{{ t('rc.off', problem=link.problem or '') }}</p>{% endif %}{% include "_rc_read.html" %}</section>{% endif %}
 <section class="card">
 {% if not rows %}<p class="empty">{{ t('log.empty') }}</p>{% else %}
-<div class="scroll"><table class="candidates" data-testid="screening-log">
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="screening-log">
 <thead><tr><th>{{ t('log.no') }}</th><th>{{ t('wb.c.patient') }}</th><th>{{ t('log.listed') }}</th><th>{{ t('log.mark') }}</th><th>{{ t('log.outcome') }}</th><th>{{ t('wb.c.status') }}</th>{% if link %}<th>{{ t('log.record') }}</th><th>{{ t('log.subject') }}</th>{% endif %}</tr></thead>
 <tbody>{% for r in rows %}<tr data-testid="log-{{ r.no }}">
 <td class="mono">{{ r.no }}</td><td><a href="/studies/{{ rs }}/patients/{{ r.pid }}">{{ t('week.patient', p=r.short) }}</a></td><td class="num">{{ r.listed or '–' }}</td>

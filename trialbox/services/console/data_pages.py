@@ -32,6 +32,7 @@ from console import s28
 from console.auth import Session
 from console.backend import Problem, Unavailable
 from console.home import Helpers
+from console.studies import known_study
 from console.study_setup import can_change_setup, parse_map
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -109,7 +110,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         """A study this account sees (never a CRO account). ``rows``: the page shows trial values, so only roles
         that read patient-level rows see it."""
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.role == "cro":
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.role == "cro" or not known_study(bk, rid):
             raise h.problem(404, "notfound")
         if rows and not sess.user.can_view_phi:
             au.append("console.denied", actor=h.actor(sess), detail={"action": f"conflicts {rid}"})

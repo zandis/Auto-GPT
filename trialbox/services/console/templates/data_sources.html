@@ -12,7 +12,7 @@
 
 <section class="card" data-testid="dc-sources">
 {% if not sources %}<p class="empty" data-testid="dc-no-source">{{ t('dc.sources.none') }}</p>{% else %}
-<div class="scroll"><table class="candidates">
+<div class="scroll" tabindex="0"><table class="candidates">
 <thead><tr><th>{{ t('dc.col.source') }}</th><th>{{ t('dc.col.direction') }}</th><th>{{ t('dc.col.last_sync') }}</th><th>{{ t('dc.col.last_result') }}</th><th>{{ t('dc.col.owns') }}</th>{% if editable %}<th></th>{% endif %}</tr></thead>
 <tbody>{% for s in sources %}<tr data-testid="source-{{ s.name }}">
 <td>{{ t_or('dc.source.' + s.name, s.name) }}{% if s.token_ref %} <span class="hint mono">{{ s.token_ref }}</span>{% endif %}</td>
@@ -53,7 +53,7 @@
 <section class="card" data-testid="dc-owners">
 <h2>{{ t('dc.owners.title') }}</h2>
 {% if not fields %}<p class="empty">{{ t('dc.forms.none') }}</p>{% else %}
-<div class="scroll"><table class="candidates">
+<div class="scroll" tabindex="0"><table class="candidates">
 <thead><tr><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.form') }}</th><th>{{ t('dc.col.label') }}</th><th>{{ t('dc.col.owner') }}</th></tr></thead>
 <tbody>{% for f in fields %}<tr data-testid="owner-{{ f.name }}"><td class="mono">{{ f.name }}</td><td class="mono">{{ f.form }}</td><td>{{ (f.labels or {}).get(lang) or f.label }}</td><td data-testid="owned-by-{{ f.name }}">{{ t('dc.owner.trialbox') if f.owner == 'trialbox' else t_or('dc.source.' + f.owner, f.owner) }}</td></tr>{% endfor %}</tbody></table></div>
 {% endif %}

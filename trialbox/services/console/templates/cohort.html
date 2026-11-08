@@ -9,7 +9,7 @@
 {% else %}
 <section class="card">
 {% if not rows %}<p class="empty" data-testid="cohort-empty">{{ t('cohort.empty') }}</p>{% else %}
-<div class="scroll"><table class="worklist" data-testid="cohort">
+<div class="scroll" tabindex="0"><table class="worklist" data-testid="cohort">
 <thead><tr><th>{{ t('wb.c.patient') }}</th><th>{{ t('wb.c.met') }}</th><th>{{ t('patient.visit') }}</th><th>{{ t('cohort.c.dept') }}</th></tr></thead>
 <tbody>{% for r in rows %}<tr data-testid="member-{{ r.short }}"><td><b>{{ t('week.patient', p=r.short) }}</b> <span class="pill stt-new">{{ t('cohort.new') }}</span></td><td class="num">{{ r.met }}/{{ r.total }}</td><td class="num">{{ r.visit or t('week.no_visit') }}</td><td>{{ r.department or '–' }}</td></tr>{% endfor %}</tbody>
 </table></div>{% endif %}

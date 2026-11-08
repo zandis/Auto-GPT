@@ -1,36 +1,59 @@
-{# D-108: one mark vocabulary on every screen (FR-SCR-07). The PI marks; the coordinator records contact outcomes. #}
+{# D-108: one mark vocabulary on every screen (FR-SCR-07). The PI marks; the coordinator records contact outcomes.
+   D-133: "Not suitable" needs a reason (no silent "other"); the main buttons sit in one bar (sticky at the bottom of
+   the phone sheet, 48 px) and reach their forms with the form attribute; a done toast offers Undo. #}
 {% macro mark_box(rs, pid, back, reasons, current, today) %}
-{% if user.can_mark %}
-<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" class="actp markform" data-testid="actions">
-  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
+{% if user.can_mark %}{% set s = pid[:8] %}
+<div class="actp markform" data-testid="actions">
   {% if current %}<p class="hint" data-testid="current-mark">{{ t('mark.current') }} <span class="pill mk-{{ current.mark }}">{{ t('mark.' + current.mark) }}</span>{% if current.mark == 'not_now' and current.reason %} · {{ t('mark.recheck_on', d=current.reason) }}{% elif current.reason %} · {{ t('reason.' + current.reason) }}{% endif %} · {{ t('mark.replace') }}</p>{% endif %}
-  <div class="markrow">
-  <button type="submit" name="mark" value="approach" data-testid="approach-{{ pid[:8] }}">{{ t('mark.approach') }}</button>
-  <button type="submit" name="mark" value="need_info" class="secondary" data-testid="need_info-{{ pid[:8] }}">{{ t('mark.need_info') }}</button>
-  </div>
-  <div class="markrow">
-  <label class="sr" for="reason-{{ pid[:8] }}">{{ t('mark.reason') }}</label><select id="reason-{{ pid[:8] }}" name="reason">{% for x in reasons %}<option value="{{ x }}">{{ t('reason.' + x) }}</option>{% endfor %}</select>
-  <button type="submit" name="mark" value="not_suitable" class="secondary" data-testid="not_suitable-{{ pid[:8] }}">{{ t('mark.not_suitable') }}</button>
-  </div>
-  <div class="markrow">
-  <label for="recheck-{{ pid[:8] }}">{{ t('mark.recheck') }}</label><input id="recheck-{{ pid[:8] }}" name="recheck" type="date" min="{{ (today).isoformat() }}">
-  <button type="submit" name="mark" value="not_now" class="secondary" data-testid="not_now-{{ pid[:8] }}">{{ t('mark.not_now') }}</button>
-  </div>
-  <label class="sr" for="note-{{ pid[:8] }}">{{ t('mark.note') }}</label><input id="note-{{ pid[:8] }}" name="note" maxlength="300" placeholder="{{ t('mark.note') }}">
-  {% if current %}<button type="submit" name="mark" value="withdraw" class="small secondary" data-testid="withdraw-{{ pid[:8] }}">{{ t('mark.withdraw') }}</button>{% endif %}
-</form>
+  <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" id="mk-{{ s }}" class="markmain">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
+    <label for="note-{{ s }}">{{ t('mark.note') }}</label><input id="note-{{ s }}" name="note" maxlength="300">
+  </form>
+  <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" id="ns-{{ s }}" class="markns">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><input type="hidden" name="mark" value="not_suitable">
+    <label for="reason-{{ s }}">{{ t('mark.reason.for') }}</label>
+    <select id="reason-{{ s }}" name="reason" required data-testid="reason-{{ s }}"><option value="">{{ t('mark.reason.choose') }}</option>{% for x in reasons %}<option value="{{ x }}">{{ t('reason.' + x) }}</option>{% endfor %}</select>
+  </form>
+  <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" class="marknn">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
+    <label for="recheck-{{ s }}">{{ t('mark.recheck') }}</label><input id="recheck-{{ s }}" name="recheck" type="date" lang="{{ lang }}" min="{{ (today).isoformat() }}">
+    <button type="submit" name="mark" value="not_now" class="secondary" data-testid="not_now-{{ s }}">{{ t('mark.not_now') }}</button>
+  </form>
+  {% if current %}<button type="submit" form="mk-{{ s }}" name="mark" value="withdraw" class="secondary" data-testid="withdraw-{{ s }}">{{ t('mark.withdraw') }}</button>{% endif %}
+</div>
 {% endif %}
 {% endmacro %}
 
-{% macro outcome_box(rs, pid, back, keys, screening_no, outcomes) %}
+{% macro mark_bar(pid, next_href='') %}
+{% if user.can_mark %}{% set s = pid[:8] %}
+<div class="markbar" data-testid="markbar">
+  <button type="submit" form="mk-{{ s }}" name="mark" value="approach" data-testid="approach-{{ s }}">{{ t('mark.approach') }}</button>
+  <button type="submit" form="mk-{{ s }}" name="mark" value="need_info" class="secondary" data-testid="need_info-{{ s }}">{{ t('mark.need_info') }}</button>
+  <button type="submit" form="ns-{{ s }}" class="secondary danger" data-testid="not_suitable-{{ s }}">{{ t('mark.not_suitable') }}</button>
+  {% if next_href %}<a class="button secondary" href="{{ next_href }}" data-testid="next-patient">{{ t('sheet.next') }} →</a>{% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro toast(rs, pid, back, done) %}
+{% if done %}<div class="toastp" role="status" data-testid="done"><span>{{ t('wb.done.' + done) }}</span>
+{% if user.can_mark and done in ('approach', 'need_info', 'not_suitable', 'not_now', 'withdrawn') %}<form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/mark" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><button type="submit" name="mark" value="undo" class="secondary" data-testid="undo">{{ t('mark.undo') }}</button></form>{% endif %}
+</div>{% endif %}
+{% endmacro %}
+
+{% macro outcome_box(rs, pid, back, keys, screening_no, outcomes, mark=none) %}
 {% if user.can_request %}
+{% if not mark or mark.mark != 'approach' %}
+<div class="actp outform" data-testid="outcome-wait"><strong>{{ t('outcome.title') }}</strong><p class="hint">{{ t('outcome.wait_pi.hint') }}</p></div>
+{% else %}
 <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/outcome" class="actp outform" data-testid="outcomes">
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}">
-  <strong>{{ t('outcome.title') }}</strong>{% if screening_no %} <span class="pill" data-testid="screening-no">{{ t('log.no') }} {{ screening_no }}</span>{% endif %}
-  <div class="markrow">{% for k in keys %}<button type="submit" name="outcome" value="{{ k }}" class="{{ '' if k == 'reached_booked' else 'secondary' }} small" data-testid="outcome-{{ k }}">{{ t('outcome.' + k) }}</button>{% endfor %}</div>
-  <label for="retry-{{ pid[:8] }}">{{ t('outcome.retry') }}</label><input id="retry-{{ pid[:8] }}" name="retry" type="date">
-  <label class="sr" for="onote-{{ pid[:8] }}">{{ t('mark.note') }}</label><input id="onote-{{ pid[:8] }}" name="note" maxlength="300" placeholder="{{ t('outcome.note') }}">
+  <strong>{{ t('outcome.title') }}</strong>{% if screening_no %} <span class="pill" data-testid="screening-no">{{ t('log.no') }} <span class="mono">{{ screening_no }}</span></span>{% endif %}
+  <div class="markrow">{% for k in keys %}<button type="submit" name="outcome" value="{{ k }}" class="{{ '' if k == 'reached_booked' else 'secondary' }}" data-testid="outcome-{{ k }}">{{ t('outcome.' + k) }}</button>{% endfor %}</div>
+  <label for="retry-{{ pid[:8] }}">{{ t('outcome.retry') }}</label><input id="retry-{{ pid[:8] }}" name="retry" type="date" lang="{{ lang }}">
+  <label for="onote-{{ pid[:8] }}">{{ t('outcome.note') }}</label><input id="onote-{{ pid[:8] }}" name="note" maxlength="300">
   {% if outcomes %}<ul class="plain hint">{% for o in outcomes[-3:] %}<li>{{ o.at|local }} · {{ o.by }} · {{ t('outcome.' + o.outcome) }}{% if o.retry %} · {{ t('outcome.retry_on', d=o.retry) }}{% endif %}</li>{% endfor %}</ul>{% endif %}
 </form>
+{% endif %}
 {% endif %}
 {% endmacro %}

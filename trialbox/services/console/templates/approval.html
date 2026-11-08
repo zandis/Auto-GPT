@@ -18,7 +18,7 @@
 </section>
 {% endif %}
 <section class="card">
-<div class="scroll"><table class="approval" data-testid="s20">
+<div class="scroll" tabindex="0"><table class="approval" data-testid="s20">
 <thead><tr><th>{{ t('feas.f.criterion') }}</th><th>{{ t('s20.c.check') }}</th><th>{{ t('s20.c.state') }}</th></tr></thead>
 <tbody>{% for r in rows %}{% set is_amber = r.amber %}{% set seen = r.id in opened %}
 <tr id="{{ r.id }}" class="{{ 'amber' if is_amber else '' }}{{ ' seen' if seen else '' }}" data-testid="row-{{ r.id }}">

@@ -1,7 +1,18 @@
 {% extends "base.html" %}
+{% set hk = 'problem.h.' + key %}
+{% set heading = t(hk) if t(hk) != hk else t('problem.h.other') %}
+{% block title %}{{ heading }}{% endblock %}
 {% block content %}
-<section class="card narrow">
+{# D-133 (review F-12): a heading, one plain sentence, and three ways on: home, back, help #}
+<section class="card narrow" data-testid="problem-page">
+<h1>{{ heading }}</h1>
 <p class="error" role="alert" data-testid="problem">{{ t(key, **values) }}</p>
-<p><a href="/">{{ t('nav.overview') }}</a></p>
+{% set wk = 'problem.why.' + key %}{% if t(wk) != wk %}<p>{{ t(wk) }}</p>{% endif %}
+<p class="actions">
+<a class="button" href="{{ '/home' if user else '/login' }}" data-testid="problem-home">{{ t('problem.home') }}</a>
+<a class="button secondary" href="{{ '/home' if user else '/login' }}" data-back data-testid="problem-back">{{ t('problem.back') }}</a>
+<a class="button secondary" href="{{ '/help' if user else '/login' }}" data-testid="problem-help">{{ t('problem.help') }}</a>
+</p>
+<p class="hint">{% if settings.admin_email %}{{ t('login.ask.mail', mail=settings.admin_email) }}{% else %}{{ t('login.ask') }}{% endif %}</p>
 </section>
 {% endblock %}

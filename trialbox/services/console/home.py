@@ -44,6 +44,7 @@ from console.sitestore import (
     SiteStore,
     StudySettings,
 )
+from console.studies import known_study
 from console.timefmt import local_date, site_zone
 
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
@@ -118,7 +119,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def study_or_404(sess: Session, rs: str) -> str:
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid):
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or not known_study(bk, rid):
             if _RS.match(rid):
                 au.append("console.denied", actor=h.actor(sess), detail={"action": f"study {rid}"})
             raise h.problem(404, "notfound")
@@ -492,15 +493,28 @@ def register(app: FastAPI, h: Helpers) -> None:
         if pid and "page" not in request.query_params:  # a chart link opens the page that holds the patient
             at = next((i for i, r in enumerate(rows) if r["pid"] == pid), 0)
             want = at // st.PAGE_SIZE + 1
+        order = [r["pid"] for r in rows]  # the whole list, for Next on the patient sheet
         rows, page_no, pages = st.paged(rows, want)
         for r in rows:
             r["score"] = st.met_score(r["fit"])
             r["n_open"] = st.n_open(r)
         sel = None
+        opened = bool(pid) and _PID.match(pid) is not None  # the user tapped a row (a sheet on the phone, D-133)
         if wk and rows:
-            if not any(r["pid"] == pid for r in rows):
+            if pid not in order and not opened:
                 pid = rows[0]["pid"]
-            sel = patient_ctx(sess, rid, pid)
+            try:
+                # D-133 (review F-03): after a mark the patient may have left this list; the panel still shows that
+                # patient's real state (and Undo), never the next patient's
+                sel = patient_ctx(sess, rid, pid)
+            except Exception as exc:  # h.problem(404): a pid not on this run's list opens the first row instead
+                if getattr(exc, "status", 0) != 404:
+                    raise
+                pid, opened = rows[0]["pid"], False
+                sel = patient_ctx(sess, rid, pid)
+            nxt = order.index(pid) + 1 if pid in order else 0
+            sel["next_pid"] = order[nxt] if nxt < len(order) and order[nxt] != pid else None
+            sel["next_page"] = nxt // st.PAGE_SIZE + 1
         return h.page(
             request,
             "week.html",
@@ -516,6 +530,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             # D-120: the coordinator records a call from the list in two taps (open, then the outcome)
             quick_outcomes=tuple(OUTCOMES) if sess.user.can_request and not sess.user.can_mark else (),
             sel=sel,
+            opened=opened and sel is not None,
             marks=MARKS,
             reasons=settings_of(rid).reasons,
             step=study_step(rid),
@@ -579,13 +594,14 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     @app.post("/studies/{rs}/patients/{pid}/reveal")
     def patient_reveal(request: Request, rs: str, pid: str, csrf: str = Form(""), reason: str = Form("")) -> Response:
-        """One chart number, shown once, audited on both sides (D-99). Investigators may too (D-104): they already
-        treat these patients; the reveal names the investigator in the audit trail."""
+        """One chart number, shown once, audited on both sides (D-99). Coordinators and administrators only: from
+        D-133 (review F-38) the investigator does not reveal here, as the role text says; the coordinator, who keeps
+        the screening log and makes the call, does."""
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        if not sess.user.can_view_phi:
+        if not sess.user.can_reveal:  # D-133 (review F-38): the investigator's role text says "no chart numbers"
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         ctx = patient_ctx(sess, rid, pid)
@@ -624,17 +640,35 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_mark:
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
-        if mark not in (*MARKS, "withdraw") or not _PID.match(pid):
+        if mark not in (*MARKS, "withdraw", "undo") or not _PID.match(pid):
             raise h.problem(400, "request.refused", reason="choose Approach, Need info, Not suitable now or Not now")
         conf = settings_of(rid)
+        if mark == "not_suitable" and reason not in conf.reasons:
+            # D-133 (review F-03): a medical reason is never guessed (it used to fall back to "other"); no reason,
+            # no mark, on the page and on /api/v1 alike
+            raise h.problem(400, "mark.reason_needed")
         wk = week_bundle(sess, rid)
         if wk is None or not any(str(r.get("pid")) == pid for r in (wk["cl"] or {}).get("rows") or []):
             raise h.problem(404, "notfound")
         today = h.clock().date()
         prev = store.latest_marks(rid).get(pid)
         stored_reason: str | None = None
-        if mark == "not_suitable":
-            stored_reason = reason if reason in conf.reasons else "other"
+        stored_note = note.strip()[:300] or None
+        undone: str | None = None
+        if mark == "undo":  # D-133: the toast's Undo puts back the state before this user's last mark
+            hist = store.mark_history(rid, pid)
+            if not hist or hist[-1].by != sess.user.username:
+                raise h.problem(409, "request.refused", reason="there is no mark of yours to undo")
+            undone = hist[-1].mark
+            before: Mark | None = None
+            for m in hist[:-1]:
+                before = None if m.mark == WITHDRAWN else m
+            if before is None:
+                mark, stored_note = "withdraw", None
+            else:
+                mark, stored_reason, stored_note = before.mark, before.reason, before.note
+        elif mark == "not_suitable":
+            stored_reason = reason
         elif mark == "not_now":
             try:
                 when = date.fromisoformat(recheck) if recheck else today + timedelta(days=28)
@@ -647,9 +681,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(409, "request.refused", reason="there is no mark to withdraw")
         now = h.clock().isoformat()
         value = WITHDRAWN if mark == "withdraw" else mark
-        store.mark(rid, Mark(pid, value, stored_reason, note.strip()[:300] or None, sess.user.username, now,
+        store.mark(rid, Mark(pid, value, stored_reason, stored_note, sess.user.username, now,
                              wk["job"].job_id))  # fmt: skip
         detail: dict[str, Any] = {"pid": pid, "action": value, "reason": stored_reason or ""}
+        if undone is not None:
+            detail["undo"] = undone
         if prev is not None:
             detail["from"] = prev.mark  # a replaced or withdrawn mark stays visible in the trail
         if mark == "approach":  # FR-STUDY-08: the screening number is given when the PI approves contact
@@ -676,7 +712,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
         rid, value, _ = apply_mark(sess, request.url.path, rs, pid, mark, reason, recheck, note)
-        return RedirectResponse(back_to(rid, pid, back, value), status_code=303)
+        return RedirectResponse(back_to(rid, pid, back, "undo" if mark == "undo" else value), status_code=303)
 
     def apply_outcome(
         sess: Session, path: str, rs: str, pid: str, outcome: str, retry: str, note: str
@@ -691,6 +727,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         wk = week_bundle(sess, rid)
         if wk is None or not any(str(r.get("pid")) == pid for r in (wk["cl"] or {}).get("rows") or []):
             raise h.problem(404, "notfound")
+        mk = store.latest_marks(rid).get(pid)
+        if mk is None or mk.mark != "approach":
+            # D-133 (review F-36): the coordinator calls a patient only after the investigator's "OK to contact";
+            # refused here, so the page and /api/v1 refuse alike
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"pid": pid, "action": outcome, "reason": "no approach mark"})  # fmt: skip
+            raise h.problem(409, "outcome.wait_pi")
         today = h.clock().date()
         retry_on: str | None = None
         if outcome == "not_reached":
