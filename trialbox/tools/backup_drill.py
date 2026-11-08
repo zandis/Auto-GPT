@@ -76,7 +76,7 @@ def run(base: Path) -> dict[str, Any]:
     checks.append(("restore: every file equal", after_files == before_files,
                    f"{sum(len(v) for v in after_files.values())} files"))  # fmt: skip
     audit_dirs = [p for p in (work / "box" / "audit", work / "lake" / "audit") if p.exists()]
-    ok_chain = all(verify(p)[0] for p in audit_dirs) if audit_dirs else False
+    ok_chain = all(verify(p).ok for p in audit_dirs) if audit_dirs else False
     checks.append(
         ("restore: audit hash chain verifies", ok_chain, ", ".join(str(p.relative_to(base)) for p in audit_dirs))
     )
