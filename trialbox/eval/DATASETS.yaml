@@ -66,6 +66,11 @@ datasets:
     data_class: D0
     kind: open
     licence: CC BY 4.0 (NTCIR-16 Real-MedNLP test collection, Sociocom NAIST; MedTxt-CR training split and MedTxt-RR)
+  public_site:
+    path: eval/public_site (site profiles of the two test protocols; the hospital is built at run time by tools/public_site.py from criterion_ml and medtxt, never committed)
+    data_class: D0
+    kind: open
+    licence: SIGIR notes public domain (NCBI); MedTxt CC BY 4.0 (Sociocom NAIST); derived fields and test protocols are TrialBox's own
   hospital_sim:
     path: eval/hospital_sim (measured pipeline runs on generated hospitals and projections)
     data_class: D0
