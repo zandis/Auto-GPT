@@ -36,6 +36,12 @@ def test_approve_list_mark_and_mail(tmp_path: Path) -> None:
     models = h.bk.models() or {}
     assert models.get("judge_model") is None or models["judge_model"] not in s5
     assert "confidence" not in s5
+    # found by the public-data e2e: an exclusion the patient does not have was labelled "該当" (met), which reads
+    # as "the patient has it"; exclusion rows now say whether the condition is present
+    exc = re.findall(r'data-testid="verdict-GZQO-EXC-\d+">([^<]+)<', s5)
+    assert exc and "該当" not in exc and set(exc) <= {"該当なし", "該当（除外）", "不明", "人の確認"}, exc
+    inc = re.findall(r'data-testid="verdict-GZQO-INC-\d+">([^<]+)<', s5)
+    assert "該当" in inc, inc
     # the approached patient has a screening number; the set-aside one left the list until its date
     assert res["screening_no"] == "GZQO-0001"
     marks = h.store.latest_marks("GZQO")
