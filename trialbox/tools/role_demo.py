@@ -162,6 +162,14 @@ class InprocBackend:
             raise Refused(r.text[:200])
         return str(r.json().get("mrn") or "") or None
 
+    def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
+        from console.backend import Refused
+
+        r = self.c.post("/notices", json={"kind": kind, "to": to, "subject": subject, "body_md": body_md, "by": by})
+        if r.status_code != 200:
+            raise Refused(r.text[:200])
+        return str(r.json().get("message_id") or "")
+
 
 def build(work: Path) -> tuple[Any, Any, Path]:
     from fastapi.testclient import TestClient
@@ -184,6 +192,52 @@ def build(work: Path) -> tuple[Any, Any, Path]:
         box.mail(subject)
         box.orch.drain()
     return box, client, work / "box" / "repo"
+
+
+def seed_activity(work: Path, bk: InprocBackend) -> None:
+    """A few weeks of made-up site activity so the workbench opens in a working state (D-105): PI decisions on the
+    weekly list and coordinator progress in the registry. Synthetic, like everything in the demo."""
+    import json
+    from datetime import UTC, datetime, timedelta
+
+    from console.sitestore import Mark, SiteStore
+    from tb_contracts import RegistryPromote, RegistryUpdate
+
+    jobs = [
+        j for j in bk.list_jobs() if j.ruleset == "GZQO" and j.type in ("SCREEN", "MICROBATCH") and j.state == "done"
+    ]
+    if not jobs:
+        return
+    job = max(jobs, key=lambda j: j.received_at)
+    out = next((o for o in job.outputs or [] if o.filename.startswith("candidate_list_")), None)
+    if out is None:
+        return
+    rows = [r for r in json.loads(bk.get_object(out.minio_key))["rows"] if r.get("tier") in ("high", "review")]
+    pids = [str(r["pid"]) for r in rows]
+    if len(pids) < 6:
+        return
+    store = SiteStore(work / "console" / "site.sqlite")
+    now = datetime.now(UTC)
+
+    def at(days: int) -> str:
+        return (now - timedelta(days=days)).isoformat()
+
+    marks = [
+        Mark(pids[0], "approach", None, None, "pi", at(3), job.job_id),
+        Mark(pids[1], "approach", None, "Ask about flare dates at the visit", "pi", at(1), job.job_id),
+        Mark(pids[2], "need_info", None, "Was the last flare treated elsewhere?", "pi", at(2), job.job_id),
+        Mark(pids[3], "not_suitable", "comorbidity", None, "pi", at(4), job.job_id),
+        Mark(pids[4], "approach", None, None, "pi", at(10), job.job_id),
+        Mark(pids[5], "approach", None, None, "pi", at(12), job.job_id),
+    ]
+    for m in marks:
+        store.mark("GZQO", m)
+    try:
+        bk.registry_promote("GZQO", RegistryPromote(by="crc"))
+        bk.registry_update("GZQO", RegistryUpdate(pid=pids[4], status="contacted", by="crc"))
+        bk.registry_update("GZQO", RegistryUpdate(pid=pids[5], status="consented", by="crc"))
+    except Exception as exc:
+        print(f"demo registry seed skipped: {exc}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -220,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
             users.set_password(name, password)
         if scope:
             users.set_scope(name, **scope)
+    seed_activity(a.dir, InprocBackend(box, client, repo))
     env = {
         "TB_ENV": "DEV",
         "TB_CONSOLE_PILOT": "1",

@@ -10,6 +10,9 @@
   </div>{% endif %}
 </div>
 {% if saved %}<p class="ok" role="status">{{ t('feas.saved') }}</p>{% endif %}
+{% if refreshed %}<p class="ok" role="status" data-testid="refreshed">{{ t('feas.refreshed') }}</p>{% endif %}
+{% if rep and user.can_request %}<form method="post" action="/studies/{{ rs }}/feasibility/refresh" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="refresh">{{ t('feas.refresh') }}</button> <span class="hint">{{ t('feas.refresh.help') }}</span></form>{% endif %}
+{% if user.can_view_phi %}<p class="hint">{% if registry %}<a href="/studies/{{ rs }}/cohort" data-testid="to-cohort">{{ t('cohort.title') }}</a>{% else %}<a href="/studies/{{ rs }}/week">{{ t('wb.title') }}</a> · <a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a>{% endif %}</p>{% endif %}
 {% if not rep %}
 <section class="card"><p>{{ t('feas.none') }}</p>{% if user.can_request %}<a class="button" href="/pilot/request?ruleset={{ rs }}">{{ t('next.feas') }}</a>{% endif %}</section>
 {% else %}

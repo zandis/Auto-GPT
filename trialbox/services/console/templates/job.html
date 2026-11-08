@@ -14,18 +14,7 @@
 <p data-testid="check-split"><strong>{{ t('job.review.split', n=split.n, s=split.s, m=split.m, x=split.x, h=split.h) }}</strong> {{ t('job.review.routing') }}</p>{% endif %}
 <p>{{ t('job.review.help') }}</p>
 <p>{% if review_html %}<a href="/pilot/jobs/{{ job.job_id }}/files/{{ review_html.filename }}">{{ t('job.review.open') }}</a> · {% endif %}<a href="/pilot/jobs/{{ job.job_id }}/files/{{ review.filename }}">{{ t('download') }} {{ review.filename }}</a></p>
-{% if user.can_request %}
-<form method="post" action="/pilot/jobs/{{ job.job_id }}/approve" class="inline">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <button type="submit" data-testid="approve">{{ t('job.approve') }}</button>
-</form>
-<form method="post" action="/pilot/jobs/{{ job.job_id }}/approve" enctype="multipart/form-data" class="mt">
-  <input type="hidden" name="csrf" value="{{ csrf }}">
-  <label for="workbook">{{ t('job.approve.upload') }}</label>
-  <input id="workbook" name="workbook" type="file" accept=".xlsx" required>
-  <button type="submit" class="secondary">{{ t('job.approve.edited') }}</button>
-</form>
-{% endif %}
+<p><a class="button" href="/pilot/jobs/{{ job.job_id }}/approval" data-testid="approve-page">{{ t('s20.open') }}</a> <span class="hint">{{ t('s20.who') }}</span></p>
 </section>
 {% endif %}
 
@@ -73,7 +62,7 @@
 {% if screen.summary %}{% set s = screen.summary %}
 <p data-testid="screen-headline"><strong>{{ t('job.screen.headline', high=s.tiers.high, review=s.tiers.review, scoped=s.scope.n_scoped, excluded=s.tiers.excluded) }}</strong></p>
 <p class="hint">{{ t('job.screen.scope', window=s.scope.window_days, snapshot=s.snapshot, run=s.run_date) }}{% if s.referrals %} · {{ t('job.screen.referrals') }}: {% for d, n in s.referrals.items() %}{{ d }} ({{ n }}){{ ', ' if not loop.last }}{% endfor %}{% endif %}</p>
-{% if s.judging %}<p class="hint" data-testid="screen-judging">{% if s.judging.mode == 'none' %}{{ t('job.screen.judging.none') }}{% elif s.judging.may_block %}{{ t('job.screen.judging.pair', judge=s.judging.judge_model, verifier=s.judging.verifier_model) }}{% else %}{{ t('job.screen.judging.single', judge=s.judging.judge_model) }}{% endif %}</p>{% endif %}
+{% if s.judging and user.is_admin %}<p class="hint" data-testid="screen-judging">{% if s.judging.mode == 'none' %}{{ t('job.screen.judging.none') }}{% elif s.judging.may_block %}{{ t('job.screen.judging.pair', judge=s.judging.judge_model, verifier=s.judging.verifier_model) }}{% else %}{{ t('job.screen.judging.single', judge=s.judging.judge_model) }}{% endif %}</p>{% endif %}
 {% if s.funnel %}<div class="scroll"><table data-testid="screen-funnel" class="compact"><thead><tr><th scope="col">{{ t('col.stage') }}</th><th scope="col">{{ t('col.patients') }}</th><th scope="col"></th></tr></thead>
 <tbody>{% for stage, n in s.funnel %}<tr><td>{{ t_or('stage.' + stage, stage) }}</td><td class="num">{{ n }}</td><td>{% if s.scope.n_scoped is number and s.scope.n_scoped > 0 and n is number %}<progress max="{{ s.scope.n_scoped }}" value="{{ n }}" aria-label="{{ n }}"></progress>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 {% if s.unknown_by_criterion %}<p class="hint">{{ t('job.screen.unknowns') }}: {% for cid, n in s.unknown_by_criterion.items() %}<span class="mono">{{ cid }}</span> ({{ n }}){{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
@@ -90,7 +79,7 @@
 <td class="mono">{{ r.next_appointment or '–' }}</td>
 <td>{{ screen.practitioners.get(r.practitioner, r.practitioner) or '–' }}{% if r.department %} · {{ r.department }}{% endif %}</td>
 <td>{% if r.unknown %}{% for cid in r.unknown %}<span class="mono">{{ cid }}</span>{{ ' ' if not loop.last }}{% endfor %}{% endif %}{% if r.failing %}<br><span class="bad-text">{{ t('job.screen.failing') }}: {% for cid in r.failing %}<span class="mono">{{ cid }}</span>{{ ' ' if not loop.last }}{% endfor %}</span>{% endif %}{% if r.actions %}<br><em>{{ r.actions|join('; ') }}</em>{% endif %}{% if not r.unknown and not r.failing and not r.actions %}–{% endif %}</td>
-<td class="wrap">{% for q in r.quotes %}<blockquote class="quote"><span class="mono">{{ q.id }}</span> {{ t('verdict.' + q.verdict) }}{% if q.confidence is not none %} · {{ (q.confidence * 100)|round|int }} %{% endif %}{% if q.date %} · {{ q.date }}{% endif %}<br>“{{ q.quote }}”</blockquote>{% else %}–{% endfor %}</td>
+<td class="wrap">{% for q in r.quotes %}<blockquote class="quote"><span class="mono">{{ q.id }}</span> {{ t('verdict.' + q.verdict) }}{% if q.date %} · {{ q.date }}{% endif %}<br>“{{ q.quote }}”</blockquote>{% else %}–{% endfor %}</td>
 <td>{% if r.pid in screen.revealed %}{% if screen.revealed[r.pid] %}<span class="mono" data-testid="mrn">{{ screen.revealed[r.pid] }}</span>{% else %}<span class="hint">{{ t('job.screen.no_map') }}</span>{% endif %}{% elif sess.user.can_request %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/reveal" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pid" value="{{ r.pid }}"><button type="submit" class="small secondary" data-testid="reveal">{{ t('job.screen.reveal') }}</button></form>{% else %}<span class="hint">{{ t('job.screen.reveal.coordinator') }}</span>{% endif %}</td>
 </tr>{% endfor %}
 </tbody></table></div>
@@ -148,7 +137,7 @@
 <div class="scroll"><table data-testid="thread">
 <thead><tr><th scope="col">{{ t('col.direction') }}</th><th scope="col">{{ t('col.time') }}</th><th scope="col">{{ t('col.subject') }}</th><th scope="col">{{ t('col.party') }}</th><th scope="col">{{ t('col.class') }}</th></tr></thead>
 <tbody>{% for m, subj in thread %}
-{% if m %}<tr><td class="nowrap">{{ t('thread.in') if m.direction == 'in' else t('thread.out') }}</td><td class="mono nowrap">{{ m.at[:19]|replace('T', ' ') }}</td><td>{{ subj }}</td><td>{{ m.party }}</td><td>{{ t('class.' + m.tag) if m.tag in ('aggregate', 'phi') else m.tag }}</td></tr>
+{% if m %}<tr><td class="nowrap">{{ t('thread.in') if m.direction == 'in' else t('thread.out') }}</td><td class="mono nowrap">{{ m.at|local(19) }}</td><td>{{ subj }}</td><td>{{ m.party }}</td><td>{{ t('class.' + m.tag) if m.tag in ('aggregate', 'phi') else m.tag }}</td></tr>
 {% else %}<tr><td class="nowrap">{{ t('thread.web') }}</td><td class="mono nowrap">{{ job.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</td><td>{{ subj }}</td><td>{{ job.requested_by }}</td><td>{{ t('thread.web_class') }}</td></tr>{% endif %}
 {% endfor %}</tbody></table></div>
 {% if settings.webmail_url %}<p class="hint"><a href="{{ settings.webmail_url }}" target="_blank" rel="noopener noreferrer">{{ t('overview.webmail') }}</a></p>{% endif %}

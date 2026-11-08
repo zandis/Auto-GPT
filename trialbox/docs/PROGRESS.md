@@ -449,3 +449,20 @@ host; the v1 compiler's cloud egress moved to `gateway`, which has no compose se
 **Evidence:** `make lint` clean (535 files formatted, mypy 441 files); default suite 1,068 passed, 16 skipped
 (baseline 1,054 passed, 16 skipped); `tests/console` 80 passed; `tests/integration/test_mail_feas_inproc.py` +
 `test_feas_lake.py` 6 passed; `tests/integration/test_feas_demo.py` 1 passed.
+
+## Build step 2: list and mail (2026-11-07, D-107, D-108)
+
+- Clinic workbench (D-107) merged from its branch.
+- S20 approval page with one **Approve all**, investigator only; coordinator code ticks; Changes since vN.
+- Feasibility Refresh on S3; no model confidence or judge model on clinical pages.
+- One mark vocabulary (Approach / Need info / Not suitable now / Not now, re-check), replace and withdraw.
+- Screening numbers, the pseudonymous ICH E6(R3) screening log (+ XLSX), contact outcomes in two taps.
+- Cohort list for GOUT-COH / RA-COH / RA-BIO (new members, no contact step).
+- N1 (investigator, clinic days, Monday fallback) and N2 (coordinator digest) through `POST /notices`;
+  `python -m console.notify`; notice settings page.
+- FR-REP-09 research office yearly counts (+ XLSX), small cells suppressed.
+- Demo: `python -m tools.list_demo --dir /tmp/tb-list [--serve]`.
+
+**Evidence:** `make lint` clean (543 files formatted, mypy 449 files); default suite 1,082 passed, 16 skipped
+(step 1: 1,068 passed, 16 skipped); `make test-console` 92 passed; `tests/integration/test_list_demo.py` 1 passed.
+Matching unchanged (no change to matching, the compiler or the SCREEN evaluation).

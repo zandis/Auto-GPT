@@ -11,15 +11,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from tb_contracts import Job
 
-from console.sitestore import Mark, SiteProfile
+from console.sitestore import DEFAULT_REASONS, Mark, SiteProfile, StudySettings
 
 TERMINAL_REGISTRY = frozenset({"screen_fail", "declined", "withdrawn"})
-STATUS_ORDER = ("new", "pending", "contacted", "screened", "enrolled", "not_eligible")
+STATUS_ORDER = ("new", "pending", "contacted", "screened", "enrolled", "set_aside", "closed")
 
 
 # ---------------------------------------------------------------------------------------------- jobs
@@ -264,10 +264,13 @@ def data_facts(
 
 # ---------------------------------------------------------------------------------------------- weekly list
 def derive_status(tier: str | None, registry: str | None, mark: str | None, new: bool) -> str:
-    """One status per listed patient (D-104 §3.4). Registry statuses are the coordinator's; the PI's mark only
-    removes a patient when it is "not suitable"."""
-    if tier == "excluded" or mark == "not_suitable" or registry in TERMINAL_REGISTRY:
-        return "not_eligible"
+    """One status per listed patient (D-104 §3.4, D-108). Registry statuses are the coordinator's. A PI's "Not
+    suitable now" or "Not now" only sets the patient aside for this study: it is never shown as "not eligible" or
+    "screen fail" (FR-SCR-07f). ``closed`` = excluded by the records or a terminal registry status."""
+    if tier == "excluded" or registry in TERMINAL_REGISTRY:
+        return "closed"
+    if mark in ("not_suitable", "not_now") and registry in (None, "candidate"):
+        return "set_aside"
     if registry == "enrolled":
         return "enrolled"
     if registry == "consented":
@@ -335,9 +338,11 @@ def weekly_rows(
     practitioners: Mapping[str, str] | None = None,
     *,
     include_closed: bool = False,
+    today: date | None = None,
 ) -> list[dict[str, Any]]:
-    """Rows of the weekly PI list from a SCREEN / MICROBATCH candidate list: high and review tiers, not enrolled or
-    closed, sorted by next visit (none last), then tier, then pseudonym."""
+    """Rows of the weekly PI list from a SCREEN / MICROBATCH candidate list: high and review tiers, not enrolled,
+    closed or set aside, sorted by next visit (none last), then tier, then pseudonym. A "Not now, re-check on <date>"
+    mark hides the patient until that date (``today``); from then on the patient is back with the mark shown."""
     names = dict(practitioners or {})
     rows = []
     for r in (cl or {}).get("rows") or []:
@@ -346,8 +351,11 @@ def weekly_rows(
             continue
         pid = str(r.get("pid") or "")
         mk = marks.get(pid)
-        status = derive_status(tier, registry.get(pid), mk.mark if mk else None, seen.get(pid) == job_id)
-        if not include_closed and status in ("not_eligible", "enrolled"):
+        mval = mk.mark if mk else None
+        if mval == "not_now" and today is not None and recheck_due(mk, today):
+            mval = None  # the re-check date has come: back on the list
+        status = derive_status(tier, registry.get(pid), mval, seen.get(pid) == job_id)
+        if not include_closed and status in ("closed", "enrolled", "set_aside"):
             continue
         crits = list(r.get("criteria") or [])
         fit = fit_facts(crits, crit)
@@ -368,6 +376,7 @@ def weekly_rows(
                 "visit": when,
                 "visit_text": (str(nxt)[:16].replace("T", " ") if nxt else ""),
                 "practitioner": names.get(prac, prac),
+                "practitioner_id": prac,
                 "department": r.get("department") or "",
                 "fit": fit,
                 "actions": list(r.get("actions") or []),
@@ -379,6 +388,14 @@ def weekly_rows(
     order = {"high": 0, "review": 1}
     rows.sort(key=lambda x: (x["visit"] is None, x["visit_text"] or "9", order.get(str(x["tier"]), 2), x["pid"]))
     return rows
+
+
+def recheck_due(mk: Any, today: date) -> bool:
+    """A "Not now" mark keeps its re-check date in ``reason`` (ISO date)."""
+    try:
+        return date.fromisoformat(str(getattr(mk, "reason", "") or "")[:10]) <= today
+    except ValueError:
+        return True
 
 
 def week_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
@@ -407,9 +424,121 @@ def patient_rows(criteria: Sequence[Mapping[str, Any]], crit: Mapping[str, Crite
                 "verdict": v.get("verdict"),
                 "quote": ev.get("quote"),
                 "date": ev.get("quote_date"),
-                "confidence": ev.get("confidence"),
                 "reason": ev.get("reason"),
                 "source": VERIFIED_BY.get(meta.cls, "records") if meta else "records",
             }
         )
     return out
+
+
+# ---------------------------------------------------------------------------------------------- workbench (D-105)
+WORKLISTS: tuple[str, ...] = ("clinic", "review", "info", "approached", "all")
+PIPELINE: tuple[str, ...] = ("found", "reviewed", "contacted", "consented", "enrolled")
+STEPS: tuple[str, ...] = ("protocol", "criteria", "feasibility", "weekly", "contact", "enrolled")
+
+
+def in_worklist(row: Mapping[str, Any], key: str, today: date, days: int = 14) -> bool:
+    """The PI's worklists (D-105): clinic visits in the next two weeks, still to review, waiting for information,
+    approved and contacted, all. A patient can sit on more than one list (a clinic visit that still needs review)."""
+    mk = row.get("mark")
+    mark = getattr(mk, "mark", None)
+    status = row.get("status")
+    if key == "clinic":
+        when = row.get("visit")
+        return when is not None and today <= when.date() <= today + timedelta(days=days)
+    if key == "review":
+        return (mark is None or mark == "not_now") and status in ("new", "pending")
+    if key == "info":
+        return mark == "need_info"
+    if key == "approached":
+        return mark == "approach" or status in ("contacted", "screened")
+    return True
+
+
+def worklist_counts(rows: Sequence[Mapping[str, Any]], today: date) -> dict[str, int]:
+    return {k: sum(1 for r in rows if in_worklist(r, k, today)) for k in WORKLISTS}
+
+
+def met_score(fit: Fit) -> tuple[int, int]:
+    """Criteria met out of the criteria counted: inclusions met plus exclusions cleared."""
+    return fit.inc_met + fit.exc_clear, fit.inc_total + fit.exc_total
+
+
+def pipeline_counts(rows: Sequence[Mapping[str, Any]], registry: Mapping[str, str]) -> dict[str, int]:
+    """Found → PI reviewed → contacted → consented → enrolled, cumulative: a consented patient was also contacted."""
+    found = {str(r["pid"]) for r in rows} | set(registry)
+    reviewed = {str(r["pid"]) for r in rows if r.get("mark") is not None}
+    rank = {"contacted": 1, "consented": 2, "screen_fail": 2, "enrolled": 3}
+    contacted = {p for p, s in registry.items() if rank.get(s, 0) >= 1}
+    consented = {p for p, s in registry.items() if rank.get(s, 0) >= 2}
+    enrolled = {p for p, s in registry.items() if s == "enrolled"}
+    reviewed |= contacted
+    return {
+        "found": len(found),
+        "reviewed": len(reviewed),
+        "contacted": len(contacted),
+        "consented": len(consented),
+        "enrolled": len(enrolled),
+    }
+
+
+def procedure_step(
+    *, approved: bool, feas_done: bool, screen_done: bool, contacted: int, enrolled: int, waiting: bool
+) -> int:
+    """Where a study stands on the six-step procedure (index into STEPS): the first step not yet done."""
+    if waiting or not approved:
+        return 1
+    if not feas_done:
+        return 2
+    if not screen_done:
+        return 3
+    if enrolled:
+        return 5
+    if contacted:
+        return 4
+    return 3
+
+
+# ---------------------------------------------------------------------------------------------- build step 2 (D-108)
+REGISTRY_KINDS = frozenset({"cohort", "nhi"})  # registry / observational: a cohort list, no contact step
+
+
+def study_defaults(ruleset: str, kind: str) -> StudySettings:
+    """The settings a study has until S21 (step 3) lets the site change them: study type from the ruleset kind, the
+    FR-STUDY-09 "Not suitable" reasons by disease (AD, RA, other), the screening number as ``<STUDY>-0001``."""
+    rid = ruleset.upper()
+    disease = "ad" if rid.startswith(("AD", "ALZ")) else "ra" if rid.startswith("RA") else "other"
+    registry = kind in REGISTRY_KINDS
+    return StudySettings(
+        study_type="registry" if registry else "trial",
+        cohort_kind="dynamic" if kind == "nhi" else "enrolled",
+        reasons=DEFAULT_REASONS[disease],
+    )
+
+
+def amber(row: Mapping[str, Any], changed: set[str]) -> list[str]:
+    """Why an approval row needs the investigator's eyes (FR-FEAS-12a): compiler flags, CQL and SQL not fully
+    equivalent, left to a person at screening, or new / changed since the approved version."""
+    why = []
+    if row.get("flags"):
+        why.append("flags")
+    eq = row.get("equivalence_pct")
+    if isinstance(eq, (int, float)) and eq < 100:
+        why.append("equivalence")
+    if row.get("class") == "human":
+        why.append("person")
+    if row.get("id") in changed:
+        why.append("changed")
+    return why
+
+
+def diff_since(draft: Sequence[Mapping[str, Any]], approved: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
+    """Changes since vN (FR-FEAS-12e): criteria added, with new text or a new check class, and removed, by id."""
+    old = {str(r["id"]): r for r in approved}
+    new = {str(r["id"]): r for r in draft}
+    return {
+        "added": [i for i in new if i not in old],
+        "text": [i for i in new if i in old and (new[i].get("text") or "") != (old[i].get("text") or "")],
+        "class": [i for i in new if i in old and (new[i].get("class") or "") != (old[i].get("class") or "")],
+        "removed": [i for i in old if i not in new],
+    }

@@ -91,6 +91,7 @@ class FakeBackend:
         self.jobs: dict[str, Job] = {}
         self.objects: dict[str, bytes] = {}
         self.created: list[JobCreate] = []
+        self.notices: list[tuple[str, list[str], str, str]] = []
         self.mails: list[tuple[str, str, str, list[tuple[str, bytes]]]] = []
         self.refuse: str | None = None
         self.models_info: dict[str, Any] | None = dict(MODELS_INFO)
@@ -185,6 +186,10 @@ class FakeBackend:
     def reveal(self, job_id: str, pid: str, by: str) -> str | None:
         self.revealed.append((job_id, pid, by))
         return {"a" * 32: "MRN-000123"}.get(pid)
+
+    def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
+        self.notices.append((kind, to, subject, body_md))
+        return f"<notice-{len(self.notices)}@hospa.test>"
 
     def ingest(self) -> dict[str, Any]:
         self.ingested += 1
@@ -563,6 +568,21 @@ def test_exact_line_needs_no_model_and_bad_line_gets_parser_message() -> None:
         propose("can we run gout trials", "en", None)
 
 
+def review_book(rows: list[tuple[Any, ...]]) -> bytes:
+    """A compiler review workbook (sheet ``review``) with the given (id, kind, class, text, codes, eq, flags) rows."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws: Any = wb.active
+    ws.title = "review"
+    ws.append(["id", "kind", "class", "text", "summary", "codes", "equivalence_pct", "flags", "decision"])
+    for cid, kind, cls, text, codes, eq, flags in rows:
+        ws.append([cid, kind, cls, text, text, codes, eq, flags, "approve"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     c, csrf = login(box["app"])
     files = {"protocol": ("demo.pdf", io.BytesIO(b"%PDF-1.4 demo"), "application/pdf")}
@@ -574,10 +594,17 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     # the compiler answered with a review round: the job waits for approval with the review workbook
     job = box["backend"].jobs[feas.job_id or ""]
     key = f"outputs/{job.job_id}/review_GZQO-DEMO_v1.0.0_r1.xlsx"
-    box["backend"].objects[key] = b"PK-review"
+    book = review_book(
+        [
+            ("GZQO-DEMO-INC-01", "inclusion", "structured", "Age 18 or over.", "VS_X: 1 one; 2 two", 100, None),
+            ("GZQO-DEMO-INC-02", "inclusion", "note", "Two flares in a year.", None, None, None),
+            ("GZQO-DEMO-EXC-01", "exclusion", "human", "Pregnant.", None, None, None),
+        ]
+    )
+    box["backend"].objects[key] = book
     out = JobOutput(
         filename="review_GZQO-DEMO_v1.0.0_r1.xlsx",
-        sha256=sha256_bytes(b"PK-review"),
+        sha256=sha256_bytes(book),
         minio_key=key,
         recipients=["admin@hospa.test"],
         tag="aggregate",
@@ -609,11 +636,26 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     page = c.get(f"/pilot/jobs/{job.job_id}").text
     assert 'data-testid="split-warning"' in page and "2 of 3 criteria are left to a person" in page
     box["backend"].objects[hkey] = html
-    r = c.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": csrf}, follow_redirects=False)
+    assert 'data-testid="approve-page"' in page
+    # FR-AUTH-13 (D-108): an administrator prepares but never approves
+    assert c.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": csrf}).status_code == 403
+    s20 = c.get(f"/pilot/jobs/{job.job_id}/approval").text
+    assert 'data-testid="approve-who"' in s20 and 'data-testid="row-GZQO-DEMO-EXC-01"' in s20
+    r = c.post(f"/pilot/jobs/{job.job_id}/approval/tick", data={"csrf": csrf, "crit": "GZQO-DEMO-INC-01"})
+    assert r.status_code == 200 and 'data-testid="tick-GZQO-DEMO-INC-01"' in r.text
+    box["users"].create("pi", "investigator", "pi-password-12345", "pi@hospa.test")
+    p, pcsrf = login(box["app"], "pi", "pi-password-12345")
+    s20 = p.get(f"/pilot/jobs/{job.job_id}/approval").text
+    assert 'data-testid="approve-missing"' in s20 and "VS_X: 1 one" not in s20.split("GZQO-DEMO-INC-01")[0]
+    assert p.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": pcsrf}).status_code == 409  # amber unopened
+    s20 = p.get(f"/pilot/jobs/{job.job_id}/approval?open=GZQO-DEMO-EXC-01").text
+    assert 'data-testid="approve-missing"' not in s20
+    r = p.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": pcsrf}, follow_redirects=False)
     assert r.status_code == 303
     appr = box["backend"].created[-1]
     assert appr.type == "APPROVE" and appr.ruleset == "GZQO-DEMO" and appr.options == {"version": "1.0.0"}
-    assert box["backend"].objects[appr.inputs[0].minio_key] == b"PK-review"
+    assert appr.requested_by == "pi@hospa.test"
+    assert box["backend"].objects[appr.inputs[0].minio_key] == book
 
 
 def test_protocol_sample_and_bad_upload(box: dict[str, Any]) -> None:
@@ -892,7 +934,8 @@ def test_screen_job_page_shows_candidates_and_reveals_a_chart_number_once(box: d
     )
     assert 'data-testid="screen-rows"' in page and page.count("<tr data-pid=") == 2  # excluded rows are not listed
     assert page.index("a" * 12) < page.index("b" * 12)  # likely eligible first
-    assert "two flares this spring" in page and "90 %" in page and "Dr Lin" in page and "confirm flare dates" in page
+    assert "two flares this spring" in page and "Dr Lin" in page and "confirm flare dates" in page
+    assert "90 %" not in page  # FR-UI-17 (D-108): no model confidence on a clinical page
     assert "read by j-workhorse alone" in page and f'href="/pilot/registry/GZQO#p-{"a" * 32}"' in page
     assert page.count('data-testid="reveal"') == 2 and "MRN-000123" not in page
     r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "a" * 32})

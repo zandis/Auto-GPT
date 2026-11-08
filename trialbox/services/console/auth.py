@@ -148,6 +148,12 @@ class User:
         return self.role == "investigator"
 
     @property
+    def can_approve(self) -> bool:
+        """May approve a study's criteria (S20, FR-AUTH-13, D-108): the investigator only. Administrators and
+        coordinators prepare the approval (tick codes) but never approve."""
+        return self.role == "investigator"
+
+    @property
     def aggregate_only(self) -> bool:
         """Sees aggregate reports only, in the sponsor (suppressed) form for CRO accounts (D-104)."""
         return self.role in ("viewer", "cro")

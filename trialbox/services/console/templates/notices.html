@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ t('notices.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('notices.title') }}</h1>
+{% if saved %}<p class="ok" role="status">{{ t('feas.saved') }}</p>{% endif %}
+{% if sent is not none %}<section class="card" data-testid="notices-sent"><p>{{ t('notices.sent', n=sent|length) }}</p><ul class="plain">{% for n in sent %}<li>{{ n.kind }} · {{ n.username }} · {{ n.subject }}</li>{% endfor %}</ul></section>{% endif %}
+<p>{{ t('notices.help.' + ('pi' if user.role == 'investigator' else 'crc' if user.role == 'coordinator' else 'other')) }}</p>
+<form method="post" action="/settings/notices" class="card">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label><input type="checkbox" name="enabled" value="1"{% if person.enabled %} checked{% endif %}> {{ t('notices.enabled') }}</label>
+  {% if user.role == 'investigator' %}<label for="practitioner_id">{{ t('notices.practitioner') }}</label><input id="practitioner_id" name="practitioner_id" value="{{ person.practitioner_id or '' }}" maxlength="32"><p class="hint">{{ t('notices.practitioner.help') }}</p>{% endif %}
+  {% if user.role == 'coordinator' %}<label for="digest_time">{{ t('notices.time') }}</label><input id="digest_time" name="digest_time" value="{{ person.digest_time }}" maxlength="5">{% endif %}
+  <label for="nlang">{{ t('notices.lang') }}</label><select id="nlang" name="lang">{% for l in langs %}<option value="{{ l }}"{% if person.lang == l %} selected{% endif %}>{{ t('lang.name.' + l) }}</option>{% endfor %}</select>
+  <button type="submit">{{ t('notices.save') }}</button>
+</form>
+{% if user.is_admin %}<form method="post" action="/ops/notices" class="card"><input type="hidden" name="csrf" value="{{ csrf }}"><p>{{ t('notices.now.help') }}</p><button type="submit" data-testid="send-notices">{{ t('notices.now') }}</button></form>{% endif %}
+{% endblock %}

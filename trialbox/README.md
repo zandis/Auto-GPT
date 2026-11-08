@@ -89,6 +89,8 @@ make venv
 make e2e-cascade               # synthetic site A: data platform -> cascade -> feasibility pack + recall certificate
 make testbench                 # Test Bench on http://127.0.0.1:8765 (synthetic and open data only)
 make open-data-e2e             # MIMIC-IV FHIR demo (downloads ~10 MB, ODbL)
+python -m tools.feas_demo --dir /tmp/tb-feas   # build step 1: paste criteria -> feasibility funnel (D-106)
+python -m tools.list_demo --dir /tmp/tb-list   # build step 2: approve on S20 -> list, marks, N1/N2 mail (D-108)
 ```
 
 ## Deploying a real site

@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Response
@@ -219,6 +219,37 @@ def reveal(job_id: str, req: RevealRequest) -> dict[str, Any]:
     if req.pid not in found:
         raise HTTPException(status_code=404, detail="this pseudonym is not in the box's pid map")
     return {"pid": req.pid, "mrn": found[req.pid]}
+
+
+class NoticeRequest(BaseModel):
+    """A console notice (D-108): N1 the investigator's pre-clinic list, N2 the coordinator's digest. Pseudonyms and
+    counts only (FR-NOTIF-01/02), so the mail is ``aggregate`` and goes to internal addresses only."""
+
+    kind: Literal["N1", "N2"]
+    to: list[str] = Field(min_length=1, max_length=5)
+    subject: str = Field(min_length=1, max_length=200)
+    body_md: str = Field(min_length=1, max_length=20_000)
+    by: str = Field(min_length=1, max_length=200)
+
+
+@app.post("/notices")
+def notice(req: NoticeRequest) -> dict[str, Any]:
+    from tb_common.routing import is_internal
+    from tb_contracts import SendRequest
+
+    o = orch()
+    external = [r for r in req.to if not is_internal(r, o.cfg.settings.internal_domains)]
+    if external:
+        raise HTTPException(status_code=400, detail=f"notices go to hospital addresses only, not {external[0]}")
+    res = o.services.mail.send(
+        SendRequest(job_id=None, to=req.to, subject=req.subject, body_md=req.body_md, tag="aggregate")
+    )
+    o.audit.append(
+        "notice.sent",
+        actor=req.by,
+        detail={"kind": req.kind, "to": req.to, "subject": req.subject, "message_id": res.message_id},
+    )
+    return {"message_id": res.message_id}
 
 
 @app.post("/jobs/{job_id}/cancel")

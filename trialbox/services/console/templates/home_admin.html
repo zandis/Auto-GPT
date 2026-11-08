@@ -25,7 +25,7 @@
       <dt>{{ t('admin.denied') }}</dt><dd>{{ counts.denied }}</dd>
       <dt>{{ t('admin.marks') }}</dt><dd>{{ counts.marks }}</dd>
     </dl>
-    <a href="/audit">{{ t('admin.full_audit') }}</a>
+    <a href="/audit">{{ t('admin.full_audit') }}</a> · <a href="/settings/notices" data-testid="notices-link">{{ t('notices.title') }}</a>
   </section>
   <section class="card tile" data-testid="tile-system">
     <h2>{{ t('admin.system') }}</h2>

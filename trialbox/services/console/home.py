@@ -19,8 +19,8 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
-from typing import Any
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, cast
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
@@ -34,11 +34,15 @@ from console.sitestore import (
     CAPABILITIES_AD,
     CAPABILITIES_GENERAL,
     MARKS,
-    NOT_SUITABLE_REASONS,
+    OUTCOMES,
+    WITHDRAWN,
     Mark,
+    Outcome,
     SiteProfile,
     SiteStore,
+    StudySettings,
 )
+from console.timefmt import local_date, site_zone
 
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -57,6 +61,11 @@ class Helpers:
     store: SiteStore
     users: Any
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
+    submit: Callable[..., Job] | None = None  # console.app.submit: a request as if mailed (D-108 refresh)
+    # set by register(): the rows the pages show, read again by console.notify (D-108)
+    week_bundle: Callable[..., dict[str, Any] | None] | None = None
+    trials: Callable[..., list[Any]] | None = None
+    settings_of: Callable[[str], StudySettings] | None = None
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -69,6 +78,19 @@ def register(app: FastAPI, h: Helpers) -> None:
             for r in bk.rulesets()
             if r.status == "approved" and r.kind in ("trial", "") and sess.user.sees_study(r.id)
         ]
+
+    def settings_of(rs: str) -> StudySettings:
+        kind = next((r.kind for r in bk.rulesets() if r.id == rs), "trial")
+        return store.study_settings(rs, st.study_defaults(rs, kind))
+
+    def approvals(sess: Session) -> list[Job]:
+        """Criteria waiting for approval in the studies this account sees (the investigator's S20 queue)."""
+        return [
+            j
+            for j in bk.list_jobs(limit=500)
+            if j.state == "awaiting_approval" and j.ruleset and sess.user.sees_study(j.ruleset)
+            and any(o.filename.startswith("review_") and o.filename.endswith(".xlsx") for o in j.outputs or [])
+        ]  # fmt: skip
 
     def study_or_404(sess: Session, rs: str) -> str:
         rid = rs.strip().upper()
@@ -135,7 +157,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         names = (summary or {}).get("practitioner_names") or {}
         pids = [str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") in ("high", "review")]
         seen = store.seen(rs, pids, job.job_id, (job.updated_at or job.received_at).isoformat())
-        rows = st.weekly_rows(cl, crit_of(rs), registry_map(rs), store.latest_marks(rs), seen, job.job_id, names)
+        rows = st.weekly_rows(
+            cl, crit_of(rs), registry_map(rs), store.latest_marks(rs), seen, job.job_id, names, today=h.clock().date()
+        )
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl}
 
     def study_card(sess: Session, r: Any, jobs: list[Job]) -> dict[str, Any]:
@@ -154,7 +178,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         week: dict[str, Any] | None = week_bundle(sess, rs) if screen_job is not None else None
         regc = registry_counts(rs)
         if waiting is not None:
-            nxt = ("approve", f"/pilot/jobs/{waiting.job_id}")
+            nxt = ("approve", f"/pilot/jobs/{waiting.job_id}/approval")
         elif feas_job is None:
             nxt = ("feas", f"/pilot/request?ruleset={rs}")
         elif site.missing:
@@ -165,9 +189,44 @@ def register(app: FastAPI, h: Helpers) -> None:
             nxt = ("contact", f"/studies/{rs}/week")
         else:
             nxt = ("week", f"/studies/{rs}/week")
+        today = h.clock().date()
+        reg = registry_map(rs)
+        rows = week["rows"] if week else []
+        tasks: list[dict[str, Any]] = []
+        if waiting is not None:
+            href = f"/pilot/jobs/{waiting.job_id}/approval"
+            tasks.append({"kind": "approve", "rs": rs, "short": waiting.type, "href": href, "due": today, "detail": ""})
+        if feas_job is not None and site.missing:
+            tasks.append({"kind": "site", "rs": rs, "short": "", "href": f"/studies/{rs}/feasibility#site",
+                          "due": today, "detail": ""})  # fmt: skip
+        clinic = []
+        for w in rows:
+            mk = w.get("mark")
+            when = w["visit"].date() if w.get("visit") else None
+            href = f"/studies/{rs}/week?list=all&pid={w['pid']}#chart"
+            open_items = " · ".join((w["fit"].not_met + w["fit"].open + w["fit"].person)[:3])
+            if mk is not None and mk.mark == "approach" and reg.get(w["pid"]) in (None, "candidate"):
+                due = date.fromisoformat(local_date(mk.at, site_zone(h.bk))) + timedelta(days=2)
+                tasks.append({"kind": "call", "rs": rs, "short": w["short"], "href": href, "due": due,
+                              "detail": mk.note or open_items})  # fmt: skip
+            elif mk is not None and mk.mark == "need_info":
+                due = date.fromisoformat(local_date(mk.at, site_zone(h.bk))) + timedelta(days=3)
+                tasks.append({"kind": "info", "rs": rs, "short": w["short"], "href": href, "due": due,
+                              "detail": mk.note or open_items})  # fmt: skip
+            if when is not None and today <= when <= today + timedelta(days=14):
+                clinic.append({**w, "rs": rs, "href": href, "open_items": open_items})
+                if mk is None and when <= today + timedelta(days=2):
+                    tasks.append({"kind": "prepare", "rs": rs, "short": w["short"], "href": href, "due": when,
+                                  "detail": open_items})  # fmt: skip
+        for tk in tasks:
+            tk["late"] = tk["due"] < today
         return {
             "id": rs,
             "version": r.version,
+            "step": study_step(rs),
+            "pipeline": st.pipeline_counts(rows, reg),
+            "tasks": tasks,
+            "clinic": clinic,
             "feas": feas,
             "feas_job": feas_job,
             "week": week,
@@ -175,6 +234,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             "site_missing": site.missing,
             "next": nxt,
         }
+
+    # the notices (console.notify) read the same rows as the pages
+    h.week_bundle = week_bundle
+    h.trials = trials
+    h.settings_of = settings_of
 
     # ------------------------------------------------------------------ homes
     @app.get("/home")
@@ -189,7 +253,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             return admin_home(request, sess)
         jobs = bk.list_jobs(limit=500)
         cards = [study_card(sess, r, jobs) for r in trials(sess)]
-        return h.page(request, "home_crc.html", sess, cards=cards, models=bk.models())
+        tasks = sorted((tk for c in cards for tk in c["tasks"]), key=lambda tk: (tk["due"], tk["rs"]))
+        clinic = sorted((v for c in cards for v in c["clinic"]), key=lambda v: v["visit_text"])
+        return h.page(
+            request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic, steps=st.STEPS,
+            pipeline_keys=st.PIPELINE, models=bk.models(),
+        )  # fmt: skip
 
     def admin_home(request: Request, sess: Session) -> Response:
         users = h.users.users()
@@ -255,13 +324,19 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         jobs = bk.list_jobs(limit=500)
         mine = [r for r in trials(sess) if st.latest_job(jobs, r.id, SCREEN_TYPES) is not None]
-        if len(mine) == 1:
+        waiting = approvals(sess)
+        if len(mine) == 1 and not waiting:
             return RedirectResponse(f"/studies/{mine[0].id}/week", status_code=303)
-        return h.page(request, "week_pick.html", sess, studies=mine)
+        cohorts = [
+            r for r in bk.rulesets()
+            if r.status == "approved" and r.kind in st.REGISTRY_KINDS and sess.user.sees_study(r.id)
+            and st.latest_job(jobs, r.id, SCREEN_TYPES) is not None
+        ]  # fmt: skip
+        return h.page(request, "week_pick.html", sess, studies=mine, approvals=waiting, cohorts=cohorts)
 
     # ------------------------------------------------------------------ feasibility report
     @app.get("/studies/{rs}/feasibility")
-    def feasibility(request: Request, rs: str, view: str = "", saved: str = "") -> Response:
+    def feasibility(request: Request, rs: str, view: str = "", saved: str = "", refreshed: str = "") -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         sponsor = view == "sponsor" or sess.user.role == "cro"
@@ -280,7 +355,24 @@ def register(app: FastAPI, h: Helpers) -> None:
             cap_values=CAP_VALUES,
             can_edit=sess.user.can_request,
             saved=saved == "1",
+            refreshed=refreshed == "1",
+            registry=next((r.kind for r in bk.rulesets() if r.id == rid), "") in st.REGISTRY_KINDS,
         )
+
+    @app.post("/studies/{rs}/feasibility/refresh")
+    def feasibility_refresh(request: Request, rs: str, csrf: str = Form("")) -> Response:
+        """FR-FEAS-13: run the study's feasibility again on today's snapshot, with the approved criteria."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        if not sess.user.can_request or h.submit is None:
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+        if not any(r.id == rid and r.status == "approved" for r in bk.rulesets()):
+            raise h.problem(409, "request.refused", reason="approve the criteria first")
+        h.submit(sess, f"FEAS {rid}")
+        return RedirectResponse(f"/studies/{rid}/feasibility?refreshed=1", status_code=303)
 
     @app.post("/studies/{rs}/profile")
     async def profile_save(request: Request, rs: str) -> Response:
@@ -338,8 +430,52 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if not sess.user.can_view_phi:
             raise h.problem(403, "forbidden")
+        if settings_of(rid).study_type == "registry":
+            return RedirectResponse(f"/studies/{rid}/cohort", status_code=303)
         wk = week_bundle(sess, rid)
-        return h.page(request, "week.html", sess, rs=rid, wk=wk, marks=MARKS, reasons=NOT_SUITABLE_REASONS)
+        today = h.clock().date()
+        counts = st.worklist_counts(wk["rows"], today) if wk else {}
+        lst = request.query_params.get("list", "")
+        if lst not in st.WORKLISTS:  # open on the first list with work in it
+            lst = next((k for k in ("clinic", "review") if counts.get(k)), "all")
+        rows = [r for r in wk["rows"] if st.in_worklist(r, lst, today)] if wk else []
+        for r in rows:
+            r["score"] = st.met_score(r["fit"])
+        pid = request.query_params.get("pid", "")
+        sel = None
+        if wk and rows:
+            if not any(r["pid"] == pid for r in rows):
+                pid = rows[0]["pid"]
+            sel = patient_ctx(sess, rid, pid)
+        return h.page(
+            request,
+            "week.html",
+            sess,
+            rs=rid,
+            wk=wk,
+            lst=lst,
+            lists=st.WORKLISTS,
+            counts=counts,
+            rows=rows,
+            sel=sel,
+            marks=MARKS,
+            reasons=settings_of(rid).reasons,
+            step=study_step(rid),
+            steps=st.STEPS,
+            approvals=approvals(sess),
+        )
+
+    def study_step(rid: str) -> int:
+        jobs = bk.list_jobs(limit=500)
+        regc = registry_counts(rid)
+        return st.procedure_step(
+            approved=any(r.id == rid and r.status == "approved" for r in bk.rulesets()),
+            feas_done=st.latest_job(jobs, rid, ("FEAS",)) is not None,
+            screen_done=st.latest_job(jobs, rid, SCREEN_TYPES) is not None,
+            contacted=sum(v for k, v in regc.items() if k != "candidate"),
+            enrolled=regc.get("enrolled", 0),
+            waiting=st.latest_job(jobs, rid, ("FEAS", "SCREEN", "COMPILE"), state="awaiting_approval") is not None,
+        )
 
     def patient_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
         if not _PID.match(pid):
@@ -366,7 +502,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             "registry": registry_map(rid).get(pid),
             "judging": (wk["cl"] or {}).get("judging") or {},
             "marks": MARKS,
-            "reasons": NOT_SUITABLE_REASONS,
+            "reasons": settings_of(rid).reasons,
+            "mark": store.latest_marks(rid).get(pid),
+            "screening_no": store.screening_no(rid, pid),
+            "outcomes": store.outcomes(rid, pid),
+            "outcome_keys": tuple(OUTCOMES),
+            "today": h.clock().date(),
             "mrn": None,
         }
 
@@ -405,6 +546,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         ctx["mrn"] = mrn or ""
         return h.page(request, "patient.html", sess, **ctx)
 
+    def back_to(rid: str, pid: str, back: str, done: str) -> str:
+        if back == "patient":
+            return f"/studies/{rid}/patients/{pid}?done={done}"
+        lst = back.removeprefix("list:") if back.startswith("list:") else ""
+        lst = lst if lst in st.WORKLISTS else "all"
+        return f"/studies/{rid}/week?list={lst}&pid={pid}&done={done}#chart"
+
     @app.post("/studies/{rs}/patients/{pid}/mark")
     def patient_mark(
         request: Request,
@@ -413,9 +561,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         csrf: str = Form(""),
         mark: str = Form(""),
         reason: str = Form(""),
+        recheck: str = Form(""),
         note: str = Form(""),
         back: str = Form(""),
     ) -> Response:
+        """One mark vocabulary (D-108, FR-SCR-07): Approach / Need info / Not suitable now (a study reason) / Not now,
+        re-check on a date. A new mark replaces the current one; ``withdraw`` takes the current mark back. Every mark
+        is an event; the history keeps them all."""
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         if not h.csrf_ok(sess, csrf):
@@ -423,32 +575,99 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_mark:
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
-        if mark not in MARKS or not _PID.match(pid):
-            raise h.problem(400, "request.refused", reason="choose Approach, Not suitable or Need info")
-        if mark == "not_suitable" and reason not in NOT_SUITABLE_REASONS:
-            reason = "other"
+        if mark not in (*MARKS, "withdraw") or not _PID.match(pid):
+            raise h.problem(400, "request.refused", reason="choose Approach, Need info, Not suitable now or Not now")
+        conf = settings_of(rid)
         wk = week_bundle(sess, rid)
         if wk is None or not any(str(r.get("pid")) == pid for r in (wk["cl"] or {}).get("rows") or []):
             raise h.problem(404, "notfound")
+        today = h.clock().date()
+        prev = store.latest_marks(rid).get(pid)
+        stored_reason: str | None = None
+        if mark == "not_suitable":
+            stored_reason = reason if reason in conf.reasons else "other"
+        elif mark == "not_now":
+            try:
+                when = date.fromisoformat(recheck) if recheck else today + timedelta(days=28)
+            except ValueError as exc:
+                raise h.problem(400, "request.refused", reason="give the re-check date as YYYY-MM-DD") from exc
+            if not today < when <= today + timedelta(days=366):
+                raise h.problem(400, "request.refused", reason="the re-check date must be within the next year")
+            stored_reason = when.isoformat()
+        elif mark == "withdraw" and prev is None:
+            raise h.problem(409, "request.refused", reason="there is no mark to withdraw")
         now = h.clock().isoformat()
-        store.mark(
-            rid,
-            Mark(
-                pid,
-                mark,
-                reason if mark == "not_suitable" else None,
-                note.strip()[:300] or None,
-                sess.user.username,
-                now,
-                wk["job"].job_id,
-            ),
-        )
+        value = WITHDRAWN if mark == "withdraw" else mark
+        store.mark(rid, Mark(pid, value, stored_reason, note.strip()[:300] or None, sess.user.username, now,
+                             wk["job"].job_id))  # fmt: skip
+        detail: dict[str, Any] = {"pid": pid, "action": value, "reason": stored_reason or ""}
+        if prev is not None:
+            detail["from"] = prev.mark  # a replaced or withdrawn mark stays visible in the trail
+        if mark == "approach":  # FR-STUDY-08: the screening number is given when the PI approves contact
+            detail["to"] = store.assign_screening_no(rid, pid, conf, now)
+        au.append("console.pi_mark", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess), detail=detail)
+        return RedirectResponse(back_to(rid, pid, back, value), status_code=303)
+
+    @app.post("/studies/{rs}/patients/{pid}/outcome")
+    def patient_outcome(
+        request: Request,
+        rs: str,
+        pid: str,
+        csrf: str = Form(""),
+        outcome: str = Form(""),
+        retry: str = Form(""),
+        note: str = Form(""),
+        back: str = Form(""),
+    ) -> Response:
+        """A contact outcome in two taps (FR-SCR-10c, TB-DS-07 §4.1): the coordinator opens the patient and taps
+        what happened. The registry status follows the mapping in ``sitestore.OUTCOMES``; "not reached" keeps the
+        status and a retry date."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        if not sess.user.can_request:
+            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+        if outcome not in OUTCOMES or not _PID.match(pid):
+            raise h.problem(400, "request.refused", reason="choose one of the contact outcomes")
+        wk = week_bundle(sess, rid)
+        if wk is None or not any(str(r.get("pid")) == pid for r in (wk["cl"] or {}).get("rows") or []):
+            raise h.problem(404, "notfound")
+        today = h.clock().date()
+        retry_on: str | None = None
+        if outcome == "not_reached":
+            try:
+                retry_on = (date.fromisoformat(retry) if retry else today + timedelta(days=2)).isoformat()
+            except ValueError as exc:
+                raise h.problem(400, "request.refused", reason="give the retry date as YYYY-MM-DD") from exc
+        now = h.clock().isoformat()
+        status, why = OUTCOMES[outcome]
+        current = registry_map(rid).get(pid)
+        if status is not None and status != current:
+            from tb_contracts import RegistryUpdate
+
+            try:
+                bk.registry_update(
+                    rid,
+                    RegistryUpdate(
+                        pid=pid,  # status: one of the registry statuses in sitestore.OUTCOMES
+                        status=cast(Any, status),
+                        reason=why,
+                        by=h.actor(sess),
+                        source="manual",
+                        source_job=wk["job"].job_id,
+                    ),
+                )
+            except Refused as exc:
+                raise h.problem(409, "request.refused", reason=str(exc)) from exc
+        store.add_outcome(rid, Outcome(pid, outcome, retry_on, note.strip()[:300] or None, sess.user.username, now))
+        no = store.assign_screening_no(rid, pid, settings_of(rid), now)  # everyone approached is on the log
         au.append(
-            "console.pi_mark",
+            "console.contact_outcome",
             job_id=wk["job"].job_id,
             ruleset=rid,
             actor=h.actor(sess),
-            detail={"pid": pid, "action": mark, "reason": reason if mark == "not_suitable" else ""},
+            detail={"pid": pid, "action": outcome, "to": status or current or "", "reason": why or "", "run": no},
         )
-        target = f"/studies/{rid}/patients/{pid}" if back == "patient" else f"/studies/{rid}/week#p-{pid[:8]}"
-        return RedirectResponse(target, status_code=303)
+        return RedirectResponse(back_to(rid, pid, back, outcome), status_code=303)

@@ -1,0 +1,319 @@
+"""Mail notices of build step 2 (D-108).
+
+* **N1, the investigator's list before clinic** (FR-NOTIF-01): one mail per investigator across their studies. When
+  the console knows the investigator's practitioner id, the mail goes on the morning of each day that investigator
+  has a listed candidate booked (the appointment source the SCREEN run read), with today's patients first and the
+  rest of the week folded below. Without a practitioner id the clinic days are unknown: the mail goes every Monday
+  with the next seven days.
+* **N2, the coordinator's daily digest** (FR-NOTIF-02): on working days, one mail per coordinator: today's visits
+  with what to prepare, the next steps (call, find information, retry a call), new pre-screens and the PI's marks
+  since the last digest.
+
+Both carry pseudonyms (eight characters), times and counts only: no chart number, no name and never a screening
+number. Each says why it was sent and links to the person's notice settings (FR-NOTIF-09). Mail leaves through the
+orchestrator's ``POST /notices`` and the mail gateway, tagged ``aggregate`` and internal addresses only.
+
+Run on a schedule with ``python -m console.notify --at 07:00`` (N1) and ``--at 07:30`` (N2), or from the admin home
+("Send notices now"). A notice is sent at most once per person and day.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from typing import Any
+
+from fastapi import FastAPI, Form, Request, Response
+from fastapi.responses import RedirectResponse
+
+from console.auth import Session, User
+from console.home import Helpers
+from console.i18n import LANGS, translate
+from console.sitestore import NotifyPerson
+
+MAX_ROWS = 10  # per digest section; the rest is one line and the link
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+@dataclass
+class Notice:
+    kind: str  # N1 | N2
+    username: str
+    to: str
+    subject: str
+    body: str
+    day: str
+    counts: dict[str, int] = field(default_factory=dict)
+
+
+def base_url() -> str:
+    return (os.environ.get("TB_CONSOLE_PUBLIC_URL") or "https://trialbox.hospa.test").rstrip("/")
+
+
+def _line(lang: str, r: dict[str, Any], rs: str) -> str:
+    met = r["fit"].inc_met + r["fit"].exc_clear
+    total = r["fit"].inc_total + r["fit"].exc_total
+    open_n = len(r["fit"].open) + len(r["fit"].person) + len(r["fit"].not_met)
+    when = r["visit"].strftime("%H:%M") if r.get("visit") else "--:--"
+    return translate(
+        lang,
+        "n1.row",
+        time=when,
+        p=r["short"],
+        rs=rs,
+        met=met,
+        total=total,
+        open=open_n,
+        status=translate(lang, "wstatus." + str(r["status"])),
+    )
+
+
+def clinic_days(rows: Iterable[dict[str, Any]], practitioner: str | None) -> set[date]:
+    """Days the investigator sees a listed candidate, from the appointment source (the candidate's next visit)."""
+    return {
+        r["visit"].date() for r in rows if r.get("visit") and practitioner and r.get("practitioner_id") == practitioner
+    }
+
+
+def build_n1(
+    user: User, person: NotifyPerson, today: date, studies: Sequence[tuple[str, list[dict[str, Any]]]]
+) -> Notice | None:
+    """The investigator's pre-clinic mail for ``today``, or None when today is not a mail day for them."""
+    lang = person.lang
+    all_rows = [(rs, r) for rs, rows in studies for r in rows]
+    known = bool(person.practitioner_id)
+    if known:
+        mine = [(rs, r) for rs, r in all_rows if r.get("practitioner_id") == person.practitioner_id]
+        if today not in clinic_days((r for _rs, r in mine), person.practitioner_id):
+            return None
+        why = translate(lang, "n1.why.clinic", day=today.isoformat())
+    else:
+        if today.weekday() != 0:
+            return None
+        mine = all_rows
+        why = translate(lang, "n1.why.monday")
+    end = today + timedelta(days=7)
+    today_rows = [(rs, r) for rs, r in mine if r.get("visit") and r["visit"].date() == today]
+    week_rows = [(rs, r) for rs, r in mine if r.get("visit") and today < r["visit"].date() < end]
+    if known is False:  # the Monday mail is the whole week, in one list
+        week_rows = today_rows + week_rows
+        today_rows = []
+    if not today_rows and not week_rows:
+        return None
+    today_rows.sort(key=lambda x: x[1]["visit"])
+    week_rows.sort(key=lambda x: x[1]["visit"])
+    url = base_url()
+    parts = [translate(lang, "n1.hello"), ""]
+    if today_rows:
+        parts += [f"## {translate(lang, 'n1.today', day=today.isoformat(), n=len(today_rows))}", ""]
+        parts += [f"- {_line(lang, r, rs)}" for rs, r in today_rows]
+        parts.append("")
+    if week_rows:
+        head = "n1.week" if known else "n1.week.monday"
+        parts += [f"## {translate(lang, head, n=len(week_rows))}", ""]
+        days: dict[date, list[tuple[str, dict[str, Any]]]] = {}
+        for rs, r in week_rows:
+            days.setdefault(r["visit"].date(), []).append((rs, r))
+        for d, items in days.items():
+            parts.append(f"**{d.isoformat()} ({translate(lang, 'day.' + WEEKDAYS[d.weekday()])})**")
+            parts += [f"- {_line(lang, r, rs)}" for rs, r in items]
+            parts.append("")
+    for rs in sorted({rs for rs, _r in today_rows + week_rows}):
+        parts.append(translate(lang, "n1.link", rs=rs, url=f"{url}/studies/{rs}/week?list=clinic"))
+    parts += ["", "---", why, translate(lang, "notice.settings", url=f"{url}/settings/notices")]
+    n_today, n_week = len(today_rows), len(week_rows)
+    subject = translate(lang, "n1.subject", day=today.isoformat(), n=n_today or n_week)
+    return Notice(
+        "N1",
+        user.username,
+        user.mailbox or "",
+        subject,
+        "\n".join(parts),
+        today.isoformat(),
+        {"today": n_today, "week": n_week},
+    )
+
+
+def build_n2(
+    user: User,
+    person: NotifyPerson,
+    today: date,
+    studies: Sequence[tuple[str, list[dict[str, Any]], dict[str, Any]]],
+    since: str | None,
+) -> Notice | None:
+    """The coordinator's digest. ``studies``: (study, weekly rows, extra) with extra = {marks: [Mark], retry: {pid:
+    date}, registry: {pid: status}}; ``since``: the time of the last digest (None = the last 24 hours)."""
+    if today.weekday() >= 5:
+        return None
+    lang = person.lang
+    url = base_url()
+    cut = since or (datetime.combine(today, datetime.min.time()) - timedelta(days=1)).isoformat()
+    visits: list[str] = []
+    steps: list[str] = []
+    new: list[str] = []
+    marks: list[str] = []
+    for rs, rows, extra in studies:
+        reg = extra.get("registry") or {}
+        retry = extra.get("retry") or {}
+        for r in rows:
+            mk = r.get("mark")
+            if r.get("visit") and r["visit"].date() == today:
+                visits.append(_line(lang, r, rs))
+            if mk is not None and mk.mark == "approach" and reg.get(r["pid"]) in (None, "candidate"):
+                if r["pid"] in retry and retry[r["pid"]] > today.isoformat():
+                    continue
+                key = "n2.step.retry" if r["pid"] in retry else "n2.step.call"
+                steps.append(translate(lang, key, p=r["short"], rs=rs))
+            elif mk is not None and mk.mark == "need_info":
+                steps.append(translate(lang, "n2.step.info", p=r["short"], rs=rs))
+            if r.get("status") == "new" and (r.get("first_at") or "") > cut:
+                new.append(translate(lang, "n2.new.row", p=r["short"], rs=rs))
+        for m in extra.get("marks") or []:
+            if m.at > cut:
+                marks.append(translate(lang, "n2.mark.row", p=m.pid[:8], rs=rs, mark=translate(lang, "mark." + m.mark)))
+    if not (visits or steps or new or marks):
+        return None
+    parts = [translate(lang, "n2.hello"), ""]
+    for key, items in (("n2.visits", visits), ("n2.steps", steps), ("n2.new", new), ("n2.marks", marks)):
+        parts += [f"## {translate(lang, key, n=len(items))}", ""]
+        shown = [f"- {x}" for x in items[:MAX_ROWS]]
+        if len(items) > MAX_ROWS:
+            shown.append(translate(lang, "n2.more", n=len(items) - MAX_ROWS))
+        parts += shown or [translate(lang, "n2.none")]
+        parts.append("")
+    for rs in sorted({s[0] for s in studies}):
+        parts.append(translate(lang, "n2.link", rs=rs, url=f"{url}/home"))
+    parts += [
+        "",
+        "---",
+        translate(lang, "n2.why", time=person.digest_time),
+        translate(lang, "notice.settings", url=f"{url}/settings/notices"),
+    ]
+    counts = {"visits": len(visits), "steps": len(steps), "new": len(new), "marks": len(marks)}
+    subject = translate(lang, "n2.subject", day=today.isoformat(), **counts)
+    return Notice("N2", user.username, user.mailbox or "", subject, "\n".join(parts), today.isoformat(), counts)
+
+
+# ---------------------------------------------------------------------------------------------- collecting and sending
+def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[Notice]:
+    store = h.store
+    out: list[Notice] = []
+    for u in h.users.users():
+        if not u.mailbox or (u.expires and u.expires < today.isoformat()):
+            continue
+        person = store.notify_person(u.username)
+        if not person.enabled:
+            continue
+        sess = Session(u, "", person.lang, "")
+        kind = "N1" if u.role == "investigator" else "N2" if u.role == "coordinator" else None
+        if kind is None or kind not in kinds or store.notice_sent(kind, u.username, today.isoformat()):
+            continue
+        studies: list[Any] = []
+        for r in h.trials(sess):
+            wk = h.week_bundle(sess, r.id)
+            if wk is None:
+                continue
+            seen = store.first_seen(r.id)
+            for row in wk["rows"]:
+                row["first_at"] = (seen.get(row["pid"]) or ("", ""))[1]
+            if kind == "N1":
+                studies.append((r.id, wk["rows"]))
+            else:
+                retry = {o.pid: o.retry for o in store.outcomes(r.id) if o.outcome == "not_reached" and o.retry}
+                try:
+                    reg = {e.pid: e.status for e in h.bk.registry_rows(r.id)}
+                except Exception:
+                    reg = {}
+                studies.append((r.id, wk["rows"], {"marks": store.all_marks(r.id), "retry": retry, "registry": reg}))
+        n = (
+            build_n1(u, person, today, studies)
+            if kind == "N1"
+            else build_n2(u, person, today, studies, store.last_notice("N2", u.username))
+        )
+        if n is not None:
+            out.append(n)
+    return out
+
+
+def send_all(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2"), by: str = "console:notify") -> list[Notice]:
+    sent = []
+    for n in collect(h, today, kinds):
+        h.bk.send_notice(n.kind, [n.to], n.subject, n.body, by)
+        h.store.log_notice(n.kind, n.username, n.day, h.clock().isoformat(), n.subject)
+        h.au.append("console.notice", actor=by, detail={"action": n.kind, "to": n.to, "subject": n.subject})
+        sent.append(n)
+    return sent
+
+
+def register(app: FastAPI, h: Helpers) -> None:
+    store = h.store
+
+    @app.get("/settings/notices")
+    def settings_page(request: Request, saved: str = "") -> Response:
+        sess = h.need(request)
+        p = store.notify_person(sess.user.username)
+        return h.page(request, "notices.html", sess, person=p, saved=saved == "1", sent=None)
+
+    @app.post("/settings/notices")
+    def settings_save(
+        request: Request,
+        csrf: str = Form(""),
+        practitioner_id: str = Form(""),
+        digest_time: str = Form("07:30"),
+        enabled: str = Form(""),
+        lang: str = Form("en"),
+    ) -> Response:
+        sess = h.need(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        pid = practitioner_id.strip().upper()[:32] or None
+        if pid is not None and not pid.replace("-", "").isalnum():
+            raise h.problem(400, "request.refused", reason="the practitioner id is letters and digits")
+        if len(digest_time) != 5 or digest_time[2] != ":":
+            digest_time = "07:30"
+        store.save_notify_person(
+            NotifyPerson(sess.user.username, pid, digest_time, enabled == "1", lang if lang in LANGS else "en")
+        )
+        h.au.append("console.notice_settings", actor=h.actor(sess), detail={"action": "save"})
+        return RedirectResponse("/settings/notices?saved=1", status_code=303)
+
+    @app.post("/ops/notices")
+    def send_now(request: Request, csrf: str = Form("")) -> Response:
+        sess = h.need(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        if not sess.user.is_admin:
+            h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            raise h.problem(403, "forbidden")
+        sent = send_all(h, h.clock().date(), by=h.actor(sess))
+        p = store.notify_person(sess.user.username)
+        return h.page(request, "notices.html", sess, person=p, saved=False, sent=sent)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m console.notify [--kind N1|N2] [--day YYYY-MM-DD]``: build and send today's notices with the
+    console's own settings (TB_CONSOLE_* environment), as the production timer does."""
+    ap = argparse.ArgumentParser(prog="console.notify")
+    ap.add_argument("--kind", choices=("N1", "N2"), action="append")
+    ap.add_argument("--day", default="")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args(argv)
+    from console.app import create_app
+
+    app = create_app()
+    h = getattr(app.state, "helpers", None)
+    if h is None:
+        raise SystemExit("the console pilot workspace is off (TB_CONSOLE_PILOT=1)")
+    day = date.fromisoformat(args.day) if args.day else h.clock().date()
+    kinds = tuple(args.kind or ("N1", "N2"))
+    notices = collect(h, day, kinds) if args.dry_run else send_all(h, day, kinds)
+    for n in notices:
+        print(f"{n.kind} {n.username} {n.subject}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

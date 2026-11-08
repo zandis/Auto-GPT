@@ -36,6 +36,8 @@
         <a href="/pilot/registry">{{ t('nav.registry') }}</a>
         {% if settings.test_smtp %}<a href="/pilot/mailbox">{{ t('nav.mailbox') }}</a>{% endif %}
         <a href="/audit">{{ t('nav.audit') }}</a>
+        <a href="/settings/notices">{{ t('notices.title') }}</a>
+        {% if user.role in ('admin', 'viewer', 'coordinator') %}<a href="/reports/research-office">{{ t('office.title') }}</a>{% endif %}
         {% if user.is_admin %}<a href="/ops/users">{{ t('nav.users') }}</a>{% endif %}
       </div>
     </details>
