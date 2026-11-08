@@ -8,7 +8,10 @@ exec > >(tee -a /var/log/tb-demo-startup.log /dev/ttyS0) 2>&1
 set -x
 MD=http://metadata.google.internal/computeMetadata/v1/instance/attributes
 IMG=$(curl -sf -H Metadata-Flavor:Google "$MD/tb-demo-image" || true)
+{ set +x; } 2>/dev/null  # never trace the password into the serial log
 PW=$(curl -sf -H Metadata-Flavor:Google "$MD/tb-demo-password" || true)
+set -x
+TOOL=$(curl -sf -H Metadata-Flavor:Google "$MD/tb-demo-tool" || echo demo)  # demo | public_e2e
 if ! command -v docker >/dev/null; then
   curl -fsSL https://get.docker.com | sh
 fi
@@ -16,8 +19,10 @@ if [ -n "$IMG" ]; then
   gcloud storage cp "$IMG" /root/trialbox-demo.tar.gz && gunzip -c /root/trialbox-demo.tar.gz | docker load
 fi
 docker rm -f trialbox-demo 2>/dev/null
+{ set +x; } 2>/dev/null
 docker run -d --name trialbox-demo -p 80:8080 --restart unless-stopped \
-  -e TB_DEMO_PASSWORD="$PW" -e TB_CONSOLE_SECURE_COOKIE=0 -e TB_DEMO_LANG="${TB_DEMO_LANG:-ja}" trialbox-demo:step5
-for i in $(seq 1 40); do curl -sf -o /dev/null http://127.0.0.1/login && break; sleep 5; done
-docker logs trialbox-demo 2>&1 | grep -E "^(PASS|FAIL)|e2e_simple|console on" | sed 's/^/TBD /'
+  -e TB_DEMO_PASSWORD="$PW" -e TB_CONSOLE_SECURE_COOKIE=0 -e TB_DEMO_LANG="${TB_DEMO_LANG:-ja}" -e TB_DEMO_TOOL="$TOOL" trialbox-demo:step5
+set -x
+for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1/login && break; sleep 5; done
+docker logs trialbox-demo 2>&1 | grep -E "^(PASS|FAIL)|e2e_simple|console on|checks pass" | sed 's/^/TBD /'
 echo DEMO-STARTUP-DONE
