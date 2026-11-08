@@ -498,6 +498,10 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     )
     out["picks"] = [p["pid"][:8] for p in picks]
     out["screening_no"] = no
+    # TB-PLAN-04 step 4 (D-129): the built-in forms, so the walk can open Entry and History and save on the phone
+    page = crc.get(f"/studies/{TRIAL}/forms")
+    r = crc.post(f"/studies/{TRIAL}/forms/builtin", data={"csrf": fd._csrf(page.text)})
+    s.check("the coordinator adds the built-in forms", 'data-testid="dc-builtin-added"' in r.text, r.status_code)
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
@@ -728,6 +732,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         "approval_job": jobs[TRIAL].job_id,
         "case_job": cj.job_id if cj else "",
         "consent_job": kj.job_id if kj else "",
+        "record": out.get("screening_no") or "",  # a screening number: the walk's Entry and History record
         # the study's own words (criterion labels, texts, actions) and the staff names from the data: shown as
         # written, so the walk's language check (D-119) does not count them as untranslated page text
         "authored": authored_strings(box, [TRIAL, COHORT]),
