@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 from lake.client import LakeAPI
+from tb_common.feas_notes import render as render_note
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import round_count
 from tb_common.timeutil import add_months, month_ends
@@ -29,6 +30,7 @@ from tb_contracts import (
     FeasibilityResult,
     FunnelStep,
     MonthlyCount,
+    NoteKey,
     SensitivityRow,
     Simulation,
 )
@@ -396,29 +398,32 @@ def _result(rs: Ruleset, p: FeasParams, st: list[Step], variants: list[Variant],
         iterations=p.iterations,
         monthly_eligible_mean=lam_pub,
     )
-    notes = [
-        f"Counts are distinct patients eligible at one or more of {len(raw.index_dates)} month-ends "
-        f"({raw.index_dates[0].isoformat()} … {raw.index_dates[-1].isoformat()}); cells 1–{t - 1} are shown as '<{t}' "
-        f"and all other counts are rounded to the nearest {t}, so that no small cell can be derived from the others.",
-        "Unknown inclusion values (no data in the window) do not count as eligible; unknown exclusions do not exclude "
-        f"(variant '{UNKNOWN_AS_PASS}' counts unknown inclusions as met).",
-        f"Eligible at the latest month-end: {pub(raw.prevalent)}; mean new eligible per month (last 12 "
-        f"months): {lam_pub if lam_pub is not None else f'<{t}'}.",
-        f"Monthly new-eligible counts use a {WASHOUT_MONTHS}-month wash-out at the start of the lookback.",
+    lam_txt = lam_pub if lam_pub is not None else f"<{t}"
+    keys: list[tuple[str, dict[str, Any]]] = [
+        (
+            "feas.note.cells",
+            {
+                "n": len(raw.index_dates),
+                "first": raw.index_dates[0].isoformat(),
+                "last": raw.index_dates[-1].isoformat(),
+                "t1": t - 1,
+                "t": t,
+            },
+        ),
+        ("feas.note.unknown", {"variant": UNKNOWN_AS_PASS}),
+        ("feas.note.latest", {"n": pub(raw.prevalent), "lam": lam_txt}),
+        ("feas.note.washout", {"m": WASHOUT_MONTHS}),
     ]
     for s in st:
         if s.applied and raw.unknown[s.id]:
-            what = (
-                "dropped with no value at any month-end"
-                if s.inclusion
-                else "not excluded only because no value was recorded"
+            keys.append(
+                ("feas.note.dropped" if s.inclusion else "feas.note.kept", {"id": s.id, "n": pub(raw.unknown[s.id])})
             )
-            notes.append(f"{s.id}: {pub(raw.unknown[s.id])} patients {what}.")
     not_applied = [s.id for s in st if not s.applied]
     if not_applied:
-        notes.append(
-            "Not applied in counts (note/human criteria, checked at screening): " + ", ".join(not_applied) + "."
-        )
+        keys.append(("feas.note.not_applied", {"ids": ", ".join(not_applied)}))
+    notes = [render_note(k, a, "en") for k, a in keys]
+    note_keys = [NoteKey(key=k, args=a) for k, a in keys]
     return FeasibilityResult(
         ruleset=rs.id,
         version=rs.version,
@@ -432,6 +437,7 @@ def _result(rs: Ruleset, p: FeasParams, st: list[Step], variants: list[Variant],
         monthly_new=monthly,
         simulation=simulation,
         notes=notes,
+        note_keys=note_keys,
     )
 
 

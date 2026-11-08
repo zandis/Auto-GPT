@@ -157,7 +157,7 @@
 <td><input name="capnote_{{ k }}" aria-label="{{ t('cap.' + k) }} {{ t('feas.e.note') }}" maxlength="200" value="{{ cur.get('note', '') }}" placeholder="{{ t('feas.e.note') }}"></td></tr>{% endfor %}
 </tbody></table></div>
 <h3>{{ t('feas.s9') }}</h3>
-<div class="scroll"><table class="compact"><thead><tr><th>ID (jRCT / NCT)</th><th>{{ t('feas.ct.title') }}</th><th>{{ t('feas.ct.overlap') }}</th><th>{{ t('feas.ct.status') }}</th></tr></thead><tbody>
+<div class="scroll"><table class="compact"><thead><tr><th>{{ t('feas.ct.id') }}</th><th>{{ t('feas.ct.title') }}</th><th>{{ t('feas.ct.overlap') }}</th><th>{{ t('feas.ct.status') }}</th></tr></thead><tbody>
 {% for i in range(5) %}{% set c = site.competing[i] if i < site.competing|length else {} %}<tr>
 <td><input name="ct_id_{{ i }}" aria-label="ID {{ i + 1 }}" maxlength="40" value="{{ c.get('id', '') }}"></td>
 <td><input name="ct_title_{{ i }}" aria-label="{{ t('feas.ct.title') }} {{ i + 1 }}" maxlength="160" value="{{ c.get('title', '') }}"></td>

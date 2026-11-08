@@ -16,6 +16,7 @@ class Reason(StrEnum):
     CODED = "coded"  # decided by the coded records (a matching or failing value)
     NOTE = "note"  # decided by the notes: both models (or the one model) quoted the record
     DATA_GAP = "data_gap"  # no value / no record in the window
+    UNKNOWN_KEPT = "unknown_kept"  # an exclusion with no value: not excluded, a person checks (FEAS D-18)
     NO_NOTES = "no_notes"  # no note in the window to read
     NOT_MENTIONED = "not_mentioned"  # the notes in the window were searched and never mention it
     CODE_OUTSIDE_LIST = "code_outside_list"  # coded inside the grouper's family, outside its list (D-113)
@@ -49,6 +50,7 @@ _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
     (("human", "s5 reviewer"), Reason.HUMAN),
     (("no note", "no notes"), Reason.NO_NOTES),
     (("not evaluated", "not sampled", "unprocessed", "not judged", "no judge"), Reason.NOT_EVALUATED),
+    (("unknown_kept", "unknown kept"), Reason.UNKNOWN_KEPT),
     (("no value", "no record", "not compiled", "index_absent", "data_gap", "index condition absent"), Reason.DATA_GAP),
     (("matching record", "failing value", "index rescued"), Reason.CODED),
 )
@@ -59,6 +61,11 @@ LABELS: dict[str, dict[str, str]] = {
     "coded": {"en": "from the coded records", "ja": "コード化された記録から", "zh-TW": "依據結構化紀錄"},
     "note": {"en": "from the notes (quoted)", "ja": "記録の文章から（引用あり）", "zh-TW": "依據病歷文字（附引文）"},
     "data_gap": {"en": "no value in the period", "ja": "期間内に値なし", "zh-TW": "期間內無數值"},
+    "unknown_kept": {
+        "en": "no value recorded: not excluded, please check",
+        "ja": "値の記録なし：除外せず、確認してください",
+        "zh-TW": "無紀錄數值：未排除，請確認",
+    },
     "no_notes": {"en": "no notes in the period", "ja": "期間内に記録の文章なし", "zh-TW": "期間內無病歷文字"},
     "not_mentioned": {"en": "not mentioned in the notes", "ja": "記録の文章に記載なし", "zh-TW": "病歷文字未提及"},
     "code_outside_list": {

@@ -262,7 +262,7 @@ def test_text_part_of_a_body_with_html_blocks_has_no_raw_tags() -> None:
     assert "<" not in text and "Ruleset X — round 1" in text
     assert "- PHI guard: clean" in text and "X-INC-01 | inclusion" in text
     assert "<table>" in html
-    assert render_body("plain **md**")[0] == "plain **md**"
+    assert render_body("plain **md**")[0] == "plain md"  # D-119: the text part is rendered from the Markdown
 
 
 def test_outbound_subject_with_a_middle_dot_has_no_empty_encoded_word(tmp_path: Path) -> None:

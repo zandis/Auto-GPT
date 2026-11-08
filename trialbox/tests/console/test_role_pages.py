@@ -255,6 +255,9 @@ def test_weekly_list_marks_and_patient_page_in_three_languages(box: dict[str, An
     for lang, word in (("ja", "今週の候補患者リスト"), ("zh-TW", "本週候選病人名單")):
         pi.post("/lang", data={"csrf": _csrf(page), "lang": lang, "back": "/studies/GZQO/week"})
         assert word in pi.get("/studies/GZQO/week").text
+    # D-119: a row's reason is a code, said in the page's language, never the English token
+    p = pi.get(f"/studies/GZQO/patients/{'a' * 32}").text
+    assert 'data-testid="reason-GZQO-INC-01">依據結構化紀錄<' in p and ">coded<" not in p
 
 
 def test_cro_and_scoped_accounts_see_only_what_they_may(box: dict[str, Any]) -> None:

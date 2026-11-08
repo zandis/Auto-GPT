@@ -1393,3 +1393,25 @@ canary only held the night's LLM jobs; a box whose models had drifted could stil
   no direct call to a sleeping model.
 * **Not changed.** The v1 evaluator stays for NAV, MICROBATCH and CASE and the `TB_SCREEN_PIPELINE=v1` comparison;
   SCREEN runs the cascade (D-103). Both now share the judge, the rule and the reasons, which is what finding 4 asked.
+
+**D-119 Every user-facing word in the page's language.** TB-PLAN-03 step 4 (Fable review 2026-11-08, finding 6).
+Japanese and Chinese pages still carried English refusals, feasibility notes, engine tokens (`unknown_kept`, "no value
+in the window", "abstained") and Markdown marks in the N1 mail's text part.
+
+* **Refusals.** `console/refusals.py` holds the Japanese and Chinese words for every static refusal the console gives
+  (38 today; a test scans the console for `problem(..., reason="...")` and fails on one without words). A refusal the
+  table does not hold (an exception's own text) is never shown on a ja/zh-TW page: the page says the request could not
+  be done and to ask the administrator; the English stays in the log.
+* **Feasibility notes.** `FeasibilityResult` 1.2.0 adds optional `note_keys` (`{key, args}`); `notes` stays the
+  English record (XLSX, audit). `tb_common/feas_notes.py` renders them in en/ja/zh-TW for the console and the PDF.
+* **Reasons.** `unknown_kept` (an exclusion with no value: not excluded) is its own `Reason` code with words; the
+  patient page shows `reason_label(code, lang)`, never the code.
+* **Mail.** The text part of every outbound mail is rendered from the Markdown (`markdown_text`): no `##`, `**`,
+  table rules or link brackets.
+* **Walk check.** `tools/public_walk.js` fails a ja/zh-TW page with a visible leaf cell made only of ASCII words.
+  Not counted: codes, ids, numbers, dates, file names (`data-file`), audit details and mail subjects (`data-src`),
+  quotes from the notes, user names and anything `.mono`, a person's own typed note (`data-authored`), and the
+  study's own words (criterion labels, texts, actions; listed in `walk.json` `authored`), which are shown as written.
+  Walk on this head: 422 checks, 0 failures; screenshots in `trialbox-build/walk-2026-11-08/`.
+* **Not changed.** An orchestrator failure message (the job's `error.message`) is still English inside a ja/zh-TW
+  failure mail; criterion labels stay as the study wrote them (step 5 decides translated labels).

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/feasibility_result.schema.json",
   "title": "FeasibilityResult",
-  "description": "SPEC 3.6 feasibility_result. Counts are integers or a suppressed string like '<5'. Schema version 1.1.0 (1.1.0: optional provenance block, FR-REP-01, D-111).",
+  "description": "SPEC 3.6 feasibility_result. Counts are integers or a suppressed string like '<5'. Schema version 1.2.0 (1.1.0: optional provenance block, FR-REP-01, D-111; 1.2.0: optional note_keys, D-119).",
   "type": "object",
   "required": [
     "ruleset",
@@ -65,6 +65,25 @@
       "type": "array",
       "items": {
         "type": "string"
+      }
+    },
+    "note_keys": {
+      "description": "The notes as catalogue keys (D-119): the console and the PDF render them in the reader's language; notes stays the English record.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "args": {
+            "type": "object"
+          }
+        }
       }
     },
     "provenance": {

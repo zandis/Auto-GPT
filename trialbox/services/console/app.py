@@ -39,6 +39,8 @@ from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import AuditLog
 from tb_common.crypto import sha256_bytes
+from tb_common.feas_notes import notes_for as feas_notes
+from tb_common.reasons import label as reason_label
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
@@ -58,6 +60,7 @@ from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
+from console.refusals import localize as localize_refusal
 from console.registry_view import STATUSES, status_options
 from console.timefmt import local_time, site_zone
 
@@ -333,6 +336,8 @@ def create_app(
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     site_tz = site_zone(backend)
     templates.env.filters["local"] = lambda v, n=16: local_time(v, site_tz, n)
+    templates.env.globals["reason_label"] = reason_label  # a candidate row's reason code in the page language (D-118)
+    templates.env.globals["feas_notes"] = feas_notes  # a feasibility result's notes in the page language (D-119)
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users
@@ -513,7 +518,8 @@ def create_app(
     @app.exception_handler(_Problem)
     async def _problem(request: Request, exc: _Problem) -> Response:
         sess = session_of(request)
-        return page(request, "problem.html", sess, status=exc.status, key=exc.key, values=exc.values)
+        values = localize_refusal(exc.values, lang_of(request, sess))  # no English refusal on a JA/zh-TW page
+        return page(request, "problem.html", sess, status=exc.status, key=exc.key, values=values)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
@@ -526,7 +532,8 @@ def create_app(
     @app.exception_handler(Unavailable)
     async def _unavailable(request: Request, exc: Unavailable) -> Response:
         sess = session_of(request)
-        return page(request, "problem.html", sess, status=503, key="unavailable", values={"detail": str(exc)[:300]})
+        detail = str(exc)[:300] if lang_of(request, sess) not in ("ja", "zh-TW") else ""
+        return page(request, "problem.html", sess, status=503, key="unavailable", values={"detail": detail})
 
     def actor(sess: Session) -> str:
         return f"console:{sess.user.username}"

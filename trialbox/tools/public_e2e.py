@@ -679,6 +679,9 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         "approval_job": jobs[TRIAL].job_id,
         "case_job": cj.job_id if cj else "",
         "consent_job": kj.job_id if kj else "",
+        # the study's own words (criterion labels, texts, actions) and the staff names from the data: shown as
+        # written, so the walk's language check (D-119) does not count them as untranslated page text
+        "authored": authored_strings(box, [TRIAL, COHORT]),
     }
     out.update(
         {
@@ -695,6 +698,23 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         }
     )
     return out
+
+
+def authored_strings(box: Any, rulesets: list[str]) -> list[str]:
+    from tb_common.ruleset import RulesetNotApproved, load_approved
+
+    out: set[str] = set()
+    for rid in rulesets:
+        try:
+            r = load_approved(box.orch.rulesets_dir, rid)
+        except (FileNotFoundError, RulesetNotApproved):
+            continue
+        for c in r.criteria:
+            out.update(x for x in (c.label, c.text, c.action, c.note_question, c.human_question) if x)
+    for p in (box.orch.cfg.settings.practitioners or {}).values():
+        if p.name:
+            out.add(p.name)
+    return sorted(out, key=len, reverse=True)
 
 
 def table(stages: list[Stage]) -> str:
