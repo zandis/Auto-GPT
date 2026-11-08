@@ -1477,3 +1477,21 @@ def test_unknown_url_in_the_browser_gets_the_console_404_page(box: dict[str, Any
     assert anon.status_code == 404 and 'data-testid="problem"' in anon.text  # signed out: same page, no session
     api = c.get("/no-such-page", headers={"Accept": "application/json"})
     assert api.status_code == 404 and api.json() == {"detail": "Not Found"}  # API clients keep JSON
+
+
+def test_job_line_never_shows_a_chart_number() -> None:
+    """UX review 2026-11-08 F-01: the CASE job line used to print ``mrn=70000054`` on the job page."""
+    from types import SimpleNamespace
+
+    from console.app import job_line
+
+    job = SimpleNamespace(type="CASE", ruleset="PUB-ONC", options={"mrn": "70000054", "lang": "en", "name": "山田"})
+    line = job_line(job)  # type: ignore[arg-type]
+    assert line == "CASE PUB-ONC lang=en" and "70000054" not in line and "山田" not in line
+
+
+def test_request_subjects_are_masked() -> None:
+    from console.app import mask_ids
+
+    assert mask_ids("CASE GZQO mrn=70000054 lang=ja") == "CASE GZQO mrn=••• lang=ja"
+    assert mask_ids("FEAS GZQO") == "FEAS GZQO"
