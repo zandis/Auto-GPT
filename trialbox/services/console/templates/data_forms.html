@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}{{ t('dc.forms.title') }} · {{ rs }}{% endblock %}
+{% set q = request.query_params %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('dc.forms.title') }}</h1></div>
+{% include "_data_nav.html" %}
+<p class="hint">{{ t('dc.forms.help') }}</p>
+{% if not editable %}<p class="hint" data-testid="dc-readonly">{{ t('dc.readonly') }}</p>{% endif %}
+{% if err %}{% include "_data_err.html" %}{% endif %}
+{% if q.get('forms') is not none %}<p class="ok" role="status" data-testid="dc-imported">{{ t('dc.imported', forms=q.get('forms'), fields=q.get('fields', '0'), dropped=q.get('dropped', '0')) }}</p>{% endif %}
+
+{% if not forms %}<section class="card"><p class="empty" data-testid="dc-no-forms">{{ t('dc.forms.none') }}</p></section>{% endif %}
+{% for fm in forms %}
+<section class="card" data-testid="form-{{ fm.name }}">
+<h2><span class="mono">{{ fm.name }}</span> <span class="hint">{{ t('dc.forms.items', n=fm.fields|length) }}</span></h2>
+<div class="scroll"><table class="candidates">
+<thead><tr><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.type') }}</th><th>{{ t('dc.col.label') }}</th><th>{{ t('dc.col.choices') }}</th><th>{{ t('dc.col.owner') }}</th></tr></thead>
+<tbody>{% for f in fm.fields %}<tr data-testid="field-{{ f.name }}">
+<td class="mono">{{ f.name }}{% if f.required %} <span class="hint">· {{ t('dc.required') }}</span>{% endif %}</td>
+<td>{{ t_or('dc.kind.' + f.kind, f.kind) }}</td>
+<td>{{ f.label }}</td>
+<td>{% for c in f.choices %}<span class="mono">{{ c.code }}</span> {{ c.label }}{% if not loop.last %} · {% endif %}{% else %}–{% endfor %}</td>
+<td data-testid="form-owner-{{ f.name }}">{{ t('dc.owner.trialbox') if f.owner == 'trialbox' else t_or('dc.source.' + f.owner, f.owner) }}</td>
+</tr>{% endfor %}</tbody></table></div>
+</section>
+{% endfor %}
+
+{% if editable %}
+<section class="card" id="import" data-testid="dc-import">
+<h2>{{ t('dc.import.title') }}</h2>
+<p class="hint">{{ t('dc.import.help') }}</p>
+<form method="post" action="/studies/{{ rs }}/forms/dictionary" enctype="multipart/form-data">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="dictionary">{{ t('dc.import.file') }}</label>
+  <input id="dictionary" name="dictionary" type="file" accept=".csv,text/csv">
+  <label for="record_field">{{ t('dc.import.record') }}</label>
+  <input id="record_field" name="record_field" class="mono" maxlength="100">
+  <button type="submit" data-testid="import-dictionary">{{ t('dc.import.go') }}</button>
+</form>
+</section>
+{% endif %}
+{% endblock %}

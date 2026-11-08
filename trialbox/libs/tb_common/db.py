@@ -78,6 +78,12 @@ class Tx:
         row = self.fetchone(text, params)
         return default if row is None else row[0]
 
+    def fetchdicts(self, text: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        """Rows as ``{column: value}`` (the column names of the query)."""
+        self._cur.execute(sql(text), tuple(params))
+        names = [d.name for d in self._cur.description or []]
+        return [dict(zip(names, r, strict=True)) for r in self._cur.fetchall()]
+
 
 class Database:
     """One store's schema in the trial database, on its own connection."""
@@ -130,6 +136,10 @@ class Database:
     def fetchval(self, text: str, params: Sequence[Any] = (), default: Any = None) -> Any:
         with self.transaction() as tx:
             return tx.fetchval(text, params, default)
+
+    def fetchdicts(self, text: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        with self.transaction() as tx:
+            return tx.fetchdicts(text, params)
 
     def migrate(self, versions: Sequence[str]) -> int:
         """Apply the DDL versions not yet applied (each a ``;``-separated script); return the schema version.

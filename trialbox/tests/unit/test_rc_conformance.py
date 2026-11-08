@@ -37,7 +37,7 @@ def test_client_reads_all_five_methods() -> None:
     rc.url = "/api/"
     assert rc.check_version() == "16.0.10"
     assert rc.project()["is_longitudinal"] == 1
-    assert len(rc.metadata()) == 5
+    assert len(rc.metadata()) == 8  # 5 study fields + TrialBox's own instrument (D-123)
     assert [d["unique_group_name"] for d in rc.dags()] == ["cgmh_linkou", "jp_head"]
     rows = rc.records(fields=["tb_screening_no"], events=["screening_arm_1"], dags=True)
     assert {r["redcap_data_access_group"] for r in rows} == {"cgmh_linkou", "jp_head"}

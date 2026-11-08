@@ -74,11 +74,23 @@ CREATE TABLE IF NOT EXISTS rc_read_log (
 );
 """
 #: ``migrate`` versions of schema ``study`` (append-only; version 1 is the schema as it was on SQLite)
-MIGRATIONS = (SCHEMA,)
+# D-123: the write-back ledger (what TrialBox last wrote to REDCap, per linked record)
+SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS rc_write (
+  ruleset TEXT NOT NULL,
+  link_value TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  written_at TEXT NOT NULL,
+  PRIMARY KEY (ruleset, link_value)
+)
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2)
 SCHEMA_NAME = "study"
 _REF = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 # the columns of each table, in order (what ``SELECT *`` returned)
 _COLS = {
+    "rc_write": ("ruleset", "link_value", "record_id", "hash", "written_at"),
     "study_settings": (
         "ruleset", "study_type", "cohort_kind", "consent_scope", "screening_no_format", "screening_no_next",
         "not_suitable_reasons", "introduce_rule", "explainer_on", "entered_by", "entered_at", "confirmed_by",
@@ -269,6 +281,19 @@ class StudyStore:
                 rec.get("subject_no") or None,
                 at,
             ),
+        )
+
+    # ------------------------------------------------------------------ rc_write (the write-back ledger, D-123)
+    def written(self, ruleset: str) -> dict[str, dict[str, Any]]:
+        rows = self._all("rc_write", "WHERE ruleset = ?", (ruleset,))
+        return {r["link_value"]: r for r in rows}
+
+    def put_written(self, ruleset: str, link_value: str, record_id: str, digest: str, at: str) -> None:
+        self._run(
+            "INSERT INTO rc_write (ruleset, link_value, record_id, hash, written_at) VALUES (?,?,?,?,?) "
+            "ON CONFLICT(ruleset, link_value) DO UPDATE SET record_id = excluded.record_id, hash = excluded.hash, "
+            "written_at = excluded.written_at",
+            (ruleset, link_value, record_id, digest, at),
         )
 
     def log_read(self, ruleset: str, at: str, by: str, ok: bool, result: dict[str, Any]) -> None:

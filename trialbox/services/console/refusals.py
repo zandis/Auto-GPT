@@ -90,6 +90,10 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "提案已過期，請重新提案",
     ),
     "the re-check date must be within the next year": ("再確認日は1年以内にしてください", "再評估日期須在一年內"),
+    "keep is trialbox or theirs": (
+        "TrialBox の値を残すか、ソースの値を採用するかを選んでください",
+        "請選擇保留 TrialBox 的值或採用來源的值",
+    ),
     "there is no mark to withdraw": ("取り消す判断がありません", "沒有可撤回的標記"),
     "this account has no mailbox (console.cli set-mailbox)": (
         "このアカウントにはメールアドレスがありません。管理者に連絡してください",

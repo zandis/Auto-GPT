@@ -21,7 +21,7 @@ from fastapi.responses import RedirectResponse
 
 from console import s28
 from console import studies as st
-from console.auth import Session
+from console.auth import Session, User
 from console.backend import Problem, Unavailable
 from console.home import Helpers
 from console.sitestore import ALL_REASONS, COHORT_KINDS, STUDY_TYPES, StudySettings
@@ -40,6 +40,9 @@ LINK_TEXT = (
     "withdraw_field",
     "withdraw_value",
     "subject_no_field",
+    "write_mode",
+    "write_form",
+    "write_event",
 )
 
 
@@ -57,6 +60,11 @@ def show_map(m: dict[str, str]) -> str:
     return ", ".join(f"{k}={v}" for k, v in m.items())
 
 
+def can_change_setup(user: User) -> bool:
+    """Who changes a study's set-up (S21) and its data sources, forms and conflicts: the study's coordinator."""
+    return user.role == "coordinator"
+
+
 def screening_map(store: Any, rs: str) -> dict[str, str]:
     """Screening number -> pid for the read-back join (the console's site store issues the numbers)."""
     return {no: pid for pid, no in store.screening_nos(rs).items()}
@@ -64,7 +72,8 @@ def screening_map(store: Any, rs: str) -> dict[str, str]:
 
 def read_now(h: Helpers, rs: str, by: str) -> dict[str, Any]:
     """Run now and the nightly job: the orchestrator reads REDCap through the study's link and updates the log."""
-    body = {"screening": screening_map(h.store, rs), "by": by}
+    issued = {no: at for _pid, no, at in h.store.screening_rows(rs)}
+    body = {"screening": screening_map(h.store, rs), "issued": issued, "by": by}
     out = s28.call(h.bk, "POST", f"/studies/{rs}/redcap-read", body)
     return dict(out)
 
@@ -79,7 +88,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return rid
 
     def can_edit(sess: Session) -> bool:
-        return sess.user.role == "coordinator"
+        return can_change_setup(sess.user)
 
     def need_edit(request: Request, sess: Session, csrf: str) -> None:
         if not h.csrf_ok(sess, csrf):
@@ -202,6 +211,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         body["link_field"] = body["link_field"] or "tb_screening_no"
         body["enrol_value"] = body["enrol_value"] or "1"
         body["withdraw_value"] = body["withdraw_value"] or "1"
+        body["write_mode"] = body["write_mode"] if body["write_mode"] in ("off", "existing", "create") else "off"
+        body["write_form"] = body["write_form"] or "trialbox_screening"
         return body
 
     @app.post("/studies/{rs}/setup/redcap")

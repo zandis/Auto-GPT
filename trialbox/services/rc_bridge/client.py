@@ -1,4 +1,4 @@
-"""REDCap API read client (ICD-04 R1-R3, R7, R8) over plain httpx form posts.
+"""REDCap API client (ICD-04 R1-R3, R7, R8 reads; the record import for the write-back, D-123) over httpx.
 
 The ICD names PyCap as the client; PyCap is not a dependency of the build, and the five read methods are one form
 post each, so the connector posts the documented form fields itself (D-109). Errors map to the ICD register:
@@ -166,3 +166,25 @@ class RedcapClient:
         if not isinstance(out, list):
             raise RcError("RC-UPSTREAM", "the record export is not a list")
         return [dict(r) for r in out]
+
+    # ------------------------------------------------------------------ import (write-back, D-123)
+    def import_records(self, rows: list[dict[str, str]], auto_number: bool = False) -> list[str]:
+        """Import flat rows with ``overwriteBehavior=normal`` (a blank never erases a value). Returns the record ids
+        written; with ``auto_number`` REDCap names new records itself and the ids are the names it gave, in order."""
+        if not rows:
+            return []
+        import json
+
+        extra = {
+            "type": "flat",
+            "overwriteBehavior": "normal",
+            "forceAutoNumber": "true" if auto_number else "false",
+            "returnContent": "auto_ids" if auto_number else "ids",
+            "data": json.dumps(rows, ensure_ascii=False),
+        }
+        out = self._post("record", extra)
+        if not isinstance(out, list):
+            raise RcError("RC-UPSTREAM", "the record import did not answer with the record ids")
+        if auto_number:  # "new_id,given_name" pairs
+            return [str(x).split(",", 1)[0] for x in out]
+        return [str(x) for x in out]

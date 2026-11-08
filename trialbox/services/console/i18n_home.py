@@ -1121,3 +1121,12 @@ from console.i18n_step4 import ZH as _S4_ZH  # noqa: E402
 EN.update(_S4_EN)
 JA.update(_S4_JA)
 ZH.update(_S4_ZH)
+
+# TB-PLAN-04 step 3 (D-123): the Sources, Conflicts and Forms pages of a study's own data core
+from console.i18n_data import EN as _DC_EN  # noqa: E402
+from console.i18n_data import JA as _DC_JA  # noqa: E402
+from console.i18n_data import ZH as _DC_ZH  # noqa: E402
+
+EN.update(_DC_EN)
+JA.update(_DC_JA)
+ZH.update(_DC_ZH)

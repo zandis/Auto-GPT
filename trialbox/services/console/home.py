@@ -68,6 +68,7 @@ class Helpers:
     week_bundle: Callable[..., dict[str, Any] | None] | None = None
     trials: Callable[..., list[Any]] | None = None
     settings_of: Callable[[str], StudySettings] | None = None
+    api_session: Callable[[Request], Session] | None = None  # set by register(): bearer sign-in for /api/v1
 
 
 class ApiLogin(BaseModel):
@@ -758,6 +759,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if sess is None:
             raise h.problem(401, "login")
         return sess
+
+    h.api_session = api_session  # the other /api/v1 routes (console.data_pages) sign in the same way
 
     @app.post("/api/v1/session")
     def api_login(body: ApiLogin) -> dict[str, Any]:

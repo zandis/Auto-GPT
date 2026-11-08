@@ -4,6 +4,7 @@
 {% set q = request.query_params %}
 {% block content %}
 <div class="headrow"><h1>{{ rs }} · {{ t('setup.title') }}</h1><a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a></div>
+{% include "_data_nav.html" %}
 <p class="hint">{{ t('setup.help') }}</p>
 {% if not editable %}<p class="hint" data-testid="setup-readonly">{{ t('setup.readonly') }}</p>{% endif %}
 {% if err %}{{ errbox(err) }}{% endif %}
@@ -46,6 +47,10 @@
   <div><label for="screenfail_field">{{ t('rc.sf') }}</label><input id="screenfail_field" name="screenfail_field" class="mono" value="{{ f.screenfail_field or '' }}"{{ dis }}></div>
   <div><label for="screenfail_choice_map">{{ t('rc.sf_map') }}</label><input id="screenfail_choice_map" name="screenfail_choice_map" class="mono" value="{{ sf_map if not lk_form else '' }}"{{ dis }}><p class="hint">{{ t('rc.sf_map.help') }}</p></div>
   <div><label for="subject_no_field">{{ t('rc.subject') }}</label><input id="subject_no_field" name="subject_no_field" class="mono" value="{{ f.subject_no_field or '' }}"{{ dis }}></div>
+  <div class="full"><h3>{{ t('rc.write.title') }}</h3><p class="hint">{{ t('rc.write.help') }}</p></div>
+  <div><label for="write_mode">{{ t('rc.write.mode') }}</label><select id="write_mode" name="write_mode" data-testid="write-mode"{{ dis }}>{% for m in ('off', 'existing', 'create') %}<option value="{{ m }}"{% if (f.write_mode or 'off') == m %} selected{% endif %}>{{ t('rc.write.mode.' + m) }}</option>{% endfor %}</select></div>
+  <div><label for="write_form">{{ t('rc.write.form') }}</label><input id="write_form" name="write_form" class="mono" value="{{ f.write_form or 'trialbox_screening' }}"{{ dis }}></div>
+  <div><label for="write_event">{{ t('rc.write.event') }}</label><input id="write_event" name="write_event" class="mono" value="{{ f.write_event or '' }}"{{ dis }}></div>
   {% if editable %}<div class="full"><button type="submit" data-testid="save-link">{{ t('rc.save') }}</button></div>{% endif %}
 </form>
 {% if link and user.can_request %}<form method="post" action="/studies/{{ rs }}/setup/redcap/test" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secondary" data-testid="test-link">{{ t('rc.test') }}</button></form>{% endif %}

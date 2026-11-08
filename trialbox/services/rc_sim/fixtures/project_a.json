@@ -15,7 +15,10 @@
     {"field_name": "consent_date", "form_name": "screening", "field_type": "text", "field_label": "Date ICF signed", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "date_ymd", "branching_logic": "", "field_annotation": ""},
     {"field_name": "enrolled", "form_name": "screening", "field_type": "yesno", "field_label": "Enrolled", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""},
     {"field_name": "sf_reason", "form_name": "screening", "field_type": "radio", "field_label": "Screen-fail reason", "select_choices_or_calculations": "1, Inclusion not met | 2, Exclusion met | 3, Withdrew consent | 9, Other", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""},
-    {"field_name": "subject_no", "form_name": "screening", "field_type": "text", "field_label": "Sponsor subject number", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""}
+    {"field_name": "subject_no", "form_name": "screening", "field_type": "text", "field_label": "Sponsor subject number", "select_choices_or_calculations": "", "text_validation_type_or_show_slider_number": "", "branching_logic": "", "field_annotation": ""},
+    {"field_type": "text", "text_validation_type_or_show_slider_number": "date_ymd", "field_annotation": "", "field_label": "TrialBox: screening number issued (date)", "select_choices_or_calculations": "", "branching_logic": "", "form_name": "trialbox_screening", "field_name": "tb_screen_date"},
+    {"field_type": "dropdown", "text_validation_type_or_show_slider_number": "", "field_annotation": "", "field_label": "TrialBox: screening status", "select_choices_or_calculations": "1, candidate | 2, contacted | 3, consented | 4, enrolled | 5, screen_fail | 6, declined | 7, withdrawn", "branching_logic": "", "form_name": "trialbox_screening", "field_name": "tb_status"},
+    {"field_type": "text", "text_validation_type_or_show_slider_number": "date_ymd", "field_annotation": "", "field_label": "TrialBox: status date", "select_choices_or_calculations": "", "branching_logic": "", "form_name": "trialbox_screening", "field_name": "tb_status_date"}
   ],
   "dags": [],
   "events": [],

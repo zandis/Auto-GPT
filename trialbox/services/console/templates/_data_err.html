@@ -1,0 +1,3 @@
+{# An orchestrator refusal on a data-core page, in the reader's language; needs err {code, fields}. #}
+{% set k = 'dc.err.' + err.code %}{% set rk = 'rc.err.' + err.code %}
+<p class="error" role="alert" data-testid="dc-error">{% if err.code == 'unavailable' %}{{ t('rc.err.unavailable') }}{% elif t(k) != k %}{{ t(k, fields=err.fields) }}{% elif err.code.startswith('RC-') and t(rk) != rk %}{{ t(rk, fields=err.fields, msg='') }}{% else %}{{ t('dc.err.other') }}{% endif %}{% if err.code != 'unavailable' %} <span class="hint mono">{{ err.code }}</span>{% endif %}</p>
