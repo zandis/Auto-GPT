@@ -16,7 +16,7 @@
 <td class="mono">{{ r.no }}</td><td><a href="/studies/{{ rs }}/patients/{{ r.pid }}">{{ t('week.patient', p=r.short) }}</a></td><td class="num">{{ r.listed or '–' }}</td>
 <td>{% if r.mark %}{{ t('mark.' + r.mark.mark) }} · {{ r.mark.at|local(10) }}{% else %}–{% endif %}</td>
 <td>{% if r.outcome %}{{ t('outcome.' + r.outcome.outcome) }} · {{ r.outcome.at|local(10) }}{% if r.attempts > 1 %} ({{ t('log.attempts', n=r.attempts) }}){% endif %}{% else %}–{% endif %}</td>
-<td data-testid="status-{{ r.no }}">{{ t('registry.status.' + r.status) }}{% if r.updated %} · {{ r.updated }}{% endif %}{% if r.reason %} · <span class="hint">{{ r.reason }}</span>{% endif %}</td>
+<td data-testid="status-{{ r.no }}">{{ t('registry.status.' + r.status) }}{% if r.updated %} · {{ r.updated }}{% endif %}{% if r.reason_rc %} · <span class="hint">{{ t('log.from_redcap', r=r.reason_rc[0]) }}{% if r.reason_rc[1] %} ({{ r.reason_rc[1] }}){% endif %}</span>{% elif r.reason %} · <span class="hint">{{ r.reason }}</span>{% endif %}</td>
 {% if link %}<td class="mono">{{ r.record_id or '–' }}</td><td class="mono">{{ r.subject_no or '–' }}</td>{% endif %}
 </tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>

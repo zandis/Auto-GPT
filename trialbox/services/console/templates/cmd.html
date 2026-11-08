@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ t('cmd.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('cmd.title') }}</h1>
+<p class="hint" data-testid="cmd-typed">{{ t('cmd.you_typed') }} <q>{{ q }}</q></p>
+{% if hits is not none %}
+<section class="card" data-testid="cmd-results">
+  {% if not hits.studies and not hits.patients %}<p data-testid="cmd-nothing">{{ t('cmd.nothing') }}</p>{% endif %}
+  {% if hits.studies %}<h2>{{ t('cmd.kind.studies') }}</h2><ul class="plain">{% for s in hits.studies %}<li><a href="{{ s.href }}">{{ s.id }}</a></li>{% endfor %}</ul>{% endif %}
+  {% if hits.patients %}<h2>{{ t('cmd.kind.patients') }}</h2><ul class="plain">{% for p in hits.patients %}<li><a href="{{ p.href }}" class="mono">{{ p.study }} · {{ p.no or p.pid[:8] }}</a></li>{% endfor %}</ul>{% endif %}
+</section>
+{% elif act.intent == 'refused' %}
+<p class="warn" role="status" data-testid="cmd-refused">{{ t('cmd.refused.' + act.reason, cmd=act.command or '') }}</p>
+{% if act.reason == 'approval' and user.can_approve %}<p><a href="/home">{{ t('cmd.to_approvals') }}</a></p>{% endif %}
+{% elif act.intent == 'forbidden' %}
+<p class="warn" role="status" data-testid="cmd-forbidden">{{ t('cmd.forbidden') }}</p>
+{% elif act.intent == 'pick_study' %}
+<section class="card" data-testid="cmd-pick">
+  <p>{{ t('cmd.pick') }}</p>
+  <ul class="plain">{% for rs in studies %}<li><a href="/cmd?q={{ (q ~ ' ' ~ rs)|urlencode }}&back={{ back|urlencode }}">{{ rs }}</a></li>{% else %}<li>{{ t('cmd.no_studies') }}</li>{% endfor %}</ul>
+</section>
+{% else %}
+<p class="warn" role="status" data-testid="cmd-unknown">{{ t('cmd.unknown') }}</p>
+{% endif %}
+<section class="card">
+  <h2>{{ t('cmd.examples') }}</h2>
+  <ul class="plain" data-testid="cmd-examples">
+    {% for n in range(1, 7) %}{% set ex = t('cmd.ex.' ~ user.role ~ '.' ~ n) %}{% if ex != 'cmd.ex.' ~ user.role ~ '.' ~ n %}<li><a href="/cmd?q={{ ex|urlencode }}"><code>{{ ex }}</code></a></li>{% endif %}{% endfor %}
+  </ul>
+  <p class="hint">{{ t('cmd.never_runs') }}</p>
+</section>
+<p><a href="{{ back }}">{{ t('cmd.back') }}</a></p>
+{% endblock %}

@@ -92,6 +92,7 @@ make open-data-e2e             # MIMIC-IV FHIR demo (downloads ~10 MB, ODbL)
 python -m tools.feas_demo --dir /tmp/tb-feas   # build step 1: paste criteria -> feasibility funnel (D-106)
 python -m tools.list_demo --dir /tmp/tb-list   # build step 2: approve on S20 -> list, marks, N1/N2 mail (D-108)
 python -m tools.rc_demo --dir /tmp/tb-rc       # build step 3: REDCap simulator -> link -> Run now -> log status (D-109)
+python -m tools.role_demo --fresh --dir /tmp/tb-roles  # build step 4: five role homes, header command field, ja/zh-TW/en (D-110)
 ```
 
 ## Deploying a real site

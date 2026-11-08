@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav.admin') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('nav.admin') }}</h1><a class="button" href="/ops/users" data-testid="create-account">{{ t('admin.create') }}</a></div>
+<nav class="tabs" aria-label="{{ t('nav.admin') }}" data-testid="admin-tabs">{% for tb in tabs %}<a href="/admin?tab={{ tb }}" class="{{ 'active' if tb == tab else '' }}" data-testid="tab-{{ tb }}"{% if tb == tab %} aria-current="page"{% endif %}>{{ t('admin.tab.' + tb) }}</a>{% endfor %}</nav>
+{% if notice %}<p class="ok" role="status" data-testid="admin-notice">{{ t('admin.notice.' + notice) }}</p>{% endif %}
+
+{% if tab == 'health' %}
+<div class="tiles" data-testid="admin-health">
+  <section class="card tile" data-testid="tile-system">
+    <h2>{{ t('admin.system') }}</h2>
+    {% set up = health|selectattr('ok')|list|length %}
+    <p class="big"><span class="pill {{ 'ok' if up == health|length else 'bad' }}">{{ up }}/{{ health|length }} {{ t('health.ok') }}</span></p>
+    <ul class="plain">{% for hh in health %}<li>{{ hh.service }} · {% if hh.ok %}<span class="pill ok">{{ t('health.ok') }}</span>{% else %}<span class="pill bad">{{ t('health.down') }}</span> <a href="/help?back=/admin">{{ t('admin.what_to_do') }}</a>{% endif %}{% if hh.detail %} <span class="hint">{{ hh.detail }}</span>{% endif %}</li>{% endfor %}</ul>
+  </section>
+  <section class="card tile" data-testid="tile-queue">
+    <h2>{{ t('admin.queue') }}</h2>
+    <p class="big">{{ queue }}</p>
+    <p class="hint">{{ t('admin.queue.help', failed=failed24) }}</p>
+    <a href="/admin?tab=jobs">{{ t('admin.tab.jobs') }}</a>
+  </section>
+  <section class="card tile" data-testid="tile-models">
+    <h2>{{ t('overview.models') }}</h2>
+    {% if models %}<p class="hint">{{ t('overview.models.judge') }}: {{ models.judge_model or t('overview.models.none') }} · {{ t('overview.models.verifier') }}: {{ models.verifier_model or t('overview.models.none') }}</p>
+    <p>{% if models.mode == 'none' %}<span class="pill warn">{{ t('overview.models.no_judge') }}</span>{% elif models.may_block %}<span class="pill ok">{{ t('overview.models.both_agree') }}</span>{% else %}<span class="pill warn">{{ t('overview.models.never') }}</span>{% endif %}</p>
+    {% else %}<p class="hint">{{ t('overview.models.unavailable') }}</p>{% endif %}
+    <a href="/">{{ t('admin.overview') }}</a>
+  </section>
+  <section class="card tile" data-testid="tile-accounts">
+    <h2>{{ t('admin.accounts') }}</h2>
+    <p class="big">{{ users|length }}</p>
+    <p class="hint">{% for k, v in by_aff|dictsort %}{{ t('aff.' + k) }} {{ v }}{{ ' · ' if not loop.last else '' }}{% endfor %}</p>
+    {% if soon %}<p class="warn">{{ t('admin.expiring', n=soon|length) }}: {% for u in soon %}{{ u.username }} ({{ u.expires }}){{ ', ' if not loop.last else '' }}{% endfor %}</p>{% endif %}
+    <a href="/ops/users">{{ t('admin.manage') }}</a>
+  </section>
+  <section class="card tile" data-testid="tile-approvals">
+    <h2>{{ t('admin.approvals') }}</h2>
+    <p class="big">{{ waiting|length }}</p>
+    <p class="hint">{{ t('admin.waiting') }}</p>
+    <ul class="plain">{% for j in waiting[:5] %}<li><a href="/pilot/jobs/{{ j.job_id }}">{{ j.ruleset }} · {{ j.type }}</a></li>{% endfor %}
+    {% for r in rulesets if r.status == 'approved' %}<li class="hint">{{ r.id }} v{{ r.version }} · {{ t('admin.approved') }}</li>{% endfor %}</ul>
+  </section>
+  <section class="card tile" data-testid="tile-audit">
+    <h2>{{ t('admin.audit24') }}</h2>
+    <dl class="facts">
+      <dt>{{ t('admin.reveals') }}</dt><dd>{% if reveals %}{% for a, n in reveals %}{{ a|replace('console:', '') }} {{ n }}{{ ', ' if not loop.last else '' }}{% endfor %}{% else %}0{% endif %}</dd>
+      <dt>{{ t('admin.exports') }}</dt><dd>{{ counts.exports }}</dd>
+      <dt>{{ t('admin.denied') }}</dt><dd>{{ counts.denied }}</dd>
+      <dt>{{ t('admin.marks') }}</dt><dd>{{ counts.marks }}</dd>
+    </dl>
+    <a href="/audit">{{ t('admin.full_audit') }}</a> · <a href="/settings/notices" data-testid="notices-link">{{ t('notices.title') }}</a>
+  </section>
+</div>
+<p class="hint">{{ t('admin.health.later') }}</p>
+
+{% elif tab == 'jobs' %}
+<form method="get" action="/admin" class="filters row" data-testid="jobs-filter">
+  <input type="hidden" name="tab" value="jobs">
+  <label for="f-study">{{ t('col.ruleset') }}</label><select id="f-study" name="study"><option value="">{{ t('admin.jobs.all') }}</option>{% for s in studies %}<option {{ 'selected' if flt.study == s else '' }}>{{ s }}</option>{% endfor %}</select>
+  <label for="f-type">{{ t('col.type') }}</label><select id="f-type" name="type"><option value="">{{ t('admin.jobs.all') }}</option>{% for s in types %}<option {{ 'selected' if flt.type == s else '' }}>{{ s }}</option>{% endfor %}</select>
+  <label for="f-state">{{ t('col.state') }}</label><select id="f-state" name="state"><option value="">{{ t('admin.jobs.all') }}</option>{% for s in ['received', 'parsing', 'compiling', 'awaiting_approval', 'running', 'reporting', 'done', 'failed'] %}<option value="{{ s }}" {{ 'selected' if flt.state == s else '' }}>{{ state(s) }}</option>{% endfor %}</select>
+  <label for="f-day">{{ t('admin.jobs.day') }}</label><input id="f-day" name="day" type="date" value="{{ flt.day }}">
+  <button type="submit" class="small">{{ t('admin.jobs.filter') }}</button>
+</form>
+{% if jobs %}
+<div class="scroll"><table data-testid="admin-jobs">
+<thead><tr><th scope="col">{{ t('col.job') }}</th><th scope="col">{{ t('col.type') }}</th><th scope="col">{{ t('col.ruleset') }}</th><th scope="col">{{ t('col.state') }}</th><th scope="col">{{ t('col.received') }}</th><th scope="col">{{ t('admin.jobs.actions') }}</th></tr></thead>
+<tbody>{% for j in jobs %}<tr data-job="{{ j.job_id }}">
+<td class="mono"><a href="/pilot/jobs/{{ j.job_id }}">{{ j.job_id[-8:] }}</a></td><td>{{ j.type }}</td><td>{{ j.ruleset or '–' }}</td>
+<td><span class="state s-{{ j.state }}" data-state="{{ j.state }}">{{ state(j.state) }}</span>{% if j.error %}<br><span class="hint">{{ j.error.step }}</span>{% endif %}</td>
+<td class="nowrap">{{ j.received_at.strftime('%Y-%m-%d %H:%M') }}</td>
+<td>{% if j.state not in terminal and can_cancel %}<form method="post" action="/admin/jobs/{{ j.job_id }}/cancel" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="cancel-{{ j.job_id }}">{{ t('admin.jobs.cancel') }}</button></form>{% endif %}
+{% if j.state == 'failed' %}<form method="post" action="/admin/jobs/{{ j.job_id }}/retry" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small" data-testid="retry-{{ j.job_id }}">{{ t('admin.jobs.retry') }}</button></form>{% endif %}</td>
+</tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p>{{ t('jobs.none') }}</p>{% endif %}
+
+{% else %}
+<section class="card" data-testid="admin-sources">
+{% if sources %}
+<div class="scroll"><table>
+<thead><tr><th scope="col">{{ t('sources.source') }}</th><th scope="col">{{ t('sources.last_ok') }}</th><th scope="col">{{ t('sources.patients') }}</th><th scope="col">{{ t('sources.records') }}</th><th scope="col">{{ t('sources.error_pct') }}</th><th scope="col">{{ t('sources.next') }}</th></tr></thead>
+<tbody>{% for s in sources %}<tr data-source="{{ s.source }}"{% if s.amber %} class="amber"{% endif %}>
+<td>{{ s.source }}</td><td class="nowrap">{% if s.amber %}<span class="pill warn">{{ s.last_ok_text or t('sources.never') }}</span>{% else %}{{ s.last_ok_text }}{% endif %}</td>
+<td>{{ num(s.patients) if s.patients is not none else '–' }}</td><td>{{ num(s.records) if s.records is not none else '–' }}</td>
+<td>{{ '%.2f'|format(s.error_pct) ~ ' %' if s.error_pct is not none else '–' }}</td><td>{{ t('sources.next.nightly') }}</td></tr>
+<tr><td colspan="6"><details><summary>{{ t('sources.runs', n=s.runs|length) }}</summary><ul class="plain">{% for r in s.runs %}<li>{{ r.at }} · {% if r.ok %}<span class="pill ok">{{ t('health.ok') }}</span>{% else %}<span class="pill bad">{{ t('sources.failed') }}</span>{% endif %}{% if r.records is not none %} · {{ num(r.records) }}{% endif %}</li>{% endfor %}</ul></details></td></tr>{% endfor %}</tbody>
+</table></div>
+<p class="hint">{{ t('sources.amber') }}</p>
+{% else %}<p data-testid="sources-empty">{{ t('sources.none') }}</p>{% endif %}
+<form method="post" action="/ops/ingest" class="mt">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="secondary" data-testid="ingest">{{ t('overview.ingest') }}</button>
+  <p class="hint">{{ t('overview.ingest.help') }}</p>
+</form>
+</section>
+{% endif %}
+{% endblock %}

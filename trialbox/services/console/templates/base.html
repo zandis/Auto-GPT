@@ -16,8 +16,15 @@
   <a class="brand" href="/">{{ t('brand') }}</a>
   {% if user %}
   {% include "_nav.html" %}
+  {% if pilot %}<form method="get" action="/cmd" class="cmd" role="search" data-testid="cmd">
+    <label class="sr" for="cmd-q">{{ t('cmd.label') }}</label>
+    <input id="cmd-q" name="q" type="search" placeholder="{{ t('cmd.placeholder') }}" maxlength="300" autocomplete="off" enterkeyhint="go" data-testid="cmd-q">
+    <input type="hidden" name="back" value="{{ path }}">
+    <button type="submit" class="small">{{ t('cmd.go') }}</button>
+  </form>
+  <a class="helpq" href="/help?back={{ path|urlencode }}" title="{{ t('help.title') }}" aria-label="{{ t('help.title') }}" data-testid="help">?</a>{% endif %}
   <div class="who">
-    <span data-testid="whoami">{{ user.username }} · {{ t('role.' + user.role) }}</span>
+    <a href="/account" data-testid="whoami">{{ user.username }} · {{ t('role.' + user.role) }}</a>
     <form method="post" action="/lang" class="inline">
       <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ path }}">
       <label class="sr" for="lang">{{ t('lang.label') }}</label>

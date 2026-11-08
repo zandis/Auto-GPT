@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ t('account.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('account.title') }}</h1>
+{% if saved %}<p class="ok" role="status" data-testid="account-saved">{{ t('account.saved') }}</p>{% endif %}
+{% if error %}<p class="error" role="alert" data-testid="account-error">{{ t(error) }}</p>{% endif %}
+<section class="card" data-testid="account-facts">
+<dl class="facts">
+  <dt>{{ t('account.name') }}</dt><dd>{{ me.username }}</dd>
+  <dt>{{ t('account.role') }}</dt><dd>{{ t('role.' + me.role) }}</dd>
+  <dt>{{ t('account.affiliation') }}</dt><dd>{{ t('aff.' + me.affiliation) }}</dd>
+  <dt>{{ t('account.studies') }}</dt><dd>{% if me.studies %}{{ me.studies|join(', ') }}{% else %}{{ t('account.studies.all') }}{% if studies %} ({{ studies|join(', ') }}){% endif %}{% endif %}</dd>
+  <dt>{{ t('account.expires') }}</dt><dd>{{ me.expires or t('account.expires.none') }}</dd>
+  <dt>{{ t('account.last_login') }}</dt><dd>{{ last_login or '–' }}</dd>
+  <dt>{{ t('account.mailbox') }}</dt><dd>{{ me.mailbox or '–' }}</dd>
+</dl>
+</section>
+<section class="card">
+  <h2>{{ t('account.lang') }}</h2>
+  <form method="post" action="/lang" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="/account">
+    <label class="sr" for="acc-lang">{{ t('lang.label') }}</label>
+    <select id="acc-lang" name="lang">{% for l in langs %}<option value="{{ l }}" lang="{{ l }}" {{ 'selected' if l == lang else '' }}>{{ t('lang.name.' + l) }}</option>{% endfor %}</select>
+    <button type="submit" data-testid="account-lang">{{ t('lang.apply') }}</button>
+  </form>
+  <p class="hint"><a href="/settings/notices">{{ t('account.notice_settings') }}</a>{% if user.role in ('investigator', 'coordinator', 'admin') %} · <a href="/notices/received">{{ t('received.title') }}</a>{% endif %}</p>
+</section>
+<section class="card">
+  <h2>{{ t('account.password') }}</h2>
+  {% if sso %}<p class="hint" data-testid="account-sso">{{ t('account.sso') }}</p>{% else %}
+  <form method="post" action="/account/password" data-testid="account-password">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="pw-cur">{{ t('account.pw.current') }}</label><input id="pw-cur" name="current" type="password" autocomplete="current-password" required>
+    <label for="pw-new">{{ t('account.pw.new') }}</label><input id="pw-new" name="new" type="password" autocomplete="new-password" required>
+    <label for="pw-again">{{ t('account.pw.again') }}</label><input id="pw-again" name="again" type="password" autocomplete="new-password" required>
+    <p class="hint">{{ t('account.pw.help') }}</p>
+    <button type="submit">{{ t('account.pw.save') }}</button>
+  </form>{% endif %}
+  <p class="hint">{{ t('account.totp_later') }}</p>
+</section>
+{% endblock %}

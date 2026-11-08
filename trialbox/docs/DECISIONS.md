@@ -1130,3 +1130,51 @@ step 3 of `20-build-map.md` §2 (REDCap link). What was decided, and why:
 
 Demo: `python -m tools.rc_demo --dir /tmp/tb-rc [--serve]` (after the step-2 run: S36 connect, S21 link, create then
 change the record in the simulator, Run now twice, see consented then enrolled in the log).
+
+**D-110 Build step 4: role homes, the header command field, three languages.** Build step 4 of `20-build-map.md` §2.
+What was decided, and why:
+
+* **Homes.** After sign-in every pilot role lands on `/home`, which is its work list: the investigator's "This week"
+  (`/week`, S16), the coordinator's work list (S8), the administrator's S13 admin page, the viewer's and CRO's
+  reports (S3/S4). The service overview at `/` stays for the administrator under More (its tests and the POC walk
+  use it); it is no longer an entry page (S1).
+* **Header command field** (`console/command.py`, S1, replaces S28): one box in the header of every pilot page.
+  `interpret(text, studies, role)` is pure: first the mail grammar (`channels.grammar.parse_line`; FEAS, SCREEN,
+  STATUS, APPROVE and REJECTGATE are also taken in lower case), then a ja/zh-TW/en phrase table (longest phrase
+  wins), then search (study code, hex pseudonym prefix, screening number; never a chart number). **The field only
+  opens pages**: SCREEN and FEAS NEW open their request page pre-filled and nothing runs until the user presses the
+  button there; APPROVE / REJECTGATE are refused (approval is on S20 only, FR-AUTH-13); mail-only commands and mark
+  aliases say where to go instead. Targets are limited by role and checked again by the target page. Text that is
+  not understood shows examples and does nothing. The audit keeps `console.command` with the intent only, never
+  the typed text. The phrase table is builder-written (F6-26); a site adds its own at install (H).
+* **Command test set**: `tests/console/data/command_set.json`, 96 phrasings (40 en, 28 ja, 28 zh-TW) across the five
+  roles, including role refusals and not-understood text. Right = expected action and study; wrong = a different
+  page opened. Score in `command_set_score.json` (`python -m tools.command_score --write`): 96/96 right, 0 wrong.
+  The set was written before it was first scored; that run had one wrong (`cohort HTN2` read as the v1 COHORT
+  job), fixed by limiting lower-case grammar to the five commands above, and one expectation error.
+* **S22 My account** (`/account`): name, role, affiliation, studies, expiry, last sign-in, language, password change
+  (non-SSO; signs the account out everywhere, so the user signs in again). TOTP is H.
+* **S29 Help panel** (`/help?back=`): the "?" in the header opens help for the page it came from (a page, not a
+  side drawer), the role, the command field with the role's examples, and the site contact. User guide is H.
+* **S37 Notices received** (`/notices/received`): the person's rows of the site store's `notify_log`, newest first,
+  linking to the list as it is now. The notice bodies are not stored, so "last Monday's list as sent" is H.
+* **S13 admin page** (`/admin?tab=health|jobs|sources`): Health (services, job queue, models, accounts, approvals,
+  audit 24 h; GPU, disk, backup and audit-chain tiles are H), **S26 Jobs** with filters (study, type, state, day),
+  Cancel on queued or running jobs (orchestrator `POST /jobs/{id}/cancel`, new `HttpBackend.cancel_job`) and Retry
+  on failed jobs (a new job with the same type, ruleset, options, comment, requester and inputs); both ask to
+  confirm and are audited (`console.operate` cancel / retry). **S24 Data sources** reads the adapter's
+  `ingest.done` / `ingest.failed` audit records (source, last success, patients, records, validation error rate,
+  last 30 runs; amber after 48 h) and keeps "Run ingest now".
+* **Languages.** All step-4 strings in `console/i18n_step4.py` in en, ja and zh-TW; a test checks every key in every
+  language with the same placeholders, and the step-4 pages in ja and zh-TW for English. The REDCap read-back note
+  on the screening log is shown in the reader's language (the stored note stays language-neutral); the service
+  state pills are translated. The TB-DS-09 §6 mark labels were already in step 2; "Ask treating doctor"
+  (主治医に確認 / 詢問主治醫師) is added for FR-UI-15. Ruleset content (criterion labels, PI notes) and service
+  details stay as written; native review of the JA and zh-TW wording is H (OQ-14).
+* **Phone**: the header field takes the full width under the nav with "?" beside it; no page of the walk scrolls
+  sideways at 390 px.
+* **Browser walk**: `tests/e2e/role_walk.js` with `tests/e2e/test_role_walk.py` (marker e2e, no stack: it starts the
+  role demo): 5 roles × 3 languages × desktop and phone, 210 checks (lands on the home, page language, field
+  placeholder, the field opens help from a phrase in that language, My account, no sideways scroll on the phone).
+
+Demo: `python -m tools.role_demo --fresh --dir /tmp/tb-roles` and sign in as admin, crc, pi, viewer or cra.

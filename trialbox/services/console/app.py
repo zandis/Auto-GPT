@@ -425,7 +425,7 @@ def create_app(
         path = request.url.path
         u = sess.user
         if u.role == "cro" and not (
-            path in ("/", "/home", "/reports", "/lang", "/logout")
+            path in ("/", "/home", "/reports", "/lang", "/logout", "/cmd", "/account", "/account/password", "/help")
             or re.fullmatch(r"/studies/[A-Za-z0-9_-]+/feasibility", path)
             or re.fullmatch(r"/pilot/jobs/[0-9A-HJKMNP-TV-Z]{26}/sponsor-pack\.zip", path)
         ):
@@ -598,7 +598,7 @@ def create_app(
             return resp
         token, _ = us.new_session(user, pick_language(request.headers.get("accept-language")))
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
-        done = RedirectResponse("/", status_code=303)
+        done = RedirectResponse("/home" if settings.pilot else "/", status_code=303)  # S1: land on the work list
         done.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
         done.delete_cookie(LOGIN_COOKIE)
         return done
@@ -755,7 +755,7 @@ def create_app(
     if not settings.pilot:
         return app
 
-    from console import approval, notify, screening_log, study_setup
+    from console import approval, notify, screening_log, step4, study_setup
     from console.home import Helpers
     from console.home import register as register_home
     from console.sitestore import SiteStore
@@ -779,6 +779,7 @@ def create_app(
     screening_log.register(app, helpers)
     notify.register(app, helpers)
     study_setup.register(app, helpers)  # S21 and S36 (D-109)
+    step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
 
     def _job_or_404(job_id: str) -> Job:
         if not _ULID.match(job_id):
