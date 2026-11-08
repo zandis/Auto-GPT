@@ -201,3 +201,68 @@ def enter(dc: DataCore, study: str, record: str, event: str, values: dict[str, s
         code = "DATA-OWNED" if any("owned by" in p for p in problems) else "DATA-VALUE"
         raise DataError(code, "; ".join(problems))
     return sum(dc.write(study, record, event, f, str(v), by, at, TRIALBOX) for f, v in values.items())
+
+
+def form_fields(dc: DataCore, study: str, form: str) -> list[Any]:
+    """The fields of one form, in order (``[]`` if the study has no such form)."""
+    from datacore.forms import fields_of
+
+    q = next((q for q in dc.forms(study) if q.get("name") == form), None)
+    return fields_of(q) if q else []
+
+
+def save_form(dc: DataCore, study: str, record: str, event: str, form: str, values: dict[str, str], by: str,
+              at: str) -> dict[str, Any]:  # fmt: skip
+    """A person saves a whole form (TB-PLAN-04 step 4). Checked together, refused together with every reason:
+
+    * branching (``datacore.branching``) on the record's values with this save laid over them; a hidden field is
+      never required and a value sent for it is not written (a value already stored stays);
+    * required: only for shown fields, and not for a field whose rule is outside the subset (it is shown, but
+      TrialBox cannot know whether REDCap would hide it);
+    * type and range per field (``forms.problem``);
+    * ownership as in ``enter``: a field owned by a source is changed in that source, never here.
+
+    Returns ``{changed, written, hidden}``; raises ``DataError("DATA-FORM", ..., problems)``."""
+    from datacore import branching
+    from datacore.forms import problem, reason
+
+    fields = form_fields(dc, study, form)
+    if not fields:
+        raise DataError("DATA-FORM", f"no form {form}", [{"field": form, "code": "form"}])
+    by_name = {f.name: f for f in fields}
+    owners = dc.owners(study)
+    current = dc.record(study, record, event)
+    merged = {**current, **{k: str(v) for k, v in values.items()}}
+    problems: list[dict[str, str]] = [{"field": n, "code": "unknown"} for n in values if n not in by_name]
+    write: dict[str, str] = {}
+    hidden: list[str] = []
+    for f in fields:
+        sent = f.name in values
+        v = str(values[f.name]) if sent else current.get(f.name, "")
+        if f.kind in ("display", "calc"):
+            if v != current.get(f.name, ""):
+                problems.append({"field": f.name, "code": "not_entered"})
+            continue
+        owner = owners.get(f.name, TRIALBOX)
+        if owner != TRIALBOX:
+            if sent and v != current.get(f.name, ""):
+                problems.append({"field": f.name, "code": "owned", "owner": owner})
+            continue
+        rule = branching.parse(f.branching) if f.branching else None
+        if rule is not None and not branching.evaluate(rule, merged):
+            if sent and v:
+                hidden.append(f.name)
+            continue
+        if f.required and v == "" and not (f.branching and rule is None):
+            problems.append({"field": f.name, "code": "required"})
+            continue
+        p = problem(f, v)
+        if p is not None:
+            problems.append(p)
+        elif sent and v != current.get(f.name, ""):
+            write[f.name] = v
+    if problems:
+        msg = "; ".join(reason(p, str(values.get(p["field"], ""))) for p in problems)
+        raise DataError("DATA-FORM", msg, problems)
+    changed = sum(dc.write(study, record, event, f, v, by, at, TRIALBOX) for f, v in write.items())
+    return {"changed": changed, "written": sorted(write), "hidden": hidden}

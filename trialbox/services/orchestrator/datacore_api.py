@@ -10,6 +10,16 @@
 * ``GET /studies/{rs}/conflicts``; ``POST /studies/{rs}/conflicts/{id}`` with ``keep`` = ``theirs`` | ``trialbox``.
 * ``GET /studies/{rs}/fhir`` (the Questionnaires and QuestionnaireResponses for HAPI).
 
+TB-PLAN-04 step 4 (built-in capture, D-129):
+
+* ``POST /studies/{rs}/forms/builtin`` adds TrialBox's seven forms (ja, zh-TW, en) in one call.
+* ``GET /studies/{rs}/records`` lists the records with their events; ``GET /studies/{rs}/records/{record}`` gives
+  one record's values per event and its change history (who, when, old, new, source).
+* ``POST /studies/{rs}/entry/{record}`` saves one whole form (``form``, ``event``, ``values``): branching, required,
+  type, range and ownership checked together and refused together, 409 ``DATA-FORM`` with ``problems`` per field.
+* ``GET /studies/{rs}/export/{odm|csv|xlsx}``: CDISC ODM 1.3.2, REDCap CSV, XLSX, as ``{name, media_type, text}``
+  (``b64`` for XLSX); ``GET /studies/{rs}/export/dictionary`` the matching REDCap data dictionary rows.
+
 With no source attached TrialBox works on its own data: entry, lists and the trial lifecycle never need REDCap.
 """
 
@@ -102,6 +112,13 @@ class SheetBody(BaseModel):
     by: str
 
 
+class FormBody(BaseModel):
+    form: str = Field(pattern=r"^[a-z][a-z0-9_]{0,99}$")
+    event: str = Field(default="", pattern=r"^([a-z][a-z0-9_]{0,99})?$")
+    values: dict[str, str]
+    by: str
+
+
 class ResolveBody(BaseModel):
     keep: str
     by: str
@@ -121,8 +138,17 @@ def _rs(rs: str) -> str:
 def _fail(exc: Exception) -> HTTPException:
     code = getattr(exc, "code", "DATA-ERROR")
     status = 502 if isinstance(exc, RcError) and code == "RC-UPSTREAM" else 409
-    return HTTPException(status_code=status, detail={"code": code, "message": getattr(exc, "message", str(exc)),
-                                                     "fields": getattr(exc, "fields", [])})  # fmt: skip
+    detail = {"code": code, "message": getattr(exc, "message", str(exc)), "fields": getattr(exc, "fields", [])}
+    if getattr(exc, "problems", None):
+        detail["problems"] = exc.problems  # type: ignore[attr-defined]
+    return HTTPException(status_code=status, detail=detail)
+
+
+def record_key(record: str) -> str:
+    """The record key as stored: a pseudonym (32 hex) in lower case, a screening number in upper case."""
+    if not _REC.match(record):
+        raise HTTPException(status_code=400, detail={"code": "DATA-RECORD", "message": "not a record key"})
+    return record.lower() if re.fullmatch(r"[0-9a-fA-F]{32}", record) else record.upper()
 
 
 def snapshot(dc: DataCore, rs: str) -> dict[str, Any]:
@@ -196,7 +222,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         """The study's sources and who owns each field, without any record value (the console's Sources page)."""
         dc, rid = get().dc, _rs(rs)
         owners = dc.owners(rid)
-        fields = [{"name": f.name, "form": f.form, "kind": f.kind, "label": f.label,
+        fields = [{"name": f.name, "form": f.form, "kind": f.kind, "label": f.label, "labels": f.labels,
                    "owner": owners.get(f.name, "trialbox")} for f in dc.fields(rid).values()]  # fmt: skip
         return {"sources": dc.sources(rid), "fields": fields}
 
@@ -298,6 +324,80 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         detail = {"conflict": cid, "keep": body.keep, "field": c["field"], "record": c["record"]}
         svc.audit.append("data.resolve", ruleset=rid, actor=body.by, detail=detail)
         return out
+
+    # ------------------------------------------------------------------ built-in capture (TB-PLAN-04 step 4)
+    @r.post("/studies/{rs}/forms/builtin")
+    def add_builtin(rs: str, body: SyncBody) -> dict[str, Any]:
+        """TrialBox's seven forms in one call. A built-in field name another form of the study already uses is
+        refused (FORM-DUP), so a REDCap dictionary's fields are never shadowed; adding them again replaces them."""
+        from datacore.builtin import ORIGIN, builtin_questionnaires
+
+        svc, rid = get(), _rs(rs)
+        qs = builtin_questionnaires(rid)
+        names = {q["name"] for q in qs}
+        theirs = {f.name for q in svc.dc.forms(rid) if q["name"] not in names for f in forms.fields_of(q)}
+        dup = sorted(theirs & {i["linkId"] for q in qs for i in q["item"]})
+        if dup:
+            raise _fail(forms.FormError("FORM-DUP", "a built-in field name is used by another form", dup))
+        at = svc.stamp()
+        for q in qs:
+            svc.dc.put_form(rid, q, ORIGIN, at)
+        svc.audit.append("data.forms", ruleset=rid, actor=body.by, detail={"forms": sorted(names), "origin": ORIGIN})
+        return {"forms": [q["name"] for q in qs], "fields": sum(len(q["item"]) for q in qs)}
+
+    @r.get("/studies/{rs}/records")
+    def get_records(rs: str) -> list[dict[str, Any]]:
+        dc, rid = get().dc, _rs(rs)
+        out: dict[str, dict[str, Any]] = {}
+        for v in dc.values(rid):
+            r = out.setdefault(v["record"], {"record": v["record"], "events": [], "changed_at": ""})
+            if v["event"] not in r["events"]:
+                r["events"].append(v["event"])
+            r["changed_at"] = max(r["changed_at"], str(v["changed_at"]))
+        return [out[k] for k in sorted(out)]
+
+    @r.get("/studies/{rs}/records/{record}")
+    def get_record(rs: str, record: str) -> dict[str, Any]:
+        """One record: its values per event (value, who, when) and its whole change history."""
+        dc, rid, rec = get().dc, _rs(rs), record_key(record)
+        values: dict[str, dict[str, Any]] = {}
+        for v in dc.values(rid, rec):
+            values.setdefault(v["event"], {})[v["field"]] = {"value": v["value"], "by": v["changed_by"],
+                                                             "at": v["changed_at"]}  # fmt: skip
+        return {"record": rec, "values": values, "history": dc.history(rid, rec), "owners": dc.owners(rid)}
+
+    @r.post("/studies/{rs}/entry/{record}")
+    def save_form(rs: str, record: str, body: FormBody) -> dict[str, Any]:
+        svc, rid, rec = get(), _rs(rs), record_key(record)
+        try:
+            out = sync.save_form(svc.dc, rid, rec, body.event, body.form, body.values, body.by, svc.stamp())
+        except DataError as exc:
+            raise _fail(exc) from exc
+        svc.audit.append("data.entry", ruleset=rid, actor=body.by,
+                         detail={"record": rec, "event": body.event, "form": body.form,
+                                 "fields": out["written"]})  # fmt: skip
+        return {**out, "record": rec, "event": body.event, "values": svc.dc.record(rid, rec, body.event)}
+
+    @r.get("/studies/{rs}/export/{fmt}")
+    def export_data(rs: str, fmt: str, by: str = "") -> dict[str, Any]:
+        """ODM 1.3.2, REDCap CSV or XLSX of every record (screening numbers and pseudonyms; no chart number)."""
+        import base64
+
+        from datacore import export
+
+        svc, rid = get(), _rs(rs)
+        if fmt == "dictionary":
+            return {"metadata": forms.metadata(export.export_fields(svc.dc, rid))}
+        if fmt not in ("odm", "csv", "xlsx"):
+            raise HTTPException(status_code=404, detail={"code": "DATA-EXPORT", "message": "odm, csv or xlsx"})
+        at = svc.now().isoformat(timespec="seconds")
+        body = export.export(svc.dc, rid, fmt, at)
+        suffix, media = export.media(fmt)
+        name = f"{rid}_{svc.now().strftime('%Y%m%d')}{suffix}"
+        svc.audit.append("data.export", ruleset=rid, actor=by or "orchestrator", detail={"format": fmt})
+        if isinstance(body, bytes):
+            return {"name": name, "media_type": media, "b64": base64.b64encode(body).decode()}
+        return {"name": name, "media_type": media, "text": body}
 
     @r.get("/studies/{rs}/fhir")
     def get_fhir(rs: str) -> dict[str, Any]:
