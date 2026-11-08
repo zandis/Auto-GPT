@@ -1,0 +1,51 @@
+{
+ "card": {
+  "capped_to": "RTX 5090 (32 GB), by --gpu-memory-utilization",
+  "count": 1,
+  "cuda": null,
+  "driver": "580",
+  "memory_total_mib": 97887,
+  "name": "NVIDIA RTX PRO 6000 Blackwell (GCP g4-standard-48 Spot, asia-east1-a)"
+ },
+ "captured_at": "2026-11-06T00:00:00+00:00",
+ "host": "tb-gpu-sim",
+ "memory_used_mib": 35840,
+ "notes": "Reconstructed by hand from deploy/gcp/gpu-sim-startup.sh and docs/reviews/2026-11-06-gpu-sim-5090-pair.md (35.0 GiB used). Model-file hashes were not recorded on that run; the next run on the deployed files captures them with deploy/gcp/capture-serving-config.sh. memory_total_mib is the RTX PRO 6000 nominal (96 GB); exact driver minor and CUDA were not recorded.",
+ "schema": "tb-serving-config/1",
+ "servers": [
+  {
+   "container": "judge",
+   "enforce_eager": true,
+   "extra_args": ["--limit-mm-per-prompt", "{\"image\":0,\"audio\":0,\"video\":0}"],
+   "gpu_memory_utilization": 0.22,
+   "image": "vllm/vllm-openai:v0.32.0",
+   "kv_cache_dtype": "auto",
+   "max_model_len": 8192,
+   "max_num_seqs": 4,
+   "model": "nvidia/Gemma-4-26B-A4B-NVFP4",
+   "model_files": [],
+   "model_files_sha256": null,
+   "quantization": null,
+   "role": "judge",
+   "served_model_name": "local/gemma-4-26b-a4b-nvfp4",
+   "vllm_version": "0.32.0"
+  },
+  {
+   "container": "verifier",
+   "enforce_eager": true,
+   "extra_args": ["--limit-mm-per-prompt", "{\"image\":0,\"video\":0}", "--default-chat-template-kwargs", "{\"enable_thinking\": false}"],
+   "gpu_memory_utilization": 0.105,
+   "image": "vllm/vllm-openai:v0.32.0",
+   "kv_cache_dtype": "auto",
+   "max_model_len": 8192,
+   "max_num_seqs": 4,
+   "model": "cyankiwi/Qwen3.5-9B-AWQ-4bit",
+   "model_files": [],
+   "model_files_sha256": null,
+   "quantization": null,
+   "role": "verifier",
+   "served_model_name": "local/qwen3.5-9b-awq",
+   "vllm_version": "0.32.0"
+  }
+ ]
+}

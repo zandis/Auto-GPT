@@ -1,0 +1,117 @@
+{
+ "basis": "1015 criteria (all annotated; trial_info.json not cached)",
+ "n11": [
+  {
+   "build": "deployed files (CON-12, on a card)",
+   "judge": "local/gemma-4-26b-a4b-nvfp4",
+   "langs": [
+    {
+     "block_recall": 0.515,
+     "criteria": 1015,
+     "false_block_rate": 0.0051,
+     "gate": 5,
+     "lang": "en",
+     "llm_share": 0.423,
+     "lost": 4,
+     "of": 79,
+     "recorded": 4,
+     "status": "pass"
+    },
+    {
+     "block_recall": 0.485,
+     "criteria": 1015,
+     "false_block_rate": 0.0041,
+     "gate": 4,
+     "lang": "ja",
+     "llm_share": 0.423,
+     "lost": 3,
+     "of": 79,
+     "recorded": 3,
+     "status": "pass"
+    },
+    {
+     "lang": "zh-TW",
+     "missing": [
+      "eval/trialgpt_compare/results/raw/trialbox__local__gemma-4-26b-a4b-nvfp4__zh-TW.jsonl.gz",
+      "eval/trialgpt_compare/results/raw/trialbox__local__qwen3.5-9b-awq__zh-TW.jsonl.gz"
+     ],
+     "recorded": null,
+     "status": "missing"
+    }
+   ],
+   "note": "nvidia/Gemma-4-26B-A4B-NVFP4 + cyankiwi/Qwen3.5-9B-AWQ-4bit on vLLM v0.32.0, RTX PRO 6000 capped to 5090 limits, 2026-11-06",
+   "verifier": "local/qwen3.5-9b-awq"
+  },
+  {
+   "build": "same models, API 4-bit (proxy)",
+   "judge": "google/gemma-4-26b-a4b-it@fp4",
+   "langs": [
+    {
+     "block_recall": 0.576,
+     "criteria": 1015,
+     "false_block_rate": 0.002,
+     "gate": 5,
+     "lang": "en",
+     "llm_share": 0.423,
+     "lost": 1,
+     "of": 79,
+     "recorded": 1,
+     "status": "pass"
+    },
+    {
+     "block_recall": 0.576,
+     "criteria": 1015,
+     "false_block_rate": 0.0031,
+     "gate": 4,
+     "lang": "ja",
+     "llm_share": 0.423,
+     "lost": 2,
+     "of": 79,
+     "recorded": 2,
+     "status": "pass"
+    },
+    {
+     "block_recall": 0.576,
+     "criteria": 1015,
+     "false_block_rate": 0.002,
+     "gate": 2,
+     "lang": "zh-TW",
+     "llm_share": 0.423,
+     "lost": 1,
+     "of": 79,
+     "recorded": null,
+     "status": "pass"
+    }
+   ],
+   "note": "OpenRouter provider precision, 2026-11-05/07; not the deployed files",
+   "verifier": "qwen/qwen3.5-9b"
+  }
+ ],
+ "n12": {
+  "gate": 0.05,
+  "inputs": {
+   "audit_model_errors": "10/30 (Claude, not a clinician)",
+   "criteria_per_trial": 11.8,
+   "llm_share": 0.42,
+   "per_criterion_false_block_q": 0.02255
+  },
+  "measured_on": "OpenRouter provider precision (API 4-bit), not the deployed files",
+  "missing_for_deployed_files": [
+   "eval/trec_ct/results/raw/local__gemma-4-26b-a4b-nvfp4.jsonl.gz",
+   "eval/trec_ct/results/raw/local__qwen3.5-9b-awq.jsonl.gz",
+   ".cache/trec_ct/qrels2021.txt, qrels2022.txt, sample_trials.json (NIST/NCBI, to recompute q from them)"
+  ],
+  "models": [
+   "google/gemma-4-26b-a4b-it@fp4",
+   "qwen/qwen3.5-9b"
+  ],
+  "projected_true_loss": 0.0356,
+  "recorded_95": [
+   0.0208,
+   0.0562
+  ],
+  "recorded_point": 0.0357,
+  "status": "pass"
+ },
+ "reproduces": true
+}
