@@ -4,7 +4,7 @@ and on phone, against the role demo (``tools/role_demo.py``, the real pipeline o
 The browser part is ``tests/e2e/role_walk.js`` (Node Playwright, preinstalled Chromium). No stack is needed: the demo
 runs in one process. ``TB_WALK_SHOTS=<dir>`` saves the step-4 screenshots at device scale 2.
 
-    .venv/bin/python -m pytest tests/e2e/test_role_walk.py -m e2e
+    TB_INTEGRATION=1 .venv/bin/python -m pytest tests/e2e/test_role_walk.py -m e2e   # e2e tests need the flag
 """
 
 from __future__ import annotations
