@@ -1515,7 +1515,34 @@ TB-PLAN-03 step 7 (`22-optimization-plan.md` §5, §10; finding 2's root cause; 
   WHO ICD-10, mostly a subset of ICD-10-CM at category level); ADT-52 discharge and OMP-11/12 administrations;
   extended-storage `_contents.xml` documents; the CQL path still reads enumerated lists only.
 
-**D-123 REDCap write-back: TrialBox fills its own instrument and never a REDCap-owned field (TB-PLAN-03 step 8).**
+**D-123 The data core, its importers and REDCap write-back: TrialBox holds its own trial data and syncs two-way only
+with REDCap and spreadsheets (TB-PLAN-03 step 8, finished as TB-PLAN-04 step 3).**
+
+* **The data core** (`services/datacore`, schema `datacore` of `trialbox_wf`, D-126). A REDCap data dictionary (or
+  a built-in form) becomes FHIR Questionnaires; answers are rows, one per (study, record, event, field), with who
+  changed it last and when, and for each source the value last seen and last pushed. Every change is in `history`.
+  Identifier fields of a dictionary are dropped; a record is keyed by the screening number first, else the pseudonym
+  (a chart number turned into the HMAC pseudonym with the site key at import), else the row is refused and listed
+  with its place in the source, never guessed (`SyncResult.refused`).
+* **Ownership and conflicts.** Each field is owned by TrialBox or by one source. A source-owned change is taken; a
+  TrialBox-owned field is pushed when it changed; a different value at the source for a TrialBox field, or a source
+  value against an earlier TrialBox value, is a conflict: listed once, never forced, closed by a person (keep
+  TrialBox's or take the source's), and the trail kept.
+* **Sources.** REDCap (two-way, through its API; `create` makes the missing records), a PI's spreadsheet (CSV in
+  UTF-8, Shift_JIS or Big5, or XLSX; identifier columns dropped and listed; `POST /studies/{rs}/import/sheet`), a
+  FHIR bundle of QuestionnaireResponses. Hospital systems stay one-way in (owner decision 2, 2026-11-08).
+* **API** (`orchestrator/datacore_api.py`): forms, dictionary import, entry, REDCap attach and detach, sync,
+  conflicts and resolution, sheet import, FHIR export; console pages Sources, Conflicts and Forms with `/api/v1`.
+* **REDCap write-back of the screening fields** (below) stays the S21 link's job for now; folding it into the data
+  core's TrialBox-owned fields is step 5 (lifecycle), so one writer owns each REDCap field.
+* **Evidence (data core).** `tests/unit/test_datacore.py`, `tests/unit/test_datacore_api.py`; `e2e_simple` stage 9
+  on the simulator's longitudinal project B: REDCap off → entries in TrialBox → REDCap attached → TrialBox's fields
+  pushed and a missing record created → an earlier TrialBox value and a REDCap-side edit of a TrialBox field listed
+  as conflicts → resolved → pushed; a PI's sheet with a name column imported with the column dropped, the chart
+  number pseudonymised and a keyless row refused and listed.
+
+**The write-back of the screening fields:**
+
 * **What is written.** Three fields on TrialBox's own instrument (`write_form`, default `trialbox_screening`):
   `tb_screen_date` (the day the screening number was issued), `tb_status` (the registry status as a code,
   1 candidate … 7 withdrawn) and `tb_status_date`. Nothing else is ever sent for an existing record. A new record
@@ -1627,3 +1654,12 @@ answers of 2026-11-08.
   (F-03), runs that fail on consent or note query errors instead of skipping opt-outs (F-04), one environment rule
   with the installer writing PRODUCTION (F-06), one store of record for screening numbers (F-08) and a service token
   on every service (F-11). F-05 (SQL-only at runtime) and F-10 (unmapped code systems) go to step 6.
+
+**D-128 Per-service secrets move to the hardening and installer work.** Owner's answer, 2026-11-08.
+
+* The standards/security review found one `deploy/.env` with every secret (service token, mail passwords, database
+  passwords, cloud-model keys) injected into every container. Splitting it into per-service secret files changes the
+  installer, the PoC scripts and the settings wizard, which the Windows/WSL2 offline installer (D-125) replaces. So
+  it is done there, after the platform is finished, with the rest of the Windows/WSL2 hardening (BitLocker, WSL swap,
+  key custody, TLS and MFA). Until then the box is used on synthetic and public data only (no development gates).
+
