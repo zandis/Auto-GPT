@@ -1834,3 +1834,22 @@ patient, per-actor rate limit) was done in step 2.
   Excel sheet (era dates, full-width digits, merged cells, a title row), an IT dump with local codes, and two pasted
   charts. It ends with the readiness page green and a "please check" list that a scripted CRC works through.
 
+
+**D-133 Step 4b: easy for novices.** Owner approved, 2026-11-08, after the novice UI/UX review
+(`docs/reviews/2026-11-08-ux-review-novice.md`, 2.5 of 5) and the field research
+(`docs/reviews/2026-11-08-field-research-tw-jp-sites.md`). Before the lifecycle (step 5), so every later page follows
+the same patterns.
+
+* **Safety first.** The one-time password leaves the URL and is shown in a readable form with hand-over steps. "Not
+  suitable" needs a reason and has an undo. A contact outcome is recorded only after the PI has approved the patient.
+  The PI's reveal follows the role text. (The chart number in job lines and subjects was fixed in PR #35.)
+* **Phone.** A patient sheet with Back and Next and a sticky mark bar; compact headers; IDs that never wrap one
+  character per line; touch targets of at least 44 px and text of at least 15 px.
+* **Setup.** One wizard with an unsaved-changes guard; REDCap linking guided step by step, with the variable names
+  read from the dictionary instead of typed.
+* **Words.** One plain vocabulary per concept, from the review's glossary, checked against the field research
+  (選択・除外基準 / 納入／排除條件, 処理 / 作業, 治験依頼者 / 試驗委託者); every label and name translated before the first run.
+* **Sign-in and errors.** Lockout shown with a countdown and the admin to contact, plus a language choice; error pages
+  with a heading and three clear buttons; unknown studies answer 404.
+* **Guarded by tests.** axe-core in the walk (no serious or critical issue), a 44 px target check and an English-leak
+  check on ja and zh-TW pages; tap counts for the core tasks recorded before and after.
