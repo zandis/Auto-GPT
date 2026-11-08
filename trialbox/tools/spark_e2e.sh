@@ -9,8 +9,8 @@
 # GreenMail, reply in MailHog -> cascade e2e through the gateway -> public eval suites through the gateway -> workflow
 # store (outbox, recall ledger) on the compose Postgres -> one PASS/FAIL report with paths. Exit 0 only on PASS.
 #
-# The default is the recommended Spark pair: judge gpt-oss-120b (j-workhorse, llm-service, endpoint `serving`) and
-# verifier Gemma 4 26B-A4B-it (v-verifier, llm-verifier, endpoint `verifier`); the cascade then runs the two-model
+# The default is the measured pair (D-124): judge Gemma 4 26B-A4B-it NVFP4 (j-workhorse, llm-service, endpoint `serving`)
+# and verifier Qwen3.5-9B AWQ (v-verifier, llm-verifier, endpoint `verifier`); the cascade then runs the two-model
 # AgreementJudge (a criterion blocks only when both agree). TB_SPARK_VERIFIER=0 runs the judge alone (for example the
 # Qwen alternative: JUDGE_MODEL_DIR=JUDGE_MODEL=qwen3.5-35b-a3b-q4 TB_PIN_BUILD=qwen3.5-35b-a3b-candidate).
 #
@@ -22,8 +22,8 @@
 # TB_IMAGE / TB_JVM_IMAGE), TB_SPARK_STRICT_HOST=1 (every host-check FAIL is fatal), TB_SPARK_UP_TIMEOUT (s, 1800),
 # TB_SPARK_DOWN=1 (stop the stack at the end), TB_SPARK_REPRO (1 in stub mode, 0 in gpu mode), TB_EVAL_LIMIT (judge
 # pairs through the model, gpu default 300, 0 = all 1015), TB_MODELS_DIR (deploy/models), JUDGE_MODEL_DIR and
-# JUDGE_MODEL (gpt-oss-120b), TB_PIN_BUILD (gpt-oss-120b-spark), VERIFIER_MODEL_DIR and VERIFIER_MODEL
-# (gemma-4-26b-a4b-it), TB_PIN_VERIFIER_BUILD (gemma-4-26b-a4b-it-spark), TB_SPARK_VERIFIER (1), TB_SPARK_TRIAL (GZQO),
+# JUDGE_MODEL (gemma-4-26b-a4b-it), TB_PIN_BUILD (gemma-4-26b-a4b-it-spark), VERIFIER_MODEL_DIR and VERIFIER_MODEL
+# (qwen3.5-9b), TB_PIN_VERIFIER_BUILD (qwen3.5-9b-spark), TB_SPARK_VERIFIER (1), TB_SPARK_TRIAL (GZQO),
 # PY (.venv/bin/python).
 set -uo pipefail
 
@@ -49,10 +49,10 @@ GATEWAY_URL="http://127.0.0.1:$GW_PORT/v1"
 TRIAL="${TB_SPARK_TRIAL:-GZQO}"
 MODELS_DIR="${TB_MODELS_DIR:-$ROOT/deploy/models}"
 # exported: deploy/docker-compose.gb10.yml reads the same names
-export JUDGE_MODEL_DIR="${JUDGE_MODEL_DIR:-gpt-oss-120b}" JUDGE_MODEL="${JUDGE_MODEL:-gpt-oss-120b}"
-export VERIFIER_MODEL_DIR="${VERIFIER_MODEL_DIR:-gemma-4-26b-a4b-it}" VERIFIER_MODEL="${VERIFIER_MODEL:-gemma-4-26b-a4b-it}"
-BUILD="${TB_PIN_BUILD:-gpt-oss-120b-spark}"
-VBUILD="${TB_PIN_VERIFIER_BUILD:-gemma-4-26b-a4b-it-spark}"
+export JUDGE_MODEL_DIR="${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}" JUDGE_MODEL="${JUDGE_MODEL:-gemma-4-26b-a4b-it}"
+export VERIFIER_MODEL_DIR="${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}" VERIFIER_MODEL="${VERIFIER_MODEL:-qwen3.5-9b}"
+BUILD="${TB_PIN_BUILD:-gemma-4-26b-a4b-it-spark}"
+VBUILD="${TB_PIN_VERIFIER_BUILD:-qwen3.5-9b-spark}"
 VERIFIER="${TB_SPARK_VERIFIER:-1}"
 UP_ARGS=()
 

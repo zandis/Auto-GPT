@@ -149,18 +149,23 @@ make spark-e2e                       # GB10: two vLLM servers + the pinned judge
 TB_LLM_MODE=stub make spark-e2e      # any Docker host without a GPU (x86 or arm64): deterministic stub
 ```
 
-**Default models (the recommended Spark pair).** The 2026-10-25 bake-off (`eval/bakeoff/results/2026-10-25/`) and an
-independent comparison agree on **gpt-oss-120b** (MXFP4) as the judge (`j-workhorse`, build `gpt-oss-120b-spark`,
-`llm-service`, endpoint `serving`) and **Gemma 4 26B-A4B-it** as the verifier (`v-verifier`, build
-`gemma-4-26b-a4b-it-spark`, `llm-verifier`, endpoint `verifier`). The cascade runs the two-model `AgreementJudge`:
-every decided S3 answer is put to the verifier, and a criterion blocks a patient only when both models agree;
-any disagreement becomes `unknown` (never an exclusion). The front desk (`f-frontdesk`) on P-GB10 is the judge build
-at 64k context (build `gpt-oss-120b-frontdesk-spark`, same weights, pinned separately). Both registry builds are
-unpinned seeds: the site pins the weights it downloaded (below). Memory, as set in `docker-compose.gb10.yml` and
-**to be confirmed on the hardware** (`trialbox bench`, NFR-B17 (f)): `JUDGE_GPU_MEM_UTIL` 0.60 (≈ 61–65 GB MXFP4
-weights + KV for 64k), `VERIFIER_GPU_MEM_UTIL` 0.25 (Gemma at FP8 ≈ 26–28 GB + KV at 32k; BF16 does not fit next to
-the judge), about 15 % left for HAPI (6 GB heap), the two Postgres, DuckDB, MinIO, the embedder and the services.
-`llm-verifier` starts only after `llm-service` is healthy (vLLM checks free memory at start).
+**Default models (the measured pair, D-124).** The judge is **Gemma 4 26B-A4B-it NVFP4** (`j-workhorse`, build
+`gemma-4-26b-a4b-it-spark`, `llm-service`, endpoint `serving`) and the verifier **Qwen3.5-9B AWQ 4-bit**
+(`v-verifier`, build `qwen3.5-9b-spark`, `llm-verifier`, endpoint `verifier`), both resident at 16k. These are the
+same weights as the RTX PRO 6000 and RTX 5090 profiles, measured on the card on 2026-11-08; gpt-oss-120b is no longer
+the Spark judge. The cascade runs the two-model `AgreementJudge`: every decided S3 answer is put to the verifier, and
+a criterion blocks a patient only when both models agree; any disagreement becomes `unknown` (never an exclusion).
+The front desk (`f-frontdesk`) on P-GB10 is the judge's weights at 16k (build `gemma-4-26b-a4b-it-frontdesk-spark`,
+pinned separately). The builds are unpinned seeds: the site pins the weights it downloaded (below). Memory, as set
+in `docker-compose.gb10.yml`, **not measured on a Spark** (measured when a site orders one): `JUDGE_GPU_MEM_UTIL`
+0.30, `VERIFIER_GPU_MEM_UTIL` 0.15, the rest for HAPI (6 GB heap), Postgres, DuckDB, the embedder and the services.
+`llm-verifier` starts only after `llm-service` is healthy (vLLM checks free memory at start). `install.sh` starts
+this profile only on a record from `tools/serving_config.py measured gb10`, or with `TB_ACCEPT_UNMEASURED_GPU=1`.
+
+**RTX PRO 6000 (P-PRO6000).** `install.sh` detects the card (`deploy/gpu_profile.sh`) and adds
+`docker-compose.rtxpro6000.yml`: the same pair, both resident at 32k, 0.40 and 0.20 of the card, no swap. The
+vendor's record ships in `deploy/measured/`; a site may capture its own (`deploy/gcp/capture-serving-config.sh`,
+`deploy/site/serving_config.rtxpro6000.json`).
 
 **Alternative: Qwen alone.** `JUDGE_MODEL_DIR=qwen3.5-35b-a3b-q4 JUDGE_MODEL=qwen3.5-35b-a3b-q4 JUDGE_MAX_LEN=32768
 TB_PIN_BUILD=qwen3.5-35b-a3b-candidate TB_SPARK_VERIFIER=0 make spark-e2e` serves the 4-bit Qwen3.5-35B-A3B as the
@@ -174,11 +179,11 @@ build for every role (MOD-1), which the default pair is.
 - amd64 emulation for MailHog (test profile only; MailHog ships amd64 only): `ls /proc/sys/fs/binfmt_misc/qemu-x86_64`,
   else `docker run --privileged --rm tonistiigi/binfmt --install amd64` once.
 - Model weights (safetensors or GGUF only) in `deploy/models/<JUDGE_MODEL_DIR>` (default
-  `deploy/models/gpt-oss-120b`, the MXFP4 release) and `deploy/models/<VERIFIER_MODEL_DIR>` (default
-  `deploy/models/gemma-4-26b-a4b-it`, an FP8 checkpoint); `deploy/models/bge-m3` for the embedder when `TB_EMBED_MODE`
+  `deploy/models/gemma-4-26b-a4b-it-4bit`, NVIDIA's NVFP4 release) and `deploy/models/<VERIFIER_MODEL_DIR>` (default
+  `deploy/models/qwen3.5-9b-4bit`, the AWQ 4-bit build); `deploy/models/bge-m3` for the embedder when `TB_EMBED_MODE`
   is not `hash`. The directories must not contain pickle weights (`.bin`, `.pt`) or Python files: the pin refuses
-  them. The vLLM served names are `JUDGE_MODEL` / `VERIFIER_MODEL` (defaults `gpt-oss-120b`, `gemma-4-26b-a4b-it`).
-- Disk: about 65 GB (judge) + 28 GB (verifier) of weights, 15 GB for images (vLLM GB10 image included), 10 GB for
+  them. The vLLM served names are `JUDGE_MODEL` / `VERIFIER_MODEL` (defaults `gemma-4-26b-a4b-it`, `qwen3.5-9b`).
+- Disk: about 19 GB (judge) + 9 GB (verifier) of weights, 15 GB for images (vLLM GB10 image included), 10 GB for
   volumes and runs.
 - `.venv` (`make venv`) and, for `make images`, the build prerequisites of section 1 (`tools/fetch_jvm_deps.sh` needs
   network and Maven the first time). With images already loaded, set `TB_SPARK_SKIP_BUILD=1`.
@@ -212,11 +217,13 @@ not a model.
 **Pinning by hand.**
 
 ```sh
-python -m tools.pin_model --build gpt-oss-120b-spark --model-dir deploy/models/gpt-oss-120b --served-name gpt-oss-120b
-python -m tools.pin_model --build gemma-4-26b-a4b-it-spark --model-dir deploy/models/gemma-4-26b-a4b-it \
-    --served-name gemma-4-26b-a4b-it --endpoint verifier
-python -m tools.pin_model --build gpt-oss-120b-frontdesk-spark --model-dir deploy/models/gpt-oss-120b \
-    --served-name gpt-oss-120b            # Hermes front desk (f-frontdesk) on the judge server at 64k
+python -m tools.pin_model --build gemma-4-26b-a4b-it-spark --model-dir deploy/models/gemma-4-26b-a4b-it-4bit \
+    --served-name gemma-4-26b-a4b-it
+python -m tools.pin_model --build qwen3.5-9b-spark --model-dir deploy/models/qwen3.5-9b-4bit \
+    --served-name qwen3.5-9b --endpoint verifier
+python -m tools.pin_model --build gemma-4-26b-a4b-it-frontdesk-spark --model-dir deploy/models/gemma-4-26b-a4b-it-4bit \
+    --served-name gemma-4-26b-a4b-it      # front desk (f-frontdesk) on the judge server
+# RTX PRO 6000: the same commands with the -rtxpro6000 builds
 ```
 
 `--verify` re-checks the weights against the pin;
@@ -227,7 +234,7 @@ new pin (`docker compose restart gateway`).
 | --- | --- | --- |
 | `host-check` FAIL on driver / runtime | `nvidia-smi`, `docker info` | install and hold 580.142; `nvidia-ctk runtime configure --runtime=docker` and restart Docker |
 | `pin-model`: weights not found / refused file types | `ls deploy/models/<dir>` | place safetensors/GGUF weights; remove `.bin`/`.py` files (or convert) |
-| `compose-up` times out on llm-service / llm-verifier | `docker compose logs llm-service llm-verifier` | first load of gpt-oss-120b takes up to 20 min; out of memory → lower `JUDGE_GPU_MEM_UTIL` (0.60) / `VERIFIER_GPU_MEM_UTIL` (0.25) or `JUDGE_MAX_LEN` / `VERIFIER_MAX_LEN`; verifier "free memory" error at start → the judge took more than planned, lower `JUDGE_GPU_MEM_UTIL`; unknown flag → check the vLLM version of `VLLM_GB10_IMAGE` (`--guided-decoding-backend` was renamed in newer vLLM) |
+| `compose-up` times out on llm-service / llm-verifier | `docker compose logs llm-service llm-verifier` | first load takes up to 10 min; out of memory → lower `JUDGE_GPU_MEM_UTIL` (0.30) / `VERIFIER_GPU_MEM_UTIL` (0.15) or `JUDGE_MAX_LEN` / `VERIFIER_MAX_LEN`; verifier "free memory" error at start → the judge took more than planned, lower `JUDGE_GPU_MEM_UTIL`; unknown flag → check the vLLM version of `VLLM_GB10_IMAGE` (`--guided-decoding-backend` was renamed in newer vLLM) |
 | `compose-up`: mailhog exits (`exec format error`) | `ls /proc/sys/fs/binfmt_misc` | install amd64 emulation (see prerequisites) |
 | `gateway-probe`: `build_unpinned` | `curl 127.0.0.1:8020/registry/v1/builds` | the gateway started before the pin: `docker compose restart gateway` |
 | `gateway-probe`: `served_model_mismatch` | vLLM `--served-model-name` | `JUDGE_MODEL` / `VERIFIER_MODEL` must equal the `--served-name` given to the pin |

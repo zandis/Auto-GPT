@@ -152,28 +152,51 @@ def validate(rec: dict[str, Any]) -> list[str]:
     return bad
 
 
+# What a record must show to count as a measurement of a GPU profile on its own card (install.sh, D-112, D-124):
+#   card       a string in nvidia-smi's card name (the GB10 reports "NVIDIA GB10")
+#   sleep      True: both servers ran with --enable-sleep-mode (the one-card swap, the only way the 5090 pair fits);
+#              False: both resident, no sleep mode (the profile serves them side by side)
+#   min_len    each server's --max-model-len is at least this (the profile's context)
+PROFILES: dict[str, dict[str, Any]] = {
+    "rtx5090": {"card": "5090", "sleep": True, "min_len": 8192},
+    "rtxpro6000": {"card": "RTX PRO 6000", "sleep": False, "min_len": 32768},
+    "gb10": {"card": "GB10", "sleep": False, "min_len": 16384},
+}
+PROFILE_CARDS = {k: v["card"] for k, v in PROFILES.items()}
+ROLES = ("judge", "verifier")
+
+
 def measured_for(rec: dict[str, Any], profile: str) -> list[str]:
     """Why ``rec`` is not a measurement of ``profile`` on its own card; empty when it is (install.sh, D-112).
 
     A record counts only when it is complete, was taken on the card the profile names (not a larger card capped to
-    its limits) and every server ran with vLLM sleep mode, the only way the rtx5090 pair fits (2026-11-08 fit run).
+    its limits), served both the judge and the verifier, ran them the way the profile does (sleep swap or resident)
+    and at the profile's context length.
     """
+    rule = PROFILES.get(profile)
+    if rule is None:
+        return [f"no measurement rule for profile {profile}"]
     why = validate(rec)
     card = rec.get("card") or {}
-    want = PROFILE_CARDS.get(profile)
-    if want is None:
-        return [f"no measurement rule for profile {profile}"]
+    want = rule["card"]
     if want not in str(card.get("name", "")):
         why.append(f"card is {card.get('name') or '?'}, not an {want}")
     if card.get("capped_to"):
         why.append(f"measured on a capped card ({card['capped_to']}), not on the {want} itself")
-    for srv in rec.get("servers") or []:
-        if "--enable-sleep-mode" not in (srv.get("extra_args") or []):
-            why.append(f"{srv.get('role') or '?'} ran without --enable-sleep-mode")
+    servers = rec.get("servers") or []
+    roles = {s.get("role") for s in servers}
+    why += [f"no {r} server in the record" for r in ROLES if r not in roles]
+    for srv in servers:
+        who = srv.get("role") or "?"
+        sleeps = "--enable-sleep-mode" in (srv.get("extra_args") or [])
+        if rule["sleep"] and not sleeps:
+            why.append(f"{who} ran without --enable-sleep-mode")
+        if not rule["sleep"] and sleeps:
+            why.append(f"{who} ran with --enable-sleep-mode (this profile keeps both resident)")
+        n = srv.get("max_model_len")
+        if isinstance(n, int) and n < rule["min_len"]:
+            why.append(f"{who} context {n} < {rule['min_len']}")
     return why
-
-
-PROFILE_CARDS = {"rtx5090": "5090"}
 
 
 # ---------------------------------------------------------------- capture (on the GPU box)

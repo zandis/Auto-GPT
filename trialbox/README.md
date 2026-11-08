@@ -104,7 +104,9 @@ Follow **`docs/RUNBOOK.md`**:
 1. Harden the host (`docs/HARDENING.md`: LUKS + TPM, swap off, `deploy/check_host.sh`).
 2. Run `python -m tools.settings_wizard`.
 3. Copy a mapping template from `services/adapter/mapping/templates/` and check it with `tools/mapping_check.py`.
-4. Bring the stack up: `docker compose --profile gpu up -d`, with `-f docker-compose.gb10.yml` on NVIDIA GB10.
+4. Bring the stack up: `docker compose --profile gpu up -d`, with the profile's file for the card:
+   `-f docker-compose.rtxpro6000.yml` (RTX PRO 6000), `-f docker-compose.gb10.yml` (DGX Spark) or
+   `-f docker-compose.rtx5090.yml` (one RTX 5090). `deploy/install.sh` picks it from the card (D-124).
 5. Apply the egress rules: `deploy/network.sh apply`.
 6. Run the §11.2 go-live acceptance with `tools/acceptance.py`.
 
@@ -120,7 +122,7 @@ No code changes are needed for a new site.
 | `libs/tb_common` | config, audit chain, LLM gateway, PHI guard, routing, crypto, deterministic outputs, … |
 | `services/` | mail_gateway, orchestrator (scenarios + reports), criteria_compiler, doc_parser, adapter, lake, embed_service, llm_stub |
 | `rulesets/` | approved rulesets shipped with the box: GZQO (trial), RA-BIO + ONC-OSI (NHI), GOUT-COH + RA-COH (cohort) |
-| `deploy/` | compose files (x86, test, GB10), Dockerfiles, `settings.example.yaml`, `network.sh`, `check_host.sh` |
+| `deploy/` | compose files (x86, test, RTX PRO 6000, GB10, RTX 5090), Dockerfiles, `settings.example.yaml`, `network.sh`, `check_host.sh` |
 | `tools/` | fixtures, ruleset build, bench, acceptance, wizard, mapping check, update signing/applying, audit verify, … |
 | `spec/v4/` | the v4 specification; `docs/HANDOFF.md` is the build order |
 | `tools/testbench/` | Test Bench: dev/test-only web UI (`make testbench`, then <http://127.0.0.1:8765>) |

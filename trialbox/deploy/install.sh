@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # TrialBox one-file installer for a hospital workstation or server (clinical review 2026-11, section 6; RUNBOOK §1).
 #
-#   sudo deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--gpu gb10|rtx5090|rtx4090] [--yes]
+#   sudo deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--gpu rtxpro6000|gb10|rtx5090|rtx4090] [--yes]
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #
 # What it does, in order, and stops at the first failure:
@@ -56,18 +56,14 @@ case "$MODE" in
   stub) echo "    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model" ;;
   *) die "--mode must be gpu or stub" ;;
 esac
-# GPU profile (D-95): gb10 = DGX Spark pair; rtx5090 = Gemma 4 4-bit + Qwen3.5-9B 4-bit on one 32 GB card, both must
-# agree to exclude; rtx4090 = the judge alone on a 24 GB card, note answers never exclude; default = base llm-service
+# GPU profile (D-95, D-124; deploy/gpu_profile.sh detects it from the card): rtxpro6000 = judge and verifier both
+# resident on a 96 GB card at 32k; gb10 = the same pair resident on a DGX Spark at 16k; rtx5090 = the same pair on one
+# 32 GB card with the sleep swap at 8k; all three exclude on a note only when both models agree. rtx4090 = the judge
+# alone on a 24 GB card, note answers never exclude; default = base llm-service
 if [ "$MODE" = gpu ] && [ "$GPU" = auto ]; then
-  name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
-  case "$(uname -m):$name" in
-    aarch64:*|arm64:*) GPU=gb10 ;;
-    *5090*|*"RTX PRO 4500"*) GPU=rtx5090 ;;
-    *4090*|*3090*) GPU=rtx4090 ;;
-    *) GPU=default ;;
-  esac
+  GPU="$(sh "$ROOT/deploy/gpu_profile.sh")"
 fi
-case "$GPU" in auto|default|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be gb10, rtx5090, rtx4090 or default" ;; esac
+case "$GPU" in auto|default|rtxpro6000|gb10|rtx5090|rtx4090) ;; *) die "--gpu must be rtxpro6000, gb10, rtx5090, rtx4090 or default" ;; esac
 [ -f "$PUBKEY" ] || die "vendor public key missing: copy vendor_ed25519.pub (from the vendor, out of band) to $PUBKEY"
 if [ -f "$BUNDLE.sha256" ]; then
   (cd "$(dirname "$BUNDLE")" && sha256sum -c "$(basename "$BUNDLE").sha256" >/dev/null) || die "bundle checksum mismatch"
@@ -123,24 +119,34 @@ if [ "$MODE" = gpu ]; then
   fi
 fi
 
-if [ "$MODE:$GPU" = gpu:rtx5090 ]; then
-  # D-112: the one-card pair is only known to fit with the sleep swap, measured so far on a capped RTX PRO 6000.
-  # Start it only on a serving-config record taken on a real 5090 with this profile (deploy/gcp/capture-serving-
-  # config.sh after a first boot), or when the operator accepts an unmeasured card for a trial boot.
-  REC=deploy/site/serving_config.rtx5090.json
-  if [ -f "$REC" ]; then
-    docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" python -m tools.serving_config measured rtx5090 "/d/site/$(basename "$REC")" \
-      || die "$REC is not a measurement of the rtx5090 profile on a real 5090 (see above)"
+case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
+  # D-112, D-124: a pair profile starts only on a serving-config record of that profile on that card, uncapped
+  # (tools/serving_config.py measured <profile>): the site's own record (deploy/gcp/capture-serving-config.sh after a
+  # first boot) or the vendor's, shipped in the bundle (deploy/measured/). Otherwise only when the operator accepts
+  # an unmeasured card for a trial boot. The Spark is measured when a site orders one (owner decision, 2026-11-08).
+  REC=""
+  for f in "deploy/site/serving_config.$GPU.json" "deploy/measured/serving_config.$GPU.json"; do
+    [ -f "$f" ] && { REC="$f"; break; }
+  done
+  if [ -n "$REC" ]; then
+    docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" python -m tools.serving_config measured "$GPU" "/d/${REC#deploy/}" \
+      || die "$REC is not a measurement of the $GPU profile on its own card (see above)"
+    echo "    $GPU profile measured: $REC"
   elif [ "${TB_ACCEPT_UNMEASURED_GPU:-0}" = 1 ]; then
-    echo "install: warning: rtx5090 profile not yet measured on this card (TB_ACCEPT_UNMEASURED_GPU=1): capture $REC after the first boot (RUNBOOK §8)" >&2
+    echo "install: warning: $GPU profile not yet measured on this card (TB_ACCEPT_UNMEASURED_GPU=1): capture deploy/site/serving_config.$GPU.json after the first boot (RUNBOOK §8)" >&2
   else
-    die "the rtx5090 profile has no measurement on a real 5090 ($REC). For a first trial boot re-run with TB_ACCEPT_UNMEASURED_GPU=1, then capture the record (RUNBOOK §8)"
-  fi
-fi
+    die "the $GPU profile has no measurement on its own card (deploy/site/ or deploy/measured/serving_config.$GPU.json). For a first trial boot re-run with TB_ACCEPT_UNMEASURED_GPU=1, then capture the record (RUNBOOK §8)"
+  fi ;;
+esac
+case "$MODE:$GPU" in
+  gpu:rtxpro6000) PROFILE=P-PRO6000 ;; gpu:gb10) PROFILE=P-GB10 ;; gpu:rtx5090|gpu:rtx4090) PROFILE=P-5090 ;; *) PROFILE=P-GB10 ;;
+esac
+grep -q '^TB_PROFILE=' deploy/.env && sed -i "s/^TB_PROFILE=.*/TB_PROFILE=$PROFILE/" deploy/.env || echo "TB_PROFILE=$PROFILE" >> deploy/.env
 
 # ------------------------------------------------------------------------------------------------ 4. start
 COMPOSE=(docker compose --project-directory deploy -f deploy/docker-compose.yml)
 case "$MODE:$GPU" in
+  gpu:rtxpro6000) COMPOSE+=(-f deploy/docker-compose.rtxpro6000.yml) ;;
   gpu:gb10) COMPOSE+=(-f deploy/docker-compose.gb10.yml) ;;
   gpu:rtx5090|gpu:rtx4090) COMPOSE+=(-f deploy/docker-compose.rtx5090.yml) ;;
 esac

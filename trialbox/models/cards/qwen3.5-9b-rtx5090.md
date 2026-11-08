@@ -5,12 +5,12 @@ Generated from `models/registry.yaml` by `python -m registry.cards --write`. Do 
 | Field | Value |
 | --- | --- |
 | Alias | `v-verifier` |
-| Model | Qwen3.5-9B (4-bit, RTX 5090 verifier) |
+| Model | Qwen3.5-9B (AWQ 4-bit, RTX 5090 verifier) |
 | Status | candidate |
 | Serving | vllm |
 | Weights SHA-256 | not yet pinned (null) |
 | Revision | not yet pinned |
-| Quantisation | 4-bit (NVFP4 or AWQ; recipe to record at qualification) |
+| Quantisation | AWQ 4-bit (measured 2026-11-08) |
 | Context length | 8192 |
 | Licence | Apache-2.0 (to confirm) (SPDX: Apache-2.0; verified: no) |
 | Origin | Alibaba Qwen (CN); non-PRC: no |
