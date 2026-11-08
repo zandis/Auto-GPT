@@ -1,0 +1,418 @@
+{
+ "lang": "en",
+ "steps": [
+  {
+   "run": "judge_resident",
+   "seconds": 317.4,
+   "calls": 1015,
+   "gpu": {
+    "at": "2026-11-08T07:04:21Z",
+    "used_mib": 29631,
+    "peak_mib": 29631,
+    "total_mib": 97887,
+    "judge_awake": true,
+    "verifier_awake": null
+   }
+  },
+  {
+   "swap": "judge/sleep?level=1",
+   "seconds": 3.82,
+   "gpu": {
+    "at": "2026-11-08T07:04:23Z",
+    "used_mib": 26461,
+    "peak_mib": 29631,
+    "total_mib": 97887,
+    "judge_awake": null,
+    "verifier_awake": null
+   }
+  },
+  {
+   "run": "verifier_resident",
+   "seconds": 386.6,
+   "calls": 1015,
+   "gpu": {
+    "at": "2026-11-08T07:12:16Z",
+    "used_mib": 28414,
+    "peak_mib": 29631,
+    "total_mib": 97887,
+    "judge_awake": false,
+    "verifier_awake": true
+   }
+  },
+  {
+   "swap": "verifier/sleep?level=1",
+   "seconds": 1.88,
+   "gpu": {
+    "at": "2026-11-08T07:12:18Z",
+    "used_mib": 23478,
+    "peak_mib": 29631,
+    "total_mib": 97887,
+    "judge_awake": false,
+    "verifier_awake": false
+   }
+  },
+  {
+   "swap": "judge/wake_up",
+   "seconds": 0.58,
+   "gpu": {
+    "at": "2026-11-08T07:12:18Z",
+    "used_mib": 23478,
+    "peak_mib": 29631,
+    "total_mib": 97887,
+    "judge_awake": false,
+    "verifier_awake": false
+   }
+  },
+  {
+   "run": "judge_after_wake",
+   "seconds": 317.2,
+   "calls": 1015,
+   "gpu": {
+    "at": "2026-11-08T07:17:37Z",
+    "used_mib": 27474,
+    "peak_mib": 29631,
+    "total_mib": 97887,
+    "judge_awake": true,
+    "verifier_awake": false
+   }
+  },
+  {
+   "swap": "judge/sleep?level=1",
+   "seconds": 0.56,
+   "gpu": {
+    "at": "2026-11-08T07:17:37Z",
+    "used_mib": 27474,
+    "peak_mib": 29631,
+    "total_mib": 97887,
+    "judge_awake": true,
+    "verifier_awake": false
+   }
+  },
+  {
+   "swap": "verifier/wake_up",
+   "seconds": 0.37,
+   "gpu": {
+    "at": "2026-11-08T07:17:37Z",
+    "used_mib": 27474,
+    "peak_mib": 29631,
+    "total_mib": 97887,
+    "judge_awake": true,
+    "verifier_awake": false
+   }
+  },
+  {
+   "run": "verifier_after_wake",
+   "seconds": 343.3,
+   "calls": 1015,
+   "gpu": {
+    "at": "2026-11-08T07:23:22Z",
+    "used_mib": 27532,
+    "peak_mib": 29631,
+    "total_mib": 97887,
+    "judge_awake": false,
+    "verifier_awake": true
+   }
+  },
+  {
+   "swap": "verifier/sleep?level=1",
+   "seconds": 0.37,
+   "gpu": {
+    "at": "2026-11-08T07:23:22Z",
+    "used_mib": 27532,
+    "peak_mib": 29631,
+    "total_mib": 97887,
+    "judge_awake": false,
+    "verifier_awake": true
+   }
+  },
+  {
+   "swap": "judge/wake_up",
+   "seconds": 0.58,
+   "gpu": {
+    "at": "2026-11-08T07:23:24Z",
+    "used_mib": 15868,
+    "peak_mib": 29631,
+    "total_mib": 97887,
+    "judge_awake": true,
+    "verifier_awake": false
+   }
+  }
+ ],
+ "judge_up_s": 0.2,
+ "verifier_up_s": 83.2,
+ "summary": {
+  "judge_resident": {
+   "pairs_lost": 11,
+   "trials_open": 79,
+   "false_block_rate": 0.015511892450879007,
+   "block_recall": 0.7272727272727273,
+   "valid_rate": 1.0,
+   "accuracy": 0.717
+  },
+  "verifier_resident": {
+   "pairs_lost": 4,
+   "trials_open": 79,
+   "false_block_rate": 0.0062047569803516025,
+   "block_recall": 0.5151515151515151,
+   "valid_rate": 1.0,
+   "accuracy": 0.614
+  },
+  "judge_after_wake": {
+   "pairs_lost": 10,
+   "trials_open": 79,
+   "false_block_rate": 0.015511892450879007,
+   "block_recall": 0.7575757575757576,
+   "valid_rate": 1.0,
+   "accuracy": 0.718
+  },
+  "verifier_after_wake": {
+   "pairs_lost": 4,
+   "trials_open": 79,
+   "false_block_rate": 0.0062047569803516025,
+   "block_recall": 0.5151515151515151,
+   "valid_rate": 1.0,
+   "accuracy": 0.613
+  },
+  "pair_resident": {
+   "pairs_lost": 4,
+   "trials_open": 79,
+   "false_block_rate": 0.005170630816959669,
+   "block_recall": 0.5151515151515151,
+   "valid_rate": 1.0,
+   "accuracy": 0.718
+  },
+  "pair_after_wake": {
+   "pairs_lost": 4,
+   "trials_open": 79,
+   "false_block_rate": 0.005170630816959669,
+   "block_recall": 0.5151515151515151,
+   "valid_rate": 1.0,
+   "accuracy": 0.718
+  },
+  "judge_agreement": {
+   "n": 1000,
+   "same_label": 904,
+   "share": 0.904,
+   "changed": [
+    {
+     "id": "37",
+     "before": "included",
+     "after": "not included"
+    },
+    {
+     "id": "66",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "67",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "69",
+     "before": "not enough information",
+     "after": "not included"
+    },
+    {
+     "id": "86",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "89",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "109",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "116",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "122",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "128",
+     "before": "not enough information",
+     "after": "not included"
+    },
+    {
+     "id": "130",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "140",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "144",
+     "before": "not included",
+     "after": "not enough information"
+    },
+    {
+     "id": "147",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "148",
+     "before": "excluded",
+     "after": "not excluded"
+    },
+    {
+     "id": "158",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "179",
+     "before": "excluded",
+     "after": "not excluded"
+    },
+    {
+     "id": "180",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "211",
+     "before": "not enough information",
+     "after": "not included"
+    },
+    {
+     "id": "213",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "264",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "266",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "271",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "272",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "287",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "290",
+     "before": "excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "302",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "314",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "317",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "320",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "327",
+     "before": "not enough information",
+     "after": "included"
+    },
+    {
+     "id": "330",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "363",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "392",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "403",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "408",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "409",
+     "before": "not enough information",
+     "after": "not excluded"
+    },
+    {
+     "id": "418",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "425",
+     "before": "not excluded",
+     "after": "not enough information"
+    },
+    {
+     "id": "426",
+     "before": "not enough information",
+     "after": "not excluded"
+    }
+   ]
+  },
+  "verifier_agreement": {
+   "n": 1000,
+   "same_label": 998,
+   "share": 0.998,
+   "changed": [
+    {
+     "id": "378",
+     "before": "not applicable",
+     "after": "not excluded"
+    },
+    {
+     "id": "720",
+     "before": "not enough information",
+     "after": "not excluded"
+    }
+   ]
+  },
+  "equal": true
+ }
+}
