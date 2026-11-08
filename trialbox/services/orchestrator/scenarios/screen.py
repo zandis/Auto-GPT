@@ -156,7 +156,7 @@ def judge_for(ctx: Ctx, rs: Ruleset) -> NoteJudge | None:
 
 
 def structured_engine(ctx: Ctx, snapshot: str) -> StructuredEngine:
-    return engine_from_env(os.environ.get("TB_SCREEN_ENGINE", "cql"), ctx.services.fhir, ctx.services.lake, snapshot)
+    return engine_from_env(os.environ.get("TB_SCREEN_ENGINE", "sql"), ctx.services.fhir, ctx.services.lake, snapshot)
 
 
 def threshold(ctx: Ctx, rs: Ruleset) -> float:

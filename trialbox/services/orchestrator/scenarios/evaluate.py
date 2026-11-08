@@ -1,8 +1,8 @@
 """Per-patient evaluation for SCREEN / MICROBATCH / NAV (SPEC §8.2, §7.3, §7.5).
 
-* Structured criteria: CQL ``Library/$evaluate`` per patient in fhir-store (8 concurrent calls; SPEC §4.4). The lake
-  SQL engine evaluates the same approved ruleset and is selectable with ``TB_SCREEN_ENGINE=sql`` (CPU CI, DECISIONS
-  D-49); the equivalence gate guarantees ≥98 % agreement between the two.
+* Structured criteria: the lake SQL engine, the only runtime engine (owner decision 3, TB-PLAN-04 step 6). CQL
+  (``CqlEngine``) is kept for the compile-time equivalence gate and the bench; ``TB_SCREEN_ENGINE`` other than ``sql``
+  is refused.
 * Note criteria: RAG over ``/chunks/search`` (k=5, window ``[index-365d, index]`` unless the IR window is narrower,
   ≤2,500 tokens, newest first) and the ``judge`` prompt (local only); full-record fallback for small candidate sets.
   The quote must be a substring of one excerpt, else the verdict becomes ``unknown`` (``quote_not_found``).
@@ -104,9 +104,12 @@ class SqlEngine:
 
 
 def engine_from_env(name: str, fhir: FhirEvaluator | None, lake: LakeAPI, snapshot: str | None) -> StructuredEngine:
-    if name == "sql" or fhir is None:
-        return SqlEngine(lake, snapshot)
-    return CqlEngine(fhir)
+    """The runtime engine: SQL on the lake, always (owner decision 3, 2026-11-08; review F-05). CQL is kept for the
+    compile-time equivalence gate (``criteria_compiler.equivalence``) and the bench, never to screen a patient, so a
+    weekly list can no longer change with the engine a job type happened to use."""
+    if (name or "sql").strip().lower() != "sql":
+        raise ValueError(f"TB_SCREEN_ENGINE={name!r}: SQL is the only runtime engine (CQL is compile-time only)")
+    return SqlEngine(lake, snapshot)
 
 
 # --------------------------------------------------------------------------------------------- note criteria

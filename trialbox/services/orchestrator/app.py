@@ -163,7 +163,7 @@ def models() -> dict[str, Any]:
 
     canary_gate.GATE.configure(o.data_dir)
     return {
-        "engine": os.environ.get("TB_SCREEN_ENGINE", "cql"),
+        "engine": "sql",  # the only runtime engine (owner decision 3)
         "pipeline": pipeline(),
         "screen_judge": mode,
         "gateway": bool(os.environ.get("TB_GATEWAY_URL", "").strip()),
