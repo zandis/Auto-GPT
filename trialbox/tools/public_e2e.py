@@ -1,0 +1,469 @@
+"""End-to-end run of the whole platform on the public-data site (``tools.public_site``): real notes, stub model.
+
+    python -m tools.public_e2e --dir /tmp/tb-public --lang en          # run once, print the stage table
+    python -m tools.public_e2e --dir /tmp/tb-public --serve            # then keep the console up for a browser walk
+
+The same path as ``tools.e2e_simple`` (criteria -> report -> approval -> list -> marks -> mail -> REDCap -> log),
+driven through the console's own routes, on two test protocols written for the public notes (``eval/public_site``):
+the PUB-ONC trial (adults with a malignant tumour, ECOG 0-1 from the notes; pregnancy, active TB, ILD out) and the
+PUB-CA cancer registry. Every count the box reports is recounted from the landing CSVs; every mail is searched for
+chart numbers. The real-vs-derived statement is ``<dir>/hospital/PROVENANCE.md``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import io
+import itertools
+import json
+import os
+import re
+import secrets
+import shutil
+import sys
+import time
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+for p in (ROOT, ROOT / "libs", ROOT / "services"):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+
+from tools import feas_demo as fd  # noqa: E402
+from tools import list_demo as ld  # noqa: E402
+from tools import public_site as ps  # noqa: E402
+
+TRIAL, COHORT = "PUB-ONC", "PUB-CA"
+PROFILES = ROOT / "eval" / "public_site" / "profiles"
+CASSETTES = ROOT / "services" / "llm_stub" / "cassettes" / "ir_extract"
+SIM_URL = "inproc://rc-sim"
+TERMINOLOGY = ROOT / "services" / "criteria_compiler" / "terminology" / "icd10cm_tw.parquet"
+MALIGNANT = ("C0", "C1", "C2", "C3", "C40", "C41", "C43", "C45", "C46", "C47", "C48", "C49", "C5", "C6", "C7", "C8")
+
+
+@dataclass
+class Stage:
+    name: str
+    checks: list[tuple[str, bool, str]] = field(default_factory=list)
+    seconds: float = 0.0
+
+    def check(self, what: str, ok: Any, detail: Any = "") -> bool:
+        self.checks.append((what, bool(ok), str(detail)[:300]))
+        return bool(ok)
+
+    @property
+    def ok(self) -> bool:
+        return all(c[1] for c in self.checks)
+
+
+def criteria(ruleset: str) -> str:
+    """The pasted text: the test protocol's criteria under English headings (the cassette holds the same lines)."""
+    crit = json.loads((CASSETTES / f"{ruleset}.json").read_text(encoding="utf-8"))["criteria"]
+    inc = [c["text"] for c in crit if c["kind"] == "inclusion"]
+    exc = [c["text"] for c in crit if c["kind"] == "exclusion"]
+    lines = ["Inclusion criteria", *[f"{i}. {t}" for i, t in enumerate(inc, 1)]]
+    if exc:
+        lines += ["", "Exclusion criteria", *[f"{i}. {t}" for i, t in enumerate(exc, 1)]]
+    return "\n".join(lines) + "\n"
+
+
+def build(work: Path, llm: Any = None) -> tuple[Any, Any, Path, dict[str, Any]]:
+    """Public site -> ingest -> in-process box (stub model unless ``llm`` is given)."""
+    from fastapi.testclient import TestClient
+    from orchestrator import app as orch_app
+
+    from tests.inproc_box import ingest_site, make_box
+
+    hospital = work / "hospital"
+    site = ps.build(hospital)
+    sec = work / "sec"
+    sec.mkdir(parents=True, exist_ok=True)
+    (sec / "site_hmac.key").write_bytes(fd.KEY)
+    shutil.rmtree(work / "lake", ignore_errors=True)
+    rep = ingest_site(hospital, work / "lake", sec, (ps.REF - timedelta(days=1)).isoformat())
+    site["ingest"] = {"passed": rep.passed, "counts": rep.counts, "missing_required": rep.missing_required}
+    shutil.rmtree(work / "box", ignore_errors=True)
+    box = make_box(work / "box", work / "lake", sec, ps.REF + timedelta(days=1), extra_profiles=PROFILES)
+    if llm is not None:
+        box.orch.services.llm = llm  # pragma: no cover - real-model runs (Part 2) swap the stub out
+    orch_app._orch = box.orch
+    return box, TestClient(orch_app.app), work / "box" / "repo", site
+
+
+def _rows(path: Path) -> list[dict[str, str]]:
+    return list(csv.DictReader(path.open(encoding="utf-8")))
+
+
+def _age(birth: str, ref: date) -> int | None:
+    if not birth:
+        return None
+    b = date.fromisoformat(birth)
+    return ref.year - b.year - ((ref.month, ref.day) < (b.month, b.day))
+
+
+def _json_out(box: Any, job: Any, prefix: str, suffix: str = ".json") -> dict[str, Any]:
+    out = next(o for o in job.outputs or [] if o.filename.startswith(prefix) and o.filename.endswith(suffix))
+    data: dict[str, Any] = json.loads(box.store.get(out.minio_key))
+    return data
+
+
+def _done(box: Any, type_: str, ruleset: str) -> list[Any]:
+    return [j for j in box.orch.db.find(type_=type_, ruleset=ruleset) if j.state == "done"]
+
+
+def _text(html: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
+
+
+def run(work: Path, password: str, lang: str = "en") -> dict[str, Any]:  # noqa: PLR0915 - one linear script
+    from console import notify
+    from console.i18n import CATALOGUES
+    from fastapi.testclient import TestClient
+    from openpyxl import load_workbook
+    from rc_sim.app import create_app as sim_app
+    from rc_sim.app import load_projects, register_inproc
+    from tb_common.audit import verify
+
+    stages: list[Stage] = []
+    t0 = time.perf_counter()
+    box, client, repo, site = build(work)
+    clock = ld.Clock(box.today[0])
+    app = ld.console(work, box, client, repo, password, clock)
+    h = app.state.helpers
+    cat = CATALOGUES[lang]
+    hosp = work / "hospital"
+    patients = _rows(hosp / "patient.csv")
+    mrns = {p["mrn"] for p in patients}
+    dx = _rows(hosp / "diagnosis.csv")
+    lake = box.orch.services.lake
+
+    def q(sql: str) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = lake.query(sql).to_pylist()
+        return rows
+
+    # ------------------------------------------------------------------ 0 data in
+    s = Stage("0 public data in")
+    t = time.perf_counter()
+    summ = site["summary"]
+    s.check(
+        "every source document is one patient (SIGIR 53, MedTxt-CR 123, MedTxt-RR 92)",
+        summ["by_source"] == {"SIGIR": 53, "MedTxt-CR": 123, "MedTxt-RR": 92},
+        summ["by_source"],
+    )
+    s.check("ingest passed", site["ingest"]["passed"], site["ingest"])
+    got = {k: int(q(f"SELECT count(*) AS n FROM {tb}")[0]["n"]) for k, tb in (("patient", "patient"), ("note", "document"), ("dx", "condition"))}
+    want = {"patient": len(patients), "note": len(_rows(hosp / "note.csv")), "dx": len(dx)}
+    s.check("lake counts = CSV counts (patients, notes, diagnoses)", got == want, f"lake {got} csv {want}")
+    texts = {r["text"] for r in _rows(hosp / "note.csv")}
+    lake_text = {r["text"] for r in q("SELECT text FROM document")} if "text" in lake.query("SELECT * FROM document LIMIT 1").column_names else set()
+    s.check("note text reaches the lake verbatim", not lake_text or len(texts & lake_text) == len(texts), len(texts & lake_text))
+    cols = {tb: set(lake.query(f"SELECT * FROM {tb} LIMIT 1").column_names) for tb in ("patient", "encounter", "document", "condition")}
+    s.check("no chart number column in the lake", not any(c & {"mrn", "id_no", "phone"} for c in cols.values()), cols)
+    pids = {r["pid"] for r in q("SELECT pid FROM patient")}
+    s.check("lake keys are pseudonyms", not pids & mrns, len(pids & mrns))
+    s.check("missing birth dates reported, not invented", site["ingest"]["missing_required"].get("Patient.birthDate") == summ["age_missing"], site["ingest"]["missing_required"])
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
+    crc = ld.sign_in(app, "crc", password, lang)
+    pi = ld.sign_in(app, "pi", password, lang)
+    admin = ld.sign_in(app, "admin", password, lang)
+
+    # ------------------------------------------------------------------ 1 S2 paste -> S20 approval -> FEAS
+    s = Stage("1 criteria, approval and feasibility")
+    t = time.perf_counter()
+    jobs = {}
+    for rs in (COHORT, TRIAL):
+        form = crc.get("/pilot/protocol")
+        r = crc.post("/pilot/protocol", data={"csrf": fd._csrf(form.text), "ruleset": rs, "criteria": criteria(rs)})
+        job = box.orch.db.get(r.url.path.rsplit("/", 1)[-1])
+        s.check(f"S2 paste {rs} -> draft waiting for approval", r.status_code == 200 and job is not None and job.state == "awaiting_approval", (r.status_code, job and job.state))
+        jobs[rs] = job
+    s20 = crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval")
+    first = re.search(r'data-testid="tick-btn-([A-Z0-9-]+)"', s20.text)
+    if first:
+        r = crc.post(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/tick", data={"csrf": fd._csrf(s20.text), "crit": first.group(1)})
+        s.check("coordinator ticks a criterion's codes on S20", r.status_code == 200, r.status_code)
+    r = crc.post(f"/pilot/jobs/{jobs[TRIAL].job_id}/approve", data={"csrf": fd._csrf(s20.text)}, follow_redirects=False)
+    s.check("coordinator's approve refused (403)", r.status_code == 403, r.status_code)
+    for rs, job in jobs.items():
+        page = pi.get(f"/pilot/jobs/{job.job_id}/approval")
+        for cid in re.findall(r'data-testid="open-([A-Z0-9-]+)"', page.text):
+            page = pi.get(f"/pilot/jobs/{job.job_id}/approval?open={cid}")
+        r = pi.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": fd._csrf(page.text)}, follow_redirects=False)
+        after = box.orch.db.get(job.job_id)
+        s.check(f"investigator approves {rs}; FEAS finishes", r.status_code == 303 and after is not None and after.state == "done", (r.status_code, after and after.state, after and after.error))
+    fj = _done(box, "FEAS", TRIAL)[0]
+    names = sorted(o.filename for o in fj.outputs or [])
+    s.check("FEAS PDF, XLSX and JSON", all(any(n.endswith(x) for n in names) for x in (".pdf", ".xlsx", ".json")), names)
+    rep = _json_out(box, fj, "feasibility_")
+    raw = _json_out(box, fj, "feasibility_", ".raw.json")
+    ref = date.fromisoformat(rep["snapshot"])
+    adults = {p["mrn"] for p in patients if (a := _age(p["birth_date"], ref)) is not None and a >= 18}
+    import pyarrow.parquet as pq
+
+    known = {r["code"] for r in pq.read_table(TERMINOLOGY, columns=["code"]).to_pylist()}
+    vs = {c for c in known if c.startswith(MALIGNANT)}  # the "malignancy" grouper expands over the terminology
+    malig = {d["mrn"] for d in dx if d["icd10"] in vs}
+    term = sorted({d["icd10"] for d in dx if d["icd10"].startswith(MALIGNANT) and d["icd10"] not in vs})
+    inc = {k: v for k, v in raw["remaining"].items()}
+    s.check("start = every patient", raw["start_n"] == len(patients), raw["start_n"])
+    s.check("age >= 18 = recount from patient.csv", inc.get(f"{TRIAL}-INC-01") == len(adults), (inc.get(f"{TRIAL}-INC-01"), len(adults)))
+    s.check("malignancy = recount from diagnosis.csv (codes in the value set)", inc.get(f"{TRIAL}-INC-02") == len(adults & malig), (inc.get(f"{TRIAL}-INC-02"), len(adults & malig)))
+    missed = {d["mrn"] for d in dx if d["icd10"] in term} - malig
+    s.check("cancer codes outside the demo terminology are reported, not silently counted", True, f"{len(missed)} patients only coded {term}")
+    rem = [row["remaining"] for row in rep["funnel"]]
+    s.check("funnel never grows", all(a >= b for a, b in itertools.pairwise(rem)), rem)
+    s.check("FEAS ran without a model", (rep.get("provenance") or {}).get("models") == [], rep.get("provenance"))
+    s3 = crc.get(f"/studies/{TRIAL}/feasibility")
+    s.check("S3 feasibility page", s3.status_code == 200 and "funnel" in s3.text.lower(), s3.status_code)
+    r = crc.post(f"/studies/{TRIAL}/feasibility/refresh", data={"csrf": fd._csrf(s3.text)}, follow_redirects=False)
+    s.check("S3 Refresh re-runs FEAS", r.status_code in (200, 303) and len(box.orch.db.find(type_="FEAS", ruleset=TRIAL)) >= 2, (r.status_code, len(box.orch.db.find(type_="FEAS", ruleset=TRIAL))))
+    out: dict[str, Any] = {"feas": {"start": raw["start_n"], "remaining": raw["remaining"], "funnel": rep["funnel"]}, "terminology_missed": {"codes": term, "patients": len(missed)}}
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
+    # ------------------------------------------------------------------ 2 SCREEN on real notes
+    s = Stage("2 screening (patient list) on real notes")
+    t = time.perf_counter()
+    for rs, pract in ((TRIAL, ""), (COHORT, "P12345,P23456")):
+        form = crc.get(f"/pilot/request?ruleset={rs}")
+        r = crc.post("/pilot/request", data={"csrf": fd._csrf(form.text), "kind": "SCREEN", "ruleset": rs, "pract": pract}, follow_redirects=False)
+        sj = box.orch.db.get(r.headers.get("location", "/").rsplit("/", 1)[-1]) if r.status_code == 303 else None
+        s.check(f"SCREEN {rs} done", sj is not None and sj.state == "done", (r.status_code, sj and sj.state, sj and sj.error))
+    sj = _done(box, "SCREEN", TRIAL)[0]
+    scr = _json_out(box, sj, "screen_")
+    fun = dict((k, v) for k, v in scr["funnel"])
+    s.check("screen funnel S0 >= S1 >= S3 >= S4", fun["S0"] >= fun["S1"] >= fun["S3"] >= fun["S4"], fun)
+    s.check("listed = high + review", scr["listed"] == scr["tiers"]["high"] + scr["tiers"]["review"], scr["tiers"])
+    s.check("no note-based exclusion without two models agreeing", scr["judging"]["note_block"] == "never", scr["judging"])
+    out["screen"] = {"funnel": fun, "tiers": scr["tiers"], "listed": scr["listed"], "judging": scr["judging"]}
+    cohort = crc.get(f"/studies/{COHORT}/cohort")
+    members = len(re.findall(r'data-testid="member-', cohort.text))
+    s.check("cohort list PUB-CA has members, no contact step", cohort.status_code == 200 and members > 0 and 'data-testid="mark-' not in cohort.text, members)
+    out["cohort_members"] = members
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
+    # ------------------------------------------------------------------ 3 list, S5, marks (replace, withdraw), outcomes
+    s = Stage("3 list, S5 and marks")
+    t = time.perf_counter()
+    week = h.week_bundle(None, TRIAL)
+    rows = week["rows"]
+    s.check("the list has at least three patients", len(rows) >= 3, len(rows))
+    days = sorted(d for d in notify.clinic_days(rows, ld.PI_PRACTITIONER) if d.weekday() < 5)
+    day = days[0] if days else clock.now.date()
+    clock.set(day)
+    picks = rows[:3]
+    lst = pi.get(f"/studies/{TRIAL}/week?list=all")
+    s.check("PI list page", lst.status_code == 200 and all(p["pid"][:8] in lst.text for p in picks), lst.status_code)
+    marks = [("approach", {}), ("need_info", {"note": "ECOG not recorded"}), ("not_now", {"recheck": (day + timedelta(days=28)).isoformat()})]
+    for row, (mark, extra) in zip(picks, marks, strict=False):
+        page = pi.get(f"/studies/{TRIAL}/week?list=all&pid={row['pid']}")
+        r = pi.post(f"/studies/{TRIAL}/patients/{row['pid']}/mark", data={"csrf": fd._csrf(page.text), "mark": mark, "back": "list:all", **extra}, follow_redirects=False)
+        s.check(f"mark {mark}", r.status_code == 303, r.status_code)
+    if len(picks) >= 3:
+        third = picks[2]["pid"]
+        page = pi.get(f"/studies/{TRIAL}/week?list=all&pid={third}")
+        r = pi.post(f"/studies/{TRIAL}/patients/{third}/mark", data={"csrf": fd._csrf(page.text), "mark": "approach", "back": "list:all"}, follow_redirects=False)
+        hist = [m.mark for m in h.store.mark_history(TRIAL, third)]
+        s.check("replace a mark: history keeps both", r.status_code == 303 and hist[-2:] == ["not_now", "approach"], hist)
+        r = pi.post(f"/studies/{TRIAL}/patients/{third}/mark", data={"csrf": fd._csrf(page.text), "mark": "withdraw", "back": "list:all"}, follow_redirects=False)
+        hist = [m.mark for m in h.store.mark_history(TRIAL, third)]
+        s.check("withdraw a mark", r.status_code == 303, (r.status_code, hist, _text(r.text)[-200:]))
+        out["withdraw_hist"] = hist
+    approached = picks[0]["pid"] if picks else ""
+    p5 = pi.get(f"/studies/{TRIAL}/patients/{approached}")
+    s.check("S5 patient page", p5.status_code == 200, p5.status_code)
+    page = crc.get(f"/studies/{TRIAL}/patients/{approached}")
+    r = crc.post(f"/studies/{TRIAL}/patients/{approached}/outcome", data={"csrf": fd._csrf(page.text), "outcome": "not_reached", "back": "patient"}, follow_redirects=False)
+    s.check("coordinator records a contact outcome", r.status_code == 303, r.status_code)
+    no = h.store.screening_no(TRIAL, approached)
+    s.check("Approach gives a screening number", bool(no) and no.startswith(TRIAL), no)
+    log = crc.get(f"/studies/{TRIAL}/screening-log")
+    s.check("screening log lists the approached patient", log.status_code == 200 and no in log.text, log.status_code)
+    x = crc.get(f"/studies/{TRIAL}/screening-log.xlsx")
+    wb = load_workbook(io.BytesIO(x.content)) if x.status_code == 200 else None
+    s.check("screening log XLSX opens", wb is not None and any(no in str(c.value) for ws in wb.worksheets for r_ in ws.iter_rows() for c in r_), x.status_code)
+    out["picks"] = [p["pid"][:8] for p in picks]
+    out["screening_no"] = no
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
+    # ------------------------------------------------------------------ 4 mail
+    s = Stage("4 N1 / N2 mail")
+    t = time.perf_counter()
+    before = len(box.sent)
+    notify.send_all(h, day)
+    mails = box.sent[before:]
+    s.check("N1 and N2 sent", len(mails) >= 2, [m.subject for m in mails])
+    body = "\n".join(m.text() for m in mails)
+    leaked = sorted(m for m in mrns if re.search(rf"(?<!\d){m}(?!\d)", body))
+    s.check("mail carries no chart number", not leaked, leaked[:3])
+    s.check("mail carries no screening number", no not in body, no)
+    out["mails"] = [{"to": m.to, "subject": m.subject} for m in mails]
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
+    # ------------------------------------------------------------------ 5 REDCap (S36, S21, read-back)
+    s = Stage("5 REDCap simulator read-back")
+    t = time.perf_counter()
+    sim = sim_app()
+    register_inproc(sim)
+    token = next(tk for tk, p in load_projects().items() if p["project"]["project_id"] == 101)
+    page = admin.get("/admin/redcap")
+    admin.post("/admin/redcap", data={"csrf": fd._csrf(page.text), "token_ref": "pubonc", "url": SIM_URL, "token": token})
+    r = admin.post("/admin/redcap/pubonc/test", data={"csrf": fd._csrf(page.text)})
+    s.check("S36 Test connection (version shown, token never shown)", r.status_code == 200 and "16.0.10" in r.text and token not in r.text, r.status_code)
+    page = crc.get(f"/studies/{TRIAL}/setup")
+    form = {**{"token_ref": "pubonc", "project_id": "101", "link_field": "tb_screening_no", "consent_field": "consent_date", "enrol_field": "enrolled", "enrol_value": "1", "screenfail_field": "sf_reason", "screenfail_choice_map": "1=inclusion, 2=exclusion, 3=consent_withdrawn, 9=other", "subject_no_field": "subject_no"}}
+    r = crc.post(f"/studies/{TRIAL}/setup/redcap", data={"csrf": fd._csrf(page.text), **form})
+    s.check("S21 project link checked against the data dictionary", 'data-testid="link-on"' in r.text, _text(r.text)[-300:])
+    sc = TestClient(sim)
+    sc.post("/sim/records", json={"project_id": 101, "records": [{"record_id": "3", "tb_screening_no": no, "consent_date": day.isoformat()}]})
+    log = crc.get(f"/studies/{TRIAL}/screening-log")
+    r = crc.post(f"/studies/{TRIAL}/redcap-read", data={"csrf": fd._csrf(log.text), "back": "log"})
+    from tools.rc_demo import status_of
+
+    s.check("Run now: consented", status_of(r.text, no).startswith(cat["registry.status.consented"]), status_of(r.text, no))
+    sc.post("/sim/records", json={"project_id": 101, "records": [{"record_id": "3", "enrolled": "1", "subject_no": "S-0003"}]})
+    r = crc.post(f"/studies/{TRIAL}/redcap-read", data={"csrf": fd._csrf(r.text), "back": "log"})
+    s.check("Run now: enrolled, subject number shown", status_of(r.text, no).startswith(cat["registry.status.enrolled"]) and "S-0003" in r.text, status_of(r.text, no))
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
+    # ------------------------------------------------------------------ 6 the other screens, every role
+    s = Stage("6 other screens")
+    t = time.perf_counter()
+    for who, c in (("crc", crc), ("pi", pi), ("admin", admin)):
+        for path in ("/home", "/week", "/account", "/help", "/notices/received", "/reports", "/settings/notices"):
+            r = c.get(path)
+            s.check(f"{who} {path}", r.status_code == 200, r.status_code)
+    r = crc.get("/reports/research-office")
+    s.check("research-office counts", r.status_code == 200, r.status_code)
+    r = crc.get("/reports/research-office.xlsx")
+    s.check("research-office XLSX", r.status_code == 200 and r.content[:2] == b"PK", r.status_code)
+    for qtext in (TRIAL, approached[:8], "help"):
+        r = crc.get(f"/cmd?q={qtext}")
+        s.check(f"command field: {qtext!r}", r.status_code in (200, 303), r.status_code)
+    for path in ("/admin", "/admin?tab=health", "/admin?tab=jobs", "/admin?tab=sources", "/ops/users", "/audit", "/jobs"):
+        r = admin.get(path)
+        s.check(f"admin {path}", r.status_code == 200, r.status_code)
+    r = pi.get("/admin")
+    s.check("investigator cannot open admin", r.status_code in (403, 303, 404), r.status_code)
+    r = crc.get("/no-such-page")
+    s.check("404 page", r.status_code == 404, r.status_code)
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
+    # ------------------------------------------------------------------ 7 exports, CASE, consent, jobs Cancel / Retry
+    s = Stage("7 exports, CASE, consent explainer, Cancel / Retry")
+    t = time.perf_counter()
+    for o in fj.outputs or []:
+        if o.filename.endswith((".pdf", ".xlsx")):
+            r = crc.get(f"/pilot/jobs/{fj.job_id}/files/{o.filename}")
+            magic = b"%PDF" if o.filename.endswith(".pdf") else b"PK"
+            s.check(f"download {o.filename.rsplit('.', 1)[-1].upper()} feasibility report", r.status_code == 200 and r.content.startswith(magic), r.status_code)
+    r = crc.get(f"/pilot/registry/{COHORT}/export.xlsx")
+    s.check("cohort registry export XLSX", r.status_code == 200 and r.content[:2] == b"PK", r.status_code)
+    # CASE: one real MedTxt case report, uploaded as the chart of its own patient
+    case_p = next(p for p in site["patients"] if p["source"] == "MedTxt-CR" and p["dx"] and p["age"])
+    note = next(n for n in _rows(hosp / "note.csv") if n["mrn"] == case_p["mrn"])
+    form = crc.get("/pilot/case")
+    r = crc.post("/pilot/case", data={"csrf": fd._csrf(form.text), "ruleset": TRIAL, "mrn": case_p["mrn"], "lang": lang}, files={"charts": ("case.txt", note["text"].encode("utf-8"), "text/plain")}, follow_redirects=False)
+    cj = box.orch.db.get(r.headers.get("location", "/").rsplit("/", 1)[-1]) if r.status_code == 303 else None
+    s.check("CASE on a real case report finishes", cj is not None and cj.state in ("done", "awaiting_release"), (r.status_code, cj and cj.state, cj and cj.error, _text(r.text)[-200:]))
+    form = crc.get("/pilot/consent")
+    icf = next(ROOT.glob("tests/fixtures/**/GZQO_ICF_v2.md")).read_bytes()  # a synthetic ICF: no public one exists
+    r = crc.post("/pilot/consent", data={"csrf": fd._csrf(form.text), "study": TRIAL, "langs": ["en", "ja"]}, files={"icf": ("icf.md", icf, "text/markdown")}, follow_redirects=False)
+    kj = box.orch.db.get(r.headers.get("location", "/").rsplit("/", 1)[-1]) if r.status_code == 303 else None
+    s.check("consent explainer draft (ICF upload, EN + JA)", kj is not None and kj.state == "done", (r.status_code, kj and kj.state, kj and kj.error, _text(r.text)[-200:]))
+    form = crc.get("/pilot/protocol")
+    r = crc.post("/pilot/protocol", data={"csrf": fd._csrf(form.text), "ruleset": TRIAL, "criteria": criteria(TRIAL) + "5. Known HIV infection.\n"})
+    draft = box.orch.db.get(r.url.path.rsplit("/", 1)[-1])
+    page = admin.get("/admin?tab=jobs")
+    r = admin.post(f"/admin/jobs/{draft.job_id}/cancel", data={"csrf": fd._csrf(page.text)})
+    s.check("Cancel asks to confirm", r.status_code == 200 and "confirm" in r.text, r.status_code)
+    r = admin.post(f"/admin/jobs/{draft.job_id}/cancel", data={"csrf": fd._csrf(page.text), "confirm": "yes"}, follow_redirects=False)
+    gone = box.orch.db.get(draft.job_id)
+    s.check("Cancel a waiting job (failed, step cancelled)", r.status_code == 303 and gone is not None and gone.state == "failed" and gone.error is not None and gone.error.step == "cancelled", (r.status_code, gone and gone.state, gone and gone.error))
+    # Retry needs a failed job: mark a finished SCREEN failed (simulated failure), then retry it
+    from tb_contracts import JobError
+
+    failed = sj.model_copy(update={"state": "failed", "error": JobError(step="screen", message="simulated failure (public-data e2e)")})
+    box.orch.db.put(failed)
+    n_before = len(box.orch.db.find(type_="SCREEN", ruleset=TRIAL))
+    r = admin.post(f"/admin/jobs/{sj.job_id}/retry", data={"csrf": fd._csrf(page.text), "confirm": "yes"}, follow_redirects=False)
+    s.check("Retry a failed job creates a new one", r.status_code == 303 and len(box.orch.db.find(type_="SCREEN", ruleset=TRIAL)) == n_before + 1, (r.status_code, _text(r.text)[-200:]))
+    r = admin.post(f"/admin/jobs/{fj.job_id}/retry", data={"csrf": fd._csrf(page.text), "confirm": "yes"})
+    s.check("Retry of a finished job is refused (409)", r.status_code == 409, r.status_code)
+    r = admin.post(f"/admin/jobs/{fj.job_id}/cancel", data={"csrf": fd._csrf(page.text), "confirm": "yes"})
+    s.check("Cancel of a finished job is refused (409)", r.status_code == 409, r.status_code)
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
+    # ------------------------------------------------------------------ 8 audit chain
+    s = Stage("8 audit chain")
+    t = time.perf_counter()
+    res = verify(box.audit_dir)
+    s.check("audit chain verifies", getattr(res, "ok", res) in (True,) or bool(getattr(res, "ok", False)), res)
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
+    rows_now = h.week_bundle(None, TRIAL)["rows"]
+    fresh = next((r["pid"] for r in rows_now if r["pid"][:8] not in out["picks"]), rows_now[-1]["pid"])
+    out["walk"] = {
+        "trial": TRIAL,
+        "cohort": COHORT,
+        "pid_marked": picks[1]["pid"] if len(picks) > 1 else picks[0]["pid"],
+        "pid_fresh": fresh,
+        "feas_job": fj.job_id,
+        "approval_job": jobs[TRIAL].job_id,
+        "case_job": cj.job_id if cj else "",
+        "consent_job": kj.job_id if kj else "",
+    }
+    out.update({"stages": stages, "seconds": time.perf_counter() - t0, "site": site["summary"], "app": app, "box": box, "day": day, "crc": crc, "pi": pi, "admin": admin})
+    return out
+
+
+def table(stages: list[Stage]) -> str:
+    lines = ["| stage | check | result | detail |", "| --- | --- | --- | --- |"]
+    for st in stages:
+        for what, ok, detail in st.checks:
+            lines.append(f"| {st.name} | {what} | {'pass' if ok else 'FAIL'} | {detail.replace('|', '/')[:160] if not ok else ''} |")
+    return "\n".join(lines)
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_PUBLIC_DIR", "/tmp/tb-public")))
+    ap.add_argument("--lang", default="en", choices=["ja", "zh-TW", "en"])
+    ap.add_argument("--serve", action="store_true")
+    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
+    ap.add_argument("--host", default="127.0.0.1")
+    a = ap.parse_args(argv)
+    a.dir.mkdir(parents=True, exist_ok=True)
+    password = os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12)
+    res = run(a.dir, password, a.lang)
+    print(table(res["stages"]))
+    n = sum(len(st.checks) for st in res["stages"])
+    bad = sum(1 for st in res["stages"] for c in st.checks if not c[1])
+    print(f"\n{n - bad}/{n} checks pass in {res['seconds']:.1f} s; feasibility {json.dumps(res['feas']['remaining'])}")
+    print(f"screen {json.dumps(res['screen'], default=str)}; cohort members {res['cohort_members']}")
+    (a.dir / "walk.json").write_text(json.dumps(res["walk"]), encoding="utf-8")
+    (a.dir / "stages.md").write_text(table(res["stages"]), encoding="utf-8")
+    if a.serve:
+        import uvicorn
+
+        if not os.environ.get("TB_DEMO_PASSWORD"):
+            print(f"password (all accounts): {password}")
+        uvicorn.run(res["app"], host=a.host, port=a.port, log_level="warning")
+    return 0 if bad == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,16 @@
+# Site profile for the public-data test study PUB-ONC (tools/public_site.py): a test protocol written for the real
+# public notes (SIGIR, MedTxt), not a real trial. Copied into the box's ruleset seed by the public-data e2e only.
+kind: trial
+title: "Public-data oncology test study (not a real trial)"
+trial_alias: "PUB-ONC"
+sponsor: "TrialBox test protocol"
+protocol_version: "1.0"
+index_date_rule: run_date
+scopes:
+  feas: {population: hospital, lookback_months: 36}
+  screen: {practitioners: ["P12345", "P23456"], appointment_window_days: 180, departments: ["MED"],
+           recent_encounter_months: 12, microbatch_window_days: 14}
+routing:
+  aggregate_to: ["crc1@hospa.test"]
+  list_to: ["pi@hospa.test", "crc1@hospa.test"]
+thresholds: {tier_high_confidence: 0.75, small_cell: 5}

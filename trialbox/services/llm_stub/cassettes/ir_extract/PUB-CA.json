@@ -1,0 +1,39 @@
+{
+ "criteria": [
+  {
+   "text": "Diagnosis of a malignant tumour (any site).",
+   "label": "Malignancy",
+   "source_ref": "Inclusion #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "malignancy",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "malignancy",
+     "synonyms": []
+    }
+   ]
+  },
+  {
+   "text": "Age 18 years or older.",
+   "label": "Age ≥18",
+   "source_ref": "Inclusion #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "age": {
+     "min": 18
+    }
+   },
+   "concept_candidates": []
+  }
+ ]
+}
