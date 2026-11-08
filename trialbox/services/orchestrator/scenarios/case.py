@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from tb_common.crypto import pid_for_mrn, sha256_bytes
+from tb_common.quotes import quote_in
 from tb_common.routing import is_internal
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
@@ -234,13 +235,9 @@ class ChartJudge:
         else:
             r = self.judge.judge_excerpts(c, index_date, ex, source="chart")
             if r.predicate != "unknown" and not r.dids:
-                r.dids = [e["did"] for e in ex if r.quote and _norm(r.quote) in _norm(str(e["text"]))][:1]
+                r.dids = [e["did"] for e in ex if r.quote and quote_in(r.quote, str(e["text"]))][:1]
         self.results[c.id] = r
         return r
-
-
-def _norm(text: str) -> str:
-    return " ".join(unicodedata.normalize("NFKC", text).split())
 
 
 def resolve_hint(c: CriterionIR, verdict: CriterionVerdict, lang: str) -> str:

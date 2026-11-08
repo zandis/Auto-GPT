@@ -61,6 +61,11 @@ datasets:
     data_class: D0
     kind: open
     licence: TREC Clinical Trials 2021/2022 topics and qrels (NIST, synthetic patient descriptions); trial texts from the NCBI TrialGPT corpus (ClinicalTrials.gov public records)
+  canary_local:
+    path: eval/canary_local (answers of 4-bit GGUF builds on CPU to the orchestrator canary, services/orchestrator/canary; 2026-11-08)
+    data_class: D0
+    kind: synthetic
+    licence: written for TrialBox (fictional notes, no patient data)
   chat:
     path: eval/chat (front-desk chat check of the 2026-11-07 survey, 30 fictional staff requests in ja / zh-TW / en, model answers and scores)
     data_class: D0

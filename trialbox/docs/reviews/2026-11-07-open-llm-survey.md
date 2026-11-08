@@ -185,6 +185,17 @@ Four changes, all tested offline in `tests/unit/test_model_swap.py`; how to run 
 4. **Chat time limit.** A chat model call gets 30 s; past that, or while the verifier pass holds the card, the person
    gets "busy, try again" in their language instead of a hang.
 
+5. **Quote check (2026-11-08).** Qwen3.5-9B copies Japanese quotes with stray spaces (「2 型」 for 「2型」), which
+   the exact-quote rule turned into `unknown`. Spaces next to CJK characters no longer count
+   (`libs/tb_common/quotes.py`). On the 54-question canary (4-bit GGUF on CPU) Qwen3.5-9B goes from 46 to 53 of 54,
+   with no wrong yes/no answer; the one miss is a cut-off answer.
+
+**DeepSeek-V4-Pro-Qwen3.5-9B checked (2026-11-08) and not adopted.** A community maths/STEM fine-tune (Apache 2.0).
+In the same 4-bit GGUF on CPU, alone on SIGIR EN it lost 3/79 (Qwen3.5-9B AWQ 4/79, both block recall 0.52). With
+Gemma 4 fp4 it lost 1/79 at recall 0.48 (Qwen3.5-9B: 1/79 at 0.58 on the API, 2/79 at 0.48 in AWQ). On the canary
+it scored 53/54, with one answer from silence ("not pregnant" with no mention). That ties with Qwen after the quote
+fix, and it has no published medical or Japanese results, so Qwen3.5-9B stays.
+
 Still to measure on a real card: memory while awake, swap time and the start order (item 1 below).
 
 ## Next steps

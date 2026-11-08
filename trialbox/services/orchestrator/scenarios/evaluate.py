@@ -13,8 +13,6 @@
 from __future__ import annotations
 
 import os
-import re
-import unicodedata
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -24,6 +22,7 @@ from typing import Any, Literal, Protocol, cast
 from lake.client import LakeAPI
 from tb_common.fhir import FhirEvaluator
 from tb_common.llm import LlmClient, LlmError
+from tb_common.quotes import quote_in
 from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, PatientEvaluation
 
@@ -109,10 +108,6 @@ def engine_from_env(name: str, fhir: FhirEvaluator | None, lake: LakeAPI, snapsh
 
 
 # --------------------------------------------------------------------------------------------- note criteria
-def _norm(text: str) -> str:
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text)).strip()
-
-
 def _tokens(text: str) -> int:
     """Conservative token estimate: CJK characters ~1 token each, Latin ~4 characters per token."""
     cjk = sum(1 for ch in text if "　" <= ch <= "鿿" or "豈" <= ch <= "﫿")
@@ -280,8 +275,8 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
     conf = float(d.get("confidence", 0.0))
     did = None
     if verdict != "unknown":
-        nq = _norm(str(quote or ""))
-        match = next((e for e in excerpts if nq and nq in _norm(str(e["text"]))), None)
+        q = str(quote or "")
+        match = next((e for e in excerpts if quote_in(q, str(e["text"]))), None)
         if match is None:
             return NoteResult("unknown", 0.0, reason="quote_not_found", source=source)
         did = match.get("did")
