@@ -1,5 +1,5 @@
 # TrialBox build gate (SRS FR-OPS-11, trialbox/docs/DECISIONS.md D-111): e2e_simple on every pull request that
-# touches trialbox/. One synthetic hospital, stub model, no network services, no secrets.
+# touches trialbox/. One synthetic hospital, stub model, no network services, no secrets; then the backup drill (D-126).
 name: TrialBox e2e_simple
 
 on:
@@ -52,8 +52,17 @@ jobs:
       - name: JVM dependencies and fonts
         run: make jvm-deps fonts
 
+      # D-126: the box's trial database is PostgreSQL; tools/pglocal.py starts a throwaway cluster from the server
+      # binaries (the runner image ships them; installed here only if missing)
+      - name: PostgreSQL server binaries
+        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+
       - name: e2e_simple
         run: make e2e-simple E2E_DIR=${{ runner.temp }}/e2e
+
+      # TB-PLAN-04 step 2 done-check: run the path, back up, wipe, restore with the hospital's key, check the box
+      - name: Backup and restore drill
+        run: make backup-drill DRILL_DIR=${{ runner.temp }}/drill
 
       - name: Keep the check list
         if: always()
