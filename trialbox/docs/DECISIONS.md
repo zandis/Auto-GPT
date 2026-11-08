@@ -1545,3 +1545,19 @@ D-123 is the data core on the step-3 branch (PR #31).
   and the pair canary against it.
 * **Not done.** The Spark is measured when a site orders one (owner decision 4, 2026-11-08). A physical 5090 record.
   `tools/gpu_sizing.py` keeps its old comparison rows (arithmetic, not a profile).
+
+**D-125 Delivery on Windows, and apps after the platform.** Owner's answers, 2026-11-08.
+
+* **Windows workstation, WSL2.** The box is a dedicated Windows workstation (version chosen by the hospital; the
+  installer's pre-check accepts Windows 11 Pro/Enterprise and Server 2022+). The Linux stack runs unchanged inside
+  WSL2 with GPU access; staff never see Linux.
+* **Fully offline installer, installed by Aimedics on site.** One signed installer and a data file (images, models,
+  rulesets; about 30 GB) on USB or a file share; no internet at install or after; updates the same way. Built after
+  the platform is finished (after step 9); until then steps 2–9 build and test on Linux as planned.
+* **Data in:** a LAN shared folder (EMR exports, SS-MIX2 storage), a FHIR or read-only database endpoint, and USB /
+  console import, all one-way in; mail out through the hospital SMTP/Exchange server.
+* **Apps after the platform:** a phone app for PI/CRC, a desktop app, a documented API for other systems, and an
+  Aimedics admin app (box health and updates, no patient data). They must also work from outside the hospital, which
+  needs a secure path in (hospital VPN or a relay) and the hospital's approval when real data is used.
+* **Rule from now on:** every screen action goes through a documented, token-protected API, so the apps need no
+  screen rework later.
