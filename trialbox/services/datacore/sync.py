@@ -12,6 +12,10 @@ TrialBox record (screening number or pseudonym) and ``push`` writes TrialBox-own
 
 ``resolve`` closes a conflict with the person's choice: ``theirs`` takes the source's value, ``trialbox`` keeps
 TrialBox's (and, for a TrialBox-owned field, pushes it again).
+
+**The record key** (TB-PLAN-04 §2): the screening number first; else the pseudonym (the chart number turned into
+the HMAC pseudonym with the site key at import); else the row is refused and listed in ``SyncResult.refused`` with
+its place in the source, never guessed or matched on anything else.
 """
 
 from __future__ import annotations
@@ -49,10 +53,12 @@ class SyncResult:
     pushed: int = 0
     created: dict[str, str] = field(default_factory=dict)
     waiting: list[str] = field(default_factory=list)
+    refused: list[dict[str, str]] = field(default_factory=list)  # rows with no usable key (never guessed)
 
     def as_dict(self) -> dict[str, Any]:
         return {"source": self.source, "pulled": self.pulled, "taken": self.taken, "conflicts": self.conflicts,
-                "pushed": self.pushed, "created": self.created, "waiting": self.waiting}  # fmt: skip
+                "pushed": self.pushed, "created": self.created, "waiting": self.waiting,
+                "refused": self.refused}  # fmt: skip
 
 
 def attach(dc: DataCore, study: str, source: Source, owned: list[str]) -> None:
@@ -73,7 +79,9 @@ def sync(dc: DataCore, study: str, source: Source, by: str, at: str, push: bool 
     res = SyncResult(source.name)
     carried = set(source.fields())
     owners = dc.owners(study)
-    for row in source.pull():
+    rows = source.pull()
+    res.refused = list(getattr(source, "refused", []) or [])
+    for row in rows:
         res.pulled += 1
         if row.source_id:
             dc.put_source_id(study, source.name, row.record, row.source_id)

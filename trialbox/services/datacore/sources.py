@@ -38,6 +38,8 @@ class RedcapSource:
     dag: str = ""
     name: str = "redcap"
     id_field: str = "record_id"
+    pid_field: str = ""  # a field holding TrialBox's pseudonym: the key when the screening number is blank
+    refused: list[dict[str, str]] = field(default_factory=list)
 
     def _tb(self, rc_field: str) -> str:
         return self.field_map.get(rc_field, rc_field)
@@ -49,12 +51,18 @@ class RedcapSource:
         with self.client() as rc:
             meta = rc.metadata()
             self.id_field = str(meta[0]["field_name"])
-            wanted = [self.id_field, self.key_field, *self.field_map]
+            wanted = [self.id_field, self.key_field, *([self.pid_field] if self.pid_field else []), *self.field_map]
             rows = rc.records(fields=list(dict.fromkeys(wanted)), dags=bool(self.dag))
         keys: dict[str, str] = {}
         for r in rows:  # the key field may live on another event than the data (longitudinal)
             if str(r.get(self.key_field) or "").strip():
                 keys[str(r[self.id_field])] = str(r[self.key_field]).strip().upper()
+        if self.pid_field:  # second: the pseudonym, only where no screening number was given
+            for r in rows:
+                rid = str(r.get(self.id_field) or "")
+                if rid not in keys and str(r.get(self.pid_field) or "").strip():
+                    keys[rid] = str(r[self.pid_field]).strip()
+        self.refused = []
         out = []
         for r in rows:
             if self.dag and str(r.get("redcap_data_access_group") or "") != self.dag:
@@ -62,6 +70,8 @@ class RedcapSource:
             rid = str(r.get(self.id_field) or "")
             key = keys.get(rid)
             if not key:
+                if rid and not any(x["at"] == f"record {rid}" for x in self.refused):
+                    self.refused.append({"at": f"record {rid}", "reason": "no screening number and no pseudonym"})
                 continue
             ev = str(r.get("redcap_event_name") or "")
             if self.event and ev and ev != self.event:
@@ -145,6 +155,7 @@ class SheetSource:
     out_path: Path | None = None
     name: str = "sheet"
     dropped: list[str] = field(default_factory=list)
+    refused: list[dict[str, str]] = field(default_factory=list)
 
     def fields(self) -> list[str]:
         return list(self.columns.values())
@@ -158,19 +169,21 @@ class SheetSource:
         bad = [c for c in self.columns if IDENTIFIER.match(c)]
         if bad:
             raise DataError("DATA-PHI", f"identifier columns cannot be imported: {', '.join(bad)}")
-        missing = [c for c in [*self.columns, self.key_column or self.mrn_column] if c and c not in head]
+        if not (self.key_column or self.mrn_column):
+            raise DataError("DATA-SHEET", "name the screening-number column or the chart-number column")
+        missing = [c for c in [*self.columns, self.key_column, self.mrn_column] if c and c not in head]
         if missing:
             raise DataError("DATA-SHEET", f"columns not in the sheet: {', '.join(missing)}")
+        if self.mrn_column and self.pseudonymise is None:
+            raise DataError("DATA-SHEET", "a chart-number column needs the site key")
+        self.refused = []
         out = []
-        for r in rows:
-            if self.mrn_column:
-                if self.pseudonymise is None:
-                    raise DataError("DATA-SHEET", "a chart-number column needs the site key")
-                raw = r.get(self.mrn_column, "")
-                key = self.pseudonymise(raw) if raw else ""
-            else:
-                key = r.get(self.key_column, "").upper()
+        for n, r in enumerate(rows, start=2):  # row 1 is the header, as Excel numbers it
+            key = r.get(self.key_column, "").strip().upper() if self.key_column else ""
+            if not key and self.mrn_column and r.get(self.mrn_column, "").strip():
+                key = self.pseudonymise(r[self.mrn_column].strip()) if self.pseudonymise else ""
             if not key:
+                self.refused.append({"at": f"row {n}", "reason": "no screening number and no chart number"})
                 continue
             out.append(Row(key, "", {f: r.get(c, "") for c, f in self.columns.items()}, key))
         return out

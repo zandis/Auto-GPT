@@ -115,6 +115,22 @@ def test_sheet_import_pseudonymises_and_drops_identifiers(tmp_path: Path) -> Non
     assert rows[0].record == "GZQO-0009" and rows[0].values == {"consent_date": "2026-11-02"}
 
 
+def test_record_key_screening_number_then_pseudonym_else_refused_and_listed(tmp_path: Path) -> None:
+    """TB-PLAN-04 §2: one rule for the record key; a row with neither is refused and listed, never guessed."""
+    dc = core(tmp_path)
+    sheet = tmp_path / "mixed.csv"
+    sheet.write_text("screening no,chart,consent\nGZQO-0001,00123,2026-10-01\n,00456,2026-10-02\n,,2026-10-03\n",
+                     encoding="utf-8")  # fmt: skip
+    src = SheetSource(sheet, {"consent": "consent_date"}, key_column="screening no", mrn_column="chart",
+                      pseudonymise=lambda m: f"p{int(m):031x}", name="sheet:mixed")  # fmt: skip
+    attach(dc, "GZQO", src, ["consent_date"])
+    res = sync(dc, "GZQO", src, "crc", AT)
+    assert dc.records("GZQO") == sorted(["GZQO-0001", f"p{456:031x}"])  # the number wins; the chart only without it
+    assert res.refused == [{"at": "row 4", "reason": "no screening number and no chart number"}]
+    assert res.as_dict()["refused"] == res.refused
+    assert "00123" not in json.dumps(dc.values("GZQO"))
+
+
 def test_fhir_bundle_in_and_out(tmp_path: Path) -> None:
     dc = core(tmp_path)
     b = tmp_path / "in.json"
