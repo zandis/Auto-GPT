@@ -14,10 +14,52 @@ def repo_root() -> Path:
     return ROOT
 
 
+# ------------------------------------------------------------------ the trial database (D-126)
+# One throwaway PostgreSQL per test session (tools/pglocal.py), or the one in TB_TEST_DB_URL; every test gets its own
+# schemas through a unique tb_prefix, so tests never see each other's rows.
+_DB_COUNTER = iter(range(1, 10**9))
+
+
+@pytest.fixture(scope="session")
+def pg_cluster_url() -> Iterator[str]:
+    given = os.environ.get("TB_TEST_DB_URL")
+    if given:
+        yield given
+        return
+    import shutil
+    import tempfile
+
+    from tools import pglocal
+
+    # not under pytest's private tmp: as root the server runs as the `postgres` user and must reach its directory
+    root = Path(os.environ.get("TB_TEST_PG_DIR") or tempfile.mkdtemp(prefix="tb-pgtest-"))
+    root.chmod(0o755)
+    url = pglocal.ensure(root)
+    yield url
+    if not os.environ.get("TB_TEST_PG_DIR"):
+        pglocal.stop(root)
+        shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.fixture
+def db_url(pg_cluster_url: str, monkeypatch: pytest.MonkeyPatch) -> str:
+    """A TB_DB_URL private to this test (also set in the environment for code that reads TB_DB_URL)."""
+    sep = "&" if "?" in pg_cluster_url else "?"
+    url = f"{pg_cluster_url}{sep}tb_prefix=t{os.getpid()}x{next(_DB_COUNTER)}_"
+    monkeypatch.setenv("TB_DB_URL", url)
+    return url
+
+
+@pytest.fixture(autouse=True)
+def _private_trial_db(db_url: str) -> str:
+    """Every test runs with its own TB_DB_URL, so nothing it stores leaks into another test."""
+    return db_url
+
+
 @pytest.fixture
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     for key in list(os.environ):
-        if key.startswith(("TB_", "IMAP_", "SMTP_", "LLM_", "CLOUD_LLM", "MAIL_")):
+        if key.startswith(("TB_", "IMAP_", "SMTP_", "LLM_", "CLOUD_LLM", "MAIL_")) and key != "TB_DB_URL":
             monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("TB_CANARY_GATE", "off")  # see pytest_configure
     yield
@@ -29,6 +71,9 @@ def pytest_configure(config: pytest.Config) -> None:
     # fake models are not the pair and never pass a canary, so the gate is off for the suite; the gate's own tests
     # (tests/unit/test_canary_gate.py) switch it on with monkeypatch.
     os.environ.setdefault("TB_CANARY_GATE", "off")
+    # D-127 (F-06): an unset TB_ENV now means PRODUCTION (token required, timers on). The suite is a TEST box; the
+    # tests of the PRODUCTION default set or clear TB_ENV themselves.
+    os.environ.setdefault("TB_ENV", "TEST")
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -96,8 +141,11 @@ def site_key_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="session")
-def ingested(synth_dir: Path, site_key_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
-    """Site A ingested in-process (csv source) into a lake with the hash embedder."""
+def ingested(
+    synth_dir: Path, site_key_dir: Path, tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str
+) -> dict[str, object]:
+    """Site A ingested in-process (csv source) into a lake with the hash embedder. The pid map goes to the session's
+    own schemas (``cfg.db_url``): a session fixture runs before any test's private ``TB_DB_URL``."""
     from adapter.pipeline import AdapterConfig, run_ingest
     from embed_service.embedder import HashEmbedder
     from lake.store import Lake
@@ -122,6 +170,7 @@ def ingested(synth_dir: Path, site_key_dir: Path, tmp_path_factory: pytest.TempP
         site_id="DEMO-A",
         audit_dir=lake_dir / "audit",
         rebuild=rebuild,
+        db_url=f"{pg_cluster_url}{'&' if '?' in pg_cluster_url else '?'}tb_prefix=s{os.getpid()}ingested_",
     )
     report = run_ingest(cfg, "csv", str(synth_dir / "site-a"), snapshot=SNAPSHOT, load_fhir=False)
     return {

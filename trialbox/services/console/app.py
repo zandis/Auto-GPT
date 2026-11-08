@@ -1,15 +1,13 @@
-"""TrialBox console: the admin control plane (spec v4 §3.8, ``services/console/app.py``) plus the pilot workspace.
+"""TrialBox console: the admin control plane (spec v4 §3.8, ``services/console/app.py``) plus the clinical workspace.
 
 Two route sets, decided at start-up:
 
 * **Control plane** (always): sign-in, service health, the job list and the audit trail, metadata only, and the
   ``Operate`` action "ingest". This is the §3.8 surface; it renders no study content (FR-UX-21).
-* **Pilot workspace** (``/pilot/...``): only with ``TB_CONSOLE_PILOT=1`` **and** ``TB_ENV`` DEV or TEST **and**
-  ``TB_DATA_CLASS=D0``. It shows study content (attrition tables, the feasibility PDF/XLSX, the DL-1 pack, the
-  recall certificate) of synthetic data, and lets an administrator start requests from the browser. It is not one of
-  the five C-5′ product surfaces (FR-UX-12, §2.6 non-goals), so it can never be on in VALIDATION or PRODUCTION: the
-  app refuses to start when asked to (fail closed), and ``tests/console`` prove that a production app has no
-  ``/pilot`` route.
+* **Workspace** (``/pilot/...``, the path name is historical): the clinical product (D-127, review F-01): the PI
+  and CRC lists, marks, approval, the screening log, the REDCap link, reports and requests from the browser. On in
+  every environment unless ``TB_CONSOLE_WORKSPACE=off`` (the old ``TB_CONSOLE_PILOT=0`` still works), which leaves
+  the control plane alone. Real patient data still waits for the owner's gates (the ethics gate, the data class).
 
 Nothing here is a side door. A browser request becomes the exact grammar line of the e-mail subject
 (``console.proposals``) and the same ``JobCreate`` on the orchestrator's ``POST /jobs`` the mail gateway sends, so
@@ -39,6 +37,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import AuditLog
+from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
 from tb_common.reasons import label as reason_label
@@ -69,7 +68,6 @@ HERE = Path(__file__).resolve().parent
 COOKIE = "tb_console"
 LOGIN_COOKIE = "tb_console_login"
 TERMINAL = frozenset({"done", "failed", "cancelled"})
-PILOT_ENVS = frozenset({"DEV", "TEST"})
 DOC_EXT = (".pdf", ".docx", ".txt", ".md")
 MAX_UPLOAD = 50 * 1024 * 1024
 _RULESET_ID = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,15}$")
@@ -134,18 +132,13 @@ class ConsoleSettings:
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> ConsoleSettings:
-        environment = (env.get("TB_ENV") or "PRODUCTION").upper()
-        want_pilot = env.get("TB_CONSOLE_PILOT", "0").strip().lower() in ("1", "true", "yes")
+        environment = environment_name(env)
+        # D-127 (review F-01): the clinical workspace (PI/CRC lists, marks, approval, screening log, REDCap link) is
+        # the product, on in every environment. TB_CONSOLE_WORKSPACE=off (or the old TB_CONSOLE_PILOT=0) leaves the
+        # admin plane only. Real patient data still waits for the owner's gates (ethics gate, data class).
+        raw = env.get("TB_CONSOLE_WORKSPACE") or env.get("TB_CONSOLE_PILOT") or "on"
+        want_pilot = raw.strip().lower() not in ("0", "off", "false", "no")
         data_class = (env.get("TB_DATA_CLASS") or "").upper()
-        if want_pilot and environment not in PILOT_ENVS:
-            raise PilotRefused(
-                f"TB_CONSOLE_PILOT=1 is refused in TB_ENV={environment}: the pilot workspace is not a product "
-                f"surface (FR-UX-12) and runs only in DEV or TEST"
-            )
-        if want_pilot and data_class != "D0":
-            raise PilotRefused(
-                f"TB_CONSOLE_PILOT=1 needs TB_DATA_CLASS=D0 (synthetic or open data), got {data_class!r}"
-            )
         pw = env.get("TB_CONSOLE_ADMIN_PASSWORD_FILE", "").strip()
         src = env.get("TB_CONSOLE_SOURCE_DIR", "").strip()
         samples = env.get("TB_CONSOLE_SAMPLES_DIR", "").strip()
@@ -331,7 +324,7 @@ def create_app(
     settings = ConsoleSettings.from_env(_env_map(env))
     if backend is None or audit is None:
         backend, audit = _default_backend(settings)
-    users = users or UserStore(settings.data_dir / "console.sqlite")
+    users = users or UserStore()  # schema auth of the trial database (TB_DB_URL, D-126)
     if settings.admin_password_file is not None:
         made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
         if made is not None:
@@ -539,6 +532,10 @@ def create_app(
 
     @app.exception_handler(_Problem)
     async def _problem(request: Request, exc: _Problem) -> Response:
+        if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON, never with a page
+            return JSONResponse(
+                {"error": exc.key, "detail": {k: str(v) for k, v in exc.values.items()}}, status_code=exc.status
+            )
         sess = session_of(request)
         values = localize_refusal(exc.values, lang_of(request, sess))  # no English refusal on a JA/zh-TW page
         return page(request, "problem.html", sess, status=exc.status, key=exc.key, values=values)
@@ -807,7 +804,7 @@ def create_app(
         actor=actor,
         bk=bk,
         au=au,
-        store=SiteStore(settings.data_dir / "site.sqlite"),
+        store=SiteStore(),  # schema site of the trial database (TB_DB_URL, D-126)
         users=us,
         clock=us.clock,
         submit=submit,

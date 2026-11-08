@@ -23,6 +23,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from tb_common.config import environment_name
+
 log = logging.getLogger("console.timers")
 _HHMM = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)")
 
@@ -51,7 +53,7 @@ def enabled(env: Mapping[str, str]) -> bool:
     if mode not in ("auto", "on", "off"):
         raise TimerError(f"TB_CONSOLE_TIMERS must be auto, on or off, got {mode!r}")
     if mode == "auto":
-        return (env.get("TB_ENV") or "").upper() in ("VALIDATION", "PRODUCTION")
+        return environment_name(env) in ("VALIDATION", "PRODUCTION")
     return mode == "on"
 
 

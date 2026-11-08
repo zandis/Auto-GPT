@@ -286,17 +286,18 @@ def report_meta(
 
 def pid_names(ctx: Ctx, pids: list[str]) -> dict[str, str]:
     """pid -> MRN from the in-box pid map (internal recipients only)."""
-    return resolve_mrns(Path(ctx.cfg.env.secrets_dir), pids)
+    return resolve_mrns(Path(ctx.cfg.env.secrets_dir), pids, ctx.orch.db.url)
 
 
-def resolve_mrns(sec: Path, pids: list[str]) -> dict[str, str]:
-    """pid -> chart number from the pid map under ``sec``; empty when the box has no map (stub installs)."""
-    db, key = sec / "pid_map.sqlite", sec / "pid_map.key"
-    if not db.exists() or not key.exists():
+def resolve_mrns(sec: Path, pids: list[str], url: str | None = None) -> dict[str, str]:
+    """pid -> chart number from the pid map of the key under ``sec``; empty when the box has no map (no key: stub
+    installs, no ingest yet). ``url``: the trial database (the orchestrator's; ``TB_DB_URL`` when None)."""
+    key = sec / "pid_map.key"
+    if not key.exists():
         return {}
     from adapter.pidmap import PidMap
 
-    pm = PidMap(db, key)
+    pm = PidMap(key, url)
     try:
         return pm.resolve_many(pids)
     finally:

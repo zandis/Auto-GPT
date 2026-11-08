@@ -39,6 +39,7 @@ import httpx
 from guard.guard import Guard
 from registry.registry import Registry, RegistryError, Resolved, check_served, provider_routing
 from tb_common.audit import AuditLog, canonical
+from tb_common.config import environment_name
 from tb_common.crypto import sha256_text
 from tb_common.policy.classes import Environment, Topology
 from tb_common.ulid import new_ulid
@@ -68,7 +69,7 @@ class GatewayConfig:
         e = os.environ if env is None else env
         return cls(
             topology=Topology(e.get("TB_TOPOLOGY", "A")),
-            environment=Environment(e.get("TB_ENV", "DEV")),
+            environment=Environment(environment_name(e)),
             profile=e.get("TB_PROFILE", "P-GB10"),
             cloud_opt_in=e.get("TB_CLOUD_OPT_IN", "").lower() in ("1", "true", "yes"),
         )

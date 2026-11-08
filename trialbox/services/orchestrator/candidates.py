@@ -68,12 +68,12 @@ class CandidateRegistry:
         return pid_for_mrn(key.read_bytes(), upd.mrn)
 
     def mrns(self, pids: list[str]) -> dict[str, str]:
-        db, key = self.secrets_dir / "pid_map.sqlite", self.secrets_dir / "pid_map.key"
-        if not db.exists() or not key.exists() or not pids:
+        key = self.secrets_dir / "pid_map.key"
+        if not key.exists() or not pids:  # no map yet
             return {}
         from adapter.pidmap import PidMap
 
-        pm = PidMap(db, key)
+        pm = PidMap(key, self.db.url)  # the trial database of the registry's JobDB
         try:
             return pm.resolve_many(pids)
         finally:

@@ -17,6 +17,7 @@ from embed_service.embedder import HashEmbedder
 from lake.store import Lake
 from tb_common.audit import verify
 from tb_common.crypto import pid_for_mrn
+from tb_common.db import Database
 
 SNAPSHOT = "2026-10-04"
 
@@ -53,11 +54,13 @@ def test_no_direct_identifiers_leave_the_adapter(ingested: dict[str, Any], synth
 
 
 def test_pidmap_resolves_internal_only(ingested: dict[str, Any], site_key_dir: Path) -> None:
-    pm = PidMap(site_key_dir / "pid_map.sqlite", site_key_dir / "pid_map.key")
+    url = ingested["cfg"].db_url
+    pm = PidMap(site_key_dir / "pid_map.key", url)
     pid = pid_for_mrn(ingested["key"], "10000001")
     assert pm.resolve(pid) == "10000001"
-    raw = (site_key_dir / "pid_map.sqlite").read_bytes()
-    assert b"10000001" not in raw  # encrypted at rest
+    with Database.connect(url, "pidmap") as db:
+        raw = repr(db.fetchall("SELECT * FROM pid_map")).encode()
+    assert pid in raw.decode() and b"10000001" not in raw  # encrypted at rest
     pm.close()
 
 

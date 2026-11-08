@@ -1,7 +1,8 @@
 """Criterion library (spec v4 §6.3): approved, reusable IR v3 criteria keyed by canonical hash (§6.2.7).
 
-``ddl.py`` holds the SQLite tables, ``repository.py`` the :class:`CriterionLibrary` repository and ``chia.py`` the
-(disabled) Chia seed loader. The library holds no patient data (data class D1, DM-11).
+``ddl.py`` holds the tables (schema ``library`` of the trial database, D-126), ``repository.py`` the
+:class:`CriterionLibrary` repository and ``chia.py`` the (disabled) Chia seed loader. The library holds no patient
+data (data class D1, DM-11).
 """
 
 from __future__ import annotations

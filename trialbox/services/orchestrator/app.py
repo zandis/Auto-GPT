@@ -3,6 +3,7 @@ scheduler start with the app."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections.abc import AsyncIterator, Callable
@@ -87,7 +88,7 @@ def orch() -> Orchestrator:
         )
         _orch = Orchestrator(
             cfg,
-            JobDB(data / "jobs.sqlite"),
+            JobDB(),  # TB_DB_URL, schema orch
             from_config(),
             audit,
             services,
@@ -241,6 +242,45 @@ class RevealRequest(BaseModel):
     by: str | None = Field(default=None, max_length=200)  # DEV/TEST without a token only; else X-TB-Actor
 
 
+class RevealLimit:
+    """At most ``TB_REVEAL_MAX_PER_HOUR`` (default 60) chart numbers per person per rolling hour, per process."""
+
+    def __init__(self) -> None:
+        self._seen: dict[str, list[float]] = {}
+
+    def allow(self, who: str) -> bool:
+        import time
+
+        cap = int(os.environ.get("TB_REVEAL_MAX_PER_HOUR", "60"))
+        t = time.monotonic()
+        recent = [x for x in self._seen.get(who, []) if t - x < 3600]
+        if len(recent) >= cap:
+            self._seen[who] = recent
+            return False
+        self._seen[who] = [*recent, t]
+        return True
+
+
+REVEALS = RevealLimit()
+
+
+def listed_pids(o: Any, job: Any) -> set[str]:
+    """The pseudonyms a finished screening job listed (its ``candidate_list_*.json`` or other ``*.json`` lists)."""
+    out: set[str] = set()
+    for f in job.outputs or []:
+        if not f.filename.endswith(".json"):
+            continue
+        try:
+            doc = json.loads(o.store.get(f.minio_key))
+        except (KeyError, OSError, ValueError):
+            continue
+        rows = doc.get("rows") if isinstance(doc, dict) else None
+        for r in rows or []:
+            if isinstance(r, dict) and r.get("pid"):
+                out.add(str(r["pid"]))
+    return out
+
+
 @app.post("/jobs/{job_id}/reveal")
 def reveal(
     job_id: str, req: RevealRequest, x_tb_actor: str | None = Header(default=None, alias="X-TB-Actor")
@@ -256,7 +296,17 @@ def reveal(
         raise HTTPException(status_code=404, detail="no such job")
     if job.type not in ("SCREEN", "MICROBATCH", "NAV") or job.state != "done":
         raise HTTPException(status_code=409, detail="chart numbers are revealed for finished screening jobs only")
-    found = resolve_mrns(Path(o.cfg.env.secrets_dir), [req.pid])
+    # security review 2026-11-08 (F-03): only a patient this job listed, and at a bounded rate per person
+    listed = listed_pids(o, job)
+    if req.pid not in listed:
+        o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
+                       detail={"pid": req.pid, "reason": "not on this job's list"})  # fmt: skip
+        raise HTTPException(status_code=403, detail="this patient is not on this job's list")
+    if not REVEALS.allow(who):
+        o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
+                       detail={"pid": req.pid, "reason": "rate limit"})  # fmt: skip
+        raise HTTPException(status_code=429, detail="too many chart numbers revealed in the last hour")
+    found = resolve_mrns(Path(o.cfg.env.secrets_dir), [req.pid], o.db.url)
     o.audit.append(
         "screen.reveal",
         job_id=job_id,
@@ -290,8 +340,15 @@ def notice(req: NoticeRequest, x_tb_actor: str | None = Header(default=None, ali
     external = [r for r in req.to if not is_internal(r, o.cfg.settings.internal_domains)]
     if external:
         raise HTTPException(status_code=400, detail=f"notices go to hospital addresses only, not {external[0]}")
+    from orchestrator.core import send_key
+
+    day = o._now().date().isoformat()
+    # D-127 (F-02): one notice of a kind per recipients, subject and day, even when the console's timer retries
+    key = send_key(f"notice:{day}", req.kind, list(req.to), req.subject, [])
     res = o.services.mail.send(
-        SendRequest(job_id=None, to=req.to, subject=req.subject, body_md=req.body_md, tag="aggregate")
+        SendRequest(
+            job_id=None, to=req.to, subject=req.subject, body_md=req.body_md, tag="aggregate", idempotency_key=key
+        )
     )
     o.audit.append(
         "notice.sent",
@@ -326,9 +383,10 @@ _studies: dict[str, StudyStore] = {}
 
 
 def study_service_of(o: Orchestrator) -> StudyService:
-    key = str(o.data_dir)
+    # one store per orchestrator, in schema "study" of the orchestrator's trial database (keyed by study inside)
+    key = f"{o.db.url}|{o.data_dir}"
     if key not in _studies:
-        _studies[key] = StudyStore(Path(o.data_dir) / "studies.db", Path(o.cfg.env.secrets_dir))
+        _studies[key] = StudyStore(Path(o.cfg.env.secrets_dir), o.db.url)
         if (tb_env(o.cfg.env) if o.cfg.env.extra.get("TB_ENV") else os.environ.get("TB_ENV", "").upper()) in (
             "DEV",
             "TEST",

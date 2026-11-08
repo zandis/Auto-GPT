@@ -1,4 +1,4 @@
-"""SQLite DDL of the criterion library (spec v4 §6.3).
+"""DDL of the criterion library (spec v4 §6.3), schema ``library`` of the trial database (D-126).
 
 ``criterion_library`` holds one row per canonical hash with the full record as JSON (the source of truth) and the
 columns the repository filters on. The child tables index the record's texts, ValueSets, lexicon keys and the
@@ -12,8 +12,8 @@ SCHEMA_VERSION = 1
 
 DDL = """
 CREATE TABLE IF NOT EXISTS criterion_library (
-  lib_id          TEXT PRIMARY KEY CHECK (lib_id GLOB 'cl_*'),
-  canonical_hash  TEXT NOT NULL UNIQUE CHECK (canonical_hash GLOB 'sha256:*'),
+  lib_id          TEXT PRIMARY KEY CHECK (starts_with(lib_id, 'cl_')),
+  canonical_hash  TEXT NOT NULL UNIQUE CHECK (starts_with(canonical_hash, 'sha256:')),
   schema_version  TEXT NOT NULL,
   ir_version      TEXT NOT NULL,
   status          TEXT NOT NULL CHECK (status IN ('draft', 'approved', 'deprecated')),
@@ -64,5 +64,5 @@ CREATE INDEX IF NOT EXISTS criterion_library_usage_ruleset ON criterion_library_
 CREATE TABLE IF NOT EXISTS criterion_library_meta (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
-);
+)
 """

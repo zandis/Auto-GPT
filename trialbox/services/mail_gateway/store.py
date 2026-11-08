@@ -1,13 +1,13 @@
-"""mail-gateway state (``/data/mail/mail.sqlite``): intake log (idempotency + rate limit) and sent-message index
-(reply-to-thread matching)."""
+"""mail-gateway state (schema ``mail`` of the trial database, D-126): intake log (idempotency + rate limit) and
+sent-message index (reply-to-thread matching)."""
 
 from __future__ import annotations
 
-import sqlite3
-import threading
-from pathlib import Path
+import os
 
-SCHEMA = """
+from tb_common.db import ENV, Database
+
+SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS intake (
   message_id TEXT PRIMARY KEY,
   sender TEXT NOT NULL,
@@ -28,62 +28,109 @@ CREATE TABLE IF NOT EXISTS sent (
 """
 
 
+# D-127 (review F-02): one row per idempotency key. "sending" is written before the transport is called and "sent"
+# after it returned; a key found in "sending" belongs to a send that may or may not have left (a crash in between),
+# so it is never sent again automatically: a person checks the mailbox and resolves it.
+SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS send_keys (
+  key TEXT PRIMARY KEY,
+  state TEXT NOT NULL,
+  message_id TEXT,
+  job_id TEXT,
+  result TEXT,
+  at TEXT NOT NULL
+)
+"""
+
+
+class SendUncertain(RuntimeError):
+    """A send with this key started and never finished: it may have reached the recipients. Never resent."""
+
+
 class MailDB:
-    def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
-        self._con = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
-        self._con.execute("PRAGMA journal_mode=WAL")
-        self._con.executescript(SCHEMA)
+    def __init__(self, url: str | None = None) -> None:
+        """``url``: the trial database (``TB_DB_URL`` when ``None``; :class:`~tb_common.db.DatabaseError` if unset)."""
+        self.db = Database.connect(url or os.environ.get(ENV), "mail")
+        self.db.migrate([SCHEMA_V1, SCHEMA_V2])
+
+    def close(self) -> None:
+        self.db.close()
 
     def intake(self, message_id: str) -> tuple[str, str | None] | None:
-        with self._lock:
-            row = self._con.execute("SELECT action, job_id FROM intake WHERE message_id = ?", (message_id,)).fetchone()
+        row = self.db.fetchone("SELECT action, job_id FROM intake WHERE message_id = ?", (message_id,))
         return (str(row[0]), row[1]) if row else None
 
     def record_intake(
         self, message_id: str, sender: str, at: str, action: str, job_id: str | None, reason: str | None = None
     ) -> None:
-        with self._lock:
-            self._con.execute(
-                "INSERT OR REPLACE INTO intake (message_id, sender, received_at, action, job_id, reason) "
-                "VALUES (?,?,?,?,?,?)",
-                (message_id, sender, at, action, job_id, reason),
-            )
+        self.db.execute(
+            "INSERT INTO intake (message_id, sender, received_at, action, job_id, reason) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT (message_id) DO UPDATE SET sender = EXCLUDED.sender, received_at = EXCLUDED.received_at, "
+            "action = EXCLUDED.action, job_id = EXCLUDED.job_id, reason = EXCLUDED.reason",
+            (message_id, sender, at, action, job_id, reason),
+        )
 
     def jobs_since(self, sender: str, since_iso: str) -> int:
-        with self._lock:
-            row = self._con.execute(
-                "SELECT count(*) FROM intake WHERE sender = ? AND action = 'job' AND received_at >= ?",
-                (sender, since_iso),
-            ).fetchone()
-        return int(row[0])
+        n = self.db.fetchval(
+            "SELECT count(*) FROM intake WHERE sender = ? AND action = 'job' AND received_at >= ?",
+            (sender, since_iso),
+            default=0,
+        )
+        return int(n)
 
     def record_sent(
         self, message_id: str, job_id: str | None, subject: str, recipients: list[str], tag: str, at: str
     ) -> None:
-        with self._lock:
-            self._con.execute(
-                "INSERT OR REPLACE INTO sent (message_id, job_id, subject, recipients, tag, sent_at) "
-                "VALUES (?,?,?,?,?,?)",
-                (message_id, job_id, subject, ",".join(recipients), tag, at),
+        self.db.execute(
+            "INSERT INTO sent (message_id, job_id, subject, recipients, tag, sent_at) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT (message_id) DO UPDATE SET job_id = EXCLUDED.job_id, subject = EXCLUDED.subject, "
+            "recipients = EXCLUDED.recipients, tag = EXCLUDED.tag, sent_at = EXCLUDED.sent_at",
+            (message_id, job_id, subject, ",".join(recipients), tag, at),
+        )
+
+    def claim_send(self, key: str, job_id: str | None, at: str) -> str | None:
+        """Reserve ``key`` for a send. ``None``: go ahead. A JSON result: already sent (return it, send nothing).
+        Raises :class:`SendUncertain` when an earlier send with this key never finished."""
+        with self.db.transaction() as tx:
+            n = tx.execute(
+                "INSERT INTO send_keys (key, state, job_id, at) VALUES (?, 'sending', ?, ?) "
+                "ON CONFLICT (key) DO NOTHING",
+                (key, job_id, at),
             )
+            if n == 1:
+                return None
+            row = tx.fetchone("SELECT state, result FROM send_keys WHERE key = ?", (key,))
+        if row and row[0] == "sent":
+            return str(row[1])
+        raise SendUncertain(f"send {key[:12]} started earlier and did not finish: check the mailbox, then resolve it")
+
+    def finish_send(self, key: str, message_id: str, result_json: str, at: str) -> None:
+        self.db.execute(
+            "UPDATE send_keys SET state = 'sent', message_id = ?, result = ?, at = ? WHERE key = ?",
+            (message_id, result_json, at, key),
+        )
+
+    def release_send(self, key: str) -> None:
+        """The transport refused before accepting anything: the key may be used again."""
+        self.db.execute("DELETE FROM send_keys WHERE key = ? AND state = 'sending'", (key,))
 
     def sent(self, message_id: str) -> tuple[str | None, str] | None:
-        with self._lock:
-            row = self._con.execute("SELECT job_id, subject FROM sent WHERE message_id = ?", (message_id,)).fetchone()
+        row = self.db.fetchone("SELECT job_id, subject FROM sent WHERE message_id = ?", (message_id,))
         return (row[0], str(row[1])) if row else None
 
     def thread(self, job_id: str) -> list[dict[str, str]]:
         """Inbound and outbound mail of one job, oldest first: metadata only (subject, parties, time, tag)."""
-        with self._lock:
-            inbound = self._con.execute(
-                "SELECT message_id, sender, received_at, action, COALESCE(reason, '') FROM intake WHERE job_id = ?",
+        with self.db.transaction() as tx:
+            inbound = tx.fetchall(
+                "SELECT message_id, sender, received_at, action, COALESCE(reason, '') FROM intake WHERE job_id = ? "
+                'ORDER BY received_at COLLATE "C", message_id COLLATE "C"',
                 (job_id,),
-            ).fetchall()
-            outbound = self._con.execute(
-                "SELECT message_id, subject, recipients, tag, sent_at FROM sent WHERE job_id = ?", (job_id,)
-            ).fetchall()
+            )
+            outbound = tx.fetchall(
+                "SELECT message_id, subject, recipients, tag, sent_at FROM sent WHERE job_id = ? "
+                'ORDER BY sent_at COLLATE "C", message_id COLLATE "C"',
+                (job_id,),
+            )
         items = [
             {
                 "direction": "in",

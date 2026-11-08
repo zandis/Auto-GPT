@@ -1,15 +1,17 @@
-"""Job queue and orchestrator state in SQLite (SPEC §4.8: ``jobs`` mirrors the Job contract §3.5)."""
+"""Job queue and orchestrator state (SPEC §4.8: ``jobs`` mirrors the Job contract §3.5).
+
+Schema ``orch`` of the trial database (PostgreSQL ``trialbox_wf``, D-126; :mod:`tb_common.db`)."""
 
 from __future__ import annotations
 
 import json
-import sqlite3
-import threading
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Any
 
+from tb_common.db import ENV as DB_URL_ENV
+from tb_common.db import Database, Tx
 from tb_contracts import Job
 
 SCHEMA = """
@@ -24,9 +26,10 @@ CREATE TABLE IF NOT EXISTS jobs (
   updated_at TEXT,
   message_id TEXT,
   parent_job_id TEXT,
-  queued INTEGER NOT NULL DEFAULT 0,
-  cancel INTEGER NOT NULL DEFAULT 0,
-  data TEXT NOT NULL
+  queued BIGINT NOT NULL DEFAULT 0,
+  cancel BIGINT NOT NULL DEFAULT 0,
+  data TEXT NOT NULL,
+  seq BIGINT GENERATED ALWAYS AS IDENTITY
 );
 CREATE INDEX IF NOT EXISTS jobs_state ON jobs(state);
 CREATE INDEX IF NOT EXISTS jobs_ruleset ON jobs(ruleset, ruleset_version, state);
@@ -73,11 +76,11 @@ CREATE TABLE IF NOT EXISTS candidates (
   source TEXT NOT NULL,
   source_job TEXT,
   tier TEXT,
-  events INTEGER NOT NULL DEFAULT 1,
+  events BIGINT NOT NULL DEFAULT 1,
   PRIMARY KEY (ruleset, pid)
 );
 CREATE TABLE IF NOT EXISTS candidate_events (
-  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  seq BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   ruleset TEXT NOT NULL,
   pid TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -94,14 +97,16 @@ CREATE TABLE IF NOT EXISTS submissions (
   pid TEXT NOT NULL,
   nav_job_id TEXT NOT NULL,
   bundle_sha TEXT NOT NULL,
-  dry_run INTEGER NOT NULL,
+  dry_run BIGINT NOT NULL,
   outcome TEXT NOT NULL,
   submitted_by TEXT NOT NULL,
-  submitted_at TEXT NOT NULL
+  submitted_at TEXT NOT NULL,
+  seq BIGINT GENERATED ALWAYS AS IDENTITY
 );
 CREATE INDEX IF NOT EXISTS submissions_bundle ON submissions(bundle_sha, dry_run);
 CREATE UNIQUE INDEX IF NOT EXISTS submissions_live_once ON submissions(bundle_sha) WHERE dry_run = 0;
 CREATE TABLE IF NOT EXISTS cohort_tables (
+  seq BIGINT GENERATED ALWAYS AS IDENTITY,
   site_id TEXT NOT NULL,
   disease TEXT NOT NULL,
   quarter TEXT NOT NULL,
@@ -119,48 +124,46 @@ CREATE TABLE IF NOT EXISTS trial_cache (
   last_update TEXT NOT NULL,
   version TEXT NOT NULL,
   draft_zip_key TEXT NOT NULL,
-  equivalence_pct REAL,
+  equivalence_pct DOUBLE PRECISION,
   compiled_at TEXT NOT NULL,
   PRIMARY KEY (nct_id, last_update)
 );
 """
+#: ``migrate`` versions of schema ``orch`` (append-only; version 1 is the schema as it was on SQLite, with an identity
+#: ``seq`` on ``jobs``, ``submissions`` and ``cohort_tables`` for the insertion order SQLite's rowid gave to ties)
+MIGRATIONS = (SCHEMA,)
+SCHEMA_NAME = "orch"
 
 TERMINAL = ("done", "failed")
 
 
 class JobDB:
-    def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.path = path
-        self._lock = threading.RLock()
-        self._con = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
-        self._con.execute("PRAGMA journal_mode=WAL")
-        self._con.execute("PRAGMA busy_timeout=5000")
-        self._con.executescript(SCHEMA)
+    def __init__(self, url: str | None = None, *, schema: str = SCHEMA_NAME) -> None:
+        """``url``: the trial database (``TB_DB_URL`` when None; :class:`tb_common.db.DatabaseError` if unset).
+        ``schema``: ``orch``; a re-run uses a scratch schema of its own (:meth:`drop` removes it)."""
+        self._db = Database.connect(url if url is not None else os.environ.get(DB_URL_ENV), schema)
+        self._db.migrate(MIGRATIONS)
+        self.url = self._db.url
+        self.schema = self._db.schema
 
     @contextmanager
-    def tx(self) -> Iterator[sqlite3.Connection]:
-        with self._lock:
-            self._con.execute("BEGIN IMMEDIATE")
-            try:
-                yield self._con
-            except BaseException:
-                self._con.execute("ROLLBACK")
-                raise
-            self._con.execute("COMMIT")
+    def tx(self) -> Iterator[Tx]:
+        with self._db.transaction() as tx:
+            yield tx
 
     # ------------------------------------------------------------------ jobs
     def put(self, job: Job, queued: bool | None = None) -> None:
         data = job.model_dump_json(by_alias=True, exclude_none=True)
+        keep = "jobs.queued" if queued is None else "excluded.queued"  # None: an update keeps the queue flag
         with self.tx() as con:
             con.execute(
-                """INSERT INTO jobs (job_id, type, state, ruleset, ruleset_version, requested_by, received_at,
+                f"""INSERT INTO jobs (job_id, type, state, ruleset, ruleset_version, requested_by, received_at,
                                      updated_at, message_id, parent_job_id, queued, data)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(job_id) DO UPDATE SET type=excluded.type, state=excluded.state,
                      ruleset=excluded.ruleset, ruleset_version=excluded.ruleset_version, updated_at=excluded.updated_at,
                      message_id=excluded.message_id, parent_job_id=excluded.parent_job_id, data=excluded.data,
-                     queued=CASE WHEN ? IS NULL THEN jobs.queued ELSE excluded.queued END""",
+                     queued={keep}""",
                 (
                     job.job_id,
                     job.type,
@@ -174,13 +177,11 @@ class JobDB:
                     job.parent_job_id,
                     1 if queued else 0,
                     data,
-                    queued,
                 ),
             )
 
     def get(self, job_id: str) -> Job | None:
-        with self._lock:
-            row = self._con.execute("SELECT data FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+        row = self._db.fetchone("SELECT data FROM jobs WHERE job_id = ?", (job_id,))
         return Job.model_validate_json(row[0]) if row else None
 
     def find(
@@ -206,15 +207,14 @@ class JobDB:
                 args.append(val)
         sql = "SELECT data FROM jobs" + (" WHERE " + " AND ".join(where) if where else "")
         sql += " ORDER BY received_at DESC, job_id DESC LIMIT ?"
-        with self._lock:
-            rows = self._con.execute(sql, [*args, limit]).fetchall()
+        rows = self._db.fetchall(sql, [*args, limit])
         return [Job.model_validate_json(r[0]) for r in rows]
 
     def claim(self) -> str | None:
         with self.tx() as con:
-            row = con.execute(
-                "SELECT job_id FROM jobs WHERE queued = 1 ORDER BY received_at, job_id LIMIT 1"
-            ).fetchone()
+            row = con.fetchone(
+                "SELECT job_id FROM jobs WHERE queued = 1 ORDER BY received_at, job_id LIMIT 1 FOR UPDATE SKIP LOCKED"
+            )
             if row is None:
                 return None
             con.execute("UPDATE jobs SET queued = 0 WHERE job_id = ?", (row[0],))
@@ -229,39 +229,36 @@ class JobDB:
             con.execute("UPDATE jobs SET cancel = 1, queued = 0 WHERE job_id = ?", (job_id,))
 
     def cancel_requested(self, job_id: str) -> bool:
-        with self._lock:
-            row = self._con.execute("SELECT cancel FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+        row = self._db.fetchone("SELECT cancel FROM jobs WHERE job_id = ?", (job_id,))
         return bool(row and row[0])
 
     def interrupted(self) -> list[str]:
         """Jobs left mid-flight by a restart (not terminal, not waiting for approval, not queued)."""
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT job_id FROM jobs WHERE queued = 0 AND state NOT IN ('done','failed','awaiting_approval') "
-                "ORDER BY received_at"
-            ).fetchall()
+        rows = self._db.fetchall(
+            "SELECT job_id FROM jobs WHERE queued = 0 AND state NOT IN ('done','failed','awaiting_approval') "
+            "ORDER BY received_at, seq"
+        )
         return [str(r[0]) for r in rows]
 
     def count_since(self, requested_by: str, since_iso: str) -> int:
-        with self._lock:
-            row = self._con.execute(
-                "SELECT count(*) FROM jobs WHERE requested_by = ? AND received_at >= ?", (requested_by, since_iso)
-            ).fetchone()
+        row = self._db.fetchone(
+            "SELECT count(*) FROM jobs WHERE requested_by = ? AND received_at >= ?", (requested_by, since_iso)
+        )
+        assert row is not None
         return int(row[0])
 
     # ------------------------------------------------------------------ outbound mail index (reply-to-thread)
     def add_mail(self, message_id: str, job_id: str, kind: str, subject: str, sent_at: str) -> None:
         with self.tx() as con:
             con.execute(
-                "INSERT OR REPLACE INTO mails (message_id, job_id, kind, subject, sent_at) VALUES (?,?,?,?,?)",
+                "INSERT INTO mails (message_id, job_id, kind, subject, sent_at) VALUES (?,?,?,?,?) "
+                "ON CONFLICT (message_id) DO UPDATE SET job_id = excluded.job_id, kind = excluded.kind, "
+                "subject = excluded.subject, sent_at = excluded.sent_at",
                 (message_id, job_id, kind, subject, sent_at),
             )
 
     def mail(self, message_id: str) -> tuple[str, str, str] | None:
-        with self._lock:
-            row = self._con.execute(
-                "SELECT job_id, kind, subject FROM mails WHERE message_id = ?", (message_id,)
-            ).fetchone()
+        row = self._db.fetchone("SELECT job_id, kind, subject FROM mails WHERE message_id = ?", (message_id,))
         return (str(row[0]), str(row[1]), str(row[2])) if row else None
 
     # ------------------------------------------------------------------ candidate pool (SPEC §8.2)
@@ -292,12 +289,11 @@ class JobDB:
                 )
 
     def pool(self, ruleset: str) -> list[dict[str, Any]]:
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT pid, version, tier, next_appointment, practitioner_id, department, verdicts, added_at, "
-                "last_eval, job_id FROM pool WHERE ruleset = ? ORDER BY pid",
-                (ruleset,),
-            ).fetchall()
+        rows = self._db.fetchall(
+            "SELECT pid, version, tier, next_appointment, practitioner_id, department, verdicts, added_at, "
+            "last_eval, job_id FROM pool WHERE ruleset = ? ORDER BY pid",
+            (ruleset,),
+        )
         keys = (
             "pid",
             "version",
@@ -318,8 +314,7 @@ class JobDB:
         return out
 
     def pool_rulesets(self) -> list[str]:
-        with self._lock:
-            return [str(r[0]) for r in self._con.execute("SELECT DISTINCT ruleset FROM pool ORDER BY 1")]
+        return [str(r[0]) for r in self._db.fetchall("SELECT DISTINCT ruleset FROM pool ORDER BY 1")]
 
     def feedback_upsert(self, ruleset: str, rows: list[dict[str, Any]], job_id: str, at: str) -> None:
         with self.tx() as con:
@@ -334,16 +329,14 @@ class JobDB:
                 )
 
     def feedback(self, ruleset: str) -> list[dict[str, Any]]:
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT pid, outcome, reason_code, note, received_at FROM feedback WHERE ruleset = ? ORDER BY pid",
-                (ruleset,),
-            ).fetchall()
+        rows = self._db.fetchall(
+            "SELECT pid, outcome, reason_code, note, received_at FROM feedback WHERE ruleset = ? ORDER BY pid",
+            (ruleset,),
+        )
         return [dict(zip(("pid", "outcome", "reason_code", "note", "received_at"), r, strict=True)) for r in rows]
 
     def feedback_rulesets(self) -> list[str]:
-        with self._lock:
-            return [str(r[0]) for r in self._con.execute("SELECT DISTINCT ruleset FROM feedback ORDER BY 1")]
+        return [str(r[0]) for r in self._db.fetchall("SELECT DISTINCT ruleset FROM feedback ORDER BY 1")]
 
     _SUB_COLS = ("job_id", "ruleset", "pid", "nav_job_id", "bundle_sha", "dry_run", "outcome", "submitted_by", "at")
 
@@ -352,11 +345,11 @@ class JobDB:
         returns None, or returns the existing live submission of the same bundle and inserts nothing. Atomic under
         the DB lock; the partial unique index ``submissions_live_once`` backs it up."""
         with self.tx() as con:
-            prior = con.execute(
+            prior = con.fetchone(
                 "SELECT job_id, ruleset, pid, nav_job_id, bundle_sha, dry_run, outcome, submitted_by, submitted_at "
-                "FROM submissions WHERE bundle_sha = ? AND dry_run = 0",
+                "FROM submissions WHERE bundle_sha = ? AND dry_run = 0" + self._db_row_lock,
                 (row["bundle_sha"],),
-            ).fetchone()
+            )
             if prior is not None:
                 return dict(zip(self._SUB_COLS, prior, strict=True))
             self._submission_insert(con, {**row, "dry_run": False}, replace=False)
@@ -380,11 +373,16 @@ class JobDB:
             self._submission_insert(con, row, replace=True)
 
     @staticmethod
-    def _submission_insert(con: sqlite3.Connection, row: dict[str, Any], replace: bool) -> None:
-        verb = "INSERT OR REPLACE" if replace else "INSERT"
+    def _submission_insert(con: Tx, row: dict[str, Any], replace: bool) -> None:
+        upsert = (
+            " ON CONFLICT (job_id) DO UPDATE SET ruleset = excluded.ruleset, pid = excluded.pid, nav_job_id ="
+            " excluded.nav_job_id, bundle_sha = excluded.bundle_sha, dry_run = excluded.dry_run, outcome ="
+            " excluded.outcome, submitted_by = excluded.submitted_by, submitted_at = excluded.submitted_at"
+        )
         con.execute(
-            f"""{verb} INTO submissions (job_id, ruleset, pid, nav_job_id, bundle_sha, dry_run, outcome,
-                 submitted_by, submitted_at) VALUES (?,?,?,?,?,?,?,?,?)""",
+            """INSERT INTO submissions (job_id, ruleset, pid, nav_job_id, bundle_sha, dry_run, outcome,
+                 submitted_by, submitted_at) VALUES (?,?,?,?,?,?,?,?,?)"""
+            + (upsert if replace else ""),
             (
                 row["job_id"],
                 row["ruleset"],
@@ -400,9 +398,9 @@ class JobDB:
 
     def submissions(self, bundle_sha: str | None = None, live_only: bool = False) -> list[dict[str, Any]]:
         sql = "SELECT job_id, ruleset, pid, nav_job_id, bundle_sha, dry_run, outcome, submitted_by, submitted_at "
-        sql += "FROM submissions WHERE (? IS NULL OR bundle_sha = ?)" + (" AND dry_run = 0" if live_only else "")
-        with self._lock:
-            rows = self._con.execute(sql + " ORDER BY submitted_at", (bundle_sha, bundle_sha)).fetchall()
+        sql += "FROM submissions WHERE " + ("TRUE" if bundle_sha is None else "bundle_sha = ?")
+        sql += " AND dry_run = 0" if live_only else ""
+        rows = self._db.fetchall(sql + " ORDER BY submitted_at, seq", () if bundle_sha is None else (bundle_sha,))
         return [dict(zip(self._SUB_COLS, r, strict=True)) for r in rows]
 
     def prune_inactive(self, approved: set[str], cutoff_iso: str) -> dict[str, int]:
@@ -412,10 +410,10 @@ class JobDB:
         with self.tx() as con:
             pool = con.execute(
                 f"DELETE FROM pool WHERE ruleset NOT IN ({marks}) AND last_eval < ?", (*keep, cutoff_iso)
-            ).rowcount
+            )
             feedback = con.execute(
                 f"DELETE FROM feedback WHERE ruleset NOT IN ({marks}) AND received_at < ?", (*keep, cutoff_iso)
-            ).rowcount
+            )
         return {"pool": int(pool), "feedback": int(feedback)}
 
     # ------------------------------------------------------------------ candidate registry (D-92)
@@ -433,26 +431,22 @@ class JobDB:
     )
 
     def candidate_get(self, ruleset: str, pid: str) -> dict[str, Any] | None:
-        with self._lock:
-            row = self._con.execute(
-                f"SELECT {', '.join(self._CAND_KEYS)} FROM candidates WHERE ruleset = ? AND pid = ?", (ruleset, pid)
-            ).fetchone()
+        row = self._db.fetchone(
+            f"SELECT {', '.join(self._CAND_KEYS)} FROM candidates WHERE ruleset = ? AND pid = ?", (ruleset, pid)
+        )
         return dict(zip(self._CAND_KEYS, row, strict=True)) if row else None
 
     def candidates(self, ruleset: str) -> list[dict[str, Any]]:
-        with self._lock:
-            rows = self._con.execute(
-                f"SELECT {', '.join(self._CAND_KEYS)} FROM candidates WHERE ruleset = ? ORDER BY updated_at DESC, pid",
-                (ruleset,),
-            ).fetchall()
+        rows = self._db.fetchall(
+            f"SELECT {', '.join(self._CAND_KEYS)} FROM candidates WHERE ruleset = ? ORDER BY updated_at DESC, pid",
+            (ruleset,),
+        )
         return [dict(zip(self._CAND_KEYS, r, strict=True)) for r in rows]
 
     def candidate_summaries(self) -> list[dict[str, Any]]:
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT ruleset, status, count(*), max(updated_at) FROM candidates "
-                "GROUP BY ruleset, status ORDER BY 1, 2"
-            ).fetchall()
+        rows = self._db.fetchall(
+            "SELECT ruleset, status, count(*), max(updated_at) FROM candidates GROUP BY ruleset, status ORDER BY 1, 2"
+        )
         out: dict[str, dict[str, Any]] = {}
         for ruleset, status, n, at in rows:
             s = out.setdefault(ruleset, {"ruleset": ruleset, "counts": {}, "updated_at": None})
@@ -474,7 +468,9 @@ class JobDB:
     ) -> dict[str, Any]:
         """Insert or update one row and append its event; returns the row after the change."""
         with self.tx() as con:
-            row = con.execute("SELECT status FROM candidates WHERE ruleset=? AND pid=?", (ruleset, pid)).fetchone()
+            row = con.fetchone(
+                "SELECT status FROM candidates WHERE ruleset=? AND pid=?" + self._db_row_lock, (ruleset, pid)
+            )
             if row is None:
                 con.execute(
                     "INSERT INTO candidates (ruleset, pid, status, reason, updated_at, updated_by, source, source_job, "
@@ -506,8 +502,7 @@ class JobDB:
         if pid is not None:
             sql += " AND pid = ?"
             params.append(pid)
-        with self._lock:
-            rows = self._con.execute(sql + " ORDER BY seq", params).fetchall()
+        rows = self._db.fetchall(sql + " ORDER BY seq", params)
         return [dict(zip(keys, r, strict=True)) for r in rows]
 
     # ------------------------------------------------------------------ alliance cohort tables (COHORT MERGE)
@@ -552,19 +547,15 @@ class JobDB:
 
     def cohort_senders(self, site_id: str) -> set[str]:
         """Who has contributed tables for ``site_id`` (``self:<site>`` for the root's own runs)."""
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT DISTINCT received_from FROM cohort_tables WHERE site_id = ?", (site_id,)
-            ).fetchall()
+        rows = self._db.fetchall("SELECT DISTINCT received_from FROM cohort_tables WHERE site_id = ?", (site_id,))
         return {str(r[0]) for r in rows}
 
     def cohort_rows(self, disease: str, quarter: str) -> list[dict[str, Any]]:
-        with self._lock:
-            rows = self._con.execute(
-                f"SELECT {', '.join(self._COHORT_COLS)} FROM cohort_tables WHERE disease=? AND quarter=? "
-                "ORDER BY site_id, rowid",
-                (disease, quarter),
-            ).fetchall()
+        rows = self._db.fetchall(
+            f"SELECT {', '.join(self._COHORT_COLS)} FROM cohort_tables WHERE disease=? AND quarter=? "
+            "ORDER BY site_id, seq",
+            (disease, quarter),
+        )
         out = []
         for r in rows:
             d = dict(zip(self._COHORT_COLS, r, strict=True))
@@ -576,8 +567,11 @@ class JobDB:
     def trial_cache_put(self, row: dict[str, Any]) -> None:
         with self.tx() as con:
             con.execute(
-                """INSERT OR REPLACE INTO trial_cache (nct_id, last_update, version, draft_zip_key, equivalence_pct,
-                     compiled_at) VALUES (?,?,?,?,?,?)""",
+                """INSERT INTO trial_cache (nct_id, last_update, version, draft_zip_key, equivalence_pct,
+                     compiled_at) VALUES (?,?,?,?,?,?)
+                   ON CONFLICT (nct_id, last_update) DO UPDATE SET version = excluded.version,
+                     draft_zip_key = excluded.draft_zip_key, equivalence_pct = excluded.equivalence_pct,
+                     compiled_at = excluded.compiled_at""",
                 (
                     row["nct_id"],
                     row["last_update"],
@@ -590,18 +584,25 @@ class JobDB:
 
     def trial_cache_all(self) -> list[dict[str, Any]]:
         cols = ("nct_id", "last_update", "version", "draft_zip_key", "equivalence_pct", "compiled_at")
-        with self._lock:
-            rows = self._con.execute(f"SELECT {', '.join(cols)} FROM trial_cache ORDER BY nct_id").fetchall()
+        rows = self._db.fetchall(f"SELECT {', '.join(cols)} FROM trial_cache ORDER BY nct_id, last_update")
         return [dict(zip(cols, r, strict=True)) for r in rows]
 
     def trial_cache_get(self, nct_id: str, last_update: str) -> dict[str, Any] | None:
         cols = ("nct_id", "last_update", "version", "draft_zip_key", "equivalence_pct", "compiled_at")
-        with self._lock:
-            r = self._con.execute(
-                f"SELECT {', '.join(cols)} FROM trial_cache WHERE nct_id=? AND last_update=?", (nct_id, last_update)
-            ).fetchone()
+        r = self._db.fetchone(
+            f"SELECT {', '.join(cols)} FROM trial_cache WHERE nct_id=? AND last_update=?", (nct_id, last_update)
+        )
         return dict(zip(cols, r, strict=True)) if r else None
 
+    # SQLite serialised every write transaction (BEGIN IMMEDIATE); a read-then-write locks its row instead
+    _db_row_lock = " FOR UPDATE"
+
+    def drop(self) -> None:
+        """Remove this store's schema and close (a re-run's scratch copy)."""
+        if self.schema.endswith("_" + SCHEMA_NAME) or self.schema == SCHEMA_NAME:
+            raise ValueError("refusing to drop the orchestrator's own schema")
+        self._db.execute(f'DROP SCHEMA "{self.schema}" CASCADE')
+        self.close()
+
     def close(self) -> None:
-        with self._lock:
-            self._con.close()
+        self._db.close()

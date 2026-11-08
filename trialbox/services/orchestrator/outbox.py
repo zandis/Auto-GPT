@@ -9,7 +9,7 @@ cannot say whether the message arrived).
 
 States map onto §11.0 as ``claimed`` = ``sending``, ``delivered`` = ``sent``.
 
-* **Claim with a lease.** Rows are claimed in a short transaction (``FOR UPDATE SKIP LOCKED`` on PostgreSQL) with a
+* **Claim with a lease.** Rows are claimed in a short transaction (``FOR UPDATE SKIP LOCKED``) with a
   ``lease_until``. The lease is re-checked and renewed immediately before the send.
 * **Idempotency key.** Every delivery carries the row's idempotency key and an RFC 5322 ``Message-ID`` derived from
   it, so the receiving side can de-duplicate and the dispatcher can ask it whether a message arrived.
@@ -30,7 +30,7 @@ from typing import Any, Literal, Protocol
 
 from tb_common import timeutil
 
-from orchestrator.db_pg import SCHEMA, Clock, SqlBackend, Tx, apply_schema, epoch_ms
+from orchestrator.db_pg import MIGRATIONS, Clock, SqlBackend, Tx, epoch_ms
 
 PENDING = "pending"
 CLAIMED = "claimed"
@@ -129,7 +129,7 @@ class Dispatcher:
         self.hook = hook
         self.on_uncertain = on_uncertain
         self.domain = domain
-        apply_schema(backend, SCHEMA)
+        backend.migrate(MIGRATIONS)
 
     # ------------------------------------------------------------------------------------------------ queries
     def counts(self) -> dict[str, int]:

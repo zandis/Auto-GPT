@@ -6,6 +6,7 @@ shared by the module; engine variants re-run the cascade on the same published s
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -17,11 +18,13 @@ TRIAL = "GZQO"
 
 
 @pytest.fixture(scope="module")
-def e2e(synth_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> Any:
+def e2e(synth_dir: Path, tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str) -> Any:
     from tools.cascade_e2e import run_end_to_end
 
     out = tmp_path_factory.mktemp("cascade_e2e")
-    return run_end_to_end(synth_dir / "site-a", TRIAL, out, repro=True)
+    with pytest.MonkeyPatch.context() as mp:  # module fixtures run before the per-test TB_DB_URL (D-126)
+        mp.setenv("TB_DB_URL", f"{pg_cluster_url}{'&' if '?' in pg_cluster_url else '?'}tb_prefix=m{os.getpid()}casc_")
+        return run_end_to_end(synth_dir / "site-a", TRIAL, out, repro=True)
 
 
 @pytest.fixture(scope="module")

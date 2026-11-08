@@ -249,6 +249,9 @@ def _one_synthetic_run(src: Path, work: Path, trial_id: str, log: Log) -> dict[s
 
     clock = fixed_clock(datetime(2026, 10, 5, 2, 0, tzinfo=UTC))
     log(f"dataplat L0 → L5 on {src.name}")
+    from tools import pglocal
+
+    pglocal.for_work(work)  # D-126: the MPI lives in the trial database (TB_DB_URL, or a local throwaway one)
     res = run_pipeline(src, work / "dataplat", site_key=SITE_KEY, clock=clock, snapshot=SYNTH_SNAPSHOT)
     log(f"publish gate: {res.outcome} {res.blocking_reasons or ''}")
     out: dict[str, Any] = {"pipeline": res}

@@ -24,6 +24,7 @@ from typing import Any, cast
 
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 from tb_contracts import Job
 
 from console import s28
@@ -67,6 +68,27 @@ class Helpers:
     week_bundle: Callable[..., dict[str, Any] | None] | None = None
     trials: Callable[..., list[Any]] | None = None
     settings_of: Callable[[str], StudySettings] | None = None
+
+
+class ApiLogin(BaseModel):
+    """``POST /api/v1/session`` (D-125)."""
+
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=400)
+    lang: str = "en"
+
+
+class ApiMark(BaseModel):
+    mark: str
+    reason: str = ""
+    recheck: str = ""
+    note: str = Field(default="", max_length=300)
+
+
+class ApiOutcome(BaseModel):
+    outcome: str
+    retry: str = ""
+    note: str = Field(default="", max_length=300)
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -593,27 +615,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         lst = lst if lst in st.WORKLISTS else "all"
         return f"/studies/{rid}/week?list={lst}&pid={pid}&done={done}#chart"
 
-    @app.post("/studies/{rs}/patients/{pid}/mark")
-    def patient_mark(
-        request: Request,
-        rs: str,
-        pid: str,
-        csrf: str = Form(""),
-        mark: str = Form(""),
-        reason: str = Form(""),
-        recheck: str = Form(""),
-        note: str = Form(""),
-        back: str = Form(""),
-    ) -> Response:
-        """One mark vocabulary (D-108, FR-SCR-07): Approach / Need info / Not suitable now (a study reason) / Not now,
-        re-check on a date. A new mark replaces the current one; ``withdraw`` takes the current mark back. Every mark
-        is an event; the history keeps them all."""
-        sess = h.need(request)
+    def apply_mark(
+        sess: Session, path: str, rs: str, pid: str, mark: str, reason: str, recheck: str, note: str
+    ) -> tuple[str, str, dict[str, Any]]:
+        """One mark (D-108, FR-SCR-07), the same for the page and ``/api/v1``. Returns (study, stored mark, detail)."""
         rid = study_or_404(sess, rs)
-        if not h.csrf_ok(sess, csrf):
-            raise h.problem(400, "csrf")
         if not sess.user.can_mark:
-            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
         if mark not in (*MARKS, "withdraw") or not _PID.match(pid):
             raise h.problem(400, "request.refused", reason="choose Approach, Need info, Not suitable now or Not now")
@@ -646,28 +654,36 @@ def register(app: FastAPI, h: Helpers) -> None:
         if mark == "approach":  # FR-STUDY-08: the screening number is given when the PI approves contact
             detail["to"] = store.assign_screening_no(rid, pid, conf, now)
         au.append("console.pi_mark", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess), detail=detail)
-        return RedirectResponse(back_to(rid, pid, back, value), status_code=303)
+        return rid, value, detail
 
-    @app.post("/studies/{rs}/patients/{pid}/outcome")
-    def patient_outcome(
+    @app.post("/studies/{rs}/patients/{pid}/mark")
+    def patient_mark(
         request: Request,
         rs: str,
         pid: str,
         csrf: str = Form(""),
-        outcome: str = Form(""),
-        retry: str = Form(""),
+        mark: str = Form(""),
+        reason: str = Form(""),
+        recheck: str = Form(""),
         note: str = Form(""),
         back: str = Form(""),
     ) -> Response:
-        """A contact outcome in two taps (FR-SCR-10c, TB-DS-07 §4.1): the coordinator opens the patient and taps
-        what happened. The registry status follows the mapping in ``sitestore.OUTCOMES``; "not reached" keeps the
-        status and a retry date."""
+        """One mark vocabulary (D-108, FR-SCR-07): Approach / Need info / Not suitable now (a study reason) / Not now,
+        re-check on a date. A new mark replaces the current one; ``withdraw`` takes the current mark back. Every mark
+        is an event; the history keeps them all."""
         sess = h.need(request)
-        rid = study_or_404(sess, rs)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
+        rid, value, _ = apply_mark(sess, request.url.path, rs, pid, mark, reason, recheck, note)
+        return RedirectResponse(back_to(rid, pid, back, value), status_code=303)
+
+    def apply_outcome(
+        sess: Session, path: str, rs: str, pid: str, outcome: str, retry: str, note: str
+    ) -> tuple[str, str | None]:
+        """A contact outcome (FR-SCR-10c), the same for the page and ``/api/v1``. Returns (study, screening number)."""
+        rid = study_or_404(sess, rs)
         if not sess.user.can_request:
-            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
         if outcome not in OUTCOMES or not _PID.match(pid):
             raise h.problem(400, "request.refused", reason="choose one of the contact outcomes")
@@ -710,4 +726,101 @@ def register(app: FastAPI, h: Helpers) -> None:
             actor=h.actor(sess),
             detail={"pid": pid, "action": outcome, "to": status or current or "", "reason": why or "", "run": no},
         )
+        return rid, no
+
+    @app.post("/studies/{rs}/patients/{pid}/outcome")
+    def patient_outcome(
+        request: Request,
+        rs: str,
+        pid: str,
+        csrf: str = Form(""),
+        outcome: str = Form(""),
+        retry: str = Form(""),
+        note: str = Form(""),
+        back: str = Form(""),
+    ) -> Response:
+        """A contact outcome in two taps (FR-SCR-10c, TB-DS-07 §4.1): the coordinator opens the patient and taps
+        what happened. The registry status follows the mapping in ``sitestore.OUTCOMES``; "not reached" keeps the
+        status and a retry date."""
+        sess = h.need(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        rid, _ = apply_outcome(sess, request.url.path, rs, pid, outcome, retry, note)
         return RedirectResponse(back_to(rid, pid, back, outcome), status_code=303)
+
+    # ------------------------------------------------------------------ /api/v1 (D-125, D-127; review F-07)
+    # The same actions as the pages, for the phone and desktop apps and other systems. Sign-in gives a bearer token
+    # (a console session: same expiry, lockout and audit); no cookie, so no CSRF. Versioned: a breaking change is v2.
+    def api_session(request: Request) -> Session:
+        auth = request.headers.get("authorization") or ""
+        token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        sess: Session | None = h.users.session(token) if token else None
+        if sess is None:
+            raise h.problem(401, "login")
+        return sess
+
+    @app.post("/api/v1/session")
+    def api_login(body: ApiLogin) -> dict[str, Any]:
+        user = h.users.authenticate(body.username, body.password)
+        if user is None:
+            au.append("console.login_failed", actor=f"console:{body.username[:60]}", detail={"via": "api"})
+            raise h.problem(401, "login")
+        token, sess = h.users.new_session(user, body.lang if body.lang in ("ja", "zh-TW", "en") else "en")
+        au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": "api"})
+        return {"token": token, "username": user.username, "role": user.role,
+                "expires": getattr(sess, "expires", None)}  # fmt: skip
+
+    @app.delete("/api/v1/session")
+    def api_logout(request: Request) -> dict[str, bool]:
+        auth = request.headers.get("authorization") or ""
+        if auth.lower().startswith("bearer "):
+            h.users.end_session(auth[7:].strip())
+        return {"ok": True}
+
+    @app.get("/api/v1/studies")
+    def api_studies(request: Request) -> list[dict[str, Any]]:
+        sess = api_session(request)
+        return [{"id": r.id, "version": getattr(r, "version", None), "kind": r.kind} for r in trials(sess)]
+
+    @app.get("/api/v1/studies/{rs}/patients")
+    def api_patients(request: Request, rs: str) -> dict[str, Any]:
+        """This week's list: pseudonyms, tiers, current marks and screening numbers (no chart numbers)."""
+        sess = api_session(request)
+        rid = study_or_404(sess, rs)
+        wk = week_bundle(sess, rid)
+        rows = list((wk or {}).get("cl", {}).get("rows") or []) if wk else []
+        marks = store.latest_marks(rid)
+        numbers = store.screening_nos(rid)
+        return {
+            "study": rid,
+            "job_id": wk["job"].job_id if wk else None,
+            "patients": [
+                {
+                    "pid": str(r.get("pid")),
+                    "tier": r.get("tier"),
+                    "mark": marks[str(r.get("pid"))].mark if str(r.get("pid")) in marks else None,
+                    "screening_no": numbers.get(str(r.get("pid"))),
+                }
+                for r in rows
+            ],
+        }
+
+    @app.post("/api/v1/studies/{rs}/patients/{pid}/mark")
+    def api_mark(request: Request, rs: str, pid: str, body: ApiMark) -> dict[str, Any]:
+        sess = api_session(request)
+        rid, value, detail = apply_mark(
+            sess, request.url.path, rs, pid, body.mark, body.reason, body.recheck, body.note
+        )
+        return {"study": rid, "pid": pid, "mark": value, "screening_no": detail.get("to")}
+
+    @app.post("/api/v1/studies/{rs}/patients/{pid}/outcome")
+    def api_outcome(request: Request, rs: str, pid: str, body: ApiOutcome) -> dict[str, Any]:
+        sess = api_session(request)
+        rid, no = apply_outcome(sess, request.url.path, rs, pid, body.outcome, body.retry, body.note)
+        return {"study": rid, "pid": pid, "outcome": body.outcome, "screening_no": no}
+
+    @app.get("/api/v1/studies/{rs}/screening-log")
+    def api_screening_log(request: Request, rs: str) -> list[dict[str, str]]:
+        sess = api_session(request)
+        rid = study_or_404(sess, rs)
+        return [{"pid": a, "screening_no": b, "at": c} for a, b, c in store.screening_rows(rid)]

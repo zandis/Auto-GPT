@@ -16,7 +16,7 @@ from tb_common.http import make_app
 
 from llm_stub.handlers import HANDLERS, MESSAGE_HANDLERS
 
-app = make_app("llm-stub")
+app = make_app("llm-stub", service_token=False)  # the stub stands in for vLLM, which has no box token
 _BLOCK = re.compile(r"```json\s*(.*?)```", re.S)
 
 

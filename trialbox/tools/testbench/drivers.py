@@ -116,6 +116,9 @@ def run_dataplat(source: Path, defect: str, log: Log, workdir: Path) -> Dataplat
     contracts = load_contracts(DEMO_HIS)
     write_source_totals(drop, {t: (c.keys.patient, c.keys.watermark) for t, c in contracts.items()})
     work = workdir / "work"
+    from tools import pglocal
+
+    pglocal.for_work(workdir)  # D-126: the MPI lives in the trial database (TB_DB_URL, or a local throwaway one)
     out = DataplatResult(defect=defect or "none")
     log("cycle 1: clean drop, snapshot 2026-10-04")
     r1 = run_pipeline(
@@ -290,11 +293,13 @@ def run_recall(reps: int, months: int, per_month: int, rate: float, log: Log, wo
     """The recall_cert simulation through the ledger, plus one ledger's per-look bounds (CS vs repeated CP)."""
     import functools
 
-    from orchestrator.db_pg import SqliteBackend
     from orchestrator.recall import RecallLedger
     from orchestrator.recall import sim as rsim
+    from orchestrator.recall.ledger import open_ledger_backend
     from tb_common.recall import cp_upper
     from tb_contracts.recall import RecallCell, Stratum
+
+    from tools import pglocal
 
     base = rsim.SimConfig()
     rates = tuple(sorted({*base.rates, rate}))
@@ -302,18 +307,19 @@ def run_recall(reps: int, months: int, per_month: int, rate: float, log: Log, wo
         rates=rates, reps=reps, months=months, per_month=per_month, seed=base.seed, alpha=base.alpha, workers=1
     )
     log(f"simulating {reps} ledgers × {months} looks × {per_month} draws for p in {list(rates)} (seed {cfg.seed})")
-    results = rsim.run(cfg, workdir)
+    url = pglocal.for_work(workdir)  # TB_DB_URL, or a throwaway local database for this work dir
+    results = rsim.run(cfg, url)
     for r in results:
         log(f"p={r.rate}: repeated CP miss {r.cp_miss:.3f}, CS miss {r.cs_miss:.3f}")
     # one ledger at the chosen rate: the first one repeated CP misses, else ledger 0
     chosen = next(r for r in results if r.rate == rate)
     idx = next((i for i, (cp_ok, _cs) in enumerate(chosen.per_ledger) if not cp_ok), 0)
     batches = rsim.draw_batches(cfg)[rate][idx]
-    cell = RecallCell(canonical_hash=f"traj-{rate!r}-{idx:04d}", stratum=Stratum.S1_AFFIRMATIVE)
+    tag = "traj-" + rsim.run_tag()
+    cell = RecallCell(canonical_hash=f"{tag}{rate!r}-{idx:04d}", stratum=Stratum.S1_AFFIRMATIVE)
     traj: list[dict[str, float]] = []
-    db = str(workdir / "trajectory.db")
     for m, batch in enumerate(batches):
-        backend = SqliteBackend(db)
+        backend = open_ledger_backend(url)  # a new connection per look, as the simulation does
         try:
             ledger = RecallLedger(backend, clock=functools.partial(rsim._month, m))
             ledger.append(rsim._observations(cell, idx, m, batch))
@@ -329,6 +335,11 @@ def run_recall(reps: int, months: int, per_month: int, rate: float, log: Log, wo
             )
         finally:
             backend.close()
+    cleanup = RecallLedger(url=url)
+    try:
+        cleanup.purge_cells(tag)
+    finally:
+        cleanup.close()
     return RecallResult(
         reps=reps,
         months=months,

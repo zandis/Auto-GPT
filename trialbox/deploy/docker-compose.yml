@@ -177,9 +177,9 @@ services:
     # so production routes nothing). Registry, PHI guard and trace store run in this process.
     <<: *py
     command: ["uvicorn", "--factory", "gateway.app:create_app", "--host", "0.0.0.0", "--port", "8020"]
-    environment: {PORT: "8020", TB_SERVICE_NAME: gateway, TB_ENV: "${TB_ENV:-DEV}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
+    environment: {PORT: "8020", TB_SERVICE_NAME: gateway, TB_ENV: "${TB_ENV:-PRODUCTION}", TB_TOPOLOGY: "${TB_TOPOLOGY:-A}",
                   TB_PROFILE: "${TB_PROFILE:-P-GB10}", TB_CLOUD_OPT_IN: "${TB_CLOUD_OPT_IN:-}", TB_AUDIT_DIR: /data/audit,
-                  TB_TRACESTORE_PATH: /data/traces/traces.sqlite,
+                  TB_TRACESTORE: "on",
                   TB_REGISTRY_OVERRIDE: /etc/trialbox/site/registry.site.yaml, TB_MODEL_SWAP: "${TB_MODEL_SWAP:-}",
                   TB_GATEWAY_INTERACTIVE_TIMEOUT_S: "${TB_GATEWAY_INTERACTIVE_TIMEOUT_S:-30}"}
     # model-net: the only network with llm-service / llm-stub; egress-net: external model endpoints, filtered per
@@ -191,6 +191,29 @@ services:
       - audit-data:/data/audit
       - traces-data:/data/traces
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
+
+  console:
+    # The product console (D-127, review F-01): sign-in, the PI and CRC lists, marks, approval, the screening log,
+    # the REDCap link and the admin control plane. Published on TB_CONSOLE_BIND (127.0.0.1 by default); for other PCs
+    # on the hospital LAN put the site's TLS proxy in front and set TB_CONSOLE_SECURE_COOKIE=1 (RUNBOOK §9).
+    <<: *py
+    command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
+              "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
+    environment: {PORT: "8090", TB_SERVICE_NAME: console, TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit,
+                  TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
+                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-0}"}
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - console-data:/data/console
+      - audit-data:/data/audit
+      - rulesets-data:/data/rulesets:ro
+      - objects-data:/data/objects
+    ports: ["${TB_CONSOLE_BIND:-127.0.0.1}:${TB_HOST_CONSOLE_PORT:-8090}:8090"]
+    depends_on:
+      db: {condition: service_healthy}
+      orchestrator: {condition: service_healthy}
+      mail-gateway: {condition: service_healthy}
+      gateway: {condition: service_healthy}
 
   llm-stub:
     <<: *py
@@ -243,6 +266,7 @@ networks:
     name: trialbox-egress  # host-level nftables (network.sh) restricts destinations per container
 
 volumes:
+  console-data:
   objects-data:   # attachments and outputs (ADR-16 filesystem store; MinIO removed in D-121)
   db-pg:
   lake-data:

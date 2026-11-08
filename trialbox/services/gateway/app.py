@@ -4,7 +4,7 @@ swap (:mod:`gateway.swap`).
 
 ``create_app(gateway)`` wraps a configured :class:`gateway.core.Gateway`; ``create_app()`` builds one from the
 environment (``TB_TOPOLOGY``, ``TB_ENV``, ``TB_PROFILE``, ``TB_CLOUD_OPT_IN``, ``TB_ROUTING_PATH``,
-``TB_REGISTRY_PATH``, ``TB_REGISTRY_OVERRIDE`` (site pins), ``TB_AUDIT_DIR``, ``TB_TRACESTORE_PATH``). Refusals are
+``TB_REGISTRY_PATH``, ``TB_REGISTRY_OVERRIDE`` (site pins), ``TB_AUDIT_DIR``, ``TB_TRACESTORE``). Refusals are
 HTTP 403 with ``{"error": {"type": "tb_refusal", "code": <reason>}}``.
 
 In the compose stack the model registry, the PHI guard and the trace store run inside this process (they are on the
@@ -35,7 +35,8 @@ from gateway.swap import SWAPPABLE, ModelSwap
 
 def from_env() -> Gateway:
     e = os.environ
-    traces = TraceStore(Path(e["TB_TRACESTORE_PATH"])) if e.get("TB_TRACESTORE_PATH") else None
+    # TB_TRACESTORE=on: traces go to schema "trace" of the trial database (TB_DB_URL, D-126); off by default
+    traces = TraceStore(e.get("TB_DB_URL")) if e.get("TB_TRACESTORE", "").strip().lower() == "on" else None
     policy = RoutingPolicy.load(Path(e.get("TB_ROUTING_PATH") or ROUTING_PATH))
     swap = ModelSwap.from_env({k: ep.url(dict(e)) for k, ep in policy.endpoints.items() if k in SWAPPABLE}, e)
     return Gateway(

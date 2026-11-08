@@ -10,6 +10,13 @@ whitespace and UTF-8 text. The first line of a day file chains to the last hash 
 the very first line of the log uses ``GENESIS`` (64 zeros). An event goes to the file of its own date, or to the
 newest file when that is later (a timestamp taken before midnight, written after the next day began). Writers
 serialise through ``flock`` on ``audit/.lock`` so several processes/containers sharing the volume keep one chain.
+
+**A torn last line** (power lost or disk full in the middle of a write) is repaired by the next writer instead of
+stopping every later write (D-127, review F-03): the bytes after the last complete line are moved to
+``<day>.jsonl.torn-<n>`` (kept as evidence), the file is cut back to the last complete line, and an
+``audit.repaired`` event chained to that line records the length and sha256 of what was moved. ``verify`` then
+passes, and the repair is visible in the chain. **Disk space** is checked before each write: below
+``TB_AUDIT_MIN_FREE_MB`` (default 64) the write is refused with :class:`AuditFull` rather than risking a torn line.
 """
 
 from __future__ import annotations
@@ -28,6 +35,12 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 GENESIS = "0" * 64
+
+
+class AuditFull(OSError):
+    """Too little free disk to write the audit log safely: the action must not go ahead unlogged."""
+
+
 _DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.jsonl$")
 
 
@@ -92,6 +105,56 @@ class AuditLog:
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
+    def _check_space(self) -> None:
+        need = int(os.environ.get("TB_AUDIT_MIN_FREE_MB", "64")) * 1024 * 1024
+        st = os.statvfs(self.directory)
+        if st.f_bavail * st.f_frsize < need:
+            raise AuditFull(f"audit volume has less than {need // (1024 * 1024)} MB free: free disk space first")
+
+    def _repair_torn(self, files: list[Path]) -> dict[str, Any] | None:
+        """Cut a torn or unreadable last line off the newest file; return what was moved, or None."""
+        if not files:
+            return None
+        path = files[-1]
+        data = path.read_bytes()
+        if not data:
+            return None
+        cut = len(data)
+        if not data.endswith(b"\n"):
+            cut = data.rfind(b"\n") + 1  # keep every complete line
+        else:
+            last_start = data.rfind(b"\n", 0, len(data) - 1) + 1
+            try:
+                rec = json.loads(data[last_start:-1].decode("utf-8"))
+                if not isinstance(rec, dict) or "hash" not in rec:
+                    raise ValueError("no hash")
+            except (ValueError, UnicodeDecodeError):
+                cut = last_start  # a complete but unreadable last line: the same damage
+        if cut == len(data):
+            return None
+        torn = data[cut:]
+        n = 1
+        while (dest := path.with_name(f"{path.name}.torn-{n}")).exists():
+            n += 1
+        dest.write_bytes(torn)
+        with path.open("r+b") as fh:
+            fh.truncate(cut)
+            fh.flush()
+            os.fsync(fh.fileno())
+        return {"file": path.name, "bytes": len(torn), "sha256": hashlib.sha256(torn).hexdigest(), "kept_as": dest.name}
+
+    def _write(self, files: list[Path], now: datetime, body: dict[str, Any]) -> None:
+        prev = self._prev_hash(files)
+        body["prev_hash"] = prev
+        body["hash"] = line_hash(prev, body)
+        day = now.astimezone(self.zone).date().isoformat()
+        if files and files[-1].stem > day:
+            day = files[-1].stem
+        with (self.directory / f"{day}.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(canonical(body) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+
     def _prev_hash(self, files: list[Path]) -> str:
         for path in reversed(files):
             last = _last_line(path)
@@ -115,7 +178,13 @@ class AuditLog:
         if detail:
             body["detail"] = detail
         with self._locked():
+            self._check_space()
             files = _day_files(self.directory)
+            repaired = self._repair_torn(files)
+            if repaired:
+                self._write(files, now, {"ts": now.isoformat(timespec="milliseconds"), "event": "audit.repaired",
+                                         "actor": "tb_common.audit", "detail": repaired})  # fmt: skip
+                files = _day_files(self.directory)
             prev = self._prev_hash(files)
             body["prev_hash"] = prev
             body["hash"] = line_hash(prev, body)

@@ -1,8 +1,8 @@
 """Console accounts, sessions and CSRF (spec v4 §3.8, FR-SIG-14 headers; ASVS V2/V3 basics).
 
-* Accounts live in the console's own SQLite file (``/data/console/console.sqlite``). There is no default password: the
-  first administrator is created by ``python -m console.cli bootstrap-admin`` (random password printed once) or, at
-  first start, from the file named by ``TB_CONSOLE_ADMIN_PASSWORD_FILE`` (a compose secret).
+* Accounts live in the trial database (PostgreSQL ``trialbox_wf``, schema ``auth``; D-126). There is no default
+  password: the first administrator is created by ``python -m console.cli bootstrap-admin`` (random password printed
+  once) or, at first start, from the file named by ``TB_CONSOLE_ADMIN_PASSWORD_FILE`` (a compose secret).
 * Passwords are stored as scrypt hashes (stdlib ``hashlib.scrypt``, per-user salt); at least 12 characters.
 * Five failed logins within 15 minutes lock the account for 15 minutes (audited by the app).
 * Sessions are server-side: the cookie carries a random token, the table stores only its SHA-256. Idle timeout 30 min,
@@ -17,13 +17,13 @@ import hashlib
 import hmac
 import re
 import secrets
-import sqlite3
-import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
+
+from console.storedb import open_db
 
 Role = Literal["admin", "coordinator", "investigator", "viewer", "cro"]
 ROLES: tuple[Role, ...] = ("admin", "coordinator", "investigator", "viewer", "cro")
@@ -38,16 +38,22 @@ ABSOLUTE = timedelta(hours=8)
 _SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2**14, 8, 1
 _USERNAME_OK = frozenset("abcdefghijklmnopqrstuvwxyz0123456789._-")
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-  username TEXT PRIMARY KEY,
+# Version 1 is the schema the SQLite file had, with the D-104 scope columns (D-126). Append new versions; never edit an
+# applied one. Times are ISO-8601 text; ``username`` and ``at`` sort and compare byte by byte ("C"), as in SQLite, and
+# user names stay case-sensitive (they are stored lower-case).
+SCHEMA_V1 = """
+CREATE TABLE users (
+  username TEXT COLLATE "C" PRIMARY KEY,
   role TEXT NOT NULL,
   pw_hash TEXT NOT NULL,
   mailbox TEXT,
   created TEXT NOT NULL,
-  disabled INTEGER NOT NULL DEFAULT 0
+  disabled INTEGER NOT NULL DEFAULT 0,
+  affiliation TEXT,
+  studies TEXT,
+  expires TEXT
 );
-CREATE TABLE IF NOT EXISTS sessions (
+CREATE TABLE sessions (
   token_sha TEXT PRIMARY KEY,
   username TEXT NOT NULL,
   csrf TEXT NOT NULL,
@@ -55,14 +61,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_seen TEXT NOT NULL,
   lang TEXT NOT NULL DEFAULT 'en'
 );
-CREATE TABLE IF NOT EXISTS login_failures (
+CREATE INDEX sessions_user ON sessions (username);
+CREATE TABLE login_failures (
   username TEXT NOT NULL,
-  at TEXT NOT NULL
+  at TEXT COLLATE "C" NOT NULL
 );
-CREATE INDEX IF NOT EXISTS login_failures_user ON login_failures (username, at);
+CREATE INDEX login_failures_user ON login_failures (username, at)
 """
-# D-104 account scope, added to existing databases in place (nullable: old accounts stay hospital-wide, no end date)
-SCOPE_COLUMNS = (("affiliation", "TEXT"), ("studies", "TEXT"), ("expires", "TEXT"))
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1,)
 _COLS = "username, role, mailbox, affiliation, studies, expires"
 
 
@@ -201,42 +207,32 @@ def scope_values(affiliation: str, studies: str, expires: str | None) -> tuple[s
 
 
 class UserStore:
-    def __init__(self, path: Path, clock: Clock = _utcnow) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
-        self._con = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
-        self._con.execute("PRAGMA journal_mode=WAL")
-        self._con.executescript(SCHEMA)
-        have = {r[1] for r in self._con.execute("PRAGMA table_info(users)").fetchall()}
-        for col, typ in SCOPE_COLUMNS:
-            if col not in have:
-                self._con.execute(f"ALTER TABLE users ADD COLUMN {col} {typ}")
+    """Schema ``auth`` of the trial database (D-126). ``url`` defaults to ``TB_DB_URL``."""
+
+    def __init__(self, url: str | None = None, clock: Clock = _utcnow) -> None:
+        self.db = open_db(url, "auth", MIGRATIONS)
         self.clock = clock
+
+    def close(self) -> None:
+        self.db.close()
 
     def _expired(self, user: User) -> bool:
         return bool(user.expires) and self.clock().date().isoformat() > str(user.expires)
 
     # ------------------------------------------------------------------ users
     def count(self, role: Role | None = None) -> int:
-        with self._lock:
-            if role is None:
-                row = self._con.execute("SELECT count(*) FROM users WHERE disabled = 0").fetchone()
-            else:
-                row = self._con.execute(
-                    "SELECT count(*) FROM users WHERE disabled = 0 AND role = ?", (role,)
-                ).fetchone()
-        return int(row[0])
+        if role is None:
+            n = self.db.fetchval("SELECT count(*) FROM users WHERE disabled = 0")
+        else:
+            n = self.db.fetchval("SELECT count(*) FROM users WHERE disabled = 0 AND role = ?", (role,))
+        return int(n)
 
     def users(self) -> list[User]:
-        with self._lock:
-            rows = self._con.execute(f"SELECT {_COLS} FROM users WHERE disabled = 0 ORDER BY username").fetchall()
+        rows = self.db.fetchall(f"SELECT {_COLS} FROM users WHERE disabled = 0 ORDER BY username")
         return [_row_user(r) for r in rows]
 
     def get(self, username: str) -> User | None:
-        with self._lock:
-            row = self._con.execute(
-                f"SELECT {_COLS} FROM users WHERE username = ? AND disabled = 0", (username,)
-            ).fetchone()
+        row = self.db.fetchone(f"SELECT {_COLS} FROM users WHERE username = ? AND disabled = 0", (username,))
         if row is None:
             return None
         user = _row_user(row)
@@ -248,14 +244,15 @@ class UserStore:
         """Affiliation, study scope and end date of an account (D-104). An SMO coordinator is normally scoped to
         the studies on its contract with an end date; a CRO account is aggregate-only whatever its scope."""
         aff, st, exp = scope_values(affiliation, studies, expires)
-        with self._lock:
-            cur = self._con.execute(
+        with self.db.transaction() as tx:
+            n = tx.execute(
                 "UPDATE users SET affiliation = ?, studies = ?, expires = ? WHERE username = ?",
                 (aff, st or None, exp, username),
             )
-            if cur.rowcount != 1:
+            if n != 1:
                 raise AuthError(f"no user {username}")
-            row = self._con.execute(f"SELECT {_COLS} FROM users WHERE username = ?", (username,)).fetchone()
+            row = tx.fetchone(f"SELECT {_COLS} FROM users WHERE username = ?", (username,))
+        assert row is not None
         return _row_user(row)
 
     def create(self, username: str, role: Role, password: str, mailbox: str | None = None) -> User:
@@ -266,13 +263,13 @@ class UserStore:
         mb = mailbox.strip().lower() if mailbox else None
         if mb is not None and ("@" not in mb or " " in mb):
             raise AuthError("mailbox must be an e-mail address")
-        with self._lock:
-            if self._con.execute("SELECT 1 FROM users WHERE username = ?", (u,)).fetchone():
-                raise AuthError(f"user {u} exists")
-            self._con.execute(
-                "INSERT INTO users (username, role, pw_hash, mailbox, created) VALUES (?,?,?,?,?)",
-                (u, role, hash_password(password), mb, self.clock().isoformat()),
-            )
+        n = self.db.execute(
+            "INSERT INTO users (username, role, pw_hash, mailbox, created) VALUES (?,?,?,?,?) "
+            "ON CONFLICT (username) DO NOTHING",
+            (u, role, hash_password(password), mb, self.clock().isoformat()),
+        )
+        if n != 1:
+            raise AuthError(f"user {u} exists")
         return User(u, role, mb)
 
     def upsert_sso(self, username: str, role: Role, mailbox: str | None) -> User:
@@ -283,75 +280,66 @@ class UserStore:
         if role not in ROLES:
             raise AuthError(f"role must be one of {', '.join(ROLES)}")
         mb = mailbox.strip().lower() if mailbox else None
-        with self._lock:
-            row = self._con.execute("SELECT pw_hash, disabled FROM users WHERE username = ?", (u,)).fetchone()
+        with self.db.transaction() as tx:
+            row = tx.fetchone("SELECT pw_hash, disabled FROM users WHERE username = ? FOR UPDATE", (u,))
             if row is None:
-                self._con.execute(
+                tx.execute(
                     "INSERT INTO users (username, role, pw_hash, mailbox, created) VALUES (?,?,?,?,?)",
                     (u, role, SSO_MARK, mb, self.clock().isoformat()),
                 )
             elif row[1]:
                 raise AuthError("account disabled")
             elif row[0] == SSO_MARK:
-                self._con.execute("UPDATE users SET role = ?, mailbox = ? WHERE username = ?", (role, mb, u))
+                tx.execute("UPDATE users SET role = ?, mailbox = ? WHERE username = ?", (role, mb, u))
             else:  # a local account: the header never changes its role or mailbox
-                row = self._con.execute(f"SELECT {_COLS} FROM users WHERE username = ?", (u,)).fetchone()
+                row = tx.fetchone(f"SELECT {_COLS} FROM users WHERE username = ?", (u,))
+                assert row is not None
                 return _row_user(row)
-            row = self._con.execute(f"SELECT {_COLS} FROM users WHERE username = ?", (u,)).fetchone()
+            row = tx.fetchone(f"SELECT {_COLS} FROM users WHERE username = ?", (u,))
+        assert row is not None
         user = _row_user(row)
         if self._expired(user):  # D-104: an account past its end date never signs in, SSO or not
             raise AuthError("account expired")
         return user
 
     def is_sso(self, username: str) -> bool:
-        with self._lock:
-            row = self._con.execute("SELECT pw_hash FROM users WHERE username = ?", (username,)).fetchone()
-        return bool(row) and row[0] == SSO_MARK
+        stored = self.db.fetchval("SELECT pw_hash FROM users WHERE username = ?", (username,))
+        return bool(stored == SSO_MARK)
 
     def set_password(self, username: str, password: str) -> None:
         check_password_policy(password)
-        with self._lock:
-            cur = self._con.execute(
-                "UPDATE users SET pw_hash = ? WHERE username = ?", (hash_password(password), username)
-            )
-            if cur.rowcount != 1:
+        pw_hash = hash_password(password)
+        with self.db.transaction() as tx:
+            if tx.execute("UPDATE users SET pw_hash = ? WHERE username = ?", (pw_hash, username)) != 1:
                 raise AuthError(f"no user {username}")
-            self._con.execute("DELETE FROM sessions WHERE username = ?", (username,))  # sign out everywhere
-            self._con.execute("DELETE FROM login_failures WHERE username = ?", (username,))
+            tx.execute("DELETE FROM sessions WHERE username = ?", (username,))  # sign out everywhere
+            tx.execute("DELETE FROM login_failures WHERE username = ?", (username,))
 
     def disable(self, username: str) -> None:
-        with self._lock:
-            self._con.execute("UPDATE users SET disabled = 1 WHERE username = ?", (username,))
-            self._con.execute("DELETE FROM sessions WHERE username = ?", (username,))
+        with self.db.transaction() as tx:
+            tx.execute("UPDATE users SET disabled = 1 WHERE username = ?", (username,))
+            tx.execute("DELETE FROM sessions WHERE username = ?", (username,))
 
     # ------------------------------------------------------------------ login
     def locked(self, username: str) -> bool:
         since = (self.clock() - LOCKOUT).isoformat()
-        with self._lock:
-            row = self._con.execute(
-                "SELECT count(*) FROM login_failures WHERE username = ? AND at >= ?", (username, since)
-            ).fetchone()
-        return int(row[0]) >= MAX_FAILURES
+        n = self.db.fetchval("SELECT count(*) FROM login_failures WHERE username = ? AND at >= ?", (username, since))
+        return int(n) >= MAX_FAILURES
 
     def authenticate(self, username: str, password: str) -> User | None:
         """The user, or None (unknown user, wrong password, disabled or locked). Constant work for unknown users."""
         u = username.strip().lower()
-        with self._lock:
-            row = self._con.execute(
-                f"SELECT {_COLS}, pw_hash FROM users WHERE username = ? AND disabled = 0", (u,)
-            ).fetchone()
+        row = self.db.fetchone(f"SELECT {_COLS}, pw_hash FROM users WHERE username = ? AND disabled = 0", (u,))
         stored = str(row[6]) if row else hash_password("unknown-user-dummy-password")
         ok = verify_password(password, stored) and row is not None
         if self.locked(u):
             return None
         if not ok:
-            with self._lock:
-                self._con.execute(
-                    "INSERT INTO login_failures (username, at) VALUES (?,?)", (u[:64], self.clock().isoformat())
-                )
+            self.db.execute(
+                "INSERT INTO login_failures (username, at) VALUES (?,?)", (u[:64], self.clock().isoformat())
+            )
             return None
-        with self._lock:
-            self._con.execute("DELETE FROM login_failures WHERE username = ?", (u,))
+        self.db.execute("DELETE FROM login_failures WHERE username = ?", (u,))
         assert row is not None
         user = _row_user(row[:6])
         return None if self._expired(user) else user
@@ -361,11 +349,10 @@ class UserStore:
         token = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
         now = self.clock().isoformat()
-        with self._lock:
-            self._con.execute(
-                "INSERT INTO sessions (token_sha, username, csrf, created, last_seen, lang) VALUES (?,?,?,?,?,?)",
-                (_sha(token), user.username, csrf, now, now, lang),
-            )
+        self.db.execute(
+            "INSERT INTO sessions (token_sha, username, csrf, created, last_seen, lang) VALUES (?,?,?,?,?,?)",
+            (_sha(token), user.username, csrf, now, now, lang),
+        )
         return token, Session(user, csrf, lang, _sha(token))
 
     def session(self, token: str | None) -> Session | None:
@@ -373,10 +360,9 @@ class UserStore:
             return None
         sha = _sha(token)
         now = self.clock()
-        with self._lock:
-            row = self._con.execute(
-                "SELECT username, csrf, created, last_seen, lang FROM sessions WHERE token_sha = ?", (sha,)
-            ).fetchone()
+        row = self.db.fetchone(
+            "SELECT username, csrf, created, last_seen, lang FROM sessions WHERE token_sha = ?", (sha,)
+        )
         if row is None:
             return None
         created, last = datetime.fromisoformat(row[2]), datetime.fromisoformat(row[3])
@@ -384,17 +370,14 @@ class UserStore:
         if user is None or now - created > ABSOLUTE or now - last > IDLE:
             self.end_session(token)
             return None
-        with self._lock:
-            self._con.execute("UPDATE sessions SET last_seen = ? WHERE token_sha = ?", (now.isoformat(), sha))
+        self.db.execute("UPDATE sessions SET last_seen = ? WHERE token_sha = ?", (now.isoformat(), sha))
         return Session(user, str(row[1]), str(row[4]), sha)
 
     def set_lang(self, session: Session, lang: str) -> None:
-        with self._lock:
-            self._con.execute("UPDATE sessions SET lang = ? WHERE token_sha = ?", (lang, session.token_sha))
+        self.db.execute("UPDATE sessions SET lang = ? WHERE token_sha = ?", (lang, session.token_sha))
 
     def end_session(self, token: str) -> None:
-        with self._lock:
-            self._con.execute("DELETE FROM sessions WHERE token_sha = ?", (_sha(token),))
+        self.db.execute("DELETE FROM sessions WHERE token_sha = ?", (_sha(token),))
 
     # ------------------------------------------------------------------ first start
     def bootstrap_from_file(self, path: Path, username: str = "admin", mailbox: str | None = None) -> User | None:

@@ -1,9 +1,9 @@
 """Durable workflow steps and the outbox table (spec v4 §11.0, FR-WF-1/3/9; sprint task S1-05).
 
-Production runs on PostgreSQL. Unit tests run the same SQL on SQLite: both backends implement :class:`SqlBackend`,
-take ``?`` placeholders and portable DDL (``TEXT``, ``BIGINT``, ``DOUBLE PRECISION``), and differ only in how a row is
-locked for a claim (``FOR UPDATE SKIP LOCKED`` on PostgreSQL; ``BEGIN IMMEDIATE`` makes every SQLite transaction the
-single writer, which gives the same exclusion).
+They live in the trial database (PostgreSQL ``trialbox_wf``, D-126), schema ``wf``; the recall ledger
+(:mod:`orchestrator.recall.ledger`) uses the same backend class on schema ``recall``. :class:`PostgresBackend` sits on
+:class:`tb_common.db.Database`: SQL takes ``?`` placeholders, and a claim locks its row with ``FOR UPDATE SKIP LOCKED``
+(``FOR UPDATE`` for a row that must be locked whoever holds it).
 
 **Durable steps.** A step is identified by ``(job_id, step, input_hash)``. :meth:`StepStore.run_step`:
 
@@ -14,29 +14,27 @@ single writer, which gives the same exclusion).
 
 A crash before step 4 commits leaves no outbox row, so the re-run recomputes the body and enqueues exactly once; a
 crash after it commits replays the recorded output. Delivery of the rows is :mod:`orchestrator.outbox`.
-
-``psycopg`` (v3) is optional: :class:`PostgresBackend` imports it lazily and fails with a clear message if missing.
 """
 
 from __future__ import annotations
 
 import hashlib
-import importlib
 import json
-import sqlite3
-import threading
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, contextmanager
+import os
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from tb_common import timeutil
+from tb_common.db import ENV as DB_URL_ENV
+from tb_common.db import Database
 
 Clock = Callable[[], datetime]
 Row = tuple[Any, ...]
-Dialect = Literal["sqlite", "postgres"]
+Dialect = Literal["postgres"]
+WF_SCHEMA = "wf"
 
 
 # --------------------------------------------------------------------------------------------- canonical JSON
@@ -55,9 +53,9 @@ def epoch_ms(dt: datetime) -> int:
     return int(dt.timestamp() * 1000)
 
 
-# --------------------------------------------------------------------------------------------- backends
+# --------------------------------------------------------------------------------------------- backend
 class Tx(Protocol):
-    """One open transaction. SQL uses ``?`` placeholders on every backend."""
+    """One open transaction. SQL uses ``?`` placeholders."""
 
     def execute(self, sql: str, params: Sequence[Any] = ()) -> int:
         """Run a statement; return the affected row count."""
@@ -72,132 +70,60 @@ class SqlBackend(Protocol):
     dialect: Dialect
 
     @property
+    def schema(self) -> str:
+        """The schema the backend's statements run in (with the run's ``tb_prefix``)."""
+        ...
+
+    @property
     def lock_suffix(self) -> str:
-        """Appended to a claim ``SELECT``: ``FOR UPDATE SKIP LOCKED`` on PostgreSQL, empty on SQLite."""
+        """Appended to a claim ``SELECT``: ``FOR UPDATE SKIP LOCKED``."""
         ...
 
     @property
     def row_lock(self) -> str:
-        """Appended to a ``SELECT`` that must lock its row: ``FOR UPDATE`` on PostgreSQL, empty on SQLite."""
+        """Appended to a ``SELECT`` that must lock its row: ``FOR UPDATE``."""
         ...
 
     def transaction(self) -> AbstractContextManager[Tx]: ...
 
+    def migrate(self, versions: Sequence[str]) -> int: ...
+
     def close(self) -> None: ...
 
 
-class _SqliteTx:
-    def __init__(self, con: sqlite3.Connection) -> None:
-        self._con = con
-
-    def execute(self, sql: str, params: Sequence[Any] = ()) -> int:
-        return self._con.execute(sql, tuple(params)).rowcount
-
-    def fetchone(self, sql: str, params: Sequence[Any] = ()) -> Row | None:
-        row = self._con.execute(sql, tuple(params)).fetchone()
-        return tuple(row) if row is not None else None
-
-    def fetchall(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
-        return [tuple(r) for r in self._con.execute(sql, tuple(params)).fetchall()]
-
-
-class SqliteBackend:
-    """SQLite with the same semantics as the PostgreSQL backend (unit tests, single-node dev)."""
-
-    dialect: Dialect = "sqlite"
-    lock_suffix = ""
-    row_lock = ""
-
-    def __init__(self, path: Path | str) -> None:
-        if str(path) != ":memory:":
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.path = str(path)
-        self._lock = threading.RLock()
-        self._con = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
-        self._con.execute("PRAGMA busy_timeout=5000")
-        if self.path != ":memory:":
-            self._con.execute("PRAGMA journal_mode=WAL")
-            self._con.execute("PRAGMA synchronous=FULL")
-
-    @contextmanager
-    def transaction(self) -> Iterator[Tx]:
-        with self._lock:
-            self._con.execute("BEGIN IMMEDIATE")
-            try:
-                yield _SqliteTx(self._con)
-            except BaseException:
-                self._con.execute("ROLLBACK")
-                raise
-            self._con.execute("COMMIT")
-
-    def close(self) -> None:
-        with self._lock:
-            self._con.close()
-
-
-class _PgTx:
-    def __init__(self, cur: Any) -> None:
-        self._cur = cur
-
-    @staticmethod
-    def _sql(sql: str) -> str:
-        return sql.replace("%", "%%").replace("?", "%s")
-
-    def execute(self, sql: str, params: Sequence[Any] = ()) -> int:
-        self._cur.execute(self._sql(sql), tuple(params))
-        return int(self._cur.rowcount)
-
-    def fetchone(self, sql: str, params: Sequence[Any] = ()) -> Row | None:
-        self._cur.execute(self._sql(sql), tuple(params))
-        row = self._cur.fetchone()
-        return tuple(row) if row is not None else None
-
-    def fetchall(self, sql: str, params: Sequence[Any] = ()) -> list[Row]:
-        self._cur.execute(self._sql(sql), tuple(params))
-        return [tuple(r) for r in self._cur.fetchall()]
-
-
 class PostgresBackend:
-    """PostgreSQL through psycopg 3 (imported lazily; not a hard dependency of the unit suite)."""
+    """One schema of the trial database on its own connection. A new backend is a new connection: what the
+    crash tests call a new process."""
 
     dialect: Dialect = "postgres"
     lock_suffix = " FOR UPDATE SKIP LOCKED"
     row_lock = " FOR UPDATE"
 
-    def __init__(self, dsn: str) -> None:
-        try:
-            psycopg = importlib.import_module("psycopg")
-        except ImportError as e:  # pragma: no cover - depends on the environment
-            raise RuntimeError("PostgresBackend needs the 'psycopg' package (psycopg 3)") from e
-        self._lock = threading.RLock()
-        self._con: Any = psycopg.connect(dsn, autocommit=True)
+    def __init__(self, url: str | None = None, schema: str = WF_SCHEMA) -> None:
+        """``url``: a ``postgresql://`` URL, ``TB_DB_URL`` when None (:class:`tb_common.db.DatabaseError` if unset)."""
+        self.db = Database.connect(url if url is not None else os.environ.get(DB_URL_ENV), schema)
 
-    @contextmanager
-    def transaction(self) -> Iterator[Tx]:
-        with self._lock, self._con.transaction(), self._con.cursor() as cur:
-            yield _PgTx(cur)
+    @property
+    def schema(self) -> str:
+        return self.db.schema
+
+    @property
+    def url(self) -> str:
+        return self.db.url
+
+    def transaction(self) -> AbstractContextManager[Tx]:
+        return self.db.transaction()
+
+    def migrate(self, versions: Sequence[str]) -> int:
+        return self.db.migrate(versions)
 
     def close(self) -> None:
-        with self._lock:
-            self._con.close()
+        self.db.close()
 
 
-def open_backend(url: str) -> SqlBackend:
-    """``sqlite:///<path>`` (or ``sqlite://:memory:``) or a ``postgresql://`` DSN."""
-    if url.startswith("sqlite://"):
-        rest = url.removeprefix("sqlite://")
-        return SqliteBackend(rest.removeprefix("/") if rest.startswith("/:memory:") else rest or ":memory:")
-    if url.startswith(("postgresql://", "postgres://")):
-        return PostgresBackend(url)
-    raise ValueError(f"unsupported store url: {url.split(':', 1)[0]}")
-
-
-def apply_schema(backend: SqlBackend, ddl: str) -> None:
-    """Run idempotent ``CREATE … IF NOT EXISTS`` statements separated by ``;``."""
-    with backend.transaction() as tx:
-        for stmt in (s.strip() for s in ddl.split(";")):
-            if stmt:
-                tx.execute(stmt)
+def open_backend(url: str | None = None, schema: str = WF_SCHEMA) -> SqlBackend:
+    """The ``schema`` of the trial database at ``url`` (``TB_DB_URL`` when None)."""
+    return PostgresBackend(url, schema)
 
 
 # --------------------------------------------------------------------------------------------- schema (§11.0)
@@ -242,6 +168,8 @@ CREATE TABLE IF NOT EXISTS outbox (
 CREATE INDEX IF NOT EXISTS outbox_state ON outbox (state, next_attempt_ms, created_ms);
 CREATE INDEX IF NOT EXISTS outbox_job ON outbox (job_id)
 """
+#: ``migrate`` versions of schema ``wf`` (append-only; version 1 is the schema as it was on SQLite)
+MIGRATIONS = (SCHEMA,)
 
 STEP_RUNNING = "running"
 STEP_DONE = "done"
@@ -315,7 +243,7 @@ class StepStore:
         self.owner = owner
         self.clock = clock
         self.lease_ms = lease_ms
-        apply_schema(backend, SCHEMA)
+        backend.migrate(MIGRATIONS)
 
     # --------------------------------------------------------------------------------------------- queries
     def get(self, job_id: str, step: str, input_hash: str) -> Row | None:
@@ -434,18 +362,18 @@ class StepStore:
 
 
 __all__ = [
+    "MIGRATIONS",
     "SCHEMA",
+    "WF_SCHEMA",
     "Clock",
     "OutboxMessage",
     "PostgresBackend",
     "SqlBackend",
-    "SqliteBackend",
     "StepBusy",
     "StepOutcome",
     "StepResult",
     "StepStore",
     "Tx",
-    "apply_schema",
     "canonical_json",
     "epoch_ms",
     "idempotency_key",

@@ -8,6 +8,7 @@ stands in for Synthea 300k (scale is not part of the unit tests).
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 from datetime import UTC, datetime
@@ -48,11 +49,15 @@ def _run(src: Path, work: Path, **kw: Any) -> PipelineResult:
 
 
 @pytest.fixture(scope="module")
-def baseline(synth_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path, PipelineResult]:
+def baseline(
+    synth_dir: Path, tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str
+) -> tuple[Path, Path, PipelineResult]:
     root = tmp_path_factory.mktemp("dp_gate")
     src = _site_a_drop(synth_dir, root / "drop")
     work = root / "work"
-    res = _run(src, work)
+    with pytest.MonkeyPatch.context() as mp:  # module fixtures run before the per-test TB_DB_URL (D-126)
+        mp.setenv("TB_DB_URL", f"{pg_cluster_url}{'&' if '?' in pg_cluster_url else '?'}tb_prefix=m{os.getpid()}gate_")
+        res = _run(src, work)
     return src, work, res
 
 

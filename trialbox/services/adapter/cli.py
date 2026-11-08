@@ -61,8 +61,11 @@ def build_config() -> tuple[AdapterConfig, str, str]:
                 seconds=st.seconds,
             )
         import httpx
+        from tb_common.service_auth import auth_headers
 
-        resp = httpx.post(f"{cfg.env.lake_url.rstrip('/')}/rebuild", json={"snapshot": snapshot}, timeout=7200)
+        resp = httpx.post(
+            f"{cfg.env.lake_url.rstrip('/')}/rebuild", json={"snapshot": snapshot}, timeout=7200, headers=auth_headers()
+        )
         resp.raise_for_status()
         return RebuildResult.model_validate(resp.json())
 

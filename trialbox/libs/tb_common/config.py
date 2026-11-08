@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -218,10 +219,15 @@ def load(dotenv: Path | None = None, settings_path: Path | None = None) -> Confi
     return Config(env=env, settings=settings)
 
 
+def environment_name(env: Mapping[str, str]) -> str:
+    """The one rule for ``TB_ENV`` in every service (D-127, review F-06): upper-cased, PRODUCTION when unset, so an
+    install that forgets to set it keeps its nightly schedule, its mail, its REDCap read and its ethics gate."""
+    return (env.get("TB_ENV") or "PRODUCTION").strip().upper()
+
+
 def tb_env(env: Env) -> str:
-    """``TB_ENV`` upper-cased; PRODUCTION when unset (as the console reads it), so an install that forgets to set it
-    keeps its nightly schedule and its ethics gate."""
-    return (env.extra.get("TB_ENV") or "PRODUCTION").upper()
+    """:func:`environment_name` of a loaded :class:`Env`."""
+    return environment_name(env.extra)
 
 
 def ethics_gate_on(settings: Settings, environment: str) -> bool:

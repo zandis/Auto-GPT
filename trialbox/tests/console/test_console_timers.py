@@ -13,7 +13,7 @@ from console import timers
 @pytest.mark.parametrize(
     ("env", "on"),
     [
-        ({}, False),
+        ({}, True),  # D-127 (F-06): unset means PRODUCTION, so a box that forgot TB_ENV keeps its timers
         ({"TB_ENV": "DEV"}, False),
         ({"TB_ENV": "TEST"}, False),
         ({"TB_ENV": "VALIDATION"}, True),

@@ -27,10 +27,10 @@ def reg(tmp_path: Path) -> CandidateRegistry:
     sec = tmp_path / "sec"
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(KEY)
-    pm = PidMap(sec / "pid_map.sqlite", sec / "pid_map.key")
+    pm = PidMap(sec / "pid_map.key")
     pm.upsert_many([(pid_for_mrn(KEY, m), m) for m in ("10000001", "10000002", "10000003")])
     pm.close()
-    db = JobDB(tmp_path / "jobs.sqlite")
+    db = JobDB()
     db.pool_upsert(
         "GZQO",
         "1.0.0",
@@ -118,7 +118,7 @@ def test_export_resolves_chart_numbers_in_box_and_is_deterministic(reg: Candidat
     events = list(wb["events"].iter_rows(values_only=True))
     assert len(events) == 4 and events[0][0] == "at"
     # without a pid map the export still works, with blank chart numbers
-    (reg.secrets_dir / "pid_map.sqlite").unlink()
+    (reg.secrets_dir / "pid_map.key").unlink()
     wb2 = load_workbook(io.BytesIO(reg.export_xlsx("GZQO", "DEMO-A")))
     assert all(r[0] in ("", None) for r in list(wb2["screening_log"].iter_rows(values_only=True))[1:])
 
@@ -161,4 +161,29 @@ def _reg_for_api(tmp_path: Path) -> CandidateRegistry:
     sec = tmp_path / "sec"
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(KEY)
-    return CandidateRegistry(JobDB(tmp_path / "jobs.sqlite"), AuditLog(tmp_path / "audit"), sec, r"^\d{8}$")
+    return CandidateRegistry(JobDB(), AuditLog(tmp_path / "audit"), sec, r"^\d{8}$")
+
+
+def test_pid_maps_of_different_keys_do_not_mix(tmp_path: Path, db_url: str) -> None:
+    """One trial database holds the map of each key file (one per secrets dir): rows of another key are invisible,
+    and MRNs are stored encrypted (D-126, D-10)."""
+    from tb_common.db import Database
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    pa, pb = PidMap(a / "pid_map.key"), PidMap(b / "pid_map.key", db_url)
+    assert pa.upsert_many([("p1", "10000001")]) == 1
+    assert pa.upsert_many([("p1", "10000001"), ("p2", "10000002")]) == 1  # p1 is known: last_seen only
+    assert pb.upsert_many([("p1", "20000001")]) == 1
+    pa.upsert_identity([("p1", {"name": "A"})])
+    assert (pa.resolve("p1"), pb.resolve("p1"), pb.resolve("p2")) == ("10000001", "20000001", None)
+    assert pa.identity("p1") == {"name": "A"} and pb.identity("p1") is None
+    pa.close()
+    again = PidMap(a / "pid_map.key")  # a new connection, the same key: the same map
+    assert again.resolve_many(["p1", "p2", "p3"]) == {"p1": "10000001", "p2": "10000002"}
+    again.close()
+    pb.close()
+    with Database.connect(db_url, "pidmap") as db:
+        raw = repr(db.fetchall("SELECT * FROM pid_map") + db.fetchall("SELECT * FROM identity")).encode()
+    assert b"10000001" not in raw and b"20000001" not in raw and b"'A'" not in raw

@@ -154,7 +154,7 @@ def test_feas_report_applies_screen_failure_and_target() -> None:
 
 
 def test_site_store_profile_marks_and_seen(tmp_path: Path) -> None:
-    s = SiteStore(tmp_path / "site.sqlite")
+    s = SiteStore()
     assert s.profile("GZQO").missing == ["capability", "competing", "target"]
     s.save_profile(
         "GZQO", SiteProfile(target_n=6, capabilities={"amyloid_pet": {"value": "partner", "note": ""}}), "crc1", "t"
@@ -314,7 +314,7 @@ def test_expired_sso_account_is_refused(tmp_path: Path) -> None:
 
     backend = FakeBackend()
     backend.audit_dir = tmp_path / "audit"
-    users = UserStore(tmp_path / "c.sqlite")
+    users = UserStore()
     users.create("admin", "admin", ADMIN_PW, "admin@hospa.test")
     app = create_app(
         {**SSO_ENV, "TB_CONSOLE_DIR": str(tmp_path)}, backend=backend, audit=AuditLog(backend.audit_dir), users=users
@@ -448,8 +448,41 @@ def test_public_data_banner_own_studies_and_site_labels(tmp_path: Path) -> None:
     for lang in ("en", "ja", "zh-TW"):
         words = CATALOGUES[lang]["pilot.banner.public"]
         assert "D0" in words and words != CATALOGUES[lang]["pilot.banner"]
-    store = SiteStore(tmp_path / "site.sqlite")
+    store = SiteStore()
     store.save_label("pub-onc", "PUB-ONC-INC-01", "ja", "18歳以上", "crc", "2026-11-08T00:00:00Z")
     assert store.labels("PUB-ONC", "ja") == {"PUB-ONC-INC-01": "18歳以上"} and store.labels("PUB-ONC", "zh-TW") == {}
     store.save_label("PUB-ONC", "PUB-ONC-INC-01", "ja", "", "crc", "2026-11-08T00:00:01Z")  # empty clears it
     assert store.labels("PUB-ONC", "ja") == {}
+
+
+def test_api_v1_does_what_the_pages_do_with_a_bearer_token(box: dict[str, Any]) -> None:
+    """D-125/D-127 (review F-07): the phone and desktop apps use /api/v1; the same rules as the pages apply."""
+    from fastapi.testclient import TestClient
+
+    _done_screen(box["backend"], _ulid(952))
+    _user(box, "drsato", "investigator")
+    _user(box, "crc1", "coordinator")
+    api = TestClient(box["app"])
+    assert api.get("/api/v1/studies").status_code == 401
+    assert api.post("/api/v1/session", json={"username": "drsato", "password": "wrong"}).status_code == 401
+    tok = api.post("/api/v1/session", json={"username": "drsato", "password": PW}).json()["token"]
+    pi = {"Authorization": f"Bearer {tok}"}
+    assert "GZQO" in [s["id"] for s in api.get("/api/v1/studies", headers=pi).json()]
+    rows = api.get("/api/v1/studies/GZQO/patients", headers=pi).json()["patients"]
+    assert {r["pid"][:8] for r in rows} >= {"aaaaaaaa", "bbbbbbbb"} and all("mrn" not in r for r in rows)
+    r = api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/mark", json={"mark": "approach"}, headers=pi)
+    assert r.status_code == 200 and r.json()["screening_no"]
+    assert (
+        api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/mark", json={"mark": "bogus"}, headers=pi).json()["error"]
+        == "request.refused"
+    )
+    crc_tok = api.post("/api/v1/session", json={"username": "crc1", "password": PW}).json()["token"]
+    crc = {"Authorization": f"Bearer {crc_tok}"}
+    r = api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/mark", json={"mark": "approach"}, headers=crc)
+    assert r.status_code == 403  # marks stay the investigator's, through the API as on the page
+    r = api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/outcome", json={"outcome": "not_reached"}, headers=crc)
+    assert r.status_code == 200
+    log = api.get("/api/v1/studies/GZQO/screening-log", headers=crc).json()
+    assert any(x["pid"].startswith("aaaaaaaa") for x in log)
+    api.delete("/api/v1/session", headers=pi)
+    assert api.get("/api/v1/studies", headers=pi).status_code == 401

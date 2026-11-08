@@ -25,7 +25,9 @@ class LakeAPI(Protocol):
 class LakeHttp:
     def __init__(self, base_url: str, timeout: float = 330) -> None:
         self.base = base_url.rstrip("/")
-        self.client = httpx.Client(timeout=timeout)
+        from tb_common.service_auth import auth_headers
+
+        self.client = httpx.Client(timeout=timeout, headers=auth_headers())  # D-127 (F-11)
 
     def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> pa.Table:
         body = dump(

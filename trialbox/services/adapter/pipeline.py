@@ -45,12 +45,13 @@ class AdapterConfig:
     registry: tuple[str, str] | None = None
     keep_nightly: int = 3  # settings.retention.nightly_snapshots
     keep_month_end_months: int = 36  # settings.retention.month_end_snapshots_months
+    db_url: str | None = None  # the trial database of the pid map (TB_DB_URL when None)
 
     def site_key(self) -> bytes:
         return load_or_create_key(self.secrets_dir / "site_hmac.key")
 
     def pidmap(self) -> PidMap:
-        return PidMap(self.secrets_dir / "pid_map.sqlite", self.secrets_dir / "pid_map.key")
+        return PidMap(self.secrets_dir / "pid_map.key", self.db_url)
 
 
 def make_source(kind: str, path: str) -> Source:

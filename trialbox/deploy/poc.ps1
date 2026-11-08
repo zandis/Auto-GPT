@@ -72,10 +72,12 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Poc "secrets"), (Join-Path
 $EnvFile = Join-Path $Root "deploy\.env"
 if (-not (Test-Path $EnvFile)) {
   Say "creating deploy\.env with random service passwords"
+  $WfPw = Rand 32
   (Get-Content (Join-Path $Root ".env.example")) `
-    -replace '^MINIO_SECRET_KEY=.*', "MINIO_SECRET_KEY=$(Rand 32)" `
     -replace '^POSTGRES_PASSWORD=.*', "POSTGRES_PASSWORD=$(Rand 32)" `
-    -replace '^POSTGRES_WF_PASSWORD=.*', "POSTGRES_WF_PASSWORD=$(Rand 32)" |
+    -replace '^POSTGRES_WF_PASSWORD=.*', "POSTGRES_WF_PASSWORD=$WfPw" `
+    -replace '^TB_DB_URL=.*', "TB_DB_URL=postgresql://trialbox:$WfPw@db:5432/trialbox_wf" `
+    -replace '^TB_SERVICE_TOKEN=.*', "TB_SERVICE_TOKEN=$(Rand 32)" |
     Set-Content -Encoding ascii $EnvFile
 }
 $KeyDir = Join-Path $Root ".cache\test-secrets"

@@ -210,14 +210,14 @@ class _Truth:
         nt, ht = source_dir / "note_truth.json", source_dir / "human_truth.json"
         if not nt.exists():
             return None
-        from dataplat.mpi import Mpi, SiteKeys
+        from dataplat.mpi import Mpi, SiteKeys, workdir_scope
 
         keys = SiteKeys.derive(SITE_KEY, site_id)
         notes_by_mrn: dict[str, dict[str, str]] = json.loads(nt.read_text("utf-8"))
         human_by_mrn: dict[str, dict[str, str]] = json.loads(ht.read_text("utf-8")) if ht.exists() else {}
         notes: dict[str, dict[str, str]] = {}
         human: dict[str, dict[str, str]] = {}
-        with Mpi(workdir / "vault" / "mpi.sqlite", keys) as mpi:
+        with Mpi(keys, scope=workdir_scope(workdir)) as mpi:
             for mrn in sorted(set(notes_by_mrn) | set(human_by_mrn)):
                 mid = mpi.lookup(mrn)
                 if mid is None:
@@ -370,6 +370,9 @@ def run_end_to_end(
         run_date, site_id, tz, snapshot = date(2026, 10, 1), "MIMIC-DEMO", "America/New_York", "2026-09-30"
         window = mimic_default_window(run_date)
     workdir = out_dir / "dataplat"
+    from tools import pglocal
+
+    pglocal.for_work(out_dir)  # D-126: the run's trial database (TB_DB_URL, or a local throwaway one)
     clock = fixed_clock(datetime(run_date.year, run_date.month, run_date.day, 2, 0, tzinfo=UTC))
     pres = run_pipeline(
         source_dir,
@@ -493,12 +496,17 @@ def run_end_to_end(
     pair, patient, historical = _oracles(truth, rs, res)
     rdir = out_dir / "recall"
     rdir.mkdir(parents=True, exist_ok=True)
-    ledger = rdir / "recall_ledger.sqlite"
-    for f in rdir.glob("recall_ledger.sqlite*"):
-        f.unlink()
+    from orchestrator.recall.ledger import RecallLedger
+
+    from tools import pglocal
+
+    ledger_url = pglocal.for_work(out_dir)  # TB_DB_URL, or this run's schemas in a throwaway local database
+    fresh = RecallLedger(url=ledger_url)
+    fresh.reset()  # every run certifies from an empty ledger (synthetic data only: TB_ENV DEV or TEST)
+    fresh.close()
     cert = certify(
         res,
-        ledger,
+        ledger_url,
         run_id=f"run:{trial_id}:{manifest.snapshot_id}",
         period=run_date.isoformat()[:7],
         plan=AuditPlan(),
@@ -509,7 +517,6 @@ def run_end_to_end(
     cert_path = rdir / ("recall_certificate.json" if cert.status == "issued" else "recall_refusal.json")
     cert_path.write_text(json.dumps(cert.as_pack_input(), indent=1, sort_keys=True, default=str) + "\n", "utf-8")
     artefacts["recall_certificate" if cert.status == "issued" else "recall_refusal"] = str(cert_path)
-    artefacts["recall_ledger"] = str(ledger)
     checks["certificate_or_refusal"] = cert.status == "issued" or bool(cert.reasons)
 
     # -------------------------------------------------------------------------------------- DL-1

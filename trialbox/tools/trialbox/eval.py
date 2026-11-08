@@ -247,6 +247,9 @@ def run_ingest_fhir_demo(workdir: Path, suite: dict[str, Any], source_dir: Path 
     from dataplat.pipeline import run_pipeline
     from tb_common.crypto import ed25519_generate
 
+    from tools import pglocal
+
+    pglocal.for_work(workdir)  # D-126: the MPI lives in the trial database (TB_DB_URL, or a local throwaway one)
     res = run_pipeline(
         src,
         workdir / "dataplat",

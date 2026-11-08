@@ -9,7 +9,6 @@ raises RC-LINK-DUP and changes nothing, a renamed field raises RC-LINK-FIELD and
 from __future__ import annotations
 
 import os
-import sqlite3
 import stat
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +19,7 @@ from fastapi.testclient import TestClient
 from rc_bridge.client import RcError, RedcapClient, check_token, major_of
 from rc_bridge.link import LinkError, ProjectLink, choices, validate
 from rc_sim.app import create_app
+from tb_common.db import Database
 from tb_contracts import RegistryUpdate
 
 from tests.rc_kit import LINK_A, LINK_B, PIDS, TOKEN_A, TOKEN_B, TZ, sim_edit, study_service
@@ -189,7 +189,7 @@ def test_unmatched_records_are_listed(tmp_path: Path) -> None:
         assert out["unmatched"] == [{"record_id": "2", "link_value": "GZQO-0902"}]
 
 
-def test_token_stays_in_the_secret_store(tmp_path: Path) -> None:
+def test_token_stays_in_the_secret_store(tmp_path: Path, db_url: str) -> None:
     with study_service(tmp_path) as (svc, _sim, _clock):
         p = svc.store.token_path("proj-a")
         assert stat.S_IMODE(os.stat(p).st_mode) == 0o600
@@ -198,7 +198,12 @@ def test_token_stays_in_the_secret_store(tmp_path: Path) -> None:
         assert svc.test_connection("proj-a")["project_id"] == 101
         svc.save_link("GZQO", LINK_A, "crc")
         svc.read("GZQO", SCREENING, "crc")
-        dump = "\n".join(sqlite3.connect(svc.store.path).iterdump())
+        with Database.connect(db_url, "study") as db:  # every row of every table of the study store
+            tables = db.fetchall(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"
+            )
+            dump = "\n".join(str(db.fetchall(f'SELECT * FROM "{t}"')) for (t,) in tables)
+        assert "inproc://rc-sim-test" in dump  # the dump does see the store
         assert TOKEN_A not in dump and TOKEN_B not in dump
         audit = "".join(f.read_text() for f in (tmp_path / "audit").glob("*.jsonl"))
         assert TOKEN_A not in audit and "redcap.read" in audit

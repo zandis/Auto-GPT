@@ -53,7 +53,7 @@ def make(tmp_path: Path) -> Any:
         services = Services(lake=None, parser=None, compiler=None, mail=mail)  # type: ignore[arg-type]
         orch = Orchestrator(
             cfg,
-            db or JobDB(tmp_path / "jobs.sqlite"),
+            db or JobDB(),
             FsStore(tmp_path / "obj"),
             AuditLog(tmp_path / "audit"),
             services,
@@ -119,7 +119,7 @@ def test_restart_recovery(make: Any, tmp_path: Path) -> None:
         ctx.state("running")
         return Outcome(summary_md="ok")
 
-    db = JobDB(tmp_path / "jobs.sqlite")
+    db = JobDB()
     orch, _ = make({"FEAS": scenario}, db)
     job = orch.create(JobCreate(type="FEAS", ruleset="GZQO", requested_by="crc1@hospa.test"))
     assert db.claim() == job.job_id  # a worker took it ...
