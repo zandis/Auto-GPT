@@ -77,7 +77,7 @@ include = [
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-extend-exclude = ["libs/tb_contracts/generated"]
+extend-exclude = ["libs/tb_contracts/generated", "docs/plan/design/tools"]  # design-set helpers, as delivered
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PL", "S"]
