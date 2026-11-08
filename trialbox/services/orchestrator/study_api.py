@@ -9,7 +9,8 @@ Routes (the console edits S-28 only through these):
 * ``GET/PUT /studies/{rs}/redcap-link`` (the project link, validated against the data dictionary, RC-LINK-FIELD),
   ``POST /studies/{rs}/redcap-link/test`` (reads three records and shows the join; S21 "Test link").
 * ``POST /studies/{rs}/redcap-read`` (Run now / nightly: R7 since the watermark, join on ``tb_screening_no``,
-  registry statuses with ``source=import``; RC-LINK-DUP and conflicts listed, never resolved automatically),
+  registry statuses with ``source=import``; RC-LINK-DUP and conflicts listed, never resolved automatically; then,
+  when the link's write-back is on, TrialBox's own instrument is imported for every changed screening number, D-123),
   ``GET /studies/{rs}/redcap-records`` (record id and subject number per pid for the screening log).
 """
 
@@ -23,8 +24,9 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+from rc_bridge import writeback
 from rc_bridge.client import RcError, RedcapClient, api_url, check_token
-from rc_bridge.link import LinkError, ProjectLink, read_back, validate
+from rc_bridge.link import WRITE_FIELDS, LinkError, ProjectLink, read_back, validate
 from tb_common.audit import AuditLog
 from tb_contracts import RegistryUpdate
 
@@ -117,7 +119,50 @@ class StudyService:
                 "duplicates": rb.duplicates, "unmatched": len(rb.unmatched)}  # fmt: skip
 
     # ------------------------------------------------------------------ read-back (Run now / nightly)
-    def read(self, rs: str, screening: dict[str, str], by: str, full: bool = False) -> dict[str, Any]:
+    def write(
+        self,
+        rs: str,
+        link: ProjectLink,
+        id_field: str,
+        screening: dict[str, str],
+        issued: dict[str, str],
+        by: str,
+        at: str,
+    ) -> dict[str, Any]:
+        """Import TrialBox's instrument for each screening number whose values changed since the last write."""
+        reg = {e.pid: e for e in self.registry.rows(rs)}
+        entries = []
+        for no, pid in screening.items():
+            e = reg.get(pid)
+            day = (issued.get(no) or at)[:10]
+            entries.append(writeback.Entry(no=no.strip().upper(), issued=day, status=e.status if e else "candidate",
+                                           status_at=e.updated_at.date().isoformat() if e else day))  # fmt: skip
+        with self.client(link.token_ref) as rc:
+            rows = rc.records(fields=[id_field, link.link_field], dags=bool(link.dag))
+            if link.dag:
+                rows = [r for r in rows if str(r.get("redcap_data_access_group") or "") == link.dag]
+            existing = writeback.existing_index(rows, link, id_field)
+            last = {k: v["hash"] for k, v in self.store.written(rs).items()}
+            wp = writeback.plan(link, entries, existing, last, id_field)
+            if wp.updates:
+                rc.import_records(wp.updates)
+            created: list[str] = rc.import_records(wp.creates, auto_number=True) if wp.creates else []
+        for no, rid in wp.record_of.items():
+            self.store.put_written(rs, no, rid, wp.hashes[no], at)
+        new_nos = [str(r[link.link_field]) for r in wp.creates]
+        for no, rid in zip(new_nos, created, strict=False):
+            self.store.put_written(rs, no, rid, wp.hashes[no], at)
+        out = {"updated": len(wp.updates), "created": len(created), "unchanged": wp.unchanged,
+               "waiting": wp.waiting, "duplicates": wp.skipped_dup,
+               "records": {**wp.record_of, **dict(zip(new_nos, created, strict=False))}}  # fmt: skip
+        self.audit.append("redcap.write", ruleset=rs, actor=by,
+                          detail={"updated": out["updated"], "created": out["created"],
+                                  "fields": list(WRITE_FIELDS)})  # fmt: skip
+        return out
+
+    def read(
+        self, rs: str, screening: dict[str, str], by: str, full: bool = False, issued: dict[str, str] | None = None
+    ) -> dict[str, Any]:
         row = self.store.link(rs)
         if row is None:
             raise HTTPException(status_code=404, detail={"code": "RC-LINK-NONE", "message": "no REDCap link"})
@@ -189,9 +234,15 @@ class StudyService:
                 changes.append({"link_value": j.link_value, "record_id": j.record_id, "pid": j.pid,
                                 "from": cur, "to": j.status})  # fmt: skip
         self.store.mark_read(rs, at)
-        result = {"at": at, "since": since, "rows": len(rows), "linked": len(joined), "changes": changes,
+        result: dict[str, Any] = {"at": at, "since": since, "rows": len(rows), "linked": len(joined),
+                                  "changes": changes,
                   "duplicates": rb.duplicates, "unmatched": rb.unmatched, "conflicts": conflicts,
                   "no_link_value": rb.no_link_value, "outside_dag": rb.outside_dag}  # fmt: skip
+        if link.write_mode != "off":
+            try:
+                result["write"] = self.write(rs, link, id_field, screening, issued or {}, by, at)
+            except RcError as exc:  # the read stands; the write is retried next run (nothing was recorded)
+                result["write"] = {"error": exc.code, "message": exc.message}
         self.store.log_read(rs, at, by, True, result)
         self.audit.append("redcap.read", ruleset=rs, actor=by,
                           detail={"result": "ok", "changes": len(changes), "duplicates": len(rb.duplicates),
@@ -239,6 +290,7 @@ class LinkBody(BaseModel):
 
 class ReadBody(BaseModel):
     screening: dict[str, str] = Field(default_factory=dict)  # screening number -> pid (the console holds these)
+    issued: dict[str, str] = Field(default_factory=dict)  # screening number -> when it was issued (write-back)
     by: str = BOT
     full: bool = False
 
@@ -341,7 +393,7 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
     @r.post("/studies/{rs}/redcap-read")
     def run_read(rs: str, body: ReadBody) -> dict[str, Any]:
         try:
-            return get().read(_rs(rs), body.screening, body.by, body.full)
+            return get().read(_rs(rs), body.screening, body.by, body.full, body.issued)
         except (RcError, LinkError) as exc:
             raise _fail(exc) from exc
 

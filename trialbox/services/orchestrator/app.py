@@ -32,6 +32,7 @@ from orchestrator.core import Orchestrator, Rejected, Services
 from orchestrator.db import JobDB
 from orchestrator.scenarios import registry
 from orchestrator.study_api import StudyService
+from orchestrator.datacore_api import router as datacore_router
 from orchestrator.study_api import router as study_router
 from orchestrator.studystore import StudyStore
 
@@ -340,6 +341,24 @@ def study_service_of(o: Orchestrator) -> StudyService:
 
 
 app.include_router(study_router(lambda: study_service_of(orch())))
+
+# ---------------------------------------------------------------------------- TrialBox's own data core (D-123)
+_cores: dict[str, Any] = {}
+
+
+def data_service_of(o: Orchestrator) -> Any:
+    from datacore.store import DataCore
+
+    from orchestrator.datacore_api import DataService
+
+    key = str(o.data_dir)
+    if key not in _cores:
+        _cores[key] = DataCore(Path(o.data_dir) / "datacore.db")
+    studies = study_service_of(o)
+    return DataService(_cores[key], o.audit, lambda: _now(o), studies.client)
+
+
+app.include_router(datacore_router(lambda: data_service_of(orch())))
 
 
 @app.get("/registry")

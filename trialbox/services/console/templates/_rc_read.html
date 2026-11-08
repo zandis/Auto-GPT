@@ -7,6 +7,9 @@
   {% if last.result.changes %}<ul class="plain" data-testid="rc-changes">{% for c in last.result.changes %}<li>{{ t('rc.change', v=c.link_value, a=t('registry.status.' + (c['from'] or 'candidate')), b=t('registry.status.' + c.to)) }}</li>{% endfor %}</ul>{% endif %}
   {% for d in last.result.duplicates %}<p class="warn" data-testid="rc-dup">{{ t('rc.dup', v=d.link_value, ids=d.record_ids|join(', ')) }} <span class="hint mono">RC-LINK-DUP</span></p>{% endfor %}
   {% for c in last.result.conflicts %}<p class="warn" data-testid="rc-conflict">{{ t('rc.conflict', a=t('registry.status.' + c.trialbox), b=t('registry.status.' + c.redcap), v=c.link_value, r=c.record_id) }}</p>{% endfor %}
+  {% if last.result.write %}{% if last.result.write.error %}<p class="error" data-testid="rc-write">{{ t('rc.write.failed', msg=t('rc.err.' + last.result.write.error, fields='', msg=last.result.write.message)) }}</p>
+  {% else %}<p data-testid="rc-write">{{ t('rc.write.last', u=last.result.write.updated, c=last.result.write.created, s=last.result.write.unchanged) }}</p>
+  {% if last.result.write.waiting %}<p class="hint" data-testid="rc-write-waiting">{{ t('rc.write.waiting', n=last.result.write.waiting|length, list=last.result.write.waiting|join(', ')) }}</p>{% endif %}{% endif %}{% endif %}
   {% if last.result.unmatched %}<p class="hint" data-testid="rc-unmatched">{{ t('rc.unmatched', n=last.result.unmatched|length, list=last.result.unmatched|map(attribute='link_value')|join(', ')) }}</p>{% endif %}
   {% endif %}
 {% elif link %}<p class="hint">{{ t('rc.read.never') }}</p>{% endif %}

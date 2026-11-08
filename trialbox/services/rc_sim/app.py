@@ -2,7 +2,9 @@
 
 ``POST /api/`` takes the same form fields as REDCap (``token``, ``content``, ``format=json``) and answers R1 version,
 R2 project, R3 metadata, R7 record (flat export with ``records[]``/``fields[]``/``events[]``/``dateRangeBegin`` and
-``exportDataAccessGroups``) and R8 dag. Every other ``content`` answers 501. Each fixture project has its own 32-hex
+``exportDataAccessGroups``), R8 dag, and the record import (``content=record`` with ``data``: flat JSON rows,
+``overwriteBehavior=normal``, ``forceAutoNumber``, ``returnContent=count|ids|auto_ids``; D-123). Every other
+``content`` answers 501. Each fixture project has its own 32-hex
 token; a wrong token answers 403 with REDCap's error text. ``POST /sim/records`` adds or edits a record (the test and
 demo lever) and stamps its change time, which ``dateRangeBegin`` filters on.
 """
@@ -23,6 +25,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+# ``record`` is the export, or the import when ``data`` is sent
 SUPPORTED = {"version", "project", "metadata", "record", "dag"}
 NO_PERMISSION = "You do not have permissions to use the API"
 
@@ -118,6 +121,79 @@ def _export_records(proj: dict[str, Any], form: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def _key(rec: dict[str, Any], rid: str, longitudinal: bool) -> tuple[str, Any]:
+    return str(rec.get(rid)), rec.get("redcap_event_name") if longitudinal else None
+
+
+def _import_records(proj: dict[str, Any], form: Any) -> Any:
+    """REDCap's record import: unknown fields and (longitudinal) missing or unknown events are refused whole."""
+    try:
+        rows = json.loads(str(form.get("data")))
+    except ValueError:
+        return _err(400, "The data being imported is not in a valid format")
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        return _err(400, "The data being imported is not in a valid format")
+    rid = _record_id_field(proj)
+    meta = {m["field_name"]: m for m in proj["metadata"]}
+    extra = {"redcap_event_name", "redcap_data_access_group"}
+    longitudinal = bool(int(proj["project"].get("is_longitudinal", 0)))
+    events = {e["unique_event_name"] for e in proj.get("events", [])}
+    dags = {d["unique_group_name"] for d in proj.get("dags", [])}
+    mapping = proj.get("form_event_mapping") or []
+    for r in rows:
+        bad = sorted(set(r) - set(meta) - extra)
+        if bad:
+            return _err(400, f"The following fields were not found in the project: {', '.join(bad)}")
+        if rid not in r or not str(r[rid]).strip():
+            return _err(400, f"The record identifier field ({rid}) is missing")
+        if longitudinal:
+            ev = str(r.get("redcap_event_name") or "")
+            if ev not in events:
+                return _err(400, f"The event name '{ev}' is not valid")
+            forms = {m["form"] for m in mapping if m["unique_event_name"] == ev}
+            off = [f for f in r if f in meta and f != rid and forms and meta[f]["form_name"] not in forms]
+            if off:
+                return _err(400, f"Fields not designated for event {ev}: {', '.join(off)}")
+        dag = str(r.get("redcap_data_access_group") or "")
+        if dag and dag not in dags:
+            return _err(400, f"The data access group '{dag}' is not valid")
+    auto = str(form.get("forceAutoNumber") or "").lower() == "true"
+    stamp = _local_now()
+    used = [int(x[rid]) for x in proj["records"] if str(x.get(rid, "")).isdigit()]
+    next_id = max(used, default=0) + 1
+    renamed: dict[str, str] = {}
+    written: list[str] = []
+    for r in rows:
+        name = str(r[rid])
+        if auto:
+            if name not in renamed:
+                renamed[name] = str(next_id)
+                next_id += 1
+            name = renamed[name]
+        key = (name, r.get("redcap_event_name") if longitudinal else None)
+        hit = next((x for x in proj["records"] if _key(x, rid, longitudinal) == key), None)
+        if hit is None:
+            hit = {f: "" for f in meta}
+            hit[rid] = name
+            proj["records"].append(hit)
+        for k, v in r.items():
+            if k == rid:
+                continue
+            if str(v) == "":  # overwriteBehavior=normal: a blank never erases
+                continue
+            hit[k] = str(v)
+        hit["_changed"] = stamp
+        if name not in written:
+            written.append(name)
+    how = str(form.get("returnContent") or "count")
+    if how == "ids":
+        return written
+    if how == "auto_ids":
+        back = {v: k for k, v in renamed.items()}
+        return [f"{w},{back.get(w, w)}" for w in written]
+    return {"count": len(written)}
+
+
 def create_app(fixtures_dir: Path | None = None, version: str | None = None, rate_limit: int | None = None) -> FastAPI:
     """Build a simulator app (each app holds its own copy of the fixtures, so tests stay independent)."""
     state = SimState(
@@ -157,6 +233,8 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             return proj["dags"]
         if str(form.get("type") or "flat") != "flat":
             return _err(400, "Only type=flat is supported")
+        if form.get("data") is not None:
+            return _import_records(proj, form)
         return _export_records(proj, form)
 
     @app.post("/sim/records")

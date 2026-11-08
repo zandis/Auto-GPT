@@ -68,7 +68,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     app, h, crc = res["app"], res["app"].state.helpers, res["crc"]
     no = res["screening_no"]
     admin = ld.sign_in(app, "admin", password, lang)
-    out: dict[str, Any] = {"list": res, "screening_no": no, "admin": admin, "crc": crc, "app": app}
+    out: dict[str, Any] = {"list": res, "screening_no": no, "admin": admin, "crc": crc, "app": app, "sim": sim}
 
     # 1 S36: URL and token, then Test connection
     page = ld.ok(admin.get("/admin/redcap"), "S36")
