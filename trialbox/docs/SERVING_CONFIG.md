@@ -69,3 +69,33 @@ the model weights is kept, so boot to serving is about 10 minutes.
 
 A real RTX 5090 (FR-MOD-10 asks for one) is not offered on GCP; the RTX PRO 6000 capped to 32 GB is the stand-in.
 A rented 5090 elsewhere was not priced here.
+
+## Profiles and the record install.sh asks for (D-124)
+
+`python -m tools.serving_config measured <gpu> <record>` says whether a record measures a profile on its own card:
+
+| profile | card name contains | judge and verifier | context at least |
+| --- | --- | --- | --- |
+| `rtxpro6000` | `RTX PRO 6000` | both resident (no `--enable-sleep-mode`) | 32,768 |
+| `gb10` | `GB10` | both resident | 16,384 |
+| `rtx5090` | `5090` | both with `--enable-sleep-mode` | 8,192 |
+
+A record taken on a capped card never counts. `install.sh` looks for `deploy/site/serving_config.<gpu>.json`, then
+the vendor's `deploy/measured/serving_config.<gpu>.json`.
+
+### The RTX PRO 6000 run (TB-PLAN-04 step 1; owner's OK first, about US$6)
+
+```sh
+gcloud compute instances add-metadata tb-gpu-sim --zone asia-east1-a \
+  --metadata-from-file startup-script=deploy/gcp/gpu-pro6000-run.sh,tb-serving-config=tools/serving_config.py
+gcloud compute instances start tb-gpu-sim --zone asia-east1-a
+# when the serial log says PRO6000-RUN-READY (about 15 min with hashing):
+python -m tools.public_e2e --dir /tmp/tb-pro6000 --lang en \
+  --judge-url http://<vm>/judge/v1 --verifier-url http://<vm>/verifier/v1      # 94/94
+python -m tools.canary --judge-url http://<vm>/judge/v1 --verifier-url http://<vm>/verifier/v1 --out <file>
+curl -fsS http://<vm>/record/serving_config.json -o deploy/measured/serving_config.rtxpro6000.json
+python -m tools.serving_config measured rtxpro6000 deploy/measured/serving_config.rtxpro6000.json
+gcloud compute instances stop tb-gpu-sim --zone asia-east1-a       # then check it shows TERMINATED
+```
+
+Then put the usual startup script back (`--metadata-from-file startup-script=deploy/gcp/gpu-sim-startup.sh`).

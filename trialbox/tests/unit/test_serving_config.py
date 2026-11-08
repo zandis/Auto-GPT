@@ -8,6 +8,8 @@ from typing import Any
 
 from tools import serving_config as sc
 
+ROOT = Path(__file__).resolve().parents[2]
+
 ARGS = [
     "--model", "nvidia/Gemma-4-26B-A4B-NVFP4", "--served-model-name", "local/gemma-4-26b-a4b-nvfp4",
     "--max-model-len", "8192", "--max-num-seqs", "4", "--enforce-eager", "--gpu-memory-utilization", "0.22",
@@ -95,8 +97,9 @@ def test_measured_refuses_capped_cards_other_cards_and_no_sleep(tmp_path: Path) 
 
 
 def test_install_guards_the_rtx5090_profile() -> None:
-    sh = (Path(__file__).resolve().parents[2] / "deploy/install.sh").read_text()
-    assert "tools.serving_config measured rtx5090" in sh and "TB_ACCEPT_UNMEASURED_GPU" in sh
-    compose = (Path(__file__).resolve().parents[2] / "deploy/docker-compose.rtx5090.yml").read_text()
+    sh = (ROOT / "deploy/install.sh").read_text()
+    assert 'tools.serving_config measured "$GPU"' in sh and "TB_ACCEPT_UNMEASURED_GPU" in sh
+    assert "gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)" in sh  # every pair profile needs a record of its own card
+    compose = (ROOT / "deploy/docker-compose.rtx5090.yml").read_text()
     assert compose.count("--enable-sleep-mode") == 2 and "vllm/vllm-openai:v0.32.0" in compose
     assert "GPU_MEM_UTIL:-0.81" in compose and "outlines" not in compose

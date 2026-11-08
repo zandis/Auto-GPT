@@ -1,0 +1,83 @@
+# One RTX PRO 6000 (96 GB, x86-64) override: the box for the Japan head hospital and CGMH (TB-PLAN-04 step 1, D-124).
+#
+#   cd deploy && docker compose -f docker-compose.yml -f docker-compose.rtxpro6000.yml --profile gpu up -d --wait
+#   deploy/install.sh <bundle> --mode gpu            # auto-detected (deploy/gpu_profile.sh), or --gpu rtxpro6000
+#
+# The same pair as the 5090 profile (D-95, measured 2026-11-08): llm-service serves the judge (j-workhorse: Gemma 4
+# 26B-A4B-it NVFP4) and llm-verifier the verifier (v-verifier: Qwen3.5-9B AWQ 4-bit, thinking off); a note criterion
+# excludes a patient only when both agree (TB_NOTE_BLOCK=both_agree). Here both stay resident: no sleep mode, no
+# swap, no hold (TB_MODEL_SWAP=off), and both read 32k of context, so protocol reading (ir_extract) runs on the box.
+#
+# Card budget (97,887 MiB; fractions of the whole card, as vLLM counts them):
+#   llm-service   JUDGE_GPU_MEM_UTIL 0.40     ~38 GiB: weights 17.1 GiB, the rest KV (~110 KiB a token: ~180k tokens)
+#   llm-verifier  VERIFIER_GPU_MEM_UTIL 0.20  ~19 GiB: weights 7.5 GiB, the rest KV (~45 KiB a token: ~200k tokens)
+#   rest (~40%)                               CUDA contexts and headroom (the embedder stays on the CPU)
+# KV per token from the 2026-11-08 fit run (docs/plan/measurements/gpu-run-2026-11-08/fit.json, judge-alone and
+# verifier-alone). vLLM checks free memory at start, so the verifier starts after the judge is healthy.
+#
+# install.sh starts this profile only on a serving-config record taken on an uncapped RTX PRO 6000 running it
+# (tools/serving_config.py measured rtxpro6000; deploy/measured/ or the site's deploy/site/), or with
+# TB_ACCEPT_UNMEASURED_GPU=1 for a first trial boot. The record is taken by deploy/gcp/gpu-pro6000-run.sh.
+#
+# Weights: the same 4-bit builds as the 5090 profile (one directory under deploy/models serves every profile),
+# pinned with tools/pin_model.py (builds gemma-4-26b-a4b-it-rtxpro6000 on endpoint `serving`, qwen3.5-9b-rtxpro6000
+# on `verifier`). vLLM v0.32.0 with the flags of the measured runs; moving the tag is a model change.
+
+x-vllm-pro6000: &vllmpro
+  logging:
+    driver: json-file
+    options: {max-size: "50m", max-file: "5"}
+  profiles: [gpu]
+  image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
+  environment:
+    HF_HUB_OFFLINE: "1"
+    VLLM_NO_USAGE_STATS: "1"
+  volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
+  ipc: host
+  networks: [model-net]
+  restart: unless-stopped
+  deploy:
+    resources:
+      reservations:
+        devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+    interval: 30s
+    timeout: 10s
+    retries: 40
+    start_period: 300s
+
+services:
+  llm-service:
+    <<: *vllmpro
+    command:
+      - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
+      - --served-model-name=${JUDGE_MODEL:-gemma-4-26b-a4b-it}
+      - --max-model-len=${JUDGE_MAX_LEN:-32768}
+      - --max-num-seqs=${JUDGE_MAX_SEQS:-16}
+      - --enforce-eager
+      - --gpu-memory-utilization=${JUDGE_GPU_MEM_UTIL:-0.40}
+      - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
+
+  llm-verifier:
+    <<: *vllmpro
+    command:
+      - --model=/models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}
+      - --served-model-name=${VERIFIER_MODEL:-qwen3.5-9b}
+      - --max-model-len=${VERIFIER_MAX_LEN:-32768}
+      - --max-num-seqs=${VERIFIER_MAX_SEQS:-16}
+      - --enforce-eager
+      - --gpu-memory-utilization=${VERIFIER_GPU_MEM_UTIL:-0.20}
+      - --limit-mm-per-prompt={"image":0,"video":0}
+      - --default-chat-template-kwargs={"enable_thinking":false}
+    depends_on:
+      llm-service: {condition: service_healthy}  # vLLM checks free memory at start
+
+  gateway:
+    environment:
+      TB_MODEL_SWAP: "off"   # both resident: no sleep, no hold (services/gateway/swap.py)
+      TB_PROFILE: P-PRO6000
+
+  orchestrator:
+    environment:
+      TB_MODEL_SWAP: "off"   # one pass per run with both models (orchestrator/twophase.py)

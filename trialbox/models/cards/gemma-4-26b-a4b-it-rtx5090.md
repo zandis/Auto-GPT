@@ -5,12 +5,12 @@ Generated from `models/registry.yaml` by `python -m registry.cards --write`. Do 
 | Field | Value |
 | --- | --- |
 | Alias | `j-workhorse` |
-| Model | Gemma 4 26B-A4B-it (4-bit, RTX 5090 judge) |
+| Model | Gemma 4 26B-A4B-it (NVFP4, RTX 5090 judge) |
 | Status | candidate |
 | Serving | vllm |
 | Weights SHA-256 | not yet pinned (null) |
 | Revision | not yet pinned |
-| Quantisation | 4-bit (NVFP4 or AWQ; recipe to record at qualification) |
+| Quantisation | NVFP4 (NVIDIA release; measured 2026-11-08) |
 | Context length | 8192 |
 | Licence | Gemma 4 licence (terms to confirm) (SPDX: n/a; verified: no) |
 | Origin | Google (US); non-PRC: yes |

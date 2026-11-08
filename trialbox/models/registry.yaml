@@ -65,46 +65,109 @@ builds:
     licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
     origin: {developer: TrialBox, country: TW, non_prc: true}
 
-  # ---------------------------------------------------------------- DGX Spark (P-GB10) default pair
-  # Recommended by the 2026-10-25 bake-off (eval/bakeoff/results/2026-10-25) and an independent comparison: gpt-oss-120b
-  # as the judge, Gemma 4 26B-A4B-it as the verifier, a criterion blocking only when both agree
-  # (matching.cascade.judge.AgreementJudge). Seed builds: the site pins the weights with tools/pin_model.py
-  # (j-workhorse on endpoint `serving`, v-verifier on endpoint `verifier`; deploy/docker-compose.gb10.yml serves both).
-  # The front desk on P-GB10 is the J build at 64k context (§8.4 table, NFR-B20), the same weights pinned again.
-  - build_id: gpt-oss-120b-spark
+  # ---------------------------------------------------------------- the pair on every box we sell (D-95, D-124)
+  # One judge and one verifier for every hardware profile, measured on the card 2026-11-08 (TB-PLAN-04 step 1):
+  # Gemma 4 26B-A4B-it NVFP4 as the judge (j-workhorse, endpoint `serving`) and Qwen3.5-9B AWQ 4-bit as the verifier
+  # (v-verifier, endpoint `verifier`, thinking off); a note criterion excludes only when both agree
+  # (matching.cascade.judge.AgreementJudge). The same weights serve all three profiles; each profile pins its own
+  # build because the context differs. The site pins the weights with tools/pin_model.py.
+  #
+  # RTX PRO 6000 (P-PRO6000, deploy/docker-compose.rtxpro6000.yml): both resident at 32k; the front desk is the
+  # judge's weights at the same 32k, pinned again.
+  - build_id: gemma-4-26b-a4b-it-rtxpro6000
     alias: j-workhorse
     status: candidate
     serving: vllm
     served: {serving: null}
     sha256: null
     revision: null
-    repository: openai/gpt-oss-120b
-    quantisation: MXFP4 (native release weights)
-    context_length: 65536
-    family: gpt-oss
-    model_name: gpt-oss-120b
-    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
-    origin: {developer: OpenAI, country: US, non_prc: true}
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
+    context_length: 32768
+    family: gemma
+    model_name: Gemma 4 26B-A4B-it (NVFP4, RTX PRO 6000 judge)
+    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    origin: {developer: Google, country: US, non_prc: true}
 
-  - build_id: gemma-4-26b-a4b-it-spark
+  - build_id: qwen3.5-9b-rtxpro6000
     alias: v-verifier
     status: candidate
     serving: vllm
     served: {verifier: null}
     sha256: null
     revision: null
-    repository: google/gemma-4-26b-a4b-it
-    quantisation: BF16 or FP8 (recipe to record at qualification)
+    repository: cyankiwi/Qwen3.5-9B-AWQ-4bit
+    quantisation: AWQ 4-bit (measured 2026-11-08)
+    context_length: 32768
+    family: qwen
+    model_name: Qwen3.5-9B (AWQ 4-bit, RTX PRO 6000 verifier)
+    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
+
+  - build_id: gemma-4-26b-a4b-it-frontdesk-rtxpro6000
+    alias: f-frontdesk
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 32768
     family: gemma
-    model_name: Gemma 4 26B-A4B-it
+    model_name: Gemma 4 26B-A4B-it (NVFP4, front desk, 32k)
     licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
     origin: {developer: Google, country: US, non_prc: true}
 
-  # ---------------------------------------------------------------- one RTX 5090 (consumer card) pair, D-95
-  # 2026-11-05 assessment (docs/reviews/2026-11-05-consumer-gpu-filter-first.md): with filter first, Gemma 4 26B-A4B
-  # at 4-bit as the judge and Qwen3.5-9B as the verifier, both resident on one 32 GB card
-  # (deploy/docker-compose.rtx5090.yml). Measured only through OpenRouter fp4 / mixed-precision providers so far.
+  # DGX Spark (P-GB10, deploy/docker-compose.gb10.yml): the same pair resident at 16k. gpt-oss-120b is no longer the
+  # Spark judge (TB-PLAN-04 §3). Measured only when a site orders a Spark (owner decision 4, 2026-11-08).
+  - build_id: gemma-4-26b-a4b-it-spark
+    alias: j-workhorse
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
+    context_length: 16384
+    family: gemma
+    model_name: Gemma 4 26B-A4B-it (NVFP4, Spark judge)
+    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    origin: {developer: Google, country: US, non_prc: true}
+
+  - build_id: qwen3.5-9b-spark
+    alias: v-verifier
+    status: candidate
+    serving: vllm
+    served: {verifier: null}
+    sha256: null
+    revision: null
+    repository: cyankiwi/Qwen3.5-9B-AWQ-4bit
+    quantisation: AWQ 4-bit (measured 2026-11-08)
+    context_length: 16384
+    family: qwen
+    model_name: Qwen3.5-9B (AWQ 4-bit, Spark verifier)
+    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
+    origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
+
+  - build_id: gemma-4-26b-a4b-it-frontdesk-spark
+    alias: f-frontdesk
+    status: candidate
+    serving: vllm
+    served: {serving: null}
+    sha256: null
+    revision: null
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
+    context_length: 16384
+    family: gemma
+    model_name: Gemma 4 26B-A4B-it (NVFP4, front desk, 16k)
+    licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
+    origin: {developer: Google, country: US, non_prc: true}
+
+  # One RTX 5090 (P-5090, deploy/docker-compose.rtx5090.yml): the same pair at 8k with the sleep swap, one model awake
+  # at a time (D-112, D-116); measured on an RTX PRO 6000 capped to 32 GB, not yet on a physical 5090.
   - build_id: gemma-4-26b-a4b-it-rtx5090
     alias: j-workhorse
     status: candidate
@@ -112,11 +175,11 @@ builds:
     served: {serving: null}
     sha256: null
     revision: null
-    repository: google/gemma-4-26b-a4b-it
-    quantisation: 4-bit (NVFP4 or AWQ; recipe to record at qualification)
+    repository: nvidia/Gemma-4-26B-A4B-NVFP4
+    quantisation: NVFP4 (NVIDIA release; measured 2026-11-08)
     context_length: 8192
     family: gemma
-    model_name: Gemma 4 26B-A4B-it (4-bit, RTX 5090 judge)
+    model_name: Gemma 4 26B-A4B-it (NVFP4, RTX 5090 judge)
     licence: {name: Gemma 4 licence (terms to confirm), spdx: null, verified: false}
     origin: {developer: Google, country: US, non_prc: true}
 
@@ -127,28 +190,13 @@ builds:
     served: {verifier: null}
     sha256: null
     revision: null
-    repository: Qwen/Qwen3.5-9B
-    quantisation: 4-bit (NVFP4 or AWQ; recipe to record at qualification)
+    repository: cyankiwi/Qwen3.5-9B-AWQ-4bit
+    quantisation: AWQ 4-bit (measured 2026-11-08)
     context_length: 8192
     family: qwen
-    model_name: Qwen3.5-9B (4-bit, RTX 5090 verifier)
+    model_name: Qwen3.5-9B (AWQ 4-bit, RTX 5090 verifier)
     licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
     origin: {developer: Alibaba Qwen, country: CN, non_prc: false}
-
-  - build_id: gpt-oss-120b-frontdesk-spark
-    alias: f-frontdesk
-    status: candidate
-    serving: vllm
-    served: {serving: null}
-    sha256: null
-    revision: null
-    repository: openai/gpt-oss-120b
-    quantisation: MXFP4 (native release weights)
-    context_length: 65536
-    family: gpt-oss
-    model_name: gpt-oss-120b (front desk, 64k)
-    licence: {name: Apache-2.0 (to confirm), spdx: Apache-2.0, verified: false}
-    origin: {developer: OpenAI, country: US, non_prc: true}
 
   - build_id: gpt-oss-safeguard-20b-candidate
     alias: g-guard

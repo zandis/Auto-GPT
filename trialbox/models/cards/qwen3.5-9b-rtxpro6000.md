@@ -1,19 +1,19 @@
-# Model card: gpt-oss-120b-spark
+# Model card: qwen3.5-9b-rtxpro6000
 
 Generated from `models/registry.yaml` by `python -m registry.cards --write`. Do not edit by hand.
 
 | Field | Value |
 | --- | --- |
-| Alias | `j-workhorse` |
-| Model | gpt-oss-120b |
+| Alias | `v-verifier` |
+| Model | Qwen3.5-9B (AWQ 4-bit, RTX PRO 6000 verifier) |
 | Status | candidate |
 | Serving | vllm |
 | Weights SHA-256 | not yet pinned (null) |
 | Revision | not yet pinned |
-| Quantisation | MXFP4 (native release weights) |
-| Context length | 65536 |
+| Quantisation | AWQ 4-bit (measured 2026-11-08) |
+| Context length | 32768 |
 | Licence | Apache-2.0 (to confirm) (SPDX: Apache-2.0; verified: no) |
-| Origin | OpenAI (US); non-PRC: yes |
+| Origin | Alibaba Qwen (CN); non-PRC: no |
 
 ## Contexts of use
 

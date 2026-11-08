@@ -1514,3 +1514,50 @@ TB-PLAN-03 step 7 (`22-optimization-plan.md` §5, §10; finding 2's root cause; 
 * **Not done.** Real MEDIS/JLAC10/YJ releases (licensed; sites load theirs); WHO ICD-10 (Japan's 標準病名 maps to
   WHO ICD-10, mostly a subset of ICD-10-CM at category level); ADT-52 discharge and OMP-11/12 administrations;
   extended-storage `_contents.xml` documents; the CQL path still reads enumerated lists only.
+
+**D-124 A hardware profile for every box we sell, each serving the measured pair.** TB-PLAN-04 step 1 (fixes F1).
+D-123 is the data core on the step-3 branch (PR #31).
+
+* **One pair everywhere.** Judge Gemma 4 26B-A4B-it NVFP4 (`j-workhorse`, endpoint `serving`), verifier Qwen3.5-9B
+  AWQ 4-bit (`v-verifier`, endpoint `verifier`, thinking off). A note answer excludes only when both agree. One
+  weights directory (`deploy/models/gemma-4-26b-a4b-it-4bit`, `qwen3.5-9b-4bit`) serves all profiles; the registry
+  has a build per profile because the context differs.
+* **Three profiles.**
+
+  | `--gpu` | box | layout | context | compose |
+  | --- | --- | --- | --- | --- |
+  | `rtxpro6000` | RTX PRO 6000 96 GB (Japan head hospital, CGMH) | both resident, 0.40 + 0.20 of the card, `TB_MODEL_SWAP=off` | 32k | `docker-compose.rtxpro6000.yml` |
+  | `gb10` | DGX Spark (medium tier) | both resident, 0.30 + 0.15 of unified memory | 16k | `docker-compose.gb10.yml` |
+  | `rtx5090` | one RTX 5090 (small sites) | sleep swap, one awake (D-116) | 8k | `docker-compose.rtx5090.yml` |
+
+  gpt-oss-120b is gone from the Spark (judge and front desk); the front desk is the judge's weights pinned again at
+  the profile's context. `rtx4090` (judge alone, never excludes) and `default` stay.
+* **Detection.** `deploy/gpu_profile.sh` maps the machine and card name to the profile; `install.sh` calls it.
+  The RTX PRO 6000 used to fall to `default` (one base model, no pair).
+* **Measured or refused.** `install.sh` starts a pair profile only on a serving-config record of that profile on its
+  own uncapped card: `deploy/site/serving_config.<gpu>.json` (the site's) or `deploy/measured/serving_config.<gpu>.json`
+  (the vendor's, shipped with the kit), checked by `tools/serving_config.py measured <gpu>`; otherwise only with
+  `TB_ACCEPT_UNMEASURED_GPU=1`. The rule per profile: card name, not capped, judge and verifier both present, sleep
+  mode on (rtx5090) or off (rtxpro6000, gb10), context at least the profile's. `install.sh` writes `TB_PROFILE`
+  (`P-PRO6000`, `P-GB10`, `P-5090`).
+* **Evidence.** `tests/unit/test_hardware_profiles.py` (detection, compose files, registry, record rule).
+  The PRO 6000 record comes from `deploy/gcp/gpu-pro6000-run.sh` on `tb-gpu-sim` (uncapped, 32k), with `public_e2e`
+  and the pair canary against it.
+* **Not done.** The Spark is measured when a site orders one (owner decision 4, 2026-11-08). A physical 5090 record.
+  `tools/gpu_sizing.py` keeps its old comparison rows (arithmetic, not a profile).
+
+**D-125 Delivery on Windows, and apps after the platform.** Owner's answers, 2026-11-08.
+
+* **Windows workstation, WSL2.** The box is a dedicated Windows workstation (version chosen by the hospital; the
+  installer's pre-check accepts Windows 11 Pro/Enterprise and Server 2022+). The Linux stack runs unchanged inside
+  WSL2 with GPU access; staff never see Linux.
+* **Fully offline installer, installed by Aimedics on site.** One signed installer and a data file (images, models,
+  rulesets; about 30 GB) on USB or a file share; no internet at install or after; updates the same way. Built after
+  the platform is finished (after step 9); until then steps 2–9 build and test on Linux as planned.
+* **Data in:** a LAN shared folder (EMR exports, SS-MIX2 storage), a FHIR or read-only database endpoint, and USB /
+  console import, all one-way in; mail out through the hospital SMTP/Exchange server.
+* **Apps after the platform:** a phone app for PI/CRC, a desktop app, a documented API for other systems, and an
+  Aimedics admin app (box health and updates, no patient data). They must also work from outside the hospital, which
+  needs a secure path in (hospital VPN or a relay) and the hospital's approval when real data is used.
+* **Rule from now on:** every screen action goes through a documented, token-protected API, so the apps need no
+  screen rework later.

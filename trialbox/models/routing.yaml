@@ -13,7 +13,7 @@ version: routing-2026-11-07.1
 # MOD-4 sampling the gateway forces on every role except free-form ones (frontdesk_converse)
 sampling: {temperature: 0, top_p: 1, seed: 20261025}
 
-profiles: [P-GB10, P-5090, P-Scale, P-Mac]
+profiles: [P-PRO6000, P-GB10, P-5090, P-Scale, P-Mac]
 topologies: [A, B, C]
 environments: [DEV, TEST, VALIDATION, PRODUCTION]
 
