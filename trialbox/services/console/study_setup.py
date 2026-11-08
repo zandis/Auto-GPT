@@ -21,7 +21,7 @@ from fastapi.responses import RedirectResponse
 
 from console import s28
 from console import studies as st
-from console.auth import Session
+from console.auth import Session, User
 from console.backend import Problem, Unavailable
 from console.home import Helpers
 from console.sitestore import ALL_REASONS, COHORT_KINDS, STUDY_TYPES, StudySettings
@@ -60,6 +60,11 @@ def show_map(m: dict[str, str]) -> str:
     return ", ".join(f"{k}={v}" for k, v in m.items())
 
 
+def can_change_setup(user: User) -> bool:
+    """Who changes a study's set-up (S21) and its data sources, forms and conflicts: the study's coordinator."""
+    return user.role == "coordinator"
+
+
 def screening_map(store: Any, rs: str) -> dict[str, str]:
     """Screening number -> pid for the read-back join (the console's site store issues the numbers)."""
     return {no: pid for pid, no in store.screening_nos(rs).items()}
@@ -83,7 +88,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return rid
 
     def can_edit(sess: Session) -> bool:
-        return sess.user.role == "coordinator"
+        return can_change_setup(sess.user)
 
     def need_edit(request: Request, sess: Session, csrf: str) -> None:
         if not h.csrf_ok(sess, csrf):

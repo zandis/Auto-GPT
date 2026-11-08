@@ -27,6 +27,11 @@
         <a href="/help?back={{ path|urlencode }}">{{ t('help.title') }}</a>
         {% if r in ('investigator', 'coordinator', 'admin') %}<a href="/notices/received" data-testid="more-notices">{{ t('received.title') }}</a>{% endif %}
         {% if r == 'cro' %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}
+        {% set sp = path.split('/') %}{% if sp|length > 2 and sp[1] == 'studies' and sp[2] and user.sees_study(sp[2]) %}{% set srs = sp[2]|upper %}
+        <a href="/studies/{{ srs }}/setup" data-testid="more-setup">{{ srs }} · {{ t('setup.title') }}</a>
+        <a href="/studies/{{ srs }}/sources" data-testid="more-sources">{{ srs }} · {{ t('dc.sources.title') }}</a>
+        {% if user.can_view_phi %}<a href="/studies/{{ srs }}/conflicts" data-testid="more-conflicts">{{ srs }} · {{ t('dc.conflicts.title') }}</a>{% endif %}
+        <a href="/studies/{{ srs }}/forms" data-testid="more-forms">{{ srs }} · {{ t('dc.forms.title') }}</a>{% endif %}
         {% if r == 'admin' %}<a href="/admin?tab=health">{{ t('admin.tab.health') }}</a><a href="/admin?tab=jobs">{{ t('admin.tab.jobs') }}</a><a href="/admin?tab=sources">{{ t('admin.tab.sources') }}</a>{% endif %}
         <a href="/">{{ t('nav.overview') }}</a>
         <a href="/jobs">{{ t('nav.jobs') }}</a>

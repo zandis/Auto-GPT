@@ -5,7 +5,8 @@
 * ``GET /studies/{rs}/data`` (records, fields, owners, values); ``PUT /studies/{rs}/data/{record}`` (a person enters
   values; a field owned by a source is refused with DATA-OWNED).
 * ``PUT /studies/{rs}/sources/redcap`` (attach REDCap: token, field map, the fields REDCap owns, create on push);
-  ``DELETE`` detaches (every field is TrialBox's again); ``POST /studies/{rs}/sync/{name}`` runs the two-way sync.
+  ``DELETE`` detaches (every field is TrialBox's again); ``POST /studies/{rs}/sync/{name}`` runs the two-way sync;
+  ``GET /studies/{rs}/sources`` lists the sources and each field's owner, without any value (the console's page).
 * ``GET /studies/{rs}/conflicts``; ``POST /studies/{rs}/conflicts/{id}`` with ``keep`` = ``theirs`` | ``trialbox``.
 * ``GET /studies/{rs}/fhir`` (the Questionnaires and QuestionnaireResponses for HAPI).
 
@@ -189,6 +190,15 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         svc.audit.append("data.entry", ruleset=rid, actor=body.by, detail={"record": record.upper(),
                                                                             "fields": sorted(body.values)})  # fmt: skip
         return {"changed": n, "record": svc.dc.record(rid, record.upper(), body.event)}
+
+    @r.get("/studies/{rs}/sources")
+    def get_sources(rs: str) -> dict[str, Any]:
+        """The study's sources and who owns each field, without any record value (the console's Sources page)."""
+        dc, rid = get().dc, _rs(rs)
+        owners = dc.owners(rid)
+        fields = [{"name": f.name, "form": f.form, "kind": f.kind, "label": f.label,
+                   "owner": owners.get(f.name, "trialbox")} for f in dc.fields(rid).values()]  # fmt: skip
+        return {"sources": dc.sources(rid), "fields": fields}
 
     @r.put("/studies/{rs}/sources/redcap")
     def put_redcap(rs: str, body: RedcapSourceBody) -> dict[str, Any]:

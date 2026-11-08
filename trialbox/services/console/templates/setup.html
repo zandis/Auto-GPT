@@ -4,6 +4,7 @@
 {% set q = request.query_params %}
 {% block content %}
 <div class="headrow"><h1>{{ rs }} · {{ t('setup.title') }}</h1><a href="/studies/{{ rs }}/screening-log">{{ t('log.title') }}</a></div>
+{% include "_data_nav.html" %}
 <p class="hint">{{ t('setup.help') }}</p>
 {% if not editable %}<p class="hint" data-testid="setup-readonly">{{ t('setup.readonly') }}</p>{% endif %}
 {% if err %}{{ errbox(err) }}{% endif %}
