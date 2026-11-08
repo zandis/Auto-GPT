@@ -12,6 +12,14 @@ Resource = dict[str, Any]
 Row = dict[str, Any]
 
 LOINC = "http://loinc.org"
+# D-135 (step 5b): facts from the site's own inputs carry their basis as a meta tag. A *proposed* fact (read by the
+# model from a chart, not yet checked by a person) never reaches the coded tables: it goes to ``site_fact`` only, so
+# no compiled criterion can count it as met or let it exclude. A *confirmed* fact goes to the coded table like any
+# coded record and is also listed in ``site_fact`` (how much of a count rests on confirmed facts). Demographic facts
+# from a chart are observations in DEMOGRAPHIC, listed in ``site_fact`` only (the patient row carries the value once
+# it is confirmed).
+BASIS = "urn:trialbox:basis"
+DEMOGRAPHIC = "urn:trialbox:demographic"
 
 SCHEMAS: dict[str, list[tuple[str, str]]] = {
     "patient": [("pid", "VARCHAR"), ("birth_date", "DATE"), ("sex", "VARCHAR"), ("deceased_date", "DATE")],
@@ -98,6 +106,19 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
         ("approval_start", "DATE"),
         ("approval_end", "DATE"),
     ],
+    # D-135: the site's own facts with their basis (proposed: listed here only; confirmed: also in the coded table)
+    "site_fact": [
+        ("fid", "VARCHAR"),
+        ("pid", "VARCHAR"),
+        ("domain", "VARCHAR"),
+        ("code", "VARCHAR"),
+        ("system", "VARCHAR"),
+        ("d", "DATE"),
+        ("value_num", "DOUBLE"),
+        ("unit", "VARCHAR"),
+        ("value_text", "VARCHAR"),
+        ("basis", "VARCHAR"),
+    ],
     # research-contact consent from the site registry (FHIR Consent, scope research; COHORT n_contactable, D-72)
     "consent": [
         ("consid", "VARCHAR"),
@@ -107,6 +128,14 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
         ("date", "DATE"),
     ],
 }
+
+
+def basis_of(r: Resource) -> str | None:
+    """``proposed`` or ``confirmed`` for a site fact (D-135); None for every hospital record."""
+    for t in (r.get("meta") or {}).get("tag") or []:
+        if t.get("system") == BASIS:
+            return str(t.get("code") or "") or None
+    return None
 
 
 def _ref_id(ref: dict[str, Any] | None) -> str | None:
@@ -327,11 +356,45 @@ class Flattener:
             "Consent": ("consent", self.consent),
         }
         out: dict[str, list[Row]] = {name: [] for name in SCHEMAS}
+        facts: list[Row] = []
+        coded: dict[str, list[Resource]] = {}
+        for rtype in ("Condition", "MedicationRequest", "Observation"):
+            keep = []
+            for r in by_type.get(rtype, []):
+                b = basis_of(r)
+                demographic = rtype == "Observation" and any(
+                    c.get("system") == DEMOGRAPHIC for c in (r.get("code") or {}).get("coding") or []
+                )
+                if b is not None or demographic:
+                    facts.append(self.site_fact(rtype, r, b or "coded"))
+                if b != "proposed" and not demographic:  # a proposed fact never reaches a coded table
+                    keep.append(r)
+            coded[rtype] = keep
         for rtype, (table, fn) in m.items():
-            out[table] = [fn(r) for r in by_type.get(rtype, [])]
-        out["observation"] = [row for r in by_type.get("Observation", []) for row in self.observations(r)]
+            out[table] = [fn(r) for r in coded.get(rtype, by_type.get(rtype, []))]
+        out["observation"] = [row for r in coded["Observation"] for row in self.observations(r)]
+        out["site_fact"] = facts
         out["claim"] = self.claims(by_type.get("Claim", []), by_type.get("ClaimResponse", []))
         return out
+
+    def site_fact(self, rtype: str, r: Resource, basis: str) -> Row:
+        if rtype == "Condition":
+            code, system = self.coding(r.get("code"))
+            d = self.d(r.get("onsetDateTime")) or self.d(r.get("recordedDate"))
+            return {"fid": r["id"], "pid": _ref_id(r.get("subject")), "domain": "condition", "code": code,
+                    "system": system, "d": d, "value_num": None, "unit": None, "value_text": None,
+                    "basis": basis}  # fmt: skip
+        if rtype == "MedicationRequest":
+            med = self.medication(r)
+            return {"fid": r["id"], "pid": med["pid"], "domain": "medication", "code": med["atc"] or med["nhi_code"],
+                    "system": "atc" if med["atc"] else None, "d": med["authored"], "value_num": None, "unit": None,
+                    "value_text": med["name"], "basis": basis}  # fmt: skip
+        obs = self.observation(r)
+        demographic = obs["system"] == DEMOGRAPHIC
+        text = r.get("valueString") or r.get("valueDateTime") or (r.get("valueCodeableConcept") or {}).get("text")
+        return {"fid": r["id"], "pid": obs["pid"], "domain": "demographic" if demographic else "observation",
+                "code": obs["code"], "system": obs["system"], "d": None if demographic else obs["effective"],
+                "value_num": obs["value_num"], "unit": obs["unit"], "value_text": text, "basis": basis}  # fmt: skip
 
     def observations(self, r: Resource) -> list[Row]:
         """The observation row plus one row per coded component (e.g. BP panel -> systolic, diastolic)."""

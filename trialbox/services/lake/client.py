@@ -47,6 +47,19 @@ class LakeHttp:
         hits: list[dict[str, Any]] = resp.json()["hits"]
         return hits
 
+    def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+        """D-135: replace the site's own inputs on the lake service (the next rebuild joins them)."""
+        resp = self.client.post(f"{self.base}/site", json={"resources": resources})
+        resp.raise_for_status()
+        out: dict[str, int] = resp.json()["counts"]
+        return out
+
+    def rebuild(self, snapshot: str) -> dict[str, Any]:
+        resp = self.client.post(f"{self.base}/rebuild", json={"snapshot": snapshot})
+        resp.raise_for_status()
+        body: dict[str, Any] = resp.json()
+        return body
+
     def snapshot(self) -> str | None:
         body = self.client.get(f"{self.base}/healthz").json()
         snap = body.get("checks", {}).get("snapshot")
@@ -72,3 +85,10 @@ class LakeLocal:
 
     def snapshot(self) -> str | None:
         return self.lake.current()
+
+    def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+        return self.lake.put_site(resources)
+
+    def rebuild(self, snapshot: str) -> dict[str, Any]:
+        st = self.lake.rebuild(snapshot, self.embedder)
+        return {"snapshot": st.snapshot, "tables": st.tables, "chunks": st.chunks, "seconds": st.seconds}

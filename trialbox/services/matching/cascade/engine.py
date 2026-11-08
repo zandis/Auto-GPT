@@ -59,6 +59,7 @@ from matching.cascade.model import (
 )
 from matching.cascade.s2b_semantic import BatchEmbedder, Embedder, ThresholdTable, screen
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
+from matching.proposed import PROPOSED_FACT, Proposed
 
 PATIENT_CLASS = "D3"  # every cascade output is patient level (§7.1)
 UNKNOWN_KEPT = "unknown_kept"  # v1: an unknown exclusion does not exclude (FEAS D-18)
@@ -313,6 +314,7 @@ class _Run:
         self.items = 0
         self.tokens = 0
         self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
+        self.proposed = Proposed()  # facts read from a chart, not yet confirmed (D-135); loaded at S1
 
     def log(self, stage: Stage, p_in: int, p_out: int, q_in: int, q_out: int, **detail: Any) -> None:
         self.stages.append(StageLog(stage, p_in, p_out, q_in, q_out, PATIENT_CLASS, self.ir_hash, dict(detail)))
@@ -398,6 +400,7 @@ class _Run:
             raise CascadeError(f"ruleset {self.rs.id} has no compiled structured criteria")
         table = self.lake.query(self.rs.sql, [[d.isoformat() for d in idx], scope], self.cfg.snapshot).to_pylist()
         self.coverage = Coverage.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
+        self.proposed = Proposed.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         by_pid: dict[str, list[dict[str, Any]]] = {}
         for row in table:
             by_pid.setdefault(str(row["pid"]), []).append(row)
@@ -438,6 +441,7 @@ class _Run:
         self.stages[0].patients_out = n_scope
         alive = self.alive()
         n_struct = len(applied)
+        n_prop = sum(1 for t in alive if any(o.reason == PROPOSED_FACT for o in t.outcomes.values()))
         self.log(
             "S1",
             n_scope,
@@ -450,11 +454,29 @@ class _Run:
             unknown_code_system=sum(
                 1 for t in alive if any(o.reason == UNKNOWN_CODE_SYSTEM for o in t.outcomes.values())
             ),
+            **({"proposed_fact": n_prop} if n_prop else {}),  # D-135, only when a site has proposed facts
         )
         self.metrics.n_after["S1"] = len(alive)
         return applied
 
     def _s1_outcome(self, c: CriterionIR, row: Mapping[str, Any]) -> Outcome:
+        """The S1 outcome of one structured criterion, with D-135's rule on top: a proposed fact (read from a
+        chart, not confirmed) that could change the coded answer makes it unknown. The patient needs information; the
+        fact never excludes and never counts as met."""
+        out = self._s1_coded(c, row)
+        if out.reason == UNKNOWN_CODE_SYSTEM:
+            return out
+        fids = self.proposed.refs(c, str(row["pid"]), row["index_date"], row.get(f"C_{c.id}"))
+        if not fids:
+            return out
+        ev = [{"source": "lake", "record": x.split("|")[0], "date": x.split("|")[1] if "|" in x else None,
+               "lineage": f"snapshot:{self.cfg.snapshot or ''}", "index_date": row["index_date"].isoformat()}
+              for x in fids[:20]]  # fmt: skip
+        if c.kind == "exclusion":  # an exclusion left unknown keeps the patient (D-18); the list says unknown
+            return Outcome(c.id, "pass", "S1", unknown_kind="data_gap", evidence=ev, reason=PROPOSED_FACT)
+        return Outcome(c.id, "unknown", "S1", unknown_kind="data_gap", evidence=ev, reason=PROPOSED_FACT)
+
+    def _s1_coded(self, c: CriterionIR, row: Mapping[str, Any]) -> Outcome:
         v = row.get(f"C_{c.id}")
         ev = [
             {

@@ -22,6 +22,7 @@ from typing import Any, Literal, Protocol, cast
 
 from lake.client import LakeAPI
 from matching.coverage import Coverage
+from matching.proposed import Proposed
 from tb_common.fhir import FhirEvaluator
 from tb_common.llm import LlmClient, LlmError
 from tb_common.pair import Vote, combine, needs_verifier
@@ -95,6 +96,7 @@ class SqlEngine:
         t = self.lake.query(rs.sql, [[index_date.isoformat()], list(pids)], self.snapshot).to_pylist()
         crit = [c for c in rs.active() if c.id in set(ids)]
         cov = Coverage.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
+        prop = Proposed.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
         out: dict[str, PatientEvaluation] = {}
         for row in t:
             res = {k[2:]: row[k] for k in row if k.startswith("C_") and k[2:] in ids}
@@ -106,6 +108,11 @@ class SqlEngine:
                 gap = cov.refs(c, str(row["pid"]), index_date) if res.get(c.id) is False else []
                 if gap:
                     res[c.id], ev[c.id], reasons[c.id] = None, gap, Reason.UNKNOWN_CODE_SYSTEM.value
+                # D-135: a proposed fact that could change a decided answer makes it unknown ("needs information");
+                # it never decides one: it is not in the coded tables the SQL reads
+                fids = prop.refs(c, str(row["pid"]), index_date, res.get(c.id))
+                if fids:
+                    res[c.id], ev[c.id], reasons[c.id] = None, fids, Reason.PROPOSED_FACT.value
             out[row["pid"]] = PatientEvaluation(
                 pid=row["pid"], index_date=index_date, engine="sql", results=res, evidence=ev, reasons=reasons or None
             )
