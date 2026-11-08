@@ -17,19 +17,19 @@
   <div class="bar">
   <a class="brand" href="/">{{ t('brand') }}</a>
   {% if user %}
-  {# D-133 (review F-08): on a phone the menu, the search field, the language and Sign out sit behind one Menu
-     button (a checkbox and its label, no script); on a desktop they are shown as before #}
+  {# D-133 (review F-08): on a phone the menu, the language and Sign out sit behind one Menu button (a checkbox and
+     its label, no script) and the search field is the only other control; on a desktop all are shown as before #}
   <input type="checkbox" id="menu-toggle" class="menu-toggle" aria-label="{{ t('menu') }}">
   <label for="menu-toggle" class="menu-button" data-testid="menu-button" aria-hidden="true">☰ {{ t('menu') }}</label>
   {% if pilot %}<a class="helpq" href="/help?back={{ path|urlencode }}" title="{{ t('help.title') }}" aria-label="{{ t('help.title') }}" data-testid="help">?</a>{% endif %}
-  <div class="menu-body">
-  {% include "_nav.html" %}
   {% if pilot %}<form method="get" action="/cmd" class="cmd" role="search" data-testid="cmd">
     <label class="sr" for="cmd-q">{{ t('cmd.label') }}</label>
     <input id="cmd-q" name="q" type="search" placeholder="{{ t('cmd.placeholder') }}" maxlength="300" autocomplete="off" enterkeyhint="go" data-testid="cmd-q">
     <input type="hidden" name="back" value="{{ path }}">
     <button type="submit" class="secondary">{{ t('cmd.go') }}</button>
   </form>{% endif %}
+  <div class="menu-body">
+  {% include "_nav.html" %}
   <div class="who">
     <a href="/account" data-testid="whoami">{{ user.username }} · {{ t('role.' + user.role) }}</a>
     <form method="post" action="/lang" class="inline">

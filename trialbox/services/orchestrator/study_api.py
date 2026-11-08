@@ -6,6 +6,7 @@ Routes (the console edits S-28 only through these):
   (S21 sections "Study" and "Screening log"; FR-STUDY-07).
 * ``GET /redcap/connections``, ``PUT /redcap/connections/{ref}`` (base URL and token; the token is write-only),
   ``POST /redcap/connections/{ref}/test`` (R1 version + R2 project; S36, FR-PLAT-10).
+* ``GET /redcap/connections/{ref}/dictionary`` (the project and its fields, for the set-up page's pickers, D-133),
 * ``GET/PUT /studies/{rs}/redcap-link`` (the project link, validated against the data dictionary, RC-LINK-FIELD),
   ``POST /studies/{rs}/redcap-link/test`` (reads three records and shows the join; S21 "Test link").
 * ``POST /studies/{rs}/redcap-read`` (Run now / nightly: R7 since the watermark, join on ``tb_screening_no``,
@@ -76,6 +77,26 @@ class StudyService:
         self.audit.append("redcap.test", actor="admin", detail={"token_ref": token_ref, "result": "ok"})
         return {"ok": True, "version": version, "project_id": project.get("project_id"),
                 "project_title": project.get("project_title"), "checked_at": at}  # fmt: skip
+
+    def dictionary(self, token_ref: str) -> dict[str, Any]:
+        """The project behind a token and its data dictionary, for the set-up page's field pickers (D-133, review
+        F-11: the coordinator picks a field from a list instead of typing a REDCap variable name). Read only."""
+        with self.client(token_ref) as rc:
+            rc.check_version()
+            project = rc.project()
+            meta = rc.metadata()
+        fields = [
+            {
+                "name": str(m.get("field_name") or ""),
+                "label": _plain(str(m.get("field_label") or ""))[:80],
+                "form": str(m.get("form_name") or ""),
+                "type": str(m.get("field_type") or ""),
+            }
+            for m in meta
+            if m.get("field_name") and m.get("field_type") != "descriptive"
+        ]
+        return {"project_id": project.get("project_id"), "project_title": project.get("project_title"),
+                "fields": fields}  # fmt: skip
 
     # ------------------------------------------------------------------ S21 REDCap link
     def check_link(self, link: ProjectLink) -> tuple[RedcapClient, dict[str, Any], list[dict[str, Any]]]:
@@ -295,6 +316,11 @@ class ReadBody(BaseModel):
     full: bool = False
 
 
+def _plain(label: str) -> str:
+    """A REDCap field label without its HTML (labels may carry rich text)."""
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]*>", " ", label)).strip()
+
+
 def _rs(rs: str) -> str:
     rid = rs.strip().upper()
     if not _RS.match(rid):
@@ -364,6 +390,16 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
     def test_connection(ref: str) -> dict[str, Any]:
         try:
             return get().test_connection(ref)
+        except RcError as exc:
+            raise _fail(exc) from exc
+
+    @r.get("/redcap/connections/{ref}/dictionary")
+    def dictionary(ref: str) -> dict[str, Any]:
+        try:
+            get().store.token_path(ref)  # a token name, never a path
+            return get().dictionary(ref)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code": "RC-FIELD", "message": str(exc)}) from exc
         except RcError as exc:
             raise _fail(exc) from exc
 

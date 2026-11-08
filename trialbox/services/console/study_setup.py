@@ -113,8 +113,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         kind = next((r.kind for r in bk.rulesets() if r.id == rid), "trial")
         return st.study_defaults(rid, kind)
 
-    def setup_page(request: Request, sess: Session, rid: str, **extra: Any) -> Response:
-        conf = s28.load(bk, store, rid, defaults(rid))
+    def setup_page(
+        request: Request, sess: Session, rid: str, form_conf: StudySettings | None = None, **extra: Any
+    ) -> Response:
+        conf = form_conf or s28.load(bk, store, rid, defaults(rid))
         row = s28.remote(bk, rid) if s28.has_api(bk) else None
         link = get_or_none(f"/studies/{rid}/redcap-link")
         conns = get_or_none("/redcap/connections") or {}
@@ -139,7 +141,15 @@ def register(app: FastAPI, h: Helpers) -> None:
             cohort_kinds=COHORT_KINDS,
             scopes=CONSENT_SCOPES,
             example=f"{conf.screening_prefix or rid + '-'}{max(conf.first_no, 1):04d}",
-            **{"saved": request.query_params.get("saved", ""), "err": None, "test": None, "read": None, **extra},
+            **{
+                "saved": request.query_params.get("saved", ""),
+                "err": None,
+                "test": None,
+                "read": None,
+                "rc_dict": None,
+                "scope_form": None,
+                **extra,
+            },
         )
 
     @app.get("/studies/{rs}/setup")
@@ -198,6 +208,65 @@ def register(app: FastAPI, h: Helpers) -> None:
         s = StudySettings(conf.study_type, conf.cohort_kind, reasons, prefix, first)
         return save_settings(request, sess, rid, s, {"consent_scope": row.get("consent_scope"),
                              "introduce_rule": row.get("introduce_rule")}, "log")  # fmt: skip
+
+    # ------------------------------------------------------------------ D-133: the whole set-up in one form
+    @app.post("/studies/{rs}/setup")
+    async def save_all(request: Request, rs: str) -> Response:
+        """One form, one Save (review F-04: saving one section used to discard what was typed in the others).
+        ``action=read`` reads the REDCap project's fields for the pickers and shows the page again with everything
+        typed so far kept; nothing is saved. ``action=save`` saves the study, the numbering and, when a REDCap key
+        and project are chosen, the link (checked against the data dictionary)."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        form = await request.form()
+        need_edit(request, sess, str(form.get("csrf") or ""))
+        study_type = str(form.get("study_type") or "trial")
+        cohort_kind = str(form.get("cohort_kind") or "enrolled")
+        if study_type not in STUDY_TYPES or cohort_kind not in COHORT_KINDS:
+            raise h.problem(400, "request.refused", reason="unknown study type or cohort kind")
+        scope_in = str(form.get("consent_scope") or "")
+        scope = scope_in if scope_in in CONSENT_SCOPES else None
+        reasons = tuple(r for r in ALL_REASONS if r in form.getlist("reasons"))
+        prefix = str(form.get("screening_prefix") or "").strip()[:16]
+        try:
+            first = max(1, min(999999, int(str(form.get("first_no") or "1"))))
+        except ValueError:
+            first = 1
+        conf = StudySettings(study_type, cohort_kind, reasons, prefix, first)
+        body = link_from_form(rid, form)
+        keep: dict[str, Any] = {"form_conf": conf, "lk_form": body, "scope_form": scope or ""}
+        if str(form.get("action") or "") == "read":
+            ref = body["token_ref"]
+            if not _REF.match(ref):
+                return setup_page(request, sess, rid, err={"code": "RC-TOKEN", "msg": "", "fields": ""}, **keep)
+            try:
+                d = s28.call(bk, "GET", f"/redcap/connections/{ref}/dictionary")
+            except (Problem, Unavailable) as exc:
+                return setup_page(request, sess, rid, err=err_of(exc), **keep)
+            if d.get("project_id") and not body["project_id"]:
+                body["project_id"] = int(d["project_id"])
+            return setup_page(request, sess, rid, rc_dict=d, **keep)
+        if not reasons:
+            return setup_page(
+                request, sess, rid, err={"code": "STUDY-FIELD", "msg": "at least one reason", "fields": ""}, **keep
+            )
+        row = s28.remote(bk, rid) or {}
+        try:
+            s28.save(
+                bk, rid, conf, h.actor(sess), {"consent_scope": scope, "introduce_rule": row.get("introduce_rule")}
+            )
+        except (Problem, Unavailable) as exc:
+            return setup_page(request, sess, rid, err=err_of(exc), **keep)
+        au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail={"section": "all"})
+        cur = (get_or_none(f"/studies/{rid}/redcap-link") or {}).get("link") or {}
+        same = bool(cur) and all(str(cur.get(k) or "") == str(v or "") for k, v in body.items() if k != "ruleset")
+        if body["token_ref"] and body["project_id"] and not same:  # a changed link is checked against REDCap
+            try:
+                s28.call(bk, "PUT", f"/studies/{rid}/redcap-link", {"link": body, "by": h.actor(sess)})
+            except (Problem, Unavailable) as exc:  # the study and numbering are saved; the link is shown to fix
+                return setup_page(request, sess, rid, err=err_of(exc), saved="study", **keep)
+            au.append("console.study_setup", ruleset=rid, actor=h.actor(sess), detail={"section": "redcap"})
+        return RedirectResponse(f"/studies/{rid}/setup?saved=all", status_code=303)
 
     def link_from_form(rid: str, form: Any) -> dict[str, Any]:
         body: dict[str, Any] = {k: str(form.get(k) or "").strip() for k in LINK_TEXT}

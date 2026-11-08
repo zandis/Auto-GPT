@@ -184,7 +184,9 @@ def register(app: FastAPI, h: Helpers) -> None:
     def help_panel(request: Request, back: str = "/home") -> Response:
         sess = h.need(request)
         target = _safe_back(back)
-        return h.page(request, "help.html", sess, slug=help_slug(target.split("?")[0]), back=target)
+        return h.page(
+            request, "help.html", sess, slug=help_slug(target.split("?")[0]), back=target, studies=studies_of(sess)
+        )
 
     # ------------------------------------------------------------------ S37 Notices received
     @app.get("/notices/received")

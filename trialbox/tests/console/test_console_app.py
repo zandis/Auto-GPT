@@ -1071,7 +1071,7 @@ def test_audit_chain_stays_valid(box: dict[str, Any]) -> None:
 def test_language_switch(box: dict[str, Any]) -> None:
     c, csrf = login(box["app"])
     c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/jobs"})
-    assert "ジョブ" in c.get("/jobs").text
+    assert "処理" in c.get("/jobs").text  # D-133 glossary: 処理, not ジョブ
 
 
 @pytest.mark.req("FR-UX-32")

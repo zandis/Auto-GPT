@@ -454,7 +454,10 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     approached = picks[0]["pid"]
     page = pi.get(f"/studies/{TRIAL}/patients/{approached}")
     r = pi.post(f"/studies/{TRIAL}/patients/{approached}/reveal", data={"csrf": fd._csrf(page.text), "reason": reason})
-    s.check("the investigator reveals one chart number", r.status_code == 200, r.status_code)
+    s.check("D-133: the investigator may not reveal a chart number (role text)", r.status_code == 403, r.status_code)
+    page = crc.get(f"/studies/{TRIAL}/patients/{approached}")
+    r = crc.post(f"/studies/{TRIAL}/patients/{approached}/reveal", data={"csrf": fd._csrf(page.text), "reason": reason})
+    s.check("the coordinator reveals one chart number", r.status_code == 200, r.status_code)
     recs = _audit(box)
     ev = [r["event"] for r in recs]
 
@@ -473,7 +476,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     s.check(
         "01b: reveal with user, study, pid, reason and time",
         bool(rv)
-        and rv[-1].get("actor") == "console:pi"
+        and rv[-1].get("actor") == "console:crc"
         and rv[-1].get("ruleset") == TRIAL
         and det(rv[-1]).get("reason") == reason
         and bool(rv[-1].get("ts")),

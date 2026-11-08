@@ -22,11 +22,12 @@
   <section data-testid="clinic">
     <div class="headrow"><h2>{{ t('wb.clinic') }}</h2><span class="hint">{{ t('wb.clinic.help') }}</span></div>
     {% if not clinic %}<p class="empty hint">{{ t('wb.clinic.none') }}</p>{% endif %}
-    <ul class="tasks">{% for v in clinic %}<li>
+    <ul class="tasks">{% for v in clinic[:5] %}<li>
       <a href="{{ v.href }}">{{ v.visit_text }} · {{ t('week.patient', p=v.short) }}</a>
       <span class="pill stt-{{ v.status }}">{{ t('wstatus.' + v.status) }}</span>
-      <span class="hint">{{ v.rs }} · {{ v.practitioner }}{% if v.open_items %} · {{ t('wb.prepare') }} {{ v.open_items }}{% endif %}</span>
+      <span class="hint">{{ v.rs }} · {{ given(v.practitioner) }}{% if v.open_items %} · {{ t('wb.prepare') }} {{ v.open_items }}{% endif %}</span>
     </li>{% endfor %}</ul>
+    {% if clinic|length > 5 %}<p class="chartlinks"><a class="button secondary" href="/studies/{{ clinic[0].rs }}/week?list=clinic" data-testid="clinic-all">{{ t('home.clinic.all', n=clinic|length) }}</a></p>{% endif %}
   </section>
 </div>
 {% endif %}
@@ -47,6 +48,7 @@
     <dd>{% if c.week %}{{ t('home.week.line', n=c.week.counts.total, new=c.week.counts.new, marked=c.week.counts.marked) }} · <a href="/studies/{{ c.id }}/week">{{ t('home.open_week') }}</a>
       {% else %}{{ t('home.week.none') }}{% endif %}</dd>
   </dl>
+  {% if user.can_request %}<p class="chartlinks"><a href="/studies/{{ c.id }}/setup" data-testid="setup-{{ c.id }}">{{ t('home.setup') }}</a></p>{% endif %}
   <div class="next" data-testid="next-{{ c.id }}"><span>{{ t('next.' + c.next[0]) }}</span><a class="button small-btn" href="{{ c.next[1] }}">{{ t('next.go') }}</a></div>
 </section>
 {% endfor %}

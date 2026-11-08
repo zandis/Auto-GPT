@@ -33,7 +33,7 @@
     <p class="big"><span class="pill {{ 'ok' if up == health|length else 'bad' }}">{{ up }}/{{ health|length }} OK</span></p>
     {% if models %}<p class="hint">{{ t('overview.models.judge') }}: {{ models.judge_model or t('overview.models.none') }} · {{ t('overview.models.verifier') }}: {{ models.verifier_model or t('overview.models.none') }}</p>
     <p>{% if models.mode == 'none' %}<span class="pill warn">{{ t('overview.models.no_judge') }}</span>{% elif models.may_block %}<span class="pill ok">{{ t('overview.models.both_agree') }}</span>{% else %}<span class="pill warn">{{ t('overview.models.never') }}</span>{% endif %}</p>{% endif %}
-    <a href="/">{{ t('admin.overview') }}</a>
+    <a href="/admin?tab=health" data-testid="health-link">{{ t('admin.tab.health') }}</a>
   </section>
 </div>
 {% endblock %}

@@ -362,6 +362,7 @@ header.top { display: block; padding: 0; background: var(--card); border-bottom:
 header.top .banner .short { display: none; }
 header.top .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 6px 16px; }
 .menu-body { display: contents; }
+.menu-body > nav { order: 1; } header.top form.cmd { order: 2; } header.top .helpq { order: 3; } .menu-body > .who { order: 4; }
 .menu-toggle { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .menu-button { display: none; }
 @media (max-width: 760px) {
@@ -373,11 +374,11 @@ header.top .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: ce
   .menu-button { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; margin: 0; border: 1px solid var(--line);
     border-radius: 6px; font-weight: 600; color: var(--accent); cursor: pointer; order: 2; }
   .menu-toggle:focus-visible + .menu-button { outline: 3px solid var(--accent); outline-offset: 2px; }
-  .helpq { order: 1; }
+  header.top .helpq { order: 1; }
   .menu-body { display: none; order: 3; width: 100%; padding: 6px 0 10px; }
   .menu-toggle:checked ~ .menu-body { display: grid; gap: 10px; }
   .menu-body nav { width: 100%; }
-  .menu-body form.cmd { max-width: none; flex: 1 1 auto; }
+  header.top form.cmd { order: 4; flex: 1 1 100%; max-width: none; }
   .menu-body .who { width: 100%; justify-content: flex-start; }
 }
 
