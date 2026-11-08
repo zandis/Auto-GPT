@@ -94,6 +94,11 @@ def build(work: Path, llm: Any = None, verifier: Any = None) -> tuple[Any, Any, 
                 c.audit = box.orch.audit  # every real model call is an llm.call audit record, as in the box
         box.orch.services.llm = llm
         box.orch.services.verifier = verifier
+        from orchestrator import canary_gate
+
+        if canary_gate.gate_on():  # D-117: as at box start, the pair canary first; it gates note exclusions
+            canary_gate.run_canary(box.orch)
+            site["canary"] = canary_gate.status()
     orch_app._orch = box.orch
     return box, orch_client(orch_app.app), work / "box" / "repo", site
 
@@ -680,6 +685,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
             "stages": stages,
             "seconds": time.perf_counter() - t0,
             "site": site["summary"],
+            "canary": site.get("canary"),
             "app": app,
             "box": box,
             "day": day,
@@ -750,6 +756,7 @@ def main(argv: list[str] | None = None) -> int:
                     "terminology_missed",
                     "swap",
                     "judging",
+                    "canary",
                 )
                 if k in res
             },

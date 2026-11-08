@@ -12,10 +12,12 @@
 #
 # One model awake at a time (TB_MODEL_SWAP=sleep, services/gateway/swap.py). Side by side the pair needed ~35 GiB
 # on 2026-11-06 (weights 17.1 + 7.5 GiB, two CUDA contexts, KV), more than the card has. So both servers start with
-# vLLM sleep mode: the judge is awake by day (chat, protocol help, the judge pass of a run); a screening run asks
-# the judge everything first, then the gateway puts the judge to sleep (weights to host RAM, ~18 GB of it), wakes
-# the verifier for the second opinions, and wakes the judge again (orchestrator/twophase.py). Chat during the
-# verifier pass gets "busy, try again" within 30 s instead of hanging. Host RAM: 64 GB or more.
+# vLLM sleep mode: the judge is awake by day (chat, protocol help, the judge pass of a run); a screening run holds
+# the card, asks the judge everything first, then the gateway puts the judge to sleep (weights to host RAM, ~18 GB of
+# it) and wakes the verifier for the second opinions: one swap per run (orchestrator/twophase.py, D-116). The run then
+# releases the card instead of swapping back; the next chat or run wakes the judge on demand (~0.5 s). Each woken
+# model first answers six canary cases (orchestrator/canary_gate.py, D-117). Chat during the verifier pass gets
+# "busy, try again" within 30 s instead of hanging. Host RAM: 64 GB or more.
 #
 # Start order: the judge loads and is put to sleep; then the verifier loads (it needs the card's memory free) and
 # is put to sleep; then model-swap-init wakes the judge. Measured 2026-11-08 on an RTX PRO 6000 capped to the 5090's

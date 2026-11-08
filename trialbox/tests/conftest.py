@@ -19,11 +19,16 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     for key in list(os.environ):
         if key.startswith(("TB_", "IMAP_", "SMTP_", "MINIO_", "LLM_", "CLOUD_LLM", "MAIL_")):
             monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("TB_CANARY_GATE", "off")  # see pytest_configure
     yield
 
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "req(*ids): spec v4 requirement ids this test verifies (§17.4)")
+    # D-117: on a box the pair canary gates note exclusions (on unless TB_ENV is DEV or TEST). The suite's stub and
+    # fake models are not the pair and never pass a canary, so the gate is off for the suite; the gate's own tests
+    # (tests/unit/test_canary_gate.py) switch it on with monkeypatch.
+    os.environ.setdefault("TB_CANARY_GATE", "off")
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

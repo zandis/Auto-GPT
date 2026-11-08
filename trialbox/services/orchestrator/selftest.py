@@ -40,8 +40,9 @@ MIN_ANSWERED = 0.95
 MAX_FLIPS = 1
 MIN_ACCURACY = 0.85
 # the pair the box runs (Fable review 2026-11-08, finding 4): a case where both models give the same decided answer
-# and it is wrong (a flip, or yes/no where the note is silent) is a case where the box would exclude wrongly
-MAX_PAIR_WRONG = 1
+# and it is wrong (a flip, or yes/no where the note is silent) is a case where the box would exclude wrongly. Since
+# a passing pair canary is what lets a note answer exclude (D-117), one such case is one too many.
+MAX_PAIR_WRONG = 0
 
 
 @dataclass
@@ -177,11 +178,14 @@ def enabled() -> bool:
     return (os.environ.get("TB_SELFTEST") or "on").strip().lower() not in ("0", "off", "false", "no")
 
 
-def preflight(orch: Any) -> bool:
-    """Run the canary for the night, record it in the audit log and ``<data dir>/selftest.json``; True when the
-    night's LLM jobs may start (also when the self-test is switched off or no model is configured at all)."""
-    if not enabled() or orch.services.llm is None:
+def preflight(orch: Any, force: bool = False) -> bool:
+    """Run the canary for the night, record it in the audit log, ``<data dir>/selftest.json`` and the canary gate
+    (:mod:`orchestrator.canary_gate`, D-117: a passing pair canary is what lets a note answer exclude); True when the
+    night's LLM jobs may start (also when the self-test is switched off or no model is configured at all).
+    ``force``: run even with ``TB_SELFTEST=off`` (the canary at start and the admin's "Run now")."""
+    if (not enabled() and not force) or orch.services.llm is None:
         return True
+    from orchestrator import canary_gate
     from orchestrator.twophase import GatewaySwap
 
     gs = GatewaySwap.from_env()
@@ -192,6 +196,9 @@ def preflight(orch: Any) -> bool:
         release=gs.release if gs is not None else None,
     )
     report["at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    report["at_epoch"] = round(time.time(), 1)
+    canary_gate.GATE.configure(orch.data_dir)
+    canary_gate.GATE.record(report)
     try:
         out = Path(orch.data_dir) / "selftest.json"
         out.parent.mkdir(parents=True, exist_ok=True)

@@ -132,6 +132,9 @@ class InprocBackend:
         r = self.c.get("/models")
         return r.json() if r.status_code == 200 else None
 
+    def run_canary(self) -> bool:
+        return bool(self.c.post("/models/canary").status_code == 200)
+
     def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None:
         r = self.c.get(f"/rulesets/{ruleset}")
         return r.json() if r.status_code == 200 else None

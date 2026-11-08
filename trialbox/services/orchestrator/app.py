@@ -104,6 +104,9 @@ def orch() -> Orchestrator:
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     o = orch()
     o.start()
+    from orchestrator import canary_gate
+
+    canary_gate.startup(o)  # D-117: the pair canary at start, in the background; it gates note exclusions
     sched: Any = None
     if os.environ.get("TB_SCHEDULER", "1") != "0":
         from orchestrator.scheduler import start
@@ -153,15 +156,35 @@ def models() -> dict[str, Any]:
     mode = os.environ.get("TB_SCREEN_JUDGE", "agreement").strip().lower()
     verifier = s.verifier if mode != "single" else None
     judge = NoteJudge(s.lake, s.llm, "judge", job_id="", verifier=verifier) if s.llm is not None else None
+    from orchestrator import canary_gate
     from orchestrator.scenarios.screen_cascade import pipeline
 
+    canary_gate.GATE.configure(o.data_dir)
     return {
         "engine": os.environ.get("TB_SCREEN_ENGINE", "cql"),
         "pipeline": pipeline(),
         "screen_judge": mode,
         "gateway": bool(os.environ.get("TB_GATEWAY_URL", "").strip()),
         **judging_info(judge),
+        "canary": canary_gate.status(),
     }
+
+
+@app.post("/models/canary")
+def models_canary() -> dict[str, Any]:
+    """Run the 54-case pair canary now (the admin Models tile's "Run now"); it takes a few minutes on the card and
+    runs in the background. Changing call: needs the service token (D-114)."""
+    import threading
+
+    from orchestrator import canary_gate
+
+    o = orch()
+    if o.services.llm is None:
+        raise HTTPException(status_code=409, detail="no model configured on this box")
+    if canary_gate.GATE.running:
+        return {"started": False, "running": True}
+    threading.Thread(target=canary_gate.run_canary, args=(o,), name="canary-run-now", daemon=True).start()
+    return {"started": True, "running": True}
 
 
 @app.get("/rulesets/{ruleset}")

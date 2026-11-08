@@ -384,7 +384,8 @@ def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
     """Whether a confident note ``fail`` may exclude a patient on this run (D-95, D-97).
 
     ``both_agree`` promises that two models agreed; without a verifier that promise cannot be kept, so the run falls
-    back to ``never`` (a single model may send a patient to review, never out) and says so. Returns
+    back to ``never`` (a single model may send a patient to review, never out) and says so. The same holds when the
+    pair has not passed its canary (:mod:`orchestrator.canary_gate`, D-117). Returns
     ``(may_block, effective_policy, reason)``."""
     policy = note_block_policy()
     if policy == "never":
@@ -393,6 +394,11 @@ def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
         return False, "never", "no note judge on this box"
     if judge.verifier is None:
         return False, "never", "no verifier configured: a single model may not exclude"
+    from orchestrator.canary_gate import allows_block
+
+    ok, why = allows_block()  # D-117: only on a pair that passed its canary (and every wake check since)
+    if not ok:
+        return False, "never", why
     return True, "both_agree", "judge and verifier must both say fail"
 
 

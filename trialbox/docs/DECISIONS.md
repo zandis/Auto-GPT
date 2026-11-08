@@ -1335,3 +1335,33 @@ swaps, and the judge woken at the end even when nothing needed it.
     covers it (a direct call to a sleeping vLLM hangs), and the harness drives the same `ensure` path.
   * `serving_config measured rtx5090` correctly refuses the record (capped card, not a 5090); a real 5090 is still
     needed for that profile's measured record.
+
+**D-117 The pair canary gates note exclusions.** TB-PLAN-03 step 2 (Fable review 2026-11-08, finding 5). The 54-case
+canary only held the night's LLM jobs; a box whose models had drifted could still exclude on a note answer by day.
+
+* **The gate** (`orchestrator/canary_gate.py`). `effective_note_block` lets a note answer exclude only with a
+  passing *pair* canary younger than `TB_CANARY_MAX_AGE_H` (36 h) and no failed wake check since; otherwise the run
+  falls back to `never` (review, never out) and says why. The report is kept in `<data dir>/selftest.json`, so a
+  restart keeps the gate. `MAX_PAIR_WRONG` is now 0: one case where both models agree on a wrong decided answer
+  fails the canary (it was 1).
+* **When it runs.** At orchestrator start in the background (`TB_CANARY_AT_START`, default on), before each night's
+  LLM jobs (scheduler, as before), and from the admin Models tile's "Run now" (`POST /models/canary` on the
+  orchestrator, behind the service token; `POST /admin/models/canary` in the console).
+* **After each swap.** On a one-GPU box every woken model first answers six canary cases (`wake_cases`: one per
+  criterion; each language and each expected answer twice). A flip, fewer than five right or more than one
+  unanswered: the model is not used for the rest of the run (its answers become errors, so `unknown`) and the
+  gate stays shut until the next full pass.
+* **Switch.** `TB_CANARY_GATE` on | off; unset it is on except with `TB_ENV` DEV or TEST, whose stub models never
+  pass a canary. The test suite sets it off and the gate's own tests switch it on.
+* **Shown.** The admin Models tile shows the gate's state, the date and the pair's score, translated, with a Run now
+  button; `GET /models` carries it as `canary`. `make canary` runs `tools/canary.py` from a checkout (environment
+  models, or two servers directly with `--swap`, which also runs the wake check after each wake).
+* **On the card** (2026-11-08b, `eval/parity/canary_pair_2026-11-08b.json`): the pair canary with swaps passes,
+  pair 52 of 54 right, 0 decided wrong, 2 disagreements (left to review); judge 53/54 (`ja:preg:yes`), verifier
+  49/54 (four silent cases answered `fail`, `ja:chemo:yes`), one flip each. The three wake checks (judge twice,
+  verifier once) all pass; each swap measured 13-17 s by the tool (sleep of one plus wake of the other, after the
+  long run). The start canary in `public_e2e --swap` gave the same pair score and opened the gate.
+* **Test note.** `test_frontdoor_mcp::test_small_cells_are_suppressed_and_rounded` failed once in a full-suite
+  order and did not reproduce alone or in its file order. Its counts and rounding are deterministic and the
+  privacy accountant is per box, so the likely cause is shared rate-limit state left by an earlier frontdoor test
+  (`test_roles_profiles_and_rate_limits`); not chased further, since Hermes and the front door go in step 6.

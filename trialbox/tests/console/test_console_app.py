@@ -162,6 +162,10 @@ class FakeBackend:
     def models(self) -> dict[str, Any] | None:
         return self.models_info
 
+    def run_canary(self) -> bool:
+        self.canary_runs = getattr(self, "canary_runs", 0) + 1
+        return True
+
     def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None:
         if ruleset != "GZQO":
             return None

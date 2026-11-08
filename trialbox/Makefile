@@ -153,9 +153,11 @@ selftest:
 	docker compose --project-directory deploy -f deploy/docker-compose.yml exec orchestrator python -m orchestrator.selftest
 
 # the same 54-case canary from this checkout against the models in the environment (TB_GATEWAY_URL ...): each model,
-# then the pair as the box decides (both must give the same decided answer); exit 1 when it fails (D-115)
+# then the pair as the box decides (both must give the same decided answer); exit 1 when it fails (D-115). The box
+# runs it itself at start, nightly and from the admin Models tile; a passing pair is what lets a note answer exclude
+# (D-117). Two servers directly: ARGS="--judge-url http://<vm>/judge/v1 --verifier-url http://<vm>/verifier/v1 --swap"
 canary:
-	PYTHONPATH=libs:services:. $(PY) -m orchestrator.selftest
+	PYTHONPATH=libs:services:. $(PY) -m tools.canary $(ARGS)
 
 # proof of concept in one command (README "Try the POC in 10 minutes", RUNBOOK §9): box + GreenMail/MailHog + admin
 # console with the pilot workspace; TB_LLM_MODE=stub|openrouter|gpu. Windows: deploy/poc.ps1.

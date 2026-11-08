@@ -23,6 +23,14 @@
     <h2>{{ t('overview.models') }}</h2>
     {% if models %}<p class="hint">{{ t('overview.models.judge') }}: {{ models.judge_model or t('overview.models.none') }} · {{ t('overview.models.verifier') }}: {{ models.verifier_model or t('overview.models.none') }}</p>
     <p>{% if models.mode == 'none' %}<span class="pill warn">{{ t('overview.models.no_judge') }}</span>{% elif models.may_block %}<span class="pill ok">{{ t('overview.models.both_agree') }}</span>{% else %}<span class="pill warn">{{ t('overview.models.never') }}</span>{% endif %}</p>
+    {% if models.canary and models.mode != 'none' %}{% set c = models.canary %}{% set at = (c.at or '')[:16]|replace('T', ' ') %}
+    <p data-testid="models-canary">{{ t('overview.models.canary') }}:
+    {% if c.running %}<span class="pill warn">{{ t('overview.models.canary.running') }}</span>
+    {% elif c.code == 'ok' %}<span class="pill ok">{{ t('overview.models.canary.ok', at=at, correct=c.pair_correct, cases=c.cases) }}</span>
+    {% elif c.code == 'off' %}<span class="pill">{{ t('overview.models.canary.off') }}</span>
+    {% else %}<span class="pill warn">{{ t('overview.models.canary.' ~ c.code, at=at) }}</span>{% endif %}</p>
+    {% if c.code != 'off' and not c.running %}<form method="post" action="/admin/models/canary" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small secondary" data-testid="canary-run">{{ t('overview.models.canary.run') }}</button></form>{% endif %}
+    {% endif %}
     {% else %}<p class="hint">{{ t('overview.models.unavailable') }}</p>{% endif %}
     <a href="/">{{ t('admin.overview') }}</a>
   </section>

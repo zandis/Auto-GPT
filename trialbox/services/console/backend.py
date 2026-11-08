@@ -109,6 +109,8 @@ class Backend(Protocol):
     def rulesets(self) -> list[RulesetInfo]: ...
     def health(self) -> list[Health]: ...
     def models(self) -> dict[str, Any] | None: ...
+
+    def run_canary(self) -> bool: ...
     def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None: ...
     def ingest(self) -> dict[str, Any]: ...
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str: ...
@@ -290,6 +292,14 @@ class HttpBackend:
         except ServiceError:
             return None
         return dict(data) if isinstance(data, dict) else None
+
+    def run_canary(self) -> bool:
+        """Start the pair canary on the orchestrator (``POST /models/canary``); False when it is down or refused."""
+        try:
+            self.orch.post_raw("/models/canary", {})
+        except ServiceError:
+            return False
+        return True
 
     def ruleset_detail(self, ruleset: str) -> dict[str, Any] | None:
         """The approved manifest's provenance (version, approval record, population) for the sponsor pack README

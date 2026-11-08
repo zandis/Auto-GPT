@@ -20,7 +20,7 @@ Swaps are lazy (TB-PLAN-03 step 1, D-116): the judge is woken only when a judge 
 verifier only when questions are pending, and a swap to the model already awake is skipped. A run that opens no new
 path after the verifier pass therefore costs one swap (judge -> verifier), and at the end the run *releases* the card
 instead of swapping back: the gateway wakes the judge when the next chat or run needs it. Each real swap is followed
-by an optional wake check (``probe``): a model that answers its wake questions
+by a wake check (``probe``, :mod:`orchestrator.canary_gate`): a model that answers its wake questions
 wrongly is not trusted for the rest of the run (its answers become errors, so ``unknown``, never an exclusion).
 
 Without ``TB_MODEL_SWAP=sleep`` (both models resident, the GB10 and RTX PRO 6000 layouts) :func:`two_phase` simply
@@ -230,14 +230,18 @@ def two_phase[J, R](
 
     ``judge`` is a :class:`NoteJudge` or ``OrchestratorJudge`` (anything with ``llm``, ``verifier`` and the
     :data:`COUNTERS` fields); its counters end up as those of the final round. ``swap`` (and ``release``) default to
-    :meth:`GatewaySwap.from_env`; ``None`` there (no swap configured) means one plain run.
-    ``probe``: the wake check run after each real swap."""
+    :meth:`GatewaySwap.from_env`; ``None`` there (no swap configured) means one plain run. ``probe`` defaults to the
+    wake check of :mod:`orchestrator.canary_gate` (six canary cases, D-117) when the canary gate is on."""
     if swap is None:
         gs = GatewaySwap.from_env()
         if gs is not None:
             swap, release = gs.use, release or gs.release
     if swap is None or judge is None or getattr(judge, "verifier", None) is None:
         return run(judge)
+    if probe is None:
+        from orchestrator.canary_gate import wake_probe
+
+        probe = wake_probe(judge.llm, judge.verifier)  # type: ignore[attr-defined]
     n = workers or int(os.environ.get("TB_SCREEN_WORKERS") or 4)
     gpu = Gpu(swap, probe)
     memo = MemoClient(judge.llm)  # type: ignore[attr-defined]
