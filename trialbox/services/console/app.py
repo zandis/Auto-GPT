@@ -17,6 +17,8 @@ adds ``console.*`` events to the shared audit chain before it acts.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import io
 import ipaddress
 import os
@@ -31,10 +33,11 @@ from datetime import date
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, Form, Request, Response, UploadFile
+from fastapi import FastAPI, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import AuditLog
 from tb_common.config import environment_name
@@ -67,6 +70,8 @@ from console.timefmt import local_time, site_zone
 HERE = Path(__file__).resolve().parent
 COOKIE = "tb_console"
 LOGIN_COOKIE = "tb_console_login"
+LANG_COOKIE = "tb_console_lang"  # D-133: the language picked on the sign-in page (a preference, not a secret)
+AUDIT_PAGE, AUDIT_PAGES = 50, 20  # D-133: the audit trail page by page (the newest 1,000 events)
 TERMINAL = frozenset({"done", "failed", "cancelled"})
 DOC_EXT = (".pdf", ".docx", ".txt", ".md")
 MAX_UPLOAD = 50 * 1024 * 1024
@@ -76,10 +81,16 @@ _VERSION = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}$")
 _FILE = re.compile(r"^[\w.\-]{1,160}$")
 _ITEM_IDS = re.compile(r"^(?:I\d{2}|Q\d)(?:,(?:I\d{2}|Q\d))*$")
 PROPOSAL_TTL = 3600.0
+# D-133: one small first-party script (copy the one-time password, warn before leaving a form with unsaved edits),
+# inlined on every page and allowed by its SHA-256 hash only: no other script, inline or from any origin, runs. Every
+# page works without it (a progressive enhancement).
+CONSOLE_JS = (HERE / "static" / "console.js").read_text(encoding="utf-8").strip()
+_JS_HASH = base64.b64encode(hashlib.sha256(CONSOLE_JS.encode("utf-8")).digest()).decode("ascii")
 CSP = (
-    "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'none'; object-src 'none'; "
-    "frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
+    f"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'sha256-{_JS_HASH}'; "
+    "object-src 'none'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'"
 )
+_ASCII_WORDS = re.compile(r"[\x00-\x7F]+")
 
 
 class PilotRefused(RuntimeError):
@@ -507,6 +518,9 @@ def create_app(
     def lang_of(request: Request, sess: Session | None) -> str:
         if sess is not None and sess.lang in LANGS:
             return sess.lang
+        chosen = getattr(request.state, "lang", None) or request.cookies.get(LANG_COOKIE)  # the sign-in page's choice
+        if chosen in LANGS:
+            return str(chosen)
         return pick_language(request.headers.get("accept-language"))
 
     def page(request: Request, name: str, sess: Session | None, status: int = 200, **ctx: Any) -> HTMLResponse:
@@ -524,6 +538,19 @@ def create_app(
             text = t(key)
             return value if text == key else text
 
+        def given(value: object, cls: str = "") -> Markup | str:
+            """D-133 (review F-09): words that come from the study or the hospital's data (a criterion label, a
+            doctor's name) are shown as written. On a Japanese or Chinese page an English one is marked "as given"
+            (原文) and carries lang="en", so a reader sees it is the source's own word, not an untranslated label."""
+            text = str(value or "")
+            if not text:
+                return ""
+            if lang == "en" or not _ASCII_WORDS.fullmatch(text) or not re.search(r"[A-Za-z]{3,}", text):
+                return Markup('<span class="{}">{}</span>').format(cls, text) if cls else text
+            return Markup('<span class="given {}" lang="en" data-authored data-given="{}">{}</span>').format(
+                cls, t("given.mark"), text
+            )
+
         base = {
             "t": t,
             "t_or": t_or,
@@ -538,7 +565,9 @@ def create_app(
             "k": settings.small_cell,
             "cell": lambda v: cell(v, settings.small_cell),
             "state": state,
+            "given": given,
             "num": _num,
+            "console_js": CONSOLE_JS,
         }
         return templates.TemplateResponse(request, name, {**base, **ctx}, status_code=status)
 
@@ -613,24 +642,34 @@ def create_app(
     def healthz() -> dict[str, Any]:
         return {"status": "ok", "service": "console", "pilot": settings.pilot, "env": settings.environment}
 
-    @app.get("/login", response_class=HTMLResponse)
-    def login_form(request: Request) -> Response:
-        if settings.sso and (session_of(request) is not None or sso_user(request) is not None):
-            return RedirectResponse("/", status_code=303)
+    def login_page(request: Request, status: int = 200, failed: bool = False, **ctx: Any) -> Response:
         token = secrets.token_urlsafe(24)
         resp = page(
             request,
             "login.html",
             None,
+            status,
             login_csrf=token,
-            failed=False,
-            uninitialised=us.count("admin") == 0,
+            failed=failed,
+            admin_mail=settings.admin_email,
             sso=settings.sso,
+            **ctx,
         )
         resp.set_cookie(
             LOGIN_COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie, max_age=900
         )
+        chosen = getattr(request.state, "lang", None)
+        if chosen:  # D-133 (review F-05): the language chosen on the sign-in page, kept for the session it starts
+            resp.set_cookie(LANG_COOKIE, chosen, httponly=True, samesite="strict", secure=settings.secure_cookie)
         return resp
+
+    @app.get("/login", response_class=HTMLResponse)
+    def login_form(request: Request, lang: str = "") -> Response:
+        if settings.sso and (session_of(request) is not None or sso_user(request) is not None):
+            return RedirectResponse("/", status_code=303)
+        if lang in LANGS:
+            request.state.lang = lang
+        return login_page(request, uninitialised=us.count("admin") == 0)
 
     @app.post("/login")
     def login(
@@ -642,17 +681,17 @@ def create_app(
         user = us.authenticate(username[:64], password[:256])
         if user is None:
             au.append("console.login_failed", actor=f"console:{username.strip().lower()[:32] or '-'}")
-            token = secrets.token_urlsafe(24)
-            resp = page(request, "login.html", None, 401, login_csrf=token, failed=True, uninitialised=False)
-            resp.set_cookie(
-                LOGIN_COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie, max_age=900
+            until = us.locked_until(username[:64])
+            left = max(1, -(-int((until - us.clock()).total_seconds()) // 60)) if until else 0
+            return login_page(
+                request, 401, failed=True, uninitialised=False, until=until.isoformat() if until else "", left=left
             )
-            return resp
-        token, _ = us.new_session(user, pick_language(request.headers.get("accept-language")))
+        token, _ = us.new_session(user, lang_of(request, None))
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
         done = RedirectResponse("/home" if settings.pilot else "/", status_code=303)  # S1: land on the work list
         done.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
         done.delete_cookie(LOGIN_COOKIE)
+        done.delete_cookie(LANG_COOKIE)
         return done
 
     @app.post("/logout")
@@ -713,15 +752,34 @@ def create_app(
         return page(request, "jobs.html", sess, jobs=items, refresh=running)
 
     @app.get("/audit", response_class=HTMLResponse)
-    def audit_view(request: Request) -> Response:
+    def audit_view(
+        request: Request, page_no: Annotated[int, Query(alias="page", ge=1, le=AUDIT_PAGES)] = 1
+    ) -> Response:
+        """The audit trail, newest first, AUDIT_PAGE events per page (D-133, review F-07: one page used to hold 300
+        events, 130 phone screens)."""
         sess = need(request)
-        return page(request, "audit.html", sess, records=bk.audit(None, 300))
+        recs = bk.audit(None, AUDIT_PAGE * page_no + 1)
+        more = len(recs) > AUDIT_PAGE * page_no
+        rows = recs[AUDIT_PAGE * (page_no - 1) : AUDIT_PAGE * page_no]
+        return page(request, "audit.html", sess, records=rows, page_no=page_no, more=more and page_no < AUDIT_PAGES)
+
+    # D-133 (review F-02): a new or reset one-time password never travels in a URL (history, proxy and access logs,
+    # a forwarded link). It is kept here, in memory, for the session that made it, and shown once by the next page.
+    # Never written to a log, the audit trail or a database; a restart forgets it (reset the password again).
+    one_time: dict[str, tuple[str, str, float]] = {}
+
+    def keep_once(sess: Session, username: str, password: str) -> None:
+        now = time.monotonic()
+        for k in [k for k, v in one_time.items() if now - v[2] > 600]:  # unread for 10 minutes: gone
+            one_time.pop(k, None)
+        one_time[sess.token_sha] = (username, password, now)
 
     @app.get("/ops/users", response_class=HTMLResponse)
-    def users_view(request: Request, made: str = "", pw: str = "") -> Response:
+    def users_view(request: Request) -> Response:
         sess = need(request)
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
+        made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
         return page(
             request,
@@ -732,6 +790,7 @@ def create_app(
             affiliations=AFFILIATIONS,
             made=made,
             pw=pw,
+            pw_groups=pw.split("-") if pw else [],
             sso=settings.sso,
         )
 
@@ -771,14 +830,16 @@ def create_app(
                         "expires": made_user.expires or "",
                     },
                 )
-                return RedirectResponse(f"/ops/users?made={name}&pw={password}", status_code=303)
+                keep_once(sess, name, password)
+                return RedirectResponse("/ops/users#made", status_code=303)
             if action == "reset":
                 if us.is_sso(name):
                     raise AuthError("this account signs in through the hospital identity provider")
                 password = random_password()
                 us.set_password(name, password)
                 au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
-                return RedirectResponse(f"/ops/users?made={name}&pw={password}", status_code=303)
+                keep_once(sess, name, password)
+                return RedirectResponse("/ops/users#made", status_code=303)
             if action == "scope":
                 u2 = us.set_scope(name, affiliation, studies, expires or None)
                 au.append(

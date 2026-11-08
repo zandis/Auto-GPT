@@ -11,34 +11,43 @@
 </head>
 <body>
 <a class="skip" href="#main">{{ t('skip') }}</a>
-{% if pilot %}<div class="banner" role="note" data-testid="banner">{{ t('pilot.banner.public' if settings.data_source == 'public' else 'pilot.banner', env=settings.environment) }}</div>
-{% else %}<div class="banner prod" role="note" data-testid="banner">{{ t('prod.banner') }}</div>{% endif %}
 <header class="top">
+  {% if pilot %}<div class="banner" role="note" data-testid="banner"><span class="long">{{ t('pilot.banner.public' if settings.data_source == 'public' else 'pilot.banner', env=settings.environment) }}</span><span class="short">{{ t('pilot.banner.short') }}</span></div>
+  {% else %}<div class="banner prod" role="note" data-testid="banner">{{ t('prod.banner') }}</div>{% endif %}
+  <div class="bar">
   <a class="brand" href="/">{{ t('brand') }}</a>
   {% if user %}
-  {% include "_nav.html" %}
+  {# D-133 (review F-08): on a phone the menu, the language and Sign out sit behind one Menu button (a checkbox and
+     its label, no script) and the search field is the only other control; on a desktop all are shown as before #}
+  <input type="checkbox" id="menu-toggle" class="menu-toggle" aria-label="{{ t('menu') }}">
+  <label for="menu-toggle" class="menu-button" data-testid="menu-button" aria-hidden="true">☰ {{ t('menu') }}</label>
+  {% if pilot %}<a class="helpq" href="/help?back={{ path|urlencode }}" title="{{ t('help.title') }}" aria-label="{{ t('help.title') }}" data-testid="help">?</a>{% endif %}
   {% if pilot %}<form method="get" action="/cmd" class="cmd" role="search" data-testid="cmd">
     <label class="sr" for="cmd-q">{{ t('cmd.label') }}</label>
     <input id="cmd-q" name="q" type="search" placeholder="{{ t('cmd.placeholder') }}" maxlength="300" autocomplete="off" enterkeyhint="go" data-testid="cmd-q">
     <input type="hidden" name="back" value="{{ path }}">
-    <button type="submit" class="small">{{ t('cmd.go') }}</button>
-  </form>
-  <a class="helpq" href="/help?back={{ path|urlencode }}" title="{{ t('help.title') }}" aria-label="{{ t('help.title') }}" data-testid="help">?</a>{% endif %}
+    <button type="submit" class="secondary">{{ t('cmd.go') }}</button>
+  </form>{% endif %}
+  <div class="menu-body">
+  {% include "_nav.html" %}
   <div class="who">
     <a href="/account" data-testid="whoami">{{ user.username }} · {{ t('role.' + user.role) }}</a>
     <form method="post" action="/lang" class="inline">
       <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ path }}">
       <label class="sr" for="lang">{{ t('lang.label') }}</label>
       <select id="lang" name="lang">{% for l in langs %}<option value="{{ l }}" lang="{{ l }}" {{ 'selected' if l == lang else '' }}>{{ t('lang.name.' + l) }}</option>{% endfor %}</select>
-      <button type="submit" class="small secondary">{{ t('lang.apply') }}</button>
+      <button type="submit" class="secondary">{{ t('lang.apply') }}</button>
     </form>
-    <form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="small" data-testid="logout">{{ t('logout') }}</button></form>
+    <form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secondary" data-testid="logout">{{ t('logout') }}</button></form>
+  </div>
   </div>
   {% endif %}
+  </div>
 </header>
 <main id="main">
 {% block content %}{% endblock %}
 </main>
 <footer>{{ t('footer', env=settings.environment, dc=settings.data_class) }}</footer>
+<script>{{ console_js|safe }}</script>
 </body>
 </html>

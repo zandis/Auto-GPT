@@ -2,5 +2,7 @@
 {% block title %}{{ t('nav.audit') }}{% endblock %}
 {% block content %}
 <h1>{{ t('audit.title') }}</h1>
-<section class="card">{% set rows = records %}{% include "_audit_table.html" %}</section>
+<section class="card">{% set rows = records %}{% include "_audit_table.html" %}
+{% if page_no > 1 or more %}<nav class="pager" aria-label="{{ t('wb.pages') }}" data-testid="audit-pager">{% if page_no > 1 %}<a class="button secondary" href="?page={{ page_no - 1 }}" rel="prev">← {{ t('audit.newer') }}</a>{% endif %}<span class="hint">{{ t('audit.page', n=page_no) }}</span>{% if more %}<a class="button secondary" href="?page={{ page_no + 1 }}" rel="next" data-testid="audit-older">{{ t('audit.older') }} →</a>{% endif %}</nav>{% endif %}
+</section>
 {% endblock %}

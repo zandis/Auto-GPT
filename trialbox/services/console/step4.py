@@ -80,6 +80,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         for rs in studies:
             nos = store.screening_nos(rs)
             pids = set(nos)
+            if h.week_bundle is not None:  # D-133: a patient on this week's list is found by its code too
+                wk = h.week_bundle(sess, rs) or {}
+                pids |= {str(r["pid"]) for r in wk.get("rows") or []}
             try:
                 pids |= {e.pid for e in bk.registry_rows(rs)}
             except Exception:  # the registry is optional for search  # noqa: S112
@@ -92,6 +95,15 @@ def register(app: FastAPI, h: Helpers) -> None:
                     return out
         return out
 
+    def one_patient(pats: list[dict[str, str]]) -> str | None:
+        """The page to open when every hit is the same patient (D-133, review task T3: a code typed on the phone
+        opens the patient's "why" page in two taps): the study that screens patients (a trial) before a registry."""
+        if not pats or len({x["pid"] for x in pats}) != 1:
+            return None
+        kinds = {r.id.upper(): r.kind for r in bk.rulesets()}
+        best = sorted(pats, key=lambda x: kinds.get(x["study"], "trial") not in ("trial", ""))
+        return best[0]["href"]
+
     @app.get("/cmd")
     def cmd(request: Request, q: str = "", back: str = "/home") -> Response:
         sess = h.need(request)
@@ -101,17 +113,19 @@ def register(app: FastAPI, h: Helpers) -> None:
         au.append("console.command", actor=h.actor(sess), detail={"intent": act.intent, "action": act.command or ""})
         if act.intent == "patient" and act.target:
             pats = search(sess, act.target, studies)["patients"]
-            if len(pats) == 1:
-                return RedirectResponse(pats[0]["href"], status_code=303)
+            only = one_patient(pats)
+            if only:
+                return RedirectResponse(only, status_code=303)
             return h.page(
                 request, "cmd.html", sess, q=q, act=act, hits={"studies": [], "patients": pats}, back=_safe_back(back)
             )
         if act.intent == "search":
             hits = search(sess, act.target or q, studies)
             found = hits["studies"] + hits["patients"]
-            if len(found) == 1:
-                return RedirectResponse(found[0]["href"], status_code=303)
-            return h.page(request, "cmd.html", sess, q=q, act=act, hits=hits, back=_safe_back(back))
+            only = found[0]["href"] if len(found) == 1 else None if hits["studies"] else one_patient(hits["patients"])
+            if only:
+                return RedirectResponse(only, status_code=303)
+            return h.page(request, "cmd.html", sess, q=q, act=act, hits=hits, studies=studies, back=_safe_back(back))
         if act.opens_page:
             url = command.url_of(act, role)
             if url:
@@ -184,7 +198,9 @@ def register(app: FastAPI, h: Helpers) -> None:
     def help_panel(request: Request, back: str = "/home") -> Response:
         sess = h.need(request)
         target = _safe_back(back)
-        return h.page(request, "help.html", sess, slug=help_slug(target.split("?")[0]), back=target)
+        return h.page(
+            request, "help.html", sess, slug=help_slug(target.split("?")[0]), back=target, studies=studies_of(sess)
+        )
 
     # ------------------------------------------------------------------ S37 Notices received
     @app.get("/notices/received")

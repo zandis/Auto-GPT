@@ -21,7 +21,7 @@
 {% for fm in forms %}
 <section class="card" data-testid="form-{{ fm.name }}">
 <h2>{% if fm.titles.get(lang) and fm.titles.get(lang) != fm.name %}{{ fm.titles.get(lang) }} {% endif %}<span class="mono">{{ fm.name }}</span> <span class="hint">{{ t('dc.forms.items', n=fm.fields|length) }}</span></h2>
-<div class="scroll"><table class="candidates">
+<div class="scroll" tabindex="0"><table class="candidates">
 <thead><tr><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.type') }}</th><th>{{ t('dc.col.label') }}</th><th>{{ t('dc.col.choices') }}</th><th>{{ t('dc.col.owner') }}</th></tr></thead>
 <tbody>{% for f in fm.fields %}<tr data-testid="field-{{ f.name }}">
 <td class="mono">{{ f.name }}{% if f.required %} <span class="hint">· {{ t('dc.required') }}</span>{% endif %}</td>

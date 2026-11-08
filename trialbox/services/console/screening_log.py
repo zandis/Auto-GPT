@@ -25,6 +25,7 @@ from console import studies as st
 from console.auth import Session
 from console.backend import Problem, Unavailable
 from console.home import Helpers
+from console.studies import known_study
 from console.timefmt import local_date, site_zone
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -53,7 +54,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def study_or_404(sess: Session, rs: str) -> str:
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid):
+        if not _RS.match(rid) or not sess.user.sees_study(rid) or not known_study(bk, rid):
             raise h.problem(404, "notfound")
         return rid
 

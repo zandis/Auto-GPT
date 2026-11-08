@@ -23,6 +23,16 @@ STATUS_ORDER = ("new", "pending", "contacted", "screened", "enrolled", "set_asid
 
 
 # ---------------------------------------------------------------------------------------------- jobs
+def known_study(bk: Any, rid: str) -> bool:
+    """D-133 (review F-37): a study page answers only for a study TrialBox has (a ruleset of any status, so a study
+    whose protocol was read but not yet approved can be set up). A mistyped code gets the 404 page, never an empty
+    set-up form for a study that does not exist."""
+    try:
+        return any(r.id == rid for r in bk.rulesets())
+    except Exception:
+        return True
+
+
 def latest_job(jobs: Iterable[Job], ruleset: str, types: Sequence[str], state: str | None = "done") -> Job | None:
     """The most recently updated job of one of ``types`` for ``ruleset`` (and ``state``)."""
     best: Job | None = None

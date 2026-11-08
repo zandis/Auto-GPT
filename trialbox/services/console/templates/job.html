@@ -63,14 +63,14 @@
 <p data-testid="screen-headline"><strong>{{ t('job.screen.headline', high=s.tiers.high, review=s.tiers.review, scoped=s.scope.n_scoped, excluded=s.tiers.excluded) }}</strong></p>
 <p class="hint">{{ t('job.screen.scope', window=s.scope.window_days, snapshot=s.snapshot, run=s.run_date) }}{% if s.referrals %} · {{ t('job.screen.referrals') }}: {% for d, n in s.referrals.items() %}{{ d }} ({{ n }}){{ ', ' if not loop.last }}{% endfor %}{% endif %}</p>
 {% if s.judging and user.is_admin %}<p class="hint" data-testid="screen-judging">{% if s.judging.mode == 'none' %}{{ t('job.screen.judging.none') }}{% elif s.judging.may_block %}{{ t('job.screen.judging.pair', judge=s.judging.judge_model, verifier=s.judging.verifier_model) }}{% else %}{{ t('job.screen.judging.single', judge=s.judging.judge_model) }}{% endif %}</p>{% endif %}
-{% if s.funnel %}<div class="scroll"><table data-testid="screen-funnel" class="compact"><thead><tr><th scope="col">{{ t('col.stage') }}</th><th scope="col">{{ t('col.patients') }}</th><th scope="col"></th></tr></thead>
+{% if s.funnel %}<div class="scroll" tabindex="0"><table data-testid="screen-funnel" class="compact"><thead><tr><th scope="col">{{ t('col.stage') }}</th><th scope="col">{{ t('col.patients') }}</th><th scope="col"></th></tr></thead>
 <tbody>{% for stage, n in s.funnel %}<tr><td>{{ t_or('stage.' + stage, stage) }}</td><td class="num">{{ n }}</td><td>{% if s.scope.n_scoped is number and s.scope.n_scoped > 0 and n is number %}<progress max="{{ s.scope.n_scoped }}" value="{{ n }}" aria-label="{{ n }}"></progress>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 {% if s.unknown_by_criterion %}<p class="hint">{{ t('job.screen.unknowns') }}: {% for cid, n in s.unknown_by_criterion.items() %}<span class="mono">{{ cid }}</span> ({{ n }}){{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
 {% endif %}
 {% if screen.rows is not none %}
 {% if not screen.rows %}<p class="hint">{{ t('job.screen.none') }}</p>{% else %}
 <p class="hint">{{ t('job.screen.rows.help') }}</p>
-<div class="scroll"><table data-testid="screen-rows" class="candidates">
+<div class="scroll" tabindex="0"><table data-testid="screen-rows" class="candidates">
 <thead><tr><th scope="col">{{ t('col.tier') }}</th><th scope="col">{{ t('registry.pid') }}</th><th scope="col">{{ t('col.next_visit') }}</th><th scope="col">{{ t('col.practitioner') }}</th><th scope="col">{{ t('col.open') }}</th><th scope="col">{{ t('col.notes') }}</th><th scope="col">{{ t('col.chart') }}</th></tr></thead>
 <tbody>
 {% for r in screen.rows %}<tr data-pid="{{ r.pid }}" class="tier-{{ r.tier }}">
@@ -97,7 +97,7 @@
 {% endif %}
 <p class="hint">{{ t('job.result.line', population=result.population, snapshot=result.snapshot, months=result.lookback_months, start=cell(result.start_n)) }}</p>
 <h3>{{ t('job.funnel') }}</h3>
-<div class="scroll"><table data-testid="funnel">
+<div class="scroll" tabindex="0"><table data-testid="funnel">
 <thead><tr><th scope="col">{{ t('col.criterion') }}</th><th scope="col">{{ t('col.remaining') }}</th><th scope="col">{{ t('col.dropped') }}</th><th scope="col">{{ t('col.pct') }}</th></tr></thead>
 <tbody>{% for f in result.funnel %}<tr class="{{ '' if f.applied is not sameas false else 'muted' }}">
 <td><span class="mono">{{ f.criterion_id }}</span> {{ f.label }}{% if f.applied is sameas false %} <em>({{ t('job.not_applied') }})</em>{% endif %}</td>
@@ -122,7 +122,7 @@
 <p><a class="button" href="/pilot/jobs/{{ job.job_id }}/sponsor-pack.zip" data-testid="sponsor-pack">{{ t('job.sponsor_pack') }}</a><br><span class="hint">{{ t('job.sponsor_pack.help') }}</span></p>
 {% endif %}
 {% if aggregate or phi %}
-<div class="scroll"><table data-testid="outputs">
+<div class="scroll" tabindex="0"><table data-testid="outputs">
 <thead><tr><th scope="col">{{ t('col.file') }}</th><th scope="col">{{ t('col.class') }}</th><th scope="col">{{ t('col.size') }}</th></tr></thead>
 <tbody>
 {% for o in aggregate %}<tr><td class="wrap"><a href="/pilot/jobs/{{ job.job_id }}/files/{{ o.filename }}" data-file="{{ o.filename }}">{{ o.filename }}</a></td><td>{{ t('class.aggregate') }}</td><td class="mono">{{ o.sha256[:16] }}</td></tr>{% endfor %}
@@ -134,7 +134,7 @@
 <section class="card">
 <h2>{{ t('job.thread') }}</h2>
 {% if thread %}
-<div class="scroll"><table data-testid="thread">
+<div class="scroll" tabindex="0"><table data-testid="thread">
 <thead><tr><th scope="col">{{ t('col.direction') }}</th><th scope="col">{{ t('col.time') }}</th><th scope="col">{{ t('col.subject') }}</th><th scope="col">{{ t('col.party') }}</th><th scope="col">{{ t('col.class') }}</th></tr></thead>
 <tbody>{% for m, subj in thread %}
 {% if m %}<tr><td class="nowrap">{{ t('thread.in') if m.direction == 'in' else t('thread.out') }}</td><td class="mono nowrap">{{ m.at|local(19) }}</td><td data-src="mail">{{ subj }}</td><td class="mono">{{ m.party }}</td><td>{{ t('class.' + m.tag) if m.tag in ('aggregate', 'phi') else m.tag }}</td></tr>

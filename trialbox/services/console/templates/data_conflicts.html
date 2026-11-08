@@ -14,7 +14,7 @@
 
 <section class="card" data-testid="dc-conflicts">
 {% if not open_rows %}<p class="empty" data-testid="dc-no-conflict">{{ t('dc.conflicts.none') }}</p>{% else %}
-<div class="scroll"><table class="candidates">
+<div class="scroll" tabindex="0"><table class="candidates">
 <thead><tr><th>{{ t('dc.col.record') }}</th><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.trialbox') }}</th><th>{{ t('dc.col.theirs') }}</th><th>{{ t('dc.col.source') }}</th><th>{{ t('dc.col.when') }}</th>{% if editable %}<th></th>{% endif %}</tr></thead>
 <tbody>{% for c in open_rows %}<tr data-testid="conflict-{{ c.id }}">
 <td class="mono">{{ c.record }}{% if c.event %} · {{ c.event }}{% endif %}</td>
@@ -30,7 +30,7 @@
 <section class="card" data-testid="dc-resolved">
 <h2>{{ t('dc.resolved.title') }}</h2>
 {% if not done_rows %}<p class="empty">{{ t('dc.resolved.none') }}</p>{% else %}
-<div class="scroll"><table class="candidates">
+<div class="scroll" tabindex="0"><table class="candidates">
 <thead><tr><th>{{ t('dc.col.record') }}</th><th>{{ t('dc.col.field') }}</th><th>{{ t('dc.col.trialbox') }}</th><th>{{ t('dc.col.theirs') }}</th><th>{{ t('dc.col.source') }}</th><th>{{ t('dc.col.when') }}</th><th>{{ t('dc.col.choice') }}</th></tr></thead>
 <tbody>{% for c in done_rows %}<tr data-testid="resolved-{{ c.id }}">
 <td class="mono">{{ c.record }}{% if c.event %} · {{ c.event }}{% endif %}</td><td class="mono">{{ c.field }}</td>

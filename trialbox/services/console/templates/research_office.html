@@ -6,7 +6,7 @@
 <p class="hint">{{ t('office.help', k=small) }}</p>
 <p><a href="?year={{ year - 1 }}">← {{ year - 1 }}</a> · <a href="?year={{ year + 1 }}">{{ year + 1 }} →</a></p>
 <section class="card">{% if not rows %}<p class="empty">{{ t('office.empty') }}</p>{% else %}
-<div class="scroll"><table class="candidates" data-testid="office">
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="office">
 <thead><tr><th>{{ t('office.study') }}</th>{% for k in keys %}<th>{{ t('office.' + k) }}</th>{% endfor %}</tr></thead>
 <tbody>{% for r in rows %}<tr><td>{{ r.study }}</td>{% for k in keys %}<td class="num">{{ r[k] }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>

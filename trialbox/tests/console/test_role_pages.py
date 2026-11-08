@@ -233,7 +233,7 @@ def test_weekly_list_marks_and_patient_page_in_three_languages(box: dict[str, An
     assert "cccccccc" not in page  # excluded tier never listed
     r = pi.post(
         f"/studies/GZQO/patients/{'b' * 32}/mark",
-        data={"csrf": _csrf(page), "mark": "not_suitable", "reason": "partner"},
+        data={"csrf": _csrf(page), "mark": "not_suitable", "reason": "comorbidity"},
         follow_redirects=True,
     )
     assert 'data-testid="row-bbbbbbbb"' not in r.text  # not suitable leaves the list
@@ -245,14 +245,20 @@ def test_weekly_list_marks_and_patient_page_in_three_languages(box: dict[str, An
     assert sum(1 for e in events if e.get("event") == "console.pi_mark") == 2
     p = pi.get(f"/studies/GZQO/patients/{'a' * 32}").text
     assert "two flares this spring" in p and 'data-testid="criteria"' in p
-    r = pi.post(f"/studies/GZQO/patients/{'a' * 32}/reveal", data={"csrf": _csrf(p)})
-    assert "MRN-000123" in r.text and box["backend"].revealed[-1][2] == "console:drsato"
+    # D-133 (review F-38): the investigator's role text says "no chart numbers": no reveal button, and a 403
+    assert 'data-testid="reveal"' not in p
+    r = pi.post(f"/studies/GZQO/patients/{'a' * 32}/reveal", data={"csrf": _csrf(p), "reason": "contact"})
+    assert r.status_code == 403 and "MRN-000123" not in r.text and not box["backend"].revealed
     crc = _user(box, "crc1", "coordinator")
+    cp = crc.get(f"/studies/GZQO/patients/{'a' * 32}").text
+    assert 'data-testid="reveal"' in cp and "recorded with your name" in cp
+    r = crc.post(f"/studies/GZQO/patients/{'a' * 32}/reveal", data={"csrf": _csrf(cp), "reason": "contact"})
+    assert "MRN-000123" in r.text and box["backend"].revealed[-1][2] == "console:crc1"
     r = crc.post(
         f"/studies/GZQO/patients/{'a' * 32}/mark", data={"csrf": _csrf(crc.get("/home").text), "mark": "approach"}
     )
     assert r.status_code == 403  # marks are the investigator's
-    for lang, word in (("ja", "今週の候補患者リスト"), ("zh-TW", "本週候選病人名單")):
+    for lang, word in (("ja", "今週の患者"), ("zh-TW", "本週病人")):  # D-133: one name per page
         pi.post("/lang", data={"csrf": _csrf(page), "lang": lang, "back": "/studies/GZQO/week"})
         assert word in pi.get("/studies/GZQO/week").text
     # D-119: a row's reason is a code, said in the page's language, never the English token

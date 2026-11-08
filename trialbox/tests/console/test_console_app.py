@@ -4,6 +4,8 @@ small cells)."""
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import io
 import json
 import re
@@ -414,7 +416,14 @@ def test_security_headers_and_cookie_flags(box: dict[str, Any]) -> None:
     c = TestClient(box["app"])
     r = c.get("/login")
     assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
-    assert "script-src 'none'" in r.headers["content-security-policy"]
+    # D-133: one first-party script, allowed by its hash only (no 'self', no 'unsafe-inline', no other origin)
+    csp = r.headers["content-security-policy"]
+    src = re.search(r"script-src ([^;]+)", csp)
+    assert src and re.fullmatch(r"'sha256-[A-Za-z0-9+/]+=*'", src.group(1).strip())
+    inline = re.findall(r"<script>(.*?)</script>", r.text, re.S)
+    assert len(inline) == 1 and "<script src" not in r.text
+    digest = base64.b64encode(hashlib.sha256(inline[0].encode("utf-8")).digest()).decode("ascii")
+    assert f"'sha256-{digest}'" in csp  # the page's one script is the one the policy allows
     assert r.headers["x-frame-options"] == "DENY" and r.headers["referrer-policy"] == "no-referrer"
     tok = re.search(r'name="login_csrf" value="([^"]+)"', r.text)
     assert tok
@@ -1062,7 +1071,7 @@ def test_audit_chain_stays_valid(box: dict[str, Any]) -> None:
 def test_language_switch(box: dict[str, Any]) -> None:
     c, csrf = login(box["app"])
     c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/jobs"})
-    assert "ジョブ" in c.get("/jobs").text
+    assert "処理" in c.get("/jobs").text  # D-133 glossary: 処理, not ジョブ
 
 
 @pytest.mark.req("FR-UX-32")
@@ -1263,17 +1272,22 @@ def test_users_page_add_reset_disable(box: dict[str, Any]) -> None:
         },
         follow_redirects=False,
     )
-    assert r.status_code == 303 and "made=nurse.lin" in r.headers["location"]
+    # D-133 (review F-02): the one-time password is never in the URL; the next page shows it once, grouped
+    assert r.status_code == 303 and r.headers["location"] == "/ops/users#made"
     page = c.get(r.headers["location"]).text
-    pw = re.search(r'data-testid="users-pw">([^<]+)<', page)
+    pw = re.search(r'value="([^"]+)" data-testid="users-pw-field"', page)
     assert pw and len(pw.group(1)) >= 12 and 'data-user="nurse.lin"' in page
+    assert re.fullmatch(r"([a-z2-9]{4}-){4}[a-z2-9]{4}", pw.group(1)) and not set(pw.group(1)) & set("01ilo")
+    assert 'data-testid="handover"' in page and pw.group(1) not in c.get("/ops/users").text  # shown once only
+    assert all(pw.group(1) not in repr(e) for e in read_audit(box["dir"] / "audit"))  # never in the audit trail
     n, _ = login(box["app"], "nurse.lin", pw.group(1))  # the one-time password works once handed over
     assert "study coordinator" in n.get("/").text
     # reset signs the person out everywhere and shows a new password once
     r = c.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": "nurse.lin"}, follow_redirects=False)
     assert r.status_code == 303
     assert n.get("/", follow_redirects=False).status_code == 303  # session gone
-    pw2 = re.search(r'data-testid="users-pw">([^<]+)<', c.get(r.headers["location"]).text)
+    assert "pw=" not in r.headers["location"]
+    pw2 = re.search(r'value="([^"]+)" data-testid="users-pw-field"', c.get(r.headers["location"]).text)
     assert pw2 and pw2.group(1) != pw.group(1)
     # cannot disable yourself; can disable others; duplicates and bad roles are refused with a reason
     assert c.post("/ops/users", data={"csrf": csrf, "action": "disable", "username": "admin"}).status_code == 400

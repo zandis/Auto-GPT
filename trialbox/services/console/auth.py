@@ -115,8 +115,13 @@ def check_username(username: str) -> str:
     return u
 
 
-def random_password() -> str:
-    return secrets.token_urlsafe(18)  # 24 characters, ~144 bits
+# D-133 (review F-02): a one-time password is read out over the phone or handed over on paper, so it has no
+# characters that look alike (0/o, 1/l/i) and comes in groups of four: "k7dm-q3xa-..." (5 groups, ~99 bits).
+READABLE = "abcdefghjkmnpqrstuvwxyz23456789"
+
+
+def random_password(groups: int = 5) -> str:
+    return "-".join("".join(secrets.choice(READABLE) for _ in range(4)) for _ in range(groups))
 
 
 def _sha(token: str) -> str:
@@ -147,6 +152,12 @@ class User:
         Administrators, coordinators and investigators (D-101). Chart numbers (reveal, registry export) stay with
         the requesters, who keep the screening log."""
         return self.role in ("admin", "coordinator", "investigator")
+
+    @property
+    def can_reveal(self) -> bool:
+        """May reveal a chart number (audited): the requesters only, on the job page and the patient page alike.
+        D-133 (review F-38): the investigator's role text says "no chart numbers", so the investigator may not."""
+        return self.can_request
 
     @property
     def can_mark(self) -> bool:
@@ -325,6 +336,18 @@ class UserStore:
         since = (self.clock() - LOCKOUT).isoformat()
         n = self.db.fetchval("SELECT count(*) FROM login_failures WHERE username = ? AND at >= ?", (username, since))
         return int(n) >= MAX_FAILURES
+
+    def locked_until(self, username: str) -> datetime | None:
+        """When a locked account opens again (D-133, review F-05: the sign-in page shows it), or None. Unknown names
+        lock the same way, so this tells nothing about which accounts exist."""
+        since = (self.clock() - LOCKOUT).isoformat()
+        rows = self.db.fetchall(
+            "SELECT at FROM login_failures WHERE username = ? AND at >= ? ORDER BY at DESC",
+            (username.strip().lower()[:64], since),
+        )
+        if len(rows) < MAX_FAILURES:
+            return None
+        return datetime.fromisoformat(str(rows[MAX_FAILURES - 1][0])) + LOCKOUT
 
     def authenticate(self, username: str, password: str) -> User | None:
         """The user, or None (unknown user, wrong password, disabled or locked). Constant work for unknown users."""

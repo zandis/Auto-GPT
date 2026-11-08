@@ -4,14 +4,26 @@
 <h1>{{ t('users.title') }}</h1>
 <p>{{ t('users.help') }}</p>
 {% if sso %}<p class="hint" data-testid="users-sso">{{ t('users.sso') }}</p>{% endif %}
-{% if made %}<section class="card attention" data-testid="users-made"><p>{{ t('users.made', user=made) }}</p><p><code data-testid="users-pw">{{ pw }}</code></p><p class="hint">{{ t('users.made.help') }}</p></section>{% endif %}
+{% if made %}<section class="card attention" id="made" data-testid="users-made" aria-labelledby="made-h">
+<h2 id="made-h">{{ t('users.made', user=made) }}</h2>
+<p class="otp" aria-label="{{ t('users.pw.aloud') }}">{% for g in pw_groups %}<span>{{ g }}</span>{% endfor %}</p>
+<label for="otp-value">{{ t('users.pw.copy_label') }}</label>
+<div class="pair"><input id="otp-value" class="mono" readonly value="{{ pw }}" data-testid="users-pw-field" autocomplete="off" spellcheck="false"><button type="button" class="secondary" data-copy="otp-value" data-done="{{ t('users.pw.copied') }}" hidden>{{ t('users.pw.copy') }}</button></div>
+<ol class="steps-list" data-testid="handover">
+<li>{{ t('users.handover.1', user=made) }}</li>
+<li>{{ t('users.handover.2') }}</li>
+<li>{{ t('users.handover.3') }}</li>
+</ol>
+<p class="warn">{{ t('users.pw.once') }}</p>
+</section>{% endif %}
 <div class="grid">
 <section class="card">
 <h2>{{ t('users.add') }}</h2>
 <form method="post" action="/ops/users">
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="add">
   <label for="username">{{ t('login.user') }}</label>
-  <input id="username" name="username" required maxlength="32" pattern="[a-z0-9._-]+" autocomplete="off">
+  <input id="username" name="username" required maxlength="32" pattern="[a-z0-9._-]+" autocomplete="off" aria-describedby="username-rule">
+  <p class="hint" id="username-rule">{{ t('users.username.rule') }}</p>
   <label for="role">{{ t('users.role') }}</label>
   <select id="role" name="role">{% for r in roles %}<option value="{{ r }}" {{ 'selected' if r == 'coordinator' else '' }}>{{ t('role.' + r) }}</option>{% endfor %}</select>
   <label for="mailbox">{{ t('users.mailbox') }}</label>
@@ -38,7 +50,7 @@
 </section>
 </div>
 <section class="card">
-<div class="scroll"><table data-testid="users-table">
+<div class="scroll" tabindex="0"><table data-testid="users-table">
 <thead><tr><th>{{ t('login.user') }}</th><th>{{ t('users.role') }}</th><th>{{ t('users.mailbox') }}</th><th>{{ t('users.affiliation') }}</th><th>{{ t('users.studies') }}</th><th>{{ t('users.expires') }}</th><th>{{ t('users.signin') }}</th><th></th></tr></thead>
 <tbody>
 {% for u, is_sso in users %}
