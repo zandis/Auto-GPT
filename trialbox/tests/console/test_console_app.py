@@ -1460,3 +1460,17 @@ def test_request_buttons_say_what_they_start_and_case_form_lists_trials_only(box
     case = c.get("/pilot/case").text
     assert "GZQO" in case and "RA-BIO" not in case  # the NHI ruleset is not a trial
     assert "Choose the trial" not in case  # one trial: nothing to pick
+
+
+# ---------------------------------------------------------------------------------------------- error pages
+def test_unknown_url_in_the_browser_gets_the_console_404_page(box: dict[str, Any]) -> None:
+    """Found by the public-data e2e walk: an unknown URL showed the framework's raw JSON, no page, no language."""
+    c, csrf = login(box["app"])
+    c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
+    r = c.get("/no-such-page", headers={"Accept": "text/html,application/xhtml+xml"})
+    assert r.status_code == 404
+    assert '<html lang="ja">' in r.text and 'data-testid="problem"' in r.text and "見つかりません" in r.text
+    anon = TestClient(box["app"]).get("/nope", headers={"Accept": "text/html"})
+    assert anon.status_code == 404 and 'data-testid="problem"' in anon.text  # signed out: same page, no session
+    api = c.get("/no-such-page", headers={"Accept": "application/json"})
+    assert api.status_code == 404 and api.json() == {"detail": "Not Found"}  # API clients keep JSON

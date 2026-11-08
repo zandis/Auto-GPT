@@ -33,9 +33,10 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import FastAPI, File, Form, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import AuditLog
 from tb_common.crypto import sha256_bytes
 from tb_common.ulid import new_ulid
@@ -513,6 +514,14 @@ def create_app(
     async def _problem(request: Request, exc: _Problem) -> Response:
         sess = session_of(request)
         return page(request, "problem.html", sess, status=exc.status, key=exc.key, values=exc.values)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
+        # an unknown URL typed or followed in the browser gets the console's own page in the user's language, not
+        # the framework's JSON; API clients (no text/html in Accept) keep the JSON answer
+        if exc.status_code == 404 and "text/html" in request.headers.get("accept", ""):
+            return page(request, "problem.html", session_of(request), status=404, key="notfound", values={})
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=getattr(exc, "headers", None))
 
     @app.exception_handler(Unavailable)
     async def _unavailable(request: Request, exc: Unavailable) -> Response:
