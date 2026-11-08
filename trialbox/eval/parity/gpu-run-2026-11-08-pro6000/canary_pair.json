@@ -1,0 +1,72 @@
+{
+ "ok": true,
+ "cases": 54,
+ "models": [
+  {
+   "role": "judge",
+   "model": "local/gemma-4-26b-a4b-nvfp4",
+   "cases": 54,
+   "answered": 54,
+   "correct": 54,
+   "flips": 0,
+   "seconds": 125.3,
+   "errors": [],
+   "wrong": [],
+   "ok": true
+  },
+  {
+   "role": "verifier",
+   "model": "local/qwen3.5-9b-awq",
+   "cases": 54,
+   "answered": 54,
+   "correct": 49,
+   "flips": 1,
+   "seconds": 146.0,
+   "errors": [],
+   "wrong": [
+    {
+     "id": "en:preg:silent",
+     "expected": "unknown",
+     "got": "fail"
+    },
+    {
+     "id": "en:stroke:silent",
+     "expected": "unknown",
+     "got": "fail"
+    },
+    {
+     "id": "ja:preg:silent",
+     "expected": "unknown",
+     "got": "fail"
+    },
+    {
+     "id": "ja:chemo:yes",
+     "expected": "pass",
+     "got": "fail"
+    },
+    {
+     "id": "zh-TW:stroke:silent",
+     "expected": "unknown",
+     "got": "fail"
+    }
+   ],
+   "ok": true
+  }
+ ],
+ "pair": {
+  "cases": 54,
+  "correct": 53,
+  "decided_wrong": 0,
+  "disagreed": 1,
+  "wrong": []
+ },
+ "problems": [],
+ "thresholds": {
+  "min_answered": 0.95,
+  "max_flips": 1,
+  "min_accuracy": 0.85,
+  "max_pair_wrong": 0
+ },
+ "seconds": 271.3,
+ "at": "2026-11-08T13:41:56"
+}
