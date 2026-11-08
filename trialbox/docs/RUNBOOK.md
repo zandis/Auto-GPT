@@ -330,9 +330,10 @@ a time** (`TB_MODEL_SWAP=sleep`, the default there):
 Check the swap by hand: `curl -s http://gateway:8020/v1/serving/status` (inside trialbox-net) shows which model is
 awake and how long the last swap took.
 
-**Not yet measured on a real 5090** (needs a GPU run): the memory of each model while awake (`JUDGE_GPU_MEM_UTIL`,
-`VERIFIER_GPU_MEM_UTIL`, 0.82 each), the swap time, and whether vLLM's free-memory check at start accepts the
-order above. Host RAM must hold the sleeping model (64 GB or more).
+**Measured 2026-11-08** on an RTX PRO 6000 capped to 32 GB (same caps): one model awake uses 27-29.6 GB of the
+card in all, the sleeping one 1.3 GB; the second server starts while the first sleeps; sleep takes 0.4-3.7 s and
+wake 0.3-0.5 s. Side by side the pair does not fit. Not yet run on a physical 5090. Host RAM must hold the sleeping
+model (64 GB or more).
 
 **After a host reboot** run `docker compose ... up -d --wait` again (or `deploy/install.sh --yes`): Docker restarts
 the two vLLM containers together and the start-order helpers run only under compose, so the second model can fail

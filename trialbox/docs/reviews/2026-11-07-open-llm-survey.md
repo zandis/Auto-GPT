@@ -196,6 +196,11 @@ Gemma 4 fp4 it lost 1/79 at recall 0.48 (Qwen3.5-9B: 1/79 at 0.58 on the API, 2/
 it scored 53/54, with one answer from silence ("not pregnant" with no mention). That ties with Qwen after the quote
 fix, and it has no published medical or Japanese results, so Qwen3.5-9B stays.
 
+**4-bit Gemma build compared on the card (2026-11-08, RTX PRO 6000 capped to 32 GB; build thread report
+`/mnt/project-files/trialbox-build/real-data-e2e-report.md`).** Pairs lost of 79 (EN / JA): NVFP4 + Qwen AWQ 4 / 2
+(zh-TW 1), QAT-AWQ + Qwen AWQ 4 / 2. Alone: NVFP4 11 / 7, QAT 10 / 12. Canary: NVFP4 53/54, QAT 51 with 3 broken
+JSON and 4x slower. **Keep NVFP4.** The sleep-mode swap works on 32 GB (under 1 s to switch); side by side does not.
+
 Still to measure on a real card: memory while awake, swap time and the start order (item 1 below).
 
 ## Next steps
