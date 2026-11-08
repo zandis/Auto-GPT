@@ -28,8 +28,6 @@ import yaml
 
 from console.auth import AuthError, UserStore, random_password
 
-DATA = Path(os.environ.get("TB_CONSOLE_DIR", "/data/console"))
-
 
 def _audit(event: str, **fields: Any) -> None:
     from tb_common.audit import AuditLog
@@ -167,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         print({k: rep.get(k) for k in ("passed", "snapshot", "counts", "fhir_loaded")})
         return 0 if rep.get("passed") else 1
 
-    store = UserStore(DATA / "console.sqlite")
+    store = UserStore()  # schema auth of the trial database (TB_DB_URL, D-126)
     try:
         if args.cmd == "bootstrap-admin":
             if store.count("admin") > 0:

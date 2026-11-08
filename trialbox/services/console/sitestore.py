@@ -1,4 +1,4 @@
-"""What the site types into TrialBox and the PI's weekly marks (D-104), kept in the console's own SQLite file.
+"""What the site types into TrialBox and the PI's weekly marks (D-104), kept in the trial database (schema ``site``).
 
 * **Site profile** per study: the parts of a sponsor feasibility questionnaire the EMR cannot answer — site
   capability checklist, competing trials, sponsor target, screen-failure rate, a comment for the barriers table —
@@ -12,17 +12,17 @@
   pre-ticks, who receives which notice (investigator -> practitioner id for clinic days, digest time) and the notice
   log.
 
-Nothing here holds a chart number or a name.
+Stored in the trial database (PostgreSQL ``trialbox_wf``, schema ``site``; D-126). Nothing here holds a chart number
+or a name.
 """
 
 from __future__ import annotations
 
 import json
-import sqlite3
-import threading
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
+
+from console.storedb import open_db
 
 MARKS = ("approach", "need_info", "not_suitable", "not_now")  # one vocabulary on every screen, mail, export
 WITHDRAWN = "withdrawn"  # a withdrawn mark: stored as an event, so the history keeps the earlier mark (FR-SCR-07e/j)
@@ -60,38 +60,41 @@ CAPABILITIES_AD: tuple[str, ...] = (
 CAPABILITIES_GENERAL: tuple[str, ...] = ("imaging", "lab", "pharmacy", "infusion", "raters_general", "ip_storage")
 CAP_VALUES = ("yes", "partner", "no", "na")
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS site_profile (
+# Version 1 is the schema the SQLite file had (D-126). Append new versions; never edit an applied one. ``at`` columns
+# hold ISO-8601 text and sort with the "C" collation, byte by byte, as SQLite compared them.
+SCHEMA_V1 = """
+CREATE TABLE site_profile (
   ruleset TEXT PRIMARY KEY,
   body TEXT NOT NULL,
   entered_by TEXT NOT NULL,
   entered_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS pi_marks (
+CREATE TABLE pi_marks (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   ruleset TEXT NOT NULL,
   pid TEXT NOT NULL,
   mark TEXT NOT NULL,
   reason TEXT,
   note TEXT,
   by TEXT NOT NULL,
-  at TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL,
   job_id TEXT
 );
-CREATE INDEX IF NOT EXISTS pi_marks_rs ON pi_marks (ruleset, pid, at);
-CREATE TABLE IF NOT EXISTS weekly_seen (
+CREATE INDEX pi_marks_rs ON pi_marks (ruleset, pid, at);
+CREATE TABLE weekly_seen (
   ruleset TEXT NOT NULL,
   pid TEXT NOT NULL,
   first_job TEXT NOT NULL,
   first_at TEXT NOT NULL,
   PRIMARY KEY (ruleset, pid)
 );
-CREATE TABLE IF NOT EXISTS study_settings (
+CREATE TABLE study_settings (
   ruleset TEXT PRIMARY KEY,
   body TEXT NOT NULL,
   by TEXT NOT NULL,
   at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS screening_no (
+CREATE TABLE screening_no (
   ruleset TEXT NOT NULL,
   pid TEXT NOT NULL,
   seq INTEGER NOT NULL,
@@ -100,24 +103,25 @@ CREATE TABLE IF NOT EXISTS screening_no (
   PRIMARY KEY (ruleset, pid),
   UNIQUE (ruleset, seq)
 );
-CREATE TABLE IF NOT EXISTS contact_outcomes (
+CREATE TABLE contact_outcomes (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   ruleset TEXT NOT NULL,
   pid TEXT NOT NULL,
   outcome TEXT NOT NULL,
   retry TEXT,
   note TEXT,
   by TEXT NOT NULL,
-  at TEXT NOT NULL
+  at TEXT COLLATE "C" NOT NULL
 );
-CREATE INDEX IF NOT EXISTS contact_outcomes_rs ON contact_outcomes (ruleset, pid, at);
-CREATE TABLE IF NOT EXISTS approval_opened (
+CREATE INDEX contact_outcomes_rs ON contact_outcomes (ruleset, pid, at);
+CREATE TABLE approval_opened (
   job_id TEXT NOT NULL,
   crit TEXT NOT NULL,
   by TEXT NOT NULL,
   at TEXT NOT NULL,
   PRIMARY KEY (job_id, crit, by)
 );
-CREATE TABLE IF NOT EXISTS criterion_labels (
+CREATE TABLE criterion_labels (
   ruleset TEXT NOT NULL,
   crit TEXT NOT NULL,
   lang TEXT NOT NULL,
@@ -126,29 +130,30 @@ CREATE TABLE IF NOT EXISTS criterion_labels (
   at TEXT NOT NULL,
   PRIMARY KEY (ruleset, crit, lang)
 );
-CREATE TABLE IF NOT EXISTS code_ticks (
+CREATE TABLE code_ticks (
   job_id TEXT NOT NULL,
   crit TEXT NOT NULL,
   by TEXT NOT NULL,
   at TEXT NOT NULL,
   PRIMARY KEY (job_id, crit)
 );
-CREATE TABLE IF NOT EXISTS notify_people (
+CREATE TABLE notify_people (
   username TEXT PRIMARY KEY,
   practitioner_id TEXT,
   digest_time TEXT NOT NULL DEFAULT '07:30',
   enabled INTEGER NOT NULL DEFAULT 1,
   lang TEXT NOT NULL DEFAULT 'en'
 );
-CREATE TABLE IF NOT EXISTS notify_log (
+CREATE TABLE notify_log (
   kind TEXT NOT NULL,
   username TEXT NOT NULL,
   day TEXT NOT NULL,
-  at TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL,
   subject TEXT NOT NULL,
   PRIMARY KEY (kind, username, day)
-);
+)
 """
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1,)
 
 
 @dataclass
@@ -239,19 +244,17 @@ class Mark:
 
 
 class SiteStore:
-    def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
-        self._con = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
-        self._con.execute("PRAGMA journal_mode=WAL")
-        self._con.executescript(SCHEMA)
+    """Schema ``site`` of the trial database (D-126). ``url`` defaults to ``TB_DB_URL``."""
+
+    def __init__(self, url: str | None = None) -> None:
+        self.db = open_db(url, "site", MIGRATIONS)
+
+    def close(self) -> None:
+        self.db.close()
 
     # ------------------------------------------------------------------ site profile
     def profile(self, ruleset: str) -> SiteProfile:
-        with self._lock:
-            row = self._con.execute(
-                "SELECT body, entered_by, entered_at FROM site_profile WHERE ruleset = ?", (ruleset,)
-            ).fetchone()
+        row = self.db.fetchone("SELECT body, entered_by, entered_at FROM site_profile WHERE ruleset = ?", (ruleset,))
         if row is None:
             return SiteProfile()
         body = json.loads(row[0])
@@ -259,13 +262,12 @@ class SiteStore:
 
     def save_profile(self, ruleset: str, prof: SiteProfile, by: str, at: str) -> SiteProfile:
         body = json.dumps(prof.as_dict(), ensure_ascii=False, sort_keys=True)
-        with self._lock:
-            self._con.execute(
-                "INSERT INTO site_profile (ruleset, body, entered_by, entered_at) VALUES (?,?,?,?) "
-                "ON CONFLICT(ruleset) DO UPDATE SET body = excluded.body, entered_by = excluded.entered_by, "
-                "entered_at = excluded.entered_at",
-                (ruleset, body, by, at),
-            )
+        self.db.execute(
+            "INSERT INTO site_profile (ruleset, body, entered_by, entered_at) VALUES (?,?,?,?) "
+            "ON CONFLICT (ruleset) DO UPDATE SET body = excluded.body, entered_by = excluded.entered_by, "
+            "entered_at = excluded.entered_at",
+            (ruleset, body, by, at),
+        )
         prof.entered_by, prof.entered_at = by, at
         return prof
 
@@ -273,75 +275,60 @@ class SiteStore:
     def mark(self, ruleset: str, m: Mark) -> None:
         if m.mark not in (*MARKS, WITHDRAWN):
             raise ValueError(f"mark must be one of {', '.join(MARKS)}")
-        with self._lock:
-            self._con.execute(
-                "INSERT INTO pi_marks (ruleset, pid, mark, reason, note, by, at, job_id) VALUES (?,?,?,?,?,?,?,?)",
-                (ruleset, m.pid, m.mark, m.reason, m.note, m.by, m.at, m.job_id),
-            )
+        self.db.execute(
+            "INSERT INTO pi_marks (ruleset, pid, mark, reason, note, by, at, job_id) VALUES (?,?,?,?,?,?,?,?)",
+            (ruleset, m.pid, m.mark, m.reason, m.note, m.by, m.at, m.job_id),
+        )
 
     def latest_marks(self, ruleset: str) -> dict[str, Mark]:
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT pid, mark, reason, note, by, at, job_id FROM pi_marks WHERE ruleset = ? ORDER BY at, rowid",
-                (ruleset,),
-            ).fetchall()
         out: dict[str, Mark] = {}
-        for r in rows:
-            if r[1] == WITHDRAWN:  # the PI took the mark back: no current mark, the history keeps both events
-                out.pop(str(r[0]), None)
+        for m in self.all_marks(ruleset):
+            if m.mark == WITHDRAWN:  # the PI took the mark back: no current mark, the history keeps both events
+                out.pop(m.pid, None)
             else:
-                out[str(r[0])] = Mark(*r)
+                out[m.pid] = m
         return out
 
     def mark_history(self, ruleset: str, pid: str) -> list[Mark]:
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT pid, mark, reason, note, by, at, job_id FROM pi_marks WHERE ruleset = ? AND pid = ? "
-                "ORDER BY at, rowid",
-                (ruleset, pid),
-            ).fetchall()
+        rows = self.db.fetchall(
+            "SELECT pid, mark, reason, note, by, at, job_id FROM pi_marks WHERE ruleset = ? AND pid = ? "
+            "ORDER BY at, id",
+            (ruleset, pid),
+        )
         return [Mark(*r) for r in rows]
 
     # ------------------------------------------------------------------ weekly appearances
     def seen(self, ruleset: str, pids: list[str], job_id: str, at: str) -> dict[str, str]:
         """Record first appearances of ``pids`` on a list for ``ruleset``; return pid -> job id of first listing."""
-        with self._lock:
-            for pid in pids:
-                self._con.execute(
-                    "INSERT OR IGNORE INTO weekly_seen (ruleset, pid, first_job, first_at) VALUES (?,?,?,?)",
-                    (ruleset, pid, job_id, at),
-                )
-            rows = self._con.execute("SELECT pid, first_job FROM weekly_seen WHERE ruleset = ?", (ruleset,)).fetchall()
+        with self.db.transaction() as tx:
+            tx.executemany(
+                "INSERT INTO weekly_seen (ruleset, pid, first_job, first_at) VALUES (?,?,?,?) "
+                "ON CONFLICT (ruleset, pid) DO NOTHING",
+                [(ruleset, pid, job_id, at) for pid in pids],
+            )
+            rows = tx.fetchall("SELECT pid, first_job FROM weekly_seen WHERE ruleset = ?", (ruleset,))
         return {str(p): str(j) for p, j in rows}
 
     def first_seen(self, ruleset: str) -> dict[str, tuple[str, str]]:
         """pid -> (first job, first time) a pseudonym was listed for ``ruleset``."""
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT pid, first_job, first_at FROM weekly_seen WHERE ruleset = ?", (ruleset,)
-            ).fetchall()
+        rows = self.db.fetchall("SELECT pid, first_job, first_at FROM weekly_seen WHERE ruleset = ?", (ruleset,))
         return {str(p): (str(j), str(a)) for p, j, a in rows}
 
     def screening_rows(self, ruleset: str) -> list[tuple[str, str, str]]:
         """(pid, screening number, assigned at), in number order."""
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT pid, no, at FROM screening_no WHERE ruleset = ? ORDER BY seq", (ruleset,)
-            ).fetchall()
+        rows = self.db.fetchall("SELECT pid, no, at FROM screening_no WHERE ruleset = ? ORDER BY seq", (ruleset,))
         return [(str(p), str(n), str(a)) for p, n, a in rows]
 
     def all_marks(self, ruleset: str) -> list[Mark]:
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT pid, mark, reason, note, by, at, job_id FROM pi_marks WHERE ruleset = ? ORDER BY at, rowid",
-                (ruleset,),
-            ).fetchall()
+        rows = self.db.fetchall(
+            "SELECT pid, mark, reason, note, by, at, job_id FROM pi_marks WHERE ruleset = ? ORDER BY at, id",
+            (ruleset,),
+        )
         return [Mark(*r) for r in rows]
 
     # ------------------------------------------------------------------ study settings (D-108)
     def study_settings(self, ruleset: str, default: StudySettings | None = None) -> StudySettings:
-        with self._lock:
-            row = self._con.execute("SELECT body FROM study_settings WHERE ruleset = ?", (ruleset,)).fetchone()
+        row = self.db.fetchone("SELECT body FROM study_settings WHERE ruleset = ?", (ruleset,))
         base = default or StudySettings()
         if row is None:
             return base
@@ -355,39 +342,34 @@ class SiteStore:
         if not s.reasons or any(r not in ALL_REASONS for r in s.reasons):
             raise ValueError(f"reasons must be among {', '.join(ALL_REASONS)}")
         body = json.dumps(s.as_dict(), ensure_ascii=False, sort_keys=True)
-        with self._lock:
-            self._con.execute(
-                "INSERT INTO study_settings (ruleset, body, by, at) VALUES (?,?,?,?) ON CONFLICT(ruleset) DO UPDATE "
-                "SET body = excluded.body, by = excluded.by, at = excluded.at",
-                (ruleset, body, by, at),
-            )
+        self.db.execute(
+            "INSERT INTO study_settings (ruleset, body, by, at) VALUES (?,?,?,?) ON CONFLICT (ruleset) DO UPDATE "
+            "SET body = excluded.body, by = excluded.by, at = excluded.at",
+            (ruleset, body, by, at),
+        )
 
     # ------------------------------------------------------------------ screening numbers (FR-STUDY-08, BD-18)
     def screening_no(self, ruleset: str, pid: str) -> str | None:
-        with self._lock:
-            row = self._con.execute(
-                "SELECT no FROM screening_no WHERE ruleset = ? AND pid = ?", (ruleset, pid)
-            ).fetchone()
+        row = self.db.fetchone("SELECT no FROM screening_no WHERE ruleset = ? AND pid = ?", (ruleset, pid))
         return str(row[0]) if row else None
 
     def screening_nos(self, ruleset: str) -> dict[str, str]:
-        with self._lock:
-            rows = self._con.execute("SELECT pid, no FROM screening_no WHERE ruleset = ?", (ruleset,)).fetchall()
+        rows = self.db.fetchall("SELECT pid, no FROM screening_no WHERE ruleset = ?", (ruleset,))
         return {str(p): str(n) for p, n in rows}
 
     def assign_screening_no(self, ruleset: str, pid: str, settings: StudySettings, at: str) -> str:
         """The study's next screening number for ``pid``; an existing number is kept (never re-used, never moved)."""
-        with self._lock:
-            row = self._con.execute(
-                "SELECT no FROM screening_no WHERE ruleset = ? AND pid = ?", (ruleset, pid)
-            ).fetchone()
+        with self.db.transaction() as tx:
+            # one numberer per study at a time, across console processes too
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"screening_no:{ruleset}",))
+            row = tx.fetchone("SELECT no FROM screening_no WHERE ruleset = ? AND pid = ?", (ruleset, pid))
             if row is not None:
                 return str(row[0])
-            top = self._con.execute("SELECT MAX(seq) FROM screening_no WHERE ruleset = ?", (ruleset,)).fetchone()[0]
+            top = tx.fetchval("SELECT MAX(seq) FROM screening_no WHERE ruleset = ?", (ruleset,))
             seq = max(int(top or 0) + 1, settings.first_no)
             prefix = settings.screening_prefix or f"{ruleset}-"
             no = f"{prefix}{seq:04d}"
-            self._con.execute(
+            tx.execute(
                 "INSERT INTO screening_no (ruleset, pid, seq, no, at) VALUES (?,?,?,?,?)", (ruleset, pid, seq, no, at)
             )
         return no
@@ -396,113 +378,102 @@ class SiteStore:
     def add_outcome(self, ruleset: str, o: Outcome) -> None:
         if o.outcome not in OUTCOMES:
             raise ValueError(f"outcome must be one of {', '.join(OUTCOMES)}")
-        with self._lock:
-            self._con.execute(
-                "INSERT INTO contact_outcomes (ruleset, pid, outcome, retry, note, by, at) VALUES (?,?,?,?,?,?,?)",
-                (ruleset, o.pid, o.outcome, o.retry, o.note, o.by, o.at),
-            )
+        self.db.execute(
+            "INSERT INTO contact_outcomes (ruleset, pid, outcome, retry, note, by, at) VALUES (?,?,?,?,?,?,?)",
+            (ruleset, o.pid, o.outcome, o.retry, o.note, o.by, o.at),
+        )
 
     def outcomes(self, ruleset: str, pid: str | None = None) -> list[Outcome]:
         q = "SELECT pid, outcome, retry, note, by, at FROM contact_outcomes WHERE ruleset = ?"
         args: tuple[str, ...] = (ruleset,)
         if pid is not None:
             q, args = q + " AND pid = ?", (ruleset, pid)
-        with self._lock:
-            rows = self._con.execute(q + " ORDER BY at, rowid", args).fetchall()
+        rows = self.db.fetchall(q + " ORDER BY at, id", args)
         return [Outcome(*r) for r in rows]
 
     # ------------------------------------------------------------------ approval page (FR-FEAS-12a/d)
     def open_row(self, job_id: str, crit: str, by: str, at: str) -> None:
-        with self._lock:
-            self._con.execute(
-                "INSERT OR IGNORE INTO approval_opened (job_id, crit, by, at) VALUES (?,?,?,?)", (job_id, crit, by, at)
-            )
+        self.db.execute(
+            "INSERT INTO approval_opened (job_id, crit, by, at) VALUES (?,?,?,?) "
+            "ON CONFLICT (job_id, crit, by) DO NOTHING",
+            (job_id, crit, by, at),
+        )
 
     def opened_rows(self, job_id: str, by: str) -> set[str]:
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT crit FROM approval_opened WHERE job_id = ? AND by = ?", (job_id, by)
-            ).fetchall()
+        rows = self.db.fetchall("SELECT crit FROM approval_opened WHERE job_id = ? AND by = ?", (job_id, by))
         return {str(r[0]) for r in rows}
 
     def tick_codes(self, job_id: str, crit: str, by: str, at: str) -> None:
-        with self._lock:
-            self._con.execute(
-                "INSERT OR REPLACE INTO code_ticks (job_id, crit, by, at) VALUES (?,?,?,?)", (job_id, crit, by, at)
-            )
+        self.db.execute(
+            "INSERT INTO code_ticks (job_id, crit, by, at) VALUES (?,?,?,?) "
+            "ON CONFLICT (job_id, crit) DO UPDATE SET by = excluded.by, at = excluded.at",
+            (job_id, crit, by, at),
+        )
 
     # ------------------------------------------------------------------ criterion labels in the site language (D-120)
     def save_label(self, ruleset: str, crit: str, lang: str, label: str, by: str, at: str) -> None:
-        with self._lock:
-            if label:
-                self._con.execute(
-                    "INSERT OR REPLACE INTO criterion_labels (ruleset, crit, lang, label, by, at) VALUES (?,?,?,?,?,?)",
-                    (ruleset.upper(), crit, lang, label, by, at),
-                )
-            else:
-                self._con.execute(
-                    "DELETE FROM criterion_labels WHERE ruleset = ? AND crit = ? AND lang = ?",
-                    (ruleset.upper(), crit, lang),
-                )
+        if label:
+            self.db.execute(
+                "INSERT INTO criterion_labels (ruleset, crit, lang, label, by, at) VALUES (?,?,?,?,?,?) "
+                "ON CONFLICT (ruleset, crit, lang) DO UPDATE SET label = excluded.label, by = excluded.by, "
+                "at = excluded.at",
+                (ruleset.upper(), crit, lang, label, by, at),
+            )
+        else:
+            self.db.execute(
+                "DELETE FROM criterion_labels WHERE ruleset = ? AND crit = ? AND lang = ?",
+                (ruleset.upper(), crit, lang),
+            )
 
     def labels(self, ruleset: str, lang: str) -> dict[str, str]:
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT crit, label FROM criterion_labels WHERE ruleset = ? AND lang = ?", (ruleset.upper(), lang)
-            ).fetchall()
+        rows = self.db.fetchall(
+            "SELECT crit, label FROM criterion_labels WHERE ruleset = ? AND lang = ?", (ruleset.upper(), lang)
+        )
         return {str(c): str(v) for c, v in rows}
 
     def code_ticks(self, job_id: str) -> dict[str, tuple[str, str]]:
-        with self._lock:
-            rows = self._con.execute("SELECT crit, by, at FROM code_ticks WHERE job_id = ?", (job_id,)).fetchall()
+        rows = self.db.fetchall("SELECT crit, by, at FROM code_ticks WHERE job_id = ?", (job_id,))
         return {str(c): (str(b), str(a)) for c, b, a in rows}
 
     # ------------------------------------------------------------------ notices (FR-NOTIF-01/02)
     def notify_person(self, username: str) -> NotifyPerson:
-        with self._lock:
-            row = self._con.execute(
-                "SELECT username, practitioner_id, digest_time, enabled, lang FROM notify_people WHERE username = ?",
-                (username,),
-            ).fetchone()
+        row = self.db.fetchone(
+            "SELECT username, practitioner_id, digest_time, enabled, lang FROM notify_people WHERE username = ?",
+            (username,),
+        )
         if row is None:
             return NotifyPerson(username, None)
         return NotifyPerson(str(row[0]), row[1], str(row[2]), bool(row[3]), str(row[4]))
 
     def save_notify_person(self, p: NotifyPerson) -> None:
-        with self._lock:
-            self._con.execute(
-                "INSERT INTO notify_people (username, practitioner_id, digest_time, enabled, lang) VALUES (?,?,?,?,?) "
-                "ON CONFLICT(username) DO UPDATE SET practitioner_id = excluded.practitioner_id, "
-                "digest_time = excluded.digest_time, enabled = excluded.enabled, lang = excluded.lang",
-                (p.username, p.practitioner_id, p.digest_time, int(p.enabled), p.lang),
-            )
+        self.db.execute(
+            "INSERT INTO notify_people (username, practitioner_id, digest_time, enabled, lang) VALUES (?,?,?,?,?) "
+            "ON CONFLICT (username) DO UPDATE SET practitioner_id = excluded.practitioner_id, "
+            "digest_time = excluded.digest_time, enabled = excluded.enabled, lang = excluded.lang",
+            (p.username, p.practitioner_id, p.digest_time, int(p.enabled), p.lang),
+        )
 
     def notice_sent(self, kind: str, username: str, day: str) -> bool:
-        with self._lock:
-            row = self._con.execute(
-                "SELECT 1 FROM notify_log WHERE kind = ? AND username = ? AND day = ?", (kind, username, day)
-            ).fetchone()
+        row = self.db.fetchone(
+            "SELECT 1 FROM notify_log WHERE kind = ? AND username = ? AND day = ?", (kind, username, day)
+        )
         return row is not None
 
     def last_notice(self, kind: str, username: str) -> str | None:
-        with self._lock:
-            row = self._con.execute(
-                "SELECT MAX(at) FROM notify_log WHERE kind = ? AND username = ?", (kind, username)
-            ).fetchone()
-        return str(row[0]) if row and row[0] else None
+        at = self.db.fetchval("SELECT MAX(at) FROM notify_log WHERE kind = ? AND username = ?", (kind, username))
+        return str(at) if at else None
 
     def log_notice(self, kind: str, username: str, day: str, at: str, subject: str) -> None:
-        with self._lock:
-            self._con.execute(
-                "INSERT OR REPLACE INTO notify_log (kind, username, day, at, subject) VALUES (?,?,?,?,?)",
-                (kind, username, day, at, subject),
-            )
+        self.db.execute(
+            "INSERT INTO notify_log (kind, username, day, at, subject) VALUES (?,?,?,?,?) "
+            "ON CONFLICT (kind, username, day) DO UPDATE SET at = excluded.at, subject = excluded.subject",
+            (kind, username, day, at, subject),
+        )
 
     def notices_for(self, username: str, limit: int = 50) -> list[tuple[str, str, str, str]]:
         """S37 Notices received (step 4, FR-PLAT-17): (kind, day, at, subject) of one person, newest first."""
-        with self._lock:
-            rows = self._con.execute(
-                "SELECT kind, day, at, subject FROM notify_log WHERE username = ? ORDER BY at DESC LIMIT ?",
-                (username, limit),
-            ).fetchall()
+        rows = self.db.fetchall(
+            "SELECT kind, day, at, subject FROM notify_log WHERE username = ? ORDER BY at DESC LIMIT ?",
+            (username, limit),
+        )
         return [(str(r[0]), str(r[1]), str(r[2]), str(r[3])) for r in rows]

@@ -251,7 +251,7 @@ def seed_activity(work: Path, bk: InprocBackend) -> None:
     pids = [str(r["pid"]) for r in rows]
     if len(pids) < 6:
         return
-    store = SiteStore(work / "console" / "site.sqlite")
+    store = SiteStore()  # the trial database of this run (TB_DB_URL, set by make_box)
     now = datetime.now(UTC)
 
     def at(days: int) -> str:
@@ -293,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
     from tb_common.audit import AuditLog
 
     password = os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12)
-    users = UserStore(a.dir / "console" / "console.sqlite")
+    users = UserStore()  # schema auth of the trial database (TB_DB_URL, set by make_box)
     accounts = [
         ("admin", "admin", {}),
         ("crc", "coordinator", {}),

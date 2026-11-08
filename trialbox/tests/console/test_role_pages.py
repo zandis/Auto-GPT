@@ -154,7 +154,7 @@ def test_feas_report_applies_screen_failure_and_target() -> None:
 
 
 def test_site_store_profile_marks_and_seen(tmp_path: Path) -> None:
-    s = SiteStore(tmp_path / "site.sqlite")
+    s = SiteStore()
     assert s.profile("GZQO").missing == ["capability", "competing", "target"]
     s.save_profile(
         "GZQO", SiteProfile(target_n=6, capabilities={"amyloid_pet": {"value": "partner", "note": ""}}), "crc1", "t"
@@ -314,7 +314,7 @@ def test_expired_sso_account_is_refused(tmp_path: Path) -> None:
 
     backend = FakeBackend()
     backend.audit_dir = tmp_path / "audit"
-    users = UserStore(tmp_path / "c.sqlite")
+    users = UserStore()
     users.create("admin", "admin", ADMIN_PW, "admin@hospa.test")
     app = create_app(
         {**SSO_ENV, "TB_CONSOLE_DIR": str(tmp_path)}, backend=backend, audit=AuditLog(backend.audit_dir), users=users
@@ -448,7 +448,7 @@ def test_public_data_banner_own_studies_and_site_labels(tmp_path: Path) -> None:
     for lang in ("en", "ja", "zh-TW"):
         words = CATALOGUES[lang]["pilot.banner.public"]
         assert "D0" in words and words != CATALOGUES[lang]["pilot.banner"]
-    store = SiteStore(tmp_path / "site.sqlite")
+    store = SiteStore()
     store.save_label("pub-onc", "PUB-ONC-INC-01", "ja", "18歳以上", "crc", "2026-11-08T00:00:00Z")
     assert store.labels("PUB-ONC", "ja") == {"PUB-ONC-INC-01": "18歳以上"} and store.labels("PUB-ONC", "zh-TW") == {}
     store.save_label("PUB-ONC", "PUB-ONC-INC-01", "ja", "", "crc", "2026-11-08T00:00:01Z")  # empty clears it

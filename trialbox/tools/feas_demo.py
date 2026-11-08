@@ -122,6 +122,20 @@ def build(work: Path) -> tuple[Any, Any, Path, dict[str, Any]]:
     return box, orch_client(orch_app.app), work / "box" / "repo", summary
 
 
+def fresh_console_db(work: Path) -> str:
+    """The run's trial database URL, with the console's stores (schemas ``auth`` and ``site``, D-126) emptied:
+    accounts, sessions, marks and site settings start fresh with the box, as the console's files used to."""
+    from tb_common.db import Database
+
+    from tools import pglocal
+
+    url = pglocal.for_work(work)
+    for name in ("auth", "site"):
+        with Database.connect(url, name) as db:
+            db.execute(f'DROP SCHEMA "{db.schema}" CASCADE')
+    return url
+
+
 def console(work: Path, box: Any, client: Any, repo: Path, password: str) -> Any:
     from console.app import create_app
     from console.auth import UserStore
@@ -129,9 +143,9 @@ def console(work: Path, box: Any, client: Any, repo: Path, password: str) -> Any
 
     from tools.role_demo import InprocBackend
 
-    shutil.rmtree(work / "console", ignore_errors=True)  # accounts and sessions start fresh with the box
+    shutil.rmtree(work / "console", ignore_errors=True)  # the console's files start fresh with the box
     (work / "console").mkdir(parents=True)
-    users = UserStore(work / "console" / "console.sqlite")
+    users = UserStore(fresh_console_db(work))  # and so do its accounts and sessions
     for name, role, mailbox, scope in ACCOUNTS:
         users.create(name, role, password, mailbox)  # type: ignore[arg-type]
         if scope:

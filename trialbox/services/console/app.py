@@ -331,7 +331,7 @@ def create_app(
     settings = ConsoleSettings.from_env(_env_map(env))
     if backend is None or audit is None:
         backend, audit = _default_backend(settings)
-    users = users or UserStore(settings.data_dir / "console.sqlite")
+    users = users or UserStore()  # schema auth of the trial database (TB_DB_URL, D-126)
     if settings.admin_password_file is not None:
         made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
         if made is not None:
@@ -807,7 +807,7 @@ def create_app(
         actor=actor,
         bk=bk,
         au=au,
-        store=SiteStore(settings.data_dir / "site.sqlite"),
+        store=SiteStore(),  # schema site of the trial database (TB_DB_URL, D-126)
         users=us,
         clock=us.clock,
         submit=submit,

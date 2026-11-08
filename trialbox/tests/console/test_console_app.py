@@ -293,7 +293,7 @@ def box(tmp_path: Path) -> dict[str, Any]:
     backend = FakeBackend()
     backend.audit_dir = tmp_path / "audit"
     audit = AuditLog(backend.audit_dir)
-    users = UserStore(tmp_path / "console" / "console.sqlite")
+    users = UserStore()
     users.create("admin", "admin", ADMIN_PW, "admin@hospa.test")
     users.create("viewer", "viewer", VIEWER_PW)
 
@@ -361,7 +361,7 @@ def test_password_hash_roundtrip_and_policy(tmp_path: Path) -> None:
     h = hash_password("a-very-long-secret")
     assert h.startswith("scrypt$") and "a-very-long-secret" not in h
     assert verify_password("a-very-long-secret", h) and not verify_password("wrong", h)
-    store = UserStore(tmp_path / "u.sqlite")
+    store = UserStore()
     with pytest.raises(ValueError, match="12"):
         store.create("x", "admin", "short")
 
@@ -370,7 +370,7 @@ def test_no_default_password_and_bootstrap_from_secret(tmp_path: Path) -> None:
     backend = FakeBackend()
     backend.audit_dir = tmp_path / "audit"
     audit = AuditLog(backend.audit_dir)
-    users = UserStore(tmp_path / "c.sqlite")
+    users = UserStore()
     app = create_app({**PILOT_ENV, "TB_CONSOLE_DIR": str(tmp_path)}, backend=backend, audit=audit, users=users)
     c = TestClient(app)
     assert "bootstrap-admin" in c.get("/login").text  # nobody can sign in until an administrator is created
@@ -401,7 +401,7 @@ def test_lockout_after_five_failures(box: dict[str, Any]) -> None:
 
 def test_session_idle_timeout(tmp_path: Path) -> None:
     t = [datetime(2026, 10, 25, 9, 0, tzinfo=UTC)]
-    store = UserStore(tmp_path / "s.sqlite", clock=lambda: t[0])
+    store = UserStore(clock=lambda: t[0])
     user = store.create("a", "admin", ADMIN_PW)
     token, _ = store.new_session(user)
     assert store.session(token) is not None
@@ -1302,7 +1302,7 @@ SSO_ENV = {
 def test_sso_header_signs_in_from_a_trusted_proxy_only(tmp_path: Path) -> None:
     backend = FakeBackend()
     backend.audit_dir = tmp_path / "audit"
-    users = UserStore(tmp_path / "c.sqlite")
+    users = UserStore()
     users.create("admin", "admin", ADMIN_PW, "admin@hospa.test")
     app = create_app(
         {**SSO_ENV, "TB_CONSOLE_DIR": str(tmp_path)}, backend=backend, audit=AuditLog(backend.audit_dir), users=users
@@ -1336,7 +1336,7 @@ def test_sso_header_signs_in_from_a_trusted_proxy_only(tmp_path: Path) -> None:
 def test_sso_header_ignored_from_an_untrusted_peer(tmp_path: Path) -> None:
     backend = FakeBackend()
     backend.audit_dir = tmp_path / "audit"
-    users = UserStore(tmp_path / "c.sqlite")
+    users = UserStore()
     users.create("admin", "admin", ADMIN_PW)
     env = {**SSO_ENV, "TB_CONSOLE_SSO_TRUSTED_PROXIES": "10.1.2.3", "TB_CONSOLE_DIR": str(tmp_path)}
     app = create_app(env, backend=backend, audit=AuditLog(backend.audit_dir), users=users)
@@ -1378,7 +1378,7 @@ def test_production_console_has_only_control_plane_routes(tmp_path: Path) -> Non
     backend = FakeBackend()
     backend.audit_dir = tmp_path / "audit"
     _done_feas(backend)
-    users = UserStore(tmp_path / "c.sqlite")
+    users = UserStore()
     users.create("admin", "admin", ADMIN_PW, "admin@hospa.test")
     app = create_app(
         {"TB_ENV": "PRODUCTION", "TB_CONSOLE_DIR": str(tmp_path)},

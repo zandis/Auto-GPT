@@ -83,7 +83,7 @@ def console(
 
     shutil.rmtree(work / "console", ignore_errors=True)
     (work / "console").mkdir(parents=True)
-    users = UserStore(work / "console" / "console.sqlite", clock=clock)
+    users = UserStore(fd.fresh_console_db(work), clock=clock)  # accounts, sessions and marks start fresh too
     for name, role, mailbox, scope in fd.ACCOUNTS:
         users.create(name, role, password, mailbox)  # type: ignore[arg-type]
         if scope:

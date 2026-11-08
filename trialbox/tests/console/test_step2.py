@@ -19,7 +19,22 @@ AT = "2026-11-02T07:00:00+00:00"
 
 
 def store(tmp_path: Path) -> SiteStore:
-    return SiteStore(tmp_path / "site.sqlite")
+    return SiteStore()  # schema site of the test's own TB_DB_URL (conftest)
+
+
+def test_console_stores_live_in_the_trial_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-126: schemas ``site`` and ``auth`` of TB_DB_URL; no URL is a clear error, never a local file."""
+    from console.auth import UserStore
+    from tb_common.db import DatabaseError
+
+    s, u = SiteStore(), UserStore()
+    assert s.db.schema.endswith("site") and u.db.schema.endswith("auth")
+    s.close()
+    u.close()
+    monkeypatch.delenv("TB_DB_URL")
+    for make in (SiteStore, UserStore):
+        with pytest.raises(DatabaseError, match="TB_DB_URL is not set"):
+            make()
 
 
 def test_one_mark_vocabulary_replace_and_withdraw(tmp_path: Path) -> None:
