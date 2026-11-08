@@ -106,4 +106,4 @@ def test_offlist_unknown_names_its_reason_in_both_paths() -> None:
     v = structured_verdict(c, ev)
     assert v.verdict == "unknown" and v.evidence is not None and v.evidence.reason == CODE_OUTSIDE_LIST
     gap = PatientEvaluation(pid="p", index_date=date(2026, 1, 1), engine="sql", results={c.id: None}, evidence={})
-    assert structured_verdict(c, gap).evidence.reason is None  # type: ignore[union-attr]
+    assert structured_verdict(c, gap).evidence.reason == "data_gap"  # type: ignore[union-attr]

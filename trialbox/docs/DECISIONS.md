@@ -1365,3 +1365,31 @@ canary only held the night's LLM jobs; a box whose models had drifted could stil
   order and did not reproduce alone or in its file order. Its counts and rounding are deterministic and the
   privacy accountant is per box, so the likely cause is shared rate-limit state left by an earlier frontdoor test
   (`test_roles_profiles_and_rate_limits`); not chased further, since Hermes and the front door go in step 6.
+
+**D-118 One note-judge path; reasons are codes.** TB-PLAN-03 step 3 (Fable review 2026-11-08, findings 4, 6 and
+10). Three copies of the two-model rule (v1 `NoteJudge`, the cascade's `OrchestratorJudge`, the tools'
+`AgreementJudge`) and free-text reasons on every candidate row.
+
+* **One rule.** `tb_common/pair.py` `combine()` is the only place a pair's answer is decided: an undecided judge
+  answer is not put to the verifier; a verifier that did not answer → `unknown` / `model_down` (a failure for the
+  >10 % gate); a verifier quote not in the notes → `verifier_quote_missing`; another verdict → `disagree`; agreement
+  keeps `min` of the two confidences.
+* **One judge.** `NoteJudge.judge_excerpts(criterion_text, note_question, index_date, excerpts, ...)` is the one
+  method that puts a note question to the models (`grep -n "def judge_excerpts"` finds one). The v1 evaluator
+  (`judge_patient`), CASE chart uploads and the cascade call it: `OrchestratorJudge` is now a `NoteJudge` subclass
+  whose `judge(role=...)` only adapts the reply; `AgreementJudge` calls `combine()`.
+* **Minimum confidence.** A decided answer below `MIN_CONFIDENCE` (0.5) is not used: `unknown` / `low_confidence`,
+  so a person looks. The tier threshold (0.75, review below) is unchanged.
+* **Reasons.** `Evidence.reason` on every candidate row is a `tb_common.reasons.Reason` code (`coded`, `note`,
+  `data_gap`, `no_notes`, `not_mentioned`, `code_outside_list`, `abstained`, `quote_not_found`,
+  `verifier_quote_missing`, `disagree`, `low_confidence`, `model_down`, `refused`, `human`, `not_evaluated`,
+  `not_in_snapshot`), with words in en/ja/zh-TW in `LABELS`. The model's own sentence stays on `NoteResult.model_reason`
+  (audit, debugging) and never reaches a page; an endpoint's error text never reaches a reason. The cascade keeps its
+  stage strings internally; `code_of()` maps them where its traces become rows.
+* **Not in the snapshot.** A scoped patient the lake does not hold is `review` with every criterion `unknown` /
+  `not_in_snapshot`, on both paths (it was excluded).
+* **CONSENT and the swap.** `consent.Models` is shaped like a judge (`llm`, `verifier`, counters) and the draft runs
+  through `two_phase`: drafting and translation with the judge awake, every statement check with the verifier awake;
+  no direct call to a sleeping model.
+* **Not changed.** The v1 evaluator stays for NAV, MICROBATCH and CASE and the `TB_SCREEN_PIPELINE=v1` comparison;
+  SCREEN runs the cascade (D-103). Both now share the judge, the rule and the reasons, which is what finding 4 asked.

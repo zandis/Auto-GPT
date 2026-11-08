@@ -36,6 +36,7 @@ from typing import Any
 
 from tb_common.crypto import pid_for_mrn, sha256_bytes
 from tb_common.quotes import quote_in
+from tb_common.reasons import Reason
 from tb_common.routing import is_internal
 from tb_common.ruleset import Ruleset
 from tb_common.subject import job_subject
@@ -231,9 +232,9 @@ class ChartJudge:
     def decide(self, c: CriterionIR, index_date: date) -> NoteResult:
         ex = self.window(c, index_date)
         if not ex:
-            r = NoteResult("unknown", 0.0, reason="no chart text dated within this criterion's window", source="chart")
+            r = NoteResult("unknown", 0.0, reason=Reason.NO_NOTES.value, source="chart")
         else:
-            r = self.judge.judge_excerpts(c, index_date, ex, source="chart")
+            r = self.judge.judge_excerpts(c.text, c.note_question or c.text, index_date, ex, source="chart")
             if r.predicate != "unknown" and not r.dids:
                 r.dids = [e["did"] for e in ex if r.quote and quote_in(r.quote, str(e["text"]))][:1]
         self.results[c.id] = r
@@ -279,7 +280,7 @@ def evaluate_case(
             source = "chart"
         else:
             v = CriterionVerdict(
-                id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason="no language model configured")
+                id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value)
             )
             source = "chart"
         ev = v.evidence or Evidence(resource_refs=[])

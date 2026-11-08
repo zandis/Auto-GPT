@@ -36,6 +36,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from tb_common.reasons import CODES as REASON_CODES
 from tb_common.ruleset import Ruleset
 from tb_common.timeutil import add_months, month_ends
 from tb_contracts import CriterionIR
@@ -697,8 +698,9 @@ class _Run:
             "prompt": reply.prompt,
             "confidence": reply.confidence,
         }
-        if reply.verdict not in ("pass", "fail"):
-            return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason="abstained")
+        if reply.verdict not in ("pass", "fail"):  # keep the judge's coded reason (disagree, low_confidence, ...)
+            why = reply.reason if reply.reason in REASON_CODES else "abstained"
+            return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason=why)
         if span is None:
             return Outcome(c.id, "unknown", stage, unknown_kind="uncertain", evidence=[meta], reason="insufficient")
         condition_present = reply.verdict == "pass"

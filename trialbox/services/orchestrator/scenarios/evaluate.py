@@ -22,7 +22,9 @@ from typing import Any, Literal, Protocol, cast
 from lake.client import LakeAPI
 from tb_common.fhir import FhirEvaluator
 from tb_common.llm import LlmClient, LlmError
+from tb_common.pair import Vote, combine, needs_verifier
 from tb_common.quotes import quote_in
+from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, PatientEvaluation
 
@@ -128,23 +130,34 @@ class NoteResult:
     confidence: float
     quote: str | None = None
     quote_date: str | None = None
-    reason: str | None = None
+    reason: str | None = None  # a tb_common.reasons code, never free text (D-118)
     source: str = "chunks"  # chunks | full_record
     dids: list[str] = field(default_factory=list)
+    model_reason: str = ""  # the judge model's own sentence: audit and debugging only, never shown on a page
+    call_id: str = ""  # the judge call behind the answer (the cascade's evidence meta)
+    model: str = ""
+    prompt: str = ""
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+
+def _vote(r: NoteResult) -> Vote:
+    return Vote(r.predicate, r.confidence, r.reason)
 
 
 @dataclass
 class NoteJudge:
-    """The v1 note judge, with the two-model agreement rule of the bake-off when a ``verifier`` is wired.
+    """The note judge of both screening paths, with the two-model rule of :mod:`tb_common.pair` (D-118).
 
-    With a verifier, every decided answer (``pass`` or ``fail``) of the judge is put to the verifier with the same
-    excerpts; the answer stands only when both models agree, else it becomes ``unknown`` ("judge/verifier
-    disagree"), which the tiering sends to review. So in production a note criterion blocks a patient only when
-    both models say so, the configuration the 2026-10-25 bake-off measured (independent review 2026-10-27, finding
-    2). Costs one extra call per decided answer; a verifier failure also yields ``unknown`` and counts as a failure
-    for :func:`check_judge`."""
+    :meth:`judge_excerpts` is the one place a note criterion is put to the models: the v1 evaluator (NAV,
+    MICROBATCH, CASE), the v4 cascade through ``OrchestratorJudge`` and the CASE chart upload all call it. With a
+    verifier every decided judge answer is put to the verifier with the same excerpts, and the pair's answer is
+    :func:`tb_common.pair.combine`: it stands only when both agree, else it is ``unknown`` with the reason
+    (``disagree``, ``verifier_quote_missing``, ``model_down``), which the tiering sends to review. So a note criterion
+    blocks a patient only when both models say so. A model that does not answer counts as a failure for
+    :func:`check_judge`; its error text never reaches a reason (``model_down``)."""
 
-    lake: LakeAPI
+    lake: LakeAPI | None
     llm: LlmClient
     prompt: str = "judge"
     job_id: str | None = None
@@ -152,17 +165,22 @@ class NoteJudge:
     calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
-    failures: int = 0  # judge calls that got no answer (model down, timeout, out-of-schema)
+    failures: int = 0  # model calls that got no answer (model down, timeout, out-of-schema)
     disagreements: int = 0  # decided answers the verifier did not confirm (became unknown)
 
     @property
     def mode(self) -> str:
         return "agreement" if self.verifier is not None else "single"
 
+    def _lake(self) -> LakeAPI:
+        if self.lake is None:
+            raise RuntimeError("this note judge has no lake: pass the excerpts to judge_excerpts")
+        return self.lake
+
     def excerpts(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
         lo, hi = note_window(c, index_date)
         query = " ".join([c.note_question or c.text, *keywords(c.text)])
-        hits = self.lake.chunks_search(pid, query, k=5, date_from=lo, date_to=hi)
+        hits = self._lake().chunks_search(pid, query, k=5, date_from=lo, date_to=hi)
         hits = [h for h in hits if h.get("date") and lo.isoformat() <= str(h["date"])[:10] <= hi.isoformat()]
         hits.sort(key=lambda h: (str(h["date"]), str(h.get("did", ""))), reverse=True)
         out: list[dict[str, Any]] = []
@@ -184,11 +202,15 @@ class NoteJudge:
 
     def full_record(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
         lo, hi = note_window(c, index_date)
-        rows = self.lake.query(
-            "SELECT did, CAST(date AS DATE) AS d, type, text FROM document WHERE pid = $1 "
-            "AND CAST(date AS DATE) BETWEEN CAST($2 AS DATE) AND CAST($3 AS DATE) ORDER BY date DESC, did",
-            [pid, lo.isoformat(), hi.isoformat()],
-        ).to_pylist()
+        rows = (
+            self._lake()
+            .query(
+                "SELECT did, CAST(date AS DATE) AS d, type, text FROM document WHERE pid = $1 "
+                "AND CAST(date AS DATE) BETWEEN CAST($2 AS DATE) AND CAST($3 AS DATE) ORDER BY date DESC, did",
+                [pid, lo.isoformat(), hi.isoformat()],
+            )
+            .to_pylist()
+        )
         out: list[dict[str, Any]] = []
         budget = FULL_RECORD_TOKENS
         for r in rows:
@@ -201,53 +223,74 @@ class NoteJudge:
             )
         return out
 
-    def judge(self, pid: str, c: CriterionIR, index_date: date, full: bool = False) -> NoteResult:
+    def judge_patient(self, pid: str, c: CriterionIR, index_date: date, full: bool = False) -> NoteResult:
         excerpts = self.full_record(pid, c, index_date) if full else self.excerpts(pid, c, index_date)
         source = "full_record" if full else "chunks"
         if not excerpts:
-            return NoteResult("unknown", 0.0, reason="no notes in the window", source=source)
-        return self.judge_excerpts(c, index_date, excerpts, source)
+            return NoteResult("unknown", 0.0, reason=Reason.NO_NOTES.value, source=source)
+        return self.judge_excerpts(c.text, c.note_question or c.text, index_date, excerpts, source)
 
-    def judge_excerpts(
-        self, c: CriterionIR, index_date: date, excerpts: list[dict[str, Any]], source: str = "chunks"
+    def _ask(
+        self, client: LlmClient, variables: dict[str, Any], excerpts: list[dict[str, Any]], source: str
     ) -> NoteResult:
-        """Judge one criterion from given excerpts (the lake's chunks, the full record, or an uploaded chart)."""
-        variables = {
-            "criterion_text": c.text,
-            "note_question": c.note_question or c.text,
-            "index_date": index_date.isoformat(),
-            "excerpts": [{k: e[k] for k in ("date", "note_type", "text")} for e in excerpts],
-        }
         try:
-            res = self.llm.chat_json(self.prompt, variables, job_id=self.job_id)
-        except LlmError as exc:
+            res = client.chat_json(self.prompt, variables, job_id=self.job_id)
+        except LlmError:
             self.failures += 1
-            return NoteResult("unknown", 0.0, reason=f"judge unavailable: {str(exc)[:120]}", source=source)
+            return NoteResult("unknown", 0.0, reason=Reason.MODEL_DOWN.value, source=source)
         self.calls += 1
         self.tokens_in += res.tokens_in
         self.tokens_out += res.tokens_out
-        first = postprocess(res.data, excerpts, source)
-        if self.verifier is None or first.predicate not in ("pass", "fail"):
-            return first
-        try:
-            res2 = self.verifier.chat_json(self.prompt, variables, job_id=self.job_id)
-        except LlmError as exc:
-            self.failures += 1
-            return NoteResult("unknown", 0.0, reason=f"verifier unavailable: {str(exc)[:120]}", source=source)
-        self.calls += 1
-        self.tokens_in += res2.tokens_in
-        self.tokens_out += res2.tokens_out
-        second = postprocess(res2.data, excerpts, source)
-        if second.predicate == first.predicate:
-            # both agree: the answer is only as sure as the less sure model (Fable review 2026-11-08, finding 4)
-            return replace(first, confidence=min(first.confidence, second.confidence))
-        self.disagreements += 1
-        why = (
-            "the verifier's quote is not in the notes"
-            if second.reason == "quote_not_found"
-            else f"judge/verifier disagree ({first.predicate}/{second.predicate})"
+        r = postprocess(res.data, excerpts, source)
+        return replace(
+            r,
+            call_id=res.output_sha[:16],
+            model=res.model,
+            prompt=f"{res.prompt_id}@{res.prompt_version}",
+            tokens_in=res.tokens_in,
+            tokens_out=res.tokens_out,
         )
-        return NoteResult("unknown", 0.0, reason=f"{why}; needs a human look", source=source)
+
+    def judge_excerpts(
+        self,
+        criterion_text: str,
+        note_question: str,
+        index_date: date,
+        excerpts: list[dict[str, Any]],
+        source: str = "chunks",
+        verify: bool = True,
+        primary: LlmClient | None = None,
+    ) -> NoteResult:
+        """Put one note question to the judge (and, when ``verify`` and a verifier is wired, to the verifier) over the
+        given excerpts: the lake's chunks, the full record, the cascade's selected excerpts or an uploaded chart."""
+        variables = {
+            "criterion_text": criterion_text,
+            "note_question": note_question,
+            "index_date": index_date.isoformat(),
+            "excerpts": [{k: e.get(k) for k in ("date", "note_type", "text")} for e in excerpts],
+        }
+        first = self._ask(primary if primary is not None else self.llm, variables, excerpts, source)
+        second: NoteResult | None = None
+        if verify and self.verifier is not None and needs_verifier(_vote(first)):
+            second = self._ask(self.verifier, variables, excerpts, source)  # counts its own failure
+        d = combine(_vote(first), None if second is None else _vote(second))
+        if d.disagreement:
+            self.disagreements += 1
+        t_in = first.tokens_in + (second.tokens_in if second else 0)
+        t_out = first.tokens_out + (second.tokens_out if second else 0)
+        if d.verdict != first.predicate:  # the pair (or the confidence floor) did not keep the judge's answer
+            return replace(
+                first,
+                predicate="unknown",
+                confidence=0.0,
+                quote=None,
+                quote_date=None,
+                dids=[],
+                reason=d.reason,
+                tokens_in=t_in,
+                tokens_out=t_out,
+            )
+        return replace(first, confidence=d.confidence, reason=d.reason, tokens_in=t_in, tokens_out=t_out)
 
 
 # a few unanswered note checks stay "unknown" (manual review); more than this share means the model was down and the
@@ -279,9 +322,13 @@ def postprocess(d: dict[str, Any], excerpts: list[dict[str, Any]], source: str =
         q = str(quote or "")
         match = next((e for e in excerpts if quote_in(q, str(e["text"]))), None)
         if match is None:
-            return NoteResult("unknown", 0.0, reason="quote_not_found", source=source)
+            return NoteResult("unknown", 0.0, reason=Reason.QUOTE_NOT_FOUND.value, source=source)
         did = match.get("did")
-    return NoteResult(verdict, conf, quote, d.get("quote_date"), d.get("reason"), source, [str(did)] if did else [])
+    why = Reason.NOTE.value if verdict in ("pass", "fail") else Reason.ABSTAINED.value
+    model_reason = str(d.get("reason") or "")
+    return NoteResult(
+        verdict, conf, quote, d.get("quote_date"), why, source, [str(did)] if did else [], model_reason=model_reason
+    )
 
 
 # --------------------------------------------------------------------------------------------- verdicts & tiers
@@ -306,7 +353,10 @@ def structured_verdict(c: CriterionIR, ev: PatientEvaluation | None) -> Criterio
     refs = [] if ev is None or not ev.evidence else list((ev.evidence or {}).get(c.id) or [])
     known = pred if isinstance(pred, bool) else None
     # D-113: unknown with records attached = coded inside the grouper's family but outside its code list
-    why = "code_outside_list" if known is None and refs else None
+    if known is None:
+        why = Reason.CODE_OUTSIDE_LIST.value if refs else Reason.DATA_GAP.value
+    else:
+        why = Reason.CODED.value
     return CriterionVerdict(
         id=c.id,
         verdict=eligibility(c.kind, known),
@@ -327,7 +377,22 @@ def note_verdict(c: CriterionIR, r: NoteResult) -> CriterionVerdict:
 
 
 def human_verdict(c: CriterionIR) -> CriterionVerdict:
-    return CriterionVerdict(id=c.id, verdict="pending_human", evidence=Evidence(resource_refs=[]))
+    return CriterionVerdict(
+        id=c.id, verdict="pending_human", evidence=Evidence(resource_refs=[], reason=Reason.HUMAN.value)
+    )
+
+
+def not_in_snapshot(rs: Ruleset, pid: str, kinds: tuple[str, ...] = ("inclusion", "exclusion")) -> PatientVerdicts:
+    """A scoped patient the records snapshot does not hold (moved, merged, a late registration): nothing is known,
+    so a person looks (tier ``review``), never an exclusion (Fable review 2026-11-08, finding 10; D-118)."""
+    vs = [
+        CriterionVerdict(
+            id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=Reason.NOT_IN_SNAPSHOT.value)
+        )
+        for c in rs.active()
+        if c.kind in kinds
+    ]
+    return PatientVerdicts(pid, vs, "review", [], len(vs))
 
 
 FILTERED = ("structured", "mixed")  # classes whose logic the filters decide (D-32, D-98)
@@ -480,10 +545,10 @@ def evaluate_patients(
         def judge_all(j: NoteJudge) -> dict[tuple[str, str], NoteResult]:
             def run(task: tuple[str, CriterionIR]) -> tuple[tuple[str, str], NoteResult]:
                 p, c = task
-                r = j.judge(p, c, index_date)
+                r = j.judge_patient(p, c, index_date)
                 if r.predicate == "unknown" and full_record_fallback and len(cands) <= FULL_RECORD_MAX_CANDIDATES:
-                    r2 = j.judge(p, c, index_date, full=True)
-                    if r2.predicate != "unknown" or r.reason == "no notes in the window":
+                    r2 = j.judge_patient(p, c, index_date, full=True)
+                    if r2.predicate != "unknown" or r.reason == Reason.NO_NOTES.value:
                         r = r2
                 return (p, c.id), r
 
@@ -495,6 +560,9 @@ def evaluate_patients(
     out: dict[str, PatientVerdicts] = {}
     for p in pids:
         ev = evals.get(p)
+        if structured_ids and ev is None and not all_candidates:
+            out[p] = not_in_snapshot(rs, p, kinds)
+            continue
         vs: list[CriterionVerdict] = []
         for c in active:
             if c.class_ == "structured" or coded_settles(c, ev):
@@ -505,7 +573,9 @@ def evaluate_patients(
                     note_verdict(c, r)
                     if r is not None
                     else CriterionVerdict(
-                        id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason="not evaluated")
+                        id=c.id,
+                        verdict="unknown",
+                        evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value),
                     )
                 )
             else:

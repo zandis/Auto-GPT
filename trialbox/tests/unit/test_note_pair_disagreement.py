@@ -55,8 +55,8 @@ def _judge(judge: FakeModel, verifier: FakeModel | None) -> NoteJudge:
 def test_v1_disagreement_is_unknown_and_goes_to_review(first: str, second: str) -> None:
     c = _exclusion()
     nj = _judge(FakeModel(first), FakeModel(second))
-    r = nj.judge_excerpts(c, IDX, EXCERPTS)
-    assert r.predicate == "unknown" and nj.disagreements == 1 and "disagree" in str(r.reason)
+    r = nj.judge_excerpts(c.text, c.note_question or c.text, IDX, EXCERPTS)
+    assert r.predicate == "unknown" and nj.disagreements == 1 and r.reason == "disagree"
     v = note_verdict(c, r)
     rs = _ruleset(c)
     assert v.verdict == "unknown" and tier(rs, [v], 0.75, note_block=True)[0] == "review"
@@ -65,33 +65,33 @@ def test_v1_disagreement_is_unknown_and_goes_to_review(first: str, second: str) 
 def test_v1_agreement_excludes_with_the_lower_confidence() -> None:
     c = _exclusion()
     nj = _judge(FakeModel("pass", 0.95), FakeModel("pass", 0.8))
-    r = nj.judge_excerpts(c, IDX, EXCERPTS)
+    r = nj.judge_excerpts(c.text, c.note_question or c.text, IDX, EXCERPTS)
     assert r.predicate == "pass" and r.confidence == 0.8 and nj.disagreements == 0
     v = note_verdict(c, r)
     assert v.verdict == "fail" and tier(_ruleset(c), [v], 0.75, note_block=True)[0] == "excluded"
     # the same agreement under the verifier's threshold only sends the patient to review
-    low = _judge(FakeModel("pass", 0.95), FakeModel("pass", 0.6)).judge_excerpts(c, IDX, EXCERPTS)
+    low = _judge(FakeModel("pass", 0.95), FakeModel("pass", 0.6)).judge_excerpts(
+        c.text, c.note_question or c.text, IDX, EXCERPTS
+    )
     assert tier(_ruleset(c), [note_verdict(c, low)], 0.75, note_block=True)[0] == "review"
 
 
 def test_v1_verifier_down_is_a_failure_not_an_exclusion() -> None:
     nj = _judge(FakeModel("pass"), FakeModel("pass", error=True))
-    r = nj.judge_excerpts(_exclusion(), IDX, EXCERPTS)
-    assert r.predicate == "unknown" and nj.failures == 1 and "verifier unavailable" in str(r.reason)
+    r = nj.judge_excerpts(_exclusion().text, "HIV?", IDX, EXCERPTS)
+    assert r.predicate == "unknown" and nj.failures == 1 and r.reason == "model_down"
 
 
 def test_v1_verifier_quote_missing_is_named() -> None:
     nj = _judge(FakeModel("pass"), FakeModel("pass", quote="HIV positive since birth"))
-    r = nj.judge_excerpts(_exclusion(), IDX, EXCERPTS)
-    assert (
-        r.predicate == "unknown" and nj.disagreements == 1 and "verifier's quote is not in the notes" in str(r.reason)
-    )
+    r = nj.judge_excerpts(_exclusion().text, "HIV?", IDX, EXCERPTS)
+    assert r.predicate == "unknown" and nj.disagreements == 1 and r.reason == "verifier_quote_missing"
 
 
 def test_v1_judge_unknown_never_asks_the_verifier() -> None:
     v = FakeModel("pass")
     nj = _judge(FakeModel("unknown"), v)
-    assert nj.judge_excerpts(_exclusion(), IDX, EXCERPTS).predicate == "unknown" and v.calls == 0
+    assert nj.judge_excerpts(_exclusion().text, "HIV?", IDX, EXCERPTS).predicate == "unknown" and v.calls == 0
 
 
 def _ask(oj: OrchestratorJudge) -> Any:
@@ -103,16 +103,16 @@ def _ask(oj: OrchestratorJudge) -> Any:
 
 @pytest.mark.parametrize(("first", "second"), [("pass", "fail"), ("fail", "pass"), ("pass", "unknown")])
 def test_cascade_disagreement_is_unknown(first: str, second: str) -> None:
-    oj = OrchestratorJudge(FakeModel(first), verifier=FakeModel(second))  # type: ignore[arg-type]
+    oj = OrchestratorJudge(None, FakeModel(first), verifier=FakeModel(second))  # type: ignore[arg-type]
     r = _ask(oj)
     assert r.verdict == "unknown" and oj.disagreements == 1
 
 
 def test_cascade_agreement_keeps_the_lower_confidence_and_verifier_down_is_unknown() -> None:
-    oj = OrchestratorJudge(FakeModel("pass", 0.9), verifier=FakeModel("pass", 0.7))  # type: ignore[arg-type]
+    oj = OrchestratorJudge(None, FakeModel("pass", 0.9), verifier=FakeModel("pass", 0.7))  # type: ignore[arg-type]
     r = _ask(oj)
     assert r.verdict == "pass" and r.confidence == 0.7
-    down = OrchestratorJudge(FakeModel("pass"), verifier=FakeModel("pass", error=True))  # type: ignore[arg-type]
+    down = OrchestratorJudge(None, FakeModel("pass"), verifier=FakeModel("pass", error=True))  # type: ignore[arg-type]
     assert _ask(down).verdict == "unknown" and down.failures == 1
 
 
