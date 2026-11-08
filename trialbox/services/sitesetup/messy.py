@@ -385,8 +385,16 @@ def chart_like(header: str, values: Sequence[str]) -> bool:
     return len(digits) >= 0.8 * len(vals) and len(set(digits)) >= 0.8 * len(digits)
 
 
-_SEX = {"男": "male", "男性": "male", "m": "male", "male": "male", "女": "female", "女性": "female", "f": "female",
-        "female": "female"}  # fmt: skip
+_SEX = {
+    "男": "male",
+    "男性": "male",
+    "m": "male",
+    "male": "male",
+    "女": "female",
+    "女性": "female",
+    "f": "female",
+    "female": "female",
+}
 
 
 # ------------------------------------------------------------------------------------------------ the table
@@ -524,8 +532,18 @@ def clean(
     return Cleaned(head, out_roles, records, fixes, checks, dropped, held, hi + 1)
 
 
-def _date_cell(rec: Record, h: str, v: str, ov: str, order: str | None, column: Sequence[str],
-               answers: Mapping[str, str], asked: set[str], fixes: list[Fix], checks: list[Check]) -> None:  # fmt: skip
+def _date_cell(
+    rec: Record,
+    h: str,
+    v: str,
+    ov: str,
+    order: str | None,
+    column: Sequence[str],
+    answers: Mapping[str, str],
+    asked: set[str],
+    fixes: list[Fix],
+    checks: list[Check],
+) -> None:
     p = parse_date(v, order)
     if p.iso:
         rec.values[h] = p.iso
@@ -549,9 +567,19 @@ def _date_cell(rec: Record, h: str, v: str, ov: str, order: str | None, column: 
         checks.append(ck)
 
 
-def _lab_cell(rec: Record, h: str, v: str, ov: str, vals: Mapping[str, str], code_col: str | None,
-              unit_col: str | None, answers: Mapping[str, str], asked: set[str], fixes: list[Fix],
-              checks: list[Check]) -> None:  # fmt: skip
+def _lab_cell(
+    rec: Record,
+    h: str,
+    v: str,
+    ov: str,
+    vals: Mapping[str, str],
+    code_col: str | None,
+    unit_col: str | None,
+    answers: Mapping[str, str],
+    asked: set[str],
+    fixes: list[Fix],
+    checks: list[Check],
+) -> None:
     num, cell_unit = parse_number(v)
     if num is None:
         return
@@ -560,8 +588,14 @@ def _lab_cell(rec: Record, h: str, v: str, ov: str, vals: Mapping[str, str], cod
     conv = convert(analyte, num, unit) if unit else None
     if conv is None:  # a unit TrialBox does not know for this test (or none at all): a person decides
         known = ANALYTES[analyte].unit if analyte in ANALYTES else ""
-        ck = Check("unit", f"{h}|{unit or '-'}", None, unit or "", unit_suggestion(analyte, num),
-                   tuple(o for o in (known, "drop") if o))  # fmt: skip
+        ck = Check(
+            "unit",
+            f"{h}|{unit or '-'}",
+            None,
+            unit or "",
+            unit_suggestion(analyte, num),
+            tuple(o for o in (known, "drop") if o),
+        )
         a = answers.get(ck.key)
         if a and a != "drop":
             rec.values[h], rec.units[h], rec.analytes[h] = f"{num:g}", a, analyte

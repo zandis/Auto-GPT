@@ -395,6 +395,85 @@ def consent_verify(inp: dict[str, Any]) -> dict[str, Any]:
     return {"checks": out}
 
 
+# ----------------------------------------------------------------------------- chart_facts, assist (D-135)
+_STUB_DX = (  # wording -> ICD-10-CM, as a careful reader would code it; a negated mention is never a fact
+    (r"痛風|gout", "M10.9"),
+    (r"乳癌|乳がん|breast cancer", "C50.919"),
+    (r"胃癌|胃がん|gastric cancer", "C16.9"),
+    (r"大腸癌|大腸がん|colon cancer", "C18.9"),
+    (r"2型糖尿病|第二型糖尿病|type 2 diabetes", "E11.9"),
+    (r"高血圧|高血壓|hypertension", "I10"),
+)
+_STUB_LAB = (
+    (r"(?:血清)?尿酸(?:値)?|uric acid|\bUA\b", "3084-1", "mg/dL"),
+    (r"HbA1c|ヘモグロビンA1c|糖化血色素", "4548-4", "%"),
+    (r"クレアチニン|肌酸酐|creatinine|\bCr\b", "2160-0", "mg/dL"),
+)
+_STUB_DRUG = (
+    (r"アロプリノール|allopurinol|別嘌呤醇", "M04AA01"),
+    (r"フェブキソスタット|febuxostat", "M04AA03"),
+    (r"コルヒチン|colchicine|秋水仙素", "M04AC01"),
+)
+_NEG = re.compile(r"なし|否定|無し|否認|未見|no (?:history|evidence)|denies|ruled out|家族歴|family history")
+_DATE_ANY = re.compile(
+    r"(?:(?:令和|平成|昭和|R|H|S)\s?\d{1,2}[./年]\s?\d{1,2}[./月]\s?\d{1,2}日?)"
+    r"|(?:民國\s?\d{2,3}[./年]\s?\d{1,2}[./月]\s?\d{1,2}日?)"
+    r"|(?:(?:19|20)\d{2}[-/.年]\s?\d{1,2}[-/.月]\s?\d{1,2}日?)"
+)
+
+
+def chart_facts(inp: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic stand-in for the chart reader: line rules for the common diagnoses, labs and medicines of the
+    synthetic charts, every fact quoted verbatim from its line, a negated mention skipped, the date of the line or of
+    the last dated line above it."""
+    text = str(inp.get("chart") or "")
+    out: list[dict[str, str]] = []
+    current = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        m = re.search(r"(生年月日|出生日期|Date of birth|DOB)\s*[:：]?\s*(.+)", line, re.I)
+        sx = re.search(r"(性別|Sex)\s*[:：]?\s*(男性|女性|男|女|male|female)", line, re.I)
+        if m:  # a date of birth is not the date of the visit
+            d = _DATE_ANY.search(m.group(2))
+            if d:
+                out.append({"domain": "birth_date", "term": "", "code": "", "system": "", "value": d.group(0),
+                            "unit": "", "date": "", "quote": m.group(0)[:300]})  # fmt: skip
+        if sx:
+            out.append({"domain": "sex", "term": "", "code": "", "system": "", "value": sx.group(2), "unit": "",
+                        "date": "", "quote": sx.group(0)})  # fmt: skip
+        if m or sx:
+            continue
+        found = _DATE_ANY.search(line)
+        if found:
+            current = found.group(0)
+        if _NEG.search(line):
+            continue
+        for rx, code in _STUB_DX:
+            hit = re.search(rx, line, re.I)
+            if hit:
+                out.append({"domain": "condition", "term": hit.group(0), "code": code, "system": "icd10cm",
+                            "value": "", "unit": "", "date": current, "quote": line[:300]})  # fmt: skip
+        for rx, loinc, unit in _STUB_LAB:
+            hit = re.search(rf"({rx})\s*[:：=]?\s*(\d+(?:\.\d+)?)\s*(mg/dL|mg/dl|%|µmol/L|umol/L)?", line, re.I)
+            if hit:
+                out.append({"domain": "observation", "term": hit.group(1), "code": loinc, "system": "loinc",
+                            "value": hit.group(2), "unit": hit.group(3) or unit, "date": current,
+                            "quote": hit.group(0)})  # fmt: skip
+        for rx, atc in _STUB_DRUG:
+            hit = re.search(rx, line, re.I)
+            if hit:
+                out.append({"domain": "medication", "term": hit.group(0), "code": atc, "system": "atc", "value": "",
+                            "unit": "", "date": current, "quote": line[:300]})  # fmt: skip
+    return {"facts": out[:40]}
+
+
+def assist(inp: dict[str, Any]) -> dict[str, Any]:
+    """The help assistant's stand-in: the draft TrialBox built from its own pages, unchanged."""
+    return {"answer": str(inp.get("draft") or "")[:1500]}
+
+
 MESSAGE_HANDLERS = {"mlbench_judge": mlbench_judge}
 
 HANDLERS = {
@@ -407,4 +486,6 @@ HANDLERS = {
     "consent_verify": consent_verify,
     "ie_locate": ie_locate,
     "classify_intent": classify_intent,
+    "chart_facts": chart_facts,
+    "assist": assist,
 }
