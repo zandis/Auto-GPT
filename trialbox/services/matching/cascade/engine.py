@@ -257,6 +257,8 @@ def missing_table(exc: BaseException, table: str) -> bool:
     """The lake (in process: DuckDB's catalog error; over HTTP: its text) says ``table`` does not exist."""
     msg = str(exc)
     return f"{table}" in msg and ("does not exist" in msg or "Catalog Error" in msg)
+
+
 NOTES_SQL = """
 SELECT did, pid, CAST(date AS DATE) AS d, type, text FROM document
 WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND CAST(date AS DATE) BETWEEN CAST($2 AS DATE) AND CAST($3 AS DATE)
