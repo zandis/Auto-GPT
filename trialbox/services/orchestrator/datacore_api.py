@@ -119,8 +119,17 @@ def snapshot(dc: DataCore, rs: str) -> dict[str, Any]:
             "value": r["value"], "by": r["changed_by"], "at": r["changed_at"]}  # fmt: skip
     return {
         "forms": [{"name": q["name"], "url": q["url"], "items": len(q.get("item", []))} for q in dc.forms(rs)],
-        "fields": [{"name": f.name, "form": f.form, "kind": f.kind, "label": f.label, "options": f.options,
-                    "owner": owners.get(f.name, "trialbox")} for f in flds.values()],  # fmt: skip
+        "fields": [
+            {
+                "name": f.name,
+                "form": f.form,
+                "kind": f.kind,
+                "label": f.label,
+                "options": f.options,
+                "owner": owners.get(f.name, "trialbox"),
+            }
+            for f in flds.values()
+        ],
         "records": recs,
         "sources": dc.sources(rs),
         "conflicts": dc.conflicts(rs),
@@ -204,7 +213,7 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             raise _fail(exc) from exc
 
     @r.get("/studies/{rs}/conflicts")
-    def conflicts(rs: str, all: bool = False) -> list[dict[str, Any]]:  # noqa: A002
+    def conflicts(rs: str, all: bool = False) -> list[dict[str, Any]]:
         return get().dc.conflicts(_rs(rs), open_only=not all)
 
     @r.post("/studies/{rs}/conflicts/{cid}")
@@ -217,8 +226,8 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             out = sync.resolve(svc.dc, cid, body.keep, body.by, svc.stamp())
         except DataError as exc:
             raise _fail(exc) from exc
-        svc.audit.append("data.resolve", ruleset=rid, actor=body.by,
-                         detail={"conflict": cid, "keep": body.keep, "field": c["field"], "record": c["record"]})  # fmt: skip
+        detail = {"conflict": cid, "keep": body.keep, "field": c["field"], "record": c["record"]}
+        svc.audit.append("data.resolve", ruleset=rid, actor=body.by, detail=detail)
         return out
 
     @r.get("/studies/{rs}/fhir")

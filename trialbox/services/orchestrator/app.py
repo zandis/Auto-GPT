@@ -30,10 +30,10 @@ from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryP
 from orchestrator.candidates import CandidateRegistry, RegistryError
 from orchestrator.clients import AdapterHttp, CompilerHttp, MailHttp, ParserHttp
 from orchestrator.core import Orchestrator, Rejected, Services
+from orchestrator.datacore_api import router as datacore_router
 from orchestrator.db import JobDB
 from orchestrator.scenarios import registry
 from orchestrator.study_api import StudyService
-from orchestrator.datacore_api import router as datacore_router
 from orchestrator.study_api import router as study_router
 from orchestrator.studystore import StudyStore
 
@@ -409,9 +409,9 @@ def data_service_of(o: Orchestrator) -> Any:
 
     from orchestrator.datacore_api import DataService
 
-    key = str(o.data_dir)
+    key = o.db.url or str(o.data_dir)  # D-126: one data core per box, in the trial database
     if key not in _cores:
-        _cores[key] = DataCore(Path(o.data_dir) / "datacore.db")
+        _cores[key] = DataCore(o.db.url)
     studies = study_service_of(o)
     return DataService(_cores[key], o.audit, lambda: _now(o), studies.client)
 

@@ -13,6 +13,7 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -72,7 +73,8 @@ class RedcapSource:
 
     def push(self, rows: list[Row]) -> dict[str, str]:
         back = {v: k for k, v in self.field_map.items()}
-        upd, new = [], []
+        upd: list[dict[str, str]] = []
+        new: list[tuple[str, dict[str, str]]] = []
         for r in rows:
             vals = {back.get(f, f): v for f, v in r.values.items()}
             base: dict[str, str] = {"redcap_event_name": self.event} if self.event else {}
@@ -110,8 +112,10 @@ def read_sheet(path: Path) -> list[dict[str, str]]:
                 continue
             row = {}
             for h, v in zip(head, vals, strict=False):
-                if hasattr(v, "date") and hasattr(v, "isoformat"):
-                    v = v.date().isoformat() if hasattr(v, "hour") else v.isoformat()
+                if isinstance(v, datetime):
+                    v = v.date().isoformat()
+                elif isinstance(v, date):
+                    v = v.isoformat()
                 row[h] = "" if v is None else str(v).strip()
             rows.append(row)
         return rows
@@ -212,7 +216,7 @@ class FhirBundleSource:
             if qr.get("resourceType") != "QuestionnaireResponse":
                 continue
             ref = str((qr.get("subject") or {}).get("reference") or "")
-            key = ref.split("/")[-1]
+            key = ref.rsplit("/", maxsplit=1)[-1]
             if not key:
                 continue
             vals = {}

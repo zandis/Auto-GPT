@@ -84,7 +84,8 @@ def sync(dc: DataCore, study: str, source: Source, by: str, at: str, push: bool 
             owner = owners.get(f, TRIALBOX)
             cur = dc.get(study, row.record, row.event, f)
 
-            def clash(theirs: str = v, cur: dict[str, Any] | None = cur, f: str = f, owner: str = owner) -> None:
+            def clash(theirs: str = v, cur: dict[str, Any] | None = cur, f: str = f, owner: str = owner,
+                      row: Row = row) -> None:  # fmt: skip
                 cid = dc.add_conflict(study, row.record, row.event, f, owner, source.name,
                                       cur["value"] if cur else None, theirs, at)  # fmt: skip
                 if cid:
@@ -130,10 +131,16 @@ def _push(dc: DataCore, study: str, source: Source, res: SyncResult) -> None:
     open_c = {(c["record"], c["event"], c["field"]) for c in dc.conflicts(study) if c["source"] == source.name}
     batch: dict[tuple[str, str], dict[str, str]] = {}
     for r in dc.values(study):
-        if r["field"] not in mine or r["value"] == (r["pushed"] or "") or (r["record"], r["event"], r["field"]) in open_c:
+        if (
+            r["field"] not in mine
+            or r["value"] == (r["pushed"] or "")
+            or (r["record"], r["event"], r["field"]) in open_c
+        ):
             continue
         batch.setdefault((r["record"], r["event"]), {})[r["field"]] = r["value"]
-    rows = [Row(rec, ev, vals, dc.source_id(study, source.name, rec) or "") for (rec, ev), vals in sorted(batch.items())]
+    rows = [
+        Row(rec, ev, vals, dc.source_id(study, source.name, rec) or "") for (rec, ev), vals in sorted(batch.items())
+    ]
     if not rows:
         return
     ids = source.push(rows)

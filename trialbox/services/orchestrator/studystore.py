@@ -64,14 +64,6 @@ CREATE TABLE IF NOT EXISTS rc_record (
   read_at TEXT NOT NULL,
   PRIMARY KEY (ruleset, record_id)
 );
-CREATE TABLE IF NOT EXISTS rc_write (
-  ruleset TEXT NOT NULL,
-  link_value TEXT NOT NULL,
-  record_id TEXT NOT NULL,
-  hash TEXT NOT NULL,
-  written_at TEXT NOT NULL,
-  PRIMARY KEY (ruleset, link_value)
-);
 CREATE TABLE IF NOT EXISTS rc_read_log (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   ruleset TEXT NOT NULL,
@@ -82,11 +74,23 @@ CREATE TABLE IF NOT EXISTS rc_read_log (
 );
 """
 #: ``migrate`` versions of schema ``study`` (append-only; version 1 is the schema as it was on SQLite)
-MIGRATIONS = (SCHEMA,)
+# D-123: the write-back ledger (what TrialBox last wrote to REDCap, per linked record)
+SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS rc_write (
+  ruleset TEXT NOT NULL,
+  link_value TEXT NOT NULL,
+  record_id TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  written_at TEXT NOT NULL,
+  PRIMARY KEY (ruleset, link_value)
+)
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2)
 SCHEMA_NAME = "study"
 _REF = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 # the columns of each table, in order (what ``SELECT *`` returned)
 _COLS = {
+    "rc_write": ("ruleset", "link_value", "record_id", "hash", "written_at"),
     "study_settings": (
         "ruleset", "study_type", "cohort_kind", "consent_scope", "screening_no_format", "screening_no_next",
         "not_suitable_reasons", "introduce_rule", "explainer_on", "entered_by", "entered_at", "confirmed_by",
@@ -281,7 +285,7 @@ class StudyStore:
 
     # ------------------------------------------------------------------ rc_write (the write-back ledger, D-123)
     def written(self, ruleset: str) -> dict[str, dict[str, Any]]:
-        rows = self._all("SELECT * FROM rc_write WHERE ruleset = ?", (ruleset,))
+        rows = self._all("rc_write", "WHERE ruleset = ?", (ruleset,))
         return {r["link_value"]: r for r in rows}
 
     def put_written(self, ruleset: str, link_value: str, record_id: str, digest: str, at: str) -> None:

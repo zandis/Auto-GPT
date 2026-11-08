@@ -1,4 +1,4 @@
-"""The data core's store (D-123): ``<data_dir>/datacore.db``.
+"""The data core's store (D-123): schema ``datacore`` of the trial database (D-126).
 
 * ``form``: each study's Questionnaires (FHIR JSON), from a REDCap data dictionary or TrialBox's built-in forms.
 * ``value``: one row per (study, record, event, field) with the raw value, who changed it last and when, and, for
@@ -13,31 +13,31 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-import threading
-from pathlib import Path
+import os
 from typing import Any
+
+from tb_common.db import ENV, Database
 
 from datacore.forms import Field, fields_of
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS form (study TEXT NOT NULL, name TEXT NOT NULL, body TEXT NOT NULL, origin TEXT NOT NULL,
-  at TEXT NOT NULL, PRIMARY KEY (study, name));
+  at TEXT NOT NULL, seq BIGINT GENERATED ALWAYS AS IDENTITY, PRIMARY KEY (study, name));
 CREATE TABLE IF NOT EXISTS owner (study TEXT NOT NULL, field TEXT NOT NULL, owner TEXT NOT NULL,
   PRIMARY KEY (study, field));
 CREATE TABLE IF NOT EXISTS value (study TEXT NOT NULL, record TEXT NOT NULL, event TEXT NOT NULL DEFAULT '',
   field TEXT NOT NULL, value TEXT NOT NULL, changed_by TEXT NOT NULL, changed_at TEXT NOT NULL,
   seen TEXT, pushed TEXT, PRIMARY KEY (study, record, event, field));
-CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT, study TEXT NOT NULL, record TEXT NOT NULL,
-  event TEXT NOT NULL, field TEXT NOT NULL, old TEXT, new TEXT NOT NULL, by TEXT NOT NULL, at TEXT NOT NULL,
-  source TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS conflict (id INTEGER PRIMARY KEY AUTOINCREMENT, study TEXT NOT NULL, record TEXT NOT NULL,
-  event TEXT NOT NULL, field TEXT NOT NULL, owner TEXT NOT NULL, source TEXT NOT NULL, trialbox TEXT,
-  theirs TEXT NOT NULL, at TEXT NOT NULL, resolved TEXT, resolved_by TEXT, resolved_at TEXT);
+CREATE TABLE IF NOT EXISTS history (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, study TEXT NOT NULL,
+  record TEXT NOT NULL, event TEXT NOT NULL, field TEXT NOT NULL, old TEXT, new TEXT NOT NULL, "by" TEXT NOT NULL,
+  at TEXT NOT NULL, source TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS conflict (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, study TEXT NOT NULL,
+  record TEXT NOT NULL, event TEXT NOT NULL, field TEXT NOT NULL, owner TEXT NOT NULL, source TEXT NOT NULL,
+  trialbox TEXT, theirs TEXT NOT NULL, at TEXT NOT NULL, resolved TEXT, resolved_by TEXT, resolved_at TEXT);
 CREATE TABLE IF NOT EXISTS source_cfg (study TEXT NOT NULL, name TEXT NOT NULL, body TEXT NOT NULL,
   last_sync TEXT, last_result TEXT, PRIMARY KEY (study, name));
 CREATE TABLE IF NOT EXISTS src_record (study TEXT NOT NULL, source TEXT NOT NULL, record TEXT NOT NULL,
-  source_id TEXT NOT NULL, PRIMARY KEY (study, source, record));
+  source_id TEXT NOT NULL, PRIMARY KEY (study, source, record))
 """
 TRIALBOX = "trialbox"
 
@@ -50,32 +50,30 @@ class DataError(ValueError):
 
 
 class DataCore:
-    def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.RLock()
-        self._con = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
-        self._con.row_factory = sqlite3.Row
-        self._con.executescript(SCHEMA)
+    def __init__(self, url: str | None = None) -> None:
+        """``url``: the trial database (``TB_DB_URL`` when ``None``)."""
+        self._db = Database.connect(url or os.environ.get(ENV), "datacore")
+        self._db.migrate([SCHEMA])
 
     def close(self) -> None:
-        self._con.close()
+        self._db.close()
 
     def _all(self, sql: str, args: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-        with self._lock:
-            return [dict(r) for r in self._con.execute(sql, args).fetchall()]
+        return self._db.fetchdicts(sql, args)
 
     def _run(self, sql: str, args: tuple[Any, ...]) -> None:
-        with self._lock:
-            self._con.execute(sql, args)
+        self._db.execute(sql, args)
 
     # ------------------------------------------------------------------ forms and ownership
     def put_form(self, study: str, questionnaire: dict[str, Any], origin: str, at: str) -> None:
-        self._run("INSERT INTO form VALUES (?,?,?,?,?) ON CONFLICT(study, name) DO UPDATE SET body = excluded.body, "
+        self._run("INSERT INTO form (study, name, body, origin, at) VALUES (?,?,?,?,?) "
+                  "ON CONFLICT(study, name) DO UPDATE SET body = excluded.body, "
                   "origin = excluded.origin, at = excluded.at",
-                  (study, questionnaire["name"], json.dumps(questionnaire, ensure_ascii=False), origin, at))  # fmt: skip
+                  (study, questionnaire["name"], json.dumps(questionnaire, ensure_ascii=False), origin,
+                   at))  # fmt: skip
 
     def forms(self, study: str) -> list[dict[str, Any]]:
-        return [json.loads(r["body"]) for r in self._all("SELECT body FROM form WHERE study = ? ORDER BY rowid",
+        return [json.loads(r["body"]) for r in self._all("SELECT body FROM form WHERE study = ? ORDER BY seq",
                                                          (study,))]  # fmt: skip
 
     def fields(self, study: str) -> dict[str, Field]:
@@ -89,7 +87,8 @@ class DataCore:
         return {r["field"]: r["owner"] for r in self._all("SELECT field, owner FROM owner WHERE study = ?", (study,))}
 
     def set_owner(self, study: str, field: str, owner: str) -> None:
-        self._run("INSERT INTO owner VALUES (?,?,?) ON CONFLICT(study, field) DO UPDATE SET owner = excluded.owner",
+        self._run("INSERT INTO owner (study, field, owner) VALUES (?,?,?) "
+                  "ON CONFLICT(study, field) DO UPDATE SET owner = excluded.owner",
                   (study, field, owner))  # fmt: skip
 
     # ------------------------------------------------------------------ values
@@ -113,12 +112,14 @@ class DataCore:
     def write(self, study: str, record: str, event: str, field: str, value: str, by: str, at: str, source: str,
               seen: str | None = None, keep_seen: bool = True) -> bool:  # fmt: skip
         """Set a value (no ownership check here; ``DataService`` and ``SyncEngine`` check). False if unchanged."""
-        with self._lock:
-            cur = self.get(study, record, event, field)
+        with self._db.transaction() as tx:
+            rows = tx.fetchdicts("SELECT * FROM value WHERE study = ? AND record = ? AND event = ? AND field = ? "
+                                 "FOR UPDATE", (study, record, event, field))  # fmt: skip
+            cur = rows[0] if rows else None
             if cur is not None and cur["value"] == value and (seen is None or cur["seen"] == seen):
                 return False
             new_seen = seen if seen is not None else (cur["seen"] if cur and keep_seen else None)
-            self._con.execute(
+            tx.execute(
                 "INSERT INTO value (study, record, event, field, value, changed_by, changed_at, seen, pushed) "
                 "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(study, record, event, field) DO UPDATE SET "
                 "value = excluded.value, changed_by = excluded.changed_by, changed_at = excluded.changed_at, "
@@ -126,8 +127,8 @@ class DataCore:
                 (study, record, event, field, value, by, at, new_seen, cur["pushed"] if cur else None),
             )
             if cur is None or cur["value"] != value:
-                self._con.execute(
-                    "INSERT INTO history (study, record, event, field, old, new, by, at, source) VALUES "
+                tx.execute(
+                    'INSERT INTO history (study, record, event, field, old, new, "by", at, source) VALUES '
                     "(?,?,?,?,?,?,?,?,?)",
                     (study, record, event, field, cur["value"] if cur else None, value, by, at, source),
                 )
@@ -156,13 +157,12 @@ class DataCore:
                          (study, record, event, field, source, theirs))  # fmt: skip
         if same:
             return None
-        with self._lock:
-            cur = self._con.execute(
+        with self._db.transaction() as tx:
+            return int(tx.fetchval(
                 "INSERT INTO conflict (study, record, event, field, owner, source, trialbox, theirs, at) VALUES "
-                "(?,?,?,?,?,?,?,?,?)",
+                "(?,?,?,?,?,?,?,?,?) RETURNING id",
                 (study, record, event, field, owner, source, trialbox, theirs, at),
-            )
-            return int(cur.lastrowid or 0)
+            ))  # fmt: skip
 
     def conflicts(self, study: str, open_only: bool = True) -> list[dict[str, Any]]:
         sql = "SELECT * FROM conflict WHERE study = ?" + (" AND resolved IS NULL" if open_only else "") + " ORDER BY id"
@@ -183,7 +183,8 @@ class DataCore:
         return str(rows[0]["source_id"]) if rows else None
 
     def put_source_id(self, study: str, source: str, record: str, source_id: str) -> None:
-        self._run("INSERT INTO src_record VALUES (?,?,?,?) ON CONFLICT(study, source, record) DO UPDATE SET "
+        self._run("INSERT INTO src_record (study, source, record, source_id) VALUES (?,?,?,?) "
+                  "ON CONFLICT(study, source, record) DO UPDATE SET "
                   "source_id = excluded.source_id", (study, source, record, source_id))  # fmt: skip
 
     # ------------------------------------------------------------------ source settings

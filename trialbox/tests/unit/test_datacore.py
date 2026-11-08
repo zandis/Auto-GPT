@@ -38,7 +38,7 @@ def dictionary_a() -> str:
 
 
 def core(tmp: Path) -> DataCore:
-    dc = DataCore(tmp / "datacore.db")
+    dc = DataCore()  # TB_DB_URL: the test's own schemas (tests/conftest.py)
     for q in forms.questionnaires("GZQO", forms.read_dictionary(dictionary_a()), record_field="record_id"):
         dc.put_form("GZQO", q, "redcap-dictionary", AT)
     return dc
