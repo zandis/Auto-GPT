@@ -1178,3 +1178,49 @@ What was decided, and why:
   placeholder, the field opens help from a phrase in that language, My account, no sideways scroll on the phone).
 
 Demo: `python -m tools.role_demo --fresh --dir /tmp/tb-roles` and sign in as admin, crc, pi, viewer or cra.
+
+## Simple build plan, step 5: end to end and the demo (2026-11)
+
+**D-111 Build step 5: `e2e_simple` is the build gate; the model gate replays offline; the demo is one image.** Build
+step 5 of `20-build-map.md` §2, stub model, no keys, no cloud.
+
+* **`e2e_simple`** (`tools/e2e_simple.py`, `make e2e-simple`, `tests/integration/test_e2e_simple.py`,
+  `.github/workflows/trialbox-e2e.yml` on every pull request touching `trialbox/`; FR-OPS-11). One synthetic hospital
+  (ci profile, 5,000 patients) through criteria pasted → FEAS report → investigator approval → SCREEN → list and
+  cohort list → marks → N1/N2 mail → REDCap simulator record → Run now → screening log (HTML and XLSX). 48 checks in
+  nine stages, each against something the step did not compute itself: the generator's counts, a recount of GZQO-INC-01
+  and -INC-02 from the hospital CSVs (exact), the sent mail (no chart number, name or screening number), the raw audit
+  chain (verified), and a byte-identical re-run of FEAS and SCREEN (FR-REP-02). About 75 s on one core (budget 15
+  min). It runs with `TB_ENV=DEV` as the demo does; the pytest wrapper sets it, because the test conftest clears
+  `TB_*`.
+* **FR-REP-01.** The feasibility and screening JSON carry a `provenance` block: study, ruleset and version, snapshot,
+  data sources, models that ran and prompt versions (none for FEAS, D-101), run date, clock, job id, language. It is
+  built from the job only, so re-runs stay byte-identical.
+* **FR-AUD-01b.** A chart-number reveal records its reason (contact, eligibility, consent, other) from a select on the
+  patient page and the job page; a request without one is recorded as `not given`, never guessed.
+* **FR-AUD-01e.** The REDCap read-back audits every registry status change by pseudonym (`redcap.read`
+  `status_changes`), not only the count. Investigator marks (`console.pi_mark`) and contact outcomes were already
+  audited.
+* **Simulator routing.** The orchestrator's DEV/TEST registration of `inproc://rc-sim` no longer replaces a
+  simulator a demo registered first, and `rc_demo` makes a fresh simulator per run. Before, a demo's records went to a
+  simulator the box did not read whenever `TB_ENV=DEV` was set.
+* **Model gate, offline** (`tools/parity_replay.py`, `eval/parity/replay.json`). N-11 replays the recorded SIGIR
+  answers (both must block, filter first): deployed files on the card 4/79 EN and 3/79 JA (pass; = the recorded
+  baseline), zh-TW **not recorded** for those files; the API 4-bit proxy of the same models 1 / 2 / 1 (zh-TW answers
+  vendored byte for byte from the LLM-survey branch). N-12 recomputes the recorded TREC projection: 3.6 % (95 %
+  2.1–5.6), pass on the point estimate, at API precision. Without NCBI's `trial_info.json` the replay scores all 1,015
+  criteria; the lost-pair counts equal the committed 1,000-criterion tables on every recorded run.
+* **FR-MOD-10 record** (`tools/serving_config.py`, `docs/SERVING_CONFIG.md`): card, vLLM version, `max-model-len`,
+  `max-num-seqs`, eager flag, memory fractions, KV dtype and the sha256 of every model file; `validate` lists gaps.
+  The GPU VM's startup script captures it once both servers answer and serves it on :80
+  (`deploy/gcp/capture-serving-config.sh prepare|fetch`); not run (no GPU here). The 6 Nov configuration is recorded
+  by hand without hashes.
+* **Demo** (`tools/demo.py`, `make demo`, `make demo-bundle`, `demo/Dockerfile` now defaults to it,
+  `deploy/gcp/demo-vm-startup.sh`, `docs/DEMO_VM.md`): seeds and checks the step 1–4 flow, then serves the console.
+  How the CPU VM would be started is written down; no VM was started.
+* **Not done, on purpose or by limit.** The PHI pass on note text (FR-DEID-01, the "D3 copy" of TB-DS-04 §3.4.1
+  stage 0) is not built: the lake keeps the generator's planted names and phone numbers in note text, so stage 0
+  checks only that structured tables carry no chart number, ID or phone column and that keys are pseudonyms. "Planted
+  eligible patients are listed" has no generator truth list in the ci profile; stage 3 checks that no note answer can
+  exclude a patient (single stub judge, `note_block` never) instead. The demo image was not built here (no Docker
+  daemon in the build container).

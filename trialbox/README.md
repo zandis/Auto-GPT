@@ -93,6 +93,9 @@ python -m tools.feas_demo --dir /tmp/tb-feas   # build step 1: paste criteria ->
 python -m tools.list_demo --dir /tmp/tb-list   # build step 2: approve on S20 -> list, marks, N1/N2 mail (D-108)
 python -m tools.rc_demo --dir /tmp/tb-rc       # build step 3: REDCap simulator -> link -> Run now -> log status (D-109)
 python -m tools.role_demo --fresh --dir /tmp/tb-roles  # build step 4: five role homes, header command field, ja/zh-TW/en (D-110)
+make e2e-simple                # build step 5: the build gate, criteria -> report -> list -> mail -> REDCap -> log (D-111)
+make demo                      # build step 5: the whole step 1-4 flow seeded and checked, console on :8080 (D-111)
+python -m tools.parity_replay  # build step 5: model gate N-11/N-12 from recorded answers, no model (D-111)
 ```
 
 ## Deploying a real site

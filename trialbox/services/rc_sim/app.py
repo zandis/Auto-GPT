@@ -207,13 +207,14 @@ app = create_app()
 INPROC_URL = "inproc://rc-sim"
 
 
-def register_inproc(sim: FastAPI | None = None) -> None:
-    """Route ``inproc://rc-sim`` in rc-bridge to this simulator (the module-level app unless one is given)."""
+def register_inproc(sim: FastAPI | None = None, replace: bool = True) -> None:
+    """Route ``inproc://rc-sim`` in rc-bridge to this simulator (the module-level app unless one is given).
+    ``replace=False`` (the orchestrator's DEV/TEST default) never overrides a simulator a demo registered first."""
     from fastapi.testclient import TestClient
     from rc_bridge.client import register_local
 
     target = sim or app
-    register_local(INPROC_URL, lambda: TestClient(target, base_url="http://rc-sim"))
+    register_local(INPROC_URL, lambda: TestClient(target, base_url="http://rc-sim"), replace=replace)
 
 
 def main() -> None:  # pragma: no cover - entry point

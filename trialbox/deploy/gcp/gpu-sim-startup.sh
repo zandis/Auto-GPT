@@ -38,10 +38,23 @@ cat > /root/nginx.conf <<'NG'
 events {}
 http { server { listen 80; client_max_body_size 10m; proxy_read_timeout 600s;
   location /judge/    { proxy_pass http://judge:8000/; }
-  location /verifier/ { proxy_pass http://verifier:8000/; } } }
+  location /verifier/ { proxy_pass http://verifier:8000/; }
+  location /record/   { alias /srv/record/; default_type application/json; } } }
 NG
-docker run -d --name front --network tb -p 80:80 -v /root/nginx.conf:/etc/nginx/nginx.conf:ro --restart unless-stopped nginx:1.27-alpine
+mkdir -p /root/record
+docker run -d --name front --network tb -p 80:80 -v /root/nginx.conf:/etc/nginx/nginx.conf:ro -v /root/record:/srv/record:ro \
+  --restart unless-stopped nginx:1.27-alpine
 for i in $(seq 1 80); do docker exec verifier python3 -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3)" 2>/dev/null && break; [ $((i % 8)) = 0 ] && docker logs verifier 2>&1 | grep -aE 'Error|memory|KV cache' | tail -4 | sed 's/^/TBV /'; sleep 15; done
 docker logs verifier 2>&1 | grep -aE 'Error|error|memory|Memory|KV cache|Started' | tail -15 | sed 's/^/TBV /'
 nvidia-smi --query-gpu=memory.used,memory.total --format=csv
+# FR-MOD-10 (D-111): when the VM carries tools/serving_config.py as metadata "tb-serving-config"
+# (deploy/gcp/capture-serving-config.sh prepare), record the serving configuration with the sha256 of every model
+# file once both servers answer, and serve it at http://<vm>/record/serving_config.json (no key, no secret in it).
+SC=$(curl -sf -H Metadata-Flavor:Google http://metadata.google.internal/computeMetadata/v1/instance/attributes/tb-serving-config || true)
+if [ -n "$SC" ]; then
+  printf '%s\n' "$SC" > /root/serving_config.py
+  python3 /root/serving_config.py capture --container judge=judge --container verifier=verifier --models-dir /models \
+    --capped-to "RTX 5090 (32 GB), by --gpu-memory-utilization" --out /root/record/serving_config.json || true
+  chmod 644 /root/record/serving_config.json 2>/dev/null || true
+fi
 echo STARTUP-DONE

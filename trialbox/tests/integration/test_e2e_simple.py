@@ -8,10 +8,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tools import e2e_simple
 
 
-def test_e2e_simple(tmp_path: Path) -> None:
+def test_e2e_simple(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TB_ENV", "DEV")  # as make e2e-simple and the demo image run it (the conftest clears TB_*)
     out = e2e_simple.run(tmp_path, "pw-" + "x" * 16, "ja")
     bad = [(st.name, what, detail) for st in out["stages"] for what, ok, detail in st.checks if not ok]
     assert not bad, e2e_simple.report(out)

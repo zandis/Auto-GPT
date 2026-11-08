@@ -13,7 +13,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: fonts jvm-deps venv e2e-simple demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e poc poc-down poc-status poc-hermes poc-hermes-down test-hermes-e2e test-console test-console-e2e site site-preview clean
+.PHONY: fonts jvm-deps venv e2e-simple demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e poc poc-down poc-status poc-hermes poc-hermes-down test-hermes-e2e test-console test-console-e2e site site-preview clean
 
 venv:
 	uv venv --allow-existing --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
@@ -51,6 +51,16 @@ test-integration:
 E2E_DIR ?= /tmp/tb-e2e-simple
 e2e-simple:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.e2e_simple --dir $(E2E_DIR) --json $(E2E_DIR).json
+
+# one-command demo (D-111): seed and check the step 1-4 flow, then serve the console on 127.0.0.1:8080
+demo:
+	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.demo
+
+# the same as one image file for the demo VM (docs/DEMO_VM.md): dist/trialbox-demo.tar.gz
+demo-bundle:
+	docker build $(CA_SECRET) -f demo/Dockerfile -t trialbox-demo:step5 .
+	mkdir -p dist && docker save trialbox-demo:step5 | gzip > dist/trialbox-demo.tar.gz
+	@ls -l dist/trialbox-demo.tar.gz
 
 test-e2e:
 	TB_INTEGRATION=1 $(PY) -m pytest -q -m e2e
