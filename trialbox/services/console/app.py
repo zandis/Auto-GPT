@@ -39,6 +39,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import AuditLog
+from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
 from tb_common.reasons import label as reason_label
@@ -134,7 +135,7 @@ class ConsoleSettings:
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> ConsoleSettings:
-        environment = (env.get("TB_ENV") or "PRODUCTION").upper()
+        environment = environment_name(env)
         want_pilot = env.get("TB_CONSOLE_PILOT", "0").strip().lower() in ("1", "true", "yes")
         data_class = (env.get("TB_DATA_CLASS") or "").upper()
         if want_pilot and environment not in PILOT_ENVS:

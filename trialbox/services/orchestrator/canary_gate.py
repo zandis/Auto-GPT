@@ -31,6 +31,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from tb_common.config import environment_name
 from tb_common.llm import LlmClient, LlmError
 
 log = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ def gate_on(env: dict[str, str] | None = None) -> bool:
         return True
     if v in ("off", "0", "false", "no"):
         return False
-    return (e.get("TB_ENV") or "PRODUCTION").strip().upper() not in ("DEV", "TEST")
+    return environment_name(e) not in ("DEV", "TEST")
 
 
 def _max_age_h() -> float:
