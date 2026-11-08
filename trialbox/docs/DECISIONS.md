@@ -1853,3 +1853,85 @@ the same patterns.
   with a heading and three clear buttons; unknown studies answer 404.
 * **Guarded by tests.** axe-core in the walk (no serious or critical issue), a 44 px target check and an English-leak
   check on ja and zh-TW pages; tap counts for the core tasks recorded before and after.
+
+*What was built (step 4b, 2026-11-08).*
+
+* **One-time password (F-02).** `random_password()` now gives five groups of four from an alphabet without look-alike
+  characters (`k7dm-q3xa-…`, about 99 bits; `0 O 1 l i` never appear). After Create or Reset the console keeps the
+  password in memory, keyed by the administrator's session, and redirects to `/ops/users#made`; the page pops it once.
+  It is never in a URL, a log line, the audit trail or a database, and a restart forgets it (reset again). The page
+  shows it grouped, in a read-only field with Copy, with three hand-over steps (in person or by phone, change it at
+  once, the page will not show it again).
+* **"Not suitable now" (F-03).** The reason is a required list with an empty first choice; `apply_mark` (the one
+  action behind the page and `/api/v1`) refuses a missing or unknown reason with `mark.reason_needed` instead of
+  recording "other". After any mark the toast offers **Undo** (`mark=undo`): the state before the user's last mark is
+  put back (the earlier mark with its reason and note, or no mark), as a new event with `undo` in the audit detail.
+  After a mark the panel shows that patient's real state, even when the patient has left the list.
+* **Contact outcomes (F-36).** `apply_outcome` refuses (409 `outcome.wait_pi`, audited `console.refused`) unless the
+  patient's current mark is Approach, so the page and `/api/v1` refuse alike; the page shows "Waiting for the
+  investigator's decision" instead of the outcome buttons.
+* **The investigator's reveal (F-38). Choice: investigators may not reveal.** It is the safer and simpler rule: it is
+  what the role text already says ("no chart numbers"), it matches the job page (requesters only since D-101), and the
+  coordinator, who keeps the screening log and makes the call, is the one who needs the number. `User.can_reveal`
+  (administrator, coordinator) guards the patient page's reveal; the form moved to the bottom of the page, needs a
+  reason, and says "recorded with your name" on the button. `e2e_simple` now checks the investigator's 403 and has
+  the coordinator reveal.
+* **Unknown study (F-37).** Every study route (`home`, `study_setup`, `screening_log`, `data_pages`, `entry_pages`)
+  checks `studies.known_study`: a ruleset of any status must exist, else the 404 page.
+* **Phone.** The week list on a phone shows the list only; a tapped row opens the patient as a full-screen sheet with
+  Back to the list, Next patient and a sticky mark bar (48 px buttons that reach their forms with the `form`
+  attribute). The header is one line of banner, the brand, Help, a Menu button (a checkbox and label, no script) and
+  the search field; the menu, language and Sign out sit behind Menu. IDs, dates and codes in tables never wrap (the
+  table scrolls in its card; job ids show their last eight characters with the full id as a title). The audit trail is
+  paged, 50 events a page (newest 1,000).
+* **Targets and text.** Buttons, inputs, selects, menu items, table links and summaries are at least 44 px; checkbox
+  and radio labels are 44 px rows; text is at least 15 px (16 px body); scroll regions are focusable.
+* **Setup (F-04, F-11).** `/studies/{rs}/setup` is one form with one Save (`POST /studies/{rs}/setup`), step chips
+  and a `data-guard` that warns before leaving with unsaved edits. "Read the fields from REDCap" (`action=read`)
+  reads the project's data dictionary through a new read-only orchestrator route,
+  `GET /redcap/connections/{ref}/dictionary`, and shows the page again with everything typed kept and each field as
+  a list (label and variable name, grouped by form); nothing is saved until Save. Save stores the study and the
+  numbering together and, when the link changed, checks it against the dictionary. The older per-section routes stay
+  for scripts. The CSV import on Forms and the field-map text on Sources remain for the uncommon cases.
+* **One script, by hash.** The guard, Copy and the error page's Back need a script. The console now inlines one
+  first-party script (`static/console.js`) and the CSP allows exactly that script by its SHA-256 (`script-src
+  'sha256-…'`, no `'self'`, no `'unsafe-inline'`); every page still works without it. A console test checks that the
+  page's only script is the one the policy names.
+* **Words (F-09, F-10, F-20–F-22).** The glossary was applied to the ja and zh-TW catalogues (219 replacements): 処理 /
+  作業 (not ジョブ / 工作), 選択・除外基準 / 納入／排除條件, 読み込み / 讀取 (not コンパイル / 編譯), 治験依頼者 / 試驗委託者,
+  ログイン, 役割, 金鑰, and TrialBox for the product (never 箱, 装置, 本機, 機器). A test fails if one of the old words comes
+  back. The week list has one name everywhere (This week's patients / 今週の患者 / 本週病人); "Patients" in the menu is
+  the Screening log. Mark labels stay as decided in D-108 (a "not suitable" label never reads as "not eligible").
+  Words from the study or the hospital's data (criterion labels, doctors' names, departments) are shown as written
+  and, on a ja or zh-TW page, marked "原文" with `lang="en"`. Help and the command page build their examples from
+  the user's own first study, and each example is a link. A typed patient code finds patients on this week's list.
+* **Sign-in and errors (F-05, F-12).** The sign-in page has a language choice (kept for the session it starts), says
+  for how many more minutes and until when an account is locked, and names the administrator's mailbox. The 403, 404
+  and other error pages have a heading, one sentence, and three buttons: home, back, help.
+* **Tests.** `tests/console/test_step4b.py` (one test per safety change, the one-form set-up with the dictionary
+  pickers, the sign-in page, the error pages, audit paging and the glossary). `tools/public_walk.js` injects axe-core
+  (from `node_modules`, else `tools/vendor/axe.min.js`, 4.10.2, SHA-256 `b511cd9d…75e3`) with `addScriptTag` and fails
+  on a serious or critical issue; fails on any target under 44 px (a link inside a sentence is WCAG 2.5.5's
+  exception); keeps the English-leak check; and walks the six core tasks with taps counted into `walk.json` (`taps`),
+  failing when a task needs more than the review's "could" column.
+
+*Before and after* (before: the review's 696 page loads; after: the walk's 480 pages, 5 roles x 3 languages x 2 views).
+
+| | Before | After |
+|---|---|---|
+| axe serious or critical | 6 pages (scrollable-region-focusable) | 0 (moderate 12, minor 72) |
+| Interactive targets under 44 px | 28,272 of 28,750 (98 %) | 0 of 12,468 |
+| T1 PI marks a patient, phone ja | 2 + an anchor jump and a long scroll back | 2, the sheet and mark bar in view (target 2) |
+| T2 CRC records an outcome, desktop zh-TW | 4 + a date | 2 (target 2) |
+| T3 CRC finds why a patient is listed, phone ja | 2 | 2 (target 2) |
+| T4 CRC set-up and REDCap, desktop en | 14 clicks, ~20 typed fields | 5, fields picked from the dictionary (target ~10) |
+| T5 admin adds a user and checks health, desktop ja | 7 | 5 (target 5) |
+| T6 first day, phone zh-TW | 3 (+2 for the language) | 3, language from the browser or one tap (target 3) |
+| Review score (novice) | 2.5 / 5 | not re-reviewed; our own reading: safety 4, accessibility 4, guidance 3 |
+
+*Left for later.* A re-review by the novice panel (and of the Entry and History pages, F-42); first-run wizard and
+forced password change (pattern 2, F-24); feasibility summary card first (F-14); job pages as result cards for PI and
+CRC (F-23); plain service names on the admin pages (F-25); confirmations on Disable, Detach, Keep/Take and Start a run
+(pattern 6); Undo for outcomes and conflict decisions; the command field as a real assistant (F-32, F-39); per-page
+help with screenshots; translated (not only marked) criterion labels before the first run, which needs the label
+editor made mandatory at approval; the mail gateway's own texts still say サインイン.

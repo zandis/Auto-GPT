@@ -46,7 +46,7 @@
       <strong class="pname">{{ t('week.patient', p=p.pid[:8]) }}</strong>
       <dl>
         <div><dt>{{ t('patient.visit') }}</dt><dd>{{ (p.row.next_appointment or '')[:16].replace('T', ' ') or t('week.no_visit') }}</dd></div>
-        <div><dt>{{ t('wb.doctor') }}</dt><dd>{{ p.practitioner or '–' }}{% if p.row.department %} · {{ p.row.department }}{% endif %}</dd></div>
+        <div><dt>{{ t('wb.doctor') }}</dt><dd>{{ given(p.practitioner) or '–' }}{% if p.row.department %} · {{ given(p.row.department) }}{% endif %}</dd></div>
         <div><dt>{{ t('patient.tier') }}</dt><dd>{% if p.listed %}{{ t('wstatus.' + p.listed.status) }}{% else %}{{ t('tier.' + p.row.tier) }}{% endif %}{% if p.registry and not (p.listed and p.listed.status == p.registry) %} · {{ t('registry.status.' + p.registry) }}{% endif %}</dd></div>
       </dl>
     </div>
@@ -59,7 +59,7 @@
     <h3 class="grp">{{ t('wb.' + kind) }}</h3>
     <ul class="critl">{% for c in cs %}<li>
       {% set vk = 'verdict.exclusion.' + c.verdict if c.kind == 'exclusion' and c.verdict in ('pass', 'fail') else 'verdict.' + c.verdict %}<span class="ic vd-{{ c.verdict }}" aria-label="{{ t(vk) }}">{{ {'pass': '✓', 'fail': '✕', 'unknown': '?', 'pending_human': 'P'}.get(c.verdict, '·') }}</span>
-      <div><span class="clab">{{ c.label }}</span>{% if c.original %} <span class="hint">({{ c.original }})</span>{% endif %} <span class="hint">{{ c.id }}</span>
+      <div><span class="clab">{{ given(c.label) }}</span>{% if c.original %} <span class="hint">({{ given(c.original) }})</span>{% endif %}
       <div class="hint">{{ t(vk) }} · {{ t('how.' + c.source) }}{% if c.date %} · {{ c.date }}{% endif %}</div>
       {% if c.quote %}<q class="quote">{{ c.quote }}</q>{% endif %}{% for o in c.opinions or [] %}<div class="hint" data-testid="opinion-{{ c.id }}-{{ o.role }}">{{ t('opinion.' + o.role) }} · {{ t('opinion.says.' + o.verdict) if o.verdict in ('pass', 'fail') else t('verdict.unknown') }}: <q class="quote">{{ o.quote }}</q></div>{% endfor %}</div>
     </li>{% endfor %}</ul>{% endif %}{% endfor %}

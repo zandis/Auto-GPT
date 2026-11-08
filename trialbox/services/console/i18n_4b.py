@@ -45,6 +45,7 @@ EN: dict[str, str] = {
     "mark.reason_needed": "Choose a reason first. “Not suitable now” is recorded only with the reason the investigator "
     "chose.",
     "mark.undo": "Undo",
+    "mark.undo_none": "There is no mark of yours to undo on this patient.",
     "wb.done.undo": "Undone. The patient is back as before.",
     "wb.done.not_suitable": "Set aside for now, with your reason. The patient leaves your lists.",
     "outcome.wait_pi": "Not recorded: the investigator has not marked this patient “Approach” yet. Contact outcomes "
@@ -75,6 +76,8 @@ EN: dict[str, str] = {
     "problem.home": "My home page",
     "problem.back": "Go back",
     "problem.help": "Help",
+    "problem.ask": "Need help? Ask your TrialBox administrator.",
+    "problem.ask.mail": "Need help? Ask your TrialBox administrator: {mail}",
     # audit pager (review F-07)
     "audit.newer": "Newer",
     "audit.older": "Older",
@@ -153,6 +156,7 @@ JA: dict[str, str] = {
     "mark.reason_needed": "先に理由を選んでください。「今回は見合わせる」は、医師が選んだ理由と一緒にだけ記録されます。"
     "先に理由を選んでください。「今回は見合わせる」は、医師が選んだ理由と一緒にだけ記録されます。",
     "mark.undo": "元に戻す",
+    "mark.undo_none": "この患者さんには、元に戻せるあなたの判断がありません。",
     "wb.done.undo": "元に戻しました。患者さんは前の状態に戻りました。",
     "wb.done.not_suitable": "理由とともに今回は見合わせました。この患者さんはリストから外れます。",
     "outcome.wait_pi": "記録していません：医師がまだこの患者さんを「声をかける」としていません。"
@@ -180,6 +184,8 @@ JA: dict[str, str] = {
     "problem.home": "ホームへ",
     "problem.back": "前のページへ",
     "problem.help": "ヘルプ",
+    "problem.ask": "困ったときは TrialBox の管理者に連絡してください。",
+    "problem.ask.mail": "困ったときは TrialBox の管理者に連絡してください：{mail}",
     "audit.newer": "新しい記録",
     "audit.older": "古い記録",
     "audit.page": "{n} ページ目",
@@ -251,6 +257,7 @@ ZH: dict[str, str] = {
     "mark.reason.choose": "請選擇原因",
     "mark.reason_needed": "請先選擇原因。「暫不邀請」只會連同主持人選的原因一起記錄。",
     "mark.undo": "復原",
+    "mark.undo_none": "這位病人沒有您可以復原的標記。",
     "wb.done.undo": "已復原，病人回到先前的狀態。",
     "wb.done.not_suitable": "已連同原因標記為暫不邀請，這位病人將離開您的清單。",
     "outcome.wait_pi": "未記錄：主持人尚未將這位病人標記為「邀請」。聯絡結果只能在那之後記錄。",
@@ -276,6 +283,8 @@ ZH: dict[str, str] = {
     "problem.home": "回到首頁",
     "problem.back": "回上一頁",
     "problem.help": "說明",
+    "problem.ask": "需要協助？請聯絡 TrialBox 管理者。",
+    "problem.ask.mail": "需要協助？請聯絡 TrialBox 管理者：{mail}",
     "audit.newer": "較新的紀錄",
     "audit.older": "較舊的紀錄",
     "audit.page": "第 {n} 頁",

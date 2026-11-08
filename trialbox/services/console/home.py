@@ -658,7 +658,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if mark == "undo":  # D-133: the toast's Undo puts back the state before this user's last mark
             hist = store.mark_history(rid, pid)
             if not hist or hist[-1].by != sess.user.username:
-                raise h.problem(409, "request.refused", reason="there is no mark of yours to undo")
+                raise h.problem(409, "mark.undo_none")
             undone = hist[-1].mark
             before: Mark | None = None
             for m in hist[:-1]:

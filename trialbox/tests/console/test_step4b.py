@@ -41,7 +41,7 @@ def _events(b: dict[str, Any], name: str) -> list[dict[str, Any]]:
     return [e for e in out if e.get("event") == name]
 
 
-def test_not_suitable_needs_a_reason_on_the_page_and_the_api_and_undo_restores(box: dict[str, Any]) -> None:
+def test_not_suitable_needs_a_reason_on_the_page_and_the_api_and_undo_restores(box: dict[str, Any]) -> None:  # noqa: F811
     """Review F-03: a tap with no reason used to record "other illness"; now it is refused, and Undo puts back the
     mark before (here: none)."""
     _done_screen(box["backend"], _ulid(961))
@@ -79,7 +79,7 @@ def test_not_suitable_needs_a_reason_on_the_page_and_the_api_and_undo_restores(b
     assert 'class="pill mk-need_info"' in p.split('data-testid="current-mark"')[1][:200]
 
 
-def test_contact_outcome_only_after_the_investigators_approach(box: dict[str, Any]) -> None:
+def test_contact_outcome_only_after_the_investigators_approach(box: dict[str, Any]) -> None:  # noqa: F811
     """Review F-36: the coordinator records a call only for a patient the investigator approved; the shared action
     refuses otherwise, so the page and /api/v1 refuse alike."""
     _done_screen(box["backend"], _ulid(962))
@@ -105,7 +105,7 @@ def test_contact_outcome_only_after_the_investigators_approach(box: dict[str, An
     assert r.status_code == 200 and len(_events(box, "console.contact_outcome")) == 1
 
 
-def test_one_time_password_never_in_a_url_and_readable(box: dict[str, Any]) -> None:
+def test_one_time_password_never_in_a_url_and_readable(box: dict[str, Any]) -> None:  # noqa: F811
     """Review F-02."""
     c, csrf = login(box["app"], "admin", ADMIN_PW)
     r = c.post(
@@ -127,7 +127,7 @@ def test_one_time_password_never_in_a_url_and_readable(box: dict[str, Any]) -> N
     assert n.get("/home").status_code == 200
 
 
-def test_unknown_study_answers_404_on_every_study_page(box: dict[str, Any]) -> None:
+def test_unknown_study_answers_404_on_every_study_page(box: dict[str, Any]) -> None:  # noqa: F811
     """Review F-37: a mistyped study code used to render an empty set-up form and a week page."""
     crc = _user(box, "crc1", "coordinator")
     for path in ("setup", "week", "screening-log", "sources", "conflicts", "forms", "entry", "feasibility"):
@@ -137,7 +137,7 @@ def test_unknown_study_answers_404_on_every_study_page(box: dict[str, Any]) -> N
     assert crc.get("/studies/GZQO/setup").status_code == 200
 
 
-def test_error_pages_have_a_heading_a_reason_and_three_ways_on(box: dict[str, Any]) -> None:
+def test_error_pages_have_a_heading_a_reason_and_three_ways_on(box: dict[str, Any]) -> None:  # noqa: F811
     """Review F-12."""
     crc = _user(box, "crc1", "coordinator")
     for path, status, heading in (("/no-such-page", 404, "Page not found"), ("/ops/users", 403, "another role")):
@@ -150,7 +150,7 @@ def test_error_pages_have_a_heading_a_reason_and_three_ways_on(box: dict[str, An
     assert "ページが見つかりません" in r.text and "Not found" not in r.text
 
 
-def test_sign_in_page_language_and_lockout_countdown(box: dict[str, Any]) -> None:
+def test_sign_in_page_language_and_lockout_countdown(box: dict[str, Any]) -> None:  # noqa: F811
     """Review F-05: a language choice before sign-in; a locked account says until when and whom to ask."""
     c = TestClient(box["app"])
     page = c.get("/login?lang=zh-TW").text
@@ -176,7 +176,7 @@ def test_sign_in_page_language_and_lockout_countdown(box: dict[str, Any]) -> Non
     assert '<html lang="ja">' in c2.get("/home").text
 
 
-def test_audit_trail_is_paged(box: dict[str, Any]) -> None:
+def test_audit_trail_is_paged(box: dict[str, Any]) -> None:  # noqa: F811
     """Review F-07: the audit page held 300 events (130 phone screens)."""
     for i in range(120):
         box["audit"].append("console.login", actor=f"console:u{i}")
@@ -215,9 +215,17 @@ def test_setup_is_one_form_and_reads_the_redcap_fields(b3: dict[str, Any]) -> No
     assert '<option value="consent_date"' in r.text
     r = c.post(
         "/studies/GZQO/setup",
-        data={**form, "action": "save", "project_id": "101", "link_field": "tb_screening_no",
-              "consent_field": "consent_date", "enrol_field": "enrolled", "enrol_value": "1",
-              "screenfail_field": "sf_reason", "subject_no_field": "subject_no"},  # fmt: skip
+        data={
+            **form,
+            "action": "save",
+            "project_id": "101",
+            "link_field": "tb_screening_no",
+            "consent_field": "consent_date",
+            "enrol_field": "enrolled",
+            "enrol_value": "1",
+            "screenfail_field": "sf_reason",
+            "subject_no_field": "subject_no",
+        },
         follow_redirects=True,
     )
     assert 'data-testid="setup-saved"' in r.text and 'data-testid="link-on"' in r.text

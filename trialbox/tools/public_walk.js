@@ -434,9 +434,17 @@ async function tasks(browser) {
   // T2: the coordinator, on a desktop in Chinese, records a contact outcome: the call task on the home page, then the
   // outcome (only offered after the investigator's Approach, D-133 / F-36).
   await task(browser, "T2", desk("zh-TW"), async (page, tap, r) => {
+    // the precondition: the investigator has approved a patient (Approach); a call task is then on the coordinator's
+    // home page. The walk's own patient (W.pid_fresh) is used; the action check above withdrew its earlier mark.
+    const pp = await page.context().newPage();
+    await signIn(pp, "pi", LANGS[0]);
+    await pp.goto(`${args.base}/studies/${T}/patients/${W.pid_fresh}`, { waitUntil: "load" });
+    await clickNav(pp, `[data-testid=approach-${W.pid_fresh.slice(0, 8)}]`);
+    await pp.close();
+    await page.context().clearCookies();
     await signIn(page, "crc", LANGS[2]);
     await page.goto(`${args.base}/home`, { waitUntil: "load" });
-    const call = page.locator("[data-testid=task-call] a").first();
+    const call = page.locator(`[data-testid=task-call] a[href*="${W.pid_fresh}"]`).first();
     if (!(await call.count())) throw new Error("no call task on the coordinator's home page");
     await tap(() => Promise.all([page.waitForLoadState("load"), call.click()]));
     await tap(() => clickNav(page, "[data-testid=outcome-not_reached]"));
@@ -519,7 +527,7 @@ async function tasks(browser) {
             await signIn(page, user, L);
             const forb = new Set(FORBIDDEN[user] || []);
             for (const p of [...PAGES.common, ...(PAGES[user] || [])]) {
-              await visit(page, tag, p, p === "/no-such-page" ? 404 : forb.has(p) ? 403 : 200);
+              await visit(page, tag, p, p === "/no-such-page" || p.includes("/NOPE-") ? 404 : forb.has(p) ? 403 : 200);
             }
           } catch (e) {
             rec({ tag, page: "sign-in", expect: 200, ok: false, why: [e.message.split("\n")[0]] });

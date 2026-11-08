@@ -13,6 +13,6 @@
 <a class="button secondary" href="{{ '/home' if user else '/login' }}" data-back data-testid="problem-back">{{ t('problem.back') }}</a>
 <a class="button secondary" href="{{ '/help' if user else '/login' }}" data-testid="problem-help">{{ t('problem.help') }}</a>
 </p>
-<p class="hint">{% if settings.admin_email %}{{ t('login.ask.mail', mail=settings.admin_email) }}{% else %}{{ t('login.ask') }}{% endif %}</p>
+<p class="hint">{% if settings.admin_email %}{{ t('problem.ask.mail', mail=settings.admin_email) }}{% else %}{{ t('problem.ask') }}{% endif %}</p>
 </section>
 {% endblock %}
