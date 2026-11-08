@@ -35,12 +35,14 @@ from console.data_pages import err_of
 from console.home import Helpers
 from console.i18n import translate
 from console.studies import known_study
+from console.timefmt import local_today, site_zone
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _PID = re.compile(r"^[0-9a-fA-F]{32}$")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,99}$")
 FORMATS = ("odm", "csv", "xlsx")
+BACKS = ("visits", "subject")  # D-134: where Save returns when the form was opened from the lifecycle pages
 ENTERED = ("text", "notes", "date", "dateTime", "integer", "decimal", "choice", "multi")
 
 
@@ -164,7 +166,8 @@ def register(app: FastAPI, h: Helpers) -> None:
     # ------------------------------------------------------------------ pages
     def entry_page(request: Request, sess: Session, rid: str, record: str, event: str, form: str,
                    posted: dict[str, str] | None = None, problems: list[dict[str, str]] | None = None,
-                   err: dict[str, str] | None = None) -> Response:  # fmt: skip
+                   err: dict[str, str] | None = None, back: str = "", prefill: str = "",
+                   win: str = "") -> Response:  # fmt: skip
         lang = sess.lang if sess.lang in ("ja", "zh-TW", "en") else "en"
         try:
             fms = read_forms(rid)
@@ -190,6 +193,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         for p in problems or []:
             per_field.setdefault(p.get("field", ""), []).append(why(lang, p, labels))
         options = sorted({*issued(rid), *(r["record"] for r in recs)})
+        if prefill == "done" and form == "tb_visit" and not values.get("vs_status") and posted is None:
+            # D-134 "Done today" from the visit list: the visit filled in for today; the coordinator checks and saves
+            posted = {"vs_status": "1", "vs_date": local_today(h.clock(), site_zone(bk)).isoformat(),
+                      "vs_window": "1" if win == "1" else "0" if win == "0" else ""}  # fmt: skip
         return h.page(
             request,
             "data_entry.html",
@@ -209,15 +216,17 @@ def register(app: FastAPI, h: Helpers) -> None:
             css=bool(chosen and any(f["branching"] for f in chosen["fields"])),
             exports=FORMATS,
             err=err,
+            back=back if back in BACKS else "",
         )
 
     @app.get("/studies/{rs}/entry")
-    def entry(request: Request, rs: str, record: str = "", event: str = "", form: str = "") -> Response:
+    def entry(request: Request, rs: str, record: str = "", event: str = "", form: str = "", back: str = "",
+              prefill: str = "", win: str = "") -> Response:  # fmt: skip
         sess = h.need(request)
         rid = study_or_404(sess, rs)
         ev = event.strip().lower()
         return entry_page(request, sess, rid, record[:64], ev if _NAME.match(ev) else "",
-                          form if _NAME.match(form) else "")  # fmt: skip
+                          form if _NAME.match(form) else "", back=back, prefill=prefill, win=win)  # fmt: skip
 
     @app.post("/studies/{rs}/entry")
     async def save(request: Request, rs: str) -> Response:
@@ -228,6 +237,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         need_enter(sess, request.url.path)
         record, event, form = (str(data.get(k) or "").strip()[:100] for k in ("record", "event", "form"))
+        back = str(data.get("back") or "")
         try:
             fm = next((f for f in read_forms(rid) if f["name"] == form), None)
         except (Problem, Unavailable) as exc:
@@ -248,9 +258,15 @@ def register(app: FastAPI, h: Helpers) -> None:
             apply_save(sess, request.url.path, rid, record, event, form, values)
         except Problem as exc:
             return entry_page(request, sess, rid, record, event.lower(), form, posted=values,
-                              problems=exc.problems, err=None if exc.problems else err_of(exc))  # fmt: skip
+                              problems=exc.problems, err=None if exc.problems else err_of(exc), back=back)  # fmt: skip
         except Unavailable as exc:
-            return entry_page(request, sess, rid, record, event.lower(), form, posted=values, err=err_of(exc))
+            return entry_page(request, sess, rid, record, event.lower(), form, posted=values, err=err_of(exc),
+                              back=back)  # fmt: skip
+        if back == "visits":
+            q = urlencode({"saved": f"{record_key(record)} {event.lower()}".strip()})
+            return RedirectResponse(f"/studies/{rid}/visits?{q}", status_code=303)
+        if back == "subject":
+            return RedirectResponse(f"/studies/{rid}/subjects/{quote(record_key(record))}?done=entry", status_code=303)
         q = urlencode({"record": record_key(record), "saved": form, "event": event.lower()})
         return RedirectResponse(f"/studies/{rid}/history?{q}", status_code=303)
 

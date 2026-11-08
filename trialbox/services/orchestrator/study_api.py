@@ -23,6 +23,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from datacore import sync
+from datacore.store import TRIALBOX, DataCore
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from rc_bridge import writeback
@@ -50,6 +52,12 @@ class StudyService:
     registry: CandidateRegistry
     audit: AuditLog
     now: Callable[[], datetime]
+    dc: DataCore | None = None  # the data core (one writer for TrialBox's REDCap fields, D-134); TB_DB_URL if None
+
+    def datacore(self) -> DataCore:
+        if self.dc is None:
+            self.dc = DataCore()
+        return self.dc
 
     def stamp(self) -> str:
         return self.now().isoformat(timespec="seconds")
@@ -150,7 +158,17 @@ class StudyService:
         by: str,
         at: str,
     ) -> dict[str, Any]:
-        """Import TrialBox's instrument for each screening number whose values changed since the last write."""
+        """TrialBox's instrument through the data core (D-134): the three values are TrialBox-owned fields of the
+        study's data core and the S21 link is their one source; a value goes to REDCap when it changed since the last
+        push, a REDCap-side edit of one is listed as a conflict (Conflicts page), never overwritten."""
+        dc = self.datacore()
+        owners = dc.owners(rs)
+        other = [s["name"] for s in dc.sources(rs)
+                 if set((s["body"].get("field_map") or {}).values()) & set(WRITE_FIELDS)]  # fmt: skip
+        taken = [f for f in WRITE_FIELDS if owners.get(f, TRIALBOX) != TRIALBOX]
+        if other or taken:
+            raise RcError("RC-WRITE-OWNER", "another data source writes TrialBox's REDCap fields of this study; "
+                          f"one writer per field ({', '.join(other or taken)})")  # fmt: skip
         reg = {e.pid: e for e in self.registry.rows(rs)}
         entries = []
         for no, pid in screening.items():
@@ -158,28 +176,34 @@ class StudyService:
             day = (issued.get(no) or at)[:10]
             entries.append(writeback.Entry(no=no.strip().upper(), issued=day, status=e.status if e else "candidate",
                                            status_at=e.updated_at.date().isoformat() if e else day))  # fmt: skip
-        with self.client(link.token_ref) as rc:
-            rows = rc.records(fields=[id_field, link.link_field], dags=bool(link.dag))
-            if link.dag:
-                rows = [r for r in rows if str(r.get("redcap_data_access_group") or "") == link.dag]
-            existing = writeback.existing_index(rows, link, id_field)
-            last = {k: v["hash"] for k, v in self.store.written(rs).items()}
-            wp = writeback.plan(link, entries, existing, last, id_field)
-            if wp.updates:
-                rc.import_records(wp.updates)
-            created: list[str] = rc.import_records(wp.creates, auto_number=True) if wp.creates else []
-        for no, rid in wp.record_of.items():
-            self.store.put_written(rs, no, rid, wp.hashes[no], at)
-        new_nos = [str(r[link.link_field]) for r in wp.creates]
-        for no, rid in zip(new_nos, created, strict=False):
-            self.store.put_written(rs, no, rid, wp.hashes[no], at)
-        out = {"updated": len(wp.updates), "created": len(created), "unchanged": wp.unchanged,
-               "waiting": wp.waiting, "duplicates": wp.skipped_dup,
-               "records": {**wp.record_of, **dict(zip(new_nos, created, strict=False))}}  # fmt: skip
+        src = writeback.LinkSource(lambda: self.client(link.token_ref), link, {x.no for x in entries}, id_field)
+        first = sync.sync(dc, rs, src, by, at, push=False)  # what REDCap holds: the start where TrialBox has none
+        for ent in entries:
+            for f, v in writeback.values(ent).items():
+                dc.write(rs, ent.no, "", f, v, BOT, at, TRIALBOX)
+        res = sync.sync(dc, rs, src, by, at)
+        written = {**src.updated, **src.created}
+        for no, rid in written.items():
+            vals = dc.record(rs, no)
+            self.store.put_written(rs, no, rid, writeback.digest({f: vals.get(f, "") for f in WRITE_FIELDS}), at)
+        unchanged = sum(1 for no in src.record_of if no not in written)
+        out = {"updated": len(src.updated), "created": len(src.created), "unchanged": unchanged,
+               "waiting": sorted(n for n in res.waiting if n not in src.duplicates), "duplicates": src.duplicates,
+               "conflicts": len(first.conflicts) + len(res.conflicts), "records": written}  # fmt: skip
         self.audit.append("redcap.write", ruleset=rs, actor=by,
                           detail={"updated": out["updated"], "created": out["created"],
                                   "fields": list(WRITE_FIELDS)})  # fmt: skip
         return out
+
+    def lifecycle(self, rs: str, screening: dict[str, str], by: str) -> dict[str, Any]:
+        """Each screening number is a subject that follows the screening log the read just updated (D-134)."""
+        from orchestrator.lifecycle_api import LifeHost, refresh
+
+        try:
+            out = refresh(LifeHost(self.datacore(), self.registry, self.audit, self.now), rs, screening, by)
+        except Exception as exc:
+            return {"error": str(exc)[:200]}
+        return {"made": len(out["made"]), "held": out["held"]}
 
     def read(
         self, rs: str, screening: dict[str, str], by: str, full: bool = False, issued: dict[str, str] | None = None
@@ -255,10 +279,11 @@ class StudyService:
                 changes.append({"link_value": j.link_value, "record_id": j.record_id, "pid": j.pid,
                                 "from": cur, "to": j.status})  # fmt: skip
         self.store.mark_read(rs, at)
+        life = self.lifecycle(rs, screening, by)
         result: dict[str, Any] = {"at": at, "since": since, "rows": len(rows), "linked": len(joined),
                                   "changes": changes,
                   "duplicates": rb.duplicates, "unmatched": rb.unmatched, "conflicts": conflicts,
-                  "no_link_value": rb.no_link_value, "outside_dag": rb.outside_dag}  # fmt: skip
+                  "no_link_value": rb.no_link_value, "outside_dag": rb.outside_dag, "life": life}  # fmt: skip
         if link.write_mode != "off":
             try:
                 result["write"] = self.write(rs, link, id_field, screening, issued or {}, by, at)

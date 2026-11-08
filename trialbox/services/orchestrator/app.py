@@ -30,6 +30,7 @@ from orchestrator.clients import AdapterHttp, CompilerHttp, MailHttp, ParserHttp
 from orchestrator.core import Orchestrator, Rejected, Services
 from orchestrator.datacore_api import router as datacore_router
 from orchestrator.db import JobDB
+from orchestrator.lifecycle_api import router as lifecycle_router
 from orchestrator.scenarios import registry
 from orchestrator.study_api import StudyService
 from orchestrator.study_api import router as study_router
@@ -386,7 +387,7 @@ def study_service_of(o: Orchestrator) -> StudyService:
             from rc_sim.app import register_inproc
 
             register_inproc(replace=False)  # FR-RC-17a: inproc://rc-sim only in demo and test boxes
-    return StudyService(_studies[key], registry_of(o), o.audit, lambda: _now(o))
+    return StudyService(_studies[key], registry_of(o), o.audit, lambda: _now(o), core_of(o))
 
 
 app.include_router(study_router(lambda: study_service_of(orch())))
@@ -395,23 +396,29 @@ app.include_router(study_router(lambda: study_service_of(orch())))
 _cores: dict[str, Any] = {}
 
 
-def data_service_of(o: Orchestrator) -> Any:
+def core_of(o: Orchestrator) -> Any:
     from datacore.store import DataCore
-
-    from orchestrator.datacore_api import DataService
 
     key = o.db.url or str(o.data_dir)  # D-126: one data core per box, in the trial database
     if key not in _cores:
         _cores[key] = DataCore(o.db.url)
+    return _cores[key]
+
+
+def data_service_of(o: Orchestrator) -> Any:
+    from orchestrator.datacore_api import DataService
+
+    core = core_of(o)
     studies = study_service_of(o)
 
     def site_key() -> bytes:
         return (Path(o.cfg.env.secrets_dir) / "site_hmac.key").read_bytes()
 
-    return DataService(_cores[key], o.audit, lambda: _now(o), studies.client, site_key)
+    return DataService(core, o.audit, lambda: _now(o), studies.client, site_key, registry_of(o))
 
 
 app.include_router(datacore_router(lambda: data_service_of(orch())))
+app.include_router(lifecycle_router(lambda: data_service_of(orch())))  # TB-PLAN-04 step 5 (D-134)
 
 
 @app.get("/registry")

@@ -1151,3 +1151,12 @@ from console.i18n_4b import ZH as _4B_ZH  # noqa: E402
 EN.update(_4B_EN)
 JA.update(_4B_JA)
 ZH.update(_4B_ZH)
+
+# TB-PLAN-04 step 5 (D-134): the trial lifecycle (participants, visits, schedule, AEs, the enrolment report); new keys
+from console.i18n_life import EN as _LIFE_EN  # noqa: E402
+from console.i18n_life import JA as _LIFE_JA  # noqa: E402
+from console.i18n_life import ZH as _LIFE_ZH  # noqa: E402
+
+EN.update(_LIFE_EN)
+JA.update(_LIFE_JA)
+ZH.update(_LIFE_ZH)

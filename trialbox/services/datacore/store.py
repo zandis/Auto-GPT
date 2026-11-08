@@ -8,6 +8,8 @@
   TrialBox's; attaching a source hands it the fields it maps.
 * ``history``: every change (old, new, by, at, source). ``conflict``: listed, never forced; resolved by a person.
 * ``src_record``: the source's own record id for a TrialBox record (REDCap's record_id).
+* ``subject``, ``subject_step``, ``schedule``: the trial lifecycle (TB-PLAN-04 step 5, ``datacore.lifecycle``),
+  version 2 of the schema.
 """
 
 from __future__ import annotations
@@ -55,7 +57,13 @@ class DataCore:
     def __init__(self, url: str | None = None) -> None:
         """``url``: the trial database (``TB_DB_URL`` when ``None``)."""
         self._db = Database.connect(url or os.environ.get(ENV), "datacore")
-        self._db.migrate([SCHEMA])
+        from datacore.lifecycle import SCHEMA as LIFECYCLE
+
+        self._db.migrate([SCHEMA, LIFECYCLE])
+
+    @property
+    def db(self) -> Database:
+        return self._db
 
     def close(self) -> None:
         self._db.close()

@@ -41,13 +41,15 @@ class Problem(Refused):
     """A structured refusal from the orchestrator's study API (D-109): an ICD error code, a message, fields."""
 
     def __init__(self, status: int, code: str, message: str, fields: list[str] | None = None,
-                 problems: list[dict[str, str]] | None = None) -> None:  # fmt: skip
+                 problems: list[dict[str, str]] | None = None,
+                 detail: dict[str, Any] | None = None) -> None:  # fmt: skip
         super().__init__(f"{code}: {message}")
         self.status = status
         self.code = code
         self.message = message
         self.fields = list(fields or [])
         self.problems = list(problems or [])  # per field {field, code, ...} (a whole-form save, D-129)
+        self.detail = dict(detail or {})  # the whole answer (a lifecycle refusal's why, state and allowed steps)
 
 
 def problem_of(status: int, text: str) -> Exception:
@@ -63,6 +65,7 @@ def problem_of(status: int, text: str) -> Exception:
             str(detail.get("message") or ""),
             detail.get("fields") or [],
             [p for p in detail.get("problems") or [] if isinstance(p, dict)],
+            detail,
         )
     if status == 0 or status >= 500:
         return Unavailable(text[:200])

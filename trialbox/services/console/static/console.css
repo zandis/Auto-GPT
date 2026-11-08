@@ -432,3 +432,30 @@ ol.steps-list { padding-left: 22px; } ol.steps-list li { margin: 6px 0; }
 .wizard-steps li.done::before { content: "✓"; background: var(--ok-bg); color: var(--ok); }
 .savebar { position: sticky; bottom: 0; background: var(--card); border-top: 1px solid var(--line); padding: 10px 16px; margin: 0 -16px -16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; z-index: 3; }
 .savebar button { margin: 0; }
+
+/* TB-PLAN-04 step 5 (D-134): participants, visits, the schedule; serious AEs stand out */
+.pill.life-consented, .pill.life-enrolled, .pill.life-on_study, .pill.v-done, .pill.life-completed { background: var(--ok-bg); color: var(--ok); }
+.pill.life-withdrawn, .pill.life-screen_fail, .pill.v-overdue, .pill.v-missed { background: var(--bad-bg); color: var(--bad); }
+.pill.v-open { background: var(--warn-bg); color: var(--warn); }
+ul.lifecounts { list-style: none; display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 0; margin: 0; }
+ul.lifecounts li { display: flex; align-items: center; gap: 6px; }
+ul.vlist { list-style: none; padding: 0; margin: 0; }
+ul.vlist li.vrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line); }
+ul.vlist li.vrow:first-child { border-top: 0; }
+.vrow .vact { display: flex; flex-wrap: wrap; gap: 8px; }
+.vrow .vact .button { margin: 0; }
+.sae { border: 2px solid var(--bad); }
+.sae h2 { color: var(--bad); }
+.sae li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+.sae li .button { margin: 0; }
+table.sched input.short { width: 5em; }
+@media (max-width: 760px) {
+  ul.vlist li.vrow { flex-direction: column; align-items: stretch; }
+  .vrow .vact .button { flex: 1 1 40%; }
+  table.sched input { min-width: 4.5em; }
+}
+form.markform > .markbar { flex: 1 1 100%; margin: 4px 0 0; padding: 10px 0 0; border-top: 0; background: transparent; }
+@media (max-width: 760px) {
+  form.markform > .markbar { position: sticky; bottom: 0; z-index: 2; background: var(--card); padding: 10px 0; border-top: 1px solid var(--line); }
+  form.markform input:not([type=hidden]), form.markform select { flex: 1 1 100%; max-width: none; }
+}

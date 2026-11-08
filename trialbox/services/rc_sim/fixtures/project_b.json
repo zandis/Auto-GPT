@@ -24,8 +24,8 @@
     {"data_access_group_name": "Japan head", "unique_group_name": "jp_head", "data_access_group_id": 2}
   ],
   "events": [
-    {"event_name": "Screening", "arm_num": 1, "unique_event_name": "screening_arm_1"},
-    {"event_name": "Month 12", "arm_num": 1, "unique_event_name": "m12_arm_1"}
+    {"event_name": "Screening", "arm_num": 1, "unique_event_name": "screening_arm_1", "day_offset": 0, "offset_min": 0, "offset_max": 0},
+    {"event_name": "Month 12", "arm_num": 1, "unique_event_name": "m12_arm_1", "day_offset": 365, "offset_min": 30, "offset_max": 30}
   ],
   "records": [
     {"rec_id": "7", "redcap_event_name": "screening_arm_1", "redcap_data_access_group": "cgmh_linkou", "tb_screening_no": "RB0901", "icf_dt": "2026-10-02", "rand_yn": "1", "withdrawn": "", "_changed": "2026-10-03T08:00:00"},

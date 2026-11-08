@@ -582,6 +582,50 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
+    # ------------------------------------------------------------------ 5b the trial lifecycle (TB-PLAN-04 step 5)
+    s = Stage("5b trial lifecycle (D-134)")
+    t = time.perf_counter()
+    from console.timefmt import local_today, site_zone
+
+    today = local_today(h.clock(), site_zone(h.bk))
+    have = set(h.store.screening_nos(TRIAL))
+    # the last listed patient without a number (the walk's own patient, the first one not marked, stays untouched)
+    life_pid = next(r["pid"] for r in reversed(h.week_bundle(None, TRIAL)["rows"]) if r["pid"] not in have)
+    life_no = h.store.assign_screening_no(TRIAL, life_pid, h.settings_of(TRIAL), h.clock().isoformat())
+    page = crc.get(f"/studies/{TRIAL}/schedule")
+    r = crc.post(f"/studies/{TRIAL}/schedule", data={
+        "csrf": fd._csrf(page.text), "action": "save", "visit": ["v1", "v2"], "label": ["", ""], "day": ["7", "28"],
+        "before": ["2", "3"], "after": ["2", "3"], "anchor": ["enrolment", "enrolment"]})  # fmt: skip
+    s.check("the visit schedule is saved", 'data-testid="schedule-saved"' in r.text, r.status_code)
+    page = crc.get(f"/studies/{TRIAL}/subjects")
+    s.check("both screening numbers are participants", life_no in page.text and no in page.text, page.status_code)
+    csrf = fd._csrf(page.text)
+    enrol = today - timedelta(days=7)  # v1 is due today
+    crc.post(
+        f"/studies/{TRIAL}/subjects/{life_no}/step",
+        data={"csrf": csrf, "to": "approached", "on_day": (enrol - timedelta(days=2)).isoformat()},
+    )
+
+    def save(form: str, values: dict[str, str], event: str = "") -> Any:
+        data = {"csrf": csrf, "record": life_no, "event": event, "form": form, "back": "subject",
+                **{f"f_{k}": v for k, v in values.items()}}  # fmt: skip
+        return crc.post(f"/studies/{TRIAL}/entry", data=data)
+
+    save("tb_consent", {"ic_date": (enrol - timedelta(days=1)).isoformat(), "ic_version": "v1", "ic_copy": "1"})
+    r = save("tb_enrolment", {"en_date": enrol.isoformat(), "en_eligible": "1"})
+    s.check("enrolled through the forms", 'data-state="enrolled"' in r.text, r.status_code)
+    r = save("tb_adverse_event", {"ae_term": "肺炎", "ae_onset": today.isoformat(), "ae_serious": "1",
+                                  "ae_serious_why": "3", "ae_severity": "2", "ae_related": "9"}, "ae1")  # fmt: skip
+    s.check("a serious AE on ae1", 'data-testid="ae-ae1"' in r.text, r.status_code)
+    page = crc.get(f"/studies/{TRIAL}/visits").text
+    s.check("today's visit is on the coordinator's list", f'data-testid="done-{life_no}-v1"' in page)
+    s.check("the serious AE is on the investigator's home page", 'data-testid="sae-banner"' in pi.get("/week").text)
+    rep = crc.get(f"/studies/{TRIAL}/enrolment")
+    s.check("the enrolment report", rep.status_code == 200 and 'data-testid="report-states"' in rep.text)
+    out["life_record"] = life_no
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
     # ------------------------------------------------------------------ 6 the other screens, every role
     s = Stage("6 other screens")
     t = time.perf_counter()
@@ -722,7 +766,8 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     stages.append(s)
 
     rows_now = h.week_bundle(None, TRIAL)["rows"]
-    fresh = next((r["pid"] for r in rows_now if r["pid"][:8] not in out["picks"]), rows_now[-1]["pid"])
+    fresh = next((r["pid"] for r in rows_now if r["pid"][:8] not in out["picks"] and r["pid"] != life_pid),
+                 rows_now[-1]["pid"])  # fmt: skip
     out["walk"] = {
         "trial": TRIAL,
         "cohort": COHORT,
@@ -733,6 +778,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         "case_job": cj.job_id if cj else "",
         "consent_job": kj.job_id if kj else "",
         "record": out.get("screening_no") or "",  # a screening number: the walk's Entry and History record
+        "life_record": out.get("life_record") or "",  # D-134: a participant with today's visit and a serious AE
         # the study's own words (criterion labels, texts, actions) and the staff names from the data: shown as
         # written, so the walk's language check (D-119) does not count them as untranslated page text
         "authored": authored_strings(box, [TRIAL, COHORT]),

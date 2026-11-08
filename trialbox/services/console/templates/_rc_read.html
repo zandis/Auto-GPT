@@ -9,6 +9,7 @@
   {% for c in last.result.conflicts %}<p class="warn" data-testid="rc-conflict">{{ t('rc.conflict', a=t('registry.status.' + c.trialbox), b=t('registry.status.' + c.redcap), v=c.link_value, r=c.record_id) }}</p>{% endfor %}
   {% if last.result.write %}{% if last.result.write.error %}<p class="error" data-testid="rc-write">{{ t('rc.write.failed', msg=t('rc.err.' + last.result.write.error, fields='', msg=last.result.write.message)) }}</p>
   {% else %}<p data-testid="rc-write">{{ t('rc.write.last', u=last.result.write.updated, c=last.result.write.created, s=last.result.write.unchanged) }}</p>
+  {% if last.result.write.conflicts %}<p class="warn" data-testid="rc-write-conflicts">{{ t('rc.write.conflicts', n=last.result.write.conflicts) }} <a href="/studies/{{ rs }}/conflicts">{{ t('dc.conflicts.title') }}</a></p>{% endif %}
   {% if last.result.write.waiting %}<p class="hint" data-testid="rc-write-waiting">{{ t('rc.write.waiting', n=last.result.write.waiting|length, list=last.result.write.waiting|join(', ')) }}</p>{% endif %}{% endif %}{% endif %}
   {% if last.result.unmatched %}<p class="hint" data-testid="rc-unmatched">{{ t('rc.unmatched', n=last.result.unmatched|length, list=last.result.unmatched|map(attribute='link_value')|join(', ')) }}</p>{% endif %}
   {% endif %}

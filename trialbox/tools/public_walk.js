@@ -18,6 +18,10 @@
 // inside a sentence is WCAG 2.5.5's exception), and the six core tasks of the novice review are walked with their taps
 // counted; the counts go into walk.json ("taps") and must be at or below the review's "could" column. Prints one JSON
 // line.
+//
+// TB-PLAN-04 step 5 (D-134): the lifecycle pages (participants, one participant, visits, the visit schedule, the
+// enrolment report) for every role that may open them, and task T7: the coordinator, on a phone in Japanese, marks
+// today's visit done from the home page ("Done today", then Save; target 2 to 3 taps).
 "use strict";
 
 const { chromium } = require("playwright");
@@ -34,10 +38,12 @@ function axeSource() {
 }
 const AXE = axeSource();
 // the novice review's task table (docs/reviews/2026-11-08-ux-review-novice.md §2), "taps it could take"
-const TAPS_MAX = { T1: 2, T2: 2, T3: 2, T4: 10, T5: 5, T6: 3 };
+const TAPS_MAX = { T1: 2, T2: 2, T3: 2, T4: 10, T5: 5, T6: 3, T7: 3 };
 const W = JSON.parse(fs.readFileSync(args.walk, "utf8"));
 const T = W.trial;
 const C = W.cohort;
+const LR = W.life_record; // D-134: a participant with today's visit and a serious AE
+const LIFE = [`/studies/${T}/subjects`, `/studies/${T}/subjects/${LR}`, `/studies/${T}/visits`, `/studies/${T}/schedule`, `/studies/${T}/enrolment`];
 const PAGES = {
   common: ["/home", "/help", "/account", "/notices/received", "/settings/notices", "/no-such-page"],
   pi: [
@@ -51,6 +57,7 @@ const PAGES = {
     `/studies/${T}/sources`,
     `/studies/${T}/conflicts`,
     `/studies/${T}/forms`,
+    ...LIFE,
     "/reports",
   ],
   crc: [
@@ -67,6 +74,7 @@ const PAGES = {
     `/studies/${T}/entry?record=${W.record}&form=tb_consent`,
     `/studies/${T}/entry?record=${W.record}&form=tb_visit&event=v1`,
     `/studies/${T}/history?record=${W.record}`,
+    ...LIFE,
     "/pilot/protocol",
     "/pilot/request",
     "/pilot/case",
@@ -79,16 +87,16 @@ const PAGES = {
     "/reports/research-office",
     "/jobs",
   ],
-  admin: ["/admin?tab=health", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs"],
-  viewer: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health"],
-  cra: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health"],
+  admin: ["/admin?tab=health", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`],
+  viewer: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`],
+  cra: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`],
 };
 // pages a role must not open: a 403 page (in the chosen language), never a 500
 const FORBIDDEN = {
   pi: ["/admin?tab=health"],
   crc: ["/admin?tab=health"],
-  viewer: [`/studies/${T}/week?list=all`, "/admin?tab=health"],
-  cra: [`/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office"],
+  viewer: [`/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`],
+  cra: [`/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`],
 };
 const ROLES = ["admin", "crc", "pi", "viewer", "cra"];
 const LANGS = [
@@ -118,7 +126,7 @@ function rec(r) {
 function slug(p) {
   return p.replace(/^\//, "").replace(/[^A-Za-z0-9]+/g, "_").slice(0, 60) || "root";
 }
-const KEY = /\b(?:admin|mark|outcome|log|week|home|help|account|notice|notices|report|reports|feas|screen|study|studies|patient|case|consent|setup|redcap|lang|cmd|registry|problem|reason|job|jobs|approval|protocol|request|ops|users)\.[a-z_]+(?:\.[a-z_]+)*\b/;
+const KEY = /\b(?:admin|mark|outcome|log|week|home|help|account|notice|notices|report|reports|feas|screen|study|studies|patient|case|consent|setup|redcap|lang|cmd|registry|problem|reason|job|jobs|approval|protocol|request|ops|users|life)\.[a-z_]+(?:\.[a-z_]+)*\b/;
 
 // the study's own words and the names from the data are shown as written (walk.json "authored", D-119)
 const AUTHORED = (W.authored || []).filter((x) => x && x.length >= 3);
@@ -511,6 +519,23 @@ async function tasks(browser) {
     if (!(await page.locator("[data-testid=send-protocol]").isVisible())) r.why.push("the first-day home page has no next step");
     const resp = await page.goto(`${args.base}/studies/NEW-01/setup`, { waitUntil: "load" });
     if (!resp || resp.status() !== 404) r.why.push(`an unknown study answered ${resp ? resp.status() : "nothing"}, not 404`);
+  });
+  // T7 (D-134): the coordinator, on a phone in Japanese, marks today's visit done: "Done today" on the home page opens
+  // the visit form filled in for today (done, today's date, in the window); Save. The list then no longer shows it.
+  await task(browser, "T7", phone("ja-JP"), async (page, tap, r) => {
+    await signIn(page, "crc", LANGS[1]);
+    await page.goto(`${args.base}/home`, { waitUntil: "load" });
+    const done = `[data-testid="done-${LR}-v1"]`;
+    if (!(await page.locator(done).count())) throw new Error("today's visit is not on the coordinator's home page");
+    await tap(() => clickNav(page, `${done} >> nth=0`));
+    if (!(await page.locator("[data-testid=f-vs_status-1]").isChecked())) r.why.push("the visit form is not filled in as done");
+    if (!(await inView("[data-testid=entry-save]")(page))) await page.locator("[data-testid=entry-save]").scrollIntoViewIfNeeded();
+    await tap(() => clickNav(page, "[data-testid=entry-save]"));
+    if (!(await page.locator("[data-testid=visit-saved]").count())) {
+      const errs = await page.locator(".error").allInnerTexts();
+      r.why.push(`not saved: ${errs.join(" / ").slice(0, 160)}`);
+    }
+    if (await page.locator(done).count()) r.why.push("the visit is still on the list after Save");
   });
 }
 

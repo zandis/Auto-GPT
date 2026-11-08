@@ -11,6 +11,10 @@
   <h2>{{ t('help.your_role') }}</h2>
   <p>{{ t('help.role.' + user.role) }}</p>
 </section>
+{% if user.can_view_phi %}<section class="card" data-testid="help-words">
+  <h2>{{ t('help.words') }}</h2>
+  <ul class="plain">{% for w in ('participant', 'screen_fail', 'window', 'overdue', 'ae', 'sae', 'deviation') %}<li>{{ t('life.gloss.' + w) }}</li>{% endfor %}</ul>
+</section>{% endif %}
 <section class="card">
   <h2>{{ t('help.field') }}</h2>
   <p>{{ t('help.field.text') }}</p>

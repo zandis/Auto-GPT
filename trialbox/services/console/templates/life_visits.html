@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5 (D-134): the coordinator's visit list: today, this week, overdue; one tap opens the form. #}
+{% from "_life.html" import life_nav, visit_row with context %}
+{% block title %}{{ t('life.visits.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('life.visits.title') }}</h1><span class="hint nowrap">{{ today }}</span></div>
+{{ life_nav(rs) }}
+<p class="hint">{{ t('life.visits.help') }}</p>
+{% if saved %}<p class="ok" role="status" data-testid="visit-saved">{{ t('life.visits.saved') }} <span class="mono">{{ saved }}</span></p>{% endif %}
+{% if err %}{% include "_data_err.html" %}{% endif %}
+{% if not schedule %}<section class="card"><p class="empty" data-testid="visits-noschedule">{{ t('life.visits.none_scheduled') }} <a href="/studies/{{ rs }}/schedule">{{ t('life.to.schedule') }}</a></p></section>{% endif %}
+{% if v %}
+{% for k in ('today', 'overdue', 'week') %}
+<section class="card{{ ' attention' if k == 'overdue' and v.list[k] else '' }}" data-testid="visits-{{ k }}">
+<h2>{{ t('life.visits.' + k) }} <span class="pill">{{ v.list[k]|length }}</span></h2>
+{% if not v.list[k] %}<p class="empty hint">{{ t('life.visits.none') }}</p>{% else %}
+<ul class="vlist">{% for r in v.list[k] %}{{ visit_row(rs, r, today, editable, 'visits') }}{% endfor %}</ul>{% endif %}
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -146,6 +146,11 @@ class RedcapClient:
         out = self._post("dag")
         return [dict(d) for d in out] if isinstance(out, list) else []
 
+    def events(self) -> list[dict[str, Any]]:
+        """A longitudinal project's events (arm, unique name, ``day_offset``, ``offset_min``, ``offset_max``)."""
+        out = self._post("event")
+        return [dict(e) for e in out] if isinstance(out, list) else []
+
     def records(
         self,
         fields: list[str] | None = None,
