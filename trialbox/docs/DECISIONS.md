@@ -1684,3 +1684,27 @@ answers of 2026-11-08.
 * **Plan.** TB-PLAN-04 step 5b, about 1–2 weeks: the readiness page, chart upload with extraction (OCR included),
   the proposed-fact review list, the local code mapping, and the join by pseudonym; an `e2e_simple` stage that sets up
   a site from a protocol, a CSV feed, a sheet and two uploaded charts.
+
+**D-132 Novice users and imperfect data: start small, fix what is safe, guide every step.** Owner's answers,
+2026-11-08; widens step 5b.
+
+* **No perfect data assumed.** A first site may have only EMR screens (copy, paste or print to PDF), a one-time IT
+  dump in local formats, old Excel lists laid out differently by each PI, and past REDCap projects. CGRD-quality
+  data is the exception. Every input path works on its own, and each one can be added later.
+* **Start with the least.** A site starts with a protocol and charts pasted or uploaded one by one. Feeds, sheets
+  and REDCap come later. The box says plainly what it cannot do yet (for example, feasibility counts need a bulk
+  source) instead of failing.
+* **Messy data: fix what is safe, ask the rest.** Unambiguous fixes are made and listed: Japanese era dates
+  (令和5年 → 2023), 民國 years (民國112年 → 2023), full-width digits and letters, known unit conversions, unmerged Excel
+  cells, header rows found below titles. Anything ambiguous (a date that could be D/M or M/D, an unknown unit, a column
+  that might be the chart number) goes to a short "please check" list with a suggested answer. Nothing ambiguous is
+  guessed silently.
+* **Help.** (1) A step-by-step setup wizard: one question per screen, examples, what each answer means, and progress
+  to "ready". (2) An ask-the-box assistant on every page ("what do I do next?", "why is this patient on the list?") in
+  ja, zh-TW and en, run on the local model. It explains and links, and never changes data. (3) Excel templates and
+  mapping sheets in the site's language, plus a synthetic practice site. (4) Remote help from Aimedics: screen
+  guidance without patient data. It is built as an option that the hospital switches on (approval needed when real
+  data is present).
+* **Step 5b grows to L** (about 2–3 weeks). Its `e2e_simple` stage sets up a site the hard way: a protocol, a messy
+  Excel sheet (era dates, full-width digits, merged cells, a title row), an IT dump with local codes, and two pasted
+  charts. It ends with the readiness page green and a "please check" list that a scripted CRC works through.
