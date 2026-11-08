@@ -532,6 +532,10 @@ def create_app(
 
     @app.exception_handler(_Problem)
     async def _problem(request: Request, exc: _Problem) -> Response:
+        if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON, never with a page
+            return JSONResponse(
+                {"error": exc.key, "detail": {k: str(v) for k, v in exc.values.items()}}, status_code=exc.status
+            )
         sess = session_of(request)
         values = localize_refusal(exc.values, lang_of(request, sess))  # no English refusal on a JA/zh-TW page
         return page(request, "problem.html", sess, status=exc.status, key=exc.key, values=values)
