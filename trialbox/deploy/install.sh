@@ -99,7 +99,7 @@ else
 fi
 [ -f deploy/.env ] || cp .env.example deploy/.env
 # random service passwords where the example ones are still in place
-for k in MINIO_SECRET_KEY POSTGRES_PASSWORD POSTGRES_WF_PASSWORD; do
+for k in MINIO_SECRET_KEY POSTGRES_PASSWORD POSTGRES_WF_PASSWORD TB_SERVICE_TOKEN; do
   if grep -q "^$k=change-me" deploy/.env || ! grep -q "^$k=" deploy/.env; then
     sed -i.bak "/^$k=/d" deploy/.env && printf '%s=%s\n' "$k" "$(rand 32)" >> deploy/.env
   fi

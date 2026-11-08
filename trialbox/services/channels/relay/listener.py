@@ -51,6 +51,7 @@ from tb_common.mtls import (
     server_context,
 )
 from tb_common.policy.classes import Environment
+from tb_common.service_auth import auth_headers
 from tb_common.ulid import new_ulid
 from tb_llm import GatewayClient
 
@@ -91,7 +92,7 @@ class OrchestratorJobs:
             raise JobRefused(str(e)) from e
         body = job.model_dump_json(exclude_none=True).encode("utf-8")
         req = urllib.request.Request(  # noqa: S310 (internal orchestrator URL from the deployment)
-            f"{self.url}/jobs", data=body, headers={"content-type": "application/json"}, method="POST"
+            f"{self.url}/jobs", data=body, headers={"content-type": "application/json", **auth_headers()}, method="POST"
         )
         try:
             with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:  # noqa: S310

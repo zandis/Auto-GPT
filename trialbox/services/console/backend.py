@@ -25,6 +25,7 @@ from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError
 from tb_common.objstore import ObjectStore
 from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved
+from tb_common.service_auth import actor_header
 from tb_contracts import Job, JobCreate, JobFile, RegistryEntry, RegistryPromote, RegistrySummary, RegistryUpdate
 
 
@@ -251,7 +252,7 @@ class HttpBackend:
         from urllib.parse import quote
 
         try:
-            resp = self.orch.post_raw(f"/jobs/{job_id}/cancel?by={quote(by, safe='')}", {})
+            resp = self.orch.post_raw(f"/jobs/{job_id}/cancel?by={quote(by, safe='')}", {}, actor_header(by))
         except ServiceError as exc:
             if exc.status == 404:
                 raise Refused("no such job") from exc
@@ -363,7 +364,7 @@ class HttpBackend:
         """The chart number of one listed pseudonym (D-99): the orchestrator resolves and audits it; None when the
         box has no pid map for it."""
         try:
-            data = self.orch.post_raw(f"/jobs/{job_id}/reveal", {"pid": pid, "by": by}).json()
+            data = self.orch.post_raw(f"/jobs/{job_id}/reveal", {"pid": pid}, actor_header(by)).json()
         except ServiceError as exc:
             if exc.status == 404:
                 return None
@@ -375,9 +376,9 @@ class HttpBackend:
 
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
         """N1 / N2 (D-108) through the orchestrator's ``POST /notices`` and the mail gateway; the message id."""
-        body = {"kind": kind, "to": to, "subject": subject, "body_md": body_md, "by": by}
+        body = {"kind": kind, "to": to, "subject": subject, "body_md": body_md}
         try:
-            data = self.orch.post_raw("/notices", body).json()
+            data = self.orch.post_raw("/notices", body, actor_header(by)).json()
         except ServiceError as exc:
             if exc.status in (400, 422):
                 raise Refused(exc.detail) from exc

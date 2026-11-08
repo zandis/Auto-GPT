@@ -1264,3 +1264,20 @@ two-model rule.
 * **Not done.** The CQL path (HAPI `$evaluate`) still reads the enumerated list only; the SQL engine is the default
   and the equivalence gate's fixtures have no off-list family codes. A family is matched within its own code system
   only, so a site exporting WHO ICD-10 under another system URI needs its mapping first.
+
+**D-114 A service token on every changing call to the orchestrator; the audit actor comes from the caller's
+header.** Fable review 2026-11-08, finding 3: `POST /jobs/{id}/reveal` returned a chart number to anything on the
+compose network, with a free-text `by` as the audit actor.
+
+* **Token** (`tb_common/service_auth.py`): one shared secret per box, `TB_SERVICE_TOKEN` in `deploy/.env`
+  (`install.sh` and `poc.sh` generate it; a `change-me` placeholder counts as none) or a file named by
+  `TB_SERVICE_TOKEN_FILE`. The orchestrator's middleware refuses every POST/PUT/PATCH/DELETE without
+  `X-TB-Service-Token` (401) or with a wrong one (403, constant-time compare). With no token, DEV and TEST boxes
+  stay open (tests, `make demo`); any other `TB_ENV`, and an unset one, refuses changing calls with 503.
+* **Callers.** `ServiceClient` adds the token on calls to the orchestrator only (console, mail gateway); the channel
+  relay adds it to its `POST /jobs`.
+* **Actor.** Reveal, notices and cancel take the actor from `X-TB-Actor` (the console's signed-in user,
+  percent-encoded so Japanese names pass), not from the body or query. A token holder that names no user gets 400.
+  The body `by` is read only on a DEV/TEST box without a token.
+* **Not done.** Reads (`GET /jobs`, pseudonyms and counts only) stay open on the internal network; no mTLS; no
+  per-actor rate limit on reveals; registry writes still record the body's `by` (behind the token).
