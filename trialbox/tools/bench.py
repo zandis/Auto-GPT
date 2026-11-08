@@ -90,6 +90,7 @@ def bench_ingest(work: Path, n: int) -> tuple[Result, Path]:
     from lake.store import Lake
     from tb_contracts import RebuildResult
 
+    from tools import pglocal
     from tools.make_fixtures import write_site
     from tools.synth.generator import generate
 
@@ -112,6 +113,7 @@ def bench_ingest(work: Path, n: int) -> tuple[Result, Path]:
         mapping_path=ROOT / "services/adapter/mapping/tw_core/demo_his.yaml",
         site_id="BENCH",
         rebuild=rebuild,
+        db_url=pglocal.for_work(work),  # the pid map: TB_DB_URL, or a throwaway local database
     )
     validator = Hl7Validator.from_env() or StructuralValidator()
     t0 = time.perf_counter()

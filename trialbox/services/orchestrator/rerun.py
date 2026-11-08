@@ -16,6 +16,7 @@ LLM-backed steps are reproducible when the model is (stub, or vLLM with temperat
 from __future__ import annotations
 
 import json
+import secrets
 import tempfile
 from dataclasses import dataclass, replace
 from datetime import date, datetime
@@ -101,7 +102,8 @@ def rerun(orch: Orchestrator, job_id: str) -> RerunResult:
         return RerunResult(job_id, original.type, False, [], f"{original.type} jobs with side effects are not re-run")
     received = original.received_at
     work = Path(tempfile.mkdtemp(prefix="tb-rerun-"))
-    db = JobDB(work / "jobs.sqlite")
+    # a scratch copy of the job tables in a schema of its own, dropped when the re-run ends
+    db = JobDB(orch.db.url, schema=f"orch_rerun_{secrets.token_hex(4)}")
     fresh = original.model_copy(
         update={"state": "received", "outputs": [], "error": None, "metrics": None, "updated_at": None}
     )
@@ -136,7 +138,7 @@ def rerun(orch: Orchestrator, job_id: str) -> RerunResult:
         {"filename": f, "original": before.get(f), "rerun": after.get(f), "same": before.get(f) == after.get(f)}
         for f in sorted(set(before) | set(after))
     ]
-    db.close()
+    db.drop()
     err = None if done.state == "done" else f"rerun {done.state}: {done.error.message if done.error else ''}"
     return RerunResult(job_id, original.type, err is None and all(x["same"] for x in files), files, err)
 

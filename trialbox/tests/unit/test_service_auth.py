@@ -72,12 +72,12 @@ def test_reveal_audits_the_header_actor_not_the_body(client: TestClient, monkeyp
     events: list[dict[str, Any]] = []
     job = SimpleNamespace(type="SCREEN", state="done", ruleset="RS")
     fake = SimpleNamespace(
-        db=SimpleNamespace(get=lambda _id: job),
+        db=SimpleNamespace(get=lambda _id: job, url=None),
         cfg=SimpleNamespace(env=SimpleNamespace(secrets_dir="/nonexistent")),
         audit=SimpleNamespace(append=lambda kind, **kw: events.append({"kind": kind, **kw})),
     )
     monkeypatch.setattr(oapp, "orch", lambda: fake)
-    monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids: {p: "MRN-1" for p in pids})
+    monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
     ok = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("山田 花子")}
     r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001", "by": "someone-else"}, headers=ok)
     assert r.status_code == 200 and r.json()["mrn"] == "MRN-1"

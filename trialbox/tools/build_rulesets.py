@@ -146,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
 def _patients_ndjson(synth: Path, key: bytes, pids: set[str], out: Path) -> None:
     from adapter.pipeline import AdapterConfig, run_ingest
 
+    from tools import pglocal
+
     with tempfile.TemporaryDirectory() as td:
         sec = Path(td) / "sec"
         sec.mkdir()
@@ -155,6 +157,7 @@ def _patients_ndjson(synth: Path, key: bytes, pids: set[str], out: Path) -> None
             secrets_dir=sec,
             mapping_path=ROOT / "services/adapter/mapping/tw_core/demo_his.yaml",
             site_id="DEMO-A",
+            db_url=pglocal.for_work(Path(td)),  # the pid map: TB_DB_URL, or a throwaway local database
         )
         run_ingest(cfg, "csv", str(synth), snapshot="2026-10-04", load_fhir=False, rebuild_lake=False, validate=False)
         lines = []

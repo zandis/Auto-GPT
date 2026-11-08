@@ -37,7 +37,7 @@ else
   fail ".env not found at $ENV_FILE"
 fi
 if [ -d "$SECRETS" ]; then
-  for f in site_hmac.key pid_map.key pid_map.sqlite; do
+  for f in site_hmac.key pid_map.key; do  # the pid map rows are in the trial database (schema pidmap)
     if [ -f "$SECRETS/$f" ]; then
       m=$(mode "$SECRETS/$f"); case "$m" in 600|400|640|644) [ "$m" = "600" ] || [ "$m" = "400" ] && pass "$f mode $m" || warn "$f mode $m (want 600)";; *) fail "$f mode $m";; esac
     else

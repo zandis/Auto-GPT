@@ -141,8 +141,11 @@ def site_key_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="session")
-def ingested(synth_dir: Path, site_key_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
-    """Site A ingested in-process (csv source) into a lake with the hash embedder."""
+def ingested(
+    synth_dir: Path, site_key_dir: Path, tmp_path_factory: pytest.TempPathFactory, pg_cluster_url: str
+) -> dict[str, object]:
+    """Site A ingested in-process (csv source) into a lake with the hash embedder. The pid map goes to the session's
+    own schemas (``cfg.db_url``): a session fixture runs before any test's private ``TB_DB_URL``."""
     from adapter.pipeline import AdapterConfig, run_ingest
     from embed_service.embedder import HashEmbedder
     from lake.store import Lake
@@ -167,6 +170,7 @@ def ingested(synth_dir: Path, site_key_dir: Path, tmp_path_factory: pytest.TempP
         site_id="DEMO-A",
         audit_dir=lake_dir / "audit",
         rebuild=rebuild,
+        db_url=f"{pg_cluster_url}{'&' if '?' in pg_cluster_url else '?'}tb_prefix=s{os.getpid()}ingested_",
     )
     report = run_ingest(cfg, "csv", str(synth_dir / "site-a"), snapshot=SNAPSHOT, load_fhir=False)
     return {

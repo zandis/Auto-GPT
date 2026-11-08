@@ -173,7 +173,7 @@ def test_post_bundle_variants(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_submissions_table(tmp_path: Path) -> None:
-    db = JobDB(tmp_path / "jobs.sqlite")
+    db = JobDB()
     row = {
         "job_id": "J1",
         "ruleset": "ONC-OSI",

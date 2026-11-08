@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -194,7 +195,8 @@ def make_box(
     )
     orch = Orchestrator(
         cfg,
-        JobDB(tmp_path / "jobs.sqlite"),
+        # TB_DB_URL (pglocal.for_work above); each box its own job tables, as it had its own jobs.sqlite
+        JobDB(schema="orch_" + hashlib.sha1(str(tmp_path.resolve()).encode()).hexdigest()[:10]),
         store,
         audit,
         services,
@@ -214,6 +216,8 @@ def ingest_site(src: Path, lake_dir: Path, secrets_dir: Path, snapshot: str, sit
     from adapter.pipeline import AdapterConfig, run_ingest
     from lake.store import Lake
 
+    from tools import pglocal
+
     def rebuild(snap: str, nd: Path) -> c.RebuildResult:
         st = Lake(lake_dir).rebuild(snap, HashEmbedder(), nd)
         return c.RebuildResult(
@@ -227,6 +231,8 @@ def ingest_site(src: Path, lake_dir: Path, secrets_dir: Path, snapshot: str, sit
         site_id=site_id,
         audit_dir=lake_dir / "audit",
         rebuild=rebuild,
+        # the pid map's trial database: TB_DB_URL, or the run's schemas in a local throwaway one (as make_box)
+        db_url=pglocal.for_work(lake_dir.parent),
     )
     return run_ingest(cfg, "csv", str(src), snapshot=snapshot, load_fhir=False, validate=False)
 

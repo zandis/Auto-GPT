@@ -49,11 +49,11 @@ def enabled(ctx: Ctx, rs: Ruleset) -> bool:
 
 def _identity(ctx: Ctx, pid: str) -> dict[str, str]:
     sec = Path(ctx.cfg.env.secrets_dir)
-    if not (sec / "pid_map.sqlite").exists():
+    if not (sec / "pid_map.key").exists():  # no map yet
         return {}
     from adapter.pidmap import PidMap
 
-    pm = PidMap(sec / "pid_map.sqlite", sec / "pid_map.key")
+    pm = PidMap(sec / "pid_map.key", ctx.orch.db.url)  # the orchestrator's trial database
     try:
         out = dict(pm.identity(pid) or {})
         mrn = pm.resolve(pid)

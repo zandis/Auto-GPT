@@ -87,7 +87,7 @@ def orch() -> Orchestrator:
         )
         _orch = Orchestrator(
             cfg,
-            JobDB(data / "jobs.sqlite"),
+            JobDB(),  # TB_DB_URL, schema orch
             from_config(),
             audit,
             services,
@@ -256,7 +256,7 @@ def reveal(
         raise HTTPException(status_code=404, detail="no such job")
     if job.type not in ("SCREEN", "MICROBATCH", "NAV") or job.state != "done":
         raise HTTPException(status_code=409, detail="chart numbers are revealed for finished screening jobs only")
-    found = resolve_mrns(Path(o.cfg.env.secrets_dir), [req.pid])
+    found = resolve_mrns(Path(o.cfg.env.secrets_dir), [req.pid], o.db.url)
     o.audit.append(
         "screen.reveal",
         job_id=job_id,
@@ -326,9 +326,10 @@ _studies: dict[str, StudyStore] = {}
 
 
 def study_service_of(o: Orchestrator) -> StudyService:
-    key = str(o.data_dir)
+    # one store per orchestrator, in schema "study" of the orchestrator's trial database (keyed by study inside)
+    key = f"{o.db.url}|{o.data_dir}"
     if key not in _studies:
-        _studies[key] = StudyStore(Path(o.data_dir) / "studies.db", Path(o.cfg.env.secrets_dir))
+        _studies[key] = StudyStore(Path(o.cfg.env.secrets_dir), o.db.url)
         if (tb_env(o.cfg.env) if o.cfg.env.extra.get("TB_ENV") else os.environ.get("TB_ENV", "").upper()) in (
             "DEV",
             "TEST",

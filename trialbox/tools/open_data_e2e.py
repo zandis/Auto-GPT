@@ -101,6 +101,8 @@ def ingest(data_dir: Path, work: Path) -> Ingested:
     from tb_common.timeutil import add_months, month_ends
     from tb_contracts import RebuildResult, dump
 
+    from tools import pglocal
+
     idx = month_ends(RUN_DATE, LOOKBACK_MONTHS)
     # last-encounter start lands inside the FEAS population window, away from its edges
     window_start = add_months(idx[0], -1)
@@ -128,6 +130,7 @@ def ingest(data_dir: Path, work: Path) -> Ingested:
         rebuild=rebuild,
         validation_max_pct=100.0,  # MIMIC is not TW Core: the structural error rate is reported, not gated
         sample_fraction=0.01,  # the adapter default (SPEC §3.1: 1 % sample)
+        db_url=pglocal.for_work(work),  # the pid map: TB_DB_URL, or a throwaway local database
     )
     report = run_ingest(
         cfg, "fhir_bulk", str(bulk), snapshot=SNAPSHOT, load_fhir=False, validator=StructuralValidator()
