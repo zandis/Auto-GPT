@@ -9,6 +9,10 @@
   with what to prepare, the next steps (call, find information, retry a call), new pre-screens and the PI's marks
   since the last digest.
 
+TB-PLAN-04 step 5 (D-134): N2 also lists the study visits of the day and the overdue ones (from the visit schedule
+and the windows), N1 the investigator's participants' visits of the week and the count of serious AEs to review.
+Visits are named by the patient's pseudonym and the visit's name, never by the screening number.
+
 Both carry pseudonyms (eight characters), times and counts only: no chart number, no name and never a screening
 number. Each says why it was sent and links to the person's notice settings (FR-NOTIF-09). Mail leaves through the
 orchestrator's ``POST /notices`` and the mail gateway, tagged ``aggregate`` and internal addresses only.
@@ -78,8 +82,17 @@ def clinic_days(rows: Iterable[dict[str, Any]], practitioner: str | None) -> set
     }
 
 
+def _life_row(lang: str, key: str, rs: str, r: dict[str, Any]) -> str:
+    return translate(lang, key, p=r.get("short") or "–", rs=rs, visit=r["visit"], start=r["start"], end=r["end"],
+                     day=r["due"])  # fmt: skip
+
+
 def build_n1(
-    user: User, person: NotifyPerson, today: date, studies: Sequence[tuple[str, list[dict[str, Any]]]]
+    user: User,
+    person: NotifyPerson,
+    today: date,
+    studies: Sequence[tuple[str, list[dict[str, Any]]]],
+    life: dict[str, dict[str, Any]] | None = None,
 ) -> Notice | None:
     """The investigator's pre-clinic mail for ``today``, or None when today is not a mail day for them."""
     lang = person.lang
@@ -121,10 +134,21 @@ def build_n1(
             parts.append(f"**{d.isoformat()} ({translate(lang, 'day.' + WEEKDAYS[d.weekday()])})**")
             parts += [f"- {_line(lang, r, rs)}" for rs, r in items]
             parts.append("")
+    visits = [(rs, r) for rs, lf in sorted((life or {}).items()) for r in lf.get("today", []) + lf.get("week", [])]
+    sae = sum(int(lf.get("sae") or 0) for lf in (life or {}).values())
+    if visits:
+        parts += [f"## {translate(lang, 'n1.life.week', n=len(visits))}", ""]
+        parts += [f"- {_life_row(lang, 'n1.life.row', rs, r)}" for rs, r in sorted(visits, key=lambda x: x[1]["due"])]
+        parts.append("")
+    if sae:
+        parts += [f"## {translate(lang, 'n1.life.sae', n=sae)}", ""]
     for rs in sorted({rs for rs, _r in today_rows + week_rows}):
         parts.append(translate(lang, "n1.link", rs=rs, url=f"{url}/studies/{rs}/week?list=clinic"))
     parts += ["", "---", why, translate(lang, "notice.settings", url=f"{url}/settings/notices")]
     n_today, n_week = len(today_rows), len(week_rows)
+    counts = {"today": n_today, "week": n_week, **({"visits": len(visits)} if visits else {})}
+    if sae:
+        counts["sae"] = sae
     subject = translate(lang, "n1.subject", day=today.isoformat(), n=n_today or n_week)
     return Notice(
         "N1",
@@ -133,7 +157,7 @@ def build_n1(
         subject,
         "\n".join(parts),
         today.isoformat(),
-        {"today": n_today, "week": n_week},
+        counts,
     )
 
 
@@ -143,6 +167,7 @@ def build_n2(
     today: date,
     studies: Sequence[tuple[str, list[dict[str, Any]], dict[str, Any]]],
     since: str | None,
+    life: dict[str, dict[str, Any]] | None = None,
 ) -> Notice | None:
     """The coordinator's digest. ``studies``: (study, weekly rows, extra) with extra = {marks: [Mark], retry: {pid:
     date}, registry: {pid: status}}; ``since``: the time of the last digest (None = the last 24 hours)."""
@@ -174,10 +199,16 @@ def build_n2(
         for m in extra.get("marks") or []:
             if m.at > cut:
                 marks.append(translate(lang, "n2.mark.row", p=m.pid[:8], rs=rs, mark=translate(lang, "mark." + m.mark)))
-    if not (visits or steps or new or marks):
+    by_study = sorted((life or {}).items())
+    due = [_life_row(lang, "n2.life.row", rs, r) for rs, lf in by_study for r in lf.get("today", [])]
+    late = [_life_row(lang, "n2.life.row", rs, r) for rs, lf in by_study for r in lf.get("overdue", [])]
+    if not (visits or steps or new or marks or due or late):
         return None
     parts = [translate(lang, "n2.hello"), ""]
-    for key, items in (("n2.visits", visits), ("n2.steps", steps), ("n2.new", new), ("n2.marks", marks)):
+    sections = [("n2.visits", visits), ("n2.steps", steps), ("n2.new", new), ("n2.marks", marks)]
+    if due or late:  # D-134: the participants' study visits (only when the study has a visit schedule)
+        sections = [("n2.life.today", due), ("n2.life.overdue", late), *sections]
+    for key, items in sections:
         parts += [f"## {translate(lang, key, n=len(items))}", ""]
         shown = [f"- {x}" for x in items[:MAX_ROWS]]
         if len(items) > MAX_ROWS:
@@ -194,6 +225,8 @@ def build_n2(
     ]
     counts = {"visits": len(visits), "steps": len(steps), "new": len(new), "marks": len(marks)}
     subject = translate(lang, "n2.subject", day=today.isoformat(), **counts)
+    if due or late:
+        counts |= {"study_visits": len(due), "overdue": len(late)}
     return Notice("N2", user.username, user.mailbox or "", subject, "\n".join(parts), today.isoformat(), counts)
 
 
@@ -212,7 +245,11 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
         if kind is None or kind not in kinds or store.notice_sent(kind, u.username, today.isoformat()):
             continue
         studies: list[Any] = []
+        life: dict[str, dict[str, Any]] = {}
         for r in h.trials(sess):
+            lf = h.life_mail(r.id, today) if getattr(h, "life_mail", None) else None
+            if lf and any(lf.get(k) for k in ("today", "week", "overdue", "sae")):
+                life[r.id] = lf
             wk = h.week_bundle(sess, r.id)
             if wk is None:
                 continue
@@ -229,9 +266,9 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
                     reg = {}
                 studies.append((r.id, wk["rows"], {"marks": store.all_marks(r.id), "retry": retry, "registry": reg}))
         n = (
-            build_n1(u, person, today, studies)
+            build_n1(u, person, today, studies, life)
             if kind == "N1"
-            else build_n2(u, person, today, studies, store.last_notice("N2", u.username))
+            else build_n2(u, person, today, studies, store.last_notice("N2", u.username), life)
         )
         if n is not None:
             out.append(n)

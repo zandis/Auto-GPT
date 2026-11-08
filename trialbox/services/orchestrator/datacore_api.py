@@ -40,6 +40,8 @@ from pydantic import BaseModel, Field
 from rc_bridge.client import RcError, RedcapClient
 from tb_common.audit import AuditLog
 
+from orchestrator.lifecycle_api import LIFE_FORMS, derive_record
+
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
@@ -51,6 +53,7 @@ class DataService:
     now: Callable[[], datetime]
     client: Callable[[str], RedcapClient]  # token_ref -> client (the study store's tokens)
     site_key: Callable[[], bytes] | None = None  # the site HMAC key (chart number -> pseudonym), read only
+    registry: Any = None  # the candidate registry (the screening log): the lifecycle mirrors its steps there
 
     def stamp(self) -> str:
         return self.now().isoformat(timespec="seconds")
@@ -376,7 +379,11 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         svc.audit.append("data.entry", ruleset=rid, actor=body.by,
                          detail={"record": rec, "event": body.event, "form": body.form,
                                  "fields": out["written"]})  # fmt: skip
-        return {**out, "record": rec, "event": body.event, "values": svc.dc.record(rid, rec, body.event)}
+        life: dict[str, Any] = {}
+        if body.form in LIFE_FORMS and out["changed"]:  # the subject follows its answers (D-134)
+            life = derive_record(svc, rid, rec, body.by)
+        return {**out, "record": rec, "event": body.event, "values": svc.dc.record(rid, rec, body.event),
+                "life": life}  # fmt: skip
 
     @r.get("/studies/{rs}/export/{fmt}")
     def export_data(rs: str, fmt: str, by: str = "") -> dict[str, Any]:

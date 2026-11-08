@@ -70,6 +70,10 @@ class Helpers:
     trials: Callable[..., list[Any]] | None = None
     settings_of: Callable[[str], StudySettings] | None = None
     api_session: Callable[[Request], Session] | None = None  # set by register(): bearer sign-in for /api/v1
+    # set by console.lifecycle_pages (D-134): the home page's visits and serious AEs; the visits for N1/N2
+    life_home: Callable[[Session], dict[str, Any]] | None = None
+    life_mail: Callable[[str, date], dict[str, Any]] | None = None
+    life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's ongoing serious AEs (the week page)
 
 
 class ApiLogin(BaseModel):
@@ -300,7 +304,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         clinic = sorted((v for c in cards for v in c["clinic"]), key=lambda v: v["visit_text"])
         return h.page(
             request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic, steps=st.STEPS,
-            pipeline_keys=st.PIPELINE, models=bk.models(),
+            pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home else None,
         )  # fmt: skip
 
     def admin_home(request: Request, sess: Session) -> Response:
@@ -375,7 +379,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             if r.status == "approved" and r.kind in st.REGISTRY_KINDS and sess.user.sees_study(r.id)
             and st.latest_job(jobs, r.id, SCREEN_TYPES) is not None
         ]  # fmt: skip
-        return h.page(request, "week_pick.html", sess, studies=mine, approvals=waiting, cohorts=cohorts)
+        life = h.life_home(sess) if h.life_home else None
+        return h.page(request, "week_pick.html", sess, studies=mine, approvals=waiting, cohorts=cohorts, life=life)
 
     # ------------------------------------------------------------------ feasibility report
     @app.get("/studies/{rs}/feasibility")
@@ -536,6 +541,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             step=study_step(rid),
             steps=st.STEPS,
             approvals=approvals(sess),
+            sae=[{**a, "rs": rid} for a in h.life_sae(rid)] if h.life_sae else [],
         )
 
     def study_step(rid: str) -> int:

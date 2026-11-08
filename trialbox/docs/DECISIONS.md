@@ -1935,3 +1935,119 @@ CRC (F-23); plain service names on the admin pages (F-25); confirmations on Disa
 (pattern 6); Undo for outcomes and conflict decisions; the command field as a real assistant (F-32, F-39); per-page
 help with screenshots; translated (not only marked) criterion labels before the first run, which needs the label
 editor made mandatory at approval; the mail gateway's own texts still say サインイン.
+
+**D-134 Step 5, trial lifecycle v1.** TB-PLAN-04 step 5 (plan v4 §3 "Lifecycle for the pilot", owner decision 4:
+the §3 list only; randomisation, drug accountability, SDV, eConsent and a patient portal come later), 2026-11-08.
+
+* **One state per participant** (`services/datacore/lifecycle.py`, tables `subject`, `subject_step` and `schedule`
+  in schema `datacore`, version 2 of its migrations, so they are in every backup). States: candidate → approached →
+  consented → enrolled → on study → completed, or withdrawn, or screen failure. `NEXT` is the only list of legal
+  steps; the three end states take none. An illegal step is refused (409 `LIFE-STEP` with `why`: `order`, `final`,
+  `reason`, `future` ...) and the console and `/api/v1` say why in the reader's language with the states named and
+  the possible next steps listed ("Enrolled cannot follow Candidate. Possible next steps: Approached, Screen
+  failure."). Screen failure needs a reason (not eligible, declined, not reached, other), withdrawal one of the
+  withdrawal form's six. **Undo** reverses the last step as a new step. Every change is a `subject_step` row (old, new,
+  the day it happened, reason, note, who, when, source) and an audit record (`life.step`, `life.refused`,
+  `console.life_step`).
+* **Where a state comes from, in this order.** (1) The data core's answers, after every saved form
+  (`datacore_api` → `lifecycle_api.derive_record`): screening log (`sl_approached`, `sl_eligible` 0 = screen
+  failure), consent (`ic_date`), enrolment (`en_date` with `en_eligible`), the first visit done (on study), every
+  scheduled visit done or missed with the last one done (completed), withdrawal (`wd_date`, `wd_reason`). A step the
+  answers imply is taken too and says so ("follows from form: tb_consent"). (2) The screening log's status (the
+  candidate registry, which the REDCap read-back feeds): this is how a **sponsor study** is tracked without TrialBox
+  owning the CRF; the sponsor's REDCap or EDC says consented or enrolled and the participant follows. (3) A person's
+  step on the participant page or `/api/v1`. Derivation never goes backwards and never past an end state; what does
+  not fit is listed as `held`, not forced.
+* **The screening log follows the lifecycle.** After every step the state is mirrored into the candidate registry
+  (approached = contacted; enrolled, on study and completed = enrolled), through the registry's own recorded
+  transitions, so the screening log, the enrolment report and the REDCap write-back's `tb_status` say the same.
+  *Decision:* the mirror runs only after a step, never on a plain refresh, so a REDCap value that disagrees with an
+  ended participant is not fought over on every Run now; it is shown as held.
+* **Participants are the study's screening numbers.** Every lifecycle page asks the orchestrator to bring the
+  participants up to date with the site store's screening numbers (`POST /studies/{rs}/subjects/refresh`) when the
+  reader is the coordinator; the investigator's, the administrator's and the home pages only read. The REDCap read-back
+  and the morning mail do the same. A record that only has forms (a pseudonym) becomes a participant when a lifecycle
+  form is saved for it.
+* **Schedule of events** per study: visit name, label per language, day from enrolment (or consent), days allowed
+  before and after. Typed on the Visit schedule page (one form, empty rows to add) or read from REDCap's arms and
+  events (`content=event`: `day_offset`, `offset_min`, `offset_max`; arm 1). The REDCap simulator answers `event` and
+  `arm` for a longitudinal project (project B now carries day offsets: screening day 0, month 12 day 365 ± 30) and
+  refuses them for a classic one, as REDCap does; TrialBox then says to type the visits in.
+* **Visit windows** are computed for a given day, the site's local date (`site.tz`; `now()` of the orchestrator is in
+  the site's zone, and the console turns its clock into the site's date): *coming* (the window has not opened),
+  *in the window*, *overdue*, *done*, *missed* (the visit form), *not needed* (the participant ended). A test passes
+  `today`, so the windows are deterministic: 00:30 in Tokyo is already the next day, the same instant in Taipei is not.
+  A visit done outside its window is marked so.
+* **The coordinator's visit list** (`/studies/{rs}/visits` and on the home page): today, this week (the next seven
+  days), overdue. Each row has **Done today**, which opens the built-in visit form filled in for today (done,
+  today's date, in or out of the window) so the coordinator checks it and taps Save, and **Open the visit form**.
+  Save returns to the list (or to the participant) with a confirmation. Rows are cards on a phone, buttons 44 px or
+  more; the participant page's next steps sit in a sticky bar like the patient sheet's mark bar (D-133).
+* **AEs and deviations** use the built-in `ae_*` and `dv_*` forms on numbered events (`ae1`, `ae2` ..., `dv1` ...);
+  "Add an adverse event" opens the next free one. Visit names may not look like these. An ongoing serious AE is a
+  red banner at the top of the investigator's home page (the week list) and the coordinator's home page, with a link
+  to the participant.
+* **Enrolment report** (`/studies/{rs}/enrolment`, `.xlsx`, `.csv`, `/api/v1/studies/{rs}/enrolment[/csv|xlsx]`):
+  participants per state now and ever reached, per month, screen-failure reasons, withdrawals with day and reason.
+  Screening numbers only. The XLSX is deterministic OOXML (as the registry export); the form data itself is exported
+  by the existing ODM / REDCap CSV / XLSX exports (D-129).
+* **Morning mail.** N2 (coordinator) gains "Study visits today" and "Overdue study visits", N1 (investigator) the
+  week's study visits of the investigator's studies and the number of serious AEs to review. Visits are named by the
+  patient's pseudonym (8 characters) and the visit's name, never by the screening number or chart number (the N1/N2
+  rule since D-108, checked by `e2e_simple` stage 4; the mail keeps pseudonyms only, screening numbers stay on the
+  pages). The mail key (one notice per person and day) is unchanged.
+* **REDCap write-back folded into the data core (one writer per field).** S21's three fields (`tb_screen_date`,
+  `tb_status`, `tb_status_date`) are now TrialBox-owned values of the study's data core, written by TrialBox and
+  pushed by the data core's sync through `rc_bridge.writeback.LinkSource` (the S21 link as a data-core source): a
+  value is pushed when it changed since the last push. *Behaviour changes:* (1) a REDCap-side edit of one of these
+  fields is now a **conflict** on the Conflicts page ("Values to check"), not silently left or later overwritten;
+  the Run now line says how many; (2) a study whose data-core REDCap source also maps one of these fields gets no S21
+  write (`RC-WRITE-OWNER`, the read stands). The result shape (updated, created, unchanged, waiting, duplicates,
+  records) and every rule of D-123 (never a REDCap-owned field, `existing` and `create` modes, DAG, duplicates never
+  written, unchanged rows skipped) are kept; the `rc_write` ledger is still written. The first run after an update
+  takes REDCap's current values as the starting point, so nothing is re-pushed or listed by mistake.
+* **Words.** New strings in `console/i18n_life.py` (en, ja, zh-TW, every key in all three, checked by a test), from
+  the glossary and the field research: 被験者 / 受試者, 来院 / 訪視, 許容範囲 / 訪視窗口, 来院スケジュール / 訪視時程, 有害事象 /
+  不良事件, 重篤 / 嚴重, 逸脱 / 偏差, 登録状況レポート / 收案報告, 声かけ済み / 已邀請 (the glossary's Approach), 已收案. The help
+  page has a "Words used on these pages" glossary (participant, screen failure, visit window, overdue, AE, serious,
+  deviation) in plain words. The old-word test still passes.
+
+*Evidence.*
+
+* `e2e_simple` stage 11 "trial lifecycle" (25 checks, 4.6 s; the whole run 76 s of its 15-minute budget): a new
+  screening number is a candidate → an illegal step is refused with the plain reason in Japanese and nothing changes →
+  approached by hand → consent and enrolment forms → enrolled → v1 is *coming*, *in the window*, *overdue* on three
+  given days → the coordinator's visit list and home page show it under Overdue → N2 lists it by pseudonym, never the
+  screening number → Done today, Save → done, on study → AEs on `ae1` (serious) and `ae2` → the serious AE on the
+  investigator's home page → withdrawal form → withdrawn, a further step refused, the other visits not needed, the
+  whole trail kept → Run now → **the screening log (XLSX), the enrolment report (CSV) and REDCap's read-back from the
+  simulator agree on every count** (enrolled 1, consented 1, withdrawn 1) and the participant reads withdrawn
+  (`tb_status` 7) in all three → the report downloads, carries no chart number → steps, refusals and the schedule
+  in the audit. Stage 10's "nothing written" check now looks at the consent fields (the record already holds
+  TrialBox's screening fields from stage 8).
+* `tests/unit/test_lifecycle.py` (state machine, refusals, undo, derivation with implied and held steps, a sponsor
+  study from the screening log, windows on given days, the Tokyo/Taipei date line, AEs on numbered events, the
+  report, the registry path, the API with the mirror, a schedule from project B's events, the S21 write through the
+  data core with a REDCap-side edit listed as a conflict and the one-writer refusal) and
+  `tests/console/test_lifecycle_pages.py` (the console path, the refusal in Japanese through `/api/v1`, roles, N2 by
+  pseudonym). `tests/unit/test_rc_writeback.py` passes unchanged; `tests/unit/test_rc_sim.py` now expects `arm` and
+  `event` to be answered (400 "classic project" for project A) instead of 501.
+* `public_e2e` 106/106 checks (stage 5b: a second participant enrolled through the forms with today's visit and a
+  serious AE). The walk (`node tools/public_walk.js` against `public_e2e --serve`): 586 checks, 0 failures; 576
+  pages, 5 roles x 3 languages x desktop and phone, with the five lifecycle pages for the coordinator and the
+  investigator, two for the administrator and 403 for viewer and CRA; axe 0 serious or critical (84 minor); 14,910
+  targets, 0 under 44 px.
+  Task **T7** "the coordinator marks today's visit done" (phone, ja): Done today on the home page, Save: **2 taps**
+  (target 2 to 3); T1 to T6 unchanged (2, 2, 2, 5, 5, 3).
+* `tools/backup_drill`: PASSED; the new tables are in the backup, and participants, steps and the visit schedule read
+  back the same after the restore (3 participants, 14 steps, 3 visits). Unit, console and testbench tests: 1258
+  passed.
+
+*Not done.* Randomisation, drug accountability, SDV, eConsent, a patient portal, sponsor EDC connectors (plan v4 §3);
+visit bookings (a visit has a window, not an appointment time; the hospital's appointment source is not joined to
+participants yet); unscheduled visits (any event name works on the Entry page but is not on the list); several arms
+(arm 1 only from REDCap); repeating instruments in REDCap (AEs stay one event each); the schedule is not versioned
+with protocol amendments (saving replaces it; the trail is in the audit); visits in the hospital calendar or LINE;
+the AE is never graded or reported to the IRB or the sponsor by TrialBox; the investigator's confirmation of an SAE
+is not recorded; a reminder when a window is about to close (only the overdue list and N2); the enrolment report's
+small-cell rule (k) is not applied because it never leaves the study team.

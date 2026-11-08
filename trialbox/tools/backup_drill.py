@@ -9,7 +9,8 @@ wiped, restored from the backup with the hospital's key, and must then be the sa
 3. The box is wiped: its schemas dropped, its data folders moved away.
 4. ``trialbox restore`` (private key) puts it back. Checks: every table's rows equal the backup's manifest (count and
    content hash), every file equal, the audit hash chain verifies, the administrator signs in with the same password,
-   and the investigator's marks read back through the site store as before.
+   and the investigator's marks read back through the site store as before; the trial lifecycle (participants,
+   their steps and the visit schedule, D-134) reads back through the data core as before.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ def run(base: Path) -> dict[str, Any]:
     dirs = {name: work / name for name in DATA_DIRS if (work / name).exists()}
     before_files = {n: bk.tree_hashes(p) for n, p in dirs.items()}
     marks_before = _marks(work)
+    life_before = _lifecycle()
 
     keys = base / "keys"
     priv, pub = keys / "hospital-it.key", keys / "box.pub"
@@ -83,6 +85,10 @@ def run(base: Path) -> dict[str, Any]:
     checks.append(("restore: the administrator signs in with the same password", _admin_signs_in(work, password), ""))
     checks.append(("restore: the investigator's marks read back the same", _marks(work) == marks_before,
                    f"{len(marks_before)} marks"))  # fmt: skip
+    life_after = _lifecycle()
+    checks.append(("restore: participants, their steps and the visit schedule read back the same (D-134)",
+                   all(life_before.values()) and life_after == life_before,
+                   ", ".join(f"{len(v)} {k}" for k, v in life_before.items())))  # fmt: skip
     return {"ok": all(c[1] for c in checks), "checks": checks, "seconds": round(time.perf_counter() - t0, 1)}
 
 
@@ -98,6 +104,25 @@ def _marks(work: Path) -> list[tuple[Any, ...]]:
     rulesets = sorted({r[0] for t in tables for r in db.fetchall(f'SELECT DISTINCT ruleset FROM "{t}"')})
     store = SiteStore()
     return sorted(((r, m.pid, m.mark, m.by, m.at) for r in rulesets for m in store.all_marks(r)), key=repr)
+
+
+def _lifecycle() -> dict[str, list[tuple[Any, ...]]]:
+    """The lifecycle tables of every study, read through the data core (a fresh connection: a fresh process)."""
+    from datacore.lifecycle import Lifecycle
+    from datacore.store import DataCore
+
+    dc = DataCore()
+    try:
+        life = Lifecycle(dc)
+        studies = sorted({str(r[0]) for r in dc.db.fetchall("SELECT DISTINCT study FROM subject")})
+        out: dict[str, list[tuple[Any, ...]]] = {"participants": [], "steps": [], "visits": []}
+        for st in studies:
+            out["participants"] += [(st, s["record"], s["state"], s["since"]) for s in life.subjects(st)]
+            out["steps"] += [(st, s["record"], s["old"], s["new"], s["on_day"], s["who"]) for s in life.steps(st)]
+            out["visits"] += [(st, v.name, v.day, v.before, v.after) for v in life.schedule(st)]
+        return out
+    finally:
+        dc.close()
 
 
 def _admin_signs_in(work: Path, password: str) -> bool:

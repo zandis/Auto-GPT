@@ -9,17 +9,23 @@ nothing else into an existing record. ``plan`` turns the study's screening numbe
 * a row identical to the last one written (same hash) is skipped, so a nightly run writes only what changed;
 * a screening number on two REDCap records (RC-LINK-DUP) is never written.
 
-Nothing here talks to REDCap; ``orchestrator.study_api`` imports the rows with ``RedcapClient.import_records``.
+TB-PLAN-04 step 5 (D-134): the three fields are the data core's TrialBox-owned fields, so one writer owns each REDCap
+field. ``orchestrator.study_api`` puts TrialBox's values into the data core and syncs them with ``LinkSource`` (the
+S21 link as a data-core source): a value is pushed when it changed since the last push, and a REDCap-side edit of a
+TrialBox field is listed as a conflict, never overwritten. ``plan`` stays as the rules' reference (tests).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from rc_bridge.link import ProjectLink
+from datacore.sync import Row
+
+from rc_bridge.link import WRITE_FIELDS, ProjectLink
 
 STATUSES = ("candidate", "contacted", "consented", "enrolled", "screen_fail", "declined", "withdrawn")
 STATUS_CODES = {s: str(i) for i, s in enumerate(STATUSES, 1)}  # tb_status choices "1, candidate | 2, contacted | ..."
@@ -104,3 +110,66 @@ def existing_index(rows: list[dict[str, Any]], link: ProjectLink, id_field: str)
         if v and rid:
             idx.setdefault(v, set()).add(rid)
     return {k: sorted(v) for k, v in idx.items()}
+
+
+@dataclass
+class LinkSource:
+    """The S21 project link as a data-core source (``datacore.sync.Source``) for TrialBox's three screening fields.
+
+    Only TrialBox's own screening numbers are read and written; a number on two REDCap records is never written
+    (RC-LINK-DUP); a number without a record waits (``existing`` mode) or gets one (``create`` mode, auto-numbered by
+    REDCap, with the link field and the link's DAG)."""
+
+    client: Callable[[], Any]
+    link: ProjectLink
+    numbers: set[str]
+    id_field: str = "record_id"
+    name: str = "redcap-link"
+    refused: list[dict[str, str]] = field(default_factory=list)
+    duplicates: list[str] = field(default_factory=list)
+    record_of: dict[str, str] = field(default_factory=dict)  # screening number -> REDCap record id (pulled)
+    updated: dict[str, str] = field(default_factory=dict)  # this push
+    created: dict[str, str] = field(default_factory=dict)
+
+    def fields(self) -> list[str]:
+        return list(WRITE_FIELDS)
+
+    def pull(self) -> list[Row]:
+        with self.client() as rc:
+            rows = rc.records(fields=[self.id_field, self.link.link_field, *WRITE_FIELDS], dags=bool(self.link.dag))
+        if self.link.dag:
+            rows = [r for r in rows if str(r.get("redcap_data_access_group") or "") == self.link.dag]
+        idx = existing_index(rows, self.link, self.id_field)
+        self.duplicates = sorted(no for no in self.numbers if len(idx.get(no, [])) > 1)
+        self.record_of = {no: ids[0] for no, ids in idx.items() if no in self.numbers and len(ids) == 1}
+        out = []
+        for no, rid in sorted(self.record_of.items()):
+            vals: dict[str, str] = {}
+            for r in rows:
+                ev = str(r.get("redcap_event_name") or "")
+                if str(r.get(self.id_field)) == rid and (not self.link.write_event or ev == self.link.write_event):
+                    vals.update({f: str(r.get(f) or "") for f in WRITE_FIELDS if f in r})
+            out.append(Row(no, "", vals, rid))
+        return out
+
+    def push(self, rows: list[Row]) -> dict[str, str]:
+        upd: list[dict[str, str]] = []
+        new: list[tuple[str, dict[str, str]]] = []
+        for r in rows:
+            if r.record in self.duplicates or r.record not in self.numbers:
+                continue
+            base: dict[str, str] = {"redcap_event_name": self.link.write_event} if self.link.write_event else {}
+            if r.source_id:
+                upd.append({self.id_field: r.source_id, **base, **r.values})
+                self.updated[r.record] = r.source_id
+            elif self.link.write_mode == "create":
+                if self.link.dag:
+                    base["redcap_data_access_group"] = self.link.dag
+                new.append((r.record, {self.id_field: f"tb-new-{len(new) + 1}", **base,
+                                       self.link.link_field: r.record, **r.values}))  # fmt: skip
+        with self.client() as rc:
+            if upd:
+                rc.import_records(upd)
+            ids = rc.import_records([n[1] for n in new], auto_number=True) if new else []
+        self.created = {no: rid for (no, _), rid in zip(new, ids, strict=False)}
+        return {**self.updated, **self.created}

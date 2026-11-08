@@ -7,7 +7,7 @@ in ``site.tz`` (which also sets ``env.tz``), so a mark made at 07:00 in Tokyo re
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 
@@ -45,3 +45,8 @@ def local_time(value: object, tz: ZoneInfo, n: int = 16) -> str:
 def local_date(value: object, tz: ZoneInfo) -> str:
     """The site-local calendar date (YYYY-MM-DD) of a stored timestamp."""
     return local_time(value, tz, 10)
+
+
+def local_today(now: datetime, tz: ZoneInfo) -> date:
+    """The site's calendar date at ``now`` (naive means UTC): what "today" is for a visit window (D-134)."""
+    return (now if now.tzinfo else now.replace(tzinfo=UTC)).astimezone(tz).date()

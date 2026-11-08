@@ -7,6 +7,7 @@ network, no secrets, run in process:
     list (GOUT-COH) -> marks -> N1/N2 mail -> REDCap simulator record -> Run now -> screening log (HTML and XLSX)
     -> write-back of TrialBox's instrument -> consent in REDCap -> read back on the next run (D-123)
     -> the data core with REDCap off and on (stage 9) -> built-in forms, entry, history, ODM / REDCap CSV (stage 10)
+    -> the trial lifecycle: enrolled, visit due, overdue, done, AEs, withdrawn; three counts agree (stage 11)
 
 and each stage is checked against something it did not compute itself: the generator's own counts, a recount from
 the hospital CSVs, the sent mail, the hash-chained audit log and a byte-identical re-run of the FEAS and SCREEN jobs.
@@ -31,6 +32,7 @@ import secrets
 import shutil
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -134,7 +136,8 @@ def _stage10(res: dict[str, Any], api: Any, crc: Any, lang: str, mrns: set[str],
     r = save("tb_consent", {"ic_date": "2026-11-02", "ic_copy": "1"})
     s.check("a required field missing is refused, in the page's language",
             'data-testid="why-ic_version"' in r.text and cat["dc.why.required"].split("{label}")[-1] in r.text
-            and no not in api("GET", f"/studies/{rs}/data")["records"], r.status_code)  # fmt: skip
+            and not any(k.startswith("ic_") for k in api("GET", f"/studies/{rs}/data")["records"].get(no, {})),
+            r.status_code)  # fmt: skip
     consent = {"ic_date": "2026-11-02", "ic_version": "v2.1", "ic_copy": "1", "ic_by": "KT"}
     r = save("tb_consent", consent)
     s.check("the consent is saved; the history page follows", 'data-testid="entry-saved"' in r.text, r.url)
@@ -197,6 +200,168 @@ def _stage10(res: dict[str, Any], api: Any, crc: Any, lang: str, mrns: set[str],
     s.check("no chart number in the exports", not any(f'"{m}"' in odm.text for m in mrns))
     seen = {str(x["event"]) for x in _audit(box)}
     s.check("entry and export are in the audit", {"data.entry", "data.export", "console.data_entry"} <= seen)
+    s.seconds = time.perf_counter() - t
+    return s
+
+
+def _stage11(res: dict[str, Any], api: Any, crc: Any, pi: Any, lang: str, mrns: set[str], box: Any) -> Stage:
+    """Stage 11 (TB-PLAN-04 step 5, D-134): the trial lifecycle. A new participant: enrolled through the forms ->
+    visit due -> overdue -> done ("Done today" on the coordinator's visit list) -> AEs logged on ae1 (serious, shown
+    on the investigator's home page) and ae2 -> withdrawn; an illegal step refused with a plain reason. Then the
+    screening log, the enrolment report and the REDCap read-back (the simulator) agree on every count."""
+    from datetime import timedelta
+
+    from console.i18n import CATALOGUES
+    from fastapi.testclient import TestClient as SimClient
+    from openpyxl import load_workbook
+    from rc_bridge.writeback import STATUSES
+
+    cat = CATALOGUES[lang]
+    s = Stage("11 trial lifecycle")
+    t = time.perf_counter()
+    rs = TRIAL
+    h = res["app"].state.helpers
+    from console.timefmt import local_today, site_zone
+
+    today = local_today(h.clock(), site_zone(h.bk))  # the site's date (07:00 in Tokyo is the day before in UTC)
+    # a new participant: the next listed patient without a screening number gets one
+    have = set(h.store.screening_nos(rs))
+    pid = next(r["pid"] for r in h.week_bundle(None, rs)["rows"] if r["pid"] not in have)
+    no = h.store.assign_screening_no(rs, pid, h.settings_of(rs), h.clock().isoformat())
+    # the visit schedule, defined in TrialBox
+    page = crc.get(f"/studies/{rs}/schedule")
+    sched = {"csrf": fd._csrf(page.text), "action": "save", "visit": ["v1", "v2", "v3"], "label": ["", "", ""],
+             "day": ["7", "28", "84"], "before": ["2", "3", "7"], "after": ["2", "3", "7"],
+             "anchor": ["enrolment"] * 3}  # fmt: skip
+    r = crc.post(f"/studies/{rs}/schedule", data=sched)
+    s.check("the visit schedule is saved (3 visits with windows)", 'data-testid="schedule-saved"' in r.text,
+            r.status_code)  # fmt: skip
+    page = crc.get(f"/studies/{rs}/subjects")
+    s.check("the new screening number is a participant (candidate)",
+            re.search(rf'data-testid="subject-{no}">.*?data-state="candidate"', page.text, re.S) is not None,
+            page.status_code)  # fmt: skip
+    csrf = fd._csrf(page.text)
+    r = crc.post(f"/studies/{rs}/subjects/{no}/step", data={"csrf": csrf, "to": "enrolled"})
+    plain = cat["life.why.order"].split("{")[0]
+    s.check("an illegal step is refused with a plain reason, in the page's language",
+            r.status_code == 409 and 'data-testid="life-refused"' in r.text and plain.strip() in r.text,
+            r.status_code)  # fmt: skip
+    refused = api("GET", f"/studies/{rs}/subjects/{no}")["subject"]["state"]
+    s.check("nothing changed after the refusal", refused == "candidate", refused)
+    enrol = today - timedelta(days=12)  # v1 is due on day 7 (window +-2): overdue today
+    day = enrol.isoformat()
+    r = crc.post(
+        f"/studies/{rs}/subjects/{no}/step",
+        data={"csrf": csrf, "to": "approached", "on_day": (enrol - timedelta(days=3)).isoformat()},
+    )
+    s.check("approached, recorded by the coordinator", 'data-testid="life-saved"' in r.text, r.status_code)
+
+    def save(form: str, values: dict[str, str], event: str = "", back: str = "subject") -> Any:
+        data = {"csrf": csrf, "record": no, "event": event, "form": form, "back": back,
+                **{f"f_{k}": v for k, v in values.items()}}  # fmt: skip
+        return crc.post(f"/studies/{rs}/entry", data=data)
+
+    save("tb_consent", {"ic_date": (enrol - timedelta(days=1)).isoformat(), "ic_version": "v3", "ic_copy": "1"})
+    r = save("tb_enrolment", {"en_date": day, "en_eligible": "1"})
+    s.check("consent and enrolment forms move the participant to enrolled",
+            'data-state="enrolled"' in r.text and api("GET", f"/studies/{rs}/subjects/{no}")["subject"]["state"]
+            == "enrolled", r.status_code)  # fmt: skip
+
+    def v1(on: Any) -> str:
+        one = api("GET", f"/studies/{rs}/subjects/{no}?today={on.isoformat()}")
+        return str(next(v["status"] for v in one["visits"] if v["visit"] == "v1"))
+
+    seq = [v1(enrol + timedelta(days=3)), v1(enrol + timedelta(days=7)), v1(today)]
+    s.check("visit v1: due, then in its window, then overdue (given days, site time zone)",
+            seq == ["due", "open", "overdue"], seq)  # fmt: skip
+    page = crc.get(f"/studies/{rs}/visits")
+    over = page.text[page.text.find('data-testid="visits-overdue"') :]
+    s.check("the coordinator's visit list shows it under Overdue", f'data-testid="visit-{no}-v1"' in over,
+            page.status_code)  # fmt: skip
+    home = crc.get("/home").text
+    s.check("the coordinator's home page lists the overdue visit", f'data-testid="visit-{no}-v1"' in home)
+    from console import notify
+
+    crc_user = next(u for u in h.users.users() if u.username == "crc")
+    mail_day = today if today.weekday() < 5 else today + timedelta(days=7 - today.weekday())  # N2: working days
+    lf = h.life_mail(rs, mail_day) if h.life_mail else {}
+    n2 = notify.build_n2(crc_user, h.store.notify_person("crc"), mail_day, [], None, {rs: lf})
+    body = n2.body if n2 else ""
+    s.check("N2 lists the overdue visit by pseudonym, never the screening number",
+            f"{pid[:8]} " in body or f"{pid[:8]}（" in body or f"{pid[:8]}(" in body, body[-300:])  # fmt: skip
+    s.check(
+        "N2 carries no screening number and no chart number",
+        bool(body) and no not in body and not any(re.search(rf"(?<!\d){m_}(?!\d)", body) for m_ in mrns),
+    )
+    m = re.search(rf'href="([^"]+)" data-testid="done-{no}-v1"', page.text)
+    form = crc.get(m.group(1).replace("&amp;", "&")).text if m else ""
+    s.check("Done today opens the visit form filled in for today",
+            f'value="{today.isoformat()}"' in form and 'name="back" value="visits"' in form, bool(m))  # fmt: skip
+    r = save("tb_visit", {"vs_status": "1", "vs_date": today.isoformat(), "vs_window": "0",
+                          "vs_window_note": "late"}, "v1", "visits")  # fmt: skip
+    s.check("Save: the visit is done and leaves the list",
+            'data-testid="visit-saved"' in r.text and f'data-testid="visit-{no}-v1"' not in r.text
+            and v1(today) == "done", r.status_code)  # fmt: skip
+    st = api("GET", f"/studies/{rs}/subjects/{no}")["subject"]["state"]
+    s.check("the first visit done: on study", st == "on_study", st)
+    r = save("tb_adverse_event", {"ae_term": "肺炎", "ae_onset": today.isoformat(), "ae_serious": "1",
+                                  "ae_serious_why": "3", "ae_severity": "3", "ae_related": "9"}, "ae1")  # fmt: skip
+    r = save("tb_adverse_event", {"ae_term": "頭痛", "ae_onset": today.isoformat(), "ae_serious": "0",
+                                  "ae_severity": "1", "ae_related": "0"}, "ae2")  # fmt: skip
+    aes = api("GET", f"/studies/{rs}/subjects/{no}")["aes"]
+    s.check("two AEs logged on events ae1 and ae2", [a["event"] for a in aes] == ["ae1", "ae2"]
+            and 'data-testid="ae-ae2"' in r.text, [a["event"] for a in aes])  # fmt: skip
+    week = pi.get("/week").text
+    s.check("the serious AE is shown on the investigator's home page",
+            'data-testid="sae-banner"' in week and f'data-testid="sae-{no}-ae1"' in week)  # fmt: skip
+    r = save("tb_withdrawal", {"wd_date": today.isoformat(), "wd_reason": "3", "wd_data_use": "1"})
+    s.check("the withdrawal form: withdrawn, no further step offered",
+            'data-state="withdrawn"' in r.text and 'data-testid="life-final"' in r.text, r.status_code)  # fmt: skip
+    r = crc.post(f"/studies/{rs}/subjects/{no}/step", data={"csrf": csrf, "to": "on_study"})
+    s.check("a step after withdrawal is refused", r.status_code == 409 and 'data-testid="life-refused"' in r.text)
+    vs = [v["status"] for v in api("GET", f"/studies/{rs}/subjects/{no}")["visits"]]
+    s.check("the remaining visits are not needed", vs == ["done", "stopped", "stopped"], vs)
+    trail = [(x["old"], x["new"]) for x in api("GET", f"/studies/{rs}/subjects/{no}")["steps"]]
+    want = [(None, "candidate"), ("candidate", "approached"), ("approached", "consented"), ("consented", "enrolled"),
+            ("enrolled", "on_study"), ("on_study", "withdrawn")]  # fmt: skip
+    s.check("every step is in the participant's history", trail == want, trail)
+    # the three counts: Run now (S21 read and write-back), then the screening log, the report and REDCap agree
+    log = crc.get(f"/studies/{rs}/screening-log")
+    crc.post(f"/studies/{rs}/redcap-read", data={"csrf": fd._csrf(log.text), "back": "log"})
+    x = crc.get(f"/studies/{rs}/screening-log.xlsx")
+    ws = load_workbook(io.BytesIO(x.content), read_only=True).active
+    rows = [list(r_) for r_ in ws.iter_rows(values_only=True)] if ws is not None else []
+    col = rows[0].index("status") if rows else 0
+    nos = {str(r_[0]) for r_ in rows[1:]}
+    log_counts = dict(Counter(str(r_[col]) for r_ in rows[1:]))
+    rep_csv = list(csv.reader(io.StringIO(crc.get(f"/studies/{rs}/enrolment.csv").text)))
+    from datacore.lifecycle import REGISTRY_OF
+
+    rep_counts: Counter[str] = Counter()
+    for r_ in rep_csv:
+        if r_[:2] == ["state", "now"] and int(r_[3]):
+            rep_counts[REGISTRY_OF[r_[2]]] += int(r_[3])
+    sim = SimClient(res["sim"])
+    token_a = next(k for k, v in res["sim"].state.sim.projects.items() if v["project"]["project_id"] == 101)
+    back = sim.post("/api/", data={"token": token_a, "content": "record", "format": "json", "type": "flat"}).json()
+    rc_counts = dict(Counter(STATUSES[int(b["tb_status"]) - 1] for b in back
+                             if b.get("tb_screening_no") in nos and b.get("tb_status")))  # fmt: skip
+    s.check("screening log = enrolment report = REDCap read-back, on every count",
+            log_counts == dict(rep_counts) == rc_counts and sum(log_counts.values()) == len(nos) >= 3,
+            {"log": log_counts, "report": dict(rep_counts), "redcap": rc_counts})  # fmt: skip
+    s.check("the new participant reads withdrawn in all three",
+            log_counts.get("withdrawn", 0) >= 1 and any(b.get("tb_screening_no") == no and b.get("tb_status") == "7"
+                                                        for b in back), no)  # fmt: skip
+    xl = crc.get(f"/studies/{rs}/enrolment.xlsx")
+    s.check(
+        "the enrolment report downloads as XLSX and CSV",
+        xl.status_code == 200 and xl.content[:2] == b"PK" and rep_csv[0] == ["table", "key", "state", "count"],
+    )
+    body = "\n".join([crc.get(f"/studies/{rs}/enrolment").text, json.dumps(rep_csv), xl.content.decode("latin-1")])
+    s.check("no chart number in the report", not any(re.search(rf"(?<!\d){m}(?!\d)", body) for m in mrns))
+    seen = {str(e["event"]) for e in _audit(box)}
+    s.check("steps, refusals and the schedule are in the audit",
+            {"life.step", "life.refused", "life.schedule", "console.life_step"} <= seen)  # fmt: skip
     s.seconds = time.perf_counter() - t
     return s
 
@@ -642,6 +807,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     stages.append(s)
 
     stages.append(_stage10(res, api, crc, lang, mrns, box))
+    stages.append(_stage11(res, api, crc, pi, lang, mrns, box))
 
     # ---------------------------------------------------------------- FR-REP-02: byte-identical re-run
     s = Stage("re-run (FR-REP-02)")

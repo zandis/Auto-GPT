@@ -1,0 +1,488 @@
+"""Trial lifecycle v1 (TB-PLAN-04 step 5, D-134): the subject's state, the schedule of events and the visit windows.
+
+**States.** candidate -> approached -> consented -> enrolled -> on study -> completed, or withdrawn, or screen-fail.
+``NEXT`` is the only list of legal steps; anything else is refused with a plain reason (``LifeError.why``). The three
+end states take no further step; a mistake is put right with ``undo`` (the last step is reversed, as a new step, and
+the trail keeps both).
+
+**Where a state comes from.** First the data core's own answers (``derive``): the built-in screening log
+(``sl_approached``, ``sl_eligible``), consent (``ic_date``), enrolment (``en_date`` with ``en_eligible``), a visit
+done (``vs_status`` 1) and withdrawal (``wd_date``, ``wd_reason``). A step that the answers imply but no form records
+(a visit done means the subject was enrolled) is taken too and says so (``implied``). Second, the screening log's
+status (the candidate registry, which the REDCap read-back also feeds): for a sponsor study the sponsor's CRF holds
+consent and enrolment, TrialBox does not, and the state still follows. Third, a person's step on the subject page or
+through ``/api/v1``. Derivation never moves a subject backwards and never past an end state: what does not fit is
+reported (``held``), not forced.
+
+**Every change** is a row in ``subject_step`` (old, new, the day it happened, reason, note, who, when, source); the
+callers add the audit record.
+
+**Schedule of events** (``schedule``): per study, each visit with its day after enrolment (or consent) and its window
+(days before and after). Defined in TrialBox or read from REDCap's arms and events (``day_offset``, ``offset_min``,
+``offset_max``). A visit's answers are the built-in visit form on the event named like the visit.
+
+**Visit windows** (``visit_status``) are computed for a given day (the site's local date), so a test can step through
+them: *due* (the window has not opened), *open* (today is in the window), *overdue* (the window has closed), *done*,
+*missed* (the visit form says so), *stopped* (the subject left the study before it).
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from typing import Any
+
+from datacore.store import DataCore
+
+STATES = ("candidate", "approached", "consented", "enrolled", "on_study", "completed", "withdrawn", "screen_fail")
+LINE = ("candidate", "approached", "consented", "enrolled", "on_study", "completed")  # the main line, in order
+FINAL = ("completed", "withdrawn", "screen_fail")
+NEXT: dict[str, tuple[str, ...]] = {
+    "candidate": ("approached", "screen_fail"),
+    "approached": ("consented", "screen_fail"),
+    "consented": ("enrolled", "screen_fail", "withdrawn"),
+    "enrolled": ("on_study", "withdrawn"),
+    "on_study": ("completed", "withdrawn"),
+    "completed": (),
+    "withdrawn": (),
+    "screen_fail": (),
+}
+SCREEN_FAIL_REASONS = ("not_eligible", "declined", "lost_contact", "other")
+WITHDRAW_REASONS = ("1", "2", "3", "4", "5", "6")  # the built-in withdrawal form's codes (wd_reason)
+# the screening log's status for each state (the candidate registry; the REDCap write-back's tb_status follows it)
+REGISTRY_OF = {"candidate": "candidate", "approached": "contacted", "consented": "consented", "enrolled": "enrolled",
+               "on_study": "enrolled", "completed": "enrolled", "withdrawn": "withdrawn",
+               "screen_fail": "screen_fail"}  # fmt: skip
+FROM_REGISTRY = {"candidate": "candidate", "contacted": "approached", "consented": "consented", "enrolled": "enrolled",
+                 "screen_fail": "screen_fail", "declined": "screen_fail", "withdrawn": "withdrawn"}  # fmt: skip
+ANCHORS = ("enrolment", "consent")
+VISIT_STATES = ("due", "open", "overdue", "done", "missed", "stopped")
+AE_EVENT = re.compile(r"^ae(\d{1,3})$")
+DV_EVENT = re.compile(r"^dv(\d{1,3})$")
+_VISIT = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS subject (study TEXT NOT NULL, record TEXT NOT NULL, pid TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL, since TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', changed_by TEXT NOT NULL,
+  changed_at TEXT NOT NULL, PRIMARY KEY (study, record));
+CREATE TABLE IF NOT EXISTS subject_step (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, study TEXT NOT NULL,
+  record TEXT NOT NULL, old TEXT, new TEXT NOT NULL, on_day TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '', who TEXT NOT NULL, at TEXT NOT NULL, source TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS subject_step_rec ON subject_step (study, record);
+CREATE TABLE IF NOT EXISTS schedule (study TEXT NOT NULL, visit TEXT NOT NULL, seq INTEGER NOT NULL,
+  labels TEXT NOT NULL DEFAULT '{}', anchor TEXT NOT NULL, day INTEGER NOT NULL, win_before INTEGER NOT NULL,
+  win_after INTEGER NOT NULL, origin TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (study, visit))
+"""
+
+
+class LifeError(ValueError):
+    """A refused step. ``why`` is a plain-reason key (``life.why.<why>`` in the console's catalogues)."""
+
+    def __init__(self, why: str, message: str, **detail: str) -> None:
+        super().__init__(f"LIFE-{why.upper()}: {message}")
+        self.code = "LIFE-STEP"
+        self.why = why
+        self.message = message
+        self.detail = detail
+        self.fields = [why]
+
+
+@dataclass(frozen=True)
+class Visit:
+    name: str
+    day: int
+    before: int = 0
+    after: int = 0
+    anchor: str = "enrolment"
+    labels: dict[str, str] = field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"visit": self.name, "day": self.day, "before": self.before, "after": self.after,
+                "anchor": self.anchor, "labels": dict(self.labels)}  # fmt: skip
+
+
+def check_visit(v: Visit) -> None:
+    if not _VISIT.match(v.name) or AE_EVENT.match(v.name) or DV_EVENT.match(v.name):
+        raise LifeError("visit", f"a visit name is lower-case letters, digits and _ (not ae1, dv1): {v.name!r}",
+                        visit=v.name[:40])  # fmt: skip
+    if v.anchor not in ANCHORS:
+        raise LifeError("anchor", f"a visit counts from {' or '.join(ANCHORS)}", visit=v.name)
+    if not (-3650 <= v.day <= 3650 and 0 <= v.before <= 365 and 0 <= v.after <= 365):
+        raise LifeError("window", "the day is -3650 to 3650; the window 0 to 365 days each side", visit=v.name)
+
+
+def can_step(cur: str, to: str) -> str | None:
+    """The refusal reason key for ``cur -> to``, or None when the step is legal."""
+    if to not in STATES:
+        return "unknown"
+    if cur == to:
+        return "same"
+    if cur in FINAL:
+        return "final"
+    if to not in NEXT[cur]:
+        return "order"
+    return None
+
+
+def _day(text: str) -> date | None:
+    try:
+        return date.fromisoformat(str(text)[:10])
+    except ValueError:
+        return None
+
+
+class Lifecycle:
+    """The lifecycle tables in the data core's schema (one trial database, D-126)."""
+
+    def __init__(self, dc: DataCore) -> None:
+        self.dc = dc
+        self.db = dc.db
+
+    # ------------------------------------------------------------------ subjects
+    def subject(self, study: str, record: str) -> dict[str, Any] | None:
+        rows = self.db.fetchdicts("SELECT * FROM subject WHERE study = ? AND record = ?", (study, record))
+        return rows[0] if rows else None
+
+    def subjects(self, study: str) -> list[dict[str, Any]]:
+        return self.db.fetchdicts("SELECT * FROM subject WHERE study = ? ORDER BY record", (study,))
+
+    def steps(self, study: str, record: str | None = None) -> list[dict[str, Any]]:
+        if record is None:
+            return self.db.fetchdicts("SELECT * FROM subject_step WHERE study = ? ORDER BY id", (study,))
+        return self.db.fetchdicts("SELECT * FROM subject_step WHERE study = ? AND record = ? ORDER BY id",
+                                  (study, record))  # fmt: skip
+
+    def ensure(self, study: str, record: str, pid: str, by: str, at: str) -> tuple[dict[str, Any], bool]:
+        """The subject, made a candidate when TrialBox first sees its screening number (or pseudonym)."""
+        cur = self.subject(study, record)
+        if cur is not None:
+            if pid and not cur["pid"]:
+                self.db.execute("UPDATE subject SET pid = ? WHERE study = ? AND record = ?", (pid, study, record))
+                cur["pid"] = pid
+            return cur, False
+        with self.db.transaction() as tx:
+            tx.execute("INSERT INTO subject (study, record, pid, state, since, reason, changed_by, changed_at) VALUES "
+                       "(?,?,?,?,?,?,?,?) ON CONFLICT (study, record) DO NOTHING",
+                       (study, record, pid, "candidate", at[:10], "", by, at))  # fmt: skip
+            tx.execute("INSERT INTO subject_step (study, record, old, new, on_day, reason, note, who, at, source) "
+                       "VALUES (?,?,?,?,?,?,?,?,?,?)", (study, record, None, "candidate", at[:10], "", "", by, at,
+                                                        "screening"))  # fmt: skip
+        out = self.subject(study, record)
+        assert out is not None
+        return out, True
+
+    def step(self, study: str, record: str, to: str, *, by: str, at: str, on_day: str = "", reason: str = "",
+             note: str = "", source: str = "manual", today: date | None = None) -> dict[str, Any]:  # fmt: skip
+        """One legal step, or ``LifeError`` with the plain reason. ``on_day``: the day it happened (default: today)."""
+        cur = self.subject(study, record)
+        if cur is None:
+            raise LifeError("none", "no subject with that screening number or patient code in this study")
+        why = can_step(str(cur["state"]), to)
+        if why is not None:
+            raise LifeError(why, f"{cur['state']} -> {to} is not a step of the lifecycle", state=str(cur["state"]),
+                            to=to, allowed=", ".join(NEXT.get(str(cur["state"]), ())))  # fmt: skip
+        if to == "screen_fail" and reason not in SCREEN_FAIL_REASONS:
+            raise LifeError("reason", f"a screen failure needs a reason: {', '.join(SCREEN_FAIL_REASONS)}", to=to)
+        if to == "withdrawn" and reason not in WITHDRAW_REASONS:
+            raise LifeError("reason", "a withdrawal needs a reason (1 to 6, as on the withdrawal form)", to=to)
+        day = _day(on_day or at)
+        if day is None:
+            raise LifeError("day", "the day is YYYY-MM-DD", to=to)
+        if today is not None and day > today:
+            raise LifeError("future", "the day of a step cannot be in the future", to=to)
+        self._move(study, record, str(cur["state"]), to, day.isoformat(), reason, note[:300], by, at, source)
+        out = self.subject(study, record)
+        assert out is not None
+        return out
+
+    def _move(self, study: str, record: str, old: str, new: str, day: str, reason: str, note: str, by: str, at: str,
+              source: str) -> None:  # fmt: skip
+        with self.db.transaction() as tx:
+            n = tx.execute("UPDATE subject SET state = ?, since = ?, reason = ?, changed_by = ?, changed_at = ? "
+                           "WHERE study = ? AND record = ? AND state = ?",
+                           (new, day, reason, by, at, study, record, old))  # fmt: skip
+            if n != 1:
+                raise LifeError("changed", "the subject changed meanwhile; open it again")
+            tx.execute(
+                "INSERT INTO subject_step (study, record, old, new, on_day, reason, note, who, at, source) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (study, record, old, new, day, reason, note, by, at, source),
+            )
+
+    def undo(self, study: str, record: str, *, by: str, at: str, note: str = "") -> dict[str, Any]:
+        """Reverse the last step (a mistake), as a new step; the trail keeps both."""
+        cur = self.subject(study, record)
+        if cur is None:
+            raise LifeError("none", "no subject with that screening number or patient code in this study")
+        live = live_steps(self.steps(study, record))
+        if len(live) <= 1 or live[-1]["new"] != cur["state"]:
+            raise LifeError("undo", "there is no step to undo", state=str(cur["state"]))
+        back = live[-2]
+        self._move(study, record, str(cur["state"]), str(back["new"]), str(back["on_day"]), str(back["reason"]),
+                   note[:300], by, at, "undo")  # fmt: skip
+        out = self.subject(study, record)
+        assert out is not None
+        return out
+
+    # ------------------------------------------------------------------ derivation
+    def evidence(self, study: str, record: str, registry: str | None = None,
+                 schedule: list[Visit] | None = None) -> dict[str, dict[str, str]]:  # fmt: skip
+        """What the answers (and the screening log) say: state -> {day, reason, note, source}."""
+        vals: dict[str, dict[str, str]] = {}
+        for r in self.dc.values(study, record):
+            vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
+        once = vals.get("", {})
+        out: dict[str, dict[str, str]] = {}
+
+        def put(state: str, day: str, source: str, reason: str = "", note: str = "") -> None:
+            if state not in out and _day(day) is not None:
+                out[state] = {"day": day[:10], "source": source, "reason": reason, "note": note[:300]}
+
+        if once.get("sl_eligible") == "0":
+            put("screen_fail", once.get("sl_date", ""), "form:tb_screening_log", "not_eligible",
+                once.get("sl_reason", ""))  # fmt: skip
+        if once.get("sl_approached") == "1":
+            put("approached", once.get("sl_date", ""), "form:tb_screening_log")
+        if once.get("ic_date"):
+            put("consented", once["ic_date"], "form:tb_consent")
+        if once.get("en_date") and once.get("en_eligible") == "1":
+            put("enrolled", once["en_date"], "form:tb_enrolment")
+        elif once.get("en_date") and once.get("en_eligible") == "0":
+            put("screen_fail", once["en_date"], "form:tb_enrolment", "not_eligible")
+        done = sorted((v.get("vs_date", ""), ev) for ev, v in vals.items() if ev and v.get("vs_status") == "1")
+        if done:
+            put("on_study", done[0][0], f"form:tb_visit:{done[0][1]}")
+        sched = schedule or []
+        if sched:
+            last = max(sched, key=lambda x: (x.day, x.name))
+            ends = [vals.get(v.name, {}).get("vs_status") for v in sched]
+            lv = vals.get(last.name, {})
+            if all(s in ("1", "2") for s in ends) and lv.get("vs_status") == "1":
+                put("completed", lv.get("vs_date", ""), f"form:tb_visit:{last.name}")
+        if once.get("wd_date"):
+            put("withdrawn", once["wd_date"], "form:tb_withdrawal", once.get("wd_reason", "") or "6",
+                once.get("wd_note", ""))  # fmt: skip
+        if registry and registry in FROM_REGISTRY and registry != "candidate":
+            want = FROM_REGISTRY[registry]
+            reason = "declined" if registry == "declined" else ("other" if want == "screen_fail" else "")
+            if want == "withdrawn":
+                reason = "6"
+            if want not in out:  # the forms' own day wins; the screening log gives no day of its own
+                out[want] = {"day": "", "source": "screening_log", "reason": reason, "note": ""}
+        return out
+
+    def derive(self, study: str, record: str, *, by: str, at: str, registry: str | None = None,
+               schedule: list[Visit] | None = None) -> dict[str, Any]:  # fmt: skip
+        """Walk the subject forward to what the answers say; never backwards, never past an end state.
+
+        Returns ``{"steps": [made], "held": [{state, why}]}``."""
+        cur = self.subject(study, record)
+        if cur is None:
+            return {"steps": [], "held": []}
+        ev = self.evidence(study, record, registry, schedule)
+        state = str(cur["state"])
+        made: list[dict[str, str]] = []
+        held: list[dict[str, str]] = []
+        today = at[:10]
+        line_target = max((LINE.index(s) for s in ev if s in LINE), default=0)
+
+        def day_for(s: str, fallback: str) -> str:
+            return (ev.get(s) or {}).get("day") or fallback
+
+        if state in LINE and LINE.index(state) < line_target:
+            for i in range(LINE.index(state) + 1, line_target + 1):
+                s = LINE[i]
+                e = ev.get(s)
+                implied = e is None
+                by_ev = next(ev[x] for x in LINE[i : line_target + 1] if x in ev)  # the nearest later evidence
+                src = by_ev["source"]
+                d = day_for(s, by_ev["day"] or today)
+                note = (f"implied by {src}" if implied else (e or {}).get("note", ""))[:300]
+                self._move(study, record, state, s, d, (e or {}).get("reason", ""), note, by, at, src)
+                made.append({"from": state, "to": s, "day": d, "source": src})
+                state = s
+        elif state in LINE and line_target and LINE.index(state) > line_target and state not in FINAL:
+            pass  # a person moved the subject further than the forms say: nothing to do
+        for end in ("withdrawn", "screen_fail"):
+            e = ev.get(end)
+            if e is None or state == end:
+                continue
+            why = can_step(state, end)
+            if why is not None:
+                held.append({"state": end, "why": why, "current": state})
+                continue
+            d = day_for(end, e["day"] or today)
+            self._move(study, record, state, end, d, e["reason"], e["note"], by, at, e["source"])
+            made.append({"from": state, "to": end, "day": d, "source": e["source"]})
+            state = end
+            break
+        return {"steps": made, "held": held}
+
+    # ------------------------------------------------------------------ schedule of events
+    def schedule(self, study: str) -> list[Visit]:
+        rows = self.db.fetchdicts("SELECT * FROM schedule WHERE study = ? ORDER BY seq, visit", (study,))
+        return [Visit(str(r["visit"]), int(r["day"]), int(r["win_before"]), int(r["win_after"]), str(r["anchor"]),
+                      dict(json.loads(r["labels"] or "{}"))) for r in rows]  # fmt: skip
+
+    def set_schedule(self, study: str, visits: list[Visit], origin: str, at: str) -> None:
+        seen: set[str] = set()
+        for v in visits:
+            check_visit(v)
+            if v.name in seen:
+                raise LifeError("visit", f"the visit {v.name} is listed twice", visit=v.name)
+            seen.add(v.name)
+        with self.db.transaction() as tx:
+            tx.execute("DELETE FROM schedule WHERE study = ?", (study,))
+            for i, v in enumerate(visits):
+                tx.execute("INSERT INTO schedule (study, visit, seq, labels, anchor, day, win_before, win_after, "
+                           "origin, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                           (study, v.name, i, json.dumps(v.labels, ensure_ascii=False), v.anchor, v.day, v.before,
+                            v.after, origin, at))  # fmt: skip
+
+    # ------------------------------------------------------------------ visits, AEs, deviations
+    def anchors(self, study: str, record: str) -> dict[str, date | None]:
+        once = self.dc.record(study, record, "")
+        steps = {str(s["new"]): str(s["on_day"]) for s in self.steps(study, record) if s["source"] != "undo"}
+        return {
+            "enrolment": _day(once.get("en_date", "") or steps.get("enrolled", "")),
+            "consent": _day(once.get("ic_date", "") or steps.get("consented", "")),
+        }
+
+    def visits(self, study: str, record: str, today: date, schedule: list[Visit] | None = None,
+               subject: dict[str, Any] | None = None) -> list[dict[str, Any]]:  # fmt: skip
+        sched = self.schedule(study) if schedule is None else schedule
+        sub = subject or self.subject(study, record) or {"state": "candidate"}
+        anchors = self.anchors(study, record)
+        vals: dict[str, dict[str, str]] = {}
+        for r in self.dc.values(study, record):
+            vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
+        return [visit_status(v, anchors.get(v.anchor), vals.get(v.name, {}), str(sub["state"]), today) for v in sched]
+
+    def entries(self, study: str, record: str | None, pattern: re.Pattern[str]) -> list[dict[str, Any]]:
+        """Repeating entries on numbered events (``ae1``, ``ae2`` ...): one dict per record and event."""
+        out: dict[tuple[str, str], dict[str, Any]] = {}
+        for r in self.dc.values(study, record):
+            m = pattern.match(str(r["event"]))
+            if m is None:
+                continue
+            e = out.setdefault((str(r["record"]), str(r["event"])), {"record": r["record"], "event": r["event"],
+                                                                     "n": int(m.group(1))})  # fmt: skip
+            e[str(r["field"])] = str(r["value"])
+        return sorted(out.values(), key=lambda e: (e["record"], e["n"]))
+
+    def next_event(self, study: str, record: str, prefix: str) -> str:
+        pat = AE_EVENT if prefix == "ae" else DV_EVENT
+        have = [e["n"] for e in self.entries(study, record, pat)]
+        return f"{prefix}{max(have, default=0) + 1}"
+
+
+def live_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One subject's steps that stand: an ``undo`` takes back the newest step still standing."""
+    out: list[dict[str, Any]] = []
+    for st in steps:
+        if st["source"] == "undo":
+            if len(out) > 1:
+                out.pop()
+        else:
+            out.append(st)
+    return out
+
+
+def visit_status(v: Visit, anchor: date | None, vals: dict[str, str], state: str, today: date) -> dict[str, Any]:
+    """One visit's window and state on ``today`` (the site's local date)."""
+    due = anchor + timedelta(days=v.day) if anchor else None
+    start = due - timedelta(days=v.before) if due else None
+    end = due + timedelta(days=v.after) if due else None
+    done_on = vals.get("vs_date", "")
+    if vals.get("vs_status") == "1":
+        status = "done"
+    elif vals.get("vs_status") == "2":
+        status = "missed"
+    elif state in ("withdrawn", "completed", "screen_fail"):
+        status = "stopped"
+    elif due is None or start is None or end is None:
+        status = "unplanned"
+    elif today < start:
+        status = "due"
+    elif today <= end:
+        status = "open"
+    else:
+        status = "overdue"
+    d = _day(done_on)
+    in_window = bool(d and start and end and start <= d <= end) if status == "done" else None
+    return {
+        "visit": v.name,
+        "labels": v.labels,
+        "day": v.day,
+        "anchor": v.anchor,
+        "due": due.isoformat() if due else "",
+        "start": start.isoformat() if start else "",
+        "end": end.isoformat() if end else "",
+        "status": status,
+        "done_on": done_on if status == "done" else "",
+        "in_window": in_window,
+        "missed_reason": vals.get("vs_missed_reason", "") if status == "missed" else "",
+        "days_late": (today - end).days if status == "overdue" and end else 0,
+    }
+
+
+def in_window_today(row: dict[str, Any], today: date) -> bool:
+    s, e = _day(str(row.get("start") or "")), _day(str(row.get("end") or ""))
+    return bool(s and e and s <= today <= e)
+
+
+def worklist(rows: list[dict[str, Any]], today: date) -> dict[str, list[dict[str, Any]]]:
+    """The coordinator's visit list: today, this week (the next seven days), overdue."""
+    week_end = today + timedelta(days=7)
+    out: dict[str, list[dict[str, Any]]] = {"today": [], "week": [], "overdue": []}
+    for r in rows:
+        if r["status"] == "overdue":
+            out["overdue"].append(r)
+        elif r["status"] == "open" and (r["due"] == today.isoformat() or r["end"] == today.isoformat()):
+            out["today"].append(r)
+        elif r["status"] in ("open", "due") and (_day(r["start"]) or week_end) <= week_end:
+            out["week"].append(r)
+    for rows_k in out.values():
+        rows_k.sort(key=lambda r: (r["due"], r["record"], r["visit"]))
+    return out
+
+
+def report(subjects: list[dict[str, Any]], steps: list[dict[str, Any]]) -> dict[str, Any]:
+    """The investigator's enrolment report: counts per state, per month, screen-fail reasons and withdrawals."""
+    counts = {s: 0 for s in STATES}
+    for s in subjects:
+        counts[str(s["state"])] = counts.get(str(s["state"]), 0) + 1
+    by_rec: dict[str, list[dict[str, Any]]] = {}
+    for st in steps:
+        by_rec.setdefault(str(st["record"]), []).append(st)
+    live = [st for rec_steps in by_rec.values() for st in live_steps(rec_steps)]
+    months: dict[str, dict[str, int]] = {}
+    reached: dict[str, set[str]] = {s: set() for s in STATES}
+    for st in live:
+        new = str(st["new"])
+        reached[new].add(str(st["record"]))
+        if new == "candidate":
+            continue
+        m = months.setdefault(str(st["on_day"])[:7], {s: 0 for s in STATES if s != "candidate"})
+        m[new] += 1
+    current = {str(s["record"]): s for s in subjects}
+    reasons: Counter[str] = Counter()
+    withdrawals = []
+    for rec, s in sorted(current.items()):
+        if s["state"] == "screen_fail":
+            reasons[str(s["reason"] or "other")] += 1
+        if s["state"] == "withdrawn":
+            withdrawals.append({"record": rec, "day": str(s["since"]), "reason": str(s["reason"] or "6")})
+    ever = {s: len(reached[s]) for s in STATES}
+    return {
+        "total": len(subjects),
+        "counts": counts,
+        "ever": ever,
+        "months": [{"month": k, **v} for k, v in sorted(months.items())],
+        "screen_fail_reasons": dict(sorted(reasons.items())),
+        "withdrawals": withdrawals,
+        "registry": dict(Counter(REGISTRY_OF[str(s["state"])] for s in subjects)),
+    }

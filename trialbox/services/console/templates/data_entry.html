@@ -39,6 +39,7 @@
   <input type="hidden" name="record" value="{{ record }}">
   <input type="hidden" name="event" value="{{ event }}">
   <input type="hidden" name="form" value="{{ form.name }}">
+  {% if back %}<input type="hidden" name="back" value="{{ back }}">{% endif %}
   {% for f in form.fields %}{% set own = owners.get(f.name, 'trialbox') %}{% set ro = not editable or own != 'trialbox' or not f.entered %}{% set v = values.get(f.name, '') %}
   <div class="q q-{{ f.name }}{% if problems.get(f.name) %} bad{% endif %}" data-testid="q-{{ f.name }}">
   {% if f.kind == 'display' %}<p>{{ lab(f) }}</p>
