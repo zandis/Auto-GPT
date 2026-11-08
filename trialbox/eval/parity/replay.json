@@ -1,5 +1,5 @@
 {
- "basis": "1015 criteria (all annotated; trial_info.json not cached)",
+ "basis": "1000 criteria (trial_info.json)",
  "n11": [
   {
    "build": "deployed files (CON-12, on a card)",
@@ -7,11 +7,11 @@
    "langs": [
     {
      "block_recall": 0.515,
-     "criteria": 1015,
-     "false_block_rate": 0.0051,
+     "criteria": 1000,
+     "false_block_rate": 0.0062,
      "gate": 5,
      "lang": "en",
-     "llm_share": 0.423,
+     "llm_share": 0.419,
      "lost": 4,
      "of": 79,
      "recorded": 4,
@@ -19,24 +19,27 @@
     },
     {
      "block_recall": 0.485,
-     "criteria": 1015,
-     "false_block_rate": 0.0041,
+     "criteria": 1000,
+     "false_block_rate": 0.0031,
      "gate": 4,
      "lang": "ja",
-     "llm_share": 0.423,
-     "lost": 3,
+     "llm_share": 0.419,
+     "lost": 2,
      "of": 79,
-     "recorded": 3,
+     "recorded": 2,
      "status": "pass"
     },
     {
+     "block_recall": 0.485,
+     "criteria": 1000,
+     "false_block_rate": 0.0021,
+     "gate": 2,
      "lang": "zh-TW",
-     "missing": [
-      "eval/trialgpt_compare/results/raw/trialbox__local__gemma-4-26b-a4b-nvfp4__zh-TW.jsonl.gz",
-      "eval/trialgpt_compare/results/raw/trialbox__local__qwen3.5-9b-awq__zh-TW.jsonl.gz"
-     ],
-     "recorded": null,
-     "status": "missing"
+     "llm_share": 0.419,
+     "lost": 1,
+     "of": 79,
+     "recorded": 1,
+     "status": "pass"
     }
    ],
    "note": "nvidia/Gemma-4-26B-A4B-NVFP4 + cyankiwi/Qwen3.5-9B-AWQ-4bit on vLLM v0.32.0, RTX PRO 6000 capped to 5090 limits, 2026-11-06",
@@ -48,11 +51,11 @@
    "langs": [
     {
      "block_recall": 0.576,
-     "criteria": 1015,
-     "false_block_rate": 0.002,
+     "criteria": 1000,
+     "false_block_rate": 0.0021,
      "gate": 5,
      "lang": "en",
-     "llm_share": 0.423,
+     "llm_share": 0.419,
      "lost": 1,
      "of": 79,
      "recorded": 1,
@@ -60,11 +63,11 @@
     },
     {
      "block_recall": 0.576,
-     "criteria": 1015,
+     "criteria": 1000,
      "false_block_rate": 0.0031,
      "gate": 4,
      "lang": "ja",
-     "llm_share": 0.423,
+     "llm_share": 0.419,
      "lost": 2,
      "of": 79,
      "recorded": 2,
@@ -72,14 +75,14 @@
     },
     {
      "block_recall": 0.576,
-     "criteria": 1015,
-     "false_block_rate": 0.002,
+     "criteria": 1000,
+     "false_block_rate": 0.0021,
      "gate": 2,
      "lang": "zh-TW",
-     "llm_share": 0.423,
+     "llm_share": 0.419,
      "lost": 1,
      "of": 79,
-     "recorded": null,
+     "recorded": 1,
      "status": "pass"
     }
    ],

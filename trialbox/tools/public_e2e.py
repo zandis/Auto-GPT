@@ -89,6 +89,9 @@ def build(work: Path, llm: Any = None, verifier: Any = None) -> tuple[Any, Any, 
     shutil.rmtree(work / "box", ignore_errors=True)
     box = make_box(work / "box", work / "lake", sec, ps.REF + timedelta(days=1), extra_profiles=PROFILES)
     if llm is not None:  # real-model runs: the judge (and the verifier) read the notes; the compiler stays on the stub
+        for c in (llm, verifier):
+            if c is not None:
+                c.audit = box.orch.audit  # every real model call is an llm.call audit record, as in the box
         box.orch.services.llm = llm
         box.orch.services.verifier = verifier
     orch_app._orch = box.orch

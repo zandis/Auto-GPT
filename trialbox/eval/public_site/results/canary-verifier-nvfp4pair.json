@@ -1,0 +1,47 @@
+{
+ "model": "local/qwen3.5-9b-awq",
+ "cases": 54,
+ "answered": 54,
+ "correct": 47,
+ "flips": 0,
+ "wrong": [
+  {
+   "id": "en:preg:silent",
+   "expected": "unknown",
+   "got": "fail"
+  },
+  {
+   "id": "en:stroke:silent",
+   "expected": "unknown",
+   "got": "fail"
+  },
+  {
+   "id": "ja:preg:silent",
+   "expected": "unknown",
+   "got": "fail"
+  },
+  {
+   "id": "ja:chemo:yes",
+   "expected": "pass",
+   "got": "unknown"
+  },
+  {
+   "id": "zh-TW:preg:silent",
+   "expected": "unknown",
+   "got": "fail"
+  },
+  {
+   "id": "zh-TW:chemo:silent",
+   "expected": "unknown",
+   "got": "fail"
+  },
+  {
+   "id": "zh-TW:stroke:silent",
+   "expected": "unknown",
+   "got": "fail"
+  }
+ ],
+ "errors": [],
+ "truncated_retries": 0,
+ "seconds": 110.1
+}

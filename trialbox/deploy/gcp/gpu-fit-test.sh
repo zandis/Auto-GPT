@@ -101,17 +101,40 @@ aj=$(ask judge local/gemma-4-26b-a4b-nvfp4); av=$(ask verifier local/qwen3.5-9b-
 add "{\"case\": \"pair-tight\", \"util\": [0.20, 0.093], \"max_model_len\": 4096, \"max_num_seqs\": 2, \"judge_seconds\": $sj, \"verifier_seconds\": $sv, \"base_mib\": $BASE, \"used_mib_ready\": $u0, \"used_mib_after_request\": $u1, \"answer_judge\": $aj, \"answer_verifier\": $av, \"log_judge\": \"$(logs judge)\", \"log_verifier\": \"$(logs verifier)\"}"
 clear_card
 
-# ---- 4: time-shared with sleep mode, 8k context, 4 sequences, each 0.28 of 96 GB (26.9 GB) when awake
-start judge $J local/gemma-4-26b-a4b-nvfp4 0.28 8192 4 --enable-sleep-mode --limit-mm-per-prompt '{"image":0,"audio":0,"video":0}'
+# ---- 4: time-shared with sleep mode, 8k context, 4 sequences, each 0.27 of 96 GB (25.9 GB) when awake
+start judge $J local/gemma-4-26b-a4b-nvfp4 0.27 8192 4 --enable-sleep-mode --limit-mm-per-prompt '{"image":0,"audio":0,"video":0}'
 sj=$(ready judge 1200); uj=$(used); aj1=$(ask judge local/gemma-4-26b-a4b-nvfp4)
 tsj=$(post judge /sleep?level=1 | tail -1); ujs=$(used)
-start verifier $V local/qwen3.5-9b-awq 0.28 8192 4 --enable-sleep-mode --limit-mm-per-prompt '{"image":0,"video":0}' --default-chat-template-kwargs '{"enable_thinking": false}'
+start verifier $V local/qwen3.5-9b-awq 0.27 8192 4 --enable-sleep-mode --limit-mm-per-prompt '{"image":0,"video":0}' --default-chat-template-kwargs '{"enable_thinking": false}'
 sv=$(ready verifier 1200); uv=$(used); av=$(ask verifier local/qwen3.5-9b-awq); uva=$(used)
 tsv=$(post verifier /sleep?level=1 | tail -1); uvs=$(used)
 twj=$(post judge /wake_up | tail -1); ujw=$(used); aj2=$(ask judge local/gemma-4-26b-a4b-nvfp4); ujwa=$(used)
 tsj2=$(post judge /sleep?level=1 | tail -1); twv=$(post verifier /wake_up | tail -1); uvw=$(used); av2=$(ask verifier local/qwen3.5-9b-awq)
-add "{\"case\": \"sleep-swap\", \"util\": 0.28, \"max_model_len\": 8192, \"max_num_seqs\": 4, \"judge_seconds\": $sj, \"verifier_seconds\": $sv, \"base_mib\": $BASE, \"used_mib_judge_awake\": $uj, \"used_mib_judge_asleep\": $ujs, \"used_mib_verifier_awake_judge_asleep\": $uv, \"used_mib_after_verifier_request\": $uva, \"used_mib_both_asleep\": $uvs, \"used_mib_judge_rewoken\": $ujw, \"used_mib_after_judge_request\": $ujwa, \"used_mib_verifier_rewoken\": $uvw, \"seconds_sleep_judge\": $tsj, \"seconds_sleep_verifier\": $tsv, \"seconds_wake_judge\": $twj, \"seconds_sleep_judge_2\": $tsj2, \"seconds_wake_verifier\": $twv, \"answer_judge_first\": $aj1, \"answer_judge_after_wake\": $aj2, \"answer_verifier\": $av, \"answer_verifier_after_wake\": $av2, \"log_judge\": \"$(logs judge)\", \"log_verifier\": \"$(logs verifier)\"}"
+add "{\"case\": \"sleep-swap\", \"util\": 0.27, \"max_model_len\": 8192, \"max_num_seqs\": 4, \"judge_seconds\": $sj, \"verifier_seconds\": $sv, \"base_mib\": $BASE, \"used_mib_judge_awake\": $uj, \"used_mib_judge_asleep\": $ujs, \"used_mib_verifier_awake_judge_asleep\": $uv, \"used_mib_after_verifier_request\": $uva, \"used_mib_both_asleep\": $uvs, \"used_mib_judge_rewoken\": $ujw, \"used_mib_after_judge_request\": $ujwa, \"used_mib_verifier_rewoken\": $uvw, \"seconds_sleep_judge\": $tsj, \"seconds_sleep_verifier\": $tsv, \"seconds_wake_judge\": $twj, \"seconds_sleep_judge_2\": $tsj2, \"seconds_wake_verifier\": $twv, \"answer_judge_first\": $aj1, \"answer_judge_after_wake\": $aj2, \"answer_verifier\": $av, \"answer_verifier_after_wake\": $av2, \"log_judge\": \"$(logs judge)\", \"log_verifier\": \"$(logs verifier)\"}"
 clear_card
+python3 - <<'PY'
+import json
+p = "/root/record/fit.json"; d = json.load(open(p)); d["status"] = "fit-done"; json.dump(d, open(p, "w"), indent=1)
+PY
+
+# ---- 5: the Gemma QAT build (AWQ INT4) as the judge, paired with the same verifier, the 6 Nov caps; left serving
+# behind nginx (/v1/ and /judge/ -> QAT, /verifier/ -> Qwen) for the SIGIR and canary runs from outside
+Q=cyankiwi/gemma-4-26B-A4B-it-qat-AWQ-INT4
+start judge $Q local/gemma-4-26b-a4b-qat-awq 0.22 8192 4 --limit-mm-per-prompt '{"image":0,"audio":0,"video":0}'
+sq=$(ready judge 2400); uq=$(used); aq=$(ask judge local/gemma-4-26b-a4b-qat-awq)
+start verifier $V local/qwen3.5-9b-awq 0.105 8192 4 --limit-mm-per-prompt '{"image":0,"video":0}' --default-chat-template-kwargs '{"enable_thinking": false}'
+sv=$(ready verifier 1200); up=$(used)
+add "{\"case\": \"qat-pair\", \"util\": [0.22, 0.105], \"max_model_len\": 8192, \"max_num_seqs\": 4, \"judge_seconds\": $sq, \"verifier_seconds\": $sv, \"base_mib\": $BASE, \"used_mib_qat_alone\": $uq, \"used_mib_pair\": $up, \"answer_qat\": $aq, \"log_qat\": \"$(logs judge)\"}"
+cat > /root/nginx.conf <<'NG'
+events {}
+http { server { listen 80; client_max_body_size 10m; proxy_read_timeout 600s;
+  location /v1/       { proxy_pass http://judge:8000/v1/; }
+  location /judge/    { proxy_pass http://judge:8000/; }
+  location /verifier/ { proxy_pass http://verifier:8000/; }
+  location /record/   { alias /srv/record/; default_type application/json; } } }
+NG
+docker rm -f front
+docker run -d --name front --network tb -p 80:80 -v /root/nginx.conf:/etc/nginx/nginx.conf:ro -v $REC:/srv/record:ro nginx:1.27-alpine
 python3 - <<'PY'
 import json
 p = "/root/record/fit.json"; d = json.load(open(p)); d["status"] = "done"; json.dump(d, open(p, "w"), indent=1)
