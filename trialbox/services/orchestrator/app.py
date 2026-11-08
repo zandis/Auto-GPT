@@ -413,7 +413,11 @@ def data_service_of(o: Orchestrator) -> Any:
     if key not in _cores:
         _cores[key] = DataCore(o.db.url)
     studies = study_service_of(o)
-    return DataService(_cores[key], o.audit, lambda: _now(o), studies.client)
+
+    def site_key() -> bytes:
+        return (Path(o.cfg.env.secrets_dir) / "site_hmac.key").read_bytes()
+
+    return DataService(_cores[key], o.audit, lambda: _now(o), studies.client, site_key)
 
 
 app.include_router(datacore_router(lambda: data_service_of(orch())))

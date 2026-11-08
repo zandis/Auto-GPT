@@ -460,6 +460,85 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
+    # ---------------------------------------------------------------- stage 9: the data core (TB-PLAN-04 step 3)
+    # REDCap off -> entries in TrialBox -> REDCap attached -> sync pushes TrialBox's fields -> a REDCap-side edit of
+    # a TrialBox field is listed as a conflict -> resolved -> pushed; a PI's sheet with a name column imports with the
+    # column dropped and the chart number pseudonymised. Project B of the simulator (longitudinal, DAGs), study RB.
+    s = Stage("9 data core: REDCap off then on, conflicts, a PI's sheet")
+    t = time.perf_counter()
+    from rc_sim.app import load_projects
+
+    api = h.bk.study_api
+    proj_b = next(p for p in load_projects().values() if p["project"]["project_id"] == 202)
+    admin = res["admin"]
+    page = admin.get("/admin/redcap")
+    r = admin.post("/admin/redcap", data={"csrf": fd._csrf(page.text), "token_ref": "rb", "url": rc_demo.SIM_URL,
+                                          "token": proj_b["token"]})  # fmt: skip
+    s.check("S36 saves the second project's connection", r.status_code == 200, r.status_code)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=list(proj_b["metadata"][0]))
+    w.writeheader()
+    w.writerows(proj_b["metadata"])
+    forms_out = api("POST", "/studies/RB/forms/dictionary", {"csv": buf.getvalue(), "record_field": "rec_id",
+                                                              "by": "crc1"})  # fmt: skip
+    s.check("the data dictionary becomes TrialBox forms", bool(api("GET", "/studies/RB/forms")), forms_out)
+    day = h.clock().date().isoformat()
+    api("PUT", "/studies/RB/data/RB0901", {"values": {"icf_dt": "2026-10-01", "tb_status": "3"}, "by": "crc1"})
+    api("PUT", "/studies/RB/data/RB0950", {"values": {"tb_status": "2", "tb_screen_date": day}, "by": "crc1"})
+    data = api("GET", "/studies/RB/data")
+    s.check("REDCap off: entries kept in TrialBox alone", {"RB0901", "RB0950"} <= set(data.get("records") or []),
+            data.get("records"))  # fmt: skip
+    fields = ["icf_dt", "rand_yn", "withdrawn", "tb_status", "tb_screen_date"]
+    api("PUT", "/studies/RB/sources/redcap", {"token_ref": "rb", "field_map": {f: f for f in fields},
+        "owned": ["icf_dt", "rand_yn", "withdrawn"], "key_field": "tb_screening_no", "event": "screening_arm_1",
+        "dag": "cgmh_linkou", "create": True, "by": "crc1"})  # fmt: skip
+    r1 = api("POST", "/studies/RB/sync/redcap", {"by": "crc1"})
+    first = {c["field"]: c for c in r1["conflicts"]}
+    s.check("REDCap on: TrialBox's own earlier consent date vs REDCap's is listed, not forced",
+            "icf_dt" in first and first["icf_dt"]["trialbox"] == "2026-10-01", r1["conflicts"])  # fmt: skip
+    sim = SimClient(res["sim"])
+
+    def rb_rows() -> list[dict[str, str]]:
+        r = sim.post("/api/", data={"token": proj_b["token"], "content": "record", "format": "json", "type": "flat"})
+        return [x for x in r.json() if x.get("redcap_event_name", "screening_arm_1") == "screening_arm_1"]
+
+    by_no = {x["tb_screening_no"]: x for x in rb_rows() if x.get("tb_screening_no")}
+    s.check(
+        "sync pushes TrialBox's fields to REDCap", by_no.get("RB0901", {}).get("tb_status") == "3", by_no.get("RB0901")
+    )
+    s.check("a TrialBox record REDCap lacked is created there", by_no.get("RB0950", {}).get("tb_status") == "2",
+            sorted(by_no))  # fmt: skip
+    rec7 = str(by_no["RB0901"]["rec_id"])
+    edit = {"rec_id": rec7, "redcap_event_name": "screening_arm_1", "tb_status": "5"}
+    sim.post("/sim/records", json={"project_id": 202, "records": [edit]})
+    r2 = api("POST", "/studies/RB/sync/redcap", {"by": "crc1"})
+    s.check("a REDCap-side edit of a TrialBox field is listed as a conflict, not taken",
+            [(c["field"], c["theirs"]) for c in r2["conflicts"]] == [("tb_status", "5")] and r2["pushed"] == 0,
+            r2)  # fmt: skip
+    open_c = api("GET", "/studies/RB/conflicts")
+    for c in open_c:
+        keep = "theirs" if c["field"] == "icf_dt" else "trialbox"
+        api("POST", f"/studies/RB/conflicts/{c['id']}", {"keep": keep, "by": "crc1"})
+    r3 = api("POST", "/studies/RB/sync/redcap", {"by": "crc1"})
+    by_no = {x["tb_screening_no"]: x for x in rb_rows() if x.get("tb_screening_no")}
+    s.check("resolved: no open conflict, TrialBox's status pushed back",
+            api("GET", "/studies/RB/conflicts") == [] and by_no["RB0901"].get("tb_status") == "3", r3)  # fmt: skip
+    rec = api("GET", "/studies/RB/data")
+    s.check("the chosen consent date is REDCap's", "2026-10-02" in json.dumps(rec), "icf_dt")
+    sheet = "カルテ番号,氏名,同意日\n00123,山田太郎,2026-11-01\n,佐藤,2026-11-02\n"
+    imp = api("POST", "/studies/RB/import/sheet", {"name": "pi", "csv": sheet, "columns": {"同意日": "icf_dt"},
+                                                    "mrn_column": "カルテ番号", "by": "crc1"})  # fmt: skip
+    s.check("a PI's sheet: the name column is dropped", imp.get("dropped") == ["氏名"], imp.get("dropped"))
+    s.check("a PI's sheet: a row without a chart number is refused and listed", len(imp.get("refused") or []) == 1,
+            imp.get("refused"))  # fmt: skip
+    dump = json.dumps(api("GET", "/studies/RB/data"), ensure_ascii=False)
+    s.check("a PI's sheet: the chart number is pseudonymised, no name stored",
+            imp.get("taken") == 1 and "00123" not in dump and "山田" not in dump, imp)  # fmt: skip
+    seen_events = {str(x["event"]) for x in _audit(box)}
+    s.check("sync, resolve and import are in the audit", {"data.sync", "data.resolve", "data.import"} <= seen_events)
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
     # ---------------------------------------------------------------- FR-REP-02: byte-identical re-run
     s = Stage("re-run (FR-REP-02)")
     t = time.perf_counter()

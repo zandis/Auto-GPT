@@ -18,6 +18,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from datacore import fhir, forms, sync
@@ -38,6 +39,7 @@ class DataService:
     audit: AuditLog
     now: Callable[[], datetime]
     client: Callable[[str], RedcapClient]  # token_ref -> client (the study store's tokens)
+    site_key: Callable[[], bytes] | None = None  # the site HMAC key (chart number -> pseudonym), read only
 
     def stamp(self) -> str:
         return self.now().isoformat(timespec="seconds")
@@ -84,6 +86,18 @@ class RedcapSourceBody(BaseModel):
     event: str = ""
     dag: str = ""
     create: bool = False
+    by: str
+
+
+class SheetBody(BaseModel):
+    """A PI's spreadsheet, one import (TB-PLAN-04 step 3): CSV text, or XLSX as base64 in ``xlsx_b64``."""
+
+    name: str = Field(default="sheet", pattern=r"^[a-z0-9][a-z0-9_-]{0,31}$")
+    csv: str = ""
+    xlsx_b64: str = ""
+    columns: dict[str, str]  # sheet column -> TrialBox field
+    key_column: str = ""  # the screening number
+    mrn_column: str = ""  # a chart number: turned into the pseudonym with the site key, never stored
     by: str
 
 
@@ -211,6 +225,51 @@ def router(get: Callable[[], DataService]) -> APIRouter:
             return get().run_sync(_rs(rs), name, body.by)
         except (RcError, DataError) as exc:
             raise _fail(exc) from exc
+
+    @r.post("/studies/{rs}/import/sheet")
+    def import_sheet(rs: str, body: SheetBody) -> dict[str, Any]:
+        """Import a PI's spreadsheet: identifier columns dropped (listed), chart numbers pseudonymised with the site
+        key, rows with no screening number and no chart number refused and listed. The mapped fields become the
+        sheet's (its values are taken; a later different TrialBox value is a conflict, never forced)."""
+        import base64
+        import tempfile
+
+        from datacore.sources import SheetSource
+        from tb_common.crypto import pid_for_mrn
+
+        svc, rid = get(), _rs(rs)
+        key: bytes | None = None
+        if body.mrn_column:
+            if svc.site_key is None:
+                raise HTTPException(status_code=409, detail={"code": "DATA-KEY", "message": "no site key on this box"})
+            try:
+                key = svc.site_key()
+            except OSError as exc:
+                missing = {"code": "DATA-KEY", "message": "the site key is missing: run an ingest first"}
+                raise HTTPException(status_code=409, detail=missing) from exc
+        known = svc.dc.fields(rid)
+        bad = [f for f in body.columns.values() if f not in known]
+        if bad:
+            raise HTTPException(
+                status_code=409, detail={"code": "DATA-FIELD", "message": "unknown field", "fields": bad}
+            )
+        with tempfile.TemporaryDirectory(prefix="tb-sheet-") as tmp:
+            path = Path(tmp) / ("sheet.xlsx" if body.xlsx_b64 else "sheet.csv")
+            path.write_bytes(base64.b64decode(body.xlsx_b64) if body.xlsx_b64 else body.csv.encode("utf-8"))
+            src = SheetSource(path, dict(body.columns), key_column=body.key_column, mrn_column=body.mrn_column,
+                              pseudonymise=(lambda m: pid_for_mrn(key, m)) if key else None,
+                              name=f"sheet:{body.name}")  # fmt: skip
+            try:
+                sync.attach(svc.dc, rid, src, list(body.columns.values()))
+                at = svc.stamp()
+                res = sync.sync(svc.dc, rid, src, body.by, at, push=False).as_dict()
+            except DataError as exc:
+                raise _fail(exc) from exc
+        res["dropped"] = src.dropped
+        svc.audit.append("data.import", ruleset=rid, actor=body.by,
+                         detail={"source": src.name, "pulled": res["pulled"], "taken": res["taken"],
+                                 "dropped": src.dropped, "refused": len(res["refused"])})  # fmt: skip
+        return {**res, "at": at}
 
     @r.get("/studies/{rs}/conflicts")
     def conflicts(rs: str, all: bool = False) -> list[dict[str, Any]]:
