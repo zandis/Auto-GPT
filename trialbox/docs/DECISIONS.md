@@ -1588,3 +1588,15 @@ answers of 2026-11-08.
   * **First sites run all three kinds of study:** investigator-initiated, sponsor and observational/registry. The
     lifecycle (steps 4–5) must fit all three: for sponsor trials TrialBox does pre-screening and site tracking, not
     the sponsor's CRF.
+
+**D-127 Step 2 widened: safe storage, delivery and recovery; the console becomes the product.** Owner's answers of
+2026-11-08 to the design/code review (`docs/reviews/2026-11-08-fable-design-code-review.md`).
+
+* **The PI/CRC console is the product console.** The pilot-only lock (DEV/TEST and D0 only) goes; the console runs
+  in PRODUCTION in the compose stack with sign-in, roles and audit. Real-data use still waits for the owner's gates.
+* **`/api/v1` from step 2 on.** Marks, outcomes and screening numbers move into Postgres behind a versioned,
+  token-protected API that the console pages call; every later step adds its API with its pages (D-125).
+* **Step 2 also fixes** delivery through the outbox, never twice (review F-02), audit-log repair after a torn line
+  (F-03), runs that fail on consent or note query errors instead of skipping opt-outs (F-04), one environment rule
+  with the installer writing PRODUCTION (F-06), one store of record for screening numbers (F-08) and a service token
+  on every service (F-11). F-05 (SQL-only at runtime) and F-10 (unmapped code systems) go to step 6.
