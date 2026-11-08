@@ -73,10 +73,10 @@ def criteria(ruleset: str) -> str:
 
 def build(work: Path, llm: Any = None, verifier: Any = None) -> tuple[Any, Any, Path, dict[str, Any]]:
     """Public site -> ingest -> in-process box (stub model unless ``llm`` is given)."""
-    from fastapi.testclient import TestClient
     from orchestrator import app as orch_app
 
     from tests.inproc_box import ingest_site, make_box
+    from tools.role_demo import orch_client
 
     hospital = work / "hospital"
     site = ps.build(hospital)
@@ -95,7 +95,7 @@ def build(work: Path, llm: Any = None, verifier: Any = None) -> tuple[Any, Any, 
         box.orch.services.llm = llm
         box.orch.services.verifier = verifier
     orch_app._orch = box.orch
-    return box, TestClient(orch_app.app), work / "box" / "repo", site
+    return box, orch_client(orch_app.app), work / "box" / "repo", site
 
 
 def _rows(path: Path) -> list[dict[str, str]]:
