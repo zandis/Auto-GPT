@@ -39,6 +39,9 @@ CASES = Path(os.environ.get("TB_CANARY_CASES") or Path(__file__).with_name("cana
 MIN_ANSWERED = 0.95
 MAX_FLIPS = 1
 MIN_ACCURACY = 0.85
+# the pair the box runs (Fable review 2026-11-08, finding 4): a case where both models give the same decided answer
+# and it is wrong (a flip, or yes/no where the note is silent) is a case where the box would exclude wrongly
+MAX_PAIR_WRONG = 1
 
 
 @dataclass
@@ -52,6 +55,7 @@ class ModelReport:
     seconds: float = 0.0
     errors: list[str] = field(default_factory=list)
     wrong: list[dict[str, str]] = field(default_factory=list)
+    answers: dict[str, str] = field(default_factory=dict)  # case id -> predicate (not reported, used for the pair)
 
     @property
     def ok(self) -> bool:
@@ -64,7 +68,8 @@ class ModelReport:
         )
 
     def as_dict(self) -> dict[str, Any]:
-        return {**asdict(self), "ok": self.ok, "errors": self.errors[:5], "wrong": self.wrong[:10]}
+        d = {k: v for k, v in asdict(self).items() if k != "answers"}
+        return {**d, "ok": self.ok, "errors": self.errors[:5], "wrong": self.wrong[:10]}
 
 
 def load_cases(path: Path = CASES) -> list[dict[str, Any]]:
@@ -83,6 +88,7 @@ def check_model(role: str, client: LlmClient, cases: list[dict[str, Any]], promp
             continue
         rep.answered += 1
         got = postprocess(res.data, c["excerpts"]).predicate
+        rep.answers[c["id"]] = got
         want = c["expected"]
         if got == want:
             rep.correct += 1
@@ -122,13 +128,45 @@ def run_selftest(
         except LlmError as exc:
             problems.append(f"judge did not wake after the self-test: {exc}")
     problems += [f"{m.role} {m.model} failed the canary" for m in models if not m.ok]
+    by_role = {m.role: m for m in models}
+    pair = None
+    if "judge" in by_role and "verifier" in by_role:
+        pair = pair_report(by_role["judge"], by_role["verifier"], cs)
+        if pair["decided_wrong"] > MAX_PAIR_WRONG:
+            problems.append(
+                f"the pair agreed on a wrong decided answer in {pair['decided_wrong']} cases (at most {MAX_PAIR_WRONG})"
+            )
     return {
         "ok": not problems,
         "cases": len(cs),
         "models": [m.as_dict() for m in models],
+        "pair": pair,
         "problems": problems,
-        "thresholds": {"min_answered": MIN_ANSWERED, "max_flips": MAX_FLIPS, "min_accuracy": MIN_ACCURACY},
+        "thresholds": {
+            "min_answered": MIN_ANSWERED,
+            "max_flips": MAX_FLIPS,
+            "min_accuracy": MIN_ACCURACY,
+            "max_pair_wrong": MAX_PAIR_WRONG,
+        },
     }
+
+
+def pair_report(judge: ModelReport, verifier: ModelReport, cases: list[dict[str, Any]]) -> dict[str, Any]:
+    """The canary scored as the box decides: a decided answer stands only when both models give it (NoteJudge)."""
+    out: dict[str, Any] = {"cases": len(cases), "correct": 0, "decided_wrong": 0, "disagreed": 0, "wrong": []}
+    for c in cases:
+        a, b = judge.answers.get(c["id"], "unknown"), verifier.answers.get(c["id"], "unknown")
+        decided = a in ("pass", "fail")
+        got = a if decided and a == b else "unknown"
+        if decided and a != b:
+            out["disagreed"] += 1
+        if got == c["expected"]:
+            out["correct"] += 1
+        elif got in ("pass", "fail"):
+            out["decided_wrong"] += 1
+            out["wrong"].append({"id": c["id"], "expected": c["expected"], "got": got})
+    out["wrong"] = out["wrong"][:10]
+    return out
 
 
 def enabled() -> bool:
@@ -156,7 +194,8 @@ def preflight(orch: Any) -> bool:
         | {
             "models": [
                 {k: m[k] for k in ("role", "model", "answered", "correct", "flips", "ok")} for m in report["models"]
-            ]
+            ],
+            "pair": {k: v for k, v in (report.get("pair") or {}).items() if k != "wrong"} or None,
         },
     )
     if not report["ok"]:
@@ -183,4 +222,14 @@ if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
 
 
-__all__ = ["MAX_FLIPS", "MIN_ACCURACY", "MIN_ANSWERED", "ModelReport", "check_model", "preflight", "run_selftest"]
+__all__ = [
+    "MAX_FLIPS",
+    "MAX_PAIR_WRONG",
+    "MIN_ACCURACY",
+    "MIN_ANSWERED",
+    "ModelReport",
+    "check_model",
+    "pair_report",
+    "preflight",
+    "run_selftest",
+]

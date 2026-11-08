@@ -130,8 +130,9 @@ class OrchestratorJudge:
             self.failures += 1
             return JudgeReply("unknown", 0.0, None, None, f"verifier unavailable: {str(exc)[:120]}")
         t_in, t_out = first.tokens_in + second.tokens_in, first.tokens_out + second.tokens_out
-        if second.verdict == first.verdict:
-            return replace(first, tokens_in=t_in, tokens_out=t_out)
+        if second.verdict == first.verdict:  # as sure as the less sure model (Fable review 2026-11-08, finding 4)
+            conf = min(first.confidence, second.confidence)
+            return replace(first, confidence=conf, tokens_in=t_in, tokens_out=t_out)
         self.disagreements += 1
         return JudgeReply(
             "unknown",

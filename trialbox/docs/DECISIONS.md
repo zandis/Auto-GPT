@@ -1281,3 +1281,22 @@ compose network, with a free-text `by` as the audit actor.
   The body `by` is read only on a DEV/TEST box without a token.
 * **Not done.** Reads (`GET /jobs`, pseudonyms and counts only) stay open on the internal network; no mTLS; no
   per-actor rate limit on reveals; registry writes still record the body's `by` (behind the token).
+
+**D-115 The two-model rule is tested on both SCREEN paths; the canary scores the pair.** Fable review 2026-11-08,
+finding 4: only the cascade's `AgreementJudge` had a disagreement test, and the 54-case canary was a one-off per
+model.
+
+* **Tests** (`tests/unit/test_note_pair_disagreement.py`) on v1 `NoteJudge.judge_excerpts` and the v4 cascade's
+  `OrchestratorJudge`, with fake models: judge pass / verifier fail and the reverse → `unknown`, one disagreement,
+  tier `review`; agreement → excluded at the threshold; verifier down → `unknown` and a failure, never an exclusion;
+  judge `unknown` → the verifier is not asked.
+* **Confidence.** When both agree the answer carries the lower of the two confidences (it was the judge's alone),
+  so a confident judge and an unsure verifier send the patient to review rather than out.
+* **Reason.** A verifier whose quote is not in the notes is named as such, not as a plain disagreement.
+* **Canary as the pair.** The 54-case file is in the product (`orchestrator/canary/judge_canary.jsonl`, from PR #23)
+  and the night self-test (`orchestrator/selftest.py`, run by the scheduler before LLM jobs) now also scores the
+  pair as the box decides: `pair_report` counts the cases where both models give the same decided answer and it is
+  wrong; more than `MAX_PAIR_WRONG` (1) fails the self-test, and the night's LLM jobs do not start. `make canary`
+  runs it from a checkout against the configured models; the audit line carries the pair summary.
+* **Not done.** The pair canary has not yet been run on the card; the 8 Nov per-model numbers (judge 53/54, verifier
+  47/54 before the CJK quote fix) suggest it passes.

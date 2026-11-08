@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from typing import Any, Literal, Protocol, cast
 
@@ -239,14 +239,15 @@ class NoteJudge:
         self.tokens_out += res2.tokens_out
         second = postprocess(res2.data, excerpts, source)
         if second.predicate == first.predicate:
-            return first
+            # both agree: the answer is only as sure as the less sure model (Fable review 2026-11-08, finding 4)
+            return replace(first, confidence=min(first.confidence, second.confidence))
         self.disagreements += 1
-        return NoteResult(
-            "unknown",
-            0.0,
-            reason=f"judge/verifier disagree ({first.predicate}/{second.predicate}); needs a human look",
-            source=source,
+        why = (
+            "the verifier's quote is not in the notes"
+            if second.reason == "quote_not_found"
+            else f"judge/verifier disagree ({first.predicate}/{second.predicate})"
         )
+        return NoteResult("unknown", 0.0, reason=f"{why}; needs a human look", source=source)
 
 
 # a few unanswered note checks stay "unknown" (manual review); more than this share means the model was down and the
