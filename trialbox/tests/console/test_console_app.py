@@ -656,6 +656,12 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     assert appr.type == "APPROVE" and appr.ruleset == "GZQO-DEMO" and appr.options == {"version": "1.0.0"}
     assert appr.requested_by == "pi@hospa.test"
     assert box["backend"].objects[appr.inputs[0].minio_key] == book
+    # found by the public-data e2e walk: the review mail's S20 link, opened after the round is decided, gave a
+    # 409 "Refused" page in English; it now shows the job itself (state and audit) in the user's language
+    box["backend"].jobs[job.job_id] = box["backend"].jobs[job.job_id].model_copy(update={"state": "done"})
+    r = p.get(f"/pilot/jobs/{job.job_id}/approval", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/pilot/jobs/{job.job_id}"
+    assert p.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": pcsrf}).status_code == 409  # POST still refused
 
 
 def test_protocol_sample_and_bad_upload(box: dict[str, Any]) -> None:
