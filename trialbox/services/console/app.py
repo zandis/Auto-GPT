@@ -211,11 +211,27 @@ def cell(value: object, k: int) -> str:
     return str(value)
 
 
+# options that identify a patient: never shown on a page (UX review 2026-11-08, F-01: the CASE job line printed the
+# chart number in clear to every role that could open the job)
+_HIDDEN_OPTIONS = frozenset(
+    {"mrn", "chart", "chart_no", "name", "patient", "patient_name", "dob", "birth_date", "phone"}
+)
+
+
+_ID_IN_TEXT = re.compile(r"(?i)\b(mrn|chart|chart_no|name)=\S+")
+
+
+def mask_ids(text: str) -> str:
+    """``CASE GZQO mrn=70000054`` -> ``CASE GZQO mrn=•••`` (a request subject is shown, its chart number never)."""
+    return _ID_IN_TEXT.sub(lambda m: f"{m.group(1)}=•••", text or "")
+
+
 def job_line(job: Job) -> str:
     opts = dict(job.options or {})
     target = job.ruleset or opts.pop("target", "")
     opts.pop("target", None)
-    return " ".join([job.type, target, *[f"{k}={v}" for k, v in sorted(opts.items())]]).strip()
+    shown = [f"{k}={v}" for k, v in sorted(opts.items()) if k.lower() not in _HIDDEN_OPTIONS]
+    return " ".join([job.type, target, *shown]).strip()
 
 
 def _env_map(env: Mapping[str, str] | None) -> dict[str, str]:
@@ -791,7 +807,7 @@ def create_app(
     if not settings.pilot:
         return app
 
-    from console import approval, data_pages, notify, screening_log, step4, study_setup
+    from console import approval, data_pages, entry_pages, notify, screening_log, step4, study_setup
     from console.home import Helpers
     from console.home import register as register_home
     from console.sitestore import SiteStore
@@ -816,6 +832,7 @@ def create_app(
     notify.register(app, helpers)
     study_setup.register(app, helpers)  # S21 and S36 (D-109)
     data_pages.register(app, helpers)  # TB-PLAN-04 step 3: Sources, Conflicts, Forms and their /api/v1 (D-123)
+    entry_pages.register(app, helpers)  # TB-PLAN-04 step 4: Entry, History, exports, built-in forms (D-129)
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     from console import timers
 
@@ -965,7 +982,7 @@ def create_app(
         subjects = [str(r.detail.get("subject", "")) for r in audit_recs if r.event == "mail.received"]
         thread = bk.thread(job_id)
         thread_rows: list[tuple[MailItem | None, str]] = [
-            (m, m.subject or (subjects[0] if m.direction == "in" and subjects else "")) for m in thread
+            (m, mask_ids(m.subject or (subjects[0] if m.direction == "in" and subjects else ""))) for m in thread
         ]
         if not any(m.direction == "in" for m in thread) and any(r.event == "console.request" for r in audit_recs):
             web = next(r for r in audit_recs if r.event == "console.request")

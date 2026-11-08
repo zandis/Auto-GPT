@@ -6,6 +6,7 @@ network, no secrets, run in process:
     criteria pasted -> FEAS report (funnel) -> the investigator approves -> SCREEN -> the list (GZQO) and the cohort
     list (GOUT-COH) -> marks -> N1/N2 mail -> REDCap simulator record -> Run now -> screening log (HTML and XLSX)
     -> write-back of TrialBox's instrument -> consent in REDCap -> read back on the next run (D-123)
+    -> the data core with REDCap off and on (stage 9) -> built-in forms, entry, history, ODM / REDCap CSV (stage 10)
 
 and each stage is checked against something it did not compute itself: the generator's own counts, a recount from
 the hospital CSVs, the sent mail, the hash-chained audit log and a byte-identical re-run of the FEAS and SCREEN jobs.
@@ -100,6 +101,104 @@ def _audit(box: Any) -> list[dict[str, Any]]:
 
 def _done(box: Any, type_: str, ruleset: str) -> list[Any]:
     return [j for j in box.orch.db.find(type_=type_, ruleset=ruleset, state="done", limit=50)]
+
+
+def _stage10(res: dict[str, Any], api: Any, crc: Any, lang: str, mrns: set[str], box: Any) -> Stage:
+    """Stage 10 (TB-PLAN-04 step 4, D-129): built-in data capture. The coordinator adds the built-in forms, enters a
+    consent and a visit through the console, edits the consent (the history shows it), gets a required-field and a
+    range refusal in the page's language; the ODM export re-imports into a fresh REDCap simulator project with the
+    same dictionary, every value equal; the REDCap CSV's columns are the dictionary's."""
+    from console.i18n import CATALOGUES
+    from fastapi.testclient import TestClient as SimClient
+
+    cat = CATALOGUES[lang]
+    s = Stage("10 built-in data capture")
+    t = time.perf_counter()
+    rs, no = TRIAL, res["screening_no"]
+    page = crc.get(f"/studies/{rs}/forms")
+    r = crc.post(f"/studies/{rs}/forms/builtin", data={"csrf": fd._csrf(page.text)})
+    s.check("the built-in forms are added in one call", 'data-testid="dc-builtin-added"' in r.text, r.status_code)
+    names = [q["name"] for q in api("GET", f"/studies/{rs}/forms")]
+    s.check("seven built-in forms", {"tb_screening_log", "tb_consent", "tb_enrolment", "tb_visit", "tb_adverse_event",
+                                     "tb_deviation", "tb_withdrawal"} <= set(names), names)  # fmt: skip
+    page = crc.get(f"/studies/{rs}/entry", params={"record": no, "form": "tb_consent"})
+    label = {"ja": "同意取得日", "zh-TW": "簽署同意日期", "en": "Date of consent"}[lang]
+    s.check("the entry page opens a screening number's consent, labels in the page's language",
+            'data-testid="entry-form"' in page.text and label in page.text, page.status_code)  # fmt: skip
+    csrf = fd._csrf(page.text)
+
+    def save(form: str, values: dict[str, str], event: str = "") -> Any:
+        data = {"csrf": csrf, "record": no, "event": event, "form": form, **{f"f_{k}": v for k, v in values.items()}}
+        return crc.post(f"/studies/{rs}/entry", data=data)
+
+    r = save("tb_consent", {"ic_date": "2026-11-02", "ic_copy": "1"})
+    s.check("a required field missing is refused, in the page's language",
+            'data-testid="why-ic_version"' in r.text and cat["dc.why.required"].split("{label}")[-1] in r.text
+            and no not in api("GET", f"/studies/{rs}/data")["records"], r.status_code)  # fmt: skip
+    consent = {"ic_date": "2026-11-02", "ic_version": "v2.1", "ic_copy": "1", "ic_by": "KT"}
+    r = save("tb_consent", consent)
+    s.check("the consent is saved; the history page follows", 'data-testid="entry-saved"' in r.text, r.url)
+    visit = {
+        "vs_status": "1",
+        "vs_date": "2026-11-09",
+        "vs_window": "0",
+        "vs_window_note": "二日遅れ",
+        "vs_weight": "999",
+    }
+    r = save("tb_visit", visit, "v1")
+    s.check("an out-of-range value is refused, per field", 'data-testid="why-vs_weight"' in r.text
+            and "400" in r.text and 'data-testid="entry-saved"' not in r.text, r.status_code)  # fmt: skip
+    r = save("tb_visit", {**visit, "vs_weight": "61.5"}, "v1")
+    s.check("the visit is saved on event v1", 'data-testid="entry-saved"' in r.text, r.status_code)
+    r = save("tb_consent", {**consent, "ic_version": "v2.2"})
+    rec = api("GET", f"/studies/{rs}/records/{no}")
+    edit = [h for h in rec["history"] if h["field"] == "ic_version" and h["old"] == "v2.1" and h["new"] == "v2.2"]
+    row = re.search(rf'data-testid="hist-{edit[0]["id"]}">(.*?)</tr>', r.text, re.S) if edit else None
+    s.check("the edit shows in the history: who, old, new", row is not None and "crc" in row.group(1)
+            and "v2.1" in row.group(1) and "v2.2" in row.group(1), edit)  # fmt: skip
+    # the ODM export, from the console, into a fresh REDCap project with the same dictionary
+    odm = crc.get(f"/studies/{rs}/export.odm.xml")
+    s.check("ODM 1.3.2 export downloads", odm.status_code == 200 and 'ODMVersion="1.3.2"' in odm.text, odm.status_code)
+    meta = api("GET", f"/studies/{rs}/export/dictionary")["metadata"]
+    data = api("GET", f"/studies/{rs}/data")["records"]
+    names_in_forms = {m["field_name"] for m in meta}
+    mine = {(rid, *(k.split(":", 1) if ":" in k else ("", k)), v["value"]) for rid, vals in data.items()
+            for k, v in vals.items() if v["value"] != ""}  # fmt: skip
+    mine = {x for x in mine if x[2] in names_in_forms}
+    events = sorted({e or "event_1_arm_1" for _, e, _, _ in mine})
+    sim = SimClient(res["sim"])
+    made = sim.post("/sim/projects", json={"title": f"{rs} re-import", "metadata": meta, "events": events}).json()
+    r = sim.post("/api/", data={"token": made["token"], "content": "record", "format": "odm", "type": "flat",
+                                "data": odm.text})  # fmt: skip
+    s.check("the fresh REDCap project takes the ODM", r.status_code == 200, r.text[:200])
+    back = sim.post("/api/", data={"token": made["token"], "content": "record", "format": "json"}).json()
+    theirs = set()
+    for x in back:
+        ev = str(x.pop("redcap_event_name", ""))
+        rid = str(x.pop("record_id"))
+        theirs |= {(rid, "" if ev == "event_1_arm_1" else ev, k, v) for k, v in x.items() if v != ""}
+    s.check("every value equal after the ODM round trip", theirs == mine and len(mine) >= 9,
+            {"only_trialbox": sorted(mine - theirs)[:5], "only_redcap": sorted(theirs - mine)[:5]})  # fmt: skip
+    rows = list(csv.reader(io.StringIO(crc.get(f"/studies/{rs}/export.csv").text)))
+    want = ["record_id", "redcap_event_name"]
+    for m in meta[1:]:
+        if m["field_type"] == "checkbox":
+            want += [
+                f"{m['field_name']}___{c.split(',')[0].strip()}" for c in m["select_choices_or_calculations"].split("|")
+            ]
+        else:
+            want.append(m["field_name"])
+    s.check("the REDCap CSV columns match the dictionary", rows and rows[0] == want, rows[0][:6] if rows else rows)
+    s.check(
+        "the REDCap CSV has one row per record and event",
+        [(r[0], r[1]) for r in rows[1:]] == [(no, "event_1_arm_1"), (no, "v1")],
+        [r[:2] for r in rows[1:]],
+    )
+    s.check("no chart number in the exports", not any(f'"{m}"' in odm.text for m in mrns))
+    seen = {str(x["event"]) for x in _audit(box)}
+    s.check("entry and export are in the audit", {"data.entry", "data.export", "console.data_entry"} <= seen)
+    s.seconds = time.perf_counter() - t
+    return s
 
 
 def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
@@ -538,6 +637,8 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     s.check("sync, resolve and import are in the audit", {"data.sync", "data.resolve", "data.import"} <= seen_events)
     s.seconds = time.perf_counter() - t
     stages.append(s)
+
+    stages.append(_stage10(res, api, crc, lang, mrns, box))
 
     # ---------------------------------------------------------------- FR-REP-02: byte-identical re-run
     s = Stage("re-run (FR-REP-02)")

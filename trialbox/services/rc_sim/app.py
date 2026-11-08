@@ -3,10 +3,13 @@
 ``POST /api/`` takes the same form fields as REDCap (``token``, ``content``, ``format=json``) and answers R1 version,
 R2 project, R3 metadata, R7 record (flat export with ``records[]``/``fields[]``/``events[]``/``dateRangeBegin`` and
 ``exportDataAccessGroups``), R8 dag, and the record import (``content=record`` with ``data``: flat JSON rows,
-``overwriteBehavior=normal``, ``forceAutoNumber``, ``returnContent=count|ids|auto_ids``; D-123). Every other
-``content`` answers 501. Each fixture project has its own 32-hex
-token; a wrong token answers 403 with REDCap's error text. ``POST /sim/records`` adds or edits a record (the test and
-demo lever) and stamps its change time, which ``dateRangeBegin`` filters on.
+``overwriteBehavior=normal``, ``forceAutoNumber``, ``returnContent=count|ids|auto_ids``; D-123), also with
+``format=odm`` and ``type=flat``: ``data`` is a CDISC ODM document whose ``ClinicalData`` becomes the same rows
+(``SubjectKey`` is the record id, ``StudyEventOID`` ``Event.<unique event name>`` the event, ``ItemOID`` the field;
+a checkbox comes as ``field___code`` items; TB-PLAN-04 step 4). Every other ``content`` answers 501. Each fixture
+project has its own 32-hex token; a wrong token answers 403 with REDCap's error text. ``POST /sim/records`` adds or
+edits a record (the test and demo lever) and stamps its change time, which ``dateRangeBegin`` filters on;
+``POST /sim/projects`` adds an empty project from a data dictionary (and events, for a longitudinal one).
 """
 
 from __future__ import annotations
@@ -14,11 +17,13 @@ from __future__ import annotations
 import copy
 import json
 import os
+import secrets
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Request
@@ -125,12 +130,56 @@ def _key(rec: dict[str, Any], rid: str, longitudinal: bool) -> tuple[str, Any]:
     return str(rec.get(rid)), rec.get("redcap_event_name") if longitudinal else None
 
 
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def odm_rows(proj: dict[str, Any], text: str) -> list[dict[str, str]] | None:
+    """An ODM document's ``ClinicalData`` as REDCap's flat rows (``None`` if it is not ODM)."""
+    if "<!DOCTYPE" in text or "<!ENTITY" in text:  # no DTD, no entity: nothing for the parser to expand or fetch
+        return None
+    try:
+        root = ET.fromstring(text)  # noqa: S314 - refused above when the document declares a DTD or an entity
+    except ET.ParseError:
+        return None
+    if _local(root.tag) != "ODM":
+        return None
+    rid = _record_id_field(proj)
+    checkbox = {m["field_name"] for m in proj["metadata"] if m["field_type"] == "checkbox"}
+    longitudinal = bool(int(proj["project"].get("is_longitudinal", 0)))
+    rows: list[dict[str, str]] = []
+    for sd in (el for el in root.iter() if _local(el.tag) == "SubjectData"):
+        for se in (el for el in sd if _local(el.tag) == "StudyEventData"):
+            row: dict[str, str] = {rid: str(sd.get("SubjectKey") or "")}
+            if longitudinal:
+                row["redcap_event_name"] = str(se.get("StudyEventOID") or "").removeprefix("Event.")
+            ticks: dict[str, list[str]] = {}
+            for item in (el for el in se.iter() if _local(el.tag) == "ItemData"):
+                oid, val = str(item.get("ItemOID") or ""), str(item.get("Value") or "")
+                base, sep, code = oid.partition("___")
+                if sep and base in checkbox:
+                    ticks.setdefault(base, [])
+                    if val == "1":
+                        ticks[base].append(code)
+                elif oid != rid:
+                    row[oid] = val
+            row.update({k: ",".join(v) for k, v in ticks.items()})
+            rows.append(row)
+    return rows
+
+
 def _import_records(proj: dict[str, Any], form: Any) -> Any:
     """REDCap's record import: unknown fields and (longitudinal) missing or unknown events are refused whole."""
-    try:
-        rows = json.loads(str(form.get("data")))
-    except ValueError:
-        return _err(400, "The data being imported is not in a valid format")
+    rows: Any
+    if str(form.get("format") or "json") == "odm":
+        rows = odm_rows(proj, str(form.get("data")))
+        if rows is None:
+            return _err(400, "The data being imported is not in a valid format")
+    else:
+        try:
+            rows = json.loads(str(form.get("data")))
+        except ValueError:
+            return _err(400, "The data being imported is not in a valid format")
     if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
         return _err(400, "The data being imported is not in a valid format")
     rid = _record_id_field(proj)
@@ -218,8 +267,9 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
         if proj is None:
             return _err(403, NO_PERMISSION)
         content = str(form.get("content") or "")
-        if str(form.get("format") or "json") != "json":
-            return _err(400, "This simulator answers format=json only")
+        fmt = str(form.get("format") or "json")
+        if fmt != "json" and not (fmt == "odm" and content == "record" and form.get("data") is not None):
+            return _err(400, "This simulator answers format=json only (and takes ODM for a record import)")
         if content not in SUPPORTED:
             return _err(501, f"The content '{content}' is not supported by the TrialBox REDCap simulator")
         if content == "version":
@@ -261,6 +311,35 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             hit["_changed"] = stamp
             n += 1
         return {"count": n}
+
+    @app.post("/sim/projects")
+    async def sim_projects(request: Request) -> Any:
+        """Add an empty project: ``{"title", "metadata": [dictionary rows], "events": [unique event names]}``. With
+        events it is longitudinal (every form on every event). Answers its project id and API token."""
+        body = await request.json()
+        meta = list(body.get("metadata") or [])
+        if not meta or any("field_name" not in m or "form_name" not in m for m in meta):
+            return _err(400, "A data dictionary with field_name and form_name is needed")
+        events = [str(e) for e in body.get("events") or []]
+        pid = max((int(p["project"]["project_id"]) for p in state.projects.values()), default=100) + 1
+        token = secrets.token_hex(16).upper()
+        project = {
+            "project_id": pid,
+            "project_title": str(body.get("title") or f"Project {pid}"),
+            "is_longitudinal": 1 if events else 0,
+            "has_repeating_instruments_or_events": 0,
+            "record_autonumbering_enabled": 0,
+            "in_production": 0,
+        }
+        state.projects[token] = {
+            "token": token,
+            "project": project,
+            "metadata": [{k: str(v) for k, v in m.items()} for m in meta],
+            "events": [{"event_name": e, "arm_num": 1, "unique_event_name": e} for e in events],
+            "dags": [],
+            "records": [],
+        }
+        return {"project_id": pid, "token": token}
 
     @app.post("/sim/metadata/rename")
     async def sim_rename(request: Request) -> Any:

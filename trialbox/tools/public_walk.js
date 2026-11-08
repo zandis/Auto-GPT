@@ -8,7 +8,9 @@
 // "undefined" in the text, on a Japanese or Chinese page no cell in English (D-119), and on the phone no horizontal
 // scroll. One screenshot per role/language/view/page
 // (viewport, scale 1) and a few full-page ones at scale 2. Then the investigator marks a patient by pressing the
-// buttons (Need info, then Withdraw) and the coordinator uses the command field. Prints one JSON line.
+// buttons (Need info, then Withdraw), the coordinator uses the command field, and (TB-PLAN-04 step 4, D-129) the
+// coordinator on a 390 px phone in Japanese saves a consent and a visit on the Entry page, edits the consent, and the
+// History page shows the edit (old and new). Prints one JSON line.
 "use strict";
 
 const { chromium } = require("playwright");
@@ -44,6 +46,9 @@ const PAGES = {
     `/studies/${T}/sources`,
     `/studies/${T}/conflicts?all=1`,
     `/studies/${T}/forms`,
+    `/studies/${T}/entry?record=${W.record}&form=tb_consent`,
+    `/studies/${T}/entry?record=${W.record}&form=tb_visit&event=v1`,
+    `/studies/${T}/history?record=${W.record}`,
     "/pilot/protocol",
     "/pilot/request",
     "/pilot/case",
@@ -244,6 +249,64 @@ async function actions(browser) {
   }
   r2.ok = r2.why.length === 0;
   rec(r2);
+  await ctx.close();
+  await phoneEntry(browser);
+}
+
+// TB-PLAN-04 step 4 (D-129): the coordinator, on the phone in Japanese, saves a consent and then a visit, edits the
+// consent, and the history shows the edit. The visit date only appears once "done" is ticked (branching in the
+// browser, by the page's stylesheet).
+async function phoneEntry(browser) {
+  const V = VIEWS[1];
+  const ctx = await browser.newContext({ viewport: V.viewport, isMobile: true, hasTouch: true, locale: "ja-JP" });
+  const page = await ctx.newPage();
+  const r = { tag: "crc/ja/phone", page: `entry ${W.record}`, expect: "consent, visit, edit in the history", ok: true, why: [] };
+  const entry = (form, event) => `${args.base}/studies/${T}/entry?record=${encodeURIComponent(W.record)}&form=${form}${event ? `&event=${event}` : ""}`;
+  const noScroll = async (what) => {
+    const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    if (over > 1) r.why.push(`${what}: horizontal scroll ${over}px`);
+  };
+  const save = async (what) => {
+    await Promise.all([page.waitForLoadState("load"), page.click("[data-testid=entry-save]")]);
+    if (!(await page.locator("[data-testid=entry-saved]").count())) {
+      const errs = await page.locator(".error").allInnerTexts();
+      r.why.push(`${what} not saved: ${errs.join(" / ").slice(0, 160)}`);
+    }
+  };
+  try {
+    await signIn(page, "crc", LANGS[1]);
+    const stamp = Date.now() % 100000;
+    const v1 = `v2.${stamp}`;
+    const v2 = `v3.${stamp}`;
+    await page.goto(entry("tb_consent"), { waitUntil: "load" });
+    await noScroll("consent form");
+    if (!(await page.getByText("同意取得日").count())) r.why.push("the consent form is not in Japanese");
+    await page.fill("#f_ic_date", "2026-11-02");
+    await page.fill("#f_ic_version", v1);
+    await page.check("[data-testid=f-ic_copy-1]");
+    await save("consent");
+    await page.goto(entry("tb_visit", "v1"), { waitUntil: "load" });
+    if (await page.locator(".q-vs_date").isVisible()) r.why.push("the visit date shows before the visit is marked done");
+    await page.check("[data-testid=f-vs_status-1]");
+    if (!(await page.locator(".q-vs_date").isVisible())) r.why.push("the visit date stays hidden once the visit is done");
+    await page.fill("#f_vs_date", "2026-11-09");
+    await page.check("[data-testid=f-vs_window-1]");
+    await page.fill("#f_vs_weight", "61.5");
+    await noScroll("visit form");
+    await save("visit");
+    await page.goto(entry("tb_consent"), { waitUntil: "load" });
+    await page.fill("#f_ic_version", v2);
+    await save("consent edit");
+    await noScroll("history");
+    const rows = await page.locator("[data-testid=history] tbody tr").allInnerTexts();
+    if (!rows.some((t) => t.includes(v1) && t.includes(v2))) r.why.push(`the history does not show ${v1} -> ${v2}`);
+    if (!rows.some((t) => t.includes("61.5"))) r.why.push("the history does not show the visit");
+    if (args.shots) await page.screenshot({ path: path.join(args.shots, "action-crc-ja-phone-entry-history.png"), fullPage: true });
+  } catch (e) {
+    r.why.push(e.message.split("\n")[0]);
+  }
+  r.ok = r.why.length === 0;
+  rec(r);
   await ctx.close();
 }
 

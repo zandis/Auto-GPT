@@ -1130,3 +1130,12 @@ from console.i18n_data import ZH as _DC_ZH  # noqa: E402
 EN.update(_DC_EN)
 JA.update(_DC_JA)
 ZH.update(_DC_ZH)
+
+# TB-PLAN-04 step 4 (D-129): the Entry and History pages, the exports and the built-in forms
+from console.i18n_entry import EN as _DE_EN  # noqa: E402
+from console.i18n_entry import JA as _DE_JA  # noqa: E402
+from console.i18n_entry import ZH as _DE_ZH  # noqa: E402
+
+EN.update(_DE_EN)
+JA.update(_DE_JA)
+ZH.update(_DE_ZH)

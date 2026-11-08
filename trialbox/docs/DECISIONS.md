@@ -1663,3 +1663,110 @@ answers of 2026-11-08.
   it is done there, after the platform is finished, with the rest of the Windows/WSL2 hardening (BitLocker, WSL swap,
   key custody, TLS and MFA). Until then the box is used on synthetic and public data only (no development gates).
 
+
+**D-129 Built-in data capture.** TB-PLAN-04 step 4 (plan v4 §3 "Built-in capture"), 2026-11-08.
+
+* **Seven built-in forms in ja, zh-TW and en.** Screening log, consent, enrolment, visit (done or missed, date,
+  window, window note, weight), adverse event (term as written, onset, serious and why, severity chosen by a person,
+  outcome, end date, related yes/no/unknown, description; nothing is graded automatically), deviation and withdrawal
+  (date, reason). They are a REDCap data dictionary, `services/datacore/builtin/forms.csv`, with TrialBox's own
+  language columns (`field_label:ja`, `select_choices_or_calculations:zh-TW`), read by the same
+  `forms.read_dictionary` as a site's REDCap dictionary. Field names carry a form prefix (`ic_`, `vs_`, `ae_` ...) so
+  they never shadow a REDCap dictionary's fields; adding them when another form already uses one of the names is
+  refused (FORM-DUP). `POST /studies/{rs}/forms/builtin` (orchestrator), one button on the Forms page and
+  `POST /api/v1/studies/{rs}/forms/builtin` add all seven in one call.
+* **What the dictionary carries now.** `Field` gains `labels` and `option_labels` per language, `vmin`/`vmax`
+  (`text_validation_min/max`) and `branching` (`branching_logic`); `required` was already read. On the FHIR
+  Questionnaire: the core `translation` extension on `text`, `title` and the choices' `display`, the `minValue` /
+  `maxValue` extensions, `required`, the rule as written in `urn:trialbox:fhir:branching-logic`, and `enableWhen`
+  when the rule is one comparison or a plain and/or of comparisons. A REDCap dictionary without these columns reads
+  as before.
+* **Branching subset** (`datacore/branching.py`): `[field] = 'v'`, `<>` (and `!=`), quoted or numeric values, `and`,
+  `or`, parentheses. Anything else (checkbox codes `[f(1)]`, `>`, functions, events, smart variables) is outside the
+  subset: the field is always shown and its required check is skipped (TrialBox cannot know whether REDCap would hide
+  it); the dictionary still imports unchanged.
+* **Checks at entry** (`sync.save_form`, one whole form): branching on the stored values with the save laid over
+  them; a hidden field is never required and a value sent for it is not written (a stored value stays); required
+  only when shown; type (a real calendar date, whole number, number, choice) and range per field; ownership as in
+  step 3. A refusal is whole: `DATA-FORM` with one `{field, code, ...}` per problem. The console shows each under its
+  field in the reader's language; the API returns them with a message in the account's language.
+* **Entry and History pages** (`console/entry_pages.py`, `data_entry.html`, `data_history.html`). The record is a
+  screening number this study issued, its pseudonym, or a record the data core already holds; anything else (a chart
+  number, a name) is refused and never stored. The event is a free lower-case name (`v1`, `week_4`), empty for a
+  once-per-record form. Branching runs in the browser without a script (the console's CSP forbids scripts): a
+  per-form stylesheet `/studies/{rs}/entry/{form}.css` hides a field by `#entry:not(:has(<checked radio>)) .q-<field>`
+  for rules on choice fields; a browser without `:has` shows the field, and the server decides either way. Save leads
+  to the record's history (who, when, event, field, old, new, source; newest first). Roles: the study's coordinator
+  enters and adds forms; the investigator and the admin read; viewer and CRA accounts get 403, CRO and other-study
+  accounts 404, as on the step-3 pages. `/api/v1`: `GET records`, `GET records/{record}`,
+  `PUT records/{record}/forms/{form}`, `GET export/{odm|csv|xlsx}`, one shared action function per action.
+* **Exports** (`datacore/export.py`), from the console (Entry and Forms pages), the orchestrator
+  (`GET /studies/{rs}/export/{fmt}`) and `/api/v1`. **CDISC ODM 1.3.2** (Snapshot): `Study`/`MetaDataVersion` from the
+  forms with REDCap's OIDs (`Project.<study>`, `Metadata.<study>_<stamp>`, `Event.<event>`, `Form.<form>`, item
+  groups `<form>.<first field>`, the field name as `ItemOID`), code lists, range checks and `TranslatedText` in every
+  language; `ClinicalData` from the values. **REDCap CSV**: flat, one row per record and event, `record_id`,
+  `redcap_event_name` when any value has an event, checkboxes as `field___code`. **XLSX**: the same rows plus the
+  dictionary with its languages. A value with no event sits on `event_1_arm_1`, REDCap's event of a classic project.
+  Records are screening numbers or pseudonyms only.
+* **The REDCap simulator takes ODM.** Record import with `format=odm` and `type=flat` turns `ClinicalData` into flat
+  rows (SubjectKey = record id, `Event.<name>` = event, `field___code` = checkbox) and runs the same checks as a JSON
+  import; a document with a DTD or an entity is refused. `POST /sim/projects` makes an empty project from a
+  dictionary (longitudinal when events are given).
+* **Evidence.** `e2e_simple` stage 10 "built-in data capture" (15 checks): the forms added in one call, the
+  coordinator's consent and visit through the console, a required and a range refusal in the page's language, the
+  edit in the history, the ODM export re-imported into a fresh `rc_sim` project with the same dictionary with every
+  value equal, the REDCap CSV columns equal to the dictionary. `tests/unit/test_datacore_capture.py` and
+  `tests/console/test_entry_pages.py`. The walk opens Entry (consent, visit v1) and History for the coordinator in
+  three languages on desktop and phone; on a 390 px phone in ja it saves a consent and a visit, checks that the visit
+  date appears only once the visit is marked done, edits the consent and finds old and new in the history.
+* **Not done.** Repeating instruments (several AEs per record use one event each, e.g. `ae1`, `ae2`; ODM repeat keys
+  are always 1); the schedule of events, visit windows and the subject state machine (step 5); calculated fields are
+  shown but not computed; the browser applies only rules on choice fields (rules on free text are server-only);
+  REDCap's "erase hidden values" prompt (a hidden field's stored value is kept); ODM import into TrialBox itself;
+  field notes, section headers and matrix groups are not shown; an ownership refusal names the source by its id
+  (`redcap`).
+
+**D-131 Site setup and data harmonization: three questions, one rule, one readiness page.** Owner's answers,
+2026-11-08; a new plan step 5b, after the lifecycle and before handover.
+
+* **Three questions, in order.** (1) *Which trial?* A protocol file, paste or registry id; the LLM drafts the
+  criteria and the PI approves each one (as today). (2) *Which patients could fit?* Any mix of a hospital feed
+  (SS-MIX2, FHIR, CSV export; nightly), candidate spreadsheets, and charts one by one (text, Word or EMR print to PDF,
+  scanned paper through OCR on the box, or text pasted from the EMR screen). (3) *Where do trial records live?*
+  TrialBox's forms by default; REDCap or a sheet attached when the site wants it.
+* **One rule.** Every fact has one home and the LLM never writes a fact silently. Coded data from the hospital or
+  REDCap is used as is. Facts the LLM extracts from a chart are *proposed*: shown next to the quote they came from,
+  confirmed or corrected by a CRC in one tap. A proposed fact can only send a patient to "needs information"; once a
+  CRC confirms it, it counts like coded data and may exclude, with the confirmation in the audit. Note text stays
+  notes, read by the two models at screening. A patient from two inputs is joined by pseudonym, never by name;
+  disagreements are listed.
+* **One readiness page** shows the three questions as green, amber or red with "what's missing" (unmapped local codes
+  with a once-per-site mapping, sheet rows without a key, criteria not yet approved, the share of diagnoses in an
+  unknown code system), and feasibility shows how much of each count rests on coded, confirmed or proposed facts.
+* **Plan.** TB-PLAN-04 step 5b, about 1–2 weeks: the readiness page, chart upload with extraction (OCR included),
+  the proposed-fact review list, the local code mapping, and the join by pseudonym; an `e2e_simple` stage that sets up
+  a site from a protocol, a CSV feed, a sheet and two uploaded charts.
+
+**D-132 Novice users and imperfect data: start small, fix what is safe, guide every step.** Owner's answers,
+2026-11-08; widens step 5b.
+
+* **No perfect data assumed.** A first site may have only EMR screens (copy, paste or print to PDF), a one-time IT
+  dump in local formats, old Excel lists laid out differently by each PI, and past REDCap projects. CGRD-quality
+  data is the exception. Every input path works on its own, and each one can be added later.
+* **Start with the least.** A site starts with a protocol and charts pasted or uploaded one by one. Feeds, sheets
+  and REDCap come later. The box says plainly what it cannot do yet (for example, feasibility counts need a bulk
+  source) instead of failing.
+* **Messy data: fix what is safe, ask the rest.** Unambiguous fixes are made and listed: Japanese era dates
+  (令和5年 → 2023), 民國 years (民國112年 → 2023), full-width digits and letters, known unit conversions, unmerged Excel
+  cells, header rows found below titles. Anything ambiguous (a date that could be D/M or M/D, an unknown unit, a column
+  that might be the chart number) goes to a short "please check" list with a suggested answer. Nothing ambiguous is
+  guessed silently.
+* **Help.** (1) A step-by-step setup wizard: one question per screen, examples, what each answer means, and progress
+  to "ready". (2) An ask-the-box assistant on every page ("what do I do next?", "why is this patient on the list?") in
+  ja, zh-TW and en, run on the local model. It explains and links, and never changes data. (3) Excel templates and
+  mapping sheets in the site's language, plus a synthetic practice site. (4) Remote help from Aimedics: screen
+  guidance without patient data. It is built as an option that the hospital switches on (approval needed when real
+  data is present).
+* **Step 5b grows to L** (about 2–3 weeks). Its `e2e_simple` stage sets up a site the hard way: a protocol, a messy
+  Excel sheet (era dates, full-width digits, merged cells, a title row), an IT dump with local codes, and two pasted
+  charts. It ends with the readiness page green and a "please check" list that a scripted CRC works through.

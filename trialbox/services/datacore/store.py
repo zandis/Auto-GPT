@@ -43,10 +43,12 @@ TRIALBOX = "trialbox"
 
 
 class DataError(ValueError):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, problems: list[dict[str, str]] | None = None) -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
+        self.problems = problems or []  # per field: {field, code, ...} (a whole-form save, TB-PLAN-04 step 4)
+        self.fields = [p["field"] for p in self.problems]
 
 
 class DataCore:

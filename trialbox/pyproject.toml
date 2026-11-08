@@ -90,6 +90,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "PLR", "N802", "B018", "E501"]
 "tests/console/test_role_pages.py" = ["F811"]  # pytest fixture imported from test_console_app and taken by name
+"tests/console/test_entry_pages.py" = ["F811"]  # the same, for the data-core fixture of test_data_pages
 "services/criteria_compiler/compile_*/generator.py" = ["E501"]
 "services/criteria_compiler/review.py" = ["E501"]
 "services/console/i18n.py" = ["E501"]

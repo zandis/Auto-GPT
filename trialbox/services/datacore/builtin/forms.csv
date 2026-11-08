@@ -1,0 +1,43 @@
+field_name,form_name,field_type,field_label,field_label:ja,field_label:zh-TW,select_choices_or_calculations,select_choices_or_calculations:ja,select_choices_or_calculations:zh-TW,text_validation_type_or_show_slider_number,text_validation_min,text_validation_max,branching_logic,required_field
+record_id,tb_screening_log,text,Screening number,スクリーニング番号,篩選編號,,,,,,,,
+sl_date,tb_screening_log,text,Screening date,スクリーニング日,篩選日期,,,,date_ymd,2000-01-01,,,y
+sl_how,tb_screening_log,radio,How the patient was found,候補者の見つけ方,病人來源,"1, Hospital data search | 2, Referral | 3, Clinic | 4, Other","1, 院内データ検索 | 2, 紹介 | 3, 外来 | 4, その他","1, 院內資料搜尋 | 2, 轉介 | 3, 門診 | 4, 其他",,,,,
+sl_eligible,tb_screening_log,radio,Eligible,適格性,是否符合資格,"1, Eligible | 0, Not eligible | 2, Not known yet","1, 適格 | 0, 不適格 | 2, 未確定","1, 符合 | 0, 不符合 | 2, 尚未確定",,,,,y
+sl_reason,tb_screening_log,text,Reason not eligible,不適格の理由,不符合的原因,,,,,,,[sl_eligible] = '0',y
+sl_approached,tb_screening_log,radio,Told about the study,研究について説明した,已向病人說明研究,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,[sl_eligible] = '1',
+sl_note,tb_screening_log,notes,Note,メモ,備註,,,,,,,,
+ic_date,tb_consent,text,Date of consent,同意取得日,簽署同意日期,,,,date_ymd,2000-01-01,,,y
+ic_version,tb_consent,text,Consent form version,同意説明文書の版,受試者同意書版本,,,,,,,,y
+ic_by,tb_consent,text,Consent taken by (initials),同意取得者(イニシャル),取得同意者(姓名縮寫),,,,,,,,
+ic_copy,tb_consent,radio,Copy given to the participant,写しを参加者に渡した,已交付副本給受試者,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
+ic_reconsent,tb_consent,radio,Consent again on a new version,新しい版で再同意,依新版本重新同意,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
+ic_reconsent_date,tb_consent,text,Date of the new consent,再同意日,重新同意日期,,,,date_ymd,2000-01-01,,[ic_reconsent] = '1',y
+en_date,tb_enrolment,text,Date of enrolment,登録日,收案日期,,,,date_ymd,2000-01-01,,,y
+en_subject_no,tb_enrolment,text,Study subject number,被験者番号,受試者編號,,,,,,,,
+en_eligible,tb_enrolment,radio,Eligibility confirmed by the investigator,研究責任者が適格性を確認した,主持人已確認符合資格,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
+en_age,tb_enrolment,text,Age at enrolment (years),登録時の年齢(歳),收案時年齡(歲),,,,integer,0,120,,
+vs_status,tb_visit,radio,Visit,来院,訪視,"1, Done | 2, Missed","1, 実施 | 2, 未実施","1, 已完成 | 2, 未到診",,,,,y
+vs_date,tb_visit,text,Visit date,来院日,訪視日期,,,,date_ymd,2000-01-01,,[vs_status] = '1',y
+vs_missed_reason,tb_visit,text,Why the visit was missed,未実施の理由,未到診原因,,,,,,,[vs_status] = '2',y
+vs_window,tb_visit,radio,Within the visit window,許容範囲内の来院,在訪視窗口內,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,[vs_status] = '1',
+vs_window_note,tb_visit,notes,Window note,許容範囲についてのメモ,訪視窗口備註,,,,,,,[vs_status] = '1' and [vs_window] = '0',
+vs_weight,tb_visit,text,Body weight (kg),体重(kg),體重(公斤),,,,number,1,400,[vs_status] = '1',
+ae_term,tb_adverse_event,text,Adverse event (term as written),有害事象(記載どおり),不良事件(依原文記載),,,,,,,,y
+ae_onset,tb_adverse_event,text,Onset date,発現日,發生日期,,,,date_ymd,2000-01-01,,,y
+ae_serious,tb_adverse_event,radio,Serious,重篤,嚴重,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
+ae_serious_why,tb_adverse_event,radio,Why serious,重篤と判断した理由,判定為嚴重的原因,"1, Death | 2, Life-threatening | 3, Hospital stay or a longer stay | 4, Disability | 5, Congenital anomaly | 6, Other important medical event","1, 死亡 | 2, 生命を脅かす | 3, 入院または入院期間の延長 | 4, 障害 | 5, 先天異常 | 6, その他の医学的に重要な事象","1, 死亡 | 2, 危及生命 | 3, 住院或延長住院 | 4, 殘障 | 5, 先天性異常 | 6, 其他重要醫學事件",,,,[ae_serious] = '1',y
+ae_severity,tb_adverse_event,radio,Severity,重症度,嚴重程度,"1, Mild | 2, Moderate | 3, Severe","1, 軽度 | 2, 中等度 | 3, 高度","1, 輕度 | 2, 中度 | 3, 重度",,,,,y
+ae_outcome,tb_adverse_event,radio,Outcome,転帰,結果,"1, Recovered | 2, Recovering | 3, Not recovered | 4, Recovered with lasting effects | 5, Fatal | 6, Unknown","1, 回復 | 2, 軽快 | 3, 未回復 | 4, 後遺症あり | 5, 死亡 | 6, 不明","1, 痊癒 | 2, 改善中 | 3, 未痊癒 | 4, 痊癒但有後遺症 | 5, 死亡 | 6, 不明",,,,,
+ae_end,tb_adverse_event,text,End date,消失日,結束日期,,,,date_ymd,2000-01-01,,[ae_outcome] = '1' or [ae_outcome] = '4',
+ae_related,tb_adverse_event,radio,Related to the study treatment or procedure,研究治療・手順との関連,與研究治療或程序相關,"1, Yes | 0, No | 9, Unknown","1, あり | 0, なし | 9, 不明","1, 是 | 0, 否 | 9, 不明",,,,,y
+ae_note,tb_adverse_event,notes,Description,詳細,描述,,,,,,,,
+dv_date,tb_deviation,text,Date of the deviation,逸脱日,偏差日期,,,,date_ymd,2000-01-01,,,y
+dv_kind,tb_deviation,radio,Kind,種類,類別,"1, Eligibility | 2, Consent | 3, Visit window | 4, Procedure | 5, Other","1, 適格性 | 2, 同意 | 3, 来院の許容範囲 | 4, 手順 | 5, その他","1, 資格 | 2, 同意 | 3, 訪視窗口 | 4, 程序 | 5, 其他",,,,,y
+dv_kind_other,tb_deviation,text,Other kind,その他の種類,其他類別,,,,,,,[dv_kind] = '5',y
+dv_what,tb_deviation,notes,What happened,内容,經過,,,,,,,,y
+dv_reported,tb_deviation,radio,Reported to the ethics committee,倫理審査委員会への報告,已通報倫理委員會,"1, Yes | 0, No | 2, Not needed","1, 報告済み | 0, 未報告 | 2, 不要","1, 是 | 0, 否 | 2, 不需要",,,,,
+wd_date,tb_withdrawal,text,Date of withdrawal,中止日,退出日期,,,,date_ymd,2000-01-01,,,y
+wd_reason,tb_withdrawal,radio,Reason,理由,原因,"1, Participant's decision | 2, Investigator's decision | 3, Adverse event | 4, Lost to follow-up | 5, Death | 6, Other","1, 参加者の意思 | 2, 研究者の判断 | 3, 有害事象 | 4, 追跡不能 | 5, 死亡 | 6, その他","1, 受試者決定 | 2, 主持人決定 | 3, 不良事件 | 4, 失去追蹤 | 5, 死亡 | 6, 其他",,,,,y
+wd_reason_other,tb_withdrawal,text,Other reason,その他の理由,其他原因,,,,,,,[wd_reason] = '6',y
+wd_data_use,tb_withdrawal,radio,Data collected so far may be used,これまでのデータを使用してよい,已收集的資料可以使用,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
+wd_note,tb_withdrawal,notes,Note,メモ,備註,,,,,,,,
