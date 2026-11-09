@@ -12,6 +12,29 @@ profile, first administrator, host check; `--answers site.yaml` for no questions
 GPU). The vendor builds the bundle with `tools/make_bundle.sh`. Hardware: `python -m tools.gpu_sizing` prints the
 estimate table (no GPU is enough for feasibility, NAV and COHORT; a GPU serves protocol extraction and note criteria).
 
+**Tiers** (D-138). The three boxes we sell install with `--tier`:
+
+| Tier | `--gpu` profile | Box | Serving |
+| --- | --- | --- | --- |
+| `small` | `rtx5090` | one RTX 5090 (32 GB) | the pair with the sleep swap, 8k |
+| `medium` | `gb10` | DGX Spark (GB10) | the pair resident, 16k |
+| `large` | `rtxpro6000` | one RTX PRO 6000 (96 GB) | the pair resident, 32k |
+
+`sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml` installs only when the tier has a
+serving record of its own uncapped card (`deploy/site/` or the vendor's `deploy/measured/serving_config.<gpu>.json`,
+checked by `tools/serving_config.py measured`) and the machine's card is the tier's card; otherwise it stops before
+anything is loaded (exit 3) and says what is missing. There is no override. `deploy/install.sh --tier large
+--tier-check` asks the question alone. Today only `large` has a vendor record. To measure a card: a trial boot with
+`TB_ACCEPT_UNMEASURED_GPU=1 deploy/install.sh <bundle> --gpu <profile>` (not a tier install), then on the box
+`python3 tools/serving_config.py capture --container judge=trialbox-llm-service-1 --container
+verifier=trialbox-llm-verifier-1 --models-dir deploy/models --out deploy/site/serving_config.<profile>.json`.
+
+The installer also makes one token per service (`trialbox secrets init`, §5 "Secrets"), adds
+`deploy/docker-compose.secrets.yml`, writes the site's network, port and secret sheet to
+`deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital IT), and installs the nightly log job
+(`/etc/cron.d/trialbox-retention`, §2 "Logs"). On Windows the box runs in WSL2: `docs/handover/OFFLINE-MEDIA.md`,
+`docs/handover/WINDOWS-INSTALL-CHECKLIST.md` and `deploy/windows/preflight.{ps1,sh}`.
+
 1. **Host.** Ubuntu 24.04 LTS on LUKS2 with TPM2 unlock, swap off, Docker Engine 27+, nftables. Add the NVIDIA
    driver and container toolkit when there is a GPU (GB10: driver 580.142, held). See `docs/HARDENING.md`.
 2. **Images.** Load the signed release bundle: `tools/apply_update.sh trialbox-<version>.tar` (images, models,
@@ -30,8 +53,9 @@ estimate table (no GPU is enough for feasibility, NAV and COHORT; a GPU serves p
    lab lookup CSV. Then check it against an export:
    `python tools/mapping_check.py --mapping services/adapter/mapping/tw_core/<site>.yaml --source csv --path <dir>`.
    It must report 0 missing columns and 0 structural errors; unmapped lab codes are listed for the lab team.
-5. **Start.** `cd deploy && docker compose --profile gpu up -d --wait`. Use `--profile stub` without a GPU, and add
-   `-f docker-compose.gb10.yml` on GB10. Then apply the egress rules: `deploy/network.sh apply`.
+5. **Start.** `sudo python3 -m tools.trialbox secrets init`, then `cd deploy && docker compose -f
+   docker-compose.yml -f docker-compose.secrets.yml --profile gpu up -d --wait`. Use `--profile stub` without a
+   GPU, and add `-f docker-compose.gb10.yml` on GB10. Then apply the egress rules: `deploy/network.sh apply`.
 6. **Vendor key.** Install `deploy/keys/vendor_ed25519.pub` (from the vendor, out of band).
 7. **First ingest.** `docker compose exec adapter python -m adapter.cli run`, or wait for 02:00. Check
    `/data/lake/ndjson/<date>/ingest_report.json`: `passed: true`, validator errors < 0.5 %.
@@ -43,11 +67,28 @@ estimate table (no GPU is enough for feasibility, NAV and COHORT; a GPU serves p
 | When | What | Where to look |
 | --- | --- | --- |
 | 02:00 | INGEST (adapter → FHIR store + lake, 1 % HL7 validator sample, snapshot pruning) | job list, `ingest_report.json` |
-| 05:00 | RETENTION (attachments 90 d, outputs 365 d, retired pools 24 months) | `retention_<date>.json` output |
+| 00:20 | `trialbox logs daily` on the host (cron): collect yesterday's service logs, prune, archive the audit | `/var/log/trialbox-retention.log` |
+| 05:00 | RETENTION (attachments 90 d, outputs 365 d, mail logs, retired pools 24 months) | `retention_<date>.json` output |
 | Mon 03:00 | MICROBATCH per ruleset with a pool → `this_week_visit1.xlsx` to list recipients | mail |
 | Mon 03:30 | NAV per approved NHI ruleset → lists, drafts, TWPAS bundles | mail |
 | 1st 05:30 | CALIBRATION per ruleset with feedback | `calibration.json` |
 | 1st of Jan/Apr/Jul/Oct 04:00 | COHORT per cohort ruleset (member boxes mail their table to the alliance root) | mail |
+
+### Logs (D-138)
+
+Retention per log type is in `deploy/settings.yaml` `retention` (the wizard's `jp` or `tw` defaults, changed in the
+answers with `logs_days`, `mail_log_days`, `outputs_days`, `attachments_days`; `tb_common/retention.py` says why):
+
+| Log | Where | Kept | How |
+| --- | --- | --- | --- |
+| Service logs (JSON, pseudonyms only) | containers (50 MB x 5 each), then `TB_LOG_DIR/services/<day>/<service>.log.gz` | `logs_days` (365) | `trialbox logs daily` collects and prunes |
+| Audit chain | volume `audit-data`, copied to `TB_AUDIT_ARCHIVE_DIR/<year>/<day>.jsonl.gz` | never deleted (`audit_years` 10 on the box) | `trialbox logs daily` copies, compresses and verifies; nothing on the box is touched |
+| Mail logs (intake, sent, morning mail) | trial database, schemas `mail` and `site` | `mail_log_days` (JP 1825, TW 2555) | RETENTION job; an unfinished send stays until a person resolves it |
+| Job outputs, attachments | objects volume | `outputs_days` 365, `attachments_days` 90 | RETENTION job, hashes kept in the audit |
+
+Set `TB_LOG_DIR` and `TB_AUDIT_ARCHIVE_DIR` in `deploy/.env` to the hospital share (install.sh writes local
+defaults). By hand: `sudo python3 -m tools.trialbox logs collect --day 2026-11-08`, `... logs prune`,
+`... logs archive-audit`. An audit chain that does not verify is not archived: run `tools/audit_verify.py` first.
 
 Everything is a job. To see jobs, send `STATUS <job id>` by mail, or use the orchestrator API from the host:
 `curl -s localhost:8010/jobs?limit=20` (the port is published only in the test profile; otherwise run
@@ -101,16 +142,53 @@ record contact/consent/enrolment, export XLSX for the monitor). The **Single cas
 Job errors always name the step (`received`, `parsing`, `compiling`, `running`, `reporting`) and come back to the
 requester as a "Failed" mail with a plain-language message.
 
-## 5. Updates, backup, restore
+## 5. Updates, backup, restore, secrets
 
-- **Updates**: `tools/apply_update.sh bundle.tar --dry-run`, then without `--dry-run`. Tampered or unsigned
-  bundles are rejected and nothing changes. Every application is audited (`update.applied`).
-- **Audit backup**: nightly `rsync -a /var/lib/docker/volumes/trialbox_audit-data/_data/ <hospital share>/trialbox-audit/`.
-  Never use `--delete`. Verify with `docker compose exec orchestrator python /app/tools/audit_verify.py /data/audit`.
+- **Updates** (D-138): `sudo tools/apply_update.sh trialbox-<version>.tar --dry-run`, then without `--dry-run`.
+  1. The bundle is verified (vendor signature, every hash); a tampered or unsigned bundle is rejected and nothing
+     changes.
+  2. **Backup first** (D-126): the box's encrypted backup to `TB_BACKUP_TARGETS` with `deploy/secrets/backup.pub`.
+     No key or no target: the update refuses and changes nothing. The services stop for the backup (the database
+     stays up), so the backup is consistent.
+  3. **Rollback point**: the images it replaces are tagged `<repo>:rollback-<bundle>`, overwritten model files kept,
+     both databases dumped locally (`deploy/updates/<bundle>/rollback/`, 0600, removed after a good update).
+  4. **Apply, migrate, restart**: images loaded, models copied, `docker compose up -d --wait` (each service runs its
+     migrations at start), then the bundle's rulesets (approval and equivalence gates), then the health check
+     (and `TB_UPDATE_CHECK_CMD` when set).
+  5. **Success**: `update.applied` in the audit. **Failure** after step 3: images tagged back, models put back,
+     databases restored from the local dump, restarted, checked again; `update.rolled_back` in the audit; exit 1.
+  Every step is in `deploy/updates/history.jsonl`. `--no-backup` exists for a test box only and is audited. If the
+  rollback itself fails, restore from the backup (below). The demo VM uses `--target demo` (`docs/DEMO_VM.md`).
+- **Backup** (D-126): `python -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public
+  deploy/secrets/backup.pub` once, with hospital IT (the private key goes in their sealed envelope; the box keeps
+  only the public key); then `trialbox backup --to <NAS share> --to <USB disk>`. Check one with `trialbox
+  backup-verify <file> --key <private key>`.
+- **Audit archive**: nightly by `trialbox logs daily` (§2 "Logs"); never use `rsync --delete` on the audit volume.
+  Verify with `docker compose exec orchestrator python /app/tools/audit_verify.py /data/audit`.
 - **Ruleset repository**: `/data/rulesets` is a git repository. Push it to the hospital git server, or tar it with
   the audit backup.
-- **Restore**: reinstall (section 1, steps 1–6) and restore the volumes `rulesets-data`, `orch-data`, `audit-data`,
-  `tb-secrets` (sealed keys) and `minio-data`. The lake and FHIR store rebuild from the next ingest.
+- **Restore**: reinstall (section 1), then `trialbox restore <file> --key <private key> --yes` (hospital IT brings
+  the key). The lake and FHIR store rebuild from the next ingest if they were not in the backup.
+
+### Secrets (D-128, D-138): the one place to rotate them
+
+Each TrialBox service has its own token, and accepts only its own callers (`tb_common.service_auth.CALLERS`; a
+doc-parser token is refused by the orchestrator). Where everything lives is on the network sheet
+(`deploy/site/network-sheet.<lang>.html`); no value is ever printed or logged.
+
+| Command (as root, in `/opt/trialbox`) | What it does |
+| --- | --- |
+| `python3 -m tools.trialbox secrets status` | each token's file, mode (0600) and age; whether the old shared token still works |
+| `python3 -m tools.trialbox secrets rotate` | **at handover and then yearly**: every service token, the operator token and both database passwords; recreates the services; ends the old shared token |
+| `python3 -m tools.trialbox secrets rotate --service orchestrator` | one service's token (repeat `--service` for more); only that service restarts |
+| `python3 -m tools.trialbox secrets rotate --service db` | the two database passwords (`ALTER ROLE`, password on stdin), then every service that uses them |
+| `python3 -m tools.trialbox secrets init` | make any missing token (install.sh runs it) |
+
+The mail passwords and a cloud-model key are the hospital's: change them at their source, put the new value in
+`deploy/.env`, then `docker compose --project-directory deploy up -d --force-recreate mail-gateway` (or `gateway`).
+A box installed before step 8 keeps its one shared `TB_SERVICE_TOKEN` working, with a warning in the service logs,
+until the first full `secrets rotate`. The administrator's own token for scripts on the host is
+`deploy/secrets/services/operator.token` (send it as `X-TB-Service-Token`).
 
 ## 6. Go-live acceptance (§11.2)
 
