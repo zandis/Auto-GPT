@@ -1,0 +1,85 @@
+"""Repro: (A) an observation with a non-numeric value makes an inclusion FALSE (not NULL) -> hard exclusion;
+(B) a SCREEN-scoped pid that is not in the patient table becomes tier 'excluded' through the cascade (not review)."""
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+from datetime import date
+from pathlib import Path
+
+sys.path[:0] = ["services", "libs", "."]
+
+from criteria_compiler.compile_sql.generator import SqlGenerator
+from criteria_compiler.terminology.mapper import Concept, Terminology, ValueSets, valueset
+from embed_service.embedder import HashEmbedder
+from lake.client import LakeLocal
+from lake.store import Lake
+from matching.cascade.engine import CascadeConfig, run_cascade
+from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict, structured_candidate
+from orchestrator.scenarios.screen_cascade import verdicts_of
+from tb_common.ruleset import Ruleset
+from tb_contracts import CriterionIR
+
+ROOT = Path(".")
+LOINC = "http://loinc.org"
+IDX = date(2026, 10, 5)
+
+tmp = Path(tempfile.mkdtemp(prefix="tb-repro-"))
+nd = tmp / "ndjson"
+nd.mkdir()
+pats = [
+    {"resourceType": "Patient", "id": "P-NUM", "birthDate": "1960-01-01", "gender": "female"},
+    {"resourceType": "Patient", "id": "P-TEXT", "birthDate": "1960-01-01", "gender": "female"},
+    {"resourceType": "Patient", "id": "P-NOLAB", "birthDate": "1960-01-01", "gender": "female"},
+]
+obs = [
+    # numeric eGFR 75 -> inclusion eGFR >= 60 is TRUE
+    {"resourceType": "Observation", "id": "o-num", "subject": {"reference": "Patient/P-NUM"},
+     "code": {"coding": [{"system": LOINC, "code": "33914-3"}]}, "effectiveDateTime": "2026-09-01T09:00:00+09:00",
+     "valueQuantity": {"value": 75, "unit": "mL/min/1.73m2"}},
+    # the same test, but the result came as text (e.g. OBX-5 "75 H", "<0.3", "見えない"): valueString, no valueQuantity
+    {"resourceType": "Observation", "id": "o-text", "subject": {"reference": "Patient/P-TEXT"},
+     "code": {"coding": [{"system": LOINC, "code": "33914-3"}]}, "effectiveDateTime": "2026-09-01T09:00:00+09:00",
+     "valueString": "75 H"},
+]
+(nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in pats) + "\n", encoding="utf-8")
+(nd / "Observation.ndjson").write_text("\n".join(json.dumps(o) for o in obs) + "\n", encoding="utf-8")
+(nd / "Condition.ndjson").write_text("", encoding="utf-8")
+Lake(tmp / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
+lake = LakeLocal(tmp / "lake", HashEmbedder())
+
+crit = [CriterionIR.model_validate({
+    "id": "REPRO-INC-01", "ruleset": "REPRO", "kind": "inclusion", "class": "structured", "text": "eGFR >= 60",
+    "logic": {"domain": "observation", "quantifier": "any", "valueset": "VS_EGFR",
+              "value": {"op": ">=", "num": 60, "unit": "mL/min/1.73m2"},
+              "window": {"anchor": "index", "from_days": -365, "to_days": 0}}})]
+vs = {"VS_EGFR": valueset("REPRO", "VS_EGFR", "eGFR", [Concept(LOINC, "33914-3", "eGFR")], "1.0.0")}
+vsi = ValueSets("REPRO", vs, Terminology())
+sql = SqlGenerator("REPRO", "1.0.0", vsi).render(crit)
+base = Ruleset.load(ROOT / "rulesets" / "GOUT-COH").manifest
+manifest = base.model_copy(update={"id": "REPRO", "library": None, "criteria": [c.id for c in crit]})
+rs = Ruleset(manifest=manifest, criteria=crit, valuesets=vs, sql=sql)
+
+print("== A. compiled SQL answers (C_REPRO-INC-01) ==")
+rows = lake.query(sql, [[IDX.isoformat()], ["P-NUM", "P-TEXT", "P-NOLAB"]]).to_pylist()
+for r in rows:
+    print(r["pid"], r["C_REPRO-INC-01"], r["E_REPRO-INC-01"])
+ev = SqlEngine(lake).evaluate(rs, ["P-NUM", "P-TEXT", "P-NOLAB"], IDX, [crit[0].id])
+for pid, e in ev.items():
+    v = structured_verdict(crit[0], e)
+    print(f"  v1 engine {pid}: result={e.results} verdict={v.verdict} reason={v.evidence.reason} "
+          f"candidate={structured_candidate(rs, e)}")
+
+print("== B. SCREEN through the cascade: population includes P-GHOST (not in the patient table) ==")
+cfg = CascadeConfig(study_id="REPRO", run_date=IDX, lookback_months=36, index_mode="single", purpose="screening",
+                    step_id="repro", snapshot=None, population=["P-NUM", "P-TEXT", "P-NOLAB", "P-GHOST"],
+                    note_block=False, absence_semantics=False)
+res = run_cascade(lake, rs, cfg, judge=None, embedder=HashEmbedder(), reviewer=None)
+for pid in ["P-NUM", "P-TEXT", "P-NOLAB", "P-GHOST"]:
+    t = res.traces[pid]
+    pv = verdicts_of(rs, t)
+    o = t.outcomes.get(crit[0].id)
+    print(f"  {pid}: in_scope={t.in_scope} scope_reason={t.scope_reason!r} cascade_tier={t.tier} "
+          f"S1={None if o is None else (o.status, o.hard, o.reason)} -> list tier={pv.tier} actions={pv.actions}")
+print("semantics:", res.semantics)

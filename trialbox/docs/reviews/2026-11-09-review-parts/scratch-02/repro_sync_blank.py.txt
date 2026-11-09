@@ -1,0 +1,93 @@
+"""Repro: a longitudinal REDCap project pulled with `event=''` returns one row per record x event; the rows of the
+other events carry '' for the field, which `sync` takes as a change and writes over TrialBox's value (data churn,
+value lost at the end of every sync)."""
+from __future__ import annotations
+
+import sys
+
+sys.path[:0] = ["services", "libs"]
+
+from datacore import sync as sy
+from datacore.sources import RedcapSource
+from datacore.store import TRIALBOX
+
+
+class FakeDc:
+    def __init__(self):
+        self.vals = {}
+        self.hist = []
+        self.confl = []
+        self._owners = {}
+
+    def owners(self, study):
+        return dict(self._owners)
+
+    def set_owner(self, study, f, o):
+        self._owners[f] = o
+
+    def get(self, study, rec, ev, f):
+        return self.vals.get((study, rec, ev, f))
+
+    def write(self, study, rec, ev, f, v, by, at, source, seen=None, keep_seen=True):
+        cur = self.vals.get((study, rec, ev, f))
+        if cur is not None and cur["value"] == v and (seen is None or cur["seen"] == seen):
+            return False
+        new = {"value": v, "seen": seen if seen is not None else (cur["seen"] if cur else None),
+               "pushed": cur["pushed"] if cur else None}
+        self.vals[(study, rec, ev, f)] = new
+        if cur is None or cur["value"] != v:
+            self.hist.append((rec, f, cur["value"] if cur else None, v, source))
+        return True
+
+    def mark(self, study, rec, ev, f, seen=None, pushed=None):
+        cur = self.vals[(study, rec, ev, f)]
+        if seen is not None:
+            cur["seen"] = seen
+        if pushed is not None:
+            cur["pushed"] = pushed
+
+    def add_conflict(self, *a, **k):
+        self.confl.append(a)
+        return len(self.confl)
+
+    def conflicts(self, study):
+        return []
+
+    def put_source_id(self, *a):
+        pass
+
+    def source_id(self, *a):
+        return "1"
+
+    def values(self, study):
+        return []
+
+
+class FakeRc:
+    """A longitudinal project: the enrolment date lives on event 'baseline_arm_1'; every other event row is blank."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def metadata(self):
+        return [{"field_name": "record_id"}]
+
+    def records(self, fields, dags=False):
+        return [
+            {"record_id": "1", "redcap_event_name": "baseline_arm_1", "tb_screening_no": "GZQO-0001", "en_date": "2026-10-04"},
+            {"record_id": "1", "redcap_event_name": "visit_1_arm_1", "tb_screening_no": "", "en_date": ""},
+            {"record_id": "1", "redcap_event_name": "visit_2_arm_1", "tb_screening_no": "", "en_date": ""},
+        ]
+
+
+dc = FakeDc()
+src = RedcapSource(client=lambda: FakeRc(), field_map={"en_date": "en_date"})  # event not configured
+sy.attach(dc, "GZQO", src, ["en_date"])  # REDCap owns the enrolment date
+for n in range(1, 3):
+    res = sy.sync(dc, "GZQO", src, "crc", f"2026-11-0{n}T08:00:00+09:00", push=False)
+    print(f"sync {n}: pulled={res.pulled} taken={res.taken} conflicts={len(res.conflicts)} "
+          f"stored en_date={dc.get('GZQO', 'GZQO-0001', '', 'en_date')}")
+print("history:", dc.hist)
