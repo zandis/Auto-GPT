@@ -208,6 +208,9 @@ class SiteSetup:
         self.store.set_input(iid, path=rel)
         found, dropped = charts.extract(self.llm, ct.text, lang)
         for f in found:
+            for k, v in list(f.items()):  # D-146 (J-07): nothing the model wrote back may carry a NUL either
+                if isinstance(v, str):
+                    f[k] = charts.clean(v)
             f["pid"] = pid
             f["quote"] = self.redact(f["quote"], chart_no, KEEP_IN_QUOTES)
         ids = self.store.add_facts(ws, iid, found, self.stamp())

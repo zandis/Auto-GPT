@@ -29,6 +29,7 @@ from console.studies import known_study
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _REF = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+_PRACT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
 CONSENT_SCOPES = ("opt-in", "opt-out", "waiver")
 LINK_TEXT = (
     "dag",
@@ -86,6 +87,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = rs.strip().upper()
         if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.role == "cro" or not known_study(bk, rid):
             raise h.problem(404, "notfound")
+        if not sess.user.can_view_phi:  # D-146 (review J-05): a viewer reads aggregate reports, not a study's set-up
+            au.append("console.denied", actor=h.actor(sess), detail={"action": f"setup {rid}"})
+            raise h.problem(403, "forbidden")
         return rid
 
     def can_edit(sess: Session) -> bool:
@@ -135,6 +139,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             lk=lk,
             sf_map=show_map(lk.get("screenfail_choice_map") or {}),
             tokens=[c["token_ref"] for c in conns.get("connections") or []],
+            screen_scope=get_or_none(f"/studies/{rid}/screen-scope") if s28.has_api(bk) else None,
             last=reads[0] if reads else None,
             all_reasons=ALL_REASONS,
             study_types=STUDY_TYPES,
@@ -208,6 +213,30 @@ def register(app: FastAPI, h: Helpers) -> None:
         s = StudySettings(conf.study_type, conf.cohort_kind, reasons, prefix, first)
         return save_settings(request, sess, rid, s, {"consent_scope": row.get("consent_scope"),
                              "introduce_rule": row.get("introduce_rule")}, "log")  # fmt: skip
+
+    # ------------------------------------------------------------------ D-146 (review J-26): who to screen
+    @app.post("/studies/{rs}/setup/scope")
+    def save_screen_scope(
+        request: Request, rs: str, csrf: str = Form(""), mode: str = Form(""), practitioners: str = Form("")
+    ) -> Response:
+        """The study's screening scope: the whole hospital (the owner's aim) or some doctors' patients. A SCREEN of
+        the study uses it unless the request names ``pract=``."""
+        sess = h.need(request)
+        rid = study_or_404(sess, rs)
+        need_edit(request, sess, csrf)
+        ids = [p for p in re.split(r"[\s,、，]+", practitioners.strip()) if p][:200]
+        if mode not in ("hospital", "practitioners"):
+            raise h.problem(400, "request.refused", reason="choose the whole hospital or some doctors")
+        if mode == "practitioners" and (not ids or not all(_PRACT.match(p) for p in ids)):
+            raise h.problem(400, "request.refused", reason="practitioner ids are letters and digits, comma separated")
+        try:
+            body = {"mode": mode, "practitioners": ids if mode == "practitioners" else [], "by": h.actor(sess)}
+            s28.call(bk, "PUT", f"/studies/{rid}/screen-scope", body)
+        except (Problem, Unavailable) as exc:
+            return setup_page(request, sess, rid, err=err_of(exc))
+        au.append("console.study_setup", ruleset=rid, actor=h.actor(sess),
+                  detail={"section": "screen_scope", "mode": mode, "practitioners": len(ids)})  # fmt: skip
+        return RedirectResponse(f"/studies/{rid}/setup?saved=scope#who", status_code=303)
 
     # ------------------------------------------------------------------ D-133: the whole set-up in one form
     @app.post("/studies/{rs}/setup")
@@ -336,7 +365,9 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     # ------------------------------------------------------------------ S36
     def need_admin_view(sess: Session) -> None:
-        if sess.user.role not in ("admin", "viewer"):
+        """S36 holds the REDCap addresses and key names: administrators only (D-146, review J-05)."""
+        if not sess.user.is_admin:
+            au.append("console.denied", actor=h.actor(sess), detail={"action": "/admin/redcap"})
             raise h.problem(403, "forbidden")
 
     def s36_page(request: Request, sess: Session, **extra: Any) -> Response:

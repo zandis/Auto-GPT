@@ -59,6 +59,7 @@ T: dict[str, dict[str, str]] = {
         "other recipients. Fix the request and send it again, or reply `STATUS {job}` for the job record.",
         "mail.status": "Job `{job}` is **{state}**.",
         "screen.scope1": "Ruleset {rs} v{ver}, run {run}, snapshot {snapshot}.",
+        "screen.whole_hospital": "all (the whole hospital)",
         "screen.scope2": "Scope: practitioners {pract}; appointments in the next {window} days or an encounter in the "
         "last 12 months; {scoped} patients evaluated.",
         "screen.unknown_system": "Diagnoses or medicines in an unknown code system: {n} patients (their coded "
@@ -175,6 +176,7 @@ T: dict[str, dict[str, str]] = {
         "いません。リクエストを修正して再送するか、`STATUS {job}` と返信してジョブ記録を確認してください。",
         "mail.status": "ジョブ `{job}` の状態は **{state}** です。",
         "screen.scope1": "ルールセット {rs} v{ver}、実行日 {run}、スナップショット {snapshot}。",
+        "screen.whole_hospital": "全員（病院全体）",
         "screen.scope2": "対象：担当医 {pract}；今後 {window} 日以内の予約、または過去 12 か月の受診がある患者；{scoped} 名を評価。",
         "screen.unknown_system": "不明なコード体系の病名・薬剤：{n} 人（コードによる選択基準は「不明」とし、除外せず担当者が確認）。",
         "screen.budget_hit": "今回の実行のモデル呼び出し上限 {max} 回に達しました：{n} 名は記録を読み切れていません。"
@@ -285,6 +287,7 @@ T: dict[str, dict[str, str]] = {
         "請修正請求後重送，或回覆 `STATUS {job}` 查看工作紀錄。",
         "mail.status": "工作 `{job}` 目前為 **{state}**。",
         "screen.scope1": "規則集 {rs} v{ver}，執行日 {run}，快照 {snapshot}。",
+        "screen.whole_hospital": "全部（全院）",
         "screen.scope2": "範圍：主治醫師 {pract}；未來 {window} 天內有預約或過去 12 個月內有就診的病人；共評估 {scoped} 位。",
         "screen.unknown_system": "診斷或藥品使用無法辨識的代碼系統：{n} 位（其結構化納入條件列為未知、不排除，由人員確認）。",
         "screen.budget_hit": "本次執行已達模型呼叫上限 {max} 次：{n} 位病人的病歷未全部判讀，列為待確認、不排除。"

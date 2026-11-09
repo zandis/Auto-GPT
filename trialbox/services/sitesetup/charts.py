@@ -52,6 +52,16 @@ class ChartText:
     notes: list[str] = field(default_factory=list)
 
 
+# D-146 (review J-07): a PDF's text layer may carry NUL and other control characters (a CJK font without a usable
+# ToUnicode map gives U+0000 for every glyph it cannot map); PostgreSQL text refuses NUL. Tab and line breaks stay.
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ud800-\udfff]")
+
+
+def clean(text: str) -> str:
+    """``text`` without NUL, the other C0 control characters but tab and line breaks, DEL and lone surrogates."""
+    return _CONTROL.sub("", text)
+
+
 def _decode(data: bytes) -> str:
     for enc in ("utf-8-sig", "cp932", "big5"):
         try:
@@ -117,6 +127,7 @@ def chart_text(name: str, data: bytes, ocr: Ocr) -> ChartText:
         out = ChartText(ocr.image_text(data), "ocr", 1, ["read by OCR: check the facts against the paper"])
     else:
         raise ChartError("CHART-TYPE", "charts are pasted text, .txt, Word (.docx), PDF or a scanned image")
+    out.text = clean(out.text)
     if not out.text.strip():
         raise ChartError("CHART-EMPTY", "no text found in this file")
     if len(out.text) > MAX_CHART_CHARS:

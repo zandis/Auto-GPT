@@ -58,6 +58,7 @@ from urllib.parse import quote, unquote
 TOKEN_HEADER = "X-TB-Service-Token"
 ACTOR_HEADER = "X-TB-Actor"
 ASSERTION_HEADER = "X-TB-Actor-Assertion"
+ROLE_HEADER = "X-TB-Actor-Role"  # the signed-in person's console role, covered by the assertion (D-146, review J-01)
 ACTOR_KEYS_ENV = "TB_ACTOR_KEYS_FILE"
 ACTOR_LABEL = b"tb-actor-assertion/1"
 ACTOR_TTL = 120  # seconds an assertion is valid
@@ -214,26 +215,34 @@ def actor_key(token: str) -> bytes:
     return hmac.new(token.encode("utf-8"), ACTOR_LABEL, hashlib.sha256).digest()
 
 
-def _actor_mac(key: bytes, actor: str, session: str, exp: int) -> str:
-    msg = f"v1\n{actor}\n{session}\n{exp}".encode()
-    return hmac.new(key, msg, hashlib.sha256).hexdigest()
+_ROLE = re.compile(r"^[a-z]{1,20}$")
 
 
-def sign_actor(actor: str, session: str | None = None, now: float | None = None) -> str | None:
-    """``v1.<expiry>.<session>.<hmac>`` for ``actor``, or None when this service holds no token (DEV/TEST)."""
+def _actor_mac(key: bytes, actor: str, session: str, exp: int, role: str = "") -> str:
+    msg = f"v1\n{actor}\n{session}\n{exp}" + (f"\nrole={role}" if role else "")
+    return hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
+
+
+def sign_actor(actor: str, session: str | None = None, now: float | None = None, role: str = "") -> str | None:
+    """``v1.<expiry>.<session>.<hmac>`` for ``actor`` (and its ``role`` when given: the MAC covers it), or None when
+    this service holds no token (DEV/TEST)."""
     tok = service_token()
     if not tok:
         return None
     sid = _SID.sub("", _SESSION.get() if session is None else session)[:32]
     exp = int(time.time() if now is None else now) + ACTOR_TTL
-    return f"v1.{exp}.{sid}.{_actor_mac(actor_key(tok), actor, sid, exp)}"
+    return f"v1.{exp}.{sid}.{_actor_mac(actor_key(tok), actor, sid, exp, role)}"
 
 
-def actor_header(actor: str, session: str | None = None) -> dict[str, str]:
+def actor_header(actor: str, session: str | None = None, role: str = "") -> dict[str, str]:
     """``X-TB-Actor`` for a signed-in user (percent-encoded, as a header is ASCII and names may be 日本語) and its
-    signed assertion when this service holds a token (S-09, D-143)."""
+    signed assertion when this service holds a token (S-09, D-143). With ``role`` (D-146, review J-01) the console
+    role travels in ``X-TB-Actor-Role`` and the assertion covers it, so the orchestrator authorises a console request
+    by the person's role instead of a mailbox."""
     h = {ACTOR_HEADER: quote(actor, safe="@._-+")}
-    signed = sign_actor(actor, session)
+    if role:
+        h[ROLE_HEADER] = role
+    signed = sign_actor(actor, session, role=role)
     if signed:
         h[ASSERTION_HEADER] = signed
     return h
@@ -273,18 +282,23 @@ class Actor:
     name: str
     session: str = ""
     verified: bool = False
+    role: str = ""  # the console role the caller sent (D-146); covered by the assertion when verified
 
 
 def verify_actor(header: str | None, assertion: str | None, fallback: str | None = None,
-                 now: float | None = None) -> Actor:  # fmt: skip
+                 now: float | None = None, role: str | None = None) -> Actor:  # fmt: skip
     """The audit actor of a call. With keys (any box with a token), ``X-TB-Actor`` counts only with a valid,
-    unexpired assertion over it; without (DEV/TEST, no token) the old rule of :func:`actor_of` applies."""
+    unexpired assertion over it (and over ``role``, the ``X-TB-Actor-Role`` header, when one is sent); without
+    (DEV/TEST, no token) the old rule of :func:`actor_of` applies."""
+    rl = (role or "").strip()
+    if rl and not _ROLE.match(rl):
+        raise ActorError("the signed-in user's role is not a role")
     keys = actor_keys()
     if keys is None:
         who = actor_of(header, fallback)
         if who is None:
             raise ActorError("no signed-in user (X-TB-Actor) on this call")
-        return Actor(who)
+        return Actor(who, role=rl)
     if not header or not header.strip():
         raise ActorError("no signed-in user (X-TB-Actor) on this call")
     name = unquote(header.strip())[:200]
@@ -295,9 +309,9 @@ def verify_actor(header: str | None, assertion: str | None, fallback: str | None
     t = int(time.time() if now is None else now)
     if exp < t or exp > t + ACTOR_TTL + 5:
         raise ActorError("the signed-in user's assertion has expired")
-    if not any(hmac.compare_digest(_actor_mac(k, name, sid, exp), mac) for k in keys):
+    if not any(hmac.compare_digest(_actor_mac(k, name, sid, exp, rl), mac) for k in keys):
         raise ActorError("the signed-in user's assertion does not verify")
-    return Actor(name, sid, True)
+    return Actor(name, sid, True, rl)
 
 
 Refusal = tuple[int, str]

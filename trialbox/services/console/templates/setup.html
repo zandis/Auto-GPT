@@ -85,6 +85,27 @@
 {% if editable %}<div class="savebar card" id="save"><button type="submit" name="action" value="save" data-testid="save-setup">{{ t('setup.save_all') }}</button><span class="hint">{{ t('setup.unsaved') }}</span></div>{% endif %}
 </form>
 
+{% if screen_scope is not none %}{# D-146 (review J-26): who the study's screening runs look at #}
+<section class="card" id="who" data-testid="setup-who">
+<h2>{{ t('setup.who.title') }}</h2>
+<p class="hint">{{ t('setup.who.help') }}</p>
+{% set wm = screen_scope.mode %}
+<p data-testid="who-now">{% if wm == 'hospital' %}{{ t('setup.who.now.hospital') }}{% elif wm == 'practitioners' %}{{ t('setup.who.now.pract', ids=screen_scope.practitioners|join(', ')) }}{% else %}<span class="warn">{{ t('setup.who.unset') }}</span>{% endif %}{% if screen_scope.set_by %} <span class="hint">{{ t('setup.entered', by=screen_scope.set_by|replace('console:', ''), at=screen_scope.set_at|local) }}</span>{% endif %}</p>
+{% if editable %}<form method="post" action="/studies/{{ rs }}/setup/scope" data-testid="who-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<fieldset><legend>{{ t('setup.who.title') }}</legend>
+<ul class="checks plain">
+<li><label><input type="radio" name="mode" value="hospital"{% if wm != 'practitioners' %} checked{% endif %} data-testid="who-hospital"> {{ t('setup.who.hospital') }}</label></li>
+<li><label><input type="radio" name="mode" value="practitioners"{% if wm == 'practitioners' %} checked{% endif %} data-testid="who-pract"> {{ t('setup.who.pract') }}</label></li>
+</ul></fieldset>
+<label for="who-ids">{{ t('setup.who.ids') }}</label>
+<input id="who-ids" name="practitioners" class="mono" value="{{ screen_scope.practitioners|join(', ') }}" autocapitalize="none" spellcheck="false" data-testid="who-ids">
+<p class="hint">{{ t('setup.who.ids.help') }}</p>
+<button type="submit" data-testid="who-save">{{ t('setup.who.save') }}</button>
+</form>{% endif %}
+</section>
+{% endif %}
+
 {% if link %}<section class="card" data-testid="setup-redcap-check">
 <h2>{{ t('rc.read.title') }}</h2>
 {% if user.can_request %}<form method="post" action="/studies/{{ rs }}/setup/redcap/test" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secondary" data-testid="test-link">{{ t('rc.test') }}</button></form>{% endif %}

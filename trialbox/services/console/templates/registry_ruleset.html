@@ -45,7 +45,7 @@
 <td><span class="pill st-{{ r.status }}">{{ t('registry.status.' + r.status) }}</span></td>
 <td>{{ r.reason or '' }}</td>
 <td class="mono">{{ r.updated_at }}</td>
-<td>{{ r.updated_by }}</td>
+<td>{{ r.updated_by|who }}</td>
 <td>{% if r.source_job %}<a href="/pilot/jobs/{{ r.source_job }}">{{ t('registry.source.' + r.source) }}</a>{% else %}{{ t('registry.source.' + r.source) }}{% endif %}{% if r.tier %} · {{ t('tier.' + r.tier) if r.tier in ('high', 'review', 'excluded') else r.tier }}{% endif %}</td>
 <td>
 <form method="post" action="/pilot/registry/{{ ruleset }}" class="inline">

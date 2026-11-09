@@ -56,6 +56,19 @@ def _private_trial_db(db_url: str) -> str:
     return db_url
 
 
+@pytest.fixture(autouse=True)
+def _keep_service_token() -> Iterator[None]:
+    """``tools.role_demo.orch_client`` sets ``TB_SERVICE_TOKEN`` for its process (a demo box authenticates like a real
+    console). A test that builds such a box must not leave it set: every later test of a service's HTTP surface would
+    then expect a token (the 401s seen after tests/integration/test_list_demo.py in one run, D-146)."""
+    before = os.environ.get("TB_SERVICE_TOKEN")
+    yield
+    if before is None:
+        os.environ.pop("TB_SERVICE_TOKEN", None)
+    else:
+        os.environ["TB_SERVICE_TOKEN"] = before
+
+
 @pytest.fixture
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     for key in list(os.environ):
