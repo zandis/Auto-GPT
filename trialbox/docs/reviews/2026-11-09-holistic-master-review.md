@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Date | 2026-11-09 (evening) |
-| Head reviewed | `claude/trialbox-plan-v4-oxn56n` 6eb7ed8 (code equal to `origin/master` e91871c plus the review records). Wave 1a and 1b fixes exist on the branch `wave1-scenarios` (D-141 to D-143) and are **not merged** at this head; their status is marked "on branch". |
+| Head reviewed | `claude/trialbox-plan-v4-oxn56n` 6eb7ed8 (code equal to `origin/master` e91871c plus the review records). Wave 1a and 1b fixes (D-141 to D-143) were on the branch `wave1-scenarios` when the register was written and are marked "branch"; **they merged to master as 40606a4 (PR #47) on 2026-11-09**, so every "branch" row now reads *done, confirmed at G1*. Revised the same evening for the owner's hardware, hosting, IRB and go-live-order decisions (§2.9, §3 C-29 to C-31, §4 I-68 to I-73). |
 | Owner | Changfu Kuo (Aimedics) |
 | Author | Claude, lead architect, for the master plan TB-PLAN-05 (`docs/plan/25-master-plan.md`) |
 | Status | Record. The register, the contradictions and the coverage check are the input to TB-PLAN-05. New facts go into DECISIONS. |
@@ -48,11 +48,11 @@ Three reviews were still being written when this review started. All three arriv
 
 **The honest gap.** The reviews size the remaining platform work at 215 to 255 engineer-days (full system review) plus 135 to 180 (standalone DB review) plus 14 engineer-weeks of P0 (holistic 03): about 420 to 500 engineer-days of single-engineer work. Agents working in parallel compress calendar time, not review time or hospital lead time. The critical path of the next three months is **not code**: it is the boxes (4 to 8 weeks), hospital IT approval (2 to 6 weeks), two contracts, the second IRB (monthly meetings), and the two unknown data feeds. TB-PLAN-05 shows where each of these can make the date slip and what the fallback is.
 
-**Counts in this register.** 212 rows. By status at head 6eb7ed8: about 34 done or partly done, 21 on a branch (D-141 to D-143, not merged), the rest open or decided-and-open. By severity: 20 Blocker (owner-frame items that block go-live are counted), 60 High, 80 Medium, 30 Low. The counts are by hand and approximate; the rows are what matter.
+**Counts in this register.** 216 rows. By status at head 6eb7ed8: about 34 done or partly done, 21 on a branch (D-141 to D-143, not merged), the rest open or decided-and-open. By severity: 20 Blocker (owner-frame items that block go-live are counted), 60 High, 80 Medium, 30 Low. The counts are by hand and approximate; the rows are what matter.
 
 ## 2. The register
 
-How to read it. **MR** is the master id. **Sources** keeps every original id. **Sev** is the highest any review gave; owner-frame items that block go-live are Blocker. **Status** is checked against the code at head 6eb7ed8 and against DECISIONS: *done* (a decision names the test), *branch* (built on `wave1-scenarios`, D-141 to D-143, not merged), *open*, *decided* (the owner decided it; nothing is built), *docs* (only a document change). **Plan** is the TB-PLAN-05 item that holds it.
+How to read it. **MR** is the master id. **Sources** keeps every original id. **Sev** is the highest any review gave; owner-frame items that block go-live are Blocker. **Status** is checked against the code at head 6eb7ed8 and against DECISIONS: *done* (a decision names the test), *branch* (built on `wave1-scenarios`, D-141 to D-143; **merged to master as 40606a4 on 2026-11-09, so now done and confirmed at G1**), *open*, *decided* (the owner decided it; nothing is built), *docs* (only a document change). **Plan** is the TB-PLAN-05 item that holds it.
 
 ### 2.1 Patient safety and screening correctness
 
@@ -259,16 +259,20 @@ How to read it. **MR** is the master id. **Sources** keeps every original id. **
 | MR | Sources | Sev | Area | Finding, short | Status | Plan |
 | --- | --- | --- | --- | --- | --- | --- |
 | MR-161 | owner frame | Blocker | Feeds | Neither site's data feed is known | open: site survey first | WS-10.2, WS-11.2 |
-| MR-162 | owner frame, D-124, standalone Q40 | Blocker | Boxes | Not bought; 4 to 8 weeks; 2 TB and 128 GB confirmed per site; RTX PRO 6000 | open | WS-14.1, WS-10.1, WS-11.1 |
-| MR-163 | owner frame, field research S5, M1 | Blocker | Hospital IT | Not engaged; device form, network segment, 2 to 6 weeks | open | WS-10.1, WS-11.1 |
-| MR-164 | owner frame, holistic 02 P0-5, §5.5 | Blocker | Contracts | Platform licence, DPA (APPI 委託, PDPA Art. 27, EMR 辦法), 責任分界 sheet, insurance | open | WS-15.1, WS-15.2 |
-| MR-165 | owner frame, holistic 02 P0-4, M4, M8 | Blocker | IRB | Approved at one site; the other's submission, opt-out notice, legal-basis memo | open | WS-10.1 or WS-11.1 |
+| MR-162 | owner frame, D-124, standalone Q40; owner (evening): one Japan box sized for a larger model later, no CGMH box | Blocker | Hardware | Japan: one appliance box, not yet ordered, 4 to 8 weeks; CGMH: no box, a fixed GPU quota on the shared B200 server to be granted | decided, open (order and quota request in W1) | WS-14.1, WS-10.1, WS-11.1, WS-11.8 |
+| MR-163 | owner frame, field research S5, M1; owner (evening): Changfu and Makoto find the contacts; Aimedics drafts the survey and the IT pack | Blocker | Hospital IT | Not engaged; device form, network segment, 2 to 6 weeks; CGMH adds the platform team and the 資訊室 scan | decided, open (drafts written: `docs/plan/sites/`) | WS-10.1, WS-11.1, WS-13.8 |
+| MR-164 | owner frame, holistic 02 P0-5, §5.5 | Blocker | Contracts | Platform licence, DPA (APPI 委託, PDPA Art. 27, EMR 辦法), 責任分界 sheet (with the patch split for the shared host), insurance | open | WS-15.1, WS-15.2 |
+| MR-165 | owner frame, holistic 02 P0-4, M4, M8; owner (evening): both sites have IRB approval | High (was Blocker) | IRB | Both approved; the survey confirms that each covers whole-hospital screening, profiles and the opt-out notice; an amendment if not; the legal-basis memo per site | decided, open (survey questions 11 to 16) | WS-10.1, WS-11.1, WS-13.6 |
 | MR-166 | holistic 02 P0-2, P1-2, Q1, standalone Q36 | High | Regulatory view | Counsel review of TB-DS-16; written 該当性 view and TFDA inquiry before clinician layers | open | WS-15.4 |
 | MR-167 | holistic 02 P0-6, M3, M7, M11 | High | Incident response | Plan with APPI 3–5 d / 30–60 d, PDPA 72 h, 資安法 1 h clocks; tabletop | open | WS-13.5 |
 | MR-168 | holistic 02 P0-8, §5.6, owner (62304 light) | High | QMS | QMS-lite; 62304-shaped records for the profile module per release | decided, open | WS-12.1 |
 | MR-169 | holistic 02 P0-9, §6.1, owner | High | Evidence | Study A protocol: retrospective accuracy at CGMH, PPV ≥ 0.75, wrong exclusion ≤ 2 %, opt-out/waiver; pre-registered | decided, open | WS-16.1 |
 | MR-170 | holistic 02 P0-12, §5.1, P1-1 | High | Support | Named contact, hours, ticket channel, RMA; 開示書 + SLA; pentest | open | WS-17.4, WS-13.8, WS-15.5 |
 | MR-171 | holistic 02 P0-7, P1-3, layer 2 §3.2 | High | Licences (code) | Gemma 4 licence file unread; vLLM/CUDA image redistribution on media; LGPL notices; THIRD_PARTY_NOTICES | open | WS-15.3 |
+| MR-213 | owner (evening): CGMH B200 shared with other work | Blocker (owner frame) | Shared host | The installation must run in containers on a hospital platform TrialBox does not own: install checks (IQ) on the platform, a serving record measured on the quota, isolation from other tenants, network policy as the egress rule, who patches the host, runtime and driver, the GAMP 5 category and supplier assessment of the platform, the security pack and the risk register for a shared host; none of this exists (`install.sh` assumes the appliance) | decided, open | WS-11.8, WS-13.9, WS-14.8, TB-PLAN-05 §7.1, §7.3, RSK-36 to RSK-38 |
+| MR-214 | owner (evening): interim hosting on the hospital's private cloud with GPU | High | Interim hosting | Until the box or the quota is ready, the same container deployment runs on the site's approved private cloud, then migrates by backup and restore; the approval for identified data on that host must be recorded; the migration must keep every row and the audit chain | decided, open | WS-10.8, WS-11.9, survey questions 45 to 48 |
+| MR-215 | owner (evening): CGMH first, then Japan | Medium | Go-live order | CGMH go-live by 2027-01-27 (at the latest 01-29), a week clear of Lunar New Year (2027-02-06); Japan by 02-03; CGMH hypercare over the holiday needs a named contact on duty | decided | TB-PLAN-05 §4.1, §4.2, §11 |
+| MR-216 | coordinator (evening): Meta's Astryx design system (React 19 + StyleX, MIT, beta v0.7, Oct 2026) | Low | Front end | Assessed and deferred to after go-live: the console is server-rendered Jinja with no JS build step, so adopting it rewrites every page; the console is in the GAMP 5 scope, so a rewrite redoes the walk, the journeys and the PQ scripts on the critical path; it is beta; its npm tree is a supply-chain and SBOM burden on an offline box. A candidate for a post-pilot v2 front end (profile wiki, timelines, data-ops console) against mature alternatives once it leaves beta; its accessibility patterns and page templates may serve as design references only | assessed, deferred | WS-18.7 |
 
 ### 2.10 Data-flow lifecycle (from the data-flow review)
 
@@ -360,7 +364,10 @@ The owner decisions document wins. Where it is silent, the later review wins ove
 | C-25 | Severity of MFA | Review 03 Blocker, review 06 Medium, standards review High | **Blocker** (MHLW GL 7.0 from FY2027 is the first-site window; hospital IT questionnaires ask first). |
 | C-26 | "Ask treating doctor" | USER_GUIDE §3 and BD-19 say it exists. Code: three i18n strings, not in `MARKS` | **Code is the truth.** The referral workflow is built in WS-06.3; the user guide is corrected when it lands. |
 | C-27 | Site data arriving as a "feed" vs charts one by one | Plan v4 §3 assumes feeds. D-132 and holistic 01: a site may start with pasted charts; the box must say what it cannot do | **Both paths stay.** The site survey decides which path each site starts on; feasibility counts need a bulk source and the page says so (built, D-135). |
-| C-28 | Pilot dates in the design set | TB-DS-15 and TB-DS-04 §12 plan JP IQ/OQ 2027-01-12 and CGMH 2027-02-15 with 1 × and 2 × RTX 5090 boxes, 256 GB RAM, 8 to 16 TB | **Superseded.** The owner's frame is both sites in parallel within 3 months on RTX PRO 6000 boxes with 2 TB and 128 GB. TB-PLAN-05 §4 holds the schedule; the design set stays a record. |
+| C-28 | Pilot dates and hardware in the design set | TB-DS-15 and TB-DS-04 §12 plan JP IQ/OQ 2027-01-12 and CGMH 2027-02-15 with 1 × and 2 × RTX 5090 boxes, 256 GB RAM, 8 to 16 TB | **Superseded.** The owner's frame is both sites within 3 months, CGMH first on its shared B200 server, Japan on one RTX PRO 6000 box sized for a larger model later (TB-PLAN-05 §1.4, §1.5). The design set stays a record. |
+| C-29 | Which site goes live first | TB-PLAN-05 v1.0 recommended Japan first, CGMH two days later (Q-02). Owner (evening): CGMH first, then Japan | **Owner.** CGMH by 2027-01-27 (at the latest 01-29), a week clear of Lunar New Year; Japan by 02-03 (TB-PLAN-05 v1.1 §4.1). |
+| C-30 | The fallback when hardware is late | TB-PLAN-05 v1.0 recommended a loaner PRO 6000 workstation or a 5090 pair (Q-04). Owner (evening): the hospital's private cloud with GPU, where approved for patient data | **Owner.** The loaner options are withdrawn; WS-10.8 and WS-11.9 hold the interim hosting and the migration drill. |
+| C-31 | Hardware per site | Owner (morning): "first hospital box: 2 TB disk and 128 GB RAM, confirmed per site". Owner (evening): no box for CGMH (shared B200 under a quota); one Japan box sized for a larger model later | **Owner (evening).** The Japan box keeps 2 TB usable (mirrored) and takes 256 GB RAM so a second GPU and the HNSW index fit (TB-PLAN-05 §1.5); CGMH's sizing is the quota and storage class the platform team grants (survey question 46). |
 
 ## 4. Coverage check: every owner intent, and where the plan holds it
 
@@ -420,7 +427,13 @@ Each row is an intent the owner stated in the decisions document or in an earlie
 | I-50 | Both sites in parallel; agents build; Changfu and Makoto review; go-live within 3 months with real patients | "Master plan and pilot" | this plan | TB-PLAN-05 §4 |
 | I-51 | Pilot scope: everything; build all, use all; GAMP 5 of EDC prefill inside 3 months | "Master plan and pilot" | this plan | WS-07, WS-12 |
 | I-52 | Data feeds unknown: plan starts with a site survey | "Master plan and pilot" | this plan | WS-10.2, WS-11.2 |
-| I-53 | Boxes not bought, IT not engaged, contracts not signed, one IRB missing | "Master plan and pilot" | this plan | TB-PLAN-05 §4.3 critical path |
+| I-53 | Boxes not bought, IT not engaged, contracts not signed, one IRB missing | "Master plan and pilot" | superseded in part by I-68 to I-73 the same evening | TB-PLAN-05 §4.3 critical path |
+| I-68 | CGMH hosts TrialBox on its own B200 server, shared with other work; no CGMH box; containers with a fixed GPU quota and own install checks | "Hardware, interim hosting and contacts" | decided | WS-11.8, WS-13.9, WS-14.8, §7.1, §7.3, RSK-36 to RSK-38 |
+| I-69 | One box for Makoto's site; keep the pair; size for a larger model later | same | decided; spec recommended | TB-PLAN-05 §1.5, WS-14.1 |
+| I-70 | Interim hosting on the hospital's private cloud with GPU where approved for patient data | same | decided | WS-10.8, WS-11.9, §4.3 CP-1 |
+| I-71 | Changfu and Makoto find the IT, privacy-office and data-feed contacts; Aimedics drafts the site survey and the hospital IT security pack in ja and zh-TW | same | decided; drafts written | `docs/plan/sites/site-survey.md`, `docs/plan/sites/it-security-pack.md`; WS-10.1, WS-11.1, WS-13.8 |
+| I-72 | Both sites have IRB approval; the survey confirms coverage of whole-hospital screening and profiles | same | decided | survey §A.3; §4.3 CP-4 |
+| I-73 | CGMH first, then Japan; wave 1c before G1; all §13 recommendations accepted (Q-05 to Q-27), Q-15's engineer added | same | decided | TB-PLAN-05 §4.1, §4.2, WS-01.7, §13, WS-17.5 |
 | I-54 | G1 split across parallel VMs with the profile and embedding tests, about US$50, capped and stopped | "Master plan and pilot" | this plan | WS-02.1, WS-02.6 |
 | I-55 | Building continues while the plan is written | "Master plan and pilot" | Wave 1a/1b on branch | WS-01.1 |
 | I-56 | Offline CT.gov and reference data; both modes; wizard default offline; NOTICE page | D-140 | done (full pack build not run) | WS-08.8 |
