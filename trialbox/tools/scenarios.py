@@ -15,12 +15,13 @@ through its own path, screened, and counted against an independent recount from 
     it-dump       an IT department's dump in Shift_JIS with the hospital's own codes, mapped once for the site
     registry      the offline trial registry from the reference data pack sample (D-140), no network
     gateway       a probe: one judge and one chart-reading call through the gateway built as an installed box
-                  builds it (``TB_ENV=PRODUCTION``, no ``TB_DATA_CLASS``); its result is a known finding, not a check
+                  builds it (``TB_ENV=PRODUCTION``, no ``TB_DATA_CLASS``, the pair pinned as install pins it);
+                  both calls must be answered (A-01 and GW-02, fixed in D-142)
 
 Each scenario returns its stages (checks), a ``scenario`` block (input, counts, expected, got, model calls, model
 exclusions against the generator's note truth, extraction scores) and the console pages to photograph. Known
-findings that the run reports but does not fix (the review of 2026-11-09: A-01, P-04, ...) are listed under
-``findings`` and do not fail the run; every other check does.
+findings that the run reports but does not fix are listed under ``findings`` and do not fail the run; every other
+check does. The review's A-01, GW-02, P-04 and B-03 (fixed in D-142) are checks now.
 
 Sizes follow ``--patients`` (:func:`sizes`): on the card 50,000 gives SS-MIX2 and FHIR 5,000 patients each, the
 Excel list 1,000 rows, 200 pasted charts and 60 chart files; a laptop run at 5,000 gives a tenth.
@@ -163,15 +164,38 @@ def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
     return GatewayClient("http://tb-gateway/v1", "orchestrator", http=TestClient(create_app(gw)))
 
 
+def installed_registry(work: Path) -> Path:
+    """The pins ``install.sh`` makes (``tools/pin_model.py --install rtxpro6000``, D-142 review R-01): the profile's
+    pair as champion, from the site's weights in ``deploy/models`` when they are there, else from synthetic weights in
+    ``work`` (the laptop and the stub have none). Written under ``work``, never into the repository."""
+    from tools import pin_model
+
+    out = work / "site" / "registry.site.yaml"
+    if out.exists():
+        return out
+    root = ROOT / "deploy" / "models"
+    dirs = [p[3] for p in pin_model.PROFILE_PAIRS["rtxpro6000"]]
+    if not all((root / d).is_dir() for d in dirs):
+        root = work / "models"
+        for d in dirs:
+            (root / d).mkdir(parents=True, exist_ok=True)
+            (root / d / "model.safetensors").write_bytes(f"synthetic {d}".encode())
+    ok, lines = pin_model.install_pins("rtxpro6000", root, out, {})
+    if not ok:
+        raise RuntimeError("; ".join(lines))
+    return out
+
+
 def installed_env(audit_dir: Path, judge_url: str = "", verifier_url: str = "") -> dict[str, str]:
     """The gateway's environment on an installed RTX PRO 6000 box (``deploy/docker-compose.yml`` and
-    ``docker-compose.rtxpro6000.yml`` defaults; ``install.sh`` writes TB_ENV=PRODUCTION and no TB_DATA_CLASS)."""
+    ``docker-compose.rtxpro6000.yml`` defaults; ``install.sh`` writes TB_ENV=PRODUCTION and no TB_DATA_CLASS, and
+    pins the profile's pair: :func:`installed_registry`)."""
     env = {
         "TB_ENV": "PRODUCTION",
         "TB_TOPOLOGY": "A",
         "TB_PROFILE": "P-PRO6000",
         "TB_AUDIT_DIR": str(audit_dir),
-        "TB_REGISTRY_OVERRIDE": str(ROOT / "deploy" / "site" / "registry.site.yaml"),
+        "TB_REGISTRY_OVERRIDE": str(installed_registry(audit_dir.parent)),
     }
     if judge_url:
         env["TB_EP_SERVING_URL"] = judge_url
@@ -722,13 +746,19 @@ def sc_ssmix2(a: Any, work: Path) -> Result:
         f"SELECT count(DISTINCT pid) AS n FROM condition WHERE code = '{SUSPECT[0]}' AND pid IN ({plist})"
     )
     verdicts = Counter(str(ev[p].results.get("GZQO-EXC-07")) if ev.get(p) else "-" for p in pids)
-    res.finding(
-        "P-04",
-        "patients whose only malignancy is a 疑い (suspected) diagnosis, excluded by GZQO-EXC-07",
-        f"0 of {len(pids)}",
-        f"{excluded} of {len(pids)}; the 疑い diagnosis is in the lake for "
-        f"{in_lake.to_pylist()[0]['n']} of them; EXC-07 verdicts {dict(verdicts)}",
-        excluded == 0,
+    listed = lk.query(
+        f"SELECT count(DISTINCT pid) AS n FROM site_fact WHERE basis = 'suspected' AND pid IN ({plist})"
+    )
+    s.check(
+        "P-04 (D-142): a patient whose only malignancy is a 疑い diagnosis is not excluded by GZQO-EXC-07; the "
+        "diagnosis is listed as suspected, never coded",
+        excluded == 0 and in_lake.to_pylist()[0]["n"] == 0 and listed.to_pylist()[0]["n"] == len(pids),
+        {
+            "excluded": f"{excluded} of {len(pids)}",
+            "coded": in_lake.to_pylist()[0]["n"],
+            "listed_suspected": listed.to_pylist()[0]["n"],
+            "EXC-07": dict(verdicts),
+        },
     )
     s.seconds = time.perf_counter() - t
     res.stages.append(s)
@@ -1537,12 +1567,10 @@ def sc_redcap(a: Any, work: Path) -> Result:
             for x in r.json()
         )
     )
-    res.finding(
-        "B-03",
-        "a longitudinal REDCap project linked with no event: TrialBox's values after two syncs",
-        f"{len(longi)} of {len(longi)} kept",
+    s.check(
+        "B-03 (D-142): a longitudinal REDCap project linked with no event keeps TrialBox's values after two syncs",
+        kept == len(longi) and not longi_err,
         f"{kept} of {len(longi)} kept{'; ' + longi_err if longi_err else ''}",
-        kept == len(longi),
     )
     s.seconds = time.perf_counter() - t
     res.stages.append(s)
@@ -1695,12 +1723,11 @@ def sc_gateway(a: Any, work: Path) -> Result:
             os.environ["TB_DATA_CLASS"] = saved
     s.check("the probe ran", bool(out), out)
     for name, got in out.items():
-        res.finding(
-            "A-01" if name == "judge" else "GW-02",
-            f"a {name} call (a PHI prompt) through the installed box's gateway",
-            "answered",
-            got,
+        s.check(
+            f"{'A-01' if name == 'judge' else 'GW-02'} (D-142): a {name} call (a PHI prompt) through the installed "
+            "box's gateway is answered",
             got == "answered",
+            got,
         )
     s.seconds = time.perf_counter() - t
     res.stages.append(s)
