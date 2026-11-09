@@ -38,6 +38,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from tb_common.derived import reason_of as derived_reason
 from tb_common.reasons import CODES as REASON_CODES
 from tb_common.ruleset import Ruleset
 from tb_common.timeutil import add_months, month_ends
@@ -490,6 +491,8 @@ class _Run:
 
     def _s1_coded(self, c: CriterionIR, row: Mapping[str, Any]) -> Outcome:
         v = row.get(f"C_{c.id}")
+        # D-149: a score with no value carries its reason (missing input, unit) in the evidence, not a record
+        why, refs = derived_reason(x for x in str(row.get(f"E_{c.id}") or "").split(";") if x)
         ev = [
             {
                 "source": "lake",
@@ -498,9 +501,11 @@ class _Run:
                 "lineage": f"snapshot:{self.cfg.snapshot or ''}",
                 "index_date": row["index_date"].isoformat(),
             }
-            for x in str(row.get(f"E_{c.id}") or "").split(";")
-            if x
+            for x in refs
         ]
+        if v is None and why is not None:
+            return Outcome(c.id, "pass" if c.kind == "exclusion" else "unknown", "S1", unknown_kind="data_gap",
+                           evidence=ev, reason=why)  # fmt: skip
         if c.kind == "exclusion":
             if v is True:
                 return Outcome(c.id, "fail", "S1", hard=True, stratum=STRATUM_S1, evidence=ev, reason="matching record")

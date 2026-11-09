@@ -437,6 +437,8 @@ class NotV1Expressible(ValueError):
 V1_DERIVED_CALC: dict[str, str] = {
     "bmi": "bmi@1.0.0",
     "egfr": "egfr_ckd_epi_2021@1.0.0",
+    "egfr_ckd_epi": "egfr_ckd_epi_2021@1.1.0",  # D-149: the equation named, the creatinine unit checked
+    "egfr_jsn": "egfr_jsn_2009@1.0.0",  # D-149: the Japanese equation (Matsuo 2009)
     "das28": "das28@1.0.0",  # v1: DAS28-ESR when an ESR exists in the window, else DAS28-CRP
     "basdai": "basdai@1.0.0",
     "asdas": "asdas_crp@1.0.0",

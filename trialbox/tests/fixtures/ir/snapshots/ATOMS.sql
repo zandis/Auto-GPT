@@ -877,22 +877,26 @@ c_atoms_inc_13 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_13_1 ON a_atoms_inc_13_1.pid = b.pid AND a_atoms_inc_13_1.index_date = b.index_date),
 a_atoms_inc_14_1_weight AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[lb_av]' THEN o.value_num * 0.45359237 WHEN 'g' THEN o.value_num * 0.001 WHEN 'kg' THEN o.value_num * 1.0 WHEN 'lb' THEN o.value_num * 0.45359237 ELSE NULL END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
     WHERE o.system = 'http://loinc.org' AND o.code = '29463-7') WHERE rn = 1),
 a_atoms_inc_14_1_height AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[in_i]' THEN o.value_num * 2.54 WHEN 'cm' THEN o.value_num * 1.0 WHEN 'in' THEN o.value_num * 2.54 WHEN 'm' THEN o.value_num * 100.0 WHEN 'mm' THEN o.value_num * 0.1 ELSE NULL END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
     WHERE o.system = 'http://loinc.org' AND o.code = '8302-2') WHERE rn = 1),
-a_atoms_inc_14_1 AS (
-  SELECT b.pid, b.index_date, weight.value_num / pow(height.value_num / 100.0, 2) AS val, concat_ws(';', weight.oid || '|' || strftime(weight.effective, '%Y-%m-%d'), height.oid || '|' || strftime(height.effective, '%Y-%m-%d')) AS ev
+a_atoms_inc_14_1_v AS (
+  SELECT b.pid, b.index_date, weight.conv / pow(height.conv / 100.0, 2) AS val, concat_ws(';', weight.oid || '|' || strftime(weight.effective, '%Y-%m-%d'), height.oid || '|' || strftime(height.effective, '%Y-%m-%d')) AS refs,
+         (CASE WHEN weight.oid IS NULL OR weight.value_num IS NULL THEN 'derived_missing_input:weight' WHEN weight.conv IS NULL THEN 'derived_unit:weight' WHEN height.oid IS NULL OR height.value_num IS NULL THEN 'derived_missing_input:height' WHEN height.conv IS NULL THEN 'derived_unit:height' ELSE 'derived_missing_input' END) AS why
   FROM base b
   LEFT JOIN a_atoms_inc_14_1_weight weight ON weight.pid = b.pid AND weight.index_date = b.index_date
   LEFT JOIN a_atoms_inc_14_1_height height ON height.pid = b.pid AND height.index_date = b.index_date),
+a_atoms_inc_14_1 AS (
+  SELECT pid, index_date, val, CASE WHEN val IS NULL THEN why ELSE refs END AS ev
+  FROM a_atoms_inc_14_1_v),
 -- ATOMS-INC-14 (inclusion): BMI computable
 c_atoms_inc_14 AS (
   SELECT b.pid, b.index_date, (CASE WHEN a_atoms_inc_14_1.val IS NULL THEN NULL ELSE TRUE END) AS v,
@@ -900,43 +904,51 @@ c_atoms_inc_14 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_14_1 ON a_atoms_inc_14_1.pid = b.pid AND a_atoms_inc_14_1.index_date = b.index_date),
 a_atoms_inc_15_1_tjc28 AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'TJC28') WHERE rn = 1),
 a_atoms_inc_15_1_sjc28 AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
+    JOIN a_atoms_inc_15_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'SJC28') WHERE rn = 1),
 a_atoms_inc_15_1_ptga AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
+    JOIN a_atoms_inc_15_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'PTGA') WHERE rn = 1),
 a_atoms_inc_15_1_esr AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
+    JOIN a_atoms_inc_15_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
     WHERE o.system = 'http://loinc.org' AND o.code = '4537-7') WHERE rn = 1),
 a_atoms_inc_15_1_crp AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
+    JOIN a_atoms_inc_15_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
     WHERE o.system = 'http://loinc.org' AND o.code = '1988-5') WHERE rn = 1),
-a_atoms_inc_15_1 AS (
-  SELECT b.pid, b.index_date, (CASE WHEN tjc28.value_num IS NULL OR sjc28.value_num IS NULL OR ptga.value_num IS NULL THEN NULL WHEN esr.value_num IS NOT NULL THEN 0.56 * sqrt(tjc28.value_num) + 0.28 * sqrt(sjc28.value_num) + 0.014 * ptga.value_num + 0.7 * ln(esr.value_num) WHEN crp.value_num IS NOT NULL THEN 0.56 * sqrt(tjc28.value_num) + 0.28 * sqrt(sjc28.value_num) + 0.014 * ptga.value_num + 0.36 * ln(crp.value_num + 1) + 0.96 ELSE NULL END) AS val, concat_ws(';', tjc28.oid || '|' || strftime(tjc28.effective, '%Y-%m-%d'), sjc28.oid || '|' || strftime(sjc28.effective, '%Y-%m-%d'), ptga.oid || '|' || strftime(ptga.effective, '%Y-%m-%d'), esr.oid || '|' || strftime(esr.effective, '%Y-%m-%d'), crp.oid || '|' || strftime(crp.effective, '%Y-%m-%d')) AS ev
+a_atoms_inc_15_1_v AS (
+  SELECT b.pid, b.index_date, (CASE WHEN tjc28.conv IS NULL OR sjc28.conv IS NULL OR ptga.conv IS NULL THEN NULL WHEN esr.oid IS NOT NULL THEN (CASE WHEN esr.conv > 0 THEN 0.56 * sqrt(tjc28.conv) + 0.28 * sqrt(sjc28.conv) + 0.014 * ptga.conv + 0.7 * ln(esr.conv) ELSE NULL END) WHEN crp.conv IS NOT NULL THEN 0.56 * sqrt(tjc28.conv) + 0.28 * sqrt(sjc28.conv) + 0.014 * ptga.conv + 0.36 * ln(crp.conv + 1) + 0.96 ELSE NULL END) AS val, concat_ws(';', tjc28.oid || '|' || strftime(tjc28.effective, '%Y-%m-%d'), sjc28.oid || '|' || strftime(sjc28.effective, '%Y-%m-%d'), ptga.oid || '|' || strftime(ptga.effective, '%Y-%m-%d'), esr.oid || '|' || strftime(esr.effective, '%Y-%m-%d'), crp.oid || '|' || strftime(crp.effective, '%Y-%m-%d')) AS refs,
+         (CASE WHEN tjc28.oid IS NULL OR tjc28.value_num IS NULL THEN 'derived_missing_input:tjc28' WHEN tjc28.conv IS NULL THEN 'derived_unit:tjc28' WHEN sjc28.oid IS NULL OR sjc28.value_num IS NULL THEN 'derived_missing_input:sjc28' WHEN sjc28.conv IS NULL THEN 'derived_unit:sjc28' WHEN ptga.oid IS NULL OR ptga.value_num IS NULL THEN 'derived_missing_input:ptga' WHEN ptga.conv IS NULL THEN 'derived_unit:ptga' WHEN esr.oid IS NOT NULL AND esr.value_num IS NULL THEN 'derived_missing_input:esr' WHEN esr.oid IS NOT NULL AND esr.conv IS NULL THEN 'derived_unit:esr' WHEN esr.oid IS NOT NULL AND esr.conv <= 0 THEN 'derived_missing_input:esr' WHEN crp.oid IS NULL OR crp.value_num IS NULL THEN 'derived_missing_input:crp' WHEN crp.conv IS NULL THEN 'derived_unit:crp' ELSE 'derived_missing_input' END) AS why
   FROM base b
   LEFT JOIN a_atoms_inc_15_1_tjc28 tjc28 ON tjc28.pid = b.pid AND tjc28.index_date = b.index_date
   LEFT JOIN a_atoms_inc_15_1_sjc28 sjc28 ON sjc28.pid = b.pid AND sjc28.index_date = b.index_date
   LEFT JOIN a_atoms_inc_15_1_ptga ptga ON ptga.pid = b.pid AND ptga.index_date = b.index_date
   LEFT JOIN a_atoms_inc_15_1_esr esr ON esr.pid = b.pid AND esr.index_date = b.index_date
   LEFT JOIN a_atoms_inc_15_1_crp crp ON crp.pid = b.pid AND crp.index_date = b.index_date),
+a_atoms_inc_15_1 AS (
+  SELECT pid, index_date, val, CASE WHEN val IS NULL THEN why ELSE refs END AS ev
+  FROM a_atoms_inc_15_1_v),
 -- ATOMS-INC-15 (inclusion): DAS28 > 3.2 in 180 days
 c_atoms_inc_15 AS (
   SELECT b.pid, b.index_date, (a_atoms_inc_15_1.val > 3.2) AS v,
@@ -944,15 +956,19 @@ c_atoms_inc_15 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_15_1 ON a_atoms_inc_15_1.pid = b.pid AND a_atoms_inc_15_1.index_date = b.index_date),
 a_atoms_inc_16_1_creatinine AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
     WHERE o.system = 'http://loinc.org' AND o.code = '2160-0') WHERE rn = 1),
-a_atoms_inc_16_1 AS (
-  SELECT b.pid, b.index_date, (CASE WHEN creatinine.value_num IS NULL OR date_sub('year', b.birth_date, b.index_date) IS NULL OR (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) IS NULL THEN NULL ELSE 142.0 * pow(least(creatinine.value_num / (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 0.7 ELSE 0.9 END), 1.0), (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN -0.241 ELSE -0.302 END)) * pow(greatest(creatinine.value_num / (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 0.7 ELSE 0.9 END), 1.0), -1.2) * pow(0.9938, date_sub('year', b.birth_date, b.index_date)) * (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 1.012 ELSE 1.0 END) END) AS val, concat_ws(';', creatinine.oid || '|' || strftime(creatinine.effective, '%Y-%m-%d')) AS ev
+a_atoms_inc_16_1_v AS (
+  SELECT b.pid, b.index_date, (CASE WHEN creatinine.conv IS NULL OR date_sub('year', b.birth_date, b.index_date) IS NULL OR (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) IS NULL THEN NULL ELSE 142.0 * pow(least(creatinine.conv / (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 0.7 ELSE 0.9 END), 1.0), (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN -0.241 ELSE -0.302 END)) * pow(greatest(creatinine.conv / (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 0.7 ELSE 0.9 END), 1.0), -1.2) * pow(0.9938, date_sub('year', b.birth_date, b.index_date)) * (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 1.012 ELSE 1.0 END) END) AS val, concat_ws(';', creatinine.oid || '|' || strftime(creatinine.effective, '%Y-%m-%d')) AS refs,
+         (CASE WHEN creatinine.oid IS NULL OR creatinine.value_num IS NULL THEN 'derived_missing_input:creatinine' WHEN creatinine.conv IS NULL THEN 'derived_unit:creatinine' WHEN date_sub('year', b.birth_date, b.index_date) IS NULL THEN 'derived_missing_input:age' WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) IS NULL THEN 'derived_missing_input:sex' ELSE 'derived_missing_input' END) AS why
   FROM base b
   LEFT JOIN a_atoms_inc_16_1_creatinine creatinine ON creatinine.pid = b.pid AND creatinine.index_date = b.index_date),
+a_atoms_inc_16_1 AS (
+  SELECT pid, index_date, val, CASE WHEN val IS NULL THEN why ELSE refs END AS ev
+  FROM a_atoms_inc_16_1_v),
 -- ATOMS-INC-16 (inclusion): eGFR between 30 and 90
 c_atoms_inc_16 AS (
   SELECT b.pid, b.index_date, (a_atoms_inc_16_1.val BETWEEN 30 AND 90) AS v,

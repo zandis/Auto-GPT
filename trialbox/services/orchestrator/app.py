@@ -578,6 +578,12 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
     o.audit.append("registry.export", ruleset=rid, actor=claim.name, output_sha=sha256_bytes(data),
                    detail={"session": claim.session, "verified": claim.verified,
                            "caller": getattr(request.state, "tb_caller", None) or ""})  # fmt: skip
+    from tb_common.flowledger import record_export
+
+    record_export(o.audit, channel="registry_export", filename=f"screening_log_{rid}.xlsx", data=data,
+                  identifier_level="identified", actor=claim.name, ruleset=rid,
+                  approval=f"study {rid} screening log; {'verified' if claim.verified else 'unverified'} sign-in, "
+                           f"rate-limited (S-09)")  # fmt: skip
     return Response(
         data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

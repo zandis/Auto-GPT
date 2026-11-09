@@ -74,8 +74,15 @@ FHIR R4 NDJSON snapshot ──► fhir-store (delta load: only new or changed re
                             procedure, report, document, claim, consent, appointment, practitioner) + note chunks
 ```
 
-- The nightly ingest (02:00) checks a 1 % HL7 validator sample and fails above 0.5 % errors.
+- The nightly ingest (02:00) checks a 1 % HL7 validator sample and fails above 0.5 % errors. The check runs before
+  fhir-store and the lake are loaded: a failed night is *held* and `CURRENT` keeps the previous snapshot (D-149).
+- A delta night (`--since`) drops what the source deleted (SS-MIX2 flag 0, FHIR bulk `deleted`, a `deleted` column):
+  `tombstones.json` beside the snapshot lists them (D-149).
+- Each snapshot file records its lake schema version in `lake_meta` and has `.sha256` sidecars; a reader refuses a
+  version it does not know. Note vectors live once, in `embed_cache.duckdb`, read by chunk sha (D-149).
 - Snapshots kept: 3 nightly and 36 month-ends.
+- Every file that leaves the box is a `flow.export` row of the audit chain (export ledger: identifier level, approval,
+  sha256, recipients); `python -m tools.trialbox exports --days 30` lists them (D-149).
 - Japan: the SS-MIX2 reader handles ADT-00/12/22/52, PPR-01, OMP-01/02/11/12, OML-11 and extended storage; output
   carries JP Core profiles, validated on a sample at ingest (D-122, D-137).
 - Taiwan: CSV or CGRD SQL views with TW Core profiles.

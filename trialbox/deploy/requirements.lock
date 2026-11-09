@@ -198,3 +198,5 @@ urllib3==2.8.0
     # via dulwich
 uvicorn==0.54.0
     # via trialbox (pyproject.toml)
+zstandard==0.25.0
+    # via trialbox (pyproject.toml)

@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import yaml
 from lake.client import LakeAPI
 from tb_common.audit import AuditLog
+from tb_common.derived import country_of, egfr_for_site
 from tb_common.fhir import FhirEvaluator, library_resource
 from tb_common.llm import LlmClient, LlmError
 from tb_common.objstore import ObjectStore
@@ -90,6 +91,14 @@ class CompilerDeps:
     judge_model: str = ""
     equivalence: EquivalenceFn | None = None  # override for tests
     ctgov: CtGov | None = None  # ClinicalTrials.gov client (COHORT trial simulation); default from TB_CTGOV_MODE
+    # what a plain "eGFR" criterion becomes at this site (D-149); None: from the site's time zone (JP: JSN 2009)
+    egfr_equation: str | None = None
+
+    def egfr(self) -> str:
+        if self.egfr_equation:
+            return self.egfr_equation
+        site = egfr_for_site(country_of(self.tz))
+        return "egfr" if site == "egfr_ckd_epi" else site  # a plain egfr already means CKD-EPI 2021
 
 
 class Compiler:
@@ -434,7 +443,9 @@ class Compiler:
         if todo:
             extracted, guard = self._extract(req.job_id, ruleset, parsed.language, todo)
             guard_hit = guard.hit
-            post = postprocess(ruleset, extracted, self.d.term, version, self._concept_map(req.job_id), dict(offsets))
+            post = postprocess(
+                ruleset, extracted, self.d.term, version, self._concept_map(req.job_id), dict(offsets), self.d.egfr()
+            )
             criteria_new = post.criteria
             valuesets.update(post.valuesets)
             warnings.extend(post.warnings)
@@ -639,7 +650,9 @@ class Compiler:
         if to_extract:
             lines = [{"text": text, "kind": c.kind, "source_ref": c.source_ref or ""} for c, text in to_extract]
             extracted, _ = self._extract(job_id, req.ruleset, rs.manifest.language or "en", lines)
-            post = postprocess(req.ruleset, extracted, self.d.term, req.version, self._concept_map(job_id))
+            post = postprocess(
+                req.ruleset, extracted, self.d.term, req.version, self._concept_map(job_id), egfr=self.d.egfr()
+            )
             valuesets.update(post.valuesets)
             replaced = {
                 orig.id: new.model_copy(update={"id": orig.id, "review": CriterionReview(status="draft")})

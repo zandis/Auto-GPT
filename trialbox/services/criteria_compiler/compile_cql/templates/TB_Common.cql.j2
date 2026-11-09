@@ -34,6 +34,32 @@ define function "IsFemale"(P FHIR.Patient):
 define function "BMI"(weightKg System.Decimal, heightCm System.Decimal):
   weightKg / Power(heightCm / 100.0, 2.0)
 
+/* the recorded unit of an Observation, spelled as the conversion table spells it (D-149) */
+define function "UnitOf"(O FHIR.Observation):
+  Lower(ReplaceMatches(ReplaceMatches(ReplaceMatches(Coalesce((O.value as FHIR.Quantity).code.value,
+    (O.value as FHIR.Quantity).unit.value, ''), ' ', ''), 'µ', 'u'), 'μ', 'u'))
+
+/* a component in the unit its formula expects; null when the recorded unit is not allowed (D-149) */
+{%- for comp, (target, factors) in units %}
+define function "Conv_{{ comp }}"(O FHIR.Observation):
+  if O is null then null
+  else case "UnitOf"(O)
+{%- for u, f in factors %}
+    when '{{ u }}' then "ObsValue"(O) * {{ f }}
+{%- endfor %}
+    else null end
+{%- endfor %}
+{%- for comp, allowed in unitless %}
+define function "Conv_{{ comp }}"(O FHIR.Observation):
+  if O is null then null
+  else if "UnitOf"(O) in { {{ allowed }} } then "ObsValue"(O) else null
+{%- endfor %}
+
+/* the same visit: X within the given days of the anchor component's row (D-149) */
+define function "SameVisit"(X FHIR.Observation, A FHIR.Observation, maxDays System.Integer):
+  if A is null then false
+  else Abs((difference in days between "ObsDate"(A) and "ObsDate"(X))) <= maxDays
+
 /* CKD-EPI 2021, race-free */
 define function "EGFR2021"(scr System.Decimal, age System.Integer, female System.Boolean):
   if scr is null or age is null or female is null then null
@@ -43,11 +69,18 @@ define function "EGFR2021"(scr System.Decimal, age System.Integer, female System
        * Power({{ egfr.age_base }}, age)
        * (if female then {{ egfr.female }} else 1.0)
 
-/* DAS28-ESR if ESR available, else DAS28-CRP (CRP mg/L) */
-define function "DAS28"(tjc System.Decimal, sjc System.Decimal, ptga System.Decimal, esr System.Decimal, crp System.Decimal):
+/* JSN 2009 (Japanese Society of Nephrology; D-149) */
+define function "EGFRJSN"(scr System.Decimal, age System.Integer, female System.Boolean):
+  if scr is null or scr <= 0 or age is null or age <= 0 or female is null then null
+  else {{ jsn.k }} * Power(scr, {{ jsn.scr_exp }}) * Power(age, {{ jsn.age_exp }}) * (if female then {{ jsn.female }} else 1.0)
+
+/* DAS28-ESR if the visit has an ESR row (its value in mm/h, null when its unit does not fit or it is 0), else
+   DAS28-CRP (CRP mg/L) */
+define function "DAS28"(tjc System.Decimal, sjc System.Decimal, ptga System.Decimal, hasEsr System.Boolean, esr System.Decimal, crp System.Decimal):
   if tjc is null or sjc is null or ptga is null then null
-  else if esr is not null then
-    {{ das.tjc }} * Power(tjc, 0.5) + {{ das.sjc }} * Power(sjc, 0.5) + {{ das.esr_ln }} * Ln(esr) + {{ das.gh }} * ptga
+  else if hasEsr then
+    if esr is null or esr <= 0 then null
+    else {{ das.tjc }} * Power(tjc, 0.5) + {{ das.sjc }} * Power(sjc, 0.5) + {{ das.esr_ln }} * Ln(esr) + {{ das.gh }} * ptga
   else if crp is not null then
     {{ das.tjc }} * Power(tjc, 0.5) + {{ das.sjc }} * Power(sjc, 0.5) + {{ das.crp_ln }} * Ln(crp + 1.0) + {{ das.gh }} * ptga + {{ das.crp_const }}
   else null

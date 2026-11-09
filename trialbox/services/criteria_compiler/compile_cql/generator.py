@@ -11,7 +11,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
-from tb_common.derived import ASDAS, CODES, COMPONENTS, DAS28, EGFR, LOINC, SCORE
+from tb_common.derived import (
+    ASDAS,
+    CODES,
+    COMPONENTS,
+    DAS28,
+    EGFR,
+    EGFR_JSN,
+    LOINC,
+    SAME_VISIT,
+    SCORE,
+    UNIT_OF_SCORE_ITEM,
+    UNITLESS,
+    UNITS,
+)
 from tb_common.fhir import library_name
 from tb_contracts import Atom, BoolExpr, CriterionIR
 
@@ -44,8 +57,25 @@ FAMILY_CODINGS = {
 }
 
 
+def _cql_dec(x: float) -> str:
+    """A CQL Decimal literal (at most 8 decimal places)."""
+    s = f"{x:.8f}".rstrip("0")
+    return s + "0" if s.endswith(".") else s
+
+
 def render_common() -> str:
-    return _env.get_template("TB_Common.cql.j2").render(egfr=EGFR, das=DAS28, asdas=ASDAS)
+    units = [
+        (comp, (target, [(u, _cql_dec(f)) for u, f in sorted(factors.items())]))
+        for comp, (target, factors) in sorted(UNITS.items())
+    ]
+    unitless = [
+        (comp, ", ".join(f"'{u}'" for u in sorted(UNIT_OF_SCORE_ITEM.get(comp, UNITLESS))))
+        for comp in sorted(CODES)
+        if comp not in UNITS
+    ]
+    return _env.get_template("TB_Common.cql.j2").render(
+        egfr=EGFR, jsn=EGFR_JSN, das=DAS28, asdas=ASDAS, units=units, unitless=unitless
+    )
 
 
 def q(name: str) -> str:
@@ -232,20 +262,31 @@ class CqlGenerator:
         defs: list[str] = []
         latest: dict[str, str] = {}
         assert atom.derived is not None
-        for comp in COMPONENTS[atom.derived]:
+        if atom.derived not in COMPONENTS:
+            raise CompileError(f"derived {atom.derived}")
+        rule = SAME_VISIT.get(atom.derived)  # D-149: one visit, anchored on the newest anchor component
+        comps = COMPONENTS[atom.derived]
+        order = [rule[0], *[c for c in comps if c != rule[0]]] if rule else list(comps)
+        for comp in order:
             cn = self._code_name(ctx, comp)
             qname = f"Q_{p}_{comp}"
-            defs.append(f"define {q(qname)}:\n  [Observation: {q(cn)}] X where TB.ObsDate(X) in {win}")
+            near = ""
+            if rule is not None and comp != rule[0]:
+                near = f" and TB.SameVisit(X, {q(f'L_{p}_{rule[0]}')}, {int(rule[1][comp])})"
+            defs.append(f"define {q(qname)}:\n  [Observation: {q(cn)}] X where TB.ObsDate(X) in {win}{near}")
             defs.append(f"define {q(f'L_{p}_{comp}')}:\n  TB.LatestObs({q(qname)})")
-            latest[comp] = f"TB.ObsValue({q(f'L_{p}_{comp}')})"
+            latest[comp] = f"TB.{q('Conv_' + comp)}({q(f'L_{p}_{comp}')})"  # in the formula's unit (D-149)
         match atom.derived:
             case "bmi":
                 value = f"TB.BMI({latest['weight']}, {latest['height']})"
-            case "egfr":
+            case "egfr" | "egfr_ckd_epi":
                 value = f"TB.EGFR2021({latest['creatinine']}, AgeInYearsAt(IndexDate), TB.IsFemale(Patient))"
+            case "egfr_jsn":
+                value = f"TB.EGFRJSN({latest['creatinine']}, AgeInYearsAt(IndexDate), TB.IsFemale(Patient))"
             case "das28":
+                has_esr = f"{q(f'L_{p}_esr')} is not null"
                 value = (
-                    f"TB.DAS28({latest['tjc28']}, {latest['sjc28']}, {latest['ptga']}, {latest['esr']}, "
+                    f"TB.DAS28({latest['tjc28']}, {latest['sjc28']}, {latest['ptga']}, {has_esr}, {latest['esr']}, "
                     f"{latest['crp']})"
                 )
             case "basdai":
