@@ -2809,3 +2809,85 @@ committed sheet says offline is the default.
 * jRCT waits for the help desk's answer. Offline search is substring matching (no synonyms as the live API's
   `query.cond` has); trials of the TFDA and UMIN parts are queryable by the store but not yet used by COHORT.
 * Not run: Docker, a compose box's `apply_update` with a real refdata payload, `install.sh` beyond `--ctgov-check`.
+
+**D-142 Review wave 1a: screening and data blockers fixed.** Pre-release review of 2026-11-09 (reports 01, 02 and 06;
+consolidated items R-01, R-37, R-38), 2026-11-09. One commit per item, each with a test that fails before the fix.
+Built in a cloud container, no GPU, no Docker; synthetic data only.
+
+* **PHI prompts on an installed box (A-01).** The compose gateway has no step confirmer, so every D3 call (the judge,
+  the verifier, chart facts: `phi: true` prompts, labelled D3 when `TB_DATA_CLASS` is empty, as install leaves it) was
+  refused. Decision: a box policy in `models/routing.yaml` (`phi_on_box`) instead of wiring the orchestrator's job
+  check first. On an on-prem box (topology A) in PRODUCTION, with **no** step confirmer wired, a D3 call from the
+  orchestrator or matching is allowed and sent to **perimeter endpoints only**; the audit record says
+  `step_basis: box_policy`. The data never leaves the box, which is what LLM-2's step check protects in the other
+  topologies. D4, topologies B (cloud tenant) and C (model egress), every other caller, and a box where a confirmer is
+  wired still need a live, delegated step; `may_reach` keeps D3/D4 off every external route as before; the loader
+  refuses any `phi_on_box` with a topology other than A or a class other than D3. `chart_facts` gets a gateway role
+  (`abstract_field`, it had none). Found on the way and fixed: `install.sh` wrote the compose profile (`gpu`) into
+  `TB_LLM_MODE`, which every service's config refuses; it now writes `vllm`. A pair profile now names its verifier
+  (`TB_GATEWAY_VERIFIER_MODEL=v-verifier`), else `both_agree` ran single-model.
+* **Pins that PRODUCTION routes (R-01).** No committed build has a sha256, and a pin made by hand without
+  `--status champion` does not route in PRODUCTION. `tools/pin_model.py --install <gpu>` pins the GPU profile's
+  deployed pair from the site's own weights in `deploy/models` (the served names compose gives vLLM, status
+  `champion`: the profile's measured release, D-112); `install.sh` runs it before `--verify-all`. Builds already
+  pinned are kept; missing weights are reported and that model routes nothing. `test_gateway_box_phi.py` builds the
+  gateway and the orchestrator's clients from `.env.example`, the lines install appends and the compose
+  `environment:` blocks, pins as install does, and runs a judge, a verifier and a chart-facts call through the real
+  gateway app; external, B, C, D4 and unlisted callers are refused.
+* **Lab text (B-01).** One reader, `tb_common.labvalue`, for the mapping (CSV, CGRD, SS-MIX2 OBX-5) and the lake
+  (FHIR `valueString`): "75 H" is 75; "<0.3", ">1000", "0.3未満", "100以上" are censored (`Quantity.comparator`, lake
+  column `observation.value_cmp`). A censored value decides a comparison only when every value on that side of the
+  bound does (the bound counts as reachable, so a borderline case stays unknown, never wrong). Text that is no number
+  ("検出せず", "陰性") is NULL. The SQL quantifiers `any`, `none`, `all`, `count>=` and `latest` are unknown, not FALSE,
+  when an unreadable row could change the answer; the CQL generator says the same for null values. Approved SQL of the
+  committed rulesets is unchanged (they use `latest`, already NULL on text).
+* **Patients without a base row (B-02).** A scoped patient the compiled SQL's `base` drops goes to review: reason
+  `not_in_snapshot` when the snapshot does not hold the patient, `check_dates` (new, en / ja / zh-TW) when it holds
+  them deceased or born after the screening date. The scope query reads the cascade's pinned snapshot. The run's
+  `opted_out` count no longer includes them (`not_at_index` counts them).
+* **疑い diagnoses (review 02, P-04, S10).** Verified against the SS-MIX2 標準化ストレージ仕様書 v1.2h, 表 3-47 (PRB, from
+  JAHIS 病名情報データ交換規約 3.1C): PRB-13 is the 疑い病名フラグ, JHSD 表 0005, code `1` 疑いあり (code table v1.2i,
+  表 95). The reader sets `suspected` from PRB-13, or from a 病名 whose text carries 疑い when a vendor sends no flag;
+  the shared mapping (every TW, CSV, CGRD and JP mapping extends it) writes `Condition.verificationStatus =
+  provisional`. The lake keeps provisional, differential and unconfirmed diagnoses (from any FHIR source too) out of
+  `condition` and lists them in `site_fact` with basis `suspected`; D-135's rule then makes any answer they could
+  change unknown, reason `suspected_diagnosis` (en / ja / zh-TW), in the SQL engine and the cascade. Refuted and
+  entered-in-error diagnoses are dropped. Other inputs: FHIR carries the same `verificationStatus` (handled); a CSV or
+  CGRD site can fill the canonical column `suspected`; Taiwan's CGRD and NHI exports have no such flag.
+* **REDCap longitudinal projects (B-03).** With no event set, the rows of one record (one per event or repeat
+  instance) are one row: a field takes its non-blank cell, a blank in another event is never a value, and a field with
+  different values on two events is refused and listed ("set the REDCap event"), not guessed.
+* **A lost database connection (A-02).** Decision: reopen, not `psycopg_pool`. Each store keeps one serialised
+  connection (the stores rely on it), and the pool package is not in the images. `Database.transaction()` reopens a
+  connection psycopg reports closed or broken, and retries `BEGIN` once on a fresh connection when the server dropped
+  it (nothing of the transaction ran, so reads and writes alike are safe). A failure inside a transaction is raised,
+  never repeated; the next call works. Advisory-lock `migrate` and `tb_prefix` are unchanged. `Database.ping()` backs
+  the console's `/healthz` (503 when the store is gone), the mail gateway's and the model gateway's (trace store); the
+  orchestrator's already reads its job store. Tests kill a backend and restart a throwaway cluster.
+* **Excerpts (A-06, R-37).** A note over half the excerpt budget is cut to that half (its evidence sentences first,
+  whole sentences of the note); a note that does not fit is skipped and the search goes on, so one long newest note no
+  longer hides the older evidence.
+* **S3/S4 throughput and the call budget (A-07, R-38).** The cascade runs patients' model calls `llm_concurrency` at
+  a time (each patient's criteria still in order, CAS-3; the budget reserved under a lock; answers equal to the
+  one-by-one run). SCREEN takes it from `TB_SCREEN_LLM_CONCURRENCY`, which the GPU compose files set to the judge's
+  `--max-num-seqs`. SCREEN's call budget is explicit: job option `max_pairs`, else `TB_SCREEN_MAX_PAIRS`, else 20,000
+  (was a silent 2,000). When it runs out, the summary says how many patients were not fully read (en / ja / zh-TW),
+  and the report JSON and the audit carry the count; those patients are listed for review, never excluded.
+* **Tests changed because they encoded the bug.** `test_gateway.py`: the D3-without-step refusals now run under
+  topology B (the box policy applies to A only).
+
+* **Evidence.** Suites: unit, console and testbench 1,460 passed. `make lint` clean (doclint clean).
+  `tools/e2e_simple.py`: PASSED in 165 s. `tools.backup_drill`: PASSED in 128 s.
+
+*Not done.*
+
+* LLM-2 proper (the orchestrator confirms the job step, `X-TB-Step`) for topologies B and C; `trialbox doctor` does not
+  yet fail when the gateway would refuse the judge.
+* The SS-MIX2 reader still takes ICD-10 from PRB-3's alternate coding only; the spec's example carries it in PRB-10
+  (`<ICD-10>^^I10^<診断種別>^...^JHSD0004`). PRB-14 is read as `R`/`resolved` only (HL7 0241 / JHSD0006 not mapped).
+* The CQL side does not read censored values (`TB_Common.cql`'s `ObsValue` ignores the comparator); CQL runs only in
+  the compile-time gate on fixtures, which have none. An "unreadable value" reason code (SQL NULL from text shows as a
+  data gap) and the "Excluded by records" page of P-04 are not built. A lake snapshot built before this step has no
+  `value_cmp` column: a ruleset compiled after the upgrade needs a rebuilt snapshot (the nightly rebuild makes one).
+* With concurrency, which patients a budget that runs out leaves unread depends on timing (it is counted and shown).
+* Not run here: Docker, `install.sh` on a box, a GPU pair. Other agents share this machine's Postgres.
