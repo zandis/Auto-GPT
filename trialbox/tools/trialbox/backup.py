@@ -5,9 +5,15 @@
     trialbox backup-verify <file> --key /media/usb/trialbox-backup.key
     trialbox restore <file> --key /media/usb/trialbox-backup.key --yes
 
-What is in a backup (``*.tbbak``): a ``pg_dump`` (custom format) of ``trialbox_wf`` (``TB_DB_URL``) and, when
-``TB_HAPI_DB_URL`` is set, of ``hapi``; every directory of the layout (lake, objects, audit, rulesets, orchestrator
-files, secrets); a manifest with the sha256 of every member and the row count of every table.
+What is in a backup (``*.tbbak``, layout 2, D-187): a ``pg_dump`` (custom format, compressed only by the backup's
+zstd stream) of ``trialbox_wf`` (``TB_DB_URL``) without the rows of the schema ``refdata`` (the public reference
+pack: load it again after a restore; the manifest lists the packs that were loaded) and, when ``TB_HAPI_DB_URL`` is
+set, of ``hapi``; every directory of the layout (lake, objects, audit, rulesets, orchestrator files, mail, secrets),
+where the lake keeps every Parquet and DuckDB file, the vector store and the site inputs, but the NDJSON only of
+``CURRENT`` and of the two newest snapshots (a delta night merges over the newest older one), and never ``tmp/``
+(spill) or a ``.building`` file; a manifest with the sha256 and size of every member, taken from the bytes as they
+go into the tar (a file is read once, never a second time to hash it), what was left out and why, and the row count
+and content hash of every table that was dumped with its rows.
 
 **Encryption to the hospital's key.** The box holds only the public key (X25519). Each backup takes a fresh key pair,
 derives an AES-256-GCM key with HKDF-SHA256 from the shared secret, and encrypts the tar stream in 1 MiB chunks. The
@@ -16,13 +22,19 @@ refused. Only the private key, kept by hospital IT in a sealed envelope (D-126),
 its own backups, and Aimedics never holds the key.
 
 **Targets.** Each ``--to`` is a directory: a mounted hospital NAS share, a USB disk, a second disk, or an off-site
-mount. The same file is written to each (write to ``.part``, fsync, rename), and the newest ``--keep`` are kept.
+mount. The file is written to the first (to ``.part``, fsync, rename) while the sha256 of the encrypted bytes is
+taken; every other target gets a copy, hashed as it is written and then read back once from that target.
+``<file>.sha256`` (``sha256sum -c`` format) beside each file marks it complete: ``trialbox backup-status`` counts a
+backup as good only with it. The newest ``--keep`` are kept. The nightly schedule, the off-box rule and the age alert
+are in ``tools/trialbox/backup_schedule.py``.
 
 **Restore** checks every hash before touching anything, moves each directory aside (``<dir>.pre-restore-<time>``)
-before writing it, and restores the databases with ``pg_restore --clean --if-exists``.
+before writing it, and restores the databases with ``pg_restore --clean --if-exists``. Every older format restores:
+layout 1 with gzip (before D-149) and layout 1 with zstd (D-149).
 
 The database tools are ``pg_dump`` / ``pg_restore`` on the path, or the command in ``TB_PG_DUMP_CMD`` /
-``TB_PG_RESTORE_CMD`` (on a box: ``docker compose --project-directory deploy exec -T db pg_dump``).
+``TB_PG_RESTORE_CMD`` (on a box: ``docker compose --project-directory deploy exec -T db pg_dump``). Nothing here logs
+or prints a row or a file's content: only names, counts, sizes and hashes.
 """
 
 from __future__ import annotations
@@ -52,10 +64,20 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+# shared with the host-side schedule, which has only the standard library (re-exported: bk.prune, bk.read_sidecar ...)
+from tools.trialbox import backup_schedule as _sched
+
+EXCLUDE_DATA_SCHEMAS = _sched.EXCLUDE_DATA_SCHEMAS
+SUFFIX = _sched.SUFFIX
+prune = _sched.prune
+read_sidecar = _sched.read_sidecar
+sidecar = _sched.sidecar
+stamp_of = _sched.stamp_of
+
 MAGIC = b"TBBAK1\n"
+LAYOUT = 2  # D-187: stream hashes, sizes, the lake and refdata rules. 1: every backup before (no key in the header)
 ZSTD_LEVEL = 3  # D-149: 400-640 MB/s a core here, a better ratio than gzip -9 (dataflow review §0.2, §7.3)
 CHUNK = 1 << 20
-SUFFIX = ".tbbak"
 KEY_HEADER = "TRIALBOX BACKUP PRIVATE KEY"
 # compose volumes on the box (deploy/docker-compose.yml): name -> host path; TB_BACKUP_DIRS overrides
 VOLUME_ROOT = "/var/lib/docker/volumes/trialbox_{}/_data"
@@ -67,11 +89,46 @@ DEFAULT_DIRS = {
     "orchestrator": "orch-data",
     "mail": "mail-data",
     "secrets": "tb-secrets",
+    "console": "console-data",  # as the update path's backup (update.ComposeBox) already takes it
 }
+# D-187: the rows of EXCLUDE_DATA_SCHEMAS ("refdata") of the trial database are not dumped (their tables are): the
+# reference pack is public, several GB, and loaded again from the pack (tb_common.refdata). The nightly run's own
+# pg_dump (backup_schedule) leaves out the same.
+LAKE_SKIP_TOP = ("tmp",)  # DuckDB spill (lake.store temp_dir default)
 
 
 class BackupError(RuntimeError):
     pass
+
+
+class _HashReader:
+    """A read-only file wrapper that hashes and counts every byte read through it (the stream hash)."""
+
+    def __init__(self, fh: IO[bytes]) -> None:
+        self._fh, self.sha, self.n = fh, hashlib.sha256(), 0
+
+    def read(self, size: int = -1) -> bytes:
+        b = self._fh.read(size)
+        self.sha.update(b)
+        self.n += len(b)
+        return b
+
+
+class _HashWriter(io.RawIOBase):
+    """A write-only file wrapper that hashes every byte written through it (the encrypted file's sha256)."""
+
+    def __init__(self, fh: IO[bytes]) -> None:
+        self._fh, self.sha, self.n = fh, hashlib.sha256(), 0
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, b: Any) -> int:
+        data = bytes(b)
+        self.sha.update(data)
+        self.n += len(data)
+        self._fh.write(data)
+        return len(data)
 
 
 # ------------------------------------------------------------------------------------------------ keys
@@ -123,7 +180,7 @@ def _derive(shared: bytes, eph: bytes, recipient: bytes) -> bytes:
 class _Encryptor(io.RawIOBase):
     """A write-only file: plaintext in, ``MAGIC | header | chunks`` out."""
 
-    def __init__(self, out: IO[bytes], recipient: X25519PublicKey, meta: Mapping[str, Any]) -> None:
+    def __init__(self, out: Any, recipient: X25519PublicKey, meta: Mapping[str, Any]) -> None:
         eph = X25519PrivateKey.generate()
         eph_pub = eph.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
         rec_pub = recipient.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
@@ -167,7 +224,7 @@ class _Encryptor(io.RawIOBase):
         self._buf.clear()
 
 
-def read_header(f: IO[bytes]) -> tuple[dict[str, Any], bytes]:
+def read_header(f: Any) -> tuple[dict[str, Any], bytes]:
     if f.read(len(MAGIC)) != MAGIC:
         raise BackupError("not a TrialBox backup (bad magic)")
     (n,) = struct.unpack(">I", f.read(4))
@@ -177,7 +234,7 @@ def read_header(f: IO[bytes]) -> tuple[dict[str, Any], bytes]:
     return json.loads(raw), raw
 
 
-def decrypt_stream(f: IO[bytes], key: X25519PrivateKey) -> Iterator[bytes]:
+def decrypt_stream(f: Any, key: X25519PrivateKey) -> Iterator[bytes]:
     header, raw = read_header(f)
     eph = base64.b64decode(header["eph"])
     my_pub = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
@@ -231,6 +288,11 @@ class DbSource:
     name: str  # trialbox_wf | hapi
     dsn: str
     schemas: tuple[str, ...]  # empty: the whole database; else only these schema patterns (a tb_prefix run)
+    prefix: str = ""  # the tb_prefix of the schemas ("" on a box)
+
+    def exclude_data(self) -> tuple[str, ...]:
+        """The schemas whose rows a dump leaves out (D-187): ``refdata`` of the trial database; nothing of HAPI."""
+        return tuple(f"{self.prefix}{s}" for s in EXCLUDE_DATA_SCHEMAS) if self.name == "trialbox_wf" else ()
 
 
 def db_sources(env: Mapping[str, str]) -> list[DbSource]:
@@ -239,7 +301,7 @@ def db_sources(env: Mapping[str, str]) -> list[DbSource]:
     out = []
     if env.get("TB_DB_URL"):
         dsn, prefix = split_url(env["TB_DB_URL"])
-        out.append(DbSource("trialbox_wf", dsn, (f"{prefix}*",) if prefix else ()))
+        out.append(DbSource("trialbox_wf", dsn, (f"{prefix}*",) if prefix else (), prefix or ""))
     if env.get("TB_HAPI_DB_URL"):
         out.append(DbSource("hapi", env["TB_HAPI_DB_URL"], ()))
     if not out:
@@ -256,22 +318,31 @@ def _libpq(dsn: str) -> tuple[list[str], dict[str, str]]:
     return ["--dbname", dsn], {}
 
 
-def dump(src: DbSource, out: Path, env: Mapping[str, str]) -> None:
+def dump(src: DbSource, out: Path, env: Mapping[str, str]) -> tuple[str, ...]:
+    """Dump ``src`` to ``out``; return the schemas whose rows the dump left out."""
     pre = env.get("TB_PG_DUMP_DIR")
-    if pre:  # D-138: dumps taken by the db container on a quiet box (tools/trialbox/update.py ComposeBox)
+    if pre:  # D-138: dumps taken by the db container (update.py ComposeBox, backup_schedule's nightly run)
         f = Path(pre) / f"{src.name}.dump"
         if not f.is_file():
             raise BackupError(f"no {f} (TB_PG_DUMP_DIR)")
         shutil.copyfile(f, out)
-        return
+        # the taker says what it left out (backup_schedule writes <name>.dump.json); without it, a full dump
+        side = Path(pre) / f"{src.name}.dump.json"
+        if side.is_file():
+            return tuple(json.loads(side.read_text(encoding="utf-8")).get("exclude_table_data_schemas", []))
+        return ()
     args, extra = _libpq(src.dsn)
-    cmd = [*_cmd(env, "TB_PG_DUMP_CMD", "pg_dump"), "--format=custom", "--no-owner", "--no-privileges", *args]
+    # -Z0: the dump is compressed once, by the backup's zstd stream (D-187), not twice
+    cmd = [*_cmd(env, "TB_PG_DUMP_CMD", "pg_dump"), "--format=custom", "-Z0", "--no-owner", "--no-privileges", *args]
     for s in src.schemas:
         cmd += ["--schema", s]
+    excluded = src.exclude_data()
+    cmd += [f"--exclude-table-data={s}.*" for s in excluded]
     with out.open("wb") as fh:
         r = subprocess.run(cmd, stdout=fh, stderr=subprocess.PIPE, env={**os.environ, **extra}, check=False)
     if r.returncode != 0:
         raise BackupError(f"pg_dump of {src.name} failed: {r.stderr.decode(errors='replace').strip()[-400:]}")
+    return excluded
 
 
 def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str]) -> None:
@@ -296,14 +367,16 @@ def _drop_schemas(src: DbSource) -> None:
                 con.execute(f'DROP SCHEMA "{n}" CASCADE')
 
 
-def row_counts(src: DbSource) -> dict[str, list[Any]]:
-    """``schema.table -> [rows, md5 of the sorted rows as text]`` for every table of the source.
+def row_counts(src: DbSource, skip_schemas: Sequence[str] = ()) -> dict[str, list[Any]]:
+    """``schema.table -> [rows, md5 of the sorted rows as text]`` for every table of the source, except the tables of
+    ``skip_schemas`` (whose rows the dump left out).
 
     The manifest keeps it; a restore must give the same pair for every table (content, not only counts).
     """
     import psycopg
 
     likes = [p.replace("*", "%") for p in src.schemas] or ["%"]
+    skip = set(skip_schemas)
     out: dict[str, list[Any]] = {}
     with psycopg.connect(src.dsn, autocommit=True) as con:
         rows = con.execute(
@@ -313,11 +386,26 @@ def row_counts(src: DbSource) -> dict[str, list[Any]]:
             (likes,),
         ).fetchall()
         for schema, table in rows:
+            if schema in skip:
+                continue
             agg = "md5(COALESCE(string_agg(t::text, chr(10) ORDER BY t::text), ''))"
             q = f'SELECT count(*), {agg} FROM "{schema}"."{table}" t'
             n = con.execute(q).fetchone()
             out[f"{schema}.{table}"] = [int(n[0]), str(n[1])] if n else [0, ""]
     return out
+
+
+def refdata_packs(src: DbSource) -> list[dict[str, str]]:
+    """The reference packs loaded in the trial database (ids and dates only): what to load again after a restore."""
+    import psycopg
+
+    schema = f"{src.prefix}refdata"
+    with psycopg.connect(src.dsn, autocommit=True) as con:
+        there = con.execute("SELECT to_regclass(%s)", (f'"{schema}".pack',)).fetchone()
+        if not there or there[0] is None:
+            return []
+        rows = con.execute(f'SELECT pack_id, data_as_of, origin FROM "{schema}".pack ORDER BY pack_id').fetchall()
+    return [{"pack_id": str(a), "data_as_of": str(b), "origin": str(c)} for a, b, c in rows]
 
 
 # ------------------------------------------------------------------------------------------------ directories
@@ -343,14 +431,84 @@ def _sha_file(p: Path) -> str:
     return h.hexdigest()
 
 
-def tree_hashes(root: Path) -> dict[str, str]:
+def _walk(root: Path) -> list[str]:
     if not root.exists():
-        return {}
-    return {
-        str(p.relative_to(root)): _sha_file(p)
+        return []
+    return [
+        str(p.relative_to(root))
         for p in sorted(root.rglob("*"))
         if p.is_file() and not p.is_symlink() and "pre-restore-" not in str(p)
-    }
+    ]
+
+
+def tree_hashes(root: Path) -> dict[str, str]:
+    """Every file under ``root`` and its sha256 (the drill's before-and-after comparison)."""
+    return {rel: _sha_file(root / rel) for rel in _walk(root)}
+
+
+def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
+    """The files of directory ``name`` that a backup takes (layout 2, D-187), and the count left out per reason.
+
+    Only the lake has rules; every other directory is taken whole. The lake: no ``tmp/`` (DuckDB spill), no
+    ``.building`` file (a snapshot being built), and the NDJSON only of ``CURRENT`` and of the two newest snapshots:
+    the next delta night merges over the newest one older than itself (a held night's NDJSON is newer than
+    ``CURRENT``; a night run again on the same date merges over the one before). Every Parquet and DuckDB file, the
+    vector store (``embed_cache.duckdb``) and the site inputs are kept. A lake without ``CURRENT`` keeps all NDJSON.
+    """
+    keep: list[str] = []
+    left: dict[str, int] = {}
+    ndjson_keep: set[str] | None = None
+    if name == "lake":
+        cur, nd = root / "CURRENT", root / "ndjson"
+        snaps = sorted(p.name for p in nd.iterdir() if p.is_dir()) if nd.is_dir() else []
+        if cur.is_file() and snaps:
+            ndjson_keep = {cur.read_text(encoding="utf-8").strip(), *snaps[-2:]}
+    for rel in _walk(root):
+        parts = Path(rel).parts
+        why = ""
+        if name == "lake" and parts[0] in LAKE_SKIP_TOP:
+            why = "lake tmp/ (spill)"
+        elif name == "lake" and rel.endswith(".building"):
+            why = "lake snapshot being built"
+        elif name == "lake" and ndjson_keep is not None and parts[0] == "ndjson" and len(parts) > 2 \
+                and parts[1] not in ndjson_keep:  # fmt: skip
+            why = "lake NDJSON of older snapshots (their Parquet and DuckDB are kept)"
+        if why:
+            left[why] = left.get(why, 0) + 1
+        else:
+            keep.append(rel)
+    return keep, left
+
+
+def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
+    """Add one file; return the sha256 and size of exactly the bytes that went into the tar (one read)."""
+    with path.open("rb") as fh:
+        info = tar.gettarinfo(arcname=arcname, fileobj=fh)
+        hr = _HashReader(fh)
+        try:
+            tar.addfile(info, hr)
+        except OSError as e:  # the file shrank while it was read
+            raise BackupError(f"{arcname} changed while it was backed up; run the backup again") from e
+    return hr.sha.hexdigest(), hr.n
+
+
+def _write_sidecar(file: Path, sha: str) -> None:
+    side = sidecar(file)
+    tmp = side.with_name(side.name + ".part")
+    tmp.write_text(f"{sha}  {file.name}\n", encoding="utf-8")
+    tmp.rename(side)
+
+
+def _copy_hashed(src: Path, dst: Path) -> str:
+    """Copy ``src`` to ``dst`` (fsync) and return the sha256 of the bytes written."""
+    h = hashlib.sha256()
+    with src.open("rb") as fi, dst.open("wb") as fo:
+        for chunk in iter(lambda: fi.read(CHUNK), b""):
+            h.update(chunk)
+            fo.write(chunk)
+        fo.flush()
+        os.fsync(fo.fileno())
+    return h.hexdigest()
 
 
 # ------------------------------------------------------------------------------------------------ compression
@@ -405,33 +563,43 @@ def backup(
     name = f"trialbox-{_safe(site)}-{stamp}{SUFFIX}"
     recipient = load_public(public_key)
     srcs = db_sources(env)
-    manifest: dict[str, Any] = {"created_at": when.isoformat(timespec="seconds"), "site": site, "databases": {},
-                                "dirs": {}, "files": {}}  # fmt: skip
+    manifest: dict[str, Any] = {"layout": LAYOUT, "hashing": "stream", "created_at": when.isoformat(timespec="seconds"),
+                                "site": site, "compression": f"{compression}-{ZSTD_LEVEL}" if compression == "zstd"
+                                else compression, "databases": {}, "dirs": {}, "files": {}, "sizes": {},
+                                "excluded": {}, "refdata_packs": []}  # fmt: skip
     with tempfile.TemporaryDirectory(prefix="tb-backup-") as tmp:
         work = Path(tmp)
         for src in srcs:
-            dump(src, work / f"{src.name}.dump", env)
-            manifest["databases"][src.name] = {"schemas": list(src.schemas), "rows": row_counts(src)}
+            excl = dump(src, work / f"{src.name}.dump", env)
+            manifest["databases"][src.name] = {"schemas": list(src.schemas), "excluded_data_schemas": list(excl),
+                                               "rows": row_counts(src, excl)}  # fmt: skip
+            if excl and src.name == "trialbox_wf":
+                manifest["refdata_packs"] = refdata_packs(src)
         first = Path(targets[0])
         first.mkdir(parents=True, exist_ok=True)
         part = first / (name + ".part")
-        meta = {"site": site, "created_at": manifest["created_at"]}
-        if compression != "gzip":  # a gzip backup is written exactly as before D-149 (no key: gzip)
-            meta["compression"] = compression
-            manifest["compression"] = f"{compression}-{ZSTD_LEVEL}"
+        meta = {"site": site, "created_at": manifest["created_at"], "layout": LAYOUT, "compression": compression}
         with part.open("wb") as raw:
-            enc = _Encryptor(raw, recipient, meta)
+            hw = _HashWriter(raw)
+            enc = _Encryptor(hw, recipient, meta)
             with _tar_writer(enc, compression) as tar:
                 for src in srcs:
-                    f = work / f"{src.name}.dump"
-                    manifest["files"][f"db/{src.name}.dump"] = _sha_file(f)
-                    tar.add(f, arcname=f"db/{src.name}.dump")
+                    arc = f"db/{src.name}.dump"
+                    manifest["files"][arc], manifest["sizes"][arc] = _add(tar, work / f"{src.name}.dump", arc)
                 for dname, root in sorted(dirs.items()):
-                    hashes_ = tree_hashes(root)
-                    manifest["dirs"][dname] = {"path": str(root), "files": len(hashes_)}
-                    for rel, sha in hashes_.items():
-                        manifest["files"][f"dirs/{dname}/{rel}"] = sha
-                        tar.add(root / rel, arcname=f"dirs/{dname}/{rel}", recursive=False)
+                    rels, left = select_files(dname, root)
+                    n = 0
+                    for rel in rels:
+                        arc = f"dirs/{dname}/{rel}"
+                        try:
+                            manifest["files"][arc], manifest["sizes"][arc] = _add(tar, root / rel, arc)
+                        except FileNotFoundError:  # removed since the listing (a retention prune): not in the backup
+                            left["removed while the backup ran"] = left.get("removed while the backup ran", 0) + 1
+                            continue
+                        n += 1
+                    manifest["dirs"][dname] = {"path": str(root), "files": n}
+                    if left:
+                        manifest["excluded"][dname] = left
                 data = json.dumps(manifest, indent=1, sort_keys=True, ensure_ascii=False).encode()
                 info = tarfile.TarInfo("manifest.json")
                 info.size = len(data)
@@ -440,19 +608,20 @@ def backup(
             enc.finish()
             raw.flush()
             os.fsync(raw.fileno())
+        sha = hw.sha.hexdigest()
         final = first / name
         part.rename(final)
+        _write_sidecar(final, sha)
         written = [final]
         for t in targets[1:]:
             t = Path(t)
             t.mkdir(parents=True, exist_ok=True)
             tpart = t / (name + ".part")
-            shutil.copyfile(final, tpart)
-            with tpart.open("rb") as fh:
-                os.fsync(fh.fileno())
-            if _sha_file(tpart) != _sha_file(final):
+            if _copy_hashed(final, tpart) != sha or _sha_file(tpart) != sha:  # written, then read back from t
+                tpart.unlink(missing_ok=True)
                 raise BackupError(f"copy to {t} does not match")
             tpart.rename(t / name)
+            _write_sidecar(t / name, sha)
             written.append(t / name)
     for t in targets:
         prune(Path(t), keep)
@@ -463,26 +632,31 @@ def _safe(s: str) -> str:
     return "".join(c if c.isalnum() or c in "-_" else "-" for c in s)[:40] or "box"
 
 
-def prune(target: Path, keep: int) -> list[Path]:
-    """Keep the newest ``keep`` backups in a target; remove older ones and stale ``.part`` files."""
-    files = sorted(target.glob(f"trialbox-*{SUFFIX}"), key=lambda p: p.name.rsplit("-", 1)[-1])
-    gone = files[:-keep] if keep > 0 else []
-    gone += list(target.glob(f"trialbox-*{SUFFIX}.part"))
-    for p in gone:
-        p.unlink(missing_ok=True)
-    return gone
-
-
 # ------------------------------------------------------------------------------------------------ verify / restore
 def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
-    """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest."""
+    """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest.
+
+    The whole file is read and authenticated to its final chunk, and its sha256, taken on the way, must equal the
+    ``.sha256`` sidecar when there is one."""
     sk = load_private(key)
     with file.open("rb") as fh:
         header, _ = read_header(fh)
+        layout_ = header.get("layout", 1)
+        if layout_ not in (1, 2):
+            raise BackupError(f"this backup has layout {layout_!r}, made by a newer TrialBox: update this one first")
         fh.seek(0)
-        reader = io.BufferedReader(_ChunkReader(decrypt_stream(fh, sk)), buffer_size=CHUNK)
-        with _tar_reader(reader, header) as tar:
-            tar.extractall(into, filter="data")
+        hr = _HashReader(fh)
+        reader = io.BufferedReader(_ChunkReader(decrypt_stream(hr, sk)), buffer_size=CHUNK)
+        try:
+            with _tar_reader(reader, header) as tar:
+                tar.extractall(into, filter="data")
+        except (tarfile.TarError, zstandard.ZstdError, EOFError) as e:
+            raise BackupError(f"backup is damaged: its content cannot be read ({type(e).__name__})") from e
+        while reader.read(CHUNK):  # the rest after the tar's end: authenticated to the final chunk all the same
+            pass
+    want = read_sidecar(file)
+    if want is not None and want != hr.sha.hexdigest():
+        raise BackupError(f"{file.name} does not match its .sha256 sidecar")
     manifest: dict[str, Any] = json.loads((into / "manifest.json").read_text(encoding="utf-8"))
     bad = [rel for rel, sha in manifest["files"].items() if not (into / rel).is_file() or _sha_file(into / rel) != sha]
     extra = {str(p.relative_to(into)) for p in into.rglob("*") if p.is_file() and p.name != "manifest.json"} - set(
@@ -490,13 +664,16 @@ def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
     )
     if bad or extra:
         raise BackupError(f"backup content does not match its manifest: {len(bad)} changed, {len(extra)} unlisted")
+    manifest["_sha256"] = hr.sha.hexdigest()
     return manifest
 
 
 def verify(file: Path, key: Path) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="tb-verify-") as tmp:
         m = unpack(file, key, Path(tmp))
-    return {"ok": True, "site": m["site"], "created_at": m["created_at"], "files": len(m["files"]),
+    return {"ok": True, "site": m["site"], "created_at": m["created_at"], "layout": m.get("layout", 1),
+            "files": len(m["files"]), "sha256": m["_sha256"], "excluded": m.get("excluded", {}),
+            "refdata_packs": m.get("refdata_packs", []),
             "databases": {k: sum(r[0] for r in v["rows"].values()) for k, v in m["databases"].items()}}  # fmt: skip
 
 
@@ -507,7 +684,8 @@ def restore(
     dirs: Mapping[str, Path] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Restore the databases and directories of ``file``; return what was restored, with row counts checked."""
+    """Restore the databases and directories of ``file``; return what was restored, with row counts checked, and
+    the reference packs to load again (their rows are not in a layout-2 backup)."""
     env = dict(os.environ if env is None else env)
     stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
     with tempfile.TemporaryDirectory(prefix="tb-restore-") as tmp:
@@ -534,10 +712,11 @@ def restore(
                 shutil.copytree(src, dest, dirs_exist_ok=True)
         checked = {}
         for name, want in manifest["databases"].items():
-            got = row_counts(srcs[name])
+            got = row_counts(srcs[name], want.get("excluded_data_schemas", []))
             diff = sorted(k for k in set(got) | set(want["rows"]) if got.get(k) != want["rows"].get(k))
             if diff:
                 raise BackupError(f"restored {name} differs from the backup in {len(diff)} tables: {diff[:5]}")
             checked[name] = sum(r[0] for r in got.values())
-    return {"ok": True, "site": manifest["site"], "created_at": manifest["created_at"], "rows": checked,
-            "dirs": sorted(manifest["dirs"])}  # fmt: skip
+    return {"ok": True, "site": manifest["site"], "created_at": manifest["created_at"],
+            "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
+            "reload_refdata": manifest.get("refdata_packs", [])}  # fmt: skip
