@@ -25,8 +25,8 @@ Asia/Taipei, with the planted site inputs of ``tools.omop_parity``: proposed, co
 diagnoses, a birth-date conflict); ``synthetic-jp-a-deletes`` (the next night of the JP site, rebuilt into the same
 lake with a tenth of its clinical records and half of the site's inputs gone: the OMOP store tombstones them);
 ``ssmix2-jp`` (400 synthetic patients written as SS-MIX2 standardized and extended storage by
-``tools.ssmix2_export``, HL7 v2 read through the JP Core mapping, D-137); ``public-en`` (the SIGIR notes of ``tools.public_site``: a notes-only site, a third of it without a birth date).
-The site key is fixed, so the pseudonyms are the same on every machine.
+``tools.ssmix2_export``, HL7 v2 read through the JP Core mapping, D-137); ``public-en`` (the 53 SIGIR notes of
+``tools.public_site``: a notes-only site). The site key is fixed, so the pseudonyms are the same on every machine.
 
 A golden is JSON sorted by key; its ``meta`` names the generator and its seed, the ruleset version, the lake schema
 version, the git HEAD that wrote it and the reason. ``--check`` compares everything but ``meta.head`` and
