@@ -1405,12 +1405,10 @@ def sc_dump(a: Any, work: Path) -> Result:
         ("medication", DUMP_DRUG[0]): "M04AA01",
     }
     mapped = map_codes(svc, ws, known)
-    res.finding(
-        "MAP-01",
-        "suggested standard codes for the dump's local codes (by name) that name another disease",
-        "none",
-        "; ".join(mapped["wrong_suggestions"]) or "none",
-        not mapped["wrong_suggestions"],
+    s.check(
+        "MAP-01: no suggested standard code (by name) names another disease than the local code's",
+        not mapped["wrong_suggestions"] and mapped["suggested"] > 0,
+        "; ".join(mapped["wrong_suggestions"]) or f"none wrong; {mapped['suggested']} suggestions taken",
     )
     answered = answer_checks(svc, ws)
     after = patient_states(svc, ws, rs)

@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS setting (key TEXT PRIMARY KEY, value TEXT NOT NULL, s
 CREATE TABLE IF NOT EXISTS published (ws TEXT PRIMARY KEY, at TEXT NOT NULL, snapshot TEXT NOT NULL,
   digest TEXT NOT NULL, counts TEXT NOT NULL DEFAULT '{}')
 """
+# version 2 (scenario run MAP-01): how sure a suggested code is (0..1), shown beside it
+SCHEMA_V2 = "ALTER TABLE local_code ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION NOT NULL DEFAULT 0"
 STATUSES = ("coded", "proposed", "confirmed", "rejected")
 _INSERT_FACT = (
     "INSERT INTO fact (ws, input_id, pid, domain, term, code, system, local_code, local_system, value, unit, day, "
@@ -70,7 +72,7 @@ class SetupError(ValueError):
 class SetupStore:
     def __init__(self, url: str | None = None) -> None:
         self._db = Database.connect(url or os.environ.get(ENV), "sitesetup")
-        self._db.migrate([SCHEMA])
+        self._db.migrate([SCHEMA, SCHEMA_V2])
 
     @property
     def db(self) -> Database:
@@ -269,10 +271,11 @@ class SetupStore:
     def put_local(self, ws: str, domain: str, system: str, code: str, display: str, suggestion: dict[str, str]) -> None:
         self._db.execute(
             "INSERT INTO local_code (ws, domain, system, code, display, suggested_system, suggested_code, "
-            "suggested_display, method) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT (ws, domain, system, code) DO UPDATE "
-            "SET display = excluded.display, suggested_system = excluded.suggested_system, "
+            "suggested_display, method, confidence) VALUES (?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT (ws, domain, system, code) DO UPDATE SET display = excluded.display, "
+            "suggested_system = excluded.suggested_system, "
             "suggested_code = excluded.suggested_code, suggested_display = excluded.suggested_display, "
-            "method = excluded.method",
+            "method = excluded.method, confidence = excluded.confidence",
             (
                 ws,
                 domain,
@@ -283,6 +286,7 @@ class SetupStore:
                 suggestion.get("code", ""),
                 suggestion.get("display", "")[:200],
                 suggestion.get("method", ""),
+                float(suggestion.get("confidence") or 0),
             ),
         )
 

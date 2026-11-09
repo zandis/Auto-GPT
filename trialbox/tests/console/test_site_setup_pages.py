@@ -156,6 +156,9 @@ def test_set_up_through_the_pages_to_green(sb: dict[str, Any]) -> None:
         files={"file": (sheet_name, sheet, "application/octet-stream")},
     )
     assert "氏名" in r.text and "山田" not in r.text and "青山" not in r.text  # the column is named, its names never
+    # codes: each suggestion shows how sure it is (scenario run MAP-01)
+    page = c.get("/site/codes?study=GZQO").text
+    assert re.search(r'data-testid="confidence-[^"]+">[^<]*\d+%', page), page[-800:]
     # codes: one tap each on the suggestion; a code without one is typed
     for _ in range(12):
         page = c.get("/site/codes?study=GZQO").text
