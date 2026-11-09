@@ -68,7 +68,9 @@ def atom_summary(atom: Atom, valuesets: dict[str, dict[str, Any]]) -> str:
         label = {
             "bmi": "BMI (from latest height and weight)",
             "egfr": "eGFR CKD-EPI 2021 (from latest creatinine)",
-            "das28": "DAS28 (TJC28, SJC28, patient global, ESR or CRP)",
+            "egfr_ckd_epi": "eGFR CKD-EPI 2021 (from latest creatinine)",
+            "egfr_jsn": "eGFR JSN 2009, Japanese equation (from latest creatinine)",
+            "das28": "DAS28 (TJC28, SJC28, patient global, ESR or CRP, from one visit)",
             "basdai": "BASDAI",
             "asdas": "ASDAS-CRP",
         }[atom.derived]

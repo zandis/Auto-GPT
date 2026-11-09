@@ -234,6 +234,8 @@ class Ssmix2Source:
         self.missed: Counter[str] = Counter()  # "diagnosis:<標準病名 code>", "medication:<YJ code>"
         self.stats: Counter[str] = Counter()  # messages and documents read, by type and outcome
         self._index: dict[str, list[StoredFile]] | None = None
+        self._gone: dict[str, list[StoredFile]] = {}  # newest version deleted (flag 0), by message type
+        self._deleted_docs: list[Row] = []  # extended-storage documents whose newest version is deleted
 
     # ------------------------------------------------------------------ storage index
     def _files(self) -> dict[str, list[StoredFile]]:
@@ -250,11 +252,33 @@ class Ssmix2Source:
                     if cur is None or sf.stamp > cur.stamp:
                         latest[key] = sf
             index: dict[str, list[StoredFile]] = {}
+            gone: dict[str, list[StoredFile]] = {}
             for sf in sorted(latest.values(), key=lambda s: (s.type, s.patient, s.day, s.order)):
-                if not sf.deleted:
-                    index.setdefault(sf.type, []).append(sf)
+                (gone if sf.deleted else index).setdefault(sf.type, []).append(sf)
             self._index = index
+            self._gone = gone
         return self._index
+
+    def deleted_rows(self, table: str, source_name: str, delta_column: str | None, since: str | None) -> Iterator[Row]:
+        """The rows of records whose newest version carries flag ``0`` (deleted at the hospital), so the adapter can
+        tombstone what an earlier night stored (dataflow review P0-1). A delete message is read like any other; one
+        that cannot be read is counted and skipped (the next full run removes it anyway)."""
+        if table == "note":
+            yield from self._deleted_docs
+            return
+        if table not in TYPES:
+            return
+        self._files()
+        build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{table}")
+        for typ in TYPES[table]:
+            for sf in self._gone.get(typ, []):
+                try:
+                    rows = list(build(sf, hl7.parse(hl7.decode(sf.path.read_bytes()))))
+                except Exception:  # a bare delete marker without a readable message
+                    self.stats[f"{typ}:deleted unreadable"] += 1
+                    continue
+                self.stats[f"{typ}:deleted"] += 1
+                yield from rows
 
     def _messages(self, typ: str) -> Iterator[tuple[StoredFile, hl7.Message]]:
         for sf in self._files().get(typ, []):
@@ -504,6 +528,7 @@ class Ssmix2Source:
         for key, (_stamp, f, patient, day, kind, deleted) in sorted(latest.items()):
             if deleted:
                 self.stats["document:deleted"] += 1
+                self._deleted_docs.append({"note_no": "ext/" + "/".join(key), "mrn": patient})
                 continue
             text, how = document_text(f.name, f.read_bytes())
             self.stats["document" if text else f"document without text ({how})"] += 1

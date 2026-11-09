@@ -143,8 +143,9 @@ itself fails, restore from the backup. Driver updates are outside the bundle and
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the
 box keeps only the public key and cannot read its own backups. Then `trialbox backup --to <NAS share> --to <USB
 disk>` (keeps the newest 14 per target). Check one with `trialbox backup-verify <file> --key <private key>`. A
-backup holds both databases, every data folder and a manifest of hashes and row counts, encrypted (AES-256-GCM to an
-X25519 key). The ruleset repository `/data/rulesets` is in it; it is also a git repository you may push to the
+backup holds both databases, every data folder and a manifest of hashes and row counts, compressed with zstd level 3
+on every core and then encrypted (AES-256-GCM to an X25519 key); a backup made before D-149 (gzip) still verifies and
+restores. The ruleset repository `/data/rulesets` is in it; it is also a git repository you may push to the
 hospital's git server.
 
 **Restore.** Reinstall (§1), then `trialbox restore <file> --key <private key> --yes` (hospital IT brings the key).

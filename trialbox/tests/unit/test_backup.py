@@ -124,6 +124,39 @@ def test_cli_refuses_restore_without_yes_and_reports_errors(box: dict[str, objec
     assert "bad magic" in capsys.readouterr().err
 
 
+def _plain_head(f: Path, key: Path, n: int = 4) -> tuple[dict[str, object], bytes]:
+    with f.open("rb") as fh:
+        header, _ = bk.read_header(fh)
+        fh.seek(0)
+        first = next(bk.decrypt_stream(fh, bk.load_private(key)))
+    return header, first[:n]
+
+
+def test_new_backups_are_zstd_and_restore(box: dict[str, object], tmp_path: Path) -> None:
+    """D-149 (dataflow review P0-3): the tar inside the encryption is zstd -3, multi-threaded, not gzip -9."""
+    f = _backup(box, tmp_path)[0]
+    header, magic = _plain_head(f, box["priv"])  # type: ignore[arg-type]
+    assert header["compression"] == "zstd" and magic == b"\x28\xb5\x2f\xfd"  # the zstd frame magic
+    assert bk.verify(f, box["priv"])["ok"]  # type: ignore[arg-type]
+    # the payload compresses like zstd: the repeated 1.2 MiB test pattern shrinks to a few kB
+    assert f.stat().st_size < 64_000
+
+
+def test_an_old_gzip_backup_still_restores(box: dict[str, object], tmp_path: Path) -> None:
+    """A backup written before D-149 (gzip, no ``compression`` in the header) verifies and restores unchanged."""
+    f = _backup(box, tmp_path, compression="gzip")[0]
+    header, magic = _plain_head(f, box["priv"], 2)  # type: ignore[arg-type]
+    assert "compression" not in header and magic == b"\x1f\x8b"  # exactly the old format
+    box["db"].execute("UPDATE marks SET mark = ? WHERE pid = ?", ("withdrawn", "P1"))  # type: ignore[attr-defined]
+    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"],  # type: ignore[arg-type]
+                     now=datetime(2026, 11, 9, tzinfo=UTC))  # fmt: skip
+    assert out["ok"] and out["rows"]["trialbox_wf"] == 5
+    db2 = Database.connect(str(box["url"]), "site")
+    assert db2.fetchall("SELECT mark FROM marks WHERE pid = 'P1'") == [("approach",)]
+    with pytest.raises(bk.BackupError, match="unknown compression"):
+        _backup(box, tmp_path, compression="lz4")
+
+
 def test_backup_needs_the_database_url(tmp_path: Path) -> None:
     pub = tmp_path / "b.pub"
     bk.keygen(tmp_path / "b.key", pub)

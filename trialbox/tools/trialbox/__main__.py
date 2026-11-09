@@ -1,8 +1,9 @@
 """``python -m tools.trialbox <command>`` (spec v4 §18). Commands: ``doctor``, ``eval``, ``backup-keygen``,
 ``backup``, ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``); ``secrets`` (per-service tokens,
 D-128 / D-138, ``svc_secrets.py``), ``logs`` (retention, ``logs.py``) and ``update`` (the update path behind
-``tools/apply_update.sh``, ``update.py``). ``secrets``, ``logs`` and ``update`` need only the standard library, so
-they run with the host's ``python3`` from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
+``tools/apply_update.sh``, ``update.py``); ``exports`` lists the export ledger (D-149, ``tb_common.flowledger``).
+``secrets``, ``logs`` and ``update`` need only the standard library, so they run with the host's ``python3`` from
+the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
 
 from __future__ import annotations
 
@@ -58,7 +59,13 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--target", choices=["compose", "demo"], default=os.environ.get("TB_UPDATE_TARGET", "compose"))
     u.add_argument("--deploy", type=Path, default=deploy)
     u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
+    fl = sub.add_parser("exports", help="the export ledger: every file that left the box (D-149)")
+    fl.add_argument("--audit", type=Path, default=Path(os.environ.get("TB_AUDIT_DIR", "/data/audit")))
+    fl.add_argument("--days", type=int, default=30)
+    fl.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+    if a.cmd == "exports":
+        return _exports_cmd(a)
     if a.cmd == "secrets":
         return _secrets_cmd(a)
     if a.cmd == "logs":
@@ -93,6 +100,25 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps({k: v for k, v in result.items() if k != "datasets"}, indent=1, ensure_ascii=False))
     print(f"archived: {path}")
     return 1 if result.get("passed") is False else 0
+
+
+def _exports_cmd(a: argparse.Namespace) -> int:
+    """What left this box in the last ``--days`` days: when, channel, file, level, approval, recipients, sha256."""
+    from dataclasses import asdict
+    from datetime import UTC, datetime, timedelta
+
+    from tb_common.flowledger import exports
+
+    rows = exports(a.audit, since=datetime.now(UTC) - timedelta(days=a.days))
+    if a.json:
+        print(json.dumps([asdict(r) for r in rows], indent=1, ensure_ascii=False))
+        return 0
+    for r in rows:
+        to = ", ".join(r.recipients) or "-"
+        print(f"{r.ts[:19]}  {r.channel:<16} {r.identifier_level:<13} {r.filename}  to {to}  [{r.approval}]  "
+              f"sha256 {r.sha256[:16]}")  # fmt: skip
+    print(f"{len(rows)} exports in the last {a.days} days")
+    return 0
 
 
 def _secrets_cmd(a: argparse.Namespace) -> int:

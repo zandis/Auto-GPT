@@ -23,6 +23,7 @@ from typing import Any, Literal, Protocol, cast
 from lake.client import LakeAPI
 from matching.coverage import Coverage
 from matching.proposed import Proposed
+from tb_common.derived import reason_of as derived_reason
 from tb_common.fhir import FhirEvaluator
 from tb_common.llm import LlmClient, LlmError
 from tb_common.pair import Vote, combine, needs_verifier
@@ -104,6 +105,12 @@ class SqlEngine:
                 k[2:]: [x for x in (row[k] or "").split(";") if x] for k in row if k.startswith("E_") and k[2:] in ids
             }
             reasons: dict[str, str] = {}
+            for cid, items in list(ev.items()):  # D-149: a score with no value says why (missing input, unit)
+                why, refs = derived_reason(items)
+                if why is not None:
+                    ev[cid] = refs
+                    if res.get(cid) is None:
+                        reasons[cid] = why
             for c in crit:  # F-10 (D-130): FALSE beside an unreadable code is unknown, not an exclusion
                 gap = cov.refs(c, str(row["pid"]), index_date) if res.get(c.id) is False else []
                 if gap:

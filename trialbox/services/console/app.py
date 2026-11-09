@@ -43,6 +43,7 @@ from tb_common.audit import AuditLog
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
+from tb_common.flowledger import record_export
 from tb_common.reasons import label as reason_label
 from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
@@ -1320,6 +1321,9 @@ def create_app(
             output_sha=sha256_bytes(data),
             detail={"filename": filename, "tag": out.tag},
         )
+        record_export(au, channel="console_download", filename=filename, data=data, identifier_level="aggregate",
+                      approval=f"console role {sess.user.role}; aggregate output of job {job_id}",
+                      actor=actor(sess), ruleset=job.ruleset, job_id=job_id)  # fmt: skip
         ctype = {
             ".pdf": "application/pdf",
             ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1686,6 +1690,10 @@ def create_app(
             output_sha=sha256_bytes(data),
             detail={"action": "sponsor_pack", "files": [n for n, _ in files]},
         )
+        approval = f"ruleset {job.ruleset}@{job.ruleset_version}; console role {sess.user.role}"
+        record_export(au, channel="console_export", filename=f"sponsor_pack_{job.ruleset}_{job_id}.zip", data=data,
+                      identifier_level="aggregate", actor=actor(sess), ruleset=job.ruleset, job_id=job_id,
+                      approval=approval)  # fmt: skip
         return Response(
             data,
             media_type="application/zip",
@@ -1803,6 +1811,9 @@ def create_app(
             output_sha=sha256_bytes(data),
             detail={"filename": path.name, "tag": "D1", "run": run.run_id},
         )
+        record_export(au, channel="console_download", filename=path.name, data=data, identifier_level="aggregate",
+                      approval=f"released (D1) cascade numbers of run {run.run_id}; console role {sess.user.role}",
+                      actor=actor(sess), ruleset=run.trial)  # fmt: skip
         media = {".pdf": "application/pdf", ".json": "application/json"}.get(path.suffix, "application/octet-stream")
         return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="{path.name}"'})
 

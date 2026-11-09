@@ -44,14 +44,16 @@ class PostResult:
         return ValueSets(ruleset, self.valuesets, term)
 
 
-def _convert_logic(node: dict[str, Any], concept_vs: dict[str, str]) -> dict[str, Any]:
+def _convert_logic(node: dict[str, Any], concept_vs: dict[str, str], egfr: str = "egfr") -> dict[str, Any]:
     if "op" in node and "args" in node:
-        return {"op": node["op"], "args": [_convert_logic(a, concept_vs) for a in node["args"]]}
+        return {"op": node["op"], "args": [_convert_logic(a, concept_vs, egfr) for a in node["args"]]}
     atom = {k: v for k, v in node.items() if k != "concept" and v is not None}
+    if atom.get("derived") == "egfr" and egfr != "egfr":  # D-149: the site's equation, named in the ruleset
+        atom["derived"] = egfr
     if node.get("domain") == "demographic":
         atom["valueset"] = "NONE"
-    elif node.get("derived"):
-        atom["valueset"] = f"VS_{str(node['derived']).upper()}_COMPONENTS"
+    elif atom.get("derived"):
+        atom["valueset"] = f"VS_{str(atom['derived']).upper()}_COMPONENTS"
     else:
         concept = node.get("concept")
         if not concept:
@@ -76,7 +78,10 @@ def postprocess(
     version: str = "1.0.0",
     llm_map: ConceptMapLLM | None = None,
     id_offset: dict[str, int] | None = None,
+    egfr: str = "egfr",
 ) -> PostResult:
+    """``egfr``: what a criterion that says only "eGFR" becomes at this site (D-149): ``egfr`` (CKD-EPI 2021, the
+    meaning it always had) or ``egfr_jsn`` at a Japanese site; a protocol that names its equation keeps it."""
     counters = dict(id_offset or {})
     concept_vs: dict[str, str] = {}
     valuesets: dict[str, dict[str, Any]] = {}
@@ -109,7 +114,7 @@ def postprocess(
         raw = dump(ec)
         logic_raw = raw.get("logic") or {"domain": "demographic"}
         try:
-            logic = _convert_logic(logic_raw, concept_vs)
+            logic = _convert_logic(logic_raw, concept_vs, egfr)
         except CompileError as exc:
             warnings.append(f"{cid}: {exc}")
             logic, flags = {"domain": "demographic", "valueset": "NONE"}, ["needs_review", "logic_invalid"]

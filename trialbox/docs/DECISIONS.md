@@ -3337,3 +3337,110 @@ dry run for three VMs: each VM capped before its own start, its own `tb-only`, n
 
 *Not done; only the card can show.* No bench number is measured yet. The clones, other zones and the quota are the
 owner's to check; the G4 zones in the default list are not verified here.
+
+**D-149 The data-flow lifecycle review's P0 fixes: deletes on delta nights, validation before `CURRENT`, one vector
+store, lake schema version and sidecar hashes, the export ledger v1, derived-score units and the JSN eGFR, zstd
+backups.**
+Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §9 P0 and §4, with the owner's answers of 2026-11-09
+(D-144, D-145; the review's questions 1, 2, 4, 5 and 10 accepted as recommended: eGFR is JSN 2009 in Japan and
+CKD-EPI 2021 in Taiwan and a protocol may name either; a lab unit missing on a row is the declared default per analyte
+for a hospital feed and unknown for sheets and charts; embeddings in one store, not in snapshots; CPU zstd, no GPU
+compression). Workstreams of TB-PLAN-05 (`docs/plan/25-master-plan.md`): WS-03.7, WS-08.1, WS-05.3, WS-03.1, WS-08.3,
+WS-04.3 with WS-01.2, WS-08.6. Built in the cloud container on synthetic data; `deploy/gcp/` and
+`tools/complete_run.py` are untouched.
+
+1. *Deletes on delta nights* (P0-1, WS-03.7). `adapter/ndjson.write_snapshot` takes tombstones (type -> ids deleted
+   at the source) and drops them from the merged snapshot; a record sent again in the same run wins. The ids dropped
+   are written to `tombstones.json` beside the snapshot (absent when none, so a night without deletes is
+   byte-identical), counted in `IngestReport.tombstoned` (schema 1.3.0) and in the audit. Sources: a `deleted` column
+   on any CSV or SQL table (or the table's `deleted:` column; `1`, `true`, `y`, `d`, `deleted` count), which also keeps
+   such a row out of a full run; SS-MIX2 records whose newest file has flag `0` (`Ssmix2Source.deleted_rows`, read and
+   mapped like a live record to find its id; extended-storage documents the same); FHIR Bulk `deleted` Bundles
+   (`DELETE Type/id` entries beside the export or under `deleted/`; a Bundle is never read as a resource). The id is
+   computed exactly as for the record (`Mapper.tombstones`, `pipeline.bulk_id`). A Patient is never tombstoned by a
+   feed delta: removing a person is the opt-out path's job (P0-4, not in this entry). fhir-store follows because its
+   ledger already deletes what left the snapshot.
+2. *Validation before `CURRENT` moves* (P0-2, WS-08.1). The night now runs NDJSON, then the sample validation and JP
+   Core check, then fhir-store and the lake. Any error before loading (a mapping error, the 0.5 % limit, JP Core, a
+   validator that did not run) *holds* the night: fhir-store and the lake are not loaded, `CURRENT` keeps the
+   previous snapshot, `IngestReport.held` is true and the audit event is `ingest.held` (the console's Sources page
+   reads it with `ingest.done` / `ingest.failed`). The held night's NDJSON stays for the steward; the next delta night
+   merges over it, so no change of the source is lost. `Lake.rebuild` builds into `.building`, writes the sidecars,
+   renames, and only then writes `CURRENT` atomically (`Lake.promote`); `promote=False` builds without serving.
+3. *One vector store* (P0-6, WS-05.3; owner question 4 answer (b)). `document_chunk` keeps text, tokens and a new
+   `sha` column; the vectors live only in `embed_cache.duckdb` (keyed by sha and model, as before). `Lake.search`
+   reads the patient's chunk shas from the snapshot and their vectors from the store, ranks by cosine in NumPy with the
+   SQL's order and tie-break, and fuses with BM25 as before. The store is opened per read or write under one process
+   lock (DuckDB refuses a read-only and a read-write connection side by side) and waits up to 30 s for another
+   process's write lock; the rebuild no longer holds all vectors in memory. A snapshot of schema 1 (vectors inside) is
+   still searched with its own column. Saving: 4 KiB a chunk per kept snapshot (1,024 float32), the review's ~18 GB
+   times 39 snapshots at 50,000 patients. The store is in the lake folder, so it is in every backup (owner: vectors
+   in backups). pgvector (`note_chunk`) remains WS-05.3's P1 step.
+4. *Lake schema version and sidecar hashes* (P0-7, WS-03.1). `lake_meta` gains `schema_version` (2),
+   `schema_sha` (a hash of every table's columns and types and the chunk table), `embed_store` and `embed_model`.
+   `Lake.connect` checks the version on every open and refuses a snapshot without `lake_meta` or outside 1..2 with
+   `LAKE-SCHEMA: ... Rebuild it` / `... Finish the update`, instead of a missing-column error later. Every Parquet file
+   and the DuckDB file get a `<file>.sha256` sidecar (`sha256sum` format); `Lake.verify(snapshot)` lists any file that
+   does not match. Retention removes the sidecars with their snapshot.
+5. *Export ledger v1* (P0-8, WS-08.3). `tb_common/flowledger.py`: every file that leaves the box is a `flow.export`
+   event in the hash-chained audit with channel, file name, bytes, sha256, identifier level (`aggregate`,
+   `pseudonymised`, `identified`), the approval it left under, recipients, actor, ruleset and job. An export without an
+   approval reference or with an unknown level is refused before it leaves. Recorded today: every job output
+   (`Ctx.publish`: a `phi` file is `identified`; approval = the ruleset version and the job's requester), the console's
+   aggregate downloads, sponsor packs and D1 cascade files, the screening-log export with chart numbers, the data
+   core's ODM/CSV/XLSX exports and every REDCap sync that pushed values (hashed over its summary). `python -m
+   tools.trialbox exports [--days 30] [--json]` lists what left and to whom. The P1 `dataops.flow` table and page are
+   fed from these events.
+6. *Derived scores* (P0-5, WS-04.3 and WS-01.2). `tb_common/derived.py`:
+   - **Units.** Each component is converted to the formula's unit with UCUM factors (`UNITS`: CRP `mg/dL` x 10 =
+     `mg/L`, `ug/mL` = `mg/L`; creatinine `umol/L` / 88.4 = `mg/dL`; ESR `mm/h`; weight `g`, `[lb_av]`; height `m`,
+     `mm`, `[in_i]`); counts and scores accept no unit or a UCUM annotation, the patient global `mm`. Any other unit,
+     or a lab row with no unit (a sheet or chart value), gives no value and `derived_unit:<component>`. The hospital
+     feed's declared unit per analyte is the mapping's lab lookup (as before) and, new, `unit_defaults` (LOINC ->
+     UCUM) in the site mapping for a feed result that arrives without one, including FHIR Bulk
+     (`pipeline.apply_unit_defaults`, tagged `urn:trialbox:unit-source|site-default`, counted in the audit). The CRP
+     term no longer assumes mg/L whatever the row says.
+   - **Same visit.** DAS28 takes its components from one visit: the newest TJC28 in the window, then SJC28 and the
+     patient global on the same day and the ESR or CRP within 7 days of it (catalogue `das28_*.yaml` windows); BASDAI
+     and ASDAS the same way (`SAME_VISIT`). An ESR at the visit is used when it exists; its unit must fit and an ESR
+     of 0 is no value (the catalogue's zero rule), never a fall back to the CRP.
+   - **JSN 2009 eGFR.** `egfr_jsn` (194 x Cr^-1.094 x age^-0.287, x 0.739 female) beside `egfr_ckd_epi`; both in the
+     criterion IR (schema 1.1.0), the LLM extract schema, the SQL and CQL generators (`TB_Common.EGFRJSN`, per-unit
+     `Conv_<component>`, `SameVisit`) and the v3 calculators (`egfr_jsn_2009@1.0.0`, `egfr_ckd_epi_2021@1.1.0`). A
+     criterion that says only "eGFR" is compiled to `egfr_jsn` at a Japanese site (time zone or locale) and stays
+     `egfr` (CKD-EPI 2021, as approved before) elsewhere (`CompilerDeps.egfr`, `postprocess(egfr=...)`); a protocol
+     that names its equation keeps it, and the stored IR names it, so the approval covers the choice.
+   - **No value with a reason, never FALSE** (D-130). The SQL template writes `derived_missing_input:<c>` or
+     `derived_unit:<c>` as the atom's evidence when it has no value; the SQL engine and the cascade turn it into the
+     reasons `derived_missing_input` / `derived_unit` (new `Reason` codes with en, ja and zh-TW words) and keep the
+     patient (an unknown exclusion passes, an unknown inclusion is "needs information"). Before, the components' record
+     ids were the evidence, which the cascade read as "a code outside the list".
+   - **Worked examples** (`tests/unit/test_derived_scores.py`), in Python and in the compiled SQL on a small lake:
+     CKD-EPI 2021 59.3 (F 55, Cr 1.1) and 69.2 (M 60, Cr 1.2), the same woman in µmol/L; JSN 63.1 (M 50, Cr 1.0,
+     catalogue), 59.9 (M 60, Cr 1.0) and 40.9 (F 55, Cr 1.1: "eGFR >= 45" passes by CKD-EPI and fails by JSN);
+     DAS28-ESR 4.26; DAS28-CRP 3.99 with CRP 10 mg/L and with 1.0 mg/dL (3.37 before the fix); CDAI 14.5, 27 and 1.5;
+     SDAI 31 and 1.2; BMI 22.9 (height in metres); age at index 65 (born 1960-11-10, index 2026-11-09). CDAI and SDAI
+     are Python reference functions only; their engine rows come with WS-04.3's stored derived rows.
+   - The draft-document DAS28 (`orchestrator/scenarios/facts.py`) uses the same engine (`derived.compute`).
+7. *Backups* (P0-3 codec part, WS-08.6; owner question 10 answer (a)). The tar inside a `.tbbak` is zstd level 3 on
+   every core (`zstandard`, `threads=-1`, added to `pyproject.toml` and `deploy/requirements.lock`), then encrypted as
+   before. The authenticated header says `"compression": "zstd"`; a backup without the key is gzip, so every backup
+   made before D-149 verifies and restores unchanged (tested with a backup written in the old format). The layout
+   changes, hashes from the stream, the schedule and the age alert of WS-08.6 are not in this entry.
+
+*Evidence.* `tests/unit/test_dataflow_lake_p0.py` (tombstones in `write_snapshot`, a deleted CSV row on a delta
+night is gone from NDJSON and lake, a deleted row never enters a full run, FHIR Bulk deleted Bundles, SS-MIX2 flag
+0, a night over the validation limit leaves `CURRENT` and the lake untouched with `ingest.held`, no vectors in the
+snapshot and search equal to brute force, a schema-1 snapshot still searched, an unknown schema refused, sidecars
+catch a changed file); `tests/unit/test_export_ledger.py`; `tests/unit/test_derived_scores.py`; two new tests in
+`tests/unit/test_backup.py`. Each of these fails on `origin/master` f4c56d0 and passes here. The ATOMS CQL and SQL
+snapshots are regenerated for the unit, visit and reason columns; the CQL (with `TB_Common`) translates with the
+cql-to-elm jars. `make lint` clean; `make test` 1,720 passed, 2 skipped; `tools/e2e_simple.py` PASSED; the backup
+drill PASSED (its backup now zstd); `public_e2e --lang ja` 120/120.
+
+*Not done here.* The opt-out worker (P0-4) and the rest of the backup row (layout, stream hashes, schedule, age
+alert) are separate P0 items. Stored derived rows with provenance, `tb_score_definition` from
+`catalogue/scores/*.yaml`, CDAI/SDAI in the engines and derived-vs-documented conflicts are WS-04.3 (P1). The
+shipped mappings declare no `unit_defaults` yet: each site declares them in its survey (its lab lookup already
+carries a unit per analyte). The R-31 check of a row's own unit against the lookup's (WS-01.2) is still open for
+feed rows mapped through a lookup.

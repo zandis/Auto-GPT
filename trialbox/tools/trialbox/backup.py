@@ -28,6 +28,7 @@ The database tools are ``pg_dump`` / ``pg_restore`` on the path, or the command 
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import io
 import json
@@ -45,12 +46,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any
 
+import zstandard
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 MAGIC = b"TBBAK1\n"
+ZSTD_LEVEL = 3  # D-149: 400-640 MB/s a core here, a better ratio than gzip -9 (dataflow review §0.2, §7.3)
 CHUNK = 1 << 20
 SUFFIX = ".tbbak"
 KEY_HEADER = "TRIALBOX BACKUP PRIVATE KEY"
@@ -350,6 +353,34 @@ def tree_hashes(root: Path) -> dict[str, str]:
     }
 
 
+# ------------------------------------------------------------------------------------------------ compression
+@contextlib.contextmanager
+def _tar_writer(enc: Any, compression: str) -> Iterator[tarfile.TarFile]:
+    """A streaming tar into ``enc``: zstd -3 on every core (D-149), or gzip (the format before D-149, kept only so
+    the restore of an old backup stays tested). The compressor's last frame is written before the caller seals the
+    final encrypted chunk."""
+    if compression == "zstd":
+        cctx = zstandard.ZstdCompressor(level=ZSTD_LEVEL, threads=-1)
+        with cctx.stream_writer(enc, closefd=False) as zw, tarfile.open(fileobj=zw, mode="w|") as tar:
+            yield tar
+    elif compression == "gzip":
+        with tarfile.open(fileobj=enc, mode="w|gz") as tar:
+            yield tar
+    else:
+        raise BackupError(f"unknown compression {compression!r}")
+
+
+def _tar_reader(plain: IO[bytes], header: Mapping[str, Any]) -> tarfile.TarFile:
+    """The tar stream of a decrypted backup: zstd when the (authenticated) header says so, else gzip, which every
+    backup made before D-149 used."""
+    compression = header.get("compression", "gzip")
+    if compression == "zstd":
+        return tarfile.open(fileobj=zstandard.ZstdDecompressor().stream_reader(plain), mode="r|")
+    if compression == "gzip":
+        return tarfile.open(fileobj=plain, mode="r|gz")
+    raise BackupError(f"this backup uses compression {compression!r}, which this TrialBox cannot read")
+
+
 # ------------------------------------------------------------------------------------------------ backup
 def backup(
     targets: Sequence[Path],
@@ -359,11 +390,14 @@ def backup(
     keep: int = 14,
     site: str = "",
     now: datetime | None = None,
+    compression: str = "zstd",
 ) -> list[Path]:
     """Write one encrypted backup to every target directory; return the files written."""
     env = dict(os.environ if env is None else env)
     if not targets:
         raise BackupError("no --to target")
+    if compression not in ("zstd", "gzip"):
+        raise BackupError(f"unknown compression {compression!r}")
     dirs = dict(dirs if dirs is not None else layout(env))
     when = now or datetime.now(UTC)
     stamp = when.strftime("%Y%m%dT%H%M%SZ")
@@ -381,9 +415,13 @@ def backup(
         first = Path(targets[0])
         first.mkdir(parents=True, exist_ok=True)
         part = first / (name + ".part")
+        meta = {"site": site, "created_at": manifest["created_at"]}
+        if compression != "gzip":  # a gzip backup is written exactly as before D-149 (no key: gzip)
+            meta["compression"] = compression
+            manifest["compression"] = f"{compression}-{ZSTD_LEVEL}"
         with part.open("wb") as raw:
-            enc = _Encryptor(raw, recipient, {"site": site, "created_at": manifest["created_at"]})
-            with tarfile.open(fileobj=enc, mode="w|gz") as tar:
+            enc = _Encryptor(raw, recipient, meta)
+            with _tar_writer(enc, compression) as tar:
                 for src in srcs:
                     f = work / f"{src.name}.dump"
                     manifest["files"][f"db/{src.name}.dump"] = _sha_file(f)
@@ -440,8 +478,10 @@ def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
     """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest."""
     sk = load_private(key)
     with file.open("rb") as fh:
+        header, _ = read_header(fh)
+        fh.seek(0)
         reader = io.BufferedReader(_ChunkReader(decrypt_stream(fh, sk)), buffer_size=CHUNK)
-        with tarfile.open(fileobj=reader, mode="r|gz") as tar:
+        with _tar_reader(reader, header) as tar:
             tar.extractall(into, filter="data")
     manifest: dict[str, Any] = json.loads((into / "manifest.json").read_text(encoding="utf-8"))
     bad = [rel for rel, sha in manifest["files"].items() if not (into / rel).is_file() or _sha_file(into / rel) != sha]

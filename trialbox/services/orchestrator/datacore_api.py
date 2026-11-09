@@ -25,6 +25,7 @@ With no source attached TrialBox works on its own data: entry, lists and the tri
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -39,6 +40,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from rc_bridge.client import RcError, RedcapClient
 from tb_common.audit import AuditLog
+from tb_common.flowledger import record_export
 
 from orchestrator.lifecycle_api import LIFE_FORMS, derive_record
 
@@ -77,6 +79,11 @@ class DataService:
         self.audit.append("data.sync", ruleset=rs, actor=by,
                           detail={"source": name, "pulled": res["pulled"], "taken": res["taken"],
                                   "pushed": res["pushed"], "conflicts": len(res["conflicts"])})  # fmt: skip
+        if res["pushed"]:  # values left for the study's REDCap: one ledger row per sync, hashed over its summary
+            summary = json.dumps(res, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
+            record_export(self.audit, channel="redcap_push", filename=f"redcap push {at}", data=summary,
+                          identifier_level="pseudonymised", actor=by, ruleset=rs,
+                          approval=f"study {rs} REDCap link attached by the study team")  # fmt: skip
         return {**res, "at": at}
 
 
@@ -402,6 +409,10 @@ def router(get: Callable[[], DataService]) -> APIRouter:
         suffix, media = export.media(fmt)
         name = f"{rid}_{svc.now().strftime('%Y%m%d')}{suffix}"
         svc.audit.append("data.export", ruleset=rid, actor=by or "orchestrator", detail={"format": fmt})
+        record_export(svc.audit, channel="datacore_export", filename=name,
+                      data=body if isinstance(body, bytes) else body.encode("utf-8"),
+                      identifier_level="pseudonymised", actor=by or "orchestrator", ruleset=rid,
+                      approval=f"study {rid} data core export (screening numbers and pseudonyms only)")  # fmt: skip
         if isinstance(body, bytes):
             return {"name": name, "media_type": media, "b64": base64.b64encode(body).decode()}
         return {"name": name, "media_type": media, "text": body}

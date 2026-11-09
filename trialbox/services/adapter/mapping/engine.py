@@ -100,6 +100,8 @@ class Mapping:
     path: Path
     profiles: dict[str, str] = field(default_factory=dict)
     fhir_profiles: str = ""  # "jp-core": the ingest checks a sample against JP Core (D-137)
+    # D-149: the site's declared unit per analyte (LOINC code -> UCUM) for a feed result that arrives without one
+    unit_defaults: dict[str, str] = field(default_factory=dict)
 
     @staticmethod
     def _read(path: Path) -> dict[str, Any]:
@@ -167,6 +169,7 @@ class Mapping:
             path=path,
             profiles={str(k): str(v or "") for k, v in (doc.get("profiles") or {}).items()},
             fhir_profiles=str(doc.get("fhir_profiles") or ""),
+            unit_defaults={str(k): str(v) for k, v in (doc.get("unit_defaults") or {}).items()},
         )
 
     def normalize(self, table: str, row: Row) -> Row:
@@ -469,18 +472,33 @@ class Mapper:
             return [v for v in items if v not in (None, {}, [], "")]
         return obj
 
+    def row_id(self, rs: ResourceSpec, row: Row) -> str:
+        if "pid" in rs.id:
+            return self.pid(row, rs.id["pid"])
+        if "hid" in rs.id:
+            return resource_id(self.key, rs.type, f"{row[rs.id['hid']]}{rs.id.get('suffix', '')}")
+        if "column" in rs.id:
+            return str(row[rs.id["column"]])
+        raise MappingError(f"{rs.type}: id needs pid/hid/column")
+
+    def tombstones(self, table: str, rows: Iterator[Row]) -> Iterator[tuple[str, str]]:
+        """``(resource type, id)`` of every resource a deleted source row would have made (dataflow review P0-1).
+
+        A deleted row is often a bare key, so ``where`` conditions and elements are not evaluated: each resource of
+        the table whose id the row can give is a tombstone, and a tombstone for an id not in the snapshot is a no-op.
+        A Patient is never tombstoned this way: removing a person is the opt-out path's job, not a feed delta's."""
+        specs = [r for r in self.m.resources if r.table == table and r.type != "Patient"]
+        for row in rows:
+            for rs in specs:
+                try:
+                    yield rs.type, self.row_id(rs, row)
+                except (KeyError, TypeError, ValueError):
+                    continue
+
     def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
         if rs.where and not self.cond(rs.where, row):
             return None
-        res: Resource = {"resourceType": rs.type}
-        if "pid" in rs.id:
-            res["id"] = self.pid(row, rs.id["pid"])
-        elif "hid" in rs.id:
-            res["id"] = resource_id(self.key, rs.type, f"{row[rs.id['hid']]}{rs.id.get('suffix', '')}")
-        elif "column" in rs.id:
-            res["id"] = str(row[rs.id["column"]])
-        else:
-            raise MappingError(f"{rs.type}: id needs pid/hid/column")
+        res: Resource = {"resourceType": rs.type, "id": self.row_id(rs, row)}
         if rs.profile:
             prof = self.value(rs.profile, row, rs) if isinstance(rs.profile, dict) else rs.profile
             prof = self.m.profiles.get(str(prof), prof) if prof else prof

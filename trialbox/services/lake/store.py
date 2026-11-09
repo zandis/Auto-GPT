@@ -3,14 +3,23 @@
 Layout under ``<lake_dir>``::
 
     ndjson/<snapshot>/<Type>.ndjson           written by the adapter
-    parquet/snapshot=<snapshot>/<table>.parquet
-    db/<snapshot>.duckdb                     tables + document_chunk(embedding FLOAT[1024]) + FTS index
-    embed_cache.duckdb                       sha256(chunk text) -> embedding (embed new chunks only)
+    parquet/snapshot=<snapshot>/<table>.parquet  (+ <table>.parquet.sha256)
+    db/<snapshot>.duckdb                     tables + document_chunk(text, tokens, sha) + FTS index + lake_meta
+    db/<snapshot>.duckdb.sha256              sidecar hash of the finished file (``Lake.verify``)
+    embed_cache.duckdb                       sha256(chunk text) -> embedding: the one vector store of the lake
     CURRENT                                  snapshot served by default
+
+Dataflow review P0 (D-149): the embeddings live only in ``embed_cache.duckdb`` and are read by chunk sha at query
+time; a snapshot file holds the chunk text, its tokens for BM25 and its sha. Before, every snapshot carried its own
+copy of every vector (``document_chunk.embedding FLOAT[1024]``): about 18 GB at 50,000 patients, times the 39 kept
+snapshots. Snapshots of schema version 1 (with the column) are still read as they are. ``lake_meta`` carries the
+lake schema version and a fingerprint of the table layout; a reader refuses a snapshot outside the versions it knows
+with a plain message (WS-03.1), instead of failing later on a missing column.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -45,6 +54,115 @@ _ARROW = {
 
 
 _CONNECT_LOCK = threading.Lock()
+# one open of embed_cache.duckdb at a time in this process: DuckDB refuses a read-only and a read-write connection to
+# the same file side by side, and a rebuild writes vectors while a search reads them
+_CACHE_LOCK = threading.Lock()
+
+# 1: tables + document_chunk with its own embedding column (before D-149); 2: no embedding in the snapshot, chunk sha,
+# lake_meta.schema_version / schema_sha / embed_store. A reader serves every version from MIN to CURRENT.
+LAKE_SCHEMA_VERSION = 2
+MIN_READABLE_SCHEMA = 1
+CHUNK_COLUMNS: list[tuple[str, str]] = [
+    ("did", "VARCHAR"),
+    ("chunk_no", "INTEGER"),
+    ("pid", "VARCHAR"),
+    ("date", "TIMESTAMP"),
+    ("type", "VARCHAR"),
+    ("text", "VARCHAR"),
+    ("tok", "VARCHAR"),
+    ("sha", "VARCHAR"),
+    ("chunk_key", "VARCHAR"),
+]
+
+
+def schema_sha() -> str:
+    """Fingerprint of the table layout this code writes (every table, column and type, and the chunk table)."""
+    body = json.dumps({"tables": SCHEMAS, "document_chunk": CHUNK_COLUMNS, "v": LAKE_SCHEMA_VERSION}, sort_keys=True)
+    return sha256_text(body)
+
+
+class LakeSchemaError(RuntimeError):
+    """The snapshot was built with a lake layout this reader does not serve."""
+
+
+def schema_version(con: duckdb.DuckDBPyConnection) -> int | None:
+    """The lake schema version of an open snapshot: None without ``lake_meta``, 1 for a snapshot built before
+    the version was recorded."""
+    cols = {
+        r[0] for r in con.execute("SELECT column_name FROM duckdb_columns() WHERE table_name = 'lake_meta'").fetchall()
+    }
+    if not cols:
+        return None
+    if "schema_version" not in cols:
+        return 1
+    row = con.execute("SELECT schema_version FROM lake_meta").fetchone()
+    return int(row[0]) if row and row[0] is not None else 1
+
+
+def cosine_rank(
+    cand: list[tuple[str, str]], vecs: dict[str, np.ndarray], qvec: Any, depth: int
+) -> list[tuple[str, float]]:
+    """``(chunk_key, cosine)`` best first (ties by key), as ``array_cosine_similarity`` ordered in SQL; a chunk
+    whose vector is not in the store is left out of the dense ranking (BM25 still finds it)."""
+    have = [(key, vecs[sha]) for key, sha in cand if sha in vecs]
+    if not have:
+        return []
+    q = np.asarray(qvec, dtype=np.float32)
+    mat = np.stack([v for _, v in have]).astype(np.float32, copy=False)
+    norms = np.linalg.norm(mat, axis=1) * float(np.linalg.norm(q))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        scores = (mat @ q) / norms
+    ranked = sorted(
+        ((key, float(s)) for (key, _), s in zip(have, scores, strict=True) if np.isfinite(s)),
+        key=lambda kv: (-kv[1], kv[0]),
+    )
+    return ranked[:depth]
+
+
+def check_schema(con: duckdb.DuckDBPyConnection, snapshot: str) -> int:
+    """The snapshot's schema version, or :class:`LakeSchemaError` with a message a steward can act on."""
+    v = schema_version(con)
+    if v is None or v < MIN_READABLE_SCHEMA:
+        raise LakeSchemaError(
+            f"LAKE-SCHEMA: lake snapshot {snapshot} was built by an older TrialBox (lake schema "
+            f"{'unrecorded' if v is None else v}; this box reads {MIN_READABLE_SCHEMA} to {LAKE_SCHEMA_VERSION}). "
+            "Rebuild it from its NDJSON (adapter run, or the lake /rebuild call) before using it."
+        )
+    if v > LAKE_SCHEMA_VERSION:
+        raise LakeSchemaError(
+            f"LAKE-SCHEMA: lake snapshot {snapshot} was built by a newer TrialBox (lake schema {v}; this box reads "
+            f"{MIN_READABLE_SCHEMA} to {LAKE_SCHEMA_VERSION}). Finish the update of every service before using it."
+        )
+    return v
+
+
+def _file_sha(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def write_sidecar(path: Path) -> str:
+    """``<file>.sha256`` in the ``sha256sum`` format, written atomically; returns the hash."""
+    digest = _file_sha(path)
+    side = path.with_name(path.name + ".sha256")
+    tmp = side.with_name(side.name + ".tmp")
+    tmp.write_text(f"{digest}  {path.name}\n", encoding="utf-8")
+    tmp.replace(side)
+    return digest
+
+
+def check_sidecar(path: Path) -> str | None:
+    """None when ``path`` matches its sidecar; else what is wrong, in words."""
+    side = path.with_name(path.name + ".sha256")
+    if not path.exists():
+        return f"{path.name}: missing"
+    if not side.exists():
+        return f"{path.name}: no .sha256 sidecar"
+    want = side.read_text(encoding="utf-8").split()[0]
+    return None if _file_sha(path) == want else f"{path.name}: content does not match its .sha256 sidecar"
 
 
 def fts_extension_path() -> str:
@@ -134,6 +252,24 @@ class Lake:
             raise FileNotFoundError(f"no lake snapshot {snap}")
         return path
 
+    def promote(self, snapshot: str) -> None:
+        """Make ``snapshot`` the one served by default (``CURRENT``), atomically."""
+        self.db_path(snapshot)
+        tmp = self.dir / "CURRENT.tmp"
+        tmp.write_text(snapshot)
+        tmp.replace(self.dir / "CURRENT")
+
+    def verify(self, snapshot: str | None = None) -> list[str]:
+        """Every Parquet and DuckDB file of the snapshot against its ``.sha256`` sidecar; [] when all match."""
+        path = self.db_path(snapshot)
+        snap = path.stem
+        problems = [p for p in [check_sidecar(path)] if p]
+        pdir = self.dir / "parquet" / f"snapshot={snap}"
+        for f in sorted(pdir.glob("*.parquet")):
+            if (why := check_sidecar(f)) is not None:
+                problems.append(why)
+        return problems
+
     # ------------------------------------------------------------------ site inputs (D-135)
     def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
         """Replace the site's own inputs (FHIR resources by type, from ``sitesetup.publish``); the next rebuild
@@ -152,7 +288,11 @@ class Lake:
         return {k: len(v) for k, v in resources.items()}
 
     # ------------------------------------------------------------------ rebuild
-    def rebuild(self, snapshot: str, embedder: Embedder, ndjson_dir: Path | None = None) -> RebuildStats:
+    def rebuild(
+        self, snapshot: str, embedder: Embedder, ndjson_dir: Path | None = None, promote: bool = True
+    ) -> RebuildStats:
+        """Build ``db/<snapshot>.duckdb`` (into ``.building``, renamed when complete, with ``.sha256`` sidecars) and,
+        with ``promote``, make it ``CURRENT``. The adapter calls this only for a night that passed validation."""
         t0 = time.perf_counter()
         src = ndjson_dir or self.dir / "ndjson" / snapshot
         by_type: dict[str, list[dict[str, Any]]] = {}
@@ -191,7 +331,7 @@ class Lake:
                         "sha": sha256_text(text),
                     }
                 )
-        vectors, new = self._embed(chunk_rows, embedder)
+        new = self._embed(chunk_rows, embedder)
         db_path = self.dir / "db" / f"{snapshot}.duckdb"
         tmp = db_path.with_suffix(".building")
         tmp.unlink(missing_ok=True)
@@ -200,76 +340,135 @@ class Lake:
             con.execute(f"LOAD '{fts_extension_path()}'")
             for name in SCHEMAS:
                 con.execute(f"CREATE TABLE {name} AS SELECT * FROM read_parquet(?)", [str(pdir / f"{name}.parquet")])
-            con.execute(
-                f"CREATE TABLE document_chunk (did VARCHAR, chunk_no INTEGER, pid VARCHAR, date TIMESTAMP, "
-                f"type VARCHAR, text VARCHAR, tok VARCHAR, embedding FLOAT[{DIM}], chunk_key VARCHAR)"
-            )
+            con.execute("CREATE TABLE document_chunk (" + ", ".join(f"{c} {t}" for c, t in CHUNK_COLUMNS) + ")")
             if chunk_rows:
                 for i in range(0, len(chunk_rows), INSERT_BATCH):
                     part = chunk_rows[i : i + INSERT_BATCH]
                     batch: dict[str, Any] = {
-                        k: [r[k] for r in part] for k in ("did", "chunk_no", "pid", "date", "type", "text", "tok")
+                        k: [r[k] for r in part]
+                        for k in ("did", "chunk_no", "pid", "date", "type", "text", "tok", "sha")
                     }
-                    flat = np.concatenate([vectors[r["sha"]] for r in part]).astype(np.float32, copy=False)
-                    batch["embedding"] = pa.FixedSizeListArray.from_arrays(pa.array(flat, type=pa.float32()), DIM)
                     batch["chunk_key"] = [f"{r['did']}#{r['chunk_no']}" for r in part]
                     con.register("chunks_arrow", pa.table(batch))
-                    con.execute(
-                        f"INSERT INTO document_chunk SELECT did, chunk_no, pid, date, type, text, tok, "
-                        f"embedding::FLOAT[{DIM}], chunk_key FROM chunks_arrow"
-                    )
+                    chunk_cols = ", ".join(c for c, _ in CHUNK_COLUMNS)
+                    con.execute(f"INSERT INTO document_chunk SELECT {chunk_cols} FROM chunks_arrow")
                     con.unregister("chunks_arrow")
                 con.execute(
                     "PRAGMA create_fts_index('document_chunk', 'chunk_key', 'tok', stemmer='none', "
                     "stopwords='none', ignore='\\s+', strip_accents=0, lower=1, overwrite=1)"
                 )
             con.execute(
-                "CREATE TABLE lake_meta AS SELECT ? AS snapshot, ? AS built_at",
-                [snapshot, time.strftime("%Y-%m-%dT%H:%M:%S")],
+                "CREATE TABLE lake_meta AS SELECT ? AS snapshot, ? AS built_at, ? AS schema_version, ? AS schema_sha, "
+                "? AS embed_store, ? AS embed_model",
+                [
+                    snapshot,
+                    time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    LAKE_SCHEMA_VERSION,
+                    schema_sha(),
+                    "embed_cache.duckdb",
+                    embedder.model,
+                ],
             )
             con.execute("CHECKPOINT")
         finally:
             con.close()
+        for f in sorted(pdir.glob("*.parquet")):
+            write_sidecar(f)
+        digest = _file_sha(tmp)
         tmp.replace(db_path)
-        (self.dir / "CURRENT").write_text(snapshot)
+        if write_sidecar(db_path) != digest:  # the rename is atomic; this guards a disk that lies
+            raise RuntimeError(f"lake snapshot {snapshot}: the file changed while it was being written")
+        if promote:
+            self.promote(snapshot)
         return RebuildStats(snapshot, counts, len(chunk_rows), new, round(time.perf_counter() - t0, 2))
 
-    def _embed(self, chunk_rows: list[dict[str, Any]], embedder: Embedder) -> tuple[dict[str, np.ndarray], int]:
-        """sha -> float32 vector. Kept as NumPy arrays: a Python list of 1,024 floats is ~32 KB per chunk and was
-        the peak of a 25,000-patient rebuild (12 GB); float32 is 4 KB."""
-        cache = duckdb.connect(str(self.dir / "embed_cache.duckdb"))
-        try:
-            cache.execute(
-                f"CREATE TABLE IF NOT EXISTS cache (sha VARCHAR, model VARCHAR, vec FLOAT[{DIM}], "
-                "PRIMARY KEY (sha, model))"
-            )
-            shas = sorted({r["sha"] for r in chunk_rows})
-            have: dict[str, np.ndarray] = {}
-            if shas:
-                cache.register("want", pa.table({"sha": shas}))
+    def _cache(self, read_only: bool) -> duckdb.DuckDBPyConnection:
+        """A connection to the vector store; another process holding the write lock is waited for (up to 30 s)."""
+        path = self.dir / "embed_cache.duckdb"
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                return duckdb.connect(str(path), read_only=read_only)
+            except duckdb.IOException:
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(0.2)
+
+    def _embed(self, chunk_rows: list[dict[str, Any]], embedder: Embedder) -> int:
+        """Make sure every chunk's vector is in ``embed_cache.duckdb`` (embed new texts only); return how many were
+        new. The store is opened only for each read or write, never across the embedding calls, so a search can
+        read vectors while a long first build runs."""
+        shas = sorted({r["sha"] for r in chunk_rows})
+        with _CACHE_LOCK:
+            cache = self._cache(read_only=False)
+            try:
+                cache.execute(
+                    f"CREATE TABLE IF NOT EXISTS cache (sha VARCHAR, model VARCHAR, vec FLOAT[{DIM}], "
+                    "PRIMARY KEY (sha, model))"
+                )
+                have: set[str] = set()
+                if shas:
+                    cache.register("want", pa.table({"sha": shas}))
+                    have = {
+                        r[0]
+                        for r in cache.execute(
+                            "SELECT c.sha FROM cache c JOIN want w USING (sha) WHERE c.model = ?", [embedder.model]
+                        ).fetchall()
+                    }
+                    cache.unregister("want")
+            finally:
+                cache.close()
+        missing = [s for s in shas if s not in have]
+        text_by_sha = {r["sha"]: r["text"] for r in chunk_rows}
+        pending: dict[str, list[Any]] = {"sha": [], "vec": []}
+
+        def flush() -> None:
+            if not pending["sha"]:
+                return
+            with _CACHE_LOCK:
+                cache = self._cache(read_only=False)
+                try:
+                    table = pa.table(
+                        {"sha": pending["sha"], "model": [embedder.model] * len(pending["sha"]), "vec": pending["vec"]}
+                    )
+                    cache.register("newvecs", table)
+                    cache.execute(f"INSERT OR REPLACE INTO cache SELECT sha, model, vec::FLOAT[{DIM}] FROM newvecs")
+                    cache.unregister("newvecs")
+                finally:
+                    cache.close()
+            pending["sha"], pending["vec"] = [], []
+
+        for i in range(0, len(missing), 64):
+            batch = missing[i : i + 64]
+            vecs = embedder.embed([text_by_sha[s] for s in batch])
+            pending["sha"].extend(batch)
+            pending["vec"].extend(np.asarray(v, dtype=np.float32).tolist() for v in vecs)
+            if len(pending["sha"]) >= INSERT_BATCH:
+                flush()
+        flush()
+        return len(missing)
+
+    def vectors(self, shas: list[str], model: str) -> dict[str, np.ndarray]:
+        """sha -> float32 vector from the vector store, for the given embedding model (absent shas are left out)."""
+        if not shas or not (self.dir / "embed_cache.duckdb").exists():
+            return {}
+        out: dict[str, np.ndarray] = {}
+        with _CACHE_LOCK:
+            cache = self._cache(read_only=True)
+            try:
+                cache.register("want", pa.table({"sha": sorted(set(shas))}))
                 got = cache.execute(
-                    "SELECT c.sha, c.vec FROM cache c JOIN want w USING (sha) WHERE c.model = ?",
-                    [embedder.model],
-                ).fetch_arrow_table()
+                    "SELECT c.sha, c.vec FROM cache c JOIN want w USING (sha) WHERE c.model = ?", [model]
+                ).to_arrow_table()
                 cache.unregister("want")
-                if got.num_rows:
-                    vec_col = got.column("vec").combine_chunks()
-                    mat = vec_col.flatten().to_numpy(zero_copy_only=False).astype(np.float32).reshape(-1, DIM)
-                    for sha, row in zip(got.column("sha").to_pylist(), mat, strict=True):
-                        have[sha] = row
-            missing = [s for s in shas if s not in have]
-            text_by_sha = {r["sha"]: r["text"] for r in chunk_rows}
-            for i in range(0, len(missing), 64):
-                batch = missing[i : i + 64]
-                vecs = embedder.embed([text_by_sha[s] for s in batch])
-                for s, v in zip(batch, vecs, strict=True):
-                    have[s] = np.asarray(v, dtype=np.float32)
-                cache.register("newvecs", pa.table({"sha": batch, "model": [embedder.model] * len(batch), "vec": vecs}))
-                cache.execute(f"INSERT OR REPLACE INTO cache SELECT sha, model, vec::FLOAT[{DIM}] FROM newvecs")
-                cache.unregister("newvecs")
-            return have, len(missing)
-        finally:
-            cache.close()
+            finally:
+                cache.close()
+        if got.num_rows:
+            mat = got.column("vec").combine_chunks().flatten().to_numpy(zero_copy_only=False)
+            mat = mat.astype(np.float32).reshape(-1, DIM)
+            for sha, row in zip(got.column("sha").to_pylist(), mat, strict=True):
+                out[sha] = row
+        return out
 
     # ------------------------------------------------------------------ query
     def connect(self, snapshot: str | None = None) -> duckdb.DuckDBPyConnection:
@@ -290,6 +489,11 @@ class Lake:
                 con.execute("SET preserve_insertion_order = false")
                 con.execute("SET enable_external_access = false")
                 con.execute("SET lock_configuration = true")
+        try:
+            check_schema(con, snapshot or self.current() or "")
+        except LakeSchemaError:
+            con.close()
+            raise
         return con
 
     def query(
@@ -339,11 +543,15 @@ class Lake:
                 [token_string(query), *args],
             ).fetchall()
             qvec = embedder.embed([query])[0]
-            dense = con.execute(
-                f"SELECT c.chunk_key, array_cosine_similarity(c.embedding, ?::FLOAT[{DIM}]) AS score "
-                f"FROM document_chunk c WHERE {where} ORDER BY score DESC, chunk_key LIMIT {int(depth)}",
-                [qvec, *args],
-            ).fetchall()
+            if check_schema(con, snapshot or self.current() or "") < 2:  # a snapshot that still carries its vectors
+                dense = con.execute(
+                    f"SELECT c.chunk_key, array_cosine_similarity(c.embedding, ?::FLOAT[{DIM}]) AS score "
+                    f"FROM document_chunk c WHERE {where} ORDER BY score DESC, chunk_key LIMIT {int(depth)}",
+                    [qvec, *args],
+                ).fetchall()
+            else:  # D-149: vectors from the one store, by chunk sha
+                cand = con.execute(f"SELECT c.chunk_key, c.sha FROM document_chunk c WHERE {where}", args).fetchall()
+                dense = cosine_rank(cand, self.vectors([s for _, s in cand], embedder.model), qvec, depth)
             fused: dict[str, float] = {}
             for ranking in (bm25, dense):
                 for rank, (key, _) in enumerate(ranking, start=1):
