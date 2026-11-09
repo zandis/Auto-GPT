@@ -3607,3 +3607,91 @@ rather than exported point-in-time. A delta night's deletes (D-149) leave the sn
 here by absence; the event does not yet say "deleted at the source" from `tombstones.json`. The consortium's 10-million site blocks (design §2.4) fit only four sites below
 the integer maximum of OMOP's `concept_id` (2,147,483,647): the block size must shrink (1 million gives 47 sites)
 before a second site is given one.
+
+**D-160 EDC prefill: drafts with citations, the CRC's review and signature, REDCap send and ODM export.** Owner
+decisions D-144 ("EDC: prefill, then the CRC confirms; REDCap through its API; other EDCs through CDISC ODM; no
+screen-scraping or RPA; items mapped to CDASH") and D-145 (prefill switched on per study only after the sponsor's
+written acknowledgement); TB-PLAN-05 WS-07.1, WS-07.2 (code), WS-07.4 (part), WS-07.7 (switch).
+
+* **Library `services/edc/`, schema `edc`.** `mapping` (the item map: per eCRF item a CDASH tag and one source:
+  patient, observation with codes and unit, condition, medication, a note passage, or none; `check` refuses a map
+  that could draft a wrong kind of value, and the record-id and link fields), `cdash` (tags, en/ja/zh-TW name hints;
+  diagnosis and medicine codes are never suggested), `prefill` (drafts from the box's lake), `store` (switch, map,
+  drafts and their fate, decisions, signatures, sends; nothing deleted), `odm` (CDISC ODM 1.3.2), `service`.
+* **Rules, each tested.** Every drafted value has a citation (record row, snapshot and day; a confirmed fact; or a
+  note with a verbatim quote checked against the note); no citation, no value. Proposed chart facts never count.
+  Unknown never becomes "No": a yes/no item is only drafted as yes. Ties, another unit, a censored result, a value
+  outside the window or failing the field's checks stay unknown with the reason. A value without a citation cannot be
+  confirmed; an edit needs a reason and passes the field's checks; a value is sent or exported only when confirmed,
+  signed and unchanged since (per-value hash). The REDCap send never overwrites a value TrialBox did not write (listed
+  as a conflict), never creates a record, and reads every value back.
+* **Switch.** Off by default. On needs the acknowledgement kind (sponsor letter, or the PI is the sponsor), its
+  reference and date (not in the future) and the blind re-entry result (≥ 30 pages, ≥ 98 %, WS-16.4); only the PI
+  turns it on; the PI or an admin turns it off. While off nothing is drafted, decided, signed, sent or exported.
+* **Signature.** The signer types their password again (failures count toward the lockout and are audited), ticks
+  that they read the meaning, and the signature keeps the printed name (delegation log), role, meaning text,
+  language, time and a hash of what was signed. SSO-only accounts cannot sign yet. A second factor (WS-13.1) is not
+  built; this is a known gap for WS-07.4.
+* **Roles.** `authz.EDC_ACTIONS` / `edc_allowed`: the work needs the `enter_data` study task; switch on: the PI;
+  switch off: the PI or an admin; viewer and CRO: nothing.
+* **Surfaces.** Orchestrator `/studies/{rs}/edc/*`; console pages *EDC prefill*, *Item map*, *Review*, *Audit trail*
+  (en, ja, zh-TW) and `/api/v1/studies/{rs}/edc/*`. Note items use the gateway prompt `crf_prefill` v1 (role
+  `abstract_field`), output schema `llm_crf_prefill_output`; the stub has a rule handler.
+* **Not done here.** Copy-assist screen, repeating instruments, arms, record lock after SDV, the second factor at
+  signing, the accept-without-edit weekly report (WS-16.4 after go-live).
+
+*Evidence.* `tests/unit/test_edc.py`, `tests/console/test_edc_pages.py`, `tools/e2e_simple.py` stage 16 (synthetic
+data, REDCap simulator).
+
+**D-161 Study A protocol, the intended-use statement and the SNOMED CT licence inquiry (documents).** Owner decision
+D-144 ("draft the Study A protocol now"; "SNOMED CT: ask about a licence; Aimedics holds it") and the clinician-view
+restriction; TB-PLAN-05 WS-16.1, WS-15.3, WS-13.7. New records under `docs/plan/`: `study-a-protocol.md`
+(TB-STUDY-A-01: retrospective accuracy at CGMH, English and zh-TW, sample size with its reasoning, blinded two-reader
+chart review with adjudication, endpoints, analysis, data handling, timeline), `intended-use.md` (TB-IU-01: the
+non-device statement and the conditions that keep it true, mapped to the MHLW/PMDA 該当性 questions and the TFDA
+questions, with the points a regulatory consultant must confirm) and `snomed-inquiry.md` (TB-LIC-01: a ready-to-send
+inquiry). They are drafts for the owner; none is sent or submitted by this change.
+
+**D-162 EDC prefill hardened after the independent code review (TB-REV-EDC-01).** Review
+`docs/reviews/2026-11-09-edc-prefill-review.md` (1 Blocker, 10 High, 14 Medium, 3 Low); every Blocker and High
+fixed with a test, the rest answered in the file. D-160 stays; this adds:
+
+* **Who acts.** The orchestrator's EDC routes take the person and role from the console's signed assertion
+  (`X-TB-Actor`, `X-TB-Actor-Assertion`, `X-TB-Actor-Role`), never from the body; the role must allow the action
+  (`authz.edc_role_may`). A signature needs an assertion the console made right after the password check (session
+  `reauth-...`). A body `by` counts only on a DEV or TEST box without a token (E-01).
+* **Delegation log.** To sign, the person needs their own active log entry; its name is the printed name (never a
+  login name). To switch on, the log must name the person as the study's PI (E-10).
+* **What is signed.** The sign call carries the draft ids and hashes the page showed; any difference refuses it. The
+  hash covers the pseudonym too; a record key stays bound to its first subject; the signature keeps each value's
+  hash; an edit that withdraws a signature writes a `signature_void` row (E-02, E-11, E-12).
+* **Drafts.** One current draft per item (rejected drafts are superseded by a new run; send and export refuse
+  duplicates). A changed value needs the person's own source; the machine citation is kept as "replaces" (E-03,
+  E-08). Medicine and diagnosis rows in `entered-in-error`, `cancelled`, `draft`, `refuted` or `not-taken` never count;
+  the status is shown in the citation; short code prefixes and hospital codes match whole (E-09, E-19). From a note,
+  only the yes code is drafted, and a number or date must appear in its quote; an over-long note is skipped, not the
+  rest (E-18, E-26).
+* **Send.** Refused for a project with repeating instruments or events; a screening number on two REDCap records, a
+  visit that is not an event of the project, an opted-out patient, and a value changed since the send began are each
+  listed and not sent (E-04 to E-07, E-17). The opt-out register is read at draft, decide, sign, send and export.
+* **ODM.** An export with a signed value whose item left the map or the dictionary is refused, not silently short;
+  user and file ids no longer collide (E-22, E-23, E-28). The `crf_prefill` prompt's purpose is `data_entry` (E-27).
+* **Still open** (in the review file with reasons): record lock and the second factor at signing (WS-07.4), the
+  switch's evidence as typed numbers (E-14), map and target versions on drafts (E-15, E-16), database-level
+  protection of the trail tables (E-21), audit of every refusal (E-20), the remaining ODM conformance points (E-23).
+
+*Evidence.* `tests/unit/test_edc.py` (tests named `test_e01_` to `test_e26_`), `tests/console/test_edc_pages.py`,
+`tools/e2e_simple.py` stage 16.
+
+**D-163 Study A protocol and intended use revised after the independent document review (TB-REV-SA-01).** Review
+`docs/reviews/2026-11-09-study-a-intended-use-review.md` (2 Blocker, 7 High, 10 Medium, 4 Low). Study A v0.2: P1
+design value 0.80 with the chance of meeting both parts of the target stated; P1 allocated in proportion to list
+size with a floor and an effective-size rule, Wilson interval on the effective size; P2 named as a false-omission
+rate with its design value on its own denominator, and the share of eligible patients lost added as the key
+secondary; a reading manual with a fixed rule for silent charts; samples drawn by the independent statistician and
+the key held by the CGMH second reviewer; every tuning sample left out; the release the claim covers; the IRB points
+of PDPA Art. 6, identified charts, personnel, protected records, retention, security and publication. The PI question
+is the owner's, to settle by G2 before submission. Intended use v0.2: the clinician own-patient view described as
+planned (C2); "consultant's opinion" and "authority's written answer" named apart, and the C6 switch needs the
+authority's answer in both countries. WS-06.7 and WS-16.4 of TB-PLAN-05 now leave their patients out of Study A.
+
