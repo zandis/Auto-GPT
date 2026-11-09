@@ -93,6 +93,14 @@ class CriterionMeta:
 VERIFIED_BY = {"structured": "records", "note": "notes", "human": "person", "mixed": "records_notes"}
 
 
+def site_or_written(written: object, meta: CriterionMeta | None, cid: str) -> tuple[str, bool]:
+    """(label, is the site's own label): the label the site gave at approval wins over the words a run wrote down
+    (D-146, review J-22 / R-72); otherwise the study's own words, which a page shows as written (``data-authored``)."""
+    if meta is not None and meta.original:
+        return meta.label, True
+    return str(written or (meta.label if meta else "") or cid), False
+
+
 def feas_report(
     result: Mapping[str, Any],
     profile: Mapping[str, Any] | None,
@@ -140,10 +148,12 @@ def feas_report(
         width = None
         if f.get("applied") is not False and start_i and _int(rem) is not None:
             width = max(0.5, min(100.0, 100.0 * (_int(rem) or 0) / start_i))
+        label, site_label = site_or_written(f.get("label"), meta, cid)
         funnel_rows.append(
             {
                 "id": cid,
-                "label": f.get("label") or (meta.label if meta else cid),
+                "label": label,
+                "site_label": site_label,
                 "kind": meta.kind if meta else "",
                 "applied": f.get("applied") is not False,
                 "remaining": _fmt(rem),
@@ -165,7 +175,7 @@ def feas_report(
         bars.append(
             {
                 "id": f.get("criterion_id"),
-                "label": f.get("label") or (meta.label if meta else f.get("criterion_id")),
+                "label": site_or_written(f.get("label"), meta, str(f.get("criterion_id") or ""))[0],
                 "dropped": d,
                 "never": never,
                 "failed": d - never,

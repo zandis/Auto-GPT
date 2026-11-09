@@ -46,13 +46,13 @@ SCOPE_SQL = """
 WITH a AS (
   SELECT pid, min(start) AS next_appt, arg_min(practitioner_id, start) AS pr, arg_min(dept, start) AS dept
   FROM appointment
-  WHERE list_contains(CAST($1 AS VARCHAR[]), practitioner_id) AND status = 'booked'
+  WHERE (CAST($5 AS BOOLEAN) OR list_contains(CAST($1 AS VARCHAR[]), practitioner_id)) AND status = 'booked'
     AND CAST(start AS DATE) BETWEEN CAST($2 AS DATE) AND CAST($3 AS DATE)
   GROUP BY pid),
 e AS (
   SELECT pid, max(start) AS last_enc, arg_max(practitioner_id, start) AS pr, arg_max(dept, start) AS dept
   FROM encounter
-  WHERE list_contains(CAST($1 AS VARCHAR[]), practitioner_id)
+  WHERE (CAST($5 AS BOOLEAN) OR list_contains(CAST($1 AS VARCHAR[]), practitioner_id))
     AND CAST(start AS DATE) BETWEEN CAST($4 AS DATE) AND CAST($2 AS DATE)
   GROUP BY pid)
 SELECT p.pid, CAST(a.next_appt AS VARCHAR) AS next_appt, coalesce(a.pr, e.pr) AS practitioner_id,
@@ -86,6 +86,7 @@ class ScreenRun:
     judge: NoteJudge | None
     judging: dict[str, Any] | None = None
     cascade: dict[str, Any] | None = None  # D-103: the cascade's stage log and counts when it ran the screen
+    whole_hospital: bool = False  # D-146: every doctor's patients (``practitioners`` is then empty)
 
     @property
     def pipeline(self) -> str:
@@ -120,21 +121,24 @@ def judging_sentence(j: dict[str, Any], lang: str = "en") -> str:
 
 def scope_patients(
     ctx: Ctx,
-    practitioners: list[str],
+    practitioners: list[str] | None,
     run_date: date,
     window_days: int,
     recent_months: int,
     departments: list[str],
     snapshot: str | None = None,
 ) -> list[Scoped]:
-    """The patients in scope, read from the snapshot the screening then runs on (D-142, review B-02)."""
+    """The patients in scope, read from the snapshot the screening then runs on (D-142, review B-02).
+    ``practitioners`` None: the whole hospital (D-146), every patient with a booked appointment in the window or a
+    recent visit, whoever the doctor."""
     rows = ctx.services.lake.query(
         SCOPE_SQL,
         [
-            practitioners,
+            list(practitioners or []),
             run_date.isoformat(),
             (run_date + timedelta(days=window_days)).isoformat(),
             add_months(run_date, -recent_months).isoformat(),
+            practitioners is None,
         ],
         snapshot=snapshot,
     ).to_pylist()
@@ -378,16 +382,45 @@ def evaluate_scope(
     return res
 
 
+def study_scope(ctx: Ctx, ruleset: str) -> dict[str, Any] | None:
+    """Who the study's set-up page says to screen (D-146, review J-26); None when it was never set (or the run has no
+    trial database, as in some unit tests)."""
+    url = getattr(getattr(ctx.orch, "db", None), "url", None)
+    if not url:
+        return None
+    from orchestrator.studystore import screen_scope_of
+
+    return screen_scope_of(str(url), ruleset)
+
+
+def practitioners_of(ctx: Ctx, rs: Ruleset) -> list[str] | None:
+    """The practitioners a run screens, None for the whole hospital. The job's ``pract=`` (or ``scope=hospital``)
+    first, then the study's set-up page (D-146), then the ruleset's ``scopes.screen``."""
+    opts = ctx.job.options or {}
+    if opts.get("pract"):
+        return [p.strip() for p in opts["pract"].split(",") if p.strip()]
+    if (opts.get("scope") or "").lower() == "hospital":
+        return None
+    row = study_scope(ctx, rs.id)
+    if row and row.get("mode") == "hospital":
+        return None
+    if row and row.get("mode") == "practitioners" and row.get("practitioners"):
+        return list(row["practitioners"])
+    sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
+    pract = list(sc.practitioners if sc and sc.practitioners else [])
+    if not pract:
+        raise StepFailed(
+            "running",
+            f"No one to screen for {rs.id}: choose the whole hospital or some doctors under 'Who to screen' on the "
+            "study's set-up page, or give pract=<id,...>.",
+        )
+    return pract
+
+
 def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRun:
     opts = ctx.job.options or {}
     sc = rs.manifest.scopes.screen if rs.manifest.scopes and rs.manifest.scopes.screen else None
-    practitioners = (
-        [p.strip() for p in opts["pract"].split(",")]
-        if opts.get("pract")
-        else list(sc.practitioners if sc and sc.practitioners else [])
-    )
-    if not practitioners:
-        raise StepFailed("running", f"No practitioners in scope: give pract=<id,...> or set scopes.screen for {rs.id}.")
+    practitioners = practitioners_of(ctx, rs)
     try:
         window = int(opts.get("window") or (sc.appointment_window_days if sc and sc.appointment_window_days else 180))
     except ValueError as exc:
@@ -442,8 +475,9 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
     ]
     rows.sort(key=sort_key)
     return ScreenRun(
-        rs, run_date, snapshot, scoped, results, rows, practitioners, depts, window, judge, judging, cascade
-    )
+        rs, run_date, snapshot, scoped, results, rows, list(practitioners or []), depts, window, judge, judging,
+        cascade, whole_hospital=practitioners is None,
+    )  # fmt: skip
 
 
 def candidate_list(run: ScreenRun) -> CandidateList:
@@ -640,7 +674,7 @@ def run(ctx: Ctx) -> Outcome:
         t(
             lang,
             "screen.scope2",
-            pract=", ".join(srun.practitioners),
+            pract=t(lang, "screen.whole_hospital") if srun.whole_hospital else ", ".join(srun.practitioners),
             window=srun.window_days,
             scoped=n(len(srun.scoped)),
         ),
@@ -674,6 +708,7 @@ def run(ctx: Ctx) -> Outcome:
                 "practitioner_names": practitioner_names(ctx),
                 "scope": {
                     "practitioners": srun.practitioners,
+                    "whole_hospital": srun.whole_hospital,
                     "departments": srun.departments,
                     "window_days": srun.window_days,
                     "n_scoped": n(len(srun.scoped)),

@@ -5,15 +5,16 @@
 <span class="hint" data-testid="s20-split">{{ t('s20.split', n=rows|length, s=split.structured, m=split.note, x=split.mixed, h=split.human) }}</span></div>
 {% if done == 'tick' %}<p class="ok" role="status">{{ t('s20.ticked') }}</p>{% endif %}{% if done == 'label' %}<p class="ok" role="status">{{ t('wb.done.label') }}</p>{% endif %}
 <p>{{ t('s20.help') }}</p>
+<p class="hint" data-testid="s20-who">{{ t('s20.who') }}</p>
 {% if prev %}
 <section class="card attention" data-testid="changes">
 <h2>{{ t('s20.changes', v=prev) }}</h2>
 {% set nchg = diff.added|length + diff.text|length + diff.class|length + diff.removed|length %}
 {% if not nchg %}<p>{{ t('s20.changes.none') }}</p>{% else %}<ul>
 {% for i in diff.added %}<li><a href="#{{ i }}">{{ i }}</a> · {{ t('s20.chg.added') }}</li>{% endfor %}
-{% for i in diff.text %}<li><a href="#{{ i }}">{{ i }}</a> · {{ t('s20.chg.text') }}<br><span class="hint"><del>{{ old[i].text }}</del></span></li>{% endfor %}
+{% for i in diff.text %}<li><a href="#{{ i }}">{{ i }}</a> · {{ t('s20.chg.text') }}<br><span class="hint" data-authored><del>{{ old[i].text }}</del></span></li>{% endfor %}
 {% for i in diff.class %}<li><a href="#{{ i }}">{{ i }}</a> · {{ t('s20.chg.class', a=t('s20.class.' + (old[i]['class'] or 'structured')), b=t('s20.class.' + (rows|selectattr('id', 'equalto', i)|first)['class'])) }}</li>{% endfor %}
-{% for i in diff.removed %}<li>{{ i }} · {{ t('s20.chg.removed') }}<br><span class="hint"><del>{{ old[i].text }}</del></span></li>{% endfor %}
+{% for i in diff.removed %}<li>{{ i }} · {{ t('s20.chg.removed') }}<br><span class="hint" data-authored><del>{{ old[i].text }}</del></span></li>{% endfor %}
 </ul>{% endif %}
 </section>
 {% endif %}
@@ -22,8 +23,11 @@
 <thead><tr><th>{{ t('feas.f.criterion') }}</th><th>{{ t('s20.c.check') }}</th><th>{{ t('s20.c.state') }}</th></tr></thead>
 <tbody>{% for r in rows %}{% set is_amber = r.amber %}{% set seen = r.id in opened %}
 <tr id="{{ r.id }}" class="{{ 'amber' if is_amber else '' }}{{ ' seen' if seen else '' }}" data-testid="row-{{ r.id }}">
-<td class="crit"><strong>{{ r.id }}</strong> <span class="hint">{{ t_or('kind.' + r.kind, r.kind) }}</span><br>{{ r.text }}
-{% if r.summary and r.summary != r.text %}<br><span class="hint">{{ r.summary }}</span>{% endif %}
+<td class="crit"><strong>{{ r.id }}</strong> <span class="hint">{{ t_or('kind.' + r.kind, r.kind) }}</span>
+{% if labels.get(r.id) %}<br><strong data-testid="site-label-{{ r.id }}">{{ labels[r.id] }}</strong>{% endif %}
+{# D-146: the draft is the protocol's own words, shown as written and marked so; the site's label goes above it #}
+<br><span data-authored>{{ r.text }}</span>{% if lang != 'en' %} <span class="hint" data-testid="as-written">({{ t('s20.as_written') }})</span>{% endif %}
+{% if r.summary and r.summary != r.text %}<br><span class="hint" data-authored>{{ r.summary }}</span>{% endif %}
 {% if is_amber %}<p class="amberwhy">{% for w in r.amber %}<span class="pill warn">{{ t('s20.why.' + w) }}</span> {% endfor %}{% if r.flags %}<br><span class="hint">{{ r.flags }}</span>{% endif %}</p>{% endif %}
 <details class="codes"{% if open_row == r.id %} open{% endif %}><summary>{{ t('s20.codes', n=r.codes_list|length) }}</summary>
 {% if r.codes_list %}<ul class="codes">{% for c in r.codes_list %}<li class="mono">{{ c }}</li>{% endfor %}</ul>{% else %}<p class="hint">{{ t('s20.codes.none') }}</p>{% endif %}
@@ -34,7 +38,7 @@
 </td>
 <td>{{ t('s20.class.' + (r['class'] or 'structured')) }}</td>
 <td class="nowrap">{% if is_amber %}{% if seen %}<span class="pill ok">{{ t('s20.opened') }}</span>{% elif user.can_approve %}<a class="button small" href="?open={{ r.id }}#{{ r.id }}" data-testid="open-{{ r.id }}">{{ t('s20.open_row') }}</a>{% else %}<span class="pill warn">{{ t('s20.amber') }}</span>{% endif %}{% else %}<span class="hint">{{ t('s20.ok') }}</span>{% endif %}
-{% if user.can_request and r.id not in ticks %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/tick" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ r.id }}"><button type="submit" class="small secondary" data-testid="tick-btn-{{ r.id }}">{{ t('s20.tick') }}</button></form>{% endif %}</td>
+{% if user.can_approve and r.id not in ticks %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/tick" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ r.id }}"><button type="submit" class="small secondary" data-testid="tick-btn-{{ r.id }}">{{ t('s20.tick') }}</button></form>{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>
 </section>
 <section class="card attention" data-testid="approve-box">

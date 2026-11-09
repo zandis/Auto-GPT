@@ -702,6 +702,13 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_readiness(request: Request, ws: str = "main", study: str = "") -> Any:
         sess = api_session(request)
         need_view(sess, request.url.path)
+        mine = studies(sess)
+        if not study.strip() and len(mine) > 1:  # D-146 (review J-16): never the readiness of a study it did not name
+            return JSONResponse(
+                {"error": "request.refused", "detail": {"code": "study-required", "studies": mine,
+                 "reason": "give study=<id>: the readiness is per study and this account has several"}},
+                status_code=400,
+            )  # fmt: skip
         try:
             return get(f"/setup/{ws_of(ws)}/readiness?study={quote(study_of(sess, study))}")
         except (Problem, Unavailable) as exc:

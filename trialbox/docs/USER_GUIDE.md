@@ -37,15 +37,23 @@ The words are one plain vocabulary per idea, the same on every page (D-133). Som
 | Coordinator (CRC) | the work list | sets up studies, pastes protocols, starts feasibility and screening, records contact outcomes, consent, visits, AEs | approves criteria |
 | Administrator | Admin | accounts, health, runs, data sources, REDCap links, updates | approves or marks |
 | CRO specialist | Reports | reads the sponsor copy of feasibility reports for their studies (small counts hidden) | sees lists or patients |
-| Viewer | Reports | reads reports and the audit trail | sees patients |
+| Viewer | Reports | reads the feasibility reports of its studies (aggregate) | sees patients, runs, the registry, the audit trail or a study's set-up (D-146) |
 
 Every action is in the audit trail. A page your role may not open says so in your language (403).
 
 ## 3. The everyday work
 
 **Start a study (CRC, then PI).** Protocol → paste the inclusion and exclusion criteria → the box drafts them → the
-PI opens the approval page (S20), checks each criterion, gives it a short label in the site's language and approves.
-Feasibility runs at once: the funnel shows how many patients pass each criterion.
+PI opens the approval page (S20), ticks each criterion's codes as checked and approves; only the PI ticks and approves
+(D-146). The CRC (or the PI) gives each criterion a short label in the site's language; the draft itself stays in the
+protocol's own words. Feasibility runs at once: the funnel shows how many patients pass each criterion. Before the
+first screening the CRC chooses **Who to screen** on the study's set-up page: the whole hospital, or only some doctors'
+patients (a request that names doctors with `pract=` uses those for that run).
+
+A request started on the console is allowed by your role (a coordinator or an administrator starts runs; the
+investigator approves), not by your mailbox. Each person may start at most 20 runs of each kind (feasibility,
+screening, ...) a day; case questions, consent drafts and approvals are not counted. When a limit is reached the page
+says so in your language; the administrator can change the limits (`rate_limits_per_day`, RUNBOOK).
 
 **Work the list (PI).** Each morning the list has two parts: *Ready to decide* (every criterion answered) and *Needs
 information* (fewest unknowns first). Open a patient: each criterion shows its answer and, for notes, the quote from

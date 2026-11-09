@@ -300,12 +300,16 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         )
         jobs[rs] = job
     s20 = crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval")
-    first = re.search(r'data-testid="tick-btn-([A-Z0-9-]+)"', s20.text)
-    if first:
-        r = crc.post(
-            f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/tick", data={"csrf": fd._csrf(s20.text), "crit": first.group(1)}
-        )
-        s.check("coordinator ticks a criterion's codes on S20", r.status_code == 200, r.status_code)
+    s.check("S20 says who ticks and approves; the coordinator has no tick", 'data-testid="s20-who"' in s20.text
+            and 'data-testid="tick-btn-' not in s20.text, "")  # fmt: skip
+    # D-146 (review J-27): the investigator ticks a criterion's codes, as only the investigator approves
+    p20 = pi.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval")
+    first = re.search(r'data-testid="tick-btn-([A-Z0-9-]+)"', p20.text)
+    r = pi.post(
+        f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/tick",
+        data={"csrf": fd._csrf(p20.text), "crit": first.group(1) if first else "-"},
+    )
+    s.check("investigator ticks a criterion's codes on S20", bool(first) and r.status_code == 200, r.status_code)
     r = crc.post(f"/pilot/jobs/{jobs[TRIAL].job_id}/approve", data={"csrf": fd._csrf(s20.text)}, follow_redirects=False)
     s.check("coordinator's approve refused (403)", r.status_code == 403, r.status_code)
     # D-120: at approval the coordinator gives each criterion a short label in the site's languages; the pages show
@@ -812,6 +816,20 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     for who, seen in swept.items():
         s.check(f"{who}: no chart number or name on any page of the walk ({len(seen['pages'])} pages)",
                 not seen["leaks"], seen["leaks"][:3])  # fmt: skip
+        # D-146 (review J-03 to J-05): no patient-level page or API, no registry, audit trail or set-up for them
+        shut = [
+            p
+            for p, code in seen["pages"]
+            if code == 200
+            and (
+                p == f"/pilot/jobs/{walk.get('case_job')}"
+                or re.match(
+                    r"^/(?:jobs|audit|pilot/registry|admin/redcap|studies/[^/]+/(?:setup|sources|forms|screening-log|week))",
+                    p,
+                )
+            )
+        ]
+        s.check(f"{who}: runs, registry, audit trail and study set-up refused (403)", not shut, shut[:3])  # fmt: skip
     if cj is not None:  # the study's investigator has identifier authority: the CASE request row in clear, audited
         page = pi.get(f"/pilot/jobs/{cj.job_id}").text
         s.check("the study's investigator sees the CASE request's chart number (D-143)",

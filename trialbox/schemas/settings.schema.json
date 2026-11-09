@@ -102,8 +102,16 @@
       "default": true
     },
     "rate_limit_per_sender_per_day": {
+      "description": "Jobs of each heavy type (FEAS, SCREEN, COHORT, NAV, MICROBATCH, CALIBRATION) one sender may start in 24 hours (D-146)",
       "type": "integer",
       "default": 20
+    },
+    "rate_limits_per_day": {
+      "description": "Per job type daily limit per sender, overriding rate_limit_per_sender_per_day; 0 = no limit (D-146)",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
     },
     "data_source": {
       "title": "DataSource",

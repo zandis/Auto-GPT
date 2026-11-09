@@ -144,6 +144,23 @@ def router(
         except SetupError as exc:
             raise _fail(exc) from exc
 
+    # D-146 (review J-08): declared before the ``/setup/{ws}/...`` routes, or ``/setup/templates/codes`` is read as
+    # the hospital codes of a workspace named "templates" (a list, and the console's download was a 500)
+    @r.get("/setup/templates/{name}")
+    def template(name: str, lang: str = "ja", ws: str = "main") -> dict[str, Any]:
+        lang = lang if lang in LANGS else "en"
+        if name == "candidates":
+            data = site_help.candidate_template(lang)
+        elif name == "codes":
+            data = site_help.mapping_sheet(get().store.locals(ws_of(ws)), lang)
+        else:
+            raise HTTPException(status_code=404, detail={"code": "SETUP-TEMPLATE", "message": "no such template"})
+        return {
+            "name": f"trialbox-{name}-{lang}.xlsx",
+            "b64": base64.b64encode(data).decode("ascii"),
+            "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }
+
     @r.get("/setup/{ws}/readiness")
     def get_readiness(ws: str, study: str = "") -> dict[str, Any]:
         svc, w, rid = get(), ws_of(ws), rs_of(study)
@@ -315,21 +332,6 @@ def router(
     def practice_reset(body: ByBody) -> dict[str, Any]:
         get().reset("practice", body.by)
         return {"reset": True}
-
-    @r.get("/setup/templates/{name}")
-    def template(name: str, lang: str = "ja", ws: str = "main") -> dict[str, Any]:
-        lang = lang if lang in LANGS else "en"
-        if name == "candidates":
-            data = site_help.candidate_template(lang)
-        elif name == "codes":
-            data = site_help.mapping_sheet(get().store.locals(ws_of(ws)), lang)
-        else:
-            raise HTTPException(status_code=404, detail={"code": "SETUP-TEMPLATE", "message": "no such template"})
-        return {
-            "name": f"trialbox-{name}-{lang}.xlsx",
-            "b64": base64.b64encode(data).decode("ascii"),
-            "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        }
 
     @r.get("/setup/terminology")
     def get_terminology() -> list[dict[str, Any]]:

@@ -52,14 +52,14 @@ def test_approve_list_mark_and_mail(tmp_path: Path) -> None:
     assert log.status_code == 200 and "GZQO-0001" in log.text
     # the cohort list: new members only, no mark buttons
     assert res["cohort_new"] > 0 and 'name="mark"' not in res["cohort_html"]
-    # N1 to the investigator, N2 to the coordinator; pseudonyms only, never the screening number
+    # N1 to the investigator, N2 to the coordinator: pseudonym and screening number (D-136, D-143), no chart number
     with (tmp_path / "hospital" / "patient.csv").open(encoding="utf-8") as fh:
         mrns = {r["mrn"] for r in csv.DictReader(fh)}
     to = sorted(m.to[0] for m in res["mails"])
     assert to == ["crc1@hospa.test", "pi@hospa.test"]
     for m in res["mails"]:
         body = m.text()
-        assert "GZQO-0001" not in body and "/settings/notices" in body and "送信理由" in body
+        assert "/settings/notices" in body and "送信理由" in body
         assert not set(re.findall(r"\d{6,}", body)) & mrns  # no chart numbers
         assert not m.attachments()
     n1 = next(m for m in res["mails"] if m.to == ["pi@hospa.test"])

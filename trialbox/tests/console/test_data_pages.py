@@ -208,7 +208,8 @@ def test_roles_that_may_not_change_setup_read_only_and_get_403(dcb: dict[str, An
         assert c.post(f"/studies/GZQO/conflicts/{cid}", data={"csrf": csrf, "keep": "theirs"}).status_code == 403
         assert c.post("/studies/GZQO/forms/dictionary", data={"csrf": csrf}, files=files).status_code == 403
     viewer, _ = login(dcb["app"], "viewer", VIEWER_PW)
-    assert viewer.get("/studies/GZQO/sources").status_code == 200
+    for path in ("/studies/GZQO/sources", "/studies/GZQO/forms", "/studies/GZQO/setup"):  # D-146 (J-05)
+        assert viewer.get(path).status_code == 403, path
     assert viewer.get("/studies/GZQO/conflicts").status_code == 403  # trial values: patient-level rows
     smo, csrf = login(dcb["app"], "smo", PW)  # a coordinator scoped to another study
     assert smo.get("/studies/GZQO/sources").status_code == 404
