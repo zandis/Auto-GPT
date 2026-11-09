@@ -30,7 +30,7 @@ import hashlib
 import json
 import random
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -558,18 +558,27 @@ class _Run:
         return out
 
     @staticmethod
-    def excerpts(notes: list[_Note], keep: set[str]) -> list[dict[str, Any]]:
-        """Whole notes holding an evidence sentence, newest first, within the token budget (v1 RAG budget)."""
+    def excerpts(notes: list[_Note], keep: Mapping[str, Collection[str]]) -> list[dict[str, Any]]:
+        """Notes holding an evidence sentence, newest first, within the token budget (v1 RAG budget).
+
+        A note longer than half the budget is cut to that half (its evidence sentences first, then its start), and a
+        note that no longer fits is skipped, not the end of the search: one long note used to stop the loop and hide
+        every older note, so the model got nothing at all (D-142, review A-06)."""
         out: list[dict[str, Any]] = []
         budget = EXCERPT_TOKENS
+        cap = EXCERPT_TOKENS // 2
         for n in sorted(notes, key=lambda n: (n.d, n.did), reverse=True):
             if n.did not in keep:
                 continue
-            cost = expected_tokens([{"text": n.text}]) - 300
+            text = n.text
+            cost = expected_tokens([{"text": text}]) - 300
+            if cost > cap:
+                text = _clip(n, keep[n.did], cap)
+                cost = expected_tokens([{"text": text}]) - 300
             if cost > budget:
-                break
+                continue
             budget -= cost
-            out.append({"date": n.d.isoformat(), "note_type": n.type, "text": n.text, "did": n.did})
+            out.append({"date": n.d.isoformat(), "note_type": n.type, "text": text, "did": n.did})
         return out
 
     # -------------------------------------------------------------------------------------------- S2 / S2b
@@ -598,9 +607,10 @@ class _Run:
                 if hits:
                     self.metrics.pairs_s2_hit += 1
                     sset = sorted({sentence_hash(s) for _, s in hits})
-                    routes.append(
-                        _Route(t.pid, c.id, self.excerpts(win, {n.did for n, _ in hits}), _set_hash(sset), "S2")
-                    )
+                    found: dict[str, set[str]] = {}
+                    for n, s in hits:
+                        found.setdefault(n.did, set()).add(s)
+                    routes.append(_Route(t.pid, c.id, self.excerpts(win, found), _set_hash(sset), "S2"))
                     continue
                 self.metrics.pairs_s2_zero_hit += 1
                 if c.id in self.cfg.zero_hit_allowed:  # CAS-13 certified: absence semantics directly after S2
@@ -675,7 +685,9 @@ class _Run:
                 continue
             if res_above or (not self.cfg.absence_semantics and sents):
                 self.metrics.pairs_s2b_above += 1
-                keep = {sents[i][0].did for i in top}
+                keep: dict[str, set[str]] = {}
+                for i in top:
+                    keep.setdefault(sents[i][0].did, set()).add(sents[i][1])
                 sset = sorted({sentence_hash(sents[i][1]) for i in top})
                 routes.append(_Route(pid, cid, self.excerpts(win, keep), _set_hash(sset), "S2b", best - thr.value))
                 continue
@@ -957,6 +969,36 @@ class _Run:
         )
         self.metrics.n_after["S5"] = len(final)
         return queue, final
+
+
+def _tokens(text: str) -> int:
+    return expected_tokens([{"text": text}]) - 300
+
+
+def _clip(n: _Note, evidence: Iterable[str], cap: int) -> str:
+    """At most ``cap`` tokens of a long note: the evidence sentences first (in note order), then the note's start;
+    always a run of whole sentences of the note, so a quote the model takes from it is found in the note."""
+    wanted = set(evidence)
+    chosen: list[int] = []
+    used = 0
+    order = [i for i, s in enumerate(n.sents) if s in wanted] + list(range(len(n.sents)))
+    for i in order:
+        if i in chosen:
+            continue
+        cost = _tokens(n.sents[i])
+        if used + cost > cap:
+            continue
+        chosen.append(i)
+        used += cost
+    if not chosen:  # one sentence longer than the cap: its start
+        out, used = [], 0
+        for ch in n.text:
+            used += 4 if "　" <= ch <= "鿿" else 1
+            if used > cap * 4:
+                break
+            out.append(ch)
+        return "".join(out)
+    return "\n".join(n.sents[i] for i in sorted(chosen))
 
 
 def _set_hash(hashes: Sequence[str]) -> str:
