@@ -1211,7 +1211,9 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     box.orch.drain()
     again = box.orch.db.get(again.job_id)
     s.check("FEAS on the approved ruleset", again is not None and again.state == "done", again and again.error)
-    for jb in [x for x in (again, sj) if x is not None]:
+    # with the GPU pair only FEAS (no model) is re-run: a second SCREEN would double the paid card time, and batched
+    # model answers are not bit-reproducible (as spark_e2e's cascade check on GB10); the stub gate re-runs both
+    for jb in [x for x in (again, sj if PAIR is None else None) if x is not None]:
         rr = rerun(box.orch, jb.job_id)
         s.check(
             f"{jb.type} re-run byte-identical", rr.identical, [f for f in rr.files if not f["same"]][:3] or rr.error

@@ -28,14 +28,13 @@ patient, type and order, and reads HL7 v2.5 in ISO-2022-JP or UTF-8: ADT-00/12/2
 PPR-01 (標準病名 with the ICD-10 code, or `byomei_to_icd10.csv`), OMP-01/02 (orders) and OMP-11/12
 (administrations) with YJ and ATC, and OML-11 (labs with JLAC10). Extended storage is read by folder kind (no
 `_contents.xml` index yet); tables SS-MIX2 does not standardize come from `<root>/extended/<table>.csv` (D-122,
-D-137). Output claims JP Core 1.1.0 and
-is validated on a sample at ingest, offline (`services/adapter/validate/jpcore.py`).
+D-137). Output claims JP Core 1.1.0 and is validated on a sample at ingest, offline
+(`services/adapter/validate/jpcore.py`).
 
 **Code lists.** ICD-10-CM 2026 in full (98,186 codes, public domain) for lookups and family groupers. The licensed
 Japanese lists (MEDIS 標準病名, JLAC10, YJ) are loaded by the site from its own licensed files
 (`python -m adapter.licensed load --kind medis|jlac10|yj --file … --version …`, D-137); each release is kept with its
-version, sha256 and who loaded it, and every load is audited. The demo rows
-are synthetic and marked `verify`.
+version, sha256 and who loaded it, and every load is audited. The demo rows are synthetic and marked `verify`.
 
 ## 2. Mapping a site
 

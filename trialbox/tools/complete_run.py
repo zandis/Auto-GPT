@@ -276,8 +276,9 @@ def part_hospital(a: argparse.Namespace) -> dict[str, Any]:
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     (work / "synth").symlink_to((a.dir / f"synth-{a.patients}").resolve(), target_is_directory=True)
-    # TB-DS-04 §3.4.1 asks 15 minutes for the 5,000-patient gate; a larger hospital gets the same rate
-    e2e_simple.BUDGET_S = max(15 * 60, 15 * 60 * a.patients // 5000)
+    # TB-DS-04 §3.4.1 asks 15 minutes for the 5,000-patient gate; a larger hospital gets the same rate. With the pair
+    # the models read the notes: the whole path must then fit one night (8 h, TB-PLAN-03 §8 "inside the night window")
+    e2e_simple.BUDGET_S = max(15 * 60, 15 * 60 * a.patients // 5000) if a.model != "pair" else 8 * 3600
     llm, verifier = _models(a)
     canary: dict[str, Any] = {}
     if llm is not None:

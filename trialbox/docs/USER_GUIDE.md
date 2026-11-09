@@ -49,8 +49,9 @@ Feasibility runs at once: the funnel shows how many patients pass each criterion
 
 **Work the list (PI).** Each morning the list has two parts: *Ready to decide* (every criterion answered) and *Needs
 information* (fewest unknowns first). Open a patient: each criterion shows its answer and, for notes, the quote from
-the chart. Mark: Approach, Need info (with a note), Not suitable now (a reason is required; Undo is offered), or Not
-now (with a recheck date). On a phone the patient sheet has Back, Next and a mark bar that stays in view.
+the chart. Mark: Approach, Need info (with a note for the CRC), Ask treating doctor, Not suitable now (a reason is
+required), or Not now, re-check (with a date). Undo follows every mark; "Withdraw my mark" takes it back. On a phone
+the patient sheet has Back, Next and a mark bar that stays in view.
 
 **Contact (CRC).** After the PI approves, the CRC records the outcome in two taps. Only the CRC may reveal a chart
 number, for a listed patient, with a reason.
