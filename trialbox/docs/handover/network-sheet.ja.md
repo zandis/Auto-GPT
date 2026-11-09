@@ -9,7 +9,7 @@
 | サービス | ポート | ホスト側 | ネットワーク | 接続できるもの | 起動条件 |
 | --- | --- | --- | --- | --- | --- |
 | adapter | 8016 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: console, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
-| console | 8090 | 127.0.0.1:8090:8090 | trialbox-net | 職員のブラウザ: 既定は 127.0.0.1 のみ。院内 LAN からは施設の TLS プロキシ経由のみ | 常時 |
+| console | 8090 | 127.0.0.1:8090:8090 | console-net, trialbox-net | 職員のブラウザ: 既定は 127.0.0.1 のみ。院内 LAN からは施設の TLS プロキシ経由のみ | 常時 |
 | criteria-compiler | 8012 | 公開なし | egress-net, trialbox-net | 自身のトークンを持つ次のみ: orchestrator; ホスト上の管理者（operator トークン） | 常時 |
 | db | 5432 | 公開なし | trialbox-net | TrialBox の各サービスと fhir-store（パスワード） | 常時 |
 | doc-parser | 8011 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: orchestrator; ホスト上の管理者（operator トークン） | 常時 |
@@ -30,6 +30,7 @@
 
 | ネットワーク |  |
 | --- | --- |
+| trialbox-console | 外部へは下表の宛先のみ（nftables、deploy/network.sh） |
 | trialbox-egress | 外部へは下表の宛先のみ（nftables、deploy/network.sh） |
 | trialbox-model-net | 内部専用: 外部への経路なし |
 | trialbox-net | 内部専用: 外部への経路なし |

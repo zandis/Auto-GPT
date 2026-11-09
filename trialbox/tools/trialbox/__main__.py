@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--routing", type=Path, default=None)
     d.add_argument("--dataplat-workdir", type=Path, default=None)
     d.add_argument("--json", action="store_true")
+    d.add_argument("--live", action="store_true", help="also ask the model servers (served names, key; D-177)")
+    d.add_argument("--serving", action="store_true", help="only the live model-server check (install.sh)")
     e = sub.add_parser("eval", help="run a public evaluation suite and archive the result")
     e.add_argument("suite")
     e.add_argument("--archive", type=Path, default=None)
@@ -81,8 +83,12 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "doctor":
         from tools.trialbox import doctor
 
+        which = doctor.LIVE if a.serving else (doctor.CHECKS + doctor.LIVE if a.live else doctor.CHECKS)
         checks = doctor.run(
-            doctor.inputs_from(env_file=a.env_file, settings=a.settings, routing=a.routing, dataplat=a.dataplat_workdir)
+            doctor.inputs_from(
+                env_file=a.env_file, settings=a.settings, routing=a.routing, dataplat=a.dataplat_workdir
+            ),
+            which,
         )
         if a.json:
             print(json.dumps([c.__dict__ for c in checks], indent=1, ensure_ascii=False))

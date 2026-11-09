@@ -1,0 +1,17 @@
+# trialbox-jvm needs the HL7 validator and the FHIR package cache that the root .dockerignore keeps out of the
+# demo image (BuildKit reads this file instead of the root one for jvm.Dockerfile only).
+.venv
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+data
+deploy/.env
+deploy/models
+tests/fixtures/synthetic_patients/site-*
+*.egg-info
+tools/testbench/
+deploy/site
+.cache/trec_ct
+.cache/trialgpt_compare
+.cache/medtxt/responses

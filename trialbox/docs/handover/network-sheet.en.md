@@ -9,7 +9,7 @@ Generated from the compose files below by tools/network_sheet.py (D-138). Nothin
 | Service | Port | On the host | Networks | Who may reach it | Runs |
 | --- | --- | --- | --- | --- | --- |
 | adapter | 8016 | not published | trialbox-net | with its own token, only: console, orchestrator; the administrator on the host (operator token) | always |
-| console | 8090 | 127.0.0.1:8090:8090 | trialbox-net | staff browsers: 127.0.0.1 by default; the hospital LAN only through the site's TLS proxy | always |
+| console | 8090 | 127.0.0.1:8090:8090 | console-net, trialbox-net | staff browsers: 127.0.0.1 by default; the hospital LAN only through the site's TLS proxy | always |
 | criteria-compiler | 8012 | not published | egress-net, trialbox-net | with its own token, only: orchestrator; the administrator on the host (operator token) | always |
 | db | 5432 | not published | trialbox-net | TrialBox services and fhir-store, with a password | always |
 | doc-parser | 8011 | not published | trialbox-net | with its own token, only: orchestrator; the administrator on the host (operator token) | always |
@@ -30,6 +30,7 @@ Generated from the compose files below by tools/network_sheet.py (D-138). Nothin
 
 | Networks |  |
 | --- | --- |
+| trialbox-console | out of the box only to the hosts below (nftables, deploy/network.sh) |
 | trialbox-egress | out of the box only to the hosts below (nftables, deploy/network.sh) |
 | trialbox-model-net | internal: no route out of the box |
 | trialbox-net | internal: no route out of the box |

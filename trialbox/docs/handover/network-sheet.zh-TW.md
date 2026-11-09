@@ -9,7 +9,7 @@
 | 服務 | 連接埠 | 主機端 | 網路 | 可連線者 | 啟動條件 |
 | --- | --- | --- | --- | --- | --- |
 | adapter | 8016 | 未對外 | trialbox-net | 僅限持有自身權杖者: console, orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
-| console | 8090 | 127.0.0.1:8090:8090 | trialbox-net | 院內人員瀏覽器: 預設僅 127.0.0.1；院內網路僅經由院方 TLS 代理 | 常駐 |
+| console | 8090 | 127.0.0.1:8090:8090 | console-net, trialbox-net | 院內人員瀏覽器: 預設僅 127.0.0.1；院內網路僅經由院方 TLS 代理 | 常駐 |
 | criteria-compiler | 8012 | 未對外 | egress-net, trialbox-net | 僅限持有自身權杖者: orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
 | db | 5432 | 未對外 | trialbox-net | TrialBox 各服務與 fhir-store（需密碼） | 常駐 |
 | doc-parser | 8011 | 未對外 | trialbox-net | 僅限持有自身權杖者: orchestrator; 主機上的管理者（operator 權杖） | 常駐 |
@@ -30,6 +30,7 @@
 
 | 網路 |  |
 | --- | --- |
+| trialbox-console | 對外僅限下表目的地（nftables，deploy/network.sh） |
 | trialbox-egress | 對外僅限下表目的地（nftables，deploy/network.sh） |
 | trialbox-model-net | 內部專用: 無對外路由 |
 | trialbox-net | 內部專用: 無對外路由 |

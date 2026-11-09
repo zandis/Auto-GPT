@@ -19,10 +19,15 @@
 #   2. bundle:    verify the Ed25519 signature and every payload hash, then load images, models and rulesets
 #                 (tools/apply_update.sh; a tampered bundle changes nothing)
 #   3. settings:  deploy/settings.yaml + deploy/.env from the settings wizard (questions, or --answers), random
-#                 service passwords, mode 0600; an existing settings.yaml is kept and re-validated
+#                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
+#                 and re-validated
 #   4. start:     docker compose up --wait with the chosen model profile; egress rules (deploy/network.sh apply)
 #   5. accounts:  first console administrator (password printed once); users page for the rest
 #   6. check:     deploy/check_host.sh; the console URL and the intake address
+# In GPU mode step 3 also makes the key of the on-box model servers (TB_LLM_API_KEY, D-177) and step 4 checks that
+# they serve the pinned names and require that key (trialbox doctor --serving): a mismatch stops the install.
+# TB_COMPOSE_OVERRIDE=<file> adds one compose file after the others (the box rehearsal's model stand-ins, D-176); it is
+# printed and kept in deploy/.env COMPOSE_FILE so every later compose command uses it too.
 # Re-running is safe: every step is idempotent. Nothing leaves the host: no registry, no download, no telemetry.
 # The one exception: when live ClinicalTrials.gov is chosen, one HTTPS request to clinicaltrials.gov (no data sent)
 # checks that this host can reach it (D-140).
@@ -42,7 +47,7 @@ while [ $# -gt 0 ]; do
     --ctgov) CTGOV="$2"; shift ;;
     --ctgov-check) CTGOV_CHECK=1 ;;
     --check) CHECK=1 ;;
-    -h|--help) sed -n 2,36p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,33p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -201,6 +206,10 @@ grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
 # TB_LLM_MODE is the services' word (tb_common.config: vllm | stub ...), not the compose profile's (gpu | stub), D-142
 LLM_MODE=stub; [ "$MODE" = gpu ] && LLM_MODE=vllm
 grep -q '^TB_LLM_MODE=' deploy/.env && sed -i "s/^TB_LLM_MODE=.*/TB_LLM_MODE=$LLM_MODE/" deploy/.env || echo "TB_LLM_MODE=$LLM_MODE" >> deploy/.env
+# D-177: the on-box model servers take calls only with this key (vLLM VLLM_API_KEY); the gateway alone holds it
+if [ "$MODE" = gpu ] && ! grep -q '^TB_LLM_API_KEY=.' deploy/.env; then
+  sed -i '/^TB_LLM_API_KEY=/d' deploy/.env && printf 'TB_LLM_API_KEY=%s\n' "$(rand 48)" >> deploy/.env
+fi
 NOTE_BLOCK=both_agree; [ "$GPU" = rtx4090 ] && NOTE_BLOCK=never
 # the pair profiles run the verifier build: name it, or both_agree has no second model (doctor note_block), D-142
 case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
@@ -208,7 +217,10 @@ case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
 esac
 grep -q '^TB_NOTE_BLOCK=' deploy/.env && sed -i "s/^TB_NOTE_BLOCK=.*/TB_NOTE_BLOCK=$NOTE_BLOCK/" deploy/.env || echo "TB_NOTE_BLOCK=$NOTE_BLOCK" >> deploy/.env
 grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$MODE/" deploy/.env || echo "COMPOSE_PROFILES=$MODE" >> deploy/.env
-chmod 600 deploy/.env deploy/settings.yaml
+chmod 600 deploy/.env
+# the services run as tb (uid and gid 10001, deploy/docker/python.Dockerfile) and read settings.yaml read-only: a root
+# 0600 file stopped every service at start (found by the box rehearsal, D-176). Group tb reads it, nobody else.
+chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
 if [ "$MODE" = gpu ]; then
   # D-142 (review R-01): pin the profile's deployed pair from the site's own weights (champion: the status PRODUCTION
@@ -265,6 +277,12 @@ case "$MODE:$GPU" in
   gpu:gb10) COMPOSE+=(-f deploy/docker-compose.gb10.yml); FILES="$FILES:$ROOT/deploy/docker-compose.gb10.yml" ;;
   gpu:rtx5090|gpu:rtx4090) COMPOSE+=(-f deploy/docker-compose.rtx5090.yml); FILES="$FILES:$ROOT/deploy/docker-compose.rtx5090.yml" ;;
 esac
+if [ -n "${TB_COMPOSE_OVERRIDE:-}" ]; then  # D-176: the rehearsal's model stand-ins (or a site's own override)
+  [ -f "$TB_COMPOSE_OVERRIDE" ] || die "TB_COMPOSE_OVERRIDE: no such file $TB_COMPOSE_OVERRIDE"
+  OVR="$(cd "$(dirname "$TB_COMPOSE_OVERRIDE")" && pwd)/$(basename "$TB_COMPOSE_OVERRIDE")"
+  echo "install: note: compose override in use: $OVR (kept in deploy/.env COMPOSE_FILE)" >&2
+  COMPOSE+=(-f "$OVR"); FILES="$FILES:$OVR"
+fi
 COMPOSE+=(--profile "$MODE")
 # the same file set for every later `docker compose --project-directory deploy ...` (secrets rotate, update, logs)
 sed -i "/^COMPOSE_FILE=/d" deploy/.env && echo "COMPOSE_FILE=$FILES" >> deploy/.env
@@ -281,6 +299,17 @@ say "starting the stack (profile $MODE)"
 "${COMPOSE[@]}" config -q
 "${COMPOSE[@]}" up -d "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
+if [ "$MODE" = gpu ]; then
+  # D-177: the model servers must serve the names the site pinned and refuse calls without the key; otherwise the
+  # gateway would get 404 or 401 on every call and the box would screen nothing (doctor check "serving")
+  say "model servers: pinned served names and key (trialbox doctor --serving)"
+  set +e
+  docker run --rm --network trialbox-model-net --env-file deploy/.env -v "$ROOT/deploy:/app/deploy:ro" \
+    --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.trialbox doctor --serving | sed 's/^/    /'
+  rc="${PIPESTATUS[0]}"
+  set -e
+  [ "$rc" = 0 ] || die "the model servers do not match the pins or the key (FAIL above): the stack is up but every model call would be refused; fix deploy/.env (JUDGE_MODEL, VERIFIER_MODEL, TB_LLM_API_KEY) or re-pin (RUNBOOK §8), then re-run"
+fi
 if [ "$(id -u)" = 0 ] && [ -x deploy/network.sh ]; then
   say "egress rules"; deploy/network.sh apply || echo "install: warning: egress rules not applied (deploy/network.sh apply)" >&2
 fi
@@ -291,8 +320,12 @@ if [ "$(id -u)" = 0 ] && [ -d /etc/cron.d ] && command -v python3 >/dev/null; th
   echo "    log retention: /etc/cron.d/trialbox-retention (00:20 daily)"
 fi
 # D-138: the site's one-page network, port and secret sheet, from the compose files this box runs
-docker run --rm -v "$ROOT/deploy:/app/deploy" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
-  python -m tools.network_sheet --files "$(echo "$FILES" | sed "s#$ROOT/deploy/#deploy/#g")" --env deploy/.env --out deploy/site/network-sheet \
+SHEET_MOUNT=(); SHEET_FILES="$(echo "$FILES" | sed "s#$ROOT/deploy/#deploy/#g")"
+if [ -n "${OVR:-}" ]; then  # the override is outside deploy/: mount it where the sheet tool looks
+  SHEET_MOUNT=(-v "$OVR:/app/deploy/compose-override.yml:ro"); SHEET_FILES="${SHEET_FILES//$OVR/deploy/compose-override.yml}"
+fi
+docker run --rm -v "$ROOT/deploy:/app/deploy" ${SHEET_MOUNT[@]+"${SHEET_MOUNT[@]}"} --user "$(id -u):$(id -g)" "$IMAGE_PY" \
+  python -m tools.network_sheet --files "$SHEET_FILES" --env deploy/.env --out deploy/site/network-sheet \
   >/dev/null 2>&1 && echo "    network sheet: deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}" \
   || echo "install: note: network sheet not written (python -m tools.network_sheet)" >&2
 [ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2
@@ -314,9 +347,10 @@ for f in deploy/updates/pending_audit/*.json; do  # the bundle's update.applied 
   [ -f "$f" ] || continue
   "${COMPOSE[@]}" exec -T orchestrator python -c '
 import json, sys
+from pathlib import Path
 from tb_common.audit import AuditLog
 s = json.load(sys.stdin)
-AuditLog("/data/audit").append("update.applied", actor="deploy/install.sh", input_sha=s["manifest_sha256"],
+AuditLog(Path("/data/audit")).append("update.applied", actor="deploy/install.sh", input_sha=s["manifest_sha256"],
     detail={"bundle_id": s["bundle_id"], "signer": s["signer"], "files": s["files"]})
 ' < "$f" && rm -f "$f" && echo "    audited bundle $(basename "$f" .json)"
 done

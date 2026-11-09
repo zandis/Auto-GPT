@@ -351,3 +351,54 @@ adds the benches: `embed` (`tools/bench_embed.py`) and `profile` (`tools/bench_p
 Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the VM's service account needs storage
 access); without it they go over plain HTTP to the VM with the key in a header. A billing budget with a kill switch
 is the last net; it needs billing permissions this project's service account does not have: the owner sets it.
+
+## 12. Box-install rehearsal: the gate before a site's IQ
+
+Before any site's installation qualification (IQ), and before a release goes on a site's media, run
+`make rehearse-box` on any Docker host (no GPU; the network only to build the images; D-176). A
+FAIL stops the release: no site visit until it passes. Keep `report.md` with the release record.
+
+**What it does.** It makes offline media the way the vendor does: a bundle signed with a throwaway vendor key
+(`tools/make_bundle.sh` with the images, placeholder weights for the large tier's pair and the reference data pack),
+the release tree, the vendor key and `SHA256SUMS`. It removes the box images from the Docker host, so only the media
+can bring them back. Then it runs the real `deploy/install.sh --tier large` inside a clean Ubuntu 24.04 container
+(`tools/rehearse_box/host.Dockerfile`: Docker CLI and compose, python3, nftables, cron). An `nvidia-smi` stand-in
+names one RTX PRO 6000. The two model servers are the strict vLLM stand-in `tools/vllm_standin.py`
+(`tools/rehearse_box/standins.yml`, given as `TB_COMPOSE_OVERRIDE`). The stand-in takes vLLM's command line from the
+profile's compose file. It answers only the exact served name (404 otherwise, as vLLM) and refuses every `/v1` call
+without the key (401). It never starts without a key (D-177).
+
+**What must pass** (each is a step in the report):
+
+| Step | Proves |
+| --- | --- |
+| `wsl2` | `deploy/windows/preflight.sh` passes on a WSL2-like host (WSL2 kernel, systemd, Windows build through a `cmd.exe` stand-in) and fails on plain Linux. Windows itself (`preflight.ps1`, BitLocker, `wsl --import`) cannot run here: do it on a Windows test machine before a Windows site. |
+| `media-negative` | missing media ("no such bundle"), a forged bundle ("not a valid signed TrialBox release") and a missing vendor key each stop the installer, and nothing is written |
+| `install` | the installer exits 0: bundle verified and loaded, settings, the model key, the pins, the stack healthy, the serving check |
+| `doctor` | `trialbox doctor --live` passes, with the `serving` check (below) |
+| `served` | the pinned served names in `deploy/site/registry.site.yaml` are exactly what the two servers serve |
+| `offline` | the running images are the bundle's; the CQL translator jars in `criteria-compiler` are byte for byte the vendor's and translate; the media's reference data pack is loaded; ClinicalTrials.gov is offline; the box has no route out |
+| `console` | the console answers `/healthz` and its sign-in page |
+| `screen` | SCREEN GZQO on synthetic hospital A ends `done`, its model calls go through the gateway to both pinned builds, with no 401 and no 404, and it mails its results to the site's relay (a plain SMTP sink, `tools/rehearse_box/smtp_sink.py`, stands in for it) |
+| `power-cycle`, `after-restart` | every box process killed (as in a power loss), the host restarted: the box comes back healthy with its data, the doctor passes, the console answers, a second SCREEN runs |
+| `wrong-name` | a server that serves another name than the pin: the doctor (the installer's check) FAILs and names both, and the gateway refuses the call |
+| `missing-key` | the gateway without the key: the doctor FAILs with "refused the key (HTTP 401)", and both calls are refused |
+
+**Knobs.** `TB_REHEARSE_DIR` (default `/tmp/tb-rehearse-box`; the report and logs stay there),
+`TB_REHEARSE_SKIP_BUILD=1` (use the images already built), `TB_REHEARSE_KEEP=1` (leave the box running for a look),
+`TB_EXTRA_CA` (a PEM for apt and pip behind a TLS proxy). It needs a Docker host with no other TrialBox stack and port
+8090 free. The box container uses the host's Docker through its socket, so the work folder has the same path inside.
+At the end it removes the box, its volumes and the media, and loads the images back from the media if a failed run
+left them removed.
+
+**Not rehearsed** (do these at the site's IQ): a real GPU, driver and model weights (the canary and the serving
+record, §8); the egress rules (`deploy/network.sh apply` needs `NET_ADMIN`, which the rehearsal does not give: the
+rehearsal makes the outbound network internal instead); LUKS, TPM, swap and the other host hardening lines of
+`deploy/check_host.sh`; the bge-m3 embedder (the hash embedder runs instead); the hospital's mail server (a sink without TLS stands in).
+
+**The model key** (D-177). In GPU mode `install.sh` writes `TB_LLM_API_KEY` to `deploy/.env` once. Compose gives it to
+vLLM as `VLLM_API_KEY`, and only the gateway sends it (`models/routing.yaml`, endpoints `serving` and `verifier`). The
+secrets overlay clears it in every other service. After the stack starts, the installer runs `trialbox doctor
+--serving` on the model network and stops when a server is down, refuses the key, does not serve a pinned name, or
+answers without the key in PRODUCTION. To change the key: set a new value in `deploy/.env`, then `docker compose
+--project-directory deploy up -d gateway llm-service llm-verifier` (`trialbox secrets rotate` does not rotate it yet).

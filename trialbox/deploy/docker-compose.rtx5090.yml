@@ -51,6 +51,7 @@ x-vllm-5090: &vllm5090
     HF_HUB_OFFLINE: "1"
     VLLM_NO_USAGE_STATS: "1"
     VLLM_SERVER_DEV_MODE: "1"   # exposes /sleep, /wake_up, /is_sleeping (model-net only; the gateway drives them)
+    VLLM_API_KEY: "${TB_LLM_API_KEY:-}"   # D-177: the gateway sends it; /v1 calls without it get 401
   volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
   ipc: host
   networks: [model-net]

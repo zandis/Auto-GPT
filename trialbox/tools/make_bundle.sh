@@ -4,14 +4,16 @@
 # manifest is Ed25519-signed with the vendor key (tools/sign_bundle.py, D-77). Nothing in it is site-specific.
 #
 #   tools/make_bundle.sh --key keys/vendor_ed25519.key --id 2026.11-1 --out dist/trialbox-2026.11-1.tar \
-#       [--models deploy/models] [--rulesets dist/rulesets] [--image trialbox-py:1.0.0 --image trialbox-jvm:1.0.0 ...]
+#       [--models deploy/models] [--rulesets dist/rulesets] [--refdata dist/trialbox-refdata-<date>.tar ...]
+#       [--image trialbox-py:1.0.0 --image trialbox-jvm:1.0.0 ...]
 #
 # Default images: trialbox-py:1.0.0, trialbox-jvm:1.0.0 and the third-party images compose pulls (so the site needs no
-# registry access). Add --no-third-party on a site that mirrors them itself.
+# registry access). Add --no-third-party on a site that mirrors them itself. --refdata adds a reference data pack
+# (tools/refdata_fetch.py build; payload kind refdata, D-140), which install.sh loads once the box runs.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KEY=""; ID=""; OUT=""; MODELS=""; RULESETS=""; THIRD=1
-IMAGES=()
+IMAGES=(); REFDATA=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --key) KEY="$2"; shift ;;
@@ -19,9 +21,10 @@ while [ $# -gt 0 ]; do
     --out) OUT="$2"; shift ;;
     --models) MODELS="$2"; shift ;;
     --rulesets) RULESETS="$2"; shift ;;
+    --refdata) REFDATA+=("$2"); shift ;;
     --image) IMAGES+=("$2"); shift ;;
     --no-third-party) THIRD=0 ;;
-    -h|--help) sed -n 2,12p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,14p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac
   shift
@@ -31,26 +34,38 @@ done
 command -v docker >/dev/null || { echo "make_bundle: docker is needed to export images" >&2; exit 2; }
 PY="${PY:-$ROOT/.venv/bin/python}"; [ -x "$PY" ] || PY=python3
 
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/tb-bundle.XXXXXX")"
+trap 'rm -rf "$STAGE"' EXIT INT TERM
 if [ ${#IMAGES[@]} -eq 0 ]; then
   IMAGES=("${TB_IMAGE:-trialbox-py:1.0.0}" "${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}")
   if [ "$THIRD" = 1 ]; then
-    # every image compose would pull (postgres, minio, hapi, greenmail, mailhog, vllm...), from the rendered config
+    # every image compose would pull (postgres, hapi, greenmail, mailhog, vllm...), from the rendered config. An empty
+    # .env of its own: on a vendor machine without deploy/.env compose renders nothing, and the bundle silently had
+    # no third-party image (found by the box rehearsal, D-176)
+    mkdir -p "$STAGE/cfg" && : > "$STAGE/cfg/.env"
+    n=${#IMAGES[@]}
     while IFS= read -r img; do
       case "$img" in trialbox-*) ;; *) IMAGES+=("$img") ;; esac
-    done < <(docker compose --project-directory "$ROOT/deploy" -f "$ROOT/deploy/docker-compose.yml" \
+    done < <(docker compose --project-directory "$STAGE/cfg" -f "$ROOT/deploy/docker-compose.yml" \
                -f "$ROOT/deploy/docker-compose.test.yml" --profile stub --profile test --profile gpu config --images 2>/dev/null | sort -u)
+    [ ${#IMAGES[@]} -gt "$n" ] || { echo "make_bundle: compose listed no third-party image (docker compose config)" >&2; exit 2; }
   fi
 fi
 
-STAGE="$(mktemp -d "${TMPDIR:-/tmp}/tb-bundle.XXXXXX")"
-trap 'rm -rf "$STAGE"' EXIT INT TERM
 ITEMS=()
 echo "==> images"
 for img in "${IMAGES[@]}"; do
   docker image inspect "$img" >/dev/null 2>&1 || { echo "    pulling $img"; docker pull -q "$img" >/dev/null; }
   f="$STAGE/$(printf '%s' "$img" | tr '/:' '__').tar"
+  ref="$img"
+  case "$img" in *@sha256:*)
+    # a digest-pinned image saved by its digest loads back with no name, so compose cannot find it offline and tries
+    # to pull (found by the box rehearsal, D-176): save it under its tag; the digest reference resolves to it again
+    ref="${img%@*}"; case "${ref##*/}" in *:*) ;; *) ref="$ref:pinned" ;; esac
+    docker tag "$img" "$ref" ;;
+  esac
   echo "    $img"
-  docker save "$img" -o "$f"
+  docker save "$ref" -o "$f"
   ITEMS+=("image:$f=$(basename "$f")")
 done
 if [ -n "$MODELS" ]; then
@@ -65,6 +80,10 @@ if [ -n "$RULESETS" ]; then
     echo "    $(basename "$f")"; ITEMS+=("ruleset:$f=$(basename "$f")")
   done < <(find "$RULESETS" -type f -name '*.zip' | sort)
 fi
+for f in ${REFDATA[@]+"${REFDATA[@]}"}; do
+  [ -f "$f" ] || { echo "make_bundle: no such reference data pack $f" >&2; exit 2; }
+  echo "==> reference data $(basename "$f")"; ITEMS+=("refdata:$f=$(basename "$f")")
+done
 echo "==> installer, runbook, settings example"
 for f in deploy/install.sh deploy/check_host.sh deploy/settings.example.yaml .env.example docs/RUNBOOK.md; do
   ITEMS+=("other:$ROOT/$f=$(basename "$f")")

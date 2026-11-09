@@ -20,6 +20,8 @@ x-py: &py
   init: true
   restart: unless-stopped
   networks: [trialbox-net]
+  depends_on:   # services open the trial database at start; a gateway that raced the db exited (box rehearsal, D-176)
+    db: {condition: service_healthy}
   volumes: &settings_vol
     - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
   healthcheck: &pyhealth
@@ -210,6 +212,9 @@ services:
       - rulesets-data:/data/rulesets:ro
       - objects-data:/data/objects
     ports: ["${TB_CONSOLE_BIND:-127.0.0.1}:${TB_HOST_CONSOLE_PORT:-8090}:8090"]
+    # Docker publishes no port of a container that is only on internal networks: on trialbox-net alone the console
+    # was unreachable from the host (found by the box rehearsal, D-176). console-net carries the published port only.
+    networks: [trialbox-net, console-net]
     depends_on:
       db: {condition: service_healthy}
       orchestrator: {condition: service_healthy}
@@ -241,6 +246,7 @@ services:
     environment:
       HF_HUB_OFFLINE: "1"
       VLLM_NO_USAGE_STATS: "1"
+      VLLM_API_KEY: "${TB_LLM_API_KEY:-}"   # D-177: the gateway sends it; /v1 calls without it get 401
     volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
     ipc: host
     networks: [model-net]
@@ -265,6 +271,8 @@ networks:
     internal: true        # gateway <-> llm-service / llm-stub only; no other service joins it
   egress-net:
     name: trialbox-egress  # host-level nftables (network.sh) restricts destinations per container
+  console-net:
+    name: trialbox-console  # the console's published port (not internal); network.sh allows it no destination
 
 volumes:
   console-data:

@@ -3444,3 +3444,77 @@ alert) are separate P0 items. Stored derived rows with provenance, `tb_score_def
 shipped mappings declare no `unit_defaults` yet: each site declares them in its survey (its lab lookup already
 carries a unit per analyte). The R-31 check of a row's own unit against the lookup's (WS-01.2) is still open for
 feed rows mapped through a lookup.
+
+**D-176 The box-install rehearsal (`make rehearse-box`) is the gate before any site's installation qualification.**
+Source: the owner's follow-up list of 2026-11-09 (task 3), after the cloud-run review showed that four cloud failures
+lived in steps nothing ran off the paid VM (`docs/reviews/2026-11-09-cloud-run-review.md` §5). The same gap existed for
+the box: nothing had run `deploy/install.sh` on a clean host from offline media.
+
+*Decision.* `tools/rehearse_box/rehearse.sh` (`make rehearse-box`, RUNBOOK §12) makes media as the vendor does, removes
+the box images from the Docker host, and runs the real installer (`--tier large`) in a clean Ubuntu 24.04 container
+that uses the host's Docker through its socket. The strict vLLM stand-ins of D-177 take the place of the GPU, given to
+the installer as `TB_COMPOSE_OVERRIDE` (a new, printed hook kept in `COMPOSE_FILE`). The steps and what each proves are
+in RUNBOOK §12: the WSL2 preflight, three media failures, the install, `doctor --live`, the served names, the offline
+media (images, CQL jars, reference data, no route out), the console, one SCREEN through the gateway, a power loss and
+restart, a wrong served name and a missing key. A FAIL stops the release. It does not replace the site's IQ: a real
+GPU, the egress rules, the host hardening and the mail server are checked there.
+
+*What the first runs found and fixed* (each stopped a fresh install or a part of it):
+1. `make images` failed: `python.Dockerfile` copied the `integrations/` folder removed in D-121; and the root
+   `.dockerignore` (demo image) kept the HL7 validator and the FHIR cache out of `jvm.Dockerfile`'s context. Fixed:
+   the copy is gone; `deploy/docker/jvm.Dockerfile.dockerignore` keeps them in for that image only.
+2. `tools/make_bundle.sh` bundled no third-party image on a vendor machine without `deploy/.env` (compose rendered
+   nothing and the error was hidden): it now renders with an empty env file of its own and stops if it finds none.
+   A digest-pinned image (`postgres`, `hapi`) saved by its digest loaded back without a name, so compose tried to
+   pull it offline: it is now saved under its tag, and the digest reference resolves to it. `--refdata` adds a
+   reference data pack to the bundle.
+3. A first install could not verify its bundle: `tools/apply_update.sh` needed `tb_contracts` (jsonschema, pydantic)
+   on the host, else the `trialbox-py` image, which is still inside the bundle. `tools/verify_update.py` now checks
+   the manifest schema with the standard library when jsonschema is missing (after the signature, which needs only
+   `cryptography`); the two checks agree on every case of `tests/unit/test_verify_update_stdlib.py`.
+4. Every service stopped at start: `install.sh` made `settings.yaml` root-only (0600) and the services run as `tb`.
+   It is now 0640, group `tb`.
+5. Every SCREEN failed in reporting: `/data/objects` was not in the image, so its volume was root's. The image makes
+   it for `tb` (a box installed before keeps a root-owned volume: `chown 10001:10001` its folder once).
+6. The bundle's `update.applied` audit event after the first start crashed (`AuditLog` got a string) and was lost.
+7. The doctor in `check_host.sh` needs pydantic, which a site host lacks: it now runs in the box's image there. On an
+   installed box's `deploy/.env` the doctor assumes the gateway address compose gives the orchestrator, so
+   `note_block` reads the box as it runs instead of failing.
+8. The network sheet failed when a compose override was in use: the override is mounted for the sheet tool.
+9. The gateway, orchestrator and other Python services could start before the database and exit: every service of the
+   `x-py` anchor now waits for `db` to be healthy.
+10. The console was unreachable: Docker publishes no port of a container that is only on internal networks, and the
+    console was only on `trialbox-net`. It is now also on `console-net` (`trialbox-console`, not internal, no allowed
+    destination in `network.sh`), which carries only its published port. The network sheet lists it.
+11. A SCREEN fails at its mail step when the site's SMTP relay cannot be reached (`mail-gateway` answers 500). The
+    rehearsal gives it a plain SMTP sink (`tools/rehearse_box/smtp_sink.py`) as `smtp.hospa.test` and checks that the
+    SCREEN mailed something. The real relay is checked at the site's IQ.
+
+*Evidence.* `make rehearse-box` on 2026-11-09 (Docker 29.9.2, no GPU): all 21 steps PASS in about 9 minutes with
+the build (install 138 s, each SCREEN about 85 s; 362 patients in scope, 19 model calls, 7 mails to the sink; no 401
+or 404 during either SCREEN; the wrong name and the missing key each FAIL the doctor and are refused by the servers,
+and the box recovers after each). Unit tests: `test_vllm_standin.py`, `test_doctor_serving.py`, `test_model_key.py`,
+`test_verify_update_stdlib.py`, `test_smtp_sink.py`.
+
+**D-177 The on-box model servers need a key, and the rehearsal's vLLM stand-in is strict about names and keys.**
+Source: the owner's follow-up list of 2026-11-09 (task 3); the cloud-run review's served-name failure (run 4: every
+model call refused 404 because the pinned served name was not the one served).
+
+*Decision.*
+1. *A key for the local model servers.* In GPU mode `install.sh` writes `TB_LLM_API_KEY` (48 random characters) to
+   `deploy/.env` once. Every vLLM service of the four compose files gets it as `VLLM_API_KEY`, so vLLM answers `/v1`
+   only with `Authorization: Bearer <key>`. `models/routing.yaml` names it as `api_key_env` of the `serving` and
+   `verifier` endpoints, so the gateway sends it; the secrets overlay clears it in every other service. Before, any
+   container on `model-net` could call the models.
+2. *A live doctor check.* `trialbox doctor --live` adds `serving`: for each on-box endpoint that a pinned build is
+   served on, `GET /v1/models` with the key must list every pinned served name, and the same call without the key
+   must be refused. A server that is down, refuses the key or does not serve a pinned name is a FAIL; no key, or a
+   server that answers without one, is a FAIL in VALIDATION and PRODUCTION and a WARN elsewhere. `doctor --serving`
+   runs it alone; `install.sh` runs it on `trialbox-model-net` right after the stack starts and stops the install on a
+   FAIL, with what to fix (the served names in `deploy/.env`, the key, or a new pin).
+3. *The strict stand-in.* `tools/vllm_standin.py` (standard library and the stub's deterministic answers) takes
+   vLLM's own command line, answers only the exact `--served-model-name` (vLLM's 404 `NotFoundError` otherwise),
+   refuses every `/v1` call without the key (401), never starts without a key, and counts its answers by status
+   (`/standin/stats`, with the key) so a rehearsal can assert no 401 and no 404. It never stands in for a model.
+
+*Not done.* `trialbox secrets rotate` does not rotate `TB_LLM_API_KEY` yet (RUNBOOK §12 says how to change it by hand).

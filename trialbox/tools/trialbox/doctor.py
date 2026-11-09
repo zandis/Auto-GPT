@@ -19,6 +19,16 @@ closed). Checks:
 * ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
   ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
   (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``.
+
+``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
+runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
+
+* ``serving`` (D-177): for each on-box endpoint (``models/routing.yaml``, zone ``perimeter``) that a pinned build is
+  served on, ``GET <url>/models`` with the endpoint's key (``api_key_env``, ``TB_LLM_API_KEY``) must answer 200 and list
+  every pinned served name, and the same call without the key must be refused. FAIL when a server is down, refuses
+  the key (401/403) or does not serve a pinned name (vLLM would answer every call 404); a server that runs without a
+  key, or a box with no key, is a FAIL in VALIDATION and PRODUCTION and a WARN elsewhere. WARN when nothing local is
+  pinned (nothing to check).
 """
 
 from __future__ import annotations
@@ -27,6 +37,8 @@ import importlib.util
 import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -197,11 +209,15 @@ def check_publish_gate(inp: DoctorInputs) -> Check:
     return Check("publish_gate", "PASS", f"snapshot {cur.get('snapshot_id')} current; last gate {last.get('outcome')}")
 
 
+def _override(inp: DoctorInputs) -> Path:
+    raw = inp.env.get("TB_REGISTRY_OVERRIDE")
+    return Path(raw) if raw else ROOT / "deploy" / "site" / "registry.site.yaml"
+
+
 def check_registry_pins(inp: DoctorInputs) -> Check:
     from registry.registry import DEFAULT_PATH, Registry, Status
 
-    raw = inp.env.get("TB_REGISTRY_OVERRIDE")
-    override = Path(raw) if raw else ROOT / "deploy" / "site" / "registry.site.yaml"
+    override = _override(inp)
     try:
         reg = Registry.load(DEFAULT_PATH, override)
     except (ValueError, OSError, yaml.YAMLError) as e:
@@ -242,6 +258,77 @@ def check_note_block(inp: DoctorInputs) -> Check:
     )
 
 
+def _get_models(url: str, key: str, timeout: float = 10.0) -> tuple[int | None, Any]:
+    """(HTTP status, JSON body or error text); status None when the server cannot be reached."""
+    req = urllib.request.Request(f"{url.rstrip('/')}/models", headers={"Authorization": f"Bearer {key}"} if key else {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        return e.code, e.reason
+    except (OSError, ValueError) as e:
+        return None, f"{type(e).__name__}: {e}"
+
+
+def check_serving(inp: DoctorInputs) -> Check:
+    from gateway.policy import RoutingPolicy
+    from registry.registry import DEFAULT_PATH, Registry
+
+    env = dict(inp.env)
+    strict = env.get("TB_ENV", "DEV") in ("VALIDATION", "PRODUCTION")
+    reg = Registry.load(DEFAULT_PATH, _override(inp))
+    policy = RoutingPolicy.load(inp.routing_path)
+    want: dict[str, list[tuple[str, str]]] = {}
+    for b in reg.builds:
+        if not b.pinned or b.serving in ("stub", "hosted"):
+            continue
+        for ep_name, name in sorted(b.served.items()):
+            ep = policy.endpoints.get(ep_name)
+            if name and ep is not None and ep.zone == "perimeter":
+                want.setdefault(ep_name, []).append((b.build_id, name))
+    if not want:
+        return Check("serving", "WARN", "no pinned on-box build: no model server to check")
+    fails: list[str] = []
+    warns: list[str] = []
+    good: list[str] = []
+    for ep_name, builds in sorted(want.items()):
+        ep = policy.endpoints[ep_name]
+        url = ep.url(env)
+        key_var = ep.api_key_env or "api_key_env (not set in routing.yaml)"
+        key = env.get(ep.api_key_env, "") if ep.api_key_env else ""
+        if not key:
+            (fails if strict else warns).append(
+                f"{ep_name}: no key, {key_var} is empty: anyone on model-net may call it"
+            )
+        status, doc = _get_models(url, key)
+        if status is None:
+            fails.append(f"{ep_name} ({url}) not reachable: {doc}")
+            continue
+        if status in (401, 403):
+            why = f"{key_var} is missing or is not the server's key (deploy/.env; restart the gateway and the server)"
+            fails.append(f"{ep_name}: the model server refused the key (HTTP {status}): {why}")
+            continue
+        if status != 200 or not isinstance(doc, dict):
+            fails.append(f"{ep_name}: GET {url}/models answered HTTP {status}")
+            continue
+        served = [str(m.get("id")) for m in doc.get("data") or [] if isinstance(m, dict)]
+        for build, name in builds:
+            if name not in served:
+                fix = "restore JUDGE_MODEL / VERIFIER_MODEL in deploy/.env or re-pin (tools/pin_model.py, RUNBOOK §8)"
+                fails.append(
+                    f"{ep_name}: {build} is pinned to the served name {name!r} but the server serves {served}, "
+                    f"so every call would be refused 404: {fix}"
+                )
+        if key and _get_models(url, "")[0] == 200:
+            (fails if strict else warns).append(f"{ep_name}: the server answers without the key (VLLM_API_KEY unset)")
+        good.append(f"{ep_name} serves {', '.join(repr(n) for _, n in builds)}")
+    if fails:
+        return Check("serving", "FAIL", "; ".join(fails))
+    if warns:
+        return Check("serving", "WARN", "; ".join(warns))
+    return Check("serving", "PASS", "; ".join(good) + "; key required")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -255,9 +342,12 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
 )
 
 
-def run(inp: DoctorInputs) -> list[Check]:
+LIVE: tuple[Callable[[DoctorInputs], Check], ...] = (check_serving,)
+
+
+def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:
     out: list[Check] = []
-    for fn in CHECKS:
+    for fn in checks:
         name = fn.__name__.removeprefix("check_")
         try:
             out.append(fn(inp))
@@ -280,9 +370,12 @@ def inputs_from(
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 env[k.strip()] = v.strip().strip('"').strip("'")
-    env.update(
-        {k: v for k, v in os.environ.items() if k.startswith("TB_") or k in ("CLOUD_LLM_BASE_URL", "EGRESS_EXTRA")}
-    )
+    keep = ("CLOUD_LLM_BASE_URL", "EGRESS_EXTRA", "COMPOSE_FILE")
+    env.update({k: v for k, v in os.environ.items() if k.startswith("TB_") or k in keep})
+    if env.get("COMPOSE_FILE") and not env.get("TB_GATEWAY_URL"):
+        # an installed box's deploy/.env (install.sh writes COMPOSE_FILE): compose itself gives the orchestrator this
+        # gateway address, so note_block judges the box as it runs (found by the box rehearsal, D-176)
+        env["TB_GATEWAY_URL"] = "http://gateway:8020/v1"
     doc: dict[str, Any] = {}
     if settings is not None:
         doc = yaml.safe_load(settings.read_text(encoding="utf-8")) or {}

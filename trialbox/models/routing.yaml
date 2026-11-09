@@ -29,6 +29,7 @@ endpoints:
     zone: perimeter
     url_env: TB_EP_SERVING_URL
     default_url: http://llm-service:8000/v1
+    api_key_env: TB_LLM_API_KEY   # D-177: vLLM's --api-key (VLLM_API_KEY in compose), made by install.sh
     cost: {gpu_second_usd: 0.0001} # (est.) amortised P-GB10 hardware + power per productive GPU-second, §8.11
   verifier:
     # the V build's own serving process (P-GB10: a second vLLM next to the J build, deploy/docker-compose.gb10.yml);
@@ -36,6 +37,7 @@ endpoints:
     zone: perimeter
     url_env: TB_EP_VERIFIER_URL
     default_url: http://llm-verifier:8000/v1
+    api_key_env: TB_LLM_API_KEY
     cost: {gpu_second_usd: 0.0001} # (est.) as serving
   embed:
     zone: perimeter
