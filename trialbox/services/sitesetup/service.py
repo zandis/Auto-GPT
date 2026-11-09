@@ -26,6 +26,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from tb_common import dates
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn, sha256_bytes
 
@@ -362,11 +363,7 @@ class SiteSetup:
 
 def _first_date(text: str) -> str | None:
     for line in text.splitlines():
-        for tok in re.findall(
-            r"(?:令和|平成|昭和|R|H|S)\s?\d{1,2}[./年]\s?\d{1,2}[./月]\s?\d{1,2}日?|民國\s?\d{2,3}[./年]"
-            r"\s?\d{1,2}[./月]\s?\d{1,2}日?|(?:19|20)\d{2}[-/.年]\s?\d{1,2}[-/.月]\s?\d{1,2}日?",
-            line,
-        ):
+        for tok in dates.CHART_SPAN.findall(line):  # 和暦, 民國 or Gregorian (D-215)
             if "生年月日" in line or "出生" in line or "birth" in line.lower():
                 break
             return str(tok)

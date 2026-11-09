@@ -23,6 +23,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
+from tb_common import dates
+
 # ------------------------------------------------------------------------------------------------ width
 _FULL = {c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}
 _FULL[0x3000] = 0x20  # ideographic space
@@ -65,22 +67,17 @@ class Check:
 
 
 # ------------------------------------------------------------------------------------------------ dates
-ERAS: dict[str, tuple[int, date, date | None]] = {  # name -> (year offset, first day, last day)
-    "令和": (2018, date(2019, 5, 1), None),
-    "平成": (1988, date(1989, 1, 8), date(2019, 4, 30)),
-    "昭和": (1925, date(1926, 12, 25), date(1989, 1, 7)),
-    "大正": (1911, date(1912, 7, 30), date(1926, 12, 25)),
-    "明治": (1867, date(1868, 10, 23), date(1912, 7, 29)),
-}
-ERA_ABBR = {"R": "令和", "H": "平成", "S": "昭和", "T": "大正", "M": "明治"}
-_SEP = r"\s*[年./\-]\s*"
-_MD = r"(\d{1,2})\s*[月./\-]\s*(\d{1,2})\s*日?"
-_ERA = re.compile(rf"^(令和|平成|昭和|大正|明治|[RHSTMrhstm])\s*(元|\d{{1,2}}){_SEP}{_MD}$")
-_MINGUO = re.compile(rf"^(?:民國|民国|中華民國)\s*(\d{{1,3}}){_SEP}{_MD}$")
-_ROC3 = re.compile(r"^(1\d{2})[./\-](\d{1,2})[./\-](\d{1,2})$")
-_ROC7 = re.compile(r"^(1\d{2})(\d{2})(\d{2})$")
-_ISO = re.compile(rf"^(\d{{4}}){_SEP}{_MD}(?:[ T]\d{{1,2}}:\d{{2}}(?::\d{{2}})?)?$")
-_YMD8 = re.compile(r"^((?:19|20)\d{2})(\d{2})(\d{2})$")
+# the era table and the cell patterns live in tb_common.dates (D-215); the names stay importable from here
+ERAS = dates.ERAS
+ERA_ABBR = dates.ERA_ABBR
+_SEP = dates.SEP
+_MD = dates.MD
+_ERA = dates.CELL_ERA
+_MINGUO = dates.CELL_MINGUO
+_ROC3 = dates.CELL_ROC3
+_ROC7 = dates.CELL_ROC7
+_ISO = dates.CELL_ISO
+_YMD8 = dates.CELL_YMD8
 _DMY = re.compile(r"^(\d{1,2})[./\-](\d{1,2})[./\-](\d{4})$")
 _TWO = re.compile(r"^(\d{1,2})[./\-](\d{1,2})[./\-](\d{1,2})$")
 _SERIAL = re.compile(r"^(\d{5})(?:\.0+)?$")
@@ -96,11 +93,7 @@ class ParsedDate:
     suggestion: str | None = None  # for era_boundary: the Gregorian reading
 
 
-def _mk(y: int, m: int, d: int) -> date | None:
-    try:
-        return date(y, m, d)
-    except ValueError:
-        return None
+_mk = dates.ymd
 
 
 def parse_date(raw: str, order: str | None = None, serial: bool = True) -> ParsedDate:
@@ -122,24 +115,24 @@ def parse_date(raw: str, order: str | None = None, serial: bool = True) -> Parse
             return ParsedDate(d.isoformat(), "format")
     m = _ERA.match(s)
     if m:
-        era = ERA_ABBR.get(m.group(1).upper(), m.group(1))
-        offset, first, last = ERAS[era]
-        year = 1 if m.group(2) == "元" else int(m.group(2))
-        d = _mk(offset + year, int(m.group(3)), int(m.group(4)))
+        d, inside = dates.era_date(m.group(1), m.group(2), int(m.group(3)), int(m.group(4)))
         if d is None:
             return ParsedDate(None, problem="date_unreadable")
-        if d < first or (last is not None and d > last):  # 平成31年5月 does not exist: the era had changed
+        if not inside:  # 平成31年5月 does not exist: the era had changed
             return ParsedDate(None, problem="era_boundary", suggestion=d.isoformat())
         return ParsedDate(d.isoformat(), "era")
     m = _MINGUO.match(s) or _ROC3.match(s)
     if m:
-        d = _mk(1911 + int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        d = dates.minguo_date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
         return ParsedDate(d.isoformat(), "minguo") if d else ParsedDate(None, problem="date_unreadable")
     m = _ROC7.match(s)
     if m:
-        d = _mk(1911 + int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        d = dates.minguo_date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
         if d is not None:
             return ParsedDate(d.isoformat(), "roc7")
+    d = dates.roc_nian(s)  # MR-015: 112年3月15日, the ROC year with 年 and no 民國 (three digits only: no lang here)
+    if d is not None:
+        return ParsedDate(d.isoformat(), "minguo")
     m = _DMY.match(s)
     if m:
         a, b, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
