@@ -18,7 +18,9 @@ closed). Checks:
   DEV/TEST, FAIL in VALIDATION/PRODUCTION, since the site then believes two models agree when one did;
 * ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
   ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
-  (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``.
+  (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``;
+* ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
+  box's first start (T-008, D-207): WARN, naming the flag's value and where to change it.
 """
 
 from __future__ import annotations
@@ -242,6 +244,23 @@ def check_note_block(inp: DoctorInputs) -> Check:
     )
 
 
+def check_flags(inp: DoctorInputs) -> Check:
+    """T-008 (D-207): a seed variable (``TB_LAKE_SOURCE``) seeds its flag at the first start only; one that now says
+    something else than the flag is ignored, which an operator must know: WARN."""
+    url = inp.env.get("TB_DB_URL", "")
+    if not url:
+        return Check("flags", "PASS", "no trial database configured here (TB_DB_URL): the flags were not read")
+    try:
+        from tb_common.flags import env_drift
+
+        drift = env_drift(dict(inp.env), url)
+    except Exception as e:  # the flags live on the box: unreadable from here is worth a look, not a failure
+        return Check("flags", "WARN", f"cannot read the feature flags ({type(e).__name__})")
+    if drift:
+        return Check("flags", "WARN", "; ".join(drift))
+    return Check("flags", "PASS", "every seed variable that is set agrees with its flag")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -252,6 +271,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_publish_gate,
     check_note_block,
     check_registry_pins,
+    check_flags,
 )
 
 
