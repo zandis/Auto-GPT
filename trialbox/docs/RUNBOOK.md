@@ -212,9 +212,9 @@ disk. Spark memory as set, not yet measured on a Spark: `JUDGE_GPU_MEM_UTIL` 0.3
 
 ```sh
 python -m tools.pin_model --build gemma-4-26b-a4b-it-spark --model-dir deploy/models/gemma-4-26b-a4b-it-4bit \
-    --served-name gemma-4-26b-a4b-it
+    --served-name local/gemma-4-26b-a4b-nvfp4
 python -m tools.pin_model --build qwen3.5-9b-spark --model-dir deploy/models/qwen3.5-9b-4bit \
-    --served-name qwen3.5-9b --endpoint verifier
+    --served-name local/qwen3.5-9b-awq --endpoint verifier
 # RTX PRO 6000: the same with the -rtxpro6000 builds
 ```
 

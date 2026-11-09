@@ -199,7 +199,7 @@ setup_failed() {  # the setup log comes back with the results, so a failed setup
 echo "== setup $(date -u +%FT%TZ)" >>"$LOG"
 apt-get update -qq >>"$LOG" 2>&1
 apt-get install -y -qq postgresql tesseract-ocr tesseract-ocr-jpn tesseract-ocr-chi-tra tesseract-ocr-eng \
-  python3-venv python3-pip curl xz-utils >>"$LOG" 2>&1 || setup_failed "apt-get install"
+  python3-venv python3-pip curl xz-utils maven >>"$LOG" 2>&1 || setup_failed "apt-get install"
 touch "$HB"
 # Ubuntu 24.04 refuses a system-wide pip install (PEP 668), so uv comes from a venv of its own, else its installer
 if ! command -v uv >/dev/null; then
@@ -218,6 +218,9 @@ NODE_V=v22.23.4
 mkdir -p /opt/node-tools && (cd /opt/node-tools && npm i -s playwright@1.63.0 axe-core && npx playwright install --with-deps chromium) \
   >>"$LOG" 2>&1 || setup_failed "playwright"
 .venv/bin/python tools/fetch_fonts.py >>"$LOG" 2>&1 || true
+# the in-process box reads FHIRHelpers from the cql-translator jars (.cache/jvm, maven): without them every protocol
+# paste fails in compiling (the first cloud run's hospital parts: "FHIRHelpers-4.0.1.cql not found")
+PY=.venv/bin/python bash tools/fetch_jvm_deps.sh >>"$LOG" 2>&1 || setup_failed "JVM dependencies (tools/fetch_jvm_deps.sh)"
 echo "== setup done $(date -u +%FT%TZ)" >>"$LOG"
 touch "$HB"
 

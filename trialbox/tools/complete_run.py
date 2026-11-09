@@ -63,8 +63,10 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+from tools import pin_model  # noqa: E402  (after the path setup, as the parts import it)
+
 LANGS = ("ja", "zh-TW")
-JUDGE, VERIFIER = "local/gemma-4-26b-a4b-nvfp4", "local/qwen3.5-9b-awq"  # the vLLM served names (D-124)
+JUDGE, VERIFIER = pin_model.JUDGE_SERVED, pin_model.VERIFIER_SERVED  # the vLLM served names (D-124)
 VENDOR_RECORD = ROOT / "deploy" / "measured" / "serving_config.rtxpro6000.json"
 NODE_TOOLS = Path("/opt/node-tools/node_modules")  # the preinstalled Playwright (never `playwright install`)
 
