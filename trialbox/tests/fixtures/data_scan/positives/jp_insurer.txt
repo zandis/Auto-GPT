@@ -1,0 +1,4 @@
+# PLANTED TEST POSITIVE (D-203, TST-SEC-10): fictional insurer numbers with valid check digits; every other line is a hit.
+保険者番号 06132708
+保険者番号:0613 2716
+insurer no. 06132708

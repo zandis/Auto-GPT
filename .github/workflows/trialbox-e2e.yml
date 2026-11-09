@@ -7,6 +7,10 @@ on:
     paths:
       - "trialbox/**"
       - ".github/workflows/trialbox-e2e.yml"
+  push:
+    branches: [master]
+    paths:
+      - "trialbox/**"
   workflow_dispatch:
 
 permissions:
@@ -17,6 +21,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # D-203 (WS-13.10, TB-SITE-03, TST-SEC-10): no real patient data in the repository; a hit fails the build
+  data-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: trialbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - name: Python environment
+        run: make venv
+      - name: Data-handling scan
+        run: make data-scan
+
   e2e-simple:
     runs-on: ubuntu-latest
     timeout-minutes: 20

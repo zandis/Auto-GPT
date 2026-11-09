@@ -1,0 +1,74 @@
+# The data-handling scan's patterns (D-203, WS-13.10, TB-SITE-03 §2; tools/data_scan.py). Patterns are data: each
+# has a planted positive in tests/fixtures/data_scan/positives/<id>.txt and a test that it is found.
+#
+# Every line of every file is first normalised: NFKC (full-width digits and letters, half-width katakana), zero-width
+# characters removed. A pattern is then
+#   regex:      a Python regular expression; placeholders {roc_surname}, {jp_surname}, {cjk}, {kana}, {katakana},
+#               {date} and {sep} are filled in by the scanner (the surname lists are tb_common.phi_guard's, imported,
+#               not copied)
+#   phi_guard:  the name of a compiled pattern in tb_common.phi_guard, used as it is
+#   group:      the group whose text is checked and reported (default: the first group that matched, else the match)
+#   check:      a check digit the reported digits must pass (tw_id, my_number, luhn); without one any match is a hit
+#   digits:     [min, max] digits the reported text must have, separators removed
+#   alone:      the match may not touch a letter or a digit on either side (a phone number inside a hex id)
+#   needs:      a cheap regular expression a line must contain before the pattern is tried (speed only)
+#   near, window: the pattern counts only within `window` characters of a match of `near` (a name beside a date)
+#   not:        words that look like the pattern and are not identifiers (compared after normalisation)
+#
+# The sites' own code systems (local lab codes, local diagnosis codes) are added here once the survey names them
+# (TB-SITE-01 questions 24 to 26); a CGMH chart number is anchored on its label until the site states its format.
+
+patterns:
+  - id: chart_number
+    what: a chart number (病歷號, カルテ番号, MRN) followed by 6 to 10 digits, separators allowed
+    regex: '(?i)(?:病歷號碼|病歷號|病例號|病歷編號|カルテ番号|カルテNo\.?|診察券番号|患者ID|患者番号|\bMRN\b|\bchart\s*(?:no\.?|number|#)|\bmedical\s+record\s+(?:no\.?|number))\s*[:：#=]?\s*([A-Z]{0,2}\d(?:{sep}?\d){5,9})(?!\d)'
+    needs: '(?i)病歷|病例|カルテ|診察券|患者|mrn|chart|medical\s+record'
+
+  - id: tw_id
+    what: a Taiwan national ID or resident certificate number with a valid check digit (a letter, 1/2/8/9, 8 digits)
+    regex: '(?i)(?<![A-Z0-9])([A-Z]{sep}?[1289](?:{sep}?\d){8})(?![A-Z0-9])'
+    check: tw_id
+    needs: '[A-Za-z]'
+
+  - id: my_number
+    what: a マイナンバー (individual number) with a valid check digit, in groups of four, or plain after its label
+    regex: '(?i)(?:マイナンバー|個人番号|my\s*number)[^\d\n]{0,12}(\d{12})(?!\d)|(?<![\w.\-/:])(\d{4}[ \-]\d{4}[ \-]\d{4})(?![\w.\-/:])'
+    check: my_number
+    digits: [12, 12]
+    needs: '\d{4}'
+
+  - id: jp_insurer
+    what: a Japanese insurer number (保険者番号) of 8 digits with a valid check digit, after its label
+    regex: '(?i)(?:保険者番号|保険者No\.?|保険者|insurer\s*(?:no\.?|number|id)?)\s*[:：#=]?\s*(\d(?:{sep}?\d){7})(?!\d)'
+    check: luhn
+    digits: [8, 8]
+    needs: '(?i)保険者|insurer'
+
+  - id: tw_phone
+    what: a Taiwanese mobile or landline number (tb_common.phi_guard's PHONE, as it is)
+    phi_guard: PHONE
+    alone: true
+    needs: '0\d|886'
+
+  - id: jp_phone
+    what: a Japanese mobile (070/080/090), IP (050), toll-free or landline number with separators, or +81
+    regex: '(?<![\d\-])(?:\+81{sep}?[1-9]\d{0,3}|0\d{1,4})[\-(（ ]\d{1,4}[\-)） ]\d{4}(?![\d\-])|(?<![\d\-])0[5789]0\d{8}(?!\d)'
+    digits: [10, 12]
+    alone: true
+    needs: '0\d|\+81'
+
+  - id: cjk_name_dob
+    what: a Chinese or Japanese name (a surname of tb_common.phi_guard's lists and one or two characters, alone) beside a date
+    regex: '(?<![{cjk}{kana}])(?:{roc_surname}|{jp_surname})[{cjk}]{1,2}(?![{cjk}{kana}])'
+    near: '{date}'
+    window: 24
+    needs: '(?:1[89]|20)\d{2}\s?[-/年.]'
+    not: [高血壓, 高血脂, 高血糖, 白內障, 白血病, 黃疸, 黃斑部, 林口, 高雄, 高雄市, 石牌, 周邊, 周期, 方案, 方法, 方式, 江戶, 金額, 金屬, 古典, 馬偕, 葉酸, 程序, 程度, 康復, 森林, 余額, 何時, 高齡, 高度, 藍色, 白色, 黃色, 金色, 方向, 安全, 史上, 嚴重, 高血圧]
+
+  - id: kana_name_dob
+    what: a name in katakana, family and given name apart (ヤマダ タロウ), beside a date
+    regex: '(?<![{kana}{cjk}])[{katakana}]{2,8}[ ・][{katakana}]{1,8}(?![{kana}{cjk}])'
+    near: '{date}'
+    window: 24
+    needs: '(?:1[89]|20)\d{2}\s?[-/年.]'
+    not: [デジタル・ガバナンス]

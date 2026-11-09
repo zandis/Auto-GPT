@@ -117,6 +117,20 @@ minutes idle or 8 hours. Roles and the work they do: [User guide](USER_GUIDE.md)
 `docker exec -i trialbox-console-1 python -m console.cli bootstrap-admin|add-user NAME --role ROLE|reset-password
 NAME|disable NAME|list-users`.
 
+### Build gate: the data-handling scan (D-203)
+
+Real patient data never enters the repository, CI, a log or a support bundle (TB-SITE-03). `make data-scan` scans
+every tracked file for chart numbers after their label, Taiwan IDs and マイナンバー with valid check digits, Japanese
+insurer numbers, Taiwanese and Japanese phone numbers and Chinese, Japanese or katakana names beside a date (patterns
+in `tools/data_scan_patterns.yaml`; full-width digits, zero-width characters and split numbers are normalised
+first), and refuses a data file type (`.csv`, `.xlsx`, `.ndjson`, `.parquet`, `.duckdb`, `.hl7` ...) outside
+`tests/fixtures/`, `eval/`, `catalogue/`, `refdata/` and the reference tables `.gitattributes` names. Exit 2 on a
+hit; the output gives the file, the line, the pattern and two characters at each end, never the value. The same
+scan runs on a log (`python -m tools.data_scan --log make-test.log`), on a support bundle or any archive
+(`python -m tools.data_scan bundle.tgz`, member by member), as the pre-commit hook (`pre-commit install --config
+trialbox/.pre-commit-config.yaml`, from the repository root) and as the `data-scan` CI job. A synthetic value that
+looks real goes into `tools/data_scan_allow.txt` with its reason; a real one is an incident (TB-SITE-03 §1.7).
+
 ## 4. Troubleshooting
 
 | Symptom | Check | Fix |

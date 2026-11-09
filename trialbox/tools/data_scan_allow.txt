@@ -1,0 +1,38 @@
+# The data-handling scan's allowlist (D-203; tools/data_scan.py). One entry per line, four fields split by "|":
+#   value | <pattern id or *> | <the exact value, as the scan reports it before masking> | <why it is not real data>
+#   path  | <pattern id or *> | <glob on the path from trialbox/>                       | <why it is not real data>
+# The reason is required (an entry without one stops the scan). Add a value, not a path, wherever a value will do; a
+# path entry is for a generator's whole output or the planted positives. Data files (the `tb-data` attribute) are
+# allowed in .gitattributes, not here.
+
+# --- generated synthetic data and the planted positives
+path | * | tests/fixtures/synthetic_patients/* | the synthetic hospital of tools/make_fixtures.py: generated names, IDs, phones and dates, no real person
+path | * | eval/phi_synth/* | the synthetic PHI notes made to measure the recognisers (eval/phi_synth, generated, fictional)
+path | * | tests/fixtures/data_scan/positives/* | the planted positives of TST-SEC-10 (D-203): fictional, each file marked as planted
+path | * | tests/unit/test_data_scan.py | the scan's own tests, which plant the same fictional values inline (the evasion cases)
+
+# --- textbook placeholders used in tests and documents
+value | tw_id | A123456789 | the textbook example of a valid Taiwan ID format, used by every PHI test and design text
+value | chart_number | 12345678 | a placeholder chart number in tests and examples
+value | chart_number | 20481234 | the fictional chart number of the PHI recogniser and gateway tests
+value | chart_number | 0012345 | the placeholder カルテ番号 of the de-identification test case DEID-030 in the design
+value | chart_number | 10000001 | the synthetic hospital's first chart number (tools/make_fixtures.py numbers from 10000001)
+value | chart_number | 10000004 | a synthetic hospital chart number used in the site help and the i18n examples
+value | chart_number | 10000005 | a synthetic hospital chart number used in the i18n examples
+value | chart_number | 70000054 | the public synthetic site's chart number in the CASE command examples and their tests
+value | cjk_name_dob | 山田太郎 | the Japanese placeholder name (the "John Doe" of forms) in sheet-import tests
+value | cjk_name_dob | 林大同 | the fictional patient of tests/unit/test_derived_phi.py
+value | cjk_name_dob | 山田班 | a team name in the synthetic candidate sheet of tools/scenarios.py and the site help
+value | cjk_name_dob | 潘映君 | the author of a published article cited in the TW/JP field research (a citation, not a patient)
+value | cjk_name_dob | 陳玉夏 | the author of a published article cited in the TW/JP field research (a citation, not a patient)
+value | * | 02-2312-3456 | the hospital switchboard in the synthetic consent form (a public institutional number, no patient)
+value | * | (02-2312-3456 | the same switchboard, as the TW pattern reports it with its parenthesis
+value | * | (02) 2312-3456 | the same switchboard, written with the area code in parentheses
+value | * | (02) 2345-6789 | a placeholder Taipei landline in the PHI recogniser tests
+value | * | 03-1234-5678 | the placeholder Tokyo landline of the JP tests and design texts
+value | * | 0912-345-678 | the placeholder Taiwanese mobile number of the PHI tests and the testbench
+value | * | 090-1234-5678 | the placeholder Japanese mobile number of the JP tests
+value | * | +81-3-1234-5678 | the placeholder Tokyo landline with the country code (JP log scrubber tests)
+value | * | +81 90 1234 5678 | the placeholder Japanese mobile with the country code (JP log scrubber tests)
+value | * | 0466-12-3456 | a placeholder Japanese landline with a four-digit area code (JP log scrubber tests)
+value | tw_phone | 063922676 | a numeric article id inside a news URL cited in spec/archive (not a phone)

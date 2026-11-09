@@ -1,0 +1,4 @@
+# PLANTED TEST POSITIVE (D-203, TST-SEC-10): fictional names in katakana beside a date of birth; every other line is a hit.
+スズキ ハナコ 1962/08/15
+生年月日 1971年3月9日 タナカ・イチロウ
+ｽｽﾞｷ ﾊﾅｺ 1962-08-15

@@ -1,0 +1,6 @@
+# PLANTED TEST POSITIVE (D-203, TST-SEC-10): fictional chart numbers; every other line must be a chart_number hit.
+病歷號: 31415926
+病歷號碼 3141 5926
+カルテ番号:２７１８２８１８
+MRN 1618-0339
+Chart No. 5772156

@@ -1,0 +1,14 @@
+# TEST NEGATIVES (D-203): look like identifiers and are not; no line here may be a hit.
+pseudonym P-7f3a9c2e41 and site pseudonym S01-000417
+LOINC 2160-0 creatinine, 4548-4 HbA1c, 17861-6 calcium
+job 01HZX3K5R2M8Q9V7W6T4Y1B0CD finished
+2026-11-09
+糖尿病 診斷日期 2024-01-02
+高血壓 2024-01-02 追蹤
+林口長庚 2025-03-04 門診
+A123456788 has a wrong check digit
+"X-RateLimit-Reset":"179409600000"
+"cost_usd": 0.021020637, "seconds": 2.089665212
+{"id":"052058027f1cbd2390a","encounter":"34ec0770409479bc8d3e629d"}
+version 1.5.5, build 20261109.1
+ICD-10 E11.65, NHI order 09015C
