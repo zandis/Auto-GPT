@@ -102,3 +102,18 @@ Where a recommendation conflicts with an overriding decision above, the decision
 | Device-style records | Keep light IEC 62304-shaped records for the profile module from now on: requirements, risk notes, verification evidence and change records per release. |
 | Business model | Hospitals sign a platform licence. Sponsors pay a per-study activation fee that recovers it. No fees per enrolled patient. |
 | Evidence | Draft the protocol for Study A now: a retrospective accuracy study at CGMH, with precision ≥ 0.75 and wrong exclusion ≤ 2%, through the CGMH IRB opt-out/waiver route. No marketing claims are made before Study A. |
+
+## Master plan and pilot (later on 2026-11-09)
+
+| Topic | Decision |
+|---|---|
+| Plan frame | **Both, linked.** A product roadmap where every item traces to its regulatory record: requirement, risk and test (IEC 62304, ISO 14971, GAMP 5). |
+| Pilot sites | **Both in parallel.** CGMH (Taiwan) and Makoto's site (Japan). |
+| Team | Claude agents build. Changfu and Makoto review and decide. |
+| Go-live | **Within 3 months**, real patients screened at both sites. |
+| Pilot scope | **As complete as possible.** Screening, sub-PI delegation and referral, the OMOP core, study-patient profiles and REDCap EDC prefill. |
+| Validation | **Build all, use all.** GAMP 5 validation of EDC prefill is done inside the 3 months, so prefill is live at go-live. |
+| Data feeds | Not known yet. The plan starts with a site survey. |
+| Readiness | Boxes not bought, hospital IT not engaged, contracts not signed. IRB is approved at one site; the plan covers the other. |
+| GPU | Budget approved, and several GPUs may be used. The G1 run is split across parallel VMs and is joined by the profile cost test and the bge-m3 vs Qwen3 embedding test (about US$50). Each VM is capped and stopped afterwards. |
+| Work order | Building continues while the master plan is written. |
