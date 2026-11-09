@@ -1,222 +1,272 @@
-requirement,risk,test,plan_item,level,status,evidence
-URS-PI-01,RSK-01,TST-E2E-01,WS-01.1,E,planned,gate: before G1
-URS-PI-01,RSK-02,TST-E2E-01,WS-01.1,E,planned,gate: before G1
-URS-PI-01,RSK-07,TST-E2E-01,WS-01.1,E,planned,gate: before G1
-URS-CRC-04,RSK-01,TST-E2E-01,WS-01.1,E,planned,gate: before G1
-URS-CRC-04,RSK-02,TST-E2E-01,WS-01.1,E,planned,gate: before G1
-URS-CRC-04,RSK-07,TST-E2E-01,WS-01.1,E,planned,gate: before G1
-URS-STW-05,RSK-01,TST-UNIT-02,WS-01.2,U,planned,gate: G1
-URS-ADM-03,RSK-12,TST-OPS-01,WS-01.3,E,planned,gate: design freeze
-URS-ADM-03,RSK-12,TST-SEC-03,WS-01.3,S,planned,gate: design freeze
-URS-ADM-03,RSK-13,TST-OPS-01,WS-01.3,E,planned,gate: design freeze
-URS-ADM-03,RSK-13,TST-SEC-03,WS-01.3,S,planned,gate: design freeze
-URS-ADM-05,RSK-12,TST-OPS-01,WS-01.3,E,planned,gate: design freeze
-URS-ADM-05,RSK-12,TST-SEC-03,WS-01.3,S,planned,gate: design freeze
-URS-ADM-05,RSK-13,TST-OPS-01,WS-01.3,E,planned,gate: design freeze
-URS-ADM-05,RSK-13,TST-SEC-03,WS-01.3,S,planned,gate: design freeze
-URS-ADM-06,RSK-14,TST-CI-01,WS-01.4,D,planned,gate: design freeze
-URS-ADM-06,RSK-14,TST-UNIT-01,WS-01.4,U,planned,gate: design freeze
-URS-PI-03,RSK-03,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
-URS-PI-03,RSK-35,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
-URS-CRC-01,RSK-03,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
-URS-CRC-01,RSK-35,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
-URS-CRC-02,RSK-03,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
-URS-CRC-02,RSK-35,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
-URS-ADM-02,RSK-07,TST-E2E-04,WS-01.7,E,planned,"gate: before G1 (J-01 to J-04, J-07, J-08, J-26, J-27); rest before feature complete"
-URS-CRA-01,RSK-07,TST-E2E-04,WS-01.7,E,planned,"gate: before G1 (J-01 to J-04, J-07, J-08, J-26, J-27); rest before feature complete"
-URS-PI-13,RSK-07,TST-E2E-04,WS-01.7,E,planned,"gate: before G1 (J-01 to J-04, J-07, J-08, J-26, J-27); rest before feature complete"
-all,-,-,WS-01.6,-,planned,gate: —
-URS-PI-02,RSK-01,TST-G1,WS-02.1,G,planned,gate: **G1**
-URS-PI-02,RSK-04,TST-G1,WS-02.1,G,planned,gate: **G1**
-URS-PI-02,RSK-09,TST-G1,WS-02.1,G,planned,gate: **G1**
-URS-ADM-07,RSK-09,TST-MOD-01,WS-02.2,G,planned,gate: design freeze
-URS-PI-06,RSK-09,TST-MOD-02,WS-02.3,G,planned,gate: design freeze
-URS-PRV-04,RSK-15,TST-SEC-05,WS-02.4,S,planned,gate: feature complete
-all,RSK-16,TST-SEC-04,WS-02.5,S,planned,gate: G1
-URS-PI-07,RSK-10,TST-PROF-02,WS-02.6,G,planned,gate: design freeze
-URS-STW-01,RSK-05,TST-GOLD-01,WS-03.1,E,planned,gate: before any site data (W2)
-URS-STW-02,RSK-01,TST-GOLD-01,WS-03.2,E,planned,gate: design freeze
-URS-STW-02,RSK-01,TST-UNIT-03,WS-03.2,U,planned,gate: design freeze
-URS-STW-02,RSK-03,TST-GOLD-01,WS-03.2,E,planned,gate: design freeze
-URS-STW-02,RSK-03,TST-UNIT-03,WS-03.2,U,planned,gate: design freeze
-URS-PI-04,RSK-01,TST-GOLD-01,WS-03.2,E,planned,gate: design freeze
-URS-PI-04,RSK-01,TST-UNIT-03,WS-03.2,U,planned,gate: design freeze
-URS-PI-04,RSK-03,TST-GOLD-01,WS-03.2,E,planned,gate: design freeze
-URS-PI-04,RSK-03,TST-UNIT-03,WS-03.2,U,planned,gate: design freeze
-URS-STW-03,RSK-06,TST-UNIT-04,WS-03.3,U,planned,gate: design freeze
-URS-STW-01,RSK-05,TST-GOLD-02,WS-03.4,E,planned,gate: feature complete
-all,RSK-05,TST-GOLD-02,WS-03.5,E,planned,gate: IQ/OQ
-all,RSK-05,TST-E2E-01,WS-03.5,E,planned,gate: IQ/OQ
-URS-STW-04,RSK-01,TST-UNIT-05,WS-03.6,U,planned,gate: feature complete
-URS-STW-04,RSK-02,TST-UNIT-05,WS-03.6,U,planned,gate: feature complete
-URS-PI-05,RSK-01,TST-UNIT-05,WS-03.6,U,planned,gate: feature complete
-URS-PI-05,RSK-02,TST-UNIT-05,WS-03.6,U,planned,gate: feature complete
-URS-STW-06,RSK-05,TST-PERF-01,WS-03.7,P,planned,gate: feature complete
-URS-STW-06,RSK-13,TST-PERF-01,WS-03.7,P,planned,gate: feature complete
-all,RSK-05,TST-INT-01,WS-03.8,I,planned,gate: IQ/OQ
-URS-STW-07,-,TST-UNIT-06,WS-04.1,U,planned,gate: design freeze
-URS-PI-08,-,TST-UNIT-06,WS-04.1,U,planned,gate: design freeze
-URS-PI-08,-,TST-UNIT-06,WS-04.2,U,planned,gate: feature complete
-URS-PI-09,RSK-01,TST-UNIT-07,WS-04.3,U,planned,gate: feature complete
-URS-PI-07,-,TST-WALK-02,WS-04.4,W,planned,gate: feature complete
-URS-PRV-06,-,TST-UNIT-06,WS-04.5,U,planned,gate: feature complete
-URS-PI-07,RSK-10,TST-PROF-01,WS-05.1,G,planned,gate: feature complete
-URS-PI-07,RSK-11,TST-PROF-01,WS-05.1,G,planned,gate: feature complete
-URS-STW-08,RSK-10,TST-PROF-01,WS-05.1,G,planned,gate: feature complete
-URS-STW-08,RSK-11,TST-PROF-01,WS-05.1,G,planned,gate: feature complete
-URS-PI-07,RSK-07,TST-PROF-01,WS-05.2,G,planned,gate: feature complete
-URS-PI-10,RSK-07,TST-PROF-03,WS-05.3,G,planned,gate: feature complete
-URS-PI-10,RSK-10,TST-PROF-03,WS-05.3,G,planned,gate: feature complete
-URS-PI-11,RSK-02,TST-PROF-04,WS-05.4,G,planned,gate: feature complete
-URS-CLN-02,RSK-02,TST-PROF-04,WS-05.4,G,planned,gate: feature complete
-URS-PI-12,RSK-08,TST-PROF-05,WS-05.5,G,planned,gate: feature complete
-URS-PI-12,RSK-11,TST-PROF-05,WS-05.5,G,planned,gate: feature complete
-URS-CLN-01,RSK-11,TST-WALK-03,WS-05.6,W,planned,gate: feature complete
-URS-CLN-03,RSK-11,TST-WALK-03,WS-05.6,W,planned,gate: feature complete
-URS-STW-01,RSK-07,TST-SEC-01,WS-06.1,S,planned,gate: design freeze
-URS-PI-01,RSK-07,TST-SEC-01,WS-06.1,S,planned,gate: design freeze
-URS-ADM-01,RSK-07,TST-SEC-01,WS-06.1,S,planned,gate: design freeze
-URS-SUB-01,RSK-07,TST-SEC-02,WS-06.2,S,planned,gate: feature complete
-URS-PI-13,RSK-07,TST-SEC-02,WS-06.2,S,planned,gate: feature complete
-URS-PI-14,RSK-17,TST-E2E-02,WS-06.3,E,planned,gate: feature complete
-URS-SUB-02,RSK-17,TST-E2E-02,WS-06.3,E,planned,gate: feature complete
-URS-CRC-05,RSK-17,TST-E2E-02,WS-06.3,E,planned,gate: feature complete
-URS-STW-09,-,TST-WALK-02,WS-06.4,W,planned,gate: feature complete
-URS-PI-02,RSK-07,TST-SEC-01,WS-06.5,S,planned,gate: feature complete
-URS-SUB-03,RSK-07,TST-SEC-01,WS-06.5,S,planned,gate: feature complete
-URS-STW-10,RSK-07,TST-SEC-02,WS-06.6,S,planned,gate: feature complete
-URS-PI-05,RSK-02,TST-E2E-02,WS-06.7,E,planned,gate: feature complete
-URS-PRV-01,RSK-18,TST-E2E-03,WS-06.8,E,planned,gate: feature complete
-URS-CRC-03,RSK-01,TST-WALK-02,WS-06.9,W,planned,gate: feature complete
-URS-CRC-06,RSK-01,TST-WALK-02,WS-06.9,W,planned,gate: feature complete
-URS-PI-04,RSK-01,TST-WALK-02,WS-06.9,W,planned,gate: feature complete
-URS-PI-15,RSK-19,TST-E2E-02,WS-06.10,E,planned,gate: feature complete
-URS-CRC-07,RSK-19,TST-E2E-02,WS-06.10,E,planned,gate: feature complete
-URS-CRC-08,-,TST-WALK-02,WS-06.11,W,planned,gate: feature complete
-URS-PI-16,-,TST-SEC-01,WS-06.12,S,planned,gate: IQ/OQ (if allowed)
-URS-CRC-09,RSK-20,TST-EDC-01,WS-07.1,E,planned,gate: feature complete
-URS-CRA-02,RSK-20,TST-EDC-01,WS-07.1,E,planned,gate: feature complete
-URS-CRC-10,RSK-20,TST-EDC-02,WS-07.2,E,planned,gate: IQ/OQ
-URS-CRC-10,RSK-21,TST-EDC-02,WS-07.2,E,planned,gate: IQ/OQ
-URS-CRC-11,RSK-19,TST-EDC-03,WS-07.3,E,planned,gate: feature complete
-URS-CRA-03,RSK-20,TST-EDC-04,WS-07.4,E,planned,gate: feature complete
-URS-CRA-03,RSK-22,TST-EDC-04,WS-07.4,E,planned,gate: feature complete
-URS-PI-17,RSK-20,TST-EDC-04,WS-07.4,E,planned,gate: feature complete
-URS-PI-17,RSK-22,TST-EDC-04,WS-07.4,E,planned,gate: feature complete
-URS-CRC-12,-,TST-EDC-02,WS-07.5,E,planned,gate: feature complete
-URS-CRA-01,RSK-07,TST-SEC-01,WS-07.6,S,planned,gate: feature complete
-URS-CRA-02,RSK-07,TST-SEC-01,WS-07.6,S,planned,gate: feature complete
-URS-STW-02,RSK-05,TST-DOPS-01,WS-08.1,E,planned,gate: feature complete
-URS-STW-02,RSK-13,TST-DOPS-01,WS-08.1,E,planned,gate: feature complete
-URS-STW-11,RSK-05,TST-DOPS-01,WS-08.1,E,planned,gate: feature complete
-URS-STW-11,RSK-13,TST-DOPS-01,WS-08.1,E,planned,gate: feature complete
-URS-STW-12,RSK-23,TST-DOPS-02,WS-08.2,E,planned,gate: feature complete
-URS-PRV-02,RSK-23,TST-DOPS-02,WS-08.2,E,planned,gate: feature complete
-URS-STW-13,-,TST-DOPS-03,WS-08.3,E,planned,gate: feature complete
-URS-PI-18,-,TST-DOPS-03,WS-08.3,E,planned,gate: feature complete
-URS-PRV-03,-,TST-DOPS-03,WS-08.3,E,planned,gate: feature complete
-URS-STW-05,-,TST-WALK-02,WS-08.4,W,planned,gate: feature complete
-URS-ADM-04,RSK-13,TST-OPS-02,WS-08.5,E,planned,gate: design freeze
-URS-ADM-08,RSK-13,TST-OPS-02,WS-08.5,E,planned,gate: design freeze
-URS-ADM-05,RSK-13,TST-OPS-03,WS-08.6,E,planned,gate: IQ/OQ
-URS-ADM-05,RSK-24,TST-OPS-03,WS-08.6,E,planned,gate: IQ/OQ
-URS-ADM-09,RSK-13,TST-OPS-03,WS-08.7,E,planned,gate: feature complete
-URS-PI-19,-,TST-UNIT-08,WS-08.8,U,planned,gate: IQ/OQ
-URS-STW-14,-,TST-UNIT-04,WS-09.1,U,planned,gate: feature complete
-URS-PRV-02,RSK-23,TST-FED-01,WS-09.2,E,planned,gate: feature complete
-URS-PRV-03,RSK-23,TST-FED-02,WS-09.3,E,planned,gate: feature complete
-URS-PRV-05,RSK-25,TST-IQ-01,WS-10.1,IQ,planned,gate: IQ/OQ
-URS-PRV-05,RSK-26,TST-IQ-01,WS-10.1,IQ,planned,gate: IQ/OQ
-URS-PRV-05,RSK-27,TST-IQ-01,WS-10.1,IQ,planned,gate: IQ/OQ
-URS-STW-15,RSK-28,TST-IQ-01,WS-10.2,IQ,planned,gate: design freeze
-URS-STW-03,RSK-06,TST-IQ-02,WS-10.3,IQ,planned,gate: IQ/OQ
-URS-STW-03,RSK-28,TST-IQ-02,WS-10.3,IQ,planned,gate: IQ/OQ
-URS-CRC-10,-,TST-EDC-02,WS-10.4,E,planned,gate: IQ/OQ
-all,RSK-01,TST-UNIT-09,WS-10.5,U,planned,gate: IQ/OQ (if paper)
-URS-PI-15,RSK-19,TST-OQ-01,WS-10.6,OQ,planned,gate: IQ/OQ
-all,-,TST-IQ-01,WS-10.7,IQ,planned,gate: go-live
-all,-,TST-OQ-01,WS-10.7,OQ,planned,gate: go-live
-all,-,TST-PQ-01,WS-10.7,PQ,planned,gate: go-live
-URS-ADM-14,RSK-26,TST-IQ-03,WS-10.8,IQ,planned,gate: IQ/OQ (if needed)
-URS-ADM-14,RSK-38,TST-IQ-03,WS-10.8,IQ,planned,gate: IQ/OQ (if needed)
-URS-PRV-05,RSK-25,TST-IQ-01,WS-11.1,IQ,planned,gate: IQ/OQ
-URS-PRV-05,RSK-27,TST-IQ-01,WS-11.1,IQ,planned,gate: IQ/OQ
-URS-PRV-05,RSK-36,TST-IQ-01,WS-11.1,IQ,planned,gate: IQ/OQ
-URS-STW-15,RSK-28,TST-IQ-01,WS-11.2,IQ,planned,gate: design freeze
-URS-STW-15,RSK-36,TST-IQ-01,WS-11.2,IQ,planned,gate: design freeze
-URS-STW-03,RSK-06,TST-IQ-02,WS-11.3,IQ,planned,gate: IQ/OQ
-URS-STW-03,RSK-28,TST-IQ-02,WS-11.3,IQ,planned,gate: IQ/OQ
-URS-CRC-10,-,TST-EDC-02,WS-11.4,E,planned,gate: IQ/OQ
-all,RSK-01,TST-UNIT-09,WS-11.5,U,planned,gate: IQ/OQ (if paper)
-URS-PI-15,RSK-19,TST-OQ-01,WS-11.6,OQ,planned,gate: IQ/OQ
-all,-,TST-IQ-01,WS-11.7,IQ,planned,gate: go-live
-all,-,TST-IQ-03,WS-11.7,IQ,planned,gate: go-live
-all,-,TST-OQ-01,WS-11.7,OQ,planned,gate: go-live
-all,-,TST-PQ-01,WS-11.7,PQ,planned,gate: go-live
-URS-ADM-20,RSK-36,TST-IQ-03,WS-11.8,IQ,planned,gate: IQ/OQ
-URS-ADM-20,RSK-36,TST-MOD-01,WS-11.8,G,planned,gate: IQ/OQ
-URS-ADM-20,RSK-37,TST-IQ-03,WS-11.8,IQ,planned,gate: IQ/OQ
-URS-ADM-20,RSK-37,TST-MOD-01,WS-11.8,G,planned,gate: IQ/OQ
-URS-ADM-14,RSK-38,TST-IQ-03,WS-11.9,IQ,planned,gate: IQ/OQ (if needed)
-URS-ADM-10,RSK-29,TST-DOC-01,WS-12.1,D,planned,gate: design freeze
-all,-,TST-DOC-01,WS-12.2,D,planned,gate: design freeze
-all,-,TST-DOC-01,WS-12.3,D,planned,gate: each gate
-all,RSK-14,TST-E2E-04,WS-12.4,E,planned,gate: PQ
-all,RSK-14,TST-PERF-01,WS-12.4,P,planned,gate: PQ
-URS-ADM-10,-,TST-DOC-01,WS-12.5,D,planned,gate: readiness review
-all,-,TST-IQ-01,WS-12.6,IQ,planned,"gate: IQ/OQ, PQ"
-all,-,TST-OQ-01,WS-12.6,OQ,planned,"gate: IQ/OQ, PQ"
-all,-,TST-PQ-01,WS-12.6,PQ,planned,"gate: IQ/OQ, PQ"
-all,RSK-09,TST-DOC-01,WS-12.7,D,planned,gate: readiness review
-all,RSK-29,TST-DOC-01,WS-12.7,D,planned,gate: readiness review
-URS-ADM-01,RSK-07,TST-SEC-01,WS-13.1,S,planned,gate: design freeze
-URS-ADM-01,RSK-07,TST-SEC-06,WS-13.1,S,planned,gate: design freeze
-URS-ADM-01,RSK-30,TST-SEC-01,WS-13.1,S,planned,gate: design freeze
-URS-ADM-01,RSK-30,TST-SEC-06,WS-13.1,S,planned,gate: design freeze
-URS-PRV-04,RSK-07,TST-SEC-01,WS-13.1,S,planned,gate: design freeze
-URS-PRV-04,RSK-07,TST-SEC-06,WS-13.1,S,planned,gate: design freeze
-URS-PRV-04,RSK-30,TST-SEC-01,WS-13.1,S,planned,gate: design freeze
-URS-PRV-04,RSK-30,TST-SEC-06,WS-13.1,S,planned,gate: design freeze
-URS-ADM-11,RSK-30,TST-SEC-07,WS-13.2,S,planned,gate: IQ/OQ
-URS-PRV-04,RSK-30,TST-SEC-07,WS-13.2,S,planned,gate: IQ/OQ
-URS-PRV-04,RSK-07,TST-SEC-03,WS-13.3,S,planned,gate: design freeze
-URS-PRV-04,RSK-12,TST-SEC-03,WS-13.3,S,planned,gate: design freeze
-URS-PRV-07,RSK-22,TST-SEC-02,WS-13.4,S,planned,gate: feature complete
-URS-ADM-12,RSK-22,TST-SEC-02,WS-13.4,S,planned,gate: feature complete
-URS-PRV-08,RSK-31,TST-DOC-01,WS-13.5,D,planned,gate: readiness review
-URS-PRV-05,RSK-25,TST-DOC-01,WS-13.6,D,planned,gate: IQ/OQ
-URS-PRV-09,RSK-25,TST-DOC-01,WS-13.6,D,planned,gate: IQ/OQ
-URS-PRV-10,RSK-11,TST-WALK-03,WS-13.7,W,planned,gate: design freeze
-URS-ADM-13,RSK-30,TST-SEC-08,WS-13.8,S,planned,"gate: W1 (draft), IQ/OQ (complete)"
-URS-ADM-20,RSK-36,TST-SEC-09,WS-13.9,S,planned,gate: IQ/OQ
-URS-PRV-04,RSK-36,TST-SEC-09,WS-13.9,S,planned,gate: IQ/OQ
-URS-ADM-14,RSK-26,TST-IQ-01,WS-14.1,IQ,planned,gate: IQ/OQ
-URS-ADM-20,RSK-36,TST-IQ-03,WS-14.8,IQ,planned,"gate: design freeze (acceptance cluster), IQ/OQ (CGMH)"
-URS-ADM-20,RSK-36,TST-OPS-04,WS-14.8,E,planned,"gate: design freeze (acceptance cluster), IQ/OQ (CGMH)"
-URS-ADM-20,RSK-37,TST-IQ-03,WS-14.8,IQ,planned,"gate: design freeze (acceptance cluster), IQ/OQ (CGMH)"
-URS-ADM-20,RSK-37,TST-OPS-04,WS-14.8,E,planned,"gate: design freeze (acceptance cluster), IQ/OQ (CGMH)"
-URS-ADM-15,RSK-32,TST-OPS-04,WS-14.2,E,planned,gate: design freeze
-all,RSK-30,TST-SEC-03,WS-14.3,S,planned,gate: design freeze
-URS-ADM-16,RSK-32,TST-OPS-05,WS-14.4,E,planned,"gate: design freeze (box), feature complete (drills)"
-URS-ADM-16,RSK-13,TST-OPS-05,WS-14.4,E,planned,"gate: design freeze (box), feature complete (drills)"
-URS-ADM-17,RSK-32,TST-OPS-04,WS-14.5,E,planned,gate: design freeze
-URS-ADM-18,RSK-33,TST-SEC-04,WS-14.6,S,planned,gate: design freeze
-URS-ADM-04,-,TST-WALK-02,WS-14.7,W,planned,gate: feature complete
-URS-PRV-05,RSK-25,TST-DOC-01,WS-15.1,D,planned,gate: IQ/OQ
-URS-PRV-05,RSK-25,TST-DOC-01,WS-15.2,D,planned,gate: IQ/OQ
-URS-PRV-05,RSK-31,TST-DOC-01,WS-15.2,D,planned,gate: IQ/OQ
-URS-PRV-06,-,TST-UNIT-06,WS-15.3,U,planned,gate: feature complete (fallbacks); later (answers)
-URS-PRV-10,RSK-11,TST-DOC-01,WS-15.4,D,planned,gate: readiness review (requests sent)
-URS-ADM-19,-,TST-DOC-01,WS-15.5,D,planned,gate: IQ/OQ
-URS-ADM-18,RSK-33,TST-DOC-01,WS-15.6,D,planned,gate: IQ/OQ
-URS-ADM-13,-,TST-DOC-01,WS-15.7,D,planned,gate: IQ/OQ (statement)
-URS-PI-20,RSK-02,TST-PQ-02,WS-16.1,PQ,planned,gate: readiness review (submitted)
-URS-PI-20,RSK-34,TST-PQ-02,WS-16.1,PQ,planned,gate: readiness review (submitted)
-URS-CRC-13,-,TST-PQ-02,WS-16.2,PQ,planned,gate: go-live
-all,RSK-10,TST-PROF-01,WS-16.3,G,planned,gate: PQ
-all,RSK-11,TST-PROF-01,WS-16.3,G,planned,gate: PQ
-URS-CRC-14,-,TST-DOC-01,WS-17.1,D,planned,gate: IQ/OQ
-URS-CRC-14,-,TST-WALK-01,WS-17.2,W,planned,gate: feature complete
-URS-ADM-10,-,TST-OQ-01,WS-17.3,OQ,planned,gate: PQ
-URS-ADM-19,-,TST-OPS-02,WS-17.4,E,planned,gate: IQ/OQ
-all,RSK-14,TST-CI-01,WS-17.5,D,planned,gate: design freeze
+requirement,fs,risk,test,plan_item,level,status,evidence
+URS-PI-01,FS-06,RSK-01,TST-E2E-01,WS-01.1,E,planned,gate: before G1
+URS-PI-01,FS-06,RSK-02,TST-E2E-01,WS-01.1,E,planned,gate: before G1
+URS-PI-01,FS-06,RSK-07,TST-E2E-01,WS-01.1,E,planned,gate: before G1
+URS-CRC-04,FS-06,RSK-01,TST-E2E-01,WS-01.1,E,planned,gate: before G1
+URS-CRC-04,FS-06,RSK-02,TST-E2E-01,WS-01.1,E,planned,gate: before G1
+URS-CRC-04,FS-06,RSK-07,TST-E2E-01,WS-01.1,E,planned,gate: before G1
+URS-STW-05,FS-08,RSK-01,TST-UNIT-02,WS-01.2,U,planned,gate: G1
+URS-ADM-03,FS-01,RSK-12,TST-OPS-01,WS-01.3,E,planned,gate: design freeze
+URS-ADM-03,FS-01,RSK-12,TST-SEC-03,WS-01.3,S,planned,gate: design freeze
+URS-ADM-03,FS-01,RSK-13,TST-OPS-01,WS-01.3,E,planned,gate: design freeze
+URS-ADM-03,FS-01,RSK-13,TST-SEC-03,WS-01.3,S,planned,gate: design freeze
+URS-ADM-05,FS-08,RSK-12,TST-OPS-01,WS-01.3,E,planned,gate: design freeze
+URS-ADM-05,FS-08,RSK-12,TST-SEC-03,WS-01.3,S,planned,gate: design freeze
+URS-ADM-05,FS-08,RSK-13,TST-OPS-01,WS-01.3,E,planned,gate: design freeze
+URS-ADM-05,FS-08,RSK-13,TST-SEC-03,WS-01.3,S,planned,gate: design freeze
+URS-ADM-06,FS-01,RSK-14,TST-CI-01,WS-01.4,D,planned,gate: design freeze
+URS-ADM-06,FS-01,RSK-14,TST-UNIT-01,WS-01.4,U,planned,gate: design freeze
+URS-PI-03,FS-01,RSK-03,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
+URS-PI-03,FS-01,RSK-35,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
+URS-CRC-01,FS-01,RSK-03,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
+URS-CRC-01,FS-01,RSK-35,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
+URS-CRC-02,FS-01,RSK-03,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
+URS-CRC-02,FS-01,RSK-35,TST-WALK-01,WS-01.5,W,planned,gate: feature complete
+URS-ADM-02,FS-01,RSK-07,TST-E2E-04,WS-01.7,E,planned,"gate: before G1 (J-01 to J-04, J-07, J-08, J-26, J-27); rest before feature complete"
+URS-CRA-01,FS-07,RSK-07,TST-E2E-04,WS-01.7,E,planned,"gate: before G1 (J-01 to J-04, J-07, J-08, J-26, J-27); rest before feature complete"
+URS-PI-13,FS-06,RSK-07,TST-E2E-04,WS-01.7,E,planned,"gate: before G1 (J-01 to J-04, J-07, J-08, J-26, J-27); rest before feature complete"
+-,,-,-,WS-01.6,-,planned,gate: —
+URS-PI-02,FS-06,RSK-01,-,WS-02.1,-,planned,gate: **G1**
+URS-PI-02,FS-06,RSK-04,-,WS-02.1,-,planned,gate: **G1**
+URS-PI-02,FS-06,RSK-09,-,WS-02.1,-,planned,gate: **G1**
+URS-ADM-07,FS-02,RSK-09,TST-MOD-01,WS-02.2,G,planned,gate: design freeze
+URS-PI-06,FS-02,RSK-09,TST-MOD-02,WS-02.3,G,planned,gate: design freeze
+URS-PRV-04,FS-13,RSK-15,TST-SEC-05,WS-02.4,S,planned,gate: feature complete
+-,,RSK-16,TST-SEC-04,WS-02.5,S,planned,gate: G1
+URS-ADM-20,FS-14,RSK-43,TST-MOD-01,WS-02.7,G,planned,gate: design freeze
+URS-ADM-14,FS-14,RSK-49,TST-MOD-03,WS-02.8,G,planned,gate: design freeze
+URS-PI-07,FS-05,RSK-10,TST-PROF-02,WS-02.6,G,planned,gate: design freeze
+URS-STW-01,FS-03,RSK-05,TST-GOLD-01,WS-03.1,E,planned,gate: before any site data (W2)
+URS-STW-02,FS-08,RSK-01,TST-GOLD-01,WS-03.2,E,planned,gate: design freeze
+URS-STW-02,FS-08,RSK-01,TST-UNIT-03,WS-03.2,U,planned,gate: design freeze
+URS-STW-02,FS-08,RSK-03,TST-GOLD-01,WS-03.2,E,planned,gate: design freeze
+URS-STW-02,FS-08,RSK-03,TST-UNIT-03,WS-03.2,U,planned,gate: design freeze
+URS-PI-04,FS-03,RSK-01,TST-GOLD-01,WS-03.2,E,planned,gate: design freeze
+URS-PI-04,FS-03,RSK-01,TST-UNIT-03,WS-03.2,U,planned,gate: design freeze
+URS-PI-04,FS-03,RSK-03,TST-GOLD-01,WS-03.2,E,planned,gate: design freeze
+URS-PI-04,FS-03,RSK-03,TST-UNIT-03,WS-03.2,U,planned,gate: design freeze
+URS-STW-03,FS-03,RSK-06,TST-UNIT-04,WS-03.3,U,planned,gate: design freeze
+URS-STW-01,FS-03,RSK-05,TST-GOLD-02,WS-03.4,E,planned,gate: feature complete
+-,,RSK-05,TST-GOLD-02,WS-03.5,E,planned,gate: feature complete
+-,,RSK-05,TST-E2E-01,WS-03.5,E,planned,gate: feature complete
+URS-STW-04,FS-03,RSK-01,TST-UNIT-05,WS-03.6,U,planned,gate: feature complete
+URS-STW-04,FS-03,RSK-02,TST-UNIT-05,WS-03.6,U,planned,gate: feature complete
+URS-PI-05,FS-03,RSK-01,TST-UNIT-05,WS-03.6,U,planned,gate: feature complete
+URS-PI-05,FS-03,RSK-02,TST-UNIT-05,WS-03.6,U,planned,gate: feature complete
+URS-STW-06,FS-08,RSK-05,TST-PERF-01,WS-03.7,P,planned,gate: feature complete
+URS-STW-06,FS-08,RSK-13,TST-PERF-01,WS-03.7,P,planned,gate: feature complete
+-,,RSK-05,TST-INT-01,WS-03.8,I,planned,gate: feature complete
+URS-STW-07,FS-04,-,TST-UNIT-06,WS-04.1,U,planned,gate: design freeze
+URS-PI-08,FS-04,-,TST-UNIT-06,WS-04.1,U,planned,gate: design freeze
+URS-PI-08,FS-04,-,TST-UNIT-06,WS-04.2,U,planned,gate: feature complete
+URS-PI-09,FS-04,RSK-01,TST-UNIT-07,WS-04.3,U,planned,gate: feature complete
+URS-PI-07,FS-05,-,TST-WALK-02,WS-04.4,W,planned,gate: feature complete
+URS-PRV-06,FS-04,-,TST-UNIT-06,WS-04.5,U,planned,gate: feature complete
+URS-PI-07,FS-05,RSK-10,TST-PROF-01,WS-05.1,G,planned,gate: feature complete
+URS-PI-07,FS-05,RSK-11,TST-PROF-01,WS-05.1,G,planned,gate: feature complete
+URS-STW-08,FS-05,RSK-10,TST-PROF-01,WS-05.1,G,planned,gate: feature complete
+URS-STW-08,FS-05,RSK-11,TST-PROF-01,WS-05.1,G,planned,gate: feature complete
+URS-PI-07,FS-05,RSK-07,TST-PROF-01,WS-05.2,G,planned,gate: feature complete
+URS-PI-10,FS-05,RSK-07,TST-PROF-03,WS-05.3,E,planned,gate: feature complete
+URS-PI-10,FS-05,RSK-10,TST-PROF-03,WS-05.3,E,planned,gate: feature complete
+URS-PI-11,FS-05,RSK-02,TST-PROF-04,WS-05.4,E,planned,gate: feature complete
+URS-CLN-02,FS-05,RSK-02,TST-PROF-04,WS-05.4,E,planned,gate: feature complete
+URS-PI-12,FS-05,RSK-08,TST-PROF-05,WS-05.5,E,planned,gate: feature complete
+URS-PI-12,FS-05,RSK-11,TST-PROF-05,WS-05.5,E,planned,gate: feature complete
+URS-CLN-01,FS-05,RSK-11,TST-WALK-03,WS-05.6,W,planned,gate: feature complete
+URS-CLN-03,FS-05,RSK-11,TST-WALK-03,WS-05.6,W,planned,gate: feature complete
+URS-STW-01,FS-03,RSK-07,TST-SEC-01,WS-06.1,S,planned,gate: design freeze
+URS-PI-01,FS-06,RSK-07,TST-SEC-01,WS-06.1,S,planned,gate: design freeze
+URS-ADM-01,FS-13,RSK-07,TST-SEC-01,WS-06.1,S,planned,gate: design freeze
+URS-SUB-01,FS-06,RSK-07,TST-SEC-02,WS-06.2,S,planned,gate: feature complete
+URS-PI-13,FS-06,RSK-07,TST-SEC-02,WS-06.2,S,planned,gate: feature complete
+URS-PI-14,FS-06,RSK-17,TST-E2E-02,WS-06.3,E,planned,gate: feature complete
+URS-SUB-02,FS-06,RSK-17,TST-E2E-02,WS-06.3,E,planned,gate: feature complete
+URS-CRC-05,FS-06,RSK-17,TST-E2E-02,WS-06.3,E,planned,gate: feature complete
+URS-STW-09,FS-06,-,TST-WALK-02,WS-06.4,W,planned,gate: feature complete
+URS-PI-02,FS-06,RSK-07,TST-SEC-01,WS-06.5,S,planned,gate: feature complete
+URS-PI-02,FS-06,RSK-42,TST-SEC-01,WS-06.5,S,planned,gate: feature complete
+URS-SUB-03,FS-06,RSK-07,TST-SEC-01,WS-06.5,S,planned,gate: feature complete
+URS-SUB-03,FS-06,RSK-42,TST-SEC-01,WS-06.5,S,planned,gate: feature complete
+URS-STW-10,FS-06,RSK-07,TST-SEC-02,WS-06.6,S,planned,gate: feature complete
+URS-PI-05,FS-03,RSK-02,TST-E2E-02,WS-06.7,E,planned,gate: feature complete
+URS-PRV-01,FS-06,RSK-18,TST-E2E-03,WS-06.8,E,planned,gate: feature complete
+URS-CRC-03,FS-03,RSK-01,TST-WALK-02,WS-06.9,W,planned,gate: feature complete
+URS-CRC-06,FS-06,RSK-01,TST-WALK-02,WS-06.9,W,planned,gate: feature complete
+URS-PI-04,FS-03,RSK-01,TST-WALK-02,WS-06.9,W,planned,gate: feature complete
+URS-PI-15,FS-06,RSK-19,TST-E2E-02,WS-06.10,E,planned,gate: feature complete
+URS-CRC-07,FS-07,RSK-19,TST-E2E-02,WS-06.10,E,planned,gate: feature complete
+URS-CRC-08,FS-06,-,TST-WALK-02,WS-06.11,W,planned,gate: feature complete
+URS-PI-16,FS-06,-,TST-SEC-01,WS-06.12,S,planned,gate: feature complete (code); IQ/OQ (site pattern)
+URS-CRC-04,FS-06,RSK-41,TST-E2E-02,WS-06.13,E,planned,gate: feature complete
+URS-CRC-04,FS-06,RSK-41,TST-OQ-01,WS-06.13,OQ,planned,gate: feature complete
+URS-CRC-09,FS-07,RSK-20,TST-EDC-01,WS-07.1,E,planned,gate: feature complete
+URS-CRA-02,FS-07,RSK-20,TST-EDC-01,WS-07.1,E,planned,gate: feature complete
+URS-CRC-10,FS-07,RSK-20,TST-EDC-02,WS-07.2,I,planned,gate: feature complete (code); IQ/OQ (site round trip)
+URS-CRC-10,FS-07,RSK-21,TST-EDC-02,WS-07.2,I,planned,gate: feature complete (code); IQ/OQ (site round trip)
+URS-CRC-11,FS-07,RSK-19,TST-EDC-03,WS-07.3,U,planned,gate: feature complete
+URS-CRA-03,FS-07,RSK-20,TST-EDC-04,WS-07.4,E,planned,gate: feature complete
+URS-CRA-03,FS-07,RSK-22,TST-EDC-04,WS-07.4,E,planned,gate: feature complete
+URS-PI-17,FS-07,RSK-20,TST-EDC-04,WS-07.4,E,planned,gate: feature complete
+URS-PI-17,FS-07,RSK-22,TST-EDC-04,WS-07.4,E,planned,gate: feature complete
+URS-CRC-12,FS-07,-,TST-EDC-02,WS-07.5,I,planned,gate: feature complete
+URS-CRA-01,FS-07,RSK-07,TST-SEC-01,WS-07.6,S,planned,gate: feature complete
+URS-CRA-02,FS-07,RSK-07,TST-SEC-01,WS-07.6,S,planned,gate: feature complete
+URS-PI-21,FS-07,RSK-20,TST-EDC-04,WS-07.7,E,planned,gate: feature complete (switch); PQ (acknowledgements)
+URS-CRA-03,FS-07,RSK-20,TST-EDC-04,WS-07.7,E,planned,gate: feature complete (switch); PQ (acknowledgements)
+URS-STW-02,FS-08,RSK-05,TST-DOPS-01,WS-08.1,E,planned,gate: feature complete
+URS-STW-02,FS-08,RSK-13,TST-DOPS-01,WS-08.1,E,planned,gate: feature complete
+URS-STW-11,FS-08,RSK-05,TST-DOPS-01,WS-08.1,E,planned,gate: feature complete
+URS-STW-11,FS-08,RSK-13,TST-DOPS-01,WS-08.1,E,planned,gate: feature complete
+URS-STW-12,FS-08,RSK-23,TST-DOPS-02,WS-08.2,E,planned,gate: feature complete
+URS-PRV-02,FS-08,RSK-23,TST-DOPS-02,WS-08.2,E,planned,gate: feature complete
+URS-STW-13,FS-08,-,TST-DOPS-03,WS-08.3,E,planned,gate: feature complete
+URS-PI-18,FS-08,-,TST-DOPS-03,WS-08.3,E,planned,gate: feature complete
+URS-PRV-03,FS-09,-,TST-DOPS-03,WS-08.3,E,planned,gate: feature complete
+URS-STW-05,FS-08,-,TST-WALK-02,WS-08.4,W,planned,gate: feature complete
+URS-ADM-04,FS-14,RSK-13,TST-OPS-02,WS-08.5,E,planned,gate: design freeze
+URS-ADM-08,FS-08,RSK-13,TST-OPS-02,WS-08.5,E,planned,gate: design freeze
+URS-ADM-05,FS-08,RSK-13,TST-OPS-03,WS-08.6,E,planned,gate: feature complete (code); IQ/OQ (site drill)
+URS-ADM-05,FS-08,RSK-24,TST-OPS-03,WS-08.6,E,planned,gate: feature complete (code); IQ/OQ (site drill)
+URS-ADM-09,FS-08,RSK-13,TST-OPS-03,WS-08.7,E,planned,gate: feature complete
+URS-ADM-09,FS-08,RSK-13,TST-PERF-01,WS-08.7,P,planned,gate: feature complete
+URS-ADM-09,FS-08,RSK-44,TST-OPS-03,WS-08.7,E,planned,gate: feature complete
+URS-ADM-09,FS-08,RSK-44,TST-PERF-01,WS-08.7,P,planned,gate: feature complete
+URS-PI-19,FS-08,-,TST-UNIT-08,WS-08.8,U,planned,gate: feature complete
+URS-STW-14,FS-09,-,TST-UNIT-04,WS-09.1,U,planned,gate: feature complete
+URS-PRV-02,FS-08,RSK-23,TST-FED-01,WS-09.2,E,planned,gate: feature complete
+URS-PRV-03,FS-09,RSK-23,TST-FED-02,WS-09.3,E,planned,gate: feature complete
+URS-PRV-05,FS-13,RSK-25,TST-IQ-01,WS-10.1,IQ,planned,gate: IQ/OQ
+URS-PRV-05,FS-13,RSK-27,TST-IQ-01,WS-10.1,IQ,planned,gate: IQ/OQ
+URS-STW-15,FS-10,RSK-28,TST-IQ-01,WS-10.2,IQ,planned,gate: design freeze
+URS-STW-15,FS-10,RSK-28,TST-SEC-10,WS-10.2,S,planned,gate: design freeze
+URS-STW-15,FS-10,RSK-39,TST-IQ-01,WS-10.2,IQ,planned,gate: design freeze
+URS-STW-15,FS-10,RSK-39,TST-SEC-10,WS-10.2,S,planned,gate: design freeze
+URS-STW-03,FS-03,RSK-06,TST-OQ-02,WS-10.3,OQ,planned,gate: IQ/OQ (CC6 configuration)
+URS-STW-03,FS-03,RSK-28,TST-OQ-02,WS-10.3,OQ,planned,gate: IQ/OQ (CC6 configuration)
+URS-CRC-10,FS-07,-,TST-EDC-02,WS-10.4,I,planned,gate: IQ/OQ
+-,,RSK-01,TST-UNIT-09,WS-10.5,U,planned,gate: IQ/OQ (if paper)
+URS-PI-15,FS-06,RSK-19,TST-OQ-01,WS-10.6,OQ,planned,gate: IQ/OQ
+-,,RSK-46,TST-IQ-01,WS-10.7,IQ,planned,gate: go-live
+-,,RSK-46,TST-OQ-01,WS-10.7,OQ,planned,gate: go-live
+-,,RSK-46,TST-PQ-01,WS-10.7,PQ,planned,gate: go-live
+-,,RSK-46,TST-PQ-03,WS-10.7,PQ,planned,gate: go-live
+URS-ADM-14,FS-14,RSK-26,TST-IQ-03,WS-10.8,IQ,planned,gate: IQ/OQ (if needed)
+URS-ADM-14,FS-14,RSK-38,TST-IQ-03,WS-10.8,IQ,planned,gate: IQ/OQ (if needed)
+URS-STW-16,FS-10,RSK-45,TST-OQ-02,WS-10.9,OQ,planned,gate: IQ/OQ
+URS-STW-16,FS-10,RSK-48,TST-OQ-02,WS-10.9,OQ,planned,gate: IQ/OQ
+URS-PRV-05,FS-13,RSK-25,TST-DOC-01,WS-10.10,D,planned,gate: PQ
+URS-PRV-05,FS-13,RSK-42,TST-DOC-01,WS-10.10,D,planned,gate: PQ
+URS-PRV-05,FS-13,RSK-25,TST-IQ-01,WS-11.1,IQ,planned,gate: IQ/OQ
+URS-PRV-05,FS-13,RSK-27,TST-IQ-01,WS-11.1,IQ,planned,gate: IQ/OQ
+URS-PRV-05,FS-13,RSK-36,TST-IQ-01,WS-11.1,IQ,planned,gate: IQ/OQ
+URS-STW-15,FS-10,RSK-28,TST-IQ-01,WS-11.2,IQ,planned,gate: design freeze
+URS-STW-15,FS-10,RSK-28,TST-SEC-10,WS-11.2,S,planned,gate: design freeze
+URS-STW-15,FS-10,RSK-36,TST-IQ-01,WS-11.2,IQ,planned,gate: design freeze
+URS-STW-15,FS-10,RSK-36,TST-SEC-10,WS-11.2,S,planned,gate: design freeze
+URS-STW-15,FS-10,RSK-39,TST-IQ-01,WS-11.2,IQ,planned,gate: design freeze
+URS-STW-15,FS-10,RSK-39,TST-SEC-10,WS-11.2,S,planned,gate: design freeze
+URS-STW-03,FS-03,RSK-06,TST-OQ-02,WS-11.3,OQ,planned,gate: IQ/OQ (CC6 configuration)
+URS-STW-03,FS-03,RSK-28,TST-OQ-02,WS-11.3,OQ,planned,gate: IQ/OQ (CC6 configuration)
+URS-CRC-10,FS-07,-,TST-EDC-02,WS-11.4,I,planned,gate: IQ/OQ
+URS-PI-21,FS-07,-,TST-EDC-02,WS-11.4,I,planned,gate: IQ/OQ
+-,,RSK-01,TST-UNIT-09,WS-11.5,U,planned,gate: IQ/OQ (if paper)
+URS-PI-15,FS-06,RSK-19,TST-OQ-01,WS-11.6,OQ,planned,gate: IQ/OQ
+URS-PI-15,FS-06,RSK-41,TST-OQ-01,WS-11.6,OQ,planned,gate: IQ/OQ
+-,,RSK-46,TST-IQ-01,WS-11.7,IQ,planned,gate: go-live
+-,,RSK-46,TST-IQ-03,WS-11.7,IQ,planned,gate: go-live
+-,,RSK-46,TST-OQ-01,WS-11.7,OQ,planned,gate: go-live
+-,,RSK-46,TST-PQ-01,WS-11.7,PQ,planned,gate: go-live
+-,,RSK-46,TST-PQ-03,WS-11.7,PQ,planned,gate: go-live
+URS-ADM-20,FS-14,RSK-36,TST-IQ-03,WS-11.8,IQ,planned,gate: feature complete (code); IQ/OQ (platform)
+URS-ADM-20,FS-14,RSK-36,TST-MOD-01,WS-11.8,G,planned,gate: feature complete (code); IQ/OQ (platform)
+URS-ADM-20,FS-14,RSK-37,TST-IQ-03,WS-11.8,IQ,planned,gate: feature complete (code); IQ/OQ (platform)
+URS-ADM-20,FS-14,RSK-37,TST-MOD-01,WS-11.8,G,planned,gate: feature complete (code); IQ/OQ (platform)
+URS-ADM-20,FS-14,RSK-43,TST-IQ-03,WS-11.8,IQ,planned,gate: feature complete (code); IQ/OQ (platform)
+URS-ADM-20,FS-14,RSK-43,TST-MOD-01,WS-11.8,G,planned,gate: feature complete (code); IQ/OQ (platform)
+URS-ADM-14,FS-14,RSK-38,TST-IQ-03,WS-11.9,IQ,planned,gate: IQ/OQ (if needed)
+URS-STW-16,FS-10,RSK-45,TST-OQ-02,WS-11.10,OQ,planned,gate: IQ/OQ
+URS-STW-16,FS-10,RSK-48,TST-OQ-02,WS-11.10,OQ,planned,gate: IQ/OQ
+URS-PRV-05,FS-13,RSK-25,TST-DOC-01,WS-11.11,D,planned,gate: PQ
+URS-PRV-05,FS-13,RSK-42,TST-DOC-01,WS-11.11,D,planned,gate: PQ
+URS-ADM-10,FS-12,RSK-47,TST-DOC-01,WS-11.12,D,planned,gate: design freeze (named)
+URS-ADM-10,FS-12,RSK-29,TST-DOC-01,WS-12.1,D,planned,gate: design freeze
+URS-ADM-10,FS-12,RSK-47,TST-DOC-01,WS-12.1,D,planned,gate: design freeze
+-,,-,TST-DOC-01,WS-12.2,D,planned,gate: design freeze
+-,,-,TST-DOC-01,WS-12.3,D,planned,gate: each gate
+-,,RSK-14,TST-E2E-04,WS-12.4,E,planned,gate: PQ
+-,,RSK-14,TST-PERF-01,WS-12.4,P,planned,gate: PQ
+URS-ADM-10,FS-12,-,TST-DOC-01,WS-12.5,D,planned,gate: readiness review
+-,,-,TST-IQ-01,WS-12.6,IQ,planned,"gate: IQ/OQ, PQ"
+-,,-,TST-OQ-01,WS-12.6,OQ,planned,"gate: IQ/OQ, PQ"
+-,,-,TST-PQ-01,WS-12.6,PQ,planned,"gate: IQ/OQ, PQ"
+-,,RSK-09,TST-DOC-01,WS-12.7,D,planned,gate: readiness review
+-,,RSK-29,TST-DOC-01,WS-12.7,D,planned,gate: readiness review
+URS-ADM-01,FS-13,RSK-07,TST-SEC-01,WS-13.1,S,planned,gate: design freeze
+URS-ADM-01,FS-13,RSK-07,TST-SEC-06,WS-13.1,S,planned,gate: design freeze
+URS-ADM-01,FS-13,RSK-30,TST-SEC-01,WS-13.1,S,planned,gate: design freeze
+URS-ADM-01,FS-13,RSK-30,TST-SEC-06,WS-13.1,S,planned,gate: design freeze
+URS-PRV-04,FS-13,RSK-07,TST-SEC-01,WS-13.1,S,planned,gate: design freeze
+URS-PRV-04,FS-13,RSK-07,TST-SEC-06,WS-13.1,S,planned,gate: design freeze
+URS-PRV-04,FS-13,RSK-30,TST-SEC-01,WS-13.1,S,planned,gate: design freeze
+URS-PRV-04,FS-13,RSK-30,TST-SEC-06,WS-13.1,S,planned,gate: design freeze
+URS-ADM-11,FS-13,RSK-30,TST-SEC-07,WS-13.2,S,planned,gate: feature complete (code); IQ/OQ (attestation)
+URS-PRV-04,FS-13,RSK-30,TST-SEC-07,WS-13.2,S,planned,gate: feature complete (code); IQ/OQ (attestation)
+URS-PRV-04,FS-13,RSK-07,TST-SEC-03,WS-13.3,S,planned,gate: design freeze
+URS-PRV-04,FS-13,RSK-12,TST-SEC-03,WS-13.3,S,planned,gate: design freeze
+URS-PRV-07,FS-13,RSK-22,TST-SEC-02,WS-13.4,S,planned,gate: feature complete
+URS-ADM-12,FS-13,RSK-22,TST-SEC-02,WS-13.4,S,planned,gate: feature complete
+URS-PRV-08,FS-13,RSK-31,TST-DOC-01,WS-13.5,D,planned,gate: readiness review
+URS-PRV-05,FS-13,RSK-25,TST-DOC-01,WS-13.6,D,planned,gate: IQ/OQ
+URS-PRV-09,FS-13,RSK-25,TST-DOC-01,WS-13.6,D,planned,gate: IQ/OQ
+URS-PRV-10,FS-13,RSK-11,TST-WALK-03,WS-13.7,W,planned,gate: design freeze
+URS-ADM-13,FS-13,RSK-30,TST-SEC-08,WS-13.8,S,planned,"gate: W1 (draft), IQ/OQ (complete)"
+URS-ADM-20,FS-14,RSK-36,TST-SEC-09,WS-13.9,S,planned,gate: feature complete (tests); IQ/OQ (execution and evidence)
+URS-PRV-04,FS-13,RSK-36,TST-SEC-09,WS-13.9,S,planned,gate: feature complete (tests); IQ/OQ (execution and evidence)
+URS-ADM-21,FS-13,RSK-39,TST-SEC-10,WS-13.10,S,planned,gate: G1 (scan); design freeze (procedure)
+URS-PRV-04,FS-13,RSK-39,TST-SEC-10,WS-13.10,S,planned,gate: G1 (scan); design freeze (procedure)
+URS-ADM-22,FS-13,RSK-36,TST-SEC-09,WS-13.11,S,planned,gate: feature complete
+URS-ADM-14,FS-14,RSK-26,TST-IQ-01,WS-14.1,IQ,planned,gate: design freeze (decision); IQ/OQ (install)
+URS-ADM-14,FS-14,RSK-49,TST-IQ-01,WS-14.1,IQ,planned,gate: design freeze (decision); IQ/OQ (install)
+URS-ADM-14,FS-14,RSK-49,TST-IQ-04,WS-14.9,IQ,planned,gate: feature complete
+URS-ADM-20,FS-14,RSK-36,TST-IQ-03,WS-14.8,IQ,planned,gate: feature complete (code); IQ/OQ (CGMH)
+URS-ADM-20,FS-14,RSK-36,TST-OPS-04,WS-14.8,E,planned,gate: feature complete (code); IQ/OQ (CGMH)
+URS-ADM-20,FS-14,RSK-37,TST-IQ-03,WS-14.8,IQ,planned,gate: feature complete (code); IQ/OQ (CGMH)
+URS-ADM-20,FS-14,RSK-37,TST-OPS-04,WS-14.8,E,planned,gate: feature complete (code); IQ/OQ (CGMH)
+URS-ADM-15,FS-14,RSK-32,TST-OPS-04,WS-14.2,E,planned,gate: design freeze
+-,,RSK-30,TST-SEC-03,WS-14.3,S,planned,gate: design freeze
+URS-ADM-16,FS-14,RSK-32,TST-OPS-05,WS-14.4,E,planned,"gate: design freeze (box), feature complete (drills)"
+URS-ADM-16,FS-14,RSK-13,TST-OPS-05,WS-14.4,E,planned,"gate: design freeze (box), feature complete (drills)"
+URS-ADM-17,FS-14,RSK-32,TST-OPS-04,WS-14.5,E,planned,gate: design freeze
+URS-ADM-18,FS-14,RSK-33,TST-SEC-04,WS-14.6,S,planned,gate: design freeze
+URS-ADM-04,FS-14,-,TST-WALK-02,WS-14.7,W,planned,gate: feature complete
+URS-PRV-05,FS-13,RSK-25,TST-DOC-01,WS-15.1,D,planned,gate: IQ/OQ
+URS-PRV-05,FS-13,RSK-25,TST-DOC-01,WS-15.2,D,planned,gate: IQ/OQ
+URS-PRV-05,FS-13,RSK-31,TST-DOC-01,WS-15.2,D,planned,gate: IQ/OQ
+URS-PRV-06,FS-04,-,TST-UNIT-06,WS-15.3,U,planned,gate: feature complete (fallbacks); later (answers)
+URS-PRV-10,FS-13,RSK-11,TST-DOC-01,WS-15.4,D,planned,gate: readiness review (requests sent)
+URS-ADM-19,FS-17,-,TST-DOC-01,WS-15.5,D,planned,gate: IQ/OQ
+URS-ADM-18,FS-14,RSK-33,TST-DOC-01,WS-15.6,D,planned,gate: IQ/OQ
+URS-ADM-13,FS-13,-,TST-DOC-01,WS-15.7,D,planned,gate: IQ/OQ (statement)
+URS-PI-20,FS-16,RSK-02,TST-PQ-02,WS-16.1,PQ,planned,gate: go-live (submitted)
+URS-PI-20,FS-16,RSK-34,TST-PQ-02,WS-16.1,PQ,planned,gate: go-live (submitted)
+URS-CRC-13,FS-16,-,TST-PQ-02,WS-16.2,PQ,planned,gate: design freeze (baseline); go-live (log)
+URS-PI-05,FS-03,RSK-01,TST-PQ-03,WS-16.4,PQ,planned,gate: PQ (entry)
+URS-PI-05,FS-03,RSK-01,TST-PQ-04,WS-16.4,PQ,planned,gate: PQ (entry)
+URS-PI-05,FS-03,RSK-20,TST-PQ-03,WS-16.4,PQ,planned,gate: PQ (entry)
+URS-PI-05,FS-03,RSK-20,TST-PQ-04,WS-16.4,PQ,planned,gate: PQ (entry)
+URS-PI-05,FS-03,RSK-40,TST-PQ-03,WS-16.4,PQ,planned,gate: PQ (entry)
+URS-PI-05,FS-03,RSK-40,TST-PQ-04,WS-16.4,PQ,planned,gate: PQ (entry)
+URS-CRC-09,FS-07,RSK-01,TST-PQ-03,WS-16.4,PQ,planned,gate: PQ (entry)
+URS-CRC-09,FS-07,RSK-01,TST-PQ-04,WS-16.4,PQ,planned,gate: PQ (entry)
+URS-CRC-09,FS-07,RSK-20,TST-PQ-03,WS-16.4,PQ,planned,gate: PQ (entry)
+URS-CRC-09,FS-07,RSK-20,TST-PQ-04,WS-16.4,PQ,planned,gate: PQ (entry)
+URS-CRC-09,FS-07,RSK-40,TST-PQ-03,WS-16.4,PQ,planned,gate: PQ (entry)
+URS-CRC-09,FS-07,RSK-40,TST-PQ-04,WS-16.4,PQ,planned,gate: PQ (entry)
+-,,RSK-10,TST-PROF-01,WS-16.3,G,planned,gate: PQ
+-,,RSK-11,TST-PROF-01,WS-16.3,G,planned,gate: PQ
+URS-CRC-14,FS-17,-,TST-DOC-01,WS-17.1,D,planned,gate: IQ/OQ
+URS-CRC-14,FS-17,-,TST-WALK-01,WS-17.2,W,planned,gate: feature complete
+URS-ADM-10,FS-12,-,TST-OQ-01,WS-17.3,OQ,planned,gate: PQ
+URS-ADM-19,FS-17,-,TST-OPS-02,WS-17.4,E,planned,gate: design freeze (bundle); IQ/OQ (desk)
+-,,RSK-14,TST-CI-01,WS-17.5,D,planned,gate: design freeze

@@ -1,193 +1,145 @@
-# TrialBox site survey (TB-PLAN-05 WS-10.2, WS-11.2)
+# TrialBox site survey (TB-SITE-01) · サイト調査票 · 場域調查表
 
 | Field | Value |
 | --- | --- |
 | Document ID | TB-SITE-01 |
-| Version | 0.1 (draft, 2026-11-09) |
+| Version | 0.2 (2026-11-09; v0.1 rewritten after the independent plan review PR-16, PR-21, PR-25, PR-29, PR-30, PR-32) |
 | Owner | Changfu Kuo (Aimedics) |
-| Filled by | the site's IT contact, the data-feed contact, the privacy office and the PI, with Changfu (CGMH) or Makoto (Japan) |
-| Status | Draft. One copy per site. The signed copy is the entry condition for design freeze (G2) and the basis of the site mapping, the IQ protocol and the hospital IT security pack. |
-| Languages | English first; 日本語 and 繁體中文 follow in §B and §C with the same question numbers. |
+| Filled by | the site's IT contact, the data-feed owner, the privacy office and the PI, with Changfu (CGMH) or Makoto (Japan) |
+| Status | Draft. One copy per site. The signed copy is the entry condition for design freeze (G2) and the basis of the site mapping, the IQ protocol, the hospital IT security pack and the IRB amendment. Questions marked **by 2026-11-20** decide the plan's clock and are answered first. |
+| Languages | One table, three languages, one answer column, so the numbering and the content cannot drift. A native reader (Makoto for 日本語, a CGMH CRC for 繁體中文) signs the language columns. |
 
-## A. English
+## 1. How to use this form · 使い方 · 使用方式
 
-### A.1 How to use this form
+**English.** Answer every question. "Unknown" is an answer; write who can find out and by when. Attach documents where asked. **No patient data goes on this form, in any attachment or to anyone outside the hospital** (data-handling rule TB-SITE-03): structure and code lists only. The real 10-patient sample is read on the hospital's hardware by the steward after the DPA is signed; only the adapter's report leaves. The filled form is signed by the hospital IT lead, the PI and the steward.
 
-Answer every question. "Unknown" is an answer; write who can find out and by when. Attach documents where asked. No patient data goes on this form or in any attachment; a 10-patient sample is handed over separately under the data-processing agreement, de-identified where the site requires it. The filled form is signed by the hospital IT lead and the PI and kept in the site's release record.
+**日本語.** すべての質問に答えてください。「不明」も回答です。その場合は誰がいつまでに確認するかを書いてください。求められた箇所には資料を添付してください。**この用紙、添付資料、院外の誰にも患者情報を渡さないでください**（データ取扱規則 TB-SITE-03）。テーブル構造とコード一覧のみです。実患者 10 名分のサンプルは、データ処理契約の締結後に院内の機器上でデータスチュワードが読み込み、アダプタの報告書だけが院外に出ます。記入済みの用紙は医療情報部責任者、治験責任医師、データスチュワードが署名します。
 
-### A.2 Contacts
+**繁體中文.** 請回答每一題。「不確定」也是答案，請寫明由誰在何時確認。要求附件處請附上文件。**本表、附件與院外任何人皆不得取得病人資料**（資料處理規則 TB-SITE-03）：僅提供欄位結構與代碼清單。真實 10 位病人樣本於資料處理契約簽署後，由資料管理人在院方硬體上讀取，只有轉接層的報告離開醫院。填妥後由資訊室主管、試驗主持人與資料管理人簽署。
 
-| # | Question | Answer |
-| --- | --- | --- |
-| 1 | Principal investigator(s) for the pilot studies, department, mail | |
-| 2 | Data steward (the hospital's named person who holds the TrialBox repository) | |
-| 3 | Trial office / research office contact (delegation log, IRB filings, invoicing) | |
-| 4 | Hospital IT: device registration, network, directory (AD/LDAP), certificates | |
-| 5 | Hospital IT: security review, vulnerability scan (if required), incident reporting | |
-| 6 | Data-feed owner (the team that produces the EMR export, SS-MIX2 storage, HIS views or FHIR) | |
-| 7 | Privacy office / 個人情報保護管理者 / 個資保護人員 | |
-| 8 | REDCap administrator (if REDCap is used) | |
-| 9 | Pharmacy contact (only for the dispensing-date input) | |
-| 10 | Who signs the data-processing agreement and the platform licence for the hospital | |
+## 2. Questions · 質問 · 問題
 
-### A.3 IRB and legal basis
+Deadline marks: **①** by 2026-11-20 (the clock); **②** by the survey sign-off (W4). Attach: **A**.
 
-| # | Question | Answer |
-| --- | --- | --- |
-| 11 | IRB approval number and date for the pilot; approval end date | |
-| 12 | Does the approved protocol name TrialBox's screen of the hospital's records as the recruitment method? (yes / no / unsure: attach the text) | |
-| 13 | Does the approval cover **whole-hospital screening** (patients of any department, not only the PI's)? | |
-| 14 | Does the approval cover **patient profiles** (a cited summary per study patient, written by the model, read by study staff)? | |
-| 15 | Does the approval cover the opt-out notice for research use of existing records, and where is the notice posted? | |
-| 16 | If 12 to 15 are not all "yes": the next IRB meeting date and the submission deadline for an amendment | |
-| 17 | Approved ICF versions for each pilot study (version, date, language) | |
-| 18 | The hospital's rule for identified pre-screening (who may open which chart, per project application if any) | |
-| 19 | Which legal basis the privacy office relies on for pre-screening with re-identification (care relationship + IRB; other) | |
-| 20 | SAE reporting rules at this site: to the sponsor, to the IRB / head of institution, to the regulator, in days (fatal or life-threatening / other serious) | |
-| 21 | Record retention rule per study (years after the end of the study or approval) | |
+### 2.1 Contacts · 連絡先 · 聯絡人
 
-### A.4 Data feed
+| # | English | 日本語 | 繁體中文 | Answer · 回答 · 回答 |
+| --- | --- | --- | --- | --- |
+| 1 ① | Principal investigator(s) for the pilot studies, department, mail | 対象試験の治験責任医師、診療科、メール | 本次試驗之主持人、科別、電子郵件 | |
+| 2 ① | Data steward: the hospital's named person who holds the TrialBox repository (CGMH: the PI for the pilot, plus the independent second reviewer who co-signs validation and release records) | データスチュワード：TrialBox のデータベースを預かる当院の担当者 | 資料管理人：院方指定、掌管 TrialBox 資料庫的人員（長庚：本試行期間為主持人，另加一名共同簽署驗證與發布紀錄的獨立第二審核人） | |
+| 3 | Trial office / research office contact (delegation log, IRB filings, invoicing) | 治験事務局・研究支援部門の窓口（分担医師リスト、IRB 申請、請求） | 臨床試驗中心／研究部窗口（授權名冊、IRB 送件、請款） | |
+| 4 ① | Hospital IT: device registration, network, directory (AD/LDAP), certificates | 医療情報部：端末登録、ネットワーク、ディレクトリ（AD/LDAP）、証明書 | 資訊室：設備登錄、網路、目錄服務（AD/LDAP）、憑證 | |
+| 5 ① | Hospital IT: security review, vulnerability scan (if required), incident reporting | 医療情報部：セキュリティ審査、脆弱性診断（必要な場合）、インシデント報告 | 資訊室：資安審查、弱點掃描（如需要）、事件通報 | |
+| 6 ① | Data-feed owner: the team that produces the EMR export, SS-MIX2 storage, HIS views or FHIR, and who can build a new export | データ提供元：電子カルテ出力、SS-MIX2 ストレージ、HIS ビュー、FHIR を出す部門と、新しい出力を作れる担当 | 資料來源負責單位：產出 HIS 匯出、SQL 檢視表或 FHIR 的團隊，以及可建置新匯出的人員 | |
+| 7 ① | Privacy office / 個人情報保護管理者 / 個資保護人員 | 個人情報保護管理者 | 個資保護人員 | |
+| 8 | REDCap administrator (if REDCap is used) and the owner of the REDCap API token for the pilot projects | REDCap 管理者（使用する場合）と対象プロジェクトの API トークンの保有者 | REDCap 管理者（如使用）及本次試驗專案 API token 的持有人 | |
+| 9 | Pharmacy contact (only for the dispensing-date input) | 薬剤部窓口（治験薬の調剤日の入力のみ） | 藥局窗口（僅供試驗用藥給藥日期的輸入） | |
+| 10 ① | Who signs the data-processing agreement and the platform licence for the hospital; which contract instrument the hospital already uses (research collaboration agreement, 業務委託 template, other) and the usual signature path and time | 病院側でデータ処理契約とプラットフォーム利用契約に署名する人。病院が既に持つ契約様式（共同研究契約、業務委託契約の標準様式、その他）と通常の決裁経路・所要期間 | 代表醫院簽署資料處理契約與平台授權契約的人；院方既有的契約形式（共同研究契約、委託契約範本、其他）及一般簽署流程與時程 | |
+| 11 | Shared GPU platform team (CGMH) or the private-cloud team: contact and the person who grants namespaces and GPU quotas | 共用 GPU 基盤チームまたはプライベートクラウド担当：連絡先とネームスペース・GPU クォータの付与者 | 共用 GPU 平台團隊（長庚）或私有雲團隊：聯絡人及核發 namespace 與 GPU 配額的人員 | |
 
-| # | Question | Answer |
-| --- | --- | --- |
-| 22 | Which input will the site start with? (hospital database export CSV / HIS SQL views / SS-MIX2 storage / FHIR bulk export / spreadsheets / charts pasted or uploaded one by one / a mix) | |
-| 23 | EMR vendor and version; HIS self-built or vendor | |
-| 24 | For SS-MIX2: storage root path, vendor, standardized storage version, extended storage present (yes / no), 標準病名 and JLAC10 codes present (always / sometimes / never), deletion flags used | |
-| 25 | For CSV or SQL views: table list, one header row per table (no data), date format (ISO / era / ROC 7-digit), encoding (UTF-8 / Shift_JIS / CP932 / Big5), delimiter | |
-| 26 | For FHIR: base URL or export path, FHIR version, profiles (JP Core / TW Core), bulk export supported (yes / no), authentication | |
-| 27 | How often can the feed be produced? (nightly / weekly / one-time dump) Who runs it? How does it reach the box? (LAN share / SFTP / USB) | |
-| 28 | Which years of history exist in the feed, and from which year are records electronic (EMR since)? Are earlier records paper or scanned? | |
-| 29 | Does the feed carry the attending or ordering physician per encounter? How reliable is it? Is there a staff directory the site can export (id, name, department)? | |
-| 30 | Does the feed carry an appointment or booking source (future visits)? | |
-| 31 | Note types in the feed (progress, discharge, consult, nursing, reports) and their text encoding; mixed-language notes (yes / no) | |
-| 32 | Laboratory: local test codes (JLAC10, NHI order codes, hospital codes), units per analyte as reported (e.g. CRP mg/dL or mg/L; creatinine mg/dL or µmol/L; HbA1c NGSP or JDS before 2012), a lab table export (code, name, unit) | |
-| 33 | Diagnoses: ICD-10-CM edition(s) in use by year (Taiwan 2014 / 2023), 標準病名 with or without ICD-10, suspected-diagnosis flag present | |
-| 34 | Medicines: code system (YJ / HOT / NHI drug code / local), ATC present (yes / no) | |
-| 35 | Opt-out: where the hospital keeps research opt-outs (EMR flag exported / vendor field not exported / paper at the records office / none) | |
-| 36 | Deaths: how the feed shows a death; whether deaths outside the hospital are recorded | |
-| 37 | A de-identified 10-patient sample of the real feed can be provided by (date), under (agreement) | |
-| 38 | Known data quality issues (missing codes, department master gaps, date gaps, wording drift) | |
+### 2.2 IRB and legal basis · 倫理審査と法的根拠 · IRB 與法律依據
 
-### A.5 Trial systems
+| # | English | 日本語 | 繁體中文 | Answer |
+| --- | --- | --- | --- | --- |
+| 12 ① | IRB approval number and date for the pilot; approval end date | 倫理審査の承認番号、承認日、有効期限 | 本次試行的 IRB 核准編號、日期與到期日 | |
+| 13 ① A | Does the approved protocol name TrialBox's screen of the hospital's records as the recruitment method? (yes / no / unsure: attach the text) | 承認済みプロトコルに「TrialBox による院内記録のスクリーニング」が募集方法として明記されているか（はい／いいえ／不明：該当文を添付） | 核准的計畫書是否載明「以 TrialBox 篩選院內病歷」為收案方法（是／否／不確定：附上原文） | |
+| 14 ① | Does the approval cover **whole-hospital screening** (patients of any department) and **identified candidate views by the PI before the treating physician agrees**? Quote the sentence | 承認は**病院全体のスクリーニング**（他科の患者を含む）と、**主治医の了承前に責任医師が識別可能な候補を閲覧すること**を対象としているか。該当文を引用 | 核准是否涵蓋**全院篩選**（任何科別的病人）及**主治醫師同意前由主持人檢視可識別候選病人**？請引述原文 | |
+| 15 ① | Does the approval cover **patient profiles** (a model-written, cited summary per study patient), **vectors and "patients like this one"**, the **clinician role** and the **steward's full note access**? | 承認は**患者プロファイル**（モデルが作成し引用付きの要約）、**ベクトルと類似患者検索**、**主治医の役割**、**スチュワードのカルテ全文閲覧**を対象としているか | 核准是否涵蓋**病人概況**（模型撰寫、逐句引用）、**向量與相似病人**、**主治醫師角色**與**資料管理人之病歷全文讀取** | |
+| 16 ① | Does the approval cover the opt-out notice for research use of existing records, and where is the notice posted? | 既存情報の研究利用に関するオプトアウト通知が承認に含まれ、どこに掲示されているか | 核准是否包含既有病歷研究使用的退出公告，公告於何處 | |
+| 17 ① | The committee's next meeting dates and submission deadlines (December, January, February); whether December or late January meetings are held | 委員会の次回以降の開催日と提出締切（12 月、1 月、2 月）。12 月や 1 月下旬の開催があるか | 委員會接下來的會議日期與送件截止（12 月、1 月、2 月）；12 月或 1 月下旬是否開會 | |
+| 18 | Approved ICF versions for each pilot study (version, date, language) | 各試験の承認済み説明同意文書の版（版、日付、言語） | 各試驗核准的受試者同意書版本（版本、日期、語言） | |
+| 19 | The hospital's rule for identified pre-screening (who may open which chart, per project application if any) | 同定可能な状態での事前スクリーニングに関する院内規則（誰がどのカルテを開けるか、課題ごとの申請の有無） | 院內關於可識別狀態下預先篩選的規定（誰可開啟哪些病歷，是否需按專案申請） | |
+| 20 ① | The legal basis the privacy office relies on for (a) pre-screening with re-identification and (b) a PI viewing another department's identified records before referral (care relationship + IRB; other); whether the hospital's published 利用目的 (Japan) or its PDPA Art. 27 security plan (Taiwan) needs an update for research-support processing by a vendor's software | 個人情報保護担当が依拠する法的根拠：(a) 再識別を伴う事前スクリーニング、(b) 紹介前に責任医師が他科の識別可能な記録を閲覧すること（診療関係＋倫理審査、その他）。供給者ソフトウェアによる研究支援処理のために当院の公表する利用目的の更新が必要か | 個資保護人員對 (a) 含再識別之預先篩選、(b) 轉介前主持人檢視他科可識別病歷所依據的法律基礎（醫療關係加 IRB；其他）；院方 PDPA 第 27 條安全維護計畫是否需納入 TrialBox | |
+| 21 | SAE reporting rules at this site: to the sponsor, to the IRB / head of institution, to the regulator, in days (fatal or life-threatening / other serious); the trial office's SAE log stays the system of record and TrialBox is a reminder | この施設の SAE 報告規則：依頼者、IRB・病院長、規制当局への日数（死亡・生命を脅かす／その他の重篤）。治験事務局の SAE 台帳が正式記録であり TrialBox はリマインダー | 本院 SAE 通報規則：對試驗委託者、IRB／機構負責人、主管機關的天數（死亡或危及生命／其他嚴重）；試驗辦公室的 SAE 紀錄為正式紀錄，TrialBox 僅為提醒 | |
+| 22 | Record retention rule per study (years after the end of the study or after approval of the drug) | 試験ごとの記録保存期間（試験終了後または承認後の年数） | 各試驗的紀錄保存年限（試驗結束後或藥品核准後的年數） | |
+| 23 | Sponsors of the pilot studies: who at each sponsor acknowledges in writing that TrialBox is in the source-data chain (prefill is switched on per study only after that) | 対象試験の依頼者：TrialBox が原資料の連鎖に入ることを書面で確認する担当（確認後にのみ試験ごとにプレフィルを有効化） | 本次試驗的委託者：由誰以書面確認 TrialBox 進入來源資料鏈（確認後才逐研究開啟預填） | |
 
-| # | Question | Answer |
-| --- | --- | --- |
-| 39 | REDCap: version, URL, test project available (yes / no), API enabled (yes / no), who issues API tokens, longitudinal projects and repeating instruments used | |
-| 40 | Sponsor EDCs in use for the pilot studies (name, ODM import supported, weekly export available) | |
-| 41 | Where the screening log and enrolment log are kept today (Excel / REDCap / paper) and in which column layout (attach a blank template) | |
-| 42 | Delegation log: who keeps it, format, training records (GCP certificates) format | |
-| 43 | How the treating physician is asked today before a patient is approached (phone / in person / EMR message) | |
-| 44 | Pharmacy: can dispensing dates for study drugs be exported (yes / no / later)? | |
+### 2.3 Data feed and volumes · データフィードと規模 · 資料來源與規模
 
-### A.6 Hospital IT and network
+| # | English | 日本語 | 繁體中文 | Answer |
+| --- | --- | --- | --- | --- |
+| 24 ① | Which input will the site start with? (database export CSV / HIS SQL views / SS-MIX2 storage / FHIR bulk export / spreadsheets / charts pasted or uploaded / a mix) | 最初に使う入力（データベースの CSV 出力／HIS の SQL ビュー／SS-MIX2 ストレージ／FHIR 一括出力／表計算ファイル／カルテの貼り付けやアップロード／組み合わせ） | 起始輸入方式（資料庫 CSV 匯出／HIS SQL 檢視表／SS-MIX2／FHIR 批次匯出／試算表／逐份貼上或上傳病歷／混合） | |
+| 25 ① | **Volumes**: distinct patients in the record system; patients with an encounter in the last 24 months; encounters per year; diagnosis rows per year; lab result rows per year; drug orders per year; notes per year and their text volume (GB); the current EMR database size | **規模**：登録患者数、過去 24 か月に受診のある患者数、年間受診件数、年間病名件数、年間検査結果件数、年間処方件数、年間記録件数と文章量（GB）、現在のカルテ DB の容量 | **規模**：病歷系統中的病人數；近 24 個月有就診的病人數；每年就診次數；每年診斷列數；每年檢驗結果列數；每年用藥醫令數；每年病歷文字則數與容量（GB）；目前電子病歷資料庫大小 | |
+| 26 ① | **Does an export that TrialBox can read exist today?** If not: who builds it, the earliest delivery date, and the tiers the hospital can deliver in order: tier 1 structured data for the participating departments; tier 2 all departments; tier 3 free-text notes and reports | **TrialBox が読める出力は今あるか。** ない場合：誰が作るか、最短の納期、段階（第 1 段階：参加診療科の構造化データ、第 2 段階：全診療科、第 3 段階：カルテ文章と報告書） | **目前是否已有 TrialBox 可讀的匯出？** 若無：由誰建置、最早交付日期，以及院方可依序交付的階段：第 1 階段參與科別的結構化資料；第 2 階段全院；第 3 階段病歷文字與報告 | |
+| 27 | EMR vendor and version; HIS self-built or vendor | 電子カルテベンダーと版、HIS は自社開発かベンダー製か | 電子病歷廠商與版本；HIS 為自建或廠商 | |
+| 28 A | For SS-MIX2: storage root path, vendor, standardized storage version, extended storage present (yes / no) and **whether it carries progress notes, summaries and reports**, 標準病名 and JLAC10 codes present (always / sometimes / never), deletion flags used | SS-MIX2：ストレージのルートパス、ベンダー、標準化ストレージの版、拡張ストレージの有無と**経過記録・サマリ・報告書が含まれるか**、標準病名と JLAC10 の有無（常に／時々／なし）、削除フラグの使用 | SS-MIX2（如適用）：儲存根路徑、廠商、版本、延伸儲存有無及**是否含病程、摘要與報告**、標準病名與 JLAC10 的有無、刪除旗標 | |
+| 29 A | For CSV or SQL views: table list, one header row per table (no data), date format (ISO / era / ROC 7-digit), encoding (UTF-8 / Shift_JIS / CP932 / Big5), delimiter | CSV・SQL ビュー：テーブル一覧、各テーブルのヘッダ行のみ（データなし）、日付形式（ISO／和暦）、文字コード（UTF-8／Shift_JIS／CP932）、区切り文字 | CSV 或 SQL 檢視表：資料表清單、每表一列欄位名（不含資料）、日期格式（ISO／民國 7 碼）、編碼（UTF-8／Big5）、分隔符 | |
+| 30 A | For FHIR: base URL or export path, FHIR version, profiles (JP Core / TW Core), bulk export supported (yes / no), authentication | FHIR：ベース URL または出力パス、FHIR の版、プロファイル（JP Core）、一括出力の可否、認証 | FHIR：基底 URL 或匯出路徑、FHIR 版本、profile（TW Core）、是否支援批次匯出、認證方式 | |
+| 31 | How often can the feed be produced? (nightly / weekly / one-time) Who runs it? How does it reach TrialBox? (LAN share / SFTP / USB) | フィードの頻度（毎夜／毎週／一回限り）、実行者、TrialBox への受け渡し方法（LAN 共有／SFTP／USB） | 匯出頻率（每夜／每週／一次性）、執行者、送達方式（LAN 共享／SFTP／USB） | |
+| 32 | Which years of history exist, and from which year are records electronic (EMR since)? Are earlier records paper or scanned? | 保有する履歴の年数と、電子化が始まった年（EMR since）。それ以前は紙かスキャンか | 保有的歷史年份，以及電子病歷起始年；更早的紀錄為紙本或掃描 | |
+| 33 | Does the feed carry the attending or ordering physician per encounter? How reliable is it? Can the site export a staff directory (id, name, department)? | 受診ごとの主治医・オーダー医の有無と信頼性。職員名簿（ID、氏名、診療科）を出力できるか | 每次就診是否含主治或開單醫師，可靠程度；是否可匯出人員名冊（代號、姓名、科別） | |
+| 34 | Does the feed carry an appointment or booking source (future visits)? | 予約情報（将来の受診）の有無 | 是否含預約（未來就診）來源 | |
+| 35 ① | **Note types in the feed** (progress, discharge, consult, nursing, reports), their text encoding, mixed-language notes (yes / no). **If the feed carries no notes, say so: the profile, note criteria and embeddings then wait for tier 3 of question 26** | **フィードに含まれる記録の種類**（経過記録、退院サマリ、コンサルト、看護記録、報告書）と文字コード、言語の混在。**記録が含まれない場合はその旨：プロファイル、記録に基づく条件、埋め込みは質問 26 の第 3 段階を待つ** | **匯出中的病歷文字類型**（病程、出院摘要、會診、護理、報告）、編碼、是否中英夾雜。**若不含病歷文字請註明：病人概況、文字條件與向量將等待第 26 題的第 3 階段** | |
+| 36 A | Laboratory: local test codes (JLAC10, NHI order codes, hospital codes); units per analyte as reported (CRP mg/dL or mg/L; creatinine mg/dL or µmol/L; HbA1c NGSP or JDS before 2012); a lab table export (code, name, unit) | 検査：ローカル検査コード（JLAC10、院内コード）、分析項目ごとの報告単位（CRP mg/dL か mg/L、クレアチニン mg/dL か µmol/L、2012 年以前の HbA1c は JDS か）、検査マスタの出力（コード、名称、単位） | 檢驗：本地檢驗代碼（健保醫令碼、院內碼）；各項目報告單位（CRP mg/dL 或 mg/L；肌酸酐 mg/dL 或 µmol/L）；檢驗項目表匯出（代碼、名稱、單位） | |
+| 37 | Diagnoses: ICD-10-CM edition(s) by year (Taiwan 2014 / 2023), 標準病名 with or without ICD-10, suspected-diagnosis flag present | 病名：ICD-10 の版、標準病名の ICD-10 付与の有無、疑い病名フラグの有無 | 診斷：各年度使用的 ICD-10-CM 版本（2014／2023）、疑似診斷旗標 | |
+| 38 | Medicines: code system (YJ / HOT / NHI drug code / local), ATC present (yes / no) | 薬剤：コード体系（YJ／HOT／院内）、ATC の有無 | 藥品：代碼系統（健保藥品碼／院內碼）、是否含 ATC | |
+| 39 | Opt-out: where the hospital keeps research opt-outs (EMR flag exported / vendor field not exported / paper at the records office / none) | オプトアウト：研究利用拒否の記録場所（カルテのフラグが出力される／ベンダー項目で出力されない／医事課の紙／なし） | 退出（opt-out）：研究使用退出登錄於何處（病歷旗標且有匯出／廠商欄位未匯出／病歷室紙本／無） | |
+| 40 | Deaths: how the feed shows a death; whether deaths outside the hospital are recorded | 死亡：フィードでの死亡の表現、院外死亡の記録の有無 | 死亡：匯出中如何呈現死亡；院外死亡是否記錄 | |
+| 41 ① | The 10-patient mapping sample and a **different** 10 to 20 patient OQ sample: read on the hospital's hardware by the steward after the DPA (date), under (agreement); only the adapter's report leaves (TB-SITE-03) | 10 名分の対応付け用サンプルと、**別の** 10〜20 名分の OQ 用サンプル：データ処理契約の締結後（日付）、（契約）のもとで院内機器上でスチュワードが読み込み、アダプタの報告書のみ院外へ（TB-SITE-03） | 10 位病人的對應樣本與**另一組** 10 至 20 位的 OQ 樣本：於資料處理契約簽署後（日期）、依據（契約），由資料管理人在院方硬體上讀取；只有轉接層報告離開（TB-SITE-03） | |
+| 42 | Known data quality issues (missing codes, department master gaps, date gaps, wording drift) | 既知のデータ品質の問題（コード欠落、部門マスタの不備、日付の欠落、表記の揺れ） | 已知的資料品質問題（代碼缺漏、科別主檔不全、日期缺漏、用語漂移） | |
 
-| # | Question | Answer |
-| --- | --- | --- |
-| 45 | **Hosting**: an appliance box supplied by Aimedics (Japan) / the hospital's own GPU server shared with other work (CGMH: the B200 server) / the hospital's private cloud with GPU as interim hosting | |
-| 46 | For a shared or private-cloud host: container platform (Docker / Kubernetes / other), GPU type and count, the **fixed GPU quota** for TrialBox (memory in GB, share of SMs or MIG slice), CPU and RAM quota, storage class and size (2 TB needed at 50,000 patients with all history), who creates the namespace or project | |
-| 47 | For a shared or private-cloud host: who patches the host OS, the container runtime, the GPU driver; maintenance windows; how TrialBox is told before a change | |
-| 48 | For a shared or private-cloud host: isolation between TrialBox and other tenants (separate namespace, network policy, storage encryption, who else has root on the host); whether the host is approved for identified patient data (document the approval) | |
-| 49 | For an appliance box: delivery address, receiving contact, rack or desk, power and UPS, Windows 11 edition the hospital requires, BitLocker recovery-key escrow procedure | |
-| 50 | Device registration: the hospital's form for a new device on the clinical network; lead time; security software the hospital requires on the box | |
-| 51 | Network: which segment or VLAN TrialBox sits in; which clients (clinic PCs, PI phones) must reach the console; firewall change process and lead time | |
-| 52 | A DNS name for the console inside the hospital, and a certificate (hospital CA / public CA / Caddy internal CA accepted on the clinic PCs) | |
-| 53 | Directory: AD/LDAP available for sign-in (yes / no); a service account for the bind; group names for roles (steward, PI, CRC, admin); MFA policy of the hospital | |
-| 54 | Mail: SMTP relay host and port for outbound mail from the box; whether a mailbox for the intake exists; whether mail with links is allowed | |
-| 55 | NTP server inside the hospital | |
-| 56 | Backup target: a hospital NAS share or USB disk for the encrypted nightly backup; who keeps the backup private key envelope | |
-| 57 | Internet from the box: none (default; registries from the offline pack) / ClinicalTrials.gov allowed | |
-| 58 | Remote assistance policy: none / screen-share without patient data approved by | |
-| 59 | PI device path: how investigators open the console (clinic PC beside the EMR / hospital phone / personal phone on hospital Wi-Fi or VPN); is a TOTP app allowed on that device | |
-| 60 | EMR launch: can the EMR open a patient by chart number from a URL or a copied id? (vendor / version / not possible) | |
-| 61 | Vulnerability scan or security review before go-live: required (yes / no), by whom, lead time, acceptance criteria | |
-| 62 | Incident reporting: the hospital's contact and clock for a security or privacy incident; whether the hospital is a designated agency under 資通安全管理法 (Taiwan) | |
-| 63 | Decommissioning: the hospital's media-disposal rule for disks and backups | |
+### 2.4 Trial systems · 治験システム · 試驗系統
 
-### A.7 Operations
+| # | English | 日本語 | 繁體中文 | Answer |
+| --- | --- | --- | --- | --- |
+| 43 | REDCap: version, URL, test project available (yes / no), API enabled (yes / no), who issues API tokens (never a shared token), longitudinal projects and repeating instruments used | REDCap：版、URL、テスト用プロジェクトの有無、API の有効化、API トークンの発行者（共有トークンは不可）、縦断プロジェクトと反復インストゥルメントの使用 | REDCap：版本、URL、測試專案、API 是否開啟、API token 核發者（不得共用）、縱貫型專案與重複表單使用情形 | |
+| 44 | Sponsor EDCs in use for the pilot studies (name, ODM import supported, weekly export available) | 対象試験で使用する依頼者 EDC（名称、ODM 取込の可否、週次出力の可否） | 本次試驗使用的委託者 EDC（名稱、是否支援 ODM 匯入、是否可每週匯出） | |
+| 45 A | Where the screening log and enrolment log are kept today (Excel / REDCap / paper) and in which column layout (attach a blank template) | スクリーニングログと登録ログの現在の保管方法（Excel／REDCap／紙）と列構成（空のテンプレートを添付） | 目前篩選紀錄與收案紀錄的保存方式（Excel／REDCap／紙本）與欄位格式（附空白範本） | |
+| 46 | Delegation log: who keeps it, format, training records (GCP certificates) format | 分担医師・協力者リストの管理者、形式、GCP 研修記録の形式 | 授權名冊由誰保管、格式、GCP 訓練證明格式 | |
+| 47 | How the treating physician is asked today before a patient is approached (phone / in person / EMR message) | 現在、患者に声をかける前に主治医へどのように了承を得ているか（電話／対面／カルテのメッセージ） | 目前接觸病人前如何徵得主治醫師同意（電話／當面／病歷訊息） | |
+| 48 | Pharmacy: can dispensing dates for study drugs be exported (yes / no / later)? | 薬剤部：治験薬の調剤日を出力できるか | 藥局：是否可匯出試驗用藥給藥日期 | |
 
-| # | Question | Answer |
-| --- | --- | --- |
-| 64 | Clinic-PC layout: can the TrialBox page be open beside the EMR window? | |
-| 65 | Printing: a printer the CRC can use for the reminder card and the clinic-day slip | |
-| 66 | Two normal weeks for the workload baseline (not 年末年始, not Lunar New Year) | |
-| 67 | Training dates for steward, CRC, PI, admin and IT | |
-| 68 | Preferred go-live week within the plan (CGMH before 2027-02-05; Japan the week after) | |
+### 2.5 Hosting, hospital IT and network · ホスティング、医療情報部、ネットワーク · 主機、資訊室與網路
 
-### A.8 Attachments and signatures
+| # | English | 日本語 | 繁體中文 | Answer |
+| --- | --- | --- | --- | --- |
+| 49 ① | **Hosting**: an appliance supplied by Aimedics (Japan: a DGX Spark with a CPU workstation, or an RTX PRO 6000 box, decided after the Spark benchmark) / the hospital's own GPU server shared with other work (CGMH: the B200 server) / the hospital's private cloud with GPU as interim hosting | **ホスティング**：Aimedics が納入する専用機（日本：DGX Spark と CPU ワークステーション、または RTX PRO 6000 機。Spark のベンチマーク後に決定）／他業務と共用の病院 GPU サーバ／暫定としての病院プライベートクラウド（GPU 付き） | **主機方式**：Aimedics 供應的專用主機（日本：DGX Spark 加 CPU 工作站，或 RTX PRO 6000 主機，於 Spark 基準測試後決定）／院方與其他工作共用的 GPU 伺服器（長庚：B200）／暫時使用院方具 GPU 的私有雲 | |
+| 50 ① | **Does the site have a GPU private cloud approved for identified patient data today?** (yes: attach the approval / no: the fallback is a date slip, not hosting) | **識別可能な患者データの取り扱いが承認された GPU 付きプライベートクラウドが今あるか**（はい：承認文書を添付／いいえ：代替は日程の後ろ倒しであってホスティングではない） | **院方目前是否有已核准處理可識別病人資料、具 GPU 的私有雲？**（是：附核准文件／否：備案為延後日期，而非改用其他主機） | |
+| 51 ① | For a shared or private-cloud host: container platform (Docker / Kubernetes / other), GPU type and count, **a dedicated MIG partition for TrialBox** (profile, memory in GB; a time-slice of SMs is not acceptable for patient data), CPU and RAM quota, storage class and size (from question 25, not a default), who creates the namespace or project | 共用・クラウドの場合：コンテナ基盤（Docker／Kubernetes／その他）、GPU の種類と数、**TrialBox 専用の MIG パーティション**（プロファイル、メモリ GB。SM の時分割は患者データには不可）、CPU と RAM のクォータ、ストレージの種類と容量（質問 25 から算出）、ネームスペースの作成者 | 共用或私有雲：容器平台（Docker／Kubernetes／其他）、GPU 型號與數量、**TrialBox 專用的 MIG 分割**（規格、記憶體 GB；SM 時間切片不適用於病人資料）、CPU 與 RAM 配額、儲存類別與容量（依第 25 題計算，非預設值）、由誰建立 namespace | |
+| 52 | For a shared or private-cloud host: who patches the host OS, the container runtime, the GPU driver; maintenance windows; how TrialBox is told before a change; who is on call when the morning mail does not arrive | 共用・クラウドの場合：ホスト OS、コンテナランタイム、GPU ドライバのパッチ適用者、保守時間帯、変更前の通知方法、朝のメールが届かないときの当番 | 共用或私有雲：主機作業系統、容器執行環境、GPU 驅動程式由誰更新；維護時段；變更前如何通知；早晨郵件未送達時由誰值班 | |
+| 53 A | For a shared or private-cloud host: isolation (separate namespace, network policy, encrypted storage class and its setting, who has root on the host and whether root access to volumes is logged); **does the hospital operate a KMS or HSM that can hold TrialBox's key-encryption key?** (yes / no: the steward unseals at start) | 共用・クラウドの場合：分離（ネームスペース、ネットワークポリシー、暗号化ストレージの種類と設定、ホストの root 権限者とボリュームへのアクセス記録の有無）。**TrialBox の鍵暗号化鍵を保管できる KMS または HSM を病院が運用しているか**（はい／いいえ：起動時にスチュワードが解錠） | 共用或私有雲：隔離（獨立 namespace、網路政策、加密儲存類別及設定、誰擁有主機 root、root 存取儲存卷是否留有紀錄）；**院方是否營運可保管 TrialBox 金鑰加密金鑰的 KMS 或 HSM？**（是／否：由資料管理人於啟動時解封） | |
+| 54 ② | For an appliance: delivery address, receiving contact, rack or desk, power and UPS, Windows 11 edition required, BitLocker recovery-key escrow procedure; **the hospital's answer on RAM (128 GB or 256 GB) and disk (2 × 2 TB or 2 × 4 TB) given question 25 and all history**, and who pays the difference | 専用機の場合：納入先住所、受領担当、設置場所、電源と UPS、求める Windows 11 のエディション、BitLocker 回復キーの預託手順。**質問 25 と全履歴を踏まえた RAM（128 GB か 256 GB）とディスク（2 TB×2 か 4 TB×2）の病院の回答**と差額の負担者 | 專用主機：送達地址、收貨人、機櫃或桌面、電源與 UPS、要求的 Windows 11 版本、BitLocker 復原金鑰託管程序；**依第 25 題與全部歷史，院方對 RAM（128 GB 或 256 GB）與磁碟（2 × 2 TB 或 2 × 4 TB）的回答**，差額由誰負擔 | |
+| 55 A | Device registration: the hospital's form for a new device on the clinical network; lead time; security software (EDR / antivirus) the hospital requires on the host and in WSL2; how Windows security updates reach an offline host (WSUS / offline bundle / cadence); who holds the Windows administrator account | 端末登録：臨床ネットワークへの新規端末の申請様式、所要期間、病院が求めるセキュリティソフト（EDR／ウイルス対策）のホストと WSL2 への導入、オフライン機への Windows 更新の配布方法（WSUS／オフラインバンドル／頻度）、Windows 管理者アカウントの保有者 | 設備登錄：臨床網路新設備的申請表、前置時間、院方要求安裝於主機與 WSL2 的資安軟體（EDR／防毒）、離線主機如何取得 Windows 安全更新（WSUS／離線套件／頻率）、Windows 管理者帳號由誰持有 | |
+| 56 ① | Network: which segment or VLAN TrialBox sits in; which clients (clinic PCs, PI devices) must reach the console; firewall change process and lead time | ネットワーク：TrialBox を置くセグメント／VLAN、コンソールに到達する端末（外来 PC、医師の端末）、ファイアウォール変更の手続きと所要期間 | 網路：TrialBox 所在網段／VLAN；需連到主控台的端末（門診電腦、醫師裝置）；防火牆變更流程與前置時間 | |
+| 57 ① | A DNS name for the console inside the hospital, and a certificate (hospital CA / public CA / Caddy internal CA accepted on the clinic PCs) | 院内でのコンソールの DNS 名と証明書（院内 CA／公的 CA／Caddy 内部 CA を外来 PC に配布） | 院內主控台的 DNS 名稱與憑證（院內 CA／公開 CA／Caddy 內部 CA 佈署至門診電腦） | |
+| 58 ① | Directory: AD/LDAP available for sign-in (yes / no); a service account for the bind; group names for roles (steward, PI, CRC, admin); the hospital's MFA policy; how accounts are closed when staff leave | ディレクトリ：AD/LDAP でのサインインの可否、バインド用サービスアカウント、役割ごとのグループ名、病院の多要素認証の方針、退職時のアカウント停止手順 | 目錄服務：是否可用 AD/LDAP 登入；綁定用服務帳號；各角色群組名稱；院方多因子驗證政策；人員離職時如何停用帳號 | |
+| 59 | Mail: SMTP relay host and port for outbound mail; whether a mailbox for the intake exists; whether mail with links is allowed; the trial office's mailbox for SAE copies | メール：送信に使う SMTP リレーのホストとポート、受付用メールボックスの有無、リンク付きメールの可否、SAE の写しを送る治験事務局のメールボックス | 郵件：對外寄信的 SMTP 中繼主機與連接埠；是否有收件信箱；是否允許含連結的郵件；接收 SAE 副本的試驗辦公室信箱 | |
+| 60 | NTP server inside the hospital; syslog or SIEM destination if the hospital requires log forwarding | 院内の NTP サーバ。ログ転送が必要な場合の syslog／SIEM の宛先 | 院內 NTP 伺服器；如需日誌轉送，syslog 或 SIEM 的目的地 | |
+| 61 | Backup target: a hospital NAS share or USB disk for the encrypted nightly backup; who keeps the backup private key envelope; the hospital's RPO and RTO expectations | バックアップ先：暗号化した夜間バックアップ用の NAS 共有または USB ディスク、バックアップ秘密鍵の封筒の保管者、病院が求める RPO と RTO | 備份目標：加密每夜備份用的 NAS 共享或 USB 磁碟；備份私鑰信封由誰保管；院方對 RPO 與 RTO 的要求 | |
+| 62 | Internet from TrialBox: none (default; registries from the offline pack) / ClinicalTrials.gov allowed | TrialBox からのインターネット接続：なし（既定、登録情報はオフラインパックから）／ClinicalTrials.gov のみ許可 | TrialBox 對外網際網路：無（預設；登錄資料來自離線資料包）／僅允許 ClinicalTrials.gov | |
+| 63 | Remote assistance policy: none / screen-share without patient data approved by | リモート支援の方針：なし／患者データを含まない画面共有を承認する者 | 遠端協助政策：無／不含病人資料之螢幕分享由誰核准 | |
+| 64 | PI device path: how investigators open the console (clinic PC beside the EMR / hospital phone / personal phone on hospital Wi-Fi or VPN); is a TOTP app allowed on that device; the hospital's session-timeout and idle-lock policy on shared clinic PCs | 医師の端末経路：コンソールの開き方（電子カルテ横の外来 PC／病院の端末／院内 Wi-Fi または VPN の私用端末）、その端末で TOTP アプリが使えるか、共用外来 PC のセッションタイムアウトと画面ロックの方針 | 主持人裝置路徑：如何開啟主控台（電子病歷旁的門診電腦／院方手機／院內 Wi-Fi 或 VPN 的個人手機）；該裝置可否安裝 TOTP 應用程式；共用門診電腦的連線逾時與閒置鎖定政策 | |
+| 65 | EMR launch: can the EMR open a patient by chart number from a URL or a copied id? (vendor / version / not possible) | 電子カルテ連携：URL または ID のコピーで患者を開けるか（ベンダー／版／不可） | 電子病歷連動：能否以 URL 或複製的病歷號開啟病人（廠商／版本／不可） | |
+| 66 ① | Vulnerability scan or security review before go-live: required (yes / no), by whom, lead time, acceptance criteria | 稼働前の脆弱性診断・セキュリティ審査：要否、実施者、所要期間、合格条件 | 上線前弱點掃描或資安審查：是否需要、執行者、前置時間、通過標準 | |
+| 67 | Incident reporting: the hospital's contact and clock for a security or privacy incident; whether the hospital is a designated agency under 資通安全管理法 (Taiwan) | インシデント報告：病院の窓口と報告期限 | 事件通報：院方窗口與時限；醫院是否為資通安全管理法之特定非公務機關 | |
+| 68 | Decommissioning: the hospital's media-disposal rule for disks and backups | 廃棄：ディスクとバックアップ媒体の廃棄規則 | 汰除：磁碟與備份媒體的銷毀規則 | |
+| 69 | Vendor people on site: which Aimedics persons will work in the hospital, for which steps, with which badge and accounts | 院内で作業する供給者の担当者：誰が、どの工程で、どの入館証とアカウントで | 供應商到院人員：哪些 Aimedics 人員、於哪些步驟、使用何種門禁與帳號 | |
 
-Attachments: the IRB approval letter and protocol text about recruitment (12 to 15); the ICF version list (17); table headers or a storage listing without data (24 to 26); the lab table (32); the staff directory export format (29); the screening-log template (41); the device registration form (50); the platform description for a shared host (46 to 48).
+### 2.6 Operations · 運用 · 營運
 
-| Role | Name | Date | Signature |
+| # | English | 日本語 | 繁體中文 | Answer |
+| --- | --- | --- | --- | --- |
+| 70 | Clinic-PC layout: can the TrialBox page be open beside the EMR window? | 外来 PC で電子カルテの横に TrialBox の画面を開けるか | 門診電腦能否將 TrialBox 頁面開在電子病歷旁 | |
+| 71 | Printing: a printer the CRC can use for the reminder card and the clinic-day slip | CRC が案内カードと外来日のスリップを印刷できるプリンタ | CRC 可用於列印提醒卡與門診日清單的印表機 | |
+| 72 | **The night window**: the hours between the last feed file and the first clinic in which TrialBox may use the GPU and the database at full load (for example 22:00 to 06:00); other nightly jobs on a shared host in that window | **夜間ウィンドウ**：最後のフィード受領から最初の外来までの間で TrialBox が GPU とデータベースを全負荷で使える時間帯（例 22:00〜06:00）。共用ホストでその時間帯に動く他の夜間処理 | **夜間時段**：最後一批匯出到首診之間，TrialBox 可全速使用 GPU 與資料庫的時段（例如 22:00 至 06:00）；共用主機於該時段的其他夜間作業 | |
+| 73 ① | Two normal weeks for the workload baseline, **before any training** and not 年末年始, 成人の日 week or Lunar New Year (the plan proposes 2026-11-30 to 2026-12-11) | 業務量ベースライン測定に使える通常の 2 週間。**研修より前**で、年末年始、成人の日の週、旧正月を除く（計画案は 2026-11-30〜12-11） | 可供工作量基準量測的兩個正常週，**在任何訓練之前**，避開農曆新年（計畫建議 2026-11-30 至 12-11） | |
+| 74 | Training dates for steward, second reviewer (CGMH), CRC, PI, admin and IT | スチュワード、CRC、医師、管理者、IT の研修日程 | 資料管理人、第二審核人（長庚）、CRC、主持人、管理者、IT 的訓練日期 | |
+| 75 | Preferred go-live week within the plan (CGMH about 2027-04-30; Japan about 2027-05-14; never within ten working days before a national holiday period) | 計画内で希望する稼働開始週（CGMH は 2027-04-30 頃、日本は 2027-05-14 頃。連休の前 10 営業日以内は避ける） | 計畫內偏好的上線週（長庚約 2027-04-30；日本約 2027-05-14；不在國定連假前十個工作日內） | |
+
+## 3. Attachments and signatures · 添付と署名 · 附件與簽署
+
+Attachments (**A** above): the IRB approval letter and the protocol text on recruitment (13 to 16); the ICF version list (18); table headers or a storage listing without data (28 to 30); the lab table (36); the staff directory export format (33); the screening-log template (45); the device registration form (55); the platform description and the isolation evidence for a shared host (51 to 53); the private-cloud approval (50).
+
+添付：倫理審査承認書と募集方法に関するプロトコル本文（13〜16）、説明同意文書の版一覧（18）、データを含まないテーブルヘッダまたはストレージ一覧（28〜30）、検査マスタ（36）、職員名簿の出力形式（33）、スクリーニングログのテンプレート（45）、端末登録様式（55）、共用ホストの基盤説明と分離の証拠（51〜53）、プライベートクラウドの承認文書（50）。
+
+附件：IRB 核准函與計畫書中有關收案方法的原文（13〜16）、同意書版本清單（18）、不含資料的資料表欄位名或儲存清單（28〜30）、檢驗項目表（36）、人員名冊匯出格式（33）、篩選紀錄範本（45）、設備登錄表（55）、共用主機的平台說明與隔離證據（51〜53）、私有雲核准文件（50）。
+
+| Role · 役割 · 角色 | Name · 氏名 · 姓名 | Date · 日付 · 日期 | Signature · 署名 · 簽名 |
 | --- | --- | --- | --- |
-| Hospital IT lead | | | |
-| Principal investigator | | | |
-| Data steward | | | |
+| Hospital IT lead · 医療情報部責任者 · 資訊室主管 | | | |
+| Principal investigator · 治験責任医師 · 試驗主持人 | | | |
+| Data steward · データスチュワード · 資料管理人 | | | |
+| Second reviewer (CGMH) · 第二審核人（長庚） | | | |
+| Native reader of the 日本語 column · 日本語欄の確認者 | | | |
+| Native reader of the 繁體中文 column · 繁體中文欄位確認者 | | | |
 | Aimedics | | | |
-
-## B. 日本語
-
-### B.1 使い方
-
-すべての質問に答えてください。「不明」も回答です。その場合は誰がいつまでに確認するかを書いてください。求められた箇所には資料を添付してください。この用紙と添付資料に患者情報を書かないでください。10名分のサンプルは、データ処理契約のもとで別途、病院が求める場合は匿名化して渡します。記入済みの用紙は医療情報部の責任者と治験責任医師が署名し、サイトのリリース記録に保管します。
-
-### B.2 連絡先（質問 1〜10）
-
-1 治験責任医師、診療科、メール。2 データスチュワード（TrialBox のデータベースを預かる病院の担当者）。3 治験事務局・研究支援部門の窓口（分担医師リスト、IRB 申請、請求）。4 医療情報部：端末登録、ネットワーク、ディレクトリ（AD/LDAP）、証明書。5 医療情報部：セキュリティ審査、脆弱性診断（必要な場合）、インシデント報告。6 データ提供元（電子カルテ出力、SS-MIX2 ストレージ、HIS ビュー、FHIR を出す部門）。7 個人情報保護管理者。8 REDCap 管理者（使用する場合）。9 薬剤部窓口（治験薬の調剤日の入力のみ）。10 病院側でデータ処理契約とプラットフォーム利用契約に署名する人。
-
-### B.3 倫理審査と法的根拠（質問 11〜21）
-
-11 倫理審査の承認番号、承認日、有効期限。12 承認済みプロトコルに「TrialBox による院内記録のスクリーニング」が募集方法として明記されているか（はい／いいえ／不明：該当文を添付）。13 承認が**病院全体のスクリーニング**（責任医師の診療科以外の患者を含む）を対象としているか。14 承認が**患者プロファイル**（モデルが作成し研究スタッフが読む、引用付きの患者要約）を対象としているか。15 既存情報の研究利用に関するオプトアウト通知が承認に含まれ、どこに掲示されているか。16 12〜15 のいずれかが「はい」でない場合：次回委員会の日程と変更申請の締切。17 各試験の承認済み説明同意文書の版（版、日付、言語）。18 同定可能な状態での事前スクリーニングに関する院内規則（誰がどのカルテを開けるか、課題ごとの申請の有無）。19 再識別を伴う事前スクリーニングについて個人情報保護担当が依拠する法的根拠。20 この施設の SAE 報告規則：依頼者、IRB・病院長、規制当局への日数（死亡・生命を脅かす／その他の重篤）。21 試験ごとの記録保存期間。
-
-### B.4 データフィード（質問 22〜38）
-
-22 最初に使う入力（病院データベースの CSV 出力／HIS の SQL ビュー／SS-MIX2 ストレージ／FHIR 一括出力／表計算ファイル／カルテの貼り付けやアップロード／組み合わせ）。23 電子カルテベンダーと版、HIS は自社開発かベンダー製か。24 SS-MIX2：ストレージのルートパス、ベンダー、標準化ストレージの版、拡張ストレージの有無、標準病名と JLAC10 コードの有無（常に／時々／なし）、削除フラグの使用。25 CSV・SQL ビュー：テーブル一覧、各テーブルのヘッダ行のみ（データなし）、日付形式（ISO／和暦）、文字コード（UTF-8／Shift_JIS／CP932）、区切り文字。26 FHIR：ベース URL または出力パス、FHIR の版、プロファイル（JP Core）、一括出力の可否、認証。27 フィードの頻度（毎夜／毎週／一回限り）、実行者、ボックスへの受け渡し方法（LAN 共有／SFTP／USB）。28 フィードに含まれる履歴の年数と、電子化が始まった年（EMR since）。それ以前は紙かスキャンか。29 受診ごとの主治医・オーダー医の有無と信頼性。職員名簿（ID、氏名、診療科）を出力できるか。30 予約情報（将来の受診）の有無。31 フィードに含まれる記録の種類（経過記録、退院サマリ、コンサルト、看護記録、レポート）と文字コード。32 検査：ローカル検査コード（JLAC10、院内コード）、分析項目ごとの報告単位（CRP mg/dL か mg/L、クレアチニン mg/dL か µmol/L、2012 年以前の HbA1c は JDS か）、検査マスタの出力（コード、名称、単位）。33 病名：ICD-10 の版、標準病名の ICD-10 付与の有無、疑い病名フラグの有無。34 薬剤：コード体系（YJ／HOT／院内）、ATC の有無。35 オプトアウト：研究利用拒否の記録場所（カルテのフラグが出力される／ベンダー項目で出力されない／医事課の紙／なし）。36 死亡：フィードでの死亡の表現、院外死亡の記録の有無。37 匿名化した 10 名分のサンプルの提供可能日と契約。38 既知のデータ品質の問題（コード欠落、部門マスタの不備、日付の欠落、表記の揺れ）。
-
-### B.5 治験システム（質問 39〜44）
-
-39 REDCap：版、URL、テスト用プロジェクトの有無、API の有効化、API トークンの発行者、縦断プロジェクトと反復インストゥルメントの使用。40 対象試験で使用する依頼者 EDC（名称、ODM 取込の可否、週次出力の可否）。41 スクリーニングログと登録ログの現在の保管方法（Excel／REDCap／紙）と列構成（空のテンプレートを添付）。42 分担医師・協力者リストの管理者、形式、GCP 研修記録の形式。43 現在、患者に声をかける前に主治医へどのように了承を得ているか（電話／対面／カルテのメッセージ）。44 薬剤部：治験薬の調剤日を出力できるか。
-
-### B.6 医療情報部とネットワーク（質問 45〜63）
-
-45 **ホスティング**：Aimedics が納入するアプライアンス（日本）／病院の共用 GPU サーバ／暫定ホスティングとしての病院プライベートクラウド（GPU 付き）。46 共用・クラウドの場合：コンテナ基盤（Docker／Kubernetes／その他）、GPU の種類と数、TrialBox に割り当てる**固定 GPU クォータ**（メモリ GB、SM の割合または MIG）、CPU と RAM のクォータ、ストレージの種類と容量（全履歴・5 万人で 2 TB）、ネームスペースの作成者。47 共用・クラウドの場合：ホスト OS、コンテナランタイム、GPU ドライバのパッチ適用者、保守時間帯、変更前の TrialBox への通知方法。48 共用・クラウドの場合：他テナントとの分離（ネームスペース、ネットワークポリシー、ストレージ暗号化、ホストの root 権限者）、識別可能な患者データの取り扱いが承認されたホストか（承認文書）。49 アプライアンスの場合：納入先住所、受領担当、設置場所、電源と UPS、病院が求める Windows 11 のエディション、BitLocker 回復キーの預託手順。50 端末登録：臨床ネットワークへの新規端末の申請様式、所要期間、病院が求めるセキュリティソフト。51 ネットワーク：TrialBox を置くセグメント／VLAN、コンソールに到達する端末（外来 PC、医師の端末）、ファイアウォール変更の手続きと所要期間。52 院内でのコンソールの DNS 名と証明書（院内 CA／公的 CA／Caddy 内部 CA を外来 PC に配布）。53 ディレクトリ：AD/LDAP でのサインインの可否、バインド用サービスアカウント、役割ごとのグループ名、病院の多要素認証の方針。54 メール：ボックスからの送信に使う SMTP リレーのホストとポート、受付用メールボックスの有無、リンク付きメールの可否。55 院内の NTP サーバ。56 バックアップ先：暗号化した夜間バックアップ用の NAS 共有または USB ディスク、バックアップ秘密鍵の封筒の保管者。57 ボックスからのインターネット接続：なし（既定、登録情報はオフラインパックから）／ClinicalTrials.gov のみ許可。58 リモート支援の方針：なし／患者データを含まない画面共有を承認する者。59 医師の端末経路：コンソールの開き方（電子カルテ横の外来 PC／病院の端末／院内 Wi-Fi または VPN の私用端末）、その端末で TOTP アプリが使えるか。60 電子カルテ連携：URL または ID のコピーで患者を開けるか（ベンダー／版／不可）。61 稼働前の脆弱性診断・セキュリティ審査：要否、実施者、所要期間、合格条件。62 インシデント報告：病院の窓口と報告期限。63 廃棄：ディスクとバックアップ媒体の廃棄規則。
-
-### B.7 運用（質問 64〜68）
-
-64 外来 PC で電子カルテの横に TrialBox の画面を開けるか。65 CRC が案内カードと外来日のスリップを印刷できるプリンタ。66 業務量ベースライン測定に使える通常の 2 週間（年末年始を除く）。67 スチュワード、CRC、医師、管理者、IT の研修日程。68 計画内で希望する稼働開始週（日本は CGMH の翌週）。
-
-### B.8 添付と署名
-
-添付：倫理審査承認書と募集方法に関するプロトコル本文（12〜15）、説明同意文書の版一覧（17）、データを含まないテーブルヘッダまたはストレージ一覧（24〜26）、検査マスタ（32）、職員名簿の出力形式（29）、スクリーニングログのテンプレート（41）、端末登録様式（50）、共用ホストの基盤説明（46〜48）。署名：医療情報部責任者、治験責任医師、データスチュワード、Aimedics。
-
-## C. 繁體中文
-
-### C.1 使用方式
-
-請回答每一題。「不確定」也是答案，請寫明由誰在何時確認。要求附件處請附上文件。本表與附件不得含任何病人資料；10 位病人的樣本依資料處理契約另行交付，院方要求時先去識別化。填妥後由資訊室主管與試驗主持人簽署，存入該院的發布紀錄。
-
-### C.2 聯絡人（問題 1〜10）
-
-1 試驗主持人、科別、電子郵件。2 資料管理人（院方指定、掌管 TrialBox 資料庫的人員）。3 臨床試驗中心／研究部窗口（授權名冊、IRB 送件、請款）。4 資訊室：設備登錄、網路、目錄服務（AD/LDAP）、憑證。5 資訊室：資安審查、弱點掃描（如需要）、事件通報。6 資料來源負責單位（產出 HIS 匯出、SQL 檢視表或 FHIR 的團隊）。7 個資保護人員。8 REDCap 管理者（如使用）。9 藥局窗口（僅供試驗用藥給藥日期的輸入）。10 代表醫院簽署資料處理契約與平台授權契約的人。
-
-### C.3 IRB 與法律依據（問題 11〜21）
-
-11 本次試行的 IRB 核准編號、日期與到期日。12 核准的計畫書是否載明「以 TrialBox 篩選院內病歷」為收案方法（是／否／不確定：附上原文）。13 核准是否涵蓋**全院篩選**（含主持人科別以外的病人）。14 核准是否涵蓋**病人概況**（由模型撰寫、研究人員閱讀、逐句引用病歷的病人摘要）。15 核准是否包含既有病歷研究使用的退出（opt-out）公告，公告於何處。16 若 12〜15 任一非「是」：下次 IRB 會議日期與修正案送件截止日。17 各試驗核准的受試者同意書版本（版本、日期、語言）。18 院內關於可識別狀態下預先篩選的規定（誰可開啟哪些病歷，是否需按專案申請）。19 個資保護人員對含再識別之預先篩選所依據的法律基礎（醫療關係加 IRB 核准；其他）。20 本院 SAE 通報規則：對試驗委託者、IRB、主管機關的天數（死亡或危及生命／其他嚴重）。21 各試驗的紀錄保存年限。
-
-### C.4 資料來源（問題 22〜38）
-
-22 起始輸入方式（院內資料庫 CSV 匯出／HIS SQL 檢視表／SS-MIX2／FHIR 批次匯出／試算表／逐份貼上或上傳病歷／混合）。23 電子病歷廠商與版本；HIS 為自建或廠商。24 SS-MIX2（如適用）：儲存根路徑、廠商、版本、延伸儲存、標準病名與 JLAC10 的有無、刪除旗標。25 CSV 或 SQL 檢視表：資料表清單、每表一列欄位名（不含資料）、日期格式（ISO／民國 7 碼）、編碼（UTF-8／Big5）、分隔符。26 FHIR：基底 URL 或匯出路徑、FHIR 版本、profile（TW Core）、是否支援批次匯出、認證方式。27 匯出頻率（每夜／每週／一次性）、執行者、送達方式（LAN 共享／SFTP／USB）。28 匯出涵蓋的年份，以及電子病歷起始年；更早的紀錄為紙本或掃描。29 每次就診是否含主治或開單醫師，可靠程度；是否可匯出人員名冊（代號、姓名、科別）。30 是否含預約（未來就診）來源。31 病歷文字類型（病程、出院摘要、會診、護理、報告）與編碼；是否中英夾雜。32 檢驗：本地檢驗代碼（健保醫令碼、院內碼）、各項目的報告單位（CRP mg/dL 或 mg/L；肌酸酐 mg/dL 或 µmol/L）、檢驗項目表匯出（代碼、名稱、單位）。33 診斷：各年度使用的 ICD-10-CM 版本（2014／2023）、疑似診斷旗標。34 藥品：代碼系統（健保藥品碼／院內碼）、是否含 ATC。35 退出（opt-out）：研究使用退出登錄於何處（病歷旗標且有匯出／廠商欄位未匯出／病歷室紙本／無）。36 死亡：匯出中如何呈現死亡；院外死亡是否記錄。37 可提供去識別化 10 位病人樣本的日期與依據契約。38 已知的資料品質問題。
-
-### C.5 試驗系統（問題 39〜44）
-
-39 REDCap：版本、URL、測試專案、API 是否開啟、API token 核發者、縱貫型專案與重複表單使用情形。40 本次試驗使用的委託者 EDC（名稱、是否支援 ODM 匯入、是否可每週匯出）。41 目前篩選紀錄與收案紀錄的保存方式（Excel／REDCap／紙本）與欄位格式（附空白範本）。42 授權名冊由誰保管、格式、GCP 訓練證明格式。43 目前接觸病人前如何徵得主治醫師同意（電話／當面／病歷訊息）。44 藥局：是否可匯出試驗用藥給藥日期。
-
-### C.6 資訊室與網路（問題 45〜63）
-
-45 **主機方式**：Aimedics 供應的專用主機（日本）／院方與其他工作共用的 GPU 伺服器（長庚：B200 伺服器）／暫時使用院方具 GPU 的私有雲。46 共用或私有雲：容器平台（Docker／Kubernetes／其他）、GPU 型號與數量、分配給 TrialBox 的**固定 GPU 配額**（記憶體 GB、SM 比例或 MIG 切片）、CPU 與 RAM 配額、儲存類別與容量（5 萬病人全部歷史需 2 TB）、由誰建立 namespace 或專案。47 共用或私有雲：主機作業系統、容器執行環境、GPU 驅動程式由誰更新；維護時段；變更前如何通知 TrialBox。48 共用或私有雲：與其他租戶的隔離（獨立 namespace、網路政策、儲存加密、誰擁有主機 root）；該主機是否已核准處理可識別病人資料（附核准文件）。49 專用主機：送達地址、收貨人、機櫃或桌面、電源與 UPS、院方要求的 Windows 11 版本、BitLocker 復原金鑰託管程序。50 設備登錄：臨床網路新設備的申請表、前置時間、院方要求安裝的資安軟體。51 網路：TrialBox 所在網段／VLAN；需連到主控台的端末（門診電腦、醫師手機）；防火牆變更流程與前置時間。52 院內主控台的 DNS 名稱與憑證（院內 CA／公開 CA／Caddy 內部 CA 佈署至門診電腦）。53 目錄服務：是否可用 AD/LDAP 登入；綁定用服務帳號；各角色群組名稱；院方多因子驗證政策。54 郵件：主機對外寄信的 SMTP 中繼主機與連接埠；是否有收件信箱；是否允許含連結的郵件。55 院內 NTP 伺服器。56 備份目標：加密每夜備份用的 NAS 共享或 USB 磁碟；備份私鑰信封由誰保管。57 主機對外網際網路：無（預設；登錄資料來自離線資料包）／僅允許 ClinicalTrials.gov。58 遠端協助政策：無／不含病人資料之螢幕分享由誰核准。59 主持人裝置路徑：如何開啟主控台（電子病歷旁的門診電腦／院方手機／院內 Wi-Fi 或 VPN 的個人手機）；該裝置可否安裝 TOTP 應用程式。60 電子病歷連動：能否以 URL 或複製的病歷號開啟病人（廠商／版本／不可）。61 上線前弱點掃描或資安審查：是否需要、執行者、前置時間、通過標準。62 事件通報：院方窗口與時限；醫院是否為資通安全管理法之特定非公務機關。63 汰除：磁碟與備份媒體的銷毀規則。
-
-### C.7 營運（問題 64〜68）
-
-64 門診電腦能否將 TrialBox 頁面開在電子病歷旁。65 CRC 可用於列印提醒卡與門診日清單的印表機。66 可供工作量基準量測的兩個正常週（避開農曆新年）。67 資料管理人、CRC、主持人、管理者、IT 的訓練日期。68 計畫內偏好的上線週（長庚於 2027-02-05 前）。
-
-### C.8 附件與簽署
-
-附件：IRB 核准函與計畫書中有關收案方法的原文（12〜15）、同意書版本清單（17）、不含資料的資料表欄位名或儲存清單（24〜26）、檢驗項目表（32）、人員名冊匯出格式（29）、篩選紀錄範本（41）、設備登錄表（50）、共用主機的平台說明（46〜48）。簽署：資訊室主管、試驗主持人、資料管理人、Aimedics。

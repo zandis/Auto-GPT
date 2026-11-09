@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Document ID | TB-SITE-02 |
-| Version | 0.1 (draft, 2026-11-09) |
+| Version | 0.2 (2026-11-09; revised after the independent plan review PR-10, PR-13, PR-19, PR-28, PR-30) |
 | Owner | Changfu Kuo (Aimedics) |
 | For | the hospital's IT department (医療情報部 / 資訊室), its security officer and its privacy office |
 | Status | Draft. Handed over in W1 as the basis of the IT review; completed with the site's own values and the generated sheets before IQ. Items marked *(generated)* come from the box or the release record; items marked *(at IQ)* are filled on site. |
@@ -19,8 +19,9 @@ TrialBox is research-support software run inside the hospital. It reads a copy o
 
 | Form | Where | What the hospital provides | What Aimedics provides |
 | --- | --- | --- | --- |
-| **Appliance** (Japan site) | a dedicated workstation in the hospital's network: RTX PRO 6000 class GPU, 256 GB RAM, 2 × 2 TB NVMe (mirrored), UPS; Windows 11 Pro or Enterprise with WSL2; room for a second GPU | rack or desk, power, network port, device registration, BitLocker recovery-key escrow, NTP, a backup share | the box pre-installed from signed offline media; the install checklist; the printed sheets |
-| **Containers on the hospital's shared GPU server** (CGMH: the B200 server, shared with other work) | the hospital's container platform with a fixed GPU quota, a namespace or project for TrialBox, encrypted storage, network policy | the platform, the quota, patching of host OS, runtime and GPU driver, the namespace, storage, isolation from other tenants, the approval for identified patient data on that host | the signed container images and compose or Kubernetes manifests, the install checks that run on the platform (IQ), the network policy the images need, the release record |
+| **Appliance** (Japan site; the form is decided after the DGX Spark benchmark, TB-PLAN-05 §1.6) | either a DGX Spark (the model pair) linked by an encrypted link to a CPU workstation (Postgres, DuckDB, the console, backups), or one RTX PRO 6000 class workstation; RAM 128 or 256 GB and disk 2 × 2 TB or 2 × 4 TB per the survey's volumes (question 25, 54); UPS; Windows 11 Pro or Enterprise with WSL2 on the workstation; the Spark runs its own Linux | rack or desk, power, network port, device registration for one or two devices, BitLocker recovery-key escrow, NTP, a backup share | the devices pre-installed from signed offline media; the install checklist; the printed sheets |
+| **Host OS lifecycle** (appliance) | the Windows host receives security updates as a monthly offline bundle delivered with the TrialBox release (or through the hospital's WSUS if the device may reach it); the hospital's EDR or antivirus agent is allowed on the host with a documented WSL2 exclusion list; the Windows administrator account is held by hospital IT with the password in the key envelope; the Spark's Linux is updated by the same signed release | WSUS or none; the EDR agent and its exclusion list; the administrator account custody | the monthly bundle; the exclusion list; a line in the responsibility-boundary sheet |
+| **Containers on the hospital's shared GPU server** (CGMH: the B200 server, shared with other work) | the hospital's container platform with a **dedicated MIG partition** for TrialBox (memory-isolated; a time-slice of SMs is not accepted for patient data), a namespace or project, an encrypted storage class, network policy; the model pair qualified beforehand on a rented cloud B200 with the same MIG profile | the platform, the MIG partition, patching of host OS, runtime and GPU driver, the namespace, storage, isolation from other tenants, the approval for identified patient data on that host, a KMS or HSM for the key-encryption key where the hospital has one | the signed container images and compose or Kubernetes manifests, the install checks that run on the platform (IQ), the network policy the images need, the release record, the B200 qualification record |
 | **Interim hosting on the hospital's private cloud with GPU** | until the appliance or the quota is ready, where the site has a private cloud approved for patient data | the same as for the shared server, plus a migration window | the same images; a backup-and-restore migration to the final host |
 
 ### A.3 Network and ports *(generated: `docs/handover/network-sheet.*`)*
@@ -59,11 +60,12 @@ Sign-in through the hospital's directory (AD/LDAP or OIDC) with a second factor 
 
 | Topic | Rule | Who |
 | --- | --- | --- |
-| Isolation | TrialBox runs in its own namespace or project; network policy allows only §A.3; storage is its own encrypted volume; no other tenant can read TrialBox volumes; TrialBox cannot read other tenants' | hospital platform team sets; Aimedics verifies at IQ |
-| GPU quota | a fixed quota (memory and compute slice) reserved for TrialBox's two models and nightly jobs; the quota is recorded in the release record; a quota change is a change-controlled event | hospital platform team |
-| Root and administration | the hospital's platform administrators have root on the host; they are named in the responsibility-boundary sheet and their access to TrialBox volumes is logged by the platform | hospital |
+| Isolation | TrialBox runs in its own namespace or project; network policy allows only §A.3; storage is its own encrypted volume; no other tenant can read TrialBox volumes; TrialBox cannot read other tenants' | hospital platform team sets; Aimedics **verifies what it can reach** (egress, an inbound probe from a second namespace, the quota refusal, the image digests) and **receives evidence for the rest** (the storage class specification and its encryption setting, a CIS Kubernetes or Docker benchmark output, a sample of the platform audit log showing a root access to the volume, the MIG configuration dump), attached to the signed supplier assessment at IQ |
+| GPU partition | a dedicated MIG partition (memory-isolated) reserved for TrialBox's two models and nightly jobs; recorded in the release record; a change is change-controlled and re-runs the install checks and the canary | hospital platform team |
+| Key custody | the key-encryption key for the pid map, the site keys and the `phi` files is never a plain platform Secret: where the hospital operates a KMS or HSM, the KEK lives there and the pod unwraps at start under the platform's audit; otherwise the steward (and at CGMH the second reviewer, 2-of-3 shares with the 資訊室) unseals the key at pod start, the key lives only in the pod's memory (tmpfs, no Secret object), and a restart needs a steward; platform administrators who can read pod memory are named individually in the DPA and the responsibility-boundary sheet, and every secret read the platform logs is alerted to the steward | hospital (KMS) or steward (unseal); Aimedics builds the unseal path |
+| Root and administration | the hospital's platform administrators have root on the host; they are named in the responsibility-boundary sheet and their access to TrialBox volumes is logged by the platform; the first-call contact when the morning mail does not arrive is named there too | hospital |
 | Patching | host OS, container runtime, GPU driver and platform: the hospital, in announced windows; TrialBox images: Aimedics by signed release; a driver or runtime change re-runs the install checks and the model canary | both, per the responsibility-boundary sheet |
-| Install checks | the IQ protocol runs on the platform: image digests, quota, network policy, storage encryption, NTP, directory, mail relay, backup target, the serving record on the quota, the canary | Aimedics executes, hospital IT witnesses |
+| Install checks | the IQ protocol runs on the platform: image digests, the MIG partition, network policy, NTP, directory, mail relay, backup target, the serving record on the partition, the canary with the other tenants running; storage encryption and root logging by evidence (above) | Aimedics executes (a person who is not the approver of the release record), hospital IT witnesses |
 | Incidents | a platform incident that could touch TrialBox volumes is reported to Aimedics and the privacy office within the hospital's clock; TrialBox incidents the other way | both |
 | Supplier assessment | the hospital platform is a GAMP 5 category 1 (infrastructure) or 4 (configured platform) component owned by the hospital; its configuration is recorded and verified at IQ, not functionally tested | Aimedics records; hospital confirms |
 
@@ -73,7 +75,19 @@ Every release has an identity (`release.json`: release id, git commit, image dig
 
 ### A.8 Monitoring, backup, support
 
-The administrator page shows health, disk, GPU, the last backup and its age, the last ingest, the audit chain verification and every timer's last run; a daily health mail; an optional `/metrics` endpoint for the hospital's monitoring. Backups run nightly to the hospital's share, compressed and encrypted; a restore drill runs at IQ and quarterly with hospital IT. Support: a named contact per country, business hours in the site's language, a ticket channel, a PHI-free support bundle the administrator generates; no remote access.
+The administrator page shows health, disk, GPU, the last backup and its age, the last ingest, the audit chain verification and every timer's last run; a daily health mail; an optional `/metrics` endpoint and a syslog forwarder for the hospital's monitoring or SIEM (JSON lines, no patient data). Backups run nightly to the hospital's share, compressed and encrypted; **RPO 24 hours** (what is lost in the worst case: one night's ingest, which the next feed replays, and one day's marks and entries, which the audit chain lists); **RTO 4 hours** on the same hardware from the hospital's share and key (measured in the restore drill), longer if the hardware must be replaced; a restore drill runs at IQ and quarterly with hospital IT. Support: a named contact per country, business hours in the site's language, a ticket channel, a PHI-free support bundle the administrator generates; no remote access.
+
+### A.8a Operations and people
+
+| Topic | Answer |
+| --- | --- |
+| Session controls | sessions end after 8 hours; an idle lock after 10 minutes on shared clinic PCs (configurable per site, never longer than the hospital's policy); re-authentication before a reveal, an export and a signature; one person per account, never a shared account |
+| Password policy | at least 12 characters, a breached-password list, last-5 history, a forced change at first sign-in, per-IP delay and lockout with an alert; with the hospital's directory, its policy applies instead |
+| Account lifecycle | with AD/LDAP or OIDC, leaving staff lose access when the directory disables them; with local accounts, the trial office's monthly delegation-log comparison lists accounts to close and the administrator closes them the same day; accounts for SMO staff and monitors expire with the contract |
+| Vendor people on site | named in the survey (question 69): who, for which steps (install, IQ, OQ, training, PQ support), with the hospital's visitor badge and accounts the hospital issues and closes; no standing vendor account; no remote access |
+| Support organisation | a Japanese-speaking first line in JST business hours and a zh-TW line in Taiwan hours, each one named person with a named backup; a ticket channel; severity-based response and resolution times in the SLA; a hardware RMA path; the on-call rota for the first month after go-live is attached to the responsibility-boundary sheet |
+| AI in development | TrialBox is developed with AI coding agents under human review; **no agent, developer, repository, build system or log ever receives hospital data** (the data-handling rule TB-SITE-03); agents work from synthetic data and from the hospital's schema and code lists only |
+| Logs to the hospital | service logs (patient-data scrubbed) can be forwarded as syslog or JSON lines to the hospital's SIEM; the audit chain's daily signed head is written to the hospital's share |
 
 ### A.9 Evidence in the pack *(attached before IQ)*
 
@@ -98,7 +112,7 @@ The administrator page shows health, disk, GPU, the last backup and its age, the
 
 | Question | Answer |
 | --- | --- |
-| Does patient data leave the hospital? | No. Nothing leaves the box or the hospital's platform. Mail carries pseudonyms and links. Aimedics has no remote access and never holds patient data. |
+| Does patient data leave the hospital? | No. Nothing leaves the box or the hospital's platform. Mail carries pseudonyms and links. Aimedics has no remote access and never holds patient data. During the build, developers and AI agents never receive hospital data: they work from synthetic data and the hospital's schema and code lists; the real samples are read on the hospital's hardware by the steward after the agreement is signed and only the adapter's report (counts, no values) leaves (data-handling rule TB-SITE-03). |
 | Does the AI send text to a cloud? | No. Two open-weight models run on the hospital's GPU; prompts with patient text are refused for any external route by a policy the box enforces. |
 | Who can see chart numbers? | The steward, and the study's PI, sub-investigators and coordinators within their studies, after sign-in with a second factor, with a reason, rate-limited and audited. Viewers, sponsors and administrators never. |
 | Can we audit who read a chart and why? | Yes: a report per patient and period from the signed audit chain, kept 10 years. |
@@ -131,7 +145,7 @@ TrialBox は病院内で動く臨床研究支援ソフトウェアです。病�
 
 ### B.6 共用ホストの規則（長庚 B200 および私設クラウド）
 
-分離：TrialBox 専用のネームスペース、§B.3 のみを許すネットワークポリシー、専用の暗号化ボリューム、他テナントとの相互読み取り不可（病院の基盤チームが設定、Aimedics が IQ で検証）。GPU クォータ：2 モデルと夜間処理のための固定クォータをリリース記録に記載、変更は変更管理の対象。root と管理：病院の基盤管理者がホストの root を持ち、責任分界表に氏名を記載、TrialBox ボリュームへのアクセスは基盤側で記録。パッチ：ホスト OS・ランタイム・GPU ドライバ・基盤は病院が予告した時間帯に、TrialBox イメージは Aimedics が署名付きリリースで。ドライバやランタイムの変更後は導入チェックとモデルのカナリアを再実行。導入チェック（IQ）：イメージのダイジェスト、クォータ、ネットワークポリシー、ストレージ暗号化、NTP、ディレクトリ、メールリレー、バックアップ先、クォータ上でのサービング記録、カナリア。インシデント：TrialBox のボリュームに影響しうる基盤側インシデントは病院の期限内に Aimedics と個人情報保護管理者へ、逆も同様。供給者評価：病院の基盤は GAMP 5 カテゴリ 1（インフラ）または 4（構成済み基盤）の病院所有コンポーネントとして構成を記録し IQ で検証、機能試験は行いません。
+分離：TrialBox 専用のネームスペース、§B.3 のみを許すネットワークポリシー、専用の暗号化ボリューム、他テナントとの相互読み取り不可（病院の基盤チームが設定。Aimedics は IQ で到達できる範囲（外向き通信、別ネームスペースからの探査、クォータの拒否、イメージのダイジェスト）を検証し、残り（ストレージクラスの暗号化設定、CIS ベンチマーク結果、ボリュームへの root アクセスを示す基盤監査ログの抜粋、MIG 設定の出力）は基盤側の証拠として署名済み供給者評価に添付）。GPU パーティション：2 モデルと夜間処理のための**専用 MIG パーティション**（メモリ分離。SM の時分割は患者データには不可）をリリース記録に記載、変更は変更管理の対象で導入チェックとカナリアを再実行。鍵の保管：pid マップ、サイト鍵、`phi` ファイルの鍵暗号化鍵を基盤の Secret に平文で置かない。病院に KMS または HSM があればそこに保管し起動時に基盤の監査下で復号する。なければスチュワード（長庚では第二審査者と情報室で 2-of-3 分散）が pod 起動時に解錠し、鍵はメモリ（tmpfs）にのみ存在し、再起動にはスチュワードが必要。pod メモリを読める基盤管理者は DPA と責任分界表に個人名で記載し、基盤が記録するすべての secret 読み取りをスチュワードに通知する。root と管理：病院の基盤管理者がホストの root を持ち、責任分界表に氏名を記載、TrialBox ボリュームへのアクセスは基盤側で記録。パッチ：ホスト OS・ランタイム・GPU ドライバ・基盤は病院が予告した時間帯に、TrialBox イメージは Aimedics が署名付きリリースで。ドライバやランタイムの変更後は導入チェックとモデルのカナリアを再実行。導入チェック（IQ）：イメージのダイジェスト、クォータ、ネットワークポリシー、ストレージ暗号化、NTP、ディレクトリ、メールリレー、バックアップ先、クォータ上でのサービング記録、カナリア。インシデント：TrialBox のボリュームに影響しうる基盤側インシデントは病院の期限内に Aimedics と個人情報保護管理者へ、逆も同様。供給者評価：病院の基盤は GAMP 5 カテゴリ 1（インフラ）または 4（構成済み基盤）の病院所有コンポーネントとして構成を記録し IQ で検証、機能試験は行いません。
 
 ### B.7 リリース、更新、サプライチェーン
 
@@ -147,13 +161,13 @@ TrialBox は病院内で動く臨床研究支援ソフトウェアです。病�
 
 ### B.10 よくある質問への回答
 
-患者データは病院外に出ますか：出ません。AI は文章をクラウドに送りますか：送りません。2 つのオープンウェイトモデルが病院の GPU で動き、患者文章を含む入力は外部経路では拒否されます。患者番号を見られるのは誰ですか：スチュワードと、当該試験の責任医師・分担医師・コーディネーターが、第二要素サインイン後、理由を記録し、回数制限と監査のもとで。閲覧者、依頼者、管理者は見られません。誰がどのカルテをなぜ読んだか監査できますか：できます。署名付き監査チェーンから患者・期間ごとの報告を出せ、10 年保存します。更新はどう届き検証されますか：USB またはファイル共有の署名付きファイル。変更前に署名とハッシュを検証、一手順でロールバック。本体やディスクが失われたら：アプライアンスは BitLocker と預託鍵、ラップされたアプリ鍵。共用ホストは基盤の暗号化ストレージ。バックアップは病院のみが持つ鍵で暗号化。医療機器ですか：いいえ。診断・治療・適格性判定・治療推奨・医師への警告・患者連絡を行わず、すべての出力は有資格者が確認します。該当性に関する文書化された見解を取得中です。準拠する基準：GAMP 5（施設での IQ/OQ/PQ）、ISO 14971 型のリスク文書、プロファイルモジュールの IEC 62304 型記録、研究記録経路の ER/ES 指針と Part 11 型管理、医療情報システムの安全管理に関するガイドライン 7.0 と 3省2ガイドライン、個人情報保護法、ICH E6(R3)。
+患者データは病院外に出ますか：出ません。開発中も開発者と AI エージェントは病院のデータに触れず、合成データと病院のテーブル構造・コード一覧のみを使います。実サンプルは契約締結後に院内機器上でスチュワードが読み込み、数値を含まない報告書だけが院外に出ます（データ取扱規則 TB-SITE-03）。AI は文章をクラウドに送りますか：送りません。2 つのオープンウェイトモデルが病院の GPU で動き、患者文章を含む入力は外部経路では拒否されます。患者番号を見られるのは誰ですか：スチュワードと、当該試験の責任医師・分担医師・コーディネーターが、第二要素サインイン後、理由を記録し、回数制限と監査のもとで。閲覧者、依頼者、管理者は見られません。誰がどのカルテをなぜ読んだか監査できますか：できます。署名付き監査チェーンから患者・期間ごとの報告を出せ、10 年保存します。更新はどう届き検証されますか：USB またはファイル共有の署名付きファイル。変更前に署名とハッシュを検証、一手順でロールバック。本体やディスクが失われたら：アプライアンスは BitLocker と預託鍵、ラップされたアプリ鍵。共用ホストは基盤の暗号化ストレージ。バックアップは病院のみが持つ鍵で暗号化。医療機器ですか：いいえ。診断・治療・適格性判定・治療推奨・医師への警告・患者連絡を行わず、すべての出力は有資格者が確認します。該当性に関する文書化された見解を取得中です。準拠する基準：GAMP 5（施設での IQ/OQ/PQ）、ISO 14971 型のリスク文書、プロファイルモジュールの IEC 62304 型記録、研究記録経路の ER/ES 指針と Part 11 型管理、医療情報システムの安全管理に関するガイドライン 7.0 と 3省2ガイドライン、個人情報保護法、ICH E6(R3)。
 
 ## C. 繁體中文
 
 ### C.1 TrialBox 是什麼
 
-TrialBox 是在醫院內運行的臨床研究支援軟體。它讀取醫院自有病歷的副本（每夜匯出、HIS 檢視表或 FHIR 匯出），在入口將病歷號換成假名，維護去識別化的研究資料庫，計算並列出可能符合研究收案條件的病人，為研究人員撰寫逐句引用的摘要，並草擬研究紀錄值供研究協調員確認。兩個語言模型在醫院的 GPU 上執行，文字不離開醫院。由主持人判斷；TrialBox 不寫入電子病歷，不聯繫病人。本軟體非醫療器材，不作為診斷依據。
+TrialBox 是在醫院內運行的臨床研究支援軟體。它讀取醫院自有病歷的副本（每夜匯出、HIS 檢視表或 FHIR 匯出），在入口將病歷號換成假名，維護**假名化**（而非去識別化）的研究資料庫：經授權的角色（資料管理人、該研究的主持人、協同主持人與研究協調員）可透過保存在院方平台的金鑰再識別病人，每次再識別皆留下稽核紀錄；「去識別化」僅適用於 §C.5 所述離開研究團隊的匯出。它計算並列出可能符合研究收案條件的病人，為研究人員撰寫逐句引用的摘要，並草擬研究紀錄值供研究協調員確認。兩個語言模型在醫院的 GPU 上執行，文字不離開醫院。由主持人判斷；TrialBox 不寫入電子病歷，不聯繫病人。本軟體非醫療器材，不作為診斷依據。
 
 ### C.2 佈署形式
 
@@ -165,7 +179,7 @@ TrialBox 是在醫院內運行的臨床研究支援軟體。它讀取醫院自�
 
 ### C.4 身分與存取
 
-透過醫院目錄服務（AD/LDAP 或 OIDC）加第二因子（TOTP 或 WebAuthn）登入；無目錄服務時使用本地帳號加 TOTP。角色：資料管理人、試驗主持人、協同主持人（依授權）、研究協調員、主治醫師、監測員、檢視者、管理者。管理者看不到病人資料。每次檢視病人、揭露病歷號、匯出與簽署都連同人員、角色、理由與時間留下稽核紀錄，保存 10 年。揭露有速率限制；存取名單外的病人需第二人核准（break-glass）且 24 小時失效。限定試驗且有期限的帳號適用於監測員。
+透過醫院目錄服務（AD/LDAP 或 OIDC）加第二因子（TOTP 或 WebAuthn）登入；無目錄服務時使用本地帳號加 TOTP。角色：資料管理人、試驗主持人、協同主持人（依授權）、研究協調員、主治醫師、監測員、檢視者、管理者。管理者看不到病人資料。限定試驗且有期限的帳號適用於 SMO 人員與監測員。每次檢視病人、揭露病歷號、匯出與簽署都連同人員、角色、理由與時間留下稽核紀錄，保存 10 年。揭露有速率限制；存取名單外的病人需第二人核准（break-glass）且 24 小時失效。限定試驗且有期限的帳號適用於監測員。
 
 ### C.5 資料保護
 
@@ -173,7 +187,7 @@ TrialBox 是在醫院內運行的臨床研究支援軟體。它讀取醫院自�
 
 ### C.6 共用主機規則（長庚 B200 與任何私有雲）
 
-隔離：TrialBox 使用專用 namespace；網路政策僅允許 §C.3；專用加密儲存卷；其他租戶無法讀取 TrialBox 的儲存卷，TrialBox 亦無法讀取他人的（院方平台團隊設定，Aimedics 於 IQ 驗證）。GPU 配額：為兩個模型與夜間作業保留固定配額（記憶體與運算切片），記錄於發布紀錄；配額變更屬變更管制事件。Root 與管理：院方平台管理者擁有主機 root，列名於責任分界表，其對 TrialBox 儲存卷的存取由平台記錄。更新：主機作業系統、容器執行環境、GPU 驅動程式與平台由院方在公告時段更新；TrialBox 映像由 Aimedics 以簽署發布更新；驅動程式或執行環境變更後重新執行安裝檢查與模型金絲雀測試。安裝檢查（IQ）：映像摘要、配額、網路政策、儲存加密、NTP、目錄服務、郵件中繼、備份目標、配額上的服務紀錄、金絲雀測試。事件：可能影響 TrialBox 儲存卷的平台事件在院方時限內通報 Aimedics 與個資保護人員，反之亦然。供應商評估：院方平台視為 GAMP 5 第 1 類（基礎設施）或第 4 類（已設定平台）的院方自有元件，記錄其設定並於 IQ 驗證，不做功能測試。
+隔離：TrialBox 使用專用 namespace；網路政策僅允許 §C.3；專用加密儲存卷；其他租戶無法讀取 TrialBox 的儲存卷，TrialBox 亦無法讀取他人的（院方平台團隊設定；Aimedics 於 IQ 驗證其可觸及的部分（對外連線、自另一 namespace 的探測、配額拒絕、映像摘要），其餘（儲存類別的加密設定、CIS 基準結果、平台稽核紀錄中 root 存取儲存卷的樣本、MIG 設定輸出）由平台提供證據並附於簽署的供應商評估）。GPU 分割：為兩個模型與夜間作業保留**專用 MIG 分割**（記憶體隔離；SM 時間切片不適用於病人資料），記錄於發布紀錄；變更屬變更管制事件並重跑安裝檢查與金絲雀測試。金鑰保管：pid 對照表、站點金鑰與 `phi` 檔案的金鑰加密金鑰不以平台 Secret 明文存放；院方如有 KMS 或 HSM 則存於其中並在平台稽核下於啟動時解封；否則由資料管理人（長庚另加第二審核人，與資訊室 2-of-3 分持）於 pod 啟動時解封，金鑰僅存在記憶體（tmpfs），重啟需資料管理人；可讀取 pod 記憶體的平台管理者於 DPA 與責任分界表逐一列名，平台記錄的每次 secret 讀取皆通知資料管理人。Root 與管理：院方平台管理者擁有主機 root，列名於責任分界表，其對 TrialBox 儲存卷的存取由平台記錄。更新：主機作業系統、容器執行環境、GPU 驅動程式與平台由院方在公告時段更新；TrialBox 映像由 Aimedics 以簽署發布更新；驅動程式或執行環境變更後重新執行安裝檢查與模型金絲雀測試。安裝檢查（IQ）：映像摘要、配額、網路政策、儲存加密、NTP、目錄服務、郵件中繼、備份目標、配額上的服務紀錄、金絲雀測試。事件：可能影響 TrialBox 儲存卷的平台事件在院方時限內通報 Aimedics 與個資保護人員，反之亦然。供應商評估：院方平台視為 GAMP 5 第 1 類（基礎設施）或第 4 類（已設定平台）的院方自有元件，記錄其設定並於 IQ 驗證，不做功能測試。
 
 ### C.7 發布、更新與供應鏈
 
@@ -189,4 +203,4 @@ TrialBox 是在醫院內運行的臨床研究支援軟體。它讀取醫院自�
 
 ### C.10 常見問題的回答
 
-病人資料會離開醫院嗎：不會。AI 會把文字送到雲端嗎：不會；兩個開放權重模型在院方 GPU 上執行，含病人文字的提示在任何外部路徑都被拒絕。誰能看到病歷號：資料管理人，以及該試驗的主持人、協同主持人與研究協調員，在第二因子登入、記錄理由、速率限制與稽核下；檢視者、委託者與管理者不能。能否稽核誰為何讀了哪份病歷：能，自簽署的稽核鏈產出每位病人、每段期間的報告，保存 10 年。更新如何送達與驗證：USB 或檔案共享上的簽署檔案，變更前驗證簽章與雜湊，一步回復。主機或磁碟遺失怎麼辦：專用主機有 BitLocker 與託管金鑰及包裝的應用金鑰；共用主機有平台加密儲存；備份以僅院方持有的金鑰加密。是醫療器材嗎：不是；不診斷、不治療、不判定資格、不建議治療、不警示醫師、不聯繫病人；所有輸出由合格人員審閱；正在尋求書面的法規見解。遵循哪些標準：GAMP 5（院內 IQ/OQ/PQ）、ISO 14971 型風險檔、概況模組的 IEC 62304 型紀錄、研究紀錄路徑的 ER/ES 與 Part 11 型控制、個人資料保護法、醫療法與電子病歷辦法、資通安全管理法的供應商義務、ICH E6(R3)。
+病人資料會離開醫院嗎：不會；開發期間開發人員與 AI 代理亦不接觸院方資料，僅使用合成資料與院方的欄位結構及代碼清單，真實樣本由資料管理人於契約簽署後在院方硬體上讀取，只有不含數值的報告離開（資料處理規則 TB-SITE-03）。本系統為假名化而非去識別化：經授權角色可在稽核下再識別。AI 會把文字送到雲端嗎：不會；兩個開放權重模型在院方 GPU 上執行，含病人文字的提示在任何外部路徑都被拒絕。誰能看到病歷號：資料管理人，以及該試驗的主持人、協同主持人與研究協調員，在第二因子登入、記錄理由、速率限制與稽核下；檢視者、委託者與管理者不能。能否稽核誰為何讀了哪份病歷：能，自簽署的稽核鏈產出每位病人、每段期間的報告，保存 10 年。更新如何送達與驗證：USB 或檔案共享上的簽署檔案，變更前驗證簽章與雜湊，一步回復。主機或磁碟遺失怎麼辦：專用主機有 BitLocker 與託管金鑰及包裝的應用金鑰；共用主機有平台加密儲存；備份以僅院方持有的金鑰加密。是醫療器材嗎：不是；不診斷、不治療、不判定資格、不建議治療、不警示醫師、不聯繫病人；所有輸出由合格人員審閱；正在尋求書面的法規見解。遵循哪些標準：GAMP 5（院內 IQ/OQ/PQ）、ISO 14971 型風險檔、概況模組的 IEC 62304 型紀錄、研究紀錄路徑的 ER/ES 與 Part 11 型控制、個人資料保護法、醫療法與電子病歷辦法、資通安全管理法的供應商義務、ICH E6(R3)。
