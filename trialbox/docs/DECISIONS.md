@@ -3444,3 +3444,39 @@ alert) are separate P0 items. Stored derived rows with provenance, `tb_score_def
 shipped mappings declare no `unit_defaults` yet: each site declares them in its survey (its lab lookup already
 carries a unit per analyte). The R-31 check of a row's own unit against the lookup's (WS-01.2) is still open for
 feed rows mapped through a lookup.
+
+**D-181 A judge bake-off that gates on wrong exclusions, with the box's own prompt and parser (no GPU yet).** Before
+a GPU run compares the current judge with `google/gemma-4-31B-it`, the comparison has to measure what matters for
+screening, on a fixed set, through any OpenAI-compatible endpoint.
+
+1. *The tool.* `tools/judge_bakeoff.py` puts every item through `NoteJudge.judge_excerpts` with one judge and no
+   verifier: the registry prompt `judge` (newest version), `tb_common.llm.chat_json` (structured output, schema check,
+   one retry) and `postprocess` (the quote must be in an excerpt, else unknown), then the product's `eligibility`. No
+   new prompt and no new parser.
+2. *The set.* The synthetic hospital set (`tools/make_judge_set.py`, planted truth, kind from the ruleset IR), MedTxt
+   (`tools/medtxt_eval.py` items, the strict slice, ja and en: positive pass, stated absent fail, suspected and not
+   mentioned unknown) and TREC CT (`tools/trec_ct_eval.py`, NIST-eligible pairs: no criterion should exclude).
+   `--write-set` freezes the set; results carry its SHA-256 and `--compare` warns when two runs used different sets.
+3. *The gate.* Wrong exclusions <= 2 % over the judge's exclusions on the synthetic and MedTxt items (Study A's
+   measure), with Wilson and patient-cluster 95 % intervals; an unknown answer never excludes (0); every response
+   reports the pinned served name (0 mismatches); at most 10 % unanswered (the product's model-down rule). TREC CT is
+   reported (wrong exclusions, eligible pairs lost) but not gated: its labels are per pair and noisy
+   (`eval/trec_ct/AUDIT.md`). Also reported: precision of "fits", abstention on gold-unknown items, citation validity
+   (quote found, quote date right), latency p50/p95/max and tokens per call. `--max-upper-ci` can gate the upper bound.
+4. *Served-name pinning.* `/v1/models` must list `--served-name`, and its `root` must equal `--expect-root` when given,
+   before any item is sent (exit 3 otherwise).
+5. *Secrets.* The endpoint key comes from the environment variable named by `--key-env` (default
+   `TB_BAKEOFF_API_KEY`), goes only into the Authorization header, and is never printed or written; results record
+   only the variable's name. Rows carry ids, gold, verdicts, reason codes, latency and tokens: no note text, no quote.
+6. *Relation to `tools/bakeoff.py` and `tools/bakeoff_live.py`.* Those pick a hosted model for the `judge_ml` task
+   through a tb-gateway with the `mlbench` prompt, scored by agreement and cost. This tool is the screening-safety gate
+   for one served model (a local vLLM on a GPU VM) with the box's own judge. It reuses their retry backoff, worker cap
+   and percentile helper, and `tools/trec_ct_eval.py`'s Wilson and cluster intervals.
+
+*Evidence.* `tests/unit/test_judge_bakeoff.py` against a local stub server on 127.0.0.1 (the `services/llm_stub` judge
+handler, or a test answer): the stub run passes; a judge that says yes to everything fails the gate with its
+interval; an invented quote is invalid and excludes nobody; an unknown that excludes fails the gate; a wrong served
+name or root is refused, a response from another model fails the gate; a model that does not answer fails the run
+and excludes nobody; the MedTxt and TREC builders; the compare table; a test key reaches the stub's header and
+appears in no output file and not on stdout. The procedure for the GPU run is RUNBOOK section 12. No real model or
+cloud endpoint was called.

@@ -351,3 +351,58 @@ adds the benches: `embed` (`tools/bench_embed.py`) and `profile` (`tools/bench_p
 Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the VM's service account needs storage
 access); without it they go over plain HTTP to the VM with the key in a header. A billing budget with a kill switch
 is the last net; it needs billing permissions this project's service account does not have: the owner sets it.
+
+## 12. Judge bake-off: the current judge against Gemma 4 31B (D-181)
+
+`tools/judge_bakeoff.py` runs a labelled set through any OpenAI-compatible endpoint with the box's own judge prompt
+and parser, and gates on wrong exclusions. It needs a GPU only for the real model; a dry run uses its stub:
+`python -m tools.judge_bakeoff --stub --sources synthetic --out /tmp/jb-stub` (no network, about 10 s).
+
+**Before the GPU** (on any machine):
+
+1. Fetch the public sets: `python -m tools.medtxt_eval fetch` and `python -m tools.trec_ct_eval fetch` (they stay in
+   `.cache`, never committed).
+2. Freeze one item set for both models: `python -m tools.judge_bakeoff --write-set /tmp/jb-set.jsonl`. It prints the
+   item count and the set's SHA-256. Copy the file to the VM. Both runs must use this file (`--set`), or the compare
+   warns that the numbers are not comparable.
+
+**On the GPU VM** (owner's OK first, section 11 rules: a cap, stopped and `TERMINATED` after). One model at a time on
+the same VM, same set, same `--workers`:
+
+1. The current judge, as the box serves it (the PRO 6000 run serves `nvidia/Gemma-4-26B-A4B-NVFP4` as
+   `local/gemma-4-26b-a4b-nvfp4`):
+   `python -m tools.judge_bakeoff --base-url http://127.0.0.1:8000/v1 --served-name local/gemma-4-26b-a4b-nvfp4
+   --expect-root nvidia/Gemma-4-26B-A4B-NVFP4 --set /tmp/jb-set.jsonl --out /tmp/jb-current`
+2. The candidate, **official weights only**: the `google/gemma-4-31B-it` repository on Hugging Face, no community
+   quantisation or fine-tune. Note the repository's commit; serve it with `vllm serve google/gemma-4-31B-it
+   --revision <commit> --served-model-name gemma-4-31b-it --max-model-len 32768` (the full-record path sends up to
+   28,000 tokens; bf16 weights are about 62 GB, so it fits on the 96 GB card alone). Then:
+   `python -m tools.judge_bakeoff --base-url http://127.0.0.1:8000/v1 --served-name gemma-4-31b-it
+   --expect-root google/gemma-4-31B-it --set /tmp/jb-set.jsonl --out /tmp/jb-gemma31`
+3. Side by side: `python -m tools.judge_bakeoff --compare /tmp/jb-current /tmp/jb-gemma31`. Copy the two result
+   folders off the VM before it stops.
+
+**Served-name pinning.** Before the first item the tool reads `/v1/models`: the `--served-name` must be listed and its
+`root` (the weights vLLM loaded) must equal `--expect-root`, else it exits 3 and sends nothing. Every answer must
+report the same name; one that does not fails the gate. So a run cannot silently score another model left running
+on the port. If the weights are served from a local folder, `root` is that folder: pass the folder as
+`--expect-root` and record the commit and the weight manifest hash (`tools/pin_model.py` format) in the run notes.
+A key, if the endpoint needs one, goes in `TB_BAKEOFF_API_KEY` (or the variable named by `--key-env`); the tool
+never prints it or writes it to the results.
+
+**How to read the gate** (`metrics.md`, first lines; exit 0 passed, 1 failed):
+
+* **Wrong exclusions <= 2 %** on the gated sets (synthetic hospital and MedTxt): of the judge's exclusions, the share
+  the label does not exclude (Study A's measure). Read the 95 % interval beside it: with few exclusions the upper
+  bound is wide, so a pass on 0 of 40 is weaker than a pass on 2 of 400. `--max-upper-ci 0.05` also gates the upper
+  bound (Study A's ≤ 5 %).
+* **Unknown never excludes** must be 0. A non-zero count is a product bug, not a model property: stop and report it.
+* **Served name pinned** and **model answered >= 90 %** (the product's model-down rule) must hold, or the run says
+  nothing about the model.
+* Not in the gate, but compare them: precision of "fits", gold-unknown abstained (a judge that never abstains will
+  exclude on silence), quote found and dated right (an invalid quote turns the answer into unknown, so a low rate
+  costs recall, not safety), latency p95 and tokens per call (night window and cost), and TREC CT eligible pairs lost
+  (pair labels, about 40 % of the misses are label noise: compare models, do not gate).
+
+A candidate replaces the judge only if it passes the gate on the same frozen set and is no worse than the current
+judge on wrong exclusions; the change then goes through the full qualify command as a CC1 model change.
