@@ -51,11 +51,12 @@ log() { echo "$(date -u +%T) rehearse: $*"; }
 # ------------------------------------------------------------------ docker: the host's, else a private daemon
 OWN_DOCKERD=0
 if ! docker info >/dev/null 2>&1; then
-  export DOCKER_HOST="unix://$REH/docker.sock"
+  SOCK="${TB_REHEARSAL_SOCK:-/tmp/tbreh}"   # a short path: unix sockets are limited to about 100 characters
+  export DOCKER_HOST="unix://$SOCK/docker.sock"
   if ! docker info >/dev/null 2>&1; then
     log "starting a private dockerd under $REH (vfs, no bridge, no iptables)"
-    mkdir -p "$REH/docker" "$REH/exec"
-    nohup dockerd --data-root "$REH/docker" --exec-root "$REH/exec" --pidfile "$REH/dockerd.pid" -H "$DOCKER_HOST" \
+    mkdir -p "$REH/docker" "$SOCK/exec"
+    nohup dockerd --data-root "$REH/docker" --exec-root "$SOCK/exec" --pidfile "$SOCK/dockerd.pid" -H "$DOCKER_HOST" \
       --bridge=none --iptables=false --ip6tables=false --storage-driver=vfs > "$REH/dockerd.log" 2>&1 &
     for _ in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 1; done
     docker info >/dev/null 2>&1 || { tail -n 20 "$REH/dockerd.log"; exit 1; }
@@ -69,9 +70,9 @@ cleanup() {
   docker rm -f "$C" >/dev/null 2>&1 || true
   docker rmi "$IMG" >/dev/null 2>&1 || true
   if [ "$OWN_DOCKERD" = 1 ]; then
-    kill "$(cat "$REH/dockerd.pid")" 2>/dev/null || true
-    for _ in $(seq 1 30); do [ -e "$REH/dockerd.pid" ] || break; sleep 1; done
-    rm -rf "$REH/docker" "$REH/exec"
+    kill "$(cat "$SOCK/dockerd.pid")" 2>/dev/null || true
+    for _ in $(seq 1 30); do [ -e "$SOCK/dockerd.pid" ] || break; sleep 1; done
+    rm -rf "$REH/docker" "$SOCK"
   fi
   rm -rf "$S" "$REH/runs" "$REH/base.tgz"
   log "cleaned up (evidence kept in $REH/evidence)"
@@ -129,6 +130,9 @@ start_case() {  # $1 case: its evidence folder; the console, power-off and stand
   : > "$S/console.log"; : > "$S/POWEROFF"; : > "$S/gcloud.log"
   for n in judge verifier; do : > "$S/units/$n.log"; done
   rm -rf "$S/knobs"; mkdir -p "$S/knobs/metadata"
+  for k in "$S"/metadata/*; do  # metadata stays on a VM between starts; a case's own knobs must not reach the next
+    case "$(basename "$k")" in tb-code-wait-minutes|tb-selftest-seconds|tb-idle-minutes|tb-done-grace) rm -f "$k" ;; esac
+  done
   knob tb-min-free-gb 2   # the sandbox's disk, not the VM's 50 GB floor
   log "case $1"
 }

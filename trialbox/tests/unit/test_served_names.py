@@ -58,7 +58,12 @@ def test_every_path_serves_and_pins_the_same_two_names() -> None:
         assert served == {"judge": names["serving"], "verifier": names["verifier"]}, rec.name
     # = what the cloud complete run starts vLLM with, and what the run's direct clients ask for
     vm = (ROOT / "deploy" / "gcp" / "complete-run-vm.sh").read_text(encoding="utf-8")
-    assert f"start judge $J {names['serving']} " in vm and f"start verifier $V {names['verifier']} " in vm
+    assert f"\nJS={names['serving']} " in vm and f"\nVS={names['verifier']}\n" in vm  # and the pre-flight checks them
+    assert (
+        "start judge $J $JS " in vm
+        and "start verifier $V $VS " in vm
+        and 'for pair in "judge $JS" "verifier $VS"' in vm
+    )
     assert (names["serving"], names["verifier"]) == (complete_run.JUDGE, complete_run.VERIFIER)
 
 

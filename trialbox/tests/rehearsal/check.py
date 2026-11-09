@@ -25,16 +25,15 @@ import tarfile
 from pathlib import Path
 from typing import Any
 
-# checks about the models' answers, which the deterministic stub cannot pass: allowed to fail here, nowhere else
+# (part, check) of the checks about the models' answers, which the deterministic stub cannot pass: allowed to fail
+# here, nowhere else. The pair canary (54 cases with known answers) fails on the stub, so the checks that need a passed
+# canary fail with it; TREC's criteria go straight to the model with a prompt the stub has no handler for (the
+# stand-in answers "OK", which is no verdict). A failed check outside this list fails the rehearsal.
 MODEL_QUALITY = [
-    r"may_block",
-    r"canary",
-    r"no false model exclusion",
-    r"extraction (precision|recall)",
-    r"model exclusions",
-    r"after confirmation the patient check equals",
-    r"pairs? (lost|caught)",
-    r"agreement|kappa|accuracy|recall >=|precision >=",
+    (r".", r"canary"),
+    (r"^(hospital|public)-", r"only when (both|two) models agree"),
+    (r"^scenario-", r"^the pair judged: judge and verifier both named"),
+    (r"^scenario-public-trec$", r"^every criterion answered$"),
 ]
 
 
@@ -145,7 +144,7 @@ def run_case(a: argparse.Namespace) -> int:
         rep.get("path"),
     )
     bad = failing(rep)
-    other = [b for b in bad if not any(re.search(p, b[2]) for p in MODEL_QUALITY)]
+    other = [b for b in bad if not any(re.search(t, b[0]) and re.search(c, b[2]) for t, c in MODEL_QUALITY)]
     r.ok("every failed check is about model quality (the stub's answers)", not other, other[:8])
     print(
         f"  info  model-quality checks failing on the stub: {len(bad) - len(other)}: "

@@ -365,9 +365,10 @@ chmod 0755 /usr/local/sbin/tb-embed-py
 phase run
 touch "$HB"
 SELFTEST_S=$(md tb-selftest-seconds || true)
+[ -z "$SELFTEST_S" ] || export TB_SELFTEST_SECONDS="$SELFTEST_S"   # the rehearsal's silent parts only
 # shellcheck disable=SC2086  # ONLY is a list of tags
 NODE_PATH=/opt/node-tools/node_modules TB_GPU_KEY="$KEY" TB_ENV=DEV PYTHONPATH=libs:services:. \
-  TB_BENCH_EMBED_CMD=/usr/local/sbin/tb-embed-py ${SELFTEST_S:+TB_SELFTEST_SECONDS=$SELFTEST_S} \
+  TB_BENCH_EMBED_CMD=/usr/local/sbin/tb-embed-py \
   .venv/bin/python -m tools.complete_run --dir "$RUN" --run-id "$RUN_ID" --model pair --patients "$PATIENTS" \
   --ocr tesseract --judge-url http://127.0.0.1:8080/judge/v1 --verifier-url http://127.0.0.1:8080/verifier/v1 \
   --live-record $REC/serving_config.json --skip walk backup update scale --resume --heartbeat "$HB" \
