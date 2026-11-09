@@ -3453,30 +3453,43 @@ screening, on a fixed set, through any OpenAI-compatible endpoint.
    verifier: the registry prompt `judge` (newest version), `tb_common.llm.chat_json` (structured output, schema check,
    one retry) and `postprocess` (the quote must be in an excerpt, else unknown), then the product's `eligibility`. No
    new prompt and no new parser.
-2. *The set.* The synthetic hospital set (`tools/make_judge_set.py`, planted truth, kind from the ruleset IR), MedTxt
-   (`tools/medtxt_eval.py` items, the strict slice, ja and en: positive pass, stated absent fail, suspected and not
-   mentioned unknown) and TREC CT (`tools/trec_ct_eval.py`, NIST-eligible pairs: no criterion should exclude).
-   `--write-set` freezes the set; results carry its SHA-256 and `--compare` warns when two runs used different sets.
-3. *The gate.* Wrong exclusions <= 2 % over the judge's exclusions on the synthetic and MedTxt items (Study A's
-   measure), with Wilson and patient-cluster 95 % intervals; an unknown answer never excludes (0); every response
-   reports the pinned served name (0 mismatches); at most 10 % unanswered (the product's model-down rule). TREC CT is
-   reported (wrong exclusions, eligible pairs lost) but not gated: its labels are per pair and noisy
-   (`eval/trec_ct/AUDIT.md`). Also reported: precision of "fits", abstention on gold-unknown items, citation validity
-   (quote found, quote date right), latency p50/p95/max and tokens per call. `--max-upper-ci` can gate the upper bound.
-4. *Served-name pinning.* `/v1/models` must list `--served-name`, and its `root` must equal `--expect-root` when given,
-   before any item is sent (exit 3 otherwise).
-5. *Secrets.* The endpoint key comes from the environment variable named by `--key-env` (default
-   `TB_BAKEOFF_API_KEY`), goes only into the Authorization header, and is never printed or written; results record
-   only the variable's name. Rows carry ids, gold, verdicts, reason codes, latency and tokens: no note text, no quote.
-6. *Relation to `tools/bakeoff.py` and `tools/bakeoff_live.py`.* Those pick a hosted model for the `judge_ml` task
+2. *The set.* The synthetic hospital set (`tools/make_judge_set.py`, planted truth, kind from the ruleset IR; 39 of
+   its 300 items have no note in the window and are not put to the model, 100 are `renewal`, scored like an
+   inclusion), MedTxt (`tools/medtxt_eval.py` items, the strict slice, ja and en: positive pass, stated absent fail,
+   suspected and not mentioned unknown) and TREC CT (`tools/trec_ct_eval.py`, NIST-eligible pairs: no criterion
+   should exclude). `--write-set` freezes the set; `--expect-set-sha` refuses another file; `gated` is set from the
+   source, never read from the file; `--compare` exits 1 when sets or prompt versions differ.
+3. *The gate, per gated source* (synthetic and MedTxt each on its own; a pooled rate let the larger set hide a
+   failure on the other): wrong exclusions <= 2 % over the judge's exclusions (Study A's measure, compared exactly),
+   at least 20 exclusions and 50 answers, at most 10 % unanswered (the product's model-down rule, also run-wide);
+   both sources present. Wilson and patient-cluster 95 % intervals are reported (the bootstrap resamples every
+   patient); `--max-upper-ci 0.05` gates the pooled upper bound and the RUNBOOK commands pass it. TREC CT is reported
+   (wrong exclusions, eligible pairs lost) but not gated: its labels are per pair and noisy (`eval/trec_ct/AUDIT.md`).
+   Also reported: precision of "fits", gold-unknown excluded and abstained, citation validity (quote found, dated as
+   an excerpt that holds it), latency per item and per HTTP call, tokens per call (failed attempts included).
+   `product:unknown_never_excludes` is a self-check of the product's mapping, not a model measure.
+4. *Pinning.* `--expect-root` is required for a real endpoint. `/v1/models` must list `--served-name` with that root
+   before the first item (exit 3 otherwise) and unchanged after the last. The root is only vLLM's start name, so
+   `--model-dir` records the weight manifest hash (`tools/pin_model.py` format), `--expect-manifest` refuses other
+   weights and `--revision` records the commit. The per-answer model name only catches a renaming proxy.
+5. *Robustness.* Only transport errors, 429 and 5xx are retried; a 4xx, a schema error or a malformed 200 is no
+   answer (never a crash). Rows are appended as they complete; `--resume` keeps the answered ones.
+6. *Secrets.* The endpoint key comes from the environment variable named by `--key-env` (default
+   `TB_BAKEOFF_API_KEY`), goes only into the Authorization header to `--base-url` (no proxy from the environment;
+   plain http only to loopback), and is never printed or written; results record only the variable's name. Rows carry
+   ids, gold, verdicts, reason codes, latency and tokens: no note text, no quote.
+7. *Relation to `tools/bakeoff.py` and `tools/bakeoff_live.py`.* Those pick a hosted model for the `judge_ml` task
    through a tb-gateway with the `mlbench` prompt, scored by agreement and cost. This tool is the screening-safety gate
    for one served model (a local vLLM on a GPU VM) with the box's own judge. It reuses their retry backoff, worker cap
-   and percentile helper, and `tools/trec_ct_eval.py`'s Wilson and cluster intervals.
+   and percentile helper, and `tools/trec_ct_eval.py`'s Wilson interval.
 
-*Evidence.* `tests/unit/test_judge_bakeoff.py` against a local stub server on 127.0.0.1 (the `services/llm_stub` judge
-handler, or a test answer): the stub run passes; a judge that says yes to everything fails the gate with its
-interval; an invented quote is invalid and excludes nobody; an unknown that excludes fails the gate; a wrong served
-name or root is refused, a response from another model fails the gate; a model that does not answer fails the run
-and excludes nobody; the MedTxt and TREC builders; the compare table; a test key reaches the stub's header and
-appears in no output file and not on stdout. The procedure for the GPU run is RUNBOOK section 12. No real model or
-cloud endpoint was called.
+*Evidence.* `tests/unit/test_judge_bakeoff.py` (20 tests) against a local stub server on 127.0.0.1 (the
+`services/llm_stub` judge handler, or a test answer): the stub run passes; a judge that says yes to everything fails
+with its interval; invented quotes exclude nobody and cannot pass (0 exclusions); the 2 % boundary (1/50 passes,
+9/449 fails); a 10 % failure on one source hidden in a 1.1 % pooled rate fails; unanswered gated items fail while
+TREC answers; the minimums, required sources and upper bound; a wrong served name or root, a missing
+`--expect-root`, a renaming proxy, a server swapped during the run and a wrong weight manifest are refused or fail;
+4xx not retried, 5xx retried, malformed 200s are no answer; resume; the frozen set checks (sha, `gated`, U+2028); the
+MedTxt and TREC builders; compare; a test key reaches the stub's header and appears in no output, stdout or stderr,
+and is refused over plain http to another host. The GPU procedure is RUNBOOK section 12. No real model or cloud
+endpoint was called.
