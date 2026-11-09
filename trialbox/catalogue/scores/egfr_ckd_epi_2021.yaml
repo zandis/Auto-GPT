@@ -1,0 +1,30 @@
+score_id: neph.egfr_ckd_epi_2021
+name: {en: eGFR CKD-EPI 2021 creatinine, ja: eGFR（CKD-EPI 2021）, zh_tw: eGFR（CKD-EPI 2021）}
+version: 1
+formula_kind: power_product
+inputs:
+  - {role: scr, item: lab.creatinine, unit: mg/dL, required: true, anchor: true, note: "IDMS-standardised creatinine; µmol/L ÷ 88.4"}
+  - {role: age, item: "PERSON year_of_birth → age at measurement", unit: a, required: true, note: "adults ≥ 18"}
+  - {role: sex, item: "PERSON gender_concept_id", unit: coded, required: true}
+formula: "142 × min(scr/κ, 1)^α × max(scr/κ, 1)^-1.200 × 0.9938^age × 1.012 [if female]; κ = 0.7 (F) / 0.9 (M); α = -0.241 (F) / -0.302 (M)"
+coefficients: {constant: 142, kappa_f: 0.7, kappa_m: 0.9, alpha_f: -0.241, alpha_m: -0.302, exp_high: -1.200, age_base: 0.9938, female_factor: 1.012}
+output: {unit: "mL/min/{1.73_m2}", min: 1, max: 200}
+rounding: "integer for display (NKF calculator shows whole numbers); store one decimal"
+edge_cases:
+  - "age < 18: do not compute (use pediatric equations, not defined here)"
+  - "sex unknown: no row"
+  - "creatinine not IDMS-traceable (older JP/TW assays): flag; the box cannot correct it"
+  - "a laboratory-reported eGFR row keeps its own equation label; the derived value never overwrites it"
+interpretation: "see kdigo_ckd_category.yaml"
+examples:
+  - inputs: {scr_mg_dL: 1.1, age: 55, sex: female}
+    expected: {egfr: 59.3}
+    source: "MetricGate CKD-EPI 2021 documentation page (calculator), cross-checked by hand against the NKF formula in the search of 2026-11-09"
+    source_grade: calculator
+    note: "a worked example from kidney.org or Inker 2021 was not found today; replace with an NKF example before approval if one exists"
+sources:
+  - "Inker LA et al. N Engl J Med 2021;385:1737-1749"
+  - "kidney.org CKD-EPI Creatinine Equation (2021) page (formula verified 2026-11-09)"
+  - "LOINC 98979-8 (verified 2026-11-09)"
+licence: "formula; free"
+verified: yes

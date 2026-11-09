@@ -1,0 +1,36 @@
+score_id: rheum.sdai
+name: {en: Simplified Disease Activity Index, ja: SDAI, zh_tw: 簡化疾病活動指數 SDAI}
+version: 1
+formula_kind: sum
+inputs:
+  - {role: tjc, item: rheum.tjc28, unit: "{count}", required: true, window_days: 0, anchor: true}
+  - {role: sjc, item: rheum.sjc28, unit: "{count}", required: true, window_days: 0}
+  - {role: ptga, item: rheum.ptga_0_10, unit: "{score}", required: true, window_days: 0}
+  - {role: evga, item: rheum.evga_0_10, unit: "{score}", required: true, window_days: 0}
+  - {role: crp, item: lab.crp, unit: mg/dL, required: true, window_days: 7, note: "SDAI takes CRP in mg/dL; mg/L ÷ 10. JP charts are already mg/dL"}
+formula: "tjc + sjc + ptga + evga + crp_mg_dL"
+output: {unit: "{score}", min: 0, max: 86}
+rounding: "one decimal"
+edge_cases:
+  - "crp below detection: use the detection limit value in mg/dL (one trial SAP uses 0.29 mg/dL), flag"
+  - "crp in mg/L not converted: refuse"
+interpretation:
+  remission: "≤ 3.3"
+  low: "> 3.3 to ≤ 11"
+  moderate: "> 11 to ≤ 26"
+  high: "> 26"
+examples:
+  - inputs: {tjc: 10, sjc: 8, ptga: 6, evga: 5, crp_mg_dL: 2.0}
+    expected: {sdai: 31, band: high}
+    source: "R package 'cliot' documentation, sdai_rheumatoid_arthritis (rdrr.io, read 2026-11-09)"
+    source_grade: calculator
+  - inputs: {tjc: 0, sjc: 0, ptga: 0.5, evga: 0.5, crp_mg_dL: 0.2}
+    expected: {sdai: 1.2, band: remission}
+    source: "same (the page's own band label for this case is wrong; 1.2 is remission by the published cut-offs)"
+    source_grade: calculator
+sources:
+  - "Smolen JS et al. Rheumatology 2003;42:244-257"
+  - "Aletaha D et al. Arthritis Rheum 2005 (cut-offs)"
+  - "LOINC 75845-8 Total score [SDAI] (verified 2026-11-09)"
+licence: "published index; no licence known"
+verified: yes

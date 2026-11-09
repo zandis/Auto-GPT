@@ -1,0 +1,31 @@
+score_id: neph.kdigo_g
+also_defines: neph.kdigo_a
+name: {en: KDIGO GFR and albuminuria categories, ja: KDIGO GFR区分・アルブミン尿区分, zh_tw: KDIGO GFR 與白蛋白尿分期}
+version: 1
+formula_kind: band_table
+inputs:
+  - {role: egfr, item: "any of neph.egfr_jsn_2009, neph.egfr_ckd_epi_2021, neph.egfr_ckd_epi_2009, neph.egfr_mdrd, neph.egfr_tw_mdrd (the chosen equation is recorded with the category)", unit: "mL/min/{1.73_m2}", required: true, anchor: true}
+  - {role: uacr, item: lab.uacr, unit: mg/g, required: false, window_days: 90, note: "for the A category; UPCR may substitute with a flag"}
+bands:
+  G: {G1: "≥ 90", G2: "60-89", G3a: "45-59", G3b: "30-44", G4: "15-29", G5: "< 15"}
+  A: {A1: "< 30 mg/g (< 3 mg/mmol)", A2: "30-300 mg/g (3-30 mg/mmol)", A3: "> 300 mg/g (> 30 mg/mmol)"}
+output: {unit: coded, values: "G1..G5 and A1..A3"}
+rounding: none
+edge_cases:
+  - "CKD requires persistence > 3 months: a single eGFR < 60 gives a category but not the phenotype ph.ckd; the phenotype needs two values ≥ 90 days apart"
+  - "G1 and G2 alone are not CKD without a marker of damage (kidney.org note)"
+  - "the boundary value 300 mg/g is written as A2 in KDIGO and 'A3 ≥ 300' in some calculators; TrialBox follows KDIGO (A2 includes 300)"
+  - "units: mg/mmol × 8.84 = mg/g"
+examples:
+  - inputs: {egfr: 45}
+    expected: {G: G3a}
+    source: "KDIGO 2024 CKD guideline thresholds as summarised by kidney.org 'How to classify CKD' and a KDIGO summary (read 2026-11-09)"
+    source_grade: secondary
+  - inputs: {uacr_mg_g: 30}
+    expected: {A: A2}
+    source: "same"
+    source_grade: secondary
+sources:
+  - "KDIGO 2024 Clinical Practice Guideline for the Evaluation and Management of CKD. Kidney Int 2024;105(4S):S117-S314"
+licence: "guideline thresholds; KDIGO text is CC BY-NC-ND - only the numbers are reproduced"
+verified: yes

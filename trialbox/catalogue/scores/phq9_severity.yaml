@@ -1,0 +1,33 @@
+score_id: psy.phq9
+name: {en: PHQ-9 total and severity band, ja: PHQ-9 合計点と重症度, zh_tw: PHQ-9 總分與嚴重度}
+version: 1
+formula_kind: sum
+inputs:
+  - {role: items_1_9, item: "9 local items psy.phq9_q1..q9 (0-3 each)", unit: "{score}", required: true}
+formula: "total = sum of the nine items (item 10, functional impairment, is not scored)"
+output: {unit: "{score}", min: 0, max: 27}
+rounding: integer
+edge_cases:
+  - "one or two items missing: some sites pro-rate (mean × 9); TrialBox does not impute - the total is missing and the form is flagged incomplete"
+  - "item 9 (suicidal ideation) > 0 is surfaced as a safety flag on the steward page regardless of total"
+  - "PHQ-2 (items 1-2, LOINC 55758-7) is a separate item"
+interpretation:
+  none_minimal: "0-4"
+  mild: "5-9"
+  moderate: "10-14"
+  moderately_severe: "15-19"
+  severe: "20-27"
+examples:
+  - inputs: {cut_points: true}
+    expected: {bands: "5, 10, 15, 20 = mild, moderate, moderately severe, severe"}
+    source: "Kroenke K, Spitzer RL, Williams JBW. J Gen Intern Med 2001;16:606-613 (quoted 2026-11-09)"
+    source_grade: primary
+  - inputs: {total: 10}
+    expected: {band: moderate, screening_note: "≥ 10 had 88% sensitivity and 88% specificity for major depression in the validation study"}
+    source: "same"
+    source_grade: primary
+sources:
+  - "Kroenke K et al. J Gen Intern Med 2001;16:606-613"
+  - "LOINC 44261-6; CDISC CT PHQ01TC 'Exempt from Copyright' (verified 2026-11-09)"
+licence: "PHQ-9: 'No permission required to reproduce, translate, display or distribute' (Pfizer; verified 2026-11-09). Items and text may be stored"
+verified: yes

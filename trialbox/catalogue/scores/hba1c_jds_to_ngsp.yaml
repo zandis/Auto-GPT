@@ -1,0 +1,30 @@
+score_id: endo.hba1c_ngsp_from_jds
+name: {en: HbA1c JDS to NGSP conversion, ja: HbA1c JDS値→NGSP値換算, zh_tw: HbA1c JDS 轉 NGSP}
+version: 1
+formula_kind: linear
+inputs:
+  - {role: hba1c_jds, item: lab.hba1c_jds, unit: "%", required: true, anchor: true}
+formula: "NGSP(%) = 1.02 × JDS(%) + 0.25   (inverse: JDS = 0.980 × NGSP − 0.245)"
+coefficients: {slope: 1.02, intercept: 0.25}
+output: {unit: "%", min: 3, max: 20}
+rounding: "one decimal (clinical reporting)"
+edge_cases:
+  - "applies to Japanese HbA1c values labelled JDS, or unlabelled JP values dated before 2012-04-01 (JDS → NGSP switch in routine care; 特定健診 kept JDS one more year, to 2013-03-31)"
+  - "values labelled NGSP or 'A1C' (upper case, JDS 2012 convention) are not converted"
+  - "the approximate rule 'NGSP ≈ JDS + 0.4' holds in the 5.0-9.9% range; the box uses the exact formula"
+  - "IFCC mmol/mol: NGSP(%) = 0.09148 × IFCC + 2.152 (separate conversion, not verified today)"
+examples:
+  - inputs: {hba1c_jds: 6.1}
+    expected: {hba1c_ngsp: 6.5, note: "diabetes threshold JDS 6.1% corresponds to NGSP 6.5% (JDS 2012 diagnostic criteria)"}
+    source: "Japan Diabetes Society 2012 statement as reported in Kashiwagi A et al. J Diabetes Investig 2012 (PMC4014931) and in JDS-based materials read 2026-11-09"
+    source_grade: primary
+  - inputs: {formula_check: true}
+    expected: {relation: "NGSP = 1.02 × JDS + 0.25 agrees with JDS + 0.4 across 5.0-9.9%"}
+    source: "JDS 2011-10 conversion statement quoted in Japanese secondary sources read 2026-11-09"
+    source_grade: secondary
+sources:
+  - "Kashiwagi A et al. J Diabetes Investig 2012;3:39-40 (International clinical harmonization of HbA1c in Japan)"
+  - "日本糖尿病学会 HbA1c国際標準化 運用指針 (2012-01)"
+  - "LOINC 62388-4 HbA1c by JDS/JSCC protocol (verified 2026-11-09)"
+licence: "formula; free"
+verified: yes

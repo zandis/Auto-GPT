@@ -1,0 +1,63 @@
+score_id: rheum.sledai_2k
+name: {en: SLEDAI-2K, ja: SLEDAI-2K, zh_tw: SLEDAI-2K}
+version: 1
+formula_kind: sum
+inputs:
+  - role: descriptors
+    item: "24 local descriptor items (present/absent within the prior 10 days, or 30 days when a protocol says so)"
+    weights:
+      seizure: 8
+      psychosis: 8
+      organic_brain_syndrome: 8
+      visual_disturbance: 8
+      cranial_nerve_disorder: 8
+      lupus_headache: 8
+      cva: 8
+      vasculitis: 8
+      arthritis: 4
+      myositis: 4
+      urinary_casts: 4
+      hematuria: 4
+      proteinuria: 4
+      pyuria: 4
+      rash: 2
+      alopecia: 2
+      mucosal_ulcers: 2
+      pleurisy: 2
+      pericarditis: 2
+      low_complement: 2
+      increased_dna_binding: 2
+      fever: 1
+      thrombocytopenia: 1
+      leukopenia: 1
+    required: true
+formula: "sum of the weights of descriptors present"
+output: {unit: "{score}", min: 0, max: 105}
+rounding: integer
+edge_cases:
+  - "laboratory descriptors (low complement, anti-dsDNA, proteinuria, hematuria, pyuria, casts, thrombocytopenia, leukopenia) are derived from lab items with the lab's reference range; a missing lab means the descriptor is unknown and the total is marked incomplete"
+  - "SLEDAI-2K counts persistent rash, alopecia, mucosal ulcers and proteinuria (differs from original SLEDAI)"
+  - "clinical SLEDAI (cSLEDAI) excludes the two serologic descriptors"
+interpretation:
+  no_activity: 0
+  mild: "1-5"
+  moderate: "6-10"
+  high: "11-19"
+  very_high: "≥ 20"
+examples:
+  - inputs: {present: [arthritis, rash, fever]}
+    expected: {sledai_2k: 7}
+    source: "R package 'cliot' documentation, sledai_2k_score (rdrr.io, read 2026-11-09)"
+    source_grade: calculator
+  - inputs: {present: [vasculitis, low_complement, increased_dna_binding]}
+    expected: {sledai_2k: 12}
+    source: "same"
+    source_grade: calculator
+  - inputs: {weights_check: [arthritis, rash, low_complement]}
+    expected: {weights: "4 + 2 + 2"}
+    source: "clinical trial SAP (ClinicalTrials.gov NCT02975336) quoting the SLEDAI-2K weights, read 2026-11-09"
+    source_grade: secondary
+sources:
+  - "Gladman DD, Ibañez D, Urowitz MB. J Rheumatol 2002;29:288-291"
+licence: "published index; copyright status not verified today; store score and descriptor flags"
+verified: partial

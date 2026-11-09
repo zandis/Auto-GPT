@@ -1,0 +1,40 @@
+score_id: rheum.das28_esr
+name: {en: DAS28-ESR, ja: DAS28-ESR, zh_tw: DAS28-ESR}
+version: 1
+formula_kind: weighted_sqrt_log
+inputs:
+  - {role: tjc, item: rheum.tjc28, unit: "{count}", required: true, window_days: 0, anchor: true}
+  - {role: sjc, item: rheum.sjc28, unit: "{count}", required: true, window_days: 0}
+  - {role: esr, item: lab.esr, unit: mm/h, required: true, window_days: 7, note: "ESR drawn within 7 days of the joint count (same visit preferred); 1-hour Westergren value"}
+  - {role: gh, item: rheum.ptga_vas100, unit: mm, required: true, window_days: 0, note: "patient global health VAS 0-100 mm; a 0-10 NRS is multiplied by 10 and flagged 'converted'"}
+formula: "0.56*sqrt(tjc) + 0.28*sqrt(sjc) + 0.70*ln(esr) + 0.014*gh"
+coefficients: {tjc: 0.56, sjc: 0.28, esr: 0.70, gh: 0.014}
+output: {unit: "{score}", min: 0, max: 9.4}
+rounding: "two decimals for display (das-score.nl calculator shows one decimal); store full precision"
+edge_cases:
+  - "esr < 1 mm/h: use 1 (ln(0) undefined); flag"
+  - "joint set other than 28: pro-rate to 28 as the protocol states (e.g. 8 of 25 assessed joints becomes 8.96), flag 'prorated'"
+  - "ESR and CRP both present: compute both variants; never mix inputs across variants"
+  - "any required input missing: no row"
+interpretation:
+  remission: "< 2.6"
+  low: "2.6 to < 3.2"
+  moderate: "3.2 to 5.1"
+  high: "> 5.1"
+  eular_response: "good: improvement > 1.2 and present ≤ 3.2; moderate: improvement > 0.6 with limits; none otherwise (van Gestel 1996)"
+examples:
+  - inputs: {assessed_joints: 25, tender_in_assessed: 8}
+    expected: {prorated_tjc28: 8.96}
+    source: "clinical trial protocol text on pro-rating joint counts (ClinicalTrials.gov NCT01623752 Prot_SAP), quoted in web search 2026-11-09"
+    source_grade: secondary
+    note: "pro-rating rule example; a full numeric DAS28 example with published output was not found today - the owner or a rheumatologist supplies one (Prevoo 1995 Table or das-score.nl) before approval"
+  - inputs: {thresholds: true}
+    expected: {remission_below: 2.6, low_below: 3.2, high_above: 5.1}
+    source: "Fransen & van Riel 2005 Clin Exp Rheumatol 23 (S39):S93; trial protocols quoted 2026-11-09"
+    source_grade: secondary
+sources:
+  - "Prevoo MLL et al. Arthritis Rheum 1995;38:44-48 (28-joint DAS)"
+  - "www.das-score.nl (formula; copyright notice verified 2026-11-09)"
+  - "CamCOPS DAS28 task page (formula and variable ranges verified 2026-11-09)"
+licence: "DAS28 'protected by copyright with all rights reserved to Prof. dr. Piet L.C.M. van Riel'; requests via Mapi ePROVIDE. The formula is published; TrialBox stores the score and its components. Permission terms for use in software: not verified today (owner question Q4)"
+verified: partial
