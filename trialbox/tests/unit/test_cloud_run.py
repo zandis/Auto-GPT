@@ -316,6 +316,11 @@ def test_vm_checks_the_upload_installs_git_fetches_data_and_packs_per_part() -> 
     assert '--run-id "$RUN_ID"' in run and '--after-part "/usr/local/sbin/tb-pack $RUN $BUCKET"' in run
     assert "--resume --heartbeat" in run and "maven" not in VM and "fetch_jvm_deps" not in VM
     assert 'mv -f "$out.tmp" "$out"' in VM  # the door never serves half an archive
+    # a VM stopped mid-part (watchdog, first part never ending) still has a results.tgz: the rehearsal's hang case
+    assert 'timeout 120 /usr/local/sbin/tb-pack "$(cat $tb/current-run)"' in VM
+    assert VM.index("printf '%s' \"$RUN\" > \"$TB/current-run\"") < VM.index("\nphase code\n")
+    drv = (GCP / "complete-run.sh").read_text(encoding="utf-8")
+    assert '[ -f "$SH/collect-boot" ]' in drv and 'echo "noresults" > "$SH/state"' in drv  # one results-only boot
 
 
 def test_rehearsal_harness_is_complete() -> None:

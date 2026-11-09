@@ -119,7 +119,7 @@ collect_until_done() {  # $1 case, $2 minutes: --collect again and again, as an 
     sleep 30
     PATH="$HERE/driver-shims:$PATH" TB_COMPLETE_DIR="$REH/runs/$case" \
       "$TBROOT/deploy/gcp/complete-run.sh" --collect "$(cat "$REH/runs/$case/run-id")" >> "$REH/evidence/$case/driver.log" 2>&1 || true
-    [ "$(cat "$REH/runs/$case/shard-1/state" 2>/dev/null)" = "done" ] && return 0
+    case "$(cat "$REH/runs/$case/shard-1/state" 2>/dev/null)" in done|noresults) return 0 ;; esac
   done
   return 1
 }

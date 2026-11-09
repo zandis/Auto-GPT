@@ -193,7 +193,7 @@ shard_run() {  # $1 = shard number; VM, ZONE, caps and parts come from plan.json
     # ------------------------------------------------------------ the key, the metadata, the start
     if [ "$DRY" = 1 ]; then echo "+ a random key into $KEYF (0600)"
     else "$PY" -c 'import secrets; print(secrets.token_urlsafe(32))' > "$KEYF"; fi
-    rm -f "$SH/results.tgz" "$SH/results.final"
+    rm -f "$SH/results.tgz" "$SH/results.final" "$SH/collect-boot" "$SH/state"
     gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file \
       "startup-script=$ROOT/deploy/gcp/complete-run-vm.sh,tb-serving-config=$ROOT/tools/serving_config.py,tb-key=$KEYF" \
       --metadata "tb-run-id=$RUN_ID-s$i,tb-patients=$PATIENTS,tb-only=$TAGS,tb-src-sha256=$SRC_SHA,tb-collect-only=0,tb-max-minutes=$((CAP_H * 60 - 5)),tb-idle-minutes=20,tb-done-grace=30${BUCKET:+,tb-bucket=$BUCKET}"
@@ -226,13 +226,22 @@ shard_run() {  # $1 = shard number; VM, ZONE, caps and parts come from plan.json
     sleep 60
   done
   # -------------------------------------------------------------- this VM's results
+  local booted=0
   if [ "$DRY" = 0 ] && [ "$done_seen" = 0 ] && [ "$s" = TERMINATED ] && [ -z "$BUCKET" ] && [ ! -f "$SH/results.final" ]; then
+    # once per VM and run: a results-only boot that finds nothing is not repeated at every --collect
+    [ -f "$SH/collect-boot" ] && { echo "VM $i: a results-only boot found nothing earlier; its disk has no results" >&2
+                                    echo "noresults" > "$SH/state"; return 5; }
+    touch "$SH/collect-boot"
     collect_start || { echo stopped > "$SH/state"; return 5; }
+    booted=1
   fi
   if fetch_results; then
     touch "$SH/results.final"; echo "done" > "$SH/state"
     door POST collected >/dev/null 2>&1 || true   # the VM powers off now
     [ "$DRY" = 1 ] || rm -f "$KEYF"  # kept until the results are here (--collect)
+  elif [ "$done_seen" = 1 ] || [ "$booted" = 1 ]; then  # done, or started for this, and nothing to hand over
+    door POST collected >/dev/null 2>&1 || true   # so it powers off now, not after its grace
+    echo "VM $i: no results.tgz on its disk (see its serial console); it powers off now" >&2; echo "noresults" > "$SH/state"
   else
     echo "results not reachable: $VM is $s; --collect $RUN_ID later" >&2; echo stopped > "$SH/state"
   fi

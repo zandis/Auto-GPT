@@ -54,7 +54,14 @@ cat >/usr/local/sbin/tb-watchdog <<'EOS'
 # poweroff, checked every minute: the done marker older than $2 minutes (at once when collected); in the run phase no
 # heartbeat for $1 minutes; any other phase longer than its limit (the phase file's age).
 idle=$1; grace=$2; tb=/var/lib/tb
-off() { echo "TB-WATCHDOG $1: powering off" >/dev/ttyS0; systemctl poweroff; exit 0; }
+off() {  # say why, in the run log too, and pack what there is: a stopped VM always has a results.tgz to collect
+  echo "TB-WATCHDOG $1: powering off" >/dev/ttyS0
+  if [ -f $tb/current-run ] && [ ! -f $tb/DONE ]; then
+    echo "TB-WATCHDOG $1: powering off" >> /var/log/tb-complete-run.log
+    timeout 120 /usr/local/sbin/tb-pack "$(cat $tb/current-run)" "$(cat $tb/current-bucket 2>/dev/null)"
+  fi
+  systemctl poweroff; exit 0
+}
 while :; do
   sleep 60
   now=$(date +%s); phase=$(cat $tb/phase 2>/dev/null || echo serving)
@@ -125,6 +132,8 @@ if [ "$COLLECT_ONLY" != 1 ]; then
   : > "$LOG"
   mkdir -p "$RUN"
   echo "== boot $(date -u +%FT%TZ) run $RUN_ID" >> "$LOG"
+  printf '%s' "$RUN" > "$TB/current-run"; printf '%s' "$BUCKET" > "$TB/current-bucket"   # for the watchdog's pack
+  /usr/local/sbin/tb-pack "$RUN" ""   # a results.tgz from the first minute on (the log so far)
 fi
 
 # ------------------------------------------------------------------ the driver's door: heartbeat, upload, progress
@@ -364,6 +373,7 @@ chmod 0755 /usr/local/sbin/tb-embed-py
 # ------------------------------------------------------------------ the run: model parts here, resumable, packed per part
 phase run
 touch "$HB"
+/usr/local/sbin/tb-pack "$RUN" "$BUCKET"   # the setup's log is in the results even if the first part never ends
 SELFTEST_S=$(md tb-selftest-seconds || true)
 [ -z "$SELFTEST_S" ] || export TB_SELFTEST_SECONDS="$SELFTEST_S"   # the rehearsal's silent parts only
 # shellcheck disable=SC2086  # ONLY is a list of tags
