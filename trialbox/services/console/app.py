@@ -640,8 +640,21 @@ def create_app(
 
     # ------------------------------------------------------------------ control plane
     @app.get("/healthz")
-    def healthz() -> dict[str, Any]:
-        return {"status": "ok", "service": "console", "pilot": settings.pilot, "env": settings.environment}
+    def healthz() -> JSONResponse:
+        """Touches the console's own store (D-142, review A-02): with the database gone every page fails, so the
+        container must not look healthy. A lost connection is reopened on the way."""
+        body: dict[str, Any] = {
+            "status": "ok",
+            "service": "console",
+            "pilot": settings.pilot,
+            "env": settings.environment,
+        }
+        try:
+            body["checks"] = users.db.ping()
+        except Exception as exc:  # health must report, not raise
+            body.update(status="degraded", checks={"db": f"error: {type(exc).__name__}"})
+            return JSONResponse(body, status_code=503)
+        return JSONResponse(body)
 
     def login_page(request: Request, status: int = 200, failed: bool = False, **ctx: Any) -> Response:
         token = secrets.token_urlsafe(24)

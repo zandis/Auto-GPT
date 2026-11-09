@@ -51,10 +51,10 @@ def from_env() -> Gateway:
 
 def create_app(gateway: Gateway | None = None) -> FastAPI:
     gw = gateway or from_env()
-    app = make_app(
-        "gateway",
-        checks=[lambda: {"policy_version": gw.policy.version, "registry_version": gw.registry.version}],
-    )
+    checks: list[Any] = [lambda: {"policy_version": gw.policy.version, "registry_version": gw.registry.version}]
+    if gw.traces is not None and getattr(gw.traces, "db", None) is not None:
+        checks.append(gw.traces.db.ping)  # the trace store's schema answers (D-142, review A-02)
+    app = make_app("gateway", checks=checks)
 
     @app.get("/readyz")
     def readyz() -> dict[str, Any]:

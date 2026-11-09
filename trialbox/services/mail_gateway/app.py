@@ -68,7 +68,12 @@ def _mode() -> dict[str, Any]:
     return {"encryption": gateway().mode}
 
 
-app = make_app("mail-gateway", checks=[_mode], lifespan=lifespan, protect_reads=True)  # D-130: threads
+def _db() -> dict[str, Any]:
+    """The mail store answers (D-142, review A-02): a lost connection is reopened, a dead database is a 503."""
+    return gateway().db.db.ping()
+
+
+app = make_app("mail-gateway", checks=[_mode, _db], lifespan=lifespan, protect_reads=True)  # D-130: threads
 
 
 @app.post("/send")

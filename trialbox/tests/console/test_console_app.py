@@ -1509,3 +1509,22 @@ def test_request_subjects_are_masked() -> None:
 
     assert mask_ids("CASE GZQO mrn=70000054 lang=ja") == "CASE GZQO mrn=••• lang=ja"
     assert mask_ids("FEAS GZQO") == "FEAS GZQO"
+
+
+def test_healthz_touches_the_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-142 (review A-02): the console looks healthy only while its store answers; a lost connection is reopened."""
+    backend = FakeBackend()
+    backend.audit_dir = tmp_path / "audit"
+    users = UserStore()
+    app = create_app(
+        {**PILOT_ENV, "TB_CONSOLE_DIR": str(tmp_path)}, backend=backend, audit=AuditLog(backend.audit_dir), users=users
+    )
+    c = TestClient(app)
+    r = c.get("/healthz")
+    assert r.status_code == 200 and r.json()["checks"] == {f"db:{users.db.schema}": "ok"}
+    users.db._con.close()  # lost: reopened on the way
+    assert c.get("/healthz").status_code == 200 and users.db.reconnects == 1
+    monkeypatch.setattr(users.db, "url", "postgresql://nobody@/nowhere?host=/nonexistent")
+    users.db._con.close()  # lost, and nowhere to reopen it: the container must not look healthy
+    r = c.get("/healthz")
+    assert r.status_code == 503 and r.json()["status"] == "degraded"

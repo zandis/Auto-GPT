@@ -124,6 +124,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 def _queue() -> dict[str, Any]:
+    """Reads the job store, so a dead database is a 503 (a lost connection is reopened, D-142, review A-02)."""
     o = orch()
     return {"queued_or_running": len(o.db.find(state="running")) + len(o.db.find(state="received"))}
 
