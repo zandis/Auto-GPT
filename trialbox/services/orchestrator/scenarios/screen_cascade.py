@@ -259,6 +259,31 @@ class CascadeScreen:
     judge: OrchestratorJudge | None
 
 
+# D-142 (review A-07): SCREEN's budget of model calls is explicit (job option ``max_pairs``, else
+# TB_SCREEN_MAX_PAIRS, else this default) and the run says when it ran out; calls run TB_SCREEN_LLM_CONCURRENCY at a
+# time (compose sets it to the serving profile's vLLM --max-num-seqs)
+SCREEN_MAX_PAIRS = 20000
+
+
+def max_pairs_of(opts: dict[str, Any] | None = None) -> int:
+    raw = str((opts or {}).get("max_pairs") or os.environ.get("TB_SCREEN_MAX_PAIRS") or SCREEN_MAX_PAIRS)
+    try:
+        v = int(raw)
+    except ValueError as exc:
+        raise StepFailed("running", "max_pairs must be a whole number of model calls") from exc
+    if v < 1:
+        raise StepFailed("running", "max_pairs must be at least 1")
+    return v
+
+
+def llm_concurrency(env: dict[str, str] | None = None) -> int:
+    e = os.environ if env is None else env
+    try:
+        return max(1, min(64, int(e.get("TB_SCREEN_LLM_CONCURRENCY") or 1)))
+    except ValueError:
+        return 1
+
+
 def held_in_snapshot(ctx: Ctx, pids: list[str], snapshot: str) -> set[str]:
     """Which of ``pids`` the snapshot's patient table holds (they were dropped for a date, not for being absent)."""
     if not pids:
@@ -279,6 +304,7 @@ def screen_with_cascade(
     judging: dict[str, Any],
     confidence_floor: float,
     lookback_months: int,
+    max_pairs: int = SCREEN_MAX_PAIRS,
 ) -> CascadeScreen:
     """Run the cascade over the scoped patients and return their verdict rows, the judging record and the stage log.
 
@@ -303,6 +329,8 @@ def screen_with_cascade(
         population=pids,
         note_block=may_block,
         absence_semantics=False,
+        max_llm_items=max_pairs,
+        llm_concurrency=llm_concurrency(),
     )
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
@@ -326,7 +354,10 @@ def screen_with_cascade(
             tokens_in=(m.tokens_in if m else 0) + judge.tokens_in,
             tokens_out=(m.tokens_out if m else 0) + judge.tokens_out,
         )
-    return CascadeScreen(results, judging, summary(res), judge)
+    out = summary(res)
+    # D-142 (review A-07): the budget of model calls and whether it ran out, for the report and the job record
+    out["budget"] = {"max_pairs": max_pairs, "unprocessed": res.metrics.unprocessed, "hit": res.metrics.unprocessed > 0}
+    return CascadeScreen(results, judging, out, judge)
 
 
 __all__ = [

@@ -40,7 +40,7 @@ from orchestrator.scenarios.evaluate import (
     sort_key,
 )
 from orchestrator.scenarios.review import recipients, require_approved
-from orchestrator.scenarios.screen_cascade import pipeline, screen_with_cascade
+from orchestrator.scenarios.screen_cascade import max_pairs_of, pipeline, screen_with_cascade
 
 SCOPE_SQL = """
 WITH a AS (
@@ -401,7 +401,16 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
     cascade: dict[str, Any] | None = None
     if pipeline() == "cascade":  # D-103: the v4 cascade is the screening engine
         cs = screen_with_cascade(
-            ctx, rs, run_date, snapshot, [s.pid for s in scoped], judge, judging, threshold(ctx, rs), recent
+            ctx,
+            rs,
+            run_date,
+            snapshot,
+            [s.pid for s in scoped],
+            judge,
+            judging,
+            threshold(ctx, rs),
+            recent,
+            max_pairs_of(opts),
         )
         results, judging, cascade = cs.results, cs.judging, cs.summary
         tiers = {t: sum(1 for v in results.values() if v.tier == t) for t in ("high", "review", "excluded")}
@@ -420,6 +429,7 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
                 "tiers": tiers,
                 "n_after": cascade["n_after"],
                 "judging": judging,
+                "budget": cascade.get("budget"),
             },
         )
     else:
@@ -600,6 +610,11 @@ def run(ctx: Ctx) -> Outcome:
     unknown_system = unknown_system_counts(srun.rows)
     if unknown_system:
         scope_lines.append(t(lang, "screen.unknown_system", n=n(unknown_system)))
+    budget = (srun.cascade or {}).get("budget") or {}
+    if budget.get("hit"):  # D-142 (review A-07): never a silent cap
+        scope_lines.append(
+            t(lang, "screen.budget_hit", max=budget.get("max_pairs"), n=n(int(budget.get("unprocessed") or 0)))
+        )
     unknown_by: dict[str, int] = {}
     for r in srun.rows:
         if r.tier in ("high", "review"):

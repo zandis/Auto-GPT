@@ -96,6 +96,7 @@ services:
     <<: *arm
     environment:
       TB_MODEL_SWAP: "off"   # one pass per run with both models (orchestrator/twophase.py)
+      TB_SCREEN_LLM_CONCURRENCY: "${JUDGE_MAX_SEQS:-8}"   # SCREEN calls in flight: vLLM --max-num-seqs (D-142)
   criteria-compiler: *arm
   adapter: *arm
   lake: *arm
