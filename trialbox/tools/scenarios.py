@@ -896,14 +896,12 @@ def sc_fhir(a: Any, work: Path) -> Result:
         if "practitioner_id" in set(lk.query("SELECT * FROM appointment LIMIT 1").column_names)
         else set()
     )
-    staff = {r["id"] for r in lk.query("SELECT * FROM practitioner").to_pylist() for k in ("id",) if k in r}
-    res.finding(
-        "FHIR-01",
-        "SCREEN scope on the FHIR path (patients booked in the study's clinics): the bulk path "
-        "hashes Practitioner references but keeps Practitioner ids",
-        "S0 > 0, as on the SS-MIX2 path",
+    staff = {r["pr"] for r in lk.query("SELECT practitioner_id AS pr FROM practitioner").to_pylist()}
+    s2.check(
+        "FHIR-01: SCREEN has patients in scope on the FHIR path (S0 > 0, as on the SS-MIX2 path): every appointment's "
+        "practitioner is in the practitioner table",
+        s0 > 0 and bool(refs) and refs <= staff,
         f"S0 = {s0}; appointment practitioners found in the practitioner table: {len(refs & staff)} of {len(refs)}",
-        s0 > 0,
     )
     s2.seconds = time.perf_counter() - t
     res.stages.append(s2)

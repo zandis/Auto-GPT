@@ -5,6 +5,8 @@ its fix. The run's own probes are in ``tools/scenarios.py``; these are the small
   disk was full. The site's facts gave a second ``Patient`` for every pseudonym the feed already had, and each
   criterion of a compiled ruleset joins ``base`` (patients x index dates) again, so one duplicated patient became
   2^(criteria + 1) rows.
+* FHIR-01: on the FHIR bulk path SCREEN had no one in scope: references to a Practitioner were hashed and the
+  Practitioner's own id was kept, so no appointment found its doctor.
 """
 
 from __future__ import annotations
@@ -69,9 +71,7 @@ def _site(n: int) -> dict[str, list[dict[str, Any]]]:
     return {"Patient": pts}
 
 
-def test_xl02_published_site_facts_never_duplicate_a_patient(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_xl02_published_site_facts_never_duplicate_a_patient(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     n = 40
     lake = Lake(tmp_path / "lake", tz="Asia/Tokyo")
     lake.put_site(_site(n))
@@ -104,11 +104,50 @@ def test_xl02_a_query_over_its_spill_budget_fails_with_a_clear_message(
     monkeypatch.setenv("TB_LAKE_MAX_TEMP", "32MB")
     monkeypatch.setenv("TB_LAKE_TEMP_DIR", str(tmp_path / "spill"))
     sql = (
-        "SELECT count(*) FROM (SELECT DISTINCT a.eid || b.eid || c.eid AS k "
-        "FROM encounter a, encounter b, encounter c)"
+        "SELECT count(*) FROM (SELECT DISTINCT a.eid || b.eid || c.eid AS k FROM encounter a, encounter b, encounter c)"
     )
     with pytest.raises(LakeLimitError) as e:
         lake.query(sql, timeout_s=120)
     assert str(e.value).startswith("LAKE-LIMIT:") and "TB_LAKE_MAX_TEMP" in str(e.value)
     assert (tmp_path / "spill").is_dir()  # the spill went where the configuration says
     assert not any(p.is_file() for p in (tmp_path / "spill").rglob("*"))  # and nothing was left behind
+
+
+def test_fhir01_bulk_pseudonyms_map_ids_and_references_the_same_way() -> None:
+    from adapter.pipeline import pseudonymise_bulk
+    from lake.flatten import Flattener
+    from tb_common.crypto import pid_for_mrn
+
+    key = b"k" * 32
+    export: list[dict[str, Any]] = [
+        {"resourceType": "Practitioner", "id": "D001", "name": [{"text": "Dr A"}]},
+        {"resourceType": "Patient", "id": "00012345", "name": [{"text": "X"}], "identifier": [{"value": "00012345"}]},
+        {
+            "resourceType": "Appointment",
+            "id": "A1",
+            "status": "booked",
+            "start": "2026-11-12T09:00:00+09:00",
+            "participant": [
+                {"actor": {"reference": "Patient/00012345"}},
+                {"actor": {"reference": "Practitioner/D001"}},
+            ],
+        },
+        {
+            "resourceType": "Encounter",
+            "id": "E1",
+            "subject": {"reference": "Patient/00012345"},
+            "participant": [{"individual": {"reference": "Practitioner/D001"}}],
+            "period": {"start": "2026-10-01T09:00:00+09:00"},
+        },
+    ]
+    by: dict[str, list[dict[str, Any]]] = {}
+    for r in pseudonymise_bulk(iter(export), key):
+        by.setdefault(r["resourceType"], []).append(r)
+    rows = Flattener("Asia/Tokyo").flatten(by)
+    staff = {r["practitioner_id"] for r in rows["practitioner"]}
+    assert staff == {"D001"}  # the hospital's staff id, as the CSV and SS-MIX2 paths key it (the study scope's ids)
+    assert [r["practitioner_id"] for r in rows["appointment"]] == ["D001"]
+    assert [r["practitioner_id"] for r in rows["encounter"]] == ["D001"]
+    pid = pid_for_mrn(key, "00012345")
+    assert [r["pid"] for r in rows["patient"]] == [pid] == [r["pid"] for r in rows["appointment"]]
+    assert "00012345" not in json.dumps(by)  # the chart number is gone from ids, references and identifiers

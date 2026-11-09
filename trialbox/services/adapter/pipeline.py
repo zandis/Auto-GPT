@@ -77,9 +77,17 @@ _REF_RE = re.compile(r"^([A-Z][A-Za-z]+)/(.+)$")
 
 
 def pseudonymise_bulk(resources: Iterator[Resource], key: bytes) -> Iterator[Resource]:
-    """For ``fhir_bulk``: replace ids/references by pseudonyms and drop direct identifiers."""
+    """For ``fhir_bulk``: replace ids/references by pseudonyms and drop direct identifiers.
+
+    One rule maps a resource's id and every reference to it, so a reference always finds its resource. A Practitioner
+    keeps the hospital's staff id in both (as the CSV and SS-MIX2 mappings key it, ``{column: staff_id}``): a
+    clinician is not a patient, and a study's clinic scope names its doctors by that id (D-120). Hashing only the
+    references left every appointment without its practitioner and SCREEN with no one in scope (scenario run
+    FHIR-01)."""
 
     def new_id(rtype: str, rid: str) -> str:
+        if rtype == "Practitioner":
+            return rid
         return pid_for_mrn(key, rid) if rtype == "Patient" else resource_id(key, rtype, rid)
 
     def walk(node: Any) -> Any:
@@ -100,8 +108,7 @@ def pseudonymise_bulk(resources: Iterator[Resource], key: bytes) -> Iterator[Res
         if r["resourceType"] == "Patient":
             for k in ("name", "telecom", "address", "photo", "contact", "identifier"):
                 r.pop(k, None)
-        if r["resourceType"] != "Practitioner":
-            r["id"] = new_id(r["resourceType"], r["id"])
+        r["id"] = new_id(r["resourceType"], r["id"])
         yield r
 
 
