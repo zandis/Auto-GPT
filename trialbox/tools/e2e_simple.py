@@ -825,7 +825,7 @@ def _stage14(work: Path, box: Any) -> Stage:
 
 
 def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, mrns: set[str], box: Any) -> Stage:
-    """D-141: the PI keeps the delegation log, a sub-investigator sees the hospital's candidates and asks the treating
+    """D-147: the PI keeps the delegation log, a sub-investigator sees the hospital's candidates and asks the treating
     doctor (unknown to the data: arranged outside TrialBox), the CRC records the agreement, Approach follows under the
     IRB warning (recorded), and an opt-out entered by chart number leaves the lists and the next screening run."""
     s = Stage("15 delegation, candidates and referral")
@@ -872,9 +872,11 @@ def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, m
             'data-testid="purpose"' in first and view.status_code == 200 and 'data-testid="why"' in view.text
             and logged and logged[-1]["detail"].get("purpose") == "eligibility" and logged[-1]["ruleset"] == TRIAL,
             len(logged))  # fmt: skip
-    rv = sub.post(f"/studies/{TRIAL}/candidates/{x}/reveal", data={"csrf": csrf(sub), "purpose": "contact"})
+    rv = sub.post(
+        f"/studies/{TRIAL}/candidates/{x}/reveal", data={"csrf": csrf(sub), "purpose": "contact", "reason": "contact"}
+    )  # D-143's reveal and reason
     m = re.search(r'data-testid="mrn">[^<]*<span class="mono">([^<]+)<', rv.text)
-    s.check("the delegated sub-investigator reveals the chart number, audited with the purpose",
+    s.check("the delegated sub-investigator reveals the chart number (D-143), audited with reason and purpose",
             m is not None and m.group(1) in mrns and any(
                 e["detail"].get("purpose") == "contact" and e["actor"] == "console:subpi"
                 for e in events("console.reveal_patient")), m and "shown")  # fmt: skip

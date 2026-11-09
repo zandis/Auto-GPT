@@ -574,7 +574,7 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
     try:
         from tb_common.optout import opted_out
 
-        # D-141: a patient on the opt-out register is in no later export
+        # D-147: a patient on the opt-out register is in no later export
         data = registry_of(o).export_xlsx(ruleset, o.cfg.settings.site.id, opted_out())
     except RegistryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

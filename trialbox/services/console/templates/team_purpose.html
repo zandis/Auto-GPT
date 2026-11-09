@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{# D-141: nothing patient-level before the purpose is given; the view is then logged with the study and the purpose. #}
+{# D-147: nothing patient-level before the purpose is given; the view is then logged with the study and the purpose. #}
 {% block title %}{{ t('team.purpose.title') }} · {{ rs }}{% endblock %}
 {% block content %}
 <p><a href="/studies/{{ rs }}/candidates">← {{ t('team.cand.title') }}</a></p>

@@ -1,4 +1,4 @@
-"""The study team and the referral path (owner decisions 2026-11-09, D-141), schema ``team`` of the trial database.
+"""The study team and the referral path (owner decisions 2026-11-09, D-147), schema ``team`` of the trial database.
 
 * **Delegation log** per study (ICH E6 style): who is on the team, their role (PI, sub-PI, CRC, other), the tasks the
   PI ticked (screen and see candidates, mark Approach, request referrals, enter data), start and end dates, the GCP

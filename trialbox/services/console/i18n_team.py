@@ -1,5 +1,5 @@
 # ruff: noqa: E501 - one string per line, as in the other catalogues
-"""Strings of D-141: the delegation log, the whole-hospital candidates, the referral to the treating doctor, the IRB
+"""Strings of D-147: the delegation log, the whole-hospital candidates, the referral to the treating doctor, the IRB
 and consent-form warning, the staff directory and the opt-out register. Words from the clinical-operations review
 (``docs/reviews/2026-11-09-holistic-01-clinical-operations.md``): 分担医師 / 協同主持人 for a sub-investigator,
 主治医 / 主治醫師 for the treating doctor, 説明文書・同意文書 / 受試者同意書 for the consent form, 委任 / 授權 for
@@ -26,7 +26,7 @@ EN: dict[str, str] = {
     "team.doctor.unknown": "Doctor unknown",
     "team.doctor.unknown.help": "The data names no treating doctor. Pick one from the staff directory, type a name, arrange it outside TrialBox or ask the department contact.",
     "team.id": "Identifiers",
-    "team.reveal.help": "The chart number is shown once, for the purpose you chose, and recorded with your name.",
+    "team.reveal.help": "The chart number is shown once, with the reason you choose and this view's purpose, recorded with your name and counted in the hourly limit.",
     "team.purpose.title": "Why are you opening this candidate?",
     "team.purpose.help": "The page shows the patient's record. Each view is recorded with the study and the purpose you choose here.",
     "team.purpose.label": "Purpose",
@@ -218,7 +218,7 @@ JA: dict[str, str] = {
     "team.doctor.unknown": "主治医不明",
     "team.doctor.unknown.help": "データに主治医が載っていません。職員名簿から選ぶ、名前を入力する、TrialBox 外で調整する、または診療科の窓口に聞いてください。",
     "team.id": "識別情報",
-    "team.reveal.help": "カルテ番号は選んだ目的のために一度だけ表示され、あなたの名前で記録されます。",
+    "team.reveal.help": "カルテ番号は一度だけ表示されます。選んだ理由とこの閲覧の目的とともにあなたの名前で記録され、1時間あたりの上限に数えられます。",
     "team.purpose.title": "この候補者を開く目的は何ですか？",
     "team.purpose.help": "このページは患者さんの記録を表示します。閲覧はすべて試験名と、ここで選ぶ目的とともに記録されます。",
     "team.purpose.label": "目的",
@@ -410,7 +410,7 @@ ZH: dict[str, str] = {
     "team.doctor.unknown": "主治醫師不明",
     "team.doctor.unknown.help": "資料中沒有主治醫師。請從人員名冊選擇、輸入姓名、在 TrialBox 外安排，或詢問科別聯絡人。",
     "team.id": "識別資訊",
-    "team.reveal.help": "病歷號只會依您選擇的目的顯示一次，並以您的名字記錄。",
+    "team.reveal.help": "病歷號只會顯示一次，連同您選擇的原因與此次檢視的目的以您的名字記錄，並計入每小時上限。",
     "team.purpose.title": "您開啟這位候選者的目的是？",
     "team.purpose.help": "此頁面會顯示病人的紀錄。每次檢視都會連同試驗與您在此選擇的目的一起記錄。",
     "team.purpose.label": "目的",

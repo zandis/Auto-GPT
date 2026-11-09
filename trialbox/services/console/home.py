@@ -80,16 +80,17 @@ class Helpers:
     confirm: Callable[..., Response] | None = None
     # D-146 (review J-03): the role and study scope rules of every page, applied to /api/v1 calls too
     scope_check: Callable[[Request, Session], None] | None = None
-    # set by register(): read again by console.team (D-141)
+    # set by register(): read again by console.team (D-147)
     crit_of: Callable[..., dict[str, Any]] | None = None
     registry_map: Callable[[str], dict[str, str]] | None = None
     patient_ctx: Callable[..., dict[str, Any]] | None = None
-    # set by console.team (D-141): the study team store, the opt-out register and the one permission function
+    # set by console.team (D-147): the study team store, the opt-out register and the one permission function
     team: Any = None
     optout: Any = None
     may: Callable[..., bool] | None = None
     may_approve: Callable[..., bool] | None = None
     team_due: Callable[[str], bool] | None = None
+    apply_reveal: Callable[..., tuple[dict[str, Any], str]] | None = None  # set by register(): D-143's reveal
 
 
 class ApiLogin(BaseModel):
@@ -215,7 +216,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             return None
         cl = load(job, "candidate_list_", ".json")
         removed: list[str] = []
-        if cl is not None and h.optout is not None:  # D-141: an opted-out patient is on no list, page or mail
+        if cl is not None and h.optout is not None:  # D-147: an opted-out patient is on no list, page or mail
             out = h.optout.active()
             removed = [str(r.get("pid")) for r in cl.get("rows") or [] if str(r.get("pid")) in out]
             if removed:
@@ -293,7 +294,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 if mk is None and when <= today + timedelta(days=2):
                     tasks.append({"kind": "prepare", "rs": rs, "short": w["short"], "href": href, "due": when,
                                   "detail": open_items})  # fmt: skip
-        if h.team is not None:  # D-141: doctors to ask for a referral; the monthly delegation-log comparison
+        if h.team is not None:  # D-147: doctors to ask for a referral; the monthly delegation-log comparison
             for ref in h.team.latest_referrals(rs).values():
                 if ref.open and any(w["pid"] == ref.pid for w in rows):
                     tasks.append({"kind": "refer", "rs": rs, "short": ref.pid[:8], "due": today,
@@ -326,7 +327,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     h.registry_map = registry_map
 
     def screen_or_403(sess: Session, rid: str, path: str) -> None:
-        """D-141: once a study's delegation log names a PI, an investigator sees its patients only as the PI or a
+        """D-147: once a study's delegation log names a PI, an investigator sees its patients only as the PI or a
         sub-investigator the PI ticked "screen" for."""
         if sess.user.role == "investigator" and h.may is not None and not h.may(sess.user, rid, "screen"):
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
@@ -640,7 +641,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "outcome_keys": tuple(OUTCOMES),
             "today": h.clock().date(),
             "mrn": None,
-            # D-141: the IRB/consent-form warning before Approach, who may mark Approach, a referral still waiting
+            # D-147: the IRB/consent-form warning before Approach, who may mark Approach, a referral still waiting
             "irb_warn": h.team.irb(rid).warnings(h.clock().date()) if h.team is not None else [],
             "may_approach": sess.user.can_mark and (h.may is None or h.may(sess.user, rid, "approach")),
             "ref_wait": referral_wait(rid, pid),
@@ -724,6 +725,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         au.append("console.excluded_review", job_id=job.job_id, ruleset=rid, actor=h.actor(sess),
                   detail={"pid": pid, "criterion": crit, "role": sess.user.role})  # fmt: skip
         return RedirectResponse(f"/studies/{rid}/excluded?done=sent#x-{pid[:8]}", status_code=303)
+
     h.patient_ctx = patient_ctx
 
     def referral_wait(rid: str, pid: str) -> Any:
@@ -742,13 +744,18 @@ def register(app: FastAPI, h: Helpers) -> None:
         screen_or_403(sess, rid, request.url.path)
         return h.page(request, "patient.html", sess, **patient_ctx(sess, rid, pid))
 
-    def apply_reveal(sess: Session, path: str, rs: str, pid: str, reason: str) -> tuple[dict[str, Any], str]:
+    def apply_reveal(
+        sess: Session, path: str, rs: str, pid: str, reason: str, via: str = "patient", purpose: str = ""
+    ) -> tuple[dict[str, Any], str]:
         """One chart number for the page and ``/api/v1`` alike (D-99): identifier authority for the study
         (administrator, coordinator, and the study's investigator since the owner's decision of 2026-11-09, D-143),
         a reason, one audit record on each side and the orchestrator's per-person rate limit. Viewer and CRO
-        accounts get 403."""
+        accounts get 403. D-147: once the study's delegation log names a PI, an investigator reveals only as that PI
+        or as a sub-investigator ticked "screen"; the candidate page (``via="candidates"``, with the view's purpose)
+        uses this same path, reason and cap."""
         rid = study_or_404(sess, rs)
-        if not sess.user.sees_ids(rid):
+        delegated = sess.user.role != "investigator" or h.may is None or h.may(sess.user, rid, "screen")
+        if not sess.user.sees_ids(rid) or not delegated:
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
         if reason not in REVEAL_REASONS:
@@ -765,6 +772,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "role": sess.user.role,
                 "affiliation": sess.user.affiliation,
                 "reason": reveal_reason(reason),
+                "via": via,
+                **({"purpose": purpose} if purpose else {}),
             },
         )
         try:
@@ -772,6 +781,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         except Refused as exc:
             raise h.problem(409, "request.refused", reason=str(exc)) from exc
         return ctx, mrn or ""
+
+    h.apply_reveal = apply_reveal  # console.team's candidate page reveals through it (D-147)
 
     @app.post("/studies/{rs}/patients/{pid}/reveal")
     def patient_reveal(request: Request, rs: str, pid: str, csrf: str = Form(""), reason: str = Form("")) -> Response:
@@ -803,7 +814,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     ) -> tuple[str, str, dict[str, Any]]:
         """One mark (D-108, FR-SCR-07), the same for the page and ``/api/v1``. Returns (study, stored mark, detail).
 
-        D-141: Approach needs the "approach" task of the delegation log, the other marks "screen"; while the
+        D-147: Approach needs the "approach" task of the delegation log, the other marks "screen"; while the
         patient's referral waits or was declined, Approach is refused (the PI contacts the patient only after the
         treating doctor agreed); a missing or expired IRB approval or consent-form version is a warning shown before
         Approach, never a gate: an Approach marked under it is recorded as an override with the marker's name."""
@@ -871,7 +882,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             detail["from"] = prev.mark  # a replaced or withdrawn mark stays visible in the trail
         if mark == "approach":  # FR-STUDY-08: the screening number is given when the PI approves contact
             detail["to"] = store.assign_screening_no(rid, pid, conf, now)
-        if warned:  # D-141: a warning, not a gate; each override is its own record and audit event
+        if warned:  # D-147: a warning, not a gate; each override is its own record and audit event
             detail["irb_override"] = ",".join(warned)
             h.team.add_override(rid, pid, warned, sess.user.username, now)
             au.append("console.approach_override", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess),
@@ -1075,7 +1086,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_screening_log(request: Request, rs: str) -> list[dict[str, Any]]:
         sess = api_session(request)
         rid = rows_or_403(sess, rs, request.url.path)
-        gone = h.optout.active() if h.optout is not None else set()  # D-141: never an opted-out patient
+        gone = h.optout.active() if h.optout is not None else set()  # D-147: never an opted-out patient
         refs = h.team.latest_referrals(rid) if h.team is not None else {}
         return [
             {"pid": a, "screening_no": b, "at": c, "referral_route": refs[a].route if a in refs else "",

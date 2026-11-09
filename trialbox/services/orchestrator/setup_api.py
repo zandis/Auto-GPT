@@ -315,7 +315,7 @@ def router(
 
     @r.post("/setup/pseudonym")
     def post_pseudonym(body: PseudonymBody) -> dict[str, Any]:
-        """D-141: a chart number typed at the door (the opt-out register) becomes the box's pseudonym here; the console
+        """D-147: a chart number typed at the door (the opt-out register) becomes the box's pseudonym here; the console
         stores only the pseudonym and the number is never kept or logged."""
         chart = body.chart_no.strip()
         if not chart:

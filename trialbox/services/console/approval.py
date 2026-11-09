@@ -99,7 +99,7 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             "ticks": store.code_ticks(job.job_id),
             "labels": store.labels(job.ruleset or "", sess.lang) if sess.lang != "en" else {},
             "split": {c: sum(1 for r in rows if r.get("class") == c) for c in ("structured", "note", "mixed", "human")},
-            # D-141: a sub-investigator never approves; the study's PI does
+            # D-147: a sub-investigator never approves; the study's PI does
             "approver": h.may_approve is None or h.may_approve(sess.user, (job.ruleset or "").upper()),
         }
 
@@ -195,7 +195,7 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             raise h.problem(403, "forbidden")
         job, book = waiting_job(sess, job_id)
         if job.ruleset and h.may_approve is not None and not h.may_approve(sess.user, job.ruleset.upper()):
-            # D-141: once the study's delegation log names its PI, only that PI approves (never a sub-investigator)
+            # D-147: once the study's delegation log names its PI, only that PI approves (never a sub-investigator)
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         ctx = context(sess, job, book)

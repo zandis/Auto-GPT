@@ -97,7 +97,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return rid
 
     def enters(user: User, rid: str | None) -> bool:
-        """The coordinator; D-141: also an investigator the study's PI ticked "enter data" for in the delegation log
+        """The coordinator; D-147: also an investigator the study's PI ticked "enter data" for in the delegation log
         (trial values only: adding forms stays the coordinator's)."""
         if can_enter(user):
             return True

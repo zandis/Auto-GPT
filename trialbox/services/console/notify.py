@@ -211,7 +211,7 @@ def build_n2(
                 steps.append(translate(lang, "n2.step.info", p=r["short"], rs=rs))
             if r.get("status") == "new" and (r.get("first_at") or "") > cut:
                 new.append(translate(lang, "n2.new.row", p=r["short"], rs=rs))
-        for ref in extra.get("referrals") or []:  # D-141: ask the treating doctor, record the answer
+        for ref in extra.get("referrals") or []:  # D-147: ask the treating doctor, record the answer
             p = with_no(ref.pid, (extra.get("nos") or {}).get(ref.pid))
             steps.append(translate(lang, "n2.step.refer", p=p, rs=rs))
         for m in extra.get("marks") or []:

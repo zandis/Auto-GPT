@@ -3188,7 +3188,7 @@ mailbox uses the administrator's address, so their limits are shared; the invest
 (J-22's second half); the site set-up pages are per site, not per study (J-06); no screen yet for the IT work (J-09) or
 the data steward (J-10).
 
-**D-141 Sub-investigators by delegation, the whole-hospital candidate view and the referral to the treating doctor.**
+**D-147 Sub-investigators by delegation, the whole-hospital candidate view and the referral to the treating doctor.**
 Owner decisions of 2026-11-09 (`docs/reviews/2026-11-09-owner-decisions-data-and-profile.md`, "Whole-hospital
 screening, sub-investigators and referral" and "Site operations"), with the clinical-operations assessment
 (`docs/reviews/2026-11-09-holistic-01-clinical-operations.md` §2 rows 4–8, §3, §5 P0). Built 2026-11-09, no GPU, no
@@ -3205,7 +3205,7 @@ Docker.
    task; a sub-investigator only the ticked ones, on the days the entry runs; an investigator not on a log that names
    a PI is refused (403) on the week list, the patient page and the candidates. Only the logged PI approves criteria
    (S20) and keeps the log. **Until a study's log names a PI, every investigator of the study acts as its PI**
-   (screen, approach, refer: the behaviour before D-141), so a study without a log keeps working. Coordinators and
+   (screen, approach, refer: the behaviour before D-147), so a study without a log keeps working. Coordinators and
    administrators keep their role's rights; an investigator with the `enter_data` tick may also enter trial values
    (adding forms stays the coordinator's). Every change and every action carries its actor (rows and audit:
    `console.delegation`, `console.pi_mark`, `console.referral`, ...).
@@ -3215,11 +3215,14 @@ Docker.
    other); each view is audited (`console.candidate_view`: study, pseudonym, purpose) and counted in the `team`
    schema, and limited per person (`TB_CANDIDATE_VIEWS_PER_HOUR`, default 60; over it, 429 and
    `console.rate_limited`). It shows the identifiers, why the patient fits or not, the cited record (the patient
-   page's criteria table, now `_criteria.html`), the referral and its trail. **The chart number**: the owner's "PI
-   sees chart numbers" (called D-143 in the design proposal) is built on this page with the D-99 reveal: one patient,
-   with the purpose, audited on both sides (`console.reveal_patient` with `via: candidates`), for the PI, delegated
-   sub-investigators and the requesters, limited per day (`TB_CHART_REVEALS_PER_DAY`, default 20). The patient page
-   keeps D-133 (the investigator does not reveal there). CRO and viewer accounts get 403 on every page and route.
+   page's criteria table, now `_criteria.html`), the referral and its trail. **The chart number** goes through
+   D-143's reveal and nothing else: the candidate page calls the patient page's `apply_reveal` (identifier authority
+   `User.sees_ids`, a reason from the D-143 list, `console.reveal_patient` on the console and the orchestrator's audit,
+   the orchestrator's per-person cap), adding only `via: candidates` and the view's purpose to the record; there is no
+   second reveal route on `/api/v1` (`POST /api/v1/studies/{rs}/patients/{pid}/reveal` is the one). D-147 narrows
+   D-143 by the delegation log: once a study's log names a PI, an investigator reveals, on the patient page, the
+   candidate page and `/api/v1` alike, only as that PI or as a sub-investigator ticked `screen`. CRO and viewer
+   accounts get 403 on every page and route.
 3. **Referral; the treating doctor may be unknown.** From the candidate page the PI or a sub-investigator with
    `refer` sends a request: confirm the doctor the data names (TrialBox only suggests), pick from the steward's staff
    directory (`/site/staff`), type a name, choose "arranged outside TrialBox", or the department contact (the
@@ -3255,15 +3258,17 @@ database with versioned migrations (D-126); both are in the backup.
 *Evidence.* `tests/console/test_team_pages.py` (13): the stores; the register's as-of reading; a sub-investigator
 without the Approach tick refused and allowed once ticked, an investigator not on the log refused everywhere, the
 sub-investigator unable to change their own ticks; only the logged PI approves; CRO and viewer masked on pages and
-the API; the purpose before any patient-level content, the view and the reveal audited with the purpose, the patient
-page's D-133 rule kept; the view and reveal limits (429); an unknown doctor (department contact by default, a typed
+the API; the purpose before any patient-level content, the view audited with the purpose; D-143's reveal on the candidate
+page (a reason required, `via` and purpose recorded) and on the patient page for the PI; the delegated sub-PI
+revealing on the patient page and the investigator not on the log refused there and on `/api/v1`; the view limit
+(429) and the orchestrator's cap reached from the candidate page (409, no chart number); an unknown doctor (department contact by default, a typed
 empty name, the directory instead of the suggestion, "outside" answered by the PI through the API), Approach refused
 until agreement and after a decline, the screening log's route and outcome; the IRB warning not a gate, each
 override recorded, an expired approval warning again; the opt-out removing the patient from the list, the pages, the
 log, its XLSX and the API, and back after it is taken back; the orchestrator's scope dropping the patient, and not
 for a job received before the opt-out; every page in three languages. `e2e_simple` stage 15 (15 checks): the PI and
-a sub-investigator on the log, the sub-investigator seeing every candidate and revealing a real chart number with the
-purpose, Approach refused without the tick, an "outside TrialBox" referral numbered, the PI's Approach waiting, the
+a sub-investigator on the log, the sub-investigator seeing every candidate and revealing a real chart number through
+D-143's reveal with a reason and the purpose, Approach refused without the tick, an "outside TrialBox" referral numbered, the PI's Approach waiting, the
 CRC's agreement, the override recorded, the XLSX route and outcome, the CRO and viewer refused, an opt-out entered
 by chart number registered under the pseudonym, gone from the lists, and left out of the next SCREEN run with its
 audit event. `tools/complete_run.py` maps stage 15 to the candidates page; the browser walk opens the new pages for

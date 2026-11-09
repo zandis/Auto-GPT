@@ -147,7 +147,7 @@ class CandidateRegistry:
     def export_xlsx(self, ruleset: str, site_id: str, exclude: frozenset[str] = frozenset()) -> bytes:
         """The site's screening log: pseudonym, chart number (resolved in-box), status, dates, reasons; deterministic
         OOXML (D-82) so a re-export of an unchanged registry is byte-identical. PHI (chart numbers). ``exclude``: the
-        pseudonyms on the opt-out register (D-141), left out of the file."""
+        pseudonyms on the opt-out register (D-147), left out of the file."""
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill
 

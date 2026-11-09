@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{# D-141: one candidate found anywhere in the hospital, opened with a purpose: identifiers (the chart number revealed
-   one at a time, audited), why the patient fits or not, the cited record, the treating doctor as a suggestion or
-   unknown, and the referral. #}
+{# D-147: one candidate found anywhere in the hospital, opened with a purpose: identifiers (the chart number
+   through D-143's reveal: a reason, audited, capped), why the patient fits or not, the cited record, the treating
+   doctor as a suggestion or unknown, and the referral. #}
 {% from "_fit.html" import fit_line, open_items with context %}
 {% block title %}{{ t('team.cand.one') }} · {{ rs }}{% endblock %}
 {% block content %}
@@ -21,7 +21,8 @@
   <dt>{{ t('team.cand.doctor') }}</dt><dd data-testid="doctor">{% if doctor.known %}{{ given(doctor.name) }} <span class="hint">{{ t('team.doctor.from_data') }}</span>{% if doctor.contact %} · {{ doctor.contact }}{% endif %}{% else %}<span class="pill warn">{{ t('team.doctor.unknown') }}</span> <span class="hint">{{ t('team.doctor.unknown.help') }}</span>{% endif %}</dd>
 </dl>
 {% if may_reveal and mrn is none %}<section class="card" data-testid="reveal-card"><h2>{{ t('reveal.title') }}</h2>
-<form method="post" action="/studies/{{ rs }}/candidates/{{ pid }}/reveal" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="purpose" value="{{ purpose }}">
+<form method="post" action="/studies/{{ rs }}/candidates/{{ pid }}/reveal"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="purpose" value="{{ purpose }}">
+<label for="reveal-reason">{{ t('reveal.reason') }}</label><select id="reveal-reason" name="reason" required data-testid="reveal-reason"><option value="">{{ t('mark.reason.choose') }}</option>{% for k in reveal_reasons %}<option value="{{ k }}">{{ t('reveal.reason.' ~ k) }}</option>{% endfor %}</select>
 <button type="submit" class="secondary" data-testid="reveal">{{ t('patient.reveal.audited') }}</button></form>
 <p class="hint">{{ t('team.reveal.help') }}</p></section>{% endif %}
 {% if mrn is not none %}<p class="hint">{{ t('patient.mrn.help') }}</p>{% endif %}

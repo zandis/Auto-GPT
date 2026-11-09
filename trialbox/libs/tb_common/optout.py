@@ -1,4 +1,4 @@
-"""The research-use opt-out register (owner decision 2026-11-09, D-141), schema ``optout`` of the trial database.
+"""The research-use opt-out register (owner decision 2026-11-09, D-147), schema ``optout`` of the trial database.
 
 The research office or the data steward records each patient who opted out, by pseudonym (a chart number typed at
 the door is turned into the pseudonym by the box and never stored). From then on the patient is removed from

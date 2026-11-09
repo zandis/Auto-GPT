@@ -150,7 +150,7 @@ def scope_patients(
 
 
 def drop_opted_out(ctx: Ctx, scoped: list[Scoped]) -> list[Scoped]:
-    """D-141: patients on the research office's opt-out register (``tb_common.optout``) are never screened. The
+    """D-147: patients on the research office's opt-out register (``tb_common.optout``) are never screened. The
     register is read as it stood when the job was received, so a re-run of an old job stays byte-identical (D-82).
     The removal is audited by count (who opted out is itself private)."""
     from tb_common.optout import opted_out

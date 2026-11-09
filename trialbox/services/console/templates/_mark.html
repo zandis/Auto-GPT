@@ -26,7 +26,7 @@
 
 {% macro mark_bar(pid, next_href='') %}
 {% if user.can_mark %}{% set s = pid[:8] %}
-{# D-141: Approach needs the "approach" tick of the delegation log; it waits for the treating doctor's agreement when
+{# D-147: Approach needs the "approach" tick of the delegation log; it waits for the treating doctor's agreement when
    a referral is open or declined; a missing or expired IRB approval / consent form is a warning, never a gate: an
    Approach marked under it is recorded as an override #}
 {% set can_approach = may_approach is not defined or may_approach %}

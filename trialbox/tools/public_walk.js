@@ -54,7 +54,7 @@ const C = W.cohort;
 const LR = W.life_record; // D-134: a participant with today's visit and a serious AE
 const SQ = `ws=${W.site_ws || "practice"}&study=${T}`; // D-135: the practice site, loaded by public_e2e stage 5c
 const SITE = [`/site?${SQ}`, `/site/start?${SQ}&step=2`, `/site/charts?${SQ}`, `/site/facts?${SQ}`, `/site/codes?${SQ}`, `/site/checks?${SQ}`, `/site/sheets?${SQ}`, `/site/people?${SQ}`, `/site/patients?${SQ}`, `/site/help?${SQ}`];
-// D-141: the study team's pages (candidates across the hospital, a candidate opened with a purpose, referrals, the
+// D-147: the study team's pages (candidates across the hospital, a candidate opened with a purpose, referrals, the
 // delegation log, IRB and consent form) and the steward's lists
 const TEAM = [`/studies/${T}/candidates`, `/studies/${T}/candidates/${W.pid_marked}?purpose=eligibility`, `/studies/${T}/referrals`, `/studies/${T}/team`, `/studies/${T}/irb`, "/site/staff"];
 const LIFE = [`/studies/${T}/subjects`, `/studies/${T}/subjects/${LR}`, `/studies/${T}/visits`, `/studies/${T}/schedule`, `/studies/${T}/enrolment`];

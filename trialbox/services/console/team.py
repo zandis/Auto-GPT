@@ -1,4 +1,4 @@
-"""Whole-hospital screening, sub-investigators and referral (owner decisions 2026-11-09, D-141).
+"""Whole-hospital screening, sub-investigators and referral (owner decisions 2026-11-09, D-147).
 
 * **Rights by delegation** (:func:`standing`, :func:`may`): the PI adds sub-investigators to the study's delegation
   log (``/studies/{rs}/team``) and ticks what each may do: ``screen`` (see the candidates and their candidate page),
@@ -9,8 +9,8 @@
 * **Candidates** (``/studies/{rs}/candidates``): every candidate the study's screening run found, whoever the treating
   doctor is. A candidate's page opens only with a purpose, is logged with the study and the purpose, and is
   rate-limited per person (``TB_CANDIDATE_VIEWS_PER_HOUR``, default 60). On it the PI and delegated sub-PIs see the
-  cited record, why the patient fits or not and, revealed one at a time with the purpose and audited (the D-99
-  reveal, owner decision "PI sees chart numbers"), the chart number (``TB_CHART_REVEALS_PER_DAY``, default 20).
+  cited record, why the patient fits or not and, through D-143's reveal (a reason, audited on both sides, the
+  orchestrator's per-person cap), the chart number; the view's purpose is added to that record.
 * **Referral**: the treating doctor may be unknown. TrialBox only *suggests* the attending the data names; the PI or
   sub-PI confirms it, picks from the steward's staff directory (``/site/staff``), types a name, chooses "arranged
   outside TrialBox", or falls back to the department contact. A missing field never stops the request. The CRC
@@ -39,8 +39,8 @@ from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
 from console import s28
 from console import studies as st
-from console.auth import Session, User
-from console.backend import Problem, Refused, Unavailable
+from console.auth import REVEAL_REASONS, Session, User
+from console.backend import Problem, Unavailable
 from console.home import Helpers
 from console.studies import known_study
 from console.teamstore import (
@@ -76,7 +76,7 @@ class Standing:
 
 
 def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
-    """The one permission function of D-141: pages and ``/api/v1`` both ask it."""
+    """The one permission function of D-147: pages and ``/api/v1`` both ask it."""
     if not user.sees_study(rs) or user.aggregate_only:
         return Standing(False, frozenset(), False)
     entries = team.entries(rs)
@@ -120,10 +120,6 @@ class ApiAnswer(BaseModel):
     note: str = Field(default="", max_length=300)
 
 
-class ApiPurpose(BaseModel):
-    purpose: str
-
-
 class ApiIrb(BaseModel):
     approval_no: str = Field(default="", max_length=60)
     approved_on: str = ""
@@ -146,7 +142,6 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     optout = OptOutRegister()  # schema optout, read by the orchestrator too
     h.team, h.optout = team, optout
     per_hour = int(env.get("TB_CANDIDATE_VIEWS_PER_HOUR") or 60)
-    per_day = int(env.get("TB_CHART_REVEALS_PER_DAY") or 20)
 
     def today() -> date:
         return h.clock().date()
@@ -161,7 +156,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return task in stand(user, rid).tasks
 
     def may_approve(user: User, rid: str) -> bool:
-        """FR-AUTH-13 and D-141: the investigator approves, and once the log names a PI, only that PI."""
+        """FR-AUTH-13 and D-147: the investigator approves, and once the log names a PI, only that PI."""
         s = stand(user, rid)
         return user.can_approve and (s.pi or not s.logged)
 
@@ -227,12 +222,12 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             "in_directory": member is not None,
         }
 
-    def rate(sess: Session, kind: str) -> None:
-        limit, span = (per_hour, timedelta(hours=1)) if kind == "view" else (per_day, timedelta(days=1))
-        since = (h.clock() - span).isoformat()
-        if team.count_views(sess.user.username, kind, since) >= limit:
-            au.append("console.rate_limited", actor=h.actor(sess), detail={"action": kind, "limit": limit})
-            raise h.problem(429, "candidate.rate_limited", n=limit)
+    def rate(sess: Session) -> None:
+        """Candidate pages opened per person and hour (the chart number itself is under D-143's cap)."""
+        since = (h.clock() - timedelta(hours=1)).isoformat()
+        if team.count_views(sess.user.username, "view", since) >= per_hour:
+            au.append("console.rate_limited", actor=h.actor(sess), detail={"action": "view", "limit": per_hour})
+            raise h.problem(429, "candidate.rate_limited", n=per_hour)
 
     def candidate_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
         if not _PID.match(pid) or h.patient_ctx is None:
@@ -254,7 +249,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             purposes=VIEW_PURPOSES,
             standing=s,
             may_refer=("refer" in s.tasks),
-            may_reveal=("screen" in s.tasks) and (sess.user.role == "investigator" or sess.user.can_reveal),
+            may_reveal=("screen" in s.tasks) and sess.user.sees_ids(rid),
+            reveal_reasons=REVEAL_REASONS,
             views=team.views(rid, pid)[:10],
             irb_warn=team.irb(rid).warnings(today()),
         )
@@ -266,7 +262,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if purpose not in VIEW_PURPOSES:
             raise h.problem(400, "candidate.purpose")
         ctx = candidate_ctx(sess, rid, pid)
-        rate(sess, "view")
+        rate(sess)
         team.record_view(rid, pid, purpose, "view", sess.user.username, now())
         au.append("console.candidate_view", job_id=ctx["job"].job_id, ruleset=rid, actor=h.actor(sess),
                   detail={"pid": pid, "purpose": purpose, "role": sess.user.role,
@@ -274,29 +270,21 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         ctx["purpose"] = purpose
         return rid, ctx
 
-    def reveal_candidate(sess: Session, path: str, rs: str, pid: str, purpose: str) -> tuple[str, dict[str, Any]]:
-        """The chart number of one candidate (the D-99 reveal): the PI, delegated sub-PIs and the requesters, with the
-        purpose, audited on both sides and rate-limited."""
+    def reveal_candidate(sess: Session, path: str, rs: str, pid: str, purpose: str, reason: str) -> dict[str, Any]:
+        """The chart number of one candidate through D-143's reveal (``h.apply_reveal``): identifier authority for
+        the study and, for an investigator, the delegation log's "screen"; the D-143 reason; the audit record on both
+        sides and the orchestrator's per-person cap. The candidate page adds only the view's purpose to the record."""
         rid = study_or_404(sess, rs)
-        s = need_task(sess, rid, "screen", path)
-        if not (sess.user.role == "investigator" or sess.user.can_reveal):
-            raise deny(sess, path)
         if purpose not in VIEW_PURPOSES:
             raise h.problem(400, "candidate.purpose")
-        ctx = candidate_ctx(sess, rid, pid)
-        rate(sess, "reveal")
-        job = ctx["job"]
-        au.append("console.reveal_patient", job_id=job.job_id, ruleset=rid, actor=h.actor(sess),
-                  detail={"pid": pid, "role": sess.user.role, "affiliation": sess.user.affiliation, "reason": purpose,
-                          "purpose": purpose, "via": "candidates", "pi": s.pi})  # fmt: skip
+        if h.apply_reveal is None:
+            raise deny(sess, path)
+        _ctx, mrn = h.apply_reveal(sess, path, rid, pid, reason, via="candidates", purpose=purpose)
         team.record_view(rid, pid, purpose, "reveal", sess.user.username, now())
-        try:
-            mrn = bk.reveal(job.job_id, pid, h.actor(sess))
-        except Refused as exc:
-            raise h.problem(409, "request.refused", reason=str(exc)) from exc
-        ctx["mrn"] = mrn or ""
+        ctx = candidate_ctx(sess, rid, pid)
+        ctx["mrn"] = mrn
         ctx["purpose"] = purpose
-        return rid, ctx
+        return ctx
 
     @app.get("/studies/{rs}/candidates")
     def candidates(request: Request, rs: str, page: int = 1, show: str = "") -> Response:
@@ -332,7 +320,9 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
-        _rid, ctx = reveal_candidate(sess, request.url.path, rs, pid, str(form.get("purpose") or ""))
+        ctx = reveal_candidate(
+            sess, request.url.path, rs, pid, str(form.get("purpose") or ""), str(form.get("reason") or "")
+        )
         return h.page(request, "team_candidate.html", sess, **ctx)
 
     # ------------------------------------------------------------------ referral
@@ -735,12 +725,6 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             "referral": ref_json(ctx["referral"], {}) if ctx["referral"] else None,
             "irb_warnings": ctx["irb_warn"],
         }  # fmt: skip
-
-    @app.post("/api/v1/studies/{rs}/candidates/{pid}/reveal")
-    def api_reveal(request: Request, rs: str, pid: str, body: ApiPurpose) -> dict[str, Any]:
-        sess = api(request)
-        rid, ctx = reveal_candidate(sess, request.url.path, rs, pid, body.purpose)
-        return {"study": rid, "pid": pid, "mrn": ctx["mrn"] or None, "purpose": body.purpose}
 
     @app.post("/api/v1/studies/{rs}/candidates/{pid}/referral")
     def api_referral(request: Request, rs: str, pid: str, body: ApiReferral) -> dict[str, Any]:

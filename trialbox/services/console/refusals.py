@@ -116,7 +116,7 @@ REFUSALS: dict[str, tuple[str, str]] = {
     ),
     "unknown trial": ("この試験はありません", "沒有此試驗"),
     "version is x.y.z": ("バージョンは x.y.z の形です", "版本格式為 x.y.z"),
-    # D-141: the delegation log, referral, IRB record, staff directory and opt-out register
+    # D-147: the delegation log, referral, IRB record, staff directory and opt-out register
     "dates are YYYY-MM-DD": ("日付は YYYY-MM-DD で入力してください", "請以 YYYY-MM-DD 輸入日期"),
     "choose the role: PI, sub-investigator, CRC or other": (
         "役割を選んでください：責任医師・分担医師・CRC・その他",

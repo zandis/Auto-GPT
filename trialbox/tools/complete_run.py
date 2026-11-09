@@ -86,7 +86,7 @@ HOSPITAL_PAGES = [
     ("12 ", "crc", "/site?ws=newsite&study=SITE5B"),  # e2e_simple.SITE_WS, SITE_RS
     ("13 ", "admin", "/admin?tab=sources"),
     ("14 ", "admin", "/admin/notice"),  # the offline trial registry: its sources and licences (D-140)
-    ("15 ", "pi", f"/studies/{H_TRIAL}/candidates"),  # the hospital's candidates, the log, referrals (D-141)
+    ("15 ", "pi", f"/studies/{H_TRIAL}/candidates"),  # the hospital's candidates, the log, referrals (D-147)
     ("re-run", "admin", "/jobs"),
     ("runtime", "admin", "/admin?tab=health"),
 ]

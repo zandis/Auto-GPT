@@ -1,4 +1,4 @@
-"""D-141: the delegation log (sub-investigators by delegation), the whole-hospital candidate view, the referral to the
+"""D-147: the delegation log (sub-investigators by delegation), the whole-hospital candidate view, the referral to the
 treating doctor (who may be unknown), the IRB / consent-form warning before Approach, and the opt-out register. Pages
 and ``/api/v1`` alike, in three languages."""
 
@@ -108,7 +108,7 @@ def test_sub_investigator_rights_come_from_the_delegation_log(box: dict[str, Any
     pi = _user(box, "drsato", "investigator")
     sub = _user(box, "drkato", "investigator")
     other = _user(box, "drito", "investigator")
-    # before the log names a PI, every investigator of the study acts as its PI (as before D-141)
+    # before the log names a PI, every investigator of the study acts as its PI (as before D-147)
     assert other.get("/studies/GZQO/candidates").status_code == 200
     _log_pi_and_sub(box, pi, ("screen", "refer"))
     page = pi.get("/studies/GZQO/team").text
@@ -128,6 +128,18 @@ def test_sub_investigator_rights_come_from_the_delegation_log(box: dict[str, Any
     for path in ("/studies/GZQO/candidates", f"/studies/GZQO/candidates/{A}?purpose=eligibility",
                  "/studies/GZQO/week", f"/studies/GZQO/patients/{A}"):  # fmt: skip
         assert other.get(path).status_code == 403, path
+    # D-143's reveal follows the log: the delegated sub-PI reveals, the investigator not on the log does not
+    r = other.post(
+        f"/studies/GZQO/patients/{A}/reveal", data={"csrf": _csrf(other.get("/home").text), "reason": "contact"}
+    )
+    assert r.status_code == 403 and not box["backend"].revealed
+    api = TestClient(box["app"])
+    tok = api.post("/api/v1/session", json={"username": "drito", "password": PW}).json()["token"]
+    r = api.post(f"/api/v1/studies/GZQO/patients/{A}/reveal", json={"reason": "contact"},
+                 headers={"Authorization": f"Bearer {tok}"})  # fmt: skip
+    assert r.status_code == 403 and not box["backend"].revealed
+    r = sub.post(f"/studies/GZQO/patients/{A}/reveal", data={"csrf": _csrf(wk), "reason": "eligibility"})
+    assert r.status_code == 200 and "MRN-000123" in r.text and box["backend"].revealed[-1][2] == "console:drkato"
     # only the PI keeps the log; the sub-PI cannot add themselves a tick
     r = sub.post("/studies/GZQO/team/2", data={"csrf": _csrf(wk), "tasks": ["screen", "approach"]})
     assert r.status_code == 403
@@ -178,7 +190,7 @@ def test_cro_and_viewer_stay_masked(box: dict[str, Any]) -> None:
     tok = api.post("/api/v1/session", json={"username": "view2", "password": PW}).json()["token"]
     hdr = {"Authorization": f"Bearer {tok}"}
     assert api.get("/api/v1/studies/GZQO/candidates", headers=hdr).status_code == 403
-    r = api.post(f"/api/v1/studies/GZQO/candidates/{A}/reveal", json={"purpose": "contact"}, headers=hdr)
+    r = api.post(f"/api/v1/studies/GZQO/patients/{A}/reveal", json={"reason": "contact"}, headers=hdr)
     assert r.status_code == 403 and not box["backend"].revealed
 
 
@@ -204,24 +216,30 @@ def test_candidate_view_needs_a_purpose_is_logged_and_reveals_for_the_pi(box: di
     assert "two flares this spring" in p and 'data-testid="why"' in p and 'data-testid="reveal"' in p
     ev = _events(box, "console.candidate_view")[-1]
     assert ev["ruleset"] == "GZQO" and ev["detail"]["purpose"] == "eligibility" and ev["detail"]["pid"] == A
-    # D-143 / owner decision: the PI sees the chart number here, with the purpose, audited
+    assert 'data-testid="reveal-reason"' in p  # D-143: a reason is asked, as on the patient page
     r = pi.post(f"/studies/GZQO/candidates/{A}/reveal", data={"csrf": _csrf(p), "purpose": "contact"})
+    assert r.status_code == 400 and not box["backend"].revealed  # no reason, no chart number
+    # D-143: the PI sees the chart number here through the same reveal, with its reason and the view's purpose
+    r = pi.post(f"/studies/GZQO/candidates/{A}/reveal",
+                data={"csrf": _csrf(p), "purpose": "contact", "reason": "contact"})  # fmt: skip
     assert "MRN-000123" in r.text and box["backend"].revealed[-1][2] == "console:drsato"
     rev = _events(box, "console.reveal_patient")[-1]
     assert rev["detail"]["purpose"] == "contact" and rev["detail"]["via"] == "candidates"
-    # the patient page keeps D-133: the investigator reveals there neither
-    assert (
-        pi.post(f"/studies/GZQO/patients/{A}/reveal", data={"csrf": _csrf(p), "reason": "contact"}).status_code == 403
-    )
+    assert rev["detail"]["reason"] == "contact"
+    # and on the patient page (D-143 reversed D-133's "the investigator may not reveal")
+    r = pi.post(f"/studies/GZQO/patients/{A}/reveal", data={"csrf": _csrf(p), "reason": "consent"})
+    assert r.status_code == 200 and "MRN-000123" in r.text
+    assert _events(box, "console.reveal_patient")[-1]["detail"]["via"] == "patient"
     for lang, word in (("ja", "院内の候補者"), ("zh-TW", "全院候選者")):
         pi.post("/lang", data={"csrf": _csrf(p), "lang": lang, "back": "/home"})
         assert word in pi.get("/studies/GZQO/candidates").text
 
 
-def test_candidate_views_and_reveals_are_rate_limited(box: dict[str, Any]) -> None:
+def test_candidate_views_are_rate_limited_and_reveals_meet_the_d143_cap(box: dict[str, Any]) -> None:
+    from console.backend import Refused
+
     _done_screen(box["backend"], _ulid(966))
-    env = {**PILOT_ENV, "TB_CONSOLE_DIR": str(box["dir"] / "console2"), "TB_CANDIDATE_VIEWS_PER_HOUR": "2",
-           "TB_CHART_REVEALS_PER_DAY": "1"}  # fmt: skip
+    env = {**PILOT_ENV, "TB_CONSOLE_DIR": str(box["dir"] / "console2"), "TB_CANDIDATE_VIEWS_PER_HOUR": "2"}
     app = create_app(env, backend=box["backend"], audit=box["audit"], users=box["users"])
     box["users"].create("drsato", "investigator", PW, "drsato@hospa.test")
     pi, _ = login(app, "drsato", PW)
@@ -230,14 +248,19 @@ def test_candidate_views_and_reveals_are_rate_limited(box: dict[str, Any]) -> No
     r = pi.get(f"/studies/GZQO/candidates/{B}?purpose=eligibility")
     assert r.status_code == 429 and "two flares" not in r.text
     csrf = _csrf(pi.get("/studies/GZQO/candidates").text)
-    assert (
-        "MRN-000123" in pi.post(f"/studies/GZQO/candidates/{A}/reveal", data={"csrf": csrf, "purpose": "contact"}).text
-    )
-    r = pi.post(f"/studies/GZQO/candidates/{A}/reveal", data={"csrf": csrf, "purpose": "contact"})
-    assert r.status_code == 429 and "MRN-000123" not in r.text
+    form = {"csrf": csrf, "purpose": "contact", "reason": "contact"}
+    assert "MRN-000123" in pi.post(f"/studies/GZQO/candidates/{A}/reveal", data=form).text
+    real = box["backend"].reveal
+
+    def capped(job_id: str, pid: str, by: str) -> str | None:  # the orchestrator's per-person cap (D-143)
+        raise Refused("too many chart numbers revealed in the last hour")
+
+    box["backend"].reveal = capped
+    r = pi.post(f"/studies/GZQO/candidates/{A}/reveal", data=form)
+    assert r.status_code == 409 and "MRN-000123" not in r.text  # the candidate page meets the same cap
+    box["backend"].reveal = real
     assert len(box["backend"].revealed) == 1
-    limited = _events(box, "console.rate_limited")
-    assert [e["detail"]["action"] for e in limited] == ["view", "reveal"]
+    assert [e["detail"]["action"] for e in _events(box, "console.rate_limited")] == ["view"]
 
 
 # ---------------------------------------------------------------------------------------------- referral

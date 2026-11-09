@@ -103,7 +103,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         for o in store.outcomes(rs):
             outs.setdefault(o.pid, []).append(o)
         seen = store.first_seen(rs)
-        # D-141: the referral route and outcome per row, Approach marked despite an IRB warning; opted-out patients
+        # D-147: the referral route and outcome per row, Approach marked despite an IRB warning; opted-out patients
         # leave the log and its exports
         refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
         overrides: dict[str, tuple[str, list[str], str, str]] = {}
@@ -250,7 +250,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         jobs.sort(key=lambda j: j.updated_at or j.received_at)
         job = jobs[-1] if jobs else None
         cl = load(job, "candidate_list_")
-        gone = h.optout.active() if h.optout is not None else set()  # D-141: opted-out patients are on no list
+        gone = h.optout.active() if h.optout is not None else set()  # D-147: opted-out patients are on no list
         members = [
             str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") == "high"
             and str(r.get("pid")) not in gone

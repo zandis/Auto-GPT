@@ -999,7 +999,7 @@ def create_app(
     site_pages.register(app, helpers)  # TB-PLAN-04 step 5b: site set-up, readiness, review lists, Ask (D-135)
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
-    team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-141)
+    team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00
