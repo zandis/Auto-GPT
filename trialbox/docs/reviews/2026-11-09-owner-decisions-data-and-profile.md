@@ -117,3 +117,13 @@ Where a recommendation conflicts with an overriding decision above, the decision
 | Readiness | Boxes not bought, hospital IT not engaged, contracts not signed. IRB is approved at one site; the plan covers the other. |
 | GPU | Budget approved, and several GPUs may be used. The G1 run is split across parallel VMs and is joined by the profile cost test and the bge-m3 vs Qwen3 embedding test (about US$50). Each VM is capped and stopped afterwards. |
 | Work order | Building continues while the master plan is written. |
+
+## Hardware, interim hosting and contacts (after the master plan questions)
+
+| Topic | Decision |
+|---|---|
+| CGMH hardware | **CGMH hosts TrialBox on its own B200 server.** No appliance box is bought for CGMH. The installation must work on a shared hospital GPU server, not only on our appliance. |
+| Japan hardware | **One box for Makoto's site.** Keep the current model pair, but size the box so a larger model can be added later. |
+| Before hardware is ready | Use the hospital's private cloud with GPU, where the site has one approved for patient data. |
+| Site contacts | Changfu and Makoto find the IT, privacy-office and data-feed contacts. Aimedics drafts the site survey and the hospital IT security pack in ja and zh-TW. |
+| Wave 1c | The high-risk journey findings (job permission by role, viewer/CRO data leaks, PDF upload, screening scope, PI criteria ticks) are fixed **before** the G1 GPU run. |
