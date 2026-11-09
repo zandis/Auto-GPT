@@ -78,14 +78,45 @@ def _service_env(service: str, dotenv: dict[str, str]) -> dict[str, str]:
     return {**dotenv, **{k: sub(v) for k, v in raw.items()}}  # env_file first, environment: wins
 
 
+def _weights(models: Path) -> None:
+    """Synthetic weights where the gb10 compose file serves them from (deploy/models/<dir>)."""
+    for name in ("gemma-4-26b-a4b-it-4bit", "qwen3.5-9b-4bit"):
+        (models / name).mkdir(parents=True)
+        (models / name / "model.safetensors").write_bytes(f"synthetic {name}".encode())
+
+
 def _pin(tmp_path: Path) -> Path:
+    """The pins install.sh makes (tools/pin_model.py --install gb10, review R-01): the box's own weights, champion."""
     out = tmp_path / "site" / "registry.site.yaml"
-    for build, served, endpoint in ((JUDGE, "j-box", "serving"), (VERIFIER, "v-box", "verifier")):
-        d = tmp_path / "models" / build
-        d.mkdir(parents=True)
-        (d / "model.safetensors").write_bytes(f"synthetic {build}".encode())
-        pin_model.pin(build, d, served_name=served, endpoint=endpoint, out=out, status="champion")
+    _weights(tmp_path / "models")
+    ok, lines = pin_model.install_pins("gb10", tmp_path / "models", out, {})
+    assert ok, lines
+    ok, lines = pin_model.verify_all(tmp_path / "models", out)  # install's next step (SEC-64)
+    assert ok, lines
     return out
+
+
+def test_install_pins_the_profile_pair_once_and_reports_missing_weights(tmp_path: Path) -> None:
+    out = tmp_path / "site" / "registry.site.yaml"
+    ok, lines = pin_model.install_pins("gb10", tmp_path / "models", out, {})
+    assert not ok and all("routes nothing" in x for x in lines) and not out.exists()
+    _weights(tmp_path / "models")
+    assert pin_model.install_pins("gb10", tmp_path / "models", out, {})[0]
+    again = pin_model.install_pins("gb10", tmp_path / "models", out, {})
+    assert again == (True, [f"{JUDGE}: already pinned", f"{VERIFIER}: already pinned"])
+    reg = Registry.from_env({"TB_REGISTRY_OVERRIDE": str(out)})
+    for alias, endpoint, served in (
+        ("j-workhorse", "serving", "gemma-4-26b-a4b-it"),
+        ("v-verifier", "verifier", "qwen3.5-9b"),
+    ):
+        res = reg.resolve(alias, endpoint, role="judge", env=Environment.PRODUCTION)
+        assert res.served_name == served  # the name compose gives vLLM (--served-model-name)
+    # every profile's pair names builds of the committed registry, on the endpoint that serves them
+    doc = yaml.safe_load((ROOT / "models" / "registry.yaml").read_text(encoding="utf-8"))
+    known = {b["build_id"]: b for b in doc["builds"]}
+    for pairs in pin_model.PROFILE_PAIRS.values():
+        for build, endpoint, *_ in pairs:
+            assert build in known and endpoint in (known[build].get("served") or {}), build
 
 
 @pytest.fixture
