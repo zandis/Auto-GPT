@@ -106,27 +106,61 @@ class RedcapSource:
                     )
         return out
 
+    def _homes(self, rc: Any) -> dict[str, str]:
+        """REDCap field -> the event it lives on, for a longitudinal project linked with no event (D-142, review B-03):
+        the first event whose forms include the field's form (REDCap refuses a row with no event, or a field on an
+        event its form is not designated for). Empty for a classic project or when an event is set."""
+        if self.event:
+            return {}
+        try:
+            events = [str(e["unique_event_name"]) for e in rc.events()]
+        except Exception:  # a classic project: REDCap answers events for a longitudinal project only
+            return {}
+        if not events:
+            return {}
+        try:
+            mapping = rc.form_event_mapping()
+        except Exception:
+            mapping = []
+        forms: dict[str, list[str]] = {}
+        for m in mapping:
+            forms.setdefault(str(m.get("unique_event_name")), []).append(str(m.get("form")))
+        home: dict[str, str] = {}
+        for m in rc.metadata():
+            f, form = str(m["field_name"]), str(m.get("form_name") or "")
+            home[f] = next((e for e in events if form in forms.get(e, [])), events[0])
+        return home
+
     def push(self, rows: list[Row]) -> dict[str, str]:
         back = {v: k for k, v in self.field_map.items()}
-        upd: list[dict[str, str]] = []
-        new: list[tuple[str, dict[str, str]]] = []
-        for r in rows:
-            vals = {back.get(f, f): v for f, v in r.values.items()}
-            base: dict[str, str] = {"redcap_event_name": self.event} if self.event else {}
-            if r.source_id:
-                upd.append({self.id_field: r.source_id, **base, **vals})
-            elif self.create:
-                if self.dag:
-                    base["redcap_data_access_group"] = self.dag
-                new.append((r.record, {self.id_field: f"tb-new-{len(new) + 1}", **base, self.key_field: r.record,
-                                       **vals}))  # fmt: skip
         out: dict[str, str] = {}
         with self.client() as rc:
+            homes = self._homes(rc)
+
+            def split(rid: str, vals: dict[str, str], base: dict[str, str]) -> list[dict[str, str]]:
+                if not homes:
+                    return [{self.id_field: rid, **base, **vals}]
+                by: dict[str, dict[str, str]] = {}
+                for f, v in vals.items():
+                    by.setdefault(homes.get(f) or next(iter(homes.values())), {})[f] = v
+                return [{self.id_field: rid, "redcap_event_name": ev, **base, **v} for ev, v in by.items()]
+
+            upd: list[dict[str, str]] = []
+            new: list[tuple[str, list[dict[str, str]]]] = []
+            for r in rows:
+                vals = {back.get(f, f): v for f, v in r.values.items()}
+                base: dict[str, str] = {"redcap_event_name": self.event} if self.event else {}
+                if r.source_id:
+                    upd += split(r.source_id, vals, base)
+                elif self.create:
+                    if self.dag:
+                        base["redcap_data_access_group"] = self.dag
+                    new.append((r.record, split(f"tb-new-{len(new) + 1}", {self.key_field: r.record, **vals}, base)))
             if upd:
                 rc.import_records(upd)
                 out.update({r.record: r.source_id for r in rows if r.source_id})
-            if new:
-                ids = rc.import_records([n[1] for n in new], auto_number=True)
+            if new:  # rows of one new record (one per event) share its temporary name: REDCap gives it one id
+                ids = rc.import_records([x for _rec, part in new for x in part], auto_number=True)
                 out.update({rec: rid for (rec, _), rid in zip(new, ids, strict=False)})
         return out
 

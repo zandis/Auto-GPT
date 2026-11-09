@@ -9,11 +9,17 @@ value, and two events that disagree are refused (listed), not guessed. The repro
 
 from __future__ import annotations
 
+import csv
+import io
 from typing import Any, ClassVar
 
+from datacore import forms
 from datacore.sources import RedcapSource
 from datacore.store import DataCore
-from datacore.sync import attach, sync
+from datacore.sync import attach, enter, sync
+from fastapi.testclient import TestClient
+from rc_bridge.client import RedcapClient
+from rc_sim.app import create_app, load_projects
 
 AT1, AT2, AT3 = "2026-11-01T08:00:00+09:00", "2026-11-02T08:00:00+09:00", "2026-11-03T08:00:00+09:00"
 
@@ -80,3 +86,38 @@ def test_a_configured_event_reads_that_event_only() -> None:
     src = RedcapSource(client=FakeRc, field_map={"en_date": "en_date"}, event="baseline_arm_1")
     got = [r.values for r in src.pull() if r.values]
     assert got == [{"en_date": "2026-10-04"}]
+
+
+def test_push_to_a_longitudinal_project_with_no_event_lands_on_each_fields_event() -> None:
+    """The scenario run's B-03: TrialBox's own fields pushed to a longitudinal project linked with no event. REDCap
+    refuses a row with no event, so each field goes to the event its form is designated for; two syncs keep them."""
+    proj = next(p for p in load_projects().values() if p["project"]["project_id"] == 202)
+    sim = create_app()
+
+    def client() -> RedcapClient:
+        rc = RedcapClient("https://rc.example/", proj["token"], http=TestClient(sim, base_url="http://rc"))
+        rc.url = "/api/"
+        return rc
+
+    dc = DataCore()
+    buf = io.StringIO()
+    wr = csv.DictWriter(buf, fieldnames=list(proj["metadata"][0]))
+    wr.writeheader()
+    wr.writerows(proj["metadata"])
+    for q in forms.questionnaires("RA-COH", forms.read_dictionary(buf.getvalue()), record_field="rec_id"):
+        dc.put_form("RA-COH", q, "redcap-dictionary", AT1)
+    mine = {f"RL{3000 + i}": {"tb_status": "2", "tb_screen_date": f"2026-11-0{i + 1}"} for i in range(3)}
+    for no, vals in mine.items():
+        enter(dc, "RA-COH", no, "", vals, "crc", AT1)
+    fields = ["icf_dt", "rand_yn", "withdrawn", "tb_status", "tb_screen_date"]
+    src = RedcapSource(client, field_map={f: f for f in fields}, create=True, dag="cgmh_linkou")
+    attach(dc, "RA-COH", src, ["icf_dt", "rand_yn", "withdrawn"])
+    for at in (AT2, AT3):
+        res = sync(dc, "RA-COH", src, "crc", at)
+        assert not res.refused, res.refused
+    rows = client().records()
+    for no, vals in mine.items():
+        got = [r for r in rows if r.get("tb_screening_no") == no]
+        assert len(got) == 1 and got[0]["redcap_event_name"] == "screening_arm_1"
+        assert {k: got[0][k] for k in vals} == vals
+        assert {k: dc.record("RA-COH", no)[k] for k in vals} == vals
