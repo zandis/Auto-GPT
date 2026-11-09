@@ -1,4 +1,4 @@
-"""A vLLM stand-in for the rehearsal (D-149): the OpenAI server surface the gateway and the run touch, strict where the
+"""A vLLM stand-in for the rehearsal (D-150): the OpenAI server surface the gateway and the run touch, strict where the
 cloud run failed and the local stub is not.
 
 * ``--api-key``: every /v1 request needs ``Authorization: Bearer <key>`` (401 otherwise), /health does not;

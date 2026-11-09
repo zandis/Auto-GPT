@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The cloud run's local rehearsal (D-149; review of 2026-11-09 §5): the gate before any paid launch (RUNBOOK §11).
+# The cloud run's local rehearsal (D-150; review of 2026-11-09 §5): the gate before any paid launch (RUNBOOK §11).
 #
 #   make rehearse                       # every case below, about 40-60 minutes, US$0
 #   tests/rehearsal/rehearse.sh [CASE ...]   # some cases, in order: run-a run-b served no-upload hang busy

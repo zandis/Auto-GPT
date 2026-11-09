@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TrialBox complete-platform run on the RTX PRO 6000 (TB-PLAN-04 step 9, D-139, D-141, D-148, D-149). Owner's OK first:
+# TrialBox complete-platform run on the RTX PRO 6000 (TB-PLAN-04 step 9, D-139, D-141, D-148, D-150). Owner's OK first:
 # it starts paid VMs (tb-gpu-sim and its clones, g4-standard-48 spot, about US$2.74 an hour each).
 # Gate before any paid launch: `make rehearse` passes on the commit to launch (tests/rehearsal, RUNBOOK §11).
 #
@@ -40,7 +40,7 @@
 #   1. Cloud-side hard cap, set before the start: max-run-duration of that VM's estimate x 1.3 rounded up (--hours to
 #      change it), termination action STOP. Compute Engine stops the VM at the cap whatever else happens.
 #   2. The VM stops itself (deploy/gcp/complete-run-vm.sh): a systemd hard cap, and a watchdog per phase; in the run it
-#      powers off when no part has worked for 20 minutes (an in-run heartbeat, D-149), and after the done marker (at
+#      powers off when no part has worked for 20 minutes (an in-run heartbeat, D-150), and after the done marker (at
 #      once when the driver has collected, else 30 minutes later).
 #   3. The workload runs on the VM (48 vCPU): the driver uploads the code (git archive of HEAD with TB_HEAD.json; its
 #      sha256 goes in the metadata and the VM refuses anything else), polls, downloads the results and runs the stub

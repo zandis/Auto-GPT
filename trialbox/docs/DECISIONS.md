@@ -3338,7 +3338,7 @@ dry run for three VMs: each VM capped before its own start, its own `tb-only`, n
 *Not done; only the card can show.* No bench number is measured yet. The clones, other zones and the quota are the
 owner's to check; the G4 zones in the default list are not verified here.
 
-**D-149 The cloud run made reliable, and its local rehearsal as the gate before any paid launch.** Independent review
+**D-150 The cloud run made reliable, and its local rehearsal as the gate before any paid launch.** Independent review
 of the cloud GPU run (2026-11-09, 25 findings, after the four failed runs of that day), 2026-11-09. Built in a cloud
 container with no GPU; no VM was started and no gcloud command was run. On top of `gw404` (the served-name fix, C-01).
 
@@ -3393,7 +3393,23 @@ bounded run at 500 patients), `run-b` (same disk, new run), and the negative cas
 `busy`; `check.py` holds the pass criteria. Model quality is not rehearsed: the canary, the checks that need a passed
 canary and TREC's verdicts may fail on the deterministic stub, by name; nothing else may.
 
-REHEARSAL-RESULTS
+*Evidence.* `make rehearse` on `8890532` (the code of this entry; later commits change only this entry's number and
+text): **REHEARSAL PASSED**, all six cases, 94 of 94 criteria, 33 minutes, the private dockerd and its mounts removed
+afterwards. `run-a`: setup on a fresh disk in about 4 minutes; `TB-DATA` cql, medtxt and trec ready (TREC in about one
+minute); every part reported, none crashed: 326 of 331 checks, the 5 failing ones the canary and the checks that need
+it and TREC's verdicts (the stub's answers); judge 868 and verifier 452 calls answered, **0 × 404, 0 × 401** besides the
+pre-flight's own no-key refusal; the report's HEAD = the launched commit, "synthetic weight pins"; power-off one minute
+after the driver collected. `run-b`: nothing kept, one boot in the log, the report's HEAD right. Negative cases, each
+failing as it should: `served` stopped before any part with "TB-SERVING-FAILED: judge serves 'local/not-the-judge',
+the run asks for 'local/gemma-4-26b-a4b-nvfp4'", the servers' logs in `results.tgz`; `no-upload`: TB-NO-CODE, power-off
+after the grace; `hang`: "TB-WATCHDOG no heartbeat for 2 minutes in the run (a stuck part)", then `--collect` started
+the stopped VM results-only and got the log; `busy`: a 5-minute silent part with a 2-minute idle limit finished
+(PASS), power-off only after the grace, collected results-only. The rehearsal found three defects before they cost
+money: the run exited 127 when started with a `${X:+VAR=v}` prefix; a VM stopped during its first part had no
+`results.tgz`; and `--collect` restarted a VM with nothing to hand over at every call. Unit tests:
+`tests/unit/test_cloud_run.py` (20), with `test_complete_run`, `test_gpu_prep`, `test_scenario_matrix`,
+`test_served_names`, `test_no_direct_model_calls` green. `make lint` clean; `tools/e2e_simple.py` PASSED;
+`complete-run.sh --dry-run` and `--estimate` (full plan 8.87 h, US$24.29, cap 12 h).
 
 *Not done.* HTTPS or the bucket path for the door (M-06's transport part, M-07): the key still crosses plain HTTP and
 the bucket path is not rehearsed. Real weight pins on the VM (M-09 is labelled instead). L-01, L-02 (the judge name

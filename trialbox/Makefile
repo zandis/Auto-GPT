@@ -188,7 +188,7 @@ site:
 site-preview: site
 	$(PY) -m http.server -d build/site 8000
 
-# the cloud run's local rehearsal (D-149): the real driver and VM script against stand-ins, US$0, about an hour.
+# the cloud run's local rehearsal (D-150): the real driver and VM script against stand-ins, US$0, about an hour.
 # The gate before any paid GPU launch (docs/RUNBOOK.md §11); CASES="run-a served" runs some cases only.
 rehearse:
 	tests/rehearsal/rehearse.sh $(CASES)

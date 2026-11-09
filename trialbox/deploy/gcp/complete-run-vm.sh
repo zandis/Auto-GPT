@@ -1,10 +1,10 @@
 #!/bin/bash
-# TrialBox complete run ON the RTX PRO 6000 VM (TB-PLAN-04 step 9, D-141, D-149). The VM's startup script for the run
+# TrialBox complete run ON the RTX PRO 6000 VM (TB-PLAN-04 step 9, D-141, D-150). The VM's startup script for the run
 # (the usual one is gpu-sim-startup.sh). deploy/gcp/complete-run.sh puts it there with this metadata:
 #
 #   tb-key            random API key of the two model servers and the door (made by the driver, never printed)
 #   tb-run-id         the run's id: the run directory is /var/lib/tb/runs/<id> (a new id never sees an older run's
-#                     parts, D-149 / review H-01); tb-patients the bulk size; tb-bucket an optional gs:// bucket
+#                     parts, D-150 / review H-01); tb-patients the bulk size; tb-bucket an optional gs:// bucket
 #   tb-only           the parts of this VM (complete_run --only tags; a shard of a parallel run, D-148); empty: all
 #   tb-src-sha256     the sha256 of the code the driver uploads: anything else is refused before it is unpacked
 #   tb-max-minutes    hard cap of this boot (the driver sets the cloud cap too: max-run-duration, action STOP)
@@ -18,7 +18,7 @@
 # The VM stops itself, whatever happens to the driver:
 #   1. a hard cap (systemd timer, tb-max-minutes after boot) and the cloud's max-run-duration (set by the driver);
 #   2. a watchdog, per phase: serving 45 min, waiting for the code 35 min, setup 45 min; in the run, no heartbeat for
-#      tb-idle-minutes (the run touches it while a part works, D-149 / review H-03; the driver over HTTP too); the done
+#      tb-idle-minutes (the run touches it while a part works, D-150 / review H-03; the driver over HTTP too); the done
 #      marker older than tb-done-grace (at once once the driver says it collected the results);
 #   3. every failure ends with the done marker and a results.tgz that says why (TB-PREFLIGHT-FAILED,
 #      TB-SERVING-FAILED, TB-NO-CODE, TB-UPLOAD-REJECTED, TB-SETUP-FAILED), so a failed boot costs minutes, not hours.

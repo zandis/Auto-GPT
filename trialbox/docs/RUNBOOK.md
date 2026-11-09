@@ -303,10 +303,10 @@ with the weights is kept, so boot to serving is about 10–15 minutes).
 | the same on four VMs, with the embedding and profile benches | `deploy/gcp/complete-run.sh --vms 4 --parts g1,embed,profile` | about 2.8 h, US$30; D-148 |
 
 **The complete run is fail-safe** (D-141, after the 2026-11-09 incident: a killed driver left the VM on for an hour;
-D-149, after the independent review of the four failed runs of that day). The workload runs on the VM; the VM stops
+D-150, after the independent review of the four failed runs of that day). The workload runs on the VM; the VM stops
 itself; the driver only uploads, polls and collects.
 
-**Gate before any paid launch: the rehearsal** (D-149). `make rehearse` runs the real driver and the real VM script,
+**Gate before any paid launch: the rehearsal** (D-150). `make rehearse` runs the real driver and the real VM script,
 on the exact commit to be launched (it uploads `git archive` of HEAD, as the paid run does), in an Ubuntu 24.04
 container that stands in for `tb-gpu-sim`: real apt, PyPI, Node.js, Playwright, the data downloads and nginx; strict
 vLLM stand-ins (the API key is checked, any but the served name is a 404); fakes only for gcloud, the metadata
@@ -377,7 +377,7 @@ key, watchdog and results; the driver waits for all, merges, runs the stub parts
 adds the benches: `embed` (`tools/bench_embed.py`) and `profile` (`tools/bench_profile.py`).
 
 The project had one GPU in all (`GPUS_ALL_REGIONS = 1`, `PREEMPTIBLE_CPUS = 0`: Spot VMs then draw on the regular
-quota) when D-149 was written, so `--vms N > 1` is refused until the owner has the quota raised; the driver checks
+quota) when D-150 was written, so `--vms N > 1` is refused until the owner has the quota raised; the driver checks
 it before any start or `--provision` and makes nothing it could not run.
 
 1. The owner checks the zones and the quota (read-only; `--dry-run` prints these commands for the chosen zones):

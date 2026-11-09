@@ -1,4 +1,4 @@
-"""The rehearsal's pass criteria (D-149; review of 2026-11-09 §5.2), one case at a time, from its evidence folder:
+"""The rehearsal's pass criteria (D-150; review of 2026-11-09 §5.2), one case at a time, from its evidence folder:
 
     python tests/rehearsal/check.py run-a <evidence> --only TAG,TAG --head <sha>
     python tests/rehearsal/check.py run-b <evidence> --only ... --head <sha> --previous <run id of run-a>

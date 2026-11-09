@@ -1,4 +1,4 @@
-"""The cloud run made reliable (D-149, the independent review of 2026-11-09): the pieces that run on a CPU.
+"""The cloud run made reliable (D-150, the independent review of 2026-11-09): the pieces that run on a CPU.
 
 The whole path (the real driver and VM script against stand-ins) is ``make rehearse`` (``tests/rehearsal``); here:
 run identity and ``--resume`` (H-01), the in-run heartbeat (H-03), data that fails fast (C-03), the report's truth
@@ -318,7 +318,7 @@ def test_vm_checks_the_upload_installs_git_fetches_data_and_packs_per_part() -> 
     assert 'mv -f "$out.tmp" "$out"' in VM  # the door never serves half an archive
     # a VM stopped mid-part (watchdog, first part never ending) still has a results.tgz: the rehearsal's hang case
     assert 'timeout 120 /usr/local/sbin/tb-pack "$(cat $tb/current-run)"' in VM
-    assert VM.index("printf '%s' \"$RUN\" > \"$TB/current-run\"") < VM.index("\nphase code\n")
+    assert VM.index('printf \'%s\' "$RUN" > "$TB/current-run"') < VM.index("\nphase code\n")
     drv = (GCP / "complete-run.sh").read_text(encoding="utf-8")
     assert '[ -f "$SH/collect-boot" ]' in drv and 'echo "noresults" > "$SH/state"' in drv  # one results-only boot
 
