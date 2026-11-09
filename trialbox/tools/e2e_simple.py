@@ -54,6 +54,8 @@ from tools import rc_demo  # noqa: E402
 TRIAL, COHORT = ld.TRIAL, ld.COHORT
 GOUT = ("M10", "M1A")  # GZQO-INC-02 / GOUT-COH-INC-01 value set (ICD-10-CM)
 BUDGET_S = 15 * 60  # TB-DS-04 §3.4.1: the whole run within 15 minutes
+# (judge, verifier) served names when tools.complete_run puts the GPU pair in the box; None = the stub (the gate)
+PAIR: tuple[str, str] | None = None
 
 
 @dataclass
@@ -706,8 +708,15 @@ def _stage13(work: Path, box: Any, gout: dict[str, Any]) -> Stage:
         fun[kind] = (raw.start_n, raw.remaining)
     s.check("GOUT-COH funnel: the SS-MIX2 storage equals its CSV export", fun["ssmix2"] == fun["csv"]
             and list(fun["csv"][1].values())[2] > 0, fun)  # fmt: skip
-    s.check("GOUT-COH funnel of the main run unchanged by step 7 (FEAS, SCREEN, cohort list)",
-            gout == GOUT_COH_BEFORE_STEP7, gout)  # fmt: skip
+    if PAIR is None and gout["feas"]["start"] == GOUT_COH_BEFORE_STEP7["feas"]["start"]:  # the gate, stub
+        s.check("GOUT-COH funnel of the main run unchanged by step 7 (FEAS, SCREEN, cohort list)",
+                gout == GOUT_COH_BEFORE_STEP7, gout)  # fmt: skip
+    else:  # another size (tools.complete_run): the numbers were pinned on the gate's hospital; the shape still holds
+        rem = list(gout["feas"]["remaining"].values())
+        sf = gout["screen"]["funnel"]
+        s.check("GOUT-COH funnel of the main run: FEAS and SCREEN never grow",
+                all(a >= b for a, b in itertools.pairwise([gout["feas"]["start"], *rem]))
+                and sf["S0"] >= sf["S1"] >= sf["S3"], gout)  # fmt: skip
     events = {str(e["event"]) for e in _audit(box)}
     s.check("each licensed load is in the hash-chained audit", "terminology.load" in events
             and verify(box.audit_dir).ok)  # fmt: skip
@@ -873,15 +882,22 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     sj = _done(box, "SCREEN", TRIAL)[0]
     scr = _json_output(box, sj, "screen_")
     j = scr["judging"]
-    s.check("stub model ran, single judge", j["judge_model"] == "stub" and j["verifier_model"] is None, j)
-    s.check("no note-based exclusion without two models agreeing", j["note_block"] == "never" and not j["may_block"], j)
+    if PAIR is None:
+        s.check("stub model ran, single judge", j["judge_model"] == "stub" and j["verifier_model"] is None, j)
+        s.check(
+            "no note-based exclusion without two models agreeing", j["note_block"] == "never" and not j["may_block"], j
+        )
+    else:  # tools.complete_run on the card: the pair ran, and a note excludes only when both agree (D-115, D-117)
+        s.check("the pair ran: judge and verifier", (j["judge_model"], j["verifier_model"]) == PAIR, j)
+        s.check("the pair canary passed, so notes may exclude", j["may_block"], j)
+        s.check("a note excludes only when both models agree", j["note_block"] == "both_agree", j)
     fun = dict((k, v) for k, v in scr["funnel"])
     s.check("funnel S0 >= S1 >= S3 >= S4 > 0", fun["S0"] >= fun["S1"] >= fun["S3"] >= fun["S4"] > 0, fun)
     s.check("listed = high + review", scr["listed"] == scr["tiers"]["high"] + scr["tiers"]["review"], scr["tiers"])
     sp = scr.get("provenance") or {}
     s.check(
         "FR-REP-01 provenance names the model and prompt",
-        sp.get("models") == ["stub"] and sp.get("prompt_versions"),
+        sp.get("models") == (["stub"] if PAIR is None else list(PAIR)) and sp.get("prompt_versions"),
         sp,
     )
     s.check(

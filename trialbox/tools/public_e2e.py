@@ -113,19 +113,27 @@ def build(work: Path, llm: Any = None, verifier: Any = None) -> tuple[Any, Any, 
     site["ingest"] = {"passed": rep.passed, "counts": rep.counts, "missing_required": rep.missing_required}
     shutil.rmtree(work / "box", ignore_errors=True)
     box = make_box(work / "box", work / "lake", sec, ps.REF + timedelta(days=1), extra_profiles=PROFILES)
-    if llm is not None:  # real-model runs: the judge (and the verifier) read the notes; the compiler stays on the stub
-        for c in (llm, verifier):
-            if c is not None:
-                c.audit = box.orch.audit  # every real model call is an llm.call audit record, as in the box
-        box.orch.services.llm = llm
-        box.orch.services.verifier = verifier
-        from orchestrator import canary_gate
-
-        if canary_gate.gate_on():  # D-117: as at box start, the pair canary first; it gates note exclusions
-            canary_gate.run_canary(box.orch)
-            site["canary"] = canary_gate.status()
+    if llm is not None:
+        site["canary"] = attach_models(box, llm, verifier)
     orch_app._orch = box.orch
     return box, orch_client(orch_app.app), work / "box" / "repo", site
+
+
+def attach_models(box: Any, llm: Any, verifier: Any) -> dict[str, Any] | None:
+    """Real-model runs: the judge (and the verifier) read the notes; the compiler stays on the stub. Returns the
+    pair canary's status when the gate is on (D-117: as at box start, the canary runs first and gates exclusions)."""
+    for c in (llm, verifier):
+        if c is not None:
+            c.audit = box.orch.audit  # every real model call is an llm.call audit record, as in the box
+    box.orch.services.llm = llm
+    box.orch.services.verifier = verifier
+    from orchestrator import canary_gate
+
+    if not canary_gate.gate_on():
+        return None
+    canary_gate.run_canary(box.orch)
+    status: dict[str, Any] = canary_gate.status()
+    return status
 
 
 def _rows(path: Path) -> list[dict[str, str]]:

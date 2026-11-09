@@ -26,3 +26,5 @@ deploy/.objects/
 # update rollback points and history (tools/trialbox/update.py, D-138); the box's collected logs
 deploy/updates/
 deploy/logs/
+# the complete run (tools/complete_run.py, D-139): screenshots and work folders are never committed
+eval/complete_run/**/shots/

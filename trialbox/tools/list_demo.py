@@ -199,6 +199,10 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     days = sorted(notify.clinic_days(rows, PI_PRACTITIONER))
     assert days, "no listed candidate is booked with the investigator"
     day = days[0] if days[0].weekday() < 5 else next(d for d in days if d.weekday() < 5)
+    if day != box.today[0]:  # a later clinic day (another hospital size): sessions end after 8 h, so sign in again
+        clock.set(day)
+        crc = sign_in(app, "crc", password, lang)
+        pi = sign_in(app, "pi", password, lang)
     clock.set(day)
     mine = [r for r in rows if r.get("practitioner_id") == PI_PRACTITIONER and r.get("visit")]
     mine.sort(key=lambda r: r["visit"])
