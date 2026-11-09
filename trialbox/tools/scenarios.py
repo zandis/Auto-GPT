@@ -164,6 +164,17 @@ def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
     return GatewayClient("http://tb-gateway/v1", "orchestrator", http=TestClient(create_app(gw)))
 
 
+def weight_pins() -> str:
+    """``real`` when :func:`installed_registry` pins the site's weights (``deploy/models``), else ``synthetic``: the
+    cloud run has no ``deploy/models``, so its weight pins are of synthetic files and only the served-model echo is
+    real (review M-09); the report says so."""
+    from tools import pin_model
+
+    root = ROOT / "deploy" / "models"
+    dirs = [p[3] for p in pin_model.PROFILE_PAIRS["rtxpro6000"]]
+    return "real" if all((root / d).is_dir() for d in dirs) else "synthetic"
+
+
 def installed_registry(work: Path) -> Path:
     """The pins ``install.sh`` makes (``tools/pin_model.py --install rtxpro6000``, D-142 review R-01): the profile's
     pair as champion, from the site's weights in ``deploy/models`` when they are there, else from synthetic weights in

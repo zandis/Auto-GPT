@@ -42,7 +42,7 @@ if [ ! -d ".cache/medtxt/Test collection" ]; then
 fi
 mkdir -p .cache/jvm/cql-translator/lib
 [ -s .cache/jvm/cql-translator/lib/quick-5.4.0.jar ] || curl -fsSL -o .cache/jvm/cql-translator/lib/quick-5.4.0.jar \
-  https://repo1.maven.org/maven2/info/cqframework/quick/5.4.0/quick-5.4.0.jar
+  https://repo1.maven.org/maven2/org/cqframework/quick/5.4.0/quick-5.4.0.jar
 step "building the demo image"
 DOCKER_BUILDKIT=1 docker build -q -f demo/Dockerfile -t trialbox-demo:hosted . || step "BUILD FAILED"
 docker rm -f tb-public tb-synth >/dev/null 2>&1
