@@ -447,12 +447,7 @@ def test_every_committed_ruleset_screens_the_same_on_both_lakes(feed_dir: Path, 
 
     duck = {s: LakeLocal(d, HashEmbedder(), "Asia/Taipei") for s, d in lakes.items()}  # through Lake.rebuild
     for t in ("site_fact", "document_chunk", "patient"):
-        got = [
-            duck[s]
-            .query(f"SELECT * EXCLUDE (embedding) FROM {t}" if t == "document_chunk" else f"SELECT * FROM {t}")
-            .to_pylist()
-            for s in ("legacy", "omop")
-        ]
+        got = [duck[s].query(f"SELECT * FROM {t}").to_pylist() for s in ("legacy", "omop")]
         assert got[0] == got[1] and got[0], t
     res = op.compare_screening(lakes, ds)
     assert set(res) == {"GOUT-COH", "GZQO", "ONC-OSI", "RA-BIO", "RA-COH", "EMPULSE", "STARRT-AKI"}
