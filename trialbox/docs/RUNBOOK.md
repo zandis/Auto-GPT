@@ -213,9 +213,9 @@ disk. Spark memory as set, not yet measured on a Spark: `JUDGE_GPU_MEM_UTIL` 0.3
 
 ```sh
 python -m tools.pin_model --build gemma-4-26b-a4b-it-spark --model-dir deploy/models/gemma-4-26b-a4b-it-4bit \
-    --served-name gemma-4-26b-a4b-it
+    --served-name local/gemma-4-26b-a4b-nvfp4
 python -m tools.pin_model --build qwen3.5-9b-spark --model-dir deploy/models/qwen3.5-9b-4bit \
-    --served-name qwen3.5-9b --endpoint verifier
+    --served-name local/qwen3.5-9b-awq --endpoint verifier
 # RTX PRO 6000: the same with the -rtxpro6000 builds
 ```
 
@@ -303,37 +303,83 @@ with the weights is kept, so boot to serving is about 10–15 minutes).
 | the complete-platform run with the scenario matrix (step 9) | `deploy/gcp/complete-run.sh` | `--estimate`; D-141 |
 | the same on four VMs, with the embedding and profile benches | `deploy/gcp/complete-run.sh --vms 4 --parts g1,embed,profile` | about 2.8 h, US$30; D-148 |
 
-**The complete run is fail-safe** (D-141, after the 2026-11-09 incident: a killed driver left the VM on for an hour).
-The workload runs on the VM; the VM stops itself; the driver only uploads, polls and collects.
+**The complete run is fail-safe** (D-141, after the 2026-11-09 incident: a killed driver left the VM on for an hour;
+D-150, after the independent review of the four failed runs of that day). The workload runs on the VM; the VM stops
+itself; the driver only uploads, polls and collects.
 
-1. `deploy/gcp/complete-run.sh --estimate --patients 50000` prints the hours and US$ per scenario. `--dry-run` prints
-   every command and starts nothing.
+**Gate before any paid launch: the rehearsal** (D-150). `make rehearse` runs the real driver and the real VM script,
+on the exact commit to be launched (it uploads `git archive` of HEAD, as the paid run does), in an Ubuntu 24.04
+container that stands in for `tb-gpu-sim`: real apt, PyPI, Node.js, Playwright, the data downloads and nginx; strict
+vLLM stand-ins (the API key is checked, any but the served name is a 404); fakes only for gcloud, the metadata
+server, systemd, docker and the GPU (`tests/rehearsal/rehearse.sh` says what each is). About an hour, US$0. It must
+end with `REHEARSAL PASSED`; no paid launch without it, and none from a commit it did not pass on. Its cases:
+
+| Case | What it shows |
+| --- | --- |
+| `run-a` | a fresh disk, a bounded run at 500 patients (hospital-ja, public-ja, the gateway probe, emr-fhir, it-dump, MedTxt, TREC), driven with `--no-wait` and repeated `--collect`: setup, the data, both model servers' check, every part reported, no 404 or 401 at the servers, the report's HEAD = the commit, power-off once collected |
+| `run-b` | the same disk, a new run: nothing kept from `run-a`, a fresh log |
+| `served` | the judge serves a wrong name: `TB-SERVING-FAILED` before any part, the servers' logs in `results.tgz` |
+| `no-upload` | nobody uploads: `TB-NO-CODE`, power-off after the grace |
+| `hang` | a stuck, silent part and no driver: the idle watchdog powers off; `--collect` then gets the results from the stopped VM |
+| `busy` | a part silent for 5 minutes but working (idle limit 2): it is never powered off as idle; it finishes; `--collect` gets it |
+
+It needs docker (it starts a private `dockerd` when none answers and stops it afterwards), about 4 GB of disk and
+the ports 80 and 8080 free; the evidence of each case stays in `$TB_REHEARSAL_DIR/evidence/<case>/`. Model quality
+is not rehearsed (the stand-ins answer with the deterministic stub, so the canary may fail there): plumbing, names,
+keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
+
+1. `deploy/gcp/complete-run.sh --estimate --patients 50000` prints the hours and US$ per scenario (`--only TAG,TAG`
+   for a bounded run). `--dry-run` prints every command and starts nothing.
 2. The run: `export CLOUDSDK_CONFIG=<private folder> TB_SA_KEY_FILE=<key file, in place>`, activate the service
-   account once, then `deploy/gcp/complete-run.sh --patients 50000`. It:
-   * probes the credential (`gc_probe`) and refuses unless the VM is `TERMINATED`;
+   account once, then `deploy/gcp/complete-run.sh --patients 50000 --no-wait` (or `--detach`). It:
+   * probes the credential (`gc_probe`), reads the GPU and CPU quota (read-only) and refuses when the VMs cannot run,
+     and refuses unless every VM is `TERMINATED`;
    * sets the **cloud-side hard cap**: `gcloud compute instances set-scheduling tb-gpu-sim --zone asia-east1-a
      --max-run-duration=<estimate x 1.3, rounded up>h --instance-termination-action=STOP` (`--hours N` to change);
    * puts `deploy/gcp/complete-run-vm.sh` on the VM as its startup script with a fresh key (0600 file, metadata,
-     never printed), starts it, and uploads the code (`git archive` of HEAD: local changes are not in the run).
-3. On the VM: a systemd hard cap and a watchdog start first. The watchdog powers off when the heartbeat is not
-   touched for 20 minutes (the run touches it as its log grows; the driver touches it over HTTP), when setup takes
-   more than an hour, or 30 minutes after the done marker (at once when the driver has collected). The model parts
-   run there with `--resume --ocr tesseract` (tesseract with `jpn`, `chi_tra`, `eng` is installed by the script) and
-   through the gateway built as an installed box builds it.
-4. The driver polls once a minute with short calls only, downloads `results.tgz`, runs the walk, backup, update and
-   scale on the stub here and writes the report. If the driver dies, nothing is lost:
-   `deploy/gcp/complete-run.sh --collect <run id>` picks the run up; a stopped VM keeps its disk, and starting it
-   again resumes the parts not yet passed.
+     never printed) and the sha256 of the code, starts it, and uploads the code (`git archive` of HEAD with
+     `TB_HEAD.json`: local changes are not in the run; the VM refuses an archive with another sha256).
+3. On the VM: a systemd hard cap and a watchdog start first; then a pre-flight (docker with the NVIDIA runtime, the
+   weights in `/models`, 50 GB free: else `TB-PREFLIGHT-FAILED`); then both model servers, which must be healthy,
+   list exactly their served names, answer one chat call and refuse a call without the key, else
+   `TB-SERVING-FAILED` and their logs in the results; only then `PRO6000-RUN-READY`. Setup installs git, the venv,
+   Node.js, Playwright (Chromium must launch) and fetches the data git does not carry (`tools/fetch_run_data.py`: the
+   CQL translator's `quick-5.4.0.jar`, MedTxt, TREC CT; a dataset it cannot fetch is named `TB-DATA-MISSING`, and
+   its parts fail at once as "data missing" without using the card). The watchdog limits each phase (serving and
+   setup 45 minutes, the code 35) and, in the run, powers off when no part has worked for 20 minutes (the run's own
+   heartbeat follows the part's CPU, so a long silent SCREEN stays alive and a stuck one does not), and 30 minutes
+   after the done marker (at once when the driver has collected). The model parts run in the run's own directory
+   (`/var/lib/tb/runs/<run id>`) with `--resume --ocr tesseract`, through the gateway built as an installed box builds
+   it; `results.tgz` is re-packed after every part.
+4. Collect: `deploy/gcp/complete-run.sh --collect <run id>`, as often as wanted (each call is short: one look, the
+   results so far, the report so far, "still running"; `--follow` polls to the end). The driver need not live through
+   the run: the operator's shell may be capped at two hours, the run is not. When the VM has stopped with its
+   results not yet collected, `--collect` starts it once in a **results-only** mode (no models, no run, a 20-minute
+   cloud cap; it powers off as soon as the results are here; about US$0.20). Once every VM is done, it runs the walk,
+   backup, update and scale on the stub here (at the run's `--patients`, OCR tesseract) and writes the report, whose
+   head, host and run id are the VM's. A restart of the same run (`TB_RUN_ID=<run id> --shard i`) keeps the parts
+   passed in that run at that HEAD; a new run never keeps anything.
 5. Every gcloud call goes through `gc` (`deploy/gcp/gcloud-auth.sh`): an authentication error re-activates the
    service account from `TB_SA_KEY_FILE` and retries once.
 6. Afterwards: `gcloud compute instances describe tb-gpu-sim --zone asia-east1-a --format='value(status)'` must say
-   `TERMINATED`; `deploy/gcp/complete-run.sh --stop` stops it by hand and puts the usual startup script back.
+   `TERMINATED`; `deploy/gcp/complete-run.sh --stop` stops it by hand and puts the usual startup script back (a VM
+   started by hand after that runs both model servers with no watchdog: only its cloud cap stops it). Read
+   `report.md`: a part that "crashed or never ran" is named in the headline, and a `profile` row whose path says
+   "direct (the gateway refused...)" is a failed check, whatever else passed.
+
+**The first launch after a failed one is bounded**: `deploy/gcp/complete-run.sh --patients 5000 --only
+install,hospital-ja,scenario-gateway,scenario-emr-fhir --no-wait`, then `--collect <run id>`; read `report.md`, and only
+then the full plan.
 
 **Several VMs at once** (D-148). `--vms N` splits the run into N shards of whole parts (no part is split, so the
 merged report is the single-VM report); VM 1 is `tb-gpu-sim` in the first zone, VM i is `tb-gpu-sim-i` in zone i of
 `--zones` (one zone per region where the GPU quota is 1 per region). Each VM gets its own cap (its estimate × 1.3),
 key, watchdog and results; the driver waits for all, merges, runs the stub parts and writes one report. `--parts`
 adds the benches: `embed` (`tools/bench_embed.py`) and `profile` (`tools/bench_profile.py`).
+
+The project had one GPU in all (`GPUS_ALL_REGIONS = 1`, `PREEMPTIBLE_CPUS = 0`: Spot VMs then draw on the regular
+quota) when D-150 was written, so `--vms N > 1` is refused until the owner has the quota raised; the driver checks
+it before any start or `--provision` and makes nothing it could not run.
 
 1. The owner checks the zones and the quota (read-only; `--dry-run` prints these commands for the chosen zones):
    `gcloud compute accelerator-types list --filter='name~rtx'`, `gcloud compute regions describe <region>

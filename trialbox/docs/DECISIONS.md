@@ -3444,3 +3444,82 @@ alert) are separate P0 items. Stored derived rows with provenance, `tb_score_def
 shipped mappings declare no `unit_defaults` yet: each site declares them in its survey (its lab lookup already
 carries a unit per analyte). The R-31 check of a row's own unit against the lookup's (WS-01.2) is still open for
 feed rows mapped through a lookup.
+
+**D-150 The cloud run made reliable, and its local rehearsal as the gate before any paid launch.** Independent review
+of the cloud GPU run (2026-11-09, 25 findings, after the four failed runs of that day), 2026-11-09. Built in a cloud
+container with no GPU; no VM was started and no gcloud command was run. On top of `gw404` (the served-name fix, C-01).
+
+*Why.* Every failure of 2026-11-09 lived where nothing had run before the paid VM: the VM script was tested by text
+greps, the driver by a dry run that never executes the VM script, and the local stub accepts any model name. The
+review's prototype ran the unchanged VM script in an Ubuntu 24.04 container against strict stand-ins and reproduced
+run 4's 404 for nothing. That is now permanent (`tests/rehearsal`, `make rehearse`) and the gate before any paid
+launch (RUNBOOK §11).
+
+*The VM* (`deploy/gcp/complete-run-vm.sh`). A run directory per run id (`/var/lib/tb/runs/<id>`; other runs' state,
+the old log and the old `results.tgz` are removed at boot; H-01, M-01). A pre-flight (docker with the NVIDIA runtime,
+nvidia-smi, both weight folders, 50 GB free; M-08). Both model servers must be healthy, list exactly their served
+name, answer one chat call through the run's own path and refuse a call without the key before `PRO6000-RUN-READY`;
+else `TB-SERVING-FAILED` with their logs in `results.tgz` (H-02). The watchdog limits each phase (serving and setup 45
+minutes, the code 35) instead of one hour from boot (M-04); docker is waited for, the door restarts on failure and is
+checked through nginx with the key, an empty key powers off (M-05). The driver puts the archive's sha256 in the
+metadata and the VM refuses anything else; `tar --no-same-owner` (M-06, the hardening part; HTTP stays). `git` is
+installed (M-08); Chromium must launch (L-05). `results.tgz` is re-packed after every part, atomically (M-10). A
+results-only boot (`tb-collect-only=1`: door and nginx, no models, no run) hands a stopped VM's results over (H-04,
+L-03). Every failure ends with a marker line, a `results.tgz` that says why, and the done marker.
+
+*The data git does not carry* (`tools/fetch_run_data.py`; C-02, C-03). The hospital parts crashed because the box
+reads FHIRHelpers from `quick-5.4.0.jar`; the in-process box's translator is a fake, so no JRE and none of
+`fetch_jvm_deps.sh`'s 770 MB are needed: the one jar (4.8 MB, Maven Central, sha256-pinned) replaces `gw404`'s maven
+step (M-11). Its Maven path is `org/cqframework`; `hosted-demo-startup.sh` had `info/cqframework`, a 404, fixed.
+MedTxt (1.4 MB) and TREC CT (topics, qrels, CT.gov fields, and the sampled trials streamed from NCBI's 275 MB corpus
+without keeping it) are fetched for the parts that need them, once per disk. A part whose data is missing fails at
+once with "data missing" and never builds a box, so it uses no card time (`complete_run.data_missing`).
+
+*The run* (`tools/complete_run.py`). Each part's result records its run id, HEAD and host; `--resume` keeps a part
+only when both match and removes the rest (H-01). While a part runs, the run touches the heartbeat whenever the
+part's processes used CPU in the last 30 s: a silent 50,000-patient SCREEN stays alive with no driver, a stuck part
+does not (H-03). The report takes HEAD, host and run id from the parts (the VM's, not the driver's at collect time);
+the stub parts run at the run's `--patients` with OCR tesseract (M-02); a crashed or data-less part is named in the
+headline with the number of its checks that never ran (from `--planned-from`, a full run's report; M-03); `profile`
+has a check "the gateway answered" that fails on the direct fallback, with a finding (M-03); the path says "synthetic
+weight pins" when the pins are of synthetic files (M-09). The driver's children used to ignore `--patients` (every
+VM generated 50,000); they now read it from the plan.
+
+*The driver* (`deploy/gcp/complete-run.sh`). `--no-wait`, then a short `--collect <run id>` as often as wanted: one
+look, the results so far, the report so far; a stopped VM with uncollected results is started once results-only
+(20-minute cloud cap); `--follow` keeps the old polling, `--detach` runs the driver under setsid/nohup (H-04). Before
+any start or `--provision` the GPU quota (`GPUS_ALL_REGIONS`, the region's RTX PRO 6000 quota, PREEMPTIBLE when it has
+a limit, else regular) and the CPU quota are read, and a too-small quota is refused before any machine image or VM is
+made (H-05, L-04). `--only TAG,TAG` bounds a run: estimate, cap and plan hold only those parts.
+
+*The rehearsal* (`tests/rehearsal/rehearse.sh`, `make rehearse`). The real driver at HEAD and the real VM script,
+unchanged, in an Ubuntu 24.04 container (a private dockerd when none answers): fakes only for gcloud, the metadata
+server, systemd, docker and nvidia-smi; vLLM stand-ins that check the key and answer 404 to any but the served name;
+real nginx, apt, PyPI, Node.js, Playwright and data hosts. One disk, booted again and again: `run-a` (fresh disk,
+bounded run at 500 patients), `run-b` (same disk, new run), and the negative cases `served`, `no-upload`, `hang`,
+`busy`; `check.py` holds the pass criteria. Model quality is not rehearsed: the canary, the checks that need a passed
+canary and TREC's verdicts may fail on the deterministic stub, by name; nothing else may.
+
+*Evidence.* `make rehearse` on `8890532` (the code of this entry; later commits change only this entry's number and
+text): **REHEARSAL PASSED**, all six cases, 94 of 94 criteria, 33 minutes, the private dockerd and its mounts removed
+afterwards. `run-a`: setup on a fresh disk in about 4 minutes; `TB-DATA` cql, medtxt and trec ready (TREC in about one
+minute); every part reported, none crashed: 326 of 331 checks, the 5 failing ones the canary and the checks that need
+it and TREC's verdicts (the stub's answers); judge 868 and verifier 452 calls answered, **0 × 404, 0 × 401** besides the
+pre-flight's own no-key refusal; the report's HEAD = the launched commit, "synthetic weight pins"; power-off one minute
+after the driver collected. `run-b`: nothing kept, one boot in the log, the report's HEAD right. Negative cases, each
+failing as it should: `served` stopped before any part with "TB-SERVING-FAILED: judge serves 'local/not-the-judge',
+the run asks for 'local/gemma-4-26b-a4b-nvfp4'", the servers' logs in `results.tgz`; `no-upload`: TB-NO-CODE, power-off
+after the grace; `hang`: "TB-WATCHDOG no heartbeat for 2 minutes in the run (a stuck part)", then `--collect` started
+the stopped VM results-only and got the log; `busy`: a 5-minute silent part with a 2-minute idle limit finished
+(PASS), power-off only after the grace, collected results-only. The rehearsal found three defects before they cost
+money: the run exited 127 when started with a `${X:+VAR=v}` prefix; a VM stopped during its first part had no
+`results.tgz`; and `--collect` restarted a VM with nothing to hand over at every call. Unit tests:
+`tests/unit/test_cloud_run.py` (20), with `test_complete_run`, `test_gpu_prep`, `test_scenario_matrix`,
+`test_served_names`, `test_no_direct_model_calls` green. `make lint` clean; `tools/e2e_simple.py` PASSED;
+`complete-run.sh --dry-run` and `--estimate` (full plan 8.87 h, US$24.29, cap 12 h).
+
+*Not done.* HTTPS or the bucket path for the door (M-06's transport part, M-07): the key still crosses plain HTTP and
+the bucket path is not rehearsed. Real weight pins on the VM (M-09 is labelled instead). L-01, L-02 (the judge name
+from config, the silent pin rename). The serving-record capture is not rehearsed (it needs `docker inspect`), so
+`install` is not among the rehearsal's parts. The project's quota allows one GPU: `--vms N > 1` is refused until it
+is raised.
