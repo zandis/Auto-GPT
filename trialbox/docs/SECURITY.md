@@ -156,3 +156,36 @@ The 2022 Constitutional Court judgment (111年憲判字第13號) means any NHI-s
 
 The full catalogue of integration scenarios, with sources, is `spec/archive/INTEGRATION_SCENARIOS.md`. The latest
 independent review of standards and security is `docs/reviews/2026-11-08-fable-standards-security-review.md`.
+
+## 8. Supply chain
+
+What goes into the images is fixed by hashes, scanned before a release, and listed in an SBOM (D-185, D-186).
+The build side needs the network; the box never runs these tools.
+
+- **One hashed lock.** `uv.lock` records a sha256 for every file of every package. `deploy/requirements.lock` is its
+  export (`make lock`); every entry carries `--hash=sha256:`, so `pip install -r` in the images runs in pip's
+  hash-checking mode and refuses a file whose bytes differ. `make lock-check` fails when `uv.lock` no longer matches
+  `pyproject.toml`, when `deploy/requirements.lock` is not the export of `uv.lock`, or when an entry has no hash;
+  CI runs it on every pull request. Never edit `deploy/requirements.lock` by hand.
+- **pip-audit** checks the lock against PyPI and OSV advisories (`make pip-audit`). Every advisory fails the gate
+  unless the allow-list accepts it; a package pip-audit could not audit fails too. CI runs it on every pull request,
+  weekly and for a release.
+- **Trivy** scans the images with the database loaded beforehand and the scan itself offline
+  (`--skip-db-update --skip-java-db-update --offline-scan`, `make trivy-scan TRIVY_CACHE=<dir>`); the same database,
+  pulled with `oras`, goes on the offline media. A CRITICAL or HIGH finding with a fixed version fails unless
+  allow-listed; findings with no fix yet and lower severities are listed in the report. CI runs it weekly and for a
+  release.
+- **SBOM per release.** Syft writes a CycloneDX JSON SBOM for the Python lock and for each image (`make sbom`, into
+  `dist/sbom/` with an `index.json` of sha256s). The lock's SBOM must name every locked package at its version.
+  The release workflow keeps them with the scan reports.
+- **Licences.** `make licences` reads the SBOMs and flags GPL, LGPL and AGPL. A flagged package fails unless the
+  allow-list accepts that package for that class; a stricter class (LGPL to GPL) fails again. `A OR B` takes the
+  permissive branch (dulwich). Distro packages of the base image are listed, not gated. Today eight LGPL packages
+  are accepted (psycopg, psycopg-binary, docxtpl, py7zr and its four helpers), as the layer-2 review found.
+- **The allow-list** (`deploy/supply-chain-allowlist.yaml`) is the only way to ship with a finding. Each entry needs
+  a reason of at least 20 characters and a `review_by` date at most 180 days ahead; `make allowlist-check` rejects
+  an entry without them, and after `review_by` the gates fail until the entry is reviewed or removed. Entries that
+  match nothing are reported. Changes need the security owner's approval in the pull request.
+- **Code:** `tools/supply_chain/`; tests `tests/unit/test_supply_chain.py` (offline, on small fixtures).
+- **Not done yet** (WS-14.6): `THIRD_PARTY_NOTICES.md`, the SBOMs inside the signed bundle, digest-pinned base
+  images, and the venv installed from the same lock (`make venv` still resolves from `pyproject.toml`).

@@ -28,6 +28,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v5
         with:
+          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/pyproject.toml
 

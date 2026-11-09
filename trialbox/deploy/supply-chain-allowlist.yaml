@@ -1,0 +1,47 @@
+# Supply-chain allow-list (D-186). The pip-audit, Trivy and licence gates fail on a finding unless an entry here
+# accepts it. Format and rules: tools/supply_chain/allowlist.py. Checked by `make allowlist-check` (CI):
+#   - every entry has a reason of at least 20 characters that a reviewer can check;
+#   - every entry has review_by (YYYY-MM-DD), at most 180 days ahead; once it passes, the gates fail until the
+#     entry is reviewed (new date and reason) or removed;
+#   - a vulnerability entry matches its id or any alias (CVE, GHSA, PYSEC), optionally for one package;
+#   - a licence entry matches a package and a class (lgpl, gpl, agpl); a stricter class fails again.
+# Change this file in a pull request the security owner approves.
+
+vulnerabilities: []  # pip-audit on deploy/requirements.lock was clean on 2026-11-09
+
+licences:
+  # The eight LGPL packages of the layer-2 review (docs/reviews/2026-11-09-component-review-layer2-verification.md
+  # section 3). Installed unmodified from PyPI wheels into images the hospital controls; the library can be
+  # replaced; the licence texts go in THIRD_PARTY_NOTICES (WS-14.6). Never vendor or patch them.
+  - package: psycopg
+    class: lgpl
+    reason: LGPL-3.0-only; used unmodified as an installed package, replaceable, licence text shipped in the notices
+    review_by: 2027-05-01
+  - package: psycopg-binary
+    class: lgpl
+    reason: LGPL-3.0-only; unmodified wheel (bundles libpq and OpenSSL under their own permissive licences); notices
+    review_by: 2027-05-01
+  - package: docxtpl
+    class: lgpl
+    reason: LGPL-2.1-only; used unmodified as an installed package, replaceable, licence text shipped in the notices
+    review_by: 2027-05-01
+  - package: py7zr
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified; 7z attachments only; goes away if R-12 replaces attachments with links
+    review_by: 2027-05-01
+  - package: pybcj
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+  - package: pyppmd
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+  - package: inflate64
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+  - package: multivolumefile
+    class: lgpl
+    reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01

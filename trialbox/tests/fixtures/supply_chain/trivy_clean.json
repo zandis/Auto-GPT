@@ -1,0 +1,2 @@
+{"SchemaVersion": 2, "ArtifactName": "trialbox-jvm:1.0.0", "ArtifactType": "container_image",
+ "Results": [{"Target": "trialbox-jvm:1.0.0 (debian 13.1)", "Class": "os-pkgs", "Type": "debian"}]}

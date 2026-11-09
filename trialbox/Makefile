@@ -13,7 +13,8 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: fonts jvm-deps venv e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status test-console test-console-e2e site site-preview clean
+.PHONY: fonts jvm-deps venv e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status test-console test-console-e2e site site-preview clean \
+	lock lock-check allowlist-check pip-audit sbom trivy-scan licences supply-chain
 
 venv:
 	uv venv --allow-existing --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
@@ -187,6 +188,47 @@ site:
 
 site-preview: site
 	$(PY) -m http.server -d build/site 8000
+
+# supply chain (docs/SECURITY.md §8, D-185, D-186). uv.lock is the one hashed lock; deploy/requirements.lock is its
+# export, installed by the images in pip's hash-checking mode. The gates read the scanners' JSON and the allow-list.
+SC := PYTHONPATH=libs:services:. $(PY) -m tools.supply_chain
+SC_DIR ?= build/supply-chain
+PIP_AUDIT_VERSION ?= 2.9.0
+SC_IMAGES ?= trialbox-py:1.0.0 trialbox-jvm:1.0.0
+TRIVY_CACHE ?= .cache/trivy
+
+lock:
+	uv lock
+	$(SC) lock-export
+
+lock-check:
+	$(SC) lock-check
+
+allowlist-check:
+	$(SC) allowlist-check
+
+# build side only (needs PyPI/OSV); the box never runs it. pip-audit exits 1 on any advisory; the gate decides
+# (allow-list), and fails on a missing or empty report, so an old report is removed first.
+pip-audit:
+	mkdir -p $(SC_DIR) && rm -f $(SC_DIR)/pip-audit.json
+	-uvx pip-audit==$(PIP_AUDIT_VERSION) -r deploy/requirements.lock --require-hashes --disable-pip \
+		-f json -o $(SC_DIR)/pip-audit.json
+	$(SC) pip-audit-gate $(SC_DIR)/pip-audit.json
+
+# a CycloneDX SBOM per release: the Python lock and each image (needs syft and the images built)
+sbom:
+	$(SC) sbom --out dist/sbom --lock deploy/requirements.lock $(foreach i,$(SC_IMAGES),--image $(i))
+
+# Trivy with no network: the DB is pulled beforehand (oras pull ghcr.io/aquasecurity/trivy-db:2 and trivy-java-db:1)
+# into $(TRIVY_CACHE)/db and $(TRIVY_CACHE)/java-db, as on the offline media
+trivy-scan:
+	$(SC) trivy-scan --cache-dir $(TRIVY_CACHE) --out $(SC_DIR) $(foreach i,$(SC_IMAGES),--image $(i))
+
+licences:
+	$(SC) licences dist/sbom/*.cdx.json --out dist/sbom/licences.md
+
+# what CI runs on every pull request (no images needed)
+supply-chain: lock-check allowlist-check pip-audit
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache build *.egg-info
