@@ -1,0 +1,297 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "lake_schema_version": 2,
+  "profile": "ci",
+  "reason": "D-205: the first committed goldens (T-006)",
+  "ref_date": "2026-11-01",
+  "ruleset": "GOUT-COH",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy"
+ },
+ "sets": {
+  "public-en": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "7134b63e6ecaf89eb3b4f9783e70a4b2637372e11db7c56951e58ed457eb344b",
+   "patients": 53,
+   "structured_criteria": [
+    "GOUT-COH-INC-01",
+    "GOUT-COH-INC-02",
+    "GOUT-COH-INC-03",
+    "GOUT-COH-INC-04",
+    "GOUT-COH-INC-05",
+    "GOUT-COH-INC-06",
+    "GOUT-COH-INC-07"
+   ],
+   "verdicts": {
+    "GOUT-COH-INC-01": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GOUT-COH-INC-02": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "GOUT-COH-INC-03": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GOUT-COH-INC-04": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "GOUT-COH-INC-05": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "GOUT-COH-INC-06": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "GOUT-COH-INC-07": {
+     "met": 4,
+     "not_met": 49,
+     "unknown": 0
+    }
+   }
+  },
+  "ssmix2-jp": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "9a1668206dc234a09f9c66f19c13dabe80a20f4d7bafc4836059e8d7b7fab341",
+   "patients": 400,
+   "structured_criteria": [
+    "GOUT-COH-INC-01",
+    "GOUT-COH-INC-02",
+    "GOUT-COH-INC-03",
+    "GOUT-COH-INC-04",
+    "GOUT-COH-INC-05",
+    "GOUT-COH-INC-06",
+    "GOUT-COH-INC-07"
+   ],
+   "verdicts": {
+    "GOUT-COH-INC-01": {
+     "met": 118,
+     "not_met": 282,
+     "unknown": 0
+    },
+    "GOUT-COH-INC-02": {
+     "met": 82,
+     "not_met": 23,
+     "unknown": 295
+    },
+    "GOUT-COH-INC-03": {
+     "met": 90,
+     "not_met": 310,
+     "unknown": 0
+    },
+    "GOUT-COH-INC-04": {
+     "met": 22,
+     "not_met": 378,
+     "unknown": 0
+    },
+    "GOUT-COH-INC-05": {
+     "met": 83,
+     "not_met": 120,
+     "unknown": 197
+    },
+    "GOUT-COH-INC-06": {
+     "met": 90,
+     "not_met": 108,
+     "unknown": 202
+    },
+    "GOUT-COH-INC-07": {
+     "met": 67,
+     "not_met": 333,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-jp-a": {
+   "candidate_pids": [
+    "020b5c6c37bda7ce9709ffdd1af8fdfd",
+    "034ca5970393eb79513ec5eba57470d2",
+    "4919811fdedc03f2c0937ec59da8bc66",
+    "4dedd303d6ca946521256323e5c2bbec",
+    "c2bb3196003046cdd98e2ac10edce5a6",
+    "d47858b4b25b344806b8fb1efb63cedd"
+   ],
+   "candidates": 6,
+   "outcomes_sha": "09e917d7b33ab86ffe0617f494aa75affed95392605d4f4ca55e3161b6bbb385",
+   "patients": 2500,
+   "structured_criteria": [
+    "GOUT-COH-INC-01",
+    "GOUT-COH-INC-02",
+    "GOUT-COH-INC-03",
+    "GOUT-COH-INC-04",
+    "GOUT-COH-INC-05",
+    "GOUT-COH-INC-06",
+    "GOUT-COH-INC-07"
+   ],
+   "verdicts": {
+    "GOUT-COH-INC-01": {
+     "met": 734,
+     "not_met": 1758,
+     "unknown": 8
+    },
+    "GOUT-COH-INC-02": {
+     "met": 542,
+     "not_met": 160,
+     "unknown": 1798
+    },
+    "GOUT-COH-INC-03": {
+     "met": 521,
+     "not_met": 1973,
+     "unknown": 6
+    },
+    "GOUT-COH-INC-04": {
+     "met": 115,
+     "not_met": 2375,
+     "unknown": 10
+    },
+    "GOUT-COH-INC-05": {
+     "met": 486,
+     "not_met": 766,
+     "unknown": 1248
+    },
+    "GOUT-COH-INC-06": {
+     "met": 524,
+     "not_met": 683,
+     "unknown": 1293
+    },
+    "GOUT-COH-INC-07": {
+     "met": 392,
+     "not_met": 2108,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "candidate_pids": [
+    "034ca5970393eb79513ec5eba57470d2",
+    "4dedd303d6ca946521256323e5c2bbec",
+    "8b85e2b3a8c24b78bc02d836acbf72fc",
+    "c2bb3196003046cdd98e2ac10edce5a6",
+    "d47858b4b25b344806b8fb1efb63cedd",
+    "d591edeb5920715e0bd200fdec855805"
+   ],
+   "candidates": 6,
+   "outcomes_sha": "3a25bf9322717c1e7c62a307393460ca65e4cc7165a4e2c7df8f4b407082e1d0",
+   "patients": 2500,
+   "structured_criteria": [
+    "GOUT-COH-INC-01",
+    "GOUT-COH-INC-02",
+    "GOUT-COH-INC-03",
+    "GOUT-COH-INC-04",
+    "GOUT-COH-INC-05",
+    "GOUT-COH-INC-06",
+    "GOUT-COH-INC-07"
+   ],
+   "verdicts": {
+    "GOUT-COH-INC-01": {
+     "met": 701,
+     "not_met": 1791,
+     "unknown": 8
+    },
+    "GOUT-COH-INC-02": {
+     "met": 508,
+     "not_met": 144,
+     "unknown": 1848
+    },
+    "GOUT-COH-INC-03": {
+     "met": 521,
+     "not_met": 1973,
+     "unknown": 6
+    },
+    "GOUT-COH-INC-04": {
+     "met": 94,
+     "not_met": 2396,
+     "unknown": 10
+    },
+    "GOUT-COH-INC-05": {
+     "met": 452,
+     "not_met": 695,
+     "unknown": 1353
+    },
+    "GOUT-COH-INC-06": {
+     "met": 451,
+     "not_met": 572,
+     "unknown": 1477
+    },
+    "GOUT-COH-INC-07": {
+     "met": 347,
+     "not_met": 2153,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-tw-a": {
+   "candidate_pids": [
+    "01ca75965505568ea795970b81b916c1",
+    "3db4580b1e51fc139aeff58ee3980561",
+    "40f417a15d121a2877536fe48fb00bc3",
+    "5da59ec8f2dc09e59b6e020fb24839c5",
+    "77388c7f746504c417b7f990151b35df",
+    "bad926ed536872ce7d0d835f3f854fdd"
+   ],
+   "candidates": 6,
+   "outcomes_sha": "abfe36b6ee4063acbd914b6187e233f62179f85d17435739bbb4534ae9c8b77b",
+   "patients": 2500,
+   "structured_criteria": [
+    "GOUT-COH-INC-01",
+    "GOUT-COH-INC-02",
+    "GOUT-COH-INC-03",
+    "GOUT-COH-INC-04",
+    "GOUT-COH-INC-05",
+    "GOUT-COH-INC-06",
+    "GOUT-COH-INC-07"
+   ],
+   "verdicts": {
+    "GOUT-COH-INC-01": {
+     "met": 750,
+     "not_met": 1742,
+     "unknown": 8
+    },
+    "GOUT-COH-INC-02": {
+     "met": 501,
+     "not_met": 185,
+     "unknown": 1814
+    },
+    "GOUT-COH-INC-03": {
+     "met": 540,
+     "not_met": 1952,
+     "unknown": 8
+    },
+    "GOUT-COH-INC-04": {
+     "met": 146,
+     "not_met": 2344,
+     "unknown": 10
+    },
+    "GOUT-COH-INC-05": {
+     "met": 538,
+     "not_met": 718,
+     "unknown": 1244
+    },
+    "GOUT-COH-INC-06": {
+     "met": 545,
+     "not_met": 660,
+     "unknown": 1295
+    },
+    "GOUT-COH-INC-07": {
+     "met": 369,
+     "not_met": 2131,
+     "unknown": 0
+    }
+   }
+  }
+ }
+}

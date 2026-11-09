@@ -1,0 +1,1245 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "lake_schema_version": 2,
+  "profile": "ci",
+  "reason": "D-205: the first committed goldens (T-006)",
+  "ref_date": "2026-11-01",
+  "seed": 42,
+  "written_with_source": "legacy"
+ },
+ "rulesets": {
+  "EMPULSE": {
+   "ruleset_version": "1.0.0",
+   "sets": {
+    "public-en": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "synthetic-jp-a": {
+     "basis": {
+      "EMPULSE-EXC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-05": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-08": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-09": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-10": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-INC-01": {
+       "coded": 2398,
+       "confirmed": 15,
+       "proposed": 5
+      },
+      "EMPULSE-INC-02": {
+       "coded": 13,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-INC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-INC-07": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-jp-a-deletes": {
+     "basis": {
+      "EMPULSE-EXC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-05": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-08": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-09": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-10": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-INC-01": {
+       "coded": 2392,
+       "confirmed": 19,
+       "proposed": 5
+      },
+      "EMPULSE-INC-02": {
+       "coded": 12,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-INC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-INC-07": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-tw-a": {
+     "basis": {
+      "EMPULSE-EXC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-05": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-08": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-09": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-EXC-10": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-INC-01": {
+       "coded": 2384,
+       "confirmed": 16,
+       "proposed": 5
+      },
+      "EMPULSE-INC-02": {
+       "coded": 16,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-INC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "EMPULSE-INC-07": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    }
+   }
+  },
+  "GOUT-COH": {
+   "ruleset_version": "1.0.0",
+   "sets": {
+    "public-en": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "synthetic-jp-a": {
+     "basis": {
+      "GOUT-COH-INC-01": {
+       "coded": 726,
+       "confirmed": 8,
+       "proposed": 11
+      },
+      "GOUT-COH-INC-02": {
+       "coded": 550,
+       "confirmed": 7,
+       "proposed": 12
+      },
+      "GOUT-COH-INC-03": {
+       "coded": 369,
+       "confirmed": 3,
+       "proposed": 15
+      },
+      "GOUT-COH-INC-04": {
+       "coded": 121,
+       "confirmed": 3,
+       "proposed": 19
+      },
+      "GOUT-COH-INC-05": {
+       "coded": 28,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GOUT-COH-INC-06": {
+       "coded": 12,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GOUT-COH-INC-07": {
+       "coded": 4,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-jp-a-deletes": {
+     "basis": {
+      "GOUT-COH-INC-01": {
+       "coded": 693,
+       "confirmed": 7,
+       "proposed": 11
+      },
+      "GOUT-COH-INC-02": {
+       "coded": 498,
+       "confirmed": 6,
+       "proposed": 13
+      },
+      "GOUT-COH-INC-03": {
+       "coded": 339,
+       "confirmed": 3,
+       "proposed": 15
+      },
+      "GOUT-COH-INC-04": {
+       "coded": 97,
+       "confirmed": 3,
+       "proposed": 19
+      },
+      "GOUT-COH-INC-05": {
+       "coded": 18,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GOUT-COH-INC-06": {
+       "coded": 8,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GOUT-COH-INC-07": {
+       "coded": 3,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-tw-a": {
+     "basis": {
+      "GOUT-COH-INC-01": {
+       "coded": 742,
+       "confirmed": 8,
+       "proposed": 14
+      },
+      "GOUT-COH-INC-02": {
+       "coded": 536,
+       "confirmed": 8,
+       "proposed": 17
+      },
+      "GOUT-COH-INC-03": {
+       "coded": 343,
+       "confirmed": 4,
+       "proposed": 18
+      },
+      "GOUT-COH-INC-04": {
+       "coded": 111,
+       "confirmed": 2,
+       "proposed": 19
+      },
+      "GOUT-COH-INC-05": {
+       "coded": 25,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GOUT-COH-INC-06": {
+       "coded": 13,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GOUT-COH-INC-07": {
+       "coded": 2,
+       "confirmed": 1,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    }
+   }
+  },
+  "GZQO": {
+   "ruleset_version": "1.0.0",
+   "sets": {
+    "public-en": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "synthetic-jp-a": {
+     "basis": {
+      "GZQO-EXC-01": {
+       "coded": 60,
+       "confirmed": 0,
+       "proposed": 18
+      },
+      "GZQO-EXC-02": {
+       "coded": 53,
+       "confirmed": 0,
+       "proposed": 18
+      },
+      "GZQO-EXC-03": {
+       "coded": 50,
+       "confirmed": 0,
+       "proposed": 19
+      },
+      "GZQO-EXC-04": {
+       "coded": 49,
+       "confirmed": 0,
+       "proposed": 19
+      },
+      "GZQO-EXC-05": {
+       "coded": 47,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-06": {
+       "coded": 39,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-07": {
+       "coded": 37,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-08": {
+       "coded": 37,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-09": {
+       "coded": 35,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-10": {
+       "coded": 35,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-13": {
+       "coded": 32,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-INC-01": {
+       "coded": 2398,
+       "confirmed": 15,
+       "proposed": 5
+      },
+      "GZQO-INC-02": {
+       "coded": 701,
+       "confirmed": 5,
+       "proposed": 12
+      },
+      "GZQO-INC-03": {
+       "coded": 354,
+       "confirmed": 1,
+       "proposed": 15
+      },
+      "GZQO-INC-04": {
+       "coded": 234,
+       "confirmed": 0,
+       "proposed": 18
+      },
+      "GZQO-INC-06": {
+       "coded": 111,
+       "confirmed": 0,
+       "proposed": 18
+      },
+      "GZQO-INC-08": {
+       "coded": 72,
+       "confirmed": 0,
+       "proposed": 18
+      },
+      "GZQO-INC-09": {
+       "coded": 68,
+       "confirmed": 0,
+       "proposed": 18
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-jp-a-deletes": {
+     "basis": {
+      "GZQO-EXC-01": {
+       "coded": 44,
+       "confirmed": 0,
+       "proposed": 18
+      },
+      "GZQO-EXC-02": {
+       "coded": 40,
+       "confirmed": 0,
+       "proposed": 18
+      },
+      "GZQO-EXC-03": {
+       "coded": 37,
+       "confirmed": 0,
+       "proposed": 19
+      },
+      "GZQO-EXC-04": {
+       "coded": 37,
+       "confirmed": 0,
+       "proposed": 19
+      },
+      "GZQO-EXC-05": {
+       "coded": 36,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-06": {
+       "coded": 29,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-07": {
+       "coded": 29,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-08": {
+       "coded": 29,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-09": {
+       "coded": 27,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-10": {
+       "coded": 27,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-13": {
+       "coded": 25,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-INC-01": {
+       "coded": 2392,
+       "confirmed": 19,
+       "proposed": 5
+      },
+      "GZQO-INC-02": {
+       "coded": 672,
+       "confirmed": 6,
+       "proposed": 12
+      },
+      "GZQO-INC-03": {
+       "coded": 287,
+       "confirmed": 2,
+       "proposed": 15
+      },
+      "GZQO-INC-04": {
+       "coded": 178,
+       "confirmed": 1,
+       "proposed": 18
+      },
+      "GZQO-INC-06": {
+       "coded": 83,
+       "confirmed": 0,
+       "proposed": 18
+      },
+      "GZQO-INC-08": {
+       "coded": 52,
+       "confirmed": 0,
+       "proposed": 18
+      },
+      "GZQO-INC-09": {
+       "coded": 49,
+       "confirmed": 0,
+       "proposed": 18
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-tw-a": {
+     "basis": {
+      "GZQO-EXC-01": {
+       "coded": 69,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-EXC-02": {
+       "coded": 63,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-EXC-03": {
+       "coded": 62,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-EXC-04": {
+       "coded": 61,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-EXC-05": {
+       "coded": 58,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-EXC-06": {
+       "coded": 51,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-EXC-07": {
+       "coded": 49,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-EXC-08": {
+       "coded": 49,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-EXC-09": {
+       "coded": 48,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-EXC-10": {
+       "coded": 47,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-EXC-13": {
+       "coded": 41,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-INC-01": {
+       "coded": 2384,
+       "confirmed": 16,
+       "proposed": 5
+      },
+      "GZQO-INC-02": {
+       "coded": 708,
+       "confirmed": 7,
+       "proposed": 14
+      },
+      "GZQO-INC-03": {
+       "coded": 378,
+       "confirmed": 6,
+       "proposed": 18
+      },
+      "GZQO-INC-04": {
+       "coded": 247,
+       "confirmed": 6,
+       "proposed": 19
+      },
+      "GZQO-INC-06": {
+       "coded": 114,
+       "confirmed": 2,
+       "proposed": 20
+      },
+      "GZQO-INC-08": {
+       "coded": 85,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "GZQO-INC-09": {
+       "coded": 77,
+       "confirmed": 1,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    }
+   }
+  },
+  "ONC-OSI": {
+   "ruleset_version": "1.0.0",
+   "sets": {
+    "public-en": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "synthetic-jp-a": {
+     "basis": {
+      "ONC-OSI-EXC-01": {
+       "coded": 55,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "ONC-OSI-INC-01": {
+       "coded": 2398,
+       "confirmed": 15,
+       "proposed": 5
+      },
+      "ONC-OSI-INC-02": {
+       "coded": 109,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "ONC-OSI-INC-03": {
+       "coded": 70,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-jp-a-deletes": {
+     "basis": {
+      "ONC-OSI-EXC-01": {
+       "coded": 42,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "ONC-OSI-INC-01": {
+       "coded": 2392,
+       "confirmed": 19,
+       "proposed": 5
+      },
+      "ONC-OSI-INC-02": {
+       "coded": 92,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "ONC-OSI-INC-03": {
+       "coded": 53,
+       "confirmed": 1,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-tw-a": {
+     "basis": {
+      "ONC-OSI-EXC-01": {
+       "coded": 55,
+       "confirmed": 1,
+       "proposed": 19
+      },
+      "ONC-OSI-INC-01": {
+       "coded": 2384,
+       "confirmed": 16,
+       "proposed": 5
+      },
+      "ONC-OSI-INC-02": {
+       "coded": 115,
+       "confirmed": 1,
+       "proposed": 19
+      },
+      "ONC-OSI-INC-03": {
+       "coded": 73,
+       "confirmed": 1,
+       "proposed": 19
+      }
+     },
+     "unknown_system": {}
+    }
+   }
+  },
+  "RA-BIO": {
+   "ruleset_version": "1.0.0",
+   "sets": {
+    "public-en": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "synthetic-jp-a": {
+     "basis": {
+      "RA-BIO-EXC-01": {
+       "coded": 30,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-02": {
+       "coded": 29,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-03": {
+       "coded": 27,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-04": {
+       "coded": 26,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-05": {
+       "coded": 24,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-06": {
+       "coded": 21,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-07": {
+       "coded": 19,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-INC-01": {
+       "coded": 2398,
+       "confirmed": 15,
+       "proposed": 5
+      },
+      "RA-BIO-INC-02": {
+       "coded": 514,
+       "confirmed": 3,
+       "proposed": 19
+      },
+      "RA-BIO-INC-03": {
+       "coded": 297,
+       "confirmed": 3,
+       "proposed": 19
+      },
+      "RA-BIO-INC-04": {
+       "coded": 166,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-BIO-INC-05": {
+       "coded": 120,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-BIO-INC-06": {
+       "coded": 34,
+       "confirmed": 1,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-jp-a-deletes": {
+     "basis": {
+      "RA-BIO-EXC-01": {
+       "coded": 11,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-02": {
+       "coded": 11,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-03": {
+       "coded": 10,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-04": {
+       "coded": 9,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-05": {
+       "coded": 8,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-06": {
+       "coded": 7,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-07": {
+       "coded": 6,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-INC-01": {
+       "coded": 2392,
+       "confirmed": 19,
+       "proposed": 5
+      },
+      "RA-BIO-INC-02": {
+       "coded": 501,
+       "confirmed": 4,
+       "proposed": 19
+      },
+      "RA-BIO-INC-03": {
+       "coded": 285,
+       "confirmed": 3,
+       "proposed": 19
+      },
+      "RA-BIO-INC-04": {
+       "coded": 151,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-BIO-INC-05": {
+       "coded": 85,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-BIO-INC-06": {
+       "coded": 14,
+       "confirmed": 1,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-tw-a": {
+     "basis": {
+      "RA-BIO-EXC-01": {
+       "coded": 25,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-02": {
+       "coded": 19,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-03": {
+       "coded": 16,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-04": {
+       "coded": 14,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-05": {
+       "coded": 14,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-06": {
+       "coded": 14,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-EXC-07": {
+       "coded": 13,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-INC-01": {
+       "coded": 2384,
+       "confirmed": 16,
+       "proposed": 5
+      },
+      "RA-BIO-INC-02": {
+       "coded": 511,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-BIO-INC-03": {
+       "coded": 272,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-BIO-INC-04": {
+       "coded": 153,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-INC-05": {
+       "coded": 108,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-BIO-INC-06": {
+       "coded": 26,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    }
+   }
+  },
+  "RA-COH": {
+   "ruleset_version": "1.0.0",
+   "sets": {
+    "public-en": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "synthetic-jp-a": {
+     "basis": {
+      "RA-COH-INC-01": {
+       "coded": 597,
+       "confirmed": 4,
+       "proposed": 18
+      },
+      "RA-COH-INC-02": {
+       "coded": 472,
+       "confirmed": 4,
+       "proposed": 19
+      },
+      "RA-COH-INC-03": {
+       "coded": 327,
+       "confirmed": 4,
+       "proposed": 19
+      },
+      "RA-COH-INC-04": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-COH-INC-05": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-COH-INC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-jp-a-deletes": {
+     "basis": {
+      "RA-COH-INC-01": {
+       "coded": 587,
+       "confirmed": 4,
+       "proposed": 18
+      },
+      "RA-COH-INC-02": {
+       "coded": 464,
+       "confirmed": 3,
+       "proposed": 19
+      },
+      "RA-COH-INC-03": {
+       "coded": 243,
+       "confirmed": 2,
+       "proposed": 19
+      },
+      "RA-COH-INC-04": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-COH-INC-05": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-COH-INC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-tw-a": {
+     "basis": {
+      "RA-COH-INC-01": {
+       "coded": 605,
+       "confirmed": 2,
+       "proposed": 19
+      },
+      "RA-COH-INC-02": {
+       "coded": 472,
+       "confirmed": 2,
+       "proposed": 19
+      },
+      "RA-COH-INC-03": {
+       "coded": 330,
+       "confirmed": 2,
+       "proposed": 19
+      },
+      "RA-COH-INC-04": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-COH-INC-05": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-COH-INC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    }
+   }
+  },
+  "STARRT-AKI": {
+   "ruleset_version": "1.0.0",
+   "sets": {
+    "public-en": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "synthetic-jp-a": {
+     "basis": {
+      "STARRT-AKI-EXC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-05": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-07": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-08": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-INC-01": {
+       "coded": 2398,
+       "confirmed": 15,
+       "proposed": 5
+      },
+      "STARRT-AKI-INC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-INC-03": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-INC-04": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-jp-a-deletes": {
+     "basis": {
+      "STARRT-AKI-EXC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-05": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-07": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-08": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-INC-01": {
+       "coded": 2392,
+       "confirmed": 19,
+       "proposed": 5
+      },
+      "STARRT-AKI-INC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-INC-03": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-INC-04": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-tw-a": {
+     "basis": {
+      "STARRT-AKI-EXC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-05": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-06": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-07": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-EXC-08": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-INC-01": {
+       "coded": 2384,
+       "confirmed": 16,
+       "proposed": 5
+      },
+      "STARRT-AKI-INC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-INC-03": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "STARRT-AKI-INC-04": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,396 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "lake_schema_version": 2,
+  "profile": "ci",
+  "reason": "D-205: the first committed goldens (T-006)",
+  "ref_date": "2026-11-01",
+  "ruleset": "EMPULSE",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy"
+ },
+ "sets": {
+  "public-en": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "66c338bc0481cbbe01a9a4a5de81dd34e20f8b7eb8d41ef18f6ed563e079603e",
+   "patients": 53,
+   "structured_criteria": [
+    "EMPULSE-INC-01",
+    "EMPULSE-INC-02",
+    "EMPULSE-INC-06",
+    "EMPULSE-INC-07",
+    "EMPULSE-EXC-01",
+    "EMPULSE-EXC-02",
+    "EMPULSE-EXC-05",
+    "EMPULSE-EXC-06",
+    "EMPULSE-EXC-08",
+    "EMPULSE-EXC-09",
+    "EMPULSE-EXC-10"
+   ],
+   "verdicts": {
+    "EMPULSE-EXC-01": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-02": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-05": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-06": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-08": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "EMPULSE-EXC-09": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-10": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "EMPULSE-INC-01": {
+     "met": 43,
+     "not_met": 9,
+     "unknown": 1
+    },
+    "EMPULSE-INC-02": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "EMPULSE-INC-06": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "EMPULSE-INC-07": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    }
+   }
+  },
+  "ssmix2-jp": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "c31d3cf0c241be6f42ddbf70e735018c2cbaf6335e16cb08ae2bb37b1c98e5c2",
+   "patients": 400,
+   "structured_criteria": [
+    "EMPULSE-INC-01",
+    "EMPULSE-INC-02",
+    "EMPULSE-INC-06",
+    "EMPULSE-INC-07",
+    "EMPULSE-EXC-01",
+    "EMPULSE-EXC-02",
+    "EMPULSE-EXC-05",
+    "EMPULSE-EXC-06",
+    "EMPULSE-EXC-08",
+    "EMPULSE-EXC-09",
+    "EMPULSE-EXC-10"
+   ],
+   "verdicts": {
+    "EMPULSE-EXC-01": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-02": {
+     "met": 3,
+     "not_met": 397,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-05": {
+     "met": 7,
+     "not_met": 393,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-06": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-08": {
+     "met": 3,
+     "not_met": 14,
+     "unknown": 383
+    },
+    "EMPULSE-EXC-09": {
+     "met": 5,
+     "not_met": 395,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-10": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "EMPULSE-INC-01": {
+     "met": 381,
+     "not_met": 19,
+     "unknown": 0
+    },
+    "EMPULSE-INC-02": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "EMPULSE-INC-06": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 400
+    },
+    "EMPULSE-INC-07": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-jp-a": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "2d1eb0ef9c3f5c009f026e3f9c3a61356d6225a0f12e185d1bfd86fd82f9f98f",
+   "patients": 2500,
+   "structured_criteria": [
+    "EMPULSE-INC-01",
+    "EMPULSE-INC-02",
+    "EMPULSE-INC-06",
+    "EMPULSE-INC-07",
+    "EMPULSE-EXC-01",
+    "EMPULSE-EXC-02",
+    "EMPULSE-EXC-05",
+    "EMPULSE-EXC-06",
+    "EMPULSE-EXC-08",
+    "EMPULSE-EXC-09",
+    "EMPULSE-EXC-10"
+   ],
+   "verdicts": {
+    "EMPULSE-EXC-01": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-02": {
+     "met": 19,
+     "not_met": 2481,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-05": {
+     "met": 45,
+     "not_met": 2455,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-06": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-08": {
+     "met": 12,
+     "not_met": 78,
+     "unknown": 2410
+    },
+    "EMPULSE-EXC-09": {
+     "met": 52,
+     "not_met": 2448,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-10": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-INC-01": {
+     "met": 2398,
+     "not_met": 78,
+     "unknown": 24
+    },
+    "EMPULSE-INC-02": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-INC-06": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 2500
+    },
+    "EMPULSE-INC-07": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "bca53344841a3ecdcc730ef09f47da929eee501e9f28bf1c5bd49257239a0ad3",
+   "patients": 2500,
+   "structured_criteria": [
+    "EMPULSE-INC-01",
+    "EMPULSE-INC-02",
+    "EMPULSE-INC-06",
+    "EMPULSE-INC-07",
+    "EMPULSE-EXC-01",
+    "EMPULSE-EXC-02",
+    "EMPULSE-EXC-05",
+    "EMPULSE-EXC-06",
+    "EMPULSE-EXC-08",
+    "EMPULSE-EXC-09",
+    "EMPULSE-EXC-10"
+   ],
+   "verdicts": {
+    "EMPULSE-EXC-01": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-02": {
+     "met": 15,
+     "not_met": 2485,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-05": {
+     "met": 42,
+     "not_met": 2458,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-06": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-08": {
+     "met": 11,
+     "not_met": 70,
+     "unknown": 2419
+    },
+    "EMPULSE-EXC-09": {
+     "met": 45,
+     "not_met": 2455,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-10": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-INC-01": {
+     "met": 2417,
+     "not_met": 79,
+     "unknown": 4
+    },
+    "EMPULSE-INC-02": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-INC-06": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 2500
+    },
+    "EMPULSE-INC-07": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    }
+   }
+  },
+  "synthetic-tw-a": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "23c64a8af5b22a063f23ae91570ac8e1c79378cede47c5399ac56a2ddf813215",
+   "patients": 2500,
+   "structured_criteria": [
+    "EMPULSE-INC-01",
+    "EMPULSE-INC-02",
+    "EMPULSE-INC-06",
+    "EMPULSE-INC-07",
+    "EMPULSE-EXC-01",
+    "EMPULSE-EXC-02",
+    "EMPULSE-EXC-05",
+    "EMPULSE-EXC-06",
+    "EMPULSE-EXC-08",
+    "EMPULSE-EXC-09",
+    "EMPULSE-EXC-10"
+   ],
+   "verdicts": {
+    "EMPULSE-EXC-01": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-02": {
+     "met": 15,
+     "not_met": 2485,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-05": {
+     "met": 43,
+     "not_met": 2457,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-06": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-08": {
+     "met": 13,
+     "not_met": 83,
+     "unknown": 2404
+    },
+    "EMPULSE-EXC-09": {
+     "met": 53,
+     "not_met": 2447,
+     "unknown": 0
+    },
+    "EMPULSE-EXC-10": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-INC-01": {
+     "met": 2385,
+     "not_met": 91,
+     "unknown": 24
+    },
+    "EMPULSE-INC-02": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "EMPULSE-INC-06": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 2500
+    },
+    "EMPULSE-INC-07": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    }
+   }
+  }
+ }
+}

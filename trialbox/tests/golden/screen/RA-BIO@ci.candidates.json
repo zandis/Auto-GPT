@@ -1,0 +1,733 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "lake_schema_version": 2,
+  "profile": "ci",
+  "reason": "D-205: the first committed goldens (T-006)",
+  "ref_date": "2026-11-01",
+  "ruleset": "RA-BIO",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy"
+ },
+ "sets": {
+  "public-en": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "8a184c8e7413753f1f0e32801ee4bb772a37771199bc978dc9cc119de13a4e21",
+   "patients": 53,
+   "structured_criteria": [
+    "RA-BIO-INC-01",
+    "RA-BIO-INC-02",
+    "RA-BIO-INC-03",
+    "RA-BIO-INC-04",
+    "RA-BIO-INC-05",
+    "RA-BIO-INC-06",
+    "RA-BIO-EXC-01",
+    "RA-BIO-EXC-02",
+    "RA-BIO-EXC-03",
+    "RA-BIO-EXC-04",
+    "RA-BIO-EXC-05",
+    "RA-BIO-EXC-06",
+    "RA-BIO-EXC-07"
+   ],
+   "verdicts": {
+    "RA-BIO-DOC-01": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-02": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-03": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-04": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-01": {
+     "met": 1,
+     "not_met": 52,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-02": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "RA-BIO-EXC-03": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "RA-BIO-EXC-04": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-05": {
+     "met": 3,
+     "not_met": 50,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-06": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-07": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-BIO-INC-01": {
+     "met": 43,
+     "not_met": 9,
+     "unknown": 1
+    },
+    "RA-BIO-INC-02": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-BIO-INC-03": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-BIO-INC-04": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "RA-BIO-INC-05": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "RA-BIO-INC-06": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "RA-BIO-REN-01": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    }
+   }
+  },
+  "ssmix2-jp": {
+   "candidate_pids": [
+    "0fbf7cb1a064002b4fba09ca2d20560b",
+    "395b9118c3f8c7e52feed1e63054564f",
+    "42a515c5a4a2f3f007b18a4ba3a1ec82",
+    "5b4354ee4a33615e25021273d159a8d0",
+    "f52e566fc933d39f0b9789fdad0aaf83"
+   ],
+   "candidates": 5,
+   "outcomes_sha": "4892c76b12bba094dd852aaf473d6b6007afd4856dce44eb58169e53eaa9c6dd",
+   "patients": 400,
+   "structured_criteria": [
+    "RA-BIO-INC-01",
+    "RA-BIO-INC-02",
+    "RA-BIO-INC-03",
+    "RA-BIO-INC-04",
+    "RA-BIO-INC-05",
+    "RA-BIO-INC-06",
+    "RA-BIO-EXC-01",
+    "RA-BIO-EXC-02",
+    "RA-BIO-EXC-03",
+    "RA-BIO-EXC-04",
+    "RA-BIO-EXC-05",
+    "RA-BIO-EXC-06",
+    "RA-BIO-EXC-07"
+   ],
+   "verdicts": {
+    "RA-BIO-DOC-01": {
+     "met": 87,
+     "not_met": 313,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-02": {
+     "met": 63,
+     "not_met": 337,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-03": {
+     "met": 92,
+     "not_met": 308,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-04": {
+     "met": 89,
+     "not_met": 311,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-01": {
+     "met": 8,
+     "not_met": 392,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-02": {
+     "met": 10,
+     "not_met": 47,
+     "unknown": 343
+    },
+    "RA-BIO-EXC-03": {
+     "met": 12,
+     "not_met": 75,
+     "unknown": 313
+    },
+    "RA-BIO-EXC-04": {
+     "met": 31,
+     "not_met": 369,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-05": {
+     "met": 5,
+     "not_met": 395,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-06": {
+     "met": 9,
+     "not_met": 391,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-07": {
+     "met": 5,
+     "not_met": 395,
+     "unknown": 0
+    },
+    "RA-BIO-INC-01": {
+     "met": 381,
+     "not_met": 19,
+     "unknown": 0
+    },
+    "RA-BIO-INC-02": {
+     "met": 85,
+     "not_met": 315,
+     "unknown": 0
+    },
+    "RA-BIO-INC-03": {
+     "met": 42,
+     "not_met": 358,
+     "unknown": 0
+    },
+    "RA-BIO-INC-04": {
+     "met": 63,
+     "not_met": 337,
+     "unknown": 0
+    },
+    "RA-BIO-INC-05": {
+     "met": 42,
+     "not_met": 36,
+     "unknown": 322
+    },
+    "RA-BIO-INC-06": {
+     "met": 62,
+     "not_met": 21,
+     "unknown": 317
+    },
+    "RA-BIO-REN-01": {
+     "met": 78,
+     "not_met": 0,
+     "unknown": 322
+    }
+   }
+  },
+  "synthetic-jp-a": {
+   "candidate_pids": [
+    "0a49607328f214081099f267826f4ae1",
+    "15dbf4330cb95379b52fe5fb07aadbe2",
+    "20fcc4e803832a20321a67125122073a",
+    "25d31b469e0bd1eb396c7a094e2c034c",
+    "2675ec9581e54480b03ab38c0b8ee442",
+    "2c8b680c5ef9808113ac551527e6e344",
+    "3a5422853004fae7f2e7f939be479ca2",
+    "3f9faa84b1df6de2d3585cb476f6c2c4",
+    "4517caf6bf9aec8d17643a297f14ca9c",
+    "4d503846ee4bb5940eb5d45d9818eeaa",
+    "53fbd3a8b9b1f8144cea7e1453a49d30",
+    "5a61cee3ef6c95306e9e71f93f992898",
+    "5cb07b43fecd96fa2ff945b16a819783",
+    "60d1139af77256ae04d87b1387f2e6f6",
+    "62f04b377a2071b8b168c9aff4223aa1",
+    "69de1b2d4eb336babc6a7e20d5278b97",
+    "6ba4d227bcd520d808021f4f243033d8",
+    "6c96a674eb571034f80047b2a5607123",
+    "6cadf82db65f8f61106c6f5ac0b5afbe",
+    "6f6244a020879ab25af2e9b99e8df327",
+    "70a631b2beea5d512f8792574c871022",
+    "759d91520c9ccfb779868ba41d4af4cd",
+    "76d489f92ccb8551d1ee018f21d46783",
+    "79e534112a878322a64498b5d9c93b2e",
+    "7e394a8cd7559d76f23e4a306f3724a4",
+    "8072c8f71255d4d692e266f246a62f86",
+    "843be53276948c3c9a16107e0592dbc7",
+    "8b251f5d9c6c0849684858ee72254ab3",
+    "94adaad2550b1b070f907a5ff8b62f64",
+    "9df4be1b8a2ea19ea441f864b9bcd816",
+    "a37854157846bcca98b4ccbdae6f868c",
+    "a54dd4a9fbce1d6906d66789dd590317",
+    "a7ab2077b762f59230828bb97f703618",
+    "ac8093d2343dda58f795a463396afc93",
+    "b3a2e2a095ba1eae3ff5a21cd2159bec",
+    "b6b2357728438d77c104f3e783046883",
+    "b91fe493cd6c81656063ce0e8a0cd1cf",
+    "b9b21524cb327cdf393205557ae46a31",
+    "c4ba3aebd6c10dc2d1a1ccd1d9bf5d00",
+    "ca5c95919358293682050c60412902d5",
+    "cb3c8c9014a79ee000f4fc6fdaa6c1b7",
+    "d62b4d7a910241427dc27842e86dcd37",
+    "de7addc9082fca4fc4041bdf37f6680f",
+    "e2f8c55e260e7dc45a9ee6e233cb9105",
+    "ef11e7054be08370301b160184a8582a",
+    "f78306a72ea983aaf75aa3317ceed4df",
+    "f98d30f6a9ffe6bfb42a2bc7e5707416"
+   ],
+   "candidates": 47,
+   "outcomes_sha": "4b676db0639325067a923bc694e79b74e2c023509dcd598adeb16b89ed791f77",
+   "patients": 2500,
+   "structured_criteria": [
+    "RA-BIO-INC-01",
+    "RA-BIO-INC-02",
+    "RA-BIO-INC-03",
+    "RA-BIO-INC-04",
+    "RA-BIO-INC-05",
+    "RA-BIO-INC-06",
+    "RA-BIO-EXC-01",
+    "RA-BIO-EXC-02",
+    "RA-BIO-EXC-03",
+    "RA-BIO-EXC-04",
+    "RA-BIO-EXC-05",
+    "RA-BIO-EXC-06",
+    "RA-BIO-EXC-07"
+   ],
+   "verdicts": {
+    "RA-BIO-DOC-01": {
+     "met": 550,
+     "not_met": 1950,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-02": {
+     "met": 400,
+     "not_met": 2100,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-03": {
+     "met": 571,
+     "not_met": 1929,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-04": {
+     "met": 553,
+     "not_met": 1947,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-01": {
+     "met": 44,
+     "not_met": 2456,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-02": {
+     "met": 56,
+     "not_met": 351,
+     "unknown": 2093
+    },
+    "RA-BIO-EXC-03": {
+     "met": 42,
+     "not_met": 508,
+     "unknown": 1950
+    },
+    "RA-BIO-EXC-04": {
+     "met": 165,
+     "not_met": 2335,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-05": {
+     "met": 33,
+     "not_met": 2467,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-06": {
+     "met": 36,
+     "not_met": 2464,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-07": {
+     "met": 26,
+     "not_met": 2474,
+     "unknown": 0
+    },
+    "RA-BIO-INC-01": {
+     "met": 2398,
+     "not_met": 78,
+     "unknown": 24
+    },
+    "RA-BIO-INC-02": {
+     "met": 531,
+     "not_met": 1969,
+     "unknown": 0
+    },
+    "RA-BIO-INC-03": {
+     "met": 374,
+     "not_met": 2126,
+     "unknown": 0
+    },
+    "RA-BIO-INC-04": {
+     "met": 342,
+     "not_met": 2158,
+     "unknown": 0
+    },
+    "RA-BIO-INC-05": {
+     "met": 224,
+     "not_met": 267,
+     "unknown": 2009
+    },
+    "RA-BIO-INC-06": {
+     "met": 357,
+     "not_met": 154,
+     "unknown": 1989
+    },
+    "RA-BIO-REN-01": {
+     "met": 491,
+     "not_met": 0,
+     "unknown": 2009
+    }
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "candidate_pids": [
+    "0a49607328f214081099f267826f4ae1",
+    "0d77538cd206d7c3f81ee18ee300bd1d",
+    "15dbf4330cb95379b52fe5fb07aadbe2",
+    "1892ac870d3a0f6d5f8ec21bf79aaa28",
+    "204c21774c937c08dfeb63dbf757e12a",
+    "20fcc4e803832a20321a67125122073a",
+    "2675ec9581e54480b03ab38c0b8ee442",
+    "26cd4fbc844df06e3b991ceb211c106a",
+    "2c8b680c5ef9808113ac551527e6e344",
+    "2d6a366273f9bb456ec42aa26c59168c",
+    "3965300d9a764e2b57f18e448c5f5057",
+    "3a5422853004fae7f2e7f939be479ca2",
+    "4312585af39f4e01ff15da778918ecca",
+    "4517caf6bf9aec8d17643a297f14ca9c",
+    "4d503846ee4bb5940eb5d45d9818eeaa",
+    "53fbd3a8b9b1f8144cea7e1453a49d30",
+    "5cb07b43fecd96fa2ff945b16a819783",
+    "60d1139af77256ae04d87b1387f2e6f6",
+    "65ffd60f0c5389198bd991711e291c5c",
+    "66f5d5fb54d725e6fcf3a3dfd88f02d9",
+    "69de1b2d4eb336babc6a7e20d5278b97",
+    "6ba4d227bcd520d808021f4f243033d8",
+    "6c96a674eb571034f80047b2a5607123",
+    "6cadf82db65f8f61106c6f5ac0b5afbe",
+    "6f6244a020879ab25af2e9b99e8df327",
+    "70a631b2beea5d512f8792574c871022",
+    "71bf9862d8aa1a2d18d5ceaafcbf7bd8",
+    "72ada5d3cbd24316449e9243614d996f",
+    "759d91520c9ccfb779868ba41d4af4cd",
+    "76d489f92ccb8551d1ee018f21d46783",
+    "79e534112a878322a64498b5d9c93b2e",
+    "7b4c6259c965c6818098487ac3f071f2",
+    "7e394a8cd7559d76f23e4a306f3724a4",
+    "8072c8f71255d4d692e266f246a62f86",
+    "843be53276948c3c9a16107e0592dbc7",
+    "871b4361b4ee3f75578521a3ceb3a093",
+    "8b251f5d9c6c0849684858ee72254ab3",
+    "8d4a099a8d7bccea974312ce17f978eb",
+    "94adaad2550b1b070f907a5ff8b62f64",
+    "96ca876192599344ba7bfc9eda251a86",
+    "9df4be1b8a2ea19ea441f864b9bcd816",
+    "a37854157846bcca98b4ccbdae6f868c",
+    "a54dd4a9fbce1d6906d66789dd590317",
+    "a7ab2077b762f59230828bb97f703618",
+    "ac8093d2343dda58f795a463396afc93",
+    "b3a2e2a095ba1eae3ff5a21cd2159bec",
+    "b6b2357728438d77c104f3e783046883",
+    "b91fe493cd6c81656063ce0e8a0cd1cf",
+    "b9667c3451ce025c5fdd6381552ed1eb",
+    "bfa6036d274833f0433908b5aa37ffb2",
+    "c4ba3aebd6c10dc2d1a1ccd1d9bf5d00",
+    "c8a7b2ca8c83421dfd550d11b1855930",
+    "ca5c95919358293682050c60412902d5",
+    "cb3c8c9014a79ee000f4fc6fdaa6c1b7",
+    "ccc3a93509305431ad15742fd6604394",
+    "d62b4d7a910241427dc27842e86dcd37",
+    "d7fddd884a3deee3581c7c5505b6535e",
+    "d8ec1224008ecbb2daecffb4a4fd5f61",
+    "dca7d257528bf8108925ed52ce6118b5",
+    "de7addc9082fca4fc4041bdf37f6680f",
+    "def6491680f4f74fa9e4424f4a6cb4b3",
+    "e2f8c55e260e7dc45a9ee6e233cb9105",
+    "ef11e7054be08370301b160184a8582a",
+    "f78306a72ea983aaf75aa3317ceed4df",
+    "f98d30f6a9ffe6bfb42a2bc7e5707416"
+   ],
+   "candidates": 65,
+   "outcomes_sha": "62179427ef33184e985bad3d37a0f86d1f2dd2e1c13f5fd5b1fe57c85ee247e5",
+   "patients": 2500,
+   "structured_criteria": [
+    "RA-BIO-INC-01",
+    "RA-BIO-INC-02",
+    "RA-BIO-INC-03",
+    "RA-BIO-INC-04",
+    "RA-BIO-INC-05",
+    "RA-BIO-INC-06",
+    "RA-BIO-EXC-01",
+    "RA-BIO-EXC-02",
+    "RA-BIO-EXC-03",
+    "RA-BIO-EXC-04",
+    "RA-BIO-EXC-05",
+    "RA-BIO-EXC-06",
+    "RA-BIO-EXC-07"
+   ],
+   "verdicts": {
+    "RA-BIO-DOC-01": {
+     "met": 512,
+     "not_met": 1988,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-02": {
+     "met": 359,
+     "not_met": 2141,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-03": {
+     "met": 519,
+     "not_met": 1981,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-04": {
+     "met": 496,
+     "not_met": 2004,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-01": {
+     "met": 38,
+     "not_met": 2462,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-02": {
+     "met": 54,
+     "not_met": 325,
+     "unknown": 2121
+    },
+    "RA-BIO-EXC-03": {
+     "met": 42,
+     "not_met": 475,
+     "unknown": 1983
+    },
+    "RA-BIO-EXC-04": {
+     "met": 145,
+     "not_met": 2355,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-05": {
+     "met": 28,
+     "not_met": 2472,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-06": {
+     "met": 33,
+     "not_met": 2467,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-07": {
+     "met": 23,
+     "not_met": 2477,
+     "unknown": 0
+    },
+    "RA-BIO-INC-01": {
+     "met": 2417,
+     "not_met": 79,
+     "unknown": 4
+    },
+    "RA-BIO-INC-02": {
+     "met": 518,
+     "not_met": 1982,
+     "unknown": 0
+    },
+    "RA-BIO-INC-03": {
+     "met": 367,
+     "not_met": 2133,
+     "unknown": 0
+    },
+    "RA-BIO-INC-04": {
+     "met": 329,
+     "not_met": 2171,
+     "unknown": 0
+    },
+    "RA-BIO-INC-05": {
+     "met": 155,
+     "not_met": 177,
+     "unknown": 2168
+    },
+    "RA-BIO-INC-06": {
+     "met": 236,
+     "not_met": 96,
+     "unknown": 2168
+    },
+    "RA-BIO-REN-01": {
+     "met": 332,
+     "not_met": 0,
+     "unknown": 2168
+    }
+   }
+  },
+  "synthetic-tw-a": {
+   "candidate_pids": [
+    "055d9dd8d3f6d39b1c45aa4f893b2f45",
+    "0dc00ba0be26ee8984935ebe43369a91",
+    "0fa730e80dbbdb2e9bebf87a9f3452da",
+    "11cc1a7415796cae2b8623b89284e176",
+    "297e4e1e0d7e5a7f0270f3352fbf1441",
+    "300b4dc86f54200b2ff01275a74561d0",
+    "395eb6456935febb96f3047afbae5d71",
+    "4cb6073495e8429be24f830aaaaa2fb1",
+    "4d4a3c2cd2a4e8bd7a7131e69d56caf0",
+    "50be3992fad9a0019cec4bc69c9b95d1",
+    "576082f41b5242f47896dd36cac9e5f8",
+    "5a160e4021c45292622534111977383d",
+    "607ea605a996d65c471ef046dc5601ae",
+    "650572fbe077a043c5ffc70070988e2f",
+    "6d10298e7d96179b484f4dd46338e41c",
+    "861f367c5de79a2772bf1c3318d7b33c",
+    "96f00f1faaee28a8d0f9c99e8da0c59e",
+    "9816ecf8b4a7325a6c403ae621cc00b0",
+    "9af601b1104574572421c23fe12d1e35",
+    "a61c3f92985c159d441631435d560ec9",
+    "b591084c66a1f3acbbe66c0d2b0e746b",
+    "b8b613d1520ab548c67a80b1579b765b",
+    "c19bd8c6ea59bfe789966ae16cbe274f",
+    "c2778154ff0ed331c7c579fbc514c1e8",
+    "cc2823b27accfc4840c857080393d721",
+    "ccd745fb9d9dd816806933d530dc3d13",
+    "db4c870511da378ce8769d9a4cfbbbd4",
+    "e1a55fa81ec4a69e8a8f732346b9c027",
+    "e6a4af19330f5387a826aad165d838e3",
+    "ee0534d1ed12be22546a4723233c492d",
+    "f51b5bd2b6061ad7e76f11be17c61fd7"
+   ],
+   "candidates": 31,
+   "outcomes_sha": "559bf8e0bb2096547e183d740cbfe2bdf19bbd78da6d44513347c67b1fb709ae",
+   "patients": 2500,
+   "structured_criteria": [
+    "RA-BIO-INC-01",
+    "RA-BIO-INC-02",
+    "RA-BIO-INC-03",
+    "RA-BIO-INC-04",
+    "RA-BIO-INC-05",
+    "RA-BIO-INC-06",
+    "RA-BIO-EXC-01",
+    "RA-BIO-EXC-02",
+    "RA-BIO-EXC-03",
+    "RA-BIO-EXC-04",
+    "RA-BIO-EXC-05",
+    "RA-BIO-EXC-06",
+    "RA-BIO-EXC-07"
+   ],
+   "verdicts": {
+    "RA-BIO-DOC-01": {
+     "met": 553,
+     "not_met": 1947,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-02": {
+     "met": 391,
+     "not_met": 2109,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-03": {
+     "met": 583,
+     "not_met": 1917,
+     "unknown": 0
+    },
+    "RA-BIO-DOC-04": {
+     "met": 558,
+     "not_met": 1942,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-01": {
+     "met": 30,
+     "not_met": 2470,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-02": {
+     "met": 58,
+     "not_met": 359,
+     "unknown": 2083
+    },
+    "RA-BIO-EXC-03": {
+     "met": 47,
+     "not_met": 506,
+     "unknown": 1947
+    },
+    "RA-BIO-EXC-04": {
+     "met": 174,
+     "not_met": 2326,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-05": {
+     "met": 23,
+     "not_met": 2477,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-06": {
+     "met": 42,
+     "not_met": 2458,
+     "unknown": 0
+    },
+    "RA-BIO-EXC-07": {
+     "met": 25,
+     "not_met": 2475,
+     "unknown": 0
+    },
+    "RA-BIO-INC-01": {
+     "met": 2385,
+     "not_met": 91,
+     "unknown": 24
+    },
+    "RA-BIO-INC-02": {
+     "met": 532,
+     "not_met": 1968,
+     "unknown": 0
+    },
+    "RA-BIO-INC-03": {
+     "met": 353,
+     "not_met": 2147,
+     "unknown": 0
+    },
+    "RA-BIO-INC-04": {
+     "met": 359,
+     "not_met": 2141,
+     "unknown": 0
+    },
+    "RA-BIO-INC-05": {
+     "met": 250,
+     "not_met": 262,
+     "unknown": 1988
+    },
+    "RA-BIO-INC-06": {
+     "met": 357,
+     "not_met": 164,
+     "unknown": 1979
+    },
+    "RA-BIO-REN-01": {
+     "met": 512,
+     "not_met": 0,
+     "unknown": 1988
+    }
+   }
+  }
+ }
+}
