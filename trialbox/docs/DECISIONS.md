@@ -3000,3 +3000,15 @@ Built in a cloud container, no GPU, no Docker; synthetic data only.
   `value_cmp` column: a ruleset compiled after the upgrade needs a rebuilt snapshot (the nightly rebuild makes one).
 * With concurrency, which patients a budget that runs out leaves unread depends on timing (it is counted and shown).
 * Not run here: Docker, `install.sh` on a box, a GPU pair. Other agents share this machine's Postgres.
+
+*Scenario-run fixes (D-141's matrix on this wave, 2026-11-09).* The matrix now checks A-01, GW-02, P-04 and B-03 as
+passed (the gateway probe pins the pair as `install.sh` does; B-03 also needed the push side: with no event set, each
+field goes to the event its form is designated for). Four new findings fixed, each with a test that failed before:
+XL-02, one `patient` row per pseudonym (a published site list duplicated every patient, and each criterion's join
+on `base` multiplied that to 2^(criteria + 1) rows), and the lake's spill capped (`TB_LAKE_MAX_TEMP`,
+`TB_LAKE_TEMP_DIR`, a `LAKE-LIMIT` error instead of a full disk); FHIR-01, the bulk import keeps a Practitioner's
+staff id in its id and in every reference; MAP-01, a diagnosis name is matched whole (known names in ja, zh-TW and
+en, then the ICD-10 title) with a confidence, never by a shared character, and nothing is suggested when unsure;
+DUMP-01, an undated record leaves a criterion unknown where the dated ones do not settle it, so the patient needs
+information (SQL and CQL; every input path reaches the lake that way). Committed rulesets' SQL is not recompiled
+here (as for B-01): a ruleset compiled after this step carries the rule.
