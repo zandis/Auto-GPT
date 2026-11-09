@@ -4,7 +4,7 @@
 #
 #   tb-key          random API key of the two model servers (made by the driver, never printed)
 #   tb-run-id       the run's id; tb-patients the bulk size; tb-bucket an optional gs:// bucket for code and results
-#   tb-only         the parts of this VM (complete_run --only tags; a shard of a parallel run, D-147); empty: all
+#   tb-only         the parts of this VM (complete_run --only tags; a shard of a parallel run, D-148); empty: all
 #   tb-max-minutes  hard cap of this boot (the driver sets the cloud cap too: max-run-duration, action STOP)
 #   tb-idle-minutes the watchdog's idle limit (default 20)
 #   tb-serving-config tools/serving_config.py (the serving record, D-111)

@@ -3188,7 +3188,7 @@ mailbox uses the administrator's address, so their limits are shared; the invest
 (J-22's second half); the site set-up pages are per site, not per study (J-06); no screen yet for the IT work (J-09) or
 the data steward (J-10).
 
-**D-147 The next GPU runs: the complete run on several VMs, the embedding comparison and the profile cost stand-in.**
+**D-148 The next GPU runs: the complete run on several VMs, the embedding comparison and the profile cost stand-in.**
 Owner's approval of 2026-11-09 (three runs, about US$50 in all, several GPUs allowed), 2026-11-09. Code and dry runs
 only: built in a cloud container with no GPU; no VM was started or made and no gcloud call that changes anything was
 run.

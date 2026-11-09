@@ -1,4 +1,4 @@
-"""The next cloud GPU runs (D-147): the parallel complete run, the embedding comparison and the profile cost stand-in.
+"""The next cloud GPU runs (D-148): the parallel complete run, the embedding comparison and the profile cost stand-in.
 
 Everything here runs on a CPU with tiny stubs: the shard plan and its estimate, the benches on a small synthetic
 hospital (a hashing encoder for the embeddings, a stub judge for the profiles), the gateway fallback, and the driver's

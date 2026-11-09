@@ -1,4 +1,4 @@
-"""Embedding comparison (owner's approval of 2026-11-09, D-147): bge-m3 against Qwen3-Embedding-0.6B on Japanese and
+"""Embedding comparison (owner's approval of 2026-11-09, D-148): bge-m3 against Qwen3-Embedding-0.6B on Japanese and
 Traditional Chinese clinical-style text, on the card.
 
     python -m tools.bench_embed build --synth <synthetic hospital> --out set.json   # the labelled set (stdlib only)

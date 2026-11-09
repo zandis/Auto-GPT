@@ -1,4 +1,4 @@
-"""Profile cost stand-in (owner's approval of 2026-11-09, D-147): what a nightly patient profile would cost on the card.
+"""Profile cost stand-in (owner's approval of 2026-11-09, D-148): what a nightly patient profile would cost on the card.
 
 The profile writer is not built yet. Until it is, the judge model writes a short cited summary per synthetic patient
 from that patient's facts (diagnoses, latest labs, medicines, vitals, procedures, reports and the latest notes, each

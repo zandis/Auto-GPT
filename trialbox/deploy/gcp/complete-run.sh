@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TrialBox complete-platform run on the RTX PRO 6000 (TB-PLAN-04 step 9, D-139, D-141, D-147). Owner's OK first: it
+# TrialBox complete-platform run on the RTX PRO 6000 (TB-PLAN-04 step 9, D-139, D-141, D-148). Owner's OK first: it
 # starts paid VMs (tb-gpu-sim and its clones, g4-standard-48 spot, about US$2.74 an hour each).
 #
 #   export CLOUDSDK_CONFIG=<a private folder>              # never the default one
@@ -14,7 +14,7 @@
 #   deploy/gcp/complete-run.sh --stop [--collect <run id> | --vms N --zones ...] [VM] [ZONE]   # stop by hand
 #   deploy/gcp/complete-run.sh --teardown --vms N --zones ...   # delete the clones 2..N and their machine image
 #
-# Parallel (D-147): --vms N splits the run into N shards of whole parts (complete_run --only tags; longest first onto
+# Parallel (D-148): --vms N splits the run into N shards of whole parts (complete_run --only tags; longest first onto
 # the least-loaded VM, tools/complete_run.py shard_plan): no part is split, so the merged report is the single-VM
 # report. VM 1 is VM (tb-gpu-sim) in the first zone, VM i is VM-i in zone i (--zones, or TB_ZONES; one zone per
 # region where the GPU quota is 1 per region). Every VM gets its own cap, key, watchdog and run directory

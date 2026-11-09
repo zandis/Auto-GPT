@@ -698,7 +698,7 @@ def run_all(a: argparse.Namespace) -> int:
 def report_only(a: argparse.Namespace) -> int:
     """The report of a run whose parts ran elsewhere (the model parts on the VM, the stub parts here): every part of
     the plan from its ``parts/<tag>.json``; a missing one is a failed row."""
-    # --report-parts: the report of a run of some parts only (a bench run, D-147); else the whole plan
+    # --report-parts: the report of a run of some parts only (a bench run, D-148); else the whole plan
     a.only, a.direct = getattr(a, "report_parts", None) or [], getattr(a, "direct", False)
     rows = []
     for part, lang, scenario in plan(a):
