@@ -129,7 +129,7 @@ class Backend(Protocol):
     def registry_rows(self, ruleset: str) -> list[RegistryEntry]: ...
     def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry: ...
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
-    def registry_export(self, ruleset: str) -> bytes: ...
+    def registry_export(self, ruleset: str, by: str) -> bytes: ...
     def reveal(self, job_id: str, pid: str, by: str) -> str | None: ...
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str: ...
 
@@ -414,10 +414,14 @@ class HttpBackend:
         except ServiceError as exc:
             raise problem_of(exc.status, exc.detail) from exc
 
-    def registry_export(self, ruleset: str) -> bytes:
+    def registry_export(self, ruleset: str, by: str) -> bytes:
+        """The screening log with chart numbers; the orchestrator verifies the signed actor, audits and rate-limits
+        it (S-09)."""
         try:
-            return self.orch._request("GET", f"/registry/{ruleset}/export.xlsx").content
+            return self.orch._request("GET", f"/registry/{ruleset}/export.xlsx", headers=actor_header(by)).content
         except ServiceError as exc:
+            if exc.status in (403, 429):
+                raise Refused(exc.detail) from exc
             raise Unavailable(str(exc)) from exc
 
     def send_test_mail(self, sender: str, to: str, subject: str, body: str, files: list[tuple[str, bytes]]) -> str:

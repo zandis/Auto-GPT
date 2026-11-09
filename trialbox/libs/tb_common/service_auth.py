@@ -24,22 +24,43 @@ an unset one, refuses every changing call with 503 until a token is configured (
 Reads (D-130, plan v4 F4): a service whose reads carry patient-level data (the orchestrator: jobs, outputs, registry,
 studies; the lake; the mail gateway's threads; the trace store) turns on ``protect_reads`` in ``make_app``, and then
 ``GET`` / ``HEAD`` follow the same rule. ``/healthz`` stays open for the compose health checks.
+
+**The actor is signed** (review 2026-11-09 S-09, D-143). ``X-TB-Actor`` alone was whatever a token holder wrote: the
+mail gateway's token could reveal chart numbers as "dr_tanaka" and step round the per-person reveal cap by changing
+names. The console now sends ``X-TB-Actor-Assertion`` beside it: ``v1.<expiry>.<session>.<hmac>``, an HMAC-SHA256
+over the actor, the console session (the first 16 characters of the session token's hash) and an expiry two minutes
+ahead, keyed with ``HMAC(console token, "tb-actor-assertion/1")``. The orchestrator verifies it before it takes the
+actor for a reveal, an export, a notice or a cancel:
+
+* with one shared token (tests, ``make demo``, a box before step 8) both sides derive the key from that token;
+* with per-service tokens the orchestrator cannot know the console's token, so ``trialbox secrets init`` writes the
+  derived key (``actor-keys``, 0600, the console's current and, during a rotation, previous key) and the secrets
+  overlay mounts it into the orchestrator only (``TB_ACTOR_KEYS_FILE``). No other service holds it, so the mail
+  gateway, which parses hostile mail, cannot name a user;
+* with no token at all (DEV/TEST) nothing is verified, as before.
 """
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import hmac
 import json
 import logging
 import os
+import re
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote, unquote
 
 TOKEN_HEADER = "X-TB-Service-Token"
 ACTOR_HEADER = "X-TB-Actor"
+ASSERTION_HEADER = "X-TB-Actor-Assertion"
+ACTOR_KEYS_ENV = "TB_ACTOR_KEYS_FILE"
+ACTOR_LABEL = b"tb-actor-assertion/1"
+ACTOR_TTL = 120  # seconds an assertion is valid
 OPEN_ENVS = ("DEV", "TEST")
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 REGISTRY_ENV = "TB_SERVICE_TOKENS"
@@ -178,9 +199,105 @@ def auth_headers(actor: str | None = None) -> dict[str, str]:
     return h
 
 
-def actor_header(actor: str) -> dict[str, str]:
-    """``X-TB-Actor`` for a signed-in user; percent-encoded, as a header is ASCII and names may be 日本語."""
-    return {ACTOR_HEADER: quote(actor, safe="@._-+")}
+_SESSION: contextvars.ContextVar[str] = contextvars.ContextVar("tb_actor_session", default="")
+_SID = re.compile(r"[^A-Za-z0-9_-]")
+
+
+def bind_session(session: str) -> None:
+    """The console session the current request runs under (set by the console's sign-in check); the assertions this
+    request sends carry it."""
+    _SESSION.set(_SID.sub("", session)[:32])
+
+
+def actor_key(token: str) -> bytes:
+    """The key that signs actor assertions, derived from the signing service's own token (never the token itself)."""
+    return hmac.new(token.encode("utf-8"), ACTOR_LABEL, hashlib.sha256).digest()
+
+
+def _actor_mac(key: bytes, actor: str, session: str, exp: int) -> str:
+    msg = f"v1\n{actor}\n{session}\n{exp}".encode()
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()
+
+
+def sign_actor(actor: str, session: str | None = None, now: float | None = None) -> str | None:
+    """``v1.<expiry>.<session>.<hmac>`` for ``actor``, or None when this service holds no token (DEV/TEST)."""
+    tok = service_token()
+    if not tok:
+        return None
+    sid = _SID.sub("", _SESSION.get() if session is None else session)[:32]
+    exp = int(time.time() if now is None else now) + ACTOR_TTL
+    return f"v1.{exp}.{sid}.{_actor_mac(actor_key(tok), actor, sid, exp)}"
+
+
+def actor_header(actor: str, session: str | None = None) -> dict[str, str]:
+    """``X-TB-Actor`` for a signed-in user (percent-encoded, as a header is ASCII and names may be 日本語) and its
+    signed assertion when this service holds a token (S-09, D-143)."""
+    h = {ACTOR_HEADER: quote(actor, safe="@._-+")}
+    signed = sign_actor(actor, session)
+    if signed:
+        h[ASSERTION_HEADER] = signed
+    return h
+
+
+def actor_keys() -> list[bytes] | None:
+    """The keys an actor assertion may be signed with; None when this box verifies nothing (no token at all: DEV and
+    TEST without a token). Fail closed: a keys file that cannot be read, or a token registry without a keys file,
+    gives no key, so every assertion is refused."""
+    path = (os.environ.get(ACTOR_KEYS_ENV) or "").strip()
+    if path:
+        try:
+            lines = Path(path).read_text(encoding="utf-8").split()
+        except OSError:
+            return []
+        out = []
+        for line in lines:
+            try:
+                key = bytes.fromhex(line.strip())
+            except ValueError:
+                continue
+            if len(key) == 32:
+                out.append(key)
+        return out
+    if (os.environ.get(REGISTRY_ENV) or "").strip():
+        return []
+    tok = service_token()
+    return [actor_key(tok)] if tok else None
+
+
+class ActorError(ValueError):
+    """The actor of a call could not be verified (no user named, a missing, expired or wrong assertion)."""
+
+
+@dataclass(frozen=True)
+class Actor:
+    name: str
+    session: str = ""
+    verified: bool = False
+
+
+def verify_actor(header: str | None, assertion: str | None, fallback: str | None = None,
+                 now: float | None = None) -> Actor:  # fmt: skip
+    """The audit actor of a call. With keys (any box with a token), ``X-TB-Actor`` counts only with a valid,
+    unexpired assertion over it; without (DEV/TEST, no token) the old rule of :func:`actor_of` applies."""
+    keys = actor_keys()
+    if keys is None:
+        who = actor_of(header, fallback)
+        if who is None:
+            raise ActorError("no signed-in user (X-TB-Actor) on this call")
+        return Actor(who)
+    if not header or not header.strip():
+        raise ActorError("no signed-in user (X-TB-Actor) on this call")
+    name = unquote(header.strip())[:200]
+    parts = (assertion or "").strip().split(".")
+    if len(parts) != 4 or parts[0] != "v1" or not parts[1].isdigit():
+        raise ActorError("the signed-in user is not signed (X-TB-Actor-Assertion)")
+    exp, sid, mac = int(parts[1]), parts[2], parts[3]
+    t = int(time.time() if now is None else now)
+    if exp < t or exp > t + ACTOR_TTL + 5:
+        raise ActorError("the signed-in user's assertion has expired")
+    if not any(hmac.compare_digest(_actor_mac(k, name, sid, exp), mac) for k in keys):
+        raise ActorError("the signed-in user's assertion does not verify")
+    return Actor(name, sid, True)
 
 
 Refusal = tuple[int, str]

@@ -44,6 +44,7 @@ from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
 from tb_common.reasons import label as reason_label
+from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
@@ -489,6 +490,7 @@ def create_app(
             request.state.sso_cookie = token
             au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": "sso"})
         _scope_check(request, sess)
+        bind_session(sess.token_sha[:16])  # S-09: the actor this request names to the orchestrator is signed with it
         return sess
 
     def _scope_check(request: Request, sess: Session) -> None:
@@ -1648,7 +1650,12 @@ def create_app(
             raise _Problem(404, "notfound")
         if not sess.user.sees_ids(rs):  # the export carries chart numbers (phi): identifier authority (D-143)
             raise _Problem(403, "forbidden")
-        data = bk.registry_export(rs)
+        try:
+            data = bk.registry_export(rs, actor(sess))
+        except Refused as exc:  # the orchestrator's cap on exports with chart numbers (S-09)
+            au.append("console.refused", ruleset=rs, actor=actor(sess), detail={"reason": str(exc)[:200]})
+            why = "too many exports with chart numbers in the last hour"
+            raise _Problem(409, "request.refused", reason=why) from exc
         au.append(
             "console.registry",
             actor=actor(sess),

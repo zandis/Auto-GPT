@@ -25,6 +25,7 @@ from typing import Any, cast
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common.service_auth import bind_session
 from tb_contracts import Job
 
 from console import s28
@@ -822,6 +823,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess: Session | None = h.users.session(token) if token else None
         if sess is None:
             raise h.problem(401, "login")
+        bind_session(sess.token_sha[:16])  # S-09: the actor sent to the orchestrator is signed with this session
         return sess
 
     h.api_session = api_session  # the other /api/v1 routes (console.data_pages) sign in the same way

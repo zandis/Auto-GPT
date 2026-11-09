@@ -22,6 +22,10 @@ REFUSALS: dict[str, tuple[str, str]] = {
     "attach the informed-consent form": ("同意説明文書を添付してください", "請附上受試者同意書"),
     "attachments are at most 50 MB": ("添付ファイルは50 MBまでです", "附件最大 50 MB"),
     "bad pseudonym": ("仮名IDの形式が正しくありません", "假名代碼格式不正確"),
+    "too many exports with chart numbers in the last hour": (
+        "この 1 時間のカルテ番号付きの書き出しが上限に達しました",
+        "過去一小時內含病歷號的匯出已達上限",
+    ),
     "choose why you need the chart number": ("カルテ番号が必要な理由を選んでください", "請選擇需要病歷號的原因"),
     "chart numbers are letters, digits or '-'": ("カルテ番号は英数字と「-」のみです", "病歷號只能包含英數字與「-」"),
     "chart numbers are revealed for finished screening jobs only": (

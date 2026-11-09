@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Header, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from lake.client import LakeHttp
 from pydantic import BaseModel, Field
 from tb_common.audit import AuditLog
@@ -23,7 +23,7 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
-from tb_common.service_auth import actor_of
+from tb_common.service_auth import ACTOR_HEADER, ASSERTION_HEADER, Actor, ActorError, verify_actor
 from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
 from orchestrator.candidates import CandidateRegistry, RegistryError
@@ -134,11 +134,24 @@ def _queue() -> dict[str, Any]:
 app = make_app("orchestrator", checks=[_queue], lifespan=lifespan, protect_reads=True)
 
 
-def _actor(header: str | None, fallback: str | None) -> str:
-    who = actor_of(header, fallback)
-    if who is None:
-        raise HTTPException(status_code=400, detail="no signed-in user (X-TB-Actor) on this call")
-    return who
+def _claim(request: Request, fallback: str | None = None) -> Actor:
+    """The signed-in user behind a call (S-09, D-143): ``X-TB-Actor`` with the console's signed, short-lived
+    assertion, verified here; a token holder that cannot sign (the mail gateway, anyone with a stolen token) cannot
+    name a user. No user named: 400; a user named without a valid assertion: 403, audited."""
+    try:
+        return verify_actor(request.headers.get(ACTOR_HEADER), request.headers.get(ASSERTION_HEADER), fallback)
+    except ActorError as exc:
+        if "no signed-in user" in str(exc):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        caller = getattr(request.state, "tb_caller", None) or "-"
+        orch().audit.append("actor.refused", actor=f"service:{caller}",
+                            detail={"path": request.url.path[:80], "reason": str(exc)[:120]})  # fmt: skip
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+def _limit_key(request: Request, who: Actor) -> str:
+    """The rate limit is per calling service and verified person (S-09): renaming no longer resets it."""
+    return f"{getattr(request.state, 'tb_caller', None) or '-'}|{who.name}"
 
 
 @app.get("/models")
@@ -239,15 +252,17 @@ class RevealRequest(BaseModel):
 
 
 class RevealLimit:
-    """At most ``TB_REVEAL_MAX_PER_HOUR`` (default 60) chart numbers per person per rolling hour, per process."""
+    """At most ``TB_REVEAL_MAX_PER_HOUR`` (default 60) chart numbers per person per rolling hour, per process; the
+    same with another variable and default for exports (S-09)."""
 
-    def __init__(self) -> None:
+    def __init__(self, env: str = "TB_REVEAL_MAX_PER_HOUR", default: int = 60) -> None:
         self._seen: dict[str, list[float]] = {}
+        self.env, self.default = env, default
 
     def allow(self, who: str) -> bool:
         import time
 
-        cap = int(os.environ.get("TB_REVEAL_MAX_PER_HOUR", "60"))
+        cap = int(os.environ.get(self.env, str(self.default)))
         t = time.monotonic()
         recent = [x for x in self._seen.get(who, []) if t - x < 3600]
         if len(recent) >= cap:
@@ -258,6 +273,9 @@ class RevealLimit:
 
 
 REVEALS = RevealLimit()
+
+
+EXPORTS = RevealLimit("TB_EXPORT_MAX_PER_HOUR", 10)  # screening-log exports with chart numbers (S-09)
 
 
 def listed_pids(o: Any, job: Any) -> set[str]:
@@ -278,14 +296,14 @@ def listed_pids(o: Any, job: Any) -> set[str]:
 
 
 @app.post("/jobs/{job_id}/reveal")
-def reveal(
-    job_id: str, req: RevealRequest, x_tb_actor: str | None = Header(default=None, alias="X-TB-Actor")
-) -> dict[str, Any]:
-    """Chart number of one listed pseudonym for a coordinator on the console (D-99). On-prem only: the pid map
-    never leaves the box, every reveal is one audit event with the actor, and nothing is stored."""
+def reveal(job_id: str, req: RevealRequest, request: Request) -> dict[str, Any]:
+    """Chart number of one listed pseudonym for a person with identifier authority on the console (D-99, D-143).
+    On-prem only: the pid map never leaves the box, every reveal is one audit event with the verified actor and
+    the console session, and nothing is stored."""
     from orchestrator.scenarios.screen import resolve_mrns
 
-    who = _actor(x_tb_actor, req.by)
+    claim = _claim(request, req.by)
+    who = claim.name
     o = orch()
     job = o.db.get(job_id)
     if job is None:
@@ -298,7 +316,7 @@ def reveal(
         o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
                        detail={"pid": req.pid, "reason": "not on this job's list"})  # fmt: skip
         raise HTTPException(status_code=403, detail="this patient is not on this job's list")
-    if not REVEALS.allow(who):
+    if not REVEALS.allow(_limit_key(request, claim)):
         o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
                        detail={"pid": req.pid, "reason": "rate limit"})  # fmt: skip
         raise HTTPException(status_code=429, detail="too many chart numbers revealed in the last hour")
@@ -308,7 +326,7 @@ def reveal(
         job_id=job_id,
         ruleset=job.ruleset,
         actor=who,
-        detail={"pid": req.pid, "found": req.pid in found},
+        detail={"pid": req.pid, "found": req.pid in found, "session": claim.session, "verified": claim.verified},
     )
     if req.pid not in found:
         raise HTTPException(status_code=404, detail="this pseudonym is not in the box's pid map")
@@ -327,11 +345,11 @@ class NoticeRequest(BaseModel):
 
 
 @app.post("/notices")
-def notice(req: NoticeRequest, x_tb_actor: str | None = Header(default=None, alias="X-TB-Actor")) -> dict[str, Any]:
+def notice(req: NoticeRequest, request: Request) -> dict[str, Any]:
     from tb_common.routing import is_internal
     from tb_contracts import SendRequest
 
-    who = _actor(x_tb_actor, req.by)
+    who = _claim(request, req.by).name
     o = orch()
     external = [r for r in req.to if not is_internal(r, o.cfg.settings.internal_domains)]
     if external:
@@ -355,10 +373,8 @@ def notice(req: NoticeRequest, x_tb_actor: str | None = Header(default=None, ali
 
 
 @app.post("/jobs/{job_id}/cancel")
-def cancel_job(
-    job_id: str, by: str | None = None, x_tb_actor: str | None = Header(default=None, alias="X-TB-Actor")
-) -> Job:
-    who = _actor(x_tb_actor, by)
+def cancel_job(job_id: str, request: Request, by: str | None = None) -> Job:
+    who = _claim(request, by).name
     try:
         return orch().cancel(job_id, who)
     except KeyError as exc:
@@ -531,12 +547,26 @@ def registry_promote(ruleset: str, req: RegistryPromote) -> dict[str, int]:
 
 
 @app.get("/registry/{ruleset}/export.xlsx")
-def registry_export(ruleset: str) -> Response:
+def registry_export(ruleset: str, request: Request, by: str | None = None) -> Response:
+    """The screening log with every chart number of a study (review 2026-11-09 S-09): a verified signed-in user
+    only, at most ``TB_EXPORT_MAX_PER_HOUR`` per person, and one audit event with the actor, the session and the
+    file's sha256 here, whoever calls."""
+    from tb_common.crypto import sha256_bytes
+
     o = orch()
+    claim = _claim(request, by)  # ``by`` counts only on a DEV/TEST box without a token
+    rid = ruleset.strip().upper()
+    if not EXPORTS.allow(_limit_key(request, claim)):
+        o.audit.append("registry.export_refused", ruleset=rid, actor=claim.name,
+                       detail={"reason": "rate limit"})  # fmt: skip
+        raise HTTPException(status_code=429, detail="too many exports with chart numbers in the last hour")
     try:
         data = registry_of(o).export_xlsx(ruleset, o.cfg.settings.site.id)
     except RegistryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    o.audit.append("registry.export", ruleset=rid, actor=claim.name, output_sha=sha256_bytes(data),
+                   detail={"session": claim.session, "verified": claim.verified,
+                           "caller": getattr(request.state, "tb_caller", None) or ""})  # fmt: skip
     return Response(
         data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

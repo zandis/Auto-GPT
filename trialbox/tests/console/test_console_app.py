@@ -256,7 +256,7 @@ class FakeBackend:
                 n += 1
         return n
 
-    def registry_export(self, ruleset: str) -> bytes:
+    def registry_export(self, ruleset: str, by: str = "") -> bytes:
         return b"PK\x03\x04fake-xlsx-" + ruleset.encode()
 
 
@@ -1231,6 +1231,27 @@ def test_viewer_reads_registry_but_cannot_change_or_export(box: dict[str, Any]) 
     assert v.get("/pilot/registry/GZQO/export.xlsx").status_code == 403
     assert v.post("/pilot/case", data={"csrf": csrf, "ruleset": "GZQO"}).status_code == 403
     assert box["backend"].registry == {}
+
+
+def test_the_export_names_the_signed_in_user_signed_with_the_session(
+    box: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S-09 (D-143): the console names the user to the orchestrator with a signed assertion bound to the session."""
+    from tb_common import service_auth as sa
+
+    monkeypatch.setenv("TB_SERVICE_TOKEN", "console-test-token-0123456789")
+    seen: list[dict[str, str]] = []
+    real = box["backend"].registry_export
+
+    def spy(rs: str, by: str) -> bytes:
+        seen.append(sa.actor_header(by))  # what the HTTP backend sends with the call
+        return bytes(real(rs, by))
+
+    monkeypatch.setattr(box["backend"], "registry_export", spy)
+    c, _ = login(box["app"])
+    assert c.get("/pilot/registry/GZQO/export.xlsx").status_code == 200
+    who = sa.verify_actor(seen[0][sa.ACTOR_HEADER], seen[0][sa.ASSERTION_HEADER])
+    assert who.name == "console:admin" and who.verified and len(who.session) == 16
 
 
 # ---------------------------------------------------------------------------------------------- D-93 roles and SSO

@@ -56,13 +56,21 @@ Only the console is published, on `127.0.0.1:8090`; the hospital reaches it thro
   (`deploy/secrets/services/<service>.token`, 0600) and accepts only the callers in `tb_common/service_auth.py`
   `CALLERS`; a doc-parser token at the orchestrator gets 403. Reads are behind the token too (D-130). Tests:
   `tests/unit/test_service_secrets.py`.
+- **The signed-in user between services** (D-143, review S-09). The console signs the user it names
+  (`X-TB-Actor-Assertion`: actor, console session, two-minute expiry, HMAC with a key derived from the console's
+  token); the orchestrator verifies it with the key in `deploy/secrets/services/actor/keys`, which only the
+  orchestrator mounts, before a reveal, a screening-log export, a notice or a cancel. An unsigned name is refused
+  and audited (`actor.refused`); the reveal and export caps count per calling service and verified person.
 - **People** (`services/console/auth.py`). Five roles; study scope, affiliation and expiry per account; scrypt
   hashes; lockout after 5 failures for 15 minutes with a countdown; sessions end after 30 minutes idle or 8 hours;
   CSRF token on every form; a Content-Security-Policy that allows no outside script. Hospital SSO through a trusted
   header from listed proxies ([Runbook §1](RUNBOOK.md#1-install-a-new-site-about-one-day)). TOTP is not built
   (Japan's MHLW guideline v7.0 asks for two factors from FY2027).
-- **Chart numbers.** Only the coordinator may reveal one, for a listed patient, with a reason, under a rate limit;
-  the investigator may not (D-127, D-133). Each reveal is in the audit.
+- **Chart numbers.** The coordinator, the administrator and the study's investigator (owner's decision of
+  2026-11-09, D-143, reversing D-133) may reveal one, for a listed patient, with a reason, under a rate limit
+  (`TB_REVEAL_MAX_PER_HOUR`, 60); viewer and CRO accounts never see one. Each reveal or view is in the audit. The
+  screening-log export with chart numbers is audited at the orchestrator too and capped (`TB_EXPORT_MAX_PER_HOUR`,
+  10). Mail never carries a chart number, also not the investigator's N1.
 - **Mail commands** need an allowed sender, a passing `Authentication-Results` (DMARC, or SPF/DKIM for the From:
   domain), the command's permission group and the daily rate limit.
 
