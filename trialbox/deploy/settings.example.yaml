@@ -22,7 +22,7 @@ permissions:
   CASE: [senders]        # single-chart eligibility check; the sheet is PHI and goes only to an internal requester
 reviewers: ["crc1@hospa.test", "pi@hospa.test"]
 require_spf_dkim: true
-rate_limit_per_sender_per_day: 20   # per heavy job type (FEAS, SCREEN, COHORT, NAV, MICROBATCH, CALIBRATION), D-144
+rate_limit_per_sender_per_day: 20   # per heavy job type (FEAS, SCREEN, COHORT, NAV, MICROBATCH, CALIBRATION), D-146
 # rate_limits_per_day: {SCREEN: 40, FEAS: 10}   # per type override; 0 = no limit. CASE, CONSENT, STATUS: never counted
 data_source: {type: csv, path: /data/source/site-a, mapping: mapping/tw_core/demo_his.yaml, nightly_at: "02:00"}
 mrn_regex: "^\\d{8}$"

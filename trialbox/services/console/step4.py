@@ -414,7 +414,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             inputs=list(job.inputs or []) or None,
         )
         try:
-            new = bk.create_job(req, by=h.actor(sess), role=sess.user.role)  # D-144: the role decides
+            new = bk.create_job(req, by=h.actor(sess), role=sess.user.role)  # D-146: the role decides
         except Refused as exc:
             raise h.problem(400, "request.refused", reason=str(exc)) from exc
         au.append(

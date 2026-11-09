@@ -1,4 +1,4 @@
-"""Strings of the user-journey review fixes of 2026-11-09, wave 1c (D-144): the request refusals (J-01, J-02), the
+"""Strings of the user-journey review fixes of 2026-11-09, wave 1c (D-146): the request refusals (J-01, J-02), the
 viewer's request card (J-04), the criteria approval's "who may" (J-27) and the draft's own words, and the study's
 "Who to screen" (J-26). Merged last into ``console.i18n``; every key in all three languages."""
 

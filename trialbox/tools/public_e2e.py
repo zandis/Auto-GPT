@@ -302,7 +302,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     s20 = crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval")
     s.check("S20 says who ticks and approves; the coordinator has no tick", 'data-testid="s20-who"' in s20.text
             and 'data-testid="tick-btn-' not in s20.text, "")  # fmt: skip
-    # D-144 (review J-27): the investigator ticks a criterion's codes, as only the investigator approves
+    # D-146 (review J-27): the investigator ticks a criterion's codes, as only the investigator approves
     p20 = pi.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval")
     first = re.search(r'data-testid="tick-btn-([A-Z0-9-]+)"', p20.text)
     r = pi.post(
@@ -816,7 +816,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     for who, seen in swept.items():
         s.check(f"{who}: no chart number or name on any page of the walk ({len(seen['pages'])} pages)",
                 not seen["leaks"], seen["leaks"][:3])  # fmt: skip
-        # D-144 (review J-03 to J-05): no patient-level page or API, no registry, audit trail or set-up for them
+        # D-146 (review J-03 to J-05): no patient-level page or API, no registry, audit trail or set-up for them
         shut = [
             p
             for p, code in seen["pages"]

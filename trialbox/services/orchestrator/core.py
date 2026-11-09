@@ -240,7 +240,7 @@ class Orchestrator:
     # ------------------------------------------------------------------ job lifecycle
     def create(self, req: JobCreate, notify: bool = True, role: str = "", by: str = "") -> Job:
         """A new job. ``role`` and ``by``: the console account behind the request, from the console's signed actor
-        assertion (D-144, review J-01); the request is then authorised by that role, not by the mailbox, which stays
+        assertion (D-146, review J-01); the request is then authorised by that role, not by the mailbox, which stays
         the reply address. A mailed request (no role) is authorised by the mailbox rules of settings.yaml."""
         if req.job_id:
             existing = self.db.get(req.job_id)
@@ -254,12 +254,12 @@ class Orchestrator:
                     raise Rejected(f"the {role} role may not run {jtype}")
             elif not allowed(self.cfg.settings, jtype, sender):
                 raise Rejected(f"{sender} is not permitted to run {jtype}")
-            limit = daily_limit(self.cfg.settings, jtype)  # D-144 (J-02): heavy job types only, each on its own
+            limit = daily_limit(self.cfg.settings, jtype)  # D-146 (J-02): heavy job types only, each on its own
             since = (self._now() - timedelta(days=1)).isoformat()
             if limit is not None and self.db.count_since(sender, since, jtype) >= limit:
                 raise Rejected(f"rate limit reached ({limit} {jtype} jobs per sender per day)")
         ts = self._now()
-        who = {"by": by, "role": role} if role else {}  # D-144: the console account behind the request, when known
+        who = {"by": by, "role": role} if role else {}  # D-146: the console account behind the request, when known
         job = Job(
             job_id=req.job_id or new_ulid(),
             type=req.type,

@@ -36,7 +36,7 @@
         <a href="/studies/{{ srs }}/forms" data-testid="more-forms">{{ srs }} · {{ t('dc.forms.title') }}</a>{% endif %}
         {% if r == 'admin' %}<a href="/admin?tab=health">{{ t('admin.tab.health') }}</a><a href="/admin?tab=jobs">{{ t('admin.tab.jobs') }}</a><a href="/admin?tab=sources">{{ t('admin.tab.sources') }}</a>{% endif %}
         <a href="/">{{ t('nav.overview') }}</a>
-        {% if user.aggregate_only %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}{# D-144: viewer and CRO open no run, registry or audit page #}
+        {% if user.aggregate_only %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}{# D-146: viewer and CRO open no run, registry or audit page #}
         <a href="/jobs">{{ t('nav.jobs') }}</a>{% endif %}
         {% if user.can_request %}
         <a href="/pilot/request">{{ t('nav.request') }}</a>

@@ -19,7 +19,7 @@
 <section class="card" data-testid="viewer-card">
 <h2>{{ t('request.viewer') }}</h2>
 <p>{{ t('request.viewer.help') }}</p>
-<ul>{% if user.aggregate_only %}{# D-144: viewer and CRO read the aggregate reports only #}
+<ul>{% if user.aggregate_only %}{# D-146: viewer and CRO read the aggregate reports only #}
 <li><a href="/reports">{{ t('nav.reports') }}</a> · {{ t('request.viewer.reports') }}</li>
 {% else %}
 <li><a href="/jobs">{{ t('nav.jobs') }}</a> · {{ t('request.viewer.jobs') }}</li>

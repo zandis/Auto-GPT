@@ -1179,7 +1179,7 @@ EN.update(_RV_EN)
 JA.update(_RV_JA)
 ZH.update(_RV_ZH)
 
-# review 2026-11-09, wave 1c (D-144): request refusals, who approves, who to screen; new keys and the PI's tick wording
+# review 2026-11-09, wave 1c (D-146): request refusals, who approves, who to screen; new keys and the PI's tick wording
 from console.i18n_journey import EN as _J_EN  # noqa: E402
 from console.i18n_journey import JA as _J_JA  # noqa: E402
 from console.i18n_journey import ZH as _J_ZH  # noqa: E402

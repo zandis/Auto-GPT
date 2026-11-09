@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS rc_write (
   PRIMARY KEY (ruleset, link_value)
 )
 """
-# D-144 (review J-26): who a study's screening runs look at, set on its set-up page. ``mode`` "hospital" is every
+# D-146 (review J-26): who a study's screening runs look at, set on its set-up page. ``mode`` "hospital" is every
 # patient of the hospital with a booked appointment in the window or a recent visit (the owner's aim: screen the whole
 # hospital); "practitioners" keeps the per-doctor scope. A job's ``pract=`` still wins for that one run.
 SCHEMA_V3 = """
@@ -183,7 +183,7 @@ class StudyStore:
         assert out is not None
         return out
 
-    # ------------------------------------------------------------------ who a screening run looks at (D-144)
+    # ------------------------------------------------------------------ who a screening run looks at (D-146)
     def screen_scope(self, ruleset: str) -> dict[str, Any] | None:
         row = self._one("screen_scope", "WHERE ruleset = ?", (ruleset,))
         if row is None:
@@ -349,7 +349,7 @@ _SCOPE_STORES: dict[str, StudyStore] = {}
 
 
 def screen_scope_of(url: str, ruleset: str) -> dict[str, Any] | None:
-    """A study's screening scope (D-144) for a scenario, from the trial database at ``url`` (one store per URL)."""
+    """A study's screening scope (D-146) for a scenario, from the trial database at ``url`` (one store per URL)."""
     store = _SCOPE_STORES.get(url)
     if store is None:
         store = _SCOPE_STORES.setdefault(url, StudyStore(Path("."), url))

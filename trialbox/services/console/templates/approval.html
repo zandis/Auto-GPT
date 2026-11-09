@@ -25,7 +25,7 @@
 <tr id="{{ r.id }}" class="{{ 'amber' if is_amber else '' }}{{ ' seen' if seen else '' }}" data-testid="row-{{ r.id }}">
 <td class="crit"><strong>{{ r.id }}</strong> <span class="hint">{{ t_or('kind.' + r.kind, r.kind) }}</span>
 {% if labels.get(r.id) %}<br><strong data-testid="site-label-{{ r.id }}">{{ labels[r.id] }}</strong>{% endif %}
-{# D-144: the draft is the protocol's own words, shown as written and marked so; the site's label goes above it #}
+{# D-146: the draft is the protocol's own words, shown as written and marked so; the site's label goes above it #}
 <br><span data-authored>{{ r.text }}</span>{% if lang != 'en' %} <span class="hint" data-testid="as-written">({{ t('s20.as_written') }})</span>{% endif %}
 {% if r.summary and r.summary != r.text %}<br><span class="hint" data-authored>{{ r.summary }}</span>{% endif %}
 {% if is_amber %}<p class="amberwhy">{% for w in r.amber %}<span class="pill warn">{{ t('s20.why.' + w) }}</span> {% endfor %}{% if r.flags %}<br><span class="hint">{{ r.flags }}</span>{% endif %}</p>{% endif %}

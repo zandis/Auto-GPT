@@ -46,7 +46,7 @@ def allowed(settings: Settings, command: str, sender: str) -> bool:
     return any(who in group_members(settings, g) for g in groups)
 
 
-# D-144 (review J-01): a request made on the console is authorised by the signed-in person's role (the console's
+# D-146 (review J-01): a request made on the console is authorised by the signed-in person's role (the console's
 # signed actor assertion carries it), not by a sender mailbox in settings.yaml. A mailed request keeps the mailbox rule
 # above. The console checks the same roles before it asks (console.auth.User.can_request / can_approve).
 _PREPARE = frozenset(
@@ -64,7 +64,7 @@ def role_allowed(role: str, command: str) -> bool:
     return command.upper() in ROLE_COMMANDS.get(role, frozenset())
 
 
-# D-144 (review J-02): the daily per-sender limit protects the box from runs that read every patient. It counts only
+# D-146 (review J-02): the daily per-sender limit protects the box from runs that read every patient. It counts only
 # these job types, each on its own; a case question, a consent draft, a status or an approval is never counted.
 HEAVY_JOBS: tuple[str, ...] = ("FEAS", "SCREEN", "COHORT", "NAV", "MICROBATCH", "CALIBRATION")
 

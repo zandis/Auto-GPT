@@ -95,7 +95,7 @@ VERIFIED_BY = {"structured": "records", "note": "notes", "human": "person", "mix
 
 def site_or_written(written: object, meta: CriterionMeta | None, cid: str) -> tuple[str, bool]:
     """(label, is the site's own label): the label the site gave at approval wins over the words a run wrote down
-    (D-144, review J-22 / R-72); otherwise the study's own words, which a page shows as written (``data-authored``)."""
+    (D-146, review J-22 / R-72); otherwise the study's own words, which a page shows as written (``data-authored``)."""
     if meta is not None and meta.original:
         return meta.label, True
     return str(written or (meta.label if meta else "") or cid), False

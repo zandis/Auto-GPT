@@ -241,7 +241,7 @@ class JobDB:
         return [str(r[0]) for r in rows]
 
     def count_since(self, requested_by: str, since_iso: str, type_: str | None = None) -> int:
-        """Jobs ``requested_by`` started since ``since_iso``; of one type only when ``type_`` is given (D-144)."""
+        """Jobs ``requested_by`` started since ``since_iso``; of one type only when ``type_`` is given (D-146)."""
         if type_ is None:
             row = self._db.fetchone(
                 "SELECT count(*) FROM jobs WHERE requested_by = ? AND received_at >= ?", (requested_by, since_iso)

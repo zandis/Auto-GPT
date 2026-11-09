@@ -86,7 +86,7 @@ class ScreenRun:
     judge: NoteJudge | None
     judging: dict[str, Any] | None = None
     cascade: dict[str, Any] | None = None  # D-103: the cascade's stage log and counts when it ran the screen
-    whole_hospital: bool = False  # D-144: every doctor's patients (``practitioners`` is then empty)
+    whole_hospital: bool = False  # D-146: every doctor's patients (``practitioners`` is then empty)
 
     @property
     def pipeline(self) -> str:
@@ -129,7 +129,7 @@ def scope_patients(
     snapshot: str | None = None,
 ) -> list[Scoped]:
     """The patients in scope, read from the snapshot the screening then runs on (D-142, review B-02).
-    ``practitioners`` None: the whole hospital (D-144), every patient with a booked appointment in the window or a
+    ``practitioners`` None: the whole hospital (D-146), every patient with a booked appointment in the window or a
     recent visit, whoever the doctor."""
     rows = ctx.services.lake.query(
         SCOPE_SQL,
@@ -383,7 +383,7 @@ def evaluate_scope(
 
 
 def study_scope(ctx: Ctx, ruleset: str) -> dict[str, Any] | None:
-    """Who the study's set-up page says to screen (D-144, review J-26); None when it was never set (or the run has no
+    """Who the study's set-up page says to screen (D-146, review J-26); None when it was never set (or the run has no
     trial database, as in some unit tests)."""
     url = getattr(getattr(ctx.orch, "db", None), "url", None)
     if not url:
@@ -395,7 +395,7 @@ def study_scope(ctx: Ctx, ruleset: str) -> dict[str, Any] | None:
 
 def practitioners_of(ctx: Ctx, rs: Ruleset) -> list[str] | None:
     """The practitioners a run screens, None for the whole hospital. The job's ``pract=`` (or ``scope=hospital``)
-    first, then the study's set-up page (D-144), then the ruleset's ``scopes.screen``."""
+    first, then the study's set-up page (D-146), then the ruleset's ``scopes.screen``."""
     opts = ctx.job.options or {}
     if opts.get("pract"):
         return [p.strip() for p in opts["pract"].split(",") if p.strip()]

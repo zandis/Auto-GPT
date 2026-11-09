@@ -153,7 +153,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
         assert job is not None and job.state == "awaiting_approval", (rs, job and job.state)
         jobs[rs] = job
     ok(crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval"), "S20 as coordinator")
-    # D-144 (review J-27): the investigator ticks a criterion's codes, as only the investigator approves
+    # D-146 (review J-27): the investigator ticks a criterion's codes, as only the investigator approves
     s20 = ok(pi.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval"), "S20 as investigator")
     first = re.search(r'data-testid="tick-btn-([A-Z0-9-]+)"', s20.text)
     assert first

@@ -52,7 +52,7 @@ class ChartText:
     notes: list[str] = field(default_factory=list)
 
 
-# D-144 (review J-07): a PDF's text layer may carry NUL and other control characters (a CJK font without a usable
+# D-146 (review J-07): a PDF's text layer may carry NUL and other control characters (a CJK font without a usable
 # ToUnicode map gives U+0000 for every glyph it cannot map); PostgreSQL text refuses NUL. Tab and line breaks stay.
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ud800-\udfff]")
 

@@ -87,7 +87,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = rs.strip().upper()
         if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.role == "cro" or not known_study(bk, rid):
             raise h.problem(404, "notfound")
-        if not sess.user.can_view_phi:  # D-144 (review J-05): a viewer reads aggregate reports, not a study's set-up
+        if not sess.user.can_view_phi:  # D-146 (review J-05): a viewer reads aggregate reports, not a study's set-up
             au.append("console.denied", actor=h.actor(sess), detail={"action": f"setup {rid}"})
             raise h.problem(403, "forbidden")
         return rid
@@ -214,7 +214,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return save_settings(request, sess, rid, s, {"consent_scope": row.get("consent_scope"),
                              "introduce_rule": row.get("introduce_rule")}, "log")  # fmt: skip
 
-    # ------------------------------------------------------------------ D-144 (review J-26): who to screen
+    # ------------------------------------------------------------------ D-146 (review J-26): who to screen
     @app.post("/studies/{rs}/setup/scope")
     def save_screen_scope(
         request: Request, rs: str, csrf: str = Form(""), mode: str = Form(""), practitioners: str = Form("")
@@ -365,7 +365,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     # ------------------------------------------------------------------ S36
     def need_admin_view(sess: Session) -> None:
-        """S36 holds the REDCap addresses and key names: administrators only (D-144, review J-05)."""
+        """S36 holds the REDCap addresses and key names: administrators only (D-146, review J-05)."""
         if not sess.user.is_admin:
             au.append("console.denied", actor=h.actor(sess), detail={"action": "/admin/redcap"})
             raise h.problem(403, "forbidden")

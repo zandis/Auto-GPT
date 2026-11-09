@@ -1,4 +1,4 @@
-"""User-journey review of 2026-11-09, wave 1c (D-144), on the console: the request refusals in the page's language
+"""User-journey review of 2026-11-09, wave 1c (D-146), on the console: the request refusals in the page's language
 (J-01, J-02), one role rule for pages and ``/api/v1`` (J-03, J-04, J-05), the codes template (J-08), the account
 names on the site pages (J-17), the screening scope on the study's set-up page (J-26), who ticks and approves the
 criteria (J-27), the site label over the protocol's words, the username pattern and the readiness API's study."""
@@ -37,7 +37,7 @@ PW = "journey-review-password-1"
 
 # ---------------------------------------------------------------------------------------------- J-01 / J-02
 def test_a_console_request_names_the_person_and_role(box: dict[str, Any]) -> None:  # noqa: F811
-    """The console sends the signed-in person and role, so the orchestrator authorises by role (D-144)."""
+    """The console sends the signed-in person and role, so the orchestrator authorises by role (D-146)."""
     box["users"].create("crc7", "coordinator", PW)  # made on the console: no mailbox (the admin's mail is used)
     c, csrf = login(box["app"], "crc7", PW)
     r = c.post("/pilot/request", data={"csrf": csrf, "kind": "FEAS", "ruleset": "GZQO"}, follow_redirects=False)

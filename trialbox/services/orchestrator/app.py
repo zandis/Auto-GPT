@@ -230,7 +230,7 @@ def ruleset_detail(ruleset: str) -> dict[str, Any]:
 
 @app.post("/jobs")
 def create_job(req: JobCreate, request: Request) -> Job:
-    """A new job. From the console (D-144, review J-01) the call names the signed-in person and their role in a signed
+    """A new job. From the console (D-146, review J-01) the call names the signed-in person and their role in a signed
     assertion, and the role decides; from the mail gateway (no person named) the sender's mailbox decides."""
     role, by = "", ""
     if request.headers.get(ACTOR_HEADER) and request.headers.get(ROLE_HEADER):

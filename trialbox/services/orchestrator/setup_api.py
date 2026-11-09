@@ -144,7 +144,7 @@ def router(
         except SetupError as exc:
             raise _fail(exc) from exc
 
-    # D-144 (review J-08): declared before the ``/setup/{ws}/...`` routes, or ``/setup/templates/codes`` is read as
+    # D-146 (review J-08): declared before the ``/setup/{ws}/...`` routes, or ``/setup/templates/codes`` is read as
     # the hospital codes of a workspace named "templates" (a list, and the console's download was a 500)
     @r.get("/setup/templates/{name}")
     def template(name: str, lang: str = "ja", ws: str = "main") -> dict[str, Any]:

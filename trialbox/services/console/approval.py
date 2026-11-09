@@ -5,12 +5,12 @@
 * Amber rows need the investigator's eyes (compiler flags, CQL and SQL not fully equivalent, left to a person, new or
   changed since the approved version). Opening an amber row is recorded on the server (the console has no script);
   **Approve all** is offered once every amber row was opened by the investigator who approves.
-* Only the investigator ticks the criteria and approves them (owner decision 2026-11-09, D-144, review J-27): a tick
+* Only the investigator ticks the criteria and approves them (owner decision 2026-11-09, D-146, review J-27): a tick
   is its own audit event (``console.code_tick``); the page says who may. A coordinator (or administrator) prepares:
   reads the draft and gives each criterion the site's own label.
 * A re-approval shows **Changes since vN**: criteria added, with new text or check class, and removed.
 * **Approve all** sends ``APPROVE <study> version=<v>`` with the review workbook the compiler wrote, exactly what a
-  reply to the review mail does; the orchestrator checks the approver's role (D-144).
+  reply to the review mail does; the orchestrator checks the approver's role (D-146).
 """
 
 from __future__ import annotations
@@ -137,7 +137,7 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        if not sess.user.can_approve:  # D-144 (review J-27): the investigator ticks, as only the investigator approves
+        if not sess.user.can_approve:  # D-146 (review J-27): the investigator ticks, as only the investigator approves
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         job, book = waiting_job(sess, job_id)

@@ -58,7 +58,7 @@ from urllib.parse import quote, unquote
 TOKEN_HEADER = "X-TB-Service-Token"
 ACTOR_HEADER = "X-TB-Actor"
 ASSERTION_HEADER = "X-TB-Actor-Assertion"
-ROLE_HEADER = "X-TB-Actor-Role"  # the signed-in person's console role, covered by the assertion (D-144, review J-01)
+ROLE_HEADER = "X-TB-Actor-Role"  # the signed-in person's console role, covered by the assertion (D-146, review J-01)
 ACTOR_KEYS_ENV = "TB_ACTOR_KEYS_FILE"
 ACTOR_LABEL = b"tb-actor-assertion/1"
 ACTOR_TTL = 120  # seconds an assertion is valid
@@ -236,7 +236,7 @@ def sign_actor(actor: str, session: str | None = None, now: float | None = None,
 
 def actor_header(actor: str, session: str | None = None, role: str = "") -> dict[str, str]:
     """``X-TB-Actor`` for a signed-in user (percent-encoded, as a header is ASCII and names may be 日本語) and its
-    signed assertion when this service holds a token (S-09, D-143). With ``role`` (D-144, review J-01) the console
+    signed assertion when this service holds a token (S-09, D-143). With ``role`` (D-146, review J-01) the console
     role travels in ``X-TB-Actor-Role`` and the assertion covers it, so the orchestrator authorises a console request
     by the person's role instead of a mailbox."""
     h = {ACTOR_HEADER: quote(actor, safe="@._-+")}
@@ -282,7 +282,7 @@ class Actor:
     name: str
     session: str = ""
     verified: bool = False
-    role: str = ""  # the console role the caller sent (D-144); covered by the assertion when verified
+    role: str = ""  # the console role the caller sent (D-146); covered by the assertion when verified
 
 
 def verify_actor(header: str | None, assertion: str | None, fallback: str | None = None,

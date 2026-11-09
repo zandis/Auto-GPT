@@ -703,7 +703,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = api_session(request)
         need_view(sess, request.url.path)
         mine = studies(sess)
-        if not study.strip() and len(mine) > 1:  # D-144 (review J-16): never the readiness of a study it did not name
+        if not study.strip() and len(mine) > 1:  # D-146 (review J-16): never the readiness of a study it did not name
             return JSONResponse(
                 {"error": "request.refused", "detail": {"code": "study-required", "studies": mine,
                  "reason": "give study=<id>: the readiness is per study and this account has several"}},

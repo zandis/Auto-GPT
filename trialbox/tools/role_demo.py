@@ -74,7 +74,7 @@ class InprocBackend:
         from console.backend import Refused
         from tb_contracts import Job, dump
 
-        # D-144 (review J-01): as the HTTP backend does, the signed-in person and role travel signed
+        # D-146 (review J-01): as the HTTP backend does, the signed-in person and role travel signed
         r = self.c.post("/jobs", json=dump(req), headers=actor_header(by, role=role) if by and role else {})
         if r.status_code != 200:
             try:

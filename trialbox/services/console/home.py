@@ -78,7 +78,7 @@ class Helpers:
     life_reports: Callable[[str], list[dict[str, Any]]] | None = None  # one study's overdue SAE reports (P-03)
     # P-10 (D-143): one confirmation page before an action that is hard to take back
     confirm: Callable[..., Response] | None = None
-    # D-144 (review J-03): the role and study scope rules of every page, applied to /api/v1 calls too
+    # D-146 (review J-03): the role and study scope rules of every page, applied to /api/v1 calls too
     scope_check: Callable[[Request, Session], None] | None = None
 
 
@@ -908,7 +908,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess: Session | None = h.users.session(token) if token else None
         if sess is None:
             raise h.problem(401, "login")
-        if h.scope_check is not None:  # D-144 (J-03): the API refuses what the page refuses, in one place
+        if h.scope_check is not None:  # D-146 (J-03): the API refuses what the page refuses, in one place
             h.scope_check(request, sess)
         bind_session(sess.token_sha[:16])  # S-09: the actor sent to the orchestrator is signed with this session
         return sess
@@ -939,7 +939,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         return [{"id": r.id, "version": getattr(r, "version", None), "kind": r.kind} for r in trials(sess)]
 
     def rows_or_403(sess: Session, rs: str, path: str) -> str:
-        """A study this account sees, for a role that reads patient-level rows; the same check as the page (D-144)."""
+        """A study this account sees, for a role that reads patient-level rows; the same check as the page (D-146)."""
         rid = study_or_404(sess, rs)
         if not sess.user.can_view_phi:
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})

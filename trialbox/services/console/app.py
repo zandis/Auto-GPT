@@ -225,7 +225,7 @@ def cell(value: object, k: int) -> str:
 
 # options that identify a patient: never shown on a page (UX review 2026-11-08, F-01: the CASE job line printed the
 # chart number in clear to every role that could open the job)
-# D-144 (review J-03/J-04/J-05): the paths an aggregate-only account (viewer, CRO) is refused, pages and /api/v1 alike;
+# D-146 (review J-03/J-04/J-05): the paths an aggregate-only account (viewer, CRO) is refused, pages and /api/v1 alike;
 # job pages are decided by the job's type (see create_app._aggregate_denied)
 _AGGREGATE_DENY = re.compile(
     r"^/(?:jobs|audit|admin/redcap|pilot/registry|pilot/mailbox|pilot/cascade|site|api/v1/site)(?:/|$)"
@@ -395,7 +395,7 @@ def create_app(
     site_tz = site_zone(backend)
     templates.env.filters["local"] = lambda v, n=16: local_time(v, site_tz, n)
     templates.env.filters["mask_ids"] = lambda v: mask_ids(str(v))  # audit tables never show a chart number (P-01)
-    # D-144 (review J-17): a person, not the raw actor id ("console:crc" -> "crc"), on every translated page
+    # D-146 (review J-17): a person, not the raw actor id ("console:crc" -> "crc"), on every translated page
     templates.env.filters["who"] = lambda v: str(v or "").removeprefix("console:") or "–"
     templates.env.globals["reason_label"] = reason_label  # a candidate row's reason code in the page language (D-118)
     templates.env.globals["feas_notes"] = feas_notes  # a feasibility result's notes in the page language (D-119)
@@ -502,7 +502,7 @@ def create_app(
         return sess
 
     def _aggregate_denied(path: str) -> bool:
-        """D-144 (review J-03/J-04/J-05): what an aggregate-only account (viewer, CRO; D-104) never opens, as a page or
+        """D-146 (review J-03/J-04/J-05): what an aggregate-only account (viewer, CRO; D-104) never opens, as a page or
         through ``/api/v1``: the cross-study lists (runs, audit trail, registry), a study's patient-level and set-up
         pages and APIs (all but its feasibility report), the site set-up, the REDCap connections, and any job page but
         a feasibility run's (a CASE or SCREEN job page names patients). Masking (D-143) stays as it was."""
@@ -685,14 +685,14 @@ def create_app(
             detail={"line": line, "mailbox": mailbox, "role": sess.user.role, "channel": "web"},
         )
         try:
-            # D-144 (review J-01): the orchestrator authorises by the signed-in person's role, sent signed
+            # D-146 (review J-01): the orchestrator authorises by the signed-in person's role, sent signed
             return bk.create_job(req, by=actor(sess), role=sess.user.role)
         except Refused as exc:
             au.append("console.refused", job_id=job_id, actor=actor(sess), detail={"reason": str(exc)[:200]})
             raise refusal_problem(str(exc), cmd, mailbox) from exc
 
     def refusal_problem(reason: str, cmd: str, mailbox: str) -> _Problem:
-        """The orchestrator's refusal of a request as a page in the user's language (D-144, review J-01/J-02): the
+        """The orchestrator's refusal of a request as a page in the user's language (D-146, review J-01/J-02): the
         daily limit, a role or a mailbox that may not start the request; anything else as before."""
         m = re.search(r"rate limit reached \((\d+) (\w+) jobs", reason)
         if m:

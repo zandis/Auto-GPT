@@ -55,7 +55,7 @@ const LR = W.life_record; // D-134: a participant with today's visit and a serio
 const SQ = `ws=${W.site_ws || "practice"}&study=${T}`; // D-135: the practice site, loaded by public_e2e stage 5c
 const SITE = [`/site?${SQ}`, `/site/start?${SQ}&step=2`, `/site/charts?${SQ}`, `/site/facts?${SQ}`, `/site/codes?${SQ}`, `/site/checks?${SQ}`, `/site/sheets?${SQ}`, `/site/people?${SQ}`, `/site/patients?${SQ}`, `/site/help?${SQ}`];
 const LIFE = [`/studies/${T}/subjects`, `/studies/${T}/subjects/${LR}`, `/studies/${T}/visits`, `/studies/${T}/schedule`, `/studies/${T}/enrolment`];
-// Review 2026-11-09 J-03 to J-05 (D-144): viewer and CRA open no CASE job page, registry, audit trail, runs list, study
+// Review 2026-11-09 J-03 to J-05 (D-146): viewer and CRA open no CASE job page, registry, audit trail, runs list, study
 // set-up or sources page and no REDCap connection page (403); the viewer still opens a feasibility run's page
 const AGG_ONLY_FORBIDDEN = [`/pilot/jobs/${W.case_job}`, `/pilot/registry/${C}`, "/audit", "/jobs", `/studies/${T}/setup`, `/studies/${T}/sources`, "/admin/redcap"];
 const PAGES = {

@@ -248,7 +248,7 @@ class HttpBackend:
             raise Unavailable(str(exc)) from exc
 
     def create_job(self, req: JobCreate, by: str = "", role: str = "") -> Job:
-        """``POST /jobs``. ``by`` and ``role``: the signed-in person (D-144, review J-01); the orchestrator then
+        """``POST /jobs``. ``by`` and ``role``: the signed-in person (D-146, review J-01); the orchestrator then
         authorises the request by the role in the signed assertion instead of by the mailbox."""
         try:
             if by and role:

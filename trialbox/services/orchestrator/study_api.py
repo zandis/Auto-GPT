@@ -324,7 +324,7 @@ class SettingsBody(BaseModel):
 
 
 class ScreenScopeBody(BaseModel):
-    """D-144 (review J-26): who the study's screening runs look at."""
+    """D-146 (review J-26): who the study's screening runs look at."""
 
     mode: str  # "hospital" (every patient of the hospital) | "practitioners"
     practitioners: list[str] = Field(default_factory=list, max_length=200)
@@ -398,7 +398,7 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
 
     @r.get("/studies/{rs}/screen-scope")
     def get_screen_scope(rs: str) -> dict[str, Any]:
-        """D-144 (review J-26): who a screening run of the study looks at; ``mode`` None until it is set."""
+        """D-146 (review J-26): who a screening run of the study looks at; ``mode`` None until it is set."""
         row = get().store.screen_scope(_rs(rs))
         return row or {"ruleset": _rs(rs), "mode": None, "practitioners": []}
 

@@ -85,7 +85,7 @@
 {% if editable %}<div class="savebar card" id="save"><button type="submit" name="action" value="save" data-testid="save-setup">{{ t('setup.save_all') }}</button><span class="hint">{{ t('setup.unsaved') }}</span></div>{% endif %}
 </form>
 
-{% if screen_scope is not none %}{# D-144 (review J-26): who the study's screening runs look at #}
+{% if screen_scope is not none %}{# D-146 (review J-26): who the study's screening runs look at #}
 <section class="card" id="who" data-testid="setup-who">
 <h2>{{ t('setup.who.title') }}</h2>
 <p class="hint">{{ t('setup.who.help') }}</p>

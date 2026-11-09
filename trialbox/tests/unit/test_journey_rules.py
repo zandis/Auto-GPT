@@ -1,4 +1,4 @@
-"""User-journey review of 2026-11-09, wave 1c (D-144): the orchestrator, sign-in and data rules behind J-01, J-02,
+"""User-journey review of 2026-11-09, wave 1c (D-146): the orchestrator, sign-in and data rules behind J-01, J-02,
 J-07, J-08 and J-26 (the console pages are in ``tests/console/test_journey_pages.py``)."""
 
 from __future__ import annotations
