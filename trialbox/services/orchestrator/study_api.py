@@ -323,6 +323,17 @@ class SettingsBody(BaseModel):
     by: str
 
 
+class ScreenScopeBody(BaseModel):
+    """D-144 (review J-26): who the study's screening runs look at."""
+
+    mode: str  # "hospital" (every patient of the hospital) | "practitioners"
+    practitioners: list[str] = Field(default_factory=list, max_length=200)
+    by: str
+
+
+_PRACT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$")
+
+
 class ConnectionBody(BaseModel):
     url: str
     token: str | None = None  # write-only; omitted = keep the stored one
@@ -383,6 +394,28 @@ def router(get: Callable[[], StudyService]) -> APIRouter:
         rid = _rs(rs)
         row = svc.store.save_settings(rid, body.model_dump(exclude={"by"}), body.by, svc.stamp())
         svc.audit.append("study.settings", ruleset=rid, actor=body.by, detail={"study_type": body.study_type})
+        return row
+
+    @r.get("/studies/{rs}/screen-scope")
+    def get_screen_scope(rs: str) -> dict[str, Any]:
+        """D-144 (review J-26): who a screening run of the study looks at; ``mode`` None until it is set."""
+        row = get().store.screen_scope(_rs(rs))
+        return row or {"ruleset": _rs(rs), "mode": None, "practitioners": []}
+
+    @r.put("/studies/{rs}/screen-scope")
+    def put_screen_scope(rs: str, body: ScreenScopeBody) -> dict[str, Any]:
+        pract = [p.strip() for p in body.practitioners if p.strip()]
+        if body.mode not in ("hospital", "practitioners"):
+            raise HTTPException(status_code=400, detail={"code": "STUDY-FIELD", "message": "unknown screening scope"})
+        if body.mode == "practitioners" and (not pract or not all(_PRACT.match(p) for p in pract)):
+            raise HTTPException(
+                status_code=400, detail={"code": "STUDY-PRACT", "message": "practitioner ids are letters and digits"}
+            )
+        svc = get()
+        rid = _rs(rs)
+        row = svc.store.save_screen_scope(rid, body.mode, pract, body.by, svc.stamp())
+        svc.audit.append("study.screen_scope", ruleset=rid, actor=body.by,
+                         detail={"mode": body.mode, "practitioners": len(pract)})  # fmt: skip
         return row
 
     @r.get("/redcap/connections")

@@ -25,7 +25,7 @@ from typing import Any, Literal, cast
 
 from lake.client import LakeAPI
 from tb_common.audit import AuditLog
-from tb_common.authz import allowed, norm
+from tb_common.authz import allowed, daily_limit, norm, role_allowed
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.fhir import FhirEvaluator
@@ -238,7 +238,10 @@ class Orchestrator:
         return now(self.cfg.env.tz)
 
     # ------------------------------------------------------------------ job lifecycle
-    def create(self, req: JobCreate, notify: bool = True) -> Job:
+    def create(self, req: JobCreate, notify: bool = True, role: str = "", by: str = "") -> Job:
+        """A new job. ``role`` and ``by``: the console account behind the request, from the console's signed actor
+        assertion (D-144, review J-01); the request is then authorised by that role, not by the mailbox, which stays
+        the reply address. A mailed request (no role) is authorised by the mailbox rules of settings.yaml."""
         if req.job_id:
             existing = self.db.get(req.job_id)
             if existing is not None:  # idempotent on the pre-allocated id
@@ -246,13 +249,17 @@ class Orchestrator:
         sender = norm(req.requested_by)
         jtype = req.type
         if sender not in SYSTEM_SENDERS:
-            if not allowed(self.cfg.settings, jtype, sender):
+            if role:
+                if not role_allowed(role, jtype):
+                    raise Rejected(f"the {role} role may not run {jtype}")
+            elif not allowed(self.cfg.settings, jtype, sender):
                 raise Rejected(f"{sender} is not permitted to run {jtype}")
-            limit = self.cfg.settings.rate_limit_per_sender_per_day or 20
+            limit = daily_limit(self.cfg.settings, jtype)  # D-144 (J-02): heavy job types only, each on its own
             since = (self._now() - timedelta(days=1)).isoformat()
-            if self.db.count_since(sender, since) >= limit:
-                raise Rejected(f"rate limit reached ({limit} jobs per sender per day)")
+            if limit is not None and self.db.count_since(sender, since, jtype) >= limit:
+                raise Rejected(f"rate limit reached ({limit} {jtype} jobs per sender per day)")
         ts = self._now()
+        who = {"by": by, "role": role} if role else {}  # D-144: the console account behind the request, when known
         job = Job(
             job_id=req.job_id or new_ulid(),
             type=req.type,
@@ -277,7 +284,7 @@ class Orchestrator:
             ruleset=job.ruleset,
             actor=sender,
             input_sha=",".join(f.sha256 for f in job.inputs or []) or None,
-            detail={"from": None, "to": "received", "type": jtype, "options": job.options},
+            detail={"from": None, "to": "received", "type": jtype, "options": job.options, **who},
         )
         if jtype in FAST_LANE:  # answered at once, never queued behind long jobs
             return self._fast(job)

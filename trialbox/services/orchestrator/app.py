@@ -23,7 +23,7 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
-from tb_common.service_auth import ACTOR_HEADER, ASSERTION_HEADER, Actor, ActorError, verify_actor
+from tb_common.service_auth import ACTOR_HEADER, ASSERTION_HEADER, ROLE_HEADER, Actor, ActorError, verify_actor
 from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
 from orchestrator.candidates import CandidateRegistry, RegistryError
@@ -139,7 +139,12 @@ def _claim(request: Request, fallback: str | None = None) -> Actor:
     assertion, verified here; a token holder that cannot sign (the mail gateway, anyone with a stolen token) cannot
     name a user. No user named: 400; a user named without a valid assertion: 403, audited."""
     try:
-        return verify_actor(request.headers.get(ACTOR_HEADER), request.headers.get(ASSERTION_HEADER), fallback)
+        return verify_actor(
+            request.headers.get(ACTOR_HEADER),
+            request.headers.get(ASSERTION_HEADER),
+            fallback,
+            role=request.headers.get(ROLE_HEADER),
+        )
     except ActorError as exc:
         if "no signed-in user" in str(exc):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -224,9 +229,15 @@ def ruleset_detail(ruleset: str) -> dict[str, Any]:
 
 
 @app.post("/jobs")
-def create_job(req: JobCreate) -> Job:
+def create_job(req: JobCreate, request: Request) -> Job:
+    """A new job. From the console (D-144, review J-01) the call names the signed-in person and their role in a signed
+    assertion, and the role decides; from the mail gateway (no person named) the sender's mailbox decides."""
+    role, by = "", ""
+    if request.headers.get(ACTOR_HEADER) and request.headers.get(ROLE_HEADER):
+        who = _claim(request)
+        role, by = who.role, who.name
     try:
-        return orch().create(req)
+        return orch().create(req, role=role, by=by)
     except Rejected as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 

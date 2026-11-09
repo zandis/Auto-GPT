@@ -85,12 +85,26 @@ CREATE TABLE IF NOT EXISTS rc_write (
   PRIMARY KEY (ruleset, link_value)
 )
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2)
+# D-144 (review J-26): who a study's screening runs look at, set on its set-up page. ``mode`` "hospital" is every
+# patient of the hospital with a booked appointment in the window or a recent visit (the owner's aim: screen the whole
+# hospital); "practitioners" keeps the per-doctor scope. A job's ``pract=`` still wins for that one run.
+SCHEMA_V3 = """
+CREATE TABLE IF NOT EXISTS screen_scope (
+  ruleset TEXT PRIMARY KEY,
+  mode TEXT NOT NULL,
+  practitioners TEXT NOT NULL DEFAULT '',
+  set_by TEXT NOT NULL,
+  set_at TEXT NOT NULL
+)
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3)
+SCREEN_MODES = ("hospital", "practitioners")
 SCHEMA_NAME = "study"
 _REF = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 # the columns of each table, in order (what ``SELECT *`` returned)
 _COLS = {
     "rc_write": ("ruleset", "link_value", "record_id", "hash", "written_at"),
+    "screen_scope": ("ruleset", "mode", "practitioners", "set_by", "set_at"),
     "study_settings": (
         "ruleset", "study_type", "cohort_kind", "consent_scope", "screening_no_format", "screening_no_next",
         "not_suitable_reasons", "introduce_rule", "explainer_on", "entered_by", "entered_at", "confirmed_by",
@@ -166,6 +180,27 @@ class StudyStore:
             ),
         )
         out = self.settings(ruleset)
+        assert out is not None
+        return out
+
+    # ------------------------------------------------------------------ who a screening run looks at (D-144)
+    def screen_scope(self, ruleset: str) -> dict[str, Any] | None:
+        row = self._one("screen_scope", "WHERE ruleset = ?", (ruleset,))
+        if row is None:
+            return None
+        row["practitioners"] = [p for p in str(row["practitioners"]).split(",") if p]
+        return row
+
+    def save_screen_scope(self, ruleset: str, mode: str, practitioners: list[str], by: str, at: str) -> dict[str, Any]:
+        if mode not in SCREEN_MODES:
+            raise ValueError("mode is hospital or practitioners")
+        self._run(
+            "INSERT INTO screen_scope (ruleset, mode, practitioners, set_by, set_at) VALUES (?,?,?,?,?) "
+            "ON CONFLICT(ruleset) DO UPDATE SET mode = excluded.mode, practitioners = excluded.practitioners, "
+            "set_by = excluded.set_by, set_at = excluded.set_at",
+            (ruleset, mode, ",".join(practitioners) if mode == "practitioners" else "", by, at),
+        )
+        out = self.screen_scope(ruleset)
         assert out is not None
         return out
 
@@ -308,6 +343,17 @@ class StudyStore:
             r["result"] = json.loads(r["result"])
             r["ok"] = bool(r["ok"])
         return rows
+
+
+_SCOPE_STORES: dict[str, StudyStore] = {}
+
+
+def screen_scope_of(url: str, ruleset: str) -> dict[str, Any] | None:
+    """A study's screening scope (D-144) for a scenario, from the trial database at ``url`` (one store per URL)."""
+    store = _SCOPE_STORES.get(url)
+    if store is None:
+        store = _SCOPE_STORES.setdefault(url, StudyStore(Path("."), url))
+    return store.screen_scope(ruleset)
 
 
 def _mask(token: str | None) -> str:
