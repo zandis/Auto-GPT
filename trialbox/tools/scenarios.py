@@ -508,6 +508,7 @@ class Truth:
     birth: str = ""
     dx: set[str] = field(default_factory=set)
     urate: list[tuple[str, float]] = field(default_factory=list)  # (day, mg/dL)
+    undated: set[str] = field(default_factory=set)  # diagnoses recorded with no date (an old system's carry-over)
 
 
 def expected_state(t: Truth, today: date = TODAY) -> str:
@@ -517,8 +518,14 @@ def expected_state(t: Truth, today: date = TODAY) -> str:
     verdicts.append(any(c.startswith(GOUT) for c in t.dx))
     win = [(d, v) for d, v in t.urate if today - timedelta(days=365) <= date.fromisoformat(d) <= today]
     verdicts.append(None if not win else max(win)[1] >= 7.0)
+
     # malignancy: ICD-10 C00-C96 except C44 (non-melanoma skin cancer, as the curated value set leaves it out)
-    excluded = any(c[:1] == "C" and c[1:3].isdigit() and int(c[1:3]) <= 96 and c[1:3] != "44" for c in t.dx)
+    def malignant(c: str) -> bool:
+        return c[:1] == "C" and c[1:3].isdigit() and int(c[1:3]) <= 96 and c[1:3] != "44"
+
+    excluded = any(malignant(c) for c in t.dx - t.undated)
+    if not excluded and any(malignant(c) for c in t.undated):
+        verdicts.append(None)  # an undated diagnosis cannot be placed in time: unknown, never "no malignancy"
     if excluded or any(v is False for v in verdicts):
         return "not_eligible"
     return "needs" if any(v is None for v in verdicts) else "ready"
@@ -747,9 +754,7 @@ def sc_ssmix2(a: Any, work: Path) -> Result:
         f"SELECT count(DISTINCT pid) AS n FROM condition WHERE code = '{SUSPECT[0]}' AND pid IN ({plist})"
     )
     verdicts = Counter(str(ev[p].results.get("GZQO-EXC-07")) if ev.get(p) else "-" for p in pids)
-    listed = lk.query(
-        f"SELECT count(DISTINCT pid) AS n FROM site_fact WHERE basis = 'suspected' AND pid IN ({plist})"
-    )
+    listed = lk.query(f"SELECT count(DISTINCT pid) AS n FROM site_fact WHERE basis = 'suspected' AND pid IN ({plist})")
     s.check(
         "P-04 (D-142): a patient whose only malignancy is a 疑い diagnosis is not excluded by GZQO-EXC-07; the "
         "diagnosis is listed as suspected, never coded",
@@ -1360,6 +1365,7 @@ def dump(
                 lab[3] = ""
                 undated += 1
                 planted.add(no)
+                tr.undated.add(DUMP_DX[code][1])
             if k == 0:
                 v = round(rng.uniform(4.5, 10.5), 1)
                 tr.urate.append((day.isoformat(), v))
@@ -1413,16 +1419,14 @@ def sc_dump(a: Any, work: Path) -> Result:
     answered = answer_checks(svc, ws)
     after = patient_states(svc, ws, rs)
     undated = {pid_of[no] for no in info["undated"]}
-    want = {pid_of[no]: expected_state(tr) for no, tr in truth.items() if pid_of[no] not in undated}
-    cmp = compare_states({p: v for p, v in after.items() if p not in undated}, want)
+    want = {pid_of[no]: expected_state(tr) for no, tr in truth.items()}
+    cmp = compare_states(after, want)
     s.check("mapped once: every patient counted as the generator says", cmp["differ"] == 0, cmp)
     hit = sum(1 for no in info["undated"] if after.get(pid_of[no]) == expected_state(truth[no]))
-    res.finding(
-        "DUMP-01",
-        "a cancer diagnosis row with no date (any time, no window): the patient is excluded",
-        f"{len(undated)} of {len(undated)}",
-        f"{hit} of {len(undated)} ({Counter(after.get(p) for p in undated)})",
-        hit == len(undated),
+    s.check(
+        "DUMP-01: a patient whose cancer row has no date is never ready (the exclusion is unknown, not met)",
+        bool(undated) and hit == len(undated) and not any(after.get(p) == "ready" for p in undated),
+        f"{hit} of {len(undated)} as expected ({dict(Counter(after.get(p) for p in undated))})",
     )
     s.seconds = time.perf_counter() - t
     res.stages.append(s)

@@ -7,6 +7,10 @@ its fix. The run's own probes are in ``tools/scenarios.py``; these are the small
   2^(criteria + 1) rows.
 * FHIR-01: on the FHIR bulk path SCREEN had no one in scope: references to a Practitioner were hashed and the
   Practitioner's own id was kept, so no appointment found its doctor.
+* MAP-01: a diagnosis name was matched by a shared character (胃癌 and 乳癌 to C22.0, 本態性高血圧症 to E78.5).
+* DUMP-01: a diagnosis row with no date fell out of every window test, so "no malignancy" read as met and the
+  patient as ready. An undated record now leaves the criterion unknown wherever the dated records do not settle it,
+  on every input path (they all reach the lake's SQL).
 """
 
 from __future__ import annotations
@@ -224,3 +228,122 @@ def test_map01_every_listed_name_has_a_real_code() -> None:
     with (ROOT / "services/sitesetup/dx_names.csv").open(encoding="utf-8") as fh:
         bad = [r for r in csv.DictReader(fh) if r["icd10"] not in full]
     assert bad == []
+
+
+ICD = "http://hl7.org/fhir/sid/icd-10-cm"
+KEY = b"k" * 32
+IDX = date(2026, 11, 10)
+
+
+def _undated_cancer_by_path(tmp: Path) -> dict[str, list[dict[str, Any]]]:
+    """One patient per input path whose only cancer row has no date, each with dated gout; Condition resources as
+    each path writes them. Returns resources by type for the lake."""
+    from adapter.mapping.engine import Mapper, Mapping
+    from adapter.pipeline import pseudonymise_bulk
+    from adapter.sources.ssmix2.source import Ssmix2Source, storage_dir
+    from sitesetup import publish
+    from tb_common.crypto import pid_for_mrn
+
+    out: dict[str, list[dict[str, Any]]] = {"Patient": [], "Condition": []}
+    maps = ROOT / "services/adapter/mapping"
+
+    def patient(pid: str) -> None:
+        out["Patient"].append({"resourceType": "Patient", "id": pid, "birthDate": "1960-01-01", "gender": "male"})
+
+    def gout(pid: str, cid: str) -> dict[str, Any]:
+        return {"resourceType": "Condition", "id": cid, "subject": {"reference": f"Patient/{pid}"},
+                "code": {"coding": [{"system": ICD, "code": "M10.9"}]}, "onsetDateTime": "2026-06-01"}  # fmt: skip
+
+    # 1 the hospital's CSV feed (tw_core mapping): diag_date empty
+    m = Mapping.load(maps / "tw_core/demo_his.yaml")
+    spec = next(r for r in m.resources if r.type == "Condition")
+    row = {"diag_no": "1", "mrn": "CSV1", "icd10": "C16.9", "diag_date": "", "status": "A"}
+    csv_res = Mapper(m, KEY, "S").map_row(spec, row)
+    assert csv_res is not None  # an undated row is kept, never dropped
+    out["Condition"].append(csv_res)
+    # 2 SS-MIX2 storage: a PRB with no action, onset or record date
+    root = tmp / "ss"
+    d = storage_dir(root, "10000099", "20260101", "PPR-01")
+    d.mkdir(parents=True)
+    msg = "MSH|^~\\&|HIS||TB||20261101||PPR^ZD1|O1|P|2.5||||||~ISO IR87\rPV1||O\rPRB|AD||C169^胃癌^99XYZ^C169^胃癌^I10|D1\r"
+    (d / "10000099_20260101_PPR-01_O1_20261101000000000_-_1").write_bytes(msg.encode("iso2022_jp"))
+    rows = list(Ssmix2Source(root, licensed={"medis": {}, "jlac10": {}, "yj": {}}).rows("diagnosis", "diagnosis",
+                                                                                       None, None))  # fmt: skip
+    m = Mapping.load(maps / "jp_core/ssmix2_site.yaml")
+    spec = next(r for r in m.resources if r.type == "Condition")
+    ss = [Mapper(m, KEY, "S").map_row(spec, m.normalize("diagnosis", r)) for r in rows]
+    out["Condition"] += [r for r in ss if r is not None]
+    assert len(ss) == 1 == len(out["Condition"]) - 1
+    # 3 a FHIR bulk export: a Condition with no onset or recorded date
+    bulk = [{"resourceType": "Condition", "id": "F1", "subject": {"reference": "Patient/FH1"},
+             "code": {"coding": [{"system": ICD, "code": "C50.919"}]}}]  # fmt: skip
+    out["Condition"] += list(pseudonymise_bulk(iter(bulk), KEY))
+    # 4 the site's own inputs (an IT dump, a PI's sheet, a confirmed chart fact): a fact with no day
+    fact = {"id": 1, "pid": pid_for_mrn(KEY, "DU1"), "status": "coded", "day": "", "domain": "condition",
+            "term": "胃癌", "code": "C16.9", "system": ICD, "local_code": "", "local_system": "", "value": "",
+            "unit": ""}  # fmt: skip
+    out["Condition"] += publish.resources([fact], {}, [])["Condition"]
+    for mrn in ("CSV1", "10000099", "FH1", "DU1"):
+        pid = pid_for_mrn(KEY, mrn)
+        patient(pid)
+        out["Condition"].append(gout(pid, f"g-{mrn}"))
+    # controls: dated cancer (excluded), no cancer (clear)
+    for pid, cancer in (("P-DATED", "2025-01-10"), ("P-CLEAR", None)):
+        patient(pid)
+        out["Condition"].append(gout(pid, f"g-{pid}"))
+        if cancer:
+            out["Condition"].append({"resourceType": "Condition", "id": f"c-{pid}", "subject": {"reference": f"Patient/{pid}"},
+                                     "code": {"coding": [{"system": ICD, "code": "C16.9"}]}, "onsetDateTime": cancer})  # fmt: skip
+    return out
+
+
+def test_dump01_an_undated_diagnosis_is_unknown_on_every_input_path(tmp_path: Path) -> None:
+    from criteria_compiler.compile_sql.generator import SqlGenerator
+    from criteria_compiler.terminology.mapper import Terminology, ValueSets, valueset
+    from lake.client import LakeLocal
+    from orchestrator.scenarios.evaluate import SqlEngine
+    from tb_common.crypto import pid_for_mrn
+    from tb_contracts import CriterionIR
+
+    by = _undated_cancer_by_path(tmp_path)
+    for c in by["Condition"]:
+        assert (c is not None and not c.get("onsetDateTime") and not c.get("recordedDate")) or c["id"].startswith(
+            ("g-", "c-")
+        ), c
+    _ndjson(tmp_path / "feed", by)
+    Lake(tmp_path / "lake", tz="Asia/Tokyo").rebuild("2026-11-09", HashEmbedder(), ndjson_dir=tmp_path / "feed")
+
+    def crit(cid: str, kind: str, vs: str, quant: str = "any", window: dict[str, Any] | None = None) -> Any:
+        logic: dict[str, Any] = {"domain": "condition", "quantifier": quant, "valueset": vs}
+        if window:
+            logic["window"] = window
+        return CriterionIR.model_validate(
+            {"id": cid, "ruleset": "UND", "kind": kind, "class": "structured", "text": cid, "logic": logic}
+        )
+
+    cs = [
+        crit("UND-INC-01", "inclusion", "VS_GOUT"),
+        crit("UND-EXC-01", "exclusion", "VS_MALIGNANCY"),  # any time
+        crit("UND-EXC-02", "exclusion", "VS_MALIGNANCY", window={"anchor": "index", "from_days": -365, "to_days": 0}),
+        crit("UND-INC-02", "inclusion", "VS_MALIGNANCY", quant="none"),  # "no malignancy" written as an inclusion
+    ]
+    term = Terminology()
+    vs = {}
+    for name, concept in (("VS_GOUT", "gout"), ("VS_MALIGNANCY", "malignancy")):
+        res = term.map("condition", concept)
+        vs[name] = valueset("UND", name, concept, res.concepts, "1.0.0", families=res.families)
+    sql = SqlGenerator("UND", "1.0.0", ValueSets("UND", vs, term)).render(cs)
+    base = Ruleset.load(ROOT / "rulesets" / "GOUT-COH").manifest
+    rs = Ruleset(manifest=base.model_copy(update={"id": "UND", "library": None, "criteria": [c.id for c in cs]}),
+                 criteria=cs, valuesets=vs, sql=sql)  # fmt: skip
+    paths = {
+        p: pid_for_mrn(KEY, m) for p, m in (("csv", "CSV1"), ("ssmix2", "10000099"), ("fhir", "FH1"), ("site", "DU1"))
+    }
+    pids = [*paths.values(), "P-DATED", "P-CLEAR"]
+    ev = SqlEngine(LakeLocal(tmp_path / "lake", HashEmbedder())).evaluate(rs, pids, IDX, [c.id for c in cs])
+    got = {pid: {c: ev[pid].results.get(c) for c in ("UND-INC-01", "UND-EXC-01", "UND-EXC-02", "UND-INC-02")}
+           for pid in pids}  # fmt: skip
+    for path, pid in paths.items():
+        assert got[pid] == {"UND-INC-01": True, "UND-EXC-01": None, "UND-EXC-02": None, "UND-INC-02": None}, path
+    assert got["P-DATED"] == {"UND-INC-01": True, "UND-EXC-01": True, "UND-EXC-02": False, "UND-INC-02": False}
+    assert got["P-CLEAR"] == {"UND-INC-01": True, "UND-EXC-01": False, "UND-EXC-02": False, "UND-INC-02": True}
