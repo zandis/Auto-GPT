@@ -1,0 +1,27 @@
+score_id: neuro.moca_total
+name: {en: MoCA total with education adjustment, ja: MoCA 合計点（教育年数補正）, zh_tw: MoCA 總分（教育年數校正）}
+version: 1
+formula_kind: linear
+inputs:
+  - {role: raw_total, item: "local neuro.moca_raw", unit: "{score}", required: true, anchor: true}
+  - {role: education_years, item: "local social.education_years", unit: a, required: true}
+formula: "adjusted = min(raw_total + (1 if education_years <= 12 else 0), 30)"
+output: {unit: "{score}", min: 0, max: 30}
+rounding: integer
+edge_cases:
+  - "education unknown: store raw only, adjusted unknown"
+  - "a documented MoCA without a statement about adjustment is stored as reported with flag 'adjustment unknown'"
+  - "MoCA-J and MoCA-Taiwan versions keep the same arithmetic; the version is recorded"
+interpretation:
+  normal: "≥ 26 (Nasreddine 2005); MoCA-J MCI cut-off 25/26 (Fujiwara 2010)"
+examples:
+  - inputs: {raw_total: 25, education_years: 12}
+    expected: {adjusted: 26, band: normal}
+    source: "scoring rule 'one point is added ... if the patient has 12 years of formal education or fewer' (CASRAI MoCA guide; secondary quotes 2026-11-09); the 26 cut-off from Nasreddine 2005 as quoted"
+    source_grade: secondary
+    note: "the expected value follows the rule as published; the specific pair (25, 12) is the rule's own boundary case, not a worked example from the paper"
+sources:
+  - "Nasreddine ZS et al. J Am Geriatr Soc 2005;53:695-699"
+  - "Fujiwara Y et al. Geriatr Gerontol Int 2010;10:225-232 (MoCA-J, verified 2026-11-09)"
+licence: "MoCA copyright; training/certification required; store score only"
+verified: partial

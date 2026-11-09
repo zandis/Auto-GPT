@@ -35,6 +35,9 @@ D-137). Output claims JP Core 1.1.0 and is validated on a sample at ingest, offl
 Japanese lists (MEDIS 標準病名, JLAC10, YJ) are loaded by the site from its own licensed files
 (`python -m adapter.licensed load --kind medis|jlac10|yj --file … --version …`, D-137); each release is kept with its
 version, sha256 and who loaded it, and every load is audited. The demo rows are synthetic and marked `verify`.
+The clinical item catalogue (scores, labs, findings and phenotypes mapped to LOINC, OMOP, OHDSI phenotypes and
+CDISC QRS; data only, not yet read by code) is in `catalogue/`; its design is
+`docs/reviews/2026-11-09-clinical-item-catalogue.md`.
 
 ## 2. Mapping a site
 

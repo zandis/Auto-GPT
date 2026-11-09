@@ -1,0 +1,34 @@
+score_id: rheum.das28_crp
+name: {en: DAS28-CRP, ja: DAS28-CRP, zh_tw: DAS28-CRP}
+version: 1
+formula_kind: weighted_sqrt_log
+inputs:
+  - {role: tjc, item: rheum.tjc28, unit: "{count}", required: true, window_days: 0, anchor: true}
+  - {role: sjc, item: rheum.sjc28, unit: "{count}", required: true, window_days: 0}
+  - {role: crp, item: lab.crp, unit: mg/L, required: true, window_days: 7, note: "JP laboratories report mg/dL: multiply by 10 before use (unit table does this); range 0-300 mg/L"}
+  - {role: gh, item: rheum.ptga_vas100, unit: mm, required: true, window_days: 0}
+formula: "0.56*sqrt(tjc) + 0.28*sqrt(sjc) + 0.36*ln(crp + 1) + 0.014*gh + 0.96"
+coefficients: {tjc: 0.56, sjc: 0.28, crp: 0.36, gh: 0.014, constant: 0.96}
+output: {unit: "{score}", min: 0.96, max: 9.4}
+rounding: "two decimals for display"
+edge_cases:
+  - "crp below detection limit: use the reported limit value (e.g. '< 0.3 mg/dL' → 3 mg/L), flag 'at detection limit'"
+  - "crp reported in mg/dL and not converted: the unit check refuses the row (B-09 structural rule)"
+  - "any required input missing: no row"
+interpretation:
+  note: "DAS28-CRP cut-offs differ from DAS28-ESR; Fleischmann 2017 proposes remission < 2.4 and low < 2.9 for the CRP variant; many protocols still apply 2.6/3.2/5.1. Record which set a criterion uses."
+  remission_fleischmann_2017: "< 2.4"
+  low_fleischmann_2017: "< 2.9"
+  high_fleischmann_2017: "> 4.6"
+examples:
+  - inputs: {formula_check: true}
+    expected: {variable_ranges: "t28 0-28, sw28 0-28, CRP 0-300 mg/L, VAS 0-100 mm"}
+    source: "CamCOPS DAS28 task documentation (verified 2026-11-09)"
+    source_grade: secondary
+    note: "no published worked example with inputs and output was found today; owner or rheumatologist to supply before approval"
+sources:
+  - "www.das-score.nl (DAS28-CRP formula)"
+  - "Fleischmann R et al. RMD Open 2017;3:e000382 (CRP cut-offs)"
+  - "CamCOPS DAS28 task page"
+licence: "as das28_esr.yaml"
+verified: partial

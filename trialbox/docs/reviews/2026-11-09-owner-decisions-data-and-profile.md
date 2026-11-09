@@ -34,6 +34,19 @@ The aim of a study is to screen the **entire database** for potential patients. 
 | Referral | The treating physician is asked first. The PI or sub-PI sends a referral request in TrialBox. The treating physician gets it on the console and by mail, sees why the patient may fit, and answers: *agree to introduce*, *decline with a reason*, or *discuss*. The PI contacts the patient only after agreement. Each step is logged and counted in the screening log. |
 | Referral target | **The treating physician may be unknown to TrialBox.** The hospital data that reaches the box may carry no provider, or an outdated one. The PI usually finds the physician in the real EMR or through their own working relationships. So: (1) where the data names an attending physician, TrialBox only *suggests* that physician, and the PI confirms or changes the choice; (2) where it doesn't, the PI enters the physician from a staff directory the steward maintains, or types a name; (3) the PI may also choose "arranged outside TrialBox" (by phone, in person or through the EMR) and record the outcome afterwards; (4) the steward's department contact list is the last fallback. A referral never stalls because a field is missing. The screening log records each referral's route and outcome. |
 
+## Site operations (after the clinical-operations assessment)
+
+| Topic | Decision |
+|---|---|
+| Treating doctor's answer to a referral | At the first site, **the CRC records it.** The CRC asks the doctor by phone, in person or by EMR message, then records the answer. The doctor needs no account. Mail with answer buttons and doctor accounts come later. |
+| IRB approval and consent-form version before Approach | **A warning, not a hard gate.** TrialBox warns if the IRB approval date or the current ICF version is missing or expired, but still lets the user mark Approach. Each override is logged. |
+| Delegation log | The trial office's signed log stays the official record. TrialBox holds a copy that grants rights in the system (screen, approach, refer, enter data), with training dates. The two are compared every month. |
+| Opt-out | Kept by the office. The research office or the steward records each patient's opt-out in TrialBox. That patient is then removed from screening, profiles, vectors and future exports, and the removal is logged. |
+| EDC data entry | **Prefill, then the CRC confirms.** The model drafts eCRF values with citations, and the CRC confirms each one before it is sent. Data goes to REDCap through its API, and to other EDCs through CDISC ODM import, or by file or a copy-assist screen where the EDC has no import. No screen-scraping or RPA. Items are mapped to CDASH. Because this makes TrialBox part of the trial-data chain, it needs computer-system validation (GAMP 5), a full audit trail and ER/ES / Part 11-style controls. |
+| Randomisation | Not in TrialBox. |
+| Drug accountability, TMF, site invoicing | **Inputs only.** Pharmacy, the trial office and sponsor systems keep these processes. TrialBox supplies dispensing dates on the patient timeline, a dated and indexed site-file (ISF) document bundle, and an invoice-ready activity report per study and month. |
+| Patient messaging | **A printed reminder card and a calendar file now; messages later.** Later (P1/P2): opt-in reminders with ethics-approved templates, sent through the hospital's own SMS or LINE official account. |
+
 ## Data model
 
 | Topic | Decision |
@@ -54,7 +67,7 @@ The aim of a study is to screen the **entire database** for potential patients. 
 |---|---|
 | Form | A wiki page per patient written by the model, with every sentence cited and verified. Physician annotations sit beside it. A machine-readable twin (JSON) and pgvector come with it. |
 | v1 layers | Cited record, timeline, phenotype, eligibility, personal lab setpoints, gap finder, similar patients. |
-| SaMD and clinicians | **Clinicians see the setpoint and gap layers, clearly labelled "research use, not for diagnosis".** *(Overrides the review's "PI and steward only until a device-qualification view".)* A written device-qualification view should still be prepared. |
+| SaMD and clinicians | **Restricted until a written regulatory view exists** (revised 2026-11-09, after the commercial and regulatory assessment). Clinicians see the setpoint and gap layers only inside a study-referral context, as numbers without a disease name, behind a switch that is off by default. This lasts until a written PMDA/MHLW 該当性 view and a TFDA view exist. PIs and stewards see these layers labelled research use. Forecasts stay out. *(Replaces the earlier "clinicians see them, labelled".)* |
 | Physician annotations | A signed structured entry counts as confirmed data. Free text is read by the models as a note. Neither can exclude a patient silently: every exclusion is listed on the "excluded and why" page. |
 | Narrative | Written by the judge model at night, in the site's language, with English on request. Nobody edits it. Corrections are made by annotating or by fixing the data. The model abstains when fewer than 95 % of its sentences can be cited. |
 | Freshness | Facts and the twin update within minutes. The narrative updates nightly, or on request for one patient. |
@@ -81,3 +94,40 @@ The owner accepted every other recommendation in §6 of `2026-11-09-standalone-d
 - consortium registry work starts now
 
 Where a recommendation conflicts with an overriding decision above, the decision above wins.
+
+## Regulatory and commercial (after the holistic assessment)
+
+| Topic | Decision |
+|---|---|
+| Device-style records | Keep light IEC 62304-shaped records for the profile module from now on: requirements, risk notes, verification evidence and change records per release. |
+| Business model | Hospitals sign a platform licence. Sponsors pay a per-study activation fee that recovers it. No fees per enrolled patient. |
+| Evidence | Draft the protocol for Study A now: a retrospective accuracy study at CGMH, with precision ≥ 0.75 and wrong exclusion ≤ 2%, through the CGMH IRB opt-out/waiver route. No marketing claims are made before Study A. |
+
+## Master plan and pilot (later on 2026-11-09)
+
+| Topic | Decision |
+|---|---|
+| Plan frame | **Both, linked.** A product roadmap where every item traces to its regulatory record: requirement, risk and test (IEC 62304, ISO 14971, GAMP 5). |
+| Pilot sites | **Both in parallel.** CGMH (Taiwan) and Makoto's site (Japan). |
+| Team | Claude agents build. Changfu and Makoto review and decide. |
+| Go-live | **Within 3 months**, real patients screened at both sites. |
+| Pilot scope | **As complete as possible.** Screening, sub-PI delegation and referral, the OMOP core, study-patient profiles and REDCap EDC prefill. |
+| Validation | **Build all, use all.** GAMP 5 validation of EDC prefill is done inside the 3 months, so prefill is live at go-live. |
+| Data feeds | Not known yet. The plan starts with a site survey. |
+| Readiness | Boxes not bought, hospital IT not engaged, contracts not signed. IRB is approved at one site; the plan covers the other. |
+| GPU | Budget approved, and several GPUs may be used. The G1 run is split across parallel VMs and is joined by the profile cost test and the bge-m3 vs Qwen3 embedding test (about US$50). Each VM is capped and stopped afterwards. |
+| Work order | Building continues while the master plan is written. |
+
+## Hardware, interim hosting and contacts (after the master plan questions)
+
+| Topic | Decision |
+|---|---|
+| CGMH hardware | **CGMH hosts TrialBox on its own B200 server.** No appliance box is bought for CGMH. The installation must work on a shared hospital GPU server, not only on our appliance. |
+| Japan hardware | **One box for Makoto's site.** Keep the current model pair, but size the box so a larger model can be added later. |
+| Before hardware is ready | Use the hospital's private cloud with GPU, where the site has one approved for patient data. |
+| Site contacts | Changfu and Makoto find the IT, privacy-office and data-feed contacts. Aimedics drafts the site survey and the hospital IT security pack in ja and zh-TW. |
+| Wave 1c | The high-risk journey findings (job permission by role, viewer/CRO data leaks, PDF upload, screening scope, PI criteria ticks) are fixed **before** the G1 GPU run. |
+| IRB | **Both pilot sites have IRB approval.** The site survey confirms that each approval covers whole-hospital screening and patient profiles. |
+| CGMH B200 | The B200 server is **shared with other work.** TrialBox runs in containers on CGMH's platform with a fixed GPU quota and its own install checks. |
+| Go-live order | **CGMH first**, then Japan. |
+| Remaining plan questions | **All recommendations in §13 of TB-PLAN-05 are accepted** (Q-05 to Q-27), except where a row above decides differently (Q-02 and Q-04). |

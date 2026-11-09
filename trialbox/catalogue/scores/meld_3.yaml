@@ -1,0 +1,30 @@
+score_id: gi.meld_3
+name: {en: MELD 3.0, ja: MELD 3.0, zh_tw: MELD 3.0}
+version: 1
+formula_kind: linear
+inputs:
+  - {role: bilirubin, item: lab.bilirubin_total, unit: mg/dL, required: true, anchor: true, bounds: "min 1.0"}
+  - {role: creatinine, item: lab.creatinine, unit: mg/dL, required: true, window_days: 2, bounds: "min 1.0, max 3.0; set to 3.0 if ≥ 2 dialysis sessions in 7 days or CRRT"}
+  - {role: inr, item: lab.pt_inr, unit: "{INR}", required: true, window_days: 2, bounds: "min 1.0"}
+  - {role: sodium, item: lab.sodium, unit: mmol/L, required: true, window_days: 2, bounds: "125-137"}
+  - {role: albumin, item: lab.albumin, unit: g/dL, required: true, window_days: 2, bounds: "1.5-3.5"}
+  - {role: sex, item: "PERSON gender_concept_id", unit: coded, required: true}
+formula: "MELD3 = 1.33 × (female) + 4.56 × ln(bili) + 0.82 × (137 − Na) − 0.24 × (137 − Na) × ln(bili) + 9.09 × ln(INR) + 11.14 × ln(Cr) + 1.85 × (3.5 − alb) − 1.83 × (3.5 − alb) × ln(Cr) + 6; round to integer; bound 6-40"
+coefficients: {female: 1.33, ln_bili: 4.56, na: 0.82, na_x_ln_bili: -0.24, ln_inr: 9.09, ln_cr: 11.14, alb: 1.85, alb_x_ln_cr: -1.83, constant: 6}
+output: {unit: "{score}", min: 6, max: 40}
+rounding: "nearest integer (OPTN)"
+edge_cases:
+  - "labs must be from the same draw or within 48 h; otherwise no row"
+  - "values below 1.0 for bilirubin, INR, creatinine are set to 1.0; sodium outside 125-137 and albumin outside 1.5-3.5 are clamped (OPTN rules)"
+  - "MELD(i) and MELD-Na remain separate definitions (gi.meld, gi.meld_na) because older protocols cite them"
+examples:
+  - inputs: {sex: male, bilirubin_mg_dL: 3.2, creatinine_mg_dL: 1.6, inr: 1.8, sodium_mmol_L: 132, albumin_g_dL: 3.0, dialysis: false}
+    expected: {meld3_raw: 25.08, meld3: 25}
+    source: "MELD 3.0 calculator documentation page (metricgate/other calculator pages), recomputed by hand in the search of 2026-11-09"
+    source_grade: calculator
+    note: "replace with an OPTN or Kim 2021 worked example before approval if one is published"
+sources:
+  - "Kim WR et al. Gastroenterology 2021;161:1887-1895"
+  - "OPTN Policy 9 (MELD 3.0 in use since 2023-07-13)"
+licence: "formula; free"
+verified: partial

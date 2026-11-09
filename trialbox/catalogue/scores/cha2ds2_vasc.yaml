@@ -1,0 +1,36 @@
+score_id: card.cha2ds2_vasc
+name: {en: CHA2DS2-VASc, ja: CHA2DS2-VASc, zh_tw: CHA2DS2-VASc}
+version: 1
+formula_kind: sum
+inputs:
+  - {role: chf, item: "ph.heart_failure or card.lvef ≤ 40", points: 1}
+  - {role: hypertension, item: "ph.hypertension", points: 1}
+  - {role: age_75_plus, item: "PERSON → age ≥ 75", points: 2}
+  - {role: diabetes, item: "ph.t2dm or ph.t1dm", points: 1}
+  - {role: stroke_tia_te, item: "ph.stroke_ischemic or ph.tia or thromboembolism", points: 2}
+  - {role: vascular_disease, item: "ph.ami or ph.cad (prior MI), PAD, aortic plaque", points: 1}
+  - {role: age_65_74, item: "PERSON → age 65-74", points: 1, note: "mutually exclusive with age ≥ 75"}
+  - {role: sex_female, item: "PERSON gender = female", points: 1, note: "ESC 2024 proposes CHA2DS2-VA without the sex point - a separate version"}
+formula: "sum of points"
+output: {unit: "{score}", min: 0, max: 9}
+rounding: integer
+edge_cases:
+  - "age tiers are exclusive: a 78-year-old scores 2 for age, not 3"
+  - "phenotype inputs use the screening view (coded or confirmed facts only); proposed facts make the score unknown"
+interpretation:
+  note: "anticoagulation thresholds depend on the guideline edition (ESC 2020: ≥ 1 men / ≥ 2 women; ESC 2024 CHA2DS2-VA ≥ 2); JCS 2020 (Japan) uses CHADS2 ≥ 1 plus other factors - record which the criterion means"
+examples:
+  - inputs: {age: 78}
+    expected: {age_points: 2}
+    source: "CHA2DS2-VASc calculator page worked example of the age rule (best-calculators.com), read 2026-11-09"
+    source_grade: calculator
+    note: "the same page's total for its full example is arithmetically wrong (8 instead of 7) and is not used; a guideline worked example is to be added before approval"
+  - inputs: {weights_check: true}
+    expected: {weights: "C1 H1 A2(≥75) D1 S2 V1 A1(65-74) Sc1"}
+    source: "Lip GYH et al. Chest 2010;137:263-272 (weights as reproduced on Wikipedia, read 2026-11-09)"
+    source_grade: secondary
+sources:
+  - "Lip GYH et al. Chest 2010;137:263-272"
+  - "Van Gelder IC et al. Eur Heart J 2024 (ESC AF guideline, CHA2DS2-VA)"
+licence: "formula; free"
+verified: partial

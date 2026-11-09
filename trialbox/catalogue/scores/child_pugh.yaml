@@ -1,0 +1,32 @@
+score_id: gi.child_pugh_total
+also_defines: gi.child_pugh_class
+name: {en: Child-Pugh score and class, ja: Child-Pugh スコア・分類, zh_tw: Child-Pugh 分數與分級}
+version: 1
+formula_kind: band_table
+inputs:
+  - {role: bilirubin, item: lab.bilirubin_total, unit: mg/dL, required: true, anchor: true, points: {"< 2": 1, "2-3": 2, "> 3": 3}}
+  - {role: albumin, item: lab.albumin, unit: g/dL, required: true, window_days: 7, points: {"> 3.5": 1, "2.8-3.5": 2, "< 2.8": 3}}
+  - {role: inr, item: lab.pt_inr, unit: "{INR}", required: true, window_days: 7, points: {"< 1.7": 1, "1.7-2.3": 2, "> 2.3": 3}, note: "PT prolongation in seconds (< 4 / 4-6 / > 6) is the original; INR bands are the common substitute"}
+  - {role: ascites, item: gi.ascites_grade, unit: coded, required: true, window_days: 30, points: {none: 1, "mild/controlled": 2, "moderate-severe/refractory": 3}}
+  - {role: encephalopathy, item: gi.encephalopathy_grade, unit: coded, required: true, window_days: 30, points: {"0": 1, "1-2": 2, "3-4": 3}}
+formula: "total = sum of the five point values; class A = 5-6, B = 7-9, C = 10-15"
+output: {unit: "{score}", min: 5, max: 15}
+rounding: integer
+edge_cases:
+  - "ascites or encephalopathy not documented: no row (a stated 'Child-Pugh B' in the note is stored as an entered score, trust proposed until confirmed)"
+  - "PBC/PSC variant uses different bilirubin bands (4/4-10/>10) - separate version if needed"
+interpretation: {A: "5-6", B: "7-9", C: "10-15"}
+examples:
+  - inputs: {albumin_g_dL: 3.2, bilirubin_mg_dL: 2.5, inr: 1.7, ascites: mild, encephalopathy: none}
+    expected: {total: 9, class: B}
+    source: "primecalcpro Child-Pugh page (calculator), read 2026-11-09"
+    source_grade: calculator
+  - inputs: {total: 8}
+    expected: {class: B}
+    source: "Pugh 1973 class bands (quoted by several calculator pages 2026-11-09)"
+    source_grade: secondary
+sources:
+  - "Pugh RNH et al. Br J Surg 1973;60:646-649"
+  - "LOINC 98152-2 Total score [Child-Pugh]; CDISC CT CPS01TC ('Public Domain') (verified 2026-11-09)"
+licence: "public domain per CDISC QRS table"
+verified: yes

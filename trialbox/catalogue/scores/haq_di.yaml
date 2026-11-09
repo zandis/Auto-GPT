@@ -1,0 +1,40 @@
+score_id: rheum.haq_di
+name: {en: HAQ Disability Index, ja: HAQ-DI, zh_tw: 健康評估問卷失能指數 HAQ-DI}
+version: 1
+formula_kind: mean_of_categories
+inputs:
+  - {role: category_scores, item: "local items rheum.haq_cat_1..8 (dressing/grooming, arising, eating, walking, hygiene, reach, grip, activities)", unit: "{score}", required: "≥ 6 of 8", window_days: 0}
+  - {role: aids_devices, item: "local items rheum.haq_aid_*", unit: coded, required: false, window_days: 0}
+formula: |
+  category score = highest (worst) item response within the category (0-3);
+  if an aid, device or help from another person is used for a category, raise a 0 or 1 to 2 (2 and 3 unchanged);
+  HAQ-DI = sum of category scores / number of categories answered; requires at least 6 categories.
+output: {unit: "{score}", min: 0, max: 3, step: 0.125}
+rounding: "three decimals (values are multiples of 0.125 when 8 categories are answered)"
+edge_cases:
+  - "fewer than 6 categories answered: no row"
+  - "7 categories answered: divide by 7"
+  - "Alternative Disability Index (ADI, no aids adjustment) is a different definition: store under a separate version if a protocol asks for it"
+interpretation:
+  note: "0 = no disability, 3 = severe; MCID about 0.22"
+examples:
+  - inputs: {eating_category_item_responses: [1, 2, 0]}
+    expected: {eating_category_score: 2}
+    source: "trial protocol scoring text (ClinicalTrials.gov SAP for NCT02919475 / NCT02792699, quoted in web search 2026-11-09)"
+    source_grade: secondary
+  - inputs: {rule: "aid used, highest item 1"}
+    expected: {category_score: 2}
+    source: "same protocols: 'increasing a zero or a one to a two; a two remains a two, a three remains a three'"
+    source_grade: secondary
+  - inputs: {possible_values: true}
+    expected: {values: "25 possible values 0, 0.125, 0.250 ... 3 with 8 categories"}
+    source: "HAQ scoring literature quoted 2026-11-09 (sprypt.com HAQ-DI page citing Bruce & Fries)"
+    source_grade: secondary
+    note: "a full eight-category worked example with a published total was not found today"
+sources:
+  - "Fries JF et al. Arthritis Rheum 1980;23:137-145"
+  - "Bruce B, Fries JF. J Rheumatol 2003;30:167-178 (scoring)"
+  - "Stanford HAQ instructions (NIEHS copy): 'There is no charge for permission' (verified 2026-11-09)"
+  - "LOINC 75874-8 Total score [HAQ-DI]; CDISC CT HAQ01TC / HAQ02TC (verified 2026-11-09)"
+licence: "Stanford copyright 'so that it will be used unmodified'; permission free of charge; ask before storing item text"
+verified: partial

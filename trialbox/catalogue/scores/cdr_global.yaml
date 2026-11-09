@@ -1,0 +1,36 @@
+score_id: neuro.cdr_global
+name: {en: CDR global score from box scores, ja: CDR 全般スコア（各領域スコアから）, zh_tw: CDR 整體分數（由各項分數推導）}
+version: 1
+formula_kind: rule_table
+inputs:
+  - {role: memory, item: neuro.cdr_memory, unit: "{score}", required: true, anchor: true, note: "primary category"}
+  - {role: orientation, item: neuro.cdr_orientation, unit: "{score}", required: true}
+  - {role: judgment, item: neuro.cdr_judgment, unit: "{score}", required: true}
+  - {role: community, item: neuro.cdr_community, unit: "{score}", required: true}
+  - {role: home_hobbies, item: neuro.cdr_home, unit: "{score}", required: true}
+  - {role: personal_care, item: neuro.cdr_personal_care, unit: "{score}", required: true, note: "0, 1, 2, 3 only (no 0.5)"}
+formula: |
+  Memory (M) is primary; the other five are secondary.
+  1. If at least three secondaries equal M, CDR = M.
+  2. If three or more secondaries fall on one side of M (above or below), CDR = the score of the majority of those secondaries.
+  3. If three secondaries fall on one side and two on the other, CDR = M.
+  4. Ties on one side of M: use the tied score closest to M.
+  5. If only one or two secondaries equal M and no more than two fall on either side, CDR = M.
+  Special cases: M = 0.5 → CDR = 1 if at least three secondaries ≥ 1, else 0.5 (never 0). M = 0 → CDR = 0 unless two or more secondaries ≥ 0.5, then 0.5. M ≥ 1 → CDR never 0; CDR = 0.5 if the majority of secondaries are 0.
+output: {unit: "{score}", values: [0, 0.5, 1, 2, 3]}
+rounding: none
+edge_cases:
+  - "a directly entered global CDR takes precedence over the derived one; both are kept, disagreement opens a conflict row"
+  - "Knight ADRC warns that 'some unusual box score combinations may result in the algorithm generating an incorrect Global CDR Score' - such rows are flagged for review"
+  - "CDR-SB = sum of the six boxes (0-18), a separate definition"
+interpretation: {0: none, 0.5: questionable/very mild, 1: mild, 2: moderate, 3: severe}
+examples:
+  - inputs: {memory: 3, secondaries: [3, 2, 2, 1, 1]}
+    expected: {cdr_global: 2}
+    source: "Knight ADRC CDR Scoring Rules page (tie example: 'M and one other secondary score 3, two secondaries score 2, and two score 1 ... CDR = 2'), read 2026-11-09"
+    source_grade: primary
+sources:
+  - "Morris JC. Neurology 1993;43:2412-2414"
+  - "knightadrc.wustl.edu CDR Scoring Rules and Scoring Algorithm pages (verified 2026-11-09)"
+licence: "CDR copyrighted by Washington University; 'requires a license whether its intended use is for-profit or non-profit'; the algorithm code is licensed separately (CDR@wustl.edu). TrialBox may implement the published rules only after the licence is in place (owner question Q1)"
+verified: yes

@@ -1,0 +1,33 @@
+score_id: rheum.basdai
+name: {en: BASDAI, ja: BASDAI, zh_tw: BASDAI}
+version: 1
+formula_kind: mean_of_categories
+inputs:
+  - {role: q1_fatigue, item: local, unit: "{score 0-10}", required: true}
+  - {role: q2_spinal_pain, item: local, unit: "{score 0-10}", required: true}
+  - {role: q3_peripheral_pain_swelling, item: local, unit: "{score 0-10}", required: true}
+  - {role: q4_enthesitis_discomfort, item: local, unit: "{score 0-10}", required: true}
+  - {role: q5_morning_stiffness_severity, item: local, unit: "{score 0-10}", required: true}
+  - {role: q6_morning_stiffness_duration, item: local, unit: "{score 0-10 (0 = 0 h, 10 = 2 h or more)}", required: true}
+formula: "((q1 + q2 + q3 + q4) + (q5 + q6)/2) / 5"
+output: {unit: "{score}", min: 0, max: 10}
+rounding: "one decimal"
+edge_cases:
+  - "one of q1-q4 missing: divide by 4 instead of 5 (per a published trial SAP); more than one missing: no row"
+  - "10 cm VAS answers are read in cm (0-10)"
+interpretation:
+  active_disease: "≥ 4"
+examples:
+  - inputs: {missing_rule: "one of Q1-Q4 missing"}
+    expected: {divisor: 4, more_than_one_missing: "score missing"}
+    source: "tofacitinib PsA extension SAP (ClinicalTrials.gov NCT01976364 SAP_001), quoted 2026-11-09"
+    source_grade: secondary
+  - inputs: {threshold: true}
+    expected: {active_at_or_above: 4}
+    source: "Garrett 1994; ASAS handbook (secondary quotes 2026-11-09)"
+    source_grade: secondary
+    note: "no published worked numeric example found today (the calculator pages' examples were composed by the page authors or the searcher); owner or rheumatologist to supply before approval"
+sources:
+  - "Garrett S et al. J Rheumatol 1994;21:2286-2291"
+licence: "published PRO; copyright status not verified today; store score and item values"
+verified: partial
