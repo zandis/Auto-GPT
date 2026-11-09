@@ -182,3 +182,16 @@ def test_exclusion_results_say_present_or_not() -> None:
     for lang, cat in CATALOGUES.items():
         assert cat["verdict.exclusion.pass"] not in (cat["verdict.pass"], cat["verdict.fail"]), lang
         assert cat["verdict.exclusion.fail"] != cat["verdict.pass"], lang
+
+
+def test_mail_shows_the_screening_number_beside_the_pseudonym() -> None:
+    """D-136 (owner, 2026-11-08): once a patient has a screening number, N1/N2 show it beside the pseudonym."""
+    assert notify.with_no("1" * 16, "GZQO-0041") == "11111111 (GZQO-0041)"
+    assert notify.with_no("2" * 16, None) == "22222222"
+    mk = Mark("1" * 16, "approach", None, None, "pi", "2026-11-02T08:00:00+00:00", "J1")
+    rows = [_row("1" * 16, "2026-11-02T09:00:00+09:00", mark=mk)]
+    rows[0]["short"] = notify.with_no("1" * 16, "GZQO-0041")
+    extra = {"marks": [mk], "retry": {}, "registry": {}, "nos": {"1" * 16: "GZQO-0041"}}
+    n = notify.build_n2(CRC, NotifyPerson("crc", None, lang="en"), date(2026, 11, 2), [("GZQO", rows, extra)], None)
+    assert n is not None and "contact patient 11111111 (GZQO-0041)" in n.body
+    assert n.body.count("11111111 (GZQO-0041)") == n.body.count("11111111")  # never the pseudonym alone

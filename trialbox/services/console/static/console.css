@@ -459,3 +459,29 @@ form.markform > .markbar { flex: 1 1 100%; margin: 4px 0 0; padding: 10px 0 0; b
   form.markform > .markbar { position: sticky; bottom: 0; z-index: 2; background: var(--card); padding: 10px 0; border-top: 1px solid var(--line); }
   form.markform input:not([type=hidden]), form.markform select { flex: 1 1 100%; max-width: none; }
 }
+
+/* TB-PLAN-04 step 5b (D-131, D-132): site set-up, the readiness page, the review lists and Ask TrialBox */
+.askq { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 22px; text-decoration: none; font-weight: 700; order: 3; }
+@media (max-width: 760px) { header.top .askq { order: 1; } }
+form.siteswitch { margin: 0 0 12px; }
+form.siteswitch select { width: auto; max-width: 220px; }
+.formstack { display: grid; gap: 4px; max-width: 760px; }
+.formstack button { justify-self: start; margin-top: 8px; }
+ul.miss li { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; padding: 6px 0;
+  border-top: 1px solid var(--line); }
+ul.miss li:first-child { border-top: 0; }
+ul.miss li .button { margin: 0; }
+article.fact .facthead { margin: 0 0 6px; font-size: 16px; }
+article.fact blockquote.quote { margin: 0 0 8px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--bg); }
+article.fact form.markform > .markbar { position: static; }
+ul.clist li.crow { padding: 10px 0; border-top: 1px solid var(--line); }
+ul.clist li.crow:first-child { border-top: 0; }
+ul.clist li.crow p { margin: 2px 0; }
+.pill.pc-ready { background: var(--ok-bg); color: var(--ok); }
+.pill.pc-needs { background: var(--warn-bg); color: var(--warn); }
+.pill.pc-not_eligible { background: var(--bad-bg); color: var(--bad); }
+@media (max-width: 760px) {
+  ul.miss li { flex-direction: column; align-items: stretch; }
+  .formstack button, ul.miss li .button { width: 100%; }
+}

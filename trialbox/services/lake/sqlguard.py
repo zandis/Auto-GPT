@@ -46,6 +46,7 @@ LAKE_TABLES = {
     "consent",
     "document_chunk",
     "lake_meta",
+    "site_fact",  # D-135: facts from the site's own inputs, proposed (from a chart) or confirmed by a person
 }
 
 

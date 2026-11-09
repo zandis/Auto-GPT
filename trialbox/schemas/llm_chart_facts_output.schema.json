@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/llm_chart_facts_output.schema.json",
+  "title": "LlmChartFactsOutput",
+  "description": "Output of prompt chart_facts (TB-PLAN-04 step 5b, D-135): facts read from one chart, each with the verbatim quote it came from. Every fact is only proposed until a coordinator confirms it. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["facts"],
+  "additionalProperties": false,
+  "properties": {
+    "facts": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "title": "ChartFact",
+        "type": "object",
+        "required": ["domain", "term", "code", "system", "value", "unit", "date", "quote"],
+        "additionalProperties": false,
+        "properties": {
+          "domain": {"enum": ["condition", "observation", "medication", "birth_date", "sex"]},
+          "term": {"type": "string", "maxLength": 120},
+          "code": {"type": "string", "maxLength": 20},
+          "system": {"enum": ["", "icd10cm", "loinc", "atc"]},
+          "value": {"type": "string", "maxLength": 40},
+          "unit": {"type": "string", "maxLength": 20},
+          "date": {"type": "string", "maxLength": 30},
+          "quote": {"type": "string", "maxLength": 300}
+        }
+      }
+    }
+  }
+}

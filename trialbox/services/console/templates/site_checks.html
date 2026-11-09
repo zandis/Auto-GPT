@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5b (D-132): fix what is safe, ask the rest. The "please check" list (each with a suggested answer;
+   nothing ambiguous is guessed) and the list of the safe fixes TrialBox made. #}
+{% from "_site.html" import site_nav, ws_name with context %}
+{% block title %}{{ t('site.checks.title') }}{% endblock %}
+{% macro opt(c, o) %}{% if c.kind == 'date_order' %}{{ t('site.check.opt.' + o) }}{% elif o == 'drop' %}{{ t('site.check.opt.drop') }}{% elif o in ('chart_no', 'keep', 'male', 'female') %}{{ t('site.check.opt.' + o) }}{% else %}<span class="mono">{{ o }}</span>{% endif %}{% endmacro %}
+{% block content %}
+<div class="headrow"><h1>{{ t('site.checks.title') }} · {{ ws_name(ws) }}</h1></div>
+{{ site_nav(ws, rs, qs) }}
+<p class="hint">{{ t('site.checks.help') }}</p>
+{% if done %}<p class="ok" role="status" data-testid="check-done">{{ t('site.checks.done') }}</p>{% endif %}
+{% if err %}<p class="error" role="alert" data-testid="check-err">{{ t_or('site.err.' + err, t('site.err.other')) }}</p>{% endif %}
+<section class="card" data-testid="checks-open" data-n="{{ open_checks|length }}">
+<h2>{{ t('site.checks.open', n=open_checks|length) }}</h2>
+{% if not open_checks %}<p class="ok" data-testid="checks-none">{{ t('site.checks.none') }}</p>{% endif %}
+<ul class="plain clist">{% for c in open_checks %}<li class="crow" data-testid="check-{{ c.id }}" data-kind="{{ c.kind }}">
+<p><b>{{ t('site.check.kind.' + c.kind) }}</b> · {{ given(c.column_name.split('|')[0]) }}{% if c.row_no %} · {{ t('site.check.row', n=c.row_no) }}{% endif %}{% if c.raw and c.raw != '…' %} · <span class="mono">{{ c.raw }}</span>{% endif %}</p>
+<p class="hint">{{ t('site.check.why.' + c.kind) }}</p>
+{% if editable %}<form method="post" action="/site/checks/{{ c.id }}" class="markform">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ws" value="{{ ws }}"><input type="hidden" name="study" value="{{ rs }}">
+<div class="markbar">{% for o in c.options %}<button type="submit" name="answer" value="{{ o }}"{% if o != c.suggestion %} class="secondary"{% endif %} data-testid="answer-{{ c.id }}-{{ o }}">{{ opt(c, o) }}{% if o == c.suggestion %} · {{ t('site.check.suggested') }}{% endif %}</button>{% endfor %}</div>
+</form>{% endif %}
+</li>{% endfor %}</ul>
+</section>
+<section class="card" data-testid="fixes">
+<h2>{{ t('site.fixes.title') }}</h2>
+<p class="hint">{{ t('site.fixes.help') }}</p>
+{% if not fixes %}<p class="empty">{{ t('site.fixes.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates"><thead><tr><th>{{ t('site.fixes.kind') }}</th><th>{{ t('site.fixes.where') }}</th><th class="num">{{ t('site.fixes.n') }}</th><th>{{ t('site.fixes.example') }}</th></tr></thead>
+<tbody>{% for f in fixes %}<tr data-testid="fix-{{ f.kind }}"><td>{{ t('site.fix.kind.' + f.kind) }}</td><td>{{ given(f.column_name) if f.column_name else '–' }}</td><td class="num">{{ f.n }}</td><td>{% for b, a in f.examples[:2] %}<span class="mono">{{ b }}</span> → <span class="mono">{{ a }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+{% if answered %}<section class="card"><details><summary>{{ t('site.checks.answered', n=answered|length) }}</summary>
+<ul class="plain">{% for c in answered %}<li>{{ t('site.check.kind.' + c.kind) }} · {{ given(c.column_name.split('|')[0]) }} → {{ opt(c, c.answer) }} <span class="hint nowrap">{{ c.answered_by }}</span></li>{% endfor %}</ul>
+</details></section>{% endif %}
+{% endblock %}

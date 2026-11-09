@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5b (D-131, D-132): candidate sheets and IT dumps. Names and phone numbers are never read; the chart
+   number becomes a code at once; every column's role is shown and can be changed. #}
+{% from "_site.html" import site_nav, ws_name with context %}
+{% block title %}{{ t('site.sheets.title') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('site.sheets.title') }} · {{ ws_name(ws) }}</h1></div>
+{{ site_nav(ws, rs, qs) }}
+<p class="hint">{{ t('site.sheets.help') }}</p>
+{% if done %}<p class="ok" role="status" data-testid="sheet-done">{{ t('site.sheets.done') }}</p>{% endif %}
+{% if err %}<p class="error" role="alert" data-testid="sheet-err">{{ t_or('site.err.' + err, t('site.err.other')) }}</p>{% endif %}
+{% if editable %}<section class="card">
+<form method="post" action="/site/sheets" enctype="multipart/form-data" class="formstack" data-testid="sheet-form">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ws" value="{{ ws }}"><input type="hidden" name="study" value="{{ rs }}">
+<label for="sheet-kind">{{ t('site.sheets.kind') }}</label>
+<select id="sheet-kind" name="kind"><option value="sheet">{{ t('site.sheets.kind.sheet') }}</option><option value="dump">{{ t('site.sheets.kind.dump') }}</option></select>
+<label for="sheet-file">{{ t('site.sheets.file') }}</label><input id="sheet-file" name="file" type="file" accept=".xlsx,.xlsm,.csv,.txt" required>
+<p class="hint">{{ t('site.sheets.file.help') }}</p>
+<button type="submit" data-testid="sheet-save">{{ t('site.sheets.read') }}</button>
+</form></section>{% endif %}
+{% for i in inputs %}<section class="card" data-testid="sheet-{{ i.id }}">
+<h2>{{ t('site.sheets.kind.' + i.kind) }} · {{ given(i.name) }}</h2>
+<p>{{ t('site.sheets.summary', rows=i.summary.rows or 0, patients=i.summary.patients or 0, fixes=i.summary.fixes or 0, checks=i.summary.checks or 0) }}</p>
+{% if i.summary.header_row and i.summary.header_row > 1 %}<p class="hint">{{ t('site.sheets.header_row', n=i.summary.header_row) }}</p>{% endif %}
+{% if i.summary.dropped %}<p class="hint" data-testid="dropped-{{ i.id }}">{{ t('site.sheets.dropped') }} {% for d in i.summary.dropped %}{{ given(d) }}{% if not loop.last %}、{% endif %}{% endfor %}</p>{% endif %}
+{% if i.summary.held %}<p class="warn">{{ t('site.sheets.held') }} {% for d in i.summary.held %}{{ given(d) }}{% if not loop.last %}、{% endif %}{% endfor %}</p>{% endif %}
+{% if editable and i.summary.roles %}<details><summary>{{ t('site.sheets.roles') }}</summary>
+<form method="post" action="/site/sheets" class="formgrid">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ws" value="{{ ws }}"><input type="hidden" name="study" value="{{ rs }}"><input type="hidden" name="input" value="{{ i.id }}">
+{% for col, role in i.summary.roles.items() %}<div><label for="r-{{ i.id }}-{{ loop.index }}">{{ given(col) }}</label>
+<select id="r-{{ i.id }}-{{ loop.index }}" name="role:{{ col }}">{% for r in roles %}<option value="{{ r }}"{% if r == role %} selected{% endif %}>{{ t('site.role.' + r) }}</option>{% endfor %}</select></div>{% endfor %}
+<div><button type="submit">{{ t('site.sheets.roles.save') }}</button></div>
+</form></details>{% endif %}
+</section>{% endfor %}
+{% endblock %}

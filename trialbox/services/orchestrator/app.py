@@ -3,6 +3,7 @@ scheduler start with the app."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -32,6 +33,7 @@ from orchestrator.datacore_api import router as datacore_router
 from orchestrator.db import JobDB
 from orchestrator.lifecycle_api import router as lifecycle_router
 from orchestrator.scenarios import registry
+from orchestrator.setup_api import router as setup_router
 from orchestrator.study_api import StudyService
 from orchestrator.study_api import router as study_router
 from orchestrator.studystore import StudyStore
@@ -419,6 +421,73 @@ def data_service_of(o: Orchestrator) -> Any:
 
 app.include_router(datacore_router(lambda: data_service_of(orch())))
 app.include_router(lifecycle_router(lambda: data_service_of(orch())))  # TB-PLAN-04 step 5 (D-134)
+
+# ---------------------------------------------------------------------------- site set-up (step 5b, D-131/132/135)
+_setups: dict[str, Any] = {}
+
+
+def setup_of(o: Orchestrator) -> Any:
+    """The box's site set-up: schema ``sitesetup`` of the trial database, files under the orchestrator's data folder
+    (``sitesetup/``, in every backup), the box's lake for the hospital (``main``)."""
+    from sitesetup.service import SiteSetup
+    from sitesetup.store import SetupStore
+
+    key = f"{o.db.url}|{o.data_dir}"
+    if key not in _setups:
+
+        def site_key() -> bytes:
+            return (Path(o.cfg.env.secrets_dir) / "site_hmac.key").read_bytes()
+
+        _setups[key] = SiteSetup(SetupStore(o.db.url), Path(o.data_dir) / "sitesetup", o.services.lake,
+                                 o.services.llm, o.audit, lambda: _now(o), o.today, site_key,
+                                 mrn_regex=o.cfg.settings.mrn_regex)  # fmt: skip
+    return _setups[key]
+
+
+def study_info(o: Orchestrator, rid: str) -> dict[str, Any]:
+    """Question 1 of the readiness page: does the study have criteria, approved, and is a draft waiting?"""
+    from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved
+
+    exists = rid in list_rulesets(o.rulesets_dir)
+    version = None
+    with contextlib.suppress(RulesetNotApproved, FileNotFoundError, ValueError):
+        version = load_approved(o.rulesets_dir, rid).version
+    waiting = o.db.find(ruleset=rid, state="awaiting_approval", limit=20)
+    exists = exists or bool(waiting) or bool(o.db.find(ruleset=rid, limit=1))
+    link = f"/pilot/jobs/{waiting[0].job_id}/approval" if waiting else ""
+    return {"id": rid, "exists": exists, "approved": version, "waiting": len(waiting), "approval_link": link}
+
+
+def records_info(o: Orchestrator, rid: str) -> dict[str, Any]:
+    core = core_of(o)
+    return {"forms": len(core.forms(rid)), "redcap": any(s["name"] == "redcap" for s in core.sources(rid))}
+
+
+def approved_of(o: Orchestrator, rid: str) -> Any:
+    from tb_common.ruleset import RulesetNotApproved, load_approved
+
+    try:
+        return load_approved(o.rulesets_dir, rid)
+    except (RulesetNotApproved, FileNotFoundError, ValueError):
+        return None
+
+
+def real_data(o: Orchestrator) -> bool:
+    """D-132 remote help needs the hospital's approval when real data may be present: any box that is not a DEV or
+    TEST box, or whose data class is not D0 (synthetic)."""
+    env = (tb_env(o.cfg.env) if o.cfg.env.extra.get("TB_ENV") else os.environ.get("TB_ENV", "")).upper()
+    return env not in ("DEV", "TEST") or os.environ.get("TB_DATA_CLASS", "D0").upper() not in ("D0", "")
+
+
+app.include_router(
+    setup_router(
+        lambda: setup_of(orch()),
+        lambda rid: study_info(orch(), rid),
+        lambda rid: records_info(orch(), rid),
+        lambda rid: approved_of(orch(), rid),
+        lambda: real_data(orch()),
+    )
+)
 
 
 @app.get("/registry")

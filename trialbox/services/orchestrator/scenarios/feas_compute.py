@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 from lake.client import LakeAPI
 from matching.coverage import DOMAINS, Coverage, known_systems
+from matching.proposed import site_basis
 from tb_common.feas_notes import render as render_note
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import round_count
@@ -105,6 +106,9 @@ class FeasRaw:
     # D-130 (review F-10): patients of the population with a diagnosis / a medicine in a code system the mapping does
     # not know; their coded inclusions are not "false" but unreadable, so the count says so
     unknown_system: dict[str, int] = field(default_factory=dict)
+    # D-135 (step 5b): per step, of the patients counted, how many rest partly on facts a person confirmed from a
+    # chart (``confirmed``) and how many of the population not counted there have proposed facts to check
+    basis: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------------------------- steps & variants
@@ -310,6 +314,13 @@ def compute(lake: LakeAPI, rs: Ruleset, p: FeasParams) -> tuple[FeasibilityResul
     cov = Coverage.load(lake, None, p.snapshot, known_systems(rs.valuesets))
     gaps = {d: len(cov.patients(d) & population) for d in DOMAINS}
     raw = FeasRaw(n, remaining, unknown, var_counts, first, prevalent, idx, pool, {d: k for d, k in gaps.items() if k})
+    confirmed, proposed = site_basis(lake, p.snapshot)
+    if confirmed or proposed:  # a site with its own inputs (D-135); the hospital feed alone has none
+        pids = [str(x) for x in cols["pid"]]
+        for i, s in enumerate(applied):
+            kept = {pid for pid, f in zip(pids, cols[f"f{i}"], strict=True) if f}
+            c = len(kept & confirmed)
+            raw.basis[s.id] = {"coded": len(kept) - c, "confirmed": c, "proposed": len((population - kept) & proposed)}
     return _result(rs, p, st, variants, raw), raw
 
 
@@ -428,6 +439,14 @@ def _result(rs: Ruleset, p: FeasParams, st: list[Step], variants: list[Variant],
             )
     for domain, k in sorted(raw.unknown_system.items()):
         keys.append((f"feas.note.unknown_system.{domain}", {"n": pub(k)}))
+    last = next((s.id for s in reversed(st) if s.applied), None)
+    if last and raw.basis.get(last, {}).get("confirmed"):
+        b = raw.basis[last]
+        keys.append(("feas.note.basis.confirmed", {"n": pub(b["confirmed"])}))
+    if raw.basis:
+        n_prop = max(v["proposed"] for v in raw.basis.values())
+        if n_prop:
+            keys.append(("feas.note.basis.proposed", {"n": pub(n_prop)}))
     not_applied = [s.id for s in st if not s.applied]
     if not_applied:
         keys.append(("feas.note.not_applied", {"ids": ", ".join(not_applied)}))
@@ -526,4 +545,6 @@ def raw_json(raw: FeasRaw) -> bytes:
         "prevalent": raw.prevalent,
         "index_dates": [d.isoformat() for d in raw.index_dates],
     }
+    if raw.basis:
+        body["basis"] = raw.basis
     return (json.dumps(body, indent=1, sort_keys=True) + "\n").encode()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 import pyarrow as pa
 from embed_service.embedder import Embedder, from_env
@@ -80,6 +81,18 @@ def chunks_search(req: ChunkSearchRequest) -> ChunkSearchResult:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return ChunkSearchResult(hits=[ChunkHit(**h) for h in hits])
+
+
+@app.post("/site")
+def put_site(body: dict[str, Any]) -> dict[str, Any]:
+    """D-135: the site's own inputs (FHIR resources by type from the orchestrator's site set-up); the next rebuild
+    joins them to the snapshot. Proposed facts carry their basis tag and never reach a coded table."""
+    resources = body.get("resources")
+    if not isinstance(resources, dict) or not all(isinstance(v, list) for v in resources.values()):
+        raise HTTPException(status_code=400, detail="resources: {type: [resource, ...]}")
+    if not all(isinstance(k, str) and k.isalpha() and k[:1].isupper() for k in resources):
+        raise HTTPException(status_code=400, detail="resource types are FHIR names")
+    return {"counts": lake().put_site(resources)}
 
 
 @app.post("/rebuild")

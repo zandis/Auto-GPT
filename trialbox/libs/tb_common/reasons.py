@@ -21,6 +21,7 @@ class Reason(StrEnum):
     NOT_MENTIONED = "not_mentioned"  # the notes in the window were searched and never mention it
     CODE_OUTSIDE_LIST = "code_outside_list"  # coded inside the grouper's family, outside its list (D-113)
     UNKNOWN_CODE_SYSTEM = "unknown_code_system"  # a record coded in a system the mapping does not know (D-130)
+    PROPOSED_FACT = "proposed_fact"  # a fact read from a chart that a person has not confirmed yet (D-135)
     ABSTAINED = "abstained"  # the model said it cannot tell from the notes
     QUOTE_NOT_FOUND = "quote_not_found"  # the model's quote is not in the notes
     VERIFIER_QUOTE_MISSING = "verifier_quote_missing"  # the second model's quote is not in the notes
@@ -53,6 +54,7 @@ _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
     (("not evaluated", "not sampled", "unprocessed", "not judged", "no judge"), Reason.NOT_EVALUATED),
     (("unknown_kept", "unknown kept"), Reason.UNKNOWN_KEPT),
     (("unknown code system", "unknown_code_system"), Reason.UNKNOWN_CODE_SYSTEM),
+    (("proposed_fact", "proposed fact"), Reason.PROPOSED_FACT),
     (("no value", "no record", "not compiled", "index_absent", "data_gap", "index condition absent"), Reason.DATA_GAP),
     (("matching record", "failing value", "index rescued"), Reason.CODED),
 )
@@ -79,6 +81,11 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "a record coded in a system TrialBox cannot read: please check",
         "ja": "TrialBox が読めないコード体系の記録あり：確認してください",
         "zh-TW": "有以無法辨識的代碼系統記錄的資料：請確認",
+    },
+    "proposed_fact": {
+        "en": "a fact read from a chart, not yet confirmed: please check",
+        "ja": "カルテから読み取った未確認の情報あり：確認してください",
+        "zh-TW": "有從病歷讀取、尚未確認的資料：請確認",
     },
     "abstained": {"en": "the notes do not say", "ja": "記録の文章からは判断できない", "zh-TW": "病歷文字無法判斷"},
     "quote_not_found": {

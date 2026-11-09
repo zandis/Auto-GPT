@@ -99,6 +99,23 @@ class Lake:
             raise FileNotFoundError(f"no lake snapshot {snap}")
         return path
 
+    # ------------------------------------------------------------------ site inputs (D-135)
+    def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
+        """Replace the site's own inputs (FHIR resources by type, from ``sitesetup.publish``); the next rebuild
+        joins them to the snapshot. Written beside the snapshots, in the lake's own folder (in every backup)."""
+        site = self.dir / "site"
+        site.mkdir(parents=True, exist_ok=True)
+        for old in site.glob("*.ndjson"):
+            if old.stem not in resources:
+                old.unlink()
+        for rtype, items in resources.items():
+            tmp = site / f"{rtype}.ndjson.tmp"
+            with tmp.open("w", encoding="utf-8") as fh:
+                for r in items:
+                    fh.write(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n")
+            tmp.replace(site / f"{rtype}.ndjson")
+        return {k: len(v) for k, v in resources.items()}
+
     # ------------------------------------------------------------------ rebuild
     def rebuild(self, snapshot: str, embedder: Embedder, ndjson_dir: Path | None = None) -> RebuildStats:
         t0 = time.perf_counter()
@@ -107,6 +124,10 @@ class Lake:
         for f in sorted(src.glob("*.ndjson")):
             with f.open(encoding="utf-8") as fh:
                 by_type[f.stem] = [json.loads(line) for line in fh if line.strip()]
+        # D-135: the site's own inputs (sheets, dumps, charts; ``put_site``) join every snapshot built here
+        for f in sorted((self.dir / "site").glob("*.ndjson")):
+            with f.open(encoding="utf-8") as fh:
+                by_type.setdefault(f.stem, []).extend(json.loads(line) for line in fh if line.strip())
         rows = Flattener(self.tz).flatten(by_type)
         by_type.clear()  # the flat rows replace the resources; free them before the embedding pass
         counts = {name: len(rows[name]) for name in SCHEMAS}

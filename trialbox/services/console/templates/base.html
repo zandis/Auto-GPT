@@ -21,7 +21,8 @@
      its label, no script) and the search field is the only other control; on a desktop all are shown as before #}
   <input type="checkbox" id="menu-toggle" class="menu-toggle" aria-label="{{ t('menu') }}">
   <label for="menu-toggle" class="menu-button" data-testid="menu-button" aria-hidden="true">☰ {{ t('menu') }}</label>
-  {% if pilot %}<a class="helpq" href="/help?back={{ path|urlencode }}" title="{{ t('help.title') }}" aria-label="{{ t('help.title') }}" data-testid="help">?</a>{% endif %}
+  {% if pilot %}<a class="helpq" href="/help?back={{ path|urlencode }}" title="{{ t('help.title') }}" aria-label="{{ t('help.title') }}" data-testid="help">?</a>
+  <a class="askq" href="/ask?back={{ path|urlencode }}" title="{{ t('ask.title') }}" data-testid="ask">{{ t('ask.short') }}</a>{% endif %}
   {% if pilot %}<form method="get" action="/cmd" class="cmd" role="search" data-testid="cmd">
     <label class="sr" for="cmd-q">{{ t('cmd.label') }}</label>
     <input id="cmd-q" name="q" type="search" placeholder="{{ t('cmd.placeholder') }}" maxlength="300" autocomplete="off" enterkeyhint="go" data-testid="cmd-q">

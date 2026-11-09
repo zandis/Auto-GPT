@@ -474,7 +474,8 @@ def create_app(
         path = request.url.path
         u = sess.user
         if u.role == "cro" and not (
-            path in ("/", "/home", "/reports", "/lang", "/logout", "/cmd", "/account", "/account/password", "/help")
+            path
+            in ("/", "/home", "/reports", "/lang", "/logout", "/cmd", "/account", "/account/password", "/help", "/ask")
             or re.fullmatch(r"/studies/[A-Za-z0-9_-]+/feasibility", path)
             or re.fullmatch(r"/pilot/jobs/[0-9A-HJKMNP-TV-Z]{26}/sponsor-pack\.zip", path)
         ):
@@ -868,7 +869,17 @@ def create_app(
     if not settings.pilot:
         return app
 
-    from console import approval, data_pages, entry_pages, lifecycle_pages, notify, screening_log, step4, study_setup
+    from console import (
+        approval,
+        data_pages,
+        entry_pages,
+        lifecycle_pages,
+        notify,
+        screening_log,
+        site_pages,
+        step4,
+        study_setup,
+    )
     from console.home import Helpers
     from console.home import register as register_home
     from console.sitestore import SiteStore
@@ -895,6 +906,7 @@ def create_app(
     data_pages.register(app, helpers)  # TB-PLAN-04 step 3: Sources, Conflicts, Forms and their /api/v1 (D-123)
     entry_pages.register(app, helpers)  # TB-PLAN-04 step 4: Entry, History, exports, built-in forms (D-129)
     lifecycle_pages.register(app, helpers)  # TB-PLAN-04 step 5: participants, visits, schedule, report (D-134)
+    site_pages.register(app, helpers)  # TB-PLAN-04 step 5b: site set-up, readiness, review lists, Ask (D-135)
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     from console import timers
 

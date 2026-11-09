@@ -182,6 +182,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             return None
         for r in [*out["rows"], *(x for rows in out["list"].values() for x in rows)]:
             r["short"] = short_of(subs.get(r["record"], {}))
+            r["pid"] = str(subs.get(r["record"], {}).get("pid") or "")
         return dict(out)
 
     def serious(rid: str) -> list[dict[str, Any]]:
@@ -205,17 +206,21 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"studies": studies, "sae": sae, "today": day.isoformat()}
 
     def life_mail(rid: str, day: date) -> dict[str, Any]:
-        """N1/N2 (D-134): the study's visits on ``day`` and its serious AEs, by pseudonym only (never a screening
-        number or a chart number in mail)."""
+        """N1/N2 (D-134): the study's visits on ``day`` and its serious AEs, by pseudonym (the mail adds the screening
+        number beside it, D-136; never a chart number in mail)."""
         refresh(rid, "console:notify")
         v = visits_of(rid, day)
         if v is None:
             return {"today": [], "week": [], "overdue": [], "sae": 0}
         lst = v["list"]
         keep = ("short", "visit", "due", "start", "end")
-        return {k: [{x: r[x] for x in keep} for r in lst[k]] for k in ("today", "week", "overdue")} | {
-            "sae": len(serious(rid))
-        }
+        nos = store.screening_nos(rid)
+
+        def row(r: dict[str, Any]) -> dict[str, Any]:  # the screening number beside the pseudonym (D-136)
+            pid = str(r.get("pid") or "")
+            return {x: r[x] for x in keep} | ({"short": f"{pid[:8]} ({nos[pid]})"} if pid in nos else {})
+
+        return {k: [row(r) for r in lst[k]] for k in ("today", "week", "overdue")} | {"sae": len(serious(rid))}
 
     h.life_home = life_home
     h.life_mail = life_mail
