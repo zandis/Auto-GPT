@@ -287,11 +287,11 @@ def _stage11(res: dict[str, Any], api: Any, crc: Any, pi: Any, lang: str, mrns: 
     lf = h.life_mail(rs, mail_day) if h.life_mail else {}
     n2 = notify.build_n2(crc_user, h.store.notify_person("crc"), mail_day, [], None, {rs: lf})
     body = n2.body if n2 else ""
-    s.check("N2 lists the overdue visit by pseudonym, never the screening number",
-            f"{pid[:8]} " in body or f"{pid[:8]}（" in body or f"{pid[:8]}(" in body, body[-300:])  # fmt: skip
+    s.check("N2 lists the overdue visit by pseudonym with its screening number (D-136)",
+            f"{pid[:8]} ({no})" in body, body[-300:])  # fmt: skip
     s.check(
-        "N2 carries no screening number and no chart number",
-        bool(body) and no not in body and not any(re.search(rf"(?<!\d){m_}(?!\d)", body) for m_ in mrns),
+        "N2 carries no chart number",
+        bool(body) and not any(re.search(rf"(?<!\d){m_}(?!\d)", body) for m_ in mrns),
     )
     m = re.search(rf'href="([^"]+)" data-testid="done-{no}-v1"', page.text)
     form = crc.get(m.group(1).replace("&amp;", "&")).text if m else ""
@@ -542,7 +542,9 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     leaked = sorted(m for m in mrns if re.search(rf"(?<!\d){m}(?!\d)", body))
     s.check("mail carries no chart number", not leaked, leaked[:3])
     s.check("mail carries no patient name", not [n for n in names if n in body][:1])
-    s.check("mail carries no screening number", lst["screening_no"] not in body, lst["screening_no"])
+    numbered = [(p[:8], n) for p, n in h.store.screening_nos(TRIAL).items() if f"({n})" in body]
+    s.check("mail shows the screening number beside the pseudonym (D-136)",
+            bool(numbered) and all(f"{p} ({n})" in body for p, n in numbered), numbered[:3])  # fmt: skip
     s.check(
         "the PI's marked patients appear in the mail by pseudonym",
         all(f"{p['pid'][:8]}" in body for p in picks),

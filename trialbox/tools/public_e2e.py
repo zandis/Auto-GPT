@@ -515,7 +515,9 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     body = "\n".join(m.text() for m in mails)
     leaked = sorted(m for m in mrns if re.search(rf"(?<!\d){m}(?!\d)", body))
     s.check("mail carries no chart number", not leaked, leaked[:3])
-    s.check("mail carries no screening number", no not in body, no)
+    numbered = [(p[:8], n) for p, n in h.store.screening_nos(TRIAL).items() if f"({n})" in body]
+    s.check("mail shows the screening number beside the pseudonym (D-136)",
+            bool(numbered) and all(f"{p} ({n})" in body for p, n in numbered), numbered[:3])  # fmt: skip
     out["mails"] = [{"to": m.to, "subject": m.subject} for m in mails]
     s.seconds = time.perf_counter() - t
     stages.append(s)

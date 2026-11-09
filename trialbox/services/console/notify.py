@@ -11,11 +11,12 @@
 
 TB-PLAN-04 step 5 (D-134): N2 also lists the study visits of the day and the overdue ones (from the visit schedule
 and the windows), N1 the investigator's participants' visits of the week and the count of serious AEs to review.
-Visits are named by the patient's pseudonym and the visit's name, never by the screening number.
+Visits are named by the patient's pseudonym and the visit's name.
 
-Both carry pseudonyms (eight characters), times and counts only: no chart number, no name and never a screening
-number. Each says why it was sent and links to the person's notice settings (FR-NOTIF-09). Mail leaves through the
-orchestrator's ``POST /notices`` and the mail gateway, tagged ``aggregate`` and internal addresses only.
+Both carry pseudonyms (eight characters), with the study's screening number beside the pseudonym once the patient has
+one (owner, 2026-11-08, D-136), times and counts: never a chart number or a name. Each says why it was sent and
+links to the person's notice settings (FR-NOTIF-09). Mail leaves through the orchestrator's ``POST /notices`` and
+the mail gateway, tagged ``aggregate`` and internal addresses only.
 
 Run on a schedule with ``python -m console.notify --at 07:00`` (N1) and ``--at 07:30`` (N2), or from the admin home
 ("Send notices now"). A notice is sent at most once per person and day.
@@ -73,6 +74,11 @@ def _line(lang: str, r: dict[str, Any], rs: str) -> str:
         open=open_n,
         status=translate(lang, "wstatus." + str(r["status"])),
     )
+
+
+def with_no(pid: str, no: str | None) -> str:
+    """The pseudonym (eight characters), with the screening number beside it once the patient has one (D-136)."""
+    return f"{pid[:8]} ({no})" if no else pid[:8]
 
 
 def clinic_days(rows: Iterable[dict[str, Any]], practitioner: str | None) -> set[date]:
@@ -198,7 +204,8 @@ def build_n2(
                 new.append(translate(lang, "n2.new.row", p=r["short"], rs=rs))
         for m in extra.get("marks") or []:
             if m.at > cut:
-                marks.append(translate(lang, "n2.mark.row", p=m.pid[:8], rs=rs, mark=translate(lang, "mark." + m.mark)))
+                p = with_no(m.pid, (extra.get("nos") or {}).get(m.pid))
+                marks.append(translate(lang, "n2.mark.row", p=p, rs=rs, mark=translate(lang, "mark." + m.mark)))
     by_study = sorted((life or {}).items())
     due = [_life_row(lang, "n2.life.row", rs, r) for rs, lf in by_study for r in lf.get("today", [])]
     late = [_life_row(lang, "n2.life.row", rs, r) for rs, lf in by_study for r in lf.get("overdue", [])]
@@ -247,24 +254,28 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
         studies: list[Any] = []
         life: dict[str, dict[str, Any]] = {}
         for r in h.trials(sess):
+            nos = store.screening_nos(r.id)
             lf = h.life_mail(r.id, today) if getattr(h, "life_mail", None) else None
             if lf and any(lf.get(k) for k in ("today", "week", "overdue", "sae")):
-                life[r.id] = lf
+                life[r.id] = lf  # its rows already carry the screening number beside the pseudonym (D-136)
             wk = h.week_bundle(sess, r.id)
             if wk is None:
                 continue
             seen = store.first_seen(r.id)
             for row in wk["rows"]:
                 row["first_at"] = (seen.get(row["pid"]) or ("", ""))[1]
+            wk_rows = [row | {"short": with_no(row["pid"], nos.get(row["pid"]))} for row in wk["rows"]]
             if kind == "N1":
-                studies.append((r.id, wk["rows"]))
+                studies.append((r.id, wk_rows))
             else:
                 retry = {o.pid: o.retry for o in store.outcomes(r.id) if o.outcome == "not_reached" and o.retry}
                 try:
                     reg = {e.pid: e.status for e in h.bk.registry_rows(r.id)}
                 except Exception:
                     reg = {}
-                studies.append((r.id, wk["rows"], {"marks": store.all_marks(r.id), "retry": retry, "registry": reg}))
+                studies.append(
+                    (r.id, wk_rows, {"marks": store.all_marks(r.id), "retry": retry, "registry": reg, "nos": nos})
+                )
         n = (
             build_n1(u, person, today, studies, life)
             if kind == "N1"

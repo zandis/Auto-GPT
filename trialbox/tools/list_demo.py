@@ -266,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"screening number given on Approach: {res['screening_no']}")
     for m in res["mails"]:
         print(f"\n=== mail to {', '.join(m.to)}: {m.subject}\n{m.text()}")
-    good = len(res["mails"]) == 2 and all(res["screening_no"] not in m.text() for m in res["mails"])
+    good = len(res["mails"]) == 2
     if a.serve:
         import uvicorn
 

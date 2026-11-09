@@ -1057,7 +1057,8 @@ of `20-build-map.md` §2 (list and mail). What was decided, and why:
   from the appointment source the SCREEN run used; without an id the mail goes on Mondays with the next seven days.
   **N2, the coordinator's digest** (FR-NOTIF-02): working days, today's visits, next steps (call an approved patient,
   retry a call when due, find requested information), new pre-screens and the PI's marks since the last digest. Both
-  carry pseudonyms, times and counts only, never a chart number, a name or a screening number; each says why it was
+  carry pseudonyms, times and counts only, never a chart number, a name or a screening number (screening numbers
+  added beside the pseudonym by D-136); each says why it was
   sent and links to the person's notice settings (FR-NOTIF-09). They leave through a new orchestrator `POST /notices`
   (aggregate tag, internal addresses only, audited `notice.sent`) and are sent at most once per person and day.
   Sending is `python -m console.notify` (for the site's 07:00 / 07:30 timer) or "Send today's notices now" for an
@@ -2051,3 +2052,12 @@ with protocol amendments (saving replaces it; the trail is in the audit); visits
 the AE is never graded or reported to the IRB or the sponsor by TrialBox; the investigator's confirmation of an SAE
 is not recorded; a reminder when a window is about to close (only the overdue list and N2); the enrolment report's
 small-cell rule (k) is not applied because it never leaves the study team.
+
+
+**D-136 The morning mail shows the screening number.** Owner, 2026-11-08. N1 and N2 show the study's screening number
+beside the pseudonym once a patient has one (`a1b2c3d4 (GZQO-0041)`), in every row: this week's patients, next
+steps, marks and study visits. A coordinator can then find the patient's record in REDCap or on the screening log
+without opening the console. Chart numbers and names stay out of mail as before (D-108). Evidence:
+`tests/console/test_step2.py::test_mail_shows_the_screening_number_beside_the_pseudonym`; `e2e_simple` and
+`public_e2e` check that every pseudonym with a number in the sent mail carries it, and still that no chart number or
+name is in the mail.

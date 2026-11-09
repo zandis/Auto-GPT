@@ -190,7 +190,7 @@ def test_api_v1_refusal_in_the_accounts_language_and_roles(lb: dict[str, Any]) -
     assert a.get("/studies/NOPE-01/subjects").status_code == 404
 
 
-def test_visits_in_the_coordinators_mail_by_pseudonym_only(lb: dict[str, Any]) -> None:
+def test_visits_in_the_coordinators_mail_by_pseudonym_and_screening_number(lb: dict[str, Any]) -> None:
     no, _other = lb["nos"]
     c, csrf = login(lb["app"], "crc", PW)
     c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
@@ -206,6 +206,6 @@ def test_visits_in_the_coordinators_mail_by_pseudonym_only(lb: dict[str, Any]) -
     mail = next(n for n in out if n.username == "crc")
     pid8 = f"{1:032x}"[:8]
     assert "Study visits today: 1" in mail.body and "Overdue study visits: 1" in mail.body
-    assert f"patient {pid8} (GZQO): visit v1, window 2026-11-07 to 2026-11-09" in mail.body
-    assert no not in mail.body and no not in mail.subject and CHART_NO not in mail.body
+    assert f"patient {pid8} ({no}) (GZQO): visit v1, window 2026-11-07 to 2026-11-09" in mail.body  # D-136
+    assert no not in mail.subject and CHART_NO not in mail.body
     assert mail.counts["study_visits"] == 1 and mail.counts["overdue"] == 1
