@@ -756,9 +756,9 @@ c_atoms_inc_05 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_05_1 ON a_atoms_inc_05_1.pid = b.pid AND a_atoms_inc_05_1.index_date = b.index_date),
 a_atoms_inc_06_1 AS (
-  SELECT pid, index_date, coalesce(bool_or((o.value_num >= 8)), FALSE) AS v,
-         string_agg(CASE WHEN (o.value_num >= 8) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
-  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+  SELECT pid, index_date, (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END) AS v,
+         string_agg(CASE WHEN (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 8 THEN TRUE END) END) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
+  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code)) o GROUP BY pid, index_date),
 -- ATOMS-INC-06 (inclusion): any urate >= 8 in 1y
@@ -768,9 +768,9 @@ c_atoms_inc_06 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_06_1 ON a_atoms_inc_06_1.pid = b.pid AND a_atoms_inc_06_1.index_date = b.index_date),
 a_atoms_inc_07_1 AS (
-  SELECT pid, index_date, coalesce(bool_and((o.value_num < 9)), TRUE) AS v,
-         string_agg(CASE WHEN (o.value_num < 9) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
-  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+  SELECT pid, index_date, (CASE WHEN NOT bool_and((CASE WHEN o.value_cmp IS NULL THEN (o.value_num < 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 9 THEN TRUE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 9 THEN FALSE END) END)) THEN FALSE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num < 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 9 THEN TRUE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 9 THEN FALSE END) END) IS NULL) > 0 THEN NULL ELSE TRUE END) AS v,
+         string_agg(CASE WHEN (CASE WHEN o.value_cmp IS NULL THEN (o.value_num < 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 9 THEN TRUE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 9 THEN FALSE END) END) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
+  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -730) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code)) o GROUP BY pid, index_date),
 -- ATOMS-INC-07 (inclusion): all urate < 9 in 2y
@@ -780,9 +780,9 @@ c_atoms_inc_07 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_07_1 ON a_atoms_inc_07_1.pid = b.pid AND a_atoms_inc_07_1.index_date = b.index_date),
 a_atoms_inc_08_1 AS (
-  SELECT pid, index_date, NOT coalesce(bool_or((o.value_num > 10)), FALSE) AS v,
-         string_agg(CASE WHEN (o.value_num > 10) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
-  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+  SELECT pid, index_date, (NOT (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END)) AS v,
+         string_agg(CASE WHEN (CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
+  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -730) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code)) o GROUP BY pid, index_date),
 -- ATOMS-INC-08 (inclusion): no urate > 10 in 2y
@@ -792,9 +792,9 @@ c_atoms_inc_08 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_08_1 ON a_atoms_inc_08_1.pid = b.pid AND a_atoms_inc_08_1.index_date = b.index_date),
 a_atoms_inc_09_1 AS (
-  SELECT pid, index_date, (count(*) FILTER (WHERE (o.value_num >= 6)) >= 2) AS v,
-         string_agg(CASE WHEN (o.value_num >= 6) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
-  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+  SELECT pid, index_date, (CASE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END)) >= 2 THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END)) + count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END) IS NULL) >= 2 THEN NULL ELSE FALSE END) AS v,
+         string_agg(CASE WHEN (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
+  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -730) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code)) o GROUP BY pid, index_date),
 -- ATOMS-INC-09 (inclusion): >=2 urate >= 6 in 2y
@@ -804,10 +804,10 @@ c_atoms_inc_09 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_09_1 ON a_atoms_inc_09_1.pid = b.pid AND a_atoms_inc_09_1.index_date = b.index_date),
 a_atoms_inc_10_1 AS (
-  SELECT pid, index_date, (o.value_num BETWEEN 5 AND 9) AS v,
+  SELECT pid, index_date, (CASE WHEN o.value_cmp IS NULL THEN (o.value_num BETWEEN 5 AND 9) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 5 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 9 THEN FALSE END) END) AS v,
          o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- ATOMS-INC-10 (inclusion): latest urate between 5 and 9
@@ -820,7 +820,7 @@ a_atoms_inc_11_1 AS (
   SELECT pid, index_date, (o.value_code IN ('LA6577-6')) AS v,
          o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE <= b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBSAG' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- ATOMS-INC-11 (inclusion): latest HBsAg negative
@@ -841,9 +841,9 @@ c_atoms_inc_12 AS (
   FROM base b
   LEFT JOIN a_atoms_inc_12_1 ON a_atoms_inc_12_1.pid = b.pid AND a_atoms_inc_12_1.index_date = b.index_date),
 a_atoms_inc_13_1 AS (
-  SELECT pid, index_date, coalesce(bool_or((o.value_num >= 150)), FALSE) AS v,
-         string_agg(CASE WHEN (o.value_num >= 150) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
-  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+  SELECT pid, index_date, (CASE WHEN bool_or((CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 150) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 150 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 150 THEN TRUE END) END)) THEN TRUE WHEN count(*) FILTER (WHERE (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 150) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 150 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 150 THEN TRUE END) END) IS NULL) > 0 THEN NULL ELSE FALSE END) AS v,
+         string_agg(CASE WHEN (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 150) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 150 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 150 THEN TRUE END) END) THEN o.oid || '|' || strftime(o.effective, '%Y-%m-%d') END, ';' ORDER BY o.effective, o.oid) AS ev
+  FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SYSTOLIC_BLOOD_PRESSURE' AND vs.system = o.system AND vs.code = o.code)) o GROUP BY pid, index_date),
 -- ATOMS-INC-13 (inclusion): SBP any >= 150 in 1y (component)
@@ -1017,7 +1017,7 @@ a_atoms_exc_23_1 AS (
   SELECT pid, index_date, (o.value_code IN ('LA6576-8')) AS v,
          o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE <= b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_IGRA' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 a_atoms_exc_23_2 AS (
@@ -1038,10 +1038,10 @@ a_atoms_exc_24_1 AS (
   FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_TYPE_1_DIABETES_MELLITUS' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d <= b.index_date
   GROUP BY b.pid, b.index_date),
 a_atoms_exc_24_3 AS (
-  SELECT pid, index_date, (o.value_num > 10) AS v,
+  SELECT pid, index_date, (CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END) AS v,
          o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBA1C' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- ATOMS-EXC-24 (exclusion): T1DM or (male and HbA1c > 10)

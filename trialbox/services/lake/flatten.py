@@ -8,6 +8,8 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from tb_common import labvalue
+
 Resource = dict[str, Any]
 Row = dict[str, Any]
 
@@ -61,6 +63,8 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
         ("value_code", "VARCHAR"),
         ("category", "VARCHAR"),
         ("local_code", "VARCHAR"),
+        # D-142: a censored result ("<0.3", Quantity.comparator): value_num is the bound, value_cmp says which side
+        ("value_cmp", "VARCHAR"),
     ],
     "medication": [
         ("mid", "VARCHAR"),
@@ -136,6 +140,21 @@ def basis_of(r: Resource) -> str | None:
         if t.get("system") == BASIS:
             return str(t.get("code") or "") or None
     return None
+
+
+def _value(q: dict[str, Any], text: Any) -> dict[str, Any]:
+    """``value_num`` / ``value_cmp`` of an observation (D-142, review B-01). A ``valueQuantity`` keeps its comparator
+    (``<0.3`` is censored, not 0.3); a ``valueString`` is read with :mod:`tb_common.labvalue` ("75 H" is 75, "<0.3"
+    is censored). Anything else is no number: the screening engine treats it as unknown, never as a failed test."""
+    if "value" in q:
+        try:
+            num = float(q["value"])
+        except (TypeError, ValueError):
+            return {"value_num": None, "value_cmp": None}
+        cmp = q.get("comparator")
+        return {"value_num": num, "value_cmp": cmp if cmp in ("<", "<=", ">", ">=") else None}
+    got = labvalue.parse(text) if isinstance(text, str) else None
+    return {"value_num": got[0], "value_cmp": got[1]} if got else {"value_num": None, "value_cmp": None}
 
 
 def _ref_id(ref: dict[str, Any] | None) -> str | None:
@@ -257,7 +276,7 @@ class Flattener:
             "code": primary.get("code"),
             "system": primary.get("system"),
             "effective": self.ts(r.get("effectiveDateTime")),
-            "value_num": float(q["value"]) if "value" in q else None,
+            **_value(q, r.get("valueString")),
             "unit": q.get("code") or q.get("unit"),
             "value_code": vcode,
             "category": cat,
@@ -409,7 +428,7 @@ class Flattener:
                     "oid": f"{r['id']}.{code}",
                     "code": code,
                     "system": system,
-                    "value_num": float(q["value"]) if "value" in q else None,
+                    **_value(q, comp.get("valueString")),
                     "unit": q.get("code") or q.get("unit"),
                     "value_code": vcode,
                     "local_code": None,

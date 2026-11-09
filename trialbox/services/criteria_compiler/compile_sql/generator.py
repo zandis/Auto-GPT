@@ -66,6 +66,47 @@ def cmp_sql(atom: Atom, value: str = "o.value_num", code: str = "o.value_code") 
     return f"({value} {op} {fmt_num(v.num)})"
 
 
+# D-142 (review B-01): a censored result ("<0.3": the true value is at most the bound, ">1000": at least) decides a
+# comparison only when every value on that side of the bound gives the same answer; otherwise NULL (unknown). The
+# bound is treated as reachable, so a strict "<0.3" is read as "<=0.3": that can only leave an answer unknown, never
+# give a wrong one. (side, op) -> (when the bound is such that, the answer)
+_CENSORED: dict[tuple[str, str], tuple[str, str]] = {
+    ("below", ">="): ("{x} < {n}", "FALSE"),
+    ("below", ">"): ("{x} <= {n}", "FALSE"),
+    ("below", "<"): ("{x} < {n}", "TRUE"),
+    ("below", "<="): ("{x} <= {n}", "TRUE"),
+    ("below", "="): ("{x} < {n}", "FALSE"),
+    ("below", "between"): ("{x} < {n}", "FALSE"),
+    ("above", ">="): ("{x} >= {n}", "TRUE"),
+    ("above", ">"): ("{x} > {n}", "TRUE"),
+    ("above", "<"): ("{x} >= {n}", "FALSE"),
+    ("above", "<="): ("{x} > {n}", "FALSE"),
+    ("above", "="): ("{x} > {n}", "FALSE"),
+    ("above", "between"): ("{x} > {n2}", "FALSE"),
+}
+
+
+def obs_cmp_sql(atom: Atom) -> str:
+    """The comparison of one observation row: exact values as :func:`cmp_sql`; censored ones (``value_cmp``) only
+    when decidable; no number (text, a coded answer) is NULL, never FALSE."""
+    v = atom.value
+    assert v is not None and v.op is not None
+    plain = cmp_sql(atom)
+    if v.op == "in":
+        return plain
+    assert v.num is not None
+    n, n2 = fmt_num(v.num), fmt_num(v.num2) if v.num2 is not None else ""
+    side: dict[str, str] = {}
+    for s in ("below", "above"):
+        cond, answer = _CENSORED[(s, v.op)]
+        side[s] = f"CASE WHEN {cond.format(x='o.value_num', n=n, n2=n2)} THEN {answer} END"
+    return (
+        f"(CASE WHEN o.value_cmp IS NULL THEN {plain} "
+        f"WHEN o.value_cmp IN ('<', '<=') THEN ({side['below']}) "
+        f"WHEN o.value_cmp IN ('>', '>=') THEN ({side['above']}) END)"
+    )
+
+
 def _comment(text: str) -> str:
     """Criterion text for a ``--`` line comment: all whitespace (newlines from a reviewer's Alt+Enter or the model
     included) collapsed, so nothing after it can become SQL."""
@@ -150,7 +191,7 @@ class SqlGenerator:
 
     def _obs_source(self, vsname: str, w: Window) -> str:
         return (
-            f"SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code\n"
+            f"SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code\n"
             f"  FROM base b JOIN observation o ON o.pid = b.pid AND {in_window('o.effective::DATE', w)}\n"
             f"  WHERE {self._vs_match(vsname, 'o.system', 'o.code')}"
         )
@@ -160,21 +201,29 @@ class SqlGenerator:
         src = self._obs_source(atom.valueset, w)
         if quant == "latest":
             cte = (
-                f"{name} AS (\n  SELECT pid, index_date, {cmp_sql(atom)} AS v,\n"
+                f"{name} AS (\n  SELECT pid, index_date, {obs_cmp_sql(atom)} AS v,\n"
                 f"         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev\n"
                 f"  FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, "
                 f"oid DESC) AS rn\n        FROM ({src})) o WHERE rn = 1)"
             )
             return [cte], f"{name}.v", f"{name}.ev"
-        c = cmp_sql(atom)
+        c = obs_cmp_sql(atom)
+        # D-142 (review B-01): a row whose comparison is NULL (no readable number) leaves the answer unknown unless
+        # the readable rows settle it; it never counts as a failed test
+        unread = f"count(*) FILTER (WHERE {c} IS NULL) > 0"
+        anyv = f"(CASE WHEN bool_or({c}) THEN TRUE WHEN {unread} THEN NULL ELSE FALSE END)"
         if quant == "any":
-            agg = f"coalesce(bool_or({c}), FALSE)"
+            agg = anyv
         elif quant == "none":
-            agg = f"NOT coalesce(bool_or({c}), FALSE)"
+            agg = f"(NOT {anyv})"
         elif quant == "all":
-            agg = f"coalesce(bool_and({c}), TRUE)"
+            agg = f"(CASE WHEN NOT bool_and({c}) THEN FALSE WHEN {unread} THEN NULL ELSE TRUE END)"
         elif quant == "count>=":
-            agg = f"(count(*) FILTER (WHERE {c}) >= {atom.count})"
+            met = f"count(*) FILTER (WHERE {c})"
+            agg = (
+                f"(CASE WHEN {met} >= {atom.count} THEN TRUE "
+                f"WHEN {met} + count(*) FILTER (WHERE {c} IS NULL) >= {atom.count} THEN NULL ELSE FALSE END)"
+            )
         else:
             raise CompileError(f"quantifier {quant}")
         cte = (

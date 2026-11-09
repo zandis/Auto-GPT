@@ -191,14 +191,24 @@ class CqlGenerator:
             ev = f"if {ln} is null then List<String>{{}} else {{ {ln}.id + '|' + ToString(TB.ObsDate({ln})) }}"
             return defs, a, ev
         c = cmp_expr(atom, val("X"), code("X"))
+        # D-142 (review B-01), as the SQL: a record without a readable number leaves the answer unknown unless the
+        # readable records settle it; it never counts as a failed test
+        unread = f"exists ({qn} X where ({c}) is null)"
         if quant == "any":
-            a = f"if not exists ({qn}) then null else exists ({qn} X where {c})"
+            a = f"if not exists ({qn}) then null else if exists ({qn} X where {c}) then true else if {unread} then null else false"
         elif quant == "none":
-            a = f"if not exists ({qn}) then null else not exists ({qn} X where {c})"
+            a = f"if not exists ({qn}) then null else if exists ({qn} X where {c}) then false else if {unread} then null else true"
         elif quant == "all":
-            a = f"if not exists ({qn}) then null else AllTrue({qn} X return {c})"
+            a = (
+                f"if not exists ({qn}) then null else if exists ({qn} X where not ({c})) then false "
+                f"else if {unread} then null else true"
+            )
         elif quant == "count>=":
-            a = f"if not exists ({qn}) then null else Count({qn} X where {c}) >= {atom.count}"
+            met = f"Count({qn} X where {c})"
+            a = (
+                f"if not exists ({qn}) then null else if {met} >= {atom.count} then true "
+                f"else if {met} + Count({qn} X where ({c}) is null) >= {atom.count} then null else false"
+            )
         else:
             raise CompileError(f"quantifier {quant}")
         ev = f"{qn} X where {c} return X.id + '|' + ToString(TB.ObsDate(X))"
