@@ -1,4 +1,4 @@
-# Hand-written open-data test ruleset for NCT02568722 (docs/OPEN_DATA.md). Not reviewed/approved through the
+# Hand-written open-data test ruleset for NCT02568722 (docs/VALIDATION.md §5). Not reviewed/approved through the
 # APPROVE loop: the computable criteria are encoded by hand from the registry text in source_documents.
 id: STARRT-AKI
 kind: trial

@@ -1,4 +1,4 @@
-"""Deterministic grammar lines (spec v4 App. D, v1 ``SPEC.md`` §5; FR-CONV-1, FR-UX-10).
+"""Deterministic grammar lines (spec v4 App. D, v1 ``spec/archive/SPEC.md`` §5; FR-CONV-1, FR-UX-10).
 
 :func:`parse_line` returns a :class:`Line` for a text that is a grammar line, ``None`` for text that is not one (it then
 goes to the conversation engine), and raises :class:`GrammarError` for a text that starts with a command keyword but

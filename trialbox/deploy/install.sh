@@ -5,6 +5,8 @@
 #   sudo deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--gpu rtxpro6000|gb10|rtx5090|rtx4090] [--yes]
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
 #   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
+#   ... --ctgov live|offline                       # ClinicalTrials.gov: online, or the copy in each update (D-140)
+#   deploy/install.sh --ctgov-check                # only: which ClinicalTrials.gov mode would be suggested here?
 #
 # Tiers (D-138, tools/tiers.py): small = rtx5090, medium = gb10, large = rtxpro6000 (the boxes of D-124). A tier is
 # installed only from a measured serving record of its own uncapped card (deploy/site/ or deploy/measured/
@@ -22,11 +24,13 @@
 #   5. accounts:  first console administrator (password printed once); users page for the rest
 #   6. check:     deploy/check_host.sh; the console URL and the intake address
 # Re-running is safe: every step is idempotent. Nothing leaves the host: no registry, no download, no telemetry.
+# The one exception: when live ClinicalTrials.gov is chosen, one HTTPS request to clinicaltrials.gov (no data sent)
+# checks that this host can reach it (D-140).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
-TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0
+TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0; CTGOV="${TB_CTGOV_INSTALL:-}"; CTGOV_CHECK=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --tier) TIER="$2"; shift ;;
@@ -35,8 +39,10 @@ while [ $# -gt 0 ]; do
     --mode) MODE="$2"; MODE_SET=1; shift ;;
     --gpu) GPU="$2"; GPU_SET=1; shift ;;
     --yes) YES=1 ;;
+    --ctgov) CTGOV="$2"; shift ;;
+    --ctgov-check) CTGOV_CHECK=1 ;;
     --check) CHECK=1 ;;
-    -h|--help) sed -n 2,31p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,36p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -49,6 +55,36 @@ IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 PUBKEY="${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}"
 
 if [ "$CHECK" = 1 ]; then exec sh "$ROOT/deploy/check_host.sh" "$@"; fi
+
+# ------------------------------------------------------------------------------------------------ ClinicalTrials.gov
+# D-140 (owner, 2026-11-09): each hospital chooses; the default is offline. live = the box may reach
+# clinicaltrials.gov:443; offline = no outbound access, the trials come from the reference data pack in each signed
+# update. live on a host without internet is refused back to offline. TB_CTGOV_PROBE=ok|fail stands in for the
+# network in the tests.
+ctgov_internet() {
+  case "${TB_CTGOV_PROBE:-}" in ok) return 0 ;; fail) return 1 ;; esac
+  if command -v curl >/dev/null; then curl -fsS -o /dev/null -m 8 https://clinicaltrials.gov/api/v2/version 2>/dev/null
+  else timeout 8 bash -c ': </dev/tcp/clinicaltrials.gov/443' 2>/dev/null; fi
+}
+ctgov_question() {
+  cat <<'EOQ'
+  ClinicalTrials.gov: may this box reach clinicaltrials.gov on the internet?
+    offline = no (default). TrialBox uses the copy that comes with each update: no outbound access; the data are as of the update.
+    live    = yes. TrialBox asks ClinicalTrials.gov directly: always current; one outbound address; no patient data is sent.
+  ClinicalTrials.gov：この機器からインターネット上の clinicaltrials.gov に接続してよいですか？
+    offline = いいえ（既定）。更新のたびに届く写しを使います。外部へは接続しません。データは更新の時点のものです。
+    live    = はい。TrialBox が ClinicalTrials.gov に直接問い合わせます。常に最新。外部への接続先は1か所で、患者データは送りません。
+  ClinicalTrials.gov：本機可以連上網際網路的 clinicaltrials.gov 嗎？
+    offline = 不可以（預設）。使用每次更新附帶的資料副本：不對外連線；資料為該次更新當時的版本。
+    live    = 可以。TrialBox 直接查詢 ClinicalTrials.gov：資料隨時最新；只對外連一個位址；不傳送病人資料。
+EOQ
+}
+if [ "$CTGOV_CHECK" = 1 ]; then
+  if ctgov_internet; then echo "internet: yes (live is possible; the default stays offline)"
+  else echo "internet: no (offline only)"; fi
+  exit 0
+fi
+case "$CTGOV" in ""|live|offline) ;; *) echo "install: --ctgov must be live or offline" >&2; exit 2 ;; esac
 
 # ------------------------------------------------------------------------------------------------ 0. tier
 # D-138: before anything is loaded or started. The record rule is tools/serving_config.py's (D-112, D-124).
@@ -75,14 +111,14 @@ fi
 
 # ------------------------------------------------------------------------------------------------ 1. host
 say "host"
-command -v docker >/dev/null || die "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/HARDENING.md)"
+command -v docker >/dev/null || die "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/SECURITY.md)"
 docker info >/dev/null 2>&1 || die "Docker is not running (sudo systemctl start docker)"
 docker compose version >/dev/null 2>&1 || die "the docker compose plugin is missing"
 if [ "$MODE" = auto ]; then
   if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then MODE=gpu; else MODE=stub; fi
 fi
 case "$MODE" in
-  gpu) command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 || die "--mode gpu but nvidia-smi finds no GPU (driver + container toolkit; docs/HARDENING.md)"
+  gpu) command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 || die "--mode gpu but nvidia-smi finds no GPU (driver + container toolkit; docs/SECURITY.md)"
        docker info 2>/dev/null | grep -qi nvidia || echo "install: warning: Docker lists no nvidia runtime; the model service may not start" >&2 ;;
   stub) echo "    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model" ;;
   *) die "--mode must be gpu or stub" ;;
@@ -114,11 +150,11 @@ mkdir -p deploy/keys deploy/secrets
 if [ ! -f deploy/settings.yaml ]; then
   if [ -n "$ANSWERS" ]; then
     [ -f "$ANSWERS" ] || die "no such answers file: $ANSWERS"
-    docker run --rm -v "$ROOT/deploy:/out" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
+    docker run --rm -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" -v "$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS"):/in/answers.yaml:ro" \
       --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m tools.settings_wizard --answers /in/answers.yaml --out /out/settings.yaml --env-out /out/.env
   else
     [ -t 0 ] || die "no deploy/settings.yaml and no terminal for the questions: pass --answers site.yaml (RUNBOOK §1 step 3)"
-    docker run --rm -it -v "$ROOT/deploy:/out" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
+    docker run --rm -it -e TB_CTGOV_MODE="$CTGOV" -v "$ROOT/deploy:/out" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
       python -m tools.settings_wizard --out /out/settings.yaml --env-out /out/.env
   fi
 else
@@ -126,6 +162,22 @@ else
   docker run --rm -v "$ROOT/deploy/settings.yaml:/in/settings.yaml:ro" "$IMAGE_PY" python -m tools.settings_wizard --check /in/settings.yaml
 fi
 [ -f deploy/.env ] || cp .env.example deploy/.env
+# D-140: the ClinicalTrials.gov mode in plain words (en, ja, zh-TW) unless --ctgov gave it or the box already has one
+if [ -z "$CTGOV" ]; then CTGOV="$(sed -n 's/^TB_CTGOV_MODE=//p' deploy/.env | tail -1)"; fi
+case "$CTGOV" in
+  live|offline) ;;
+  *) CTGOV=offline
+     if [ "$YES" != 1 ] && [ -t 0 ]; then
+       ctgov_question; printf '  offline / live [offline]: '; read -r ans
+       case "${ans:-offline}" in live|offline) CTGOV="${ans:-offline}" ;; *) die "answer offline or live" ;; esac
+     fi ;;
+esac
+if [ "$CTGOV" = live ] && ! ctgov_internet; then
+  echo "install: clinicaltrials.gov does not answer from this host: ClinicalTrials.gov set to offline (re-run with --ctgov live once it does)" >&2
+  CTGOV=offline
+fi
+echo "    ClinicalTrials.gov: $CTGOV"
+sed -i "/^TB_CTGOV_MODE=/d" deploy/.env && echo "TB_CTGOV_MODE=$CTGOV" >> deploy/.env
 # random service passwords where the example ones are still in place
 for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD; do
   if grep -q "^$k=change-me" deploy/.env || ! grep -q "^$k=" deploy/.env; then
@@ -229,6 +281,19 @@ docker run --rm -v "$ROOT/deploy:/app/deploy" --user "$(id -u):$(id -g)" "$IMAGE
   || echo "install: note: network sheet not written (python -m tools.network_sheet)" >&2
 [ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2
 
+for f in deploy/refdata/pending/*.tar; do  # D-140: the reference data pack of the install bundle, now the db runs
+  [ -f "$f" ] || continue
+  if "${COMPOSE[@]}" cp "$f" criteria-compiler:/tmp/refdata-install.tar \
+    && "${COMPOSE[@]}" exec -T criteria-compiler python -m tb_common.refdata load /tmp/refdata-install.tar --by deploy/install.sh; then
+    rm -f "$f"; echo "    reference data loaded: $(basename "$f" .tar)"
+  else
+    echo "install: warning: reference data $(basename "$f") not loaded (python -m tb_common.refdata load)" >&2
+  fi
+done
+if [ "$CTGOV" = offline ] && ! "${COMPOSE[@]}" exec -T criteria-compiler python -m tb_common.refdata status 2>/dev/null | grep -q pack_id; then
+  echo "install: note: offline ClinicalTrials.gov needs a reference data pack: tools/apply_update.sh <bundle with refdata>" >&2
+fi
+
 for f in deploy/updates/pending_audit/*.json; do  # the bundle's update.applied event, deferred until now
   [ -f "$f" ] || continue
   "${COMPOSE[@]}" exec -T orchestrator python -c '
@@ -253,7 +318,7 @@ echo "    add coordinators and viewers on the console's Users page, or: docker c
 
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"
-sh "$ROOT/deploy/check_host.sh" $( [ "$(uname -m)" = aarch64 ] && echo --gb10 ) || echo "install: host check reported FAIL lines above: fix them before go-live (docs/HARDENING.md)" >&2
+sh "$ROOT/deploy/check_host.sh" $( [ "$(uname -m)" = aarch64 ] && echo --gb10 ) || echo "install: host check reported FAIL lines above: fix them before go-live (docs/SECURITY.md)" >&2
 PORT="$(sed -n 's/^TB_HOST_CONSOLE_PORT=//p' deploy/.env | head -1)"
 cat <<EOT
 

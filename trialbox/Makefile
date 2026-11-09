@@ -29,6 +29,7 @@ lint: contracts-check
 	$(PY) -m ruff check .
 	$(PY) -m ruff format --check .
 	$(PY) -m mypy libs services tools tests
+	$(PY) tools/doclint.py
 
 FONTS := .cache/fonts/NotoSansTC-Regular.ttf
 
@@ -60,7 +61,7 @@ backup-drill:
 demo:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.demo
 
-# the same as one image file for the demo VM (docs/DEMO_VM.md): dist/trialbox-demo.tar.gz
+# the same as one image file for the demo VM (docs/RUNBOOK.md §11): dist/trialbox-demo.tar.gz
 demo-bundle:
 	docker build $(CA_SECRET) -f demo/Dockerfile -t trialbox-demo:step5 .
 	mkdir -p dist && docker save trialbox-demo:step5 | gzip > dist/trialbox-demo.tar.gz
@@ -69,7 +70,7 @@ demo-bundle:
 test-e2e:
 	TB_INTEGRATION=1 $(PY) -m pytest -q -m e2e
 
-# root + nftables + iproute2 + the running test stack (docs/HARDENING.md §3)
+# root + nftables + iproute2 + the running test stack (docs/SECURITY.md §2)
 test-egress:
 	TB_EGRESS_TEST=1 $(PY) -m pytest -q -m egress tests/integration/test_egress.py
 
@@ -125,7 +126,7 @@ audit-verify:
 bench:
 	$(PY) tools/bench.py
 
-# open data (docs/OPEN_DATA.md): fetch the PhysioNet MIMIC-IV FHIR demo (sha256-verified, not committed), then
+# open data (docs/VALIDATION.md §5): fetch the PhysioNet MIMIC-IV FHIR demo (sha256-verified, not committed), then
 # adapter -> lake -> FEAS in process for the two ClinicalTrials.gov rulesets; writes .cache/open_data/report.{json,md}
 open-data-e2e:
 	$(PY) tools/fetch_open_data.py

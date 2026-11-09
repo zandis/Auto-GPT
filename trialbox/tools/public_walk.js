@@ -2,6 +2,7 @@
 // desktop and phone. Node Playwright with the preinstalled Chromium; never runs `playwright install`.
 //
 //   node tools/public_walk.js '{"base": "...", "password": "...", "walk": "<dir>/walk.json", "shots": "<dir>"}'
+//   TB_SHOT_PASSWORD=... node tools/public_walk.js '{"base": "...", "walk": ...}'   # the password off the command line
 //
 // For every page a role can open it checks: HTTP status (200, or the expected 403/404), the page language (html
 // lang), no raw catalogue key left on the page (an untranslated string such as "admin.health.title"), no "None" or
@@ -97,14 +98,14 @@ const PAGES = {
     "/reports/research-office",
     "/jobs",
   ],
-  admin: ["/admin?tab=health", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/codes?${SQ}`, `/site/help?${SQ}`],
+  admin: ["/admin?tab=health", "/admin/notice", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/codes?${SQ}`, `/site/help?${SQ}`],
   viewer: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`],
   cra: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`],
 };
 // pages a role must not open: a 403 page (in the chosen language), never a 500
 const FORBIDDEN = {
   pi: ["/admin?tab=health"],
-  crc: ["/admin?tab=health"],
+  crc: ["/admin?tab=health", "/admin/notice"],
   viewer: [`/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`],
   cra: [`/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`],
 };
@@ -219,7 +220,7 @@ async function openMenu(page) {
 async function signIn(page, user, L, password) {
   await page.goto(args.base + "/login", { waitUntil: "load" });
   await page.fill("#username", user);
-  await page.fill("#password", password || args.password);
+  await page.fill("#password", password || args.password || process.env.TB_SHOT_PASSWORD);
   await Promise.all([page.waitForLoadState("load"), page.click("[data-testid=login-submit]")]);
   await page.waitForSelector("[data-testid=whoami]", { state: "attached", timeout: 20000 });
   await openMenu(page);

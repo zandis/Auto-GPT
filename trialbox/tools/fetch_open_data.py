@@ -3,7 +3,7 @@
 Source: PhysioNet, https://physionet.org/content/mimic-iv-fhir-demo/2.1.0/ (100 de-identified patients, Open Data
 Commons Open Database License v1.0). The files are **not** committed: they are downloaded into
 ``.cache/open_data/mimic-iv-fhir-demo/`` (gitignored), each verified against the release's ``SHA256SUMS.txt``.
-Attribution and citation: ``docs/OPEN_DATA.md``.
+Attribution and citation: ``docs/DATA.md`` §6.
 
     python tools/fetch_open_data.py                 # the default resource files (idempotent)
     python tools/fetch_open_data.py --ctgov         # also refresh tests/fixtures/open_data/ctgov_*.json

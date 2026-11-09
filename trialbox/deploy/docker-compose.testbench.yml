@@ -1,4 +1,4 @@
-# TrialBox Test Bench (docs/HANDOFF.md §5): developer and validation tool, never a product surface.
+# TrialBox Test Bench (docs/VALIDATION.md §6): developer and validation tool, never a product surface.
 #   docker compose --project-directory deploy -f deploy/docker-compose.testbench.yml --profile dev up testbench
 # Only the "dev" profile starts it. The product image excludes tools/testbench (.dockerignore), so the source is
 # mounted read-only from the checkout. Inside the container uvicorn listens on all interfaces of its own network

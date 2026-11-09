@@ -103,7 +103,7 @@ def resolve(
     if not card:
         raise Refused(
             f"tier {tier} needs {BOX[gpu]}, and this machine shows no NVIDIA card (nvidia-smi found none). Install the "
-            "driver and the container toolkit (docs/HARDENING.md), or install without a tier (--mode stub: "
+            "driver and the container toolkit (docs/SECURITY.md), or install without a tier (--mode stub: "
             "structured criteria only)."
         )
     here = profile_of(arch, card, deploy)

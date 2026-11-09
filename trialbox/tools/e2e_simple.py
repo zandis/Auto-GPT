@@ -11,6 +11,8 @@ network, no secrets, run in process:
     -> a new site set up the hard way: protocol, charts, an IT dump, a messy list; the readiness page green (12)
     -> Japan: an SS-MIX2 hospital with ADT-52, OMP-11/12 and extended storage, JP Core $validate on the sample, the
        licensed-list loader, and the GOUT-COH funnel unchanged (13)
+    -> ClinicalTrials.gov offline: the sample reference data pack loaded, a trial found by NCT id, condition and a
+       Japan or Taiwan site, and its criteria drafted, with every outbound connection refused (14, D-140)
 
 and each stage is checked against something it did not compute itself: the generator's own counts, a recount from
 the hospital CSVs, the sent mail, the hash-chained audit log and a byte-identical re-run of the FEAS and SCREEN jobs.
@@ -54,6 +56,8 @@ from tools import rc_demo  # noqa: E402
 TRIAL, COHORT = ld.TRIAL, ld.COHORT
 GOUT = ("M10", "M1A")  # GZQO-INC-02 / GOUT-COH-INC-01 value set (ICD-10-CM)
 BUDGET_S = 15 * 60  # TB-DS-04 §3.4.1: the whole run within 15 minutes
+# (judge, verifier) served names when tools.complete_run puts the GPU pair in the box; None = the stub (the gate)
+PAIR: tuple[str, str] | None = None
 
 
 @dataclass
@@ -706,8 +710,15 @@ def _stage13(work: Path, box: Any, gout: dict[str, Any]) -> Stage:
         fun[kind] = (raw.start_n, raw.remaining)
     s.check("GOUT-COH funnel: the SS-MIX2 storage equals its CSV export", fun["ssmix2"] == fun["csv"]
             and list(fun["csv"][1].values())[2] > 0, fun)  # fmt: skip
-    s.check("GOUT-COH funnel of the main run unchanged by step 7 (FEAS, SCREEN, cohort list)",
-            gout == GOUT_COH_BEFORE_STEP7, gout)  # fmt: skip
+    if PAIR is None and gout["feas"]["start"] == GOUT_COH_BEFORE_STEP7["feas"]["start"]:  # the gate, stub
+        s.check("GOUT-COH funnel of the main run unchanged by step 7 (FEAS, SCREEN, cohort list)",
+                gout == GOUT_COH_BEFORE_STEP7, gout)  # fmt: skip
+    else:  # another size (tools.complete_run): the numbers were pinned on the gate's hospital; the shape still holds
+        rem = list(gout["feas"]["remaining"].values())
+        sf = gout["screen"]["funnel"]
+        s.check("GOUT-COH funnel of the main run: FEAS and SCREEN never grow",
+                all(a >= b for a, b in itertools.pairwise([gout["feas"]["start"], *rem]))
+                and sf["S0"] >= sf["S1"] >= sf["S3"], gout)  # fmt: skip
     events = {str(e["event"]) for e in _audit(box)}
     s.check("each licensed load is in the hash-chained audit", "terminology.load" in events
             and verify(box.audit_dir).ok)  # fmt: skip
@@ -735,6 +746,78 @@ GOUT_COH_BEFORE_STEP7: dict[str, Any] = {
         "tiers": {"excluded": 3332, "high": 5, "review": 4},
     },
 }
+
+
+@contextlib.contextmanager
+def _no_network() -> Any:
+    """Every TCP connection off this machine fails (Unix sockets and loopback still work: the trial database)."""
+    import socket
+
+    real = socket.socket.connect
+
+    def connect(self: socket.socket, address: Any) -> Any:
+        if self.family in (socket.AF_INET, socket.AF_INET6) and str(address[0]) not in (
+            "127.0.0.1",
+            "::1",
+            "localhost",
+        ):
+            raise OSError(f"e2e_simple stage 14: no network ({address[0]})")
+        return real(self, address)
+
+    socket.socket.connect = connect  # type: ignore[method-assign,assignment]
+    try:
+        yield
+    finally:
+        socket.socket.connect = real  # type: ignore[method-assign]
+
+
+def _stage14(work: Path, box: Any) -> Stage:
+    """Stage 14 (D-140): ClinicalTrials.gov offline. The sample reference data pack (the synthetic trials of the
+    cassettes, two real records, tiny TFDA / MHLW / NHI / ICD-10-CM excerpts) is built, verified and loaded; with every
+    outbound connection refused, a trial is found by NCT id, by condition and by a Japan or Taiwan site, and the
+    criteria are drafted from the pack's full record."""
+    from criteria_compiler.ctgov import CtGov
+    from tb_common import refdata as rd
+    from tb_contracts import CompileRequest, CtgovSearchRequest, ParseRequest
+
+    from tools import refdata_fetch as rf
+
+    s = Stage("14 ClinicalTrials.gov offline: the reference data pack")
+    t = time.perf_counter()
+    tar = rf.build(rf.sample_raw(work / "refdata" / "raw"), work / "refdata", "20261109", sample=True)
+    with rd.opened(tar) as pack:
+        m = rd.verify(pack)
+        s.check("the pack verifies: every file's sha256 and record count", len(m["sources"]) == 6, m["pack_id"])
+        s.check("each source has its URL, date, sha256, count, licence, terms and attribution",
+                all(x["url"] and x["download_sha256"] and x["attribution"] for x in m["sources"]))  # fmt: skip
+        with rd.RefStore() as st:
+            loaded = st.load(pack, by="e2e_simple")
+            status = st.status()
+    s.check("loaded into the trial database (schema refdata, in the backup)", loaded.counts.get("ctgov") == 6
+            and status is not None and status["data_as_of"] == "2026-11-09", loaded.counts)  # fmt: skip
+    ct = CtGov(mode="offline")
+    with _no_network():
+        one = ct.search(CtgovSearchRequest(condition="", nct_id="NCT99000001"))
+        jp = ct.search(CtgovSearchRequest(condition="gout", locations=["Japan"]))
+        tw = ct.search(CtgovSearchRequest(condition="gout", locations=["Taiwan"]))
+        s.check("found by NCT id", [x.nct_id for x in one.studies] == ["NCT99000001"] and one.source == "refdata")
+        s.check("found by condition and a Japan site", sorted(x.nct_id for x in jp.studies) == ["NCT99000001",
+                "NCT99000003"], [x.nct_id for x in jp.studies])  # fmt: skip
+        s.check("found by condition and a Taiwan site", sorted(x.nct_id for x in tw.studies) == ["NCT99000001",
+                "NCT99000002"], [x.nct_id for x in tw.studies])  # fmt: skip
+        study = one.studies[0]
+        key = f"ctgov/{study.nct_id}/{study.last_update}/{study.nct_id}_eligibility.txt"
+        box.store.put(key, study.eligibility_text.encode("utf-8"), "text/plain")
+        parsed = box.orch.services.parser.parse(ParseRequest(minio_key=key, job_id="e2e-refdata"))
+        pkey = f"ctgov/{study.nct_id}/{study.last_update}/parsed.json"
+        box.store.put(pkey, parsed.model_dump_json().encode("utf-8"), "application/json")
+        res = box.orch.services.compiler.compile(CompileRequest(
+            job_id="e2e-refdata", ruleset=study.nct_id, parsed_doc_key=pkey, kind="trial", title=study.title,
+            requested_by="e2e_simple", options={"index_date": "2026-11-01", "incremental": "false"}))  # fmt: skip
+    s.check("criteria drafted from the pack's record, with no network",
+            bool(res.draft_zip_key) and bool(parsed.ie_block.inclusion), res.draft_zip_key)  # fmt: skip
+    s.seconds = time.perf_counter() - t
+    return s
 
 
 def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
@@ -873,15 +956,22 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     sj = _done(box, "SCREEN", TRIAL)[0]
     scr = _json_output(box, sj, "screen_")
     j = scr["judging"]
-    s.check("stub model ran, single judge", j["judge_model"] == "stub" and j["verifier_model"] is None, j)
-    s.check("no note-based exclusion without two models agreeing", j["note_block"] == "never" and not j["may_block"], j)
+    if PAIR is None:
+        s.check("stub model ran, single judge", j["judge_model"] == "stub" and j["verifier_model"] is None, j)
+        s.check(
+            "no note-based exclusion without two models agreeing", j["note_block"] == "never" and not j["may_block"], j
+        )
+    else:  # tools.complete_run on the card: the pair ran, and a note excludes only when both agree (D-115, D-117)
+        s.check("the pair ran: judge and verifier", (j["judge_model"], j["verifier_model"]) == PAIR, j)
+        s.check("the pair canary passed, so notes may exclude", j["may_block"], j)
+        s.check("a note excludes only when both models agree", j["note_block"] == "both_agree", j)
     fun = dict((k, v) for k, v in scr["funnel"])
     s.check("funnel S0 >= S1 >= S3 >= S4 > 0", fun["S0"] >= fun["S1"] >= fun["S3"] >= fun["S4"] > 0, fun)
     s.check("listed = high + review", scr["listed"] == scr["tiers"]["high"] + scr["tiers"]["review"], scr["tiers"])
     sp = scr.get("provenance") or {}
     s.check(
         "FR-REP-01 provenance names the model and prompt",
-        sp.get("models") == ["stub"] and sp.get("prompt_versions"),
+        sp.get("models") == (["stub"] if PAIR is None else list(PAIR)) and sp.get("prompt_versions"),
         sp,
     )
     s.check(
@@ -1183,6 +1273,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     stages.append(_stage11(res, api, crc, pi, lang, mrns, box))
     stages.append(_stage12(res, crc, pi, lang, box))
     stages.append(_stage13(work, box, gout_coh_numbers(box, lst["cohort_new"])))
+    stages.append(_stage14(work, box))
 
     # ---------------------------------------------------------------- FR-REP-02: byte-identical re-run
     s = Stage("re-run (FR-REP-02)")
@@ -1195,7 +1286,9 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     box.orch.drain()
     again = box.orch.db.get(again.job_id)
     s.check("FEAS on the approved ruleset", again is not None and again.state == "done", again and again.error)
-    for jb in [x for x in (again, sj) if x is not None]:
+    # with the GPU pair only FEAS (no model) is re-run: a second SCREEN would double the paid card time, and batched
+    # model answers are not bit-reproducible (as spark_e2e's cascade check on GB10); the stub gate re-runs both
+    for jb in [x for x in (again, sj if PAIR is None else None) if x is not None]:
         rr = rerun(box.orch, jb.job_id)
         s.check(
             f"{jb.type} re-run byte-identical", rr.identical, [f for f in rr.files if not f["same"]][:3] or rr.error

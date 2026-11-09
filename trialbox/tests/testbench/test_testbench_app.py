@@ -1,4 +1,4 @@
-"""Test Bench app (docs/HANDOFF.md §5) through FastAPI's TestClient: pages, refusals, and each driver."""
+"""Test Bench app (docs/VALIDATION.md §6) through FastAPI's TestClient: pages, refusals, and each driver."""
 
 from __future__ import annotations
 

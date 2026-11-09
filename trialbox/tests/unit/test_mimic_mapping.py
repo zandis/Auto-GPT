@@ -1,4 +1,4 @@
-"""MIMIC-IV FHIR demo normalisation tables and step (services/adapter/mapping/mimic; docs/OPEN_DATA.md)."""
+"""MIMIC-IV FHIR demo normalisation tables and step (services/adapter/mapping/mimic; docs/VALIDATION.md §5)."""
 
 from __future__ import annotations
 

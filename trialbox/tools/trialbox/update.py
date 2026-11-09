@@ -15,7 +15,10 @@ key, every payload's size and sha256: ``tools/verify_update.py``, D-77) and stag
    not hold (D-126), so the automatic rollback uses this local dump; it is removed after a good update.
 3. **Apply**: images (``docker load``), models, other files; **migrate and restart**: the services run their
    versioned migrations at start (``tb_common.db``, D-126), so a restart on the new images is the migration;
-   then the rulesets of the bundle (criteria-compiler import with the approval and equivalence gates).
+   then the rulesets of the bundle (criteria-compiler import with the approval and equivalence gates) and its
+   reference data pack (payload kind ``refdata``, ``trialbox-refdata-<date>.tar``: verified and loaded into the
+   schema ``refdata`` of the trial database, ``tb_common.refdata``, D-140; the database dump of step 2 rolls it
+   back with everything else).
 4. **Check**: every service healthy (``up --wait``), plus ``TB_UPDATE_CHECK_CMD`` when set; the demo box runs
    ``e2e_simple`` in the updated container.
 5. **Success**: ``update.applied`` in the hash-chained audit log, the history line, the local dump removed.
@@ -158,6 +161,12 @@ def restore_models(dest: Path, rb: Path, point: Point) -> None:
         shutil.copy2(rb / "models" / rel, dest / rel)
 
 
+def refdata_packs(plan: Plan) -> list[Path]:
+    """The reference data packs of a bundle (payload kind ``refdata``), oldest date first."""
+    rd = plan.kind("refdata")
+    return sorted(p for p in rd.rglob("*.tar") if p.is_file()) if rd.is_dir() else []
+
+
 def copy_other(src: Path, dest: Path) -> list[str]:
     if not src.is_dir():
         return []
@@ -215,7 +224,7 @@ class Updater:
             self.box.restart(plan)
             step("migrate and restart", True)
             done = self.box.post_apply(plan)
-            step("rulesets", True, f"{len(done)} imported")
+            step("rulesets", True, f"{len(done)} imported (rulesets and reference data)")
             step("check", True, self.box.check(plan))
         except Exception as exc:
             failed = f"{type(exc).__name__}: {exc}"
@@ -441,6 +450,11 @@ class ComposeBox(_DockerImages):
             self.run(self._c("exec", "-T", "criteria-compiler", "python", "-m", "criteria_compiler.import_ruleset",
                              "/tmp/ruleset-update.zip", "--by", f"update:{plan.bundle_id}"))  # fmt: skip
             done.append(z.name)
+        for pack in refdata_packs(plan):  # D-140: verified again inside, then one transaction
+            self.run(self._c("cp", str(pack), "criteria-compiler:/tmp/refdata-update.tar"))
+            self.run(self._c("exec", "-T", "criteria-compiler", "python", "-m", "tb_common.refdata", "load",
+                             "/tmp/refdata-update.tar", "--by", f"update:{plan.bundle_id}"), timeout=7200)  # fmt: skip
+            done.append(pack.name)
         return done
 
     def check(self, plan: Plan) -> str:
@@ -658,7 +672,14 @@ class InProcessBox:
             s.close()
 
     def post_apply(self, plan: Plan) -> list[str]:
-        return []
+        from tb_common.refdata import RefStore, opened
+
+        done = []
+        for tar in refdata_packs(plan):
+            with opened(tar) as pack, RefStore(self.url) as st:
+                st.load(pack, by=f"update:{plan.bundle_id}")
+            done.append(tar.name)
+        return done
 
     def schema_version(self) -> int:
         from tb_common.db import Database
@@ -700,6 +721,11 @@ def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backu
     if os.environ.get("TB_SKIP_AUDIT") or not box.running():
         if plan.kind("ruleset").is_dir():
             print("rulesets: imported when the box runs (tools/apply_update.sh <bundle> again after the start)")
+        for tar in refdata_packs(plan):  # install.sh loads deploy/refdata/pending/*.tar once the box runs
+            pend = deploy / "refdata" / "pending"
+            pend.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(tar, pend / tar.name)
+            print(f"reference data {tar.name}: loaded when the box runs (deploy/install.sh)")
         point = Point()
         rb = deploy / "updates" / plan.bundle_id / "rollback"
         rb.mkdir(parents=True, exist_ok=True)

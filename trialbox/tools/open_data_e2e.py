@@ -1,4 +1,4 @@
-"""Open-data end-to-end run: MIMIC-IV FHIR demo -> adapter -> lake (DuckDB) -> FEAS, in process (docs/OPEN_DATA.md).
+"""Open-data end-to-end run: MIMIC-IV FHIR demo -> adapter -> lake (DuckDB) -> FEAS, in process (docs/VALIDATION.md §5).
 
 Pipeline (no compose stack, no network):
 

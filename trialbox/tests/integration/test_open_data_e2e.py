@@ -1,7 +1,7 @@
 """Open-data end-to-end: MIMIC-IV FHIR demo -> adapter -> lake -> FEAS for two real ClinicalTrials.gov trials.
 
 In process (no compose stack). Needs the PhysioNet files from ``python tools/fetch_open_data.py`` (``make
-open-data-e2e``); skipped when they are absent so CI without network passes. docs/OPEN_DATA.md.
+open-data-e2e``); skipped when they are absent so CI without network passes. docs/VALIDATION.md §5.
 """
 
 from __future__ import annotations

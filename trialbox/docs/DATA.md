@@ -1,0 +1,127 @@
+# TrialBox data and integration
+
+*Owner: Aimedics engineer. Status: living; changed in the same pull request as the code it describes. History: the git log of this file; the merge into eight documents is D-139.*
+
+For hospital IT and the people who own the data. It says what TrialBox reads, how a site maps its data, how trial
+data syncs with REDCap and spreadsheets, and which open data the tests use. Stores and services:
+[Architecture](ARCHITECTURE.md). Laws: [Security §7](SECURITY.md#7-laws-a-site-must-check).
+
+## 1. What the box reads
+
+| Source | Reader | Country | Direction |
+| --- | --- | --- | --- |
+| CSV export from the HIS | `adapter run --source csv` | TW, JP | one way in |
+| CGRD-type SQL views | `--source cgrd_sql` | TW | one way in |
+| SS-MIX2 standardized and extended storage | `--source ssmix2` (`services/adapter/sources/ssmix2/`) | JP | one way in |
+| FHIR bulk NDJSON | `--source fhir_bulk` | any | one way in |
+| REDCap project | `services/rc_bridge` (API, no External Module) | any | two way |
+| a PI's spreadsheet (CSV in UTF-8, Shift_JIS or Big5; XLSX) | data core sheet import | any | two way |
+| FHIR bundle of QuestionnaireResponses | data core | any | in |
+| charts one by one (text, Word, PDF, scans, pasted EMR text) | site set-up (`services/sitesetup`) | any | in, as *proposed* facts |
+
+TrialBox never writes to a hospital record system (owner decision 2, 2026-11-08). The nightly ingest makes a FHIR
+R4 snapshot with pseudonyms (`HMAC(site key, chart number)`) and rebuilds the lake; HAPI gets only new or changed
+resources (D-122).
+
+**SS-MIX2 (Japan).** The reader walks `<id[0:3]>/<id[3:6]>/<id>/<date>/<type>/`, keeps the newest message per
+patient, type and order, and reads HL7 v2.5 in ISO-2022-JP or UTF-8: ADT-00/12/22/52 (patient, visits, class changes),
+PPR-01 (標準病名 with the ICD-10 code, or `byomei_to_icd10.csv`), OMP-01/02 (orders) and OMP-11/12
+(administrations) with YJ and ATC, and OML-11 (labs with JLAC10). Extended storage is read by folder kind (no
+`_contents.xml` index yet); tables SS-MIX2 does not standardize come from `<root>/extended/<table>.csv` (D-122,
+D-137). Output claims JP Core 1.1.0 and is validated on a sample at ingest, offline
+(`services/adapter/validate/jpcore.py`).
+
+**Code lists.** ICD-10-CM 2026 in full (98,186 codes, public domain) for lookups and family groupers. The licensed
+Japanese lists (MEDIS 標準病名, JLAC10, YJ) are loaded by the site from its own licensed files
+(`python -m adapter.licensed load --kind medis|jlac10|yj --file … --version …`, D-137); each release is kept with its
+version, sha256 and who loaded it, and every load is audited. The demo rows are synthetic and marked `verify`.
+
+## 2. Mapping a site
+
+1. Copy `services/adapter/mapping/templates/csv_site.yaml` (or `cgrd_sql_site.yaml`; Japan:
+   `services/adapter/mapping/jp_core/ssmix2_site.yaml`) to the site's mapping file.
+2. Fill in `tables:`: `source`, `rename` (local to canonical columns, `services/adapter/mapping/templates/CANONICAL.md`)
+   and `values` (local to canonical codes). Copy and edit the lab lookup CSV.
+3. Check it against a real export:
+   `python tools/mapping_check.py --mapping <file> --source csv --path <dir>` (also `--source ssmix2`). It must show 0
+   missing columns and 0 structural errors. It lists unmapped lab codes for the lab team, and the rows with no
+   ICD-10 or ATC code.
+
+No code change is needed for a new site. A code nobody can read is never a "no": the answer becomes unknown with
+reason `unknown_code_system`, and the feasibility page counts those patients (D-130).
+
+## 3. Trial data: the data core
+
+TrialBox's own data lives in schema `datacore` of `trialbox_wf` (D-123, D-126):
+
+- **Forms** are FHIR Questionnaires. A REDCap data dictionary or one of the seven built-in forms becomes one.
+  Identifier fields of a dictionary are dropped.
+- **Answers** are rows, one per study, record, event and field, with who changed it and when; every change is in
+  `history`. FHIR QuestionnaireResponse is an export, made on request.
+- **The record key** is one rule: the screening number first, else the pseudonym (the chart number turned into the
+  HMAC pseudonym at import), else the row is refused and listed with its place in the source, never guessed.
+- **Ownership** is per field: TrialBox or one source. A source-owned change is taken. A TrialBox-owned field is pushed
+  when it changed. A different value on the other side is a **conflict**: listed once, never forced, closed by a
+  person (keep TrialBox's or take the source's), and the trail kept.
+- **Sync** runs at 03:00 and on a button. Pages: Sources, Conflicts, Forms; the same calls under `/api/v1`.
+- **Exports:** CDISC ODM 1.3, REDCap CSV and XLSX (D-129). An ODM export re-imports into the REDCap simulator with
+  every value equal (`e2e_simple` stage 10).
+
+**REDCap.** Attach a project on the study's set-up page (guided; variable names are read from the dictionary). The
+screening write-back fills three fields on TrialBox's own instrument (`tb_screen_date`, `tb_status`,
+`tb_status_date`) and never a field REDCap owns; modes `off`, `existing`, `create`. A blank never erases a value
+(`overwriteBehavior=normal`). The site's REDCap builder creates the instrument from the dictionary in
+`services/rc_sim/fixtures/`. Evidence: `tests/unit/test_rc_writeback.py`, `tests/unit/test_datacore.py`,
+`e2e_simple` stages 8 and 9.
+
+## 4. Site set-up and imperfect data
+
+The readiness page shows trial, patients and trial records as green, amber or red, with what is missing (D-131,
+D-135). A site can start with a protocol and pasted charts only.
+
+- **Proposed facts.** A fact a model reads from a chart is *proposed*, shown beside its quote, and goes only to the
+  lake's `site_fact` table. The compiled SQL never reads it, so it can never count as met or exclude; a decided answer
+  it could change becomes unknown (reason `proposed_fact`) until a coordinator confirms it with one tap.
+- **Safe fixes** made automatically and listed: era and 民國 dates, full-width characters, units, merged cells.
+  Everything else goes to a "please check" list.
+- **Code mapping** once per site; patients from several inputs joined by pseudonym.
+
+## 5. Integration scenarios
+
+From the 2026-11-05 catalogue (full text, with sources: `spec/archive/INTEGRATION_SCENARIOS.md`):
+
+| Scenario | Data flow | Status |
+| --- | --- | --- |
+| A. Full hospital EMR | nightly export or views, one way in | built: CSV, CGRD views, SS-MIX2, FHIR bulk |
+| B. A PI's own registry | periodic import | built: REDCap and sheets, two way |
+| C. Consortium, multi-site | per-site boxes, aggregate tables only | COHORT tables and merge; no DP |
+| D. Manual entry, referral letters, scans | one chart at a time | built: chart upload and proposed facts; OCR wired but not run on a real scan |
+| E. Staged (manual first, EMR later) and air-gapped | start small | supported: a site can start with charts only; offline updates |
+| F. Imaging, check-ups, claims, wearables, cloud, SMO or CRO boxes, research zones | other feeds | not built |
+
+Gaps from that catalogue still open: no TOTP in the console; no erasure (tombstone) path; no SMART Backend Services
+client for live FHIR Bulk (the reader takes NDJSON from disk); an IQ/OQ/PQ package is a document, not code.
+
+## 6. Open and public data in the tests
+
+| Data | Use | Licence | Where |
+| --- | --- | --- | --- |
+| Synthetic hospital (`tools.synth_hospital`) | every gate: JP and TW sites, notes in ja, zh-TW and en, planted findings | ours, all fictional | generated |
+| Synthetic sites A and B (`tools/make_fixtures.py`) | unit and integration tests, 600 + 520 patients | ours | `tests/fixtures/` |
+| SIGIR 2016 patient descriptions (TrialGPT) | the public site's English notes | US government work, public domain | `eval/criterion_ml/LICENSE.NCBI` |
+| NTCIR-16 MedTxt-CR and MedTxt-RR | the public site's Japanese notes | CC BY 4.0 (Sociocom, NAIST) | fetched to `.cache/medtxt`, never committed |
+| MIMIC-IV Clinical Database Demo on FHIR v2.1.0 | the open-data test | ODbL 1.0 | fetched to `.cache/open_data/`, never committed |
+| ClinicalTrials.gov NCT04157751, NCT02568722 | open-data test rulesets | public registry | `tests/fixtures/open_data/` |
+| TREC Clinical Trials 2021/22 | N-12 | NIST qrels, NCBI corpus | fetched by `tools/trec_ct_eval.py` |
+
+The public site (`tools/public_site.py`) keeps every note verbatim; age, sex and diagnoses are derived from the text
+by fixed rules; chart numbers, visit dates and staff are placed. Its `PROVENANCE.md` says which is which.
+ClinicalTrials.gov records in the cassettes are fictional (`NCT990000xx`, titled `[SYNTHETIC]`).
+
+**MIMIC notice.** The open-data test uses the MIMIC-IV Clinical Database Demo on FHIR under the Open Data Commons
+Open Database License v1.0. Cite: Bennett A, Ulrich H, Wiedekopf J, Szul P, Grimes J, Johnson A. MIMIC-IV Clinical
+Database Demo on FHIR (version 2.1.0). PhysioNet (2025). DOI 10.13026/vphg-y548. Also Bennett AM et al., JAMIA
+2023;30(4):718–25; Johnson AEW et al., Sci Data 2023;10:1; Pollard T et al., PhysioNet, Nature Health (2026). A
+database derived from the demo falls under the ODbL share-alike terms; the derived lake stays in `.cache/`.
+
+How the MIMIC data is normalised and what the test found: [Validation §5](VALIDATION.md#5-the-open-data-test).

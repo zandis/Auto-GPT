@@ -20,7 +20,7 @@ from __future__ import annotations
 import importlib
 import re
 import threading
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -64,6 +64,17 @@ class Tx:
     def executemany(self, text: str, rows: Sequence[Sequence[Any]]) -> None:
         if rows:
             self._cur.executemany(sql(text), [tuple(r) for r in rows])
+
+    def copy_rows(self, table: str, columns: Sequence[str], rows: Iterable[Sequence[Any]]) -> int:
+        """``COPY table (columns) FROM STDIN`` (bulk loads, e.g. the reference data pack); return the row count."""
+        if not (_SCHEMA_RE.match(table) and all(_SCHEMA_RE.match(c) for c in columns)):
+            raise DatabaseError(f"bad table or column name in COPY {table}")
+        n = 0
+        with self._cur.copy(f"COPY {table} ({', '.join(columns)}) FROM STDIN") as cp:
+            for r in rows:
+                cp.write_row(tuple(r))
+                n += 1
+        return n
 
     def fetchone(self, text: str, params: Sequence[Any] = ()) -> Row | None:
         self._cur.execute(sql(text), tuple(params))

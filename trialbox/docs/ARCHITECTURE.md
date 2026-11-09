@@ -1,195 +1,164 @@
-# TrialBox architecture (as built)
+# TrialBox architecture
 
-TrialBox is one on-prem appliance driven by e-mail. It compiles eligibility rules (trial protocols, NHI
-reimbursement rules, cohort definitions) into auditable, deterministic patient screens over the hospital's data:
-- Email in, email out; nightly, weekly and quarterly batches.
-- No UI, no accounts, no real-time hooks.
+*Owner: Aimedics engineer. Status: living; changed in the same pull request as the code it describes. History: the git log of this file; the merge into eight documents is D-139.*
 
-This document describes the code in this repository. `SPEC.md` is the requirement, `docs/DECISIONS.md` (D-nn) the
-deviations and choices, and `docs/PROGRESS.md` the build log.
+This page describes the code at the head of `master`. Each claim names the decision (D-nnn in
+[DECISIONS](DECISIONS.md)) and, where it matters, the test that holds it. For hospital IT the one-page port and secret
+sheet is `docs/handover/network-sheet.en.md` (also ja and zh-TW).
 
-## 1. Services (docker compose project `trialbox`)
+## 1. The idea
 
-| Service | Code | Image | Port | Networks | State (volume) |
-| --- | --- | --- | --- | --- | --- |
-| mail-gateway | `services/mail_gateway` | trialbox-py | 8015 | trialbox-net, **trialbox-egress** | `mail-data` (intake/sent index), `audit-data` |
-| orchestrator | `services/orchestrator` | trialbox-jvm | 8010 | trialbox-net, **trialbox-egress** | `orch-data` (SQLite jobs, pools, feedback, submissions, cohort tables, trial cache), `rulesets-data` (ro), `tb-secrets`, `audit-data` |
-| criteria-compiler | `services/criteria_compiler` | trialbox-jvm | 8012 | trialbox-net, **trialbox-egress** | `rulesets-data` (git repository), `audit-data` |
-| doc-parser | `services/doc_parser` | trialbox-py | 8011 | trialbox-net | — |
-| adapter | `services/adapter` | trialbox-jvm | 8016 | trialbox-net | `lake-data` (NDJSON), `tb-secrets` (site key, pid map), `audit-data` |
-| lake | `services/lake` | trialbox-py | 8013 | trialbox-net | `lake-data` (DuckDB per snapshot, parquet, embeddings cache) |
-| embed-service | `services/embed_service` | trialbox-py | 8014 | trialbox-net | models (ro) |
-| llm-service / llm-stub | vLLM (`gpu` profile) / `services/llm_stub` (`stub`) | vllm / trialbox-py | 8000 | trialbox-net | models (ro) |
-| fhir-store + fhir-db | HAPI JPA 8.12 (CR) + Postgres 16 | pinned digests | 8080 | trialbox-net | `fhir-pg` |
-| console | `services/console` | trialbox-py | 8090 | trialbox-net | `console-data` (accounts, sessions, pilot cascade runs), `audit-data` (append), `rulesets-data` (ro) |
-| minio | object store (attachments, outputs, review packages, CT.gov cache) | pinned digest | 9000 | trialbox-net | `minio-data` |
+TrialBox holds two kinds of data with different owners (plan v4 §3):
 
-`trialbox-net` is `internal: true`, so it has no route out. Only the three services on `trialbox-egress` can leave
-the box, and the host's nftables table (`deploy/network.sh`, D-76) limits each of them to its allowlisted
-destinations:
-- mail-gateway → SMTP/IMAP;
-- criteria-compiler → cloud LLM (when enabled) and ClinicalTrials.gov;
-- orchestrator → NHI TWPAS (SUBMIT only).
+- **Clinical facts** come from the hospital: EMR exports, SS-MIX2, CGRD views, FHIR bundles. TrialBox only reads
+  them. They live in a FHIR R4 store (HAPI) and a DuckDB lake.
+- **Trial facts** are made at the site: marks, consent, enrolment, visits, CRF answers, AEs, deviations, screening
+  numbers, people, settings. TrialBox owns them. They live in one PostgreSQL database, `trialbox_wf` (D-126).
 
-The test profile adds GreenMail (IMAP) and MailHog (SMTP sink). `docker-compose.gb10.yml` switches every service
-to arm64 and pins the GB10 vLLM build (D-79).
+Never two stores of record for one fact. Hospital systems are read one way only; REDCap and spreadsheets sync two
+ways (D-123).
 
-## 2. Libraries
+## 2. Services
 
-- `schemas/*.schema.json` is the single source of truth for every contract (SPEC §3, §5, §7, §10.4 and every
-  inter-service message). `libs/tb_contracts` holds the pydantic v2 models generated from it (`make contracts`;
-  `make lint` fails when they are stale). Services exchange only these models (`tb_common.http` typed
-  client/server).
-- `libs/tb_common` modules:
+One `docker compose` project, `trialbox` (`deploy/docker-compose.yml` plus one GPU file).
 
-| Module | Responsibility |
-| --- | --- |
-| `config` | `.env` and `settings.yaml` (schema-validated; services refuse to start on error) |
-| `audit` | append-only hash chain: daily JSONL files, each line hashed with its predecessor; `verify` |
-| `llm` | `chat_json` with schema-constrained output and prompt/version metadata; the only path to a model (§7) |
-| `phi_guard` | MRN / national-id / name / date patterns; the cloud LLM is used only when this guard passes (§7.4) |
-| `routing`, `authz`, `subject` | the PHI routing rule (§5), sender permissions, the mail-subject grammar |
-| `deterministic` | OOXML normalisation (fixed zip times, no core timestamps) |
-| `smallcell` | small-cell suppression |
-| `crypto` | HMAC pseudonyms, AES-GCM pid map, sha256 |
-| `ruleset` | approved-ruleset loading |
-| `retention` | snapshot keep rule |
-| `derived` | BMI, eGFR CKD-EPI 2021, DAS28 |
-| `fhir` | `Library/$evaluate` client |
-| `objstore` | MinIO / filesystem object store |
+| Service | Code | Port | What it does |
+| --- | --- | --- | --- |
+| console | `services/console` | 8090 | the product: sign-in, roles, every page, `/api/v1`, the box's timers (N1 07:00, N2 07:30, REDCap 03:00) |
+| orchestrator | `services/orchestrator` | 8010 | jobs (FEAS, SCREEN, CASE, NAV, COHORT, ...), reports, delivery, the canary gate |
+| gateway | `services/gateway` | 8020 | the only path to a model; routing by data class; the one-GPU sleep swap |
+| mail-gateway | `services/mail_gateway` | 8015 | mail in (IMAP) and out (SMTP), sender checks, the outbox |
+| criteria-compiler | `services/criteria_compiler` | 8012 | protocol text to criterion IR, then SQL (and CQL for the gate) |
+| doc-parser | `services/doc_parser` | 8011 | PDF, Word and text to sections and criteria blocks |
+| adapter | `services/adapter` | 8016 | hospital data to FHIR NDJSON and the lake, with pseudonyms |
+| lake | `services/lake` | 8013 | DuckDB: read-only SQL, note search (BM25 and embeddings) |
+| embed-service | `services/embed_service` | 8014 | embeddings for note search |
+| fhir-store | HAPI JPA | 8080 | FHIR R4 store (database `hapi`) |
+| db | PostgreSQL 16 | 5432 | databases `hapi` and `trialbox_wf` |
+| llm-service, llm-verifier | vLLM 0.32.0 | 8000 | the judge and the verifier (GPU profiles); `llm-stub` without a GPU |
 
-## 3. Data path
+Libraries: `schemas/` is the one source of every contract; `libs/tb_contracts` is generated from it (`make contracts`,
+checked by `make lint`). `libs/tb_common` holds config, the audit chain, the database layer (`db.py`, one access layer
+with versioned migrations, D-126), service tokens (`service_auth.py`), crypto, the LLM client, the PHI guard, routing
+and retention.
+
+Packages inside the services: `datacore` (forms, answers, sync, lifecycle; D-123, D-129, D-134), `sitesetup`
+(readiness, chart upload, proposed facts, code mapping; D-135), `matching` (the cascade, coverage), `dataplat` (data
+platform L0–L5), `deliverables` (the feasibility pack), `rc_bridge` and `rc_sim` (REDCap and its simulator),
+`registry`, `guard`, `tracestore` (model registry, PHI recognisers, redacted traces).
+
+Removed and not coming back: the Hermes agent, the MCP front door, the channel relay and MinIO (D-121); SQLite
+stores (D-126); gpt-oss-120b on the Spark (D-124).
+
+## 3. Networks
+
+- `trialbox-net` and `trialbox-model-net` are internal: no route out of the box.
+- Only the gateway is on `model-net`, so every model call goes service → gateway → model.
+- `trialbox-egress` carries the few services that may leave: mail-gateway (SMTP, IMAP), gateway (a cloud model only
+  when the site sets one, never for D3/D4 data), criteria-compiler (ClinicalTrials.gov while `TB_CTGOV_MODE=live`),
+  orchestrator (NHI TWPAS, SUBMIT only). The host's nftables table (`deploy/network.sh`) allows only these.
+- Only the console is published, on `127.0.0.1:8090`. The hospital reaches it through its own TLS proxy.
+
+Each service has its own token and accepts only its listed callers (`tb_common/service_auth.py`, `CALLERS`; D-138).
+Held by `tests/unit/test_service_secrets.py`, `tests/unit/test_network_sheet.py` (every port of the compose files is
+on the sheet) and `tests/unit/test_egress_rules.py`. Details: [Security](SECURITY.md).
+
+## 4. The data path
 
 ```
-HIS export (csv | SQL)                         consent registry (csv | SQL)
-   │  adapter: site mapping (extends tw_core/demo_his.yaml; rename/values; D-84)
+hospital export (CSV | SQL view | SS-MIX2 | FHIR bulk)
+   │ adapter: site mapping (YAML), pseudonym pid = HMAC(site key, chart number); names and IDs only in the pid map
    ▼
-FHIR R4 NDJSON snapshot (pseudonymised: pid = HMAC(site key, MRN); name / national id only in the AES-GCM pid map)
-   ├──► fhir-store (HAPI) ── CQL $evaluate (SCREEN, compile equivalence, TWPAS pre-check)
-   └──► lake rebuild: DuckDB per snapshot (patient, encounter, condition, observation, medication, procedure,
-        report, document, claim, consent, appointment, practitioner) + note chunks (BM25 ∪ embeddings, RRF)
-        queries: SELECT-only (sqlglot guard), read-only, memory-capped with spill, snapshot-pinned
+FHIR R4 NDJSON snapshot ──► fhir-store (delta load: only new or changed resources, D-122)
+                        └─► lake: DuckDB per snapshot (patient, encounter, condition, observation, medication,
+                            procedure, report, document, claim, consent, appointment, practitioner) + note chunks
 ```
 
-The nightly ingest adds these steps:
-- an HL7 validator sample (1 %, TW Core); the ingest report fails above 0.5 % errors;
-- fhir-store mirrors the snapshot: resources that left the source are deleted, from a ledger of loaded ids (D-86);
-- medication orders without any date are dropped and reported (D-86);
-- snapshot pruning (3 nightly + 36 month-ends, D-78).
+- The nightly ingest (02:00) checks a 1 % HL7 validator sample and fails above 0.5 % errors.
+- Snapshots kept: 3 nightly and 36 month-ends.
+- Japan: the SS-MIX2 reader handles ADT-00/12/22/52, PPR-01, OMP-01/02/11/12, OML-11 and extended storage; output
+  carries JP Core profiles, validated on a sample at ingest (D-122, D-137).
+- Taiwan: CSV or CGRD SQL views with TW Core profiles.
+- Lake queries are SELECT only (sqlglot guard), read-only, memory-capped and pinned to a snapshot.
 
-## 4. Rule path (determinism)
+Sources, mapping and the data core: [Data and integration](DATA.md).
+
+## 5. The rule path
 
 ```
-protocol / NHI rule / cohort definition / CT.gov text
-   │ doc-parser: lite (pypdf / python-docx heuristics; Docling when installed, D-02) → ParsedDoc (sections, I/E)
-   │ criteria-compiler:
-   │   ir_extract (LLM, schema-constrained; local model, or cloud only after the PHI guard)
-   │   → CriterionIR → terminology (concept_map) → ValueSets
-   │   → CQL (Jinja2 templates + TB_Common, cql-to-elm 5.4.0) and SQL (DuckDB templates)   ← never LLM-generated
-   │   → equivalence gate: CQL on HAPI vs SQL on the lake for a stratified synthetic sample, ≥ 98 % (§6.4)
-   │   → review package (HTML + review.xlsx) → APPROVE by e-mail → git tag <ID>/v<ver> (vendor rulesets
-   │     arrive through signed updates)
-   ▼
-approved ruleset: manifest.yaml, ir/*.json, valuesets/*.json, cql/*.cql + elm, sql/*.sql, tests/{patients,expected}
+protocol text ─► doc-parser ─► criteria-compiler
+   ir_extract (model, schema-bound) ─► criterion IR ─► terminology (value sets)
+   ─► SQL (DuckDB templates)  and  CQL (templates)    ← never written by a model
+   ─► equivalence gate: CQL on HAPI vs SQL on the lake, ≥ 98 %, with off-list fixtures (D-130)
+   ─► S20 approval page: the investigator approves, with labels in the site's language (D-120)
+   ─► approved ruleset (git tag <ID>/v<version>)
 ```
 
-SCREEN runs the v4 cascade (D-103, `scenarios/screen_cascade.py` → `services/matching/cascade/`): the scoped
-patients go through S0 consent, S1 the ruleset SQL in the lake (filters first), S2 lexicon and S2b semantic ranking on
-the notes, S3 the judge through the orchestrator's LLM client, S4 a second opinion, tiers; S5 is the coordinator.
-`TB_SCREEN_PIPELINE=v1` restores the v1 evaluator, which evaluates structured criteria in one of two ways: CQL
-`$evaluate` per patient on HAPI, or the ruleset SQL in the lake with `TB_SCREEN_ENGINE=sql`. The SQL is also what
-FEAS month-ends, COHORT quarter-ends, NAV retrospection, CASE and MICROBATCH deltas use.
+SQL is the only engine at run time; CQL lives only in the compile-time gate (owner decision 3, D-130). A code family
+fails closed: a code inside the family but not on the list is unknown, not "no" (D-113). A code in a system nobody can
+read is unknown with reason `unknown_code_system` (D-130). Held by `tests/unit/test_valueset_family.py`,
+`tests/unit/test_code_coverage.py` and the off-list fixtures `tests/fixtures/equivalence/offlist/`.
 
-Note criteria go through RAG over the patient's chunks and then the `judge` (LLM, schema-constrained). The judge
-must quote verbatim; the quote is checked against the record, with a fallback to the full record. Human criteria
-are never decided by the box.
+## 6. Screening
 
-## 5. Orchestrator
+The SCREEN job runs the cascade (`services/matching/cascade/`):
 
-- **Jobs.** SQLite queue (§3.5 mirror) with 4 workers; `STATUS`/`CANCEL` take a fast lane.
-  - Every state change and every output file goes into the audit chain (`job.state`, `output` with sha256 and
-    recipients).
-  - The job's `run_date` is fixed at start; evaluation stamps use the job's receipt time. A re-run is therefore
-    byte-identical (`python -m orchestrator.rerun`, D-82).
-- **Scenarios** (`orchestrator/scenarios`):
-
-| Scenario | Purpose |
+| Stage | What |
 | --- | --- |
-| `feas` / `feas_compute` | month-end funnel, variants, monthly incidence, Monte-Carlo enrolment |
-| `review` / `approve` | compile, review package, approval rounds |
-| `screen` / `evaluate` / `microbatch` / `feedback` / `calibration` | candidates, tiers, pool, weekly re-evaluation, CRC feedback, reach/accept rates |
-| `nav` / `facts` / `twpas` / `submit` | four NHI lists, docx drafts, TWPAS bundles + HL7 validation + pre-check, SUBMIT |
-| `cohort` / `trials` | alliance tables, merge, ClinicalTrials.gov trial simulation |
-| `admin` / `retention` | STATUS, CANCEL, INGEST, RETENTION |
+| S0 | consent and opt-out |
+| S1 | the ruleset SQL in the lake (filters first) |
+| S2, S2b | lexicon and semantic ranking of the notes |
+| S3 | the judge reads the note and must quote it; the quote is checked against the record |
+| S4 | the verifier gives a second opinion |
+| S5 | the people: the PI and CRC lists |
 
-- **Reports** (`orchestrator/reports`), all deterministic:
-  - PDFs (reportlab invariant, embedded Noto Sans TC/JP, metadata-free matplotlib PNGs);
-  - XLSX and DOCX normalised (docxtpl templates with highlighted `[待補]`);
-  - TWPAS bundles (TW PAS IG 1.2.0).
-- **Delivery.** The routing rule is checked for every delivery before anything is sent:
-  - `phi` outputs go only to the ruleset's internal list/referral recipients, as 7z AES-256 with the password in a
-    separate mail;
-  - `aggregate` outputs (small cells suppressed) may go to `aggregate_to`.
-- **Scheduler** (APScheduler, `settings.schedule`): INGEST 02:00, MICROBATCH Mon 03:00, NAV Mon 03:30,
-  COHORT quarterly, RETENTION daily, CALIBRATION monthly.
+A note answer excludes a patient only when both models say "fail" on a verified quote; any disagreement becomes
+"unknown", never an exclusion (D-115). Reasons are 16 codes with words in three languages (D-118). The pair canary
+(54 questions in en, ja, zh-TW) runs before the night's model jobs and gates note exclusions: if it fails, notes never
+exclude (D-117). The structured part runs without a model; FEAS never calls one (D-101). Held by
+`tests/unit/test_agreement_judge.py`, `tests/unit/test_canary_gate.py` and `e2e_simple` stages 1 and 3.
 
-## 6. Mail gateway
+## 7. Models and hardware
 
-IMAP poll → `Authentication-Results` check (the MTA's header, `TB_MAIL_AUTHSERV_ID`; DMARC pass or an SPF/DKIM pass
-aligned with the From: domain, D-86) → sender allowlist + per-command
-permissions → per-sender daily rate limit → subject grammar → attachments to MinIO → `JobCreate` to the
-orchestrator.
+One pair everywhere (D-124): judge Gemma 4 26B-A4B-it NVFP4 (`j-workhorse`, endpoint `serving`), verifier
+Qwen3.5-9B AWQ 4-bit (`v-verifier`, endpoint `verifier`, thinking off).
 
-Replies to review mails are matched through `In-Reply-To`. Outbound mail is Markdown → HTML. PHI is wrapped in
-7z/S-MIME, and recipients outside `internal_domains` never receive PHI.
+| Tier | `--gpu` | Box | Layout | Context |
+| --- | --- | --- | --- | --- |
+| `large` | `rtxpro6000` | RTX PRO 6000 96 GB | both resident, 0.40 + 0.20 of the card | 32k |
+| `medium` | `gb10` | DGX Spark | both resident, 0.30 + 0.15 of memory | 16k |
+| `small` | `rtx5090` | one RTX 5090 32 GB | sleep swap, one model awake | 8k |
 
-## 7. Security and operations
+On the 5090 a screening run holds the card, the judge answers first, then the gateway swaps to the verifier, then
+back (`services/orchestrator/twophase.py`, `services/gateway/swap.py`; D-116). A tier installs only on a serving
+record measured on its own uncapped card (D-124, D-138). Only `large` has one today
+(`deploy/measured/serving_config.rtxpro6000.json`). Held by `tests/unit/test_hardware_profiles.py`,
+`tests/unit/test_install_tiers.py` and `tests/unit/test_model_swap.py`.
 
-- Audit chain verification: `tools/audit_verify.py`; acceptance: `tools/acceptance.py audit`.
-- Egress allowlist: `deploy/network.sh`.
-- Host checks (LUKS, swap, TPM, permissions, egress, GB10 driver): `deploy/check_host.sh`.
-- Signed offline updates: `tools/sign_bundle.py` → `tools/apply_update.sh` (Ed25519, per-file hashes, network-less
-  verification, audited).
-- Retention: daily job plus adapter snapshot pruning.
-- Onboarding without code changes: `tools/settings_wizard.py`, `services/adapter/mapping/templates/`,
-  `tools/mapping_check.py`.
-- Go-live acceptance (§11.2): `tools/acceptance.py`.
-- Bench (§11.3): `tools/bench.py`.
-- Operations: `docs/RUNBOOK.md`; host hardening: `docs/HARDENING.md`.
+## 8. The console and the work
 
-## 8. Tests
+Five roles: administrator, coordinator (CRC), investigator (PI), CRO monitor and viewer (D-110). Each lands on its
+own home. The header command field opens pages only; it never runs a job (D-110). Lists: ready and
+needs-information, worked through with marks and a two-tap outcome (D-120). Forms: seven built-in forms in three
+languages, with checks, branching and history, exported as ODM 1.3 and REDCap CSV (D-129). Lifecycle: candidate to
+completed or withdrawn, visit windows, AEs and deviations (D-134). Site set-up: readiness page, chart upload with
+proposed facts, code mapping (D-135). Held by `tests/unit/test_datacore.py`, `tests/unit/test_lifecycle.py`,
+`tests/unit/test_site_setup.py`, the page tests in `tests/console/` and the walk. Pages: [User guide](USER_GUIDE.md).
 
-| Layer | Command | What |
-| --- | --- | --- |
-| unit + in-process integration | `make test` | contracts, IR→CQL/SQL, calculators, grammar, guards, every scenario in process against a synthetic lake with the stub LLM, ruleset oracles (planted states), onboarding of a new site, byte-identical re-runs |
-| services | `make up-test && make test-integration` | HAPI CQL, equivalence gate, HL7 validator (TW Core, TWPAS IG), mail against GreenMail/MailHog |
-| end to end | `make test-e2e` | FEAS → PDF, APPROVE loop, SCREEN, NAV RA-BIO, NAV ONC-OSI + SUBMIT, COHORT + alliance merge — all by e-mail |
-| host | `sudo make test-egress` | nftables default deny with the allowlist on the running stack |
-| LLM | `TB_LLM_EVAL_URL=… TB_JUDGE_LLM_URL=… pytest -m llm` | real model: judge on 300 items (≥ 90 %), ir_extract on 5 eligibility texts vs gold IR, concept_map on 200 concepts |
-| bench | `make bench` | §11.3 (docs/BENCH.md) |
-| open data | `make open-data-e2e` | MIMIC-IV FHIR demo (PhysioNet, ODbL; fetched, never committed) → MIMIC normalisation → adapter `fhir_bulk` → lake → FEAS for two real CT.gov trials; invariants + second-run reproducibility (docs/OPEN_DATA.md); the `slow` test skips without the data |
+Mail is still a front door: a mail subject such as `FEAS GZQO` is the same call as the console's button, with the same
+permissions and audit (D-121). Results go by mail; patient-level files only to the study's internal list, encrypted.
 
-## 9. v4 MS0 vertical slice (spec v4, `spec/v4/`)
+## 9. Jobs, audit and re-runs
 
-The v4 pieces sit beside the v1 services. Nothing in v1 was moved yet (the `git mv` steps of ENG-02 are later work);
-the new code wraps the v1 adapter, lake and mail gateway.
+- Jobs live in schema `orch` of `trialbox_wf`; every state change and output file goes into the audit chain with its
+  sha256 and recipients.
+- The audit chain is daily JSONL files, each line hashed with the one before (`tb_common/audit.py`;
+  `tools/audit_verify.py`).
+- A job's run date is fixed at start, so a re-run on the same snapshot is byte-identical
+  (`python -m orchestrator.rerun`, D-82; checked by `e2e_simple` stage "re-run").
+- Delivery goes through the outbox, never twice (D-127).
 
-| Area | Code | What it does |
-| --- | --- | --- |
-| Data classes | `libs/tb_contracts/dataclass.py`, `libs/tb_common/policy/` | D0–D4 labels with propagation, the §7.2 boundary table (`may_reach`), environment ceilings, lowering only by a registered transform with a certificate, a class for every v1 contract |
-| Requirement IDs | `libs/tb_testkit/req.py`, `tests/conftest.py` | `@pytest.mark.req("ID")`; an ID not in the spec fails collection |
-| Data platform | `services/dataplat/` | landing contracts, L0–L5 thin path, reconciliation, DQ, publish gate (HOLD keeps the last snapshot), pseudonymisation, MPI (SQLite), OpenLineage events |
-| Criterion IR v3 | `libs/tb_contracts/criterion_ir.py`, `schemas/v4/` | IR v3 with RFC 8785 canonical hash, upgrade from and down-conversion to v1 |
-| LLM gateway | `services/gateway/`, `libs/tb_llm/`, `models/` | the only path to a model; class-aware routing from `models/routing.yaml`; served-model check against the registry; only the gateway gets model egress (`deploy/egress.py`) |
-| Registry, guard, traces | `services/registry/`, `services/guard/`, `services/tracestore/` | model registry and cards; PHI recognisers and tripwire; traces stored redacted |
-| Outbox and recall | `services/orchestrator/outbox.py`, `services/orchestrator/recall/` | transactional outbox on Postgres; recall ledger with confidence sequences |
-| Registry match | `services/matching/registry_match/` | TrialGPT port over a local CT.gov mirror; no live calls |
-| Cascade | `services/matching/cascade/` | S0–S5 (with S2b): structured screen, semantic pre-filter, note judging via the gateway with span checks, review queue, final list; recall certificate |
-| Deliverables | `services/deliverables/` | DL-1 feasibility pack: disclosure profiles, complementary suppression, figures, PDF/XLSX/JSON |
-| Front door and channels | `services/frontdoor_mcp/`, `services/channels/` | the §9.3 MCP tool list with audit before act; native email engine and a fake Teams transport; deterministic grammar, free text becomes a `classify_intent` proposal |
-| Conversation | `services/channels/` (`grammar`, `native/engine`) | the one engine since D-121: grammar lines without a model, free text through `classify_intent`; Hermes, front-door MCP and relay removed |
-| Operations | `tools/trialbox/` (`doctor`, `eval`), `tools/bakeoff.py` | doctor fails closed on unsafe routes, a non-Secure cookie in PRODUCTION, D3 in DEV; public eval suites; bake-off as code (dry run) |
-| End to end | `tools/cascade_e2e.py` | dataplat → cascade → DL-1 pack + recall certificate, 16 checks, PASS/FAIL |
-| Console | `services/console/`, `deploy/docker-compose.poc.yml`, `deploy/poc.sh` / `poc.ps1` | §3.8 admin control plane (health, jobs, audit, ingest; metadata only) plus a pilot workspace that exists only in DEV/TEST on D0 data (refuses to start otherwise): web requests become the exact e-mail line and the same `POST /jobs`; results, downloads (aggregate only), e-mail thread, cascade/DL-1/recall certificate |
-| Single case, registry, roles | `services/orchestrator/scenarios/case.py`, `services/orchestrator/candidates.py`, `services/console/auth.py`, `deploy/install.sh`, `tools/gpu_sizing.py` | D-89..D-94: two-model agreement in SCREEN; `CASE` one-chart eligibility sheet (lake for structured criteria when the chart number is known); per-study candidate registry with events, promotion from SCREEN and XLSX screening log; console roles admin/coordinator/viewer, trusted-header sign-in behind the hospital proxy, users page; one-file signed installer; GPU sizing estimate |
-| Test Bench | `tools/testbench/` | dev/test-only web UI over all of the above (D0 only, 127.0.0.1, banner on every page); not in product images |
+## 10. Where the rest is
+
+Operations: [Runbook](RUNBOOK.md). Controls: [Security](SECURITY.md). Evidence: [Validation](VALIDATION.md). The
+v4 specification is `spec/v4/`; the v1 and v3 specifications are in `spec/archive/`.

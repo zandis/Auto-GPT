@@ -36,7 +36,7 @@
 
 ## 對外連線
 
-未做院方設定時，本機不對外連線；唯一例外是 TB_CTGOV_MODE=live 時 criteria-compiler 連 ClinicalTrials.gov（公開登錄，無病人資料；設 TB_CTGOV_MODE=cassette 即關閉）。下表每一列僅在填入該設定後開放。
+未做院方設定時，本機不對外連線。ClinicalTrials.gov 預設為離線：試驗資料來自每次簽章更新附帶的參考資料（TB_CTGOV_MODE=offline）。安裝時選擇 live 的醫院，criteria-compiler 會連 clinicaltrials.gov:443（公開登錄，無病人資料；TB_CTGOV_MODE=live）。下表每一列僅在填入該設定後開放。
 
 | 服務 | 目的地 | 用途 | 開放條件 |
 | --- | --- | --- | --- |
@@ -44,7 +44,7 @@
 | mail-gateway | IMAP_HOST:IMAP_PORT | intake mailbox | IMAP_HOST |
 | gateway | external model endpoints of models/routing.yaml | model endpoint (refused for D3/D4 data) | the endpoint's URL |
 | gateway | CLOUD_LLM_BASE_URL | cloud model, through the gateway only | CLOUD_LLM_BASE_URL |
-| criteria-compiler | clinicaltrials.gov:443 | ClinicalTrials.gov public registry (COHORT) | TB_CTGOV_MODE=live |
+| criteria-compiler | clinicaltrials.gov:443 | ClinicalTrials.gov public registry (COHORT) | TB_CTGOV_MODE=live (chosen at install; the default is offline) |
 | orchestrator | NHI_TWPAS_BASE_URL | NHI TWPAS (SUBMIT only) | NHI_TWPAS_BASE_URL |
 | any | EGRESS_EXTRA | site additions | EGRESS_EXTRA |
 

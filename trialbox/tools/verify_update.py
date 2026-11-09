@@ -3,7 +3,7 @@
 Bundle = an uncompressed tar holding exactly:
 
 * ``manifest.json``     — ``UpdateManifest`` (schemas/update_manifest.schema.json): bundle id, signer, files with
-                          path, kind (model | ruleset | image | other), sha256 and size;
+                          path, kind (model | ruleset | image | refdata | other), sha256 and size;
 * ``manifest.json.sig`` — base64 Ed25519 signature of the manifest bytes by the vendor key;
 * ``files/<path>``      — one payload per manifest entry, nothing else.
 

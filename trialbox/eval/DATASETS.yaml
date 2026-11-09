@@ -86,6 +86,11 @@ datasets:
     data_class: D0
     kind: open
     licence: SIGIR notes public domain (NCBI); MedTxt CC BY 4.0 (Sociocom NAIST); derived fields and test protocols are TrialBox's own
+  complete_run:
+    path: eval/complete_run (reports of tools/complete_run.py, D-139; screenshots are never committed)
+    data_class: D0
+    kind: synthetic
+    licence: generated synthetic hospital (tools/synth_hospital) and the public site (see public_site); reports are TrialBox's own
   hospital_sim:
     path: eval/hospital_sim (measured pipeline runs on generated hospitals and projections)
     data_class: D0

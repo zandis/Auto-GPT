@@ -1,4 +1,4 @@
-"""Start-up and per-dataset refusals of the Test Bench (docs/HANDOFF.md §5, spec v4 §17.8, ENG-16).
+"""Start-up and per-dataset refusals of the Test Bench (docs/VALIDATION.md §6, spec v4 §17.8, ENG-16).
 
 * :func:`bench_environment` accepts ``TB_ENV`` = ``DEV`` or ``TEST`` only; anything else (unset included) refuses.
 * :func:`check_no_patient_store` refuses when the environment points at a store that can hold D3/D4 data (a lake,
@@ -74,7 +74,7 @@ def check_bind_host(host: str, env: Mapping[str, str] | None = None) -> None:
     except ValueError:
         loopback = False
     if not loopback and e.get(IN_CONTAINER_VAR) != "1":
-        raise PolicyError(f"the Test Bench binds 127.0.0.1 only (got {host!r}); see docs/HANDOFF.md §5")
+        raise PolicyError(f"the Test Bench binds 127.0.0.1 only (got {host!r}); see docs/VALIDATION.md §6")
 
 
 def startup_checks(env: Mapping[str, str] | None = None) -> Environment:

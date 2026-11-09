@@ -36,7 +36,7 @@ Generated from the compose files below by tools/network_sheet.py (D-138). Nothin
 
 ## Outbound
 
-With no site settings the box reaches nothing outside, except ClinicalTrials.gov from criteria-compiler while TB_CTGOV_MODE=live (public registry, no patient data; set TB_CTGOV_MODE=cassette to close it). Each line below opens only when its setting is filled in.
+With no site settings the box reaches nothing outside. ClinicalTrials.gov is offline by default: the trials come from the reference data pack of each signed update (TB_CTGOV_MODE=offline). A hospital that chose live at install (TB_CTGOV_MODE=live) opens criteria-compiler to clinicaltrials.gov:443 (public registry, no patient data). Each line below opens only when its setting is filled in.
 
 | Service | Destination | Why | Opened by |
 | --- | --- | --- | --- |
@@ -44,7 +44,7 @@ With no site settings the box reaches nothing outside, except ClinicalTrials.gov
 | mail-gateway | IMAP_HOST:IMAP_PORT | intake mailbox | IMAP_HOST |
 | gateway | external model endpoints of models/routing.yaml | model endpoint (refused for D3/D4 data) | the endpoint's URL |
 | gateway | CLOUD_LLM_BASE_URL | cloud model, through the gateway only | CLOUD_LLM_BASE_URL |
-| criteria-compiler | clinicaltrials.gov:443 | ClinicalTrials.gov public registry (COHORT) | TB_CTGOV_MODE=live |
+| criteria-compiler | clinicaltrials.gov:443 | ClinicalTrials.gov public registry (COHORT) | TB_CTGOV_MODE=live (chosen at install; the default is offline) |
 | orchestrator | NHI_TWPAS_BASE_URL | NHI TWPAS (SUBMIT only) | NHI_TWPAS_BASE_URL |
 | any | EGRESS_EXTRA | site additions | EGRESS_EXTRA |
 

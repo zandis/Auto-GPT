@@ -1,4 +1,4 @@
-// Browser smoke test of the TrialBox Test Bench (docs/HANDOFF.md §5), driven by tests/testbench/test_testbench_browser.py.
+// Browser smoke test of the TrialBox Test Bench (docs/VALIDATION.md §6), driven by tests/testbench/test_testbench_browser.py.
 //
 //   node tests/testbench/browser_smoke.js http://127.0.0.1:8765 [screenshot-dir]
 //
