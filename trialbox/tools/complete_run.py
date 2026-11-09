@@ -47,6 +47,7 @@ import json
 import os
 import platform
 import secrets
+import shlex
 import shutil
 import socket
 import subprocess
@@ -486,6 +487,69 @@ def part_scale(a: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def part_embed(a: argparse.Namespace) -> dict[str, Any]:
+    """Embedding comparison (``tools.bench_embed``): bge-m3 and Qwen3-Embedding-0.6B on the ja and zh-TW notes of a
+    synthetic hospital: throughput, GPU memory, retrieval quality on the labelled set, halfvec size at 1024 dims."""
+    from tools import bench_embed
+
+    work = a.dir / "bench-embed"
+    shutil.rmtree(work, ignore_errors=True)
+    t0 = time.perf_counter()
+    synth = _bench_synth(work, bench_embed.SYNTH_SITES)
+    labelled = bench_embed.build_set(synth)
+    (work / "set.json").write_text(json.dumps(labelled, ensure_ascii=False), encoding="utf-8")
+    out = work / "result.json"
+    runner = shlex.split(os.environ.get("TB_BENCH_EMBED_CMD", "")) or [sys.executable]
+    cmd = [*runner, "-m", "tools.bench_embed", "run", "--set", str(work / "set.json"), "--out", str(out),
+           "--backend", "hf" if a.model == "pair" else "hash"]  # fmt: skip
+    r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=3 * 3600, check=False)
+    res = json.loads(out.read_text(encoding="utf-8")) if out.exists() else {"models": []}
+    checks: list[tuple[str, bool, Any]] = [("the bench ran", r.returncode == 0 and out.exists(), r.stderr[-300:])]
+    n_q = labelled["counts"]["queries"]
+    checks.append(("labelled set: at least 20 queries per language", all(v >= 20 for v in n_q.values()), n_q))
+    for m in res.get("models") or []:
+        checks.append((f"{m['name']}: {m['dims']} dims, every doc embedded", m["dims"] == bench_embed.DIMS and
+                       m["throughput"]["docs"] == labelled["counts"]["docs_total"], m.get("error", "")))  # fmt: skip
+    want = {"bge-m3", "qwen3-embedding-0.6b"} if a.model == "pair" else {"hash-stub"}
+    checks.append(("every model compared", {m["name"] for m in res.get("models") or []} >= want, sorted(want)))
+    return {"stages": _one("embedding comparison (tools.bench_embed)", checks, time.perf_counter() - t0),
+            "embed": bench_embed.summary(res)}  # fmt: skip
+
+
+def part_profile(a: argparse.Namespace) -> dict[str, Any]:
+    """Profile cost stand-in (``tools.bench_profile``): the judge writes a cited summary per synthetic patient from
+    that patient's facts; tokens in and out, seconds per patient, GPU-hours per 1,000, the extrapolations."""
+    from tools import bench_profile
+
+    work = a.dir / "bench-profile"
+    shutil.rmtree(work, ignore_errors=True)
+    t0 = time.perf_counter()
+    synth = _bench_synth(work, bench_profile.SYNTH_SITES)
+    call = bench_profile.make_call(a, work)
+    res = bench_profile.run(synth, call, a.profile_patients, a.profile_workers, nightly=a.patients)
+    (work / "result.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
+    m = res["measured"]
+    checks: list[tuple[str, bool, Any]] = [
+        ("every sampled patient got a summary", m["answered"] == m["patients"], res.get("errors", [])[:3]),
+        ("every sentence cites only that patient's facts", m["citations_valid"] == 1.0, m["citations_valid"]),
+        ("tokens in and out counted", m["tokens_in"]["mean"] > 0 and m["tokens_out"]["mean"] > 0, m["tokens_out"]),
+    ]
+    return {"stages": _one(f"profile cost stand-in (tools.bench_profile, {res['path'][:40]})", checks,
+                           time.perf_counter() - t0),
+            "profile": bench_profile.summary(res)}  # fmt: skip
+
+
+def _bench_synth(work: Path, sites: str) -> Path:
+    """A synthetic hospital of its own for a bench (fictional patients only), made once per work folder."""
+    from tools import feas_demo as fd
+    from tools.synth_hospital import run as synth_run
+
+    out = work / "synth"
+    if not (out / "summary.json").exists():
+        synth_run(out, profile="ci", sites=sites, ref_date=fd.REF)
+    return out
+
+
 PARTS = {
     "prepare": part_prepare,
     "install": part_install,
@@ -496,9 +560,13 @@ PARTS = {
     "update": lambda a: _drill(a, "signed update, two rollbacks (tools.update_drill)", "tools.update_drill"),
     "scale": part_scale,
     "scenario": part_scenario,
+    "embed": part_embed,
+    "profile": part_profile,
 }
-NO_CONSOLE = ("prepare", "install", "backup", "update", "scale")
-MODEL_PARTS = ("hospital", "public", "scenario")  # the parts the pair serves; walk, backup, update, scale: the stub
+NO_CONSOLE = ("prepare", "install", "backup", "update", "scale", "embed", "profile")
+MODEL_PARTS = ("hospital", "public", "scenario", "embed", "profile")  # on the card; walk, backup, update, scale: stub
+BENCH_PARTS = ("embed", "profile")  # in a run only when --only names them (not part of the complete run, G1)
+STUB_PARTS = ("walk", "backup", "update", "scale")  # run on the driver after the VM has stopped
 
 
 def _tag(part: str, lang: str = "", scenario: str = "") -> str:
@@ -555,6 +623,7 @@ def plan(a: argparse.Namespace) -> list[tuple[str, str, str]]:
     out += [("public", lang, "") for lang in a.langs]
     out += [("scenario", a.langs[0], sc) for sc in (a.scenarios or scenarios.SCENARIOS)]
     out += [("walk", "", ""), ("backup", "", ""), ("update", "", ""), ("scale", "", "")]
+    out += [(b, "", "") for b in BENCH_PARTS if b in (a.only or [])]
     keep = [p for p in out if p[0] not in a.skip]
     if a.only:
         keep = [p for p in keep if p[0] in a.only or _tag(*p) in a.only]
@@ -578,6 +647,8 @@ def _cmd(a: argparse.Namespace, part: str, lang: str, scenario: str, shots: Path
         cmd.append("--resume")
     if a.keep_work:
         cmd.append("--keep-work")
+    if part == "profile":
+        cmd += ["--profile-patients", str(a.profile_patients), "--profile-workers", str(a.profile_workers)]
     return cmd
 
 
@@ -627,7 +698,8 @@ def run_all(a: argparse.Namespace) -> int:
 def report_only(a: argparse.Namespace) -> int:
     """The report of a run whose parts ran elsewhere (the model parts on the VM, the stub parts here): every part of
     the plan from its ``parts/<tag>.json``; a missing one is a failed row."""
-    a.only, a.direct = [], getattr(a, "direct", False)
+    # --report-parts: the report of a run of some parts only (a bench run, D-148); else the whole plan
+    a.only, a.direct = getattr(a, "report_parts", None) or [], getattr(a, "direct", False)
     rows = []
     for part, lang, scenario in plan(a):
         tag = _tag(part, lang, scenario)
@@ -764,7 +836,7 @@ def markdown(rep: dict[str, Any]) -> str:
         lines += ["", "## Failed checks", ""]
         lines += [f"- {t} / {s}: {c[0]}: {str(c[2])[:200]}" for t, s, c in fails]
     for r in rep["parts"]:
-        for key in ("screen", "canary", "walk", "scale"):
+        for key in ("screen", "canary", "walk", "scale", "embed", "profile"):
             if r.get(key):
                 lines += ["", f"## {r['tag']}: {key}", "", "```json", json.dumps(r[key], default=str)[:1500], "```"]
     return "\n".join(lines) + "\n"
@@ -779,6 +851,12 @@ S3_SHARE = 92 / 5000  # GZQO patients reaching the note stage S3 (5,000-patient 
 PUBLIC_SECONDS = 1303.0  # public_e2e with the pair on the PRO 6000, 2026-11-08 (VALIDATION §3)
 SECONDS_PER_CHECK = 0.3  # one criterion check by one model (2,030 checks in about 10 minutes, VALIDATION §3)
 SCREEN_PARTS = ("emr-ssmix2", "emr-fhir", "site-excel", "redcap")
+# the benches (owner's approval of 2026-11-09; no card measurement yet, so set high): the embedding comparison is two
+# small models over about 7,000 notes plus the weights' download; the profile stand-in samples ``--profile-patients``
+# at 2 s each on the card's batch (16 sequences) plus a sequential latency sample and its synthetic hospital
+EMBED_SECONDS = 900.0
+PROFILE_FIXED_SECONDS = 400.0
+PROFILE_SECONDS_PER_PATIENT = 2.0
 # stub wall seconds per part on this laptop at 5,000 patients (the local run of 2026-11-09, D-141): the time a part
 # takes besides the model, scaled with the patients it reads; --estimate-from a newer local report replaces them
 STUB_SECONDS = {"hospital": 161.0, "emr-ssmix2": 144.0, "emr-fhir": 24.0, "site-excel": 65.0, "chart-paste": 59.0,
@@ -787,11 +865,15 @@ STUB_SECONDS = {"hospital": 161.0, "emr-ssmix2": 144.0, "emr-fhir": 24.0, "site-
 
 
 def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, float] | None = None,
-             local_patients: int = 5000) -> dict[str, Any]:  # fmt: skip
+             local_patients: int = 5000, parts: tuple[str, ...] = ("g1",),
+             profile_patients: int = 400) -> dict[str, Any]:  # fmt: skip
     """Hours on the card per scenario and in all, and US$ at ``PRICE_PER_HOUR``. Model time: note-stage patients
     times the measured 6.3 s per patient on the RTX PRO 6000 (VALIDATION §3; a chart read counts as one), criterion
     checks at 0.3 s each, the canary once per box with the pair. Other time: the part's stub time on the local run,
-    scaled with its patients. The walk, backup, update and scale run after the VM has stopped: no card time."""
+    scaled with its patients. The walk, backup, update and scale run after the VM has stopped: no card time.
+    ``parts``: ``g1`` (the complete run) and the benches ``embed`` and ``profile`` (:data:`EMBED_SECONDS`,
+    :data:`PROFILE_SECONDS_PER_PATIENT`).
+    Every work row carries the ``tags`` of the parts it times (``--only``), for :func:`shard_plan`."""
     import math
 
     from tools import scenarios
@@ -803,35 +885,41 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
     def other(part: str, n: int, n0: int) -> float:
         return stub.get(part, 30.0) * max(1.0, n / max(1, n0))
 
-    def row(name: str, n: int, items: float, seconds: float) -> dict[str, Any]:
-        return {"scenario": name, "patients": n, "model_items": round(items), "seconds": seconds}
+    def row(name: str, n: int, items: float, seconds: float, tags: tuple[str, ...] = ()) -> dict[str, Any]:
+        return {"scenario": name, "patients": n, "model_items": round(items), "seconds": seconds, "tags": list(tags)}
 
     rows = [
         row("VM start, both models resident", 0, 0, BOOT_HOURS * 3600),
         row("VM setup: packages, venv, browser, fonts", 0, 0, SETUP_HOURS * 3600),
     ]
-    for lang in langs:
+    g1 = "g1" in parts
+    for lang in langs if g1 else ():
         notes = S3_SHARE * patients
         rows.append(row(f"db-csv ({lang})", patients, notes, notes * sec + CANARY_SECONDS +
-                        other("hospital", patients, local_patients)))  # fmt: skip
-        rows.append(row(f"public ({lang})", 90, 90, PUBLIC_SECONDS))
-    for name in scenarios.SCENARIOS:
+                        other("hospital", patients, local_patients), (f"hospital-{lang}",)))  # fmt: skip
+        rows.append(row(f"public ({lang})", 90, 90, PUBLIC_SECONDS, (f"public-{lang}",)))
+    for name in scenarios.SCENARIOS if g1 else ():
+        t = (f"scenario-{name}",)
         if name in SCREEN_PARTS:
             n = z["site-feed"] if name == "site-excel" else (300 if name == "redcap" else z[name])
             n0 = base["site-feed"] if name == "site-excel" else (300 if name == "redcap" else base[name])
             screens = 2 if name == "site-excel" else 1  # before and after the lists
             items = S3_SHARE * n * screens
-            rows.append(row(name, n, items, items * sec + CANARY_SECONDS + other(name, n, n0)))
+            rows.append(row(name, n, items, items * sec + CANARY_SECONDS + other(name, n, n0), t))
         elif name in ("chart-paste", "chart-files", "public-medtxt"):
             charts = z[name] * (1.25 if name != "public-medtxt" else 1)
-            rows.append(row(name, z[name], charts, charts * sec + CANARY_SECONDS + other(name, z[name], base[name])))
+            rows.append(row(name, z[name], charts, charts * sec + CANARY_SECONDS + other(name, z[name], base[name]), t))
         elif name == "public-trec":
             checks = 2 * z[name] * 19 * 2  # pairs of both labels, about 19 criteria each, two models
-            rows.append(row(name, 2 * z[name], checks, checks * SECONDS_PER_CHECK + other(name, 1, 1)))
+            rows.append(row(name, 2 * z[name], checks, checks * SECONDS_PER_CHECK + other(name, 1, 1), t))
         else:  # no model call on the card (the IT dump, the registry, MIMIC on the stub path, the probe)
-            rows.append(
-                row(name, z.get(name, 0), 2 if name == "gateway" else 0, other(name, z.get(name, 1), base.get(name, 1)))
-            )
+            items = 2 if name == "gateway" else 0
+            rows.append(row(name, z.get(name, 0), items, other(name, z.get(name, 1), base.get(name, 1)), t))
+    if "embed" in parts:
+        rows.append(row("bench: embeddings (bge-m3, Qwen3-0.6B)", 0, 0, EMBED_SECONDS, ("embed",)))
+    if "profile" in parts:
+        s = PROFILE_FIXED_SECONDS + profile_patients * PROFILE_SECONDS_PER_PATIENT
+        rows.append(row("bench: profile stand-in (judge)", profile_patients, profile_patients, s, ("profile",)))
     for r in rows:
         r["hours"] = round(r["seconds"] / 3600, 2)
         r["usd"] = round(r["hours"] * PRICE_PER_HOUR, 2)
@@ -839,7 +927,58 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
     cap = math.ceil(hours * 1.3)
     return {"patients": patients, "price_per_hour": PRICE_PER_HOUR, "seconds_per_note_patient": sec, "rows": rows,
             "hours": round(hours, 2), "usd": round(hours * PRICE_PER_HOUR, 2), "cap_hours": cap,
-            "cap_usd": round(cap * PRICE_PER_HOUR, 2)}  # fmt: skip
+            "cap_usd": round(cap * PRICE_PER_HOUR, 2), "parts": list(parts)}  # fmt: skip
+
+
+def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
+    """Split the estimate's work over ``vms`` VMs, each a whole RTX PRO 6000 with both models resident.
+
+    A shard is a set of whole parts (``--only`` tags), so every part runs exactly as on one VM and the merged report
+    is comparable with the single-VM run: nothing is split by patient range (each hospital part reads the whole
+    hospital). Longest part first onto the least-loaded VM (LPT, deterministic). Every VM pays its own start and
+    setup; ``prepare`` (the shared synthetic hospital) goes with every shard that has a hospital part, ``install``
+    (the serving records) with the first. Each VM has its own hard cap: its estimate x 1.3, rounded up."""
+    import math
+
+    fixed = [r for r in e["rows"] if not r["tags"]]
+    work = sorted((r for r in e["rows"] if r["tags"]), key=lambda r: (-r["seconds"], r["scenario"]))
+    bins: list[list[dict[str, Any]]] = [[] for _ in range(max(1, vms))]
+    for r in work:
+        i = min(range(len(bins)), key=lambda k: (sum(x["seconds"] for x in bins[k]), k))
+        bins[i].append(r)
+    bins = [b for b in bins if b] or [[]]
+    fixed_s = sum(r["seconds"] for r in fixed)
+    shards = []
+    for i, b in enumerate(bins):
+        tags = [t for r in b for t in r["tags"]]
+        if "g1" in e.get("parts", ["g1"]):
+            if any(t.startswith("hospital-") for t in tags):
+                tags = ["prepare", *tags]
+            if i == 0:
+                tags = ["install", *tags]
+        sec = fixed_s + sum(r["seconds"] for r in b)
+        h = sec / 3600
+        cap = math.ceil(h * 1.3)
+        shards.append({"shard": i + 1, "tags": tags, "rows": [r["scenario"] for r in b], "hours": round(h, 2),
+                       "usd": round(h * e["price_per_hour"], 2), "cap_hours": cap,
+                       "cap_usd": round(cap * e["price_per_hour"], 2)})  # fmt: skip
+    total = sum(x["hours"] for x in shards)
+    return {"vms": len(shards), "shards": shards, "wall_hours": max(x["hours"] for x in shards),
+            "hours": round(total, 2), "usd": round(sum(x["usd"] for x in shards), 2),
+            "cap_usd": round(sum(x["cap_usd"] for x in shards), 2)}  # fmt: skip
+
+
+def print_shards(e: dict[str, Any], p: dict[str, Any]) -> str:
+    lines = [f"Split over {p['vms']} VM(s), each one RTX PRO 6000 (g4-standard-48 spot, US${e['price_per_hour']}/h); "
+             f"parts: {', '.join(e['parts'])}", "",
+             f"{'VM':<4}{'hours':>7}{'US$':>8}{'cap h':>7}{'cap US$':>9}  parts"]  # fmt: skip
+    for x in p["shards"]:
+        lines.append(f"{x['shard']:<4}{x['hours']:>7.2f}{x['usd']:>8.2f}{x['cap_hours']:>7}{x['cap_usd']:>9.2f}  "
+                     f"{' '.join(x['tags'])}")  # fmt: skip
+    lines += ["", f"total: {p['hours']:.2f} VM-hours, US${p['usd']:.2f}; wall about {p['wall_hours']:.2f} h; "
+              f"every VM at its cap: at most US${p['cap_usd']:.2f}",
+              "each VM pays its own start and setup (0.5 h); the stub parts run on the driver after."]  # fmt: skip
+    return "\n".join(lines)
 
 
 def print_estimate(e: dict[str, Any]) -> str:
@@ -883,6 +1022,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--live-record", type=Path, help="the serving record of the card this run used")
     ap.add_argument("--resume", action="store_true", help="keep parts already done with every check passed")
     ap.add_argument("--keep-work", action="store_true", help="keep each scenario's work folder (disk)")
+    ap.add_argument("--profile-patients", type=int, default=400, help="profile bench: patients sampled")
+    ap.add_argument("--profile-workers", type=int, default=16, help="profile bench: parallel calls (vLLM batch)")
     if argv[:1] == ["part"]:
         ap.add_argument("part", nargs="?", choices=sorted(PARTS))
         ap.add_argument("--lang", default="ja", choices=["ja", "zh-TW", "en"])
@@ -899,12 +1040,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--estimate", action="store_true", help="print hours and US$ per scenario on the card and exit")
     ap.add_argument("--estimate-from", type=Path, help="a local stub report.json whose part times to scale")
     ap.add_argument("--json", action="store_true", help="--estimate: print JSON")
+    ap.add_argument("--vms", type=int, default=1, help="--estimate: split the parts over this many VMs (shard plan)")
+    ap.add_argument("--parts", default="g1", help="--estimate: g1 (the complete run), embed, profile; comma list")
     ap.add_argument("--report-only", action="store_true", help="build the report from parts/ (the VM's and these)")
+    ap.add_argument("--report-parts", nargs="*", default=[], help="--report-only: only these parts or tags")
     a = ap.parse_args(argv)
     if a.estimate:
         local, n = _local_timings(a.estimate_from)
-        e = estimate(a.patients, tuple(a.langs), local, n)
-        print(json.dumps(e, indent=1) if a.json else print_estimate(e))
+        parts = tuple(x for x in a.parts.split(",") if x)
+        if not parts or set(parts) - {"g1", *BENCH_PARTS}:
+            ap.error(f"--parts: g1, {', '.join(BENCH_PARTS)}")
+        e = estimate(a.patients, tuple(a.langs), local, n, parts, a.profile_patients)
+        e["plan"] = shard_plan(e, a.vms)
+        text = print_estimate(e) + ("\n\n" + print_shards(e, e["plan"]) if a.vms > 1 or parts != ("g1",) else "")
+        print(json.dumps(e, indent=1) if a.json else text)
         return 0
     if a.report_only:
         return report_only(a)
