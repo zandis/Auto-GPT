@@ -10,6 +10,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_
     TB_DEMO_HOST=0.0.0.0 PORT=8080 TB_DEMO_DIR=/tmp/tb-role-demo TB_CONSOLE_SECURE_COOKIE=1
 RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin tb
 WORKDIR /app
+# PostgreSQL server binaries: since D-126 the demo's trial data lives in a throwaway local cluster (tools/pglocal.py),
+# and the update path backs it up with pg_dump first (D-138)
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql && rm -rf /var/lib/apt/lists/*
 COPY deploy/requirements.lock /tmp/requirements.lock
 # Optional build secret "extra_ca" (PEM) is trusted during the build only (corporate TLS proxies).
 RUN --mount=type=secret,id=extra_ca,required=false \

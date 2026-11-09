@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # TrialBox one-file installer for a hospital workstation or server (clinical review 2026-11, section 6; RUNBOOK §1).
 #
+#   sudo deploy/install.sh trialbox-<version>.tar --tier small|medium|large [--answers site.yaml] [--yes]
 #   sudo deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--gpu rtxpro6000|gb10|rtx5090|rtx4090] [--yes]
 #   sudo deploy/install.sh --check            # host checks only (deploy/check_host.sh)
+#   deploy/install.sh --tier large --tier-check   # only: may this tier be installed on this machine?
+#
+# Tiers (D-138, tools/tiers.py): small = rtx5090, medium = gb10, large = rtxpro6000 (the boxes of D-124). A tier is
+# installed only from a measured serving record of its own uncapped card (deploy/site/ or deploy/measured/
+# serving_config.<gpu>.json, tools/serving_config.py measured); there is no override. --gpu with
+# TB_ACCEPT_UNMEASURED_GPU=1 stays for a trial boot of an unmeasured card, and is not a tier install.
 #
 # What it does, in order, and stops at the first failure:
 #   1. host:      Docker Engine + compose plugin present and running; GPU driver when --mode gpu (auto when nvidia-smi
@@ -19,14 +26,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 BUNDLE=""; ANSWERS=""; MODE="${TB_LLM_MODE:-auto}"; GPU="${TB_GPU_PROFILE:-auto}"; YES=0; CHECK=0
+TIER=""; TIER_CHECK=0; GPU_SET=0; MODE_SET=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --tier) TIER="$2"; shift ;;
+    --tier-check) TIER_CHECK=1 ;;
     --answers) ANSWERS="$2"; shift ;;
-    --mode) MODE="$2"; shift ;;
-    --gpu) GPU="$2"; shift ;;
+    --mode) MODE="$2"; MODE_SET=1; shift ;;
+    --gpu) GPU="$2"; GPU_SET=1; shift ;;
     --yes) YES=1 ;;
     --check) CHECK=1 ;;
-    -h|--help) sed -n 2,18p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,31p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -39,6 +49,27 @@ IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 PUBKEY="${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}"
 
 if [ "$CHECK" = 1 ]; then exec sh "$ROOT/deploy/check_host.sh" "$@"; fi
+
+# ------------------------------------------------------------------------------------------------ 0. tier
+# D-138: before anything is loaded or started. The record rule is tools/serving_config.py's (D-112, D-124).
+# TB_TIER_TEST_ARCH / TB_TIER_TEST_CARD stand in for uname and nvidia-smi in the tests only.
+TIER_RECORD=""
+if [ -n "$TIER" ]; then
+  [ "$GPU_SET" = 0 ] || die "--tier and --gpu: give one (a tier names its GPU profile)"
+  [ "$MODE_SET" = 0 ] || [ "$MODE" = gpu ] || die "--tier needs the GPU: drop --mode $MODE"
+  command -v python3 >/dev/null || die "--tier needs python3 on the host to read the serving records"
+  set +e
+  TIER_OUT="$(python3 "$ROOT/tools/tiers.py" check --tier "$TIER" --deploy "$ROOT/deploy" \
+    ${TB_TIER_TEST_ARCH:+--arch "$TB_TIER_TEST_ARCH"} ${TB_TIER_TEST_CARD:+--card "$TB_TIER_TEST_CARD"})"
+  rc=$?
+  set -e
+  [ "$rc" = 0 ] || exit 3   # the reason is on stderr: what is missing and how to get a record
+  GPU="${TIER_OUT%% *}"; TIER_RECORD="${TIER_OUT#* }"; MODE=gpu
+  echo "    tier $TIER: $GPU profile, measured record $TIER_RECORD"
+  [ "$TIER_CHECK" = 0 ] || exit 0
+elif [ "$TIER_CHECK" = 1 ]; then
+  die "--tier-check needs --tier small|medium|large"
+fi
 [ -n "$BUNDLE" ] || die "usage: deploy/install.sh trialbox-<version>.tar [--answers site.yaml] [--mode gpu|stub] [--yes]"
 [ -f "$BUNDLE" ] || die "no such bundle: $BUNDLE"
 
@@ -78,6 +109,7 @@ docker image inspect "$IMAGE_PY" >/dev/null 2>&1 || die "the bundle carried no $
 
 # ------------------------------------------------------------------------------------------------ 3. settings
 say "settings"
+FRESH=0; [ -f deploy/.env ] || FRESH=1   # a box installed before step 8 keeps its shared token until rotation
 mkdir -p deploy/keys deploy/secrets
 if [ ! -f deploy/settings.yaml ]; then
   if [ -n "$ANSWERS" ]; then
@@ -95,12 +127,20 @@ else
 fi
 [ -f deploy/.env ] || cp .env.example deploy/.env
 # random service passwords where the example ones are still in place
-for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD TB_SERVICE_TOKEN; do
+for k in POSTGRES_PASSWORD POSTGRES_WF_PASSWORD; do
   if grep -q "^$k=change-me" deploy/.env || ! grep -q "^$k=" deploy/.env; then
     sed -i.bak "/^$k=/d" deploy/.env && printf '%s=%s\n' "$k" "$(rand 32)" >> deploy/.env
   fi
 done
 rm -f deploy/.env.bak
+# D-128, D-138: one token per service (deploy/secrets/services/, 0600; never printed). A new box has no shared
+# token at all; an older box keeps its shared one working, with a warning, until `trialbox secrets rotate`.
+if [ "$FRESH" = 1 ] || grep -q '^TB_SERVICE_TOKEN=change-me' deploy/.env; then sed -i '/^TB_SERVICE_TOKEN=/d' deploy/.env; fi
+if command -v python3 >/dev/null; then
+  python3 -m tools.trialbox secrets init --deploy "$ROOT/deploy" | sed 's/^/    /'
+else
+  docker run --rm --user 0 -v "$ROOT/deploy:/d" "$IMAGE_PY" python -m tools.trialbox secrets init --deploy /d | sed 's/^/    /'
+fi
 # D-126: every service reaches the one trial database with the workflow role's password
 WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
 sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" >> deploy/.env
@@ -137,7 +177,7 @@ case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
     docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" python -m tools.serving_config measured "$GPU" "/d/${REC#deploy/}" \
       || die "$REC is not a measurement of the $GPU profile on its own card (see above)"
     echo "    $GPU profile measured: $REC"
-  elif [ "${TB_ACCEPT_UNMEASURED_GPU:-0}" = 1 ]; then
+  elif [ -z "$TIER" ] && [ "${TB_ACCEPT_UNMEASURED_GPU:-0}" = 1 ]; then
     echo "install: warning: $GPU profile not yet measured on this card (TB_ACCEPT_UNMEASURED_GPU=1): capture deploy/site/serving_config.$GPU.json after the first boot (RUNBOOK §8)" >&2
   else
     die "the $GPU profile has no measurement on its own card (deploy/site/ or deploy/measured/serving_config.$GPU.json). For a first trial boot re-run with TB_ACCEPT_UNMEASURED_GPU=1, then capture the record (RUNBOOK §8)"
@@ -147,15 +187,24 @@ case "$MODE:$GPU" in
   gpu:rtxpro6000) PROFILE=P-PRO6000 ;; gpu:gb10) PROFILE=P-GB10 ;; gpu:rtx5090|gpu:rtx4090) PROFILE=P-5090 ;; *) PROFILE=P-GB10 ;;
 esac
 grep -q '^TB_PROFILE=' deploy/.env && sed -i "s/^TB_PROFILE=.*/TB_PROFILE=$PROFILE/" deploy/.env || echo "TB_PROFILE=$PROFILE" >> deploy/.env
+sed -i "/^TB_TIER=/d" deploy/.env; [ -z "$TIER" ] || echo "TB_TIER=$TIER" >> deploy/.env
 
 # ------------------------------------------------------------------------------------------------ 4. start
-COMPOSE=(docker compose --project-directory deploy -f deploy/docker-compose.yml)
+COMPOSE=(docker compose --project-directory deploy -f deploy/docker-compose.yml -f deploy/docker-compose.secrets.yml)
+FILES="$ROOT/deploy/docker-compose.yml:$ROOT/deploy/docker-compose.secrets.yml"
 case "$MODE:$GPU" in
-  gpu:rtxpro6000) COMPOSE+=(-f deploy/docker-compose.rtxpro6000.yml) ;;
-  gpu:gb10) COMPOSE+=(-f deploy/docker-compose.gb10.yml) ;;
-  gpu:rtx5090|gpu:rtx4090) COMPOSE+=(-f deploy/docker-compose.rtx5090.yml) ;;
+  gpu:rtxpro6000) COMPOSE+=(-f deploy/docker-compose.rtxpro6000.yml); FILES="$FILES:$ROOT/deploy/docker-compose.rtxpro6000.yml" ;;
+  gpu:gb10) COMPOSE+=(-f deploy/docker-compose.gb10.yml); FILES="$FILES:$ROOT/deploy/docker-compose.gb10.yml" ;;
+  gpu:rtx5090|gpu:rtx4090) COMPOSE+=(-f deploy/docker-compose.rtx5090.yml); FILES="$FILES:$ROOT/deploy/docker-compose.rtx5090.yml" ;;
 esac
 COMPOSE+=(--profile "$MODE")
+# the same file set for every later `docker compose --project-directory deploy ...` (secrets rotate, update, logs)
+sed -i "/^COMPOSE_FILE=/d" deploy/.env && echo "COMPOSE_FILE=$FILES" >> deploy/.env
+# D-138 log retention: where collected service logs and the audit archive go (RUNBOOK §2 "Logs"); the days are in
+# settings.yaml retention (the wizard's jp/tw defaults)
+grep -q '^TB_LOG_DIR=' deploy/.env || echo "TB_LOG_DIR=$ROOT/deploy/logs" >> deploy/.env
+grep -q '^TB_AUDIT_ARCHIVE_DIR=' deploy/.env || echo "TB_AUDIT_ARCHIVE_DIR=$ROOT/deploy/logs/audit-archive" >> deploy/.env
+grep -q '^TB_BACKUP_TARGETS=' deploy/.env || echo "TB_BACKUP_TARGETS=$ROOT/deploy/backups" >> deploy/.env
 UP_EXTRA=(); [ "$MODE:$GPU" = gpu:rtx4090 ] && UP_EXTRA=(--scale llm-verifier=0)
 if [ "$YES" != 1 ] && [ -t 0 ]; then
   printf 'Start the stack now with profile %s? [Y/n] ' "$MODE"; read -r ans; case "$ans" in n|N) die "stopped before start; re-run with --yes to skip the question" ;; esac
@@ -167,6 +216,18 @@ say "starting the stack (profile $MODE)"
 if [ "$(id -u)" = 0 ] && [ -x deploy/network.sh ]; then
   say "egress rules"; deploy/network.sh apply || echo "install: warning: egress rules not applied (deploy/network.sh apply)" >&2
 fi
+if [ "$(id -u)" = 0 ] && [ -d /etc/cron.d ] && command -v python3 >/dev/null; then
+  # D-138: every night collect yesterday's service logs, prune by settings.retention, copy the audit to its archive
+  printf '%s\n' "SHELL=/bin/sh" "20 0 * * * root cd $ROOT && python3 -m tools.trialbox logs daily >> /var/log/trialbox-retention.log 2>&1" \
+    > /etc/cron.d/trialbox-retention && chmod 644 /etc/cron.d/trialbox-retention
+  echo "    log retention: /etc/cron.d/trialbox-retention (00:20 daily)"
+fi
+# D-138: the site's one-page network, port and secret sheet, from the compose files this box runs
+docker run --rm -v "$ROOT/deploy:/app/deploy" --user "$(id -u):$(id -g)" "$IMAGE_PY" \
+  python -m tools.network_sheet --files "$(echo "$FILES" | sed "s#$ROOT/deploy/#deploy/#g")" --env deploy/.env --out deploy/site/network-sheet \
+  >/dev/null 2>&1 && echo "    network sheet: deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}" \
+  || echo "install: note: network sheet not written (python -m tools.network_sheet)" >&2
+[ -f deploy/secrets/backup.pub ] || echo "install: note: no backup key yet. With hospital IT: python3 -m tools.trialbox backup-keygen --private /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub (RUNBOOK §5); updates refuse to run without a backup" >&2
 
 for f in deploy/updates/pending_audit/*.json; do  # the bundle's update.applied event, deferred until now
   [ -f "$f" ] || continue

@@ -23,3 +23,6 @@ deploy/poc/
 # Hermes fragment runtime material (deploy/hermes/prepare.py): certificates, keys, directory, DEV profile
 deploy/secrets/
 deploy/.objects/
+# update rollback points and history (tools/trialbox/update.py, D-138); the box's collected logs
+deploy/updates/
+deploy/logs/

@@ -2391,3 +2391,132 @@ name is in the mail.
 * ADT-52's meaning at a real site, ADT-21/31/41/42/51 and vendors' RXA variants are untested on real storage. Extended
   storage is read by folder kind only (no `_contents.xml` index); scans without a text layer need OCR.
 * The list status is on the hospital-codes page and the APIs, not on the readiness page or the admin home.
+
+**D-138 Step 8, handover.** TB-PLAN-04 step 8 (plan v4 §4 row 8; D-124, D-125, D-126, D-128), 2026-11-09. Built in
+a cloud container with no GPU and no Docker daemon, on synthetic data only.
+
+* **Tiers from measured records only** (`tools/tiers.py`, `deploy/install.sh --tier`). `small` = `rtx5090` (one RTX
+  5090, sleep swap, 8k), `medium` = `gb10` (DGX Spark, pair resident, 16k), `large` = `rtxpro6000` (RTX PRO 6000,
+  pair resident, 32k): the three boxes of D-124. A tier installs only when its profile has a serving record of its
+  own uncapped card (the site's `deploy/site/` or the vendor's `deploy/measured/serving_config.<gpu>.json`, the rule
+  of `tools/serving_config.py measured`) and the machine's card is that card (`deploy/gpu_profile.sh`). The check runs
+  first, with the host's python3, before Docker, the bundle or a setting is touched; a refusal (exit 3) names the
+  missing file and the two ways to get a record. No override: `TB_ACCEPT_UNMEASURED_GPU=1` stays for a `--gpu` trial
+  boot and does not open a tier. `--tier-check` asks only. Today `large` has a vendor record; `small` and `medium` are
+  refused until a card of theirs is measured.
+* **Per-service secrets** (D-128, review F-02; `tb_common/service_auth.py`, `tools/trialbox/svc_secrets.py`,
+  `deploy/docker-compose.secrets.yml`). Each of the nine TrialBox services has its own token
+  (`deploy/secrets/services/<service>.token`, 0600, owned by the container user, folder 0700), mounted into that
+  service only; the administrator's `operator` token stays on the host. Every service reads a registry of the
+  tokens' sha256 (`public/tokens.json`, not secret), knows which service is calling, and accepts only the callers of
+  `CALLERS` (orchestrator: console, mail-gateway; mail-gateway and adapter: orchestrator, console; lake: orchestrator,
+  criteria-compiler, adapter; doc-parser, criteria-compiler: orchestrator; embed-service: lake; gateway:
+  orchestrator, criteria-compiler, doc-parser, console). A doc-parser token is now refused by the orchestrator (403).
+  The overlay also clears the mail passwords outside mail-gateway, the cloud key outside the gateway, the database
+  passwords in every service, and `TB_DB_URL` in doc-parser and embed-service. `make_app` keeps `protect_reads`,
+  `/healthz` open and the `TB_ENV` rule (unset = PRODUCTION, which refuses without a token); a registry that is
+  configured and unreadable refuses every call (503). Without a registry (tests, `make demo`, older boxes) the shared
+  token rule is unchanged and the service warns once.
+  * **Migration**: a box installed before step 8 keeps its `TB_SERVICE_TOKEN` working, its hash in the registry as
+    `legacy`, with a warning in the log when it is used, until every token is rotated; then it is gone from the
+    registry and from `deploy/.env`. A new box never gets a shared token.
+  * **Rotation**, one place (RUNBOOK §5 "Secrets"): `python3 -m tools.trialbox secrets rotate [--service X]` writes
+    the new token, keeps both hashes while the rotated services are recreated (`docker compose up -d --no-deps
+    --force-recreate --wait`, file set from `COMPOSE_FILE` in `deploy/.env`), then drops the old one; `--service db`
+    changes both database passwords with `ALTER ROLE` (password on stdin, never on a command line) and recreates
+    their users. `secrets status` shows names, files, modes and ages, never a value.
+* **One-page network, port and secret sheet** (`tools/network_sheet.py`;
+  `docs/handover/network-sheet.{en,ja,zh-TW}.{md,html}`, A4 landscape). Generated from the five compose files a box
+  runs (base, secrets, three GPU profiles): 17 services, every listening port (8010 to 8016, 8020, 8090, 5432, 8080,
+  8000), the only published one (`127.0.0.1:8090`, the console), who may reach each (from `CALLERS`), the three
+  networks, the outbound rules of `deploy/egress.py` with the setting that opens each, and 19 secrets by name, place
+  and receiver. `install.sh` writes the site's own sheet from its file set and `deploy/.env` (host names only) to
+  `deploy/site/`. **Outbound by default is not quite "none"**: criteria-compiler reaches `clinicaltrials.gov:443`
+  while `TB_CTGOV_MODE=live`, the wizard's default (public registry, no patient data); the sheet says so.
+* **The update path** (`tools/apply_update.sh` → `tools/trialbox/update.py`). Verify and stage as before (Ed25519 and
+  sha256, D-77); then backup first (D-126; refused without `deploy/secrets/backup.pub` and `TB_BACKUP_TARGETS`; on a
+  compose box the services stop, the db container dumps both databases, and a one-off container on trialbox-net
+  writes the encrypted backup with every volume read-only, `TB_PG_DUMP_DIR`); a rollback point (replaced images
+  tagged `<repo>:rollback-<bundle>`, overwritten models kept, the local dumps, 0600, removed after success, because
+  the box cannot read its own encrypted backup); apply; `up -d --wait` (services migrate at start); rulesets; check;
+  `update.applied`. Any failure after the rollback point: images, models and databases back, restart, check,
+  `update.rolled_back`. Three boxes: compose (a site), demo (the demo VM's one container, checked by `e2e_simple` in
+  the new container) and in-process (`tools/update_drill.py`). The demo image gained PostgreSQL (missing since D-126,
+  so the image could not have started `tools.demo`); `demo-vm-startup.sh` now writes a recreate script and a
+  root-only env file instead of putting the password on the command line.
+* **Log retention** (`tb_common/retention.py`, `tools/trialbox/logs.py`, the RETENTION job; RUNBOOK §2 "Logs").
+  Service logs collected nightly on the host per service and day, kept `logs_days`; the audit chain never deleted,
+  copied nightly to `TB_AUDIT_ARCHIVE_DIR`, compressed, with a sha256 manifest, verified before and after (a chain
+  that does not verify is not archived); mail logs (intake, sent, finished sends, the morning-mail log) pruned by the
+  RETENTION job after `mail_log_days`, an unfinished send kept; job outputs and attachments as before. Install
+  defaults by country (wizard `retention_rules`, from the report language): service logs 365 days, mail logs 5 years
+  (JP, 医師法 §24) or 7 years (TW, 醫療法 §70), outputs 365 days, attachments 90 days, audit 10 years on the box
+  (review §6 q.5 and q.25). `logs_days`' schema default moved from 180 to 365; `mail_log_days` is new.
+* **Windows / WSL2 groundwork** (D-125): `docs/handover/OFFLINE-MEDIA.md` (the disk: WSL, the Ubuntu root file
+  system, the NVIDIA driver, debs, the signed bundle of images, models and rulesets, measured records, printed
+  sheets; nearer 40 GB than 30), `deploy/windows/preflight.ps1` and `preflight.sh` (Windows build and edition, CPU
+  virtualisation, WSL2, GPU driver, disk, memory, systemd; one PASS or FAIL line each),
+  `docs/handover/WINDOWS-INSTALL-CHECKLIST.md`.
+
+*Evidence.*
+
+* `tests/unit/test_install_tiers.py` (9): the mapping; `large` from the vendor record; `small` and `medium` refused
+  with the file and how to measure; wrong card, no card, unknown tier; a capped or wrong-mode record refused; a site
+  record of the card's own makes `small` installable; `install.sh` exits 3 before the host step, and the trial-boot
+  switch does not help; `--tier-check`; `--tier` with `--gpu` or `--mode stub` refused.
+* `tests/unit/test_service_secrets.py` (11): tokens 0600 and distinct, a registry of hashes only, `init` idempotent;
+  the caller table on real `make_app` services (doc-parser to orchestrator 403, console to lake 403, operator
+  everywhere, 401, 403, healthz open); the old token accepted with a warning that does not carry it, then refused
+  after a full rotation; behaviour without a registry and `TB_ENV` unchanged; an unreadable registry 503; a
+  one-service rotation restarts only it and keeps both hashes when the restart fails; the database rotation's
+  passwords only on stdin; the overlay gives each service its own token and clears the rest; a scan of every
+  service's clients against `CALLERS`.
+* `tests/unit/test_network_sheet.py` (7): every service and port of the compose files, read independently of the
+  sheet's code, is on the committed sheet in all three languages, which equals a fresh render; a site sheet shows its
+  mail hosts and no secret value although its `.env` has passwords.
+* `tests/unit/test_update_path.py` (13): the step order; a failed backup changes nothing; a failure at apply,
+  restart, rulesets or check rolls back and is audited; a failed rollback says so; the compose commands in order
+  (quiet box, dumps, backup container with passwords only in its environment, rollback tags, load, start) and their
+  rollback (tags back, both `pg_restore --clean`, models back); no key, no update; the demo box; a first install only
+  loads; the in-process box migrates, then rolls a migrated database back from its dump.
+* `tests/unit/test_log_retention.py` (7) and `tests/unit/test_windows_preflight.py` (3).
+* `tools/update_drill.py` (the in-process box, real bundles signed with a throwaway vendor key): PASSED, 13 checks in
+  233 s: e2e_simple's box; a tampered bundle refused; the good bundle backed up (the hospital key opens it), applied,
+  migrated, data unchanged, audited; a bad migration and an unhealthy release each rolled back to the same release,
+  models, schema version 1 and data; the audit chain verifies with `update.applied`, `update.rolled_back`,
+  `update.rolled_back`; no secret in the history; `e2e_simple` passes again on a fresh box afterwards.
+* Suites: unit, console and testbench 1,394 passed, 2 skipped (1,344 at step 7; 50 new). `make lint` clean.
+  `tools/e2e_simple.py`: PASSED in 110 s. `tools.backup_drill`: PASSED in 136 s. `public_e2e --lang ja`: 112/112
+  (a first run, started while the full suite used the same throwaway Postgres, stopped on a page without a csrf
+  token; run alone it passed). No page changed, so the walk was not re-run.
+
+*Not done.*
+
+* **Nothing ran on a GPU, in Docker or on the cloud.** `docker compose` with the secrets overlay, the compose and demo
+  boxes of the update path, the network sheet inside the image at install, and the new demo image build were not
+  executed here (no Docker daemon); they are tested against recorded commands. The demo-VM run below is the
+  done-check that remains.
+* fhir-store (HAPI) and Postgres have no per-caller token: network isolation and a password only (review F-11 for
+  HAPI). The gateway still routes on the self-declared `X-TB-Caller`; the verified caller is in
+  `request.state.tb_caller`, but the gateway's policy does not read it yet. No mTLS.
+* The mail passwords and the cloud key still live in `deploy/.env` (cleared in the containers that do not need them),
+  not in separate secret files; the hospital rotates them at their source. Key custody on Windows (BitLocker,
+  DPAPI/TPM; review F-01, F-10) and the full offline installer wait for D-125's post-platform work.
+* Anti-rollback, a key id and an expiry in the update manifest (review F-15) are not added; an older signed bundle
+  still applies. A failed rollback leaves the box to a restore from the encrypted backup with hospital IT's key.
+* `trialbox backup` run by hand on a compose box still needs `pg_dump` and the database reachable from where it runs;
+  the update path's one-off container is the route that works and could become the default.
+* The owner may want the wizard to default to `TB_CTGOV_MODE=cassette`, so that outbound is none by default.
+
+*The demo-VM commands still to run* (owner's OK; about one hour of `trialbox-demo`, e2-standard-4, about US$0.15,
+plus a few cents of storage):
+
+```sh
+deploy/gcp/demo-vm-update.sh build <bucket>   # a machine with Docker and about 15 GB free: images A, B (good), C (broken)
+gcloud compute instances add-metadata trialbox-demo --zone asia-east1-b \
+  --metadata-from-file startup-script=deploy/gcp/demo-vm-startup.sh,tb-demo-password=/mnt/project-files/trialbox-demo/password.txt \
+  --metadata tb-demo-image=gs://<bucket>/step8/trialbox-demo.tar.gz
+gcloud compute instances start trialbox-demo --zone asia-east1-b
+deploy/gcp/demo-vm-update.sh run <bucket>     # apply B --target demo, e2e_simple in it; apply C, rolled back to B
+gcloud compute instances stop trialbox-demo --zone asia-east1-b
+```

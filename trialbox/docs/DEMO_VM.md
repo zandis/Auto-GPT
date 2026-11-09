@@ -36,3 +36,22 @@ the bucket.
 
 Cloud Run works too (`--max-instances 1`, `--memory 2Gi`, the image from the bundle); the first request after
 idle waits about 70 seconds while the flow is seeded.
+
+## The update path on the demo VM (step 8, D-138; owner's OK first)
+
+`deploy/gcp/demo-vm-update.sh` exercises `tools/apply_update.sh --target demo` on this VM: a good bundle (the same
+image with a release label, signed with a throwaway vendor key) must back up, load, recreate the container and pass
+`e2e_simple` inside it; a broken bundle (a container that never answers) must roll back to the good one. The startup
+script now writes `/etc/trialbox-demo/run.sh` and a root-only `demo.env`, so the update can recreate the container.
+
+```sh
+deploy/gcp/demo-vm-update.sh build <bucket>                        # here, with Docker: images A, B, C, uploaded
+gcloud compute instances add-metadata trialbox-demo --zone asia-east1-b \
+  --metadata-from-file startup-script=deploy/gcp/demo-vm-startup.sh,tb-demo-password=/mnt/project-files/trialbox-demo/password.txt \
+  --metadata tb-demo-image=gs://<bucket>/step8/trialbox-demo.tar.gz
+gcloud compute instances start trialbox-demo --zone asia-east1-b
+deploy/gcp/demo-vm-update.sh run <bucket>                          # B applied + e2e_simple; C rolled back
+gcloud compute instances stop trialbox-demo --zone asia-east1-b
+```
+
+About an hour of the VM (US$0.15) and a few cents of storage for three image files (about 1.5 GB each).

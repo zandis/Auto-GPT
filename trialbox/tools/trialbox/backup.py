@@ -254,6 +254,13 @@ def _libpq(dsn: str) -> tuple[list[str], dict[str, str]]:
 
 
 def dump(src: DbSource, out: Path, env: Mapping[str, str]) -> None:
+    pre = env.get("TB_PG_DUMP_DIR")
+    if pre:  # D-138: dumps taken by the db container on a quiet box (tools/trialbox/update.py ComposeBox)
+        f = Path(pre) / f"{src.name}.dump"
+        if not f.is_file():
+            raise BackupError(f"no {f} (TB_PG_DUMP_DIR)")
+        shutil.copyfile(f, out)
+        return
     args, extra = _libpq(src.dsn)
     cmd = [*_cmd(env, "TB_PG_DUMP_CMD", "pg_dump"), "--format=custom", "--no-owner", "--no-privileges", *args]
     for s in src.schemas:

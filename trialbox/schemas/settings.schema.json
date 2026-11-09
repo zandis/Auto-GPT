@@ -339,7 +339,13 @@
         },
         "logs_days": {
           "type": "integer",
-          "default": 180
+          "default": 365,
+          "description": "service (container) logs collected on the host, then deleted (D-138)"
+        },
+        "mail_log_days": {
+          "type": "integer",
+          "default": 1825,
+          "description": "mail intake and sent log, the morning-mail log (D-138); the audit chain keeps every mail event"
         },
         "nightly_snapshots": {
           "type": "integer",
@@ -355,7 +361,8 @@
         },
         "audit_years": {
           "type": "integer",
-          "default": 10
+          "default": 10,
+          "description": "the audit chain is never deleted; it is copied to the archive every night (D-138)"
         }
       }
     },
