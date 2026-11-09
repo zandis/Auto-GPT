@@ -413,6 +413,7 @@ class Flattener:
             coded[rtype] = keep
         for rtype, (table, fn) in m.items():
             out[table] = [fn(r) for r in coded.get(rtype, by_type.get(rtype, []))]
+        out["patient"] = merge_patients(out["patient"])
         out["observation"] = [row for r in coded["Observation"] for row in self.observations(r)]
         out["site_fact"] = facts
         out["claim"] = self.claims(by_type.get("Claim", []), by_type.get("ClaimResponse", []))
@@ -457,3 +458,28 @@ class Flattener:
                 }
             )
         return rows
+
+
+def merge_patients(rows: list[Row]) -> list[Row]:
+    """One ``patient`` row per pid. The hospital's feed and the site's own inputs (D-135: a sheet, a dump, a chart
+    published into the same space) each give a ``Patient`` for the same pseudonym; two rows for one pid would
+    multiply every row of a compiled query (each criterion joins ``base`` again: 2^criteria rows per patient, review
+    XL-02). A field the rows agree on is kept; a field they give different values for is left out (unknown), as
+    ``sitesetup.publish`` does for disagreeing facts."""
+    by: dict[str, Row] = {}
+    clash: dict[str, set[str]] = {}
+    for r in rows:
+        pid = r["pid"]
+        if pid not in by:
+            by[pid] = dict(r)
+            continue
+        have = by[pid]
+        for k, v in r.items():
+            if v is None or k in clash.get(pid, set()):
+                continue
+            if have.get(k) is None:
+                have[k] = v
+            elif have[k] != v:
+                have[k] = None
+                clash.setdefault(pid, set()).add(k)
+    return list(by.values())

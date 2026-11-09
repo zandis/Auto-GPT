@@ -111,6 +111,7 @@ NAME|disable NAME|list-users`.
 | Equivalence gate under 98 % | the review sheet "equivalence" | edit or reject the flagged criteria |
 | SUBMIT refused | the reply names the check | NAV older than 14 days: rerun NAV |
 | Lake slow or out of memory | `docker stats` | raise `TB_LAKE_MEMORY_LIMIT` (default 40 % of RAM; spills to `/data/lake/tmp`) |
+| A job fails with `LAKE-LIMIT` | the job's error; `df -h /data` | the query hit its spill cap (`TB_LAKE_MAX_TEMP`, default a quarter of the free disk, at most 50 GB; `TB_LAKE_TEMP_DIR` moves the spill) and was stopped before it filled the disk. Usually a join that multiplies rows: report it; raise the cap only for data that really is that large |
 | Containers lost egress after a restart | `deploy/network.sh status` | `deploy/network.sh apply` |
 | `CERTIFICATE_VERIFY_FAILED` | hospital TLS inspection | put the hospital CA on the host, set `TB_EXTRA_CA=/abs/path/ca.pem` in `deploy/.env`, `docker compose up -d` |
 | Notes never exclude | `selftest.failed` in the audit, the admin health tile | the pair canary failed: check the models (§8, §10) |

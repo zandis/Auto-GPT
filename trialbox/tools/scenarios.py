@@ -263,6 +263,7 @@ def cap_duckdb_temp(limit: str = "2GB") -> None:
     site sheet was published, finding XL-02)."""
     import duckdb
 
+    os.environ.setdefault("TB_LAKE_MAX_TEMP", limit)  # the lake's own cap (D-142, XL-02) is the same guard
     if getattr(duckdb, "_tb_capped", False):
         return
     real = duckdb.connect
@@ -1127,12 +1128,12 @@ def sc_excel(a: Any, work: Path) -> Result:
     t1 = time.perf_counter()
     job, _scr, _cap = screen_once(w.box)
     err = "" if job is None or job.error is None else str(job.error.detail or job.error.message)[:160]
-    res.finding(
-        "XL-02",
-        "SCREEN GZQO on the hospital's own space after site lists are published into it",
-        "done",
-        f"{job.state if job else 'no job'} in {time.perf_counter() - t1:.0f} s {err}",
-        bool(job and job.state == "done"),
+    dup = svc.lake("main").query("SELECT count(*) - count(DISTINCT pid) AS d FROM patient").to_pylist()[0]["d"]
+    s.check(
+        "XL-02: SCREEN GZQO on the hospital's own space after the lists are published into it is done, one patient "
+        "row per pseudonym",
+        bool(job and job.state == "done") and dup == 0,
+        f"{job.state if job else 'no job'} in {time.perf_counter() - t1:.0f} s; duplicate patient rows {dup} {err}",
     )
     res.block["model_calls"] += llm_calls(w.box) - calls0
     res.block.update(
