@@ -198,8 +198,8 @@ setup_failed() {  # the setup log comes back with the results, so a failed setup
 }
 echo "== setup $(date -u +%FT%TZ)" >>"$LOG"
 apt-get update -qq >>"$LOG" 2>&1
-apt-get install -y -qq postgresql tesseract-ocr tesseract-ocr-jpn tesseract-ocr-chi-tra tesseract-ocr-eng nodejs npm \
-  python3-venv python3-pip curl >>"$LOG" 2>&1 || setup_failed "apt-get install"
+apt-get install -y -qq postgresql tesseract-ocr tesseract-ocr-jpn tesseract-ocr-chi-tra tesseract-ocr-eng \
+  python3-venv python3-pip curl xz-utils >>"$LOG" 2>&1 || setup_failed "apt-get install"
 touch "$HB"
 # Ubuntu 24.04 refuses a system-wide pip install (PEP 668), so uv comes from a venv of its own, else its installer
 if ! command -v uv >/dev/null; then
@@ -210,6 +210,11 @@ command -v uv >/dev/null || setup_failed "uv"
 { uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"; } >>"$LOG" 2>&1 \
   || setup_failed "python environment"
 [ -x .venv/bin/python ] || setup_failed "no .venv/bin/python"
+# Ubuntu's own Node.js is too old for Playwright (the third cloud run stopped on it): the pinned LTS from nodejs.org
+NODE_V=v22.23.4
+{ curl -fsSL "https://nodejs.org/dist/$NODE_V/node-$NODE_V-linux-x64.tar.xz" | tar -xJ -C /opt \
+  && ln -sf /opt/node-$NODE_V-linux-x64/bin/node /opt/node-$NODE_V-linux-x64/bin/npm /opt/node-$NODE_V-linux-x64/bin/npx /usr/local/bin/; } \
+  >>"$LOG" 2>&1 || setup_failed "node $NODE_V"
 mkdir -p /opt/node-tools && (cd /opt/node-tools && npm i -s playwright@1.63.0 axe-core && npx playwright install --with-deps chromium) \
   >>"$LOG" 2>&1 || setup_failed "playwright"
 .venv/bin/python tools/fetch_fonts.py >>"$LOG" 2>&1 || true
