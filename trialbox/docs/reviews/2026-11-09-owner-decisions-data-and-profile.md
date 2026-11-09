@@ -127,3 +127,7 @@ Where a recommendation conflicts with an overriding decision above, the decision
 | Before hardware is ready | Use the hospital's private cloud with GPU, where the site has one approved for patient data. |
 | Site contacts | Changfu and Makoto find the IT, privacy-office and data-feed contacts. Aimedics drafts the site survey and the hospital IT security pack in ja and zh-TW. |
 | Wave 1c | The high-risk journey findings (job permission by role, viewer/CRO data leaks, PDF upload, screening scope, PI criteria ticks) are fixed **before** the G1 GPU run. |
+| IRB | **Both pilot sites have IRB approval.** The site survey confirms that each approval covers whole-hospital screening and patient profiles. |
+| CGMH B200 | The B200 server is **shared with other work.** TrialBox runs in containers on CGMH's platform with a fixed GPU quota and its own install checks. |
+| Go-live order | **CGMH first**, then Japan. |
+| Remaining plan questions | **All recommendations in §13 of TB-PLAN-05 are accepted** (Q-05 to Q-27), except where a row above decides differently (Q-02 and Q-04). |
