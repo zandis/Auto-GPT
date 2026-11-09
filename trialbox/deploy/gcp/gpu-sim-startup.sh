@@ -1,7 +1,7 @@
 #!/bin/bash
 # TrialBox 5090-like simulation box: two vLLM servers capped to ~28 GB total of the 96 GB card, behind nginx :80.
 exec > >(tee -a /var/log/tb-startup.log /dev/ttyS0) 2>&1
-set -x
+# no `set -x` (review A-12): the API key is on the docker command lines and would go to the serial log
 KEY=$(curl -s -H Metadata-Flavor:Google http://metadata.google.internal/computeMetadata/v1/instance/attributes/tb-key)  # random API key set at VM creation
 VLLM=vllm/vllm-openai:v0.32.0
 if ! command -v docker >/dev/null; then

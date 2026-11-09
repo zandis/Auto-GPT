@@ -11,7 +11,7 @@
 # For each: did it start, seconds to ready, nvidia-smi memory.used at rest and after one judge request, a one-line
 # answer check. Nothing else on the card while it runs.
 exec > >(tee -a /var/log/tb-fit.log /dev/ttyS0) 2>&1
-set -x
+# no `set -x` (review A-12): the API key is on the docker command lines and would go to the serial log
 KEY=$(curl -s -H Metadata-Flavor:Google http://metadata.google.internal/computeMetadata/v1/instance/attributes/tb-key)
 VLLM=vllm/vllm-openai:v0.32.0
 J=nvidia/Gemma-4-26B-A4B-NVFP4
