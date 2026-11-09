@@ -26,19 +26,37 @@ def pg_cluster_url() -> Iterator[str]:
     if given:
         yield given
         return
-    import shutil
+    import atexit
     import tempfile
 
     from tools import pglocal
 
-    # not under pytest's private tmp: as root the server runs as the `postgres` user and must reach its directory
-    root = Path(os.environ.get("TB_TEST_PG_DIR") or tempfile.mkdtemp(prefix="tb-pgtest-"))
+    # D-201: not under pytest's basetemp (as root the server runs as `postgres`, and pytest wipes the basetemp at
+    # start), but under this branch's TB_TEST_ROOT, one cluster per xdist worker; without a test root a fresh
+    # directory under the scratch root. Never a fixed /tmp path. The .owner file lets `python -m tools.pglocal --gc`
+    # reap the cluster after a kill -9; atexit stops it when the session ends without its teardown.
+    keep = os.environ.get("TB_TEST_PG_DIR")
+    if keep:
+        root = Path(keep)
+    else:
+        if os.environ.get("TB_TEST_ROOT"):
+            root = pglocal.cluster_dir()
+            if pglocal.owner_alive(root):
+                owner = (root / ".owner").read_text().split()[0]
+                raise pytest.UsageError(f"{root} belongs to running pid {owner}: give each parallel run its own "
+                                        "TB_TEST_ROOT (RUNBOOK §12)")  # fmt: skip
+            pglocal.remove(root)  # a cluster left by a killed run of this worker starts again empty
+            root.mkdir(parents=True)
+        else:
+            pglocal.scratch_root().mkdir(parents=True, exist_ok=True)
+            root = Path(tempfile.mkdtemp(prefix="tb-pgtest-", dir=pglocal.scratch_root()))
+        pglocal.claim(root)
+        atexit.register(pglocal.remove, root)
     root.chmod(0o755)
     url = pglocal.ensure(root)
     yield url
-    if not os.environ.get("TB_TEST_PG_DIR"):
-        pglocal.stop(root)
-        shutil.rmtree(root, ignore_errors=True)
+    if not keep:
+        pglocal.remove(root)
 
 
 @pytest.fixture

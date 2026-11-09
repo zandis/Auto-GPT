@@ -413,3 +413,32 @@ it before any start or `--provision` and makes nothing it could not run.
 Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the VM's service account needs storage
 access); without it they go over plain HTTP to the VM with the key in a header. A billing budget with a kill switch
 is the last net; it needs billing permissions this project's service account does not have: the owner sets it.
+
+## 12. Working in parallel on one machine (D-201)
+
+For developers and agent sessions that run the suite side by side on one machine; not for a box.
+
+- **One temp root per branch.** `make` sets `TB_TEST_ROOT` to `$TB_SCRATCH/tb-tests-<branch>` (`TB_SCRATCH`: your
+  scratchpad, default `/var/tmp/trialbox-<uid>`) and exports it. Under it: pytest's `--basetemp` (`pytest/`), the
+  test `TMPDIR` (`tmp/`, emptied after each run), one PostgreSQL cluster per xdist worker (`pg-gw0` ...), the shared
+  cluster of `e2e_simple` and the drills (`pglocal/`), `e2e-simple/` and `backup-drill/`. Two runs at once need two
+  distinct roots: a second run on a root whose cluster has a live owner stops with a usage error. `/`, a top-level
+  directory, `/tmp`, `/var/tmp` and the home directory are refused as a root.
+- **One venv per branch, exactly the lock.** `make venv` runs `uv sync --frozen --group test --extra dev`: it
+  installs `uv.lock` and removes anything installed by hand; the venv has no pip. `make test` first checks that the
+  venv still matches the lock (`venv-check`). To change a dependency, edit `pyproject.toml`, run `uv lock`, commit
+  both. The test plugins are pinned in `[dependency-groups] test` (pytest, pytest-timeout, pytest-cov,
+  pytest-xdist); `addopts` blocks `randomly` and the cache provider. Random order is a nightly job, not a default.
+- **The suite in parallel.** `make test` runs `pytest -n auto` (`PYTEST_N=0` for serial, `PYTEST_N=4` to cap).
+  pytest keeps one basetemp and, of it, only the failed tests' folders.
+- **Disk.** `make check-disk` first (fails under `TB_MIN_FREE_GB`, default 20 GB; reports the branch root against
+  its 10 GB budget). `make clean-tmp` (`DRY=1` to list only) removes what earlier runs left and nobody uses now:
+  `/tmp/pytest-of-*` run folders without a live `.lock`, the old `/tmp/tb-pgtest-*` and `/tmp/tb-pglocal-*`
+  clusters without a client, `/tmp/tb-backup-drill*`, `/tmp/tb-drill`, `/tmp/tb-e2e-simple*`, the rehearsal's
+  `runs/`, and the `src.tgz`/`results.tgz` of every `.cache/complete-run` run but the two newest (reports stay). A
+  folder that a running process holds is kept. The rehearsal keeps the newest two evidence folders per case.
+- **After a crash.** `python -m tools.pglocal --gc` stops and removes every cluster whose `.owner` process is gone (a
+  `kill -9`, a lost session); a cluster without an owner file is never touched by it.
+- **As root** the throwaway server runs as `postgres`, which must reach the cluster: `pglocal` adds the search bit
+  (`o+x`, never `o+r`) to a parent that lacks it and says so on stderr; a socket path too long for Unix (about 100
+  characters) moves to a short private folder that `<cluster>/run` links to.
