@@ -645,7 +645,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
                                                   "action": "confirm"})  # fmt: skip
     s.check("one tap confirms a fact", 'data-testid="fact-done"' in r.text, r.status_code)
     s.check("the hospital's own data is untouched by the practice site",
-            'data-testid="q-patients" data-state="red"' in crc.get(f"/site?study={TRIAL}").text)  # fmt: skip
+            'data-testid="miss-proposed"' not in crc.get(f"/site?study={TRIAL}").text)  # fmt: skip
     ask = crc.get("/ask", params={"q": "What do I do next?", "ws": "practice", "study": TRIAL})
     s.check("Ask TrialBox answers what to do next", 'data-kind="next"' in ask.text, ask.status_code)
     s.seconds = time.perf_counter() - t

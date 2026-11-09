@@ -2053,6 +2053,202 @@ the AE is never graded or reported to the IRB or the sponsor by TrialBox; the in
 is not recorded; a reminder when a window is about to close (only the overdue list and N2); the enrolment report's
 small-cell rule (k) is not applied because it never leaves the study team.
 
+**D-135 Step 5b, site setup and data harmonization.** TB-PLAN-04 step 5b (D-131, D-132; builds on D-123, D-126,
+D-129, D-130, D-133, D-134), 2026-11-09.
+
+*What was built.*
+
+* **The one rule, in the lake and the engines** (`lake.flatten`, `matching/proposed.py`).
+  * A fact the model read from a chart is *proposed*. It carries the tag `urn:trialbox:basis|proposed` and goes only
+    to the lake's new `site_fact` table, never to `condition`, `observation` or `medication`. The compiled SQL never
+    reads `site_fact`, so a proposed fact can never count as met and can never exclude. The approved SQL is
+    unchanged byte for byte; no ruleset needs re-approval.
+  * Beside the SQL, as with D-130, every decided answer is checked. If one of the patient's proposed facts could
+    change it, the answer becomes `unknown`, with the new reason code `proposed_fact` (words in en, ja and zh-TW)
+    and the fact as evidence.
+  * "Could change it" is decided per atom of the criterion:
+    * a condition or medicine that is present matters when the answer is FALSE;
+    * the same under `not` or `none` matters when the answer is TRUE;
+    * a value (a lab, eGFR, age, sex) matters either way.
+  * The fact must also match the atom: its domain, its code in the ValueSet or one of its families (or no code at
+    all), and its date inside the window.
+  * Both runtime paths apply the check: the SQL engine (NAV, MICROBATCH, CASE, and the patient check on the
+    readiness page) and the SCREEN cascade at S1. At S1 an exclusion left unknown keeps the patient, as D-18
+    does.
+  * A *confirmed* fact (the coordinator confirmed or corrected it; audited) is written to the coded tables like any
+    coded record, and is also listed in `site_fact`.
+* **Feasibility.** FEAS counts only coded and confirmed facts, by construction.
+  * `FeasRaw.basis` gives, for each step: the patients still counted, how many of them rest partly on confirmed
+    facts, and how many patients have proposed facts that are not counted.
+  * Two new notes, `feas.note.basis.confirmed` and `.proposed` (three languages), appear only when a site has such
+    facts. The hospital feed's reports are unchanged.
+  * A lake built before this step has no `site_fact` table and reads as "no proposed facts". Any other lake error
+    still stops the run (D-127).
+* **Site setup service** (`services/sitesetup`, schema `sitesetup` of the trial database).
+  * Tables: inputs; facts with their status (coded, proposed, confirmed, rejected; `before` keeps the model's version
+    after a correction); local codes and their mapping; the "please check" list with its answers; the fixes made;
+    settings; and what was last published.
+  * Files sit in the orchestrator's data folder (`sitesetup/<space>/inputs/`): the original file, its text, and a
+    redacted text for the lake. The folder is in every backup.
+  * Spaces: `main` is the hospital, and its facts go to the box's own lake beside the nightly feed. Any other name is
+    a separate site space with its own lake: the synthetic `practice` site, and the e2e stage's new site.
+  * Every decision is audited (`setup.*`, `console.site_*`), without chart numbers or names.
+  * APIs: the orchestrator's `/setup/...` (`orchestrator/setup_api.py`; reads behind the service token, as every read
+    is), the console's `/api/v1/site/...` (readiness, facts, charts, codes, checks) and `/api/v1/ask`.
+* **Messy data** (`sitesetup/messy.py`, a pure module).
+  * Safe fixes are made and listed by kind and column:
+    * era dates (令和, 平成, 昭和, 大正, 明治 and R, H, S, T, M; 元年);
+    * 民國 years and NHI's 7-digit ROC dates;
+    * Excel serial dates and other ISO date forms;
+    * slashed dates whose day is over 12;
+    * full-width digits and letters;
+    * known unit conversions: urate and creatinine in µmol/L, HbA1c in mmol/mol, glucose in mmol/L, weight in lb;
+    * merged cells, and title rows above the header.
+  * The ambiguous rest goes to "please check" with a suggested answer. Nothing is guessed:
+    * D/M against M/D: one question per column, suggested from the column's own unambiguous dates; the cells stay
+      empty until it is answered;
+    * an era date that does not exist (平成31年5月);
+    * two-digit years and unreadable dates;
+    * an unknown unit, suggesting the test's own unit when the value is plausible in it;
+    * a column that might hold chart numbers: held back, and its values are never shown;
+    * a sex value that cannot be read;
+    * rows without a chart number.
+  * Each answer re-reads the stored file, so the result always depends only on the file and the answers. Name,
+    phone and address columns are dropped and listed.
+* **Charts one by one** (`sitesetup/charts.py`, `ocr.py`).
+  * Accepted: pasted EMR text, .txt, Word, a PDF with a text layer, and scans (an image, or a PDF without text whose
+    page images are read).
+  * Scans go through `TesseractOcr` (jpn, chi_tra, eng) when it is installed. Without OCR a scan is refused with a
+    plain reason, and everything else still works. Tests use a fake OCR.
+  * The local model returns facts with quotes (prompt `chart_facts_v1`, schema `llm_chart_facts_output`; the stub in
+    tests and e2e). A fact is kept only when its quote is found in the chart (`tb_common.quotes`); it is then
+    normalised through the messy module.
+  * The chart number becomes the pseudonym on arrival and is never stored. Quotes and the lake's copy of the text
+    are redacted by the box's guard (chart number, names, phones, IDs). Quotes keep a date of birth so the
+    coordinator can check it.
+  * The chart text becomes a note in the lake: note text stays notes, read by the two models at screening.
+* **Local codes, mapped once per site** (`sitesetup/mapping.py`).
+  * A local code lives in `urn:trialbox:local:<kind>`, where the kind is one of: a diagnosis code, a diagnosis as
+    written, a lab code, a lab column, a drug code, a drug name.
+  * Suggestions come from the adapter's JP-Core lookups (byomei, JLAC10, YJ), the hospital lab table, the analyte
+    words, and the curated terminology by name (for example 痛風 → M10.9).
+  * A coordinator or administrator confirms each code once, on the page or through a filled XLSX mapping sheet. A
+    target must be a code of the domain's standard system.
+  * Until a code is mapped it stays in an unknown code system, so D-130 keeps the patient unknown.
+* **Join by pseudonym** (`sitesetup/publish.py`).
+  * One Patient per pseudonym across dump, sheet and chart.
+  * Counted demographic facts that disagree are listed and left out of the patient row. The patient stays unknown
+    ("needs information") until a person keeps one value; the other values are rejected, and the choice is audited.
+* **Readiness** (`sitesetup/readiness.py`, console `/site`). Three questions, each green, amber or red, with what is
+  missing and a link to fix it:
+  * Trial: no criteria, or not approved.
+  * Patients: proposed facts to check; unmapped codes, with record counts; rows without a key; other checks;
+    disagreements; the share of diagnoses not in ICD-10-CM; "feasibility needs a bulk source" when there are only
+    charts.
+  * Records: TrialBox's forms or REDCap.
+
+  The page also shows the feasibility table (coded, confirmed and proposed columns) and the criteria check: each
+  patient ready, needs information, or not eligible, with every criterion's reason.
+* **Help (D-132).**
+  1. The wizard `/site/start`: one question per screen, with examples, what each answer means, and progress steps.
+     The shortest path is a protocol plus pasted charts.
+  2. Ask TrialBox `/ask`, linked from every page's header.
+     * It answers "what do I do next?" from the readiness page, and "why is this patient on the list?" from the
+       week list's candidate row or the patient check, in ja, zh-TW and en.
+     * The local model (prompt `assist_v1`) only phrases a draft built from the pages. When the model is down, the
+       draft is the answer.
+     * It reads only with GETs. Its one POST (`/assist`) reads and writes nothing; a test proves both.
+     * CRO accounts may open it too (added to D-104's list) and get only the reader's answer.
+  3. An XLSX candidate template in the site's language with a sheet explaining each column, the mapping sheet, and a
+     synthetic practice site that loads and resets in one tap.
+  4. Remote help from Aimedics: only a switch, off by default, with a plain warning. When the box may hold real data
+     (not DEV or TEST, or not data class D0), turning it on needs "approved by". No networking.
+* **Words.** `console/i18n_site.py` has about 330 keys in en, ja and zh-TW, in plain words, with a glossary on the
+  help pages. The old-word test still passes, and a new test checks the new keys against the same banned words.
+
+*Decisions the owner should know.*
+
+* **The rule changes no existing answer.** Without site facts (every existing site), nothing differs. With them, a
+  proposed fact can turn a decided answer into "unknown" in either direction, and can never decide one:
+  * it can rescue a coded "no" into "needs information";
+  * it can stop a coded "yes" from counting as ready.
+* **Value facts are conservative.** A proposed value (a lab) touches value criteria in both directions. So a chart
+  that repeats a coded value also sends the patient to "needs information" until the value is confirmed.
+* **Spaces and reproducibility.** Every space other than `main` has its own in-process lake (hash embedder) under the
+  orchestrator's data folder.
+  * Publishing to `main` rebuilds the current snapshot under the same id. A job re-run after a same-day site change
+    is therefore not byte-identical (FR-REP-02). The hospital feed alone is unaffected.
+  * The e2e stage uses a separate space, and a check confirms the hospital lake is untouched.
+* **Local codes always need one confirmation.** Coded data from sheets and dumps is used as is, but each local code
+  needs one confirmation per site, even when the shipped lookup has it: the JP-Core lookups are marked "verify".
+
+*Evidence.*
+
+* **`e2e_simple` stage 12**, "site set-up and data harmonization": 23 checks in 20.6 s; the whole run took 99.9 s of
+  its 15-minute budget. Everything goes through the console, in ja:
+  1. A new study's protocol (SITE5B) is drafted and the investigator approves it.
+  2. Two charts are pasted. The page says "feasibility needs a bulk source", and both chart patients are "needs
+     information".
+  3. A Shift_JIS IT dump with hospital codes is loaded. The unknown code system is listed, and the patients behind
+     unmapped codes are unknown.
+  4. The codes are mapped with one tap each. A coded-eligible patient with a proposed malignancy is "needs
+     information", not excluded.
+  5. The messy Excel list is loaded. The era, 民國, width, unit, merged-cell and title-row fixes are listed; the
+     day/month, unit, ID-column and no-key questions are asked, and a scripted coordinator answers them.
+  6. One pseudonym is shared across dump, list and chart. The two birth dates are listed, then resolved.
+  7. FEAS shows the proposed facts as not counted.
+  8. The coordinator confirms each fact in one tap. The malignancy now excludes, the chart-only patient is ready, and
+     FEAS shows the confirmed basis.
+  9. The built-in forms are added, and the readiness page is green.
+  10. Ask TrialBox answers, and changes nothing.
+  11. No chart number or name appears on the pages or in the audit, and the hospital lake is untouched.
+* **`tests/unit/test_one_rule.py`** (the safety rule, on the SQL engine, cascade S1 and FEAS over one lake). Cases:
+  proposed-only; a proposed exclusion; a confirmed exclusion; a confirmed chart patient; a value in both directions;
+  outside the window; another code; no code; a rescued coded "no"; an old lake.
+* **Other unit tests.**
+  * `test_messy.py`: dates, units, layout, checks, answers.
+  * `test_site_setup.py`: the whole set-up at service level; Word, PDF and fake-OCR scans; quotes not in the chart are
+    dropped; joining by pseudonym, never by name; templates; the practice site.
+* **`tests/console/test_site_setup_pages.py`.**
+  * The pages, through to green.
+  * Every page in three languages for coordinator and investigator, with no raw keys.
+  * Roles: the investigator reads; viewer gets 403.
+  * Templates, the practice site and the remote-help approval.
+  * `/api/v1`, and the assistant's read-only rule.
+* **Suites.** Unit, console and testbench tests: 1,316 passed, 2 skipped.
+* **`tools/backup_drill`: PASSED.** After the restore the site set-up reads back the same: 4 inputs, 36 facts, 7
+  codes, 4 checks, and the 6 chart files.
+* **`public_e2e`: 112/112 checks.** Stage 5c: the practice site, a one-tap confirm, the hospital's space untouched,
+  and Ask.
+* **The walk** (`node tools/public_walk.js` against `public_e2e --serve`): 780 checks, 0 failures, over 768 pages.
+  That is 5 roles × 3 languages × desktop and phone, now with:
+  * the ten site pages for coordinator and investigator, three for the administrator, and 403 for viewer and CRA;
+  * Ask for every role.
+
+  axe: 0 serious or critical (84 minor). Interactive targets: 21,600, none under 44 px. Taps:
+  * T8, "CRC confirms a proposed fact on a phone" (ja): **2 taps** (target 2).
+  * T9, "CRC pastes a chart" (zh-TW, phone): **3 taps** (target 3).
+  * T1 to T7 unchanged: 2, 2, 2, 5, 5, 3, 2.
+
+*Not done.*
+
+* **OCR and the real model.**
+  * No real OCR run: tesseract is not installed here, so the interface and the refusal are tested with a fake.
+  * The real local model's extraction quality on real charts is untested; the stub reads the synthetic charts by
+    rules.
+* **Inputs.**
+  * Pasted text without a chart number cannot be joined, so it is refused.
+  * Codes from the hospital feed itself are not mapped here; only sheets and dumps fill the code list. The JP Core
+    profile for unreadable 標準病名 stays in step 7.
+  * A sheet's cells cannot be edited in TrialBox: the site fixes the file and reads it again.
+  * Only the five analytes and units listed above are known.
+* **Screening and the lake.**
+  * The patient check covers coded criteria only; the SCREEN run reads the note criteria.
+  * Publishing is not batched: every decision rebuilds the space's lake. That is fine for a site space, but at the
+    hospital's scale `main` needs a batched "apply".
+  * The LakeHttp `/site` route is tested at unit level only, with no compose run.
+* **Remote help.** Only the switch is built; screen sharing itself is not.
+
 
 **D-136 The morning mail shows the screening number.** Owner, 2026-11-08. N1 and N2 show the study's screening number
 beside the pseudonym once a patient has one (`a1b2c3d4 (GZQO-0041)`), in every row: this week's patients, next

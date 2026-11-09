@@ -474,7 +474,8 @@ def create_app(
         path = request.url.path
         u = sess.user
         if u.role == "cro" and not (
-            path in ("/", "/home", "/reports", "/lang", "/logout", "/cmd", "/account", "/account/password", "/help")
+            path
+            in ("/", "/home", "/reports", "/lang", "/logout", "/cmd", "/account", "/account/password", "/help", "/ask")
             or re.fullmatch(r"/studies/[A-Za-z0-9_-]+/feasibility", path)
             or re.fullmatch(r"/pilot/jobs/[0-9A-HJKMNP-TV-Z]{26}/sponsor-pack\.zip", path)
         ):
