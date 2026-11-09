@@ -369,7 +369,10 @@ def test_d3_intake_role_needs_no_study_step(tmp_path: Path, caller: str, role: s
     ],
 )
 def test_d3_without_step_still_refused_outside_the_intake_rule(tmp_path: Path, headers: dict[str, str]) -> None:
-    gw = _gw(tmp_path, env=Environment.PRODUCTION, registry=_pinned_registry(), http=_mock("j-test"))
+    # topology B (a cloud tenant): the box policy of D-142 (topology A only) does not apply, so LLM-2 decides alone
+    gw = _gw(
+        tmp_path, env=Environment.PRODUCTION, topology=Topology.B, registry=_pinned_registry(), http=_mock("j-test")
+    )
     res = gw.chat(headers, INTAKE_BODY if headers["X-TB-Caller"] != "orchestrator" else _judge_body())
     assert res.status == 403 and res.body["error"]["code"] == "step_unconfirmed", res.body
 
