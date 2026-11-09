@@ -100,6 +100,7 @@ PUBLIC_PAGES = [
     ("5c ", "crc", f"/site?ws=practice&study={P_TRIAL}"),
     ("6 ", "crc", "/reports"),
     ("7 ", "crc", "/pilot/jobs/{case}"),
+    ("7b ", "pi", "/pilot/jobs/{case}"),  # D-143: the study's PI sees the CASE request's chart number, audited
     ("8 ", "admin", "/audit"),
 ]
 
