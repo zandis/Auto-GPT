@@ -29,6 +29,8 @@
 // coordinator, the investigator and the administrator (403 for viewer and CRA), Ask TrialBox for every role, and two
 // tasks: T8 the coordinator confirms a proposed fact on a phone (target 2 taps), T9 the coordinator pastes a chart
 // (target 3 taps: the chart number, the text, Read).
+// Review 2026-11-09 P-04 (D-143): "Excluded patients and why" for the investigator and the coordinator (403 for viewer
+// and CRA).
 "use strict";
 
 const { chromium } = require("playwright");
@@ -63,6 +65,7 @@ const PAGES = {
     `/studies/${T}/feasibility`,
     `/pilot/jobs/${W.approval_job}/approval`,
     `/studies/${T}/screening-log`,
+    `/studies/${T}/excluded`,
     `/studies/${T}/sources`,
     `/studies/${T}/conflicts`,
     `/studies/${T}/forms`,
@@ -76,6 +79,7 @@ const PAGES = {
     `/studies/${C}/cohort`,
     `/studies/${T}/feasibility`,
     `/studies/${T}/screening-log`,
+    `/studies/${T}/excluded`,
     `/studies/${T}/setup`,
     "/studies/NOPE-01/setup",
     `/studies/${T}/sources`,
@@ -99,15 +103,15 @@ const PAGES = {
     "/jobs",
   ],
   admin: ["/admin?tab=health", "/admin/notice", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/codes?${SQ}`, `/site/help?${SQ}`],
-  viewer: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`],
-  cra: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`],
+  viewer: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`],
+  cra: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`],
 };
 // pages a role must not open: a 403 page (in the chosen language), never a 500
 const FORBIDDEN = {
   pi: ["/admin?tab=health"],
   crc: ["/admin?tab=health", "/admin/notice"],
-  viewer: [`/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`],
-  cra: [`/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`],
+  viewer: [`/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`],
+  cra: [`/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`],
 };
 const ROLES = ["admin", "crc", "pi", "viewer", "cra"];
 const LANGS = [

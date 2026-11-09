@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {# TB-PLAN-04 step 5 (D-134): one participant: the state, the next legal steps (a bar of buttons, as the patient
    sheet's mark bar), Undo, every step so far, the visits with their windows, AEs and deviations. #}
-{% from "_life.html" import life_nav, state_pill, vlabel with context %}
+{% from "_life.html" import life_nav, state_pill, vlabel, report_clock with context %}
 {% block title %}{{ t('life.subject.title', r=record) }} · {{ rs }}{% endblock %}
 {% macro src(s) %}{% set k = s.split(':') %}{% if k[0] == 'form' %}{{ t('life.source.form', form=k[1]) }}{% else %}{{ t_or('life.source.' + k[0], k[0]) }}{% endif %}{% endmacro %}
 {% block content %}
@@ -11,6 +11,7 @@
 {% if err %}{% include "_data_err.html" %}{% endif %}
 {% if done == 'step' %}<p class="ok" role="status" data-testid="life-saved">{{ t('life.step.saved', state=t('life.state.' + sub.state)) if sub else '' }}</p>{% endif %}
 {% if done == 'entry' %}<p class="ok" role="status" data-testid="life-entry-saved">{{ t('life.entry.saved') }}</p>{% endif %}
+{% if done == 'ack' %}<p class="ok" role="status" data-testid="sae-acked">{{ t('life.sae.done') }}</p>{% endif %}
 {% if done == 'undo' %}<p class="ok" role="status" data-testid="life-undone">{{ t('life.undone') }}</p>{% endif %}
 {% if refused %}<p class="error" role="alert" data-testid="life-refused">{{ t('life.step.refused', why=refused) }}</p>{% endif %}
 {% if sub %}
@@ -60,7 +61,9 @@
 <section class="card" data-testid="life-aes">
 <h2>{{ t('life.ae.title') }}</h2>
 {% if not one.aes %}<p class="empty">{{ t('life.ae.none') }}</p>{% else %}
-<ul class="plain">{% for a in one.aes %}<li data-testid="ae-{{ a.event }}"><span class="mono">{{ a.event }}</span> · <span data-authored>{{ a.ae_term }}</span> · {{ t('life.ae.onset') }} {{ a.ae_onset or '–' }}{% if a.serious %} <span class="pill bad">{{ t('life.ae.serious') }}</span>{% endif %}{% if a.ongoing %} <span class="hint">{{ t('life.ae.ongoing') }}</span>{% endif %}
+<ul class="plain">{% for a in one.aes %}<li data-testid="ae-{{ a.event }}"><span class="mono">{{ a.event }}</span> · <span data-authored>{{ a.ae_term }}</span> · {{ t('life.ae.onset') }} {{ a.ae_onset or '–' }}{% if a.serious %} <span class="pill bad">{{ t('life.ae.serious') }}</span>{% endif %}{% if a.fatal %} <span class="pill bad">{{ t('life.sae.fatal') }}</span>{% elif a.ongoing %} <span class="hint">{{ t('life.ae.ongoing') }}</span>{% endif %}
+ {% if a.serious and a.ack_by %}<span class="hint" data-testid="ae-acked-{{ a.event }}">{{ t('life.sae.acked', who=a.ack_by|replace('console:', ''), at=a.ack_at|local) }}</span>{% elif a.serious and user.role == 'investigator' %}<form method="post" action="/studies/{{ rs }}/subjects/{{ record|urlencode }}/aes/{{ a.event }}/ack" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" data-testid="ae-ack-{{ a.event }}">{{ t('life.sae.ack') }}</button></form>{% elif a.serious %}<span class="hint">{{ t('life.sae.wait_pi') }}</span>{% endif %}
+ {{ report_clock(a) }}
  {% if editable %}<a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_adverse_event&amp;event={{ a.event }}&amp;back=subject">{{ t('life.subjects.open') }}</a>{% endif %}</li>{% endfor %}</ul>{% endif %}
 {% if editable %}<p><a class="button secondary" href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_adverse_event&amp;event={{ one.next_ae }}&amp;back=subject" data-testid="ae-add">{{ t('life.ae.add') }}</a></p>{% endif %}
 </section>

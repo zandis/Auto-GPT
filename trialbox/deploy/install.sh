@@ -198,13 +198,29 @@ WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
 sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" >> deploy/.env
 # D-127 (review F-06): a box is PRODUCTION unless the operator set TB_ENV on purpose (timers, mail, REDCap, gates)
 grep -q '^TB_ENV=' deploy/.env || echo "TB_ENV=PRODUCTION" >> deploy/.env
-grep -q '^TB_LLM_MODE=' deploy/.env && sed -i "s/^TB_LLM_MODE=.*/TB_LLM_MODE=$MODE/" deploy/.env || echo "TB_LLM_MODE=$MODE" >> deploy/.env
+# TB_LLM_MODE is the services' word (tb_common.config: vllm | stub ...), not the compose profile's (gpu | stub), D-142
+LLM_MODE=stub; [ "$MODE" = gpu ] && LLM_MODE=vllm
+grep -q '^TB_LLM_MODE=' deploy/.env && sed -i "s/^TB_LLM_MODE=.*/TB_LLM_MODE=$LLM_MODE/" deploy/.env || echo "TB_LLM_MODE=$LLM_MODE" >> deploy/.env
 NOTE_BLOCK=both_agree; [ "$GPU" = rtx4090 ] && NOTE_BLOCK=never
+# the pair profiles run the verifier build: name it, or both_agree has no second model (doctor note_block), D-142
+case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
+  grep -q '^TB_GATEWAY_VERIFIER_MODEL=.' deploy/.env || { sed -i "/^TB_GATEWAY_VERIFIER_MODEL=/d" deploy/.env; echo "TB_GATEWAY_VERIFIER_MODEL=v-verifier" >> deploy/.env; } ;;
+esac
 grep -q '^TB_NOTE_BLOCK=' deploy/.env && sed -i "s/^TB_NOTE_BLOCK=.*/TB_NOTE_BLOCK=$NOTE_BLOCK/" deploy/.env || echo "TB_NOTE_BLOCK=$NOTE_BLOCK" >> deploy/.env
 grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$MODE/" deploy/.env || echo "COMPOSE_PROFILES=$MODE" >> deploy/.env
 chmod 600 deploy/.env deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
 if [ "$MODE" = gpu ]; then
+  # D-142 (review R-01): pin the profile's deployed pair from the site's own weights (champion: the status PRODUCTION
+  # routes); without it every PRODUCTION model call is refused (build_unpinned). Builds already pinned are kept.
+  mkdir -p deploy/site
+  for v in JUDGE_MODEL_DIR JUDGE_MODEL VERIFIER_MODEL_DIR VERIFIER_MODEL; do  # as compose reads them from deploy/.env
+    val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
+  done
+  say "pinning the $GPU model pair from deploy/models (tools/pin_model.py --install)"
+  docker run --rm -v "$ROOT/deploy:/d" -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
+    python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
+    || echo "install: warning: a model of the $GPU pair is not pinned (see above): it routes nothing until its weights are in deploy/models and install runs again (RUNBOOK §8)" >&2
   if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then
     # SEC-64: every pinned build's weights must still hash to its pin, or the box does not start on them
     say "checking the pinned model weights (tools/pin_model.py --verify-all)"

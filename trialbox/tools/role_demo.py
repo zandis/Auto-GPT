@@ -173,8 +173,13 @@ class InprocBackend:
     def registry_promote(self, ruleset: str, req: Any) -> int:
         return int(self._call("POST", f"/registry/{ruleset}/promote", req)["added"])
 
-    def registry_export(self, ruleset: str) -> bytes:
-        return bytes(self.c.get(f"/registry/{ruleset}/export.xlsx").content)
+    def registry_export(self, ruleset: str, by: str) -> bytes:
+        from console.backend import Refused
+
+        r = self.c.get(f"/registry/{ruleset}/export.xlsx", headers=actor_header(by))
+        if r.status_code != 200:
+            raise Refused(r.text[:200])
+        return bytes(r.content)
 
     def reveal(self, job_id: str, pid: str, by: str) -> str | None:
         from console.backend import Refused

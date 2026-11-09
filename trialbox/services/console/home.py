@@ -25,11 +25,12 @@ from typing import Any, cast
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common.service_auth import bind_session
 from tb_contracts import Job
 
 from console import s28
 from console import studies as st
-from console.auth import Session, reveal_reason
+from console.auth import REVEAL_REASONS, Session, reveal_reason
 from console.backend import Refused
 from console.sitestore import (
     CAP_VALUES,
@@ -73,7 +74,10 @@ class Helpers:
     # set by console.lifecycle_pages (D-134): the home page's visits and serious AEs; the visits for N1/N2
     life_home: Callable[[Session], dict[str, Any]] | None = None
     life_mail: Callable[[str, date], dict[str, Any]] | None = None
-    life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's ongoing serious AEs (the week page)
+    life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's unacknowledged SAEs (the week page)
+    life_reports: Callable[[str], list[dict[str, Any]]] | None = None  # one study's overdue SAE reports (P-03)
+    # P-10 (D-143): one confirmation page before an action that is hard to take back
+    confirm: Callable[..., Response] | None = None
 
 
 class ApiLogin(BaseModel):
@@ -95,6 +99,12 @@ class ApiOutcome(BaseModel):
     outcome: str
     retry: str = ""
     note: str = Field(default="", max_length=300)
+
+
+class ApiReveal(BaseModel):
+    """``POST /api/v1/studies/{rs}/patients/{pid}/reveal`` (D-143): the reason is required, as on the page."""
+
+    reason: str = Field(default="", max_length=40)
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -542,6 +552,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             steps=st.STEPS,
             approvals=approvals(sess),
             sae=[{**a, "rs": rid} for a in h.life_sae(rid)] if h.life_sae else [],
+            sae_reports=[{**a, "rs": rid} for a in h.life_reports(rid)] if h.life_reports else [],
         )
 
     def study_step(rid: str) -> int:
@@ -590,6 +601,85 @@ def register(app: FastAPI, h: Helpers) -> None:
             "mrn": None,
         }
 
+    # ------------------------------------------------------------------ excluded patients and why (P-04, D-143)
+    ex_sources = ("coded", "fact", "notes", "rule")
+
+    def excluded_bundle(rid: str) -> tuple[Job | None, dict[str, Any] | None]:
+        """The latest screening run of the study that stored its excluded list (``excluded_*.json``)."""
+        jobs = [j for j in bk.list_jobs(limit=500) if j.ruleset == rid and j.type in SCREEN_TYPES and j.state == "done"]
+        for job in sorted(jobs, key=lambda j: j.updated_at or j.received_at, reverse=True):
+            doc = load(job, "excluded_", ".json")
+            if doc is not None:
+                return job, doc
+        return None, None
+
+    def excluded_rows(rid: str, doc: dict[str, Any], lang: str) -> list[dict[str, Any]]:
+        crit = crit_of(rid, lang)
+        out = []
+        for r in doc.get("rows") or []:
+            items = [
+                {"id": c["id"], "label": crit[c["id"]].label if c["id"] in crit else c["id"],
+                 "kind": crit[c["id"]].kind if c["id"] in crit else "", "source": c.get("source") or "coded",
+                 "quote": c.get("quote"), "date": c.get("quote_date"), "reason": c.get("reason"),
+                 "records": len(c.get("resource_refs") or [])}
+                for c in r.get("criteria") or []
+            ]  # fmt: skip
+            if not items:  # excluded by the run's own rules: scope, research-contact consent
+                items = [{"id": "", "label": "consent" if "consent" in a.lower() or a.startswith("contact")
+                          else "scope", "kind": "", "source": "rule", "quote": None, "date": None, "reason": None,
+                          "records": 0} for a in r.get("actions") or ["scope"]]  # fmt: skip
+            out.append({"pid": str(r["pid"]), "short": str(r["pid"])[:8], "items": items})
+        return out
+
+    def need_excluded(sess: Session, rs: str, path: str) -> str:
+        rid = study_or_404(sess, rs)
+        if not sess.user.can_view_phi:  # the PI and the CRC (and the administrator); never viewer or CRO
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
+            raise h.problem(403, "forbidden")
+        return rid
+
+    @app.get("/studies/{rs}/excluded")
+    def excluded(request: Request, rs: str, src: str = "", page: int = 1, done: str = "") -> Response:
+        sess = h.need(request)
+        rid = need_excluded(sess, rs, request.url.path)
+        job, doc = excluded_bundle(rid)
+        rows = excluded_rows(rid, doc, sess.lang) if doc else []
+        sent = store.excluded_reviews(rid)
+        counts = {s: sum(1 for r in rows if any(i["source"] == s for i in r["items"])) for s in ex_sources}
+        if src in ex_sources:
+            rows = [r for r in rows if any(i["source"] == src for i in r["items"])]
+        rows.sort(key=lambda r: (r["pid"] not in sent, r["pid"]))  # sent to review first
+        pages = max(1, -(-len(rows) // st.PAGE_SIZE))
+        page_no = min(max(1, page), pages)
+        au.append("console.view", ruleset=rid, actor=h.actor(sess), detail={"page": "excluded", "rows": len(rows)})
+        total = len((doc or {}).get("rows") or [])
+        return h.page(request, "excluded.html", sess, rs=rid, job=job, doc=doc, total=total,
+                      rows=rows[(page_no - 1) * st.PAGE_SIZE: page_no * st.PAGE_SIZE], sent=sent, counts=counts,
+                      src=src if src in ex_sources else "", sources=ex_sources, page_no=page_no, pages=pages,
+                      done=done == "sent")  # fmt: skip
+
+    @app.post("/studies/{rs}/excluded/{pid}/review")
+    def excluded_review(request: Request, rs: str, pid: str, csrf: str = Form(""), crit: str = Form(""),
+                        note: str = Form("")) -> Response:  # fmt: skip
+        """ "This is wrong, send to review": recorded with the person and the time, audited (P-04)."""
+        sess = h.need(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        rid = need_excluded(sess, rs, request.url.path)
+        job, doc = excluded_bundle(rid)
+        if (
+            job is None
+            or doc is None
+            or not _PID.match(pid)
+            or not any(str(r.get("pid")) == pid for r in doc.get("rows") or [])
+        ):
+            raise h.problem(404, "notfound")
+        crit = crit.strip()[:40]
+        store.send_excluded_review(rid, pid, job.job_id, crit, note.strip()[:300], h.actor(sess), h.clock().isoformat())
+        au.append("console.excluded_review", job_id=job.job_id, ruleset=rid, actor=h.actor(sess),
+                  detail={"pid": pid, "criterion": crit, "role": sess.user.role})  # fmt: skip
+        return RedirectResponse(f"/studies/{rid}/excluded?done=sent#x-{pid[:8]}", status_code=303)
+
     @app.get("/studies/{rs}/patients/{pid}")
     def patient(request: Request, rs: str, pid: str) -> Response:
         sess = h.need(request)
@@ -598,18 +688,17 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         return h.page(request, "patient.html", sess, **patient_ctx(sess, rid, pid))
 
-    @app.post("/studies/{rs}/patients/{pid}/reveal")
-    def patient_reveal(request: Request, rs: str, pid: str, csrf: str = Form(""), reason: str = Form("")) -> Response:
-        """One chart number, shown once, audited on both sides (D-99). Coordinators and administrators only: from
-        D-133 (review F-38) the investigator does not reveal here, as the role text says; the coordinator, who keeps
-        the screening log and makes the call, does."""
-        sess = h.need(request)
+    def apply_reveal(sess: Session, path: str, rs: str, pid: str, reason: str) -> tuple[dict[str, Any], str]:
+        """One chart number for the page and ``/api/v1`` alike (D-99): identifier authority for the study
+        (administrator, coordinator, and the study's investigator since the owner's decision of 2026-11-09, D-143),
+        a reason, one audit record on each side and the orchestrator's per-person rate limit. Viewer and CRO
+        accounts get 403."""
         rid = study_or_404(sess, rs)
-        if not h.csrf_ok(sess, csrf):
-            raise h.problem(400, "csrf")
-        if not sess.user.can_reveal:  # D-133 (review F-38): the investigator's role text says "no chart numbers"
-            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+        if not sess.user.sees_ids(rid):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
+        if reason not in REVEAL_REASONS:
+            raise h.problem(400, "request.refused", reason="choose why you need the chart number")
         ctx = patient_ctx(sess, rid, pid)
         job = ctx["job"]
         au.append(
@@ -628,7 +717,17 @@ def register(app: FastAPI, h: Helpers) -> None:
             mrn = bk.reveal(job.job_id, pid, h.actor(sess))
         except Refused as exc:
             raise h.problem(409, "request.refused", reason=str(exc)) from exc
-        ctx["mrn"] = mrn or ""
+        return ctx, mrn or ""
+
+    @app.post("/studies/{rs}/patients/{pid}/reveal")
+    def patient_reveal(request: Request, rs: str, pid: str, csrf: str = Form(""), reason: str = Form("")) -> Response:
+        """One chart number, shown once, audited on both sides (D-99, D-143)."""
+        sess = h.need(request)
+        study_or_404(sess, rs)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        ctx, mrn = apply_reveal(sess, request.url.path, rs, pid, reason)
+        ctx["mrn"] = mrn
         return h.page(request, "patient.html", sess, **ctx)
 
     def back_to(rid: str, pid: str, back: str, done: str) -> str:
@@ -807,6 +906,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess: Session | None = h.users.session(token) if token else None
         if sess is None:
             raise h.problem(401, "login")
+        bind_session(sess.token_sha[:16])  # S-09: the actor sent to the orchestrator is signed with this session
         return sess
 
     h.api_session = api_session  # the other /api/v1 routes (console.data_pages) sign in the same way
@@ -870,6 +970,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = api_session(request)
         rid, no = apply_outcome(sess, request.url.path, rs, pid, body.outcome, body.retry, body.note)
         return {"study": rid, "pid": pid, "outcome": body.outcome, "screening_no": no}
+
+    @app.post("/api/v1/studies/{rs}/patients/{pid}/reveal")
+    def api_reveal(request: Request, rs: str, pid: str, body: ApiReveal) -> dict[str, Any]:
+        """The chart number of one listed patient for an account with identifier authority (D-143), audited and
+        rate-limited exactly as on the patient page."""
+        sess = api_session(request)
+        _ctx, mrn = apply_reveal(sess, request.url.path, rs, pid, body.reason)
+        return {"study": rs.strip().upper(), "pid": pid, "mrn": mrn or None}
 
     @app.get("/api/v1/studies/{rs}/screening-log")
     def api_screening_log(request: Request, rs: str) -> list[dict[str, str]]:

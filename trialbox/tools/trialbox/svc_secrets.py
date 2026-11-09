@@ -15,6 +15,10 @@
 * ``public/tokens.json``: the sha256 of each token (``tb-service-tokens/1``), mounted read-only into every service
   (``TB_SERVICE_TOKENS``); the callers each service accepts are ``tb_common.service_auth.CALLERS``. A hash of a
   256-bit random token reveals nothing, so this file is not secret.
+* ``actor/keys``: the key the console signs the signed-in user with (``HMAC(console token, "tb-actor-assertion/1")``,
+  hex; the current one and, during a console rotation, the previous one), mode 0600 in a 0700 folder, mounted into
+  the orchestrator only (``TB_ACTOR_KEYS_FILE``), which verifies ``X-TB-Actor-Assertion`` with it (review
+  2026-11-09 S-09, D-143). It is derived from the console's token, so ``init`` and ``rotate`` rewrite it.
 
 The database passwords (``POSTGRES_PASSWORD`` for HAPI, ``POSTGRES_WF_PASSWORD`` and ``TB_DB_URL`` for the trial
 database) stay in ``deploy/.env`` (0600, root), which compose reads; the overlay clears them, the mail passwords and
@@ -37,6 +41,7 @@ Nothing here prints, logs or returns a token or a password. Standard library onl
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -83,6 +88,36 @@ def token_path(deploy: Path, name: str) -> Path:
 
 def registry_path(deploy: Path) -> Path:
     return secrets_dir(deploy) / "public" / "tokens.json"
+
+
+ACTOR_SIGNER = "console"  # the one service that names a signed-in user to the orchestrator
+ACTOR_LABEL = b"tb-actor-assertion/1"  # tb_common.service_auth.ACTOR_LABEL
+
+
+def actor_keys_path(deploy: Path) -> Path:
+    return secrets_dir(deploy) / "actor" / "keys"
+
+
+def actor_key_hex(token: str) -> str:
+    return hmac.new(token.encode("utf-8"), ACTOR_LABEL, hashlib.sha256).hexdigest()
+
+
+def write_actor_keys(deploy: Path, uid: int | None, previous: str | None = None) -> bool:
+    """The orchestrator's verification key(s) for the console's actor assertions; False when there is no console
+    token yet. ``previous``: the console's token before a rotation, kept valid until the rotated console runs."""
+    p = token_path(deploy, ACTOR_SIGNER)
+    if not p.is_file():
+        return False
+    keys = [actor_key_hex(p.read_text(encoding="utf-8").strip())]
+    if previous and actor_key_hex(previous) not in keys:
+        keys.append(actor_key_hex(previous))
+    folder = actor_keys_path(deploy).parent
+    folder.mkdir(parents=True, exist_ok=True)
+    os.chmod(folder, 0o700)
+    if uid is not None and os.geteuid() == 0:
+        os.chown(folder, uid, uid)
+    _write_private(actor_keys_path(deploy), "\n".join(keys) + "\n", uid)  # the folder is mounted: a rename is seen
+    return True
 
 
 def _sha(token: str) -> str:
@@ -196,6 +231,7 @@ def init(deploy: Path, env_file: Path | None = None, uid: int | None = SERVICE_U
     old = _load_registry(deploy).get("legacy")
     legacy = _sha(legacy_token(env_file)) if legacy_token(env_file) else (old if isinstance(old, str) else None)
     _write_public(registry_path(deploy), _registry(deploy, None, legacy))
+    write_actor_keys(deploy, uid)
     return Result(created, [], [], legacy is not None)
 
 
@@ -260,10 +296,14 @@ def rotate(
         for n in tokens
         if token_path(deploy, n).is_file()
     }
+    signer = token_path(deploy, ACTOR_SIGNER)
+    old_signer = signer.read_text(encoding="utf-8").strip() if ACTOR_SIGNER in tokens and signer.is_file() else None
     for n in tokens:
         _write_private(token_path(deploy, n), _new_token() + "\n", None if n == OPERATOR else uid)
     # both hashes while the rotated services restart: a caller still holding its old token is not cut off
     _write_public(registry_path(deploy), _registry(deploy, old, legacy))
+    if old_signer is not None:  # the console's actor assertions verify with the old and the new key meanwhile
+        write_actor_keys(deploy, uid, old_signer)
     affected = [n for n in tokens if n != OPERATOR]
     if DB in want:
         affected += [s for s in _rotate_db(deploy, env_file, runner) if s not in affected]
@@ -274,6 +314,8 @@ def rotate(
         if "TB_SERVICE_TOKEN" in _read_env(env_file):
             _set_env(env_file, {"TB_SERVICE_TOKEN": None})
     _write_public(registry_path(deploy), _registry(deploy, None, legacy))
+    if old_signer is not None:
+        write_actor_keys(deploy, uid)
     return Result([], want, affected if do_restart else [], legacy is not None)
 
 

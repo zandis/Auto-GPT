@@ -414,7 +414,7 @@ _STUB_DRUG = (
     (r"フェブキソスタット|febuxostat", "M04AA03"),
     (r"コルヒチン|colchicine|秋水仙素", "M04AC01"),
 )
-_NEG = re.compile(r"なし|否定|無し|否認|未見|no (?:history|evidence)|denies|ruled out|家族歴|family history")
+_NEG = re.compile(r"なし|否定|無し|否認|未見|no (?:history|evidence)|denies|ruled out|家族歴|家族史|family history")
 _DATE_ANY = re.compile(
     r"(?:(?:令和|平成|昭和|R|H|S)\s?\d{1,2}[./年]\s?\d{1,2}[./月]\s?\d{1,2}日?)"
     r"|(?:民國\s?\d{2,3}[./年]\s?\d{1,2}[./月]\s?\d{1,2}日?)"

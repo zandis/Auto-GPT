@@ -153,3 +153,42 @@ def test_service_client_sends_the_token_to_every_trialbox_service(monkeypatch: p
     assert seen["orchestrator"][sa.TOKEN_HEADER] == TOKEN
     assert sa.actor_of(seen["orchestrator"][sa.ACTOR_HEADER], None) == "佐藤"
     assert seen["mail"][sa.TOKEN_HEADER] == TOKEN  # D-127 (F-11): every service checks it now
+
+
+def test_a_token_holder_cannot_name_a_user_or_reset_the_cap_and_exports_are_audited(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review 2026-11-09 S-09 (D-143): an unsigned X-TB-Actor is refused and audited; the reveal cap is per verified
+    person; the screening-log export with chart numbers needs a signed user, is audited with the file's sha256 and
+    is capped."""
+    from orchestrator import app as oapp
+    from orchestrator.scenarios import screen
+
+    monkeypatch.setenv("TB_SERVICE_TOKEN", TOKEN)
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
+    monkeypatch.setenv("TB_EXPORT_MAX_PER_HOUR", "1")
+    monkeypatch.setattr(oapp, "REVEALS", oapp.RevealLimit())
+    monkeypatch.setattr(oapp, "EXPORTS", oapp.RevealLimit("TB_EXPORT_MAX_PER_HOUR", 10))
+    events: list[dict[str, Any]] = []
+    fake = _fake_box(events)
+    monkeypatch.setattr(oapp, "orch", lambda: fake)
+    monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
+    unsigned = {sa.TOKEN_HEADER: TOKEN, sa.ACTOR_HEADER: "dr_tanaka"}
+    r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=unsigned)
+    assert r.status_code == 403 and events[-1]["kind"] == "actor.refused"
+    signed = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("dr_tanaka", "s1")}
+    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=signed).status_code == 200
+    assert events[-1]["detail"]["session"] == "s1" and events[-1]["detail"]["verified"] is True
+    again = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("dr_tanaka", "s2")}  # a new session is the same person
+    assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=again).status_code == 429
+    monkeypatch.setattr(oapp, "registry_of", lambda _o: SimpleNamespace(export_xlsx=lambda _rs, _site: b"PK-xlsx"))
+    fake.cfg = SimpleNamespace(settings=SimpleNamespace(site=SimpleNamespace(id="S1")), env=fake.cfg.env)
+    assert client.get("/registry/GZQO/export.xlsx", headers={sa.TOKEN_HEADER: TOKEN}).status_code == 400
+    assert client.get("/registry/GZQO/export.xlsx", headers=unsigned).status_code == 403
+    r = client.get("/registry/GZQO/export.xlsx", headers=signed)
+    assert r.status_code == 200 and r.content == b"PK-xlsx"
+    ev = events[-1]
+    assert ev["kind"] == "registry.export" and ev["actor"] == "dr_tanaka" and ev["output_sha"]
+    assert client.get("/registry/GZQO/export.xlsx", headers=signed).status_code == 429
+    assert events[-1]["kind"] == "registry.export_refused"

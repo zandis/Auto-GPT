@@ -11,10 +11,14 @@
 
 TB-PLAN-04 step 5 (D-134): N2 also lists the study visits of the day and the overdue ones (from the visit schedule
 and the windows), N1 the investigator's participants' visits of the week and the count of serious AEs to review.
-Visits are named by the patient's pseudonym and the visit's name.
+Visits are named by the patient's pseudonym and the visit's name. Review 2026-11-09 P-02/P-03 (D-143): the SAE count
+is every serious AE the investigator has not acknowledged, whatever its outcome, and N1 goes out on any working day
+while one waits; N2 lists the SAE reports past their due day (pseudonym, party, due day).
 
 Both carry pseudonyms (eight characters), with the study's screening number beside the pseudonym once the patient has
-one (owner, 2026-11-08, D-136), times and counts: never a chart number or a name. Each says why it was sent and
+one (owner, 2026-11-08, D-136), times and counts: never a chart number or a name. D-143 (owner, 2026-11-09): the
+investigator may see chart numbers on the pages after sign-in, but N1 still carries none, since mail leaves TrialBox
+(a point for the owner to confirm). Each says why it was sent and
 links to the person's notice settings (FR-NOTIF-09). Mail leaves through the orchestrator's ``POST /notices`` and
 the mail gateway, tagged ``aggregate`` and internal addresses only.
 
@@ -104,23 +108,27 @@ def build_n1(
     lang = person.lang
     all_rows = [(rs, r) for rs, rows in studies for r in rows]
     known = bool(person.practitioner_id)
+    sae = sum(int(lf.get("sae") or 0) for lf in (life or {}).values())
+    alert = sae > 0 and today.weekday() < 5  # P-02: an unacknowledged SAE is mailed every working day
     if known:
         mine = [(rs, r) for rs, r in all_rows if r.get("practitioner_id") == person.practitioner_id]
         if today not in clinic_days((r for _rs, r in mine), person.practitioner_id):
-            return None
-        why = translate(lang, "n1.why.clinic", day=today.isoformat())
+            if not alert:
+                return None
+            mine = []
+        why = translate(lang, "n1.why.clinic", day=today.isoformat()) if mine else translate(lang, "n1.why.sae")
     else:
-        if today.weekday() != 0:
+        if today.weekday() != 0 and not alert:
             return None
-        mine = all_rows
-        why = translate(lang, "n1.why.monday")
+        mine = all_rows if today.weekday() == 0 else []
+        why = translate(lang, "n1.why.monday") if mine else translate(lang, "n1.why.sae")
     end = today + timedelta(days=7)
     today_rows = [(rs, r) for rs, r in mine if r.get("visit") and r["visit"].date() == today]
     week_rows = [(rs, r) for rs, r in mine if r.get("visit") and today < r["visit"].date() < end]
     if known is False:  # the Monday mail is the whole week, in one list
         week_rows = today_rows + week_rows
         today_rows = []
-    if not today_rows and not week_rows:
+    if not today_rows and not week_rows and not alert:
         return None
     today_rows.sort(key=lambda x: x[1]["visit"])
     week_rows.sort(key=lambda x: x[1]["visit"])
@@ -141,13 +149,14 @@ def build_n1(
             parts += [f"- {_line(lang, r, rs)}" for rs, r in items]
             parts.append("")
     visits = [(rs, r) for rs, lf in sorted((life or {}).items()) for r in lf.get("today", []) + lf.get("week", [])]
-    sae = sum(int(lf.get("sae") or 0) for lf in (life or {}).values())
     if visits:
         parts += [f"## {translate(lang, 'n1.life.week', n=len(visits))}", ""]
         parts += [f"- {_life_row(lang, 'n1.life.row', rs, r)}" for rs, r in sorted(visits, key=lambda x: x[1]["due"])]
         parts.append("")
     if sae:
         parts += [f"## {translate(lang, 'n1.life.sae', n=sae)}", ""]
+        parts += [translate(lang, "n1.link", rs=rs, url=f"{url}/studies/{rs}/subjects") for rs, lf in
+                  sorted((life or {}).items()) if lf.get("sae")] + [""]  # fmt: skip
     for rs in sorted({rs for rs, _r in today_rows + week_rows}):
         parts.append(translate(lang, "n1.link", rs=rs, url=f"{url}/studies/{rs}/week?list=clinic"))
     parts += ["", "---", why, translate(lang, "notice.settings", url=f"{url}/settings/notices")]
@@ -155,7 +164,7 @@ def build_n1(
     counts = {"today": n_today, "week": n_week, **({"visits": len(visits)} if visits else {})}
     if sae:
         counts["sae"] = sae
-    subject = translate(lang, "n1.subject", day=today.isoformat(), n=n_today or n_week)
+    subject = translate(lang, "n1.subject", day=today.isoformat(), n=n_today or n_week or sae)
     return Notice(
         "N1",
         user.username,
@@ -209,12 +218,17 @@ def build_n2(
     by_study = sorted((life or {}).items())
     due = [_life_row(lang, "n2.life.row", rs, r) for rs, lf in by_study for r in lf.get("today", [])]
     late = [_life_row(lang, "n2.life.row", rs, r) for rs, lf in by_study for r in lf.get("overdue", [])]
-    if not (visits or steps or new or marks or due or late):
+    reports = [translate(lang, "n2.life.report.row", p=r["short"], rs=rs, day=r["due"],
+                         party=translate(lang, "life.clock.party." + r["party"]))
+               for rs, lf in by_study for r in lf.get("reports", [])]  # fmt: skip
+    if not (visits or steps or new or marks or due or late or reports):
         return None
     parts = [translate(lang, "n2.hello"), ""]
     sections = [("n2.visits", visits), ("n2.steps", steps), ("n2.new", new), ("n2.marks", marks)]
     if due or late:  # D-134: the participants' study visits (only when the study has a visit schedule)
         sections = [("n2.life.today", due), ("n2.life.overdue", late), *sections]
+    if reports:  # P-03: an SAE report past its due day comes first
+        sections = [("n2.life.reports", reports), *sections]
     for key, items in sections:
         parts += [f"## {translate(lang, key, n=len(items))}", ""]
         shown = [f"- {x}" for x in items[:MAX_ROWS]]
@@ -234,6 +248,8 @@ def build_n2(
     subject = translate(lang, "n2.subject", day=today.isoformat(), **counts)
     if due or late:
         counts |= {"study_visits": len(due), "overdue": len(late)}
+    if reports:
+        counts["sae_reports"] = len(reports)
     return Notice("N2", user.username, user.mailbox or "", subject, "\n".join(parts), today.isoformat(), counts)
 
 
@@ -256,7 +272,7 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
         for r in h.trials(sess):
             nos = store.screening_nos(r.id)
             lf = h.life_mail(r.id, today) if getattr(h, "life_mail", None) else None
-            if lf and any(lf.get(k) for k in ("today", "week", "overdue", "sae")):
+            if lf and any(lf.get(k) for k in ("today", "week", "overdue", "sae", "reports")):
                 life[r.id] = lf  # its rows already carry the screening number beside the pseudonym (D-136)
             wk = h.week_bundle(sess, r.id)
             if wk is None:

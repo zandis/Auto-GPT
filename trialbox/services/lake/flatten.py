@@ -8,6 +8,8 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from tb_common import labvalue
+
 Resource = dict[str, Any]
 Row = dict[str, Any]
 
@@ -17,7 +19,7 @@ LOINC = "http://loinc.org"
 # no compiled criterion can count it as met or let it exclude. A *confirmed* fact goes to the coded table like any
 # coded record and is also listed in ``site_fact`` (how much of a count rests on confirmed facts). Demographic facts
 # from a chart are observations in DEMOGRAPHIC, listed in ``site_fact`` only (the patient row carries the value once
-# it is confirmed).
+# it is confirmed). A suspected diagnosis (D-142) is listed the same way, with basis ``suspected``.
 BASIS = "urn:trialbox:basis"
 DEMOGRAPHIC = "urn:trialbox:demographic"
 
@@ -61,6 +63,8 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
         ("value_code", "VARCHAR"),
         ("category", "VARCHAR"),
         ("local_code", "VARCHAR"),
+        # D-142: a censored result ("<0.3", Quantity.comparator): value_num is the bound, value_cmp says which side
+        ("value_cmp", "VARCHAR"),
     ],
     "medication": [
         ("mid", "VARCHAR"),
@@ -130,12 +134,40 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
 }
 
 
+# FHIR Condition.verificationStatus: a suspected diagnosis (SS-MIX2 PRB-13 疑い, a provisional or differential
+# diagnosis from any FHIR source) goes to ``site_fact`` with basis ``suspected``, never to ``condition`` (D-142)
+SUSPECTED = frozenset({"provisional", "differential", "unconfirmed"})
+NOT_PRESENT = frozenset({"refuted", "entered-in-error"})
+
+
+def verification_of(r: Resource) -> str:
+    for c in (r.get("verificationStatus") or {}).get("coding") or []:
+        if c.get("code"):
+            return str(c["code"])
+    return ""
+
+
 def basis_of(r: Resource) -> str | None:
     """``proposed`` or ``confirmed`` for a site fact (D-135); None for every hospital record."""
     for t in (r.get("meta") or {}).get("tag") or []:
         if t.get("system") == BASIS:
             return str(t.get("code") or "") or None
     return None
+
+
+def _value(q: dict[str, Any], text: Any) -> dict[str, Any]:
+    """``value_num`` / ``value_cmp`` of an observation (D-142, review B-01). A ``valueQuantity`` keeps its comparator
+    (``<0.3`` is censored, not 0.3); a ``valueString`` is read with :mod:`tb_common.labvalue` ("75 H" is 75, "<0.3"
+    is censored). Anything else is no number: the screening engine treats it as unknown, never as a failed test."""
+    if "value" in q:
+        try:
+            num = float(q["value"])
+        except (TypeError, ValueError):
+            return {"value_num": None, "value_cmp": None}
+        cmp = q.get("comparator")
+        return {"value_num": num, "value_cmp": cmp if cmp in ("<", "<=", ">", ">=") else None}
+    got = labvalue.parse(text) if isinstance(text, str) else None
+    return {"value_num": got[0], "value_cmp": got[1]} if got else {"value_num": None, "value_cmp": None}
 
 
 def _ref_id(ref: dict[str, Any] | None) -> str | None:
@@ -257,7 +289,7 @@ class Flattener:
             "code": primary.get("code"),
             "system": primary.get("system"),
             "effective": self.ts(r.get("effectiveDateTime")),
-            "value_num": float(q["value"]) if "value" in q else None,
+            **_value(q, r.get("valueString")),
             "unit": q.get("code") or q.get("unit"),
             "value_code": vcode,
             "category": cat,
@@ -362,6 +394,15 @@ class Flattener:
             keep = []
             for r in by_type.get(rtype, []):
                 b = basis_of(r)
+                if rtype == "Condition":
+                    vs = verification_of(r)
+                    if vs in NOT_PRESENT:  # refuted, entered in error: not a diagnosis at all
+                        continue
+                    if vs in SUSPECTED and b != "proposed":
+                        # D-142: a suspected diagnosis (疑い) is listed, never coded: it can only send a patient to
+                        # "needs information" (matching.proposed), never count as met or exclude
+                        facts.append(self.site_fact(rtype, r, "suspected"))
+                        continue
                 demographic = rtype == "Observation" and any(
                     c.get("system") == DEMOGRAPHIC for c in (r.get("code") or {}).get("coding") or []
                 )
@@ -372,6 +413,7 @@ class Flattener:
             coded[rtype] = keep
         for rtype, (table, fn) in m.items():
             out[table] = [fn(r) for r in coded.get(rtype, by_type.get(rtype, []))]
+        out["patient"] = merge_patients(out["patient"])
         out["observation"] = [row for r in coded["Observation"] for row in self.observations(r)]
         out["site_fact"] = facts
         out["claim"] = self.claims(by_type.get("Claim", []), by_type.get("ClaimResponse", []))
@@ -409,10 +451,35 @@ class Flattener:
                     "oid": f"{r['id']}.{code}",
                     "code": code,
                     "system": system,
-                    "value_num": float(q["value"]) if "value" in q else None,
+                    **_value(q, comp.get("valueString")),
                     "unit": q.get("code") or q.get("unit"),
                     "value_code": vcode,
                     "local_code": None,
                 }
             )
         return rows
+
+
+def merge_patients(rows: list[Row]) -> list[Row]:
+    """One ``patient`` row per pid. The hospital's feed and the site's own inputs (D-135: a sheet, a dump, a chart
+    published into the same space) each give a ``Patient`` for the same pseudonym; two rows for one pid would
+    multiply every row of a compiled query (each criterion joins ``base`` again: 2^criteria rows per patient, review
+    XL-02). A field the rows agree on is kept; a field they give different values for is left out (unknown), as
+    ``sitesetup.publish`` does for disagreeing facts."""
+    by: dict[str, Row] = {}
+    clash: dict[str, set[str]] = {}
+    for r in rows:
+        pid = r["pid"]
+        if pid not in by:
+            by[pid] = dict(r)
+            continue
+        have = by[pid]
+        for k, v in r.items():
+            if v is None or k in clash.get(pid, set()):
+                continue
+            if have.get(k) is None:
+                have[k] = v
+            elif have[k] != v:
+                have[k] = None
+                clash.setdefault(pid, set()).add(k)
+    return list(by.values())

@@ -90,7 +90,7 @@ datasets:
     path: eval/complete_run (reports of tools/complete_run.py, D-139; screenshots are never committed)
     data_class: D0
     kind: synthetic
-    licence: generated synthetic hospital (tools/synth_hospital) and the public site (see public_site); reports are TrialBox's own
+    licence: generated synthetic hospital (tools/synth_hospital), synthetic charts (tools/synth_charts) and the public site (see public_site); the D-141 scenarios also read mimic_iv_fhir_demo, medtxt and trec_ct (see those entries; only counts reach the report); reports are TrialBox's own
   hospital_sim:
     path: eval/hospital_sim (measured pipeline runs on generated hospitals and projections)
     data_class: D0

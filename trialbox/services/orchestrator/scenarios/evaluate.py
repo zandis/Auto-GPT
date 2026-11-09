@@ -111,8 +111,8 @@ class SqlEngine:
                 # D-135: a proposed fact that could change a decided answer makes it unknown ("needs information");
                 # it never decides one: it is not in the coded tables the SQL reads
                 fids = prop.refs(c, str(row["pid"]), index_date, res.get(c.id))
-                if fids:
-                    res[c.id], ev[c.id], reasons[c.id] = None, fids, Reason.PROPOSED_FACT.value
+                if fids:  # a suspected diagnosis (疑い, D-142) the same way, with its own reason
+                    res[c.id], ev[c.id], reasons[c.id] = None, fids, prop.reason(str(row["pid"]), fids)
             out[row["pid"]] = PatientEvaluation(
                 pid=row["pid"], index_date=index_date, engine="sql", results=res, evidence=ev, reasons=reasons or None
             )
@@ -424,13 +424,17 @@ def human_verdict(c: CriterionIR) -> CriterionVerdict:
     )
 
 
-def not_in_snapshot(rs: Ruleset, pid: str, kinds: tuple[str, ...] = ("inclusion", "exclusion")) -> PatientVerdicts:
+def not_in_snapshot(
+    rs: Ruleset,
+    pid: str,
+    kinds: tuple[str, ...] = ("inclusion", "exclusion"),
+    reason: Reason = Reason.NOT_IN_SNAPSHOT,
+) -> PatientVerdicts:
     """A scoped patient the records snapshot does not hold (moved, merged, a late registration): nothing is known,
-    so a person looks (tier ``review``), never an exclusion (Fable review 2026-11-08, finding 10; D-118)."""
+    so a person looks (tier ``review``), never an exclusion (Fable review 2026-11-08, finding 10; D-118). The same
+    for a patient the snapshot holds as deceased or not yet born on the screening date (``check_dates``, D-142)."""
     vs = [
-        CriterionVerdict(
-            id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=Reason.NOT_IN_SNAPSHOT.value)
-        )
+        CriterionVerdict(id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=reason.value))
         for c in rs.active()
         if c.kind in kinds
     ]

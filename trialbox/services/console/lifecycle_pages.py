@@ -185,46 +185,78 @@ def register(app: FastAPI, h: Helpers) -> None:
             r["pid"] = str(subs.get(r["record"], {}).get("pid") or "")
         return dict(out)
 
-    def serious(rid: str) -> list[dict[str, Any]]:
+    def aes(rid: str) -> dict[str, Any]:
         try:
-            return [a for a in get(f"/studies/{rid}/aes")["serious"] if a.get("ongoing")]
+            return dict(get(f"/studies/{rid}/aes?today={today().isoformat()}"))
         except (Problem, Unavailable):
-            return []
+            return {"unacked": [], "overdue": []}
+
+    def serious(rid: str) -> list[dict[str, Any]]:
+        """Serious AEs the investigator has not acknowledged, whatever their outcome (review 2026-11-09 P-02: a fatal
+        SAE used to leave the banner and N1 the moment it was saved, as "not ongoing")."""
+        return list(aes(rid).get("unacked") or [])
+
+    def reports_due(rid: str) -> list[dict[str, Any]]:
+        """One row per overdue report of a serious AE (P-03): participant, party, due date."""
+        return [{**a, "party": c["party"], "due": c["due"]} for a in aes(rid).get("overdue") or []
+                for c in a["clock"] if c["overdue"]]  # fmt: skip
 
     def life_home(sess: Session) -> dict[str, Any]:
         """The home page's visit block and serious-AE alert, across the studies this account sees."""
         if not sess.user.can_view_phi or h.trials is None:
-            return {"studies": [], "sae": []}
+            return {"studies": [], "sae": [], "reports": []}
         day = today()
-        studies, sae = [], []
+        studies, sae, reports = [], [], []
         for r in h.trials(sess):  # read only: the lifecycle pages and the mail bring the participants up to date
             v = visits_of(r.id, day)
             if v is not None and v["rows"]:
                 lst = v["list"]
                 studies.append({"rs": r.id, "today": lst["today"], "week": lst["week"], "overdue": lst["overdue"]})
             sae += [{**a, "rs": r.id} for a in serious(r.id)]
-        return {"studies": studies, "sae": sae, "today": day.isoformat()}
+            reports += [{**a, "rs": r.id} for a in reports_due(r.id)]
+        return {"studies": studies, "sae": sae, "reports": reports, "today": day.isoformat()}
 
     def life_mail(rid: str, day: date) -> dict[str, Any]:
         """N1/N2 (D-134): the study's visits on ``day`` and its serious AEs, by pseudonym (the mail adds the screening
         number beside it, D-136; never a chart number in mail)."""
         refresh(rid, "console:notify")
         v = visits_of(rid, day)
-        if v is None:
-            return {"today": [], "week": [], "overdue": [], "sae": 0}
-        lst = v["list"]
-        keep = ("short", "visit", "due", "start", "end")
         nos = store.screening_nos(rid)
 
-        def row(r: dict[str, Any]) -> dict[str, Any]:  # the screening number beside the pseudonym (D-136)
-            pid = str(r.get("pid") or "")
-            return {x: r[x] for x in keep} | ({"short": f"{pid[:8]} ({nos[pid]})"} if pid in nos else {})
+        def short(pid: str) -> str:  # the screening number beside the pseudonym (D-136); never a chart number
+            return f"{pid[:8]} ({nos[pid]})" if pid in nos else pid[:8] or "–"
 
-        return {k: [row(r) for r in lst[k]] for k in ("today", "week", "overdue")} | {"sae": len(serious(rid))}
+        reports = [{"short": short(str(a.get("pid") or "")), "party": a["party"], "due": a["due"]}
+                   for a in reports_due(rid)]  # fmt: skip
+        if v is None:
+            return {"today": [], "week": [], "overdue": [], "sae": len(serious(rid)), "reports": reports}
+        lst = v["list"]
+        keep = ("short", "visit", "due", "start", "end")
+
+        def row(r: dict[str, Any]) -> dict[str, Any]:
+            return {x: r[x] for x in keep} | {"short": short(str(r.get("pid") or ""))}
+
+        return {k: [row(r) for r in lst[k]] for k in ("today", "week", "overdue")} | {
+            "sae": len(serious(rid)), "reports": reports}  # fmt: skip
 
     h.life_home = life_home
     h.life_mail = life_mail
     h.life_sae = serious
+    h.life_reports = reports_due
+
+    def apply_ack(sess: Session, path: str, rs: str, record: str, event: str) -> dict[str, Any]:
+        """The investigator acknowledges a serious AE (P-02, D-143): one tap, the study's investigator only."""
+        rid = study_or_404(sess, rs)
+        if sess.user.role != "investigator":
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
+            raise h.problem(403, "forbidden")
+        rec, ev = record_key(record[:64]), event.strip().lower()
+        if not _REC.match(rec) or not re.fullmatch(r"ae\d{1,3}", ev):
+            raise h.problem(404, "notfound")
+        out = dict(s28.call(bk, "POST", f"/studies/{rid}/aes/{quote(rec)}/{ev}/ack", {"by": h.actor(sess)}))
+        au.append("console.sae_ack", ruleset=rid, actor=h.actor(sess),
+                  detail={"record": rec, "event": ev, "at": out.get("ack_at")})  # fmt: skip
+        return out
 
     # ------------------------------------------------------------------ pages
     @app.get("/studies/{rs}/subjects")
@@ -265,7 +297,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not _REC.match(rec):
             raise h.problem(404, "notfound")
         refresh(rid, h.actor(sess), sess)
-        return subject_page(request, sess, rid, rec, done=done if done in ("step", "undo", "entry") else "")
+        return subject_page(request, sess, rid, rec, done=done if done in ("step", "undo", "entry", "ack") else "")
 
     @app.post("/studies/{rs}/subjects/{record}/step")
     async def subject_step(request: Request, rs: str, record: str) -> Response:
@@ -297,6 +329,25 @@ def register(app: FastAPI, h: Helpers) -> None:
         except Problem as exc:
             return subject_page(request, sess, rid, rec, status=409, refused=why_text(lang_of(sess), exc))
         return RedirectResponse(f"/studies/{rid}/subjects/{quote(rec)}?done=undo", status_code=303)
+
+    @app.post("/studies/{rs}/subjects/{record}/aes/{event}/ack")
+    async def sae_ack(request: Request, rs: str, record: str, event: str) -> Response:
+        sess = h.need(request)
+        data = await request.form()
+        if not h.csrf_ok(sess, str(data.get("csrf") or "")):
+            raise h.problem(400, "csrf")
+        try:
+            apply_ack(sess, request.url.path, rs, record, event)
+        except Problem as exc:
+            raise h.problem(404 if exc.status == 404 else 409, "notfound" if exc.status == 404 else "request.refused",
+                            reason=exc.message) from exc  # fmt: skip
+        rid, rec = rs.strip().upper(), record_key(record[:64])
+        back = str(data.get("back") or "")
+        if back == "home":
+            return RedirectResponse("/home?sae=acked", status_code=303)
+        if back == "week":
+            return RedirectResponse(f"/studies/{rid}/week?sae=acked", status_code=303)
+        return RedirectResponse(f"/studies/{rid}/subjects/{quote(rec)}?done=ack", status_code=303)
 
     @app.get("/studies/{rs}/visits")
     def visits_page(request: Request, rs: str, saved: str = "") -> Response:
@@ -428,6 +479,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         try:
             return {"study": rs.upper(), **apply_step(sess, request.url.path, rs, record, body.to, body.on_day,
                                                       body.reason, body.note)}  # fmt: skip
+        except (Problem, Unavailable) as exc:
+            return refused(sess, exc)
+
+    @app.post("/api/v1/studies/{rs}/aes/{record}/{event}/ack", response_model=None)
+    def api_sae_ack(request: Request, rs: str, record: str, event: str) -> Any:
+        sess = api_session(request)
+        try:
+            return apply_ack(sess, request.url.path, rs, record, event)
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
 

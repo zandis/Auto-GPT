@@ -10,6 +10,14 @@
 SQL uses ``?`` placeholders (turned into psycopg's ``%s``; a literal ``%`` is escaped). One connection per
 :class:`Database`, used under a lock, so a store behaves like one serialised writer, as the SQLite files did.
 
+**A lost connection is reopened** (D-142, review A-02). A Postgres restart (secrets rotation, an update, an OOM kill)
+or a network blip used to leave the store's connection dead and every later call failing until the service was
+restarted. Now each transaction first reopens a connection that psycopg reports closed or broken, and when ``BEGIN``
+itself fails on a dead connection (the server went away since the last call, so nothing of the transaction ran) the
+store reopens and begins once more. A failure inside a transaction is raised as before (it may have run part of the
+work, so it is never repeated), and the next call starts on a fresh connection. One connection per store, not a pool:
+the stores rely on one serialised connection, and psycopg_pool would be a new dependency in every image.
+
 ``TB_DB_URL`` is a ``postgresql://`` DSN. A ``tb_prefix`` query parameter (``...?tb_prefix=t1234_``) is removed
 before connecting and put in front of every schema name: the test suite gives each test its own schemas in one
 throwaway cluster (``tools/pglocal.py``), the demo and ``e2e_simple`` their own run.
@@ -17,6 +25,7 @@ throwaway cluster (``tools/pglocal.py``), the demo and ``e2e_simple`` their own 
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import re
 import threading
@@ -32,6 +41,17 @@ _SCHEMA_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
 class DatabaseError(RuntimeError):
     """The trial database is not configured or not reachable."""
+
+
+def _lost_errors() -> tuple[type[BaseException], ...]:
+    try:
+        psycopg = importlib.import_module("psycopg")
+    except ImportError:  # pragma: no cover
+        return (DatabaseError,)
+    return (psycopg.OperationalError, psycopg.InterfaceError)
+
+
+_LOST = _lost_errors()
 
 
 def split_url(url: str) -> tuple[str, str]:
@@ -104,6 +124,25 @@ class Database:
         self.schema = schema
         self.url = url  # with tb_prefix, so a store can open a sibling schema on the same run
         self._lock = threading.RLock()
+        self.reconnects = 0  # connections reopened after a loss (health detail, tests)
+
+    @staticmethod
+    def _open(dsn: str, schema: str) -> Any:
+        try:
+            psycopg = importlib.import_module("psycopg")
+        except ImportError as e:  # pragma: no cover - the package is a hard dependency
+            raise DatabaseError("the 'psycopg' package (psycopg 3) is missing") from e
+        try:
+            con = psycopg.connect(dsn, autocommit=True, connect_timeout=10)
+        except Exception as e:  # psycopg.OperationalError and friends
+            raise DatabaseError(f"cannot reach the trial database: {type(e).__name__}") from e
+        try:
+            con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+            con.execute(f'SET search_path TO "{schema}"')
+        except Exception as e:
+            con.close()
+            raise DatabaseError(f"cannot use the trial database: {type(e).__name__}") from e
+        return con
 
     @classmethod
     def connect(cls, url: str | None, name: str) -> Database:
@@ -114,22 +153,49 @@ class Database:
         schema = prefix + name
         if not _SCHEMA_RE.match(schema):
             raise DatabaseError(f"bad schema name {schema!r}")
-        try:
-            psycopg = importlib.import_module("psycopg")
-        except ImportError as e:  # pragma: no cover - the package is a hard dependency
-            raise DatabaseError("the 'psycopg' package (psycopg 3) is missing") from e
-        try:
-            con = psycopg.connect(dsn, autocommit=True, connect_timeout=10)
-        except Exception as e:  # psycopg.OperationalError and friends
-            raise DatabaseError(f"cannot reach the trial database: {type(e).__name__}") from e
-        con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
-        con.execute(f'SET search_path TO "{schema}"')
-        return cls(con, schema, url)
+        return cls(cls._open(dsn, schema), schema, url)
+
+    def _dead(self) -> bool:
+        return bool(getattr(self._con, "closed", False) or getattr(self._con, "broken", False))
+
+    def _reopen(self) -> None:
+        """A new connection in place of a lost one (same DSN, same schema)."""
+        with contextlib.suppress(Exception):  # already gone
+            self._con.close()
+        self._con = self._open(split_url(self.url)[0], self.schema)
+        self.reconnects += 1
 
     @contextmanager
     def transaction(self) -> Iterator[Tx]:
-        with self._lock, self._con.transaction(), self._con.cursor() as cur:
-            yield Tx(cur)
+        with self._lock:
+            if self._dead():
+                self._reopen()
+            txn = self._con.transaction()
+            try:
+                txn.__enter__()  # BEGIN: on a connection the server dropped, this is where it fails
+            except _LOST as e:
+                if not self._dead():
+                    raise
+                self._reopen()  # nothing of the transaction ran: begin once more on a fresh connection
+                txn = self._con.transaction()
+                txn.__enter__()
+                del e
+            try:
+                with self._con.cursor() as cur:
+                    yield Tx(cur)
+            except BaseException as exc:
+                swallowed = False
+                with contextlib.suppress(Exception):  # the rollback failed too (connection lost): next call reopens
+                    swallowed = bool(txn.__exit__(type(exc), exc, exc.__traceback__))
+                if swallowed:
+                    return  # psycopg.Rollback: rolled back and swallowed, as with the plain context manager
+                raise
+            txn.__exit__(None, None, None)
+
+    def ping(self) -> dict[str, Any]:
+        """``SELECT 1`` on this store's connection (a service's ``/healthz`` check); reopens a lost one."""
+        self.fetchval("SELECT 1")
+        return {f"db:{self.schema}": "ok"}
 
     # one-statement helpers (each its own transaction)
     def execute(self, text: str, params: Sequence[Any] = ()) -> int:

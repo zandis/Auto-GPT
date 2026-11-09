@@ -193,6 +193,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         for p in problems or []:
             per_field.setdefault(p.get("field", ""), []).append(why(lang, p, labels))
         options = sorted({*issued(rid), *(r["record"] for r in recs)})
+        ae: dict[str, Any] | None = None
+        if form == "tb_adverse_event" and rec and event and err is None:  # P-03: the reporting clock on the AE form
+            try:
+                one = s28.call(bk, "GET", f"/studies/{rid}/subjects/{quote(rec)}")
+                ae = next((a for a in one.get("aes") or [] if a.get("event") == event), None)
+            except (Problem, Unavailable):
+                ae = None
         if prefill == "done" and form == "tb_visit" and not values.get("vs_status") and posted is None:
             # D-134 "Done today" from the visit list: the visit filled in for today; the coordinator checks and saves
             posted = {"vs_status": "1", "vs_date": local_today(h.clock(), site_zone(bk)).isoformat(),
@@ -217,6 +224,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             exports=FORMATS,
             err=err,
             back=back if back in BACKS else "",
+            ae=ae,
         )
 
     @app.get("/studies/{rs}/entry")

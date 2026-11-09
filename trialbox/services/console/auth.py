@@ -155,9 +155,15 @@ class User:
 
     @property
     def can_reveal(self) -> bool:
-        """May reveal a chart number (audited): the requesters only, on the job page and the patient page alike.
-        D-133 (review F-38): the investigator's role text says "no chart numbers", so the investigator may not."""
-        return self.can_request
+        """May see and reveal chart numbers and patient identifying details (audited, rate-limited): administrators,
+        coordinators and, by the owner's decision of 2026-11-09 (D-143, reversing D-133's "may not"), the
+        investigator, who holds full authorisation for the study. Viewer and CRO (sponsor, monitor) accounts never."""
+        return self.role in ("admin", "coordinator", "investigator")
+
+    def sees_ids(self, ruleset: str | None) -> bool:
+        """Identifier authority for one study: may reveal and the study is one of the account's (D-143). A job or
+        page without a study counts as any study the account sees (an unscoped account)."""
+        return self.can_reveal and (self.sees_study(ruleset) if ruleset else not self.studies)
 
     @property
     def can_mark(self) -> bool:

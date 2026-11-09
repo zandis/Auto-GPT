@@ -170,7 +170,11 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
         for cid in ambers:
             page = ok(pi.get(f"/pilot/jobs/{job.job_id}/approval?open={cid}"), f"open {cid}")
         out["approvals"][rs] = {"amber": ambers, "html": page.text}
-        r = pi.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": fd._csrf(page.text)}, follow_redirects=False)
+        r = pi.post(
+            f"/pilot/jobs/{job.job_id}/approve",
+            data={"csrf": fd._csrf(page.text), "confirm": "yes"},
+            follow_redirects=False,
+        )
         assert r.status_code == 303, (rs, r.status_code, re.sub(r"<[^>]+>", " ", r.text)[-600:])
         after = box.orch.db.get(job.job_id)
         out["approvals"][rs]["feas_state"] = after.state if after else None

@@ -30,7 +30,9 @@ import hashlib
 import json
 import random
 import re
-from collections.abc import Callable, Mapping, Sequence
+import threading
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
@@ -59,9 +61,12 @@ from matching.cascade.model import (
 )
 from matching.cascade.s2b_semantic import BatchEmbedder, Embedder, ThresholdTable, screen
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
-from matching.proposed import PROPOSED_FACT, Proposed
+from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 
 PATIENT_CLASS = "D3"  # every cascade output is patient level (§7.1)
+# no row of the compiled SQL's base for a scoped patient: not in this snapshot, or deceased / not yet born at every
+# index date (a wrong date is common in hand-kept sheets). Never an exclusion: a person looks (D-142, review B-02)
+NOT_AT_INDEX = "not alive at an index date"
 UNKNOWN_KEPT = "unknown_kept"  # v1: an unknown exclusion does not exclude (FEAS D-18)
 CODE_OUTSIDE_LIST = "code_outside_list"  # D-113: coded inside a grouper's family, not in its list: kept, unknown
 EXCERPT_TOKENS = 2500
@@ -96,6 +101,9 @@ class CascadeConfig:
     purpose: str = "feasibility"
     step_id: str = ""
     max_llm_items: int = 2000  # CAS-4 defaults
+    # model calls in flight at once (S3, S4): the serving profile's sequences (vLLM --max-num-seqs); 1 = one by one.
+    # Each patient's criteria stay in order (CAS-3 stops at a hard fail); patients run side by side (D-142, A-07)
+    llm_concurrency: int = 1
     max_tokens: int = 10_000_000
     zero_hit_allowed: frozenset[str] = frozenset()  # CAS-13 certified criteria, read from the registry
     semantics: Semantics | None = None  # None: from the IR version (CAS-19)
@@ -311,6 +319,7 @@ class _Run:
         self.stages: list[StageLog] = []
         self.traces: dict[str, PatientTrace] = {}
         self.cache: dict[str, JudgeReply] = {}
+        self._lock = threading.RLock()  # budget, cache and counters when S3 / S4 run patients side by side
         self.items = 0
         self.tokens = 0
         self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
@@ -418,7 +427,7 @@ class _Run:
                 if depth >= best_depth:  # latest date on ties
                     best, best_depth = row, depth
             if best is None:  # not alive at any index date (deceased before the lookback's first month-end)
-                t.in_scope, t.scope_reason = False, "not alive at an index date"
+                t.in_scope, t.scope_reason = False, NOT_AT_INDEX
                 continue
             t.index_date = best["index_date"]
             applied_ids = {a.id for a in applied}
@@ -441,7 +450,9 @@ class _Run:
         self.stages[0].patients_out = n_scope
         alive = self.alive()
         n_struct = len(applied)
-        n_prop = sum(1 for t in alive if any(o.reason == PROPOSED_FACT for o in t.outcomes.values()))
+        n_prop = sum(
+            1 for t in alive if any(o.reason in (PROPOSED_FACT, SUSPECTED_DIAGNOSIS) for o in t.outcomes.values())
+        )
         self.log(
             "S1",
             n_scope,
@@ -472,9 +483,10 @@ class _Run:
         ev = [{"source": "lake", "record": x.split("|")[0], "date": x.split("|")[1] if "|" in x else None,
                "lineage": f"snapshot:{self.cfg.snapshot or ''}", "index_date": row["index_date"].isoformat()}
               for x in fids[:20]]  # fmt: skip
+        why = self.proposed.reason(str(row["pid"]), fids)  # proposed_fact, or suspected_diagnosis (D-142)
         if c.kind == "exclusion":  # an exclusion left unknown keeps the patient (D-18); the list says unknown
-            return Outcome(c.id, "pass", "S1", unknown_kind="data_gap", evidence=ev, reason=PROPOSED_FACT)
-        return Outcome(c.id, "unknown", "S1", unknown_kind="data_gap", evidence=ev, reason=PROPOSED_FACT)
+            return Outcome(c.id, "pass", "S1", unknown_kind="data_gap", evidence=ev, reason=why)
+        return Outcome(c.id, "unknown", "S1", unknown_kind="data_gap", evidence=ev, reason=why)
 
     def _s1_coded(self, c: CriterionIR, row: Mapping[str, Any]) -> Outcome:
         v = row.get(f"C_{c.id}")
@@ -552,18 +564,27 @@ class _Run:
         return out
 
     @staticmethod
-    def excerpts(notes: list[_Note], keep: set[str]) -> list[dict[str, Any]]:
-        """Whole notes holding an evidence sentence, newest first, within the token budget (v1 RAG budget)."""
+    def excerpts(notes: list[_Note], keep: Mapping[str, Collection[str]]) -> list[dict[str, Any]]:
+        """Notes holding an evidence sentence, newest first, within the token budget (v1 RAG budget).
+
+        A note longer than half the budget is cut to that half (its evidence sentences first, then its start), and a
+        note that no longer fits is skipped, not the end of the search: one long note used to stop the loop and hide
+        every older note, so the model got nothing at all (D-142, review A-06)."""
         out: list[dict[str, Any]] = []
         budget = EXCERPT_TOKENS
+        cap = EXCERPT_TOKENS // 2
         for n in sorted(notes, key=lambda n: (n.d, n.did), reverse=True):
             if n.did not in keep:
                 continue
-            cost = expected_tokens([{"text": n.text}]) - 300
+            text = n.text
+            cost = expected_tokens([{"text": text}]) - 300
+            if cost > cap:
+                text = _clip(n, keep[n.did], cap)
+                cost = expected_tokens([{"text": text}]) - 300
             if cost > budget:
-                break
+                continue
             budget -= cost
-            out.append({"date": n.d.isoformat(), "note_type": n.type, "text": n.text, "did": n.did})
+            out.append({"date": n.d.isoformat(), "note_type": n.type, "text": text, "did": n.did})
         return out
 
     # -------------------------------------------------------------------------------------------- S2 / S2b
@@ -592,9 +613,10 @@ class _Run:
                 if hits:
                     self.metrics.pairs_s2_hit += 1
                     sset = sorted({sentence_hash(s) for _, s in hits})
-                    routes.append(
-                        _Route(t.pid, c.id, self.excerpts(win, {n.did for n, _ in hits}), _set_hash(sset), "S2")
-                    )
+                    found: dict[str, set[str]] = {}
+                    for n, s in hits:
+                        found.setdefault(n.did, set()).add(s)
+                    routes.append(_Route(t.pid, c.id, self.excerpts(win, found), _set_hash(sset), "S2"))
                     continue
                 self.metrics.pairs_s2_zero_hit += 1
                 if c.id in self.cfg.zero_hit_allowed:  # CAS-13 certified: absence semantics directly after S2
@@ -669,7 +691,9 @@ class _Run:
                 continue
             if res_above or (not self.cfg.absence_semantics and sents):
                 self.metrics.pairs_s2b_above += 1
-                keep = {sents[i][0].did for i in top}
+                keep: dict[str, set[str]] = {}
+                for i in top:
+                    keep.setdefault(sents[i][0].did, set()).add(sents[i][1])
                 sset = sorted({sentence_hash(sents[i][1]) for i in top})
                 routes.append(_Route(pid, cid, self.excerpts(win, keep), _set_hash(sset), "S2b", best - thr.value))
                 continue
@@ -733,9 +757,10 @@ class _Run:
         c = self.crit[r.cid]
         lo, hi = window_of(c, t.index_date)
         key = json.dumps([r.pid, self.hashes[r.cid], r.sentence_set, role, lo.isoformat(), hi.isoformat()])
-        if key in self.cache:
-            self.metrics.cache_hits += 1
-            return self.cache[key], True
+        with self._lock:
+            if key in self.cache:
+                self.metrics.cache_hits += 1
+                return self.cache[key], True
         reply = self.judge.judge(
             role=role,
             criterion_text=c.text,
@@ -747,12 +772,21 @@ class _Run:
             step_id=self.cfg.step_id or f"cascade:{self.cfg.study_id}",
             purpose=self.cfg.purpose,
         )
-        if reply.refused:
-            self.metrics.gateway_refusals += 1
-        self.metrics.tokens_in += reply.tokens_in
-        self.metrics.tokens_out += reply.tokens_out
-        self.cache[key] = reply
+        with self._lock:
+            if reply.refused:
+                self.metrics.gateway_refusals += 1
+            self.metrics.tokens_in += reply.tokens_in
+            self.metrics.tokens_out += reply.tokens_out
+            self.cache[key] = reply
         return reply, False
+
+    def _side_by_side(self, fn: Callable[[Any], Any], items: Sequence[Any]) -> list[Any]:
+        """``fn`` over ``items``, ``cfg.llm_concurrency`` at a time; results in the order of ``items``."""
+        workers = max(1, int(self.cfg.llm_concurrency or 1))
+        if workers == 1 or len(items) < 2:
+            return [fn(x) for x in items]
+        with ThreadPoolExecutor(max_workers=min(workers, len(items)), thread_name_prefix="cascade") as ex:
+            return list(ex.map(fn, items))
 
     def _map(self, c: CriterionIR, reply: JudgeReply, span: dict[str, Any] | None, stage: Stage) -> Outcome:
         ev = [span] if span else []
@@ -798,6 +832,7 @@ class _Run:
                 for r in rs_:
                     o = Outcome(r.cid, "unknown", "S3", unknown_kind="uncertain", reason="no judge configured")
                     self.traces[pid].outcomes[r.cid] = o
+        work: list[tuple[PatientTrace, list[_Route]]] = []
         for t in alive:
             pending = by_pid.get(t.pid, [])
             if self.judge is None or not pending:
@@ -807,10 +842,19 @@ class _Run:
                     t.outcomes[r.cid] = Outcome(r.cid, "unknown", "S3", unknown_kind="uncertain", reason="not sampled")
                 continue
             # CAS-3: descending exclusion power / expected tokens
-            pending = sorted(pending, key=lambda r: (-self._power(r.cid) / expected_tokens(r.excerpts), r.cid))
+            work.append((t, sorted(pending, key=lambda r: (-self._power(r.cid) / expected_tokens(r.excerpts), r.cid))))
+
+        def one(item: tuple[PatientTrace, list[_Route]]) -> list[_Route]:
+            t, pending = item
+            done: list[_Route] = []
             for i, r in enumerate(pending):
                 cost = expected_tokens(r.excerpts)
-                if self.items + 1 > self.cfg.max_llm_items or self.tokens + cost > self.cfg.max_tokens:
+                with self._lock:  # reserve the call's share of the budget before asking
+                    over = self.items + 1 > self.cfg.max_llm_items or self.tokens + cost > self.cfg.max_tokens
+                    if not over:
+                        self.items += 1
+                        self.tokens += cost
+                if over:
                     t.unprocessed = True  # CAS-4: never silently truncated; SAFE-13: never an exclusion
                     for rest in pending[i:]:
                         t.outcomes[rest.cid] = Outcome(
@@ -818,15 +862,17 @@ class _Run:
                         )
                     break
                 reply, hit = self._ask("judge", r, t)
-                if not hit:
-                    self.items += 1
-                    self.tokens += cost
-                    self.metrics.pairs_judged["S3"] += 1
+                with self._lock:
+                    if hit:  # a cached answer costs nothing
+                        self.items -= 1
+                        self.tokens -= cost
+                    else:
+                        self.metrics.pairs_judged["S3"] += 1
                 c = self.crit[r.cid]
                 lo, hi = window_of(c, t.index_date)
                 o = self._map(c, reply, verify_span(reply, r.excerpts, lo, hi), "S3")
                 t.outcomes[r.cid] = o
-                judged.append(r)
+                done.append(r)
                 if o.hard:
                     self.exclude(t, "S3", r.cid)
                     for rest in pending[i + 1 :]:
@@ -834,6 +880,10 @@ class _Run:
                             rest.cid, "unknown", "S3", unknown_kind="uncertain", reason="not judged (CAS-3 stop)"
                         )
                     break
+            return done
+
+        for done in self._side_by_side(one, work):
+            judged.extend(done)
         self.metrics.unprocessed = sum(1 for t in self.traces.values() if t.unprocessed)
         alive_after = self.alive()
         self.log(
@@ -858,25 +908,30 @@ class _Run:
         pairs = [r for r in judged if r.pid in cand and self.traces[r.pid].outcomes[r.cid].stage == "S3"]
         disagreements = 0
         if self.judge is not None:
-            for r in pairs:
+
+            def one(r: _Route) -> bool:
                 t = self.traces[r.pid]
                 first = t.outcomes[r.cid]
                 reply, hit = self._ask("second_opinion", r, t)
                 if not hit:
-                    self.metrics.pairs_judged["S4"] += 1
+                    with self._lock:
+                        self.metrics.pairs_judged["S4"] += 1
                 c = self.crit[r.cid]
                 lo, hi = window_of(c, t.index_date)
                 second = self._map(c, reply, verify_span(reply, r.excerpts, lo, hi), "S4")
-                if second.status != first.status:
-                    disagreements += 1
-                    t.outcomes[r.cid] = Outcome(
-                        r.cid,
-                        "unknown",
-                        "S4",
-                        unknown_kind="uncertain",
-                        evidence=first.evidence + second.evidence,
-                        reason="S3/S4 disagree",
-                    )
+                if second.status == first.status:
+                    return False
+                t.outcomes[r.cid] = Outcome(
+                    r.cid,
+                    "unknown",
+                    "S4",
+                    unknown_kind="uncertain",
+                    evidence=first.evidence + second.evidence,
+                    reason="S3/S4 disagree",
+                )
+                return True
+
+            disagreements = sum(self._side_by_side(one, pairs))
         alive_after = self.alive()
         self.log("S4", p_in, len(alive_after), len(pairs), len(pairs) - disagreements, disagreements=disagreements)
         self.metrics.n_after["S4"] = len(alive_after)
@@ -951,6 +1006,36 @@ class _Run:
         )
         self.metrics.n_after["S5"] = len(final)
         return queue, final
+
+
+def _tokens(text: str) -> int:
+    return expected_tokens([{"text": text}]) - 300
+
+
+def _clip(n: _Note, evidence: Iterable[str], cap: int) -> str:
+    """At most ``cap`` tokens of a long note: the evidence sentences first (in note order), then the note's start;
+    always a run of whole sentences of the note, so a quote the model takes from it is found in the note."""
+    wanted = set(evidence)
+    chosen: list[int] = []
+    used = 0
+    order = [i for i, s in enumerate(n.sents) if s in wanted] + list(range(len(n.sents)))
+    for i in order:
+        if i in chosen:
+            continue
+        cost = _tokens(n.sents[i])
+        if used + cost > cap:
+            continue
+        chosen.append(i)
+        used += cost
+    if not chosen:  # one sentence longer than the cap: its start
+        out, used = [], 0
+        for ch in n.text:
+            used += 4 if "　" <= ch <= "鿿" else 1
+            if used > cap * 4:
+                break
+            out.append(ch)
+        return "".join(out)
+    return "\n".join(n.sents[i] for i in sorted(chosen))
 
 
 def _set_hash(hashes: Sequence[str]) -> str:

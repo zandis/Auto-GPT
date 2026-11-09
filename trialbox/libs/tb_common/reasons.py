@@ -22,6 +22,7 @@ class Reason(StrEnum):
     CODE_OUTSIDE_LIST = "code_outside_list"  # coded inside the grouper's family, outside its list (D-113)
     UNKNOWN_CODE_SYSTEM = "unknown_code_system"  # a record coded in a system the mapping does not know (D-130)
     PROPOSED_FACT = "proposed_fact"  # a fact read from a chart that a person has not confirmed yet (D-135)
+    SUSPECTED_DIAGNOSIS = "suspected_diagnosis"  # a diagnosis recorded as suspected (疑い, provisional; D-142)
     ABSTAINED = "abstained"  # the model said it cannot tell from the notes
     QUOTE_NOT_FOUND = "quote_not_found"  # the model's quote is not in the notes
     VERIFIER_QUOTE_MISSING = "verifier_quote_missing"  # the second model's quote is not in the notes
@@ -32,6 +33,7 @@ class Reason(StrEnum):
     HUMAN = "human"  # a person decides this criterion
     NOT_EVALUATED = "not_evaluated"  # not judged on this run (budget, not sampled, no judge)
     NOT_IN_SNAPSHOT = "not_in_snapshot"  # the patient is not in this snapshot of the records
+    CHECK_DATES = "check_dates"  # deceased or not yet born at the screening date by the records (D-142)
 
 
 CODES = frozenset(r.value for r in Reason)
@@ -87,6 +89,11 @@ LABELS: dict[str, dict[str, str]] = {
         "ja": "カルテから読み取った未確認の情報あり：確認してください",
         "zh-TW": "有從病歷讀取、尚未確認的資料：請確認",
     },
+    "suspected_diagnosis": {
+        "en": "a diagnosis recorded as suspected, not confirmed: please check",
+        "ja": "疑い病名として記録された診断あり（確定ではない）：確認してください",
+        "zh-TW": "有記錄為疑似、尚未確診的診斷：請確認",
+    },
     "abstained": {"en": "the notes do not say", "ja": "記録の文章からは判断できない", "zh-TW": "病歷文字無法判斷"},
     "quote_not_found": {
         "en": "the quoted text was not found in the notes",
@@ -120,6 +127,11 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "not in this copy of the records",
         "ja": "今回の記録の写しに含まれない",
         "zh-TW": "不在本次紀錄副本中",
+    },
+    "check_dates": {
+        "en": "the records give a death or birth date that rules out this date: please check the dates",
+        "ja": "記録上の死亡日または生年月日ではこの日付に該当しない：日付を確認してください",
+        "zh-TW": "紀錄中的死亡日期或出生日期與此日期不符：請確認日期",
     },
 }
 

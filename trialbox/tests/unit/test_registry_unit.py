@@ -152,7 +152,8 @@ def test_registry_api_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert c.get("/registry").json()[0]["counts"] == {"candidate": 1}
     assert len(c.get("/registry/GZQO").json()) == 1 and len(c.get("/registry/GZQO/events").json()) == 1
     assert c.post("/registry/GZQO/promote", json={"by": "pi@hospa.test"}).json() == {"added": 0}
-    r = c.get("/registry/GZQO/export.xlsx")
+    assert c.get("/registry/GZQO/export.xlsx").status_code == 400  # S-09: a named user, always
+    r = c.get("/registry/GZQO/export.xlsx?by=crc1@hospa.test")
     assert r.status_code == 200 and r.content.startswith(b"PK")
     assert c.get("/registry/bad%20id").status_code == 400
 

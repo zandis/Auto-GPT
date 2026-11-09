@@ -153,7 +153,20 @@ CREATE TABLE notify_log (
   PRIMARY KEY (kind, username, day)
 )
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1,)
+# review 2026-11-09 P-04 (D-143): an excluded patient a person thinks was excluded wrongly, sent to review
+SCHEMA_V2 = """
+CREATE TABLE excluded_review (
+  ruleset TEXT NOT NULL,
+  pid TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  crit TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  by TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL,
+  PRIMARY KEY (ruleset, pid, job_id)
+)
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2)
 
 
 @dataclass
@@ -434,6 +447,27 @@ class SiteStore:
     def code_ticks(self, job_id: str) -> dict[str, tuple[str, str]]:
         rows = self.db.fetchall("SELECT crit, by, at FROM code_ticks WHERE job_id = ?", (job_id,))
         return {str(c): (str(b), str(a)) for c, b, a in rows}
+
+    # ------------------------------------------------------------------ excluded patients sent to review (P-04)
+    def send_excluded_review(self, ruleset: str, pid: str, job_id: str, crit: str, note: str, by: str,
+                             at: str) -> None:  # fmt: skip
+        self.db.execute(
+            "INSERT INTO excluded_review (ruleset, pid, job_id, crit, note, by, at) VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT (ruleset, pid, job_id) DO NOTHING",
+            (ruleset.upper(), pid, job_id, crit, note, by, at),
+        )
+
+    def excluded_reviews(self, ruleset: str) -> dict[str, dict[str, str]]:
+        """pid -> the first "send to review" of this patient (who, when, the criterion, the note)."""
+        rows = self.db.fetchall(
+            "SELECT pid, job_id, crit, note, by, at FROM excluded_review WHERE ruleset = ? ORDER BY at",
+            (ruleset.upper(),),
+        )
+        out: dict[str, dict[str, str]] = {}
+        for pid, job, crit, note, by, at in rows:
+            out.setdefault(str(pid), {"job_id": str(job), "crit": str(crit), "note": str(note), "by": str(by),
+                                      "at": str(at)})  # fmt: skip
+        return out
 
     # ------------------------------------------------------------------ notices (FR-NOTIF-01/02)
     def notify_person(self, username: str) -> NotifyPerson:

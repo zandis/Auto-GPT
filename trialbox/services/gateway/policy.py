@@ -119,6 +119,25 @@ class Caller:
     intake_role: str = ""
 
 
+@dataclass(frozen=True)
+class BoxPhi:
+    """``phi_on_box`` (D-142): D3 calls the box's own policy allows without a confirmed study step, because on an
+    on-prem box the perimeter endpoints are the box itself. Only topology A and class D3 are accepted."""
+
+    topologies: tuple[str, ...] = ()
+    environments: tuple[str, ...] = ()
+    classes: tuple[str, ...] = ()
+    callers: tuple[str, ...] = ()
+
+    def allows(self, caller: str, label: ClassLabel, topology: Topology, env: Environment) -> bool:
+        return (
+            caller in self.callers
+            and label.tag.removesuffix("+sc") in self.classes
+            and topology.value in self.topologies
+            and env.value in self.environments
+        )
+
+
 def _match(value: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatch.fnmatchcase(value, p) for p in patterns)
 
@@ -165,6 +184,18 @@ class RoutingPolicy:
             ):
                 raise ValueError(f"routing: caller {n}: d3_intake_without_step needs one of its roles as intake_role")
             self.callers[caller.name] = caller
+        box = dict(doc.get("phi_on_box") or {})
+        self.box_phi = BoxPhi(
+            topologies=tuple(str(x) for x in box.get("topologies") or ()),
+            environments=tuple(str(x) for x in box.get("environments") or ()),
+            classes=tuple(str(x) for x in box.get("classes") or ()),
+            callers=tuple(str(x) for x in box.get("callers") or ()),
+        )
+        if set(self.box_phi.topologies) - {Topology.A.value} or set(self.box_phi.classes) - {DataClass.D3.value}:
+            raise ValueError("routing: phi_on_box is for D3 on an on-prem box (topology A) only")
+        unknown = [c for c in self.box_phi.callers if c not in self.callers]
+        if unknown:
+            raise ValueError(f"routing: phi_on_box names unknown callers {unknown}")
         self.routes: list[Route] = []
         for raw in doc.get("routes") or []:
             builds: list[tuple[str, str]] = []

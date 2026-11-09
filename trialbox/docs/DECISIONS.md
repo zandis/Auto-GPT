@@ -2809,3 +2809,298 @@ committed sheet says offline is the default.
 * jRCT waits for the help desk's answer. Offline search is substring matching (no synonyms as the live API's
   `query.cond` has); trials of the TFDA and UMIN parts are queryable by the store but not yet used by COHORT.
 * Not run: Docker, a compose box's `apply_update` with a real refdata payload, `install.sh` beyond `--ctgov-check`.
+
+**D-141 Step 9: the scenario matrix and the fail-safe cloud run.** TB-PLAN-04 step 9 (owner decision 2026-11-09;
+builds on D-123, D-131, D-132, D-135, D-137, D-139, D-140), 2026-11-09. Built in a cloud container with no GPU and no
+Docker; no cloud resource was started.
+
+*Owner decisions (2026-11-09).*
+
+1. The complete run uses 50,000 synthetic patients as the bulk scale test, and only synthetic and public data.
+2. Every way a site gives TrialBox data is its own scenario, screened with the real judge and verifier pair: the
+   hospital database feed, the EMR (SS-MIX2 and FHIR), the site's own lists, a single chart pasted, chart files
+   (PDF, Word, scans), REDCap and the built-in forms, an IT dump with local codes, the offline registry.
+3. The real public datasets already downloaded run too, one scenario each where the licence allows it.
+4. The cloud run must survive a dead driver: the VM stops itself.
+
+*The scenario matrix* (`tools/scenarios.py`, run as `complete_run part scenario --scenario <name>`; one section per
+scenario in the report: input, counts, expected and got, model calls, model exclusions, time, a screenshot).
+
+| Scenario | Input (card / laptop) | Independent recount |
+| --- | --- | --- |
+| db-csv | the `hospital:<lang>` parts: CGRD-style CSV, 50,000 / 5,000 | lake = generator counts; FEAS INC-01/02 from the CSVs; model exclusions vs the note truth |
+| emr-ssmix2 | SS-MIX2 storage (ADT-52, OMP-02/11/12, extended storage, 疑い diagnoses, flagged lab values), 5,000 / 500 | FEAS = recount and = the CSV path's; JP Core `$validate` on 50 per type |
+| emr-fhir | FHIR bulk export (NDJSON with chart numbers, names, phones), 5,000 / 500 | every resource read; same pseudonyms as the feed; FEAS = recount and = CSV |
+| site-excel | an Excel list (title row, merged cells, era dates, full width, µmol/L, dd/mm dates), a Shift_JIS CSV and a Big5 CSV (民國), 1,000 / 100 rows over a 5,000 / 500 feed | each patient's state (SITE5B) from the generator's feed and list values |
+| chart-paste | EMR screen text, ja and zh-TW, 200 / 20 patients with a second chart for a quarter | precision and recall against the charts' facts; states from the confirmed facts |
+| chart-files | the same as Word, a PDF with a text layer, PNG scans and image-only PDFs, 60 / 12 | as chart-paste; OCR `tesseract` (jpn, chi_tra, eng) on the VM, `fake` here |
+| redcap | `rc_sim` project 202 (longitudinal, DAGs) two-way; the built-in forms; 500 / 50 records | every record in REDCap; REDCap's consent dates back; ODM export count |
+| it-dump | a Shift_JIS dump with five local diagnosis codes, a JLAC10 lab code, a YJ drug code, 2,000 / 200 | each patient's state before (unknown) and after mapping |
+| registry | the reference data pack sample, no network | trials by condition and country = recount of the raw records |
+| public-mimic | MIMIC-IV demo on FHIR (100 patients, ODbL) | patients = the release's; FEAS invariants; the cascade S0..S5 |
+| public-medtxt | MedTxt-CR case reports (ja, CC BY 4.0), 148 / 16, pasted as charts | the corpus's own positive / negative / suspected tags |
+| public-trec | TREC CT 2021/22 topics, qrels and trial texts, 100 / 10 pairs | the qrels (eligible 2, excluded 1) |
+| gateway | a judge and a chart-reading call through the gateway built as an installed box | none: a probe, reported as a finding |
+
+Not run, and why (`tools/scenarios.py` `NOT_RUN`): Chia and open_cohorts are not in `.cache` on this machine;
+Synthea has no mapping in this build; the full reference data pack is a box's install step.
+
+*Rules the scenarios keep.*
+
+* A proposed fact never excludes before confirmation (D-135): checked on every chart scenario, before the
+  coordinator acts, as "no exclusion and no failed criterion rests on a proposed fact".
+* Model exclusions are counted per scenario and checked against the generator's note truth (`note_truth.json`):
+  a model-driven exclusion (a note criterion failed, no coded one, not consent or scope) is true when the truth
+  blocks on that criterion; false exclusions must be 0. Each excluded patient is listed with its reason. On the stub
+  no note may exclude (D-115), so the card is where this counts.
+* With `--model pair` every model call goes through the gateway built as an installed box builds it
+  (`TB_ENV=PRODUCTION`, `TB_PROFILE=P-PRO6000`, no `TB_DATA_CLASS`); `--direct` bypasses it. On the VM nginx adds the
+  key on 127.0.0.1:8080, so the routing file stays the installed box's.
+* Known findings of the 2026-11-09 review are reported, not fixed, and do not fail the run: each has an id, what was
+  expected, what was seen.
+* Every DuckDB connection of a scenario may spill at most 2 GB to disk (a harness guard, after XL-02 filled the disk).
+
+*The fail-safe cloud run* (`deploy/gcp/complete-run.sh`, `deploy/gcp/complete-run-vm.sh`, `deploy/gcp/gcloud-auth.sh`).
+After the 2026-11-09 incident (the wrapper ran detached in a sandbox that killed it; its EXIT trap never ran; the
+service-account auth in the private config failed after about an hour; the VM ran 61 minutes until stopped by hand):
+
+1. **Cloud-side hard cap.** Before the start: `gcloud compute instances set-scheduling <vm> --zone <z>
+   --max-run-duration=<N>h --instance-termination-action=STOP`, N = the estimate × 1.3 rounded up (`--hours`).
+   Flags checked against `gcloud compute instances set-scheduling --help` (Cloud SDK 570.0.0, no authentication).
+2. **The VM stops itself.** The startup script starts a systemd hard cap and a watchdog before anything else: poweroff
+   when the heartbeat file is not touched for 20 minutes (the run touches it as its log grows; the driver over HTTP),
+   when setup passes 60 minutes, or when the done marker has stood 30 minutes (at once after the driver collects).
+3. **The workload runs on the VM** (48 vCPU), not on the driver. Chosen over "restartable parts on the driver"
+   because the incident's failure was the driver itself: with the workload on the VM, a dead driver costs at most the
+   time to the done marker plus 30 minutes, or 20 minutes of no progress, or the cap; the driver only uploads `git
+   archive` of HEAD, polls with short calls, downloads `results.tgz`, and runs the stub parts (walk, backup, update,
+   scale) after the VM has stopped. `--collect <run id>` picks a run up again. The parts are also restartable.
+4. **Fresh auth for every gcloud call.** `gc` re-activates the service account from `TB_SA_KEY_FILE` when a call fails
+   with an authentication error and retries once; `gc_probe` checks the credential before the start. The key file's
+   content is never printed.
+5. **Idempotent and resumable.** `complete_run --resume` keeps every part whose `parts/<tag>.json` has every check
+   passed; a part writes to a temporary file and renames it. A restarted VM resumes.
+6. **`--estimate`** prints hours and US$ per scenario: note-stage patients × 6.3 s (VALIDATION §3), a chart read as
+   one, criterion checks at 0.3 s, the canary per box, and the part's stub time scaled from the local run.
+7. Review A-12: `set -x` removed from `gpu-sim-startup.sh` and `gpu-fit-test.sh` (the key was on traced command lines).
+
+A billing budget with a kill switch is the last net; it needs billing permissions the project's service account does
+not have, so it stays an owner action.
+
+*Evidence (local, stub, 2026-11-09).*
+
+* `python -m tools.complete_run --patients 5000` with the matrix: **PASSED, 662 of 662 checks, 84 of 84 screenshots**,
+  22 parts in about 34 minutes (`eval/complete_run/2026-11-09-matrix-stub-5000/report.md`). Per scenario: db-csv
+  338/338 (both languages); emr-ssmix2 9/9 (500 patients, JP Core 615 sampled, 0 errors); emr-fhir 9/9; site-excel 7/7
+  (100 of 100 patients as the generator says); chart-paste 8/8 and chart-files 9/9 (precision and recall 1.0 on the
+  stub); redcap 8/8; it-dump 3/3; registry 2/2; public-mimic 5/5; public-medtxt 3/3; public-trec 1/1; gateway 1/1.
+* Known findings the run reports, each with what was seen: A-01 (the installed box's gateway refuses a judge call,
+  `step_unconfirmed`); GW-02 (`chart_facts` has no role in `libs/tb_llm/v1_roles.yaml`); P-04 (5 of 5 疑い-only
+  patients excluded by GZQO-EXC-07); FHIR-01 (SCREEN scope 0 on the FHIR path: Practitioner references hashed, ids
+  kept); XL-02 (SCREEN on `main` after a site list is published spills without bound; stopped at the 2 GB guard);
+  B-03 (a longitudinal REDCap link with no event: REDCap refuses every record); MAP-01 (name suggestions 胃癌 and 乳癌 to
+  C22.0, 本態性高血圧症 to E78.5); DUMP-01 (2 of 3 patients with an undated cancer row are "ready"). B-01 (flagged lab
+  values) holds on these paths: "8.2 H" and ">8.2" read as unknown, not FALSE, in the SQL engine and at S1.
+* `deploy/gcp/complete-run.sh --dry-run --patients 50000`: probe, `set-scheduling --max-run-duration=12h
+  --instance-termination-action=STOP` before `start`, metadata with the watchdog's limits, upload, poll, collect.
+* `--estimate --patients 50000`: about 8.9 h, US$24.3; hard cap 12 h, at most US$32.9.
+* Unit tests: `tests/unit/test_scenario_matrix.py` (the generators' truth, the stub against the chart traps, the
+  recounts, the estimate, resume, report-only, `gc` re-activating once and never printing the key, the driver's cap
+  before the start, the VM script's nets and no `set -x`). The stub now also treats 家族史 as a family history.
+
+*Not done; only the card can show.*
+
+* With the pair the default path is the installed box's gateway; until A-01 and GW-02 are fixed every model call of
+  the card run is refused there (the canary, SCREEN, chart reading). `--direct` runs the pair straight, as D-139 did.
+* Model exclusions against the note truth, extraction precision and recall of the real model in ja and zh-TW, and
+  tesseract on the rendered scans run only on the card. The floors (precision 0.90, recall 0.70) are this run's own.
+* The VM script, the watchdog, the HTTP door and the bucket path have not run on a VM; the gcloud flags were checked
+  against the SDK's help only. No billing budget (an owner action).
+* MIMIC's cascade uses `tools.cascade_e2e`'s own model path (the stub), TREC the evaluation client: neither goes
+  through the box. Chia, open_cohorts and Synthea are not run (`NOT_RUN` in `tools/scenarios.py`).
+
+**D-142 Review wave 1a: screening and data blockers fixed.** Pre-release review of 2026-11-09 (reports 01, 02 and 06;
+consolidated items R-01, R-37, R-38), 2026-11-09. One commit per item, each with a test that fails before the fix.
+Built in a cloud container, no GPU, no Docker; synthetic data only.
+
+* **PHI prompts on an installed box (A-01).** The compose gateway has no step confirmer, so every D3 call (the judge,
+  the verifier, chart facts: `phi: true` prompts, labelled D3 when `TB_DATA_CLASS` is empty, as install leaves it) was
+  refused. Decision: a box policy in `models/routing.yaml` (`phi_on_box`) instead of wiring the orchestrator's job
+  check first. On an on-prem box (topology A) in PRODUCTION, with **no** step confirmer wired, a D3 call from the
+  orchestrator or matching is allowed and sent to **perimeter endpoints only**; the audit record says
+  `step_basis: box_policy`. The data never leaves the box, which is what LLM-2's step check protects in the other
+  topologies. D4, topologies B (cloud tenant) and C (model egress), every other caller, and a box where a confirmer is
+  wired still need a live, delegated step; `may_reach` keeps D3/D4 off every external route as before; the loader
+  refuses any `phi_on_box` with a topology other than A or a class other than D3. `chart_facts` gets a gateway role
+  (`abstract_field`, it had none). Found on the way and fixed: `install.sh` wrote the compose profile (`gpu`) into
+  `TB_LLM_MODE`, which every service's config refuses; it now writes `vllm`. A pair profile now names its verifier
+  (`TB_GATEWAY_VERIFIER_MODEL=v-verifier`), else `both_agree` ran single-model.
+* **Pins that PRODUCTION routes (R-01).** No committed build has a sha256, and a pin made by hand without
+  `--status champion` does not route in PRODUCTION. `tools/pin_model.py --install <gpu>` pins the GPU profile's
+  deployed pair from the site's own weights in `deploy/models` (the served names compose gives vLLM, status
+  `champion`: the profile's measured release, D-112); `install.sh` runs it before `--verify-all`. Builds already
+  pinned are kept; missing weights are reported and that model routes nothing. `test_gateway_box_phi.py` builds the
+  gateway and the orchestrator's clients from `.env.example`, the lines install appends and the compose
+  `environment:` blocks, pins as install does, and runs a judge, a verifier and a chart-facts call through the real
+  gateway app; external, B, C, D4 and unlisted callers are refused.
+* **Lab text (B-01).** One reader, `tb_common.labvalue`, for the mapping (CSV, CGRD, SS-MIX2 OBX-5) and the lake
+  (FHIR `valueString`): "75 H" is 75; "<0.3", ">1000", "0.3未満", "100以上" are censored (`Quantity.comparator`, lake
+  column `observation.value_cmp`). A censored value decides a comparison only when every value on that side of the
+  bound does (the bound counts as reachable, so a borderline case stays unknown, never wrong). Text that is no number
+  ("検出せず", "陰性") is NULL. The SQL quantifiers `any`, `none`, `all`, `count>=` and `latest` are unknown, not FALSE,
+  when an unreadable row could change the answer; the CQL generator says the same for null values. Approved SQL of the
+  committed rulesets is unchanged (they use `latest`, already NULL on text).
+* **Patients without a base row (B-02).** A scoped patient the compiled SQL's `base` drops goes to review: reason
+  `not_in_snapshot` when the snapshot does not hold the patient, `check_dates` (new, en / ja / zh-TW) when it holds
+  them deceased or born after the screening date. The scope query reads the cascade's pinned snapshot. The run's
+  `opted_out` count no longer includes them (`not_at_index` counts them).
+* **疑い diagnoses (review 02, P-04, S10).** Verified against the SS-MIX2 標準化ストレージ仕様書 v1.2h, 表 3-47 (PRB, from
+  JAHIS 病名情報データ交換規約 3.1C): PRB-13 is the 疑い病名フラグ, JHSD 表 0005, code `1` 疑いあり (code table v1.2i,
+  表 95). The reader sets `suspected` from PRB-13, or from a 病名 whose text carries 疑い when a vendor sends no flag;
+  the shared mapping (every TW, CSV, CGRD and JP mapping extends it) writes `Condition.verificationStatus =
+  provisional`. The lake keeps provisional, differential and unconfirmed diagnoses (from any FHIR source too) out of
+  `condition` and lists them in `site_fact` with basis `suspected`; D-135's rule then makes any answer they could
+  change unknown, reason `suspected_diagnosis` (en / ja / zh-TW), in the SQL engine and the cascade. Refuted and
+  entered-in-error diagnoses are dropped. Other inputs: FHIR carries the same `verificationStatus` (handled); a CSV or
+  CGRD site can fill the canonical column `suspected`; Taiwan's CGRD and NHI exports have no such flag.
+* **REDCap longitudinal projects (B-03).** With no event set, the rows of one record (one per event or repeat
+  instance) are one row: a field takes its non-blank cell, a blank in another event is never a value, and a field with
+  different values on two events is refused and listed ("set the REDCap event"), not guessed.
+* **A lost database connection (A-02).** Decision: reopen, not `psycopg_pool`. Each store keeps one serialised
+  connection (the stores rely on it), and the pool package is not in the images. `Database.transaction()` reopens a
+  connection psycopg reports closed or broken, and retries `BEGIN` once on a fresh connection when the server dropped
+  it (nothing of the transaction ran, so reads and writes alike are safe). A failure inside a transaction is raised,
+  never repeated; the next call works. Advisory-lock `migrate` and `tb_prefix` are unchanged. `Database.ping()` backs
+  the console's `/healthz` (503 when the store is gone), the mail gateway's and the model gateway's (trace store); the
+  orchestrator's already reads its job store. Tests kill a backend and restart a throwaway cluster.
+* **Excerpts (A-06, R-37).** A note over half the excerpt budget is cut to that half (its evidence sentences first,
+  whole sentences of the note); a note that does not fit is skipped and the search goes on, so one long newest note no
+  longer hides the older evidence.
+* **S3/S4 throughput and the call budget (A-07, R-38).** The cascade runs patients' model calls `llm_concurrency` at
+  a time (each patient's criteria still in order, CAS-3; the budget reserved under a lock; answers equal to the
+  one-by-one run). SCREEN takes it from `TB_SCREEN_LLM_CONCURRENCY`, which the GPU compose files set to the judge's
+  `--max-num-seqs`. SCREEN's call budget is explicit: job option `max_pairs`, else `TB_SCREEN_MAX_PAIRS`, else 20,000
+  (was a silent 2,000). When it runs out, the summary says how many patients were not fully read (en / ja / zh-TW),
+  and the report JSON and the audit carry the count; those patients are listed for review, never excluded.
+* **Tests changed because they encoded the bug.** `test_gateway.py`: the D3-without-step refusals now run under
+  topology B (the box policy applies to A only).
+
+* **Evidence.** Suites: unit, console and testbench 1,460 passed. `make lint` clean (doclint clean).
+  `tools/e2e_simple.py`: PASSED in 165 s. `tools.backup_drill`: PASSED in 128 s.
+
+*Not done.*
+
+* LLM-2 proper (the orchestrator confirms the job step, `X-TB-Step`) for topologies B and C; `trialbox doctor` does not
+  yet fail when the gateway would refuse the judge.
+* The SS-MIX2 reader still takes ICD-10 from PRB-3's alternate coding only; the spec's example carries it in PRB-10
+  (`<ICD-10>^^I10^<診断種別>^...^JHSD0004`). PRB-14 is read as `R`/`resolved` only (HL7 0241 / JHSD0006 not mapped).
+* The CQL side does not read censored values (`TB_Common.cql`'s `ObsValue` ignores the comparator); CQL runs only in
+  the compile-time gate on fixtures, which have none. An "unreadable value" reason code (SQL NULL from text shows as a
+  data gap) and the "Excluded by records" page of P-04 are not built. A lake snapshot built before this step has no
+  `value_cmp` column: a ruleset compiled after the upgrade needs a rebuilt snapshot (the nightly rebuild makes one).
+* With concurrency, which patients a budget that runs out leaves unread depends on timing (it is counted and shown).
+* Not run here: Docker, `install.sh` on a box, a GPU pair. Other agents share this machine's Postgres.
+
+*Scenario-run fixes (D-141's matrix on this wave, 2026-11-09).* The matrix now checks A-01, GW-02, P-04 and B-03 as
+passed (the gateway probe pins the pair as `install.sh` does; B-03 also needed the push side: with no event set, each
+field goes to the event its form is designated for). Four new findings fixed, each with a test that failed before:
+XL-02, one `patient` row per pseudonym (a published site list duplicated every patient, and each criterion's join
+on `base` multiplied that to 2^(criteria + 1) rows), and the lake's spill capped (`TB_LAKE_MAX_TEMP`,
+`TB_LAKE_TEMP_DIR`, a `LAKE-LIMIT` error instead of a full disk); FHIR-01, the bulk import keeps a Practitioner's
+staff id in its id and in every reference; MAP-01, a diagnosis name is matched whole (known names in ja, zh-TW and
+en, then the ICD-10 title) with a confidence, never by a shared character, and nothing is suggested when unsure;
+DUMP-01, an undated record leaves a criterion unknown where the dated ones do not settle it, so the patient needs
+information (SQL and CQL; every input path reaches the lake that way). Committed rulesets' SQL is not recompiled
+here (as for B-01): a ruleset compiled after this step carries the rule.
+
+**D-143 Review wave 1b: console, safety and PI access (owner decision).** Pre-release review of 2026-11-09 (report
+06, end to end: P-01 to P-04, P-07, P-08, P-10; report 03, security: S-09), and the owner's decision of the same
+day: "PI can see everything, including chart number, patient information; they are the ones with full
+authorization."
+
+* **The study's PI may see and reveal identifiers (reverses D-133's "investigators may not reveal").**
+  `User.can_reveal` is administrator, coordinator and investigator; `User.sees_ids(study)` adds the study scope, so an
+  investigator of another study has no authority. The PI reveals on the patient page, the SCREEN job page and through
+  `POST /api/v1/studies/{rs}/patients/{pid}/reveal` (a reason is required, as on the page); the screening-log export
+  with chart numbers follows `sees_ids` too (it was any requester, unscoped). Kept: every reveal or view is audited
+  (`console.reveal_patient`, `console.reveal`, `console.view_id`), the orchestrator's 60-per-hour cap applies, and a
+  view on the console counts against the same cap. Viewer and CRO (sponsor, monitor) accounts stay masked everywhere.
+* **P-01.** The CASE job page's "web request" row showed `mrn=…` to every role. It shows the chart number only to an
+  account with identifier authority for the job's study, as one audited view under the cap (over the cap:
+  `console.view_id_refused`, masked); everyone else sees `mrn=•••`. Audit tables (job page and `/audit`) mask
+  identifiers for everyone. `public_e2e` stage 7b signs in as viewer and as CRA, opens every page the walk opens plus
+  the job pages, and fails on any chart number or name of the site; it also checks that the study's PI sees the CASE
+  request's chart number and that the view is audited.
+* **Mail (N1): a point for the owner to confirm.** Decision: N1, the PI's own mail, carries **no** chart number. Mail
+  leaves TrialBox (hospital mail servers, phones, forwarding); the PI sees the chart number on the page after sign-in,
+  where it is audited and capped. N1 and N2 keep the pseudonym and the screening number (D-136).
+* **P-02 / P-03, SAE.** A serious AE needs the investigator's acknowledgement, whatever its outcome (a fatal SAE,
+  outcome 5, counted as "not ongoing" and left the banner and N1 the moment it was saved). One tap on the banner, the
+  participant page or `POST /api/v1/studies/{rs}/aes/{record}/{event}/ack`; stored in the data core's `ae_ack` (schema
+  version 3: who and when; the first acknowledgement stands) and audited (`life.sae_ack` with the time and the outcome,
+  `console.sae_ack`). The coordinator sees "Waiting for the investigator's acknowledgement". N1 goes out on any working
+  day while an SAE waits. The AE form gains the day the site learned of it (`ae_aware`) and the report dates for
+  sponsor, IRB and regulator (`ae_rep_sponsor`, `ae_rep_irb`, `ae_rep_reg`, shown when serious). Each serious AE shows
+  its reporting clock on the participant page and the AE form; an overdue report is on the PI's and the CRC's home
+  pages and first in N2 (pseudonym, party and due day, never the AE term). Defaults, in days from the day the site
+  learned of it (else the onset), as fatal or life-threatening / other serious, chosen by the site's zone (Asia/Tokyo is
+  Japan) or `TB_SAE_RULES=jp|tw`, and overridden with `TB_SAE_REPORT_DAYS` (`sponsor=1,irb=7/15,regulator=0`; 0 turns
+  a party off):
+
+  | Report to | Japan (J-GCP art. 48; PMDA for investigator-initiated trials) | Taiwan (GCP; IRB SOPs; TFDA) |
+  | --- | --- | --- |
+  | Sponsor | 1 / 1 (直ちに) | 1 / 1 (at once) |
+  | IRB and the head of the institution | 1 / 1 (直ちに, through the head) | 7 / 15 |
+  | Regulator | 7 / 15 | 7 / 15 |
+
+  **These defaults need site confirmation** before the first patient: the IRB's SOP, the protocol and, for a sponsor
+  trial, the sponsor's SAE timelines decide; the regulator's report is usually the sponsor's duty (set it to 0 where the
+  site does not file).
+* **P-04.** Each SCREEN run stores `excluded_<study>_v<version>.json` with the job (tag phi, never mailed): every
+  excluded patient, the failing criterion with its evidence, and the source: the coded records, a confirmed fact (a
+  record whose id is a confirmed `site_fact`, D-135) or the notes with both models agreeing; a patient excluded by the
+  run's own rules (scope, research-contact consent) shows that rule in plain words. `/studies/{rs}/excluded` (PI, CRC,
+  administrator; 403 for viewer and CRO) shows them 25 to a page with a filter by source; "This is wrong, send to
+  review" is stored (site store `excluded_review`, schema version 2), listed first with who and when, and audited
+  (`console.excluded_review`). Linked from the week page and the study card; in the walk and in `public_e2e`.
+* **S-09.** The console signs the user it names to the orchestrator: `X-TB-Actor-Assertion` is
+  `v1.<expiry>.<session>.<hmac>`, HMAC-SHA256 over the actor, the console session (16 characters of the session
+  token's hash, bound per request) and an expiry two minutes ahead, keyed with `HMAC(console token,
+  "tb-actor-assertion/1")`, derived from D-138's per-service token, never the token itself. The orchestrator verifies it
+  for reveal, export, notices and cancel: with one shared token both sides derive the key; with per-service tokens
+  `trialbox secrets init` and `rotate` write the derived key to `deploy/secrets/services/actor/keys` (0600 in a 0700
+  folder), which only the orchestrator mounts (`TB_ACTOR_KEYS_FILE`); a console rotation keeps the old key valid until
+  the console runs on its new token. An unsigned or expired name is 403 and audited (`actor.refused`); no name is 400,
+  as before. The reveal cap and the new export cap count per calling service and verified person.
+  `GET /registry/{rs}/export.xlsx` now needs a verified user, is audited at the orchestrator (`registry.export`: actor,
+  session, sha256 of the file) and is capped (`TB_EXPORT_MAX_PER_HOUR`, 10). A box updated past this decision runs
+  `trialbox secrets init` once (RUNBOOK §5).
+* **P-07.** The REDCap read text said "Nothing is ever written to REDCap" under the write-back switch. It now says
+  TrialBox writes only when write-back is on, and then only its own three screening fields, never a field the study
+  team owns (en, ja, zh-TW).
+* **P-08.** The screening log's zh-TW "enrolled" is the glossary's 已收案 (was 已納入); the glossary test bans 已納入
+  and checks that the screening log and the lifecycle pages use one word for enrolled.
+* **P-10.** Disable account, Keep TrialBox's / Take the source's value, Detach REDCap and Approve all first show one
+  confirmation sheet with the consequence in a sentence; Yes posts the form again with `confirm=yes`. Role and study
+  checks come first. `/api/v1` calls are explicit and unchanged.
+
+*Evidence.* `tests/console/test_console_app.py` (the CASE request row by role, the view cap, the PI's reveal on the job
+page, the signed export), `tests/console/test_role_pages.py` (the PI's reveal on the page and through `/api/v1`, the
+viewer's 403), `tests/console/test_step2.py` (N1 never carries a chart number), `tests/unit/test_service_auth.py` and
+`tests/unit/test_service_secrets.py` (an unsigned, forged, expired or renamed actor refused; the per-person caps; the
+export audited and capped; the key file, its rotation and its one mount), `tests/console/test_sae_pages.py` (the JP/TW
+rules and the override; a fatal SAE stays until the PI acknowledges, on the pages, in N1 and N2, through `/api/v1`),
+`tests/console/test_excluded_page.py` (the page, sources, send to review, roles, Japanese; the run's excluded list),
+`tests/console/test_step4b.py` (P-07, P-08 and the new strings in three languages), `tests/console/test_data_pages.py`
+(confirmations). Suites: unit, console and testbench 1,438 passed. `make lint` clean. `tools/e2e_simple.py`: PASSED in
+166 s. `public_e2e --lang ja`: 117/117 (stage 7b: viewer and CRA on 50 pages each, no chart number or name).
+The walk (`node tools/public_walk.js` against a fresh `public_e2e --serve` on port 8957, random password never printed):
+810 checks, 0 failures over 798 pages (the excluded page for PI and CRC, 403 for viewer and CRA), axe 0 serious (84
+minor), 22,650 targets, 0 under 44 px, taps T1 to T9 within target.
+
+*Open.* Death does not move the participant to an end state, and an SAE is not linked to withdrawal; the reporting
+clock is one setting per box, not per study; a patient sent back from the excluded list does not enter the PI's
+weekly list by itself (the study team sees it on the page); the SS-MIX2 疑い flag (P-04's second half) is read by
+D-142 (wave 1a, integrated on this branch); "approached" still has two words per language (連絡済み / 声かけ済み, 已聯絡 / 已邀請); the rate limits are per
+process and in memory, not in Postgres; no Undo after a confirmed conflict decision; the owner confirms the N1
+decision and the site confirms the SAE defaults.

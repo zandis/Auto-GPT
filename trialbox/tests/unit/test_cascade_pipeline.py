@@ -291,3 +291,73 @@ def test_mixed_criterion_codes_settle_when_true_else_notes(env: dict[str, Any]) 
     ]
     assert all(o.status == "fail" and o.hard for o in s1)  # at S1 only a coded hit settles a mixed exclusion
     assert stages - {"S1"}, "patients with silent codes must reach the note stages"
+
+
+# --------------------------------------------------------------------------------------------- D-142 review A-07
+class SlowJudge:
+    """The quoting judge, a little slow, counting how many calls are in flight at once."""
+
+    def __init__(self) -> None:
+        import threading
+
+        self.lock = threading.Lock()
+        self.now = self.peak = self.calls = 0
+
+    def judge(self, **kw: Any) -> Any:
+        import time
+
+        from matching.cascade.judge import JudgeReply
+
+        with self.lock:
+            self.now += 1
+            self.calls += 1
+            self.peak = max(self.peak, self.now)
+        time.sleep(0.005)
+        with self.lock:
+            self.now -= 1
+        ex = kw["excerpts"][0]
+        verdict = "fail" if len(str(kw["criterion_text"])) % 2 else "pass"
+        return JudgeReply(verdict, 0.95, str(ex["text"])[:40], str(ex["date"]), "stated")
+
+
+def _answers(res: Any) -> dict[str, Any]:
+    return {
+        pid: (t.tier, t.exit_stage, sorted((o.criterion_id, o.status, o.hard, o.stage) for o in t.outcomes.values()))
+        for pid, t in res.traces.items()
+    }
+
+
+def test_s3_and_s4_run_patients_side_by_side_with_the_same_answers(env: dict[str, Any]) -> None:
+    one, many = SlowJudge(), SlowJudge()
+    a = _run(env, one, sample_per_stratum=None, absence_semantics=False, llm_concurrency=1)
+    b = _run(env, many, sample_per_stratum=None, absence_semantics=False, llm_concurrency=8)
+    assert one.peak == 1 and many.peak > 1  # calls were really in flight together
+    assert one.calls == many.calls and _answers(a) == _answers(b)
+    assert a.metrics.pairs_judged == b.metrics.pairs_judged
+
+
+def test_a_budget_that_runs_out_is_counted_and_never_excludes(env: dict[str, Any]) -> None:
+    res = _run(
+        env, QuotingJudge(), sample_per_stratum=None, absence_semantics=False, max_llm_items=3, llm_concurrency=4
+    )
+    cut = [t for t in res.traces.values() if t.unprocessed]
+    assert cut and res.metrics.unprocessed == len(cut) and res.metrics.pairs_judged["S3"] <= 3
+    for t in cut:
+        left = [o for o in t.outcomes.values() if o.reason == "unprocessed (budget)"]
+        assert left and all(o.status == "unknown" and not o.hard for o in left)
+
+
+def test_screen_budget_and_concurrency_settings() -> None:
+    from orchestrator.clients import StepFailed
+    from orchestrator.i18n import t
+    from orchestrator.scenarios.screen_cascade import SCREEN_MAX_PAIRS, llm_concurrency, max_pairs_of
+
+    assert max_pairs_of({}) == SCREEN_MAX_PAIRS and max_pairs_of({"max_pairs": "50000"}) == 50000
+    for bad in ("0", "many"):
+        with pytest.raises(StepFailed):
+            max_pairs_of({"max_pairs": bad})
+    assert llm_concurrency({"TB_SCREEN_LLM_CONCURRENCY": "16"}) == 16 and llm_concurrency({}) == 1
+    assert llm_concurrency({"TB_SCREEN_LLM_CONCURRENCY": "x"}) == 1
+    for lang in ("en", "ja", "zh-TW"):
+        line = t(lang, "screen.budget_hit", max=2000, n=17)
+        assert "2000" in line and "17" in line and "max_pairs" in line
