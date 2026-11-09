@@ -25,6 +25,13 @@
 </form>{% endif %}
 </li>{% endfor %}</ul>
 </section>
+{% if terms %}<section class="card" data-testid="code-lists">
+<h2>{{ t('site.codes.lists') }}</h2>
+<p class="hint">{{ t('site.codes.lists.help') }}</p>
+<ul class="plain">{% for s in terms %}<li data-testid="code-list-{{ s.kind }}" data-state="{{ s.state }}">
+<b>{{ t('site.codes.list.' + s.kind) }}</b> · {% if s.state == 'loaded' %}<span>{{ t('site.codes.list.loaded', version=s.version, n=s.rows, day=s.loaded_at[:10]) }}</span>{% else %}<span class="pill warn">{{ t('site.codes.list.not_loaded') }}</span>{% endif %}
+</li>{% endfor %}</ul>
+</section>{% endif %}
 <section class="card" data-testid="codes-sheet">
 <h2>{{ t('site.codes.sheet') }}</h2>
 <p class="hint">{{ t('site.codes.sheet.help') }}</p>

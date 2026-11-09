@@ -8,7 +8,8 @@ separate site space with its own lake). Reads:
 * ``GET /setup/{ws}/patients?study=RS``: every patient against the approved criteria, with the trail;
 * ``GET /setup/{ws}/feasibility?study=RS``: the counts with how much rests on coded, confirmed and proposed facts;
 * ``GET /setup/templates/{candidates|codes}?lang=&ws=``: XLSX templates in the site's language;
-* ``GET /setup/remote``: the remote-help switch.
+* ``GET /setup/remote``: the remote-help switch;
+* ``GET /setup/terminology``: which licensed Japanese code lists are loaded (D-137).
 
 Writes (each one audited, ``by`` is the person): ``POST /setup/{ws}/sheets`` (a sheet or a dump), ``POST
 /setup/{ws}/sheets/{id}/roles``, ``POST /setup/{ws}/charts`` (pasted text or a file with the chart number),
@@ -329,6 +330,14 @@ def router(
             "b64": base64.b64encode(data).decode("ascii"),
             "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         }
+
+    @r.get("/setup/terminology")
+    def get_terminology() -> list[dict[str, Any]]:
+        """D-137: the licensed Japanese code lists (MEDIS 標準病名, JLAC10, YJ): loaded with version and source, or
+        not loaded (their codes stay unknown, D-130)."""
+        from adapter import licensed
+
+        return licensed.status(get().store.db.url)
 
     @r.get("/setup/remote")
     def get_remote() -> dict[str, Any]:

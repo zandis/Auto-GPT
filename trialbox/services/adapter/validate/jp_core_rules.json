@@ -1,0 +1,1405 @@
+{
+ "fhirVersion": "4.0.1",
+ "generated_by": "tools/jpcore_rules.py",
+ "package": {
+  "id": "jp-core.r4",
+  "sha1": "b57586047ebff666f39875155b1ebedbace9ccef",
+  "sha256": "60567c583943150c26275f156d63c181e5608efcdf0616289a7fe5c032457da1",
+  "url": "https://packages.simplifier.net/jp-core.r4/1.1.0",
+  "version": "1.1.0"
+ },
+ "profiles": {
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_AllergyIntolerance": {
+   "base": "http://hl7.org/fhir/StructureDefinition/AllergyIntolerance",
+   "elements": [
+    {
+     "id": "AllergyIntolerance",
+     "path": "AllergyIntolerance"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_AllergyIntolerance_VS"
+     },
+     "id": "AllergyIntolerance.code",
+     "path": "AllergyIntolerance.code"
+    }
+   ],
+   "name": "JP_AllergyIntolerance",
+   "type": "AllergyIntolerance"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Condition": {
+   "base": "http://hl7.org/fhir/StructureDefinition/Condition",
+   "elements": [
+    {
+     "id": "Condition",
+     "path": "Condition"
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ConditionSeverity_VS"
+     },
+     "id": "Condition.severity",
+     "path": "Condition.severity"
+    }
+   ],
+   "name": "JP_Condition",
+   "type": "Condition"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Coverage": {
+   "base": "http://hl7.org/fhir/StructureDefinition/Coverage",
+   "elements": [
+    {
+     "id": "Coverage",
+     "path": "Coverage"
+    },
+    {
+     "id": "Coverage.extension",
+     "path": "Coverage.extension",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "url",
+        "type": "value"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "Coverage.extension:insuredPersonSymbol",
+     "max": "*",
+     "min": 0,
+     "path": "Coverage.extension",
+     "sliceName": "insuredPersonSymbol"
+    },
+    {
+     "id": "Coverage.extension:insuredPersonNumber",
+     "max": "*",
+     "min": 0,
+     "path": "Coverage.extension",
+     "sliceName": "insuredPersonNumber"
+    },
+    {
+     "id": "Coverage.extension:insuredPersonSubNumber",
+     "max": "*",
+     "min": 0,
+     "path": "Coverage.extension",
+     "sliceName": "insuredPersonSubNumber"
+    }
+   ],
+   "name": "JP_Coverage",
+   "type": "Coverage"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_DiagnosticReport_Common": {
+   "base": "http://hl7.org/fhir/StructureDefinition/DiagnosticReport",
+   "elements": [
+    {
+     "id": "DiagnosticReport",
+     "path": "DiagnosticReport"
+    }
+   ],
+   "name": "JP_DiagnosticReport_Common",
+   "type": "DiagnosticReport"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Encounter": {
+   "base": "http://hl7.org/fhir/StructureDefinition/Encounter",
+   "elements": [
+    {
+     "id": "Encounter",
+     "path": "Encounter"
+    },
+    {
+     "id": "Encounter.extension",
+     "path": "Encounter.extension",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "url",
+        "type": "value"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "Encounter.extension:associatedEncounter",
+     "max": "1",
+     "min": 0,
+     "path": "Encounter.extension",
+     "sliceName": "associatedEncounter"
+    }
+   ],
+   "name": "JP_Encounter",
+   "type": "Encounter"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_MedicationRequest": {
+   "base": "http://jpfhir.jp/fhir/core/StructureDefinition/JP_MedicationRequestBase",
+   "elements": [
+    {
+     "id": "MedicationRequest",
+     "path": "MedicationRequest"
+    },
+    {
+     "id": "MedicationRequest.identifier",
+     "min": 2,
+     "path": "MedicationRequest.identifier"
+    },
+    {
+     "id": "MedicationRequest.identifier:orderInRp",
+     "max": "1",
+     "min": 1,
+     "path": "MedicationRequest.identifier",
+     "sliceName": "orderInRp"
+    },
+    {
+     "id": "MedicationRequest.identifier:orderInRp.system",
+     "min": 1,
+     "path": "MedicationRequest.identifier.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "urn:oid:1.2.392.100495.20.3.82"
+     }
+    },
+    {
+     "id": "MedicationRequest.identifier:orderInRp.value",
+     "min": 1,
+     "path": "MedicationRequest.identifier.value"
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_MedicationCategory_VS"
+     },
+     "id": "MedicationRequest.category",
+     "path": "MedicationRequest.category"
+    },
+    {
+     "id": "MedicationRequest.medication[x]",
+     "path": "MedicationRequest.medication[x]",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "$this",
+        "type": "type"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_MedicationCode_VS"
+     },
+     "id": "MedicationRequest.medicationCodeableConcept",
+     "max": "1",
+     "min": 1,
+     "path": "MedicationRequest.medicationCodeableConcept"
+    }
+   ],
+   "name": "JP_MedicationRequest",
+   "type": "MedicationRequest"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_MedicationRequestBase": {
+   "base": "http://hl7.org/fhir/StructureDefinition/MedicationRequest",
+   "elements": [
+    {
+     "id": "MedicationRequest",
+     "path": "MedicationRequest"
+    },
+    {
+     "id": "MedicationRequest.extension",
+     "path": "MedicationRequest.extension",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "url",
+        "type": "value"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "MedicationRequest.extension:preparation",
+     "max": "*",
+     "min": 0,
+     "path": "MedicationRequest.extension",
+     "sliceName": "preparation"
+    },
+    {
+     "id": "MedicationRequest.identifier",
+     "min": 1,
+     "path": "MedicationRequest.identifier",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "system",
+        "type": "value"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "MedicationRequest.identifier:rpNumber",
+     "max": "1",
+     "min": 1,
+     "path": "MedicationRequest.identifier",
+     "sliceName": "rpNumber"
+    },
+    {
+     "id": "MedicationRequest.identifier:rpNumber.system",
+     "min": 1,
+     "path": "MedicationRequest.identifier.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "urn:oid:1.2.392.100495.20.3.81"
+     }
+    },
+    {
+     "id": "MedicationRequest.identifier:rpNumber.value",
+     "min": 1,
+     "path": "MedicationRequest.identifier.value"
+    },
+    {
+     "id": "MedicationRequest.identifier:requestIdentifier",
+     "max": "*",
+     "min": 0,
+     "path": "MedicationRequest.identifier",
+     "sliceName": "requestIdentifier"
+    },
+    {
+     "id": "MedicationRequest.identifier:requestIdentifier.system",
+     "min": 1,
+     "path": "MedicationRequest.identifier.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "http://jpfhir.jp/fhir/core/IdSystem/resourceInstance-identifier"
+     }
+    },
+    {
+     "id": "MedicationRequest.identifier:requestIdentifier.value",
+     "min": 1,
+     "path": "MedicationRequest.identifier.value"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://hl7.org/fhir/ValueSet/medicationrequest-category"
+     },
+     "id": "MedicationRequest.category",
+     "path": "MedicationRequest.category"
+    },
+    {
+     "id": "MedicationRequest.authoredOn",
+     "min": 1,
+     "path": "MedicationRequest.authoredOn"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_PractitionerRole_VS"
+     },
+     "id": "MedicationRequest.performerType",
+     "path": "MedicationRequest.performerType"
+    },
+    {
+     "id": "MedicationRequest.dispenseRequest.extension",
+     "path": "MedicationRequest.dispenseRequest.extension",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "url",
+        "type": "value"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "MedicationRequest.dispenseRequest.extension:instructionForDispense",
+     "max": "*",
+     "min": 0,
+     "path": "MedicationRequest.dispenseRequest.extension",
+     "sliceName": "instructionForDispense"
+    },
+    {
+     "id": "MedicationRequest.dispenseRequest.extension:expectedRepeatCount",
+     "max": "1",
+     "min": 0,
+     "path": "MedicationRequest.dispenseRequest.extension",
+     "sliceName": "expectedRepeatCount"
+    },
+    {
+     "id": "MedicationRequest.dispenseRequest.expectedSupplyDuration.unit",
+     "path": "MedicationRequest.dispenseRequest.expectedSupplyDuration.unit",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedString",
+      "value": "日"
+     }
+    },
+    {
+     "id": "MedicationRequest.dispenseRequest.expectedSupplyDuration.system",
+     "path": "MedicationRequest.dispenseRequest.expectedSupplyDuration.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "http://unitsofmeasure.org"
+     }
+    },
+    {
+     "id": "MedicationRequest.dispenseRequest.expectedSupplyDuration.code",
+     "path": "MedicationRequest.dispenseRequest.expectedSupplyDuration.code",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedCode",
+      "value": "d"
+     }
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_MedicationSubstitutionNotAllowedReason_VS"
+     },
+     "id": "MedicationRequest.substitution.allowed[x]",
+     "path": "MedicationRequest.substitution.allowed[x]"
+    }
+   ],
+   "name": "JP_MedicationRequestBase",
+   "type": "MedicationRequest"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_MedicationRequest_Injection": {
+   "base": "http://jpfhir.jp/fhir/core/StructureDefinition/JP_MedicationRequestBase",
+   "elements": [
+    {
+     "id": "MedicationRequest",
+     "path": "MedicationRequest"
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_MedicationCategoryInjeciton_VS"
+     },
+     "id": "MedicationRequest.category",
+     "path": "MedicationRequest.category"
+    },
+    {
+     "id": "MedicationRequest.medication[x]",
+     "path": "MedicationRequest.medication[x]",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "$this",
+        "type": "type"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "MedicationRequest.medicationReference",
+     "max": "1",
+     "min": 1,
+     "path": "MedicationRequest.medicationReference"
+    }
+   ],
+   "name": "JP_MedicationRequest_Injection",
+   "type": "MedicationRequest"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_BodyMeasurement": {
+   "base": "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_Common",
+   "elements": [
+    {
+     "id": "Observation",
+     "path": "Observation"
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ObservationBodyMeasurementCategory_VS"
+     },
+     "id": "Observation.category",
+     "min": 1,
+     "path": "Observation.category"
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ObservationBodyMeasurementCode_VS"
+     },
+     "id": "Observation.code",
+     "path": "Observation.code"
+    },
+    {
+     "id": "Observation.subject",
+     "min": 1,
+     "path": "Observation.subject"
+    }
+   ],
+   "name": "JP_Observation_BodyMeasurement",
+   "type": "Observation"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_Common": {
+   "base": "http://hl7.org/fhir/StructureDefinition/Observation",
+   "elements": [
+    {
+     "id": "Observation",
+     "path": "Observation"
+    }
+   ],
+   "name": "JP_Observation_Common",
+   "type": "Observation"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_LabResult": {
+   "base": "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_Common",
+   "elements": [
+    {
+     "id": "Observation",
+     "path": "Observation"
+    },
+    {
+     "id": "Observation.category",
+     "min": 1,
+     "path": "Observation.category",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "$this",
+        "type": "pattern"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "Observation.category:laboratory",
+     "max": "1",
+     "min": 1,
+     "path": "Observation.category",
+     "sliceName": "laboratory",
+     "value": {
+      "kind": "pattern",
+      "type": "patternCodeableConcept",
+      "value": {
+       "coding": [
+        {
+         "code": "laboratory",
+         "system": "http://terminology.hl7.org/CodeSystem/observation-category"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ObservationLabResultCode_VS"
+     },
+     "id": "Observation.code",
+     "path": "Observation.code"
+    },
+    {
+     "id": "Observation.code.coding",
+     "min": 1,
+     "path": "Observation.code.coding"
+    },
+    {
+     "id": "Observation.code.text",
+     "min": 1,
+     "path": "Observation.code.text"
+    },
+    {
+     "id": "Observation.subject",
+     "min": 1,
+     "path": "Observation.subject"
+    },
+    {
+     "id": "Observation.effective[x]",
+     "min": 1,
+     "path": "Observation.effective[x]"
+    },
+    {
+     "id": "Observation.value[x]",
+     "path": "Observation.value[x]",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "$this",
+        "type": "type"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "Observation.valueQuantity",
+     "max": "1",
+     "min": 0,
+     "path": "Observation.valueQuantity"
+    },
+    {
+     "id": "Observation.valueCodeableConcept",
+     "max": "1",
+     "min": 0,
+     "path": "Observation.valueCodeableConcept"
+    },
+    {
+     "id": "Observation.valueString",
+     "max": "1",
+     "min": 0,
+     "path": "Observation.valueString"
+    },
+    {
+     "id": "Observation.specimen",
+     "min": 1,
+     "path": "Observation.specimen"
+    }
+   ],
+   "name": "JP_Observation_LabResult",
+   "type": "Observation"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_VitalSigns": {
+   "base": "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_Common",
+   "elements": [
+    {
+     "id": "Observation",
+     "path": "Observation"
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ObservationVitalSignsCategory_VS"
+     },
+     "id": "Observation.category",
+     "min": 1,
+     "path": "Observation.category"
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ObservationVitalSignsCode_VS"
+     },
+     "id": "Observation.code",
+     "path": "Observation.code"
+    },
+    {
+     "id": "Observation.subject",
+     "min": 1,
+     "path": "Observation.subject"
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ObservationVitalSignsCode_VS"
+     },
+     "id": "Observation.component.code",
+     "path": "Observation.component.code"
+    }
+   ],
+   "name": "JP_Observation_VitalSigns",
+   "type": "Observation"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Organization": {
+   "base": "http://hl7.org/fhir/StructureDefinition/Organization",
+   "elements": [
+    {
+     "id": "Organization",
+     "path": "Organization"
+    },
+    {
+     "id": "Organization.extension",
+     "path": "Organization.extension",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "url",
+        "type": "value"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "Organization.extension:prefectureNo",
+     "max": "1",
+     "min": 0,
+     "path": "Organization.extension",
+     "sliceName": "prefectureNo"
+    },
+    {
+     "id": "Organization.extension:organizationCategory",
+     "max": "1",
+     "min": 0,
+     "path": "Organization.extension",
+     "sliceName": "organizationCategory"
+    },
+    {
+     "id": "Organization.extension:organizationNo",
+     "max": "1",
+     "min": 0,
+     "path": "Organization.extension",
+     "sliceName": "organizationNo"
+    },
+    {
+     "id": "Organization.identifier",
+     "path": "Organization.identifier",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "system",
+        "type": "value"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "Organization.identifier:medicalInstitutionCode",
+     "max": "*",
+     "min": 0,
+     "path": "Organization.identifier",
+     "sliceName": "medicalInstitutionCode"
+    },
+    {
+     "id": "Organization.identifier:medicalInstitutionCode.system",
+     "min": 1,
+     "path": "Organization.identifier.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "http://jpfhir.jp/fhir/core/IdSystem/insurance-medical-institution-no"
+     }
+    },
+    {
+     "id": "Organization.identifier:insurerNumber",
+     "max": "*",
+     "min": 0,
+     "path": "Organization.identifier",
+     "sliceName": "insurerNumber"
+    },
+    {
+     "id": "Organization.identifier:insurerNumber.system",
+     "min": 1,
+     "path": "Organization.identifier.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "urn:oid:1.2.392.100495.20.3.61"
+     }
+    }
+   ],
+   "name": "JP_Organization",
+   "type": "Organization"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Patient": {
+   "base": "http://hl7.org/fhir/StructureDefinition/Patient",
+   "elements": [
+    {
+     "id": "Patient",
+     "path": "Patient"
+    },
+    {
+     "id": "Patient.extension",
+     "path": "Patient.extension",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "url",
+        "type": "value"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "Patient.extension:religion",
+     "max": "*",
+     "min": 0,
+     "path": "Patient.extension",
+     "sliceName": "religion"
+    },
+    {
+     "id": "Patient.extension:birthPlace",
+     "max": "1",
+     "min": 0,
+     "path": "Patient.extension",
+     "sliceName": "birthPlace"
+    },
+    {
+     "id": "Patient.extension:race",
+     "max": "*",
+     "min": 0,
+     "path": "Patient.extension",
+     "sliceName": "race"
+    },
+    {
+     "id": "Patient.identifier",
+     "min": 1,
+     "path": "Patient.identifier"
+    },
+    {
+     "id": "Patient.identifier.value",
+     "min": 1,
+     "path": "Patient.identifier.value"
+    }
+   ],
+   "name": "JP_Patient",
+   "type": "Patient"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Practitioner": {
+   "base": "http://hl7.org/fhir/StructureDefinition/Practitioner",
+   "elements": [
+    {
+     "id": "Practitioner",
+     "path": "Practitioner"
+    },
+    {
+     "id": "Practitioner.qualification",
+     "path": "Practitioner.qualification",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "code",
+        "type": "pattern"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "id": "Practitioner.qualification:narcoticPrescriptionLicenseNumber",
+     "max": "47",
+     "min": 0,
+     "path": "Practitioner.qualification",
+     "sliceName": "narcoticPrescriptionLicenseNumber"
+    },
+    {
+     "binding": {
+      "strength": "required",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_MedicalLicenseCertificate_VS"
+     },
+     "id": "Practitioner.qualification:narcoticPrescriptionLicenseNumber.code",
+     "path": "Practitioner.qualification.code",
+     "value": {
+      "kind": "pattern",
+      "type": "patternCodeableConcept",
+      "value": {
+       "coding": [
+        {
+         "code": "narcotics-practitioner",
+         "system": "http://jpfhir.jp/fhir/core/CodeSystem/JP_MedicalLicenseCertificate_CS"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "id": "Practitioner.qualification:medicalRegistrationNumber",
+     "max": "1",
+     "min": 0,
+     "path": "Practitioner.qualification",
+     "sliceName": "medicalRegistrationNumber"
+    },
+    {
+     "id": "Practitioner.qualification:medicalRegistrationNumber.identifier.system",
+     "path": "Practitioner.qualification.identifier.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "urn:oid:1.2.392.100495.20.3.31"
+     }
+    },
+    {
+     "binding": {
+      "strength": "required",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_MedicalLicenseCertificate_VS"
+     },
+     "id": "Practitioner.qualification:medicalRegistrationNumber.code",
+     "path": "Practitioner.qualification.code",
+     "value": {
+      "kind": "pattern",
+      "type": "patternCodeableConcept",
+      "value": {
+       "coding": [
+        {
+         "code": "medical-registration",
+         "system": "http://jpfhir.jp/fhir/core/CodeSystem/JP_MedicalLicenseCertificate_CS"
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "name": "JP_Practitioner",
+   "type": "Practitioner"
+  },
+  "http://jpfhir.jp/fhir/core/StructureDefinition/JP_Procedure": {
+   "base": "http://hl7.org/fhir/StructureDefinition/Procedure",
+   "elements": [
+    {
+     "id": "Procedure",
+     "path": "Procedure"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureNotPerformedReason_VS"
+     },
+     "id": "Procedure.statusReason",
+     "path": "Procedure.statusReason"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCategory_VS"
+     },
+     "id": "Procedure.category",
+     "path": "Procedure.category"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCodesMedical_VS"
+     },
+     "id": "Procedure.code",
+     "path": "Procedure.code"
+    },
+    {
+     "id": "Procedure.code.coding",
+     "path": "Procedure.code.coding",
+     "slicing": {
+      "discriminator": [
+       {
+        "path": "system",
+        "type": "value"
+       }
+      ],
+      "rules": "open"
+     }
+    },
+    {
+     "binding": {
+      "strength": "required",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCodesMedical_VS"
+     },
+     "id": "Procedure.code.coding:medical",
+     "max": "1",
+     "min": 0,
+     "path": "Procedure.code.coding",
+     "sliceName": "medical"
+    },
+    {
+     "id": "Procedure.code.coding:medical.system",
+     "min": 1,
+     "path": "Procedure.code.coding.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureCodesMedical_CS"
+     }
+    },
+    {
+     "binding": {
+      "strength": "required",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCodesSTEM7_VS"
+     },
+     "id": "Procedure.code.coding:stem7",
+     "max": "1",
+     "min": 0,
+     "path": "Procedure.code.coding",
+     "sliceName": "stem7"
+    },
+    {
+     "id": "Procedure.code.coding:stem7.system",
+     "min": 1,
+     "path": "Procedure.code.coding.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureCodesSTEM7_CS"
+     }
+    },
+    {
+     "binding": {
+      "strength": "required",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCodesDental_VS"
+     },
+     "id": "Procedure.code.coding:dental",
+     "max": "1",
+     "min": 0,
+     "path": "Procedure.code.coding",
+     "sliceName": "dental"
+    },
+    {
+     "id": "Procedure.code.coding:dental.system",
+     "min": 1,
+     "path": "Procedure.code.coding.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureCodesDental_CS"
+     }
+    },
+    {
+     "binding": {
+      "strength": "required",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCodesNurse_VS"
+     },
+     "id": "Procedure.code.coding:nurse",
+     "max": "1",
+     "min": 0,
+     "path": "Procedure.code.coding",
+     "sliceName": "nurse"
+    },
+    {
+     "id": "Procedure.code.coding:nurse.system",
+     "min": 1,
+     "path": "Procedure.code.coding.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "urn:oid:1.2.392.200119.4.701"
+     }
+    },
+    {
+     "binding": {
+      "strength": "required",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCodesICHI_VS"
+     },
+     "id": "Procedure.code.coding:ichi",
+     "max": "1",
+     "min": 0,
+     "path": "Procedure.code.coding",
+     "sliceName": "ichi"
+    },
+    {
+     "id": "Procedure.code.coding:ichi.system",
+     "min": 1,
+     "path": "Procedure.code.coding.system",
+     "value": {
+      "kind": "fixed",
+      "type": "fixedUri",
+      "value": "http://jpfhir.jp/fhir/core/CodeSystem/JP_Undefined_CS"
+     }
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedurePerformerRole_VS"
+     },
+     "id": "Procedure.performer.function",
+     "path": "Procedure.performer.function"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureReason_VS"
+     },
+     "id": "Procedure.reasonCode",
+     "path": "Procedure.reasonCode"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureBodySite_VS"
+     },
+     "id": "Procedure.bodySite",
+     "path": "Procedure.bodySite"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureOutcome_VS"
+     },
+     "id": "Procedure.outcome",
+     "path": "Procedure.outcome"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCondition_VS"
+     },
+     "id": "Procedure.complication",
+     "path": "Procedure.complication"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureFollowUp_VS"
+     },
+     "id": "Procedure.followUp",
+     "path": "Procedure.followUp"
+    },
+    {
+     "binding": {
+      "strength": "preferred",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureDeviceAction_VS"
+     },
+     "id": "Procedure.focalDevice.action",
+     "path": "Procedure.focalDevice.action"
+    },
+    {
+     "binding": {
+      "strength": "example",
+      "valueSet": "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureDeviceKind_VS"
+     },
+     "id": "Procedure.usedCode",
+     "path": "Procedure.usedCode"
+    }
+   ],
+   "name": "JP_Procedure",
+   "type": "Procedure"
+  }
+ },
+ "valuesets": {
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_AllergyIntolerance_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_JfagyFoodAllergen_CS",
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_JfagyMedicationAllergen_CS",
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_JfagyNonFoodNonMedicationAllergen_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ConditionSeverity_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ConditionSeverity_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_MedicalLicenseCertificate_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_MedicalLicenseCertificate_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_MedicationCategoryInjeciton_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JHSI0001",
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_MedicationCategoryMERIT9_CS",
+    "http://terminology.hl7.org/CodeSystem/v2-0482"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_MedicationCategory_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JHSP0007",
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_MedicationCategoryMERIT9_CS",
+    "http://terminology.hl7.org/CodeSystem/v2-0482"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_MedicationCode_VS": {
+   "codes": null,
+   "systems": [
+    "urn:oid:1.2.392.100495.20.1.73",
+    "urn:oid:1.2.392.100495.20.1.81",
+    "urn:oid:1.2.392.200119.4.402.1",
+    "urn:oid:1.2.392.200119.4.403.1",
+    "urn:oid:1.2.392.200119.4.403.2"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_MedicationSubstitutionNotAllowedReason_VS": {
+   "codes": null,
+   "systems": [
+    "urn:oid:1.2.392.100495.20.2.41"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ObservationBodyMeasurementCategory_VS": {
+   "codes": {
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ObservationBodyMeasurementCategory_CS": [
+     "weight",
+     "height",
+     "chest-circumference",
+     "abdominal-circumference",
+     "deglutition",
+     "body-fat-percentage",
+     "perimeter",
+     "pregnancy-delivery",
+     "assessment",
+     "perimeter-length",
+     "muscle-circumference",
+     "muscle-area",
+     "subcutaneous-fat-thickness",
+     "body-mass-index",
+     "rohrer-index",
+     "height-estimates",
+     "head-circumference",
+     "grip-strength"
+    ]
+   },
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ObservationBodyMeasurementCategory_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ObservationBodyMeasurementCode_VS": {
+   "codes": {
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ObservationBodyMeasurementCode_CS": [
+     "31000296",
+     "31000297",
+     "31000298",
+     "31000299",
+     "31000300",
+     "31000301",
+     "31000901",
+     "31000902",
+     "31001697",
+     "31002749",
+     "31002750",
+     "31002751",
+     "31002752",
+     "31002753",
+     "31002754",
+     "31002755",
+     "31002756",
+     "31002900",
+     "31003020",
+     "31003138",
+     "31003177",
+     "31003178",
+     "31003179",
+     "31003180",
+     "31003181",
+     "31003182",
+     "31003183",
+     "31003184",
+     "31003185",
+     "31003186",
+     "31003187",
+     "31003188",
+     "31003189",
+     "31003190",
+     "31003191",
+     "31003192",
+     "31003193",
+     "31003194",
+     "31003195",
+     "31003196",
+     "31003197",
+     "31003198",
+     "31003199",
+     "31003200",
+     "31003201",
+     "31003202",
+     "31003203",
+     "31003204",
+     "31003205",
+     "31003206",
+     "31003207",
+     "31003208",
+     "31003209",
+     "31003210",
+     "31003211",
+     "31003212",
+     "31003213",
+     "31003214",
+     "31003215",
+     "31003216",
+     "31003217",
+     "31003218",
+     "31003219",
+     "31003220",
+     "31003221",
+     "31003222",
+     "31003223",
+     "31003224",
+     "31003225",
+     "31003226",
+     "31003227",
+     "31003228",
+     "31003229",
+     "31003230",
+     "31003421",
+     "31003422",
+     "31003423",
+     "31003424",
+     "31003425",
+     "31003426",
+     "31003601",
+     "31003602",
+     "31003603",
+     "31003604",
+     "31003605",
+     "31003607",
+     "31003623",
+     "31003624",
+     "31003625",
+     "31003626",
+     "31003627",
+     "31003628",
+     "31003629",
+     "31003630",
+     "31003631",
+     "31003632",
+     "31003633",
+     "31003634",
+     "31003635",
+     "31003636",
+     "31003637",
+     "31003638",
+     "31003639",
+     "31003640",
+     "31003721",
+     "31003722",
+     "31003723",
+     "31003724",
+     "31003725",
+     "31003726",
+     "31003727",
+     "31003728",
+     "31006116",
+     "31006215",
+     "31006216",
+     "31006397"
+    ]
+   },
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ObservationBodyMeasurementCode_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ObservationLabResultCode_VS": {
+   "codes": null,
+   "systems": [
+    "urn:oid:1.2.392.200119.4.504"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ObservationVitalSignsCategory_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ObservationVitalSignsCategory_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ObservationVitalSignsCode_VS": {
+   "codes": null,
+   "systems": [
+    "urn:oid:1.2.392.200119.4.804"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_PractitionerRole_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_PractitionerRole_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureBodySite_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureBodySite_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCategory_VS": {
+   "codes": {
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureCategory_CS": [
+     "JPPCC001",
+     "JPPCC002",
+     "JPPCC003",
+     "JPPCC004",
+     "JPPCC005",
+     "JPPCC006",
+     "JPPCC007"
+    ]
+   },
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureCategory_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCodesDental_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureCodesDental_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCodesICHI_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_Undefined_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCodesMedical_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureCodesMedical_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCodesNurse_VS": {
+   "codes": null,
+   "systems": [
+    "urn:oid:1.2.392.200119.4.701"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCodesSTEM7_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureCodesSTEM7_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureCondition_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_Undefined_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureDeviceAction_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_Undefined_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureDeviceKind_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_Undefined_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureFollowUp_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_Undefined_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureNotPerformedReason_VS": {
+   "codes": {
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureNotPerformedReason_CS": [
+     "JPPNPR001",
+     "JPPNPR002",
+     "JPPNPR003",
+     "JPPNPR004",
+     "JPPNPR005"
+    ]
+   },
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureNotPerformedReason_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureOutcome_VS": {
+   "codes": {
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureOutcome_CS": [
+     "JPPOC001",
+     "JPPOC002",
+     "JPPOC003"
+    ]
+   },
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_ProcedureOutcome_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedurePerformerRole_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_PractitionerRole_CS"
+   ]
+  },
+  "http://jpfhir.jp/fhir/core/ValueSet/JP_ProcedureReason_VS": {
+   "codes": null,
+   "systems": [
+    "http://jpfhir.jp/fhir/core/CodeSystem/JP_Undefined_CS"
+   ]
+  }
+ }
+}

@@ -2,6 +2,7 @@
 
     adapter run --source {cgrd_sql|csv|fhir_bulk|ssmix2} [--path DIR | --dsn DSN] [--since DATE] [--snapshot DATE]
                 [--no-fhir] [--no-lake] [--no-validate]
+    adapter validate [--snapshot DATE] [--per-type 50] [--file RESOURCES.json|.ndjson] [--lake DIR]   # JP Core (D-137)
 
 Configuration comes from the environment/settings (``TB_LAKE_DIR``, ``TB_SECRETS_DIR``, ``FHIR_BASE_URL``, mapping
 from ``settings.data_source.mapping``). Exit status 0 = report passed, 1 = failed.
@@ -104,8 +105,15 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--no-fhir", action="store_true")
     run.add_argument("--no-lake", action="store_true")
     run.add_argument("--no-validate", action="store_true")
+    val = sub.add_parser("validate", help="JP Core $validate over a sample of a snapshot, or over a file (D-137)")
+    val.add_argument("--snapshot", help="the snapshot (default: the newest)")
+    val.add_argument("--per-type", type=int, default=50, help="resources of each type to check (default 50)")
+    val.add_argument("--file", type=Path, help="a resource, a Bundle, a JSON list or NDJSON to check instead")
+    val.add_argument("--lake", type=Path, help="the lake folder (default: TB_LAKE_DIR or the settings)")
     args = ap.parse_args(argv)
     setup_logging("adapter")
+    if args.cmd == "validate":
+        return validate_cmd(args)
     try:
         ac, default_kind, default_path = build_config()
     except ConfigError as exc:
@@ -125,6 +133,46 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(json.dumps(dump(report), ensure_ascii=False, indent=1))
     return 0 if report.passed else 1
+
+
+def read_resources(data: bytes) -> list[dict[str, Any]]:
+    """One resource, a Bundle, a JSON list, or NDJSON."""
+    text = data.decode("utf-8-sig").strip()
+    if not text:
+        return []
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError:
+        return [json.loads(line) for line in text.splitlines() if line.strip()]
+    if isinstance(doc, list):
+        return [r for r in doc if isinstance(r, dict)]
+    if isinstance(doc, dict) and doc.get("resourceType") == "Bundle":
+        return [e["resource"] for e in doc.get("entry") or [] if isinstance(e, dict) and e.get("resource")]
+    return [doc] if isinstance(doc, dict) else []
+
+
+def validate_cmd(args: argparse.Namespace) -> int:
+    """``adapter validate``: prints the result; exit 0 when no sampled resource fails, 1 otherwise."""
+    from adapter import licensed
+    from adapter.ndjson import list_snapshots, snapshot_dir
+    from adapter.validate.jpcore import JpCoreValidator, sample_per_type, validate_snapshot
+
+    terms = licensed.tables()
+    if args.file:
+        rep = JpCoreValidator(terms).validate(sample_per_type(read_resources(args.file.read_bytes()), args.per_type))
+    else:
+        lake = args.lake or Path(os.environ.get("TB_LAKE_DIR") or "")
+        if not str(lake):
+            lake = build_config()[0].lake_dir
+        snap = args.snapshot or (list_snapshots(lake) or [""])[-1]
+        if not snap:
+            print(f"no snapshot in {lake}", file=sys.stderr)
+            return 2
+        rep = validate_snapshot(snapshot_dir(lake, snap), args.per_type, terms)
+    out = rep.as_json()
+    out.pop("failures", None)
+    print(json.dumps(out, ensure_ascii=False, indent=1))
+    return 0 if rep.errors == 0 else 1
 
 
 if __name__ == "__main__":

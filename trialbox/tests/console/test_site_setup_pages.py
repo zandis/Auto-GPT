@@ -320,6 +320,32 @@ def test_templates_practice_site_and_remote_help(sb: dict[str, Any]) -> None:
     assert 'data-on="0"' in r.text
 
 
+def test_codes_page_says_which_licensed_lists_are_loaded(sb: dict[str, Any]) -> None:
+    """D-137: the hospital-codes page lists MEDIS, JLAC10 and YJ as loaded (version, codes, day) or not loaded, in
+    the page's language; a loaded list's codes are suggested as the hospital's licensed list."""
+    from adapter.licensed import TermStore
+
+    c, csrf = login(sb["app"], "crc", PW)
+    c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/site/codes"})
+    page = c.get("/site/codes?study=GZQO").text
+    for kind in ("medis", "jlac10", "yj"):
+        assert f'data-testid="code-list-{kind}" data-state="not_loaded"' in page
+    assert page.count(S_JA["site.codes.list.not_loaded"]) == 3
+    st = TermStore()
+    try:
+        sample = Path(__file__).resolve().parents[1] / "fixtures" / "licensed" / "medis_byomei_sample.txt"
+        st.load("medis", sample.read_bytes(), version="2026.10", source=sample.name, by="admin")
+    finally:
+        st.close()
+    page = c.get("/site/codes?study=GZQO").text
+    assert 'data-testid="code-list-medis" data-state="loaded"' in page and "2026.10" in page
+    assert S_JA["site.codes.list.medis"] in page and page.count(S_JA["site.codes.list.not_loaded"]) == 2
+    c.post("/lang", data={"csrf": csrf, "lang": "zh-TW", "back": "/site/codes"})
+    assert S_ZH["site.codes.lists"] in c.get("/site/codes?study=GZQO").text
+    c.post("/lang", data={"csrf": csrf, "lang": "en", "back": "/site/codes"})
+    assert S_EN["site.codes.lists"] in c.get("/site/codes?study=GZQO").text
+
+
 def test_api_v1_charts_facts_codes_checks(sb: dict[str, Any]) -> None:
     c = TestClient(sb["app"])
     r = c.post("/api/v1/session", json={"username": "crc", "password": PW, "lang": "ja"})
