@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _args(**kw: object) -> argparse.Namespace:
-    base = {"langs": ["ja", "zh-TW"], "skip": [], "walk": True}
+    base = {"langs": ["ja", "zh-TW"], "skip": []}
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -24,8 +24,11 @@ def test_every_part_of_plan_v4_section_5_in_both_languages() -> None:
     assert parts[:2] == [("prepare", ""), ("install", "")]
     for part in ("hospital", "public"):
         assert [(p, lang) for p, lang in parts if p == part] == [(part, "ja"), (part, "zh-TW")]
-    assert [p for p, _ in parts[-3:]] == ["backup", "update", "scale"]
+    assert [p for p, _ in parts[-4:]] == ["walk", "backup", "update", "scale"]
     assert ("backup", "") not in cr.plan(_args(skip=["backup"]))
+    # the parts after the last model part need no card: on the GPU run the VM stops before them
+    last_model = max(i for i, (p, _) in enumerate(parts) if p in cr.MODEL_PARTS)
+    assert {p for p, _ in parts[last_model + 1 :]} == {"walk", "backup", "update", "scale"}
 
 
 def _stage_names(path: Path) -> list[str]:

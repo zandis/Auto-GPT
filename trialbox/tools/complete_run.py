@@ -13,8 +13,9 @@ VM. Each part runs in its own process (one box at a time, memory and environment
                   ``--model pair``), lists, marks, mail, REDCap two-way, the data core, built-in forms, the
                   lifecycle, site set-up, Japan (SS-MIX2, JP Core), audit, byte-identical re-run
     public:ja     the public-data site (``tools.public_e2e``: real notes) through the same path in the console
-    public:zh-TW  ... and, after it, the browser walk (``tools/public_walk.js``: 5 roles x 3 languages x desktop and
-                  phone, axe-core, 44 px targets, tap counts)
+    public:zh-TW  ...
+    walk          the browser walk on a fresh public console (``tools/public_walk.js``: 5 roles x 3 languages x desktop
+                  and phone, axe-core, 44 px targets, tap counts); on the stub, so after the GPU has stopped
     backup        ``tools.backup_drill``: backed up, wiped, restored, the same box
     update        ``tools.update_drill``: a signed update applied, two bad ones rolled back
     scale         ``tools.hospital_sim scale``: the cascade S0..S5 at ``--patients``, timed
@@ -332,12 +333,29 @@ def part_public(a: argparse.Namespace) -> dict[str, Any]:
                              "canary": res.get("canary")}  # fmt: skip
     try:
         _attach_shots(stages, shoot(items, a.shots, a.password, srv.base))
-        if a.walk:
-            stages.append(walk(srv.base, work, w, a))
-            extra["walk"] = stages[-1].pop("summary", None)
     finally:
         srv.stop()
     return {"stages": stages, **extra}
+
+
+def part_walk(a: argparse.Namespace) -> dict[str, Any]:
+    """The browser walk on a fresh public console, always on the stub: it checks pages, not models, so on the card
+    it runs after the VM has stopped."""
+    from tools import public_e2e
+
+    work = a.dir / "walk"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    res = public_e2e.run(work, a.password, "ja")
+    built = _one("public console for the walk (public_e2e, stub)", [("built", all(st.ok for st in res["stages"]),
+                 "")], res["seconds"])  # fmt: skip
+    srv = Served(res["app"])
+    try:
+        st = walk(srv.base, work, res["walk"], a)
+    finally:
+        srv.stop()
+    summary = st.pop("summary", None)
+    return {"stages": [*built, st], "walk": summary}
 
 
 def walk(base: str, work: Path, w: dict[str, Any], a: argparse.Namespace) -> dict[str, Any]:
@@ -408,12 +426,13 @@ PARTS = {
     "install": part_install,
     "hospital": part_hospital,
     "public": part_public,
+    "walk": part_walk,
     "backup": lambda a: _drill(a, "backup, wipe and restore (tools.backup_drill)", "tools.backup_drill"),
     "update": lambda a: _drill(a, "signed update, two rollbacks (tools.update_drill)", "tools.update_drill"),
     "scale": part_scale,
 }
 NO_CONSOLE = ("prepare", "install", "backup", "update", "scale")
-MODEL_PARTS = ("hospital", "public")  # the parts the pair serves; backup, update and scale run on the stub
+MODEL_PARTS = ("hospital", "public")  # the parts the pair serves; walk, backup, update and scale run on the stub
 
 
 def run_part(a: argparse.Namespace) -> int:
@@ -448,7 +467,7 @@ def plan(a: argparse.Namespace) -> list[tuple[str, str]]:
     out = [("prepare", ""), ("install", "")]
     out += [("hospital", lang) for lang in a.langs]
     out += [("public", lang) for lang in a.langs]
-    out += [("backup", ""), ("update", ""), ("scale", "")]
+    out += [("walk", ""), ("backup", ""), ("update", ""), ("scale", "")]
     return [p for p in out if p[0] not in a.skip]
 
 
@@ -474,8 +493,6 @@ def run_all(a: argparse.Namespace) -> int:
             cmd += ["--judge-url", a.judge_url, "--verifier-url", a.verifier_url]
         if a.live_record:
             cmd += ["--live-record", str(a.live_record)]
-        if part == "public" and a.walk and lang == a.langs[-1]:
-            cmd += ["--walk"]
         t = time.perf_counter()
         print(f"[{i + 1}/{len(todo)}] {part} {lang}".rstrip(), flush=True)
         rc = subprocess.run(cmd, cwd=ROOT, env=env, check=False).returncode
@@ -489,7 +506,7 @@ def run_all(a: argparse.Namespace) -> int:
         print(f"      {'PASS' if bad == 0 else 'FAIL'} in {res['seconds_total']} s", flush=True)
         last_model_part = not any(p in MODEL_PARTS for p, _ in todo[i + 1 :])
         if a.after_models and part in MODEL_PARTS and last_model_part:
-            # the paid card is no longer needed: the wrapper stops the VM while backup, update and scale run here
+            # the paid card is no longer needed: the wrapper stops the VM while walk, backup, update and scale run
             print(f"      after the model parts: {a.after_models}", flush=True)
             subprocess.run(a.after_models, shell=True, cwd=ROOT, check=False)  # the operator's own command
     rep: dict[str, Any] = {
@@ -569,12 +586,10 @@ def main(argv: list[str] | None = None) -> int:
         ap.add_argument("part", nargs="?", choices=sorted(PARTS))
         ap.add_argument("--lang", default="ja", choices=["ja", "zh-TW", "en"])
         ap.add_argument("--shots", type=Path, required=True)
-        ap.add_argument("--walk", action="store_true")
         a = ap.parse_args(argv[1:])
         return run_part(a)
     ap.add_argument("--langs", nargs="+", default=list(LANGS), choices=["ja", "zh-TW", "en"])
     ap.add_argument("--skip", nargs="*", default=[], choices=sorted(set(PARTS) - {"prepare"}))
-    ap.add_argument("--no-walk", dest="walk", action="store_false")
     ap.add_argument("--after-models", default="", help="a command to run once the model parts are done (stop the VM)")
     a = ap.parse_args(argv)
     if a.model == "pair" and not (a.judge_url and a.verifier_url and os.environ.get("TB_GPU_KEY")):

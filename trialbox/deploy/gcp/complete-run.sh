@@ -13,9 +13,9 @@
 #    Qwen3.5-9B AWQ resident, 32k, 0.40 + 0.20 of the card; D-124).
 # 3. Fetches the live serving record and checks `serving_config.py measured rtxpro6000` on it.
 # 4. Runs tools/complete_run.py from this checkout with --model pair against http://<vm>/judge/v1 and /verifier/v1:
-#    install check, the hospital in ja and zh-TW, the public site in ja and zh-TW, the walk. As soon as the last
-#    model part is done it fetches the card's peak memory and stops the VM; backup, update and the cascade at scale
-#    then run here on the stub. Report: <dir>/report/report.md and report.json, screenshots in report/shots/.
+#    install check, the hospital in ja and zh-TW, the public site in ja and zh-TW. As soon as the last
+#    model part is done it fetches the card's peak memory and stops the VM; the walk, backup, update and the cascade
+#    at scale then run here on the stub. Report: <dir>/report/report.md and report.json, screenshots in report/shots/.
 # 5. Always, also on failure or Ctrl-C: stops the VM, waits until it shows TERMINATED, and puts the usual startup
 #    script (gpu-sim-startup.sh) back.
 set -euo pipefail
