@@ -62,6 +62,9 @@ from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.proposed import PROPOSED_FACT, Proposed
 
 PATIENT_CLASS = "D3"  # every cascade output is patient level (§7.1)
+# no row of the compiled SQL's base for a scoped patient: not in this snapshot, or deceased / not yet born at every
+# index date (a wrong date is common in hand-kept sheets). Never an exclusion: a person looks (D-142, review B-02)
+NOT_AT_INDEX = "not alive at an index date"
 UNKNOWN_KEPT = "unknown_kept"  # v1: an unknown exclusion does not exclude (FEAS D-18)
 CODE_OUTSIDE_LIST = "code_outside_list"  # D-113: coded inside a grouper's family, not in its list: kept, unknown
 EXCERPT_TOKENS = 2500
@@ -418,7 +421,7 @@ class _Run:
                 if depth >= best_depth:  # latest date on ties
                     best, best_depth = row, depth
             if best is None:  # not alive at any index date (deceased before the lookback's first month-end)
-                t.in_scope, t.scope_reason = False, "not alive at an index date"
+                t.in_scope, t.scope_reason = False, NOT_AT_INDEX
                 continue
             t.index_date = best["index_date"]
             applied_ids = {a.id for a in applied}

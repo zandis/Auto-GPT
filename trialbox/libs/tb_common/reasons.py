@@ -32,6 +32,7 @@ class Reason(StrEnum):
     HUMAN = "human"  # a person decides this criterion
     NOT_EVALUATED = "not_evaluated"  # not judged on this run (budget, not sampled, no judge)
     NOT_IN_SNAPSHOT = "not_in_snapshot"  # the patient is not in this snapshot of the records
+    CHECK_DATES = "check_dates"  # deceased or not yet born at the screening date by the records (D-142)
 
 
 CODES = frozenset(r.value for r in Reason)
@@ -120,6 +121,11 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "not in this copy of the records",
         "ja": "今回の記録の写しに含まれない",
         "zh-TW": "不在本次紀錄副本中",
+    },
+    "check_dates": {
+        "en": "the records give a death or birth date that rules out this date: please check the dates",
+        "ja": "記録上の死亡日または生年月日ではこの日付に該当しない：日付を確認してください",
+        "zh-TW": "紀錄中的死亡日期或出生日期與此日期不符：請確認日期",
     },
 }
 

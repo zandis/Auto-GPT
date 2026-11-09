@@ -424,13 +424,17 @@ def human_verdict(c: CriterionIR) -> CriterionVerdict:
     )
 
 
-def not_in_snapshot(rs: Ruleset, pid: str, kinds: tuple[str, ...] = ("inclusion", "exclusion")) -> PatientVerdicts:
+def not_in_snapshot(
+    rs: Ruleset,
+    pid: str,
+    kinds: tuple[str, ...] = ("inclusion", "exclusion"),
+    reason: Reason = Reason.NOT_IN_SNAPSHOT,
+) -> PatientVerdicts:
     """A scoped patient the records snapshot does not hold (moved, merged, a late registration): nothing is known,
-    so a person looks (tier ``review``), never an exclusion (Fable review 2026-11-08, finding 10; D-118)."""
+    so a person looks (tier ``review``), never an exclusion (Fable review 2026-11-08, finding 10; D-118). The same
+    for a patient the snapshot holds as deceased or not yet born on the screening date (``check_dates``, D-142)."""
     vs = [
-        CriterionVerdict(
-            id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=Reason.NOT_IN_SNAPSHOT.value)
-        )
+        CriterionVerdict(id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=reason.value))
         for c in rs.active()
         if c.kind in kinds
     ]

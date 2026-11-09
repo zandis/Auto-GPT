@@ -119,8 +119,15 @@ def judging_sentence(j: dict[str, Any], lang: str = "en") -> str:
 
 
 def scope_patients(
-    ctx: Ctx, practitioners: list[str], run_date: date, window_days: int, recent_months: int, departments: list[str]
+    ctx: Ctx,
+    practitioners: list[str],
+    run_date: date,
+    window_days: int,
+    recent_months: int,
+    departments: list[str],
+    snapshot: str | None = None,
 ) -> list[Scoped]:
+    """The patients in scope, read from the snapshot the screening then runs on (D-142, review B-02)."""
     rows = ctx.services.lake.query(
         SCOPE_SQL,
         [
@@ -129,6 +136,7 @@ def scope_patients(
             (run_date + timedelta(days=window_days)).isoformat(),
             add_months(run_date, -recent_months).isoformat(),
         ],
+        snapshot=snapshot,
     ).to_pylist()
     tz = ctx.cfg.env.tz
     out = [Scoped(r["pid"], local_iso(r["next_appt"], tz), r["practitioner_id"], r["dept"]) for r in rows]
@@ -386,7 +394,7 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
         raise StepFailed("running", "window must be a number of days") from exc
     depts = [d.strip().upper() for d in opts["dept"].split(",")] if opts.get("dept") else []
     recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
-    scoped = scope_patients(ctx, practitioners, run_date, window, recent, depts)
+    scoped = scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot)
     ctx.metrics(patients_scoped=len(scoped))
     judge = judge_for(ctx, rs)
     judging = judging_info(judge)
