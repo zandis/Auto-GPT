@@ -118,7 +118,7 @@ class OpsDir:
         if action not in ACTIONS:
             raise OpsFailed(f"unknown action {action!r}")
         rid = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(3)}"
-        req = {"id": rid, "action": action, "by": by, "at": _now(), "args": dict(args or {})}
+        req = {"id": rid, "action": action, "by": by, "at": datetime.now(UTC).isoformat(), "args": dict(args or {})}
         _write_json(self.root / "requests" / f"{rid}.json", req)
         return rid
 
@@ -127,7 +127,7 @@ class OpsDir:
         for p in sorted((self.root / "requests").glob("*.json")):
             if REQ_ID.match(p.stem) and (r := _read_json(p)) is not None:
                 out.append(r)
-        return out
+        return sorted(out, key=lambda r: (str(r.get("at")), str(r.get("id"))))  # first in, first out
 
     def result(self, rid: str) -> dict[str, Any] | None:
         return _read_json(self.root / "results" / f"{rid}.json") if REQ_ID.match(rid) else None
