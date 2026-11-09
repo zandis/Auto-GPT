@@ -104,7 +104,10 @@ database (in every backup). Each step writes an `edc.*` event to the audit chain
 REDCap; TrialBox never overwrites a value it did not write. A `readback` result means REDCap stored something else
 than was sent: stop sending for the study (switch off) and call the vendor. Note items use the gateway prompt
 `crf_prefill` (role `abstract_field`); without a model, note items stay unknown with "no_model" and the rest works.
-Held by `tests/unit/test_edc.py`, `tests/console/test_edc_pages.py` and e2e stage 16.
+The orchestrator takes the person from the console's signed assertion (D-162); a call without one is refused with
+403 `edc.actor` or `edc.role`. Signing needs the person's own delegation-log entry, and switching on needs the PI on
+the log. A project with repeating instruments is refused (`edc.repeating`). Held by `tests/unit/test_edc.py`,
+`tests/console/test_edc_pages.py` and e2e stage 16.
 
 ## 3. Accounts
 

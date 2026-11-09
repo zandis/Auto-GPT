@@ -123,13 +123,25 @@ def _norm_code(c: str) -> str:
     return str(c or "").replace(".", "").upper()
 
 
+# A row in one of these states never counts as a fact (D-162, review E-09): written in error, called off, not yet
+# real, or found not to be so. A resolved diagnosis or a stopped medicine still counts as history.
+VOID_STATUS = frozenset({"entered-in-error", "cancelled", "draft", "refuted", "not-taken"})
+PREFIX_MIN = 3  # an ICD-10 or ATC prefix shorter than this matches too much
+
+
+def _void(row: dict[str, Any]) -> bool:
+    return str(row.get("status") or "").strip().lower() in VOID_STATUS
+
+
 def _matches(m: ItemMap, row: dict[str, Any]) -> bool:
     if m.source == "observation":
         return str(row.get("code") or "") in m.codes
     codes = {_norm_code(c) for c in m.codes}
-    got = [_norm_code(row.get("code") or "")] + ([_norm_code(row.get("code2") or "")] if row.get("code2") else [])
-    # ICD-10 and ATC codes match on their prefix (M10 covers M10.9); a hospital drug code must match whole
-    return any(g and (g in codes or any(g.startswith(c) for c in codes)) for g in got if g)
+    code, code2 = _norm_code(row.get("code") or ""), _norm_code(row.get("code2") or "")
+    # ICD-10 and ATC codes match on their prefix (M10 covers M10.9); a hospital drug code (code2) must match whole
+    if code and (code in codes or any(len(c) >= PREFIX_MIN and code.startswith(c) for c in codes)):
+        return True
+    return bool(code2) and code2 in codes
 
 
 def _in_window(m: ItemMap, d: date, visit: date) -> bool:
@@ -208,14 +220,15 @@ def _patient(ctx: _Ctx, m: ItemMap, f: Field) -> Draft:
 
 
 def _coded(ctx: _Ctx, m: ItemMap, f: Field) -> Draft:
-    rows = [r for r in ctx.facts.rows(ctx.pid, m.source) if _matches(m, r)]
+    rows = [r for r in ctx.facts.rows(ctx.pid, m.source) if _matches(m, r) and not _void(r)]
     dated = [(d, r) for r in rows if (d := _day(r.get("d"))) is not None and _in_window(m, d, ctx.visit)]
     if not dated:
         why = "only_proposed" if _only_proposed(ctx, m) else ("out_of_window" if rows else "no_record")
         return _unknown(m, f, why, ctx.snap)
     if m.what == "presence":  # the latest record in the window; only ever the yes code
         d, r = max(dated, key=lambda x: (x[0], str(x[1].get("row"))))
-        text = f"{m.source} {r.get('code') or r.get('code2')} on {d.isoformat()}"
+        status = str(r.get("status") or "").strip()
+        text = f"{m.source} {r.get('code') or r.get('code2')} on {d.isoformat()}" + (f" ({status})" if status else "")
         return _value(m, f, m.yes_code, _cite(_kind_of(ctx, m.source, str(r.get("code")), d), m.source, r.get("row"),
                                               ctx.snap, d, text), ctx.snap)  # fmt: skip
     if m.what in ("date", "start") and m.source in ("condition", "medication"):
@@ -283,17 +296,19 @@ def _note(ctx: _Ctx, m: ItemMap, f: Field, drafter: NoteDrafter | None) -> Draft
         return _unknown(m, f, "no_model", ctx.snap)
     notes = []
     used = 0
+    skipped = 0
     for n in ctx.facts.notes(ctx.pid, ctx.visit):
         d = _day(n.get("d"))
         if d is None or (m.window_days and d < ctx.visit - timedelta(days=m.window_days)):
             continue
         text = str(n.get("text") or "")
         if used + len(text) > NOTE_CHARS:
-            break
+            skipped += 1  # a note that does not fit is skipped, never the ones after it (review E-26)
+            continue
         used += len(text)
         notes.append({"id": str(n.get("row")), "date": d.isoformat(), "type": str(n.get("type") or ""), "text": text})
     if not notes:
-        return _unknown(m, f, "no_record", ctx.snap)
+        return _unknown(m, f, "too_long" if skipped else "no_record", ctx.snap)
     ans, version = drafter(m, f, notes)
     stamp = f"{ctx.snap}|{version}"
     if not ans.get("found") or not str(ans.get("value") or "").strip():
@@ -302,9 +317,27 @@ def _note(ctx: _Ctx, m: ItemMap, f: Field, drafter: NoteDrafter | None) -> Draft
     quote = str(ans.get("quote") or "").strip()
     if note is None or not quote or not quote_in(quote, note["text"]):
         return _unknown(m, f, "quote_not_found", stamp)
+    value = str(ans["value"]).strip()
+    if len(quote) < QUOTE_MIN or not _value_in_quote(f, value, quote):
+        return _unknown(m, f, "quote_not_found", stamp)  # the quote must show the value itself (review E-18)
+    if f.kind == "choice" and value != m.yes_code:
+        return _unknown(m, f, "only_yes_from_notes", stamp)  # a note never drafts "No" or another code
     d = _day(note["date"])
     cite = _cite("note", "document", note["id"], ctx.snap, d, f"note of {note['date']}", quote)
-    return _value(m, f, str(ans["value"]).strip(), cite, stamp)
+    return _value(m, f, value, cite, stamp)
+
+
+QUOTE_MIN = 6  # characters; a shorter quote cannot show where a value comes from
+
+
+def _value_in_quote(f: Field, value: str, quote: str) -> bool:
+    """A number or a date drafted from a note must appear in its quote (digits compared, separators ignored)."""
+    if f.kind in ("integer", "decimal"):
+        return value in quote or value.rstrip("0").rstrip(".") in quote
+    if f.kind in ("date", "dateTime"):
+        digits = re.sub(r"[^0-9]", "", quote)
+        return re.sub(r"[^0-9]", "", value)[:8] in digits
+    return True
 
 
 def build(pid: str, visit: date, items: list[ItemMap], fields: dict[str, Field], facts: Facts,

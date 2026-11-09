@@ -8,7 +8,7 @@
 <p class="hint">{{ t('edc.help') }}</p>
 {% if err %}{% include "_edc_err.html" %}{% endif %}
 {% if q.get('done') %}<p class="ok" role="status" data-testid="edc-done">{{ t('edc.done.' + q.get('done')) }}</p>{% endif %}
-{% if q.get('sent') is not none %}<p class="ok" role="status" data-testid="edc-sent">{{ t('edc.sent', sent=q.get('sent'), there=q.get('already_there', '0'), conflict=q.get('conflict', '0'), none=q.get('no_record', '0'), readback=q.get('readback', '0')) }}</p>{% endif %}
+{% if q.get('sent') is not none %}<p class="ok" role="status" data-testid="edc-sent">{{ t('edc.sent', sent=q.get('sent'), there=q.get('already_there', '0'), conflict=q.get('conflict', '0'), none=q.get('no_record', '0'), readback=q.get('readback', '0')) }}{% if (q.get('opted_out', '0') ~ q.get('duplicate', '0') ~ q.get('no_event', '0')) != '000' %} {{ t('edc.sent_more', optout=q.get('opted_out', '0'), dup=q.get('duplicate', '0'), noev=q.get('no_event', '0')) }}{% endif %}</p>{% endif %}
 {% if st %}{% set sw = st.switch %}
 <section class="card" data-testid="edc-switch">
 <h2>{{ t('edc.switch.title') }}: <span class="pill{{ '' if sw.state == 'on' else ' warn' }}" data-testid="edc-state">{{ t('edc.switch.' + sw.state) }}</span></h2>

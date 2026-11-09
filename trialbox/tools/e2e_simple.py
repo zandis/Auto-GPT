@@ -1006,6 +1006,11 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     page = admin.get("/admin/redcap")
     admin.post("/admin/redcap", data={"csrf": fd._csrf(page.text), "token_ref": "edc", "url": rc_demo.SIM_URL,
                                       "token": made["token"]})  # fmt: skip
+    # the CRC signs under their own delegation-log entry (D-162): the PI adds it
+    lg = pi.post(f"/studies/{TRIAL}/team", data={"csrf": csrf(pi), "username": "crc", "role": "crc",
+                                                 "start": visit.isoformat(), "training_day": visit.isoformat()},
+                 follow_redirects=False)  # fmt: skip
+    s.check("the PI adds the CRC to the delegation log", lg.status_code == 303, lg.status_code)
     # off by default: nothing is drafted
     home = crc.get(f"/studies/{TRIAL}/edc")
     r = crc.post(f"/studies/{TRIAL}/edc/drafts", data={"csrf": fd._csrf(home.text), "record": no,
@@ -1097,10 +1102,20 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     crc.post(f"/studies/{TRIAL}/edc/send", data={"csrf": c, "record": no})
     before = rc.records()[0]
     s.check("nothing reaches REDCap before the signature", all(before.get(k, "") == "" for k in drafted), before)
+    shown = crc.get(f"/studies/{TRIAL}/edc/review/{no}").text
+    m_seen = re.search(r'name="seen" value="([^"]*)"', shown)
+    seen = m_seen.group(1) if m_seen else ""
     bad = crc.post(f"/studies/{TRIAL}/edc/sign", data={"csrf": c, "record": no, "password": "wrong-" + password,
-                                                       "meaning_ack": "1"})  # fmt: skip
-    good = crc.post(f"/studies/{TRIAL}/edc/sign", data={"csrf": c, "record": no, "password": password,
-                                                        "meaning_ack": "1"}, follow_redirects=False)  # fmt: skip
+                                                       "meaning_ack": "1", "seen": seen})  # fmt: skip
+    stale = crc.post(f"/studies/{TRIAL}/edc/sign", data={"csrf": c, "record": no, "password": password,
+                                                         "meaning_ack": "1", "seen": seen.split(",")[0]})  # fmt: skip
+    s.check(
+        "a signature over a different set of values than the page showed is refused",
+        stale.status_code == 409 and seen.count(":") == len(drafted),
+        (stale.status_code, seen.count(":")),
+    )
+    sign = {"csrf": c, "record": no, "password": password, "meaning_ack": "1", "seen": seen}
+    good = crc.post(f"/studies/{TRIAL}/edc/sign", data=sign, follow_redirects=False)
     sigs = h.bk.study_api("GET", f"/studies/{TRIAL}/edc/trail/{no}")["signatures"]
     s.check("the signature needs the password again (a wrong one signs nothing) and records name, meaning, time",
             bad.status_code == 401 and good.status_code == 303 and len(sigs) == 1 and sigs[0]["meaning"] ==

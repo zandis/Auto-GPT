@@ -9,7 +9,9 @@ the signer. The rules are enforced here even when a page already checked them (d
 * a value without a citation cannot be confirmed; an edit needs a reason and passes the field's own checks;
 * only confirmed, signed values whose content still matches the signature are sent or exported;
 * the REDCap send never overwrites a value someone else wrote in REDCap: it is listed as a conflict and skipped;
-  every value sent is read back and compared.
+  every value sent is read back and compared. A screening number on two REDCap records, a visit that is not an
+  event of the project, and a project with repeating instruments are refused (D-162);
+* a patient on the opt-out register is never drafted, decided, signed, sent or exported (D-162).
 
 Every step writes one audit event (``edc.*``) with who, the study and what changed (never a clinical value).
 """
@@ -46,12 +48,18 @@ class EdcService:
     client: Callable[[str], RedcapClient]  # token_ref -> client (the study store's tokens)
     facts: Callable[[], prefill.Facts]  # the box's record (the lake), read at the snapshot of the moment
     drafter: Callable[[str], prefill.NoteDrafter | None] = lambda _job: None  # the note drafter, or none
+    optouts: Callable[[], frozenset[str]] = frozenset  # the opt-out register's pseudonyms (fails closed)
 
     def stamp(self) -> str:
         return self.now().isoformat(timespec="seconds")
 
     def _audit(self, event: str, rs: str, by: str, detail: dict[str, Any]) -> None:
         self.audit.append(event, ruleset=rs, actor=by, detail=detail)
+
+    def _not_opted_out(self, rs: str, by: str, event: str, pids: set[str], detail: dict[str, Any]) -> None:
+        if pids & set(self.optouts()):
+            self._audit(event, rs, by, {**detail, "refused": "edc.opted_out"})
+            raise EdcError("edc.opted_out", "the patient opted out; nothing is drafted, signed or sent")
 
     # ------------------------------------------------------------------ status and switch
     def status(self, rs: str) -> dict[str, Any]:
@@ -131,6 +139,7 @@ class EdcService:
     # ------------------------------------------------------------------ drafts
     def build(self, rs: str, record: str, pid: str, visit: str, visit_date: str, by: str) -> list[dict[str, Any]]:
         self.store.require_on(rs)
+        self._not_opted_out(rs, by, "edc.drafts", {pid}, {"record": record})
         try:
             vd = date.fromisoformat(visit_date)
         except ValueError as exc:
@@ -173,6 +182,7 @@ class EdcService:
         d = self.store.draft(rs, draft_id)
         if d is None:
             raise EdcError("edc.no_draft", "no such draft", 404)
+        self._not_opted_out(rs, by, "edc.decide", {str(d["pid"])}, {"draft": draft_id})
         if action == "edit":
             f = self.dc.fields(rs).get(str(d["item"]))
             if f is None:
@@ -195,13 +205,15 @@ class EdcService:
         return out
 
     def sign(self, rs: str, record: str, visit: str, *, signer: str, printed_name: str, role: str, meaning: str,
-             meaning_text: str, lang: str) -> dict[str, Any]:  # fmt: skip
-        """The console re-authenticated ``signer`` just before this call."""
+             meaning_text: str, lang: str, seen: dict[int, str]) -> dict[str, Any]:  # fmt: skip
+        """The console re-authenticated ``signer`` just before this call; ``seen`` is what their screen showed."""
         self.store.require_on(rs)
+        pids = {str(d["pid"]) for d in self.store.drafts(rs, record, visit or BASE_EVENT)}
+        self._not_opted_out(rs, signer, "edc.sign", pids, {"record": record})
         try:
             sig = self.store.sign(rs, record, visit or BASE_EVENT, signer=signer, printed_name=printed_name,
                                   role=role, meaning=meaning, meaning_text=meaning_text, lang=lang,
-                                  at=self.stamp())  # fmt: skip
+                                  at=self.stamp(), seen=seen)  # fmt: skip
         except EdcError as exc:
             self._audit("edc.sign", rs, signer, {"record": record, "visit": visit, "refused": exc.code})
             raise
@@ -217,27 +229,63 @@ class EdcService:
         target = self.store.target(rs)
         if target is None:
             raise EdcError("edc.target", "no REDCap target is set for this study")
-        todo = self.store.sendable(rs, record)
         out: dict[str, list[dict[str, Any]]] = {"sent": [], "already_there": [], "conflict": [], "no_record": [],
-                                                "readback": []}  # fmt: skip
+                                                "readback": [], "opted_out": [], "duplicate": [],
+                                                "no_event": []}  # fmt: skip
+        at = self.stamp()
+        gone = set(self.optouts())
+        todo = []
+        for d in self.store.sendable(rs, record):
+            if str(d["pid"]) in gone:
+                out["opted_out"].append(_brief(d))
+                self.store.record_sent(rs, d, "redcap", "", "opted_out", "the patient opted out; not sent", by, at)
+            else:
+                todo.append(d)
         if not todo:
-            self._audit("edc.sent", rs, by, {"record": record or "*", "sent": 0})
+            self._audit(
+                "edc.sent",
+                rs,
+                by,
+                {
+                    "record": record or "*",
+                    "sent": 0,
+                    **({"opted_out": len(out["opted_out"])} if out["opted_out"] else {}),
+                },
+            )
             return {**out, "count": 0}
         key, rid = str(target["key_field"]), str(target["id_field"])
-        at = self.stamp()
         try:
             with self.client(str(target["token_ref"])) as c:
-                longitudinal = bool(int(c.project().get("is_longitudinal") or 0))
+                proj = c.project()
+                if int(proj.get("has_repeating_instruments_or_events") or 0):
+                    # a flat export has one more row per repeat; the "never overwrite" check cannot hold (E-05)
+                    self._audit("edc.sent", rs, by, {"record": record or "*", "refused": "edc.repeating"})
+                    raise EdcError("edc.repeating", "the REDCap project has repeating instruments or events; "
+                                   "prefill does not send to it")  # fmt: skip
+                longitudinal = bool(int(proj.get("is_longitudinal") or 0))
+                events = {str(e.get("unique_event_name")) for e in c.events()} if longitudinal else {BASE_EVENT}
                 items = sorted({str(d["item"]) for d in todo})
                 rows = c.records(fields=[rid, key, *items])
-                ids: dict[str, str] = {}
+                found: dict[str, set[str]] = {}
                 for r in rows:
                     if str(r.get(key) or "").strip():
-                        ids.setdefault(str(r[key]).strip().upper(), str(r[rid]))
+                        found.setdefault(str(r[key]).strip().upper(), set()).add(str(r[rid]))
+                ids = {k: next(iter(v)) for k, v in found.items() if len(v) == 1}
+                twice = {k for k, v in found.items() if len(v) > 1}
                 cur = {(str(r[rid]), str(r.get("redcap_event_name") or "") if longitudinal else ""): r for r in rows}
                 imports: dict[tuple[str, str], dict[str, str]] = {}
                 planned: list[tuple[dict[str, Any], str, str]] = []
                 for d in todo:
+                    if str(d["record"]).upper() in twice:  # a wrong-subject write is worse than none (E-06)
+                        out["duplicate"].append(_brief(d))
+                        self.store.record_sent(rs, d, "redcap", "", "duplicate", "the screening number is on more "
+                                               "than one REDCap record; not sent", by, at)  # fmt: skip
+                        continue
+                    if str(d["visit"]) not in events:  # the visit must be an event of the project (E-04)
+                        out["no_event"].append(_brief(d))
+                        self.store.record_sent(rs, d, "redcap", "", "no_event", "the visit is not an event of the "
+                                               "REDCap project; not sent", by, at)  # fmt: skip
+                        continue
                     rec = ids.get(str(d["record"]).upper())
                     if rec is None:
                         out["no_record"].append(_brief(d))
@@ -258,6 +306,16 @@ class EdcService:
                     row = imports.setdefault((rec, ev), {rid: rec, **({"redcap_event_name": ev} if ev else {})})
                     row[str(d["item"])] = str(d["final"])
                     planned.append((d, rec, ev))
+                if imports:
+                    # re-read each value just before the import: one edited or withdrawn since is not sent (E-17)
+                    still = {int(x["id"]) for x in self.store.sendable(rs, record)}
+                    stale = [(d, rec, ev) for d, rec, ev in planned if int(d["id"]) not in still]
+                    for d, rec, ev in stale:
+                        imports[(rec, ev)].pop(str(d["item"]), None)
+                        self.store.record_sent(rs, d, "redcap", rec, "changed", "changed since the send began; "
+                                               "not sent", by, at)  # fmt: skip
+                    planned = [p for p in planned if int(p[0]["id"]) in still]
+                    imports = {k: v for k, v in imports.items() if len(v) > (2 if longitudinal else 1)}
                 if imports:
                     c.import_records(list(imports.values()))
                     back = {
@@ -281,7 +339,15 @@ class EdcService:
 
     def export_odm(self, rs: str, by: str, meaning_text: str = ODM_MEANING) -> str:
         self.store.require_on(rs)
-        values = self.store.signed(rs)
+        gone = set(self.optouts())
+        values = [d for d in self.store.signed(rs) if str(d["pid"]) not in gone]  # never an opted-out patient
+        mapped, fields = {str(m["item"]) for m in self.store.map(rs)}, self.dc.fields(rs)
+        lost = sorted({str(d["item"]) for d in values if str(d["item"]) not in mapped or str(d["item"]) not in fields})
+        if lost:  # never a silent gap in the copy of signed records (review E-22)
+            self._audit("edc.export", rs, by, {"format": "odm", "refused": "edc.odm_gap", "items": lost})
+            err = EdcError("edc.odm_gap", "signed values whose item left the map or the dictionary: " + ", ".join(lost))
+            err.problems = [{"item": i, "code": "not_in_map"} for i in lost]  # type: ignore[attr-defined]
+            raise err
         sigs = {int(s["id"]): s for s in self.store.signatures(rs)}
         text = odm.build(rs, self.dc.fields(rs), self.store.map(rs), values, sigs, meaning_text, self.stamp())
         self._audit("edc.export", rs, by, {"format": "odm", "values": len(values),

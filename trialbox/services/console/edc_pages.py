@@ -12,21 +12,27 @@
 * ``/studies/{rs}/edc/trail/{record}``: every draft, decision, signature and send of one subject.
 
 Who may do what is ``tb_common.authz.edc_allowed`` (``enter_data`` for the work, the PI alone to switch on, the PI or
-an admin to switch off; never a viewer or a CRO account), read through the delegation log (``console.team``). The
-orchestrator checks the switch and every review rule again (``edc.service``). Each action is one function used by the
-page and by ``/api/v1``.
+an admin to switch off; never a viewer or a CRO account), read through the delegation log (``console.team``). To sign,
+the person needs their own active entry on the study's delegation log, whose name is the printed name; to switch on,
+the log must name them as the PI (D-162). Every call that changes something carries the person's signed assertion
+(``actor_header``) and the orchestrator takes the person and role from it, never from the body; the signature call
+carries an assertion made right after the password check. The orchestrator checks the switch and every review rule
+again (``edc.service``). Each action is one function used by the page and by ``/api/v1``.
 """
 
 from __future__ import annotations
 
 import re
+import secrets
 from collections.abc import Mapping
 from typing import Any
 
+from datacore.export import BASE_EVENT
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.authz import edc_allowed
+from tb_common.service_auth import actor_header
 
 from console import s28
 from console.auth import Session
@@ -90,6 +96,7 @@ class ApiSign(BaseModel):
     visit: str = Field(default="", max_length=100)
     password: str = Field(min_length=1, max_length=200)
     meaning_ack: bool = False  # the signer read the meaning of the signature
+    seen: dict[int, str] = Field(max_length=2000)  # draft id -> ``sha`` of each value the signer saw (GET drafts)
 
 
 class ApiSend(BaseModel):
@@ -137,11 +144,30 @@ def parse_rows(form: Mapping[str, Any], items: list[str]) -> list[dict[str, Any]
     return out
 
 
+def parse_seen(text: str) -> dict[int, str]:
+    """The sign form's ``id:sha,id:sha`` list of what the page showed."""
+    out: dict[int, str] = {}
+    for part in text.split(","):
+        k, _, v = part.strip().partition(":")
+        if k.isdigit() and re.fullmatch(r"[0-9a-f]{64}", v):
+            out[int(k)] = v
+    return out
+
+
+SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event")
+
+
 def register(app: FastAPI, h: Helpers) -> None:
     bk, au, store = h.bk, h.au, h.store
 
     def call(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         return s28.call(bk, method, path, body)
+
+    def act(
+        sess: Session, method: str, path: str, body: dict[str, Any] | None = None, session: str | None = None
+    ) -> Any:
+        """A call the orchestrator attributes to the signed-in person (their signed assertion and role, D-162)."""
+        return s28.call(bk, method, path, body, headers=actor_header(sess.user.username, session, sess.user.role))
 
     def stand(sess: Session, rid: str) -> tuple[frozenset[str], bool, Any]:
         from console.team import standing
@@ -181,39 +207,48 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(409, "edc.err.edc.opted_out")
         return pid
 
-    def by(sess: Session) -> str:
-        return sess.user.username
-
     # ------------------------------------------------------------------ the actions (page and /api/v1)
     def do_switch(sess: Session, path: str, rs: str, body: ApiSwitch) -> dict[str, Any]:
         rid = study_or_404(sess, rs, "switch_on" if body.on else "switch_off", path)
-        out = call("POST", f"/studies/{rid}/edc/switch", {**body.model_dump(), "by": by(sess), "role": sess.user.role})
+        if body.on:
+            _, _, entry = stand(sess, rid)
+            logged = h.team is not None and any(
+                e.role == "pi" and e.username == sess.user.username and e.active_on(h.clock().date())
+                for e in h.team.entries(rid))  # fmt: skip
+            if entry is None or not entry.name or not logged:
+                raise h.problem(409, "edc.err.edc.no_log_pi")  # only a PI the log names turns it on (E-10)
+        out = act(sess, "POST", f"/studies/{rid}/edc/switch", body.model_dump())
         au.append("console.edc", ruleset=rid, actor=h.actor(sess), detail={"action": "switch", "on": body.on})
         return dict(out)
 
     def do_dictionary(sess: Session, path: str, rs: str, body: ApiEdcDictionary) -> dict[str, Any]:
         rid = study_or_404(sess, rs, "map", path)
-        return dict(call("POST", f"/studies/{rid}/edc/dictionary", {**body.model_dump(), "by": by(sess)}))
+        return dict(act(sess, "POST", f"/studies/{rid}/edc/dictionary", body.model_dump()))
 
     def do_map(sess: Session, path: str, rs: str, body: ApiMap) -> dict[str, Any]:
         rid = study_or_404(sess, rs, "map", path)
-        return dict(call("PUT", f"/studies/{rid}/edc/map", {**body.model_dump(), "by": by(sess)}))
+        return dict(act(sess, "PUT", f"/studies/{rid}/edc/map", body.model_dump()))
 
     def do_draft(sess: Session, path: str, rs: str, body: ApiDraft) -> list[dict[str, Any]]:
         rid = study_or_404(sess, rs, "draft", path)
         if not _VISIT.match(body.visit):
             raise h.problem(400, "edc.err.edc.visit")
         pid = pid_of(rid, body.record)
-        return list(call("POST", f"/studies/{rid}/edc/drafts", {"record": body.record.strip().upper(), "pid": pid,
-                                                                "visit": body.visit, "visit_date": body.visit_date,
-                                                                "by": by(sess)}))  # fmt: skip
+        return list(act(sess, "POST", f"/studies/{rid}/edc/drafts", {"record": body.record.strip().upper(),
+                                                                     "pid": pid, "visit": body.visit,
+                                                                     "visit_date": body.visit_date}))  # fmt: skip
 
     def do_decide(sess: Session, path: str, rs: str, draft_id: int, body: ApiDecide) -> dict[str, Any]:
         rid = study_or_404(sess, rs, "review", path)
         cit = {"text": body.source, "day": body.source_day} if body.source.strip() else None
-        return dict(call("POST", f"/studies/{rid}/edc/drafts/{draft_id}/decide",
-                         {"action": body.action, "value": body.value, "reason": body.reason, "citation": cit,
-                          "by": by(sess)}))  # fmt: skip
+        return dict(
+            act(
+                sess,
+                "POST",
+                f"/studies/{rid}/edc/drafts/{draft_id}/decide",
+                {"action": body.action, "value": body.value, "reason": body.reason, "citation": cit},
+            )
+        )
 
     def do_sign(sess: Session, path: str, rs: str, body: ApiSign) -> dict[str, Any]:
         """The electronic signature: the signer types their password again (each failure counts toward the lockout)
@@ -230,11 +265,14 @@ def register(app: FastAPI, h: Helpers) -> None:
                       detail={"record": body.record.upper()[:64]})  # fmt: skip
             raise h.problem(401, "edc.err.edc.reauth")
         _, _, entry = stand(sess, rid)
-        name = (entry.name if entry is not None and entry.name else "") or sess.user.username
-        out = call("POST", f"/studies/{rid}/edc/sign", {
-            "record": body.record.strip().upper(), "visit": body.visit, "signer": by(sess), "printed_name": name,
-            "role": sess.user.role, "meaning": "transcribed", "lang": sess.lang,
-            "meaning_text": translate(sess.lang, "edc.sign.meaning")})  # fmt: skip
+        if entry is None or not entry.name:  # the printed name is the delegation log's, never a login name (E-10)
+            raise h.problem(409, "edc.err.edc.no_log_entry")
+        if not body.seen:
+            raise h.problem(400, "edc.err.edc.sign_changed")
+        out = act(sess, "POST", f"/studies/{rid}/edc/sign", {
+            "record": body.record.strip().upper(), "visit": body.visit, "printed_name": entry.name,
+            "meaning": "transcribed", "lang": sess.lang, "meaning_text": translate(sess.lang, "edc.sign.meaning"),
+            "seen": {str(k): v for k, v in body.seen.items()}}, session="reauth-" + secrets.token_hex(8))  # fmt: skip
         return dict(out)
 
     def do_send(sess: Session, path: str, rs: str, record: str | None) -> dict[str, Any]:
@@ -242,11 +280,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         rec = record.strip().upper() if record else None
         if rec is not None and not _REC.match(rec):
             raise h.problem(400, "edc.err.edc.record")
-        return dict(call("POST", f"/studies/{rid}/edc/send/redcap", {"record": rec, "by": by(sess)}))
+        return dict(act(sess, "POST", f"/studies/{rid}/edc/send/redcap", {"record": rec}))
 
     def do_export(sess: Session, path: str, rs: str) -> dict[str, Any]:
         rid = study_or_404(sess, rs, "export", path)
-        return dict(call("GET", f"/studies/{rid}/edc/export/odm?by={by(sess)}"))
+        return dict(act(sess, "GET", f"/studies/{rid}/edc/export/odm"))
 
     # ------------------------------------------------------------------ pages
     def status_page(request: Request, sess: Session, rid: str, err: dict[str, Any] | None = None,
@@ -326,8 +364,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             if rec:
                 return review_page(request, sess, rid, rec, str(form.get("visit") or ""), err_of(exc), 409)
             return back(rid, sess, request, exc)
-        q = "&".join(f"{k}={len(out.get(k) or [])}" for k in ("sent", "already_there", "conflict", "no_record",
-                                                             "readback"))  # fmt: skip
+        q = "&".join(f"{k}={len(out.get(k) or [])}" for k in SEND_RESULTS)
         if rec:
             return RedirectResponse(f"/studies/{rid}/edc/review/{rec.upper()}?visit={form.get('visit') or ''}&{q}",
                                     status_code=303)  # fmt: skip
@@ -419,9 +456,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         fields = {f["name"]: f for f in (call("GET", f"/studies/{rid}/sources").get("fields") or [])}
         st = call("GET", f"/studies/{rid}/edc")
         _, _, entry = stand(sess, rid)
-        name = (entry.name if entry is not None and entry.name else "") or sess.user.username
+        name = entry.name if entry is not None and entry.name else ""
         visits = sorted({str(d["visit"]) for d in drafts})
-        unsigned = [d for d in drafts if d["fate"] in ("confirmed", "edited") and d["signature_id"] is None]
+        here = visit or BASE_EVENT  # the sign call signs this one visit: show and count only its values (E-11)
+        unsigned = [d for d in drafts if d["fate"] in ("confirmed", "edited") and d["signature_id"] is None
+                    and d["visit"] == here]  # fmt: skip
         resp = h.page(request, "edc_review.html", sess, rs=rid, record=rec, visit=visit, visits=visits, drafts=drafts,
                       fields=fields, st=st, unsigned=unsigned, printed_name=name, err=err, may=may(sess, rid),
                       sso=h.users.is_sso(sess.user.username))  # fmt: skip
@@ -468,6 +507,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                     visit=visit[:100],
                     password=str(form.get("password") or "")[:200] or " ",
                     meaning_ack=str(form.get("meaning_ack") or "") == "1",
+                    seen=parse_seen(str(form.get("seen") or "")[:200000]),
                 ),
             )
         except (Problem, Unavailable) as exc:
@@ -534,9 +574,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"study": rs.upper(), "drafts": api_call(do_draft, sess, request.url.path, rs, body)}
 
     @app.get("/api/v1/studies/{rs}/edc/drafts")
-    def api_drafts(request: Request, rs: str, record: str, visit: str = "") -> dict[str, Any]:
+    def api_drafts(request: Request, rs: str, record: str = "", visit: str = "") -> dict[str, Any]:
         sess = api(request)
-        rid = study_or_404(sess, rs, "review", request.url.path)
+        rid = study_or_404(sess, rs, "review", request.url.path)  # who may look comes before what was asked
         rec = record.strip().upper()
         pid_of(rid, rec)
         if not _VISIT.match(visit):

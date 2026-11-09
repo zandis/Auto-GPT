@@ -4,6 +4,7 @@ One test per rule; synthetic data only (``tests.edc_kit``)."""
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -245,7 +246,7 @@ def test_a_value_without_a_citation_cannot_be_confirmed(tmp_path: Path) -> None:
     assert e.value.code == "edc.no_citation"
     with pytest.raises(EdcError) as e2:  # typing a value without naming its source is refused too
         svc.decide(k.STUDY, d["cm_allo"]["id"], "edit", value="1", reason="seen in clinic", by="crc")
-    assert e2.value.code == "edc.no_citation"
+    assert e2.value.code == "edc.edit_source"
     out = svc.decide(k.STUDY, d["cm_allo"]["id"], "edit", value="1", reason="seen in clinic", by="crc",
                      citation={"text": "Prescription list, outpatient 2026-10-01", "day": "2026-10-01"})  # fmt: skip
     assert out["fate"] == "edited" and out["final_citation"]["kind"] == "manual"
@@ -264,7 +265,15 @@ def test_an_edit_needs_a_reason_and_a_valid_value(tmp_path: Path) -> None:
     with pytest.raises(EdcError) as e3:
         svc.decide(k.STUDY, d["sex"]["id"], "edit", value="3", reason="typo", by="crc")
     assert e3.value.code == "edc.invalid"
-    out = svc.decide(k.STUDY, d["weight"]["id"], "edit", value="73", reason="scale re-read", by="crc")
+    out = svc.decide(
+        k.STUDY,
+        d["weight"]["id"],
+        "edit",
+        value="73",
+        reason="scale re-read",
+        by="crc",
+        citation={"text": "ward scale sheet", "day": "2026-11-05"},
+    )
     assert (out["fate"], out["final"], out["reason"]) == ("edited", "73", "scale re-read")
     hist = svc.trail(k.STUDY, k.RECORD)["decisions"]
     assert [(h["action"], h["old"], h["new"]) for h in hist] == [("edit", None, "73")]
@@ -278,7 +287,15 @@ def test_confirm_twice_is_refused_and_a_change_keeps_the_old_value(tmp_path: Pat
     with pytest.raises(EdcError) as e:
         svc.decide(k.STUDY, d["weight"]["id"], "confirm", by="crc")
     assert e.value.code == "edc.decided"
-    svc.decide(k.STUDY, d["weight"]["id"], "edit", value="72", reason="rounded per protocol", by="crc")
+    svc.decide(
+        k.STUDY,
+        d["weight"]["id"],
+        "edit",
+        value="72",
+        reason="rounded per protocol",
+        by="crc",
+        citation={"text": "ward scale sheet", "day": "2026-11-05"},
+    )
     hist = svc.trail(k.STUDY, k.RECORD)["decisions"]
     assert [(h["action"], h["old"], h["new"]) for h in hist] == [("confirm", None, "72.5"), ("edit", "72.5", "72")]
 
@@ -294,7 +311,8 @@ def _confirm_all(svc: Any) -> dict[str, dict[str, Any]]:
 
 def _sign(svc: Any) -> dict[str, Any]:
     out: dict[str, Any] = svc.sign(k.STUDY, k.RECORD, "", signer="crc", printed_name="Chen Mei", role="coordinator",
-                    meaning="transcribed", meaning_text="I checked each value.", lang="en")  # fmt: skip
+                    meaning="transcribed", meaning_text="I checked each value.", lang="en",
+                    seen=k.seen(svc))  # fmt: skip
     return out
 
 
@@ -309,7 +327,7 @@ def test_nothing_is_sent_before_it_is_confirmed_and_signed(tmp_path: Path) -> No
     assert rows[0]["weight"] == ""
     with pytest.raises(EdcError) as e:
         svc.sign(k.STUDY, "S-404", "", signer="crc", printed_name="x", role="coordinator", meaning="transcribed",
-                 meaning_text="x", lang="en")  # fmt: skip
+                 meaning_text="x", lang="en", seen={})  # fmt: skip
     assert e.value.code == "edc.nothing_to_sign"
 
 
@@ -332,7 +350,15 @@ def test_a_value_changed_after_signing_is_not_sent_until_signed_again(tmp_path: 
     k.ready(svc)
     d = _confirm_all(svc)
     _sign(svc)
-    svc.decide(k.STUDY, d["weight"]["id"], "edit", value="73", reason="scale re-read", by="crc")
+    svc.decide(
+        k.STUDY,
+        d["weight"]["id"],
+        "edit",
+        value="73",
+        reason="scale re-read",
+        by="crc",
+        citation={"text": "ward scale sheet", "day": "2026-11-05"},
+    )
     out = svc.send_redcap(k.STUDY, "crc")
     assert "weight" not in {x["item"] for x in out["sent"]}
     # a change straight in the database (not through the service) breaks the signature's hash: never sent
@@ -382,7 +408,15 @@ def test_odm_holds_signed_values_with_audit_signature_and_cdash(tmp_path: Path) 
     svc, _, _ = k.service(tmp_path)
     k.ready(svc)
     d = _confirm_all(svc)
-    svc.decide(k.STUDY, d["weight"]["id"], "edit", value="73", reason="scale re-read", by="crc")
+    svc.decide(
+        k.STUDY,
+        d["weight"]["id"],
+        "edit",
+        value="73",
+        reason="scale re-read",
+        by="crc",
+        citation={"text": "ward scale sheet", "day": "2026-11-05"},
+    )
     _sign(svc)
     _ = _draft(svc)  # a new run: its open drafts are never exported
     text = svc.export_odm(k.STUDY, "crc")
@@ -395,7 +429,9 @@ def test_odm_holds_signed_values_with_audit_signature_and_cdash(tmp_path: Path) 
     assert w.get("Value") == "73" and w.get("TransactionType") == "Upsert"
     assert [c.tag.split("}")[1] for c in w] == ["AuditRecord", "Signature"]
     assert _el(w, "o:AuditRecord/o:ReasonForChange").text == "scale re-read"
-    assert str(_el(w, "o:AuditRecord/o:SourceID").text).startswith("record:observation:o1@")
+    # the changed value names the person's own source, not the machine's citation of the old value (E-08)
+    assert _el(w, "o:AuditRecord/o:SourceID").text == "manual:2026-11-05"
+    assert str(_el(items["urate"], "o:AuditRecord/o:SourceID").text).startswith("record:observation:o2@")
     assert _el(w, "o:Signature/o:SignatureRef").get("SignatureOID") == "SD.transcribed"
     idef = _el(root, ".//o:ItemDef[@OID='weight']")
     assert idef.get("SDSVarName") == "VSORRES"
@@ -462,3 +498,272 @@ def test_role_table_for_prefill() -> None:
     assert not edc_allowed("admin", "switch_on", tasks=frozenset({"screen"}), is_pi=False)
     assert not edc_allowed("admin", "review", tasks=frozenset({"screen"}), is_pi=False)
     assert not edc_allowed("coordinator", "bogus", tasks=data, is_pi=False)
+
+
+# ------------------------------------------------------------------ review TB-REV-EDC-01 (D-162)
+def _signed(svc: Any, visit: str = "") -> None:
+    for r in _by_item(svc.build(k.STUDY, k.RECORD, k.PID, visit, k.VISIT_DATE, "crc")).values():
+        if r["state"] == "drafted":
+            svc.decide(k.STUDY, r["id"], "confirm", by="crc")
+    svc.sign(
+        k.STUDY,
+        k.RECORD,
+        visit,
+        signer="crc",
+        printed_name="Chen Mei",
+        role="coordinator",
+        meaning="transcribed",
+        meaning_text="I checked each value.",
+        lang="en",
+        seen=k.seen(svc, visit=visit),
+    )
+
+
+def test_e02_a_record_key_stays_bound_to_its_subject(tmp_path: Path) -> None:
+    facts = k.FakeFacts()
+    facts.patients["p-0002"] = {"pid": "p-0002", "birth_date": date(1970, 1, 1), "sex": "F"}
+    svc, _, _ = k.service(tmp_path, facts=facts)
+    k.ready(svc)
+    _draft(svc)
+    with pytest.raises(EdcError) as e:
+        _draft(svc, pid="p-0002")
+    assert e.value.code == "edc.pid_mismatch"
+    d = svc.store.drafts(k.STUDY, k.RECORD)
+    assert {x["pid"] for x in d} == {k.PID}
+
+
+def test_e03_a_new_run_leaves_one_current_draft_per_item(tmp_path: Path) -> None:
+    svc, _, _ = k.service(tmp_path)
+    k.ready(svc)
+    d = _draft(svc)
+    svc.decide(k.STUDY, d["weight"]["id"], "reject", by="crc")
+    again = svc.store.drafts(k.STUDY, k.RECORD)
+    items = [x["item"] for x in again]
+    assert len(items) == len(set(items))  # the rejected draft is superseded by the new run, not kept beside it
+    _draft(svc)
+    items = [x["item"] for x in svc.store.drafts(k.STUDY, k.RECORD)]
+    assert len(items) == len(set(items))
+    with pytest.raises(EdcError) as e:
+        svc.decide(k.STUDY, d["weight"]["id"], "confirm", by="crc")
+    assert e.value.code == "edc.superseded"
+
+
+def test_e04_a_visit_that_is_not_an_event_of_the_project_is_not_sent(tmp_path: Path) -> None:
+    from rc_sim.app import create_app
+
+    svc, _, _ = k.service(tmp_path)
+    sim = create_app()
+    token = k.sim_project(sim, [{"record_id": "1", "redcap_event_name": "baseline_arm_1", "tb_screening_no": k.RECORD}],
+                          events=["baseline_arm_1", "week4_arm_1"])  # fmt: skip
+    svc.client = lambda _ref: k.client_for(sim, token)
+    k.ready(svc)
+    _signed(svc, "week9_arm_1")
+    out = svc.send_redcap(k.STUDY, "crc")
+    assert out["count"] == 0 and len(out["no_event"]) == 6
+    _signed(svc, "baseline_arm_1")
+    out = svc.send_redcap(k.STUDY, "crc")
+    assert out["count"] == 6 and len(out["no_event"]) == 6
+    row = next(r for r in k.client_for(sim, token).records() if r["redcap_event_name"] == "baseline_arm_1")
+    assert row["weight"] == "72.5"
+
+
+def test_e05_a_project_with_repeating_forms_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from rc_bridge.client import RedcapClient
+
+    svc, sim, token = k.service(tmp_path)
+    k.ready(svc)
+    _signed(svc)
+    real = RedcapClient.project
+    monkeypatch.setattr(RedcapClient, "project",
+                        lambda self: {**real(self), "has_repeating_instruments_or_events": 1})  # fmt: skip
+    with pytest.raises(EdcError) as e:
+        svc.send_redcap(k.STUDY, "crc")
+    assert e.value.code == "edc.repeating"
+    assert k.client_for(sim, token).records()[0]["weight"] == ""
+
+
+def test_e06_a_screening_number_on_two_records_is_never_written(tmp_path: Path) -> None:
+    svc, sim, token = k.service(tmp_path, records=[{"record_id": "1", "tb_screening_no": k.RECORD},
+                                                   {"record_id": "2", "tb_screening_no": k.RECORD.lower()}])  # fmt: skip
+    k.ready(svc)
+    _signed(svc)
+    out = svc.send_redcap(k.STUDY, "crc")
+    assert out["count"] == 0 and len(out["duplicate"]) == 6
+    assert all(r["weight"] == "" for r in k.client_for(sim, token).records())
+    assert {r["result"] for r in svc.store.sent_rows(k.STUDY)} == {"duplicate"}
+
+
+def test_e07_an_opted_out_patient_is_not_decided_signed_sent_or_exported(tmp_path: Path) -> None:
+    svc, sim, token = k.service(tmp_path)
+    k.ready(svc)
+    d = _confirm_all(svc)
+    gone: set[str] = set()
+    svc.optouts = lambda: frozenset(gone)
+    gone.add(k.PID)
+    with pytest.raises(EdcError) as e:
+        svc.decide(k.STUDY, d["weight"]["id"], "edit", value="73", reason="x", by="crc",
+                   citation={"text": "sheet", "day": "2026-11-05"})  # fmt: skip
+    assert e.value.code == "edc.opted_out"
+    with pytest.raises(EdcError) as e:
+        _sign(svc)
+    assert e.value.code == "edc.opted_out"
+    with pytest.raises(EdcError) as e:
+        _draft(svc)
+    assert e.value.code == "edc.opted_out"
+    gone.clear()
+    _sign(svc)
+    gone.add(k.PID)  # opted out after signing
+    out = svc.send_redcap(k.STUDY, "crc")
+    assert out["count"] == 0 and len(out["opted_out"]) == 6
+    assert k.client_for(sim, token).records()[0]["weight"] == ""
+    assert "<ItemData " not in svc.export_odm(k.STUDY, "crc")
+
+
+def test_e08_a_changed_value_carries_its_own_source(tmp_path: Path) -> None:
+    svc, _, _ = k.service(tmp_path)
+    k.ready(svc)
+    d = _draft(svc)
+    with pytest.raises(EdcError) as e:
+        svc.decide(k.STUDY, d["weight"]["id"], "edit", value="99", reason="re-weighed", by="crc")
+    assert e.value.code == "edc.edit_source"
+    out = svc.decide(k.STUDY, d["weight"]["id"], "edit", value="99", reason="re-weighed", by="crc",
+                     citation={"text": "ward scale sheet", "day": "2026-11-05"})  # fmt: skip
+    cite = out["final_citation"]
+    assert cite["kind"] == "manual" and cite["text"] == "ward scale sheet" and cite["replaces"]["kind"] == "record"
+    # the same value with a corrected reason keeps the machine's citation
+    out = svc.decide(k.STUDY, d["urate"]["id"], "edit", value="8.4", reason="checked the lab sheet", by="crc")
+    assert out["final_citation"]["kind"] == "record"
+
+
+@pytest.mark.parametrize("status,drafted", [("active", True), ("completed", True), ("stopped", True),
+                                            ("entered-in-error", False), ("cancelled", False), ("draft", False)])  # fmt: skip
+def test_e09_a_void_medicine_order_never_drafts_yes(tmp_path: Path, status: str, drafted: bool) -> None:
+    facts = k.FakeFacts()
+    facts.facts = []
+    facts.data["medication"] = [{"row": "m1", "code": "M04AA01", "code2": "", "d": date(2026, 9, 1), "name": "allo",
+                                 "status": status}]  # fmt: skip
+    svc, _, _ = k.service(tmp_path, facts=facts)
+    k.ready(svc)
+    d = _draft(svc)["cm_allo"]
+    assert (d["state"] == "drafted") is drafted
+    if drafted:
+        assert f"({status})" in d["citation"]["text"]
+
+
+def test_e19_short_prefixes_and_hospital_codes_match_whole() -> None:
+    from edc.prefill import _matches
+
+    m = mapping.ItemMap.from_dict({"item": "cm", "source": "medication", "what": "presence", "codes": ["62", "M04A"]})
+    assert not _matches(m, {"code": "", "code2": "620001234"})
+    assert not _matches(m, {"code": "6201", "code2": ""})
+    assert _matches(m, {"code": "M04AA01", "code2": ""})
+    m2 = mapping.ItemMap.from_dict({"item": "cm", "source": "medication", "what": "presence", "codes": ["620001234"]})
+    assert _matches(m2, {"code": "", "code2": "620001234"})
+
+
+def test_e01_the_orchestrator_takes_the_person_from_the_signed_assertion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from fastapi import FastAPI
+    from orchestrator.edc_api import router
+    from tb_common.service_auth import actor_header
+
+    svc, _, _ = k.service(tmp_path)
+    k.ready(svc)
+    app = FastAPI()
+    app.include_router(router(lambda: svc))
+    c = TestClient(app)
+    body = {"record": k.RECORD, "pid": k.PID, "visit_date": k.VISIT_DATE}
+    # DEV/TEST without a token: the header names the person, and the role must allow the action
+    assert c.post(f"/studies/{k.STUDY}/edc/drafts", json=body, headers=actor_header("v1", role="viewer")
+                  ).status_code == 403  # fmt: skip
+    assert c.post(f"/studies/{k.STUDY}/edc/drafts", json={**body, "by": "crc"}).status_code == 403  # no role
+    r = c.post(f"/studies/{k.STUDY}/edc/drafts", json=body, headers=actor_header("crc", role="coordinator"))
+    assert r.status_code == 200 and {d["built_by"] for d in r.json()} == {"crc"}
+    assert c.post(f"/studies/{k.STUDY}/edc/switch", json={"on": False},
+                  headers=actor_header("crc", role="coordinator")).status_code == 403  # fmt: skip
+    # with a token: a body or a bare header names nobody; only a signed assertion does
+    monkeypatch.setenv("TB_SERVICE_TOKEN", "edc-test-token-0123456789abcdef")
+    assert c.post(f"/studies/{k.STUDY}/edc/drafts", json={**body, "by": "crc"}).status_code == 403
+    forged = {**actor_header("crc", role="coordinator"), "X-TB-Actor": "drsato"}
+    assert c.post(f"/studies/{k.STUDY}/edc/drafts", json=body, headers=forged).status_code == 403
+    assert c.post(f"/studies/{k.STUDY}/edc/drafts", json=body,
+                  headers=actor_header("crc", "s1", role="coordinator")).status_code == 200  # fmt: skip
+    d = {x["item"]: x for x in svc.store.drafts(k.STUDY, k.RECORD)}
+    r = c.post(f"/studies/{k.STUDY}/edc/drafts/{d['weight']['id']}/decide", json={"action": "confirm", "by": "eve"},
+               headers=actor_header("crc", "s1", role="coordinator"))  # fmt: skip
+    assert r.status_code == 200 and r.json()["decided_by"] == "crc"
+    sign = {"record": k.RECORD, "printed_name": "Chen Mei", "meaning_text": "I checked each value.",
+            "seen": {str(i): s for i, s in k.seen(svc).items()}}  # fmt: skip
+    r = c.post(f"/studies/{k.STUDY}/edc/sign", json=sign, headers=actor_header("crc", "s1", role="coordinator"))
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "edc.reauth_needed"
+    r = c.post(f"/studies/{k.STUDY}/edc/sign", json=sign,
+               headers=actor_header("crc", "reauth-0123abcd", role="coordinator"))  # fmt: skip
+    assert r.status_code == 200 and r.json()["signer"] == "crc"
+
+
+class _Says:
+    """A note drafter stand-in that gives one fixed answer."""
+
+    def __init__(self, answer: dict[str, Any]) -> None:
+        self.answer = answer
+
+    def chat_json(self, prompt_id: str, variables: dict[str, Any], schema: str | None = None, **_: Any) -> Any:
+        return SimpleNamespace(data=dict(self.answer), prompt_version="1")
+
+
+@pytest.mark.parametrize("answer,why", [
+    ({"found": True, "value": "0", "quote": "Tophus on the right ear.", "note": "n1"}, "only_yes_from_notes"),
+    ({"found": True, "value": "1", "quote": "ear", "note": "n1"}, "quote_not_found"),
+])  # fmt: skip
+def test_e18_a_note_drafts_only_yes_and_only_with_a_real_quote(tmp_path: Path, answer: dict[str, Any],
+                                                                why: str) -> None:  # fmt: skip
+    svc, _, _ = k.service(tmp_path, llm=_Says(answer))
+    k.ready(svc)
+    d = _draft(svc)["tophus"]
+    assert d["state"] == "unknown" and d["why"] == why
+
+
+def test_e26_a_long_note_is_skipped_not_every_note(tmp_path: Path) -> None:
+    from edc.prefill import NOTE_CHARS
+
+    facts = k.FakeFacts()
+    facts.note_rows.insert(0, {"row": "n0", "d": date(2026, 11, 4), "type": "progress", "text": "x" * (NOTE_CHARS + 1)})
+    svc, _, _ = k.service(tmp_path, facts=facts)
+    k.ready(svc)
+    assert _draft(svc)["tophus"]["state"] == "drafted"  # the older, shorter note is still read
+    facts.note_rows = facts.note_rows[:1]
+    svc2, _, _ = k.service(tmp_path / "b", facts=facts)
+    k.ready(svc2)
+    d = _draft(svc2)["tophus"]
+    assert d["state"] == "unknown" and d["why"] == "too_long"
+
+
+def test_e22_a_signed_value_whose_item_left_the_map_stops_the_export(tmp_path: Path) -> None:
+    svc, _, _ = k.service(tmp_path)
+    k.ready(svc)
+    _confirm_all(svc)
+    _sign(svc)
+    svc.put_map(k.STUDY, [m for m in k.MAP if m["item"] != "urate"], k.TARGET, "crc")
+    with pytest.raises(EdcError) as e:
+        svc.export_odm(k.STUDY, "crc")
+    assert e.value.code == "edc.odm_gap" and "urate" in e.value.message
+
+
+def test_e23_user_ids_do_not_collide(tmp_path: Path) -> None:
+    from edc import odm
+
+    assert odm.user_oid("a@b") != odm.user_oid("a_b")
+    svc, _, _ = k.service(tmp_path)
+    k.ready(svc)
+    _confirm_all(svc)
+    _sign(svc)
+    one = svc.export_odm(k.STUDY, "crc")
+    d = _by_item(svc.store.drafts(k.STUDY, k.RECORD))
+    svc.decide(k.STUDY, d["weight"]["id"], "edit", value="73", reason="re-read", by="crc",
+               citation={"text": "sheet", "day": "2026-11-05"})  # fmt: skip
+    _sign(svc)
+    two = svc.export_odm(k.STUDY, "crc")  # the same second, other values: another file id (E-28)
+    oid = re.compile(r'FileOID="([^"]+)"')
+    m1, m2 = oid.search(one), oid.search(two)
+    assert m1 and m2 and m1.group(1) != m2.group(1)

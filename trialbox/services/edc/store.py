@@ -101,9 +101,10 @@ class Switch:
 
 
 def draft_sha(d: dict[str, Any]) -> str:
-    """What a signature covers for one value: the draft, the item, the decided value and its citation."""
-    body = {"id": int(d["id"]), "study": d["study"], "record": d["record"], "visit": d["visit"], "item": d["item"],
-            "final": d["final"], "citation": d["final_citation"]}  # fmt: skip
+    """What a signature covers for one value: the draft, the subject (record and pseudonym), the item, the decided
+    value and its citation."""
+    body = {"id": int(d["id"]), "study": d["study"], "record": d["record"], "pid": d["pid"], "visit": d["visit"],
+            "item": d["item"], "final": d["final"], "citation": d["final_citation"]}  # fmt: skip
     return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
@@ -212,16 +213,21 @@ class EdcStore:
     # ------------------------------------------------------------------ drafts
     def add_drafts(self, study: str, record: str, pid: str, visit: str, visit_date: str, drafts: list[dict[str, Any]],
                    run_id: str, by: str, at: str) -> list[int]:  # fmt: skip
-        """A new draft run: open drafts of the same subject and visit are superseded; an item a person already
-        confirmed or edited keeps its decision and gets no new draft."""
+        """A new draft run: open and rejected drafts of the same subject and visit are superseded, so each item has
+        one current draft; an item a person already confirmed or edited keeps its decision and gets no new draft.
+        A record key stays bound to the one subject it was first drafted for (D-162, review E-02)."""
         ids: list[int] = []
         with self._db.transaction() as tx:
+            other = tx.fetchval("SELECT pid FROM draft WHERE study = ? AND record = ? AND pid <> ? LIMIT 1",
+                                (study, record, pid))  # fmt: skip
+            if other is not None:
+                raise EdcError("edc.pid_mismatch", "this record key was drafted for another subject")
             decided = {r["item"] for r in tx.fetchdicts(
                 "SELECT item FROM draft WHERE study = ? AND record = ? AND visit = ? "
                 "AND fate IN ('confirmed', 'edited')",
                 (study, record, visit))}  # fmt: skip
             tx.execute("UPDATE draft SET fate = 'superseded' WHERE study = ? AND record = ? AND visit = ? AND "
-                       "fate = 'open'", (study, record, visit))  # fmt: skip
+                       "fate IN ('open', 'rejected')", (study, record, visit))  # fmt: skip
             for d in drafts:
                 if d["item"] in decided:
                     continue
@@ -238,6 +244,7 @@ class EdcStore:
         r = dict(r)
         r["citation"] = _cit(r.get("citation"))
         r["final_citation"] = _cit(r.get("final_citation"))
+        r["sha"] = draft_sha(r) if r.get("fate") in DECIDED else ""  # what a signature would cover now
         return r
 
     def draft(self, study: str, draft_id: int) -> dict[str, Any] | None:
@@ -300,11 +307,16 @@ class EdcStore:
                 final_cite = cite
                 if citation and str(citation.get("text") or "").strip():
                     final_cite = {"kind": "manual", "text": str(citation["text"]).strip()[:300],
-                                  "day": str(citation.get("day") or "")[:10], "by": by}  # fmt: skip
+                                  "day": str(citation.get("day") or "")[:10], "by": by,
+                                  **({"replaces": cite} if cite else {})}  # fmt: skip
+                elif value.strip() != (d["value"] or ""):
+                    # a changed value never keeps the machine's citation of the old one (review E-08)
+                    raise EdcError("edc.edit_source", "a changed value needs its own source: say where it comes from",
+                                   400)  # fmt: skip
                 if not final_cite:
                     raise EdcError("edc.no_citation", "a value without a citation cannot be confirmed: name the source")
-                if d["sent_at"] and d["fate"] in DECIDED and final_cite is cite and value.strip() == d["final"]:
-                    raise EdcError("edc.same", "the value is unchanged")
+                if d["fate"] in DECIDED and final_cite == d["final_citation"] and value.strip() == d["final"]:
+                    raise EdcError("edc.same", "the value and its source are unchanged")  # compared by value (E-28)
                 fate, final = "edited", value.strip()
             else:  # reject
                 if d["sent_at"]:
@@ -312,6 +324,11 @@ class EdcStore:
                 if d["fate"] in DECIDED and not reason.strip():
                     raise EdcError("edc.reason", "say why a decided value is withdrawn", 400)
                 fate, final, final_cite = "rejected", None, None
+            if d["signature_id"] is not None:  # the change withdraws the signature over this value: keep that visible
+                tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, "
+                           "citation, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                           (draft_id, study, d["record"], d["visit"], d["item"], "signature_void", old, old,
+                            f"signature {d['signature_id']} no longer covers this value", None, by, at))  # fmt: skip
             tx.execute("UPDATE draft SET fate = ?, final = ?, final_citation = ?, reason = ?, decided_by = ?, "
                        "decided_at = ?, signature_id = NULL, signed_sha = NULL WHERE id = ?",
                        (fate, final, json.dumps(final_cite, ensure_ascii=False) if final_cite else None,
@@ -327,8 +344,10 @@ class EdcStore:
 
     # ------------------------------------------------------------------ signature
     def sign(self, study: str, record: str, visit: str, *, signer: str, printed_name: str, role: str, meaning: str,
-             meaning_text: str, lang: str, at: str) -> dict[str, Any]:  # fmt: skip
-        """Sign every decided, unsigned value of one subject and visit. The caller has re-authenticated the signer."""
+             meaning_text: str, lang: str, at: str, seen: dict[int, str]) -> dict[str, Any]:  # fmt: skip
+        """Sign the decided, unsigned values of one subject and visit. The caller has re-authenticated the signer.
+        ``seen`` is what the signer's screen showed (draft id -> hash); the set and every hash must still be what is
+        in the database now, or nothing is signed (review E-11)."""
         if meaning not in MEANINGS:
             raise EdcError("edc.meaning", "unknown signature meaning", 400)
         with self._db.transaction() as tx:
@@ -338,12 +357,14 @@ class EdcStore:
             if not rows:
                 raise EdcError("edc.nothing_to_sign", "no confirmed value waits for a signature")
             shas = {int(r["id"]): draft_sha(r) for r in rows}
+            if {int(k): str(v) for k, v in seen.items()} != shas:
+                raise EdcError("edc.sign_changed", "the values changed since the page was shown; open it again")
             content = hashlib.sha256(json.dumps(sorted(shas.items())).encode()).hexdigest()
             sid = int(tx.fetchval(
                 "INSERT INTO signature (study, record, visit, signer, printed_name, role, meaning, meaning_text, lang, "
                 "method, at, content_sha, drafts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
                 (study, record, visit, signer, printed_name, role, meaning, meaning_text, lang, "password", at,
-                 content, json.dumps(sorted(shas)))))  # fmt: skip
+                 content, json.dumps({str(k): v for k, v in sorted(shas.items())}))))  # fmt: skip
             for did, sha in shas.items():
                 tx.execute("UPDATE draft SET signature_id = ?, signed_sha = ? WHERE id = ?", (sid, sha, did))
         sig = self.signature(sid)
@@ -360,10 +381,18 @@ class EdcStore:
         return self._all("SELECT * FROM signature WHERE study = ? AND record = ? ORDER BY id", (study, record))
 
     # ------------------------------------------------------------------ what may be sent, and what was
+    def _current(self, study: str, record: str | None = None, visit: str | None = None) -> list[dict[str, Any]]:
+        """The current drafts; more than one for an item of a subject and visit is a broken store: refuse."""
+        rows = self.drafts(study, record, visit)
+        keys = [(d["record"], d["visit"], d["item"]) for d in rows]
+        if len(keys) != len(set(keys)):
+            raise EdcError("edc.duplicate", "an item has more than one current draft; nothing is sent or exported")
+        return rows
+
     def sendable(self, study: str, record: str | None = None, visit: str | None = None) -> list[dict[str, Any]]:
         """Decided, signed values whose content still matches the signature and that are not sent as they are."""
         out = []
-        for d in self.drafts(study, record, visit):
+        for d in self._current(study, record, visit):
             if d["fate"] not in DECIDED or d["signature_id"] is None or not d["final"]:
                 continue
             if d["signed_sha"] != draft_sha(d):
@@ -375,7 +404,7 @@ class EdcStore:
 
     def signed(self, study: str, record: str | None = None) -> list[dict[str, Any]]:
         """Decided, signed values whose content still matches the signature (the ODM export)."""
-        return [d for d in self.drafts(study, record) if d["fate"] in DECIDED and d["signature_id"] is not None
+        return [d for d in self._current(study, record) if d["fate"] in DECIDED and d["signature_id"] is not None
                 and d["final"] and d["signed_sha"] == draft_sha(d)]  # fmt: skip
 
     def record_sent(self, study: str, d: dict[str, Any], target: str, target_record: str, result: str, detail: str,

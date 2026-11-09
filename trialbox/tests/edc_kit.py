@@ -173,3 +173,11 @@ def ready(svc: EdcService, on: bool = True) -> None:
     svc.put_map(STUDY, MAP, TARGET, "crc")
     if on:
         svc.set_switch(STUDY, True, by="pi", role="investigator", **ACK)
+
+
+def seen(svc: EdcService, record: str = RECORD, visit: str = "") -> dict[int, str]:
+    """What a review page shows before signing: each decided, unsigned value of the visit and its hash."""
+    from datacore.export import BASE_EVENT
+
+    return {int(d["id"]): str(d["sha"]) for d in svc.store.drafts(STUDY, record, visit or BASE_EVENT)
+            if d["fate"] in ("confirmed", "edited") and d["signature_id"] is None}  # fmt: skip

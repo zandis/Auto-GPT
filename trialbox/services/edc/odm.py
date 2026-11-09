@@ -17,6 +17,8 @@ The file is ``FileType="Transactional"``: each ``ItemData`` is an ``Upsert`` and
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 from xml.etree import ElementTree as ET  # building only; nothing is parsed here
@@ -33,7 +35,8 @@ def _oid(text: str) -> str:
 
 
 def user_oid(name: str) -> str:
-    return "USR." + _oid(name)
+    """One OID per user name; a short hash keeps ``a@b`` and ``a_b`` apart (review E-23)."""
+    return f"USR.{_oid(name)}.{hashlib.sha256(name.encode('utf-8')).hexdigest()[:6]}"
 
 
 def source_id(c: dict[str, Any] | None) -> str:
@@ -51,7 +54,8 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
     ``signatures``: id -> signature row. ``at``: the creation time, ISO 8601 with offset."""
     stamp = re.sub(r"[^0-9]", "", at)[:14]
     study_oid, mdv_oid = f"Project.{_oid(study)}", f"Metadata.{_oid(study)}_edc"
-    file_oid = f"TrialBox.edc.{_oid(study)}.{stamp}"
+    digest = hashlib.sha256(json.dumps([[v.get("id"), v.get("final")] for v in values], default=str).encode())
+    file_oid = f"TrialBox.edc.{_oid(study)}.{stamp}.{digest.hexdigest()[:8]}"  # unique within a second (E-28)
     root = ET.Element("ODM", {"xmlns": ODM_NS, "FileType": "Transactional", "FileOID": file_oid,
                               "CreationDateTime": at, "ODMVersion": "1.3.2", "SourceSystem": "TrialBox",
                               "Granularity": "All"})  # fmt: skip

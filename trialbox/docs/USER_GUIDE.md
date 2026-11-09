@@ -113,13 +113,15 @@ off at any time. The CRC then:
    date, a confirmed fact, or the note with the exact quote. A value TrialBox is not sure of stays **unknown** with
    the reason (nothing in the record, two different values, another unit, only in an unconfirmed chart fact). Unknown
    is never sent as "No".
-3. *Review*: per value, **Confirm** (only a value with a source), **Change** (a reason is required; for a value with no
-   source, say where it comes from), or **Reject**. Nothing is sent yet.
-4. *Sign*: read the meaning of the signature, tick that you read it, and type your password again. The signature
-   records your name as on the delegation log, your role, the time and the meaning. A changed value needs a new
-   signature.
+3. *Review*: per value, **Confirm** (only a value with a source), **Change** (a reason is required; when you change
+   the value, say where the new value comes from), or **Reject**. Nothing is sent yet.
+4. *Sign*: read the meaning of the signature, tick that you read it, and type your password again. You need your own
+   active entry on the study's delegation log; the signature records that name, your role, the time and the meaning.
+   You sign exactly the values the page showed: if someone changed one since, open the page again. A changed value
+   needs a new signature.
 5. *Send*: only signed values go to REDCap. A value someone already typed in REDCap is never overwritten; it is listed
-   as a conflict for you to settle in REDCap. Every value sent is read back and compared. For another EDC, download
+   as a conflict for you to settle in REDCap. A screening number on two REDCap records, a visit that is not a REDCap
+   event, and a patient who opted out are listed and not sent. Every value sent is read back and compared. For another EDC, download
    the signed values as CDISC ODM 1.3.2 and import them there; TrialBox never types into another system's screens.
 
 *Audit trail* shows, per subject, every draft, decision (old and new value, reason), signature and send. Viewer and

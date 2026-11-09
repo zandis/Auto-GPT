@@ -103,6 +103,14 @@ def edc_allowed(role: str, action: str, *, tasks: frozenset[str], is_pi: bool) -
     return "enter_data" in tasks
 
 
+def edc_role_may(role: str, action: str) -> bool:
+    """The orchestrator's own check of an EDC action (D-162, review E-01): the most this console role could ever do
+    in a study. The console adds the delegation log on top (``edc_allowed`` with the person's study tasks)."""
+    inv = role == "investigator"
+    tasks = study_tasks(role, log_names_pi=False, is_pi=inv, ticked=frozenset())
+    return edc_allowed(role, action, tasks=tasks, is_pi=inv)
+
+
 # D-146 (review J-02): the daily per-sender limit protects the box from runs that read every patient. It counts only
 # these job types, each on its own; a case question, a consent draft, a status or an approval is never counted.
 HEAVY_JOBS: tuple[str, ...] = ("FEAS", "SCREEN", "COHORT", "NAV", "MICROBATCH", "CALIBRATION")
