@@ -67,7 +67,7 @@ The aim of a study is to screen the **entire database** for potential patients. 
 |---|---|
 | Form | A wiki page per patient written by the model, with every sentence cited and verified. Physician annotations sit beside it. A machine-readable twin (JSON) and pgvector come with it. |
 | v1 layers | Cited record, timeline, phenotype, eligibility, personal lab setpoints, gap finder, similar patients. |
-| SaMD and clinicians | **Clinicians see the setpoint and gap layers, clearly labelled "research use, not for diagnosis".** *(Overrides the review's "PI and steward only until a device-qualification view".)* A written device-qualification view should still be prepared. |
+| SaMD and clinicians | **Restricted until a written regulatory view exists** (revised 2026-11-09, after the commercial and regulatory assessment). Clinicians see the setpoint and gap layers only inside a study-referral context, as numbers without a disease name, behind a switch that is off by default. This lasts until a written PMDA/MHLW 該当性 view and a TFDA view exist. PIs and stewards see these layers labelled research use. Forecasts stay out. *(Replaces the earlier "clinicians see them, labelled".)* |
 | Physician annotations | A signed structured entry counts as confirmed data. Free text is read by the models as a note. Neither can exclude a patient silently: every exclusion is listed on the "excluded and why" page. |
 | Narrative | Written by the judge model at night, in the site's language, with English on request. Nobody edits it. Corrections are made by annotating or by fixing the data. The model abstains when fewer than 95 % of its sentences can be cited. |
 | Freshness | Facts and the twin update within minutes. The narrative updates nightly, or on request for one patient. |
@@ -94,3 +94,11 @@ The owner accepted every other recommendation in §6 of `2026-11-09-standalone-d
 - consortium registry work starts now
 
 Where a recommendation conflicts with an overriding decision above, the decision above wins.
+
+## Regulatory and commercial (after the holistic assessment)
+
+| Topic | Decision |
+|---|---|
+| Device-style records | Keep light IEC 62304-shaped records for the profile module from now on: requirements, risk notes, verification evidence and change records per release. |
+| Business model | Hospitals sign a platform licence. Sponsors pay a per-study activation fee that recovers it. No fees per enrolled patient. |
+| Evidence | Draft the protocol for Study A now: a retrospective accuracy study at CGMH, with precision ≥ 0.75 and wrong exclusion ≤ 2%, through the CGMH IRB opt-out/waiver route. No marketing claims are made before Study A. |
