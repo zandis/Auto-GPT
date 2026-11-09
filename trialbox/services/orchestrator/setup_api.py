@@ -52,6 +52,10 @@ class RolesBody(BaseModel):
     by: str
 
 
+class PseudonymBody(BaseModel):
+    chart_no: str = Field(max_length=40)
+
+
 class ChartBody(BaseModel):
     chart_no: str = Field(max_length=40)
     name: str = Field(default="pasted.txt", max_length=200)
@@ -308,6 +312,15 @@ def router(
     def post_resolve(ws: str, body: ResolveBody) -> dict[str, Any]:
         svc, w = get(), ws_of(ws)
         return dict(call(lambda: svc.resolve(w, body.pid, body.what, body.keep, body.by)))
+
+    @r.post("/setup/pseudonym")
+    def post_pseudonym(body: PseudonymBody) -> dict[str, Any]:
+        """D-147: a chart number typed at the door (the opt-out register) becomes the box's pseudonym here; the console
+        stores only the pseudonym and the number is never kept or logged."""
+        chart = body.chart_no.strip()
+        if not chart:
+            raise HTTPException(status_code=400, detail={"code": "SETUP-CHART", "message": "give a chart number"})
+        return {"pid": call(lambda: get().pseudonym(chart))}
 
     @r.post("/setup/{ws}/publish")
     def post_publish(ws: str, body: ByBody) -> dict[str, Any]:

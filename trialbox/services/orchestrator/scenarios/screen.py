@@ -149,6 +149,24 @@ def scope_patients(
     return out
 
 
+def drop_opted_out(ctx: Ctx, scoped: list[Scoped]) -> list[Scoped]:
+    """D-147: patients on the research office's opt-out register (``tb_common.optout``) are never screened. The
+    register is read as it stood when the job was received, so a re-run of an old job stays byte-identical (D-82).
+    The removal is audited by count (who opted out is itself private)."""
+    from tb_common.optout import opted_out
+
+    gone = opted_out(as_of=ctx.job.received_at.isoformat())
+    kept = [s for s in scoped if s.pid not in gone]
+    if len(kept) != len(scoped):
+        ctx.orch.audit.append(
+            "screen.opt_out_removed",
+            job_id=ctx.job.job_id,
+            ruleset=ctx.job.ruleset,
+            detail={"removed": len(scoped) - len(kept), "register": "optout"},
+        )
+    return kept
+
+
 def local_iso(value: object, tz: str) -> str | None:
     """Lake timestamps are hospital-local wall time; contracts carry ISO-8601 with offset (SPEC §1)."""
     if value in (None, ""):
@@ -427,7 +445,8 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
         raise StepFailed("running", "window must be a number of days") from exc
     depts = [d.strip().upper() for d in opts["dept"].split(",")] if opts.get("dept") else []
     recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
-    scoped = scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot)
+    # D-147: the research office's opt-out register applies to every screening run (and MICROBATCH's incident run)
+    scoped = drop_opted_out(ctx, scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot))
     ctx.metrics(patients_scoped=len(scoped))
     judge = judge_for(ctx, rs)
     judging = judging_info(judge)

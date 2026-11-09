@@ -106,6 +106,9 @@ table.compact td, table.compact th { padding: 3px 8px; }
 .pill.st-enrolled, .pill.st-consented { background: var(--ok-bg); color: var(--ok); }
 .pill.st-screen_fail, .pill.st-declined, .pill.st-withdrawn { background: var(--bad-bg); color: var(--bad); }
 .pill.st-contacted { background: var(--warn-bg); color: var(--warn); }
+.pill.ref-agreed { background: var(--ok-bg); color: var(--ok); }  /* D-147: referral states */
+.pill.ref-declined { background: var(--bad-bg); color: var(--bad); }
+.pill.ref-asked, .pill.ref-discuss { background: var(--warn-bg); color: var(--warn); }
 td form.inline select, td form.inline input { max-width: 140px; }
 
 /* models-and-policy card (D-97) */

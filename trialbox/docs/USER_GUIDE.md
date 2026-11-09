@@ -33,7 +33,7 @@ The words are one plain vocabulary per idea, the same on every page (D-133). Som
 
 | Role | Lands on | Does | Never |
 | --- | --- | --- | --- |
-| Investigator (PI, sub-I) | This week's patients | approves criteria (S20), marks patients, approves before contact, acknowledges serious AEs, may show a chart number of the study's patients (D-143) | starts runs |
+| Investigator (PI, sub-I) | This week's patients | approves criteria (S20, the PI only), marks patients, approves before contact, acknowledges serious AEs, may show a chart number of the study's patients (D-143), keeps the delegation log, asks treating doctors (D-147) | starts runs |
 | Coordinator (CRC) | the work list | sets up studies, pastes protocols, starts feasibility and screening, records contact outcomes, consent, visits, AEs | approves criteria |
 | Administrator | Admin | accounts, health, runs, data sources, REDCap links, updates | approves or marks |
 | CRO specialist | Reports | reads the sponsor copy of feasibility reports for their studies (small counts hidden) | sees lists or patients |
@@ -68,6 +68,20 @@ Viewer and CRO accounts never see one (D-143).
 **Excluded patients (PI, CRC).** "Excluded patients and why" lists every patient the latest screening run left out,
 with the criterion, where the answer came from (coded records, a confirmed fact, or the notes with both models
 agreeing) and the evidence. Look at a few each week; "This is wrong, send to review" is recorded with your name.
+
+**The study team and the whole hospital (D-147).** The PI keeps the study's *Delegation log* (a copy of the trial
+office's signed log, compared with it every month): sub-investigators, with the tasks the PI ticks (see candidates,
+mark Approach, ask a treating doctor, enter data) and their GCP training dates. Only the PI approves criteria. Until
+the log names a PI, every investigator of the study acts as its PI. *Candidates* lists every patient the study's run
+found anywhere in the hospital; a candidate opens with a purpose (recorded, and limited per hour), shows why the
+patient fits or not with the quotes, and lets the PI or a sub-investigator ticked "see candidates" show the chart
+number (D-143's reveal: a reason, the record, the hourly limit). **Ask treating doctor**: TrialBox only suggests the doctor the data names; confirm it, pick one from the
+*Staff directory*, type a name, choose "arranged outside TrialBox" or leave it to the department contact. Nothing is
+required. The CRC asks the doctor and records the answer (agrees to introduce, declines with a reason, wants to
+discuss) on *Referrals*; Approach waits until the doctor agrees. A missing or expired IRB approval or consent-form
+version (*IRB and consent form*) is a warning before Approach, not a block: marking Approach then is recorded as an
+override. The research office keeps the *Opt-out register*: an opted-out patient leaves screening, every list and
+later exports.
 
 **Morning mail.** At 07:00 the CRC and at 07:30 the PI get a short mail: who is new, who is due, by pseudonym and
 screening number, never by name or chart number.

@@ -32,6 +32,9 @@ ALLOWED: dict[str, str] = {
     "tests/unit/test_model_swap.py": "fake vLLM servers behind an httpx.MockTransport (no network)",
     "tools/phi_synth_eval.py": "survey 2026-11-07 PHI check on fictional D0 notes (Z-DEV, OpenRouter); not shipped",
     "tools/phi_synth_gen.py": "writes the fictional D0 notes for phi_synth_eval (Z-DEV); not shipped",
+    "tools/bench_profile.py": "D-148 cost bench on fictional patients (Z-DEV); calls the judge directly only when the "
+    "gateway refuses, and records that it did; not shipped",
+    "tests/unit/test_gpu_prep.py": "drives bench_profile against an in-process stub (no network)",
 }
 
 

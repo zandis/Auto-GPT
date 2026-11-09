@@ -64,6 +64,25 @@ def role_allowed(role: str, command: str) -> bool:
     return command.upper() in ROLE_COMMANDS.get(role, frozenset())
 
 
+# D-147: the study tasks of the delegation log (ICH E6): see candidates, mark Approach, ask a treating doctor, enter
+# data. The role table gives each role its tasks in a study; for an investigator the study's delegation log decides:
+# the logged PI has every task, a sub-investigator the ones the PI ticked, an investigator not on a log that names a PI
+# none. Before a study's log names a PI, every investigator of the study acts as its PI with ``investigator``'s row.
+STUDY_TASKS: tuple[str, ...] = ("screen", "approach", "refer", "enter_data")
+ROLE_STUDY_TASKS: dict[str, frozenset[str]] = {
+    "admin": frozenset({"screen"}),
+    "coordinator": frozenset({"screen", "enter_data"}),
+    "investigator": frozenset({"screen", "approach", "refer"}),  # until the study's log names its PI
+}
+
+
+def study_tasks(role: str, *, log_names_pi: bool, is_pi: bool, ticked: frozenset[str]) -> frozenset[str]:
+    """The tasks a console account with ``role`` has in one study, given the study's delegation log."""
+    if role != "investigator" or not log_names_pi:
+        return ROLE_STUDY_TASKS.get(role, frozenset())
+    return frozenset(STUDY_TASKS) if is_pi else frozenset(ticked) & frozenset(STUDY_TASKS)
+
+
 # D-146 (review J-02): the daily per-sender limit protects the box from runs that read every patient. It counts only
 # these job types, each on its own; a case question, a consent draft, a status or an approval is never counted.
 HEAVY_JOBS: tuple[str, ...] = ("FEAS", "SCREEN", "COHORT", "NAV", "MICROBATCH", "CALIBRATION")

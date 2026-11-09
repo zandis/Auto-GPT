@@ -211,6 +211,9 @@ def build_n2(
                 steps.append(translate(lang, "n2.step.info", p=r["short"], rs=rs))
             if r.get("status") == "new" and (r.get("first_at") or "") > cut:
                 new.append(translate(lang, "n2.new.row", p=r["short"], rs=rs))
+        for ref in extra.get("referrals") or []:  # D-147: ask the treating doctor, record the answer
+            p = with_no(ref.pid, (extra.get("nos") or {}).get(ref.pid))
+            steps.append(translate(lang, "n2.step.refer", p=p, rs=rs))
         for m in extra.get("marks") or []:
             if m.at > cut:
                 p = with_no(m.pid, (extra.get("nos") or {}).get(m.pid))
@@ -289,9 +292,11 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
                     reg = {e.pid: e.status for e in h.bk.registry_rows(r.id)}
                 except Exception:
                     reg = {}
-                studies.append(
-                    (r.id, wk_rows, {"marks": store.all_marks(r.id), "retry": retry, "registry": reg, "nos": nos})
-                )
+                listed = {row["pid"] for row in wk["cl"].get("rows") or []} if wk.get("cl") else set()
+                team = getattr(h, "team", None)
+                refs = [x for x in team.latest_referrals(r.id).values() if x.open and x.pid in listed] if team else []
+                studies.append((r.id, wk_rows, {"marks": store.all_marks(r.id), "retry": retry, "registry": reg,
+                                                "nos": nos, "referrals": refs}))  # fmt: skip
         n = (
             build_n1(u, person, today, studies, life)
             if kind == "N1"

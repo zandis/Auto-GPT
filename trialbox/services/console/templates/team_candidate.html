@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{# D-147: one candidate found anywhere in the hospital, opened with a purpose: identifiers (the chart number
+   through D-143's reveal: a reason, audited, capped), why the patient fits or not, the cited record, the treating
+   doctor as a suggestion or unknown, and the referral. #}
+{% from "_fit.html" import fit_line, open_items with context %}
+{% block title %}{{ t('team.cand.one') }} · {{ rs }}{% endblock %}
+{% block content %}
+<p><a href="/studies/{{ rs }}/candidates">← {{ t('team.cand.title') }}</a></p>
+<div class="headrow">
+  <h1>{{ rs }} · {{ t('week.patient', p=pid[:8]) }}</h1>
+  {% if mrn is not none %}<span class="pill ok" data-testid="mrn">{{ t('patient.mrn') }} <span class="mono">{{ mrn or t('patient.mrn.none') }}</span></span>{% endif %}
+</div>
+{% include "_team_nav.html" %}
+<p class="hint" data-testid="purpose-shown">{{ t('team.purpose.logged', purpose=t('team.purpose.' + purpose)) }}</p>
+<dl class="facts">
+  <dt>{{ t('team.id') }}</dt><dd><span class="mono" data-testid="pid">{{ pid }}</span>{% if screening_no %} · {{ t('log.no') }} <span class="mono" data-testid="screening-no">{{ screening_no }}</span>{% endif %}</dd>
+  <dt>{{ t('patient.tier') }}</dt><dd><span class="pill tier-{{ row.tier }}">{{ t('tier.' + row.tier) }}</span>{% if registry %} · {{ t('patient.registry') }} {{ t('registry.status.' + registry) }}{% endif %}{% if mark %} · {{ t('mark.' + mark.mark) }}{% endif %}</dd>
+  <dt>{{ t('patient.visit') }}</dt><dd><span class="nowrap">{{ (row.next_appointment or '')[:16].replace('T', ' ') or t('week.no_visit') }}</span>{% if row.department %} · {{ given(row.department) }}{% endif %}</dd>
+  <dt>{{ t('patient.why') }}</dt><dd data-testid="why">{{ fit_line(fit) }}</dd>
+  <dt>{{ t('patient.open') }}</dt><dd>{{ open_items(fit, row.actions or []) }}</dd>
+  <dt>{{ t('team.cand.doctor') }}</dt><dd data-testid="doctor">{% if doctor.known %}{{ given(doctor.name) }} <span class="hint">{{ t('team.doctor.from_data') }}</span>{% if doctor.contact %} · {{ doctor.contact }}{% endif %}{% else %}<span class="pill warn">{{ t('team.doctor.unknown') }}</span> <span class="hint">{{ t('team.doctor.unknown.help') }}</span>{% endif %}</dd>
+</dl>
+{% if may_reveal and mrn is none %}<section class="card" data-testid="reveal-card"><h2>{{ t('reveal.title') }}</h2>
+<form method="post" action="/studies/{{ rs }}/candidates/{{ pid }}/reveal"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="purpose" value="{{ purpose }}">
+<label for="reveal-reason">{{ t('reveal.reason') }}</label><select id="reveal-reason" name="reason" required data-testid="reveal-reason"><option value="">{{ t('mark.reason.choose') }}</option>{% for k in reveal_reasons %}<option value="{{ k }}">{{ t('reveal.reason.' ~ k) }}</option>{% endfor %}</select>
+<button type="submit" class="secondary" data-testid="reveal">{{ t('patient.reveal.audited') }}</button></form>
+<p class="hint">{{ t('team.reveal.help') }}</p></section>{% endif %}
+{% if mrn is not none %}<p class="hint">{{ t('patient.mrn.help') }}</p>{% endif %}
+
+<section class="card" id="referral" data-testid="referral-card">
+<h2>{{ t('mark.ask_doctor') }}</h2>
+{% if referral %}<p data-testid="referral-state"><span class="pill ref-{{ referral.state }}">{{ t('team.state.' + referral.state) }}</span> · {{ t('team.route.' + referral.route) }}{% if referral.physician %} · {{ given(referral.physician) }}{% else %} · {{ t('team.doctor.unknown') }}{% endif %}{% if referral.reason %} · {{ t('team.decline.' + referral.reason) }}{% endif %} · {{ referral.requested_at|local }} · {{ referral.requested_by }}</p>
+{% if referral.open %}<p class="hint">{{ t('team.ref.open.help') }} <a href="/studies/{{ rs }}/referrals#r{{ referral.id }}">{{ t('team.ref.title') }}</a></p>{% endif %}{% endif %}
+{% if may_refer and (not referral or not referral.open) %}
+<form method="post" action="/studies/{{ rs }}/candidates/{{ pid }}/referral" class="markform" data-testid="referral-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<fieldset><legend>{{ t('team.ref.who') }}</legend>
+{% if doctor.known %}<label><input type="radio" name="route" value="suggested" checked data-testid="route-suggested"> {{ t('team.ref.confirm', name=doctor.name) }}</label>{% endif %}
+<label><input type="radio" name="route" value="directory" data-testid="route-directory"> {{ t('team.route.directory') }}</label>
+<select name="staff_id" aria-label="{{ t('team.route.directory') }}" data-testid="staff-pick"><option value="">{{ t('mark.reason.choose') }}</option>{% for s in staff %}<option value="{{ s.id }}">{{ s.name }}{% if s.department %} · {{ s.department }}{% endif %}</option>{% endfor %}</select>
+<label><input type="radio" name="route" value="typed" data-testid="route-typed"> {{ t('team.route.typed') }}</label>
+<label for="ref-name">{{ t('team.ref.name') }}</label><input id="ref-name" name="name" maxlength="120" data-testid="ref-name">
+<label><input type="radio" name="route" value="outside" data-testid="route-outside"> {{ t('team.route.outside') }}</label>
+<label><input type="radio" name="route" value="department"{% if not doctor.known %} checked{% endif %} data-testid="route-department"> {{ t('team.route.department') }}</label>
+<select name="department" aria-label="{{ t('team.route.department') }}" data-testid="dept-pick"><option value="">{{ row.department or '' }}</option>{% for c in contacts %}<option value="{{ c.department }}">{{ c.department }} · {{ c.name }}</option>{% endfor %}</select>
+</fieldset>
+<p class="hint">{{ t('team.ref.never_stalls') }}</p>
+<label for="ref-note">{{ t('mark.note') }}</label><input id="ref-note" name="note" maxlength="300">
+<button type="submit" data-testid="referral-send">{{ t('team.ref.send') }}</button>
+</form>{% elif not may_refer %}<p class="hint" data-testid="referral-not-yours">{{ t('team.ref.not_yours') }}</p>{% endif %}
+{% if ref_events %}<ul class="plain hint" data-testid="referral-trail">{% for rid, e in ref_events %}<li>{{ e.at|local }} · {{ e.by }} · {{ t('team.ev.' + e.action) }}{% if e.body.route %} · {{ t('team.route.' + e.body.route) }}{% endif %}{% if e.body.answer %} · {{ t('team.answer.' + e.body.answer) }}{% endif %}{% if e.body.channel %} ({{ t('team.channel.' + e.body.channel) }}){% endif %}</li>{% endfor %}</ul>{% endif %}
+</section>
+
+{% include "_criteria.html" %}
+<section class="card"><h2>{{ t('team.mark.title') }}</h2>
+<p class="hint">{{ t('team.mark.help') }}</p>
+{% if irb_warn %}<p class="warn" data-testid="irb-warning">{{ t('team.irb.warn') }} {% for w in irb_warn %}<span class="pill warn">{{ t('team.irb.w.' + w) }}</span> {% endfor %}</p>{% endif %}
+<a class="button secondary" href="/studies/{{ rs }}/patients/{{ pid }}" data-testid="to-patient">{{ t('team.mark.open') }}</a></section>
+{% if views %}<section class="card"><h2>{{ t('team.views.title') }}</h2><ul class="plain hint" data-testid="views">{% for k, p, b, a in views %}<li>{{ a|local }} · {{ b }} · {{ t('team.view.' + k) }} · {{ t('team.purpose.' + p) }}</li>{% endfor %}</ul></section>{% endif %}
+<p class="hint">{{ t('patient.footer2', job=job.job_id[-8:]) }}</p>
+{% endblock %}

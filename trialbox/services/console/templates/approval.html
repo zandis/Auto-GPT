@@ -42,7 +42,7 @@
 </tr>{% endfor %}</tbody></table></div>
 </section>
 <section class="card attention" data-testid="approve-box">
-{% if user.can_approve %}
+{% if user.can_approve and approver %}
   {% if missing %}<p class="warn" data-testid="approve-missing">{{ t('s20.missing', n=missing|length) }}</p>
   <button type="button" disabled data-testid="approve">{{ t('s20.approve_all') }}</button>
   {% else %}

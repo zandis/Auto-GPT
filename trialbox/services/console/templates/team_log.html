@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{# D-147: the study's delegation log (ICH E6 style). The trial office's signed log stays the record; this copy grants
+   the rights in TrialBox, with training dates, and is compared with the signed log every month. #}
+{% block title %}{{ t('team.log.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('team.log.title') }}</h1></div>
+{% include "_team_nav.html" %}
+<p class="hint">{{ t('team.log.help') }}</p>
+{% set done = request.query_params.get('done', '') %}
+{% if done in ('add', 'update', 'check') %}<p class="ok" role="status" data-testid="log-done">{{ t('team.log.done.' + done) }}</p>{% endif %}
+{% if due %}<p class="warn" role="alert" data-testid="check-due">{{ t('team.log.check_due') }}</p>{% endif %}
+{% if not has_pi %}<p class="warn" data-testid="no-pi">{{ t('team.log.no_pi') }}</p>{% endif %}
+<section class="card">
+{% if not entries %}<p class="empty">{{ t('team.log.empty') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="delegation">
+<thead><tr><th>{{ t('team.log.person') }}</th><th>{{ t('team.log.role') }}</th>{% for k in tasks %}<th>{{ t('team.task.' + k) }}</th>{% endfor %}<th>{{ t('team.log.dates') }}</th><th>{{ t('team.log.training') }}</th><th>{{ t('team.log.signed') }}</th></tr></thead>
+<tbody>{% for e in entries %}{% set on = e.active_on(today) %}<tr id="e{{ e.id }}" data-testid="entry-{{ e.id }}" class="{{ '' if on else 'muted' }}">
+<td>{{ e.name }}{% if e.username %} <span class="hint mono">{{ e.username }}</span>{% endif %}{% if not on %} <span class="pill">{{ t('team.log.ended') }}</span>{% endif %}</td>
+<td>{{ t('team.role.' + e.role) }}</td>
+{% for k in tasks %}<td data-testid="tick-{{ e.id }}-{{ k }}">{{ '✓' if k in e.tasks else '–' }}</td>{% endfor %}
+<td class="nowrap">{{ e.start }} – {{ e.end or '' }}</td>
+<td>{{ e.training_day or '–' }}{% if e.training_ref %} <span class="hint">{{ e.training_ref }}</span>{% endif %}{% if e.role in ('pi', 'sub_pi') and not e.training_day %} <span class="pill warn">{{ t('team.log.no_training') }}</span>{% endif %}</td>
+<td class="nowrap">{{ e.signed_by }} · {{ e.signed_at|local(10) }}</td>
+</tr>
+{% if can_edit and e.role != 'pi' %}<tr><td colspan="{{ 5 + tasks|length }}"><form method="post" action="/studies/{{ rs }}/team/{{ e.id }}" class="inline" data-testid="edit-{{ e.id }}">
+<input type="hidden" name="csrf" value="{{ csrf }}">{% for k in tasks %}<label class="nowrap"><input type="checkbox" name="tasks" value="{{ k }}"{% if k in e.tasks %} checked{% endif %} data-testid="edit-{{ e.id }}-{{ k }}"> {{ t('team.task.' + k) }}</label> {% endfor %}
+<label for="end-{{ e.id }}">{{ t('team.log.end') }}</label> <input id="end-{{ e.id }}" name="end" type="date" lang="{{ lang }}" value="{{ e.end or '' }}">
+<label for="tr-{{ e.id }}">{{ t('team.log.training') }}</label> <input id="tr-{{ e.id }}" name="training_day" type="date" lang="{{ lang }}" value="{{ e.training_day or '' }}"><input type="hidden" name="training_ref" value="{{ e.training_ref or '' }}">
+<button type="submit" class="small secondary" data-testid="save-{{ e.id }}">{{ t('team.log.save') }}</button></form></td></tr>{% endif %}
+{% endfor %}</tbody></table></div>{% endif %}
+</section>
+{% if can_edit %}<section class="card" data-testid="add-card"><h2>{{ t('team.log.add') }}</h2>
+<p class="hint">{{ t('team.log.add.help') }}</p>
+<form method="post" action="/studies/{{ rs }}/team" class="markform" data-testid="add-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="add-user">{{ t('team.log.account') }}</label><select id="add-user" name="username" data-testid="add-user"><option value="">{{ t('team.log.no_account') }}</option>{% for u in accounts %}<option value="{{ u.username }}">{{ u.username }} · {{ t('role.' + u.role) }}</option>{% endfor %}</select>
+<label for="add-name">{{ t('team.log.name') }}</label><input id="add-name" name="name" maxlength="120" data-testid="add-name">
+<label for="add-role">{{ t('team.log.role') }}</label><select id="add-role" name="role" data-testid="add-role">{% for r in log_roles %}<option value="{{ r }}"{% if r == ('sub_pi' if has_pi else 'pi') %} selected{% endif %}>{{ t('team.role.' + r) }}</option>{% endfor %}</select>
+<fieldset><legend>{{ t('team.log.tasks') }}</legend>{% for k in tasks %}<label class="nowrap"><input type="checkbox" name="tasks" value="{{ k }}" data-testid="add-{{ k }}"> {{ t('team.task.' + k) }}</label> {% endfor %}</fieldset>
+<label for="add-start">{{ t('team.log.start') }}</label><input id="add-start" name="start" type="date" lang="{{ lang }}" value="{{ today.isoformat() }}" required>
+<label for="add-end">{{ t('team.log.end') }}</label><input id="add-end" name="end" type="date" lang="{{ lang }}">
+<label for="add-train">{{ t('team.log.training') }}</label><input id="add-train" name="training_day" type="date" lang="{{ lang }}" data-testid="add-training">
+<label for="add-ref">{{ t('team.log.training_ref') }}</label><input id="add-ref" name="training_ref" maxlength="80">
+<button type="submit" data-testid="add-save">{{ t('team.log.add.save') }}</button>
+</form></section>{% elif user.role == 'investigator' %}<p class="hint" data-testid="log-pi-only">{{ t('team.log.pi_only') }}</p>{% endif %}
+<section class="card" id="check" data-testid="check-card"><h2>{{ t('team.log.check') }}</h2>
+<p class="hint">{{ t('team.log.check.help') }}</p>
+{% if checks %}<ul class="plain hint">{% for c in checks %}<li>{{ c.at|local }} · {{ c.by }} · {{ t('team.log.result.' + c.action) }}{% if c.body.note %} — {{ c.body.note }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if can_check %}<form method="post" action="/studies/{{ rs }}/team/check" class="markform"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="check-note">{{ t('mark.note') }}</label><input id="check-note" name="note" maxlength="300">
+<div class="markbar">{% for r in results %}<button type="submit" name="result" value="{{ r }}"{% if r == 'differs' %} class="secondary"{% endif %} data-testid="check-{{ r }}">{{ t('team.log.result.' + r) }}</button>{% endfor %}</div></form>{% endif %}
+</section>
+{% if history %}<section class="card"><h2>{{ t('team.log.history') }}</h2><ul class="plain hint" data-testid="log-history">{% for eid, e in history|reverse %}<li>{{ e.at|local }} · {{ e.by }} · {{ t('team.log.ev.' + e.action) }} #{{ eid }}{% if e.body.tasks is defined %} · {{ e.body.tasks or '–' }}{% endif %}</li>{% endfor %}</ul></section>{% endif %}
+{% endblock %}
