@@ -531,6 +531,12 @@ def create_app(
             raise _Problem(403, "forbidden")
         return sess
 
+    def confirm_step(request: Request, sess: Session, text: str, action: str, fields: Mapping[str, str],
+                     back: str) -> Response:  # fmt: skip
+        """Review 2026-11-09 P-10 (D-143): one sheet with the consequence in a sentence, Yes and No; Yes posts the same
+        form again with ``confirm=yes``. Used for Disable, Keep / Take a value, Detach REDCap and Approve all."""
+        return page(request, "confirm.html", sess, text=text, action=action, fields=dict(fields), back=back)
+
     def need_admin(request: Request, csrf: str) -> Session:
         """Operations: ingest, users. Administrators only."""
         sess = need(request)
@@ -844,9 +850,10 @@ def create_app(
         affiliation: str = Form("hospital"),
         studies: str = Form(""),
         expires: str = Form(""),
+        confirm: str = Form(""),
     ) -> Response:
-        """Add a user (password shown once), reset a password (shown once) or disable an account. Same as the
-        console.cli commands; every change is an audit event."""
+        """Add a user (password shown once), reset a password (shown once) or disable an account (after a
+        confirmation, P-10). Same as the console.cli commands; every change is an audit event."""
         sess = need_admin(request, csrf)
         name = username.strip().lower()[:32]
         try:
@@ -896,6 +903,10 @@ def create_app(
             if action == "disable":
                 if name == sess.user.username:
                     raise AuthError("you cannot disable your own account")
+                if confirm != "yes":
+                    text = translate(lang_of(request, sess), "confirm.disable", user=name)
+                    return confirm_step(request, sess, text, "/ops/users", {"action": "disable", "username": name},
+                                        "/ops/users")  # fmt: skip
                 us.disable(name)
                 au.append("console.user", actor=actor(sess), detail={"action": "disable", "user": name})
                 return RedirectResponse("/ops/users", status_code=303)
@@ -925,6 +936,7 @@ def create_app(
     helpers = Helpers(
         need=need,
         page=page,
+        confirm=confirm_step,
         problem=_Problem,
         csrf_ok=csrf_ok,
         actor=actor,

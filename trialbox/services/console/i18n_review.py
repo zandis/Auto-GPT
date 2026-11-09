@@ -29,6 +29,17 @@ EN: dict[str, str] = {
     "ex.sent.done": "Sent to review. It is recorded with your name; the study team sees it at the top of this page.",
     "ex.sent.title": "Sent to review: {n}",
     "ex.link": "Excluded patients and why",
+    "confirm.title": "Please confirm",
+    "confirm.yes": "Yes, do it",
+    "confirm.no": "No, go back",
+    "confirm.disable": "Disable the account {user}? They are signed out everywhere at once and cannot sign in until "
+    "an administrator enables the account again.",
+    "confirm.keep": "Keep TrialBox's value? On the next sync TrialBox writes its value over the one in {source}.",
+    "confirm.take": "Take the value from {source}? TrialBox's value is replaced; the old value stays in the history.",
+    "confirm.detach": "Detach REDCap from this study? TrialBox stops reading from and writing to the project. The "
+    "data already in TrialBox stays.",
+    "confirm.approve_all": "Approve all {n} criteria in one step? Each criterion is recorded as approved with your "
+    "name.",
 }
 
 JA: dict[str, str] = {
@@ -57,6 +68,16 @@ JA: dict[str, str] = {
     "ex.sent.done": "確認に回しました。氏名とともに記録され、試験チームにはこのページの上部に表示されます。",
     "ex.sent.title": "確認に回した患者：{n} 名",
     "ex.link": "除外された患者と理由",
+    "confirm.title": "確認してください",
+    "confirm.yes": "はい、実行します",
+    "confirm.no": "いいえ、戻ります",
+    "confirm.disable": "アカウント {user} を無効にしますか？すべての端末から直ちにログアウトし、"
+    "管理者が再び有効にするまでログインできません。",
+    "confirm.keep": "TrialBox の値を残しますか？次の同期で TrialBox の値が {source} の値を上書きします。",
+    "confirm.take": "{source} の値を取り込みますか？TrialBox の値は置き換わり、以前の値は履歴に残ります。",
+    "confirm.detach": "この試験から REDCap を切り離しますか？TrialBox はプロジェクトの読み取りと書き込みをやめます。"
+    "TrialBox にあるデータはそのまま残ります。",
+    "confirm.approve_all": "{n} 件の基準をまとめて承認しますか？各基準があなたの氏名で承認として記録されます。",
 }
 
 ZH: dict[str, str] = {
@@ -85,4 +106,12 @@ ZH: dict[str, str] = {
     "ex.sent.done": "已送回審閱，並連同您的姓名記錄；試驗團隊會在本頁上方看到。",
     "ex.sent.title": "已送回審閱：{n} 位",
     "ex.link": "被排除的病人與原因",
+    "confirm.title": "請確認",
+    "confirm.yes": "是，執行",
+    "confirm.no": "否，返回",
+    "confirm.disable": "要停用帳號 {user} 嗎？該人員會立即在所有裝置登出，在管理員重新啟用前無法登入。",
+    "confirm.keep": "要保留 TrialBox 的數值嗎？下次同步時，TrialBox 的數值會覆寫 {source} 中的數值。",
+    "confirm.take": "要採用 {source} 的數值嗎？TrialBox 的數值會被取代，舊數值保留在歷程中。",
+    "confirm.detach": "要將 REDCap 從本試驗分離嗎？TrialBox 會停止讀取與寫入該專案。已在 TrialBox 中的資料會保留。",
+    "confirm.approve_all": "要一次核准全部 {n} 項條件嗎？每項條件都會以您的姓名記錄為已核准。",
 }

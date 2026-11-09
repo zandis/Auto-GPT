@@ -211,6 +211,18 @@ def test_the_setup_page_says_what_trialbox_writes_to_redcap() -> None:
         assert never not in text and write in text, lang
 
 
+def test_confirmations_and_excluded_page_words_in_every_language() -> None:
+    """D-143: the wave-1b strings (P-04 page, P-10 confirmations) exist in en, ja and zh-TW with the same blanks."""
+    from console import i18n_review
+
+    assert set(i18n_review.EN) == set(i18n_review.JA) == set(i18n_review.ZH)
+    for cat in (i18n_review.JA, i18n_review.ZH):
+        for k, v in cat.items():
+            assert sorted(re.findall(r"\{(\w+)\}", v)) == sorted(re.findall(r"\{(\w+)\}", i18n_review.EN[k])), k
+            assert not v.isascii(), k
+    assert CATALOGUES["ja"]["confirm.yes"] == "はい、実行します" and CATALOGUES["zh-TW"]["confirm.no"] == "否，返回"
+
+
 def test_setup_is_one_form_and_reads_the_redcap_fields(b3: dict[str, Any]) -> None:  # noqa: F811
     """Review F-04 and F-11: one Save keeps every section; the REDCap fields are picked from the dictionary."""
     _connect(b3)

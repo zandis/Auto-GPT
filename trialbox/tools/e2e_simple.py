@@ -430,7 +430,11 @@ def _stage12(res: dict[str, Any], crc: Any, pi: Any, lang: str, box: Any) -> Sta
             state("trial") == "amber", [j.state for j in box.orch.db.find(ruleset=SITE_RS, limit=5)])  # fmt: skip
     if waiting:
         page = pi.get(f"/pilot/jobs/{waiting[0].job_id}/approval")
-        pi.post(f"/pilot/jobs/{waiting[0].job_id}/approve", data={"csrf": fd._csrf(page.text)}, follow_redirects=False)
+        pi.post(
+            f"/pilot/jobs/{waiting[0].job_id}/approve",
+            data={"csrf": fd._csrf(page.text), "confirm": "yes"},
+            follow_redirects=False,
+        )
     s.check("approved: the trial question is green", state("trial") == "green", state("trial"))
     # -- question 2, with the least: two charts pasted, one by one
     for no, text in site_help.PRACTICE_CHARTS:

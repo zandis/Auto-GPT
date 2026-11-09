@@ -328,7 +328,11 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         page = pi.get(f"/pilot/jobs/{job.job_id}/approval")
         for cid in re.findall(r'data-testid="open-([A-Z0-9-]+)"', page.text):
             page = pi.get(f"/pilot/jobs/{job.job_id}/approval?open={cid}")
-        r = pi.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": fd._csrf(page.text)}, follow_redirects=False)
+        r = pi.post(
+            f"/pilot/jobs/{job.job_id}/approve",
+            data={"csrf": fd._csrf(page.text), "confirm": "yes"},
+            follow_redirects=False,
+        )
         after = box.orch.db.get(job.job_id)
         s.check(
             f"investigator approves {rs}; FEAS finishes",

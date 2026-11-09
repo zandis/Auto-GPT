@@ -76,6 +76,8 @@ class Helpers:
     life_mail: Callable[[str, date], dict[str, Any]] | None = None
     life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's unacknowledged SAEs (the week page)
     life_reports: Callable[[str], list[dict[str, Any]]] | None = None  # one study's overdue SAE reports (P-03)
+    # P-10 (D-143): one confirmation page before an action that is hard to take back
+    confirm: Callable[..., Response] | None = None
 
 
 class ApiLogin(BaseModel):

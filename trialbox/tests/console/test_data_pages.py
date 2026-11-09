@@ -157,6 +157,9 @@ def test_forms_sources_sync_conflict_resolve_detach(dcb: dict[str, Any]) -> None
     assert "REDCap" in row.group(1) and f'data-testid="keep-theirs-{cid}"' in row.group(1)
     dcb["calls"].clear()
     r = c.post(f"/studies/GZQO/conflicts/{cid}", data={"csrf": csrf, "keep": "theirs"})
+    assert 'data-testid="confirm-text"' in r.text and "Take the value from" in r.text  # P-10: nothing changed yet
+    assert not [x for x in _writes(dcb["calls"]) if x[1].endswith(f"/conflicts/{cid}")]
+    r = c.post(f"/studies/GZQO/conflicts/{cid}", data={"csrf": csrf, "keep": "theirs", "confirm": "yes"})
     assert r.status_code == 200 and 'data-testid="dc-done"' in r.text and f"conflict-{cid}" not in r.text
     assert _writes(dcb["calls"]) == [
         ("POST", f"/studies/GZQO/conflicts/{cid}", {"keep": "theirs", "by": "console:crc"})
@@ -166,9 +169,11 @@ def test_forms_sources_sync_conflict_resolve_detach(dcb: dict[str, Any]) -> None
     assert f'data-testid="resolved-{cid}"' in trail and "value taken by crc on " in trail
     assert "Hide resolved" in trail
     # resolved twice: refused by the data core, shown in the reader's words
-    r = c.post(f"/studies/GZQO/conflicts/{cid}", data={"csrf": csrf, "keep": "trialbox"})
+    r = c.post(f"/studies/GZQO/conflicts/{cid}", data={"csrf": csrf, "keep": "trialbox", "confirm": "yes"})
     assert 'data-testid="dc-error"' in r.text and "DATA-CONFLICT" in r.text
     r = c.post("/studies/GZQO/sources/redcap/detach", data={"csrf": csrf})
+    assert 'data-testid="confirm-text"' in r.text and "Detach REDCap from this study?" in r.text  # P-10
+    r = c.post("/studies/GZQO/sources/redcap/detach", data={"csrf": csrf, "confirm": "yes"})
     assert 'data-testid="dc-no-source"' in r.text and dcb["dc"].owners("GZQO")["consent_date"] == "trialbox"
     assert [c[:2] for c in _writes(dcb["calls"])][-1] == ("DELETE", "/studies/GZQO/sources/redcap?by=console%3Acrc")
     events = [e.event for e in dcb["backend"].audit(None, 500)]
@@ -287,7 +292,7 @@ def test_each_page_in_each_language_without_a_chart_number(dcb: dict[str, Any], 
     pages["/studies/GZQO/conflicts?all=1"] = ("dc.resolved.title", "dc.kept.theirs", "dc.hide_resolved")
     for path, keys in pages.items():
         if path.endswith("?all=1"):  # the trail, once the conflict is resolved
-            c.post(f"/studies/GZQO/conflicts/{cid}", data={"csrf": csrf, "keep": "theirs"})
+            c.post(f"/studies/GZQO/conflicts/{cid}", data={"csrf": csrf, "keep": "theirs", "confirm": "yes"})
         r = c.get(path)
         assert r.status_code == 200, (lang, path)
         for k in keys:

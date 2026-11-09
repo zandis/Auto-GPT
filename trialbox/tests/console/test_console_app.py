@@ -664,6 +664,9 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     s20 = p.get(f"/pilot/jobs/{job.job_id}/approval?open=GZQO-DEMO-EXC-01").text
     assert 'data-testid="approve-missing"' not in s20
     r = p.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": pcsrf}, follow_redirects=False)
+    assert r.status_code == 200 and 'data-testid="confirm-text"' in r.text  # P-10: the consequence first
+    assert "Approve all" in r.text and 'name="confirm" value="yes"' in r.text
+    r = p.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": pcsrf, "confirm": "yes"}, follow_redirects=False)
     assert r.status_code == 303
     appr = box["backend"].created[-1]
     assert appr.type == "APPROVE" and appr.ruleset == "GZQO-DEMO" and appr.options == {"version": "1.0.0"}
@@ -1312,7 +1315,14 @@ def test_users_page_add_reset_disable(box: dict[str, Any]) -> None:
     assert pw2 and pw2.group(1) != pw.group(1)
     # cannot disable yourself; can disable others; duplicates and bad roles are refused with a reason
     assert c.post("/ops/users", data={"csrf": csrf, "action": "disable", "username": "admin"}).status_code == 400
-    r = c.post("/ops/users", data={"csrf": csrf, "action": "disable", "username": "nurse.lin"}, follow_redirects=False)
+    r = c.post("/ops/users", data={"csrf": csrf, "action": "disable", "username": "nurse.lin"})
+    assert 'data-testid="confirm-text"' in r.text and "Disable the account nurse.lin?" in r.text  # P-10
+    assert 'href="/ops/users" data-testid="confirm-no"' in r.text
+    r = c.post(
+        "/ops/users",
+        data={"csrf": csrf, "action": "disable", "username": "nurse.lin", "confirm": "yes"},
+        follow_redirects=False,
+    )
     assert r.status_code == 303 and 'data-user="nurse.lin"' not in c.get("/ops/users").text
     assert (
         c.post("/ops/users", data={"csrf": csrf, "action": "add", "username": "viewer", "role": "viewer"}).status_code
