@@ -4,6 +4,7 @@
 #
 #   tb-key          random API key of the two model servers (made by the driver, never printed)
 #   tb-run-id       the run's id; tb-patients the bulk size; tb-bucket an optional gs:// bucket for code and results
+#   tb-only         the parts of this VM (complete_run --only tags; a shard of a parallel run, D-147); empty: all
 #   tb-max-minutes  hard cap of this boot (the driver sets the cloud cap too: max-run-duration, action STOP)
 #   tb-idle-minutes the watchdog's idle limit (default 20)
 #   tb-serving-config tools/serving_config.py (the serving record, D-111)
@@ -62,6 +63,7 @@ systemd-run --unit tb-watchdog --description "TrialBox watchdog" /usr/local/sbin
 KEY=$(md tb-key)
 RUN_ID=$(md tb-run-id || echo run)
 PATIENTS=$(md tb-patients || echo 50000)
+ONLY=$(md tb-only || true)
 BUCKET=$(md tb-bucket || true)
 
 # ------------------------------------------------------------------ the driver's door: heartbeat, upload, progress
@@ -184,6 +186,14 @@ mkdir -p /opt/node-tools && (cd /opt/node-tools && npm i -s playwright@1.63.0 ax
 .venv/bin/python tools/fetch_fonts.py >/dev/null 2>&1 || true
 touch "$HB"
 
+# the embedding bench (tools/bench_embed.py) runs in the vLLM image: its torch and transformers already run on this card
+cat >/usr/local/sbin/tb-embed-py <<EOS
+#!/bin/sh
+exec docker run --rm --gpus all --ipc host -v /models:/root/.cache/huggingface -v $TB:$TB -w "\$PWD" \
+  --entrypoint python3 $VLLM "\$@"
+EOS
+chmod 0755 /usr/local/sbin/tb-embed-py
+
 # ------------------------------------------------------------------ the run: model parts here, resumable
 echo run > "$PHASE"
 LOG=/var/log/tb-complete-run.log
@@ -192,15 +202,19 @@ LOG=/var/log/tb-complete-run.log
     [ "$s2" != "$s1" ] && touch "$HB"
     [ -n "$BUCKET" ] && gcloud storage rsync -r "$RUN/parts" "$BUCKET/runs/$RUN_ID/parts" >/dev/null 2>&1
   done ) &
+# shellcheck disable=SC2086  # ONLY is a list of tags
 NODE_PATH=/opt/node-tools/node_modules TB_GPU_KEY="$KEY" TB_ENV=DEV PYTHONPATH=libs:services:. \
+  TB_BENCH_EMBED_CMD=/usr/local/sbin/tb-embed-py \
   .venv/bin/python -m tools.complete_run --dir "$RUN" --model pair --patients "$PATIENTS" --ocr tesseract \
   --judge-url http://127.0.0.1:8080/judge/v1 --verifier-url http://127.0.0.1:8080/verifier/v1 \
-  --live-record $REC/serving_config.json --skip walk backup update scale --resume --heartbeat "$HB" >>"$LOG" 2>&1
+  --live-record $REC/serving_config.json --skip walk backup update scale --resume --heartbeat "$HB" \
+  ${ONLY:+--only $ONLY} >>"$LOG" 2>&1
 echo "TB-RUN-EXIT $?"
 touch "$TB/run-ended"
 cp $REC/gpu_peak.json "$RUN/" 2>/dev/null || curl -fsS -o "$RUN/gpu_peak.json" http://127.0.0.1/record/gpu_peak.json || true
 cp $REC/serving_config.json "$RUN/serving_config.rtxpro6000.live.json" 2>/dev/null || true
-tar -czf "$TB/out/results.tgz" -C "$RUN" parts report gpu_peak.json serving_config.rtxpro6000.live.json 2>/dev/null
+tar -czf "$TB/out/results.tgz" -C "$RUN" parts report gpu_peak.json serving_config.rtxpro6000.live.json \
+  bench-embed/result.json bench-embed/set.json bench-profile/result.json 2>/dev/null
 [ -n "$BUCKET" ] && gcloud storage cp "$TB/out/results.tgz" "$BUCKET/runs/$RUN_ID/results.tgz"
 printf "done\n" > "$PHASE"
 touch "$DONE"
