@@ -1,0 +1,308 @@
+"""``trialbox secrets``: one token per service, generated at install, rotated with one command (D-128, D-138).
+
+    sudo python3 -m tools.trialbox secrets init                  # install.sh runs this; safe to re-run
+    sudo python3 -m tools.trialbox secrets status                # names, files, modes, ages: never a value
+    sudo python3 -m tools.trialbox secrets rotate                # every token and the database passwords
+    sudo python3 -m tools.trialbox secrets rotate --service orchestrator [--service console ...]
+    sudo python3 -m tools.trialbox secrets rotate --service db   # the two database passwords only
+
+**Files** (all under ``deploy/secrets/services/``, the folder 0700, owned by root):
+
+* ``<service>.token``: the token of one service, mode 0600, owned by the service's user in the container (uid
+  10001, ``TB_SERVICE_UID``). ``deploy/docker-compose.secrets.yml`` mounts it into that service only, at
+  ``/run/secrets/tb_service_token`` (``TB_SERVICE_TOKEN_FILE``).
+* ``operator.token``: the administrator's token for scripts and ``curl`` on the host; never mounted into a container.
+* ``public/tokens.json``: the sha256 of each token (``tb-service-tokens/1``), mounted read-only into every service
+  (``TB_SERVICE_TOKENS``); the callers each service accepts are ``tb_common.service_auth.CALLERS``. A hash of a
+  256-bit random token reveals nothing, so this file is not secret.
+
+The database passwords (``POSTGRES_PASSWORD`` for HAPI, ``POSTGRES_WF_PASSWORD`` and ``TB_DB_URL`` for the trial
+database) stay in ``deploy/.env`` (0600, root), which compose reads; the overlay clears them, the mail passwords and
+the cloud-model key in every container that does not need them.
+
+**Migration.** A box installed before step 8 has one shared ``TB_SERVICE_TOKEN`` in ``deploy/.env``. ``init`` keeps
+it working: its hash goes into ``tokens.json`` as ``legacy`` (accepted from any caller, with a warning in the
+service log). ``rotate`` of every token removes it from both files: from then on only per-service tokens work.
+
+**Rotation** writes the new token, puts both the old and the new hash in ``tokens.json`` (callers re-read it when it
+changes), recreates the rotated services so they read their new file, then drops the old hash. The restart command is
+``docker compose --project-directory deploy up -d --no-deps --force-recreate --wait <services>`` (the compose files
+come from ``COMPOSE_FILE`` in ``deploy/.env``, written by install.sh; ``TB_COMPOSE`` overrides the command). A
+database rotation runs ``ALTER ROLE`` through ``psql`` in the ``db`` container with the password on standard input,
+never on a command line, then recreates every service that reads ``deploy/.env``.
+
+Nothing here prints, logs or returns a token or a password. Standard library only (runs with the host's python3).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import secrets
+import shlex
+import subprocess
+import time
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+SCHEMA = "tb-service-tokens/1"
+# the TrialBox services in deploy/docker-compose.yml that call or are called with a token (llm-stub stands in for
+# vLLM and has none); ``operator`` is the administrator on the host
+SERVICES: tuple[str, ...] = (
+    "lake",
+    "embed-service",
+    "doc-parser",
+    "criteria-compiler",
+    "adapter",
+    "orchestrator",
+    "mail-gateway",
+    "gateway",
+    "console",
+)
+OPERATOR = "operator"
+IDENTITIES: tuple[str, ...] = (*SERVICES, OPERATOR)
+DB = "db"
+DB_USERS: tuple[str, ...] = (*SERVICES, "fhir-store")  # every service that reads deploy/.env's database settings
+SERVICE_UID = 10001  # the ``tb`` user of trialbox-py / trialbox-jvm (deploy/docker/python.Dockerfile)
+
+
+class SecretsError(RuntimeError):
+    pass
+
+
+def secrets_dir(deploy: Path) -> Path:
+    return deploy / "secrets" / "services"
+
+
+def token_path(deploy: Path, name: str) -> Path:
+    return secrets_dir(deploy) / f"{name}.token"
+
+
+def registry_path(deploy: Path) -> Path:
+    return secrets_dir(deploy) / "public" / "tokens.json"
+
+
+def _sha(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _new_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _write_private(path: Path, text: str, uid: int | None) -> None:
+    """Write ``path`` 0600 by rename (never a moment with wider permissions); chown to ``uid`` when root."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, text.encode("utf-8"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.chmod(tmp, 0o600)
+    if uid is not None and os.geteuid() == 0:
+        os.chown(tmp, uid, uid)
+    os.replace(tmp, path)
+
+
+def _write_public(path: Path, data: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o755)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)  # the folder is mounted, not the file, so a rename is seen in the containers
+
+
+def _read_env(env_file: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if env_file.is_file():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, _, v = line.partition("=")
+                out[k.strip()] = v.strip()
+    return out
+
+
+def _set_env(env_file: Path, updates: dict[str, str | None]) -> None:
+    """Set (or, with None, remove) keys in ``deploy/.env`` in place, keeping the rest; the file stays 0600."""
+    lines = env_file.read_text(encoding="utf-8").splitlines() if env_file.is_file() else []
+    out, seen = [], set()
+    for line in lines:
+        key = line.partition("=")[0].strip() if "=" in line and not line.lstrip().startswith("#") else None
+        if key in updates:
+            seen.add(key)
+            if updates[key] is not None:
+                out.append(f"{key}={updates[key]}")
+            continue
+        out.append(line)
+    out += [f"{k}={v}" for k, v in updates.items() if v is not None and k not in seen]
+    _write_private(env_file, "\n".join(out) + "\n", None)
+
+
+def legacy_token(env_file: Path) -> str:
+    tok = _read_env(env_file).get("TB_SERVICE_TOKEN", "")
+    return "" if not tok or tok.startswith("change-me") else tok
+
+
+def _load_registry(deploy: Path) -> dict[str, object]:
+    p = registry_path(deploy)
+    if p.is_file():
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    return {"schema": SCHEMA, "services": {}}
+
+
+def _registry(deploy: Path, extra_old: dict[str, str] | None, legacy: str | None) -> dict[str, object]:
+    services: dict[str, object] = {}
+    for name in IDENTITIES:
+        p = token_path(deploy, name)
+        if not p.is_file():
+            continue
+        cur = _sha(p.read_text(encoding="utf-8").strip())
+        old = (extra_old or {}).get(name)
+        services[name] = [cur, old] if old and old != cur else cur
+    data: dict[str, object] = {"schema": SCHEMA, "services": services}
+    if legacy:
+        data["legacy"] = legacy
+    return data
+
+
+@dataclass
+class Result:
+    created: list[str]
+    rotated: list[str]
+    restarted: list[str]
+    legacy_kept: bool
+
+
+def init(deploy: Path, env_file: Path | None = None, uid: int | None = SERVICE_UID) -> Result:
+    """Make every missing token and the registry; keep the old shared token (as ``legacy``) when the box has one."""
+    env_file = env_file or deploy / ".env"
+    d = secrets_dir(deploy)
+    d.mkdir(parents=True, exist_ok=True)
+    os.chmod(d, 0o700)
+    created = []
+    for name in IDENTITIES:
+        p = token_path(deploy, name)
+        if not p.is_file() or not p.read_text(encoding="utf-8").strip():
+            _write_private(p, _new_token() + "\n", None if name == OPERATOR else uid)
+            created.append(name)
+    old = _load_registry(deploy).get("legacy")
+    legacy = _sha(legacy_token(env_file)) if legacy_token(env_file) else (old if isinstance(old, str) else None)
+    _write_public(registry_path(deploy), _registry(deploy, None, legacy))
+    return Result(created, [], [], legacy is not None)
+
+
+Runner = Callable[[Sequence[str], str | None], None]  # argv, standard input; raises on failure
+
+
+def run_cmd(argv: Sequence[str], stdin: str | None) -> None:
+    out = subprocess.run(list(argv), input=stdin, text=True, capture_output=True, check=False)
+    if out.returncode != 0:
+        # the output of compose and psql carries no secret (passwords travel on stdin only)
+        raise SecretsError(f"{shlex.join(argv[:6])} ... failed ({out.returncode}): {out.stderr.strip()[-400:]}")
+
+
+def compose_cmd(deploy: Path) -> list[str]:
+    return shlex.split(os.environ.get("TB_COMPOSE") or f"docker compose --project-directory {shlex.quote(str(deploy))}")
+
+
+def restart(deploy: Path, services: Sequence[str], runner: Runner = run_cmd) -> None:
+    if services:
+        runner([*compose_cmd(deploy), "up", "-d", "--no-deps", "--force-recreate", "--wait", *services], None)
+
+
+def _rotate_db(deploy: Path, env_file: Path, runner: Runner) -> list[str]:
+    """New passwords for the two database roles: ALTER ROLE first (password on stdin), then deploy/.env."""
+    env = _read_env(env_file)
+    wf, hapi = _new_token(), _new_token()
+    sql = f"ALTER ROLE trialbox PASSWORD '{wf}';\nALTER ROLE hapi PASSWORD '{hapi}';\n"
+    runner([*compose_cmd(deploy), "exec", "-T", "db", "psql", "-v", "ON_ERROR_STOP=1", "-U", "hapi", "-d", "hapi"], sql)
+    url = env.get("TB_DB_URL", "postgresql://trialbox:x@db:5432/trialbox_wf")
+    scheme, _, rest = url.partition("://")
+    host = rest.partition("@")[2] or "db:5432/trialbox_wf"
+    _set_env(
+        env_file,
+        {"POSTGRES_PASSWORD": hapi, "POSTGRES_WF_PASSWORD": wf, "TB_DB_URL": f"{scheme}://trialbox:{wf}@{host}"},
+    )
+    return list(DB_USERS)
+
+
+def rotate(
+    deploy: Path,
+    names: Sequence[str] = (),
+    env_file: Path | None = None,
+    runner: Runner = run_cmd,
+    do_restart: bool = True,
+    uid: int | None = SERVICE_UID,
+) -> Result:
+    """Rotate the named tokens (``db``: the database passwords); none named: every token and the database."""
+    env_file = env_file or deploy / ".env"
+    want = [*IDENTITIES, DB] if not names else list(dict.fromkeys(names))
+    every = set(IDENTITIES) <= set(want)  # every token rotated: the old shared one can go
+    bad = [n for n in want if n not in IDENTITIES and n != DB]
+    if bad:
+        raise SecretsError(f"unknown service {', '.join(bad)}: one of {', '.join((*IDENTITIES, DB))}")
+    if not registry_path(deploy).is_file():
+        init(deploy, env_file, uid)
+    reg = _load_registry(deploy)
+    raw_legacy = reg.get("legacy")
+    legacy: str | None = raw_legacy if isinstance(raw_legacy, str) else None
+    tokens = [n for n in want if n != DB]
+    old = {
+        n: _sha(token_path(deploy, n).read_text(encoding="utf-8").strip())
+        for n in tokens
+        if token_path(deploy, n).is_file()
+    }
+    for n in tokens:
+        _write_private(token_path(deploy, n), _new_token() + "\n", None if n == OPERATOR else uid)
+    # both hashes while the rotated services restart: a caller still holding its old token is not cut off
+    _write_public(registry_path(deploy), _registry(deploy, old, legacy))
+    affected = [n for n in tokens if n != OPERATOR]
+    if DB in want:
+        affected += [s for s in _rotate_db(deploy, env_file, runner) if s not in affected]
+    if do_restart:
+        restart(deploy, affected, runner)
+    if every:  # the end of the migration: the old shared token is gone from the registry and from deploy/.env
+        legacy = None
+        if "TB_SERVICE_TOKEN" in _read_env(env_file):
+            _set_env(env_file, {"TB_SERVICE_TOKEN": None})
+    _write_public(registry_path(deploy), _registry(deploy, None, legacy))
+    return Result([], want, affected if do_restart else [], legacy is not None)
+
+
+def status(deploy: Path, env_file: Path | None = None) -> list[dict[str, object]]:
+    """One row per identity: file, mode, age, registered. Never a value."""
+    env_file = env_file or deploy / ".env"
+    reg = _load_registry(deploy)
+    raw = reg.get("services")
+    hashes: dict[str, object] = raw if isinstance(raw, dict) else {}
+    rows: list[dict[str, object]] = []
+    now = time.time()
+    for name in IDENTITIES:
+        p = token_path(deploy, name)
+        row: dict[str, object] = {"name": name, "file": str(p), "present": p.is_file()}
+        if p.is_file():
+            st = p.stat()
+            row.update(
+                {
+                    "mode": oct(st.st_mode & 0o777),
+                    "age_days": round((now - st.st_mtime) / 86400, 1),
+                    "registered": bool(hashes and name in hashes),
+                }
+            )
+        rows.append(row)
+    rows.append(
+        {
+            "name": "legacy shared token",
+            "file": str(env_file),
+            "present": bool(legacy_token(env_file)) or isinstance(reg.get("legacy"), str),
+        }
+    )
+    return rows

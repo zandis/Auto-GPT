@@ -1,24 +1,39 @@
 #!/bin/sh
-# Apply a signed offline update bundle (SPEC §10.1 "Updates"; DECISIONS D-77). No auto-update: an operator runs this.
+# Apply a signed offline update bundle (SPEC §10.1 "Updates"; DECISIONS D-77, D-138). No auto-update: an operator
+# runs this, from the install folder, as root.
 #
-#   tools/apply_update.sh BUNDLE.tar [--dry-run]
+#   tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup]
 #
 # 1. verify: Ed25519 signature of manifest.json with the box's vendor key (TB_VENDOR_PUBKEY, default
 #    deploy/keys/vendor_ed25519.pub), manifest schema, every payload's size + sha256, no extra/unsafe members —
 #    in a network-less trialbox-py container (host python3 + cryptography is used when available);
 #    a tampered or unsigned bundle is REJECTED (exit 1) and nothing is changed;
-# 2. stage the verified payloads (re-hashed while copying);
-# 3. apply by kind: image -> docker load; model -> TB_MODELS_DIR (default deploy/models); ruleset -> criteria-compiler
-#    import (approved + equivalence gate, tagged in the ruleset repository); other -> deploy/updates/<bundle id>/;
-# 4. append an `update.applied` audit event (bundle id, manifest sha256, files).
+# 2. stage the verified payloads (re-hashed while copying); --dry-run stops here;
+# 3. the update path (python3 -m tools.trialbox update; tools/trialbox/update.py, D-138):
+#    backup first (D-126; refused without the backup key and a target) -> rollback point (images tagged
+#    <repo>:rollback-<bundle>, overwritten models kept, local database dumps) -> apply (docker load, models, other
+#    files) -> migrate and restart (the services migrate at start) -> rulesets (criteria-compiler import with the
+#    approval and equivalence gates) -> check (every service healthy; TB_UPDATE_CHECK_CMD) -> `update.applied`
+#    in the audit log. Any failure after the rollback point: images, models and database are put back, the box
+#    restarts and is checked again, `update.rolled_back` is audited, exit 1.
+#    A box that is not running yet (the first install) only loads the payloads; install.sh audits it after start.
+#    --target demo: the one-container demo VM (docs/DEMO_VM.md), checked by running e2e_simple in the new container.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-BUNDLE=${1:?usage: tools/apply_update.sh BUNDLE.tar [--dry-run]}
-DRY=${2:-}
+BUNDLE=${1:?usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup]}
+shift
+DRY=""; TARGET=${TB_UPDATE_TARGET:-compose}; NOBACKUP=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY=--dry-run ;;
+    --target) TARGET=$2; shift ;;
+    --no-backup) NOBACKUP=--no-backup ;;
+    *) echo "apply_update: unknown option $1" >&2; exit 2 ;;
+  esac
+  shift
+done
 PUBKEY=${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}
 IMAGE=${TB_PY_IMAGE:-trialbox-py:1.0.0}
-COMPOSE=${TB_COMPOSE:-docker compose --project-directory $ROOT/deploy -f $ROOT/deploy/docker-compose.yml}
-MODELS=${TB_MODELS_DIR:-$ROOT/deploy/models}
 
 [ -f "$BUNDLE" ] || { echo "no such bundle: $BUNDLE" >&2; exit 2; }
 [ -f "$PUBKEY" ] || { echo "vendor public key not installed: $PUBKEY" >&2; exit 2; }
@@ -37,7 +52,6 @@ else
     || { echo "update REJECTED: $BUNDLE" >&2; exit 1; }
 fi
 echo "verified: $SUMMARY"
-BUNDLE_ID=$(printf '%s' "$SUMMARY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["bundle_id"])')
 
 if [ "$DRY" = "--dry-run" ]; then
   echo "dry run: staged in $STAGE (removed on exit); nothing applied"
@@ -45,35 +59,8 @@ if [ "$DRY" = "--dry-run" ]; then
   exit 0
 fi
 
-if [ -d "$STAGE/image" ]; then
-  find "$STAGE/image" -type f | while read -r f; do echo "docker load: ${f#"$STAGE"/image/}"; docker load -i "$f"; done
-fi
-if [ -d "$STAGE/model" ]; then
-  mkdir -p "$MODELS"
-  (cd "$STAGE/model" && find . -type f) | while read -r f; do
-    mkdir -p "$MODELS/$(dirname "$f")"; cp "$STAGE/model/$f" "$MODELS/$f"; echo "model: ${f#./}"
-  done
-fi
-if [ -d "$STAGE/ruleset" ]; then
-  find "$STAGE/ruleset" -type f -name '*.zip' | while read -r f; do
-    $COMPOSE cp "$f" criteria-compiler:/tmp/ruleset-update.zip
-    $COMPOSE exec -T criteria-compiler python -m criteria_compiler.import_ruleset /tmp/ruleset-update.zip --by "update:$BUNDLE_ID"
-  done
-fi
-if [ -d "$STAGE/other" ]; then
-  mkdir -p "$ROOT/deploy/updates/$BUNDLE_ID"; cp -R "$STAGE/other/." "$ROOT/deploy/updates/$BUNDLE_ID/"
-fi
-if [ -n "${TB_SKIP_AUDIT:-}" ] || ! $COMPOSE ps --status running --services 2>/dev/null | grep -qx orchestrator; then
-  # first install: the stack is not up yet; deploy/install.sh records the event once the orchestrator runs
-  mkdir -p "$ROOT/deploy/updates/pending_audit"
-  printf '%s' "$SUMMARY" > "$ROOT/deploy/updates/pending_audit/$BUNDLE_ID.json"
-  echo "update $BUNDLE_ID applied; audit event deferred (orchestrator not running)"
-  exit 0
-fi
-printf '%s' "$SUMMARY" | $COMPOSE exec -T orchestrator python -c '
-import json, sys
-from tb_common.audit import AuditLog
-s = json.load(sys.stdin)
-AuditLog("/data/audit").append("update.applied", actor="apply_update.sh", input_sha=s["manifest_sha256"],
-    detail={"bundle_id": s["bundle_id"], "signer": s["signer"], "files": s["files"]})
-' && echo "update $BUNDLE_ID applied and audited"
+printf '%s' "$SUMMARY" > "$STAGE.summary.json"
+trap 'rm -rf "$STAGE" "$STAGE.summary.json"' EXIT INT TERM
+cd "$ROOT"
+python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE.summary.json" --target "$TARGET" \
+  --deploy "$ROOT/deploy" $NOBACKUP

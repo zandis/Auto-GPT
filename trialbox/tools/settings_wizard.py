@@ -65,6 +65,10 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("imap_port", "IMAP port", "993", "str"),
     ("imap_user", "Intake mailbox user", "trialbox", "str"),
     ("mta_authserv_id", "authserv-id your MTA writes first in Authentication-Results (e.g. mx.hospital.tw)", "", "str"),
+    # D-138: log retention per country (tb_common.retention.DEFAULTS); "" = from the report language (ja -> jp)
+    ("retention_rules", "Retention defaults (jp | tw; empty = from the report language)", "", "str"),
+    ("logs_days", "Days to keep service logs (empty = the default of those rules)", "", "str"),
+    ("mail_log_days", "Days to keep the mail logs (empty = the default of those rules)", "", "str"),
 ]
 
 
@@ -194,6 +198,17 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
     twpas = _bool(a.get("twpas_enabled", "no"))
     if twpas and not a.get("twpas_org_id"):
         errors.append("TWPAS needs the NHI hospital code (twpas_org_id)")
+    from tb_common.retention import defaults_for
+
+    rules = str(a.get("retention_rules") or "").strip().lower() or (
+        "jp" if str(a.get("locale", "zh-TW")).startswith("ja") else "tw"
+    )
+    retention: dict[str, int] = {}
+    try:
+        retention = defaults_for(rules, {k: a.get(k) for k in ("logs_days", "mail_log_days", "outputs_days",
+                                                               "attachments_days")})  # fmt: skip
+    except ValueError as exc:
+        errors.append(str(exc))
     if errors:
         raise WizardError("; ".join(errors))
     site_id = str(get("site_id")).upper()
@@ -252,15 +267,7 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         "attachment_encryption": str(a.get("attachment_encryption", "zip")),
         "departments": depts,
         "practitioners": prac,
-        "retention": {
-            "attachments_days": 90,
-            "outputs_days": 365,
-            "logs_days": 180,
-            "nightly_snapshots": 3,
-            "month_end_snapshots_months": 36,
-            "pool_months_after_ruleset": 24,
-            "audit_years": 10,
-        },
+        "retention": retention,
         "calibration_defaults": {"reach_rate": 0.6, "accept_rate": 0.35},
         "twpas": {"enabled": twpas, "dry_run": True, **({"org_id": str(a["twpas_org_id"])} if twpas else {})},
         "cohort": {

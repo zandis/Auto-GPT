@@ -114,6 +114,16 @@ class MailDB:
         """The transport refused before accepting anything: the key may be used again."""
         self.db.execute("DELETE FROM send_keys WHERE key = ? AND state = 'sending'", (key,))
 
+    def prune(self, before_iso: str) -> dict[str, int]:
+        """Mail-log retention (D-138, ``retention.mail_log_days``): rows older than ``before_iso`` go. A send that
+        never finished (``sending``) stays until a person resolves it. Returns the rows deleted per table."""
+        with self.db.transaction() as tx:
+            return {
+                "intake": tx.execute("DELETE FROM intake WHERE received_at < ?", (before_iso,)),
+                "sent": tx.execute("DELETE FROM sent WHERE sent_at < ?", (before_iso,)),
+                "send_keys": tx.execute("DELETE FROM send_keys WHERE state = 'sent' AND at < ?", (before_iso,)),
+            }
+
     def sent(self, message_id: str) -> tuple[str | None, str] | None:
         row = self.db.fetchone("SELECT job_id, subject FROM sent WHERE message_id = ?", (message_id,))
         return (row[0], str(row[1])) if row else None

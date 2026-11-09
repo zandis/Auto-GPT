@@ -39,8 +39,9 @@ def make_app(
 ) -> FastAPI:
     """Create a FastAPI app with ``GET /healthz`` and structured logging (optional ``lifespan`` context).
 
-    ``service_token`` (default on; D-127, review F-11): every changing call must carry the box's
-    ``X-TB-Service-Token`` (``tb_common.service_auth.check``), on every internal service, not only the orchestrator.
+    ``service_token`` (default on; D-127, review F-11): every changing call must carry a
+    ``X-TB-Service-Token`` (``tb_common.service_auth.authorize``), on every internal service, not only the
+    orchestrator; with a token registry (D-138) only the callers of ``service_auth.CALLERS[service]``.
     ``protect_reads`` (D-130, plan v4 F4): reads need it too (the orchestrator, the lake, the mail gateway, the trace
     store). ``/healthz`` stays open for the compose health checks."""
     log = setup_logging(service, level)
@@ -73,14 +74,20 @@ def make_app(
             request: Request, call_next: Callable[[Request], Awaitable[Response]]
         ) -> Response:
             from tb_common.config import environment_name
-            from tb_common.service_auth import TOKEN_HEADER, check
+            from tb_common.service_auth import TOKEN_HEADER, authorize
 
             if request.url.path != "/healthz":
-                refused = check(
-                    request.method, request.headers.get(TOKEN_HEADER), environment_name(os.environ), protect_reads
+                # D-138: with a token registry the callee knows which service called and accepts only its callers
+                refused, caller = authorize(
+                    request.method,
+                    request.headers.get(TOKEN_HEADER),
+                    environment_name(os.environ),
+                    protect_reads,
+                    callee=service,
                 )
                 if refused is not None:
                     return JSONResponse({"detail": refused[1]}, status_code=refused[0])
+                request.state.tb_caller = caller
             return await call_next(request)
 
     @app.middleware("http")

@@ -1,5 +1,8 @@
 """``python -m tools.trialbox <command>`` (spec v4 §18). Commands: ``doctor``, ``eval``, ``backup-keygen``,
-``backup``, ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``)."""
+``backup``, ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``); ``secrets`` (per-service tokens,
+D-128 / D-138, ``svc_secrets.py``), ``logs`` (retention, ``logs.py``) and ``update`` (the update path behind
+``tools/apply_update.sh``, ``update.py``). ``secrets``, ``logs`` and ``update`` need only the standard library, so
+they run with the host's ``python3`` from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
 
 from __future__ import annotations
 
@@ -39,7 +42,33 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--key", type=Path, required=True)
     r.add_argument("--dir", action="append", default=[])
     r.add_argument("--yes", action="store_true", help="replace the current data (moved aside, not deleted)")
+    deploy = Path(__file__).resolve().parents[2] / "deploy"
+    s = sub.add_parser("secrets", help="per-service tokens: init, status, rotate (never prints a value)")
+    s.add_argument("action", choices=["init", "status", "rotate"])
+    s.add_argument("--service", action="append", default=[], help="rotate only these (a service, operator or db)")
+    s.add_argument("--deploy", type=Path, default=deploy)
+    s.add_argument("--no-restart", action="store_true", help="rotate the files only; restart the services yourself")
+    lg = sub.add_parser("logs", help="log retention: collect, prune, archive-audit, daily (all three)")
+    lg.add_argument("action", choices=["collect", "prune", "archive-audit", "daily"])
+    lg.add_argument("--deploy", type=Path, default=deploy)
+    lg.add_argument("--day", default=None, help="collect: the day to collect (default: yesterday)")
+    u = sub.add_parser("update", help="apply a verified, staged bundle: backup, apply, migrate, check, roll back")
+    u.add_argument("--stage", type=Path, required=True)
+    u.add_argument("--summary", type=Path, required=True, help="verify_update.py's JSON summary")
+    u.add_argument("--target", choices=["compose", "demo"], default=os.environ.get("TB_UPDATE_TARGET", "compose"))
+    u.add_argument("--deploy", type=Path, default=deploy)
+    u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
     a = ap.parse_args(argv)
+    if a.cmd == "secrets":
+        return _secrets_cmd(a)
+    if a.cmd == "logs":
+        from tools.trialbox import logs as tb_logs
+
+        return tb_logs.main_action(a.action, a.deploy, a.day)
+    if a.cmd == "update":
+        from tools.trialbox import update as tb_update
+
+        return tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup)
     if a.cmd in ("backup-keygen", "backup", "backup-verify", "restore"):
         return _backup_cmd(a)
     if a.cmd == "doctor":
@@ -64,6 +93,33 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps({k: v for k, v in result.items() if k != "datasets"}, indent=1, ensure_ascii=False))
     print(f"archived: {path}")
     return 1 if result.get("passed") is False else 0
+
+
+def _secrets_cmd(a: argparse.Namespace) -> int:
+    from tools.trialbox import svc_secrets as sx
+
+    try:
+        if a.action == "status":
+            for row in sx.status(a.deploy):
+                print("  ".join(f"{k}={v}" for k, v in row.items()))
+            return 0
+        if a.action == "init":
+            res = sx.init(a.deploy)
+            print(
+                f"tokens made for: {', '.join(res.created) or 'none (all present)'}; "
+                f"registry {sx.registry_path(a.deploy)}"
+            )
+            if res.legacy_kept:
+                print("the old shared token still works (with a warning) until: trialbox secrets rotate")
+            return 0
+        res = sx.rotate(a.deploy, a.service, do_restart=not a.no_restart)
+        print(f"rotated: {', '.join(res.rotated)}")
+        print(f"restarted: {', '.join(res.restarted) or 'none (restart them yourself)'}")
+        print("old shared token: " + ("still accepted (rotate every token to end it)" if res.legacy_kept else "gone"))
+        return 0
+    except sx.SecretsError as exc:
+        print(f"secrets: {exc}", file=sys.stderr)
+        return 1
 
 
 def _backup_cmd(a: argparse.Namespace) -> int:

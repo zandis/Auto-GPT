@@ -19,10 +19,22 @@ if [ -n "$IMG" ]; then
   gcloud storage cp "$IMG" /root/trialbox-demo.tar.gz && gunzip -c /root/trialbox-demo.tar.gz | docker load
 fi
 docker rm -f trialbox-demo 2>/dev/null
+# D-138: the container is (re)created by one script, so tools/apply_update.sh --target demo can recreate it on a new
+# image; the password stays in a root-only env file, never on a command line
+install -d -m 0700 /etc/trialbox-demo
 { set +x; } 2>/dev/null
-docker run -d --name trialbox-demo -p 80:8080 --restart unless-stopped \
-  -e TB_DEMO_PASSWORD="$PW" -e TB_CONSOLE_SECURE_COOKIE=0 -e TB_DEMO_LANG="${TB_DEMO_LANG:-ja}" -e TB_DEMO_TOOL="$TOOL" trialbox-demo:step5
+umask 077
+printf 'TB_DEMO_PASSWORD=%s\nTB_CONSOLE_SECURE_COOKIE=0\nTB_DEMO_LANG=%s\nTB_DEMO_TOOL=%s\n' \
+  "$PW" "${TB_DEMO_LANG:-ja}" "$TOOL" > /etc/trialbox-demo/demo.env
+umask 022
 set -x
+cat > /etc/trialbox-demo/run.sh <<'EOS'
+#!/bin/sh
+exec docker run -d --name trialbox-demo -p 80:8080 --restart unless-stopped \
+  --env-file /etc/trialbox-demo/demo.env "${1:-trialbox-demo:step5}"
+EOS
+chmod 0700 /etc/trialbox-demo/run.sh
+sh /etc/trialbox-demo/run.sh trialbox-demo:step5
 for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1/login && break; sleep 5; done
 docker logs trialbox-demo 2>&1 | grep -E "^(PASS|FAIL)|e2e_simple|console on|checks pass" | sed 's/^/TBD /'
 echo DEMO-STARTUP-DONE

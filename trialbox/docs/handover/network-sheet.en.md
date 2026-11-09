@@ -1,0 +1,75 @@
+# TrialBox network, port and secret sheet
+
+Generated from the compose files below by tools/network_sheet.py (D-138). Nothing on the box is reachable from outside except the console port. No secret value is on this sheet.
+
+**Compose files:** `deploy/docker-compose.yml`, `deploy/docker-compose.secrets.yml`, `deploy/docker-compose.rtx5090.yml`, `deploy/docker-compose.gb10.yml`, `deploy/docker-compose.rtxpro6000.yml`
+
+## Listening ports
+
+| Service | Port | On the host | Networks | Who may reach it | Runs |
+| --- | --- | --- | --- | --- | --- |
+| adapter | 8016 | not published | trialbox-net | with its own token, only: console, orchestrator; the administrator on the host (operator token) | always |
+| console | 8090 | 127.0.0.1:8090:8090 | trialbox-net | staff browsers: 127.0.0.1 by default; the hospital LAN only through the site's TLS proxy | always |
+| criteria-compiler | 8012 | not published | egress-net, trialbox-net | with its own token, only: orchestrator; the administrator on the host (operator token) | always |
+| db | 5432 | not published | trialbox-net | TrialBox services and fhir-store, with a password | always |
+| doc-parser | 8011 | not published | trialbox-net | with its own token, only: orchestrator; the administrator on the host (operator token) | always |
+| embed-service | 8014 | not published | trialbox-net | with its own token, only: lake; the administrator on the host (operator token) | always |
+| fhir-store | 8080 | not published | trialbox-net | adapter, orchestrator, criteria-compiler (network only, no token yet) | always |
+| gateway | 8020 | not published | egress-net, model-net, trialbox-net | with its own token, only: console, criteria-compiler, doc-parser, orchestrator; the administrator on the host (operator token) | always |
+| judge-sleep-init | none (one-shot job) | not published | model-net | - | GPU profile (rtx5090) |
+| judge-wake-init | none (one-shot job) | not published | model-net | - | GPU profile (rtx5090) |
+| lake | 8013 | not published | trialbox-net | with its own token, only: adapter, criteria-compiler, orchestrator; the administrator on the host (operator token) | always |
+| llm-service | 8000 | not published | model-net | gateway only (model-net) | GPU profile |
+| llm-stub | 8000 | not published | model-net | gateway only (model-net) | no-GPU profile |
+| llm-verifier | 8000 | not published | model-net | gateway only (model-net) | GPU profile (rtx5090, gb10, rtxpro6000) |
+| mail-gateway | 8015 | not published | egress-net, trialbox-net | with its own token, only: console, orchestrator; the administrator on the host (operator token) | always |
+| model-swap-init | none (one-shot job) | not published | model-net | - | GPU profile (rtx5090) |
+| orchestrator | 8010 | not published | egress-net, trialbox-net | with its own token, only: console, mail-gateway; the administrator on the host (operator token) | always |
+
+## Networks
+
+| Networks |  |
+| --- | --- |
+| trialbox-egress | out of the box only to the hosts below (nftables, deploy/network.sh) |
+| trialbox-model-net | internal: no route out of the box |
+| trialbox-net | internal: no route out of the box |
+
+## Outbound
+
+With no site settings the box reaches nothing outside, except ClinicalTrials.gov from criteria-compiler while TB_CTGOV_MODE=live (public registry, no patient data; set TB_CTGOV_MODE=cassette to close it). Each line below opens only when its setting is filled in.
+
+| Service | Destination | Why | Opened by |
+| --- | --- | --- | --- |
+| mail-gateway | SMTP_HOST:SMTP_PORT | outbound mail (hospital SMTP / Exchange) | SMTP_HOST |
+| mail-gateway | IMAP_HOST:IMAP_PORT | intake mailbox | IMAP_HOST |
+| gateway | external model endpoints of models/routing.yaml | model endpoint (refused for D3/D4 data) | the endpoint's URL |
+| gateway | CLOUD_LLM_BASE_URL | cloud model, through the gateway only | CLOUD_LLM_BASE_URL |
+| criteria-compiler | clinicaltrials.gov:443 | ClinicalTrials.gov public registry (COHORT) | TB_CTGOV_MODE=live |
+| orchestrator | NHI_TWPAS_BASE_URL | NHI TWPAS (SUBMIT only) | NHI_TWPAS_BASE_URL |
+| any | EGRESS_EXTRA | site additions | EGRESS_EXTRA |
+
+## Secrets (names and places only)
+
+| Secret | Kept in | Given to |
+| --- | --- | --- |
+| service token: adapter | deploy/secrets/services/adapter.token (0600) | adapter only, at /run/secrets/tb_service_token |
+| service token: console | deploy/secrets/services/console.token (0600) | console only, at /run/secrets/tb_service_token |
+| service token: criteria-compiler | deploy/secrets/services/criteria-compiler.token (0600) | criteria-compiler only, at /run/secrets/tb_service_token |
+| service token: doc-parser | deploy/secrets/services/doc-parser.token (0600) | doc-parser only, at /run/secrets/tb_service_token |
+| service token: embed-service | deploy/secrets/services/embed-service.token (0600) | embed-service only, at /run/secrets/tb_service_token |
+| service token: gateway | deploy/secrets/services/gateway.token (0600) | gateway only, at /run/secrets/tb_service_token |
+| service token: lake | deploy/secrets/services/lake.token (0600) | lake only, at /run/secrets/tb_service_token |
+| service token: mail-gateway | deploy/secrets/services/mail-gateway.token (0600) | mail-gateway only, at /run/secrets/tb_service_token |
+| service token: orchestrator | deploy/secrets/services/orchestrator.token (0600) | orchestrator only, at /run/secrets/tb_service_token |
+| operator token | deploy/secrets/services/operator.token (0600) | the host only; never in a container |
+| token registry (sha256 of each token) | deploy/secrets/services/public/tokens.json | every TrialBox service (hashes only, not secret) |
+| POSTGRES_PASSWORD (role hapi) | deploy/.env (0600, root) | db, fhir-store |
+| POSTGRES_WF_PASSWORD, TB_DB_URL (role trialbox) | deploy/.env (0600, root) | db; adapter, console, criteria-compiler, gateway, lake, mail-gateway, orchestrator |
+| IMAP_PASS, SMTP_PASS | deploy/.env (0600, root) | mail-gateway |
+| CLOUD_LLM_API_KEY (empty by default) | deploy/.env (0600, root) | gateway |
+| site_hmac.key, pid_map.key, REDCap API tokens | volume tb-secrets (/run/secrets/trialbox) | adapter, orchestrator |
+| backup public key | deploy/secrets/backup.pub | the backup (encrypts only) |
+| backup private key | USB stick | hospital IT, sealed envelope; never on the box |
+| vendor update key (public) | deploy/keys/vendor_ed25519.pub | tools/apply_update.sh |
+
+Rotate: sudo python3 -m tools.trialbox secrets rotate [--service NAME] (RUNBOOK §5 'Secrets').
