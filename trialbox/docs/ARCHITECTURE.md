@@ -87,6 +87,10 @@ FHIR R4 NDJSON snapshot ──► fhir-store (delta load: only new or changed re
   carries JP Core profiles, validated on a sample at ingest (D-122, D-137).
 - Taiwan: CSV or CGRD SQL views with TW Core profiles.
 - Lake queries are SELECT only (sqlglot guard), read-only, memory-capped and pinned to a snapshot.
+- OMOP CDM v5.4 (`services/omop`, schema `omop` of `trialbox_wf`) is the store of record for clinical facts (D-144).
+  With `TB_LAKE_SOURCE=omop` the rebuild loads the snapshot and the site's inputs into it (status, provenance,
+  tombstones, conflicts in `tb_*` tables) and exports the lake from it, same tables and rows; the default is still
+  `legacy` (D-151).
 
 Sources, mapping and the data core: [Data and integration](DATA.md).
 
