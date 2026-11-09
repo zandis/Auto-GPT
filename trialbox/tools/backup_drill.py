@@ -13,7 +13,9 @@ wiped, restored from the backup with the hospital's key, and must then be the sa
    their steps and the visit schedule, D-134) reads back through the data core as before; the site set-up (D-135:
    inputs, facts with their status, the hospital codes' mapping, the "please check" answers) reads back through its
    store as before, and every uploaded chart file is back in the orchestrator's data folder; the licensed code lists
-   (D-137: each release with its version, source and codes) read back through the terminology store as before.
+   (D-137: each release with its version, source and codes) read back through the terminology store as before; the
+   OMOP store (D-149: the ``omop`` schema, loaded from the box's lake before the backup) has the same rows, the same
+   provenance and conflicts, and exports the same lake.
 """
 
 from __future__ import annotations
@@ -54,6 +56,7 @@ def run(base: Path) -> dict[str, Any]:
     life_before = _lifecycle()
     site_before = _sitesetup()
     terms_before = _terminology()
+    omop_before = _omop(work, load=True)
     charts_before = sorted(str(p.relative_to(work)) for p in (work / "box").rglob("sitesetup/*/inputs/*"))
 
     keys = base / "keys"
@@ -106,6 +109,10 @@ def run(base: Path) -> dict[str, Any]:
     checks.append(("restore: the licensed code lists read back the same, with version and source (D-137)",
                    len(terms_before["releases"]) >= 3 and terms_after == terms_before,
                    f"{len(terms_before['releases'])} releases, {len(terms_before['codes'])} codes"))  # fmt: skip
+    omop_after = _omop(work, load=False)
+    checks.append(("restore: the OMOP store reads back the same: rows, provenance, conflicts and the lake it exports "
+                   "(D-149)", omop_before["rows"]["person"] > 0 and omop_after == omop_before,
+                   ", ".join(f"{v} {k}" for k, v in omop_before["rows"].items())))  # fmt: skip
     return {"ok": all(c[1] for c in checks), "checks": checks, "seconds": round(time.perf_counter() - t0, 1)}
 
 
@@ -171,6 +178,34 @@ def _terminology() -> dict[str, list[tuple[Any, ...]]]:
         return {"releases": rel, "codes": codes}
     finally:
         st.close()
+
+
+def _omop(work: Path, load: bool) -> dict[str, Any]:
+    """The OMOP store (D-149) of the run's schemas: loaded from the box's current lake snapshot and site inputs
+    (``load``), then its row counts, its open conflicts and a digest of the lake it exports."""
+    import hashlib
+
+    from lake.store import Lake
+    from omop import schema
+    from omop.__main__ import _read
+    from omop.export import export_rows
+    from omop.load import load_batch
+
+    db = schema.connect()
+    try:
+        if load:
+            lake = Lake(work / "lake")
+            snap = str(lake.current())
+            load_batch(db, "feed", snap, _read(work / "lake" / "ndjson" / snap))
+            load_batch(db, "site", f"site@{snap}", _read(work / "lake" / "site"))
+        tables = ("person", "visit_occurrence", "condition_occurrence", "drug_exposure", "measurement", "note",
+                  "concept", "tb_record", "tb_record_event", "tb_conflict")  # fmt: skip
+        rows = {t: int(db.fetchval(f"SELECT count(*) FROM {t}")) for t in tables}
+        blob = json.dumps(export_rows(db), sort_keys=True, default=str).encode()
+        seq = int(db.fetchval("SELECT last_value FROM tb_row_seq"))
+        return {"rows": rows, "export_sha256": hashlib.sha256(blob).hexdigest(), "row_seq": seq}
+    finally:
+        db.close()
 
 
 def _admin_signs_in(work: Path, password: str) -> bool:
