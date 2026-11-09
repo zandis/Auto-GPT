@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5b (D-131): one readiness page. The three questions, green / amber / red, each with what is
+   missing and where to fix it; the feasibility counts with how much rests on coded, confirmed and proposed facts. #}
+{% from "_site.html" import site_nav, site_switch, state_pill, ws_name with context %}
+{% block title %}{{ t('site.ready.title') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('site.ready.title') }} · {{ ws_name(ws) }}</h1></div>
+{{ site_nav(ws, rs, qs) }}
+{{ site_switch(ws, rs, studies) }}
+<p class="hint">{{ t('site.ready.help') }}</p>
+{% if err %}<p class="error" role="alert" data-testid="site-err">{{ t('site.err.unavailable') }}</p>{% endif %}
+{% if rd %}
+<section class="card attention" data-testid="site-overall" data-state="{{ rd.overall }}">
+<p class="big">{{ state_pill(rd.overall) }} <span class="hint">{{ t('site.overall.' + rd.overall) }}</span></p>
+{% if rd.overall != 'green' %}<p><a class="button" href="/site/start?{{ qs }}" data-testid="site-start">{{ t('site.start.go') }}</a></p>{% endif %}
+</section>
+<div class="grid">
+{% for name in ('trial', 'patients', 'records') %}{% set qd = rd.questions[name] %}
+<section class="card" data-testid="q-{{ name }}" data-state="{{ qd.state }}">
+<h2>{{ loop.index }}. {{ t('site.q.' + name) }}</h2>
+<p>{{ state_pill(qd.state) }}</p>
+<p class="hint">{{ t('site.q.' + name + '.help') }}</p>
+{% if qd.missing %}<h3>{{ t('site.missing') }}</h3>
+<ul class="plain miss">{% for m in qd.missing %}{% set k = m.key.split('.', 1)[1] %}<li data-testid="miss-{{ k }}"><span>{{ t('site.miss.' + k, n=m.n or 0, rows=m.rows or 0, pct=m.pct or 0, of=m.of or 0) }}</span>
+{% if m.href %}<a class="button secondary" href="{{ m.href }}" data-testid="fix-{{ k }}">{{ t('site.fix.' + k) }}</a>{% endif %}</li>{% endfor %}</ul>
+{% else %}<p class="ok" data-testid="q-{{ name }}-ok">{{ t('site.q.ok') }}</p>{% endif %}
+{% if name == 'patients' and qd.patients %}<p class="hint">{{ t('site.patients.count', n=qd.patients) }}</p>{% endif %}
+</section>
+{% endfor %}
+</div>
+{% endif %}
+{% if rs %}<section class="card" data-testid="site-feas">
+<h2>{{ t('site.feas.title') }}</h2>
+{% if not feas or not feas.approved %}<p class="hint" data-testid="feas-not-approved">{{ t('site.feas.not_approved') }}</p>
+{% elif feas.needs_bulk %}<p class="warn" data-testid="feas-needs-bulk">{{ t('site.feas.needs_bulk') }}</p>
+{% elif feas.feas %}<p class="hint">{{ t('site.feas.help', n=feas.feas.start) }}</p>
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="feas-basis">
+<thead><tr><th>{{ t('site.feas.step') }}</th><th class="num">{{ t('site.feas.counted') }}</th><th class="num">{{ t('site.feas.coded') }}</th><th class="num">{{ t('site.feas.confirmed') }}</th><th class="num">{{ t('site.feas.proposed') }}</th></tr></thead>
+<tbody>{% for s in feas.feas.steps %}<tr data-testid="feas-{{ s.id }}"><td>{{ given(s.label) }} <span class="hint mono">{{ s.id }}</span></td><td class="num">{{ s.remaining }}</td><td class="num">{{ s.coded }}</td><td class="num">{{ s.confirmed }}</td><td class="num">{{ s.proposed }}</td></tr>{% endfor %}</tbody>
+</table></div>
+<p class="hint">{{ t('site.feas.rule') }}</p>
+{% endif %}
+</section>{% endif %}
+<p class="actions"><a class="button secondary" href="/ask?q={{ t('ask.q.next')|urlencode }}&amp;{{ qs }}&amp;back={{ path|urlencode }}" data-testid="site-ask">{{ t('ask.q.next') }}</a></p>
+{% endblock %}

@@ -10,7 +10,9 @@ wiped, restored from the backup with the hospital's key, and must then be the sa
 4. ``trialbox restore`` (private key) puts it back. Checks: every table's rows equal the backup's manifest (count and
    content hash), every file equal, the audit hash chain verifies, the administrator signs in with the same password,
    and the investigator's marks read back through the site store as before; the trial lifecycle (participants,
-   their steps and the visit schedule, D-134) reads back through the data core as before.
+   their steps and the visit schedule, D-134) reads back through the data core as before; the site set-up (D-135:
+   inputs, facts with their status, the hospital codes' mapping, the "please check" answers) reads back through its
+   store as before, and every uploaded chart file is back in the orchestrator's data folder.
 """
 
 from __future__ import annotations
@@ -49,6 +51,8 @@ def run(base: Path) -> dict[str, Any]:
     before_files = {n: bk.tree_hashes(p) for n, p in dirs.items()}
     marks_before = _marks(work)
     life_before = _lifecycle()
+    site_before = _sitesetup()
+    charts_before = sorted(str(p.relative_to(work)) for p in (work / "box").rglob("sitesetup/*/inputs/*"))
 
     keys = base / "keys"
     priv, pub = keys / "hospital-it.key", keys / "box.pub"
@@ -89,6 +93,13 @@ def run(base: Path) -> dict[str, Any]:
     checks.append(("restore: participants, their steps and the visit schedule read back the same (D-134)",
                    all(life_before.values()) and life_after == life_before,
                    ", ".join(f"{len(v)} {k}" for k, v in life_before.items())))  # fmt: skip
+    site_after = _sitesetup()
+    charts_after = sorted(str(p.relative_to(work)) for p in (work / "box").rglob("sitesetup/*/inputs/*"))
+    checks.append(("restore: the site set-up reads back the same, chart files included (D-135)",
+                   all(site_before.values()) and site_after == site_before and charts_before == charts_after
+                   and len(charts_before) >= 2,
+                   ", ".join(f"{len(v)} {k}" for k, v in site_before.items())
+                   + f", {len(charts_before)} files"))  # fmt: skip
     return {"ok": all(c[1] for c in checks), "checks": checks, "seconds": round(time.perf_counter() - t0, 1)}
 
 
@@ -123,6 +134,24 @@ def _lifecycle() -> dict[str, list[tuple[Any, ...]]]:
         return out
     finally:
         dc.close()
+
+
+def _sitesetup() -> dict[str, list[tuple[Any, ...]]]:
+    """The site set-up of every site space, read through its store (a fresh connection: a fresh process)."""
+    from sitesetup.store import SetupStore
+
+    st = SetupStore()
+    try:
+        out: dict[str, list[tuple[Any, ...]]] = {"inputs": [], "facts": [], "codes": [], "checks": []}
+        for ws in st.workspaces():
+            out["inputs"] += [(ws, i["kind"], i["sha256"], i["pid"]) for i in st.inputs(ws)]
+            out["facts"] += [(ws, f["pid"], f["domain"], f["code"], f["value"], f["status"], f["decided_by"])
+                             for f in st.facts(ws)]  # fmt: skip
+            out["codes"] += [(ws, c["system"], c["code"], c["mapped_code"], c["mapped_by"]) for c in st.locals(ws)]
+            out["checks"] += [(ws, c["key"], c["answer"]) for c in st.checks(ws)]
+        return out
+    finally:
+        st.close()
 
 
 def _admin_signs_in(work: Path, password: str) -> bool:

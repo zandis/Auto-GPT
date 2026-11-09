@@ -1160,3 +1160,12 @@ from console.i18n_life import ZH as _LIFE_ZH  # noqa: E402
 EN.update(_LIFE_EN)
 JA.update(_LIFE_JA)
 ZH.update(_LIFE_ZH)
+
+# TB-PLAN-04 step 5b (D-135): site set-up, readiness, the review lists, help and Ask TrialBox; new keys
+from console.i18n_site import EN as _SITE_EN  # noqa: E402
+from console.i18n_site import JA as _SITE_JA  # noqa: E402
+from console.i18n_site import ZH as _SITE_ZH  # noqa: E402
+
+EN.update(_SITE_EN)
+JA.update(_SITE_JA)
+ZH.update(_SITE_ZH)

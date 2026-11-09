@@ -25,6 +25,7 @@
       <div class="more-items">
         <a href="/account" data-testid="more-account">{{ t('account.title') }}</a>
         <a href="/help?back={{ path|urlencode }}">{{ t('help.title') }}</a>
+        {% if r in ('investigator', 'coordinator', 'admin') %}<a href="/site" data-testid="more-site">{{ t('site.ready.title') }}</a>{% endif %}
         {% if r in ('investigator', 'coordinator', 'admin') %}<a href="/notices/received" data-testid="more-notices">{{ t('received.title') }}</a>{% endif %}
         {% if r == 'cro' %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}
         {% set sp = path.split('/') %}{% if sp|length > 2 and sp[1] == 'studies' and sp[2] and user.sees_study(sp[2]) %}{% set srs = sp[2]|upper %}

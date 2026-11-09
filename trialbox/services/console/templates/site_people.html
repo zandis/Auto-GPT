@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5b (D-131): one patient from several inputs, joined by pseudonym (never by name); where the inputs
+   disagree, the values are listed and a person keeps one. Nothing is resolved silently. #}
+{% from "_site.html" import site_nav, ws_name with context %}
+{% block title %}{{ t('site.people.title') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('site.people.title') }} · {{ ws_name(ws) }}</h1></div>
+{{ site_nav(ws, rs, qs) }}
+<p class="hint">{{ t('site.people.help') }}</p>
+{% if done %}<p class="{{ 'error' if done == 'refused' else 'ok' }}" role="status" data-testid="people-done">{{ t('site.people.done.' + done) }}</p>{% endif %}
+<section class="card" data-testid="disagreements" data-n="{{ disagreements|length }}">
+<h2>{{ t('site.people.disagree', n=disagreements|length) }}</h2>
+{% if not disagreements %}<p class="ok">{{ t('site.people.agree') }}</p>{% endif %}
+<ul class="plain clist">{% for d in disagreements %}<li class="crow" data-testid="dis-{{ d.pid[:8] }}-{{ d.what }}">
+<p><span class="mono">{{ d.pid[:8] }}</span> · {{ t('site.demo.' + d.what) }}</p>
+{% if editable %}<form method="post" action="/site/people/resolve" class="markform">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ws" value="{{ ws }}"><input type="hidden" name="study" value="{{ rs }}"><input type="hidden" name="pid" value="{{ d.pid }}"><input type="hidden" name="what" value="{{ d.what }}">
+<div class="markbar">{% for v in d['values'] %}<button type="submit" name="keep" value="{{ v.value }}" class="secondary" data-testid="keep-{{ d.pid[:8] }}-{{ loop.index }}">{{ t('site.people.keep', v=v.value) }}</button>{% endfor %}</div>
+</form>{% endif %}
+</li>{% endfor %}</ul>
+</section>
+<section class="card" data-testid="people">
+<h2>{{ t('site.people.list', n=people|length) }}</h2>
+{% if people %}<div class="scroll" tabindex="0"><table class="candidates"><thead><tr><th>{{ t('site.people.col.pid') }}</th><th>{{ t('site.people.col.inputs') }}</th></tr></thead>
+<tbody>{% for p in people %}<tr data-testid="person-{{ p.short }}"><td class="mono">{{ p.short }}</td><td>{% for k in p.inputs %}<span class="pill">{{ t('site.sheets.kind.' + k) }}</span> {% endfor %}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty">{{ t('site.people.none') }}</p>{% endif %}
+</section>
+{% endblock %}

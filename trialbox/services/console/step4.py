@@ -43,6 +43,8 @@ HELP_PAGES: tuple[tuple[str, str], ...] = (
     (r"^/pilot/request", "request"),
     (r"^/pilot/protocol", "protocol"),
     (r"^/cmd", "cmd"),
+    (r"^/site(/|$)", "site"),
+    (r"^/ask", "ask"),
 )
 HELP_SLUGS = (*dict.fromkeys(slug for _, slug in HELP_PAGES), "other")
 

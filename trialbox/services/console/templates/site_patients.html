@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5b (D-131, D-135): the study's approved criteria on this site's patients: ready, needs information
+   or not eligible, with each criterion's answer and why (the trail the assistant reads). Note criteria are read by
+   the two models at screening; this check reads the coded and confirmed facts. #}
+{% from "_site.html" import site_nav, ws_name with context %}
+{% block title %}{{ t('site.patients.title') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('site.patients.title') }} · {{ ws_name(ws) }}</h1></div>
+{{ site_nav(ws, rs, qs) }}
+<p class="hint">{{ t('site.patients.help') }}</p>
+{% if not out.approved %}<p class="hint" data-testid="pc-not-approved">{{ t('site.feas.not_approved') }}</p>
+{% elif not out.patients %}<p class="empty" data-testid="pc-none">{{ t('site.people.none') }}</p>{% endif %}
+{% for p in out.patients %}<article class="card" id="p-{{ p.short }}" data-testid="pc-{{ p.short }}" data-state="{{ p.state }}">
+<p><span class="mono">{{ p.short }}</span> <span class="pill pc-{{ p.state }}">{{ t('site.pc.' + p.state) }}</span>
+ <a class="button secondary" href="/ask?pid={{ p.pid }}&amp;{{ qs }}&amp;back={{ path|urlencode }}" data-testid="why-{{ p.short }}">{{ t('ask.q.why') }}</a></p>
+<ul class="plain">{% for c in p.criteria %}<li data-testid="pc-{{ p.short }}-{{ c.id }}" data-verdict="{{ c.verdict }}"><span class="pill vd-{{ {'met': 'pass', 'clear': 'pass', 'not_met': 'fail', 'excluded': 'fail'}.get(c.verdict, 'unknown') }}">{{ t('site.verdict.' + c.verdict) }}</span> {{ given(c.label) }}{% if c.verdict == 'unknown' %} <span class="hint">{{ reason_label(c.reason) }}</span>{% endif %}</li>{% endfor %}</ul>
+</article>{% endfor %}
+{% endblock %}

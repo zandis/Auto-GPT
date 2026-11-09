@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{# TB-PLAN-04 step 5b (D-132): help a site can hold in its hands. Excel templates in the site's language, the mapping
+   sheet, the synthetic practice site (load and reset), and remote help from Aimedics: a switch only, off by default. #}
+{% from "_site.html" import site_nav, ws_name with context %}
+{% block title %}{{ t('site.help.title') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('site.help.title') }}</h1></div>
+{{ site_nav(ws, rs, qs) }}
+{% if done %}<p class="ok" role="status" data-testid="help-done">{{ t('site.help.done.' + done) }}</p>{% endif %}
+{% if err %}<p class="error" role="alert" data-testid="help-err">{{ t_or('site.err.' + err, t('site.err.other')) }}</p>{% endif %}
+<section class="card" data-testid="templates">
+<h2>{{ t('site.help.templates') }}</h2>
+<p class="hint">{{ t('site.help.templates.help') }}</p>
+<ul class="plain miss"><li><a class="button secondary" href="/site/templates/candidates.xlsx" data-testid="tpl-candidates">{{ t('site.help.tpl.candidates') }}</a></li>
+<li><a class="button secondary" href="/site/templates/codes.xlsx?ws={{ ws }}" data-testid="tpl-codes">{{ t('site.codes.download') }}</a></li></ul>
+</section>
+<section class="card" data-testid="practice">
+<h2>{{ t('site.help.practice') }}</h2>
+<p class="hint">{{ t('site.help.practice.help') }}</p>
+{% if editable %}<form method="post" action="/site/practice" class="markform">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="study" value="{{ rs }}">
+<div class="markbar"><button type="submit" name="action" value="load" data-testid="practice-load">{{ t('site.help.practice.load') }}</button>
+<button type="submit" name="action" value="reset" class="secondary danger" data-testid="practice-reset">{{ t('site.help.practice.reset') }}</button></div>
+</form>{% endif %}
+<p><a class="button secondary" href="/site?ws=practice&amp;study={{ rs }}" data-testid="practice-open">{{ t('site.help.practice.open') }}</a></p>
+</section>
+<section class="card" id="remote" data-testid="remote" data-on="{{ 1 if remote.on else 0 }}">
+<h2>{{ t('site.help.remote') }}</h2>
+<p class="warn">{{ t('site.help.remote.warn') }}</p>
+<p>{{ t('site.help.remote.on' if remote.on else 'site.help.remote.off') }}{% if remote.on and remote.approved_by %} · {{ t('site.help.remote.approved', who=remote.approved_by) }}{% endif %}</p>
+{% if is_admin %}<form method="post" action="/site/remote" class="formstack" data-testid="remote-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+{% if remote.real_data %}<label for="remote-by">{{ t('site.help.remote.approval') }}</label><input id="remote-by" name="approved_by" autocomplete="off">{% endif %}
+<div class="markbar">{% if remote.on %}<button type="submit" name="on" value="0" data-testid="remote-off">{{ t('site.help.remote.turn_off') }}</button>{% else %}<button type="submit" name="on" value="1" class="secondary" data-testid="remote-on">{{ t('site.help.remote.turn_on') }}</button>{% endif %}</div>
+</form>{% else %}<p class="hint">{{ t('site.help.remote.admin') }}</p>{% endif %}
+</section>
+<section class="card" data-testid="site-words">
+<h2>{{ t('help.words') }}</h2>
+<ul class="plain">{% for w in ('proposed', 'confirmed', 'local_code', 'check', 'pseudonym', 'bulk', 'readiness') %}<li>{{ t('site.gloss.' + w) }}</li>{% endfor %}</ul>
+</section>
+{% endblock %}

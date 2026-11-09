@@ -8,6 +8,7 @@ network, no secrets, run in process:
     -> write-back of TrialBox's instrument -> consent in REDCap -> read back on the next run (D-123)
     -> the data core with REDCap off and on (stage 9) -> built-in forms, entry, history, ODM / REDCap CSV (stage 10)
     -> the trial lifecycle: enrolled, visit due, overdue, done, AEs, withdrawn; three counts agree (stage 11)
+    -> a new site set up the hard way: protocol, charts, an IT dump, a messy list; the readiness page green (12)
 
 and each stage is checked against something it did not compute itself: the generator's own counts, a recount from
 the hospital CSVs, the sent mail, the hash-chained audit log and a byte-identical re-run of the FEAS and SCREEN jobs.
@@ -362,6 +363,193 @@ def _stage11(res: dict[str, Any], api: Any, crc: Any, pi: Any, lang: str, mrns: 
     seen = {str(e["event"]) for e in _audit(box)}
     s.check("steps, refusals and the schedule are in the audit",
             {"life.step", "life.refused", "life.schedule", "console.life_step"} <= seen)  # fmt: skip
+    s.seconds = time.perf_counter() - t
+    return s
+
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+SITE_RS = "SITE5B"  # the new site's trial (criteria drafted by the stub from its cassette)
+SITE_WS = "newsite"  # the new site's own space, with its own lake: the hospital feed of stages 0-11 is untouched
+SITE_CRITERIA = (
+    "Inclusion Criteria\n1. Aged 18 years or older.\n2. Diagnosis of gout (ICD-10-CM M10 or M1A).\n"
+    "3. Most recent serum urate in the last year at least 7.0 mg/dL.\n\nExclusion Criteria\n"
+    "1. Any history of malignancy.\n"
+)
+
+
+def _stage12(res: dict[str, Any], crc: Any, pi: Any, lang: str, box: Any) -> Stage:
+    """Stage 12 (TB-PLAN-04 step 5b, D-131, D-132, D-135): a new site set up the hard way. A protocol, two charts
+    pasted from an EMR screen, an IT dump in Shift_JIS with the hospital's own codes, a PI's messy Excel list (a
+    title row, merged cells, era and 民國 dates, full-width digits, a value in µmol/L and one in an unknown unit, a
+    slashed date that could go both ways, a row without a chart number, an ID column that might be the chart
+    number, a name column). A proposed fact only sends a patient to "needs information" until a coordinator
+    confirms it; then it counts, and may exclude. A scripted coordinator works through the "please check" list and
+    the hospital codes; the readiness page ends green."""
+    from sitesetup import help as site_help
+    from tb_common.crypto import pid_for_mrn
+
+    s = Stage("12 site set-up and data harmonization")
+    t = time.perf_counter()
+    q = f"ws={SITE_WS}&study={SITE_RS}"
+    key = (Path(box.orch.cfg.env.secrets_dir) / "site_hmac.key").read_bytes()
+    pid = {no: pid_for_mrn(key, no) for no in ("10000001", "10000002", "10000003", "10000004", "10000005")}
+    orch_api = res["app"].state.helpers.bk.study_api
+    lake_before = box.orch.services.lake.snapshot()
+
+    def state(name: str) -> str:
+        m = re.search(rf'data-testid="q-{name}" data-state="([a-z]+)"', crc.get(f"/site?{q}").text)
+        return m.group(1) if m else "?"
+
+    def checks() -> list[dict[str, Any]]:
+        return list(orch_api("GET", f"/setup/{SITE_WS}/checks?open_only=true"))
+
+    def patients() -> dict[str, str]:
+        out = orch_api("GET", f"/setup/{SITE_WS}/patients?study={SITE_RS}")
+        return {p["pid"]: p["state"] for p in out["patients"]}
+
+    def basis() -> dict[str, int]:
+        f = orch_api("GET", f"/setup/{SITE_WS}/feasibility?study={SITE_RS}")["feas"] or {"steps": [{}]}
+        return dict(f["steps"][-1])
+
+    def csrf() -> str:
+        return fd._csrf(crc.get(f"/site/charts?{q}").text)
+
+    # -- question 1: the trial. The protocol's criteria are pasted; the stub drafts them; the investigator approves
+    s.check("start: nothing yet, the patients question is red", state("patients") == "red", state("patients"))
+    form = crc.get("/pilot/protocol")
+    crc.post("/pilot/protocol", data={"csrf": fd._csrf(form.text), "ruleset": SITE_RS, "criteria": SITE_CRITERIA})
+    waiting = box.orch.db.find(ruleset=SITE_RS, state="awaiting_approval", limit=5)
+    s.check("the protocol's criteria are drafted and wait for the investigator", bool(waiting) and
+            state("trial") == "amber", [j.state for j in box.orch.db.find(ruleset=SITE_RS, limit=5)])  # fmt: skip
+    if waiting:
+        page = pi.get(f"/pilot/jobs/{waiting[0].job_id}/approval")
+        pi.post(f"/pilot/jobs/{waiting[0].job_id}/approve", data={"csrf": fd._csrf(page.text)}, follow_redirects=False)
+    s.check("approved: the trial question is green", state("trial") == "green", state("trial"))
+    # -- question 2, with the least: two charts pasted, one by one
+    for no, text in site_help.PRACTICE_CHARTS:
+        r = crc.post("/site/charts", data={"csrf": csrf(), "ws": SITE_WS, "study": SITE_RS, "chart_no": no,
+                                            "text": text})  # fmt: skip
+    facts = orch_api("GET", f"/setup/{SITE_WS}/facts?status=proposed")
+    s.check("two pasted charts: facts proposed, each beside its quote", len(facts) >= 7 and all(f["quote"] for f in
+            facts) and 'data-testid="chart-saved"' in r.text, len(facts))  # fmt: skip
+    page = crc.get(f"/site?{q}").text
+    s.check("charts alone: the box says feasibility needs a bulk source",
+            'data-testid="miss-bulk"' in page and 'data-testid="feas-needs-bulk"' in page)  # fmt: skip
+    pc = patients()
+    s.check("a proposed fact never counts and never excludes: both chart patients need information",
+            pc.get(pid["10000004"]) == "needs" and pc.get(pid["10000005"]) == "needs", pc)  # fmt: skip
+    # -- the IT dump: the hospital's own codes, mapped once for the site
+    name, data = site_help.practice_inputs()["dump"]
+    crc.post("/site/sheets", data={"csrf": csrf(), "ws": SITE_WS, "study": SITE_RS, "kind": "dump"},
+             files={"file": (name, data, "text/csv")})  # fmt: skip
+    page = crc.get(f"/site?{q}").text
+    s.check("the dump: unmapped local codes and diagnoses in an unknown code system are listed",
+            'data-testid="miss-unmapped"' in page and 'data-testid="miss-unknown_share"' in page)  # fmt: skip
+    pc = patients()
+    s.check("until mapped, a local code is an unknown code system: needs information, never a silent no (D-130)",
+            pc.get(pid["10000003"]) == "needs" and pc.get(pid["10000001"]) == "needs", pc)  # fmt: skip
+
+    def map_all() -> int:
+        n = 0
+        for _ in range(20):
+            page = crc.get(f"/site/codes?{q}").text
+            todo = re.findall(r'data-testid="map-other-([^"]+)"', page)
+            if not todo:
+                return n
+            form = re.search(rf'data-testid="map-{re.escape(todo[0])}">(.*?)</form>', page, re.S)
+            hidden = dict(re.findall(r'name="(domain|system|code)" value="([^"]*)"', form.group(1) if form else ""))
+            use = re.search(r'name="use" value="([^"-][^"]*)"', form.group(1) if form else "")
+            crc.post("/site/codes", data={"csrf": fd._csrf(page), "ws": SITE_WS, "study": SITE_RS, **hidden,
+                                          **({"use": use.group(1)} if use else {"target": "I10"})})  # fmt: skip
+            n += 1
+        return n
+
+    n_mapped = map_all()
+    pc = patients()
+    s.check("codes mapped with one tap each: the coded patients are read", n_mapped >= 4 and
+            pc.get(pid["10000001"]) == "ready" and pc.get(pid["10000003"]) == "not_eligible",
+            (n_mapped, pc))  # fmt: skip
+    s.check("coded-eligible with a proposed malignancy from a chart: needs information, not excluded",
+            pc.get(pid["10000005"]) == "needs", pc.get(pid["10000005"]))  # fmt: skip
+    # -- the PI's messy Excel list: safe fixes made and listed, the rest asked
+    name, data = site_help.practice_inputs()["sheet"]
+    r = crc.post("/site/sheets", data={"csrf": csrf(), "ws": SITE_WS, "study": SITE_RS, "kind": "sheet"},
+                 files={"file": (name, data, XLSX)})  # fmt: skip
+    fixes = {f["kind"] for f in orch_api("GET", f"/setup/{SITE_WS}/fixes")}
+    s.check("safe fixes made and listed: era and 民國 dates, full width, units, merged cells, the title row",
+            {"era", "minguo", "width", "unit", "merged", "header_row"} <= fixes, sorted(fixes))  # fmt: skip
+    open_ = {c["kind"] for c in checks()}
+    s.check("the rest is asked, nothing guessed: day/month, an unknown unit, a possible chart number, no key",
+            {"date_order", "unit", "chart_column", "no_key"} <= open_, sorted(open_))  # fmt: skip
+    s.check("the name column is dropped and never shown", "氏名" in r.text and "青山" not in r.text and
+            "山田" not in json.dumps(orch_api("GET", f"/setup/{SITE_WS}/facts"), ensure_ascii=False))  # fmt: skip
+    answered = 0
+    for _ in range(12):  # the scripted coordinator: the suggested answer, except the ID column, which is left out
+        page = crc.get(f"/site/checks?{q}").text
+        found = re.findall(r'data-testid="check-(\d+)" data-kind="([a-z_]+)"', page)
+        if not found:
+            break
+        cid, kind = found[0]
+        block = re.search(rf'data-testid="check-{cid}".*?</li>', page, re.S)
+        opts = re.findall(r'name="answer" value="([^"]+)"( class="secondary")?', block.group(0) if block else "")
+        ans = "drop" if kind == "chart_column" else next((o for o, sec in opts if not sec), "drop")
+        crc.post(f"/site/checks/{cid}", data={"csrf": fd._csrf(page), "ws": SITE_WS, "study": SITE_RS, "answer": ans})
+        answered += 1
+    s.check("the scripted coordinator works through the \"please check\" list", answered >= 4 and not checks(),
+            answered)  # fmt: skip
+    map_all()
+    people = orch_api("GET", f"/setup/{SITE_WS}/people")
+    dis = people["disagreements"]
+    s.check("one patient from the dump, the list and a chart is one pseudonym; the two birth dates are listed",
+            [(d["pid"], d["what"]) for d in dis] == [(pid["10000002"], "birth_date")]
+            and any(p["pid"] == pid["10000001"] and p["inputs"] == ["dump", "sheet"] for p in people["people"]),
+            dis)  # fmt: skip
+    page = crc.get(f"/site/people?{q}").text
+    crc.post("/site/people/resolve", data={"csrf": fd._csrf(page), "ws": SITE_WS, "study": SITE_RS,
+                                           "pid": pid["10000002"], "what": "birth_date",
+                                           "keep": "1971-06-05"})  # fmt: skip
+    b = basis()
+    s.check("feasibility: proposed facts are not counted", b.get("proposed", 0) >= 1 and b.get("confirmed") == 0, b)
+    # -- the coordinator confirms the proposed facts, one tap each (Confirm on the review list)
+    n = 0
+    for _ in range(30):
+        page = crc.get(f"/site/facts?{q}").text
+        ids = re.findall(r'data-testid="confirm-(\d+)"', page)
+        if not ids:
+            break
+        crc.post(f"/site/facts/{ids[0]}", data={"csrf": fd._csrf(page), "ws": SITE_WS, "study": SITE_RS,
+                                                 "action": "confirm"})  # fmt: skip
+        n += 1
+    pc = patients()
+    s.check("confirmed: it counts like coded data and may exclude (the malignancy), or makes a patient ready",
+            n >= 7 and pc.get(pid["10000005"]) == "not_eligible" and pc.get(pid["10000004"]) == "ready",
+            (n, pc))  # fmt: skip
+    b = basis()
+    s.check("feasibility says how much of the count rests on confirmed facts", b.get("confirmed", 0) >= 1 and
+            b.get("proposed") == 0, b)  # fmt: skip
+    # -- question 3: trial records in TrialBox's own forms
+    page = crc.get(f"/studies/{SITE_RS}/forms")
+    crc.post(f"/studies/{SITE_RS}/forms/builtin", data={"csrf": fd._csrf(page.text)})
+    page = crc.get(f"/site?{q}").text
+    s.check("the readiness page is green", 'data-testid="site-overall" data-state="green"' in page,
+            re.findall(r'data-testid="miss-[^"]+"', page))  # fmt: skip
+    # -- Ask TrialBox: explains and links, never changes anything
+    before = json.dumps([orch_api("GET", f"/setup/{SITE_WS}/{x}") for x in ("facts", "codes", "checks")])
+    nxt = {"ja": "次に何をすればよいですか？", "zh-TW": "下一步該做什麼？"}.get(lang, "What next?")
+    r = crc.get("/ask", params={"q": nxt, "ws": SITE_WS, "study": SITE_RS})
+    why = crc.get("/ask", params={"pid": pid["10000005"], "ws": SITE_WS, "study": SITE_RS})
+    after = json.dumps([orch_api("GET", f"/setup/{SITE_WS}/{x}") for x in ("facts", "codes", "checks")])
+    s.check("Ask TrialBox answers \"what next?\" and \"why?\" from the pages, and changes nothing",
+            'data-kind="next"' in r.text and 'data-kind="why"' in why.text and before == after)  # fmt: skip
+    # -- privacy: chart numbers and names stay inside the box's protected area
+    text = "\n".join(crc.get(f"/site{p}?{q}").text for p in ("", "/facts", "/codes", "/checks", "/people", "/patients"))
+    trail = json.dumps(_audit(box), ensure_ascii=False)
+    s.check("no chart number or name on the pages or in the audit",
+            not re.search(r"1000000[0-9]", re.sub(r'data-testid="[^"]*"', "", text) + trail)
+            and not any(w in text + trail for w in ("青木", "青山", "石田", "上野", "江藤")))  # fmt: skip
+    s.check("every decision is in the audit", {"setup.chart", "setup.input", "setup.map", "setup.check",
+            "setup.resolve", "setup.fact", "console.site_fact"} <= {str(e["event"]) for e in _audit(box)})  # fmt: skip
+    s.check("the hospital's own lake is untouched by the new site", box.orch.services.lake.snapshot() == lake_before)
     s.seconds = time.perf_counter() - t
     return s
 
@@ -810,6 +998,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
 
     stages.append(_stage10(res, api, crc, lang, mrns, box))
     stages.append(_stage11(res, api, crc, pi, lang, mrns, box))
+    stages.append(_stage12(res, crc, pi, lang, box))
 
     # ---------------------------------------------------------------- FR-REP-02: byte-identical re-run
     s = Stage("re-run (FR-REP-02)")

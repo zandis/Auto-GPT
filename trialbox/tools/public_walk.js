@@ -22,6 +22,12 @@
 // TB-PLAN-04 step 5 (D-134): the lifecycle pages (participants, one participant, visits, the visit schedule, the
 // enrolment report) for every role that may open them, and task T7: the coordinator, on a phone in Japanese, marks
 // today's visit done from the home page ("Done today", then Save; target 2 to 3 taps).
+//
+// TB-PLAN-04 step 5b (D-135): the site set-up pages on the practice site (readiness, the wizard, charts, the
+// proposed-fact review list, hospital codes, "please check", lists, patients, the criteria check, help) for the
+// coordinator, the investigator and the administrator (403 for viewer and CRA), Ask TrialBox for every role, and two
+// tasks: T8 the coordinator confirms a proposed fact on a phone (target 2 taps), T9 the coordinator pastes a chart
+// (target 3 taps: the chart number, the text, Read).
 "use strict";
 
 const { chromium } = require("playwright");
@@ -38,14 +44,16 @@ function axeSource() {
 }
 const AXE = axeSource();
 // the novice review's task table (docs/reviews/2026-11-08-ux-review-novice.md §2), "taps it could take"
-const TAPS_MAX = { T1: 2, T2: 2, T3: 2, T4: 10, T5: 5, T6: 3, T7: 3 };
+const TAPS_MAX = { T1: 2, T2: 2, T3: 2, T4: 10, T5: 5, T6: 3, T7: 3, T8: 2, T9: 3 };
 const W = JSON.parse(fs.readFileSync(args.walk, "utf8"));
 const T = W.trial;
 const C = W.cohort;
 const LR = W.life_record; // D-134: a participant with today's visit and a serious AE
+const SQ = `ws=${W.site_ws || "practice"}&study=${T}`; // D-135: the practice site, loaded by public_e2e stage 5c
+const SITE = [`/site?${SQ}`, `/site/start?${SQ}&step=2`, `/site/charts?${SQ}`, `/site/facts?${SQ}`, `/site/codes?${SQ}`, `/site/checks?${SQ}`, `/site/sheets?${SQ}`, `/site/people?${SQ}`, `/site/patients?${SQ}`, `/site/help?${SQ}`];
 const LIFE = [`/studies/${T}/subjects`, `/studies/${T}/subjects/${LR}`, `/studies/${T}/visits`, `/studies/${T}/schedule`, `/studies/${T}/enrolment`];
 const PAGES = {
-  common: ["/home", "/help", "/account", "/notices/received", "/settings/notices", "/no-such-page"],
+  common: ["/home", "/help", "/account", "/notices/received", "/settings/notices", "/no-such-page", `/ask?q=next&${SQ}`],
   pi: [
     "/week",
     `/studies/${T}/week?list=all`,
@@ -58,6 +66,7 @@ const PAGES = {
     `/studies/${T}/conflicts`,
     `/studies/${T}/forms`,
     ...LIFE,
+    ...SITE,
     "/reports",
   ],
   crc: [
@@ -75,6 +84,7 @@ const PAGES = {
     `/studies/${T}/entry?record=${W.record}&form=tb_visit&event=v1`,
     `/studies/${T}/history?record=${W.record}`,
     ...LIFE,
+    ...SITE,
     "/pilot/protocol",
     "/pilot/request",
     "/pilot/case",
@@ -87,16 +97,16 @@ const PAGES = {
     "/reports/research-office",
     "/jobs",
   ],
-  admin: ["/admin?tab=health", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`],
-  viewer: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`],
-  cra: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`],
+  admin: ["/admin?tab=health", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/codes?${SQ}`, `/site/help?${SQ}`],
+  viewer: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`],
+  cra: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`],
 };
 // pages a role must not open: a 403 page (in the chosen language), never a 500
 const FORBIDDEN = {
   pi: ["/admin?tab=health"],
   crc: ["/admin?tab=health"],
-  viewer: [`/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`],
-  cra: [`/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`],
+  viewer: [`/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`],
+  cra: [`/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`],
 };
 const ROLES = ["admin", "crc", "pi", "viewer", "cra"];
 const LANGS = [
@@ -126,7 +136,7 @@ function rec(r) {
 function slug(p) {
   return p.replace(/^\//, "").replace(/[^A-Za-z0-9]+/g, "_").slice(0, 60) || "root";
 }
-const KEY = /\b(?:admin|mark|outcome|log|week|home|help|account|notice|notices|report|reports|feas|screen|study|studies|patient|case|consent|setup|redcap|lang|cmd|registry|problem|reason|job|jobs|approval|protocol|request|ops|users|life)\.[a-z_]+(?:\.[a-z_]+)*\b/;
+const KEY = /\b(?:admin|mark|outcome|log|week|home|help|account|notice|notices|report|reports|feas|screen|study|studies|patient|case|consent|setup|redcap|lang|cmd|registry|problem|reason|job|jobs|approval|protocol|request|ops|users|life|site|ask)\.[a-z_]+(?:\.[a-z_]+)*\b/;
 
 // the study's own words and the names from the data are shown as written (walk.json "authored", D-119)
 const AUTHORED = (W.authored || []).filter((x) => x && x.length >= 3);
@@ -536,6 +546,33 @@ async function tasks(browser) {
       r.why.push(`not saved: ${errs.join(" / ").slice(0, 160)}`);
     }
     if (await page.locator(done).count()) r.why.push("the visit is still on the list after Save");
+  });
+  // T8 (D-135): the coordinator, on a phone in Japanese, confirms an item read from a chart: "Check them" on the
+  // readiness page opens the review list, where the item sits beside the chart's words; Confirm. Target 2 taps.
+  await task(browser, "T8", phone("ja-JP"), async (page, tap, r) => {
+    await signIn(page, "crc", LANGS[1]);
+    await page.goto(`${args.base}/site?${SQ}`, { waitUntil: "load" });
+    if (!(await page.locator("[data-testid=fix-proposed]").count())) throw new Error("no item to check on the readiness page");
+    await tap(() => clickNav(page, "[data-testid=fix-proposed]"));
+    const first = page.locator("[data-testid^=confirm-]").first();
+    const id = ((await first.getAttribute("data-testid")) || "").replace("confirm-", "");
+    if (!(await page.locator(`[data-testid=quote-${id}]`).count())) r.why.push("the item is not beside the chart's words");
+    await tap(() => Promise.all([page.waitForLoadState("load"), first.click()]));
+    if (!(await page.locator("[data-testid=fact-done]").count())) r.why.push("no confirmation after Confirm");
+    if (await page.locator(`[data-testid=confirm-${id}]`).count()) r.why.push("the item is still waiting");
+  });
+  // T9 (D-135): the coordinator, on a phone in Chinese, pastes a chart copied from the EMR screen: the chart number,
+  // the text, Read. Target 3 taps.
+  await task(browser, "T9", phone("zh-TW"), async (page, tap, r) => {
+    await signIn(page, "crc", LANGS[2]);
+    await page.goto(`${args.base}/site/charts?${SQ}`, { waitUntil: "load" });
+    await tap(() => page.fill("[data-testid=chart-no]", "10000009"));
+    await tap(() => page.fill("[data-testid=chart-text]", "門診紀錄 2026年10月2日\n診斷：痛風\n檢驗：尿酸 9.2 mg/dL\n"));
+    await tap(() => clickNav(page, "[data-testid=chart-save]"));
+    if (!(await page.locator("[data-testid=chart-saved]").count())) {
+      const errs = await page.locator(".error").allInnerTexts();
+      r.why.push(`not read: ${errs.join(" / ").slice(0, 160)}`);
+    }
   });
 }
 

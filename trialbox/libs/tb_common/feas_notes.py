@@ -66,11 +66,11 @@ NOTES: dict[str, dict[str, str]] = {
     },
     # D-135 (step 5b): how much of the count rests on facts a person confirmed from a chart, and what is not counted
     "feas.note.basis.confirmed": {
-        "en": "Of the {n} counted at the last step, {c} rest partly on facts a coordinator confirmed from a chart; the "
-        "rest on coded records.",
-        "ja": "最後の段階で数えた {n} 人のうち {c} 人は、コーディネーターがカルテから確認した情報にも基づいています。"
+        "en": "Of the patients counted at the last step, {n} rest partly on facts a coordinator confirmed from a "
+        "chart; the rest on coded records.",
+        "ja": "最後の段階で数えた患者のうち {n} 人は、コーディネーターがカルテから確認した情報にも基づいています。"
         "残りはコード化された記録のみに基づきます。",
-        "zh-TW": "最後一步計入的 {n} 位中，有 {c} 位部分依據協調員從病歷確認的資料，其餘僅依據結構化紀錄。",
+        "zh-TW": "最後一步計入的病人中，有 {n} 位部分依據協調員從病歷確認的資料，其餘僅依據結構化紀錄。",
     },
     "feas.note.basis.proposed": {
         "en": "Proposed facts read from charts and not yet confirmed: {n} patients. They are never counted here; "

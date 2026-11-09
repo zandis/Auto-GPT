@@ -628,6 +628,29 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
+    # ------------------------------------------------------------------ 5c site set-up (TB-PLAN-04 step 5b, D-135)
+    s = Stage("5c site set-up and data harmonization (D-135)")
+    t = time.perf_counter()
+    page = crc.get(f"/site/help?study={TRIAL}")
+    r = crc.post("/site/practice", data={"csrf": fd._csrf(page.text), "action": "load", "study": TRIAL})
+    s.check("the practice site loads in one tap", r.status_code == 200 and "ws=practice" in str(r.url), r.status_code)
+    sq = f"ws=practice&study={TRIAL}"
+    page = crc.get(f"/site?{sq}").text
+    s.check("its readiness lists what is missing", 'data-testid="miss-proposed"' in page
+            and 'data-testid="miss-unmapped"' in page and 'data-testid="miss-checks"' in page)  # fmt: skip
+    facts = crc.get(f"/site/facts?{sq}").text
+    ids = re.findall(r'data-testid="confirm-(\d+)"', facts)
+    s.check("proposed facts beside their quotes", len(ids) >= 7 and facts.count('data-testid="quote-') >= 7, len(ids))
+    r = crc.post(f"/site/facts/{ids[0]}", data={"csrf": fd._csrf(facts), "ws": "practice", "study": TRIAL,
+                                                  "action": "confirm"})  # fmt: skip
+    s.check("one tap confirms a fact", 'data-testid="fact-done"' in r.text, r.status_code)
+    s.check("the hospital's own data is untouched by the practice site",
+            'data-testid="q-patients" data-state="red"' in crc.get(f"/site?study={TRIAL}").text)  # fmt: skip
+    ask = crc.get("/ask", params={"q": "What do I do next?", "ws": "practice", "study": TRIAL})
+    s.check("Ask TrialBox answers what to do next", 'data-kind="next"' in ask.text, ask.status_code)
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
     # ------------------------------------------------------------------ 6 the other screens, every role
     s = Stage("6 other screens")
     t = time.perf_counter()
@@ -781,6 +804,7 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         "consent_job": kj.job_id if kj else "",
         "record": out.get("screening_no") or "",  # a screening number: the walk's Entry and History record
         "life_record": out.get("life_record") or "",  # D-134: a participant with today's visit and a serious AE
+        "site_ws": "practice",  # D-135: the practice site, loaded in stage 5c (proposed facts, codes, checks)
         # the study's own words (criterion labels, texts, actions) and the staff names from the data: shown as
         # written, so the walk's language check (D-119) does not count them as untranslated page text
         "authored": authored_strings(box, [TRIAL, COHORT]),

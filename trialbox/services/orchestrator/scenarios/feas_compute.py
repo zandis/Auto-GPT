@@ -442,7 +442,7 @@ def _result(rs: Ruleset, p: FeasParams, st: list[Step], variants: list[Variant],
     last = next((s.id for s in reversed(st) if s.applied), None)
     if last and raw.basis.get(last, {}).get("confirmed"):
         b = raw.basis[last]
-        keys.append(("feas.note.basis.confirmed", {"n": pub(b["coded"] + b["confirmed"]), "c": pub(b["confirmed"])}))
+        keys.append(("feas.note.basis.confirmed", {"n": pub(b["confirmed"])}))
     if raw.basis:
         n_prop = max(v["proposed"] for v in raw.basis.values())
         if n_prop:
