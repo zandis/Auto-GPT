@@ -281,3 +281,13 @@ def test_vm_door_is_reachable_from_the_nginx_container_and_checks_the_key() -> N
     assert '("127.0.0.1", 8081)' not in door
     assert "sys.argv[1], 8081" in door and 'tb-door.py "$DOOR_HOST"' in text
     assert "compare_digest" in door and "send_error(401)" in door
+
+
+def test_vm_setup_fails_loudly_and_does_not_pip_install_system_wide() -> None:
+    """The second cloud run had no .venv: Ubuntu 24.04 refuses `python3 -m pip install` (PEP 668), and the setup went on."""
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[2] / "deploy" / "gcp" / "complete-run-vm.sh").read_text()
+    assert "python3 -m pip install -q uv" not in text
+    assert 'setup_failed "no .venv/bin/python"' in text and "TB-SETUP-FAILED" in text
+    assert "vm.log" in text  # the setup and run log come back with the results

@@ -190,13 +190,30 @@ for _ in $(seq 1 120); do [ -f "$TB/incoming/src.tgz" ] && break; sleep 15; done
 rm -rf "$SRC" && mkdir -p "$SRC" && tar -xzf "$TB/incoming/src.tgz" -C "$SRC"
 cd "$SRC/trialbox" || { touch "$DONE"; exit 1; }
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq && apt-get install -y -qq postgresql tesseract-ocr tesseract-ocr-jpn tesseract-ocr-chi-tra \
-  tesseract-ocr-eng nodejs npm >/dev/null
+LOG=/var/log/tb-complete-run.log
+setup_failed() {  # the setup log comes back with the results, so a failed setup is never silent (first cloud run)
+  echo "TB-SETUP-FAILED: $1" | tee -a "$LOG"; echo setup-failed > "$PHASE"
+  tar -czf "$TB/out/results.tgz" -C /var/log tb-complete-run.log 2>/dev/null
+  touch "$DONE"; exit 1
+}
+echo "== setup $(date -u +%FT%TZ)" >>"$LOG"
+apt-get update -qq >>"$LOG" 2>&1
+apt-get install -y -qq postgresql tesseract-ocr tesseract-ocr-jpn tesseract-ocr-chi-tra tesseract-ocr-eng nodejs npm \
+  python3-venv python3-pip curl >>"$LOG" 2>&1 || setup_failed "apt-get install"
 touch "$HB"
-command -v uv >/dev/null || python3 -m pip install -q uv
-uv venv --python 3.12 .venv -q && uv pip install -q --python .venv/bin/python -e ".[dev]"
-mkdir -p /opt/node-tools && (cd /opt/node-tools && npm i -s playwright@1.63.0 axe-core >/dev/null && npx playwright install --with-deps chromium >/dev/null)
-.venv/bin/python tools/fetch_fonts.py >/dev/null 2>&1 || true
+# Ubuntu 24.04 refuses a system-wide pip install (PEP 668), so uv comes from a venv of its own, else its installer
+if ! command -v uv >/dev/null; then
+  { python3 -m venv /opt/uv && /opt/uv/bin/pip install -q uv && ln -sf /opt/uv/bin/uv /usr/local/bin/uv; } >>"$LOG" 2>&1 \
+    || { curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh; } >>"$LOG" 2>&1
+fi
+command -v uv >/dev/null || setup_failed "uv"
+{ uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"; } >>"$LOG" 2>&1 \
+  || setup_failed "python environment"
+[ -x .venv/bin/python ] || setup_failed "no .venv/bin/python"
+mkdir -p /opt/node-tools && (cd /opt/node-tools && npm i -s playwright@1.63.0 axe-core && npx playwright install --with-deps chromium) \
+  >>"$LOG" 2>&1 || setup_failed "playwright"
+.venv/bin/python tools/fetch_fonts.py >>"$LOG" 2>&1 || true
+echo "== setup done $(date -u +%FT%TZ)" >>"$LOG"
 touch "$HB"
 
 # the embedding bench (tools/bench_embed.py) runs in the vLLM image: its torch and transformers already run on this card
@@ -209,7 +226,6 @@ chmod 0755 /usr/local/sbin/tb-embed-py
 
 # ------------------------------------------------------------------ the run: model parts here, resumable
 echo run > "$PHASE"
-LOG=/var/log/tb-complete-run.log
 ( while [ ! -f "$TB/run-ended" ]; do  # progress keeps the VM alive: the log grew in the last minute
     s1=$(stat -c %s $LOG 2>/dev/null || echo 0); sleep 60; s2=$(stat -c %s $LOG 2>/dev/null || echo 0)
     [ "$s2" != "$s1" ] && touch "$HB"
@@ -226,7 +242,8 @@ echo "TB-RUN-EXIT $?"
 touch "$TB/run-ended"
 cp $REC/gpu_peak.json "$RUN/" 2>/dev/null || curl -fsS -o "$RUN/gpu_peak.json" http://127.0.0.1/record/gpu_peak.json || true
 cp $REC/serving_config.json "$RUN/serving_config.rtxpro6000.live.json" 2>/dev/null || true
-tar -czf "$TB/out/results.tgz" -C "$RUN" parts report gpu_peak.json serving_config.rtxpro6000.live.json \
+cp "$LOG" "$RUN/vm.log" 2>/dev/null || true
+tar -czf "$TB/out/results.tgz" -C "$RUN" vm.log parts report gpu_peak.json serving_config.rtxpro6000.live.json \
   bench-embed/result.json bench-embed/set.json bench-profile/result.json 2>/dev/null
 [ -n "$BUCKET" ] && gcloud storage cp "$TB/out/results.tgz" "$BUCKET/runs/$RUN_ID/results.tgz"
 printf "done\n" > "$PHASE"
