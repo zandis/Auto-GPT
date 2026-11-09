@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/ingest_report.schema.json",
   "title": "IngestReport",
-  "description": "adapter ingest_report.json (SPEC 4.6). Schema version 1.1.0 (1.1.0: fhir_deleted).",
+  "description": "adapter ingest_report.json (SPEC 4.6). Schema version 1.2.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation).",
   "type": "object",
   "required": [
     "snapshot",
@@ -52,6 +52,17 @@
     },
     "validation": {
       "$ref": "#/$defs/validation_summary"
+    },
+    "profile_validation": {
+      "description": "the sample checked against the mapping's national profiles (JP Core, D-137); every outcome is in jp_core_validation.json beside the snapshot",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/validation_summary"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "fhir_loaded": {
       "type": "integer",

@@ -2257,3 +2257,137 @@ without opening the console. Chart numbers and names stay out of mail as before 
 `tests/console/test_step2.py::test_mail_shows_the_screening_number_beside_the_pseudonym`; `e2e_simple` and
 `public_e2e` check that every pseudonym with a number in the sent mail carries it, and still that no chart number or
 name is in the mail.
+
+**D-137 Step 7, Japan completeness.** TB-PLAN-04 step 7 (plan v4 F5; D-122 "not done"; builds on D-130, D-135),
+2026-11-09.
+
+*What was built.*
+
+* **JP Core profiles on the adapter's output** (`mapping/jp_core/ssmix2_site.yaml`, `mapping/engine.py`).
+  * A mapping can now re-profile the shared resource set: `profiles` maps a base profile URL to its own (`""` drops
+    the claim) and `overlay` adds or replaces elements of one type and table. The TW mapping is unchanged.
+  * The Japan mapping claims JP Core 1.1.0: JP_Patient, JP_Practitioner, JP_Encounter, JP_Condition,
+    JP_Observation_LabResult / _Common / _VitalSigns / _BodyMeasurement, JP_MedicationRequest, JP_Procedure and
+    JP_DiagnosticReport_Common. DocumentReference claims none (JP Core 1.1.0 has no DocumentReference profile).
+  * It adds what JP Core asks for: the lab specimen (from the JLAC10 material code) and code text; the Rp number and
+    order-in-Rp identifiers of a MedicationRequest; the 標準病名 coding beside the ICD-10 (so a code nothing can read
+    reaches the lake as itself, the item D-130 left for this step); the class history of a visit; the HOT code.
+  * Code systems fixed: YJ is `urn:oid:1.2.392.100495.20.1.73` (D-122 had used HOT9's second OID); HOT9 is
+    `urn:oid:1.2.392.200119.4.403.1`; a hospital lab code and a claim's product code now sit in
+    `urn:trialbox:local:*` instead of being labelled JLAC10 or YJ (the check found both).
+* **JP Core `$validate` at ingest, offline** (`adapter/validate/jpcore.py`, `tools/jpcore_rules.py`).
+  * Choice: a pure-Python check, not the HL7 validator jar. JP Core's StructureDefinitions are differential-only; the
+    jar needs the R4 core package as well to snapshot them, and the box and the tests must run without either.
+  * `tools/jpcore_rules.py --fetch` downloads `jp-core.r4#1.1.0` at build time into `.cache/fhir/` (pinned URL,
+    sha256 `60567c583943150c26275f156d63c181e5608efcdf0616289a7fe5c032457da1`, the registry's sha1 checked too) and
+    writes `validate/jp_core_rules.json` (committed, 35 KB): per profile its parent and its differential
+    (cardinalities, fixed and pattern values, slices and discriminators, bindings), and the codes of the ValueSets the
+    package enumerates. The package itself is not in the repo; tests and the box need only the rules file. 1.1.0 is
+    the newest release on the FHIR package registry.
+  * Each resource: the claim (a profiled type must claim JP Core; a TW Core claim is an error); base R4
+    (`fhir.resources` R4B models); the profile chain (cardinality per parent instance, fixed and pattern values,
+    value and pattern slices, required bindings with enumerated codes); the code systems we hold (ICD-10-CM in the
+    full list, the LOINC check digit, the JLAC10 / YJ / HOT / MEDIS / ATC shapes; a code missing from a loaded
+    licensed release is a warning, never an error).
+  * The ingest checks 50 resources of each type (`AdapterConfig.profile_sample_per_type`), writes every outcome to
+    `jp_core_validation.json` beside the snapshot, puts the summary in the ingest report (`profile_validation`,
+    schema 1.2.0) and fails the report over `validation_error_max_pct`, with the first failure in plain words.
+    Nothing is dropped. `adapter validate` (CLI) and `POST /$validate` (adapter API; one resource gives its
+    OperationOutcome) do the same on demand. The reader's counts go to `reader.json`.
+* **Licensed MEDIS / JLAC10 / YJ loader** (`adapter/licensed.py`; schema `terminology` of the trial database, in every
+  backup).
+  * A site loads its own release: `python -m adapter.licensed load --kind medis|jlac10|yj --file … --version …`, or
+    `POST /terminology/load`. CSV or tab-separated, Shift_JIS or UTF-8 (detected and recorded); columns by the
+    vendors' header names after NFKC (MEDIS 病名基本テーブル, JLAC10's five part columns or one code column, the HOT
+    master's YJ, HOT13 and names); `--columns` for a release without a header row. Rows with a malformed or repeated
+    code are skipped and listed. Each release keeps its version, file name, sha256, encoding, rows and who loaded it;
+    the older release stays, inactive. Every load is audited (`terminology.load`).
+  * Used by the SS-MIX2 reader (a 標準病名 code with no ICD-10 alternate resolves through MEDIS, only to a code in the
+    ICD-10-CM list, else it stays unknown), by site set-up suggestions (method `licensed`: the file's ICD-10, or the
+    name it gives through the existing name rules), and by the JP Core check (membership warnings).
+  * Without the files, `licensed status`, `GET /terminology`, the orchestrator's `GET /setup/terminology` and a new
+    block on the hospital-codes page (en, ja, zh-TW) say "not loaded: its codes stay unknown", and D-130 keeps them
+    unknown.
+  * `tests/fixtures/licensed/` holds three made-up 10-row files in the vendors' layouts (MEDIS in Shift_JIS CSV,
+    JLAC10 in UTF-8 TSV, the HOT master in Shift_JIS CSV with full-width headers). No licensed data is in the repo.
+* **SS-MIX2 messages** (`sources/ssmix2/source.py`).
+  * ADT-52 is read by its trigger event: `A03` ends the visit (PV1-45, `finished`); `A06` / `A07`, or any event with
+    PV1-2, changes the patient class (患者区分変更) and keeps the old class and the time (`Encounter.classHistory`). A
+    change for a visit the storage lacks is counted, never made into a visit. An admission without a discharge is
+    `in-progress`. A delta night takes a visit changed or discharged after `since`.
+  * OMP-11 / OMP-12 (実施, RAS^O17, ORC/RXA) become MedicationRequest, as the brief asked: folded into the order with
+    the same ORC-2 (only empty fields are filled), else a medication of their own. YJ, HOT and ATC are read from the
+    primary and alternate codes of RXE-2 / RXA-5, and all three stay coded. OMP-02 / OMP-12 are marked injections.
+  * Extended storage (`<root>/extended_storage/<id>/<day>/<kind>/<file>`): text (UTF-8, Shift_JIS, ISO-2022-JP,
+    EUC-JP), HTML / XML, Word and PDF with a text layer become note rows: a DocumentReference and note text for the
+    two models. Standardized file names are versioned and deleted like the storage; a file without readable text (a
+    scan, an image) is kept as a document without text and counted. The document id is a keyed hash: neither the
+    chart number nor the path leaves the adapter.
+  * `tools/ssmix2_export.py` writes all of these into the synthetic hospital, each so that it reads back as the CSV's
+    rows: every 40th visit is an admission changed to outpatient (ADT^A07); injectables are OMP-02 orders; every
+    fifth oral and fourth injection order is only a 実施, every seventh / third has both; every other drug is sent
+    with a synthetic HOT9 primary code; a discharge summary (Shift_JIS) and an imaging report (PDF) go into extended
+    storage.
+
+*Decisions the owner should know.*
+
+* **Validator: offline structural, not the HL7 jar.** It checks what JP Core 1.1.0's differentials state, plus the
+  code systems we hold. It does not run FHIRPath invariants, `type` / `profile` / `url` slice discriminators
+  (extension and choice-type slices), or bindings to ValueSets the package does not enumerate. A site that wants the
+  HL7 jar's verdict can still run it on an NDJSON snapshot with `jp-core.r4#1.1.0` in a package cache.
+* **ADT-52 and OMP-11/12 read differently from D-122.** D-122 (and the SS-MIX2 storage specification as we read it)
+  calls ADT-52 the discharge (退院実施) and OMP-11/12 the 実施 records; the brief calls ADT-52 the patient class
+  change and OMP-11/12 orders. The reader takes ADT-52 by its trigger event, so both readings work; OMP-11/12 go into
+  MedicationRequest as asked (folded into their order), not MedicationAdministration. Check both on a site's real
+  storage.
+* **Injections claim JP_MedicationRequest**, not JP_MedicationRequest_Injection: that profile requires
+  `medicationReference` (a contained Medication), and the lake and the SQL engine read `medicationCodeableConcept`.
+* **A licensed MEDIS file gives WHO ICD-10.** A code is used only where it is also an ICD-10-CM code; any other code
+  stays unknown (D-130). Suggestions from the files still need one confirmation by a person (D-135).
+* **The MEDIS 病名交換用コード OID** (`urn:oid:1.2.392.200119.4.101.6`; JP Core 1.1.0 has no NamingSystem for it) and
+  the vendors' column names are our reading; verify them against the site's releases.
+* **GOUT-COH is pinned.** `e2e_simple` now checks the main run's GOUT-COH numbers against those recorded on master
+  f5c78fb before this step (`GOUT_COH_BEFORE_STEP7`).
+
+*Evidence.*
+
+* **`e2e_simple` stage 13**, "Japan: SS-MIX2, JP Core and the licensed code lists": 16 checks in 11.0 s; the whole
+  run PASSED in 107.8 s.
+  * A 400-patient synthetic SS-MIX2 hospital: 68 ADT-52 class changes, all read into their visits; OMP-02 165,
+    OMP-11 1,077 (392 with their order, 685 alone), OMP-12 109 (55 with, 54 alone); 30 extended-storage documents,
+    all in the lake with their text.
+  * Its patients, visits, medicines, diagnoses and results equal its CSV export's.
+  * JP Core `$validate` at ingest: **612 resources sampled (50 per type, 15 types), 0 failed**, 48 warnings (codes not
+    in the 10-row licensed samples). `$validate` over the written snapshot and `adapter validate` agree. The TW Core
+    output of the same hospital fails, saying "claims a TW Core profile".
+  * The licensed lists: "not loaded" for all three first; then each 10-row sample loads (Shift_JIS, UTF-8,
+    Shift_JIS) with its version and source, and is audited. With the site lookups removed, the MEDIS sample resolves
+    161 diagnoses; the codes it does not list stay unknown.
+  * GOUT-COH FEAS funnel of the SS-MIX2 storage = its CSV export's.
+  * **GOUT-COH of the main run, before and after: identical.** FEAS start 5,000; INC-02 1,210, INC-03 797, INC-04 237,
+    INC-05 54, INC-06 26, INC-07 6. SCREEN S0 3,341, S1 9, S3 0, S4 9; listed 9 (5 high, 4 review; 3,332 excluded).
+    Cohort list: 5 members.
+* **`tests/unit/test_japan_completeness.py`** (26 tests): the loader on the three samples, its refusals and skipped
+  rows, "not loaded"; D-130 with and without the MEDIS list (a WHO-only code stays unknown); suggestions; ADT-52
+  discharge, class change, an unknown visit and the delta; OMP-11/12 folded and alone, with HOT and YJ;
+  extended-storage versions, deletes, encodings, PDF and an image; a 120-patient hospital passing JP Core at ingest;
+  the check failing on 13 kinds of fault; the `$validate` and terminology APIs. `tests/console/test_site_setup_pages`:
+  the hospital-codes page shows each list loaded or not, in ja, zh-TW and en.
+* `tests/integration/test_ssmix2_path.py` (CSV funnel = SS-MIX2 funnel; D-130's unmapped diagnoses) passes with the new
+  messages.
+* Suites: unit, console and testbench 1,344 passed, 2 skipped. `make lint` clean. `public_e2e --lang ja`: 112/112.
+* `tools/backup_drill`: PASSED; a new check reads the licensed lists back after the restore (3 releases, 30 codes).
+* The walk (`node tools/public_walk.js` against `public_e2e --serve`): 780 checks, 0 failures over 768 pages; axe 0
+  serious or critical (84 minor); 21,618 targets, none under 44 px; taps T1 to T9 unchanged.
+
+*Not done.*
+
+* No real MEDIS, JLAC10 or YJ release was loaded (licensed); the column names and headerless layouts need a check
+  against them. JLAC10 releases carry no LOINC: `jlac10_to_loinc.csv` stays the site's own table.
+* No HL7 validator run against JP Core here (no R4 core package in the cache). Newer JP Core releases (1.1.2, 1.2.x)
+  are not on the package registry.
+* AllergyIntolerance (SS-MIX2 allergy messages) is not read, so no JP_AllergyIntolerance is produced; the rules cover
+  it. MedicationAdministration and contained Medication resources are not produced.
+* ADT-52's meaning at a real site, ADT-21/31/41/42/51 and vendors' RXA variants are untested on real storage. Extended
+  storage is read by folder kind only (no `_contents.xml` index); scans without a text layer need OCR.
+* The list status is on the hospital-codes page and the APIs, not on the readiness page or the admin home.

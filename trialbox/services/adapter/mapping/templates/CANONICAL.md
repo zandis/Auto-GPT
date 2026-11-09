@@ -21,6 +21,12 @@ are `YYYY-MM-DD`, date-times `YYYY-MM-DD HH:MM[:SS]` in the site time zone.
 | claim | claim_no | claim_no, mrn, created_date, product_code, apply_type, outcome, approval_start†, approval_end† | outcome: `approved`, `denied`, `pending` |
 | registry† | mrn | mrn, consent_contact, consent_date | consent_contact: `Y`, `N` |
 
+The Japan mapping (`jp_core/ssmix2_site.yaml`, D-137) reads a few more optional columns, which the SS-MIX2 reader
+fills: encounter `end_datetime`, `enc_status` (`finished`, `in-progress`), `prev_enc_type` and `class_changed_at`
+(ADT-52); diagnosis `byomei_code`, `byomei_name` (the 標準病名 code beside the ICD-10); lab `jlac10_code`,
+`hosp_lab_code`, `specimen`; medication `hot_code`, `rp_no`, `rx_kind` (`prescription`, `injection`); note_type
+`report` and `document` (extended-storage documents).
+
 `identity: {name: name, national_id: id_no}` on the patient table keeps the name and national id encrypted in the
 pid map (TWPAS only); they never reach the lake.
 

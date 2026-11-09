@@ -23,6 +23,11 @@ and only declare their ``tables``: each table's ``rename`` (local column → can
 (canonical column → {local code: canonical code}) are applied to every source row before the shared resource
 definitions run; ``key`` / ``delta`` / ``identity`` name canonical columns. Resources of tables the site does not
 declare are dropped; lookups resolve relative to the file that declares them.
+
+A mapping can also re-profile the shared resources (D-137: the Japan mapping puts JP Core profiles on the TW Core
+resource set): ``profiles`` maps a base profile URL to this mapping's profile (``""`` drops the claim), and
+``overlay`` adds or replaces elements of the base resources of one type and table
+(``- {type: Observation, table: lab, elements: {code.text: {column: item_name}}}``).
 """
 
 from __future__ import annotations
@@ -92,6 +97,8 @@ class Mapping:
     resources: list[ResourceSpec]
     static: list[Resource]
     path: Path
+    profiles: dict[str, str] = field(default_factory=dict)
+    fhir_profiles: str = ""  # "jp-core": the ingest checks a sample against JP Core (D-137)
 
     @staticmethod
     def _read(path: Path) -> dict[str, Any]:
@@ -124,6 +131,12 @@ class Mapping:
             merged["resources"] = [r for r in base.get("resources") or [] if r["table"] in site_tables]
             merged["static"] = doc.get("static", base.get("static"))
             doc = merged
+        for ov in doc.get("overlay") or []:
+            hits = [r for r in doc.get("resources") or [] if r["type"] == ov["type"] and r["table"] == ov["table"]]
+            if not hits and ov["table"] in (doc.get("tables") or {}):
+                raise MappingError(f"{path}: overlay for {ov['type']}/{ov['table']} matches no resource")
+            for r in hits:
+                r["elements"] = {**(r.get("elements") or {}), **(ov.get("elements") or {})}
         lookups = {
             name: Lookup.load(name, lookup_dirs[name] / spec["file"], spec["key"])
             for name, spec in (doc.get("lookups") or {}).items()
@@ -151,6 +164,8 @@ class Mapping:
             resources=resources,
             static=doc.get("static") or [],
             path=path,
+            profiles={str(k): str(v or "") for k, v in (doc.get("profiles") or {}).items()},
+            fhir_profiles=str(doc.get("fhir_profiles") or ""),
         )
 
     def normalize(self, table: str, row: Row) -> Row:
@@ -459,6 +474,7 @@ class Mapper:
             raise MappingError(f"{rs.type}: id needs pid/hid/column")
         if rs.profile:
             prof = self.value(rs.profile, row, rs) if isinstance(rs.profile, dict) else rs.profile
+            prof = self.m.profiles.get(str(prof), prof) if prof else prof
             if prof:
                 res["meta"] = {"profile": [prof]}
         for path, expr in rs.elements.items():

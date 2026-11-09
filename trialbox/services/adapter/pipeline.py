@@ -46,6 +46,7 @@ class AdapterConfig:
     keep_nightly: int = 3  # settings.retention.nightly_snapshots
     keep_month_end_months: int = 36  # settings.retention.month_end_snapshots_months
     db_url: str | None = None  # the trial database of the pid map (TB_DB_URL when None)
+    profile_sample_per_type: int = 50  # D-137: resources per type checked against the mapping's profiles (JP Core)
 
     def site_key(self) -> bytes:
         return load_or_create_key(self.secrets_dir / "site_hmac.key")
@@ -54,7 +55,7 @@ class AdapterConfig:
         return PidMap(self.secrets_dir / "pid_map.key", self.db_url)
 
 
-def make_source(kind: str, path: str) -> Source:
+def make_source(kind: str, path: str, db_url: str | None = None) -> Source:
     if kind == "csv":
         from adapter.sources.csv.source import CsvSource
 
@@ -64,9 +65,11 @@ def make_source(kind: str, path: str) -> Source:
 
         return SqlSource(path)
     if kind == "ssmix2":
+        from adapter import licensed
         from adapter.sources.ssmix2.source import Ssmix2Source
 
-        return Ssmix2Source(Path(path))  # SS-MIX2 standardized storage (D-122)
+        # SS-MIX2 standardized and extended storage (D-122, D-137), with the site's licensed code lists
+        return Ssmix2Source(Path(path), licensed=licensed.tables(db_url))
     raise ValueError(f"unknown source {kind!r}")
 
 
@@ -127,6 +130,8 @@ def run_ingest(
     by_type: dict[str, list[Resource]] = {}
     patient_pairs: list[tuple[str, str]] = []
     identities: list[tuple[str, dict[str, str]]] = []
+    fhir_profiles = ""
+    source: Source | None = None
     if source_kind == "fhir_bulk":
         from adapter.sources.fhir_bulk.source import FhirBulkSource
 
@@ -135,7 +140,8 @@ def run_ingest(
     else:
         mapping = Mapping.load(cfg.mapping_path)
         mapper = Mapper(mapping, key, cfg.site_id)
-        source = make_source(source_kind, source_path)
+        fhir_profiles = mapping.fhir_profiles
+        source = make_source(source_kind, source_path, cfg.db_url)
         for res in mapper.static_resources():
             by_type.setdefault(res["resourceType"], []).append(res)
         for table, tspec in mapping.tables.items():
@@ -218,9 +224,28 @@ def run_ingest(
             )
         except Exception as exc:
             errors.append(f"validation failed to run: {exc}")
+    psum: ValidationSummary | None = None
+    if validate and fhir_profiles == "jp-core":
+        try:
+            psum = jp_core_check(cfg, by_type, out_dir)
+        except Exception as exc:
+            errors.append(f"JP Core validation failed to run: {exc}")
+    if source is not None and hasattr(source, "stats"):
+        from adapter.sources.ssmix2.source import reader_summary
+
+        (out_dir / "reader.json").write_text(
+            json.dumps(reader_summary(source), ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8"
+        )
     passed = not errors and vsum.error_pct <= cfg.validation_max_pct
     if vsum.error_pct > cfg.validation_max_pct:
         errors.append(f"validation error rate {vsum.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
+    if psum is not None and psum.error_pct > cfg.validation_max_pct:
+        passed = False
+        first = f": {psum.messages[0]}" if psum.messages else ""
+        errors.append(
+            f"JP Core: {psum.errors} of {psum.sampled} sampled resources fail ({psum.error_pct:.2f}%, over "
+            f"{cfg.validation_max_pct}%; every failure is in jp_core_validation.json){first}"
+        )
     report = IngestReport(
         snapshot=date.fromisoformat(snap),
         source=source_kind,
@@ -230,6 +255,7 @@ def run_ingest(
         counts=counts if not since else full_counts,
         missing_required=dict(missing),
         validation=vsum,
+        profile_validation=psum,
         fhir_loaded=fhir_loaded,
         fhir_deleted=fhir_deleted,
         lake=lake_result,
@@ -249,11 +275,34 @@ def run_ingest(
                 "source": source_kind,
                 "counts": counts,
                 "validation_error_pct": vsum.error_pct,
+                "jp_core": {"sampled": psum.sampled, "failed": psum.errors} if psum is not None else None,
                 "snapshots_pruned": pruned,
             },
         )
     log.info("ingest finished", extra={"snapshot": snap, "passed": passed, "resources": sum(counts.values())})
     return report
+
+
+def jp_core_check(cfg: AdapterConfig, by_type: dict[str, list[Resource]], out_dir: Path) -> ValidationSummary:
+    """D-137: check ``profile_sample_per_type`` resources of each type against JP Core; write every outcome to
+    ``jp_core_validation.json`` beside the snapshot; return the summary for the ingest report. Nothing is dropped."""
+    from adapter import licensed
+    from adapter.validate.jpcore import JpCoreValidator, sample_per_type
+
+    picked = sample_per_type((r for items in by_type.values() for r in items), cfg.profile_sample_per_type)
+    rep = JpCoreValidator(licensed.tables(cfg.db_url)).validate(picked)
+    (out_dir / "jp_core_validation.json").write_text(
+        json.dumps(rep.as_json(), ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8"
+    )
+    if rep.errors:
+        log.warning("JP Core: %s of %s sampled resources fail", rep.errors, rep.sampled)
+    return ValidationSummary(
+        sampled=rep.sampled,
+        errors=rep.errors,
+        error_pct=round(rep.error_pct, 3),
+        validator=rep.validator,
+        messages=rep.messages(),
+    )
 
 
 def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:

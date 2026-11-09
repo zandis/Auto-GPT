@@ -9,6 +9,8 @@ network, no secrets, run in process:
     -> the data core with REDCap off and on (stage 9) -> built-in forms, entry, history, ODM / REDCap CSV (stage 10)
     -> the trial lifecycle: enrolled, visit due, overdue, done, AEs, withdrawn; three counts agree (stage 11)
     -> a new site set up the hard way: protocol, charts, an IT dump, a messy list; the readiness page green (12)
+    -> Japan: an SS-MIX2 hospital with ADT-52, OMP-11/12 and extended storage, JP Core $validate on the sample, the
+       licensed-list loader, and the GOUT-COH funnel unchanged (13)
 
 and each stage is checked against something it did not compute itself: the generator's own counts, a recount from
 the hospital CSVs, the sent mail, the hash-chained audit log and a byte-identical re-run of the FEAS and SCREEN jobs.
@@ -23,6 +25,7 @@ runs it on every pull request that touches ``trialbox/``.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import io
 import itertools
@@ -554,6 +557,186 @@ def _stage12(res: dict[str, Any], crc: Any, pi: Any, lang: str, box: Any) -> Sta
     return s
 
 
+def gout_coh_numbers(box: Any, cohort_members: int) -> dict[str, Any]:
+    """The GOUT-COH numbers of this run: the FEAS funnel, the SCREEN funnel and tiers, and the cohort list."""
+    out: dict[str, Any] = {"cohort": cohort_members}
+    fj = _done(box, "FEAS", COHORT)
+    if fj:
+        raw = json.loads(
+            box.store.get(next(o.minio_key for o in fj[0].outputs or [] if o.filename.endswith(".raw.json")))
+        )
+        out["feas"] = {"start": raw["start_n"], "remaining": raw["remaining"]}
+    sj = _done(box, "SCREEN", COHORT)
+    if sj:
+        scr = _json_output(box, sj[0], "screen_")
+        out["screen"] = {"funnel": dict(scr["funnel"]), "listed": scr["listed"], "tiers": scr["tiers"]}
+    return out
+
+
+def _stage13(work: Path, box: Any, gout: dict[str, Any]) -> Stage:
+    """Stage 13 (TB-PLAN-04 step 7, D-137): Japan completeness. A synthetic SS-MIX2 hospital (400 patients) with
+    ADT-52 class changes, OMP-11/12 実施 with and without their orders, HOT codes and extended-storage documents is
+    read by the adapter; the sample passes JP Core ``$validate``; the licensed MEDIS / JLAC10 / YJ loader reads the
+    three 10-row samples; the GOUT-COH funnel of the SS-MIX2 storage equals its CSV export's, and the main run's
+    GOUT-COH funnel equals the numbers recorded before step 7."""
+    from adapter import licensed
+    from adapter.cli import main as adapter_main
+    from adapter.pipeline import AdapterConfig, run_ingest
+    from adapter.sources.ssmix2 import source as ss
+    from adapter.validate.jpcore import JpCoreValidator, sample_per_type, validate_snapshot
+    from embed_service.embedder import HashEmbedder
+    from lake.client import LakeLocal
+    from lake.store import Lake
+    from orchestrator.scenarios.feas_compute import FeasParams, compute
+    from tb_common.audit import verify
+    from tb_common.ruleset import Ruleset
+    from tb_contracts import RebuildResult
+
+    from tools.ssmix2_export import export
+    from tools.synth_hospital import run as synth_run
+
+    s = Stage("13 Japan: SS-MIX2, JP Core and the licensed code lists")
+    t = time.perf_counter()
+    jp = work / "japan"
+    ref, snap = date(2026, 11, 1), "2026-10-31"
+    synth_run(jp / "synth", profile="ci", sites="jp-e2e:JP:400", ref_date=ref)
+    csv_dir, storage = jp / "synth" / "jp-e2e", jp / "ssmix2"
+    sent = export(csv_dir, storage)
+    s.check("the synthetic SS-MIX2 hospital has ADT-52, OMP-02/11/12 and extended-storage documents",
+            all(sent[k] > 0 for k in ("ADT-52", "OMP-02", "OMP-11", "OMP-12", "document")), sent)  # fmt: skip
+
+    # -- the licensed lists: "not loaded" first, then the three 10-row samples
+    samples = ROOT / "tests" / "fixtures" / "licensed"
+    files = {"medis": "medis_byomei_sample.txt", "jlac10": "jlac10_sample.tsv", "yj": "yj_hot_sample.txt"}
+    s.check("without the files the box says which lists are not loaded",
+            {x["kind"]: x["state"] for x in licensed.status()} == dict.fromkeys(files, "not_loaded"))  # fmt: skip
+    st = licensed.TermStore()
+    try:
+        loaded = {k: st.load(k, (samples / f).read_bytes(), version="sample-2026", source=f, by="admin",
+                             audit_dir=box.audit_dir) for k, f in files.items()}  # fmt: skip
+    finally:
+        st.close()
+    s.check("the loader reads each 10-row sample in its own encoding and layout",
+            {k: (v["rows"], v["encoding"]) for k, v in loaded.items()}
+            == {"medis": (10, "cp932"), "jlac10": (10, "utf-8"), "yj": (10, "cp932")}, loaded)  # fmt: skip
+    status = {x["kind"]: (x["state"], x["version"], x["source"]) for x in licensed.status()}
+    s.check("each list is loaded with its version and source",
+            all(v[0] == "loaded" and v[1] == "sample-2026" and v[2] == files[k] for k, v in status.items()),
+            status)  # fmt: skip
+
+    # -- D-130 with and without the lists: a 標準病名 code with no ICD-10 alternate and no site lookup
+    try:
+        saved, ss.JP_CORE = ss.JP_CORE, jp / "no-site-lookups"
+        bare = ss.Ssmix2Source(storage, licensed={k: {} for k in files})
+        list(bare.rows("diagnosis", "diagnosis", None, None))
+        withlic = ss.Ssmix2Source(storage)
+        list(withlic.rows("diagnosis", "diagnosis", None, None))
+    finally:
+        ss.JP_CORE = saved
+    gone = sum(bare.missed.values()) - sum(withlic.missed.values())
+    s.check("D-130: without the lists their codes resolve nowhere (unknown); the MEDIS list resolves its codes, "
+            "the rest stay unknown", sum(bare.missed.values()) > 0 and gone > 0 and sum(withlic.missed.values()) > 0
+            and withlic.stats["diagnosis:licensed"] == gone, (sum(bare.missed.values()), gone))  # fmt: skip
+
+    # -- the adapter reads the storage; JP Core $validate on the sample
+    sec = jp / "sec"
+    sec.mkdir(parents=True, exist_ok=True)
+    (sec / "site_hmac.key").write_bytes(secrets.token_bytes(32))
+    reports = {}
+    for kind, mapping in (("csv", "tw_core/demo_his.yaml"), ("ssmix2", "jp_core/ssmix2_site.yaml")):
+        lake_dir = jp / f"lake-{kind}"
+
+        def rebuild(sn: str, nd: Path, lake_dir: Path = lake_dir) -> RebuildResult:
+            r = Lake(lake_dir, "Asia/Tokyo").rebuild(sn, HashEmbedder(), nd)
+            return RebuildResult(snapshot=r.snapshot, tables=r.tables, chunks=r.chunks, embedded_new=r.embedded_new,
+                                 seconds=r.seconds)  # fmt: skip
+
+        cfg = AdapterConfig(lake_dir=lake_dir, secrets_dir=sec, site_id="JP-E2E", tz="Asia/Tokyo",
+                            mapping_path=ROOT / "services/adapter/mapping" / mapping, rebuild=rebuild,
+                            audit_dir=jp / "audit")  # fmt: skip
+        reports[kind] = run_ingest(
+            cfg, kind, str(csv_dir if kind == "csv" else storage), snapshot=snap, load_fhir=False
+        )
+    rep = reports["ssmix2"]
+    reader = json.loads((jp / "lake-ssmix2/ndjson" / snap / "reader.json").read_text(encoding="utf-8"))["read"]
+    s.check("ADT-52: every class change read into its visit", reader.get("ADT-52:class change") == sent["ADT-52"],
+            reader)  # fmt: skip
+    s.check("OMP-11/12: read with their order or on their own",
+            all(reader.get(k, 0) > 0 for k in ("OMP-11:with its order", "OMP-11:without an order",
+                                               "OMP-12:with its order", "OMP-12:without an order")))  # fmt: skip
+    same = {t: (reports["csv"].counts.get(t), rep.counts.get(t)) for t in ("Patient", "Encounter", "MedicationRequest",
+                                                                          "Condition", "Observation")}  # fmt: skip
+    s.check("the storage gives the CSV's patients, visits, medicines, diagnoses and results",
+            all(a == b and a for a, b in same.values()), same)  # fmt: skip
+    pv = rep.profile_validation
+    expect = sum(min(50, n) for n in rep.counts.values())
+    s.check("JP Core $validate passes on the sample (50 per type, at ingest)",
+            rep.passed and pv is not None and pv.errors == 0 and pv.sampled == expect,
+            (pv and (pv.sampled, pv.errors, (pv.messages or [])[:2]), (rep.errors or [])[:2]))  # fmt: skip
+    again = validate_snapshot(jp / "lake-ssmix2/ndjson" / snap, 50)
+    with contextlib.redirect_stdout(io.StringIO()):  # the CLI prints its JSON; the check reads its exit status
+        cli = adapter_main(["validate", "--lake", str(jp / "lake-ssmix2"), "--per-type", "10"])
+    s.check("$validate over the written snapshot and the CLI agree", again.errors == 0 and cli == 0,
+            (again.sampled, again.errors, cli))  # fmt: skip
+    from adapter.ndjson import read_all
+
+    tw = JpCoreValidator().validate(sample_per_type(
+        [r for v in read_all(jp / "lake-csv/ndjson" / snap).values() for r in v], 5))  # fmt: skip
+    s.check("the check bites: the TW Core output of the same hospital fails JP Core, and says why",
+            tw.errors > 0 and any("claims a TW Core profile" in m for m in tw.messages()),
+            tw.messages()[:2])  # fmt: skip
+
+    # -- extended storage: documents with their text for the two models, no identifiers
+    lj = LakeLocal(jp / "lake-ssmix2", HashEmbedder(), "Asia/Tokyo")
+    docs = lj.query("SELECT did, type, text FROM document WHERE type IN ('discharge', 'report')").to_pylist()
+    s.check("extended-storage documents are in the lake with their text (Shift_JIS text and a PDF)",
+            reader.get("document") == sent["document"] and any("退院時サマリ" in d["text"] for d in docs)
+            and any("no acute findings" in d["text"] for d in docs), (reader.get("document"), len(docs)))  # fmt: skip
+    mrns = {r["mrn"] for r in csv.DictReader((csv_dir / "patient.csv").open(encoding="utf-8"))}
+    ids = " ".join(d["did"] for d in docs)
+    s.check("no chart number or storage path in the documents' ids", not any(m in ids for m in mrns)
+            and "DSC-01" not in ids and "ext/" not in ids)  # fmt: skip
+
+    # -- the GOUT-COH funnel: SS-MIX2 equals CSV, and the main run equals the numbers before step 7
+    rs = Ruleset.load(ROOT / "rulesets" / "GOUT-COH")
+    params = FeasParams(run_date=ref, snapshot=snap, lookback_months=36)
+    fun = {}
+    for kind in ("csv", "ssmix2"):
+        _, raw = compute(LakeLocal(jp / f"lake-{kind}", HashEmbedder(), "Asia/Tokyo"), rs, params)
+        fun[kind] = (raw.start_n, raw.remaining)
+    s.check("GOUT-COH funnel: the SS-MIX2 storage equals its CSV export", fun["ssmix2"] == fun["csv"]
+            and list(fun["csv"][1].values())[2] > 0, fun)  # fmt: skip
+    s.check("GOUT-COH funnel of the main run unchanged by step 7 (FEAS, SCREEN, cohort list)",
+            gout == GOUT_COH_BEFORE_STEP7, gout)  # fmt: skip
+    events = {str(e["event"]) for e in _audit(box)}
+    s.check("each licensed load is in the hash-chained audit", "terminology.load" in events
+            and verify(box.audit_dir).ok)  # fmt: skip
+    s.seconds = time.perf_counter() - t
+    return s
+
+
+# GOUT-COH on the e2e hospital, recorded on master f5c78fb before step 7 (D-137): step 7 must not move it
+GOUT_COH_BEFORE_STEP7: dict[str, Any] = {
+    "cohort": 5,
+    "feas": {
+        "start": 5000,
+        "remaining": {
+            "GOUT-COH-INC-02": 1210,
+            "GOUT-COH-INC-03": 797,
+            "GOUT-COH-INC-04": 237,
+            "GOUT-COH-INC-05": 54,
+            "GOUT-COH-INC-06": 26,
+            "GOUT-COH-INC-07": 6,
+        },
+    },
+    "screen": {
+        "funnel": {"S0": 3341, "S1": 9, "S3": 0, "S4": 9},
+        "listed": 9,
+        "tiers": {"excluded": 3332, "high": 5, "review": 4},
+    },
+}
+
+
 def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     """Run the whole path once in ``work`` (must be empty or absent); return the stages and the timings."""
     from console.i18n import CATALOGUES
@@ -999,6 +1182,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     stages.append(_stage10(res, api, crc, lang, mrns, box))
     stages.append(_stage11(res, api, crc, pi, lang, mrns, box))
     stages.append(_stage12(res, crc, pi, lang, box))
+    stages.append(_stage13(work, box, gout_coh_numbers(box, lst["cohort_new"])))
 
     # ---------------------------------------------------------------- FR-REP-02: byte-identical re-run
     s = Stage("re-run (FR-REP-02)")

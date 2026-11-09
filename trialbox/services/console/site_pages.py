@@ -426,6 +426,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         codes: list[dict[str, Any]] = []
         with contextlib.suppress(Problem, Unavailable):
             codes = list(get(f"/setup/{w}/codes"))
+        terms: list[dict[str, Any]] = []
+        with contextlib.suppress(Problem, Unavailable):
+            terms = list(get("/setup/terminology"))  # D-137: the licensed Japanese code lists
         todo = [c for c in codes if c["mapped_code"] is None]
         return h.page(
             request,
@@ -433,6 +436,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             sess,
             **ctx(sess, w, rs),
             todo=todo,
+            terms=terms,
             mapped=[c for c in codes if c["mapped_code"] is not None],
             done=done[:20],
             err=err[:80],

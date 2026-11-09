@@ -101,11 +101,38 @@ def _by_name(domain: str, name: str) -> dict[str, str]:
     return {"system": c.system, "code": c.code, "display": c.display, "method": "name"}
 
 
+def _licensed(kind: str, code: str) -> dict[str, str] | None:
+    """The site's licensed release's row for a code (D-137): MEDIS 病名, JLAC10 or YJ, when one is loaded."""
+    from adapter import licensed
+
+    lst = {"dx-code": "medis", "lab-code": "jlac10", "drug-code": "yj"}.get(kind)
+    if lst is None:
+        return None
+    try:
+        return licensed.tables(cached=True).get(lst, {}).get(code)
+    except Exception:  # no trial database here: nothing is loaded
+        return None
+
+
 def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str, str]:
-    """A suggested standard code for one local code: ``{system, code, display, method}`` (``lookup``: the shipped
-    table for this code; ``same``: the code already is a standard code; ``name``: found by its name), or ``{}``."""
+    """A suggested standard code for one local code: ``{system, code, display, method}`` (``licensed``: the site's
+    licensed MEDIS / JLAC10 / YJ release, its standard code or the name it gives; ``lookup``: the shipped table for
+    this code; ``same``: the code already is a standard code; ``name``: found by its name), or ``{}``."""
     kind = system.rsplit(":", 1)[-1]
     up = code.strip().upper()
+    lic = _licensed(kind, up)
+    if lic is not None:
+        target = lic.get("target_code") or ""
+        if target and valid_target(domain, TARGET.get(domain, ""), target):
+            return {
+                "system": TARGET[domain],
+                "code": target,
+                "display": lic.get("display") or display,
+                "method": "licensed",
+            }
+        by_name = _by_name(domain, lic.get("display") or "")
+        if by_name:
+            return {**by_name, "method": "licensed"}
     lk = _lookups()
     if kind == "dx-code":
         if up in lk["dx"]:

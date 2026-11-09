@@ -1,21 +1,30 @@
-# Site mapping template — Japan, source type `ssmix2` (SS-MIX2 standardized storage, D-122).
-# The reader (services/adapter/sources/ssmix2/source.py) turns ADT-00/12/22, PPR-01, OMP-01/02 and OML-11 into the
-# canonical tables (templates/CANONICAL.md), so no `rename` is needed here; extended-storage CSVs (vital, note, ...)
-# use canonical column names too.
+# Site mapping template — Japan, source type `ssmix2` (SS-MIX2 standardized and extended storage, D-122, D-137).
+# The reader (services/adapter/sources/ssmix2/source.py) turns ADT-00/12/22/52, PPR-01, OMP-01/02/11/12, OML-11 and the
+# extended-storage documents into the canonical tables (templates/CANONICAL.md), so no `rename` is needed here;
+# extended CSVs (vital, note, ...) use canonical column names too.
 # 1. Copy to services/adapter/mapping/jp_core/<site>.yaml (keep `extends`: the resource definitions are shared).
 # 2. Replace the sample codes in jlac10_to_loinc.csv (JLAC10 -> LOINC), byomei_to_icd10.csv (標準病名 -> ICD-10, used
-#    only when PRB-3 carries no ICD-10) and yj_to_atc.csv (YJ -> ATC, used only when RXE-2 carries no ATC).
-#    Every sample row says `verify`: they are synthetic and must be checked against MEDIS / JLAC10 / YJ releases.
+#    only when PRB-3 carries no ICD-10 and the site's licensed MEDIS release has no row) and yj_to_atc.csv (YJ -> ATC,
+#    used only when RXE-2 carries no ATC). Every sample row says `verify`: they are synthetic. Load the site's own
+#    MEDIS, JLAC10 and YJ releases with `python -m adapter.licensed load` (D-137).
 # 3. python tools/mapping_check.py --mapping <file> --source ssmix2 --path <storage root>
 # 4. settings.yaml: data_source: {type: ssmix2, path: <storage root>, mapping: mapping/jp_core/<site>.yaml}
-# Profiles stay the TW Core ones of the base mapping until the JP Core resource set is added (D-122, not done).
+# JP Core (D-137): the shared resources carry JP Core 1.1.0 profiles here (`profiles`), with the elements JP Core asks
+# for that the base set lacks (`overlay`); a sample is checked against them at every ingest (validate/jpcore.py).
 version: 1
 name: ssmix2_site
 extends: ../tw_core/demo_his.yaml
 tz: Asia/Tokyo
+fhir_profiles: jp-core   # the ingest checks a sample against JP Core (adapter.validate.jpcore)
 systems:
-  nhi_drug: urn:oid:1.2.392.100495.20.2.74   # YJ code (JP Core); the canonical column keeps its name nhi_drug_code
+  nhi_drug: urn:oid:1.2.392.100495.20.1.73   # YJ code (JP Core NamingSystem); the canonical column keeps its name nhi_drug_code
+  hot9: urn:oid:1.2.392.200119.4.403.1       # HOT9 (JP Core NamingSystem)
   lab_local: urn:oid:1.2.392.200119.4.504    # JLAC10 (JP Core)
+  lab_hospital: urn:trialbox:local:lab-code  # a lab code of the hospital's own (site set-up's local lab codes, D-135)
+  claim_product: urn:trialbox:local:drug-code  # a claim's product code: the hospital's own drug code, not YJ
+  byomei: urn:oid:1.2.392.200119.4.101.6     # MEDIS 病名交換用コード (verify)
+  rp_no: urn:oid:1.2.392.100495.20.3.81      # JP_MedicationRequest identifier:rpNumber
+  rp_order: urn:oid:1.2.392.100495.20.3.82   # JP_MedicationRequest identifier:orderInRp
 tables:
   patient: {source: patient, key: mrn, identity: {name: name}}
   practitioner: {source: practitioner, key: staff_id}
@@ -32,3 +41,57 @@ tables:
   registry: {source: registry, key: mrn}
 lookups:
   lab: {file: jlac10_to_loinc.csv, key: local_code}
+profiles:
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Patient-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Patient
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Practitioner-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Practitioner
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Encounter-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Encounter
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Condition-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Condition
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-body-height-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_BodyMeasurement
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-body-weight-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_BodyMeasurement
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Observation-bloodPressure-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_VitalSigns
+  # injections too: JP_MedicationRequest_Injection needs medicationReference, and the lake reads medicationCodeableConcept
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/MedicationRequest-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_MedicationRequest
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Procedure-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_Procedure
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/DiagnosticReport-twcore: http://jpfhir.jp/fhir/core/StructureDefinition/JP_DiagnosticReport_Common
+  https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/DocumentReference-twcore: ""   # JP Core 1.1.0 has no DocumentReference profile
+overlay:
+  - type: Encounter
+    table: encounter
+    elements:
+      status: {column: enc_status, default: finished}
+      period.end: {column: end_datetime, type: datetime}
+      classHistory[0].class.system: {template: "{sys.actcode}", when: {column: prev_enc_type, not_empty: true}}
+      classHistory[0].class.code: {column: prev_enc_type, map: {OPD: AMB, IPD: IMP, ER: EMER}, when: {column: prev_enc_type, not_empty: true}}
+      classHistory[0].period.start: {column: visit_datetime, type: datetime, when: {column: prev_enc_type, not_empty: true}}
+      classHistory[0].period.end: {column: class_changed_at, type: datetime, when: {column: prev_enc_type, not_empty: true}}
+      classHistory[1].class.system: {template: "{sys.actcode}", when: {column: prev_enc_type, not_empty: true}}
+      classHistory[1].class.code: {column: enc_type, map: {OPD: AMB, IPD: IMP, ER: EMER}, when: {column: prev_enc_type, not_empty: true}}
+      classHistory[1].period.start: {column: class_changed_at, type: datetime, when: {column: prev_enc_type, not_empty: true}}
+  - type: Condition
+    table: diagnosis
+    elements:
+      code.coding[1]: {builder: coding, column: byomei_code, system: byomei, display_column: byomei_name}
+      code.text: {column: byomei_name}
+  - type: Observation
+    table: lab
+    elements:
+      code.coding[2]: {builder: coding, column: jlac10_code, system: lab_local, display_column: item_name}
+      code.coding[3]: {builder: coding, column: hosp_lab_code, system: lab_hospital, display_column: item_name}
+      code.text: {column: item_name}
+      specimen.display: {column: specimen, default: 検体}
+  - type: Claim
+    table: claim
+    elements:
+      item[0].productOrService.coding[0]: {builder: coding, column: product_code, system: claim_product}
+  - type: MedicationRequest
+    table: medication
+    elements:
+      identifier[0].system: {template: "{sys.rp_no}"}
+      identifier[0].value: {column: rp_no, default: "1"}
+      identifier[1].system: {template: "{sys.rp_order}"}
+      identifier[1].value: {const: "1"}
+      medicationCodeableConcept.coding[2]: {builder: coding, column: hot_code, system: hot9}
+  - type: DocumentReference
+    table: note
+    elements:
+      type.coding[0].code: {column: note_type, map: {progress: 11506-3, admission: 34117-2, discharge: 18842-5, consult: 11488-4, nursing: 34746-8, report: 47045-0, document: 34133-9}, default: 11506-3}

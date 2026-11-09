@@ -9,7 +9,7 @@ local_code,system,code,display,ucum,factor,category,value_type,answers,profile,v
 5F018141002305911,loinc,16933-4,Hepatitis B virus core Ab [Presence] in Serum,,1,laboratory,coded,POS:LA6576-8|Positive;NEG:LA6577-6|Negative,http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_LabResult,verify
 5E071160001905911,loinc,71774-4,Mycobacterium tuberculosis stimulated gamma interferon [Presence] in Blood,,1,laboratory,coded,POS:LA6576-8|Positive;NEG:LA6577-6|Negative,http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_LabResult,verify
 4F040000001305911,loinc,2106-3,Choriogonadotropin (pregnancy test) [Presence] in Urine,,1,laboratory,coded,POS:LA6576-8|Positive;NEG:LA6577-6|Negative,http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_LabResult,verify
-TJC28,score,TJC28,Tender joint count (28 joints),,1,survey,quantity,,,local
-SJC28,score,SJC28,Swollen joint count (28 joints),,1,survey,quantity,,,local
-PTGA,score,PTGA,Patient global assessment of disease activity (VAS 0-100 mm),mm,1,survey,quantity,,,local
-EGFRT,score,EGFR-MUT,EGFR gene mutation (exon 19 del / L858R),,1,laboratory,coded,POS:LA9633-4|Present;NEG:LA9634-2|Absent,,local
+TJC28,score,TJC28,Tender joint count (28 joints),,1,survey,quantity,,http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_Common,local
+SJC28,score,SJC28,Swollen joint count (28 joints),,1,survey,quantity,,http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_Common,local
+PTGA,score,PTGA,Patient global assessment of disease activity (VAS 0-100 mm),mm,1,survey,quantity,,http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_Common,local
+EGFRT,score,EGFR-MUT,EGFR gene mutation (exon 19 del / L858R),,1,laboratory,coded,POS:LA9633-4|Present;NEG:LA9634-2|Absent,http://jpfhir.jp/fhir/core/StructureDefinition/JP_Observation_LabResult,local
