@@ -1,0 +1,6 @@
+#!/bin/bash
+# Rehearsal shim: one RTX PRO 6000, 62574 of 97887 MiB used (the live record of the cloud run of 2026-11-09).
+case "$*" in
+  *--query-gpu=memory.used,memory.total*) echo "62574, 97887" ;;
+  *) echo "NVIDIA RTX PRO 6000 Blackwell Server Edition (rehearsal shim)" ;;
+esac

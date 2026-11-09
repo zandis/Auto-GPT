@@ -36,7 +36,7 @@ Japanese lists (MEDIS 標準病名, JLAC10, YJ) are loaded by the site from its 
 (`python -m adapter.licensed load --kind medis|jlac10|yj --file … --version …`, D-137); each release is kept with its
 version, sha256 and who loaded it, and every load is audited. The demo rows are synthetic and marked `verify`.
 The clinical item catalogue (scores, labs, findings and phenotypes mapped to LOINC, OMOP, OHDSI phenotypes and
-CDISC QRS) is in `catalogue/`; code reads only its score definitions, through a generated file (§7); its design is
+CDISC QRS) is in `catalogue/`; code reads only its score definitions, through a generated file (§8); its design is
 `docs/reviews/2026-11-09-clinical-item-catalogue.md`.
 
 ## 2. Mapping a site
@@ -130,7 +130,26 @@ database derived from the demo falls under the ODbL share-alike terms; the deriv
 
 How the MIMIC data is normalised and what the test found: [Validation §5](VALIDATION.md#5-the-open-data-test).
 
-## 7. Derived scores
+## 7. The OMOP store of record
+
+OMOP CDM v5.4 in the box's Postgres is the store of record for clinical facts (D-144); the first slice is D-151. The
+schema `omop` of the trial database holds the official v5.4 tables (DDL from OHDSI/CommonDataModel v5.4.2, pinned by
+sha256 in `services/omop/ddl/pin.json`) and TrialBox's `tb_*` tables beside them: record status, provenance (batch,
+file, row), the history of every record, and open and resolved conflicts. It is in every backup.
+
+- **What goes in.** The adapter's NDJSON snapshot (the hospital feed) and the site's published inputs, with
+  pseudonyms only: `person_source_value` is the pseudonym, `person_id` an integer minted once. Every code is kept as
+  sent in `*_source_value` (ICD-10, LOINC, ATC, NHI, YJ, ...) with a local source concept (ids from 2,100,000,000;
+  `TB_OMOP_CONCEPT_BLOCK`); the standard `*_concept_id` is 0 until the vocabulary bundle is loaded.
+- **Deletes are tombstones.** A record the hospital no longer sends leaves the standard table; its last content and
+  the night it went are kept in `tb_record_event`.
+- **Disagreements are recorded.** Two sources that give a patient different birth dates, sexes or dates of death open
+  a conflict; screening reads the item as unknown until the steward (or the PI, for their study) resolves it.
+- **The lake.** `TB_LAKE_SOURCE=omop` builds the screening lake from OMOP with the same tables and rows; the default
+  is still `legacy` (flattened from the NDJSON) until the flag flips (WS-03.5). Commands: `python -m omop load
+  --lake <lake>`, `python -m omop status` and `python -m omop dqd` (the Data Quality Dashboard-style checks).
+
+## 8. Derived scores
 
 A derived score is computed from other rows: eGFR (CKD-EPI 2021 or JSN 2009), BMI, DAS28, BASDAI, ASDAS, CDAI and
 SDAI. Code: `libs/tb_common/derived.py` (formulas, units, same visit), `libs/tb_common/scores.py` (definitions),
