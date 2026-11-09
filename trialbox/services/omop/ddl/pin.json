@@ -1,0 +1,14 @@
+{
+  "source": "OHDSI/CommonDataModel",
+  "tag": "v5.4.2",
+  "path": "inst/ddl/5.4/postgresql/",
+  "url": "https://raw.githubusercontent.com/OHDSI/CommonDataModel/v5.4.2/inst/ddl/5.4/postgresql/",
+  "licence": "Apache-2.0 (OHDSI CommonDataModel); the four files are copied unchanged",
+  "fetched": "2026-11-09",
+  "files": {
+    "OMOPCDM_postgresql_5.4_ddl.sql": "ae99be6e79edfad5f17ef71edda176281b45e3aa9e400e7a9f829103f5ec4771",
+    "OMOPCDM_postgresql_5.4_primary_keys.sql": "ffe6cc10f04a713ea86825dccfc1d8b8a981ba6037fc69cb9df4c80ce2f1970d",
+    "OMOPCDM_postgresql_5.4_constraints.sql": "dedae8072ef585e25e0ab2624f557e37e5ddd2d51e75810af58b02e990a4f293",
+    "OMOPCDM_postgresql_5.4_indices.sql": "8a3537f971c75e9e33c3d1d13b041d4e5de8532dc1607bc31349af3679a66eec"
+  }
+}

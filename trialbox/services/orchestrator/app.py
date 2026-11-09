@@ -31,6 +31,7 @@ from orchestrator.clients import AdapterHttp, CompilerHttp, MailHttp, ParserHttp
 from orchestrator.core import Orchestrator, Rejected, Services
 from orchestrator.datacore_api import router as datacore_router
 from orchestrator.db import JobDB
+from orchestrator.edc_api import router as edc_router
 from orchestrator.lifecycle_api import router as lifecycle_router
 from orchestrator.scenarios import registry
 from orchestrator.setup_api import router as setup_router
@@ -516,6 +517,30 @@ app.include_router(
         lambda: real_data(orch()),
     )
 )
+
+# ---------------------------------------------------------------------------- EDC prefill (D-160)
+_edcs: dict[str, Any] = {}
+
+
+def edc_of(o: Orchestrator) -> Any:
+    """EDC prefill: schema ``edc`` of the trial database; reads the box's lake (the hospital record and the site's
+    confirmed facts) and, for note items, the gateway; sends through the study store's REDCap tokens."""
+    from edc.prefill import LakeFacts, gateway_drafter
+    from edc.service import EdcService
+    from edc.store import EdcStore
+    from tb_common.optout import opted_out
+
+    key = o.db.url or str(o.data_dir)
+    if key not in _edcs:
+        _edcs[key] = EdcStore(o.db.url)
+    llm = o.services.llm
+    return EdcService(_edcs[key], core_of(o), o.audit, lambda: _now(o), o.today, study_service_of(o).client,
+                      lambda: LakeFacts(o.services.lake),
+                      (lambda job: gateway_drafter(llm, job)) if llm is not None else (lambda _job: None),
+                      opted_out)  # fmt: skip
+
+
+app.include_router(edc_router(lambda: edc_of(orch()), _claim))  # the person from the signed assertion (D-162)
 
 
 @app.get("/registry")

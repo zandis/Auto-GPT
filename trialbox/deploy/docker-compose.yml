@@ -107,7 +107,8 @@ services:
     <<: *py
     command: ["uvicorn", "lake.app:app", "--host", "0.0.0.0", "--port", "8013", "--workers", "2"]
     environment: {PORT: "8013", TB_SERVICE_NAME: lake, TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http,
-                  TB_LAKE_MEMORY_LIMIT: "${TB_LAKE_MEMORY_LIMIT:-}", TB_LAKE_MAX_TEMP: "${TB_LAKE_MAX_TEMP:-}"}
+                  TB_LAKE_MEMORY_LIMIT: "${TB_LAKE_MEMORY_LIMIT:-}", TB_LAKE_MAX_TEMP: "${TB_LAKE_MAX_TEMP:-}",
+                  TB_LAKE_SOURCE: "${TB_LAKE_SOURCE:-legacy}"}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - lake-data:/data/lake

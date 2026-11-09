@@ -474,6 +474,40 @@ def assist(inp: dict[str, Any]) -> dict[str, Any]:
     return {"answer": str(inp.get("draft") or "")[:1500]}
 
 
+def crf_prefill(inp: dict[str, Any]) -> dict[str, Any]:
+    """The eCRF note reader's stand-in (D-160): the item's ``question`` lists words split by ``|``; the newest note
+    with a line holding one of them (not negated) answers. A choice item gets the code labelled Yes (or 1), a number
+    item the first number after the word, a date item the line's ISO date; the quote is the line, copied verbatim."""
+    item = inp.get("item") or {}
+    words = [w.strip() for w in str(item.get("question") or "").split("|") if len(w.strip()) >= 2]
+    kind = str(item.get("kind") or "text")
+    none = {"found": False, "value": "", "note": "", "date": "", "quote": ""}
+    for note in inp.get("notes") or []:
+        for line in str(note.get("text") or "").splitlines():
+            hit = next((w for w in words if w.lower() in line.lower()), None)
+            if hit is None or _NEG.search(line):
+                continue
+            after = line[line.lower().index(hit.lower()) + len(hit) :]
+            value = ""
+            if kind == "choice":
+                yes = [
+                    c for c in item.get("choices") or [] if str(c.get("label")).strip().lower() in ("yes", "はい", "是")
+                ]
+                value = str((yes or [{"code": "1"}])[0]["code"])
+            elif kind in ("integer", "decimal"):
+                num = re.search(r"\d+(?:\.\d+)?", after)
+                value = num.group(0) if num else ""
+            elif kind == "date":
+                iso = re.search(r"\d{4}-\d{2}-\d{2}", line)
+                value = iso.group(0) if iso else ""
+            else:
+                value = hit
+            if value:
+                return {"found": True, "value": value, "note": str(note.get("id") or ""),
+                        "date": str(note.get("date") or ""), "quote": line.strip()[:300]}  # fmt: skip
+    return none
+
+
 MESSAGE_HANDLERS = {"mlbench_judge": mlbench_judge}
 
 HANDLERS = {
@@ -488,4 +522,5 @@ HANDLERS = {
     "classify_intent": classify_intent,
     "chart_facts": chart_facts,
     "assist": assist,
+    "crf_prefill": crf_prefill,
 }
