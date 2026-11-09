@@ -959,6 +959,7 @@ def create_app(
     from console import (
         approval,
         data_pages,
+        edc_pages,
         entry_pages,
         lifecycle_pages,
         notify,
@@ -1000,6 +1001,7 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00

@@ -10,3 +10,5 @@ consent_translate: {role: draft_document, purpose: documents, context_of_use: co
 consent_verify: {role: draft_document, purpose: documents, context_of_use: consent_explainer_verification}
 # a chart the coordinator uploads (site set-up, D-135): facts read from one patient's chart, on the box only (D-142)
 chart_facts: {role: abstract_field, purpose: screening, context_of_use: chart_fact_extraction}
+# EDC prefill (D-160): one eCRF item's value read from the subject's notes with a verbatim quote, on the box only
+crf_prefill: {role: abstract_field, purpose: screening, context_of_use: crf_prefill}

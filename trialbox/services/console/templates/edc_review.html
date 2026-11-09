@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{# EDC prefill (D-160): the coordinator's review of one subject and visit, then the electronic signature, then send. #}
+{% block title %}{{ t('edc.review.title') }} · {{ record }}{% endblock %}
+{% set q = request.query_params %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('edc.review.title') }} · <span class="mono">{{ record }}</span>{% if visit %} · <span class="mono">{{ visit }}</span>{% endif %}</h1></div>
+{% include "_edc_nav.html" %}
+<p class="hint">{{ t('edc.review.help') }}</p>
+<p class="warn" data-testid="edc-draft-note">{{ t('edc.review.draft_note') }}</p>
+{% if err %}{% include "_edc_err.html" %}{% endif %}
+{% if q.get('signed') %}<p class="ok" role="status" data-testid="edc-signed">{{ t('edc.sign.done') }}</p>{% endif %}
+{% if q.get('sent') is not none %}<p class="ok" role="status" data-testid="edc-sent">{{ t('edc.sent', sent=q.get('sent'), there=q.get('already_there', '0'), conflict=q.get('conflict', '0'), none=q.get('no_record', '0'), readback=q.get('readback', '0')) }}</p>{% endif %}
+{% if visits|length > 1 %}<p class="hint">{% for v in visits %}<a href="?visit={{ v }}"{% if v == visit %} aria-current="page"{% endif %}>{{ v }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+{% set on = st.switch.state == 'on' %}
+{% if not on %}<p class="warn" role="alert" data-testid="edc-off-note">{{ t('edc.review.off') }}</p>{% endif %}
+<section class="card">
+{% if not drafts %}<p class="empty">{{ t('edc.review.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="edc-drafts">
+<thead><tr><th>{{ t('edc.col.item') }}</th><th>{{ t('edc.col.value') }}</th><th>{{ t('edc.col.citation') }}</th><th>{{ t('edc.col.fate') }}</th><th>{{ t('edc.col.action') }}</th></tr></thead>
+<tbody>{% for d in drafts %}{% set f = fields.get(d.item) or {} %}{% set c = d.final_citation or d.citation %}
+<tr id="d{{ d.id }}" data-testid="draft-{{ d.item }}"{% if err and err.draft == d.id %} class="flagged"{% endif %}>
+<td><span class="mono">{{ d.item }}</span>{% if d.cdash %} <span class="hint mono">{{ d.cdash }}{% if d.test %} {{ d.test }}{% endif %}</span>{% endif %}<br>{{ (f.labels or {}).get(lang) or f.label or '' }}</td>
+<td data-testid="value-{{ d.item }}">{% if d.fate in ('confirmed', 'edited') %}<strong>{{ d.final }}</strong>{% if d.fate == 'edited' and d.value and d.value != d.final %} <span class="hint">({{ t('edc.review.was', v=d.value) }})</span>{% endif %}{% elif d.state == 'drafted' %}{{ d.value }}{% else %}<span class="hint" data-testid="unknown-{{ d.item }}">{{ t('edc.unknown') }} · {{ t('edc.why.' + d.why) }}</span>{% endif %}
+{% if (f.options or {}) and (d.final or d.value) %}<br><span class="hint">{{ (f.options or {}).get(d.final or d.value, '') }}</span>{% endif %}</td>
+<td data-testid="cite-{{ d.item }}">{% if c %}<span class="pill">{{ t('edc.cite.' + c.kind) }}</span> {{ c.text }}{% if c.day %} · {{ c.day }}{% endif %}{% if c.quote %}<br><q>{{ c.quote }}</q>{% endif %}{% if c.kind != 'manual' %}<br><span class="hint mono">{{ c.table }} {{ c.row }} · {{ c.snapshot }}</span>{% endif %}{% else %}–{% endif %}</td>
+<td>{{ t('edc.fate.' + d.fate) }}{% if d.signature_id %} · <span class="pill" data-testid="signed-{{ d.item }}">{{ t('edc.signed') }}</span>{% endif %}{% if d.sent_at and d.sent_value == d.final %} · <span class="pill">{{ t('edc.sent_pill') }}</span>{% endif %}{% if d.decided_by %}<br><span class="hint">{{ d.decided_by }} · {{ d.decided_at|local }}</span>{% endif %}{% if d.reason %}<br><span class="hint">{{ t('edc.review.reason') }}: {{ d.reason }}</span>{% endif %}</td>
+<td>{% if on and may.review and d.fate != 'superseded' %}
+{% if d.fate == 'open' and d.state == 'drafted' and d.citation %}<form method="post" action="/studies/{{ rs }}/edc/decide/{{ d.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="record" value="{{ record }}"><input type="hidden" name="visit" value="{{ visit }}"><button type="submit" name="action" value="confirm" class="small" data-testid="confirm-{{ d.item }}">{{ t('edc.action.confirm') }}</button></form>{% endif %}
+<details{% if err and err.draft == d.id %} open{% endif %}><summary data-testid="change-{{ d.item }}">{{ t('edc.action.edit') if d.fate != 'open' or d.state == 'drafted' else t('edc.action.enter') }}</summary>
+<form method="post" action="/studies/{{ rs }}/edc/decide/{{ d.id }}" class="markform"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="record" value="{{ record }}"><input type="hidden" name="visit" value="{{ visit }}"><input type="hidden" name="action" value="edit">
+<label for="v{{ d.id }}">{{ t('edc.col.value') }}</label>{% if f.options %}<select id="v{{ d.id }}" name="value" data-testid="edit-value-{{ d.item }}">{% for code, lbl in f.options.items() %}<option value="{{ code }}"{% if code == (d.final or d.value) %} selected{% endif %}>{{ code }} · {{ lbl }}</option>{% endfor %}</select>{% else %}<input id="v{{ d.id }}" name="value" value="{{ d.final or d.value }}" data-testid="edit-value-{{ d.item }}">{% endif %}
+<label for="r{{ d.id }}">{{ t('edc.review.reason') }}</label><input id="r{{ d.id }}" name="reason" maxlength="300" required data-testid="edit-reason-{{ d.item }}">
+{% if not d.citation %}<label for="s{{ d.id }}">{{ t('edc.review.source') }}</label><input id="s{{ d.id }}" name="source" maxlength="300" data-testid="edit-source-{{ d.item }}"><label for="sd{{ d.id }}">{{ t('edc.review.source_day') }}</label><input id="sd{{ d.id }}" name="source_day" type="date" lang="{{ lang }}">{% endif %}
+<button type="submit" class="small" data-testid="edit-save-{{ d.item }}">{{ t('edc.action.save') }}</button></form></details>
+{% if not (d.sent_at) and d.fate != 'rejected' %}<form method="post" action="/studies/{{ rs }}/edc/decide/{{ d.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="record" value="{{ record }}"><input type="hidden" name="visit" value="{{ visit }}">{% if d.fate in ('confirmed', 'edited') %}<input name="reason" maxlength="300" required placeholder="{{ t('edc.review.reason') }}" aria-label="{{ t('edc.review.reason') }}">{% endif %}<button type="submit" name="action" value="reject" class="small secondary" data-testid="reject-{{ d.item }}">{{ t('edc.action.reject') }}</button></form>{% endif %}
+{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+
+{% if on and may.sign and unsigned %}
+<section class="card" id="sign" data-testid="edc-sign">
+<h2>{{ t('edc.sign.title') }}</h2>
+<p>{{ t('edc.sign.count', n=unsigned|length) }}</p>
+<blockquote data-testid="edc-meaning">{{ t('edc.sign.meaning') }}</blockquote>
+<p>{{ t('edc.sign.as', name=printed_name, role=t('role.' + user.role)) }}</p>
+{% if sso %}<p class="warn" data-testid="edc-sso">{{ t('edc.err.edc.sign_sso') }}</p>{% else %}
+<form method="post" action="/studies/{{ rs }}/edc/sign" class="markform" autocomplete="off">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="record" value="{{ record }}"><input type="hidden" name="visit" value="{{ visit }}">
+<label class="nowrap"><input type="checkbox" name="meaning_ack" value="1" required data-testid="edc-meaning-ack"> {{ t('edc.sign.ack') }}</label>
+<label for="pw">{{ t('edc.sign.password') }}</label><input id="pw" name="password" type="password" required autocomplete="current-password" data-testid="edc-password">
+<button type="submit" data-testid="edc-sign-go">{{ t('edc.sign.go') }}</button></form>{% endif %}
+</section>{% endif %}
+
+{% if on and may.send and st.target %}
+<section class="card" data-testid="edc-send">
+<h2>{{ t('edc.send.title') }}</h2>
+<p class="hint">{{ t('edc.send.help') }}</p>
+<form method="post" action="/studies/{{ rs }}/edc/send" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="record" value="{{ record }}"><input type="hidden" name="visit" value="{{ visit }}">
+<button type="submit" data-testid="edc-send-go">{{ t('edc.send.one') }}</button></form>
+</section>{% endif %}
+<p><a href="/studies/{{ rs }}/edc/trail/{{ record }}" data-testid="edc-to-trail">{{ t('edc.trail.title') }}</a></p>
+{% endblock %}

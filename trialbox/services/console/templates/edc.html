@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{# EDC prefill (D-160): the switch, the target, the subjects, send and export. #}
+{% block title %}{{ t('edc.title') }} · {{ rs }}{% endblock %}
+{% set q = request.query_params %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('edc.title') }}</h1></div>
+{% include "_edc_nav.html" %}
+<p class="hint">{{ t('edc.help') }}</p>
+{% if err %}{% include "_edc_err.html" %}{% endif %}
+{% if q.get('done') %}<p class="ok" role="status" data-testid="edc-done">{{ t('edc.done.' + q.get('done')) }}</p>{% endif %}
+{% if q.get('sent') is not none %}<p class="ok" role="status" data-testid="edc-sent">{{ t('edc.sent', sent=q.get('sent'), there=q.get('already_there', '0'), conflict=q.get('conflict', '0'), none=q.get('no_record', '0'), readback=q.get('readback', '0')) }}</p>{% endif %}
+{% if st %}{% set sw = st.switch %}
+<section class="card" data-testid="edc-switch">
+<h2>{{ t('edc.switch.title') }}: <span class="pill{{ '' if sw.state == 'on' else ' warn' }}" data-testid="edc-state">{{ t('edc.switch.' + sw.state) }}</span></h2>
+<p class="hint">{{ t('edc.switch.help') }}</p>
+{% if sw.reference %}<p data-testid="edc-ack">{{ t('edc.switch.ack', kind=t('edc.kind.' + sw.kind), ref=sw.reference, date=sw.ack_date, pages=sw.reentry_pages, acc='%.1f'|format(sw.reentry_accuracy * 100)) }}</p>{% endif %}
+{% if sw.state != 'on' and may.switch_on %}
+<form method="post" action="/studies/{{ rs }}/edc/switch" class="markform" data-testid="edc-switch-on">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="on" value="1">
+<label for="kind">{{ t('edc.switch.kind') }}</label><select id="kind" name="kind" data-testid="edc-kind">{% for k in kinds %}<option value="{{ k }}">{{ t('edc.kind.' + k) }}</option>{% endfor %}</select>
+<label for="reference">{{ t('edc.switch.reference') }}</label><input id="reference" name="reference" maxlength="120" required data-testid="edc-reference">
+<label for="ack_date">{{ t('edc.switch.ack_date') }}</label><input id="ack_date" name="ack_date" type="date" lang="{{ lang }}" required data-testid="edc-ack-date">
+<label for="reentry_pages">{{ t('edc.switch.pages') }}</label><input id="reentry_pages" name="reentry_pages" type="number" min="0" required data-testid="edc-pages">
+<label for="reentry_accuracy">{{ t('edc.switch.accuracy') }}</label><input id="reentry_accuracy" name="reentry_accuracy" inputmode="decimal" required data-testid="edc-accuracy">
+<button type="submit" data-testid="edc-on">{{ t('edc.switch.go_on') }}</button></form>
+{% elif sw.state != 'on' %}<p class="hint" data-testid="edc-pi-only">{{ t('edc.switch.pi_only') }}</p>{% endif %}
+{% if sw.state == 'on' and may.switch_off %}
+<form method="post" action="/studies/{{ rs }}/edc/switch" class="inline" data-testid="edc-switch-off">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="on" value="0">
+<label for="off-reason">{{ t('edc.switch.reason') }}</label><input id="off-reason" name="reason" maxlength="300">
+<button type="submit" class="secondary" data-testid="edc-off">{{ t('edc.switch.go_off') }}</button></form>{% endif %}
+{% if st.events %}<details><summary>{{ t('edc.switch.history') }}</summary><ul class="plain hint">{% for e in st.events|reverse %}<li>{{ e.at|local }} · {{ e.by_user }} · {{ t('edc.switch.' + e.state) }}{% if e.reason %} — {{ e.reason }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+</section>
+
+<section class="card" data-testid="edc-map-state">
+<h2>{{ t('edc.map.title') }}</h2>
+{% if st.map %}<p>{{ t('edc.map.state', n=st.map|length, drafted=st.mapped) }}{% if st.target %} · {{ t('edc.map.target', ref=st.target.token_ref, field=st.target.key_field) }}{% endif %}</p>
+{% else %}<p class="empty" data-testid="edc-no-map">{{ t('edc.map.none') }}</p>{% endif %}
+{% if may.map %}<p><a class="button secondary" href="/studies/{{ rs }}/edc/map" data-testid="edc-to-map">{{ t('edc.map.open') }}</a></p>{% endif %}
+</section>
+
+{% if sw.state == 'on' and st.map and may.draft %}
+<section class="card" data-testid="edc-new">
+<h2>{{ t('edc.new.title') }}</h2>
+<p class="hint">{{ t('edc.new.help') }}</p>
+<form method="post" action="/studies/{{ rs }}/edc/drafts" class="markform" data-testid="edc-new-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="record">{{ t('edc.col.subject') }}</label><select id="record" name="record" data-testid="edc-record">{% for s in subjects %}<option value="{{ s }}">{{ s }}</option>{% endfor %}</select>
+<label for="visit">{{ t('edc.col.visit') }}</label><input id="visit" name="visit" class="mono" maxlength="100" placeholder="event_1_arm_1" data-testid="edc-visit">
+<label for="visit_date">{{ t('edc.col.visit_date') }}</label><input id="visit_date" name="visit_date" type="date" lang="{{ lang }}" required data-testid="edc-visit-date">
+<button type="submit" data-testid="edc-draft">{{ t('edc.new.go') }}</button></form>
+</section>{% endif %}
+
+<section class="card" data-testid="edc-subjects">
+<h2>{{ t('edc.subjects.title') }}</h2>
+{% if not st.subjects %}<p class="empty">{{ t('edc.subjects.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates">
+<thead><tr><th>{{ t('edc.col.subject') }}</th><th>{{ t('edc.col.visit') }}</th><th>{{ t('edc.col.visit_date') }}</th><th>{{ t('edc.col.open') }}</th><th>{{ t('edc.col.decided') }}</th><th>{{ t('edc.col.signed') }}</th><th>{{ t('edc.col.sent') }}</th><th></th></tr></thead>
+<tbody>{% for s in st.subjects %}<tr data-testid="edc-subject-{{ s.record }}">
+<td class="mono">{{ s.record }}</td><td class="mono">{{ s.visit }}</td><td>{{ s.visit_date }}</td><td>{{ s.open }}</td><td>{{ s.decided }}</td><td>{{ s.signed }}</td><td>{{ s.sent }}</td>
+<td class="nowrap">{% if may.review %}<a href="/studies/{{ rs }}/edc/review/{{ s.record }}?visit={{ s.visit }}" data-testid="edc-review-{{ s.record }}">{{ t('edc.review.open') }}</a> · {% endif %}<a href="/studies/{{ rs }}/edc/trail/{{ s.record }}">{{ t('edc.trail.title') }}</a></td>
+</tr>{% endfor %}</tbody></table></div>{% endif %}
+{% if sw.state == 'on' and st.subjects %}<p class="exports">
+{% if may.send and st.target %}<form method="post" action="/studies/{{ rs }}/edc/send" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" data-testid="edc-send-all">{{ t('edc.send.all') }}</button></form>{% endif %}
+{% if may.export %}<a class="button secondary" href="/studies/{{ rs }}/edc/export.odm.xml" data-testid="edc-odm">{{ t('edc.export.odm') }}</a>{% endif %}</p>
+<p class="hint">{{ t('edc.send.help') }}</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

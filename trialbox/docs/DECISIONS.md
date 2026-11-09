@@ -3337,3 +3337,47 @@ dry run for three VMs: each VM capped before its own start, its own `tb-only`, n
 
 *Not done; only the card can show.* No bench number is measured yet. The clones, other zones and the quota are the
 owner's to check; the G4 zones in the default list are not verified here.
+
+**D-160 EDC prefill: drafts with citations, the CRC's review and signature, REDCap send and ODM export.** Owner
+decisions D-144 ("EDC: prefill, then the CRC confirms; REDCap through its API; other EDCs through CDISC ODM; no
+screen-scraping or RPA; items mapped to CDASH") and D-145 (prefill switched on per study only after the sponsor's
+written acknowledgement); TB-PLAN-05 WS-07.1, WS-07.2 (code), WS-07.4 (part), WS-07.7 (switch).
+
+* **Library `services/edc/`, schema `edc`.** `mapping` (the item map: per eCRF item a CDASH tag and one source:
+  patient, observation with codes and unit, condition, medication, a note passage, or none; `check` refuses a map
+  that could draft a wrong kind of value, and the record-id and link fields), `cdash` (tags, en/ja/zh-TW name hints;
+  diagnosis and medicine codes are never suggested), `prefill` (drafts from the box's lake), `store` (switch, map,
+  drafts and their fate, decisions, signatures, sends; nothing deleted), `odm` (CDISC ODM 1.3.2), `service`.
+* **Rules, each tested.** Every drafted value has a citation (record row, snapshot and day; a confirmed fact; or a
+  note with a verbatim quote checked against the note); no citation, no value. Proposed chart facts never count.
+  Unknown never becomes "No": a yes/no item is only drafted as yes. Ties, another unit, a censored result, a value
+  outside the window or failing the field's checks stay unknown with the reason. A value without a citation cannot be
+  confirmed; an edit needs a reason and passes the field's checks; a value is sent or exported only when confirmed,
+  signed and unchanged since (per-value hash). The REDCap send never overwrites a value TrialBox did not write (listed
+  as a conflict), never creates a record, and reads every value back.
+* **Switch.** Off by default. On needs the acknowledgement kind (sponsor letter, or the PI is the sponsor), its
+  reference and date (not in the future) and the blind re-entry result (≥ 30 pages, ≥ 98 %, WS-16.4); only the PI
+  turns it on; the PI or an admin turns it off. While off nothing is drafted, decided, signed, sent or exported.
+* **Signature.** The signer types their password again (failures count toward the lockout and are audited), ticks
+  that they read the meaning, and the signature keeps the printed name (delegation log), role, meaning text,
+  language, time and a hash of what was signed. SSO-only accounts cannot sign yet. A second factor (WS-13.1) is not
+  built; this is a known gap for WS-07.4.
+* **Roles.** `authz.EDC_ACTIONS` / `edc_allowed`: the work needs the `enter_data` study task; switch on: the PI;
+  switch off: the PI or an admin; viewer and CRO: nothing.
+* **Surfaces.** Orchestrator `/studies/{rs}/edc/*`; console pages *EDC prefill*, *Item map*, *Review*, *Audit trail*
+  (en, ja, zh-TW) and `/api/v1/studies/{rs}/edc/*`. Note items use the gateway prompt `crf_prefill` v1 (role
+  `abstract_field`), output schema `llm_crf_prefill_output`; the stub has a rule handler.
+* **Not done here.** Copy-assist screen, repeating instruments, arms, record lock after SDV, the second factor at
+  signing, the accept-without-edit weekly report (WS-16.4 after go-live).
+
+*Evidence.* `tests/unit/test_edc.py`, `tests/console/test_edc_pages.py`, `tools/e2e_simple.py` stage 16 (synthetic
+data, REDCap simulator).
+
+**D-161 Study A protocol, the intended-use statement and the SNOMED CT licence inquiry (documents).** Owner decision
+D-144 ("draft the Study A protocol now"; "SNOMED CT: ask about a licence; Aimedics holds it") and the clinician-view
+restriction; TB-PLAN-05 WS-16.1, WS-15.3, WS-13.7. New records under `docs/plan/`: `study-a-protocol.md`
+(TB-STUDY-A-01: retrospective accuracy at CGMH, English and zh-TW, sample size with its reasoning, blinded two-reader
+chart review with adjudication, endpoints, analysis, data handling, timeline), `intended-use.md` (TB-IU-01: the
+non-device statement and the conditions that keep it true, mapped to the MHLW/PMDA 該当性 questions and the TFDA
+questions, with the points a regulatory consultant must confirm) and `snomed-inquiry.md` (TB-LIC-01: a ready-to-send
+inquiry). They are drafts for the owner; none is sent or submitted by this change.

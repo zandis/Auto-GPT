@@ -83,6 +83,26 @@ def study_tasks(role: str, *, log_names_pi: bool, is_pi: bool, ticked: frozenset
     return frozenset(STUDY_TASKS) if is_pi else frozenset(ticked) & frozenset(STUDY_TASKS)
 
 
+# D-160: EDC prefill. Who may do what, on top of the study tasks above. The prefill path is data entry (the
+# ``enter_data`` task: a coordinator, the PI, a sub-investigator the PI ticked for it); turning prefill on is the
+# study PI's alone (they hold the sponsor's acknowledgement); turning it off is the PI's or an admin's (stop at once).
+# A viewer, a CRO account and anyone without the task do nothing here.
+EDC_ACTIONS: tuple[str, ...] = ("view", "map", "draft", "review", "sign", "send", "export", "switch_on", "switch_off")
+
+
+def edc_allowed(role: str, action: str, *, tasks: frozenset[str], is_pi: bool) -> bool:
+    """May an account with ``role`` (and these study tasks) take this EDC prefill ``action`` in one study?"""
+    if action not in EDC_ACTIONS or role in ("viewer", "cro"):
+        return False
+    if action == "switch_on":
+        return role == "investigator" and is_pi
+    if action == "switch_off":
+        return (role == "investigator" and is_pi) or role == "admin"
+    if action == "view":
+        return "enter_data" in tasks or (role == "investigator" and is_pi)
+    return "enter_data" in tasks
+
+
 # D-146 (review J-02): the daily per-sender limit protects the box from runs that read every patient. It counts only
 # these job types, each on its own; a case question, a consent draft, a status or an approval is never counted.
 HEAVY_JOBS: tuple[str, ...] = ("FEAS", "SCREEN", "COHORT", "NAV", "MICROBATCH", "CALIBRATION")
