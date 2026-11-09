@@ -12,7 +12,8 @@ wiped, restored from the backup with the hospital's key, and must then be the sa
    and the investigator's marks read back through the site store as before; the trial lifecycle (participants,
    their steps and the visit schedule, D-134) reads back through the data core as before; the site set-up (D-135:
    inputs, facts with their status, the hospital codes' mapping, the "please check" answers) reads back through its
-   store as before, and every uploaded chart file is back in the orchestrator's data folder.
+   store as before, and every uploaded chart file is back in the orchestrator's data folder; the licensed code lists
+   (D-137: each release with its version, source and codes) read back through the terminology store as before.
 """
 
 from __future__ import annotations
@@ -52,6 +53,7 @@ def run(base: Path) -> dict[str, Any]:
     marks_before = _marks(work)
     life_before = _lifecycle()
     site_before = _sitesetup()
+    terms_before = _terminology()
     charts_before = sorted(str(p.relative_to(work)) for p in (work / "box").rglob("sitesetup/*/inputs/*"))
 
     keys = base / "keys"
@@ -100,6 +102,10 @@ def run(base: Path) -> dict[str, Any]:
                    and len(charts_before) >= 2,
                    ", ".join(f"{len(v)} {k}" for k, v in site_before.items())
                    + f", {len(charts_before)} files"))  # fmt: skip
+    terms_after = _terminology()
+    checks.append(("restore: the licensed code lists read back the same, with version and source (D-137)",
+                   len(terms_before["releases"]) >= 3 and terms_after == terms_before,
+                   f"{len(terms_before['releases'])} releases, {len(terms_before['codes'])} codes"))  # fmt: skip
     return {"ok": all(c[1] for c in checks), "checks": checks, "seconds": round(time.perf_counter() - t0, 1)}
 
 
@@ -150,6 +156,19 @@ def _sitesetup() -> dict[str, list[tuple[Any, ...]]]:
             out["codes"] += [(ws, c["system"], c["code"], c["mapped_code"], c["mapped_by"]) for c in st.locals(ws)]
             out["checks"] += [(ws, c["key"], c["answer"]) for c in st.checks(ws)]
         return out
+    finally:
+        st.close()
+
+
+def _terminology() -> dict[str, list[tuple[Any, ...]]]:
+    """The licensed code lists (D-137), read through their store (a fresh connection: a fresh process)."""
+    from adapter.licensed import KINDS, TermStore
+
+    st = TermStore()
+    try:
+        rel = [(r["kind"], r["version"], r["source"], r["sha256"], r["rows"], r["active"]) for r in st.releases()]
+        codes = [(k, c, v["target_code"]) for k in KINDS for c, v in sorted(st.concepts(k).items())]
+        return {"releases": rel, "codes": codes}
     finally:
         st.close()
 
