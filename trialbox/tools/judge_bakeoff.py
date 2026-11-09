@@ -273,7 +273,7 @@ class BakeoffClient(LlmClient):
 
     @staticmethod
     def _seen(resp: httpx.Response) -> None:
-        if resp.request.url.path.endswith("/chat/completions") and resp.status_code < 400:
+        if resp.request.method == "POST" and resp.status_code < 400:
             resp.read()
             try:
                 _local.served = str(resp.json().get("model") or "")
