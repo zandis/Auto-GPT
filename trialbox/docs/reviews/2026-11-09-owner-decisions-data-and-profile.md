@@ -34,6 +34,15 @@ The aim of a study is to screen the **entire database** for potential patients. 
 | Referral | The treating physician is asked first. The PI or sub-PI sends a referral request in TrialBox. The treating physician gets it on the console and by mail, sees why the patient may fit, and answers: *agree to introduce*, *decline with a reason*, or *discuss*. The PI contacts the patient only after agreement. Each step is logged and counted in the screening log. |
 | Referral target | **The treating physician may be unknown to TrialBox.** The hospital data that reaches the box may carry no provider, or an outdated one. The PI usually finds the physician in the real EMR or through their own working relationships. So: (1) where the data names an attending physician, TrialBox only *suggests* that physician, and the PI confirms or changes the choice; (2) where it doesn't, the PI enters the physician from a staff directory the steward maintains, or types a name; (3) the PI may also choose "arranged outside TrialBox" (by phone, in person or through the EMR) and record the outcome afterwards; (4) the steward's department contact list is the last fallback. A referral never stalls because a field is missing. The screening log records each referral's route and outcome. |
 
+## Site operations (after the clinical-operations assessment)
+
+| Topic | Decision |
+|---|---|
+| Treating doctor's answer to a referral | At the first site, **the CRC records it.** The CRC asks the doctor by phone, in person or by EMR message, then records the answer. The doctor needs no account. Mail with answer buttons and doctor accounts come later. |
+| IRB approval and consent-form version before Approach | **A warning, not a hard gate.** TrialBox warns if the IRB approval date or the current ICF version is missing or expired, but still lets the user mark Approach. Each override is logged. |
+| Delegation log | The trial office's signed log stays the official record. TrialBox holds a copy that grants rights in the system (screen, approach, refer, enter data), with training dates. The two are compared every month. |
+| Opt-out | Kept by the office. The research office or the steward records each patient's opt-out in TrialBox. That patient is then removed from screening, profiles, vectors and future exports, and the removal is logged. |
+
 ## Data model
 
 | Topic | Decision |
