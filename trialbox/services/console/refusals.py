@@ -45,6 +45,10 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "請選擇可行性評估或篩選，以及已核准的條件",
     ),
     "choose a ruleset and a status": ("基準と状態を選んでください", "請選擇條件與狀態"),
+    "choose the whole hospital or some doctors": (  # D-144 (J-26): the study's screening scope
+        "病院全体か、一部の医師の患者かを選んでください",
+        "請選擇全院或部分醫師的病人",
+    ),
     "choose an approved ruleset": ("承認済みの基準を選んでください", "請選擇已核准的條件"),
     "choose en, ja or zh-TW": ("英語・日本語・中国語（繁体字）から選んでください", "請選擇英文、日文或繁體中文"),
     "choose one of the contact outcomes": ("連絡結果を一つ選んでください", "請選擇一項聯絡結果"),

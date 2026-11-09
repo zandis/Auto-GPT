@@ -43,6 +43,6 @@
 </section>
 {% if mapped %}<section class="card" data-testid="codes-mapped"><details><summary>{{ t('site.codes.mapped', n=mapped|length) }}</summary>
 <div class="scroll" tabindex="0"><table class="candidates"><thead><tr><th>{{ t('site.codes.col.local') }}</th><th>{{ t('site.codes.col.std') }}</th><th>{{ t('site.codes.col.by') }}</th></tr></thead>
-<tbody>{% for c in mapped %}<tr><td><span class="mono">{{ c.code }}</span>{% if c.display and c.display != c.code %} {{ given(c.display) }}{% endif %}</td><td>{% if c.mapped_code %}<span class="mono">{{ c.mapped_code }}</span>{% else %}{{ t('site.codes.left_unknown') }}{% endif %}</td><td class="nowrap">{{ c.mapped_by }}</td></tr>{% endfor %}</tbody></table></div>
+<tbody>{% for c in mapped %}<tr><td><span class="mono">{{ c.code }}</span>{% if c.display and c.display != c.code %} {{ given(c.display) }}{% endif %}</td><td>{% if c.mapped_code %}<span class="mono">{{ c.mapped_code }}</span>{% else %}{{ t('site.codes.left_unknown') }}{% endif %}</td><td class="nowrap">{{ c.mapped_by|who }}</td></tr>{% endfor %}</tbody></table></div>
 </details></section>{% endif %}
 {% endblock %}

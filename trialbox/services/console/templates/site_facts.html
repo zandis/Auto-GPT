@@ -31,7 +31,7 @@
 <div><label for="c-{{ f.id }}">{{ t('site.fact.code') }}</label><input id="c-{{ f.id }}" name="code" value="{{ f.code }}"></div>{% endif %}
 <div><button type="submit" data-testid="save-correct-{{ f.id }}">{{ t('site.fact.save_correct') }}</button></div>
 </form></details>
-{% elif f.status != 'proposed' %}<p class="hint">{{ t('site.fact.decided', by=f.decided_by or '–', at=(f.decided_at or '')[:16]) }}</p>{% endif %}
+{% elif f.status != 'proposed' %}<p class="hint">{{ t('site.fact.decided', by=f.decided_by|who, at=(f.decided_at or '')[:16]) }}</p>{% endif %}
 </article>{% endfor %}
 </section>
 {% endblock %}

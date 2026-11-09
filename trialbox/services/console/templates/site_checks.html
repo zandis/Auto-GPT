@@ -30,6 +30,6 @@
 <tbody>{% for f in fixes %}<tr data-testid="fix-{{ f.kind }}"><td>{{ t('site.fix.kind.' + f.kind) }}</td><td>{{ given(f.column_name) if f.column_name else '–' }}</td><td class="num">{{ f.n }}</td><td>{% for b, a in f.examples[:2] %}<span class="mono">{{ b }}</span> → <span class="mono">{{ a }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 {% if answered %}<section class="card"><details><summary>{{ t('site.checks.answered', n=answered|length) }}</summary>
-<ul class="plain">{% for c in answered %}<li>{{ t('site.check.kind.' + c.kind) }} · {{ given(c.column_name.split('|')[0]) }} → {{ opt(c, c.answer) }} <span class="hint nowrap">{{ c.answered_by }}</span></li>{% endfor %}</ul>
+<ul class="plain">{% for c in answered %}<li>{{ t('site.check.kind.' + c.kind) }} · {{ given(c.column_name.split('|')[0]) }} → {{ opt(c, c.answer) }} <span class="hint nowrap">{{ c.answered_by|who }}</span></li>{% endfor %}</ul>
 </details></section>{% endif %}
 {% endblock %}

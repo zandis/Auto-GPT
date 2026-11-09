@@ -112,10 +112,11 @@ class FakeBackend:
     def get_job(self, job_id: str) -> Job | None:
         return self.jobs.get(job_id)
 
-    def create_job(self, req: JobCreate) -> Job:
+    def create_job(self, req: JobCreate, by: str = "", role: str = "") -> Job:
         if self.refuse:
             raise Refused(self.refuse)
         self.created.append(req)
+        self.created_by = [*getattr(self, "created_by", []), (by, role)]  # D-144: who asked, with which role
         now = datetime(2026, 10, 25, 9, 0, tzinfo=UTC)
         job = Job(
             job_id=req.job_id or _ulid(len(self.jobs) + 1),
@@ -547,7 +548,7 @@ def test_orchestrator_refusal_is_shown_and_audited(box: dict[str, Any]) -> None:
     box["backend"].refuse = "admin@hospa.test is not permitted to run SCREEN"
     c, csrf = login(box["app"])
     r = c.post("/pilot/request", data={"csrf": csrf, "kind": "SCREEN", "ruleset": "GZQO", "version": "1.0.0"})
-    assert r.status_code == 403 and "not permitted" in r.text
+    assert r.status_code == 403 and "The mailbox admin@hospa.test may not start SCREEN" in r.text
     assert any(x.event == "console.refused" for x in read_audit(box["dir"] / "audit"))
 
 
@@ -654,10 +655,15 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     assert c.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": csrf}).status_code == 403
     s20 = c.get(f"/pilot/jobs/{job.job_id}/approval").text
     assert 'data-testid="approve-who"' in s20 and 'data-testid="row-GZQO-DEMO-EXC-01"' in s20
+    # D-144 (J-27): only the investigator ticks, as only the investigator approves; the page says who may
+    assert 'data-testid="s20-who"' in s20 and 'data-testid="tick-btn-' not in s20
     r = c.post(f"/pilot/jobs/{job.job_id}/approval/tick", data={"csrf": csrf, "crit": "GZQO-DEMO-INC-01"})
-    assert r.status_code == 200 and 'data-testid="tick-GZQO-DEMO-INC-01"' in r.text
+    assert r.status_code == 403
     box["users"].create("pi", "investigator", "pi-password-12345", "pi@hospa.test")
     p, pcsrf = login(box["app"], "pi", "pi-password-12345")
+    assert 'data-testid="tick-btn-GZQO-DEMO-INC-01"' in p.get(f"/pilot/jobs/{job.job_id}/approval").text
+    r = p.post(f"/pilot/jobs/{job.job_id}/approval/tick", data={"csrf": pcsrf, "crit": "GZQO-DEMO-INC-01"})
+    assert r.status_code == 200 and 'data-testid="tick-GZQO-DEMO-INC-01"' in r.text
     s20 = p.get(f"/pilot/jobs/{job.job_id}/approval").text
     assert 'data-testid="approve-missing"' in s20 and "VS_X: 1 one" not in s20.split("GZQO-DEMO-INC-01")[0]
     assert p.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": pcsrf}).status_code == 409  # amber unopened
@@ -799,8 +805,7 @@ def test_consent_job_card_preview_and_release(box: dict[str, Any]) -> None:
     assert rel.type == "RELEASE" and rel.options == {"target": jid, "drop": "I03,Q2"} and rel.ruleset is None
     assert c.post(f"/pilot/jobs/{jid}/release", data={"csrf": csrf, "keep": "x;1"}).status_code == 400
     viewer, vcsrf = login(box["app"], "viewer", VIEWER_PW)
-    vpage = viewer.get(f"/pilot/jobs/{jid}").text
-    assert 'data-testid="consent"' in vpage and 'data-testid="release"' not in vpage
+    assert viewer.get(f"/pilot/jobs/{jid}").status_code == 403  # D-144 (J-04): a viewer opens feasibility runs only
     assert viewer.post(f"/pilot/jobs/{jid}/release", data={"csrf": vcsrf}).status_code == 403
 
 
@@ -968,14 +973,9 @@ def test_screen_job_page_shows_candidates_and_reveals_a_chart_number_once(box: d
     r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "b" * 32})
     assert r.status_code == 200 and "no chart number on this box" in r.text
     assert c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "x"}).status_code == 400
-    # viewers: counts, no rows, no reveal
+    # viewers: no screening job page (D-144, J-04), no reveal
     viewer, vcsrf = login(box["app"], "viewer", VIEWER_PW)
-    vpage = viewer.get(f"/pilot/jobs/{jid}").text
-    assert (
-        'data-testid="screen-viewer"' in vpage
-        and 'data-testid="screen-rows"' not in vpage
-        and "two flares" not in vpage
-    )
+    assert viewer.get(f"/pilot/jobs/{jid}").status_code == 403
     assert viewer.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": vcsrf, "pid": "a" * 32}).status_code == 403
     # Japanese
     c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
@@ -1164,11 +1164,10 @@ def test_case_sheet_card_and_phi_view_rules(box: dict[str, Any]) -> None:
     r = c.get(sheet.group(1) or sheet.group(2))
     assert r.status_code == 200 and "acute gout flare" in r.text
     assert "sandbox" in r.headers.get("content-security-policy", "")
-    # the viewer sees the counts but cannot open the sheet (chart text)
+    # the viewer opens neither the CASE job page nor its sheet (D-144, J-04: the page names a patient)
     v, _ = login(box["app"], "viewer", VIEWER_PW)
-    page = v.get(f"/pilot/jobs/{job.job_id}").text
-    assert "12 criteria" in page and 'data-testid="case-sheet"' not in page
-    assert v.get(f"/pilot/jobs/{job.job_id}/view/case_GZQO_{job.job_id}.html").status_code == 404
+    assert v.get(f"/pilot/jobs/{job.job_id}").status_code == 403
+    assert v.get(f"/pilot/jobs/{job.job_id}/view/case_GZQO_{job.job_id}.html").status_code == 403
     # a phi output of any other job type is never viewable, even for an administrator
     feas = _done_feas(box["backend"])
     assert c.get(f"/pilot/jobs/{feas.job_id}/view/feasibility_GZQO_v1.0.0_2026-10-04.raw.json").status_code == 404
@@ -1226,9 +1225,10 @@ def test_registry_pages_add_promote_export(box: dict[str, Any]) -> None:
     assert verify(box["dir"] / "audit").ok
 
 
-def test_viewer_reads_registry_but_cannot_change_or_export(box: dict[str, Any]) -> None:
+def test_viewer_cannot_read_change_or_export_the_registry(box: dict[str, Any]) -> None:
     v, csrf = login(box["app"], "viewer", VIEWER_PW)
-    assert v.get("/pilot/registry").status_code == 200 and v.get("/pilot/registry/GZQO").status_code == 200
+    # D-144 (J-04): the registry lists pseudonyms, statuses and reasons: not an aggregate-only account's page
+    assert v.get("/pilot/registry").status_code == 403 and v.get("/pilot/registry/GZQO").status_code == 403
     assert v.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "A1001", "status": "candidate"}).status_code == 403
     assert v.post("/pilot/registry/GZQO/promote", data={"csrf": csrf}).status_code == 403
     assert v.get("/pilot/registry/GZQO/export.xlsx").status_code == 403
@@ -1495,7 +1495,7 @@ def test_investigator_sees_candidate_rows_and_case_sheet_and_reveals(box: dict[s
     r = c.post("/pilot/request", data={"kind": "FEAS", "ruleset": "GZQO", "csrf": csrf})
     assert r.status_code == 403 and box["backend"].created == []
     viewer, _ = login(box["app"], "viewer", VIEWER_PW)
-    assert viewer.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 404
+    assert viewer.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 403
     admin, _ = login(box["app"])
     assert "investigator" in admin.get("/ops/users").text
 
@@ -1561,8 +1561,8 @@ def test_case_request_row_shows_the_chart_number_to_the_study_team_only(box: dic
     views = [r for r in box["backend"].audit(job.job_id) if r.event == "console.view_id"]
     assert len(views) == 1 and views[0].actor == "console:pi" and views[0].detail["role"] == "investigator"
     viewer, _ = login(box["app"], "viewer", VIEWER_PW)
-    vpage = viewer.get(f"/pilot/jobs/{job.job_id}").text
-    assert "70000054" not in vpage and "mrn=•••" in vpage
+    vpage = viewer.get(f"/pilot/jobs/{job.job_id}")
+    assert vpage.status_code == 403 and "70000054" not in vpage.text  # D-144 (J-04): no CASE job page at all
     other, _ = login(box["app"], "pi2", VIEWER_PW)
     assert "70000054" not in other.get(f"/pilot/jobs/{job.job_id}").text
     assert len([r for r in box["backend"].audit(job.job_id) if r.event == "console.view_id"]) == 1

@@ -78,6 +78,8 @@ class Helpers:
     life_reports: Callable[[str], list[dict[str, Any]]] | None = None  # one study's overdue SAE reports (P-03)
     # P-10 (D-143): one confirmation page before an action that is hard to take back
     confirm: Callable[..., Response] | None = None
+    # D-144 (review J-03): the role and study scope rules of every page, applied to /api/v1 calls too
+    scope_check: Callable[[Request, Session], None] | None = None
 
 
 class ApiLogin(BaseModel):
@@ -906,6 +908,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess: Session | None = h.users.session(token) if token else None
         if sess is None:
             raise h.problem(401, "login")
+        if h.scope_check is not None:  # D-144 (J-03): the API refuses what the page refuses, in one place
+            h.scope_check(request, sess)
         bind_session(sess.token_sha[:16])  # S-09: the actor sent to the orchestrator is signed with this session
         return sess
 
@@ -934,11 +938,19 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = api_session(request)
         return [{"id": r.id, "version": getattr(r, "version", None), "kind": r.kind} for r in trials(sess)]
 
+    def rows_or_403(sess: Session, rs: str, path: str) -> str:
+        """A study this account sees, for a role that reads patient-level rows; the same check as the page (D-144)."""
+        rid = study_or_404(sess, rs)
+        if not sess.user.can_view_phi:
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
+            raise h.problem(403, "forbidden")
+        return rid
+
     @app.get("/api/v1/studies/{rs}/patients")
     def api_patients(request: Request, rs: str) -> dict[str, Any]:
         """This week's list: pseudonyms, tiers, current marks and screening numbers (no chart numbers)."""
         sess = api_session(request)
-        rid = study_or_404(sess, rs)
+        rid = rows_or_403(sess, rs, request.url.path)
         wk = week_bundle(sess, rid)
         rows = list((wk or {}).get("cl", {}).get("rows") or []) if wk else []
         marks = store.latest_marks(rid)
@@ -982,5 +994,5 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.get("/api/v1/studies/{rs}/screening-log")
     def api_screening_log(request: Request, rs: str) -> list[dict[str, str]]:
         sess = api_session(request)
-        rid = study_or_404(sess, rs)
+        rid = rows_or_403(sess, rs, request.url.path)
         return [{"pid": a, "screening_no": b, "at": c} for a, b, c in store.screening_rows(rid)]

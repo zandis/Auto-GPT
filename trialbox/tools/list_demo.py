@@ -152,11 +152,13 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
         job = box.orch.db.get(job_id)
         assert job is not None and job.state == "awaiting_approval", (rs, job and job.state)
         jobs[rs] = job
-    s20 = ok(crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval"), "S20 as coordinator")
+    ok(crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval"), "S20 as coordinator")
+    # D-144 (review J-27): the investigator ticks a criterion's codes, as only the investigator approves
+    s20 = ok(pi.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval"), "S20 as investigator")
     first = re.search(r'data-testid="tick-btn-([A-Z0-9-]+)"', s20.text)
     assert first
     ok(
-        crc.post(
+        pi.post(
             f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/tick", data={"csrf": fd._csrf(s20.text), "crit": first.group(1)}
         ),
         "tick",

@@ -70,13 +70,18 @@ class InprocBackend:
         r = self.c.get(f"/jobs/{job_id}")
         return Job.model_validate(r.json()) if r.status_code == 200 else None
 
-    def create_job(self, req: Any) -> Any:
+    def create_job(self, req: Any, by: str = "", role: str = "") -> Any:
         from console.backend import Refused
         from tb_contracts import Job, dump
 
-        r = self.c.post("/jobs", json=dump(req))
+        # D-144 (review J-01): as the HTTP backend does, the signed-in person and role travel signed
+        r = self.c.post("/jobs", json=dump(req), headers=actor_header(by, role=role) if by and role else {})
         if r.status_code != 200:
-            raise Refused(r.text[:300])
+            try:
+                detail = str(r.json().get("detail"))
+            except (ValueError, AttributeError):
+                detail = r.text
+            raise Refused(detail[:300])
         job = Job.model_validate(r.json())
         self.box.orch.drain()
         return self.get_job(job.job_id) or job
