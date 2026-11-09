@@ -131,3 +131,16 @@ Where a recommendation conflicts with an overriding decision above, the decision
 | CGMH B200 | The B200 server is **shared with other work.** TrialBox runs in containers on CGMH's platform with a fixed GPU quota and its own install checks. |
 | Go-live order | **CGMH first**, then Japan. |
 | Remaining plan questions | **All recommendations in §13 of TB-PLAN-05 are accepted** (Q-05 to Q-27), except where a row above decides differently (Q-02 and Q-04). |
+
+## After the independent plan review (2026-11-09)
+
+| Topic | Decision |
+|---|---|
+| Date and scope | **Full scope, later date.** One go-live per site with everything in: CGMH about 2027-04-30, Japan about 2027-05-14. This replaces the February dates. |
+| Real patient data during the build | **Pseudonymised samples only, after the DPA is signed** and where the IRB allows it. Real data never goes into the repository, CI, logs, screenshots or review documents. |
+| IRB amendments | **File at both sites by 2026-11-20.** They cover profiles, vectors, cross-department identified views and the clinician role. Aimedics drafts them in ja and zh-TW. |
+| CGMH steward | **Changfu acts as steward for the pilot, with an independent CGMH second reviewer** who co-signs validation and release records. |
+| B200 qualification | Rent a cloud B200 in weeks 3–5 to qualify the model pair (about US$40–80, each VM capped and stopped). Ask CGMH for a dedicated MIG partition, not a time-share. |
+| Review hours | About 14 hours a week each for Changfu and Makoto, as planned, plus the part-time safety-core engineer. |
+| Sponsor acknowledgement | EDC prefill is switched on per study only after the sponsor acknowledges in writing that TrialBox is in its source-data chain. |
+| Japan hardware | **Buy one DGX Spark now and benchmark it** (model pair, 5k/50k screening, profile writer) before choosing between a Spark with a CPU-only workstation and an RTX PRO 6000 box. If the Spark isn't enough, it becomes the development and demo machine. |
