@@ -42,6 +42,10 @@ The aim of a study is to screen the **entire database** for potential patients. 
 | IRB approval and consent-form version before Approach | **A warning, not a hard gate.** TrialBox warns if the IRB approval date or the current ICF version is missing or expired, but still lets the user mark Approach. Each override is logged. |
 | Delegation log | The trial office's signed log stays the official record. TrialBox holds a copy that grants rights in the system (screen, approach, refer, enter data), with training dates. The two are compared every month. |
 | Opt-out | Kept by the office. The research office or the steward records each patient's opt-out in TrialBox. That patient is then removed from screening, profiles, vectors and future exports, and the removal is logged. |
+| EDC data entry | **Prefill, then the CRC confirms.** The model drafts eCRF values with citations, and the CRC confirms each one before it is sent. Data goes to REDCap through its API, and to other EDCs through CDISC ODM import, or by file or a copy-assist screen where the EDC has no import. No screen-scraping or RPA. Items are mapped to CDASH. Because this makes TrialBox part of the trial-data chain, it needs computer-system validation (GAMP 5), a full audit trail and ER/ES / Part 11-style controls. |
+| Randomisation | Not in TrialBox. |
+| Drug accountability, TMF, site invoicing | **Inputs only.** Pharmacy, the trial office and sponsor systems keep these processes. TrialBox supplies dispensing dates on the patient timeline, a dated and indexed site-file (ISF) document bundle, and an invoice-ready activity report per study and month. |
+| Patient messaging | **A printed reminder card and a calendar file now; messages later.** Later (P1/P2): opt-in reminders with ethics-approved templates, sent through the hospital's own SMS or LINE official account. |
 
 ## Data model
 
