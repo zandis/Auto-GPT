@@ -2692,3 +2692,120 @@ runs.
   own 18 documents and its own linter. `spec/v4/` still names the moved files as they were (a record).
 * **Numbers in VALIDATION** that are not from this head: the model gate (2026-11-08 card runs) and the bench
   (2026-10).
+
+**D-140 Reference data pack and the two CT.gov modes.** TB-PLAN-04 (owner decision 2026-11-09), 2026-11-09. Built in
+a cloud container with network access through a proxy, no GPU, no Docker; tests on committed samples only.
+
+*Owner decisions (2026-11-09).*
+
+1. Keep both ClinicalTrials.gov modes; each hospital chooses at install, depending on its IT environment: **live**
+   (the box may reach clinicaltrials.gov:443) or **offline** (no outbound access; the trials come from the data pack).
+2. The release carries the full ClinicalTrials.gov data and the other essential reference data for Japan and Taiwan
+   whose licences allow it.
+3. The settings wizard and `install.sh` default to **offline**; live stays selectable at install and in the
+   settings. The network sheet's default text says so.
+4. A NOTICE / attribution page, generated from the pack manifest: `NOTICE.md` in every pack and the console's
+   "Sources and licences" page (en, ja, zh-TW): every source, its licence, its terms and the credit it asks for.
+5. ATC: no WHO ATC/DDD index. Only the ATC codes the Taiwan NHI drug list carries (`ATC代碼`, kept as given), plus
+   TrialBox's own drug-class table later (not built here).
+
+*Sources* (`tools/refdata_fetch.py sources` prints this table from the code; URLs pinned there).
+
+| Source | Decision | Licence | Size | Refresh |
+| --- | --- | --- | --- | --- |
+| ClinicalTrials.gov, all studies (API v2 bulk JSON zip) | ship | NLM terms; NLM disclaimer in the attribution | ~2.8 GB zip, 10.6 GB unpacked, 610,756 studies (2026-11-06); ~2.2 GB in the pack | monthly in the pack (daily at source) |
+| TFDA drug trials (data.gov.tw 177198, export 205) | ship | OGDL 1.0 | 44 MB zip, 5,983 trials | monthly |
+| TFDA trial indications with codes (177212, export 206) | ship (lookup, joined by indication text) | OGDL 1.0 | 0.4 MB zip, 19,234 rows, 4,234 indications | monthly |
+| MHLW 薬価基準収載品目リスト (4 workbooks) | ship | PDL 1.0 (MHLW site terms) | 1.3 MB, 12,442 items | monthly |
+| NHI 健保用藥品項查詢項目檔 (data.gov.tw 23715) | ship | OGDL 1.0 | 97 MB CSV, 45,224 codes | monthly |
+| ICD-10-CM FY2027 (CDC NCHS) | ship | public domain | 2.2 MB zip, 74,861 codes | yearly (Oct 1) |
+| Taiwan ICD-10-CM/PCS 2023 Chinese edition (NHIA) | ship (vendor passes the workbook: `--file`) | OGDL 1.0 | ~10 MB | per Taiwan edition |
+| LOINC (Regenstrief) | ship (notice + version; account download: `--file`) | LOINC licence | ~80 MB zip | twice a year |
+| UMIN-CTR daily snapshot | site-fetch (`site-load umin_ctr --file`) | UMIN-CTR terms: no commercial use, no redistribution, no download by software on the user's behalf | ~30 MB gz | daily |
+| jRCT | site-fetch / pending | jRCT terms: bulk use needs the help desk's permission | - | - |
+| WHO ICTRP | not usable | no commercial use | - | - |
+| JAPIC-CTI, JMACCT | not usable (nothing separate) | merged into jRCT on 2023-03-06 | - | - |
+| TFDA sites / drugs / ingredients (177215, 177216, 177218) | not usable | OGDL 1.0, but no column links a row to a trial; the sites file carries investigators' names; 177218's columns are shifted | 4.9 / 0.2 / 0.4 MB | monthly |
+
+* **ClinicalTrials.gov: API v2 bulk zip, not AACT.** The zip holds one API v2 record per study, the shape the box
+  already reads (live mode, `to_study`, the registry mirror), published by NLM itself; AACT is a CTTI relational
+  derivative (40+ pipe files to join back into a record) with its own terms. The pack keeps every record unchanged.
+  JP + TW subset for scale: about 9,961 + 13,118 studies (parallel licence review); the release ships all.
+* **TFDA metadata is wrong in places.** 177198's file has no 執行狀態 column although the metadata lists one (status
+  is empty in the pack). 177212 is titled ICD-9 but has no trial key, empty ICD-9 descriptions in 73 % of rows and
+  about 1,800 ICD-10-shaped codes; it is kept as an indication-text lookup and joined to 177198 by 適應症中文. No TFDA device-trial dataset was found in the TFDA series on data.gov.tw
+  (177180 to 177225 checked; the search API needs POST); device trials registered on ClinicalTrials.gov are in the
+  CT.gov part.
+* **MHLW**: the list gives the 12-character 薬価基準収載医薬品コード; a YJ code that differs from it still needs the
+  licensed YJ file of D-137, which this complements and does not replace.
+
+*Pack format* (`tb_common/refdata.py`, `trialbox-refdata/1`). A directory `trialbox-refdata-<YYYYMMDD>/` shipped as one
+deterministic tar: `manifest.json` (format, pack_id, data_as_of, sample, and per source: id, name, kind ctgov | trial
+| term, URL, download date, download sha256, record count, licence and licence URL, terms, attribution, refresh,
+distribution, files with sha256, bytes and records), `NOTICE.md` generated from it, and one `jsonl.gz` per source
+(deterministic gzip). `verify` checks every file's size, sha256 and record count; unsafe tar members are refused.
+The box loads it into the schema `refdata` of the trial database (D-126), so the backup and the update's rollback
+dump carry it: one transaction per pack replaces the rows of its own sources; a hospital's site-fetch part (UMIN)
+lives beside it and survives vendor packs. Offline queries: `ctgov_search(condition, countries, status)` (condition
+or keyword part, any case; whole-country match), `ctgov_study(nct_id)` (the full record), TFDA trials, terms by
+system and code. Size of a release pack: about 2.2 GB (CT.gov ~2.2 GB; everything else 18 MB, measured); in Postgres the CT.gov
+records take several GB (JSONB, TOAST-compressed) and grow the backup by the same.
+
+*Wiring.*
+
+* `TB_CTGOV_MODE=live | offline | cassette` (`criteria_compiler/ctgov.py`); offline reads the pack, cassette stays
+  for CI and the demo. The request takes `nct_id` (contract `ctgov` 2.1.0, additive; `source` gains `refdata`); live
+  asks `GET /studies/<NCT id>`. The client, compose and the egress rules default to offline; clinicaltrials.gov:443
+  opens only with live.
+* Update path: payload kind `refdata` (`update_manifest` 1.1.0, `tools/sign_bundle.py`); `apply_update` loads the
+  pack after the rulesets (compose: `docker compose cp` + `python -m tb_common.refdata load` in criteria-compiler;
+  the in-process box loads it directly); the local database dump rolls it back. A first install keeps it in
+  `deploy/refdata/pending/` and `install.sh` loads it once the database runs.
+* Admin page: a "Reference data" tile with the "data as of" date, each source and its records, and a link to
+  `/admin/notice` ("Sources and licences"), all strings in en, ja and zh-TW.
+
+*Install choice.* `install.sh --ctgov offline|live`; without it, a box that already has `TB_CTGOV_MODE` keeps it, a
+new box asks the wizard's question (plain words, en / ja / zh-TW: "may this box reach clinicaltrials.gov on the
+internet?"), default offline; `--yes` or no terminal takes offline. Choosing live probes clinicaltrials.gov once; no
+answer -> offline with a message (no internet -> offline). `install.sh --ctgov-check` only reports whether this host
+has internet. The settings wizard asks the same question (`ctgov_mode`, default offline; `TB_CTGOV_MODE` from
+install skips it). The site's network sheet (written at install) states the chosen mode in three languages; the
+committed sheet says offline is the default.
+
+*Evidence.*
+
+* `tests/unit/test_refdata.py` (15) and `tests/console/test_refdata_pages.py` (3): the manifest's fields and NOTICE,
+  a changed file or a missing attribution refused, a deterministic and safe tar; the parsers on the committed excerpts;
+  every source has a decision and a site-fetch source cannot be fetched; offline answers by condition, Japan, Taiwan,
+  status and NCT id and returns the full record, as the cassette of the same studies does; a second pack replaces its
+  sources and keeps the hospital's UMIN part; no pack -> a plain error; the default is offline; live and cassette look
+  up one id; the update bundle loads the pack; the wizard and install default and their three languages; the network
+  sheet per mode; the admin tile and the sources page, admin only.
+* `e2e_simple` stage 14: the sample pack built, verified, loaded; with every outbound TCP connection refused, NCT
+  id, gout + Japan, gout + Taiwan found, and the criteria drafted from the pack's record by the box's compiler.
+* Suites: unit, console and testbench 1,412 passed, 2 skipped. `make lint` clean. `tools/e2e_simple.py`: PASSED in
+  110 s. `tools.backup_drill`: PASSED in 117 s. `public_e2e --lang ja`: 112/112. The walk (`/admin/notice` added for
+  the administrator, 403 for the coordinator): 786 checks, 0 failures over 774 pages, axe 0 serious; an earlier run
+  lost two screenshots to the browser ("Unable to capture screenshot") and a second walk on the same server failed on
+  the state the first one left (the walk needs a fresh `--serve`).
+* Fetched and parsed here (`.cache/refdata`, not committed): CT.gov one API page (200 JP/TW studies, 10.9 MB) and the
+  first 60 MB of the bulk zip (13,318 studies, re-zipped and built: the bulk parser); MHLW four workbooks (12,442
+  items); NHI drug list (96.6 MB, 45,224 codes); ICD-10-CM FY2027 (74,861 codes); TFDA 205 (44.4 MB, 5,983 trials)
+  and 206 (4,234 indications); 207, 208, 209 inspected only. Built into one pack (19.6 MB tar), loaded into a
+  throwaway Postgres in about 2 s and queried (cancer + Japan / Taiwan, an NCT id, TFDA gout trials, terms).
+* Hosts: data.fda.gov.tw cut large transfers off mid-way from here (export 205 at 15 to 42 MB, five tries with
+  curl) before the fetcher's streamed download completed (44.4 MB); the fetcher retries and refuses a partial zip. www.nhi.gov.tw and loinc.org
+  answered 403; jrct.niph.go.jp and rctportal.niph.go.jp did not connect; info.nhi.gov.tw dropped one connection and
+  then worked.
+
+*Not done.*
+
+* The full CT.gov download was not run here (7 GB free disk; ~2.8 GB zip plus ~2.2 GB pack). The vendor runs
+  `fetch ctgov` and `build` on a machine with ~15 GB free.
+* NHI medical service codes (醫療服務給付項目): the data.gov.tw dataset id was not confirmed (search API
+  needs POST); no fetcher yet. NHIA PAS IG NHI-to-LOINC map (CC0): a ship candidate, not built.
+* The Taiwan ICD-10 workbook and UMIN CSV parsers read columns by header name and were tested on made-up samples; check
+  them against the real files at first use. LOINC is parsed from `LoincTableCore.csv` (not verified on a release).
+* jRCT waits for the help desk's answer. Offline search is substring matching (no synonyms as the live API's
+  `query.cond` has); trials of the TFDA and UMIN parts are queryable by the store but not yet used by COHORT.
+* Not run: Docker, a compose box's `apply_update` with a real refdata payload, `install.sh` beyond `--ctgov-check`.
