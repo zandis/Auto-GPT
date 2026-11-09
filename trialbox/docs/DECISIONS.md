@@ -3187,3 +3187,54 @@ serious (84 minor), 23,913 targets, 0 under 44 px, taps T1 to T9 within target.
 mailbox uses the administrator's address, so their limits are shared; the investigator does not refresh feasibility
 (J-22's second half); the site set-up pages are per site, not per study (J-06); no screen yet for the IT work (J-09) or
 the data steward (J-10).
+
+**D-147 The next GPU runs: the complete run on several VMs, the embedding comparison and the profile cost stand-in.**
+Owner's approval of 2026-11-09 (three runs, about US$50 in all, several GPUs allowed), 2026-11-09. Code and dry runs
+only: built in a cloud container with no GPU; no VM was started or made and no gcloud call that changes anything was
+run.
+
+*Parallel complete run* (`deploy/gcp/complete-run.sh --vms N`, `tools/complete_run.py` `shard_plan`). The run is split
+into N shards of whole parts (`complete_run --only` tags), longest part first onto the least-loaded VM. Chosen over a
+split by patient range: each hospital part reads the whole 50,000-patient hospital (FEAS counts, SCREEN, the re-run's
+byte identity), so a range split would change what is measured; a split by parts keeps every part as on one VM and
+the merged report is the single-VM report. `prepare` goes with every shard that has a hospital part (same seed, same
+hospital), `install` with the first. Each VM keeps D-141's nets unchanged: its own cap (its estimate × 1.3, rounded
+up, set before its start), key, watchdog and heartbeat, its own run directory; the driver runs one child per VM (the
+D-141 code path), waits, merges `parts/` and the screenshots, runs the stub parts once and writes one report.
+`--collect` collects every VM of a run from its `plan.json`. VM 1 is `tb-gpu-sim`; VMs 2..N are clones
+(`--provision`: a machine image, then `instances create` with SPOT, STOP, a 30-minute cap and a startup script that
+powers off at once, because create starts the VM). Zones come from `--zones` (one per region where the GPU quota is
+1 per region); the default list after `asia-east1-a` is candidates only, and the dry run prints the owner's read-only
+zone and quota checks. `--estimate --vms N --parts ...` prints hours and US$ per VM and in all; the longest part
+(`db-csv`, 2.14 h on the card) bounds the wall time, so four VMs reach about 2.8 h.
+
+*Embedding comparison* (`tools/bench_embed.py`, part `embed`). bge-m3 (CLS pooling) against Qwen3-Embedding-0.6B
+(last-token pooling, an instruction on queries), fp16, 1024 dimensions, in the vLLM image already on the card (its
+torch and transformers run on the RTX PRO 6000). Corpus: every ja and zh-TW note of a 4,000-patient synthetic
+hospital (about 6,400). Labelled queries per language: the generator's planted needles (relevant: every note with the
+needle's sentence) and two paraphrased questions per note finding (relevant: every note with that finding; each
+criterion's two values are a negation trap). Measured: docs/s and tokens/s, GPU memory (weights and peak, torch),
+needle MRR@10 and recall@10, finding nDCG@10 and P@10, per language; halfvec size 2 × 1024 + 8 = 2,056 bytes a vector
+(about 1.9 GiB per million, column value only).
+
+*Profile cost stand-in* (`tools/bench_profile.py`, part `profile`). The judge writes a 4-8 sentence summary of one
+synthetic patient from that patient's facts (diagnoses, latest labs, medicines, vitals, procedures, reports, the
+three latest notes with their planted PHI masked), each sentence citing fact ids, through the installed box's
+gateway (role `abstract_field`, D3); if the gateway refuses, the reason is recorded and the bench calls the judge
+directly so the cost is still measured. 400 patients: 16 one at a time, the rest at 16 in parallel (the card's batch).
+Reported: tokens in and out, seconds per patient, GPU-hours per 1,000, citation validity, and the extrapolation to
+50,000 nightly, to the study patients (the generator's study archetypes, an upper bound) and to the note-stage
+patients (S3, 92 of 5,000).
+
+*Estimate* (`--estimate --patients 50000 --vms 4 --parts g1,embed,profile`): 10.95 VM-hours, US$30.00, wall about
+2.8 h; each VM capped at 4 h, so at most US$43.84. The bench times are set high until the card measures them
+(embeddings 0.25 h, profiles 400 s + 2 s a patient).
+
+*Evidence.* `tests/unit/test_gpu_prep.py` (every part on exactly one VM for N = 1..4, the hospital parts after their
+`prepare`, install on VM 1, the per-VM caps; the labelled set; retrieval metrics on known vectors; the hash-stub bench;
+facts without identity; the stub profile run and its extrapolation; the gateway path and its fallback; the driver's
+dry run for three VMs: each VM capped before its own start, its own `tb-only`, no VM made by a run; `--provision`).
+`make lint` clean; `tools/e2e_simple.py` PASSED; `complete-run.sh --dry-run` and `--estimate` for N = 1, 2, 3, 4.
+
+*Not done; only the card can show.* No bench number is measured yet. The clones, other zones and the quota are the
+owner's to check; the G4 zones in the default list are not verified here.
