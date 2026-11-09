@@ -72,6 +72,9 @@ cleanup() {
   if [ "$OWN_DOCKERD" = 1 ]; then
     kill "$(cat "$SOCK/dockerd.pid")" 2>/dev/null || true
     for _ in $(seq 1 30); do [ -e "$SOCK/dockerd.pid" ] || break; sleep 1; done
+    # dockerd leaves its data root and network namespace mounted
+    awk -v a="$REH/docker" -v b="$SOCK" 'index($2, a) == 1 || index($2, b) == 1 {print $2}' /proc/mounts | sort -r \
+      | while read -r m; do umount "$m" 2>/dev/null || true; done
     rm -rf "$REH/docker" "$SOCK"
   fi
   rm -rf "$S" "$REH/runs" "$REH/base.tgz"
