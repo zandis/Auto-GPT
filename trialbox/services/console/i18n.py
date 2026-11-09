@@ -1089,7 +1089,7 @@ ZH: dict[str, str] = {
     "registry.status.candidate": "候選",
     "registry.status.contacted": "已聯絡",
     "registry.status.consented": "已同意",
-    "registry.status.enrolled": "已納入",
+    "registry.status.enrolled": "已收案",
     "registry.status.screen_fail": "篩選失敗",
     "registry.status.declined": "拒絕",
     "registry.status.withdrawn": "退出",

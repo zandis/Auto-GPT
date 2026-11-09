@@ -194,9 +194,21 @@ def test_every_new_key_in_every_language() -> None:
     for lang in ("ja", "zh-TW"):  # D-133 glossary: one hospital word per concept on the clinic pages
         cat = CATALOGUES[lang]
         for word in ("ジョブ", "ルールセット", "コンパイル", "サインイン", "(?<!コント)ロール", "(?<!信)箱", "装置",
-                     "工作(?![簿日天])", "規則集", "編譯", "贊助者", "權杖"):  # fmt: skip
+                     "工作(?![簿日天])", "規則集", "編譯", "贊助者", "權杖", "已納入"):  # fmt: skip
             bad = [k for k, v in cat.items() if re.search(word, v)]
             assert not bad, (lang, word, bad[:5])
+        # review 2026-11-09 P-08 (D-143): one word per participant state, on the screening log and the lifecycle
+        # pages alike (enrolled: 登録 / 已收案, the glossary's words), so the two exports agree in words too
+        assert cat["registry.status.enrolled"] == cat["life.state.enrolled"], lang
+
+
+def test_the_setup_page_says_what_trialbox_writes_to_redcap() -> None:
+    """Review 2026-11-09 P-07 (D-143): "Nothing is ever written to REDCap" sat under the write-back switch."""
+    for lang, never, write in (("en", "Nothing is ever written", "write-back is on"),
+                               ("ja", "何も書き込みません", "書き戻しをオンにしたとき"),
+                               ("zh-TW", "從不寫入", "開啟回寫")):  # fmt: skip
+        text = CATALOGUES[lang]["rc.read.help"]
+        assert never not in text and write in text, lang
 
 
 def test_setup_is_one_form_and_reads_the_redcap_fields(b3: dict[str, Any]) -> None:  # noqa: F811
