@@ -824,6 +824,125 @@ def _stage14(work: Path, box: Any) -> Stage:
     return s
 
 
+def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, mrns: set[str], box: Any) -> Stage:
+    """D-141: the PI keeps the delegation log, a sub-investigator sees the hospital's candidates and asks the treating
+    doctor (unknown to the data: arranged outside TrialBox), the CRC records the agreement, Approach follows under the
+    IRB warning (recorded), and an opt-out entered by chart number leaves the lists and the next screening run."""
+    s = Stage("15 delegation, candidates and referral")
+    t = time.perf_counter()
+    app = res["app"]
+    h = app.state.helpers
+
+    def csrf(c: Any) -> str:
+        return fd._csrf(c.get("/home").text) or ""
+
+    def events(name: str) -> list[dict[str, Any]]:
+        return [r for r in _audit(box) if r.get("event") == name]
+
+    h.users.create("subpi", "investigator", password, "subpi@hospa.test")
+    sub = ld.sign_in(app, "subpi", password, lang)
+    today = h.clock().date().isoformat()
+    r1 = pi.post(f"/studies/{TRIAL}/team", data={"csrf": csrf(pi), "username": "pi", "role": "pi", "start": today},
+                 follow_redirects=False)  # fmt: skip
+    r2 = pi.post(f"/studies/{TRIAL}/team", data={"csrf": csrf(pi), "username": "subpi", "role": "sub_pi",
+                                                 "tasks": ["screen", "refer"], "start": today,
+                                                 "training_day": today}, follow_redirects=False)  # fmt: skip
+    log = pi.get(f"/studies/{TRIAL}/team").text
+    s.check("the PI adds themselves and a sub-investigator to the delegation log",
+            (r1.status_code, r2.status_code) == (303, 303) and log.count('data-testid="entry-') == 2,
+            (r1.status_code, r2.status_code))  # fmt: skip
+    s.check(
+        "the sub-investigator cannot change their own ticks (403)",
+        sub.post(f"/studies/{TRIAL}/team/2", data={"csrf": csrf(sub), "tasks": ["approach"]}).status_code == 403,
+    )
+    cand = sub.get(f"/studies/{TRIAL}/candidates")
+    week = h.week_bundle(None, TRIAL)
+    rows = [r for r in (week["cl"] or {}).get("rows") or [] if r.get("tier") in ("high", "review")]
+    shown = re.search(r'data-testid="cand-count">\D*(\d+)', cand.text)
+    s.check("the sub-investigator sees every candidate of the study's run",
+            cand.status_code == 200 and shown is not None and int(shown.group(1)) == len(rows),
+            (cand.status_code, shown and shown.group(1), len(rows)))  # fmt: skip
+    marks = h.store.latest_marks(TRIAL)
+    x = next(str(r["pid"]) for r in rows if str(r["pid"]) not in marks)
+    y = next(str(r["pid"]) for r in rows if str(r["pid"]) not in marks and str(r["pid"]) != x)
+    first = sub.get(f"/studies/{TRIAL}/candidates/{x}").text
+    view = sub.get(f"/studies/{TRIAL}/candidates/{x}?purpose=eligibility")
+    logged = [e for e in events("console.candidate_view") if e["detail"].get("pid") == x]
+    s.check("a candidate opens only with a purpose, logged with the study and the purpose",
+            'data-testid="purpose"' in first and view.status_code == 200 and 'data-testid="why"' in view.text
+            and logged and logged[-1]["detail"].get("purpose") == "eligibility" and logged[-1]["ruleset"] == TRIAL,
+            len(logged))  # fmt: skip
+    rv = sub.post(f"/studies/{TRIAL}/candidates/{x}/reveal", data={"csrf": csrf(sub), "purpose": "contact"})
+    m = re.search(r'data-testid="mrn">[^<]*<span class="mono">([^<]+)<', rv.text)
+    s.check("the delegated sub-investigator reveals the chart number, audited with the purpose",
+            m is not None and m.group(1) in mrns and any(
+                e["detail"].get("purpose") == "contact" and e["actor"] == "console:subpi"
+                for e in events("console.reveal_patient")), m and "shown")  # fmt: skip
+    wk = sub.get(f"/studies/{TRIAL}/week?list=all&pid={x}").text
+    r = sub.post(f"/studies/{TRIAL}/patients/{x}/mark", data={"csrf": fd._csrf(wk), "mark": "approach"})
+    s.check("Approach without the tick is refused (403)", r.status_code == 403, r.status_code)
+    r = sub.post(f"/studies/{TRIAL}/candidates/{x}/referral", data={"csrf": csrf(sub), "route": "outside"},
+                 follow_redirects=False)  # fmt: skip
+    ref = h.team.referrals(TRIAL, x)[-1] if h.team.referrals(TRIAL, x) else None
+    s.check("a referral with no doctor named is accepted (arranged outside TrialBox) and numbered",
+            r.status_code == 303 and ref is not None and ref.route == "outside" and h.store.screening_no(TRIAL, x),
+            r.status_code)  # fmt: skip
+    pk = pi.get(f"/studies/{TRIAL}/patients/{x}").text
+    r = pi.post(f"/studies/{TRIAL}/patients/{x}/mark", data={"csrf": fd._csrf(pk), "mark": "approach"})
+    s.check("the PI's Approach waits for the doctor's agreement (409)", r.status_code == 409, r.status_code)
+    assert ref is not None
+    lp = crc.get(f"/studies/{TRIAL}/referrals").text
+    agree = {"csrf": fd._csrf(lp), "answer": "agree", "channel": "phone"}
+    r = crc.post(f"/studies/{TRIAL}/referrals/{ref.id}/answer", data=agree, follow_redirects=False)
+    r2 = pi.post(f"/studies/{TRIAL}/patients/{x}/mark", data={"csrf": fd._csrf(pk), "mark": "approach"},
+                 follow_redirects=False)  # fmt: skip
+    over = [e for e in events("console.approach_override") if e["detail"].get("pid") == x]
+    s.check("the CRC records the doctor's agreement; Approach follows under the IRB warning, recorded",
+            r.status_code == 303 and r2.status_code == 303 and len(over) == 1 and over[0]["actor"] == "console:pi",
+            (r.status_code, r2.status_code, len(over)))  # fmt: skip
+    from openpyxl import load_workbook
+
+    xl = crc.get(f"/studies/{TRIAL}/screening-log.xlsx")
+    ws: Any = load_workbook(io.BytesIO(xl.content), read_only=True).active
+    table = [list(v) for v in ws.iter_rows(values_only=True)]
+    by_pid = {str(v[1]): dict(zip(table[0], v, strict=False)) for v in table[1:]}
+    row = by_pid.get(x) or {}
+    s.check("the screening log counts the referral with its route and outcome",
+            (row.get("referral_route"), row.get("referral_outcome")) == ("outside", "agreed")
+            and row.get("approach_irb_override"), row)  # fmt: skip
+    for who in ("cra", "viewer"):
+        c = ld.sign_in(app, who, password, lang)
+        got = [c.get(p).status_code for p in (f"/studies/{TRIAL}/candidates", f"/studies/{TRIAL}/candidates/{x}"
+                                              "?purpose=eligibility", f"/studies/{TRIAL}/referrals")]  # fmt: skip
+        s.check(f"the {who} account stays masked (403)", set(got) == {403}, got)
+    # opt-out by chart number: the box turns it into the pseudonym; the number is never stored
+    mrn_y = h.bk.reveal(week["job"].job_id, y, "console:crc")
+    op = crc.get("/site/opt-outs").text
+    r = crc.post("/site/opt-outs", data={"csrf": fd._csrf(op), "chart_no": mrn_y or "", "source": "paper"},
+                 follow_redirects=False)  # fmt: skip
+    s.check("an opt-out entered by chart number is registered under the patient's pseudonym",
+            r.status_code == 303 and y in h.optout.active() and mrn_y not in json.dumps(
+                [e.__dict__ for e in h.optout.events()]), r.status_code)  # fmt: skip
+    after = [str(v.get("pid")) for v in (h.week_bundle(None, TRIAL)["cl"] or {}).get("rows") or []]
+    cand = pi.get(f"/studies/{TRIAL}/candidates").text
+    s.check(
+        "the opted-out patient leaves the list and the candidates (the count stays)",
+        y not in after and f'data-testid="cand-{y[:8]}"' not in cand and 'data-testid="optout-count"' in cand,
+    )
+    form = crc.get(f"/pilot/request?ruleset={TRIAL}")
+    r = crc.post("/pilot/request", data={"csrf": fd._csrf(form.text), "kind": "SCREEN", "ruleset": TRIAL, "pract": ""},
+                 follow_redirects=False)  # fmt: skip
+    jid = r.headers.get("location", "").rsplit("/", 1)[-1]
+    job = box.orch.db.get(jid)
+    out = _json_output(box, job, "candidate_list_") if job is not None and job.state == "done" else {}
+    removed = [e for e in events("screen.opt_out_removed") if e.get("job_id") == jid]
+    s.check("the next screening run leaves the opted-out patient out, and says so in the audit",
+            bool(out) and y not in {str(v.get("pid")) for v in out.get("rows") or []} and len(removed) == 1,
+            (job and job.state, len(removed)))  # fmt: skip
+    s.seconds = time.perf_counter() - t
+    return s
+
+
 def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     """Run the whole path once in ``work`` (must be empty or absent); return the stages and the timings."""
     from console.i18n import CATALOGUES
@@ -1302,6 +1421,8 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
         )
     s.seconds = time.perf_counter() - t
     stages.append(s)
+    # after the re-run: the opt-out it registers must not touch the jobs the re-run reproduces (D-82)
+    stages.append(_stage15(res, pi, crc, password, lang, mrns, box))
 
     total = time.perf_counter() - t0
     budget = Stage("runtime")

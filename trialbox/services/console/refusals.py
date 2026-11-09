@@ -116,6 +116,46 @@ REFUSALS: dict[str, tuple[str, str]] = {
     ),
     "unknown trial": ("この試験はありません", "沒有此試驗"),
     "version is x.y.z": ("バージョンは x.y.z の形です", "版本格式為 x.y.z"),
+    # D-141: the delegation log, referral, IRB record, staff directory and opt-out register
+    "dates are YYYY-MM-DD": ("日付は YYYY-MM-DD で入力してください", "請以 YYYY-MM-DD 輸入日期"),
+    "choose the role: PI, sub-investigator, CRC or other": (
+        "役割を選んでください：責任医師・分担医師・CRC・その他",
+        "請選擇角色：試驗主持人、協同主持人、研究護理師或其他",
+    ),
+    "give the person's name": ("氏名を入力してください", "請輸入姓名"),
+    "give the start date": ("開始日を入力してください", "請輸入開始日"),
+    "the end date is before the start date": ("最終日が開始日より前です", "最後一天早於開始日"),
+    "no such entry in this study's log": ("この試験の委任リストにその行はありません", "本試驗的授權紀錄表沒有這一筆"),
+    "say whether the copy matches the signed log": (
+        "署名済みリストと一致しているかを選んでください",
+        "請選擇是否與已簽署的授權表一致",
+    ),
+    "no such person in the directory": ("職員名簿にその人はいません", "人員名冊中沒有此人"),
+    "give the department and who answers for it": (
+        "診療科と、その窓口の人を入力してください",
+        "請輸入科別與該科聯絡人",
+    ),
+    "choose how the treating doctor is asked": ("主治医への依頼方法を選んでください", "請選擇詢問主治醫師的方式"),
+    "choose the doctor's answer: agree, decline or discuss": (
+        "主治医の返事を選んでください：了承・見送り・相談",
+        "請選擇醫師的回覆：同意、婉拒或討論",
+    ),
+    "no such referral in this study": ("この試験にその紹介依頼はありません", "本試驗沒有這筆轉介請求"),
+    "this referral has its answer already; ask again with a new request": (
+        "この依頼にはすでに返事があります。あらためて依頼してください",
+        "這筆請求已有回覆；請重新提出請求",
+    ),
+    "the approval expires before it was given": ("承認の有効期限が承認日より前です", "核准有效期限早於核准日期"),
+    "no such account for this study": ("この試験にそのアカウントはありません", "本試驗沒有此帳號"),
+    "a sub-investigator signs in with an investigator account": (
+        "分担医師は医師アカウントでログインします",
+        "協同主持人須以醫師帳號登入",
+    ),
+    "give a chart number or a pseudonym": ("カルテ番号か仮名IDを入力してください", "請輸入病歷號或假名代碼"),
+    "the box could not turn the chart number into a pseudonym": (
+        "カルテ番号を仮名IDに変えられませんでした",
+        "無法將病歷號轉為假名代碼",
+    ),
 }
 
 UNTRANSLATED: dict[str, str] = {

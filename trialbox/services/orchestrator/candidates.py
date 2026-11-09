@@ -144,15 +144,16 @@ class CandidateRegistry:
         return added
 
     # ------------------------------------------------------------------ export
-    def export_xlsx(self, ruleset: str, site_id: str) -> bytes:
+    def export_xlsx(self, ruleset: str, site_id: str, exclude: frozenset[str] = frozenset()) -> bytes:
         """The site's screening log: pseudonym, chart number (resolved in-box), status, dates, reasons; deterministic
-        OOXML (D-82) so a re-export of an unchanged registry is byte-identical. PHI (chart numbers)."""
+        OOXML (D-82) so a re-export of an unchanged registry is byte-identical. PHI (chart numbers). ``exclude``: the
+        pseudonyms on the opt-out register (D-141), left out of the file."""
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill
 
         ruleset = check_ruleset(ruleset)
-        rows = self.db.candidates(ruleset)
-        events = self.db.candidate_events(ruleset)
+        rows = [r for r in self.db.candidates(ruleset) if str(r["pid"]) not in exclude]
+        events = [e for e in self.db.candidate_events(ruleset) if str(e["pid"]) not in exclude]
         mrns = self.mrns([str(r["pid"]) for r in rows])
         wb = Workbook()
         wb.properties.creator = f"TrialBox {site_id}"

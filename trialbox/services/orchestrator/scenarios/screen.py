@@ -146,7 +146,25 @@ def scope_patients(
     out = [Scoped(r["pid"], local_iso(r["next_appt"], tz), r["practitioner_id"], r["dept"]) for r in rows]
     if departments:
         out = [s for s in out if s.department in departments]
-    return out
+    return drop_opted_out(ctx, out)
+
+
+def drop_opted_out(ctx: Ctx, scoped: list[Scoped]) -> list[Scoped]:
+    """D-141: patients on the research office's opt-out register (``tb_common.optout``) are never screened. The
+    register is read as it stood when the job was received, so a re-run of an old job stays byte-identical (D-82).
+    The removal is audited by count (who opted out is itself private)."""
+    from tb_common.optout import opted_out
+
+    gone = opted_out(as_of=ctx.job.received_at.isoformat())
+    kept = [s for s in scoped if s.pid not in gone]
+    if len(kept) != len(scoped):
+        ctx.orch.audit.append(
+            "screen.opt_out_removed",
+            job_id=ctx.job.job_id,
+            ruleset=ctx.job.ruleset,
+            detail={"removed": len(scoped) - len(kept), "register": "optout"},
+        )
+    return kept
 
 
 def local_iso(value: object, tz: str) -> str | None:

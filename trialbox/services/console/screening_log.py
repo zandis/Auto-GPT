@@ -103,8 +103,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         for o in store.outcomes(rs):
             outs.setdefault(o.pid, []).append(o)
         seen = store.first_seen(rs)
+        # D-141: the referral route and outcome per row, Approach marked despite an IRB warning; opted-out patients
+        # leave the log and its exports
+        refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
+        overrides: dict[str, tuple[str, list[str], str, str]] = {}
+        for o in h.team.overrides(rs) if h.team is not None else []:
+            overrides[o[0]] = o
+        gone = h.optout.active() if h.optout is not None else set()
         rows = []
         for pid, no, at in store.screening_rows(rs):
+            if pid in gone:
+                continue
             e = reg.get(pid)
             mk = [m for m in marks.get(pid, []) if m.mark != "withdrawn"]
             oc = outs.get(pid, [])
@@ -124,6 +133,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "updated": local_date(e.updated_at.isoformat(), tz) if e else "",
                     "record_id": (rc.get(pid) or {}).get("record_id") or "",
                     "subject_no": (rc.get(pid) or {}).get("subject_no") or "",
+                    "referral": refs.get(pid),
+                    "override": overrides.get(pid),
                 }
             )
         return rows
@@ -175,10 +186,16 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "status_date",
                 "redcap_record_id",
                 "subject_no",
+                "referral_route",
+                "referral_outcome",
+                "referral_reason",
+                "referral_requested",
+                "referral_answered",
+                "approach_irb_override",
             ]
         )
         for r in log_rows(rid):
-            mk, oc = r["mark"], r["outcome"]
+            mk, oc, rf, ov = r["mark"], r["outcome"], r["referral"], r["override"]
             ws.append(
                 [
                     r["no"],
@@ -195,6 +212,12 @@ def register(app: FastAPI, h: Helpers) -> None:
                     r["updated"],
                     r["record_id"],
                     r["subject_no"],
+                    rf.route if rf else "",
+                    rf.state if rf else "",
+                    rf.reason if rf else "",
+                    local_date(rf.requested_at, tz) if rf else "",
+                    local_date(rf.answered_at, tz) if rf and rf.answered_at else "",
+                    ",".join(ov[1]) if ov else "",
                 ]
             )
         about = wb.create_sheet("about")
@@ -227,7 +250,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         jobs.sort(key=lambda j: j.updated_at or j.received_at)
         job = jobs[-1] if jobs else None
         cl = load(job, "candidate_list_")
-        members = [str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") == "high"]
+        gone = h.optout.active() if h.optout is not None else set()  # D-141: opted-out patients are on no list
+        members = [
+            str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") == "high"
+            and str(r.get("pid")) not in gone
+        ]  # fmt: skip
         rows: list[dict[str, Any]] = []
         dropped = 0
         if job is not None:

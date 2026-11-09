@@ -80,6 +80,16 @@ class Helpers:
     confirm: Callable[..., Response] | None = None
     # D-146 (review J-03): the role and study scope rules of every page, applied to /api/v1 calls too
     scope_check: Callable[[Request, Session], None] | None = None
+    # set by register(): read again by console.team (D-141)
+    crit_of: Callable[..., dict[str, Any]] | None = None
+    registry_map: Callable[[str], dict[str, str]] | None = None
+    patient_ctx: Callable[..., dict[str, Any]] | None = None
+    # set by console.team (D-141): the study team store, the opt-out register and the one permission function
+    team: Any = None
+    optout: Any = None
+    may: Callable[..., bool] | None = None
+    may_approve: Callable[..., bool] | None = None
+    team_due: Callable[[str], bool] | None = None
 
 
 class ApiLogin(BaseModel):
@@ -204,6 +214,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         if job is None:
             return None
         cl = load(job, "candidate_list_", ".json")
+        removed: list[str] = []
+        if cl is not None and h.optout is not None:  # D-141: an opted-out patient is on no list, page or mail
+            out = h.optout.active()
+            removed = [str(r.get("pid")) for r in cl.get("rows") or [] if str(r.get("pid")) in out]
+            if removed:
+                cl = {**cl, "rows": [r for r in cl.get("rows") or [] if str(r.get("pid")) not in out]}
         summary = load(job, "screen_", ".json")
         names = (summary or {}).get("practitioner_names") or {}
         pids = [str(r.get("pid")) for r in (cl or {}).get("rows") or [] if r.get("tier") in ("high", "review")]
@@ -218,7 +234,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             names,
             today=h.clock().date(),
         )
-        return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl}
+        return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
+                "removed": removed}  # fmt: skip
 
     def study_card(sess: Session, r: Any, jobs: list[Job]) -> dict[str, Any]:
         rs = r.id
@@ -276,6 +293,14 @@ def register(app: FastAPI, h: Helpers) -> None:
                 if mk is None and when <= today + timedelta(days=2):
                     tasks.append({"kind": "prepare", "rs": rs, "short": w["short"], "href": href, "due": when,
                                   "detail": open_items})  # fmt: skip
+        if h.team is not None:  # D-141: doctors to ask for a referral; the monthly delegation-log comparison
+            for ref in h.team.latest_referrals(rs).values():
+                if ref.open and any(w["pid"] == ref.pid for w in rows):
+                    tasks.append({"kind": "refer", "rs": rs, "short": ref.pid[:8], "due": today,
+                                  "href": f"/studies/{rs}/referrals#r{ref.id}", "detail": ref.physician})  # fmt: skip
+            if h.team_due is not None and h.team_due(rs):
+                tasks.append({"kind": "delegation", "rs": rs, "short": "", "href": f"/studies/{rs}/team#check",
+                              "due": today, "detail": ""})  # fmt: skip
         for tk in tasks:
             tk["late"] = tk["due"] < today
         return {
@@ -297,6 +322,15 @@ def register(app: FastAPI, h: Helpers) -> None:
     h.week_bundle = week_bundle
     h.trials = trials
     h.settings_of = settings_of
+    h.crit_of = crit_of
+    h.registry_map = registry_map
+
+    def screen_or_403(sess: Session, rid: str, path: str) -> None:
+        """D-141: once a study's delegation log names a PI, an investigator sees its patients only as the PI or a
+        sub-investigator the PI ticked "screen" for."""
+        if sess.user.role == "investigator" and h.may is not None and not h.may(sess.user, rid, "screen"):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
+            raise h.problem(403, "forbidden")
 
     # ------------------------------------------------------------------ homes
     @app.get("/home")
@@ -493,6 +527,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if not sess.user.can_view_phi:
             raise h.problem(403, "forbidden")
+        screen_or_403(sess, rid, request.url.path)
         if settings_of(rid).study_type == "registry":
             return RedirectResponse(f"/studies/{rid}/cohort", status_code=303)
         wk = week_bundle(sess, rid)
@@ -555,6 +590,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             approvals=approvals(sess),
             sae=[{**a, "rs": rid} for a in h.life_sae(rid)] if h.life_sae else [],
             sae_reports=[{**a, "rs": rid} for a in h.life_reports(rid)] if h.life_reports else [],
+            irb_warn=sel["irb_warn"] if sel else [],
+            may_approach=sel["may_approach"] if sel else False,
+            ref_wait=sel["ref_wait"] if sel else None,
+            team_due=bool(h.team_due and h.team_due(rid)),
         )
 
     def study_step(rid: str) -> int:
@@ -601,6 +640,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             "outcome_keys": tuple(OUTCOMES),
             "today": h.clock().date(),
             "mrn": None,
+            # D-141: the IRB/consent-form warning before Approach, who may mark Approach, a referral still waiting
+            "irb_warn": h.team.irb(rid).warnings(h.clock().date()) if h.team is not None else [],
+            "may_approach": sess.user.can_mark and (h.may is None or h.may(sess.user, rid, "approach")),
+            "ref_wait": referral_wait(rid, pid),
         }
 
     # ------------------------------------------------------------------ excluded patients and why (P-04, D-143)
@@ -681,6 +724,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         au.append("console.excluded_review", job_id=job.job_id, ruleset=rid, actor=h.actor(sess),
                   detail={"pid": pid, "criterion": crit, "role": sess.user.role})  # fmt: skip
         return RedirectResponse(f"/studies/{rid}/excluded?done=sent#x-{pid[:8]}", status_code=303)
+    h.patient_ctx = patient_ctx
+
+    def referral_wait(rid: str, pid: str) -> Any:
+        """The patient's latest referral when it is not agreed (asked, discuss or declined), else None."""
+        if h.team is None:
+            return None
+        refs = h.team.referrals(rid, pid)
+        return refs[-1] if refs and refs[-1].state != "agreed" else None
 
     @app.get("/studies/{rs}/patients/{pid}")
     def patient(request: Request, rs: str, pid: str) -> Response:
@@ -688,6 +739,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if not sess.user.can_view_phi:
             raise h.problem(403, "forbidden")
+        screen_or_403(sess, rid, request.url.path)
         return h.page(request, "patient.html", sess, **patient_ctx(sess, rid, pid))
 
     def apply_reveal(sess: Session, path: str, rs: str, pid: str, reason: str) -> tuple[dict[str, Any], str]:
@@ -740,11 +792,24 @@ def register(app: FastAPI, h: Helpers) -> None:
         return f"/studies/{rid}/week?list={lst}&pid={pid}&done={done}#chart"
 
     def apply_mark(
-        sess: Session, path: str, rs: str, pid: str, mark: str, reason: str, recheck: str, note: str
+        sess: Session,
+        path: str,
+        rs: str,
+        pid: str,
+        mark: str,
+        reason: str,
+        recheck: str,
+        note: str,
     ) -> tuple[str, str, dict[str, Any]]:
-        """One mark (D-108, FR-SCR-07), the same for the page and ``/api/v1``. Returns (study, stored mark, detail)."""
+        """One mark (D-108, FR-SCR-07), the same for the page and ``/api/v1``. Returns (study, stored mark, detail).
+
+        D-141: Approach needs the "approach" task of the delegation log, the other marks "screen"; while the
+        patient's referral waits or was declined, Approach is refused (the PI contacts the patient only after the
+        treating doctor agreed); a missing or expired IRB approval or consent-form version is a warning shown before
+        Approach, never a gate: an Approach marked under it is recorded as an override with the marker's name."""
         rid = study_or_404(sess, rs)
-        if not sess.user.can_mark:
+        task = "approach" if mark == "approach" else "screen"
+        if not sess.user.can_mark or (h.may is not None and not h.may(sess.user, rid, task)):
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
         if mark not in (*MARKS, "withdraw", "undo") or not _PID.match(pid):
@@ -786,6 +851,15 @@ def register(app: FastAPI, h: Helpers) -> None:
             stored_reason = when.isoformat()
         elif mark == "withdraw" and prev is None:
             raise h.problem(409, "request.refused", reason="there is no mark to withdraw")
+        warned: list[str] = []
+        if mark == "approach":
+            waiting = referral_wait(rid, pid)
+            if waiting is not None:
+                au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                          detail={"pid": pid, "action": "approach", "reason": f"referral {waiting.state}"})  # fmt: skip
+                raise h.problem(409, "approach.wait_referral")
+            # a warning, not a gate (owner decision 2026-11-09): marking Approach under the warning is the override
+            warned = h.team.irb(rid).warnings(today) if h.team is not None else []
         now = h.clock().isoformat()
         value = WITHDRAWN if mark == "withdraw" else mark
         store.mark(rid, Mark(pid, value, stored_reason, stored_note, sess.user.username, now,
@@ -797,6 +871,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             detail["from"] = prev.mark  # a replaced or withdrawn mark stays visible in the trail
         if mark == "approach":  # FR-STUDY-08: the screening number is given when the PI approves contact
             detail["to"] = store.assign_screening_no(rid, pid, conf, now)
+        if warned:  # D-141: a warning, not a gate; each override is its own record and audit event
+            detail["irb_override"] = ",".join(warned)
+            h.team.add_override(rid, pid, warned, sess.user.username, now)
+            au.append("console.approach_override", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess),
+                      detail={"pid": pid, "action": "approach", "reason": ",".join(warned)})  # fmt: skip
         au.append("console.pi_mark", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess), detail=detail)
         return rid, value, detail
 
@@ -975,7 +1054,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid, value, detail = apply_mark(
             sess, request.url.path, rs, pid, body.mark, body.reason, body.recheck, body.note
         )
-        return {"study": rid, "pid": pid, "mark": value, "screening_no": detail.get("to")}
+        return {"study": rid, "pid": pid, "mark": value, "screening_no": detail.get("to"),
+                "irb_override": detail.get("irb_override") or None}  # fmt: skip
 
     @app.post("/api/v1/studies/{rs}/patients/{pid}/outcome")
     def api_outcome(request: Request, rs: str, pid: str, body: ApiOutcome) -> dict[str, Any]:
@@ -992,7 +1072,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"study": rs.strip().upper(), "pid": pid, "mrn": mrn or None}
 
     @app.get("/api/v1/studies/{rs}/screening-log")
-    def api_screening_log(request: Request, rs: str) -> list[dict[str, str]]:
+    def api_screening_log(request: Request, rs: str) -> list[dict[str, Any]]:
         sess = api_session(request)
         rid = rows_or_403(sess, rs, request.url.path)
-        return [{"pid": a, "screening_no": b, "at": c} for a, b, c in store.screening_rows(rid)]
+        gone = h.optout.active() if h.optout is not None else set()  # D-141: never an opted-out patient
+        refs = h.team.latest_referrals(rid) if h.team is not None else {}
+        return [
+            {"pid": a, "screening_no": b, "at": c, "referral_route": refs[a].route if a in refs else "",
+             "referral_outcome": refs[a].state if a in refs else ""}
+            for a, b, c in store.screening_rows(rid) if a not in gone
+        ]  # fmt: skip

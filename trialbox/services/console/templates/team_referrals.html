@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{# D-141: referrals to treating doctors. The CRC asks the doctor (phone, in person, EMR message) and records the
+   answer here, so the doctor needs no account. Each step is in the screening log with its route and outcome. #}
+{% block title %}{{ t('team.ref.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('team.ref.title') }}</h1></div>
+{% include "_team_nav.html" %}
+<p class="hint">{{ t('team.ref.help') }}</p>
+{% set done = request.query_params.get('done', '') %}
+{% if done in ('requested', 'agreed', 'declined', 'discuss') %}<p class="ok" role="status" data-testid="ref-done">{{ t('team.ref.done.' + done) }}</p>{% endif %}
+<p class="hint" data-testid="ref-counts">{% for k in routes %}{{ t('team.route.' + k) }} {{ counts.get('route.' + k, 0) }}{% if not loop.last %} · {% endif %}{% endfor %}<br>{% for k in ('asked', 'agreed', 'declined', 'discuss') %}{{ t('team.state.' + k) }} {{ counts.get('state.' + k, 0) }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+<section class="card" data-testid="ref-open">
+<h2>{{ t('team.ref.to_ask', n=open_refs|length) }}</h2>
+{% if not open_refs %}<p class="empty">{{ t('team.ref.none_open') }}</p>{% endif %}
+{% for r in open_refs %}<div class="actp outform" id="r{{ r.id }}" data-testid="ref-{{ r.id }}">
+<p><b>{{ t('week.patient', p=r.pid[:8]) }}</b>{% if nos.get(r.pid) %} <span class="mono">{{ nos.get(r.pid) }}</span>{% endif %} · <span class="pill ref-{{ r.state }}">{{ t('team.state.' + r.state) }}</span> · {{ t('team.route.' + r.route) }} · {% if r.physician %}{{ given(r.physician) }}{% else %}<span class="pill warn">{{ t('team.doctor.unknown') }}</span>{% endif %}{% if r.department %} · {{ given(r.department) }}{% endif %}</p>
+<p class="hint">{{ t('team.ref.asked_by', by=r.requested_by, at=(r.requested_at|local)) }}{% if r.suggested and r.suggested != r.physician %} · {{ t('team.ref.suggested_was', name=r.suggested) }}{% endif %}{% if r.note %} · {{ r.note }}{% endif %}</p>
+{% if not r.physician %}<p class="hint">{{ t('team.ref.find') }}{% for c in contacts if c.department == r.department %} {{ c.name }}{% if c.contact %} ({{ c.contact }}){% endif %}{% endfor %} <a href="/site/staff">{{ t('team.staff.title') }}</a></p>{% endif %}
+{% if may_answer %}<form method="post" action="/studies/{{ rs }}/referrals/{{ r.id }}/answer" class="markform">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="ch-{{ r.id }}">{{ t('team.channel') }}</label><select id="ch-{{ r.id }}" name="channel" data-testid="channel-{{ r.id }}">{% for c in channels %}<option value="{{ c }}">{{ t('team.channel.' + c) }}</option>{% endfor %}</select>
+<label for="rs-{{ r.id }}">{{ t('team.decline.reason') }}</label><select id="rs-{{ r.id }}" name="reason" data-testid="reason-{{ r.id }}"><option value=""></option>{% for c in reasons %}<option value="{{ c }}">{{ t('team.decline.' + c) }}</option>{% endfor %}</select>
+<label for="rn-{{ r.id }}">{{ t('mark.note') }}</label><input id="rn-{{ r.id }}" name="note" maxlength="300">
+<div class="markbar">{% for a in answers %}<button type="submit" name="answer" value="{{ a }}"{% if a == 'decline' %} class="secondary danger"{% elif a == 'discuss' %} class="secondary"{% endif %} data-testid="answer-{{ a }}-{{ r.id }}">{{ t('team.answer.' + a) }}</button>{% endfor %}</div>
+</form>{% endif %}
+</div>{% endfor %}
+</section>
+<section class="card">
+<h2>{{ t('team.ref.all') }}</h2>
+{% if not refs %}<p class="empty">{{ t('team.ref.none') }}</p>{% else %}
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="ref-table">
+<thead><tr><th>{{ t('wb.c.patient') }}</th><th>{{ t('team.ref.route') }}</th><th>{{ t('team.cand.doctor') }}</th><th>{{ t('team.ref.outcome') }}</th><th>{{ t('team.ref.when') }}</th></tr></thead>
+<tbody>{% for r in refs %}<tr data-testid="ref-row-{{ r.id }}"><td>{{ t('week.patient', p=r.pid[:8]) }}{% if nos.get(r.pid) %} <span class="mono hint">{{ nos.get(r.pid) }}</span>{% endif %}</td>
+<td>{{ t('team.route.' + r.route) }}</td><td>{{ given(r.physician) if r.physician else t('team.doctor.unknown') }}</td>
+<td><span class="pill ref-{{ r.state }}">{{ t('team.state.' + r.state) }}</span>{% if r.reason %} {{ t('team.decline.' + r.reason) }}{% endif %}{% if r.channel %} · {{ t('team.channel.' + r.channel) }}{% endif %}{% if r.answered_by %} · {{ r.answered_by }}{% endif %}</td>
+<td class="nowrap">{{ r.requested_at|local }} · {{ r.requested_by }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+{% endblock %}

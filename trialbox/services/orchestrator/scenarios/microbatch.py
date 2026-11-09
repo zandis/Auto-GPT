@@ -21,6 +21,7 @@ from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     Scoped,
     deliver_lists,
+    drop_opted_out,
     evaluate_scope,
     judge_for,
     judging_info,
@@ -82,6 +83,8 @@ def run(ctx: Ctx) -> Outcome:
         )
         for p in week
     ]
+    kept = {s.pid for s in drop_opted_out(ctx, scoped)}  # D-141: the opt-out register applies to the week's run too
+    week, scoped = [p for p in week if p["pid"] in kept], [s for s in scoped if s.pid in kept]
     ctx.metrics(patients_scoped=len(scoped))
     fresh = evaluate_scope(ctx, rs, run_date, snapshot, scoped, only=ts, all_candidates=True) if ts and scoped else {}
     t = threshold(ctx, rs)

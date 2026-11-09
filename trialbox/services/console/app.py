@@ -966,6 +966,7 @@ def create_app(
         site_pages,
         step4,
         study_setup,
+        team,
     )
     from console.home import Helpers
     from console.home import register as register_home
@@ -997,9 +998,10 @@ def create_app(
     lifecycle_pages.register(app, helpers)  # TB-PLAN-04 step 5: participants, visits, schedule, report (D-134)
     site_pages.register(app, helpers)  # TB-PLAN-04 step 5b: site set-up, readiness, review lists, Ask (D-135)
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
+    raw_env = _env_map(env)
+    team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-141)
     from console import timers
 
-    raw_env = _env_map(env)
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00
     boot.append(lambda: timers.start(helpers, raw_env, site_tz))
 

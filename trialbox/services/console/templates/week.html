@@ -9,6 +9,8 @@
 {% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }} · <a href="/studies/{{ rs }}/excluded" data-testid="to-excluded">{{ t('ex.link') }}</a></span>{% endif %}</div>
 {{ steps_bar(steps, step) }}
 {{ sae_banner(sae, 'week') }}{{ report_banner(sae_reports) }}
+{% if team_due %}<p class="warn" data-testid="team-due"><a href="/studies/{{ rs }}/team#check">{{ t('team.log.check_due') }}</a></p>{% endif %}
+{% include "_team_nav.html" %}
 {% for j in approvals or [] %}<p class="warn" data-testid="approval-waiting"><a href="/pilot/jobs/{{ j.job_id }}/approval">{{ t('s20.waiting', rs=j.ruleset, v=j.ruleset_version) }}</a></p>{% endfor %}
 {% if not wk %}
 <section class="card"><p>{{ t('week.none') }}</p>{% if user.can_request %}<a class="button" href="/pilot/request?ruleset={{ rs }}">{{ t('next.screen') }}</a>{% endif %}</section>
@@ -54,6 +56,7 @@
     </div>
     <p class="whyp" data-testid="why"><b>{{ t('patient.why') }}</b> {{ fit_line(p.fit) }}</p>
     {% if p.fit.not_met or p.fit.open or p.fit.person or p.row.actions %}<p class="openp">{{ open_items(p.fit, p.row.actions or []) }}</p>{% endif %}
+    <p class="hint"><a href="/studies/{{ rs }}/candidates/{{ p.pid }}?purpose=referral" data-testid="ask-doctor">{{ t('mark.ask_doctor') }}</a>{% if p.ref_wait %} · <span class="pill ref-{{ p.ref_wait.state }}">{{ t('team.state.' + p.ref_wait.state) }}</span>{% endif %}</p>
     {{ toast(rs, p.pid, 'list:' + lst, request.query_params.get('done', '')) }}
     {% if user.can_mark %}{{ mark_box(rs, p.pid, 'list:' + lst, reasons, p.mark, p.today) }}
     {% else %}<p class="hint">{{ t('wb.crc_hint') }}</p>{{ outcome_box(rs, p.pid, 'list:' + lst, p.outcome_keys, p.screening_no, p.outcomes, p.mark) }}{% endif %}

@@ -572,7 +572,10 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
                        detail={"reason": "rate limit"})  # fmt: skip
         raise HTTPException(status_code=429, detail="too many exports with chart numbers in the last hour")
     try:
-        data = registry_of(o).export_xlsx(ruleset, o.cfg.settings.site.id)
+        from tb_common.optout import opted_out
+
+        # D-141: a patient on the opt-out register is in no later export
+        data = registry_of(o).export_xlsx(ruleset, o.cfg.settings.site.id, opted_out())
     except RegistryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     o.audit.append("registry.export", ruleset=rid, actor=claim.name, output_sha=sha256_bytes(data),

@@ -96,8 +96,15 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         return rid
 
-    def need_enter(sess: Session, path: str) -> None:
-        if not can_enter(sess.user):
+    def enters(user: User, rid: str | None) -> bool:
+        """The coordinator; D-141: also an investigator the study's PI ticked "enter data" for in the delegation log
+        (trial values only: adding forms stays the coordinator's)."""
+        if can_enter(user):
+            return True
+        return rid is not None and user.role == "investigator" and h.may is not None and h.may(user, rid, "enter_data")
+
+    def need_enter(sess: Session, path: str, rid: str | None = None) -> None:
+        if not enters(sess.user, rid):
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
 
@@ -142,7 +149,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                    values: dict[str, str]) -> dict[str, Any]:  # fmt: skip
         """Save one whole form for one record and event; refused whole, with every reason (DATA-FORM)."""
         rid = study_or_404(sess, rs)
-        need_enter(sess, path)
+        need_enter(sess, path, rid)
         ev = event.strip().lower()
         if not _NAME.match(form) or (ev and not _NAME.match(ev)):
             raise Problem(400, "DATA-EVENT", "event and form names are lower-case letters, digits and _", [ev[:40]])
@@ -219,7 +226,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             owners=owners,
             problems=per_field,
             n_problems=len(problems or []),
-            editable=can_enter(sess.user),
+            editable=enters(sess.user, rid),
             css=bool(chosen and any(f["branching"] for f in chosen["fields"])),
             exports=FORMATS,
             err=err,
@@ -243,7 +250,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not h.csrf_ok(sess, str(data.get("csrf") or "")):
             raise h.problem(400, "csrf")
         rid = study_or_404(sess, rs)
-        need_enter(sess, request.url.path)
+        need_enter(sess, request.url.path, rid)
         record, event, form = (str(data.get(k) or "").strip()[:100] for k in ("record", "event", "form"))
         back = str(data.get("back") or "")
         try:
@@ -312,7 +319,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         except (Problem, Unavailable) as exc:
             recs, err = [], err_of(exc)
         return h.page(request, "data_history.html", sess, rs=rid, record=rec, rows=rows, labels=labels,
-                      records=[r["record"] for r in recs], editable=can_enter(sess.user), err=err)  # fmt: skip
+                      records=[r["record"] for r in recs], editable=enters(sess.user, rid), err=err)  # fmt: skip
 
     @app.get("/studies/{rs}/export.{fmt}")
     def download(request: Request, rs: str, fmt: str) -> Response:
@@ -371,7 +378,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = api_session(request)
         rid = study_or_404(sess, rs)
         try:
-            return {"study": rid, "records": read_records(rid), "may_enter": can_enter(sess.user)}
+            return {"study": rid, "records": read_records(rid), "may_enter": enters(sess.user, rid)}
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
 

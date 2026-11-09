@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{# D-141: nothing patient-level before the purpose is given; the view is then logged with the study and the purpose. #}
+{% block title %}{{ t('team.purpose.title') }} · {{ rs }}{% endblock %}
+{% block content %}
+<p><a href="/studies/{{ rs }}/candidates">← {{ t('team.cand.title') }}</a></p>
+<h1>{{ rs }} · {{ t('week.patient', p=pid[:8]) }}</h1>
+<section class="card narrow" data-testid="purpose-card">
+<h2>{{ t('team.purpose.title') }}</h2>
+<p class="hint">{{ t('team.purpose.help') }}</p>
+<form method="get" action="/studies/{{ rs }}/candidates/{{ pid }}" class="markform">
+<label for="purpose">{{ t('team.purpose.label') }}</label>
+<select id="purpose" name="purpose" required data-testid="purpose"><option value="">{{ t('mark.reason.choose') }}</option>{% for k in purposes %}<option value="{{ k }}">{{ t('team.purpose.' + k) }}</option>{% endfor %}</select>
+<button type="submit" data-testid="purpose-open">{{ t('team.purpose.open') }}</button>
+</form>
+</section>
+{% endblock %}

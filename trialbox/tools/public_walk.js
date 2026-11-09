@@ -54,6 +54,9 @@ const C = W.cohort;
 const LR = W.life_record; // D-134: a participant with today's visit and a serious AE
 const SQ = `ws=${W.site_ws || "practice"}&study=${T}`; // D-135: the practice site, loaded by public_e2e stage 5c
 const SITE = [`/site?${SQ}`, `/site/start?${SQ}&step=2`, `/site/charts?${SQ}`, `/site/facts?${SQ}`, `/site/codes?${SQ}`, `/site/checks?${SQ}`, `/site/sheets?${SQ}`, `/site/people?${SQ}`, `/site/patients?${SQ}`, `/site/help?${SQ}`];
+// D-141: the study team's pages (candidates across the hospital, a candidate opened with a purpose, referrals, the
+// delegation log, IRB and consent form) and the steward's lists
+const TEAM = [`/studies/${T}/candidates`, `/studies/${T}/candidates/${W.pid_marked}?purpose=eligibility`, `/studies/${T}/referrals`, `/studies/${T}/team`, `/studies/${T}/irb`, "/site/staff"];
 const LIFE = [`/studies/${T}/subjects`, `/studies/${T}/subjects/${LR}`, `/studies/${T}/visits`, `/studies/${T}/schedule`, `/studies/${T}/enrolment`];
 // Review 2026-11-09 J-03 to J-05 (D-146): viewer and CRA open no CASE job page, registry, audit trail, runs list, study
 // set-up or sources page and no REDCap connection page (403); the viewer still opens a feasibility run's page
@@ -74,6 +77,7 @@ const PAGES = {
     `/studies/${T}/forms`,
     ...LIFE,
     ...SITE,
+    ...TEAM,
     "/reports",
   ],
   crc: [
@@ -93,6 +97,8 @@ const PAGES = {
     `/studies/${T}/history?record=${W.record}`,
     ...LIFE,
     ...SITE,
+    ...TEAM,
+    "/site/opt-outs",
     "/pilot/protocol",
     "/pilot/request",
     "/pilot/case",
@@ -106,15 +112,15 @@ const PAGES = {
     "/jobs",
   ],
   admin: ["/admin?tab=health", "/admin/notice", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/codes?${SQ}`, `/site/help?${SQ}`],
-  viewer: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, `/pilot/jobs/${W.feas_job}`, ...AGG_ONLY_FORBIDDEN],
-  cra: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN],
+  viewer: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, `/pilot/jobs/${W.feas_job}`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
+  cra: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
 };
 // pages a role must not open: a 403 page (in the chosen language), never a 500
 const FORBIDDEN = {
-  pi: ["/admin?tab=health"],
+  pi: ["/admin?tab=health", "/site/opt-outs"],
   crc: ["/admin?tab=health", "/admin/notice"],
-  viewer: [`/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN],
-  cra: [`/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN],
+  viewer: [`/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
+  cra: [`/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
 };
 const ROLES = ["admin", "crc", "pi", "viewer", "cra"];
 const LANGS = [

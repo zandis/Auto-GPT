@@ -1187,3 +1187,12 @@ from console.i18n_journey import ZH as _J_ZH  # noqa: E402
 EN.update(_J_EN)
 JA.update(_J_JA)
 ZH.update(_J_ZH)
+
+# D-141: the delegation log, whole-hospital candidates, referral, the IRB warning, staff directory, opt-outs; new keys
+from console.i18n_team import EN as _TEAM_EN  # noqa: E402
+from console.i18n_team import JA as _TEAM_JA  # noqa: E402
+from console.i18n_team import ZH as _TEAM_ZH  # noqa: E402
+
+EN.update(_TEAM_EN)
+JA.update(_TEAM_JA)
+ZH.update(_TEAM_ZH)

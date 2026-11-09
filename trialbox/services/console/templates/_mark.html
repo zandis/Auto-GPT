@@ -26,8 +26,14 @@
 
 {% macro mark_bar(pid, next_href='') %}
 {% if user.can_mark %}{% set s = pid[:8] %}
+{# D-141: Approach needs the "approach" tick of the delegation log; it waits for the treating doctor's agreement when
+   a referral is open or declined; a missing or expired IRB approval / consent form is a warning, never a gate: an
+   Approach marked under it is recorded as an override #}
+{% set can_approach = may_approach is not defined or may_approach %}
+{% if can_approach and ref_wait is defined and ref_wait %}<p class="warn" data-testid="ref-wait">{{ t('team.approach.wait', state=t('team.state.' + ref_wait.state)) }}</p>
+{% elif can_approach and irb_warn is defined and irb_warn %}<p class="warn" role="alert" data-testid="irb-warning">{{ t('team.irb.warn') }} {% for w in irb_warn %}<span class="pill warn">{{ t('team.irb.w.' + w) }}</span> {% endfor %}<a href="/studies/{{ rs }}/irb">{{ t('team.irb.title') }}</a></p>{% endif %}
 <div class="markbar" data-testid="markbar">
-  <button type="submit" form="mk-{{ s }}" name="mark" value="approach" data-testid="approach-{{ s }}">{{ t('mark.approach') }}</button>
+  {% if can_approach and not (ref_wait is defined and ref_wait) %}<button type="submit" form="mk-{{ s }}" name="mark" value="approach" data-testid="approach-{{ s }}">{{ t('mark.approach') }}</button>{% endif %}
   <button type="submit" form="mk-{{ s }}" name="mark" value="need_info" class="secondary" data-testid="need_info-{{ s }}">{{ t('mark.need_info') }}</button>
   <button type="submit" form="ns-{{ s }}" class="secondary danger" data-testid="not_suitable-{{ s }}">{{ t('mark.not_suitable') }}</button>
   {% if next_href %}<a class="button secondary" href="{{ next_href }}" data-testid="next-patient">{{ t('sheet.next') }} →</a>{% endif %}
