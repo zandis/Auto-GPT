@@ -33,7 +33,7 @@ The words are one plain vocabulary per idea, the same on every page (D-133). Som
 
 | Role | Lands on | Does | Never |
 | --- | --- | --- | --- |
-| Investigator (PI, sub-I) | This week's patients | approves criteria (S20), marks patients, approves before contact | sees chart numbers or starts runs |
+| Investigator (PI, sub-I) | This week's patients | approves criteria (S20), marks patients, approves before contact, acknowledges serious AEs, may show a chart number of the study's patients (D-143) | starts runs |
 | Coordinator (CRC) | the work list | sets up studies, pastes protocols, starts feasibility and screening, records contact outcomes, consent, visits, AEs | approves criteria |
 | Administrator | Admin | accounts, health, runs, data sources, REDCap links, updates | approves or marks |
 | CRO specialist | Reports | reads the sponsor copy of feasibility reports for their studies (small counts hidden) | sees lists or patients |
@@ -53,8 +53,13 @@ the chart. Mark: Approach, Need info (with a note for the CRC), Ask treating doc
 required), or Not now, re-check (with a date). Undo follows every mark; "Withdraw my mark" takes it back. On a phone
 the patient sheet has Back, Next and a mark bar that stays in view.
 
-**Contact (CRC).** After the PI approves, the CRC records the outcome in two taps. Only the CRC may reveal a chart
-number, for a listed patient, with a reason.
+**Contact (CRC).** After the PI approves, the CRC records the outcome in two taps. The CRC and the study's PI may
+show a chart number, for a listed patient, with a reason; each is recorded with the name, under an hourly limit.
+Viewer and CRO accounts never see one (D-143).
+
+**Excluded patients (PI, CRC).** "Excluded patients and why" lists every patient the latest screening run left out,
+with the criterion, where the answer came from (coded records, a confirmed fact, or the notes with both models
+agreeing) and the evidence. Look at a few each week; "This is wrong, send to review" is recorded with your name.
 
 **Morning mail.** At 07:00 the CRC and at 07:30 the PI get a short mail: who is new, who is due, by pseudonym and
 screening number, never by name or chart number.
@@ -62,7 +67,11 @@ screening number, never by name or chart number.
 **Record the trial (CRC).** Seven built-in forms: screening log, consent, enrolment, visit, adverse event, deviation,
 withdrawal. Each checks types, ranges and required fields and keeps every change (History shows old and new). The
 participant moves from candidate to approached, consented, enrolled, on study, then completed, withdrawn or screen
-fail. Visits have windows (due, open, overdue). AEs are written as reported; nothing is graded automatically.
+fail. Visits have windows (due, open, overdue). AEs are written as reported; nothing is graded automatically. A
+serious AE stays on the PI's and the CRC's home pages and in the PI's mail, whatever its outcome, until the PI taps
+Acknowledge. Each serious AE shows its reporting clock (sponsor, IRB, regulator): TrialBox's defaults, which the site
+confirms against its IRB rules and the protocol (`TB_SAE_REPORT_DAYS`); an overdue report is on both home pages and in
+the CRC's mail.
 
 **REDCap or a spreadsheet.** Attach the study's REDCap project on the study's set-up page (guided). Sync runs at night
 and on a button. When TrialBox and REDCap disagree on a field, the Conflicts page lists it; you choose which value

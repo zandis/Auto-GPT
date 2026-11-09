@@ -158,7 +158,7 @@ and `tools/backup_drill.py`.
 | `python3 -m tools.trialbox secrets rotate` | **at handover, then yearly**: every service token, the operator token and both database passwords |
 | `... secrets rotate --service orchestrator` | one service's token; only it restarts |
 | `... secrets rotate --service db` | the two database passwords (`ALTER ROLE`, on stdin) |
-| `... secrets init` | make any missing token (the installer runs it) |
+| `... secrets init` | make any missing token and the orchestrator's actor key (the installer runs it; run it once on a box updated past D-143, else chart-number reveals and exports are refused) |
 
 The mail passwords and a cloud-model key are the hospital's: change them at their source, put the new value in
 `deploy/.env`, then `docker compose --project-directory deploy up -d --force-recreate mail-gateway` (or `gateway`). A

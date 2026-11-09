@@ -3012,3 +3012,95 @@ en, then the ICD-10 title) with a confidence, never by a shared character, and n
 DUMP-01, an undated record leaves a criterion unknown where the dated ones do not settle it, so the patient needs
 information (SQL and CQL; every input path reaches the lake that way). Committed rulesets' SQL is not recompiled
 here (as for B-01): a ruleset compiled after this step carries the rule.
+
+**D-143 Review wave 1b: console, safety and PI access (owner decision).** Pre-release review of 2026-11-09 (report
+06, end to end: P-01 to P-04, P-07, P-08, P-10; report 03, security: S-09), and the owner's decision of the same
+day: "PI can see everything, including chart number, patient information; they are the ones with full
+authorization."
+
+* **The study's PI may see and reveal identifiers (reverses D-133's "investigators may not reveal").**
+  `User.can_reveal` is administrator, coordinator and investigator; `User.sees_ids(study)` adds the study scope, so an
+  investigator of another study has no authority. The PI reveals on the patient page, the SCREEN job page and through
+  `POST /api/v1/studies/{rs}/patients/{pid}/reveal` (a reason is required, as on the page); the screening-log export
+  with chart numbers follows `sees_ids` too (it was any requester, unscoped). Kept: every reveal or view is audited
+  (`console.reveal_patient`, `console.reveal`, `console.view_id`), the orchestrator's 60-per-hour cap applies, and a
+  view on the console counts against the same cap. Viewer and CRO (sponsor, monitor) accounts stay masked everywhere.
+* **P-01.** The CASE job page's "web request" row showed `mrn=…` to every role. It shows the chart number only to an
+  account with identifier authority for the job's study, as one audited view under the cap (over the cap:
+  `console.view_id_refused`, masked); everyone else sees `mrn=•••`. Audit tables (job page and `/audit`) mask
+  identifiers for everyone. `public_e2e` stage 7b signs in as viewer and as CRA, opens every page the walk opens plus
+  the job pages, and fails on any chart number or name of the site; it also checks that the study's PI sees the CASE
+  request's chart number and that the view is audited.
+* **Mail (N1): a point for the owner to confirm.** Decision: N1, the PI's own mail, carries **no** chart number. Mail
+  leaves TrialBox (hospital mail servers, phones, forwarding); the PI sees the chart number on the page after sign-in,
+  where it is audited and capped. N1 and N2 keep the pseudonym and the screening number (D-136).
+* **P-02 / P-03, SAE.** A serious AE needs the investigator's acknowledgement, whatever its outcome (a fatal SAE,
+  outcome 5, counted as "not ongoing" and left the banner and N1 the moment it was saved). One tap on the banner, the
+  participant page or `POST /api/v1/studies/{rs}/aes/{record}/{event}/ack`; stored in the data core's `ae_ack` (schema
+  version 3: who and when; the first acknowledgement stands) and audited (`life.sae_ack` with the time and the outcome,
+  `console.sae_ack`). The coordinator sees "Waiting for the investigator's acknowledgement". N1 goes out on any working
+  day while an SAE waits. The AE form gains the day the site learned of it (`ae_aware`) and the report dates for
+  sponsor, IRB and regulator (`ae_rep_sponsor`, `ae_rep_irb`, `ae_rep_reg`, shown when serious). Each serious AE shows
+  its reporting clock on the participant page and the AE form; an overdue report is on the PI's and the CRC's home
+  pages and first in N2 (pseudonym, party and due day, never the AE term). Defaults, in days from the day the site
+  learned of it (else the onset), as fatal or life-threatening / other serious, chosen by the site's zone (Asia/Tokyo is
+  Japan) or `TB_SAE_RULES=jp|tw`, and overridden with `TB_SAE_REPORT_DAYS` (`sponsor=1,irb=7/15,regulator=0`; 0 turns
+  a party off):
+
+  | Report to | Japan (J-GCP art. 48; PMDA for investigator-initiated trials) | Taiwan (GCP; IRB SOPs; TFDA) |
+  | --- | --- | --- |
+  | Sponsor | 1 / 1 (直ちに) | 1 / 1 (at once) |
+  | IRB and the head of the institution | 1 / 1 (直ちに, through the head) | 7 / 15 |
+  | Regulator | 7 / 15 | 7 / 15 |
+
+  **These defaults need site confirmation** before the first patient: the IRB's SOP, the protocol and, for a sponsor
+  trial, the sponsor's SAE timelines decide; the regulator's report is usually the sponsor's duty (set it to 0 where the
+  site does not file).
+* **P-04.** Each SCREEN run stores `excluded_<study>_v<version>.json` with the job (tag phi, never mailed): every
+  excluded patient, the failing criterion with its evidence, and the source: the coded records, a confirmed fact (a
+  record whose id is a confirmed `site_fact`, D-135) or the notes with both models agreeing; a patient excluded by the
+  run's own rules (scope, research-contact consent) shows that rule in plain words. `/studies/{rs}/excluded` (PI, CRC,
+  administrator; 403 for viewer and CRO) shows them 25 to a page with a filter by source; "This is wrong, send to
+  review" is stored (site store `excluded_review`, schema version 2), listed first with who and when, and audited
+  (`console.excluded_review`). Linked from the week page and the study card; in the walk and in `public_e2e`.
+* **S-09.** The console signs the user it names to the orchestrator: `X-TB-Actor-Assertion` is
+  `v1.<expiry>.<session>.<hmac>`, HMAC-SHA256 over the actor, the console session (16 characters of the session
+  token's hash, bound per request) and an expiry two minutes ahead, keyed with `HMAC(console token,
+  "tb-actor-assertion/1")`, derived from D-138's per-service token, never the token itself. The orchestrator verifies it
+  for reveal, export, notices and cancel: with one shared token both sides derive the key; with per-service tokens
+  `trialbox secrets init` and `rotate` write the derived key to `deploy/secrets/services/actor/keys` (0600 in a 0700
+  folder), which only the orchestrator mounts (`TB_ACTOR_KEYS_FILE`); a console rotation keeps the old key valid until
+  the console runs on its new token. An unsigned or expired name is 403 and audited (`actor.refused`); no name is 400,
+  as before. The reveal cap and the new export cap count per calling service and verified person.
+  `GET /registry/{rs}/export.xlsx` now needs a verified user, is audited at the orchestrator (`registry.export`: actor,
+  session, sha256 of the file) and is capped (`TB_EXPORT_MAX_PER_HOUR`, 10). A box updated past this decision runs
+  `trialbox secrets init` once (RUNBOOK §5).
+* **P-07.** The REDCap read text said "Nothing is ever written to REDCap" under the write-back switch. It now says
+  TrialBox writes only when write-back is on, and then only its own three screening fields, never a field the study
+  team owns (en, ja, zh-TW).
+* **P-08.** The screening log's zh-TW "enrolled" is the glossary's 已收案 (was 已納入); the glossary test bans 已納入
+  and checks that the screening log and the lifecycle pages use one word for enrolled.
+* **P-10.** Disable account, Keep TrialBox's / Take the source's value, Detach REDCap and Approve all first show one
+  confirmation sheet with the consequence in a sentence; Yes posts the form again with `confirm=yes`. Role and study
+  checks come first. `/api/v1` calls are explicit and unchanged.
+
+*Evidence.* `tests/console/test_console_app.py` (the CASE request row by role, the view cap, the PI's reveal on the job
+page, the signed export), `tests/console/test_role_pages.py` (the PI's reveal on the page and through `/api/v1`, the
+viewer's 403), `tests/console/test_step2.py` (N1 never carries a chart number), `tests/unit/test_service_auth.py` and
+`tests/unit/test_service_secrets.py` (an unsigned, forged, expired or renamed actor refused; the per-person caps; the
+export audited and capped; the key file, its rotation and its one mount), `tests/console/test_sae_pages.py` (the JP/TW
+rules and the override; a fatal SAE stays until the PI acknowledges, on the pages, in N1 and N2, through `/api/v1`),
+`tests/console/test_excluded_page.py` (the page, sources, send to review, roles, Japanese; the run's excluded list),
+`tests/console/test_step4b.py` (P-07, P-08 and the new strings in three languages), `tests/console/test_data_pages.py`
+(confirmations). Suites: unit, console and testbench 1,438 passed. `make lint` clean. `tools/e2e_simple.py`: PASSED in
+166 s. `public_e2e --lang ja`: 117/117 (stage 7b: viewer and CRA on 50 pages each, no chart number or name).
+The walk (`node tools/public_walk.js` against a fresh `public_e2e --serve` on port 8957, random password never printed):
+810 checks, 0 failures over 798 pages (the excluded page for PI and CRC, 403 for viewer and CRA), axe 0 serious (84
+minor), 22,650 targets, 0 under 44 px, taps T1 to T9 within target.
+
+*Open.* Death does not move the participant to an end state, and an SAE is not linked to withdrawal; the reporting
+clock is one setting per box, not per study; a patient sent back from the excluded list does not enter the PI's
+weekly list by itself (the study team sees it on the page); the SS-MIX2 疑い flag (P-04's second half) is read by
+D-142 (wave 1a, integrated on this branch); "approached" still has two words per language (連絡済み / 声かけ済み, 已聯絡 / 已邀請); the rate limits are per
+process and in memory, not in Postgres; no Undo after a confirmed conflict decision; the owner confirms the N1
+decision and the site confirms the SAE defaults.
