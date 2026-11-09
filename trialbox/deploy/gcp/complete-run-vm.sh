@@ -67,12 +67,25 @@ ONLY=$(md tb-only || true)
 BUCKET=$(md tb-bucket || true)
 
 # ------------------------------------------------------------------ the driver's door: heartbeat, upload, progress
-# a tiny server on 127.0.0.1:8081 behind nginx, which checks the key: POST /tb/heartbeat, POST /tb/collected,
-# PUT /tb/upload (the code tarball), GET /tb/progress (the run log's tail), GET /tb/results.tgz
+# a tiny server on the docker bridge gateway (port 8081) behind nginx: POST /tb/heartbeat, POST /tb/collected,
+# PUT /tb/upload (the code tarball), GET /tb/progress (the run log's tail), GET /tb/results.tgz. nginx runs in a
+# container and reaches the host as host.docker.internal (= the docker0 gateway), so the door cannot listen on
+# 127.0.0.1 (the first cloud run got 502 there). It listens on the gateway only, never on the public address, and it
+# checks the key itself as well as nginx does.
+install -d -m 700 /var/lib/tb
+umask 077; printf '%s' "$KEY" > /var/lib/tb/door-key; umask 022
+DOOR_HOST=$(ip -4 -o addr show docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
+DOOR_HOST=${DOOR_HOST:-172.17.0.1}
 cat >/usr/local/sbin/tb-door.py <<'PY'
-import http.server, os, pathlib, subprocess
+import hmac, http.server, os, pathlib, subprocess, sys
 TB = pathlib.Path("/var/lib/tb")
+KEY = (TB / "door-key").read_text().strip()
 class H(http.server.BaseHTTPRequestHandler):
+    def parse_request(self):
+        if not super().parse_request(): return False
+        if not hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {KEY}"):
+            self.send_error(401); return False
+        return True
     def _ok(self, body=b"ok\n", ctype="text/plain"):
         self.send_response(200); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(body)))
         self.end_headers(); self.wfile.write(body)
@@ -97,9 +110,9 @@ class H(http.server.BaseHTTPRequestHandler):
             return self._ok((TB / "out" / "results.tgz").read_bytes(), "application/gzip")
         self.send_error(404)
     def log_message(self, *a): pass
-http.server.ThreadingHTTPServer(("127.0.0.1", 8081), H).serve_forever()
+http.server.ThreadingHTTPServer((sys.argv[1], 8081), H).serve_forever()
 PY
-systemd-run --unit tb-door --description "TrialBox driver door" python3 /usr/local/sbin/tb-door.py
+systemd-run --unit tb-door --description "TrialBox driver door" python3 /usr/local/sbin/tb-door.py "$DOOR_HOST"
 
 # ------------------------------------------------------------------ serving: judge and verifier resident (D-124)
 VLLM=vllm/vllm-openai:v0.32.0
@@ -122,7 +135,7 @@ http { resolver 127.0.0.11 valid=5s ipv6=off; client_max_body_size 200m; proxy_r
     location /verifier/ { set \$up verifier; rewrite ^/verifier/(.*)\$ /\$1 break; proxy_pass http://\$up:8000; }
     location /record/   { alias /srv/record/; default_type application/json; }
     location /tb/ { if (\$http_authorization != "Bearer ${KEY}") { return 401; }
-                    rewrite ^/tb/(.*)\$ /\$1 break; proxy_pass http://host.docker.internal:8081; } }
+                    rewrite ^/tb/(.*)\$ /\$1 break; proxy_set_header Authorization "Bearer ${KEY}"; proxy_pass http://host.docker.internal:8081; } }
   server { listen 8080;
     location /judge/    { set \$up judge;    rewrite ^/judge/(.*)\$ /\$1 break; proxy_set_header Authorization "Bearer ${KEY}"; proxy_pass http://\$up:8000; }
     location /verifier/ { set \$up verifier; rewrite ^/verifier/(.*)\$ /\$1 break; proxy_set_header Authorization "Bearer ${KEY}"; proxy_pass http://\$up:8000; } } }
