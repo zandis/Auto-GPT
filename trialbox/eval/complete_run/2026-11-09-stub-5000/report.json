@@ -1,0 +1,3922 @@
+{
+ "schema": "tb-complete-run/1",
+ "git": {
+  "head": "a69b51bbd3ecffcc240798a1541b465e5ab66c99",
+  "subject": "TB-PLAN-04 step 9: the walk is its own part, after the GPU stops",
+  "dirty": false
+ },
+ "started": "2026-11-09T05:32:45+00:00",
+ "finished": "2026-11-09T05:52:21+00:00",
+ "model": "stub",
+ "models": [
+  "stub"
+ ],
+ "patients": 5000,
+ "langs": [
+  "ja",
+  "zh-TW"
+ ],
+ "host": {
+  "machine": "x86_64",
+  "cpus": 4,
+  "python": "3.12.3"
+ },
+ "parts": [
+  {
+   "stages": [
+    {
+     "name": "synthetic hospital",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "synthetic hospital reused",
+       true,
+       "<dir>/synth-5000"
+      ],
+      [
+       "5000 patients in two sites (JP and TW style)",
+       true,
+       5000
+      ]
+     ],
+     "shot": "prepare.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": null
+    }
+   ],
+   "patients": 5000,
+   "wall_seconds": 0.0,
+   "part": "prepare",
+   "lang": "",
+   "tag": "prepare",
+   "seconds_total": 0.7
+  },
+  {
+   "stages": [
+    {
+     "name": "install: tier and serving record",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "the vendor serving record measures rtxpro6000 on its own card",
+       true,
+       ""
+      ],
+      [
+       "tier large installs on this card from a measured record",
+       true,
+       "serving_config.rtxpro6000.json"
+      ],
+      [
+       "tier small is refused on this card",
+       true,
+       "tier small is one RTX 5090 (32 GB), but this machine's card is 'NVIDIA RTX PRO 6000 Blackwell Server Edition' (rtxpro600"
+      ]
+     ],
+     "shot": "install.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": null
+    }
+   ],
+   "card": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+   "wall_seconds": 0.0,
+   "part": "install",
+   "lang": "",
+   "tag": "install",
+   "seconds_total": 0.6
+  },
+  {
+   "stages": [
+    {
+     "name": "0 data in",
+     "ok": true,
+     "seconds": 0.6,
+     "checks": [
+      [
+       "generator rate checks",
+       true,
+       "{'ok': 118, 'fail': 0, 'skipped': 8}"
+      ],
+      [
+       "lake counts = generator counts (patients, notes, encounters)",
+       true,
+       "lake {'patient': 5000, 'note': 8889, 'encounter': 34070} generator {'patient': 5000, 'note': 8889, 'encounter': 34070}"
+      ],
+      [
+       "no chart number, ID or phone column in the lake",
+       true,
+       "{}"
+      ],
+      [
+       "lake keys are pseudonyms, never chart numbers",
+       true,
+       "0"
+      ]
+     ],
+     "shot": "hospital-ja-00.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "1 feasibility report",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "a finished FEAS job for GZQO",
+       true,
+       "['01M6ZCQYMRA0ZMNM6A473W3P01']"
+      ],
+      [
+       "PDF, XLSX and JSON report",
+       true,
+       ""
+      ],
+      [
+       "start = every patient seen in 36 months",
+       true,
+       "5000"
+      ],
+      [
+       "INC-01 age >= 18 = recount from patient.csv",
+       true,
+       "(4829, 4829)"
+      ],
+      [
+       "INC-02 gout dx = recount from diagnosis.csv",
+       true,
+       "(1425, 1425)"
+      ],
+      [
+       "funnel never grows",
+       true,
+       "[4830, 1425, 740, 490, 490, 230, 230, 160, 145, 130, 115, 115, 110, 105, 90, 85, 85, 85, 85, 85, 85, 75, 75, 75]"
+      ],
+      [
+       "FR-REP-01 provenance block",
+       true,
+       "{'clock': 'clock pinned (test stack)', 'data_sources': ['csv (lake snapshot 2026-10-31)'], 'job_id': '01M6ZCQYMRA0ZMNM6A473W3P01', 'language': 'ja', 'model_summary': 'no model (filters only)', 'models': [], 'prompt_versions': [], 'ruleset': 'GZQO', 'ruleset_version': '1.1.0', 'run_date': '2026-11-02"
+      ],
+      [
+       "FEAS ran without a model (D-101)",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-ja-01.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "2 investigator approval",
+     "ok": true,
+     "seconds": 0.1,
+     "checks": [
+      [
+       "both studies approved by the investigator",
+       true,
+       "[('GZQO', 'console:pi'), ('GOUT-COH', 'console:pi')]"
+      ],
+      [
+       "a coordinator's approve is refused (403, FR-AUTH-13)",
+       true,
+       "403"
+      ]
+     ],
+     "shot": "hospital-ja-02.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "3 screening",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "stub model ran, single judge",
+       true,
+       "{'configured_note_block': 'both_agree', 'disagreements': 0, 'failures': 0, 'judge_model': 'stub', 'may_block': False, 'mode': 'single', 'note_block': 'never', 'note_block_reason': 'no verifier configured: a single model may not exclude', 'verifier_model': None}"
+      ],
+      [
+       "no note-based exclusion without two models agreeing",
+       true,
+       "{'configured_note_block': 'both_agree', 'disagreements': 0, 'failures': 0, 'judge_model': 'stub', 'may_block': False, 'mode': 'single', 'note_block': 'never', 'note_block_reason': 'no verifier configured: a single model may not exclude', 'verifier_model': None}"
+      ],
+      [
+       "funnel S0 >= S1 >= S3 >= S4 > 0",
+       true,
+       "{'S0': 3022, 'S1': 92, 'S3': 92, 'S4': 81}"
+      ],
+      [
+       "listed = high + review",
+       true,
+       "{'excluded': 2941, 'high': 2, 'review': 79}"
+      ],
+      [
+       "FR-REP-01 provenance names the model and prompt",
+       true,
+       "{'clock': 'clock pinned (test stack)', 'data_sources': ['csv (lake snapshot 2026-10-31)'], 'job_id': '01M6ZCR55YJ66ZANQRCZSYJDXN', 'language': 'ja', 'model_summary': 'stub (single, never-exclude)', 'models': ['stub'], 'prompt_versions': ['judge_v4'], 'ruleset': 'GZQO', 'ruleset_version': '1.1.0', 'r"
+      ],
+      [
+       "cohort list for GOUT-COH (no contact step)",
+       true,
+       "5"
+      ]
+     ],
+     "shot": "hospital-ja-03.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "4 list, marks and mail",
+     "ok": true,
+     "seconds": 0.9,
+     "checks": [
+      [
+       "replacing a mark is accepted",
+       true,
+       "303"
+      ],
+      [
+       "mark history keeps the replaced mark",
+       true,
+       "['not_now', 'approach']"
+      ],
+      [
+       "N1 and N2 mail sent",
+       true,
+       "['TrialBox ダイジェスト 2026-11-02：来院 3 · 次の作業 1 · 新規 79 · 判断 3', 'TrialBox：2026-11-02 の外来の試験候補者 1 名']"
+      ],
+      [
+       "mail carries no chart number",
+       true,
+       "[]"
+      ],
+      [
+       "mail carries no patient name",
+       true,
+       ""
+      ],
+      [
+       "mail shows the screening number beside the pseudonym (D-136)",
+       true,
+       "[('25541a42', 'GZQO-0001')]"
+      ],
+      [
+       "the PI's marked patients appear in the mail by pseudonym",
+       true,
+       "['25541a42', '61c68617', '1558e4de']"
+      ]
+     ],
+     "shot": "hospital-ja-04.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "5 ready and needs-information lists",
+     "ok": true,
+     "seconds": 0.8,
+     "checks": [
+      [
+       "ready and needs information do not overlap",
+       true,
+       ""
+      ],
+      [
+       "ready rows have no unknown",
+       true,
+       "2"
+      ],
+      [
+       "needs-information rows have an unknown",
+       true,
+       "78"
+      ],
+      [
+       "ready: at most 25 rows a page",
+       true,
+       "2"
+      ],
+      [
+       "needs information: fewest unknowns first",
+       true,
+       "[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]"
+      ],
+      [
+       "needs: at most 25 rows a page",
+       true,
+       "25"
+      ],
+      [
+       "rail counts = the split",
+       true,
+       "{'ready': 2, 'needs': 78}"
+      ],
+      [
+       "S3 explains the list: listed, ready, needs",
+       true,
+       "[80, 2, 78] vs [80, 2, 78]"
+      ]
+     ],
+     "shot": "hospital-ja-05.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "7 REDCap read-back and screening log",
+     "ok": true,
+     "seconds": 0.1,
+     "checks": [
+      [
+       "S36 test connection",
+       true,
+       ""
+      ],
+      [
+       "candidate -> consented -> enrolled",
+       true,
+       "('候補', '同意取得 · 2026-11-09', '登録 · 2026-11-09')"
+      ],
+      [
+       "sponsor subject number shown",
+       true,
+       ""
+      ],
+      [
+       "screening log exports as XLSX",
+       true,
+       "200"
+      ],
+      [
+       "the log row is consented/enrolled",
+       true,
+       "[['GZQO-0001', '25541a4247f84583324b4d9a3f04ae9a', '2026-11-09', '2026-11-02', 'approach', None, '2026-11-02', 'not_reached', 1, 'enrolled', 'REDCap record 3', '2026-11-09', '3', 'S-0003'], ['GZQO-0002', '1558e4dea3a7b1a3bc6e29922a0202da', '2026-11-09', '2026-11-02', 'approach', None, '2026-11-02', "
+      ]
+     ],
+     "shot": "hospital-ja-06.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "audit",
+     "ok": true,
+     "seconds": 0.9,
+     "checks": [
+      [
+       "D-133: the investigator may not reveal a chart number (role text)",
+       true,
+       "403"
+      ],
+      [
+       "the coordinator reveals one chart number",
+       true,
+       "200"
+      ],
+      [
+       "01a: FEAS state changes in the audit",
+       true,
+       "['received', 'parsing', 'compiling', 'awaiting_approval', 'received', 'running', 'reporting', 'done']"
+      ],
+      [
+       "01a: every FEAS output file in the audit",
+       true,
+       "8"
+      ],
+      [
+       "01a: SCREEN state changes in the audit",
+       true,
+       "['received', 'running', 'reporting', 'done']"
+      ],
+      [
+       "01a: every SCREEN output file in the audit",
+       true,
+       "5"
+      ],
+      [
+       "01b: reveal with user, study, pid, reason and time",
+       true,
+       "{'actor': 'console:crc', 'detail': {'affiliation': 'hospital', 'pid': '25541a4247f84583324b4d9a3f04ae9a', 'reason': 'consent', 'role': 'coordinator'}, 'event': 'console.reveal_patient', 'hash': 'f6ded33c3418bd0fe8d7983c2a680fae77c1af501988d6e1be4563d35f9fe920', 'job_id': '01M6ZCR55YJ66ZANQRCZSYJDXN'"
+      ],
+      [
+       "01b: the box side records the same reveal",
+       true,
+       ""
+      ],
+      [
+       "01e: every investigator mark (3 + 1 replaced)",
+       true,
+       "4"
+      ],
+      [
+       "01e: the coordinator's contact outcome",
+       true,
+       ""
+      ],
+      [
+       "01e: registry status changes from REDCap, by pseudonym",
+       true,
+       "[{'from': None, 'pid': '25541a4247f84583324b4d9a3f04ae9a', 'record_id': '3', 'to': 'consented'}, {'from': 'consented', 'pid': '25541a4247f84583324b4d9a3f04ae9a', 'record_id': '3', 'to': 'enrolled'}]"
+      ],
+      [
+       "hash chain verifies",
+       true,
+       "[]"
+      ],
+      [
+       "no patient name in the audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-ja-07.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "8 REDCap write-back",
+     "ok": true,
+     "seconds": 0.7,
+     "checks": [
+      [
+       "S21 saves the link with write-back on",
+       true,
+       ""
+      ],
+      [
+       "at least two screening numbers on the log",
+       true,
+       "['GZQO-0001', 'GZQO-0002']"
+      ],
+      [
+       "Run now reports the write",
+       true,
+       "200"
+      ],
+      [
+       "every screening number has its REDCap record",
+       true,
+       "[]"
+      ],
+      [
+       "TrialBox's instrument is filled for each",
+       true,
+       "{'GZQO-0001': '4', 'GZQO-0002': '1'}"
+      ],
+      [
+       "the enrolled patient reads 4 (enrolled) in tb_status",
+       true,
+       "{'record_id': '3', 'tb_screening_no': 'GZQO-0001', 'consent_date': '2026-11-01', 'enrolled': '1', 'sf_reason': '', 'subject_no': 'S-0003', 'tb_screen_date': '2026-11-01', 'tb_status': '4', 'tb_status_date': '2026-11-09'}"
+      ],
+      [
+       "no REDCap-owned field changed",
+       true,
+       "[]"
+      ],
+      [
+       "a new screening number got a new REDCap record",
+       true,
+       "('GZQO-0002', '4')"
+      ],
+      [
+       "next run: consent read back on the log",
+       true,
+       "同意取得 · 2026-11-09"
+      ],
+      [
+       "next run: tb_status follows (3, consented)",
+       true,
+       ""
+      ],
+      [
+       "a third run writes nothing new",
+       true,
+       "4"
+      ],
+      [
+       "the write is in the audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-ja-08.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "9 data core: REDCap off then on, conflicts, a PI's sheet",
+     "ok": true,
+     "seconds": 0.2,
+     "checks": [
+      [
+       "S36 saves the second project's connection",
+       true,
+       "200"
+      ],
+      [
+       "the data dictionary becomes TrialBox forms",
+       true,
+       "{'forms': ['enrolment', 'end_of_study', 'trialbox_screening'], 'fields': 7, 'dropped': []}"
+      ],
+      [
+       "REDCap off: entries kept in TrialBox alone",
+       true,
+       "{'RB0901': {'icf_dt': {'value': '2026-10-01', 'by': 'crc1', 'at': '2026-11-09T13:33:43+08:00'}, 'tb_status': {'value': '3', 'by': 'crc1', 'at': '2026-11-09T13:33:43+08:00'}}, 'RB0950': {'tb_screen_date': {'value': '2026-11-01', 'by': 'crc1', 'at': '2026-11-09T13:33:43+08:00'}, 'tb_status': {'value':"
+      ],
+      [
+       "REDCap on: TrialBox's own earlier consent date vs REDCap's is listed, not forced",
+       true,
+       "[{'id': 1, 'record': 'RB0901', 'event': '', 'field': 'icf_dt', 'owner': 'redcap', 'trialbox': '2026-10-01', 'theirs': '2026-10-02'}]"
+      ],
+      [
+       "sync pushes TrialBox's fields to REDCap",
+       true,
+       "{'rec_id': '7', 'redcap_event_name': 'screening_arm_1', 'tb_screening_no': 'RB0901', 'icf_dt': '2026-10-02', 'rand_yn': '1', 'withdrawn': '', 'tb_screen_date': '', 'tb_status': '3', 'tb_status_date': ''}"
+      ],
+      [
+       "a TrialBox record REDCap lacked is created there",
+       true,
+       "['RB0901', 'RB0902', 'RB0950']"
+      ],
+      [
+       "a REDCap-side edit of a TrialBox field is listed as a conflict, not taken",
+       true,
+       "{'source': 'redcap', 'pulled': 3, 'taken': 0, 'conflicts': [{'id': 2, 'record': 'RB0901', 'event': '', 'field': 'tb_status', 'owner': 'trialbox', 'trialbox': '3', 'theirs': '5'}], 'pushed': 0, 'created': {}, 'waiting': [], 'refused': [], 'at': '2026-11-09T13:33:43+08:00'}"
+      ],
+      [
+       "resolved: no open conflict, TrialBox's status pushed back",
+       true,
+       "{'source': 'redcap', 'pulled': 3, 'taken': 0, 'conflicts': [], 'pushed': 1, 'created': {}, 'waiting': [], 'refused': [], 'at': '2026-11-09T13:33:43+08:00'}"
+      ],
+      [
+       "the chosen consent date is REDCap's",
+       true,
+       "icf_dt"
+      ],
+      [
+       "a PI's sheet: the name column is dropped",
+       true,
+       "['氏名']"
+      ],
+      [
+       "a PI's sheet: a row without a chart number is refused and listed",
+       true,
+       "[{'at': 'row 3', 'reason': 'no screening number and no chart number'}]"
+      ],
+      [
+       "a PI's sheet: the chart number is pseudonymised, no name stored",
+       true,
+       "{'source': 'sheet:pi', 'pulled': 1, 'taken': 1, 'conflicts': [], 'pushed': 0, 'created': {}, 'waiting': [], 'refused': [{'at': 'row 3', 'reason': 'no screening number and no chart number'}], 'dropped': ['氏名'], 'at': '2026-11-09T13:33:43+08:00'}"
+      ],
+      [
+       "sync, resolve and import are in the audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-ja-09.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "10 built-in data capture",
+     "ok": true,
+     "seconds": 1.4,
+     "checks": [
+      [
+       "the built-in forms are added in one call",
+       true,
+       "200"
+      ],
+      [
+       "seven built-in forms",
+       true,
+       "['tb_screening_log', 'tb_consent', 'tb_enrolment', 'tb_visit', 'tb_adverse_event', 'tb_deviation', 'tb_withdrawal']"
+      ],
+      [
+       "the entry page opens a screening number's consent, labels in the page's language",
+       true,
+       "200"
+      ],
+      [
+       "a required field missing is refused, in the page's language",
+       true,
+       "200"
+      ],
+      [
+       "the consent is saved; the history page follows",
+       true,
+       "http://testserver/studies/GZQO/history?record=GZQO-0001&saved=tb_consent&event="
+      ],
+      [
+       "an out-of-range value is refused, per field",
+       true,
+       "200"
+      ],
+      [
+       "the visit is saved on event v1",
+       true,
+       "200"
+      ],
+      [
+       "the edit shows in the history: who, old, new",
+       true,
+       "[{'id': 25, 'study': 'GZQO', 'record': 'GZQO-0001', 'event': '', 'field': 'ic_version', 'old': 'v2.1', 'new': 'v2.2', 'by': 'console:crc', 'at': '2026-11-09T13:33:44+08:00', 'source': 'trialbox'}]"
+      ],
+      [
+       "ODM 1.3.2 export downloads",
+       true,
+       "200"
+      ],
+      [
+       "the fresh REDCap project takes the ODM",
+       true,
+       "{\"count\":1}"
+      ],
+      [
+       "every value equal after the ODM round trip",
+       true,
+       "{'only_trialbox': [], 'only_redcap': []}"
+      ],
+      [
+       "the REDCap CSV columns match the dictionary",
+       true,
+       "['record_id', 'redcap_event_name', 'sl_date', 'sl_how', 'sl_eligible', 'sl_reason']"
+      ],
+      [
+       "the REDCap CSV has one row per record and event",
+       true,
+       "[['GZQO-0001', 'event_1_arm_1'], ['GZQO-0001', 'v1']]"
+      ],
+      [
+       "no chart number in the exports",
+       true,
+       ""
+      ],
+      [
+       "entry and export are in the audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-ja-10.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "11 trial lifecycle",
+     "ok": true,
+     "seconds": 4.6,
+     "checks": [
+      [
+       "the visit schedule is saved (3 visits with windows)",
+       true,
+       "200"
+      ],
+      [
+       "the new screening number is a participant (candidate)",
+       true,
+       "200"
+      ],
+      [
+       "an illegal step is refused with a plain reason, in the page's language",
+       true,
+       "409"
+      ],
+      [
+       "nothing changed after the refusal",
+       true,
+       "candidate"
+      ],
+      [
+       "approached, recorded by the coordinator",
+       true,
+       "200"
+      ],
+      [
+       "consent and enrolment forms move the participant to enrolled",
+       true,
+       "200"
+      ],
+      [
+       "visit v1: due, then in its window, then overdue (given days, site time zone)",
+       true,
+       "['due', 'open', 'overdue']"
+      ],
+      [
+       "the coordinator's visit list shows it under Overdue",
+       true,
+       "200"
+      ],
+      [
+       "the coordinator's home page lists the overdue visit",
+       true,
+       ""
+      ],
+      [
+       "N2 lists the overdue visit by pseudonym with its screening number (D-136)",
+       true,
+       "の試験来院：0 件\n\n- なし\n\n## 許容範囲を超えた試験来院：1 件\n\n- 患者 ea8b058a (GZQO-0003)（GZQO）：来院 v1、許容範囲 2026-10-26 〜 2026-10-30\n\n## 本日の来院：0 名\n\n- なし\n\n## 次の作業：0 件\n\n- なし\n\n## 新しいプレスクリーニング：0 名\n\n- なし\n\n## 前回以降の責任医師の判断：0 件\n\n- なし\n\n\n---\n送信理由：これらの試験の CRC です。ダイジェストは平日 07:30 に届きます。\n通知の変更・停止：https://trialbox.hospa.test/settings/notices"
+      ],
+      [
+       "N2 carries no chart number",
+       true,
+       ""
+      ],
+      [
+       "Done today opens the visit form filled in for today",
+       true,
+       "True"
+      ],
+      [
+       "Save: the visit is done and leaves the list",
+       true,
+       "200"
+      ],
+      [
+       "the first visit done: on study",
+       true,
+       "on_study"
+      ],
+      [
+       "two AEs logged on events ae1 and ae2",
+       true,
+       "['ae1', 'ae2']"
+      ],
+      [
+       "the serious AE is shown on the investigator's home page",
+       true,
+       ""
+      ],
+      [
+       "the withdrawal form: withdrawn, no further step offered",
+       true,
+       "200"
+      ],
+      [
+       "a step after withdrawal is refused",
+       true,
+       ""
+      ],
+      [
+       "the remaining visits are not needed",
+       true,
+       "['done', 'stopped', 'stopped']"
+      ],
+      [
+       "every step is in the participant's history",
+       true,
+       "[(None, 'candidate'), ('candidate', 'approached'), ('approached', 'consented'), ('consented', 'enrolled'), ('enrolled', 'on_study'), ('on_study', 'withdrawn')]"
+      ],
+      [
+       "screening log = enrolment report = REDCap read-back, on every count",
+       true,
+       "{'log': {'enrolled': 1, 'consented': 1, 'withdrawn': 1}, 'report': {'consented': 1, 'enrolled': 1, 'withdrawn': 1}, 'redcap': {'enrolled': 1, 'consented': 1, 'withdrawn': 1}}"
+      ],
+      [
+       "the new participant reads withdrawn in all three",
+       true,
+       "GZQO-0003"
+      ],
+      [
+       "the enrolment report downloads as XLSX and CSV",
+       true,
+       ""
+      ],
+      [
+       "no chart number in the report",
+       true,
+       ""
+      ],
+      [
+       "steps, refusals and the schedule are in the audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-ja-11.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "12 site set-up and data harmonization",
+     "ok": true,
+     "seconds": 21.0,
+     "checks": [
+      [
+       "start: nothing yet, the patients question is red",
+       true,
+       "red"
+      ],
+      [
+       "the protocol's criteria are drafted and wait for the investigator",
+       true,
+       "['awaiting_approval']"
+      ],
+      [
+       "approved: the trial question is green",
+       true,
+       "green"
+      ],
+      [
+       "two pasted charts: facts proposed, each beside its quote",
+       true,
+       "9"
+      ],
+      [
+       "charts alone: the box says feasibility needs a bulk source",
+       true,
+       ""
+      ],
+      [
+       "a proposed fact never counts and never excludes: both chart patients need information",
+       true,
+       "{'1d7ad52bf552d27224c430a99575bbf7': 'needs', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs'}"
+      ],
+      [
+       "the dump: unmapped local codes and diagnoses in an unknown code system are listed",
+       true,
+       ""
+      ],
+      [
+       "until mapped, a local code is an unknown code system: needs information, never a silent no (D-130)",
+       true,
+       "{'11636eecbd18695afedf762657d7198c': 'needs', '1d7ad52bf552d27224c430a99575bbf7': 'needs', '7ea6bc8f855d6b9f78a666947acaa635': 'needs', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'needs'}"
+      ],
+      [
+       "codes mapped with one tap each: the coded patients are read",
+       true,
+       "(4, {'11636eecbd18695afedf762657d7198c': 'ready', '1d7ad52bf552d27224c430a99575bbf7': 'needs', '7ea6bc8f855d6b9f78a666947acaa635': 'ready', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'not_eligible'})"
+      ],
+      [
+       "coded-eligible with a proposed malignancy from a chart: needs information, not excluded",
+       true,
+       "needs"
+      ],
+      [
+       "safe fixes made and listed: era and 民國 dates, full width, units, merged cells, the title row",
+       true,
+       "['dmy', 'era', 'format', 'header_row', 'merged', 'minguo', 'unit', 'width']"
+      ],
+      [
+       "the rest is asked, nothing guessed: day/month, an unknown unit, a possible chart number, no key",
+       true,
+       "['chart_column', 'date_order', 'no_key', 'unit']"
+      ],
+      [
+       "the name column is dropped and never shown",
+       true,
+       ""
+      ],
+      [
+       "the scripted coordinator works through the \"please check\" list",
+       true,
+       "4"
+      ],
+      [
+       "one patient from the dump, the list and a chart is one pseudonym; the two birth dates are listed",
+       true,
+       "[{'pid': '11636eecbd18695afedf762657d7198c', 'what': 'birth_date', 'values': [{'value': '1971-05-06', 'facts': [63]}, {'value': '1971-06-05', 'facts': [15]}]}]"
+      ],
+      [
+       "feasibility: proposed facts are not counted",
+       true,
+       "{'id': 'SITE5B-EXC-01', 'label': '悪性腫瘍の既往', 'remaining': 3, 'coded': 3, 'confirmed': 0, 'proposed': 1}"
+      ],
+      [
+       "confirmed: it counts like coded data and may exclude (the malignancy), or makes a patient ready",
+       true,
+       "(9, {'11636eecbd18695afedf762657d7198c': 'ready', '1d7ad52bf552d27224c430a99575bbf7': 'ready', '2415dcc904961d65cca4011206390fdf': 'not_eligible', '7ea6bc8f855d6b9f78a666947acaa635': 'ready', 'b38a19f2cc4458b55047efdb1f9f9575': 'not_eligible', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'not_eligible'})"
+      ],
+      [
+       "feasibility says how much of the count rests on confirmed facts",
+       true,
+       "{'id': 'SITE5B-EXC-01', 'label': '悪性腫瘍の既往', 'remaining': 3, 'coded': 2, 'confirmed': 1, 'proposed': 0}"
+      ],
+      [
+       "the readiness page is green",
+       true,
+       "[]"
+      ],
+      [
+       "Ask TrialBox answers \"what next?\" and \"why?\" from the pages, and changes nothing",
+       true,
+       ""
+      ],
+      [
+       "no chart number or name on the pages or in the audit",
+       true,
+       ""
+      ],
+      [
+       "every decision is in the audit",
+       true,
+       ""
+      ],
+      [
+       "the hospital's own lake is untouched by the new site",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-ja-12.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "13 Japan: SS-MIX2, JP Core and the licensed code lists",
+     "ok": true,
+     "seconds": 10.1,
+     "checks": [
+      [
+       "the synthetic SS-MIX2 hospital has ADT-52, OMP-02/11/12 and extended-storage documents",
+       true,
+       "{'patient': 400, 'encounter': 2721, 'diagnosis': 1142, 'medication': 3648, 'lab': 1897, 'ADT-52': 68, 'OMP-02': 165, 'OMP-11': 1077, 'OMP-12': 109, 'document': 30}"
+      ],
+      [
+       "without the files the box says which lists are not loaded",
+       true,
+       ""
+      ],
+      [
+       "the loader reads each 10-row sample in its own encoding and layout",
+       true,
+       "{'medis': {'kind': 'medis', 'system': 'urn:oid:1.2.392.200119.4.101.6', 'version': 'sample-2026', 'source': 'medis_byomei_sample.txt', 'sha256': '794851b92a2929138940836ded2f16b7a33f995396a8d01100b1a67759777ad8', 'encoding': 'cp932', 'delimiter': 'comma', 'rows': 10, 'skipped': [], 'release_id': 1},"
+      ],
+      [
+       "each list is loaded with its version and source",
+       true,
+       "{'medis': ('loaded', 'sample-2026', 'medis_byomei_sample.txt'), 'jlac10': ('loaded', 'sample-2026', 'jlac10_sample.tsv'), 'yj': ('loaded', 'sample-2026', 'yj_hot_sample.txt')}"
+      ],
+      [
+       "D-130: without the lists their codes resolve nowhere (unknown); the MEDIS list resolves its codes, the rest stay unknown",
+       true,
+       "(381, 161)"
+      ],
+      [
+       "ADT-52: every class change read into its visit",
+       true,
+       "{'ADT-00': 400, 'ADT-12': 2653, 'ADT-22': 68, 'ADT-52': 68, 'ADT-52:class change': 68, 'OML-11': 1897, 'OMP-01': 2744, 'OMP-02': 165, 'OMP-11': 1077, 'OMP-11:with its order': 392, 'OMP-11:without an order': 685, 'OMP-12': 109, 'OMP-12:with its order': 55, 'OMP-12:without an order': 54, 'PPR-01': 114"
+      ],
+      [
+       "OMP-11/12: read with their order or on their own",
+       true,
+       ""
+      ],
+      [
+       "the storage gives the CSV's patients, visits, medicines, diagnoses and results",
+       true,
+       "{'Patient': (400, 400), 'Encounter': (2721, 2721), 'MedicationRequest': (3648, 3648), 'Condition': (1142, 1142), 'Observation': (2729, 2729)}"
+      ],
+      [
+       "JP Core $validate passes on the sample (50 per type, at ingest)",
+       true,
+       "((612, 0, ['Condition/e2a8e5a58e690e78753df2ba241b7d3d Condition.code.coding: ZB31 is not in the loaded MEDIS 病名交換用コード release', 'Condition/c0a58b524f43bd696e386cd31920b1e7 Condition.code.coding: ZB24 is not in the loaded MEDIS 病名交換用コード release']), [])"
+      ],
+      [
+       "$validate over the written snapshot and the CLI agree",
+       true,
+       "(612, 0, 0)"
+      ],
+      [
+       "the check bites: the TW Core output of the same hospital fails JP Core, and says why",
+       true,
+       "['Condition/e2a8e5a58e690e78753df2ba241b7d3d Condition.meta.profile: claims a TW Core profile (https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Condition-twcore)', 'Condition/e2a8e5a58e690e78753df2ba241b7d3d Condition.meta.profile: claims no JP Core profile']"
+      ],
+      [
+       "extended-storage documents are in the lake with their text (Shift_JIS text and a PDF)",
+       true,
+       "(30, 30)"
+      ],
+      [
+       "no chart number or storage path in the documents' ids",
+       true,
+       ""
+      ],
+      [
+       "GOUT-COH funnel: the SS-MIX2 storage equals its CSV export",
+       true,
+       "{'csv': (400, {'GOUT-COH-INC-01': 118, 'GOUT-COH-INC-02': 79, 'GOUT-COH-INC-03': 59, 'GOUT-COH-INC-04': 15, 'GOUT-COH-INC-05': 4, 'GOUT-COH-INC-06': 3, 'GOUT-COH-INC-07': 0}), 'ssmix2': (400, {'GOUT-COH-INC-01': 118, 'GOUT-COH-INC-02': 79, 'GOUT-COH-INC-03': 59, 'GOUT-COH-INC-04': 15, 'GOUT-COH-INC-"
+      ],
+      [
+       "GOUT-COH funnel of the main run unchanged by step 7 (FEAS, SCREEN, cohort list)",
+       true,
+       "{'cohort': 5, 'feas': {'start': 5000, 'remaining': {'GOUT-COH-INC-02': 1210, 'GOUT-COH-INC-03': 797, 'GOUT-COH-INC-04': 237, 'GOUT-COH-INC-05': 54, 'GOUT-COH-INC-06': 26, 'GOUT-COH-INC-07': 6}}, 'screen': {'funnel': {'S0': 3341, 'S1': 9, 'S3': 0, 'S4': 9}, 'listed': 9, 'tiers': {'excluded': 3332, 'h"
+      ],
+      [
+       "each licensed load is in the hash-chained audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-ja-13.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "re-run (FR-REP-02)",
+     "ok": true,
+     "seconds": 11.4,
+     "checks": [
+      [
+       "FEAS on the approved ruleset",
+       true,
+       "None"
+      ],
+      [
+       "FEAS re-run byte-identical",
+       true,
+       "None"
+      ],
+      [
+       "SCREEN re-run byte-identical",
+       true,
+       "None"
+      ]
+     ],
+     "shot": "hospital-ja-14.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "runtime",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "whole run within 15 min",
+       true,
+       "104.4 s"
+      ]
+     ],
+     "shot": "hospital-ja-15.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    }
+   ],
+   "seconds": 104.4,
+   "chain_seconds": 51.5,
+   "screen": {
+    "funnel": [
+     [
+      "S0",
+      3022
+     ],
+     [
+      "S1",
+      92
+     ],
+     [
+      "S3",
+      92
+     ],
+     [
+      "S4",
+      81
+     ]
+    ],
+    "tiers": {
+     "excluded": 2941,
+     "high": 2,
+     "review": 79
+    },
+    "listed": 81,
+    "judging": {
+     "configured_note_block": "both_agree",
+     "disagreements": 0,
+     "failures": 0,
+     "judge_model": "stub",
+     "may_block": false,
+     "mode": "single",
+     "note_block": "never",
+     "note_block_reason": "no verifier configured: a single model may not exclude",
+     "verifier_model": null
+    }
+   },
+   "canary": null,
+   "wall_seconds": 112.1,
+   "part": "hospital",
+   "lang": "ja",
+   "tag": "hospital-ja",
+   "seconds_total": 112.8
+  },
+  {
+   "stages": [
+    {
+     "name": "0 data in",
+     "ok": true,
+     "seconds": 0.6,
+     "checks": [
+      [
+       "generator rate checks",
+       true,
+       "{'ok': 118, 'fail': 0, 'skipped': 8}"
+      ],
+      [
+       "lake counts = generator counts (patients, notes, encounters)",
+       true,
+       "lake {'patient': 5000, 'note': 8889, 'encounter': 34070} generator {'patient': 5000, 'note': 8889, 'encounter': 34070}"
+      ],
+      [
+       "no chart number, ID or phone column in the lake",
+       true,
+       "{}"
+      ],
+      [
+       "lake keys are pseudonyms, never chart numbers",
+       true,
+       "0"
+      ]
+     ],
+     "shot": "hospital-zh-TW-00.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "1 feasibility report",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "a finished FEAS job for GZQO",
+       true,
+       "['01M6ZCVCQ3Y2PZFE0Q4EKQVEVP']"
+      ],
+      [
+       "PDF, XLSX and JSON report",
+       true,
+       ""
+      ],
+      [
+       "start = every patient seen in 36 months",
+       true,
+       "5000"
+      ],
+      [
+       "INC-01 age >= 18 = recount from patient.csv",
+       true,
+       "(4829, 4829)"
+      ],
+      [
+       "INC-02 gout dx = recount from diagnosis.csv",
+       true,
+       "(1425, 1425)"
+      ],
+      [
+       "funnel never grows",
+       true,
+       "[4830, 1425, 740, 490, 490, 230, 230, 160, 145, 130, 115, 115, 110, 105, 90, 85, 85, 85, 85, 85, 85, 75, 75, 75]"
+      ],
+      [
+       "FR-REP-01 provenance block",
+       true,
+       "{'clock': 'clock pinned (test stack)', 'data_sources': ['csv (lake snapshot 2026-10-31)'], 'job_id': '01M6ZCVCQ3Y2PZFE0Q4EKQVEVP', 'language': 'zh-TW', 'model_summary': 'no model (filters only)', 'models': [], 'prompt_versions': [], 'ruleset': 'GZQO', 'ruleset_version': '1.1.0', 'run_date': '2026-11"
+      ],
+      [
+       "FEAS ran without a model (D-101)",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-zh-TW-01.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "2 investigator approval",
+     "ok": true,
+     "seconds": 0.1,
+     "checks": [
+      [
+       "both studies approved by the investigator",
+       true,
+       "[('GZQO', 'console:pi'), ('GOUT-COH', 'console:pi')]"
+      ],
+      [
+       "a coordinator's approve is refused (403, FR-AUTH-13)",
+       true,
+       "403"
+      ]
+     ],
+     "shot": "hospital-zh-TW-02.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "3 screening",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "stub model ran, single judge",
+       true,
+       "{'configured_note_block': 'both_agree', 'disagreements': 0, 'failures': 0, 'judge_model': 'stub', 'may_block': False, 'mode': 'single', 'note_block': 'never', 'note_block_reason': 'no verifier configured: a single model may not exclude', 'verifier_model': None}"
+      ],
+      [
+       "no note-based exclusion without two models agreeing",
+       true,
+       "{'configured_note_block': 'both_agree', 'disagreements': 0, 'failures': 0, 'judge_model': 'stub', 'may_block': False, 'mode': 'single', 'note_block': 'never', 'note_block_reason': 'no verifier configured: a single model may not exclude', 'verifier_model': None}"
+      ],
+      [
+       "funnel S0 >= S1 >= S3 >= S4 > 0",
+       true,
+       "{'S0': 3022, 'S1': 92, 'S3': 92, 'S4': 81}"
+      ],
+      [
+       "listed = high + review",
+       true,
+       "{'excluded': 2941, 'high': 2, 'review': 79}"
+      ],
+      [
+       "FR-REP-01 provenance names the model and prompt",
+       true,
+       "{'clock': 'clock pinned (test stack)', 'data_sources': ['csv (lake snapshot 2026-10-31)'], 'job_id': '01M6ZCVJWQTMBY8J5P02TG7JKR', 'language': 'zh-TW', 'model_summary': 'stub (single, never-exclude)', 'models': ['stub'], 'prompt_versions': ['judge_v4'], 'ruleset': 'GZQO', 'ruleset_version': '1.1.0',"
+      ],
+      [
+       "cohort list for GOUT-COH (no contact step)",
+       true,
+       "5"
+      ]
+     ],
+     "shot": "hospital-zh-TW-03.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "4 list, marks and mail",
+     "ok": true,
+     "seconds": 0.8,
+     "checks": [
+      [
+       "replacing a mark is accepted",
+       true,
+       "303"
+      ],
+      [
+       "mark history keeps the replaced mark",
+       true,
+       "['not_now', 'approach']"
+      ],
+      [
+       "N1 and N2 mail sent",
+       true,
+       "['TrialBox 摘要 2026-11-02：回診 3 · 下一步 1 · 新增 79 · 標記 3', 'TrialBox：2026-11-02 門診試驗候選人 1 位']"
+      ],
+      [
+       "mail carries no chart number",
+       true,
+       "[]"
+      ],
+      [
+       "mail carries no patient name",
+       true,
+       ""
+      ],
+      [
+       "mail shows the screening number beside the pseudonym (D-136)",
+       true,
+       "[('25541a42', 'GZQO-0001')]"
+      ],
+      [
+       "the PI's marked patients appear in the mail by pseudonym",
+       true,
+       "['25541a42', '61c68617', '1558e4de']"
+      ]
+     ],
+     "shot": "hospital-zh-TW-04.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "5 ready and needs-information lists",
+     "ok": true,
+     "seconds": 0.9,
+     "checks": [
+      [
+       "ready and needs information do not overlap",
+       true,
+       ""
+      ],
+      [
+       "ready rows have no unknown",
+       true,
+       "2"
+      ],
+      [
+       "needs-information rows have an unknown",
+       true,
+       "78"
+      ],
+      [
+       "ready: at most 25 rows a page",
+       true,
+       "2"
+      ],
+      [
+       "needs information: fewest unknowns first",
+       true,
+       "[1, 1, 1, 1, 1, 1, 1, 1, 1, 1]"
+      ],
+      [
+       "needs: at most 25 rows a page",
+       true,
+       "25"
+      ],
+      [
+       "rail counts = the split",
+       true,
+       "{'ready': 2, 'needs': 78}"
+      ],
+      [
+       "S3 explains the list: listed, ready, needs",
+       true,
+       "[80, 2, 78] vs [80, 2, 78]"
+      ]
+     ],
+     "shot": "hospital-zh-TW-05.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "7 REDCap read-back and screening log",
+     "ok": true,
+     "seconds": 0.1,
+     "checks": [
+      [
+       "S36 test connection",
+       true,
+       ""
+      ],
+      [
+       "candidate -> consented -> enrolled",
+       true,
+       "('候選', '已同意 · 2026-11-09', '已納入 · 2026-11-09')"
+      ],
+      [
+       "sponsor subject number shown",
+       true,
+       ""
+      ],
+      [
+       "screening log exports as XLSX",
+       true,
+       "200"
+      ],
+      [
+       "the log row is consented/enrolled",
+       true,
+       "[['GZQO-0001', '25541a4247f84583324b4d9a3f04ae9a', '2026-11-09', '2026-11-02', 'approach', None, '2026-11-02', 'not_reached', 1, 'enrolled', 'REDCap record 3', '2026-11-09', '3', 'S-0003'], ['GZQO-0002', '1558e4dea3a7b1a3bc6e29922a0202da', '2026-11-09', '2026-11-02', 'approach', None, '2026-11-02', "
+      ]
+     ],
+     "shot": "hospital-zh-TW-06.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "audit",
+     "ok": true,
+     "seconds": 0.6,
+     "checks": [
+      [
+       "D-133: the investigator may not reveal a chart number (role text)",
+       true,
+       "403"
+      ],
+      [
+       "the coordinator reveals one chart number",
+       true,
+       "200"
+      ],
+      [
+       "01a: FEAS state changes in the audit",
+       true,
+       "['received', 'parsing', 'compiling', 'awaiting_approval', 'received', 'running', 'reporting', 'done']"
+      ],
+      [
+       "01a: every FEAS output file in the audit",
+       true,
+       "8"
+      ],
+      [
+       "01a: SCREEN state changes in the audit",
+       true,
+       "['received', 'running', 'reporting', 'done']"
+      ],
+      [
+       "01a: every SCREEN output file in the audit",
+       true,
+       "5"
+      ],
+      [
+       "01b: reveal with user, study, pid, reason and time",
+       true,
+       "{'actor': 'console:crc', 'detail': {'affiliation': 'hospital', 'pid': '25541a4247f84583324b4d9a3f04ae9a', 'reason': 'consent', 'role': 'coordinator'}, 'event': 'console.reveal_patient', 'hash': '7fb50a976bfc15c58b70e267535344821335f60eb878f34779d5be62d9d8c035', 'job_id': '01M6ZCVJWQTMBY8J5P02TG7JKR'"
+      ],
+      [
+       "01b: the box side records the same reveal",
+       true,
+       ""
+      ],
+      [
+       "01e: every investigator mark (3 + 1 replaced)",
+       true,
+       "4"
+      ],
+      [
+       "01e: the coordinator's contact outcome",
+       true,
+       ""
+      ],
+      [
+       "01e: registry status changes from REDCap, by pseudonym",
+       true,
+       "[{'from': None, 'pid': '25541a4247f84583324b4d9a3f04ae9a', 'record_id': '3', 'to': 'consented'}, {'from': 'consented', 'pid': '25541a4247f84583324b4d9a3f04ae9a', 'record_id': '3', 'to': 'enrolled'}]"
+      ],
+      [
+       "hash chain verifies",
+       true,
+       "[]"
+      ],
+      [
+       "no patient name in the audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-zh-TW-07.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "8 REDCap write-back",
+     "ok": true,
+     "seconds": 0.8,
+     "checks": [
+      [
+       "S21 saves the link with write-back on",
+       true,
+       ""
+      ],
+      [
+       "at least two screening numbers on the log",
+       true,
+       "['GZQO-0001', 'GZQO-0002']"
+      ],
+      [
+       "Run now reports the write",
+       true,
+       "200"
+      ],
+      [
+       "every screening number has its REDCap record",
+       true,
+       "[]"
+      ],
+      [
+       "TrialBox's instrument is filled for each",
+       true,
+       "{'GZQO-0001': '4', 'GZQO-0002': '1'}"
+      ],
+      [
+       "the enrolled patient reads 4 (enrolled) in tb_status",
+       true,
+       "{'record_id': '3', 'tb_screening_no': 'GZQO-0001', 'consent_date': '2026-11-01', 'enrolled': '1', 'sf_reason': '', 'subject_no': 'S-0003', 'tb_screen_date': '2026-11-01', 'tb_status': '4', 'tb_status_date': '2026-11-09'}"
+      ],
+      [
+       "no REDCap-owned field changed",
+       true,
+       "[]"
+      ],
+      [
+       "a new screening number got a new REDCap record",
+       true,
+       "('GZQO-0002', '4')"
+      ],
+      [
+       "next run: consent read back on the log",
+       true,
+       "已同意 · 2026-11-09"
+      ],
+      [
+       "next run: tb_status follows (3, consented)",
+       true,
+       ""
+      ],
+      [
+       "a third run writes nothing new",
+       true,
+       "4"
+      ],
+      [
+       "the write is in the audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-zh-TW-08.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "9 data core: REDCap off then on, conflicts, a PI's sheet",
+     "ok": true,
+     "seconds": 0.3,
+     "checks": [
+      [
+       "S36 saves the second project's connection",
+       true,
+       "200"
+      ],
+      [
+       "the data dictionary becomes TrialBox forms",
+       true,
+       "{'forms': ['enrolment', 'end_of_study', 'trialbox_screening'], 'fields': 7, 'dropped': []}"
+      ],
+      [
+       "REDCap off: entries kept in TrialBox alone",
+       true,
+       "{'RB0901': {'icf_dt': {'value': '2026-10-01', 'by': 'crc1', 'at': '2026-11-09T13:35:35+08:00'}, 'tb_status': {'value': '3', 'by': 'crc1', 'at': '2026-11-09T13:35:35+08:00'}}, 'RB0950': {'tb_screen_date': {'value': '2026-11-01', 'by': 'crc1', 'at': '2026-11-09T13:35:35+08:00'}, 'tb_status': {'value':"
+      ],
+      [
+       "REDCap on: TrialBox's own earlier consent date vs REDCap's is listed, not forced",
+       true,
+       "[{'id': 1, 'record': 'RB0901', 'event': '', 'field': 'icf_dt', 'owner': 'redcap', 'trialbox': '2026-10-01', 'theirs': '2026-10-02'}]"
+      ],
+      [
+       "sync pushes TrialBox's fields to REDCap",
+       true,
+       "{'rec_id': '7', 'redcap_event_name': 'screening_arm_1', 'tb_screening_no': 'RB0901', 'icf_dt': '2026-10-02', 'rand_yn': '1', 'withdrawn': '', 'tb_screen_date': '', 'tb_status': '3', 'tb_status_date': ''}"
+      ],
+      [
+       "a TrialBox record REDCap lacked is created there",
+       true,
+       "['RB0901', 'RB0902', 'RB0950']"
+      ],
+      [
+       "a REDCap-side edit of a TrialBox field is listed as a conflict, not taken",
+       true,
+       "{'source': 'redcap', 'pulled': 3, 'taken': 0, 'conflicts': [{'id': 2, 'record': 'RB0901', 'event': '', 'field': 'tb_status', 'owner': 'trialbox', 'trialbox': '3', 'theirs': '5'}], 'pushed': 0, 'created': {}, 'waiting': [], 'refused': [], 'at': '2026-11-09T13:35:35+08:00'}"
+      ],
+      [
+       "resolved: no open conflict, TrialBox's status pushed back",
+       true,
+       "{'source': 'redcap', 'pulled': 3, 'taken': 0, 'conflicts': [], 'pushed': 1, 'created': {}, 'waiting': [], 'refused': [], 'at': '2026-11-09T13:35:35+08:00'}"
+      ],
+      [
+       "the chosen consent date is REDCap's",
+       true,
+       "icf_dt"
+      ],
+      [
+       "a PI's sheet: the name column is dropped",
+       true,
+       "['氏名']"
+      ],
+      [
+       "a PI's sheet: a row without a chart number is refused and listed",
+       true,
+       "[{'at': 'row 3', 'reason': 'no screening number and no chart number'}]"
+      ],
+      [
+       "a PI's sheet: the chart number is pseudonymised, no name stored",
+       true,
+       "{'source': 'sheet:pi', 'pulled': 1, 'taken': 1, 'conflicts': [], 'pushed': 0, 'created': {}, 'waiting': [], 'refused': [{'at': 'row 3', 'reason': 'no screening number and no chart number'}], 'dropped': ['氏名'], 'at': '2026-11-09T13:35:35+08:00'}"
+      ],
+      [
+       "sync, resolve and import are in the audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-zh-TW-09.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "10 built-in data capture",
+     "ok": true,
+     "seconds": 1.5,
+     "checks": [
+      [
+       "the built-in forms are added in one call",
+       true,
+       "200"
+      ],
+      [
+       "seven built-in forms",
+       true,
+       "['tb_screening_log', 'tb_consent', 'tb_enrolment', 'tb_visit', 'tb_adverse_event', 'tb_deviation', 'tb_withdrawal']"
+      ],
+      [
+       "the entry page opens a screening number's consent, labels in the page's language",
+       true,
+       "200"
+      ],
+      [
+       "a required field missing is refused, in the page's language",
+       true,
+       "200"
+      ],
+      [
+       "the consent is saved; the history page follows",
+       true,
+       "http://testserver/studies/GZQO/history?record=GZQO-0001&saved=tb_consent&event="
+      ],
+      [
+       "an out-of-range value is refused, per field",
+       true,
+       "200"
+      ],
+      [
+       "the visit is saved on event v1",
+       true,
+       "200"
+      ],
+      [
+       "the edit shows in the history: who, old, new",
+       true,
+       "[{'id': 25, 'study': 'GZQO', 'record': 'GZQO-0001', 'event': '', 'field': 'ic_version', 'old': 'v2.1', 'new': 'v2.2', 'by': 'console:crc', 'at': '2026-11-09T13:35:36+08:00', 'source': 'trialbox'}]"
+      ],
+      [
+       "ODM 1.3.2 export downloads",
+       true,
+       "200"
+      ],
+      [
+       "the fresh REDCap project takes the ODM",
+       true,
+       "{\"count\":1}"
+      ],
+      [
+       "every value equal after the ODM round trip",
+       true,
+       "{'only_trialbox': [], 'only_redcap': []}"
+      ],
+      [
+       "the REDCap CSV columns match the dictionary",
+       true,
+       "['record_id', 'redcap_event_name', 'sl_date', 'sl_how', 'sl_eligible', 'sl_reason']"
+      ],
+      [
+       "the REDCap CSV has one row per record and event",
+       true,
+       "[['GZQO-0001', 'event_1_arm_1'], ['GZQO-0001', 'v1']]"
+      ],
+      [
+       "no chart number in the exports",
+       true,
+       ""
+      ],
+      [
+       "entry and export are in the audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-zh-TW-10.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "11 trial lifecycle",
+     "ok": true,
+     "seconds": 4.6,
+     "checks": [
+      [
+       "the visit schedule is saved (3 visits with windows)",
+       true,
+       "200"
+      ],
+      [
+       "the new screening number is a participant (candidate)",
+       true,
+       "200"
+      ],
+      [
+       "an illegal step is refused with a plain reason, in the page's language",
+       true,
+       "409"
+      ],
+      [
+       "nothing changed after the refusal",
+       true,
+       "candidate"
+      ],
+      [
+       "approached, recorded by the coordinator",
+       true,
+       "200"
+      ],
+      [
+       "consent and enrolment forms move the participant to enrolled",
+       true,
+       "200"
+      ],
+      [
+       "visit v1: due, then in its window, then overdue (given days, site time zone)",
+       true,
+       "['due', 'open', 'overdue']"
+      ],
+      [
+       "the coordinator's visit list shows it under Overdue",
+       true,
+       "200"
+      ],
+      [
+       "the coordinator's home page lists the overdue visit",
+       true,
+       ""
+      ],
+      [
+       "N2 lists the overdue visit by pseudonym with its screening number (D-136)",
+       true,
+       "僅列病人代號與篩選編號，不含姓名與病歷號。\n\n## 今日試驗訪視：0 次\n\n- 無\n\n## 已逾期的試驗訪視：1 次\n\n- 病人 ea8b058a (GZQO-0003)（GZQO）：訪視 v1，窗口 2026-10-26 至 2026-10-30\n\n## 今日回診：0 位\n\n- 無\n\n## 下一步：0 項\n\n- 無\n\n## 新的預篩選：0 位\n\n- 無\n\n## 上次摘要以來主持人的標記：0 項\n\n- 無\n\n\n---\n寄送原因：您是這些試驗的研究護理師；摘要於工作日 07:30 寄出。\n變更或停止這些郵件：https://trialbox.hospa.test/settings/notices"
+      ],
+      [
+       "N2 carries no chart number",
+       true,
+       ""
+      ],
+      [
+       "Done today opens the visit form filled in for today",
+       true,
+       "True"
+      ],
+      [
+       "Save: the visit is done and leaves the list",
+       true,
+       "200"
+      ],
+      [
+       "the first visit done: on study",
+       true,
+       "on_study"
+      ],
+      [
+       "two AEs logged on events ae1 and ae2",
+       true,
+       "['ae1', 'ae2']"
+      ],
+      [
+       "the serious AE is shown on the investigator's home page",
+       true,
+       ""
+      ],
+      [
+       "the withdrawal form: withdrawn, no further step offered",
+       true,
+       "200"
+      ],
+      [
+       "a step after withdrawal is refused",
+       true,
+       ""
+      ],
+      [
+       "the remaining visits are not needed",
+       true,
+       "['done', 'stopped', 'stopped']"
+      ],
+      [
+       "every step is in the participant's history",
+       true,
+       "[(None, 'candidate'), ('candidate', 'approached'), ('approached', 'consented'), ('consented', 'enrolled'), ('enrolled', 'on_study'), ('on_study', 'withdrawn')]"
+      ],
+      [
+       "screening log = enrolment report = REDCap read-back, on every count",
+       true,
+       "{'log': {'enrolled': 1, 'consented': 1, 'withdrawn': 1}, 'report': {'consented': 1, 'enrolled': 1, 'withdrawn': 1}, 'redcap': {'enrolled': 1, 'consented': 1, 'withdrawn': 1}}"
+      ],
+      [
+       "the new participant reads withdrawn in all three",
+       true,
+       "GZQO-0003"
+      ],
+      [
+       "the enrolment report downloads as XLSX and CSV",
+       true,
+       ""
+      ],
+      [
+       "no chart number in the report",
+       true,
+       ""
+      ],
+      [
+       "steps, refusals and the schedule are in the audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-zh-TW-11.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "12 site set-up and data harmonization",
+     "ok": true,
+     "seconds": 20.5,
+     "checks": [
+      [
+       "start: nothing yet, the patients question is red",
+       true,
+       "red"
+      ],
+      [
+       "the protocol's criteria are drafted and wait for the investigator",
+       true,
+       "['awaiting_approval']"
+      ],
+      [
+       "approved: the trial question is green",
+       true,
+       "green"
+      ],
+      [
+       "two pasted charts: facts proposed, each beside its quote",
+       true,
+       "9"
+      ],
+      [
+       "charts alone: the box says feasibility needs a bulk source",
+       true,
+       ""
+      ],
+      [
+       "a proposed fact never counts and never excludes: both chart patients need information",
+       true,
+       "{'1d7ad52bf552d27224c430a99575bbf7': 'needs', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs'}"
+      ],
+      [
+       "the dump: unmapped local codes and diagnoses in an unknown code system are listed",
+       true,
+       ""
+      ],
+      [
+       "until mapped, a local code is an unknown code system: needs information, never a silent no (D-130)",
+       true,
+       "{'11636eecbd18695afedf762657d7198c': 'needs', '1d7ad52bf552d27224c430a99575bbf7': 'needs', '7ea6bc8f855d6b9f78a666947acaa635': 'needs', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'needs'}"
+      ],
+      [
+       "codes mapped with one tap each: the coded patients are read",
+       true,
+       "(4, {'11636eecbd18695afedf762657d7198c': 'ready', '1d7ad52bf552d27224c430a99575bbf7': 'needs', '7ea6bc8f855d6b9f78a666947acaa635': 'ready', 'b38a19f2cc4458b55047efdb1f9f9575': 'needs', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'not_eligible'})"
+      ],
+      [
+       "coded-eligible with a proposed malignancy from a chart: needs information, not excluded",
+       true,
+       "needs"
+      ],
+      [
+       "safe fixes made and listed: era and 民國 dates, full width, units, merged cells, the title row",
+       true,
+       "['dmy', 'era', 'format', 'header_row', 'merged', 'minguo', 'unit', 'width']"
+      ],
+      [
+       "the rest is asked, nothing guessed: day/month, an unknown unit, a possible chart number, no key",
+       true,
+       "['chart_column', 'date_order', 'no_key', 'unit']"
+      ],
+      [
+       "the name column is dropped and never shown",
+       true,
+       ""
+      ],
+      [
+       "the scripted coordinator works through the \"please check\" list",
+       true,
+       "4"
+      ],
+      [
+       "one patient from the dump, the list and a chart is one pseudonym; the two birth dates are listed",
+       true,
+       "[{'pid': '11636eecbd18695afedf762657d7198c', 'what': 'birth_date', 'values': [{'value': '1971-05-06', 'facts': [63]}, {'value': '1971-06-05', 'facts': [15]}]}]"
+      ],
+      [
+       "feasibility: proposed facts are not counted",
+       true,
+       "{'id': 'SITE5B-EXC-01', 'label': '悪性腫瘍の既往', 'remaining': 3, 'coded': 3, 'confirmed': 0, 'proposed': 1}"
+      ],
+      [
+       "confirmed: it counts like coded data and may exclude (the malignancy), or makes a patient ready",
+       true,
+       "(9, {'11636eecbd18695afedf762657d7198c': 'ready', '1d7ad52bf552d27224c430a99575bbf7': 'ready', '2415dcc904961d65cca4011206390fdf': 'not_eligible', '7ea6bc8f855d6b9f78a666947acaa635': 'ready', 'b38a19f2cc4458b55047efdb1f9f9575': 'not_eligible', 'ce6ea4da07c623e0b41e7ac18a98f1e6': 'not_eligible'})"
+      ],
+      [
+       "feasibility says how much of the count rests on confirmed facts",
+       true,
+       "{'id': 'SITE5B-EXC-01', 'label': '悪性腫瘍の既往', 'remaining': 3, 'coded': 2, 'confirmed': 1, 'proposed': 0}"
+      ],
+      [
+       "the readiness page is green",
+       true,
+       "[]"
+      ],
+      [
+       "Ask TrialBox answers \"what next?\" and \"why?\" from the pages, and changes nothing",
+       true,
+       ""
+      ],
+      [
+       "no chart number or name on the pages or in the audit",
+       true,
+       ""
+      ],
+      [
+       "every decision is in the audit",
+       true,
+       ""
+      ],
+      [
+       "the hospital's own lake is untouched by the new site",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-zh-TW-12.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "13 Japan: SS-MIX2, JP Core and the licensed code lists",
+     "ok": true,
+     "seconds": 10.1,
+     "checks": [
+      [
+       "the synthetic SS-MIX2 hospital has ADT-52, OMP-02/11/12 and extended-storage documents",
+       true,
+       "{'patient': 400, 'encounter': 2721, 'diagnosis': 1142, 'medication': 3648, 'lab': 1897, 'ADT-52': 68, 'OMP-02': 165, 'OMP-11': 1077, 'OMP-12': 109, 'document': 30}"
+      ],
+      [
+       "without the files the box says which lists are not loaded",
+       true,
+       ""
+      ],
+      [
+       "the loader reads each 10-row sample in its own encoding and layout",
+       true,
+       "{'medis': {'kind': 'medis', 'system': 'urn:oid:1.2.392.200119.4.101.6', 'version': 'sample-2026', 'source': 'medis_byomei_sample.txt', 'sha256': '794851b92a2929138940836ded2f16b7a33f995396a8d01100b1a67759777ad8', 'encoding': 'cp932', 'delimiter': 'comma', 'rows': 10, 'skipped': [], 'release_id': 1},"
+      ],
+      [
+       "each list is loaded with its version and source",
+       true,
+       "{'medis': ('loaded', 'sample-2026', 'medis_byomei_sample.txt'), 'jlac10': ('loaded', 'sample-2026', 'jlac10_sample.tsv'), 'yj': ('loaded', 'sample-2026', 'yj_hot_sample.txt')}"
+      ],
+      [
+       "D-130: without the lists their codes resolve nowhere (unknown); the MEDIS list resolves its codes, the rest stay unknown",
+       true,
+       "(381, 161)"
+      ],
+      [
+       "ADT-52: every class change read into its visit",
+       true,
+       "{'ADT-00': 400, 'ADT-12': 2653, 'ADT-22': 68, 'ADT-52': 68, 'ADT-52:class change': 68, 'OML-11': 1897, 'OMP-01': 2744, 'OMP-02': 165, 'OMP-11': 1077, 'OMP-11:with its order': 392, 'OMP-11:without an order': 685, 'OMP-12': 109, 'OMP-12:with its order': 55, 'OMP-12:without an order': 54, 'PPR-01': 114"
+      ],
+      [
+       "OMP-11/12: read with their order or on their own",
+       true,
+       ""
+      ],
+      [
+       "the storage gives the CSV's patients, visits, medicines, diagnoses and results",
+       true,
+       "{'Patient': (400, 400), 'Encounter': (2721, 2721), 'MedicationRequest': (3648, 3648), 'Condition': (1142, 1142), 'Observation': (2729, 2729)}"
+      ],
+      [
+       "JP Core $validate passes on the sample (50 per type, at ingest)",
+       true,
+       "((612, 0, ['Condition/4542521602a555f52f49b244778c04b0 Condition.code.coding: ZB18 is not in the loaded MEDIS 病名交換用コード release', 'Condition/dc92f166712e751c3d9906f34c591e77 Condition.code.coding: ZB24 is not in the loaded MEDIS 病名交換用コード release']), [])"
+      ],
+      [
+       "$validate over the written snapshot and the CLI agree",
+       true,
+       "(612, 0, 0)"
+      ],
+      [
+       "the check bites: the TW Core output of the same hospital fails JP Core, and says why",
+       true,
+       "['Condition/4542521602a555f52f49b244778c04b0 Condition.meta.profile: claims a TW Core profile (https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/Condition-twcore)', 'Condition/4542521602a555f52f49b244778c04b0 Condition.meta.profile: claims no JP Core profile']"
+      ],
+      [
+       "extended-storage documents are in the lake with their text (Shift_JIS text and a PDF)",
+       true,
+       "(30, 30)"
+      ],
+      [
+       "no chart number or storage path in the documents' ids",
+       true,
+       ""
+      ],
+      [
+       "GOUT-COH funnel: the SS-MIX2 storage equals its CSV export",
+       true,
+       "{'csv': (400, {'GOUT-COH-INC-01': 118, 'GOUT-COH-INC-02': 79, 'GOUT-COH-INC-03': 59, 'GOUT-COH-INC-04': 15, 'GOUT-COH-INC-05': 4, 'GOUT-COH-INC-06': 3, 'GOUT-COH-INC-07': 0}), 'ssmix2': (400, {'GOUT-COH-INC-01': 118, 'GOUT-COH-INC-02': 79, 'GOUT-COH-INC-03': 59, 'GOUT-COH-INC-04': 15, 'GOUT-COH-INC-"
+      ],
+      [
+       "GOUT-COH funnel of the main run unchanged by step 7 (FEAS, SCREEN, cohort list)",
+       true,
+       "{'cohort': 5, 'feas': {'start': 5000, 'remaining': {'GOUT-COH-INC-02': 1210, 'GOUT-COH-INC-03': 797, 'GOUT-COH-INC-04': 237, 'GOUT-COH-INC-05': 54, 'GOUT-COH-INC-06': 26, 'GOUT-COH-INC-07': 6}}, 'screen': {'funnel': {'S0': 3341, 'S1': 9, 'S3': 0, 'S4': 9}, 'listed': 9, 'tiers': {'excluded': 3332, 'h"
+      ],
+      [
+       "each licensed load is in the hash-chained audit",
+       true,
+       ""
+      ]
+     ],
+     "shot": "hospital-zh-TW-13.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "re-run (FR-REP-02)",
+     "ok": true,
+     "seconds": 11.1,
+     "checks": [
+      [
+       "FEAS on the approved ruleset",
+       true,
+       "None"
+      ],
+      [
+       "FEAS re-run byte-identical",
+       true,
+       "None"
+      ],
+      [
+       "SCREEN re-run byte-identical",
+       true,
+       "None"
+      ]
+     ],
+     "shot": "hospital-zh-TW-14.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "runtime",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "whole run within 15 min",
+       true,
+       "103.1 s"
+      ]
+     ],
+     "shot": "hospital-zh-TW-15.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    }
+   ],
+   "seconds": 103.1,
+   "chain_seconds": 51.2,
+   "screen": {
+    "funnel": [
+     [
+      "S0",
+      3022
+     ],
+     [
+      "S1",
+      92
+     ],
+     [
+      "S3",
+      92
+     ],
+     [
+      "S4",
+      81
+     ]
+    ],
+    "tiers": {
+     "excluded": 2941,
+     "high": 2,
+     "review": 79
+    },
+    "listed": 81,
+    "judging": {
+     "configured_note_block": "both_agree",
+     "disagreements": 0,
+     "failures": 0,
+     "judge_model": "stub",
+     "may_block": false,
+     "mode": "single",
+     "note_block": "never",
+     "note_block_reason": "no verifier configured: a single model may not exclude",
+     "verifier_model": null
+    }
+   },
+   "canary": null,
+   "wall_seconds": 110.8,
+   "part": "hospital",
+   "lang": "zh-TW",
+   "tag": "hospital-zh-TW",
+   "seconds_total": 111.6
+  },
+  {
+   "stages": [
+    {
+     "name": "0 public data in",
+     "ok": true,
+     "seconds": 0.4,
+     "checks": [
+      [
+       "every source document is one patient (SIGIR 53, MedTxt-CR 123, MedTxt-RR 92)",
+       true,
+       "{'SIGIR': 53, 'MedTxt-CR': 123, 'MedTxt-RR': 92}"
+      ],
+      [
+       "ingest passed",
+       true,
+       "{'passed': True, 'counts': {'Appointment': 89, 'Condition': 149, 'Coverage': 268, 'DocumentReference': 268, 'Encounter': 268, 'Organization': 2, 'Patient': 268, 'Practitioner': 2}, 'missing_required': {'Patient.birthDate': 120}}"
+      ],
+      [
+       "lake counts = CSV counts (patients, notes, diagnoses)",
+       true,
+       "lake {'patient': 268, 'note': 268, 'dx': 149} csv {'patient': 268, 'note': 268, 'dx': 149}"
+      ],
+      [
+       "note text reaches the lake verbatim",
+       true,
+       "268"
+      ],
+      [
+       "no chart number column in the lake",
+       true,
+       "{'patient': {'sex', 'snapshot', 'deceased_date', 'pid', 'birth_date'}, 'encounter': {'class', 'snapshot', 'practitioner_id', 'start', 'eid', 'dept', 'pid'}, 'document': {'text', 'snapshot', 'type', 'eid', 'date', 'did', 'pid'}, 'condition': {'code', 'eid', 'snapshot', 'status', 'cid', 'recorded', 'o"
+      ],
+      [
+       "lake keys are pseudonyms",
+       true,
+       "0"
+      ],
+      [
+       "missing birth dates reported, not invented",
+       true,
+       "{'Patient.birthDate': 120}"
+      ]
+     ],
+     "shot": "public-ja-00.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "1 criteria, approval and feasibility",
+     "ok": true,
+     "seconds": 7.1,
+     "checks": [
+      [
+       "S2 paste PUB-CA -> draft waiting for approval",
+       true,
+       "(200, 'awaiting_approval')"
+      ],
+      [
+       "S2 paste PUB-ONC -> draft waiting for approval",
+       true,
+       "(200, 'awaiting_approval')"
+      ],
+      [
+       "coordinator ticks a criterion's codes on S20",
+       true,
+       "200"
+      ],
+      [
+       "coordinator's approve refused (403)",
+       true,
+       "403"
+      ],
+      [
+       "S20: criterion labels in Japanese and Chinese saved",
+       true,
+       "14/14"
+      ],
+      [
+       "investigator approves PUB-CA; FEAS finishes",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "investigator approves PUB-ONC; FEAS finishes",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "FEAS PDF, XLSX and JSON",
+       true,
+       "['feasibility_PUB-ONC_v1.0.0_2026-10-31.json', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.pdf', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.raw.json', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.xlsx', 'feasprofile_PUB-ONC_v1.0.0_2026-10-31.json', 'review_PUB-ONC_v1.0.0_r1.html', 'review_PUB-ONC_v1.0.0_r1.xlsx', "
+      ],
+      [
+       "start = every patient",
+       true,
+       "268"
+      ],
+      [
+       "age >= 18 = recount from patient.csv",
+       true,
+       "(129, 129)"
+      ],
+      [
+       "malignancy = every adult with a cancer code in diagnosis.csv (recount by ICD-10 family, not by the list)",
+       true,
+       "(41, 41)"
+      ],
+      [
+       "every cancer code in the data is in the malignancy value set",
+       true,
+       "not listed: [], 0 patients"
+      ],
+      [
+       "funnel never grows",
+       true,
+       "[130, 40, 40, 40, 40, 40, 40]"
+      ],
+      [
+       "FEAS ran without a model",
+       true,
+       "{'clock': 'clock pinned (test stack)', 'data_sources': ['csv (lake snapshot 2026-10-31)'], 'job_id': '01M6ZCXXHDPFTJ8MD5HPA0MXTX', 'language': 'ja', 'model_summary': 'no model (filters only)', 'models': [], 'prompt_versions': [], 'ruleset': 'PUB-ONC', 'ruleset_version': '1.0.0', 'run_date': '2026-11"
+      ],
+      [
+       "S3 feasibility page",
+       true,
+       "200"
+      ],
+      [
+       "S3 Refresh re-runs FEAS",
+       true,
+       "(303, 2)"
+      ]
+     ],
+     "shot": "public-ja-01.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "2 screening (patient list) on real notes",
+     "ok": true,
+     "seconds": 4.3,
+     "checks": [
+      [
+       "SCREEN PUB-ONC done",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "SCREEN PUB-CA done",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "screen funnel S0 >= S1 >= S3 >= S4",
+       true,
+       "{'S0': 268, 'S1': 90, 'S3': 90, 'S4': 90}"
+      ],
+      [
+       "listed = high + review",
+       true,
+       "{'excluded': 178, 'high': 0, 'review': 90}"
+      ],
+      [
+       "note-based exclusion only when two models agree",
+       true,
+       "{'configured_note_block': 'both_agree', 'disagreements': 0, 'failures': 0, 'judge_model': 'stub', 'may_block': False, 'mode': 'single', 'note_block': 'never', 'note_block_reason': 'no verifier configured: a single model may not exclude', 'verifier_model': None}"
+      ],
+      [
+       "cohort list PUB-CA has members, no contact step",
+       true,
+       "41"
+      ]
+     ],
+     "shot": "public-ja-02.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "3 list, S5 and marks",
+     "ok": true,
+     "seconds": 3.2,
+     "checks": [
+      [
+       "the list has at least three patients",
+       true,
+       "90"
+      ],
+      [
+       "PI list page",
+       true,
+       "200"
+      ],
+      [
+       "mark approach",
+       true,
+       "303"
+      ],
+      [
+       "mark need_info",
+       true,
+       "303"
+      ],
+      [
+       "mark not_now",
+       true,
+       "303"
+      ],
+      [
+       "replace a mark: history keeps both",
+       true,
+       "['not_now', 'approach']"
+      ],
+      [
+       "withdraw a mark",
+       true,
+       "(303, ['not_now', 'approach', 'withdrawn'], '')"
+      ],
+      [
+       "S5 patient page",
+       true,
+       "200"
+      ],
+      [
+       "coordinator records a contact outcome",
+       true,
+       "303"
+      ],
+      [
+       "Approach gives a screening number",
+       true,
+       "PUB-ONC-0001"
+      ],
+      [
+       "screening log lists the approached patient",
+       true,
+       "200"
+      ],
+      [
+       "screening log XLSX opens",
+       true,
+       "200"
+      ],
+      [
+       "the coordinator adds the built-in forms",
+       true,
+       "200"
+      ]
+     ],
+     "shot": "public-ja-03.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "4 N1 / N2 mail",
+     "ok": true,
+     "seconds": 0.3,
+     "checks": [
+      [
+       "N1 and N2 sent",
+       true,
+       "['TrialBox ダイジェスト 2026-11-02：来院 1 · 次の作業 1 · 新規 89 · 判断 5', 'TrialBox：2026-11-02 の外来の試験候補者 1 名']"
+      ],
+      [
+       "mail carries no chart number",
+       true,
+       "[]"
+      ],
+      [
+       "mail shows the screening number beside the pseudonym (D-136)",
+       true,
+       "[('69390044', 'PUB-ONC-0001'), ('6b3337bb', 'PUB-ONC-0002')]"
+      ]
+     ],
+     "shot": "public-ja-04.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "5 REDCap simulator read-back",
+     "ok": true,
+     "seconds": 0.8,
+     "checks": [
+      [
+       "S36 Test connection (version shown, token never shown)",
+       true,
+       "200"
+      ],
+      [
+       "S21 project link checked against the data dictionary",
+       true,
+       "stener(\"input\", function () { dirty = true; }); f.addEventListener(\"change\", function () { dirty = true; }); f.addEventListener(\"submit\", function () { dirty = false; }); }); window.addEventListener(\"beforeunload\", function (e) { if (!dirty) return; e.preventDefault(); e.returnValue = \"\"; }); })(); "
+      ],
+      [
+       "Run now: consented",
+       true,
+       "同意取得 · 2026-11-09"
+      ],
+      [
+       "Run now: enrolled, subject number shown",
+       true,
+       "登録 · 2026-11-09"
+      ]
+     ],
+     "shot": "public-ja-05.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "5b trial lifecycle (D-134)",
+     "ok": true,
+     "seconds": 1.9,
+     "checks": [
+      [
+       "the visit schedule is saved",
+       true,
+       "200"
+      ],
+      [
+       "both screening numbers are participants",
+       true,
+       "200"
+      ],
+      [
+       "enrolled through the forms",
+       true,
+       "200"
+      ],
+      [
+       "a serious AE on ae1",
+       true,
+       "200"
+      ],
+      [
+       "today's visit is on the coordinator's list",
+       true,
+       ""
+      ],
+      [
+       "the serious AE is on the investigator's home page",
+       true,
+       ""
+      ],
+      [
+       "the enrolment report",
+       true,
+       ""
+      ]
+     ],
+     "shot": "public-ja-06.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "5c site set-up and data harmonization (D-135)",
+     "ok": true,
+     "seconds": 4.6,
+     "checks": [
+      [
+       "the practice site loads in one tap",
+       true,
+       "200"
+      ],
+      [
+       "its readiness lists what is missing",
+       true,
+       ""
+      ],
+      [
+       "proposed facts beside their quotes",
+       true,
+       "9"
+      ],
+      [
+       "one tap confirms a fact",
+       true,
+       "200"
+      ],
+      [
+       "the hospital's own data is untouched by the practice site",
+       true,
+       ""
+      ],
+      [
+       "Ask TrialBox answers what to do next",
+       true,
+       "200"
+      ]
+     ],
+     "shot": "public-ja-07.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "6 other screens",
+     "ok": true,
+     "seconds": 4.6,
+     "checks": [
+      [
+       "crc /home",
+       true,
+       "200"
+      ],
+      [
+       "crc /week",
+       true,
+       "200"
+      ],
+      [
+       "crc /account",
+       true,
+       "200"
+      ],
+      [
+       "crc /help",
+       true,
+       "200"
+      ],
+      [
+       "crc /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "crc /reports",
+       true,
+       "200"
+      ],
+      [
+       "crc /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "pi /home",
+       true,
+       "200"
+      ],
+      [
+       "pi /week",
+       true,
+       "200"
+      ],
+      [
+       "pi /account",
+       true,
+       "200"
+      ],
+      [
+       "pi /help",
+       true,
+       "200"
+      ],
+      [
+       "pi /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "pi /reports",
+       true,
+       "200"
+      ],
+      [
+       "pi /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "admin /home",
+       true,
+       "200"
+      ],
+      [
+       "admin /week",
+       true,
+       "200"
+      ],
+      [
+       "admin /account",
+       true,
+       "200"
+      ],
+      [
+       "admin /help",
+       true,
+       "200"
+      ],
+      [
+       "admin /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "admin /reports",
+       true,
+       "200"
+      ],
+      [
+       "admin /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "banner says public data",
+       true,
+       ""
+      ],
+      [
+       "request menu: this site's studies only",
+       true,
+       "['PUB-ONC', 'PUB-CA', 'PUB-ONC']"
+      ],
+      [
+       "clinician names from the records",
+       true,
+       ""
+      ],
+      [
+       "research-office counts",
+       true,
+       "200"
+      ],
+      [
+       "research-office XLSX",
+       true,
+       "200"
+      ],
+      [
+       "command field: 'PUB-ONC'",
+       true,
+       "200"
+      ],
+      [
+       "command field: '69390044'",
+       true,
+       "200"
+      ],
+      [
+       "command field: 'help'",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=health",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=jobs",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=sources",
+       true,
+       "200"
+      ],
+      [
+       "admin /ops/users",
+       true,
+       "200"
+      ],
+      [
+       "admin /audit",
+       true,
+       "200"
+      ],
+      [
+       "admin /jobs",
+       true,
+       "200"
+      ],
+      [
+       "investigator cannot open admin",
+       true,
+       "403"
+      ],
+      [
+       "404 page",
+       true,
+       "404"
+      ]
+     ],
+     "shot": "public-ja-08.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "7 exports, CASE, consent explainer, Cancel / Retry",
+     "ok": true,
+     "seconds": 5.0,
+     "checks": [
+      [
+       "download XLSX feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "download PDF feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "download XLSX feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "cohort registry export XLSX",
+       true,
+       "200"
+      ],
+      [
+       "CASE on a real case report finishes",
+       true,
+       "(303, 'done', None, '')"
+      ],
+      [
+       "consent explainer draft (ICF upload, EN + JA)",
+       true,
+       "(303, 'done', None, '')"
+      ],
+      [
+       "Cancel asks to confirm",
+       true,
+       "200"
+      ],
+      [
+       "Cancel a waiting job (failed, step cancelled)",
+       true,
+       "(303, 'failed', JobError(step='cancelled', message='Cancelled by console:admin.', detail=None))"
+      ],
+      [
+       "Retry a failed job creates a new one",
+       true,
+       "(303, '')"
+      ],
+      [
+       "Retry of a finished job is refused (409)",
+       true,
+       "409"
+      ],
+      [
+       "Cancel of a finished job is refused (409)",
+       true,
+       "409"
+      ]
+     ],
+     "shot": "public-ja-09.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    },
+    {
+     "name": "8 audit chain",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "audit chain verifies",
+       true,
+       "VerifyResult(ok=True, files=1, lines=609, last_hash='8af227a8d5f2899632a7118cc031ca9db63543192f581fc1d9f554f60f129d98', errors=[])"
+      ]
+     ],
+     "shot": "public-ja-10.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "ja"
+    }
+   ],
+   "seconds": 36.5,
+   "screen": {
+    "funnel": {
+     "S0": 268,
+     "S1": 90,
+     "S3": 90,
+     "S4": 90
+    },
+    "tiers": {
+     "excluded": 178,
+     "high": 0,
+     "review": 90
+    },
+    "listed": 90,
+    "judging": {
+     "configured_note_block": "both_agree",
+     "disagreements": 0,
+     "failures": 0,
+     "judge_model": "stub",
+     "may_block": false,
+     "mode": "single",
+     "note_block": "never",
+     "note_block_reason": "no verifier configured: a single model may not exclude",
+     "verifier_model": null
+    },
+    "request_seconds": {
+     "PUB-ONC": 3.1,
+     "PUB-CA": 1.0
+    },
+    "stage_seconds": 4.2
+   },
+   "canary": null,
+   "wall_seconds": 43.5,
+   "part": "public",
+   "lang": "ja",
+   "tag": "public-ja",
+   "seconds_total": 44.2
+  },
+  {
+   "stages": [
+    {
+     "name": "0 public data in",
+     "ok": true,
+     "seconds": 0.3,
+     "checks": [
+      [
+       "every source document is one patient (SIGIR 53, MedTxt-CR 123, MedTxt-RR 92)",
+       true,
+       "{'SIGIR': 53, 'MedTxt-CR': 123, 'MedTxt-RR': 92}"
+      ],
+      [
+       "ingest passed",
+       true,
+       "{'passed': True, 'counts': {'Appointment': 89, 'Condition': 149, 'Coverage': 268, 'DocumentReference': 268, 'Encounter': 268, 'Organization': 2, 'Patient': 268, 'Practitioner': 2}, 'missing_required': {'Patient.birthDate': 120}}"
+      ],
+      [
+       "lake counts = CSV counts (patients, notes, diagnoses)",
+       true,
+       "lake {'patient': 268, 'note': 268, 'dx': 149} csv {'patient': 268, 'note': 268, 'dx': 149}"
+      ],
+      [
+       "note text reaches the lake verbatim",
+       true,
+       "268"
+      ],
+      [
+       "no chart number column in the lake",
+       true,
+       "{'patient': {'snapshot', 'birth_date', 'sex', 'pid', 'deceased_date'}, 'encounter': {'snapshot', 'eid', 'class', 'dept', 'pid', 'practitioner_id', 'start'}, 'document': {'snapshot', 'type', 'did', 'eid', 'date', 'pid', 'text'}, 'condition': {'recorded', 'snapshot', 'code', 'system', 'eid', 'pid', 's"
+      ],
+      [
+       "lake keys are pseudonyms",
+       true,
+       "0"
+      ],
+      [
+       "missing birth dates reported, not invented",
+       true,
+       "{'Patient.birthDate': 120}"
+      ]
+     ],
+     "shot": "public-zh-TW-00.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "1 criteria, approval and feasibility",
+     "ok": true,
+     "seconds": 7.3,
+     "checks": [
+      [
+       "S2 paste PUB-CA -> draft waiting for approval",
+       true,
+       "(200, 'awaiting_approval')"
+      ],
+      [
+       "S2 paste PUB-ONC -> draft waiting for approval",
+       true,
+       "(200, 'awaiting_approval')"
+      ],
+      [
+       "coordinator ticks a criterion's codes on S20",
+       true,
+       "200"
+      ],
+      [
+       "coordinator's approve refused (403)",
+       true,
+       "403"
+      ],
+      [
+       "S20: criterion labels in Japanese and Chinese saved",
+       true,
+       "14/14"
+      ],
+      [
+       "investigator approves PUB-CA; FEAS finishes",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "investigator approves PUB-ONC; FEAS finishes",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "FEAS PDF, XLSX and JSON",
+       true,
+       "['feasibility_PUB-ONC_v1.0.0_2026-10-31.json', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.pdf', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.raw.json', 'feasibility_PUB-ONC_v1.0.0_2026-10-31.xlsx', 'feasprofile_PUB-ONC_v1.0.0_2026-10-31.json', 'review_PUB-ONC_v1.0.0_r1.html', 'review_PUB-ONC_v1.0.0_r1.xlsx', "
+      ],
+      [
+       "start = every patient",
+       true,
+       "268"
+      ],
+      [
+       "age >= 18 = recount from patient.csv",
+       true,
+       "(129, 129)"
+      ],
+      [
+       "malignancy = every adult with a cancer code in diagnosis.csv (recount by ICD-10 family, not by the list)",
+       true,
+       "(41, 41)"
+      ],
+      [
+       "every cancer code in the data is in the malignancy value set",
+       true,
+       "not listed: [], 0 patients"
+      ],
+      [
+       "funnel never grows",
+       true,
+       "[130, 40, 40, 40, 40, 40, 40]"
+      ],
+      [
+       "FEAS ran without a model",
+       true,
+       "{'clock': 'clock pinned (test stack)', 'data_sources': ['csv (lake snapshot 2026-10-31)'], 'job_id': '01M6ZCZ8XXNMX35ME5WAFYA3AK', 'language': 'zh-TW', 'model_summary': 'no model (filters only)', 'models': [], 'prompt_versions': [], 'ruleset': 'PUB-ONC', 'ruleset_version': '1.0.0', 'run_date': '2026"
+      ],
+      [
+       "S3 feasibility page",
+       true,
+       "200"
+      ],
+      [
+       "S3 Refresh re-runs FEAS",
+       true,
+       "(303, 2)"
+      ]
+     ],
+     "shot": "public-zh-TW-01.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "2 screening (patient list) on real notes",
+     "ok": true,
+     "seconds": 4.4,
+     "checks": [
+      [
+       "SCREEN PUB-ONC done",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "SCREEN PUB-CA done",
+       true,
+       "(303, 'done', None)"
+      ],
+      [
+       "screen funnel S0 >= S1 >= S3 >= S4",
+       true,
+       "{'S0': 268, 'S1': 90, 'S3': 90, 'S4': 90}"
+      ],
+      [
+       "listed = high + review",
+       true,
+       "{'excluded': 178, 'high': 0, 'review': 90}"
+      ],
+      [
+       "note-based exclusion only when two models agree",
+       true,
+       "{'configured_note_block': 'both_agree', 'disagreements': 0, 'failures': 0, 'judge_model': 'stub', 'may_block': False, 'mode': 'single', 'note_block': 'never', 'note_block_reason': 'no verifier configured: a single model may not exclude', 'verifier_model': None}"
+      ],
+      [
+       "cohort list PUB-CA has members, no contact step",
+       true,
+       "41"
+      ]
+     ],
+     "shot": "public-zh-TW-02.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "3 list, S5 and marks",
+     "ok": true,
+     "seconds": 3.0,
+     "checks": [
+      [
+       "the list has at least three patients",
+       true,
+       "90"
+      ],
+      [
+       "PI list page",
+       true,
+       "200"
+      ],
+      [
+       "mark approach",
+       true,
+       "303"
+      ],
+      [
+       "mark need_info",
+       true,
+       "303"
+      ],
+      [
+       "mark not_now",
+       true,
+       "303"
+      ],
+      [
+       "replace a mark: history keeps both",
+       true,
+       "['not_now', 'approach']"
+      ],
+      [
+       "withdraw a mark",
+       true,
+       "(303, ['not_now', 'approach', 'withdrawn'], '')"
+      ],
+      [
+       "S5 patient page",
+       true,
+       "200"
+      ],
+      [
+       "coordinator records a contact outcome",
+       true,
+       "303"
+      ],
+      [
+       "Approach gives a screening number",
+       true,
+       "PUB-ONC-0001"
+      ],
+      [
+       "screening log lists the approached patient",
+       true,
+       "200"
+      ],
+      [
+       "screening log XLSX opens",
+       true,
+       "200"
+      ],
+      [
+       "the coordinator adds the built-in forms",
+       true,
+       "200"
+      ]
+     ],
+     "shot": "public-zh-TW-03.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "4 N1 / N2 mail",
+     "ok": true,
+     "seconds": 0.4,
+     "checks": [
+      [
+       "N1 and N2 sent",
+       true,
+       "['TrialBox 摘要 2026-11-02：回診 1 · 下一步 1 · 新增 89 · 標記 5', 'TrialBox：2026-11-02 門診試驗候選人 1 位']"
+      ],
+      [
+       "mail carries no chart number",
+       true,
+       "[]"
+      ],
+      [
+       "mail shows the screening number beside the pseudonym (D-136)",
+       true,
+       "[('69390044', 'PUB-ONC-0001'), ('6b3337bb', 'PUB-ONC-0002')]"
+      ]
+     ],
+     "shot": "public-zh-TW-04.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "5 REDCap simulator read-back",
+     "ok": true,
+     "seconds": 0.9,
+     "checks": [
+      [
+       "S36 Test connection (version shown, token never shown)",
+       true,
+       "200"
+      ],
+      [
+       "S21 project link checked against the data dictionary",
+       true,
+       "stener(\"input\", function () { dirty = true; }); f.addEventListener(\"change\", function () { dirty = true; }); f.addEventListener(\"submit\", function () { dirty = false; }); }); window.addEventListener(\"beforeunload\", function (e) { if (!dirty) return; e.preventDefault(); e.returnValue = \"\"; }); })(); "
+      ],
+      [
+       "Run now: consented",
+       true,
+       "已同意 · 2026-11-09"
+      ],
+      [
+       "Run now: enrolled, subject number shown",
+       true,
+       "已納入 · 2026-11-09"
+      ]
+     ],
+     "shot": "public-zh-TW-05.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "5b trial lifecycle (D-134)",
+     "ok": true,
+     "seconds": 2.0,
+     "checks": [
+      [
+       "the visit schedule is saved",
+       true,
+       "200"
+      ],
+      [
+       "both screening numbers are participants",
+       true,
+       "200"
+      ],
+      [
+       "enrolled through the forms",
+       true,
+       "200"
+      ],
+      [
+       "a serious AE on ae1",
+       true,
+       "200"
+      ],
+      [
+       "today's visit is on the coordinator's list",
+       true,
+       ""
+      ],
+      [
+       "the serious AE is on the investigator's home page",
+       true,
+       ""
+      ],
+      [
+       "the enrolment report",
+       true,
+       ""
+      ]
+     ],
+     "shot": "public-zh-TW-06.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "5c site set-up and data harmonization (D-135)",
+     "ok": true,
+     "seconds": 4.4,
+     "checks": [
+      [
+       "the practice site loads in one tap",
+       true,
+       "200"
+      ],
+      [
+       "its readiness lists what is missing",
+       true,
+       ""
+      ],
+      [
+       "proposed facts beside their quotes",
+       true,
+       "9"
+      ],
+      [
+       "one tap confirms a fact",
+       true,
+       "200"
+      ],
+      [
+       "the hospital's own data is untouched by the practice site",
+       true,
+       ""
+      ],
+      [
+       "Ask TrialBox answers what to do next",
+       true,
+       "200"
+      ]
+     ],
+     "shot": "public-zh-TW-07.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "6 other screens",
+     "ok": true,
+     "seconds": 4.3,
+     "checks": [
+      [
+       "crc /home",
+       true,
+       "200"
+      ],
+      [
+       "crc /week",
+       true,
+       "200"
+      ],
+      [
+       "crc /account",
+       true,
+       "200"
+      ],
+      [
+       "crc /help",
+       true,
+       "200"
+      ],
+      [
+       "crc /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "crc /reports",
+       true,
+       "200"
+      ],
+      [
+       "crc /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "pi /home",
+       true,
+       "200"
+      ],
+      [
+       "pi /week",
+       true,
+       "200"
+      ],
+      [
+       "pi /account",
+       true,
+       "200"
+      ],
+      [
+       "pi /help",
+       true,
+       "200"
+      ],
+      [
+       "pi /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "pi /reports",
+       true,
+       "200"
+      ],
+      [
+       "pi /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "admin /home",
+       true,
+       "200"
+      ],
+      [
+       "admin /week",
+       true,
+       "200"
+      ],
+      [
+       "admin /account",
+       true,
+       "200"
+      ],
+      [
+       "admin /help",
+       true,
+       "200"
+      ],
+      [
+       "admin /notices/received",
+       true,
+       "200"
+      ],
+      [
+       "admin /reports",
+       true,
+       "200"
+      ],
+      [
+       "admin /settings/notices",
+       true,
+       "200"
+      ],
+      [
+       "banner says public data",
+       true,
+       ""
+      ],
+      [
+       "request menu: this site's studies only",
+       true,
+       "['PUB-ONC', 'PUB-CA', 'PUB-ONC']"
+      ],
+      [
+       "clinician names from the records",
+       true,
+       ""
+      ],
+      [
+       "research-office counts",
+       true,
+       "200"
+      ],
+      [
+       "research-office XLSX",
+       true,
+       "200"
+      ],
+      [
+       "command field: 'PUB-ONC'",
+       true,
+       "200"
+      ],
+      [
+       "command field: '69390044'",
+       true,
+       "200"
+      ],
+      [
+       "command field: 'help'",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=health",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=jobs",
+       true,
+       "200"
+      ],
+      [
+       "admin /admin?tab=sources",
+       true,
+       "200"
+      ],
+      [
+       "admin /ops/users",
+       true,
+       "200"
+      ],
+      [
+       "admin /audit",
+       true,
+       "200"
+      ],
+      [
+       "admin /jobs",
+       true,
+       "200"
+      ],
+      [
+       "investigator cannot open admin",
+       true,
+       "403"
+      ],
+      [
+       "404 page",
+       true,
+       "404"
+      ]
+     ],
+     "shot": "public-zh-TW-08.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "7 exports, CASE, consent explainer, Cancel / Retry",
+     "ok": true,
+     "seconds": 5.3,
+     "checks": [
+      [
+       "download XLSX feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "download PDF feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "download XLSX feasibility report",
+       true,
+       "200"
+      ],
+      [
+       "cohort registry export XLSX",
+       true,
+       "200"
+      ],
+      [
+       "CASE on a real case report finishes",
+       true,
+       "(303, 'done', None, '')"
+      ],
+      [
+       "consent explainer draft (ICF upload, EN + JA)",
+       true,
+       "(303, 'done', None, '')"
+      ],
+      [
+       "Cancel asks to confirm",
+       true,
+       "200"
+      ],
+      [
+       "Cancel a waiting job (failed, step cancelled)",
+       true,
+       "(303, 'failed', JobError(step='cancelled', message='Cancelled by console:admin.', detail=None))"
+      ],
+      [
+       "Retry a failed job creates a new one",
+       true,
+       "(303, '')"
+      ],
+      [
+       "Retry of a finished job is refused (409)",
+       true,
+       "409"
+      ],
+      [
+       "Cancel of a finished job is refused (409)",
+       true,
+       "409"
+      ]
+     ],
+     "shot": "public-zh-TW-09.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    },
+    {
+     "name": "8 audit chain",
+     "ok": true,
+     "seconds": 0.0,
+     "checks": [
+      [
+       "audit chain verifies",
+       true,
+       "VerifyResult(ok=True, files=1, lines=609, last_hash='08102070a465ab907d33f3a63e4f7e4c418dcceaf0564da455439c523e180b80', errors=[])"
+      ]
+     ],
+     "shot": "public-zh-TW-10.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": "zh-TW"
+    }
+   ],
+   "seconds": 36.8,
+   "screen": {
+    "funnel": {
+     "S0": 268,
+     "S1": 90,
+     "S3": 90,
+     "S4": 90
+    },
+    "tiers": {
+     "excluded": 178,
+     "high": 0,
+     "review": 90
+    },
+    "listed": 90,
+    "judging": {
+     "configured_note_block": "both_agree",
+     "disagreements": 0,
+     "failures": 0,
+     "judge_model": "stub",
+     "may_block": false,
+     "mode": "single",
+     "note_block": "never",
+     "note_block_reason": "no verifier configured: a single model may not exclude",
+     "verifier_model": null
+    },
+    "request_seconds": {
+     "PUB-ONC": 3.2,
+     "PUB-CA": 1.1
+    },
+    "stage_seconds": 4.3
+   },
+   "canary": null,
+   "wall_seconds": 43.5,
+   "part": "public",
+   "lang": "zh-TW",
+   "tag": "public-zh-TW",
+   "seconds_total": 44.2
+  },
+  {
+   "stages": [
+    {
+     "name": "public console for the walk (public_e2e, stub)",
+     "ok": true,
+     "seconds": 35.9,
+     "checks": [
+      [
+       "built",
+       true,
+       ""
+      ]
+     ]
+    },
+    {
+     "name": "walk (5 roles x 3 languages x desktop and phone)",
+     "ok": true,
+     "seconds": 384.3,
+     "checks": [
+      [
+       "walk: 780 checks, 0 failures",
+       true,
+       ""
+      ],
+      [
+       "axe-core: no serious or critical issue",
+       true,
+       {}
+      ],
+      [
+       "every interactive target at least 44 px",
+       true,
+       0
+      ],
+      [
+       "core tasks within the novice review's taps",
+       true,
+       {
+        "T1": 2,
+        "T2": 2,
+        "T3": 2,
+        "T4": 5,
+        "T5": 5,
+        "T6": 3,
+        "T7": 2,
+        "T8": 2,
+        "T9": 3
+       }
+      ]
+     ],
+     "shot": "walk/",
+     "shot_ok": true
+    }
+   ],
+   "walk": {
+    "checks": 780,
+    "failed": 0,
+    "summary": {
+     "pages": 768,
+     "axe_by_impact": {
+      "minor": 84
+     },
+     "targets": 21600,
+     "targets_under_44": 0,
+     "taps": {
+      "T1": 2,
+      "T2": 2,
+      "T3": 2,
+      "T4": 5,
+      "T5": 5,
+      "T6": 3,
+      "T7": 2,
+      "T8": 2,
+      "T9": 3
+     },
+     "taps_max": {
+      "T1": 2,
+      "T2": 2,
+      "T3": 2,
+      "T4": 10,
+      "T5": 5,
+      "T6": 3,
+      "T7": 3,
+      "T8": 2,
+      "T9": 3
+     }
+    }
+   },
+   "wall_seconds": 420.9,
+   "part": "walk",
+   "lang": "",
+   "tag": "walk",
+   "seconds_total": 421.5
+  },
+  {
+   "stages": [
+    {
+     "name": "backup, wipe and restore (tools.backup_drill)",
+     "ok": true,
+     "seconds": 111.9,
+     "checks": [
+      [
+       "the box ran the whole path (e2e_simple)",
+       true,
+       ""
+      ],
+      [
+       "backup written to both targets",
+       true,
+       "trialbox-DRILL-20261109T054644Z.tbbak"
+      ],
+      [
+       "box wiped",
+       true,
+       ""
+      ],
+      [
+       "restore: every table equal to the backup (rows and content hash)",
+       true,
+       "{\"trialbox_wf\": 11367}"
+      ],
+      [
+       "restore: every file equal",
+       true,
+       "982 files"
+      ],
+      [
+       "restore: audit hash chain verifies",
+       true,
+       "box-run/box/audit, box-run/lake/audit"
+      ],
+      [
+       "restore: the administrator signs in with the same password",
+       true,
+       ""
+      ],
+      [
+       "restore: the investigator's marks read back the same",
+       true,
+       "4 marks"
+      ],
+      [
+       "restore: participants, their steps and the visit schedule read back the same (D-134)",
+       true,
+       "3 participants, 14 steps, 3 visits"
+      ],
+      [
+       "restore: the site set-up reads back the same, chart files included (D-135)",
+       true,
+       "4 inputs, 36 facts, 7 codes, 4 checks, 6 files"
+      ],
+      [
+       "restore: the licensed code lists read back the same, with version and source (D-137)",
+       true,
+       "3 releases, 30 codes"
+      ]
+     ],
+     "shot": "backup.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": null
+    }
+   ],
+   "seconds": 111.9,
+   "wall_seconds": 112.0,
+   "part": "backup",
+   "lang": "",
+   "tag": "backup",
+   "seconds_total": 113.2
+  },
+  {
+   "stages": [
+    {
+     "name": "signed update, two rollbacks (tools.update_drill)",
+     "ok": true,
+     "seconds": 246.7,
+     "checks": [
+      [
+       "the box ran the whole path (e2e_simple)",
+       true,
+       ""
+      ],
+      [
+       "a tampered bundle is refused before anything changes",
+       true,
+       ""
+      ],
+      [
+       "good bundle: backed up first (D-126), the hospital key opens it",
+       true,
+       "trialbox-vm-20261109T054846Z.tbbak"
+      ],
+      [
+       "good bundle: applied, migrated, data unchanged, audited",
+       true,
+       "ok    rollback point: 0 images, 1 databases; ok    apply: 4 payloads; ok    migrate and restart; ok    rulesets: 0 imported; ok    check: data unchanged; release schema version 1; ok    audited update.applied"
+      ],
+      [
+       "good bundle: release, new model and migration in place",
+       true,
+       "2026.11-step8-a trialbox-py_1.0.0.tar"
+      ],
+      [
+       "bad migration: the update fails and rolls back",
+       true,
+       "ok    rollback point: 0 images, 1 databases; FAIL  update: SyntaxError: syntax error at end of input\nLINE 1: CREATE TABLE release_extra (id INTEGER PRIMARY KEY, oops\n                                                                ^; ok    rollback: images, models and database put back; ok    check a"
+      ],
+      [
+       "bad migration: release, models, database and data as before the update",
+       true,
+       "schema version 1"
+      ],
+      [
+       "unhealthy release: the update fails and rolls back",
+       true,
+       "ok    rollback point: 0 images, 1 databases; FAIL  update: UpdateFailed: the new release did not become healthy (FAIL_CHECK); ok    rollback: images, models and database put back; ok    check after rollback: data unchanged; release schema version 1"
+      ],
+      [
+       "unhealthy release: release, models, database and data as before the update",
+       true,
+       "schema version 1"
+      ],
+      [
+       "the audit chain verifies, with update.applied and two update.rolled_back",
+       true,
+       "update.applied, update.rolled_back, update.rolled_back"
+      ],
+      [
+       "the update history holds no secret",
+       true,
+       "21 lines"
+      ],
+      [
+       "after the updates, e2e_simple passes on a fresh box",
+       true,
+       ""
+      ]
+     ],
+     "shot": "update.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": null
+    }
+   ],
+   "seconds": 246.7,
+   "wall_seconds": 246.8,
+   "part": "update",
+   "lang": "",
+   "tag": "update",
+   "seconds_total": 248.3
+  },
+  {
+   "stages": [
+    {
+     "name": "cascade at 5000 patients (hospital_sim scale)",
+     "ok": true,
+     "seconds": 77.1,
+     "checks": [
+      [
+       "cascade S0..S5, DL-1 pack and recall certificate: every check",
+       true,
+       []
+      ],
+      [
+       "funnel never grows",
+       true,
+       {
+        "S0": {
+         "in": 5000,
+         "out": 5000
+        },
+        "S1": {
+         "in": 5000,
+         "out": 125
+        },
+        "S2": {
+         "in": 125,
+         "out": 125
+        },
+        "S2b": {
+         "in": 125,
+         "out": 125
+        },
+        "S3": {
+         "in": 125,
+         "out": 92
+        },
+        "S4": {
+         "in": 92,
+         "out": 92
+        },
+        "S5": {
+         "in": 83,
+         "out": 5
+        }
+       }
+      ]
+     ],
+     "shot": "scale.png",
+     "shot_ok": true,
+     "shot_status": 200,
+     "shot_lang": null
+    }
+   ],
+   "scale": {
+    "patients": 5000,
+    "generate_s": 2.0,
+    "pipeline_s": 75.1,
+    "ms_per_patient": 15.02,
+    "peak_rss_mb": 1828,
+    "model_calls": 127,
+    "final_list": 5
+   },
+   "wall_seconds": 77.1,
+   "part": "scale",
+   "lang": "",
+   "tag": "scale",
+   "seconds_total": 78.3
+  }
+ ],
+ "checks": 581,
+ "failed": 0,
+ "shots": 60,
+ "shots_ok": 60,
+ "ok": true,
+ "seconds": 1175.4
+}

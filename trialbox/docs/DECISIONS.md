@@ -2520,3 +2520,175 @@ gcloud compute instances start trialbox-demo --zone asia-east1-b
 deploy/gcp/demo-vm-update.sh run <bucket>     # apply B --target demo, e2e_simple in it; apply C, rolled back to B
 gcloud compute instances stop trialbox-demo --zone asia-east1-b
 ```
+
+**D-139 Step 9 preparation: run script and documents.** TB-PLAN-04 step 9 (plan v4 §4 row 9, §5; TB-PLAN-03 §9),
+2026-11-09. Everything of step 9 except the paid GPU run and the independent re-review. Built in a cloud container with
+no GPU and no Docker daemon, on synthetic and public data only.
+
+*What was built.*
+
+* **The complete-platform run** (`tools/complete_run.py`, `tools/stage_shots.js`). One command runs every stage of
+  plan v4 §5 in ja and zh-TW and writes `report/report.md` and `report.json` with per stage the checks, the time, a
+  screenshot and the git head. Each part runs in its own process, so one box at a time holds memory and environment:
+
+  | Part | What it runs | §5 |
+  | --- | --- | --- |
+  | prepare | the synthetic hospital of `--patients` (`tools.synth_hospital`, a JP and a TW site, notes in ja, zh-TW, en), made once | — |
+  | install | the vendor's (and on the card the live) serving record measures `rtxpro6000`; tier `large` resolves on the card; `small` is refused | install on a measured box |
+  | hospital ja, zh-TW | the `e2e_simple` path on that hospital: data in, criteria, approval, SCREEN (with the pair and the canary gate on `--model pair`), lists, marks, N1/N2 mail, REDCap two-way, data core and conflicts, built-in forms and ODM/REDCap CSV, lifecycle, site set-up, Japan (SS-MIX2, JP Core), audit, byte-identical re-run | import, paste and approve, screen, lists, forms, sync, mail, export, audit |
+  | public ja, zh-TW | `tools.public_e2e`: the same path in the console on real public notes | the same on real text |
+  | walk | a fresh public console on the stub, then `tools/public_walk.js`: 5 roles × 3 languages × desktop and phone, axe-core, 44 px targets, tap counts | desktop and phone |
+  | backup, update | `tools.backup_drill`, `tools.update_drill` | back up and restore; update |
+  | scale | `tools.hospital_sim scale` at `--patients` (cascade S0–S5, DL-1 pack, recall certificate) | — |
+
+  After each console part the console is served on a free local port and `tools/stage_shots.js` signs in as the role
+  that does the stage, in the part's language, and photographs the page that shows its result (the state at the end
+  of the part; the pages of earlier stages still show their results). Parts with no console of their own get a picture
+  of their check table. Screenshots go to the run's folder and are never committed (`.gitignore`).
+* **On the card** (`--model pair`): the judge and verifier clients of `public_e2e.real_models` go into the box
+  (`public_e2e.attach_models`, now shared), `TB_CANARY_GATE=on`, and `e2e_simple.PAIR` turns its stage-3 checks from
+  "stub, never excludes" to "the pair ran, the canary passed, a note excludes only when both agree". With the pair
+  the re-run stage re-runs FEAS only (a second SCREEN doubles the paid time, and batched model answers are not
+  bit-reproducible, as on the Spark), and the hospital's time limit is one night (8 h) instead of 15 minutes per 5,000
+  patients. The GPU key comes from `TB_GPU_KEY` only; the console password from `TB_DEMO_PASSWORD` or made at
+  random, never printed and never on a command line (the walk reads it from `TB_SHOT_PASSWORD` now).
+* **The VM wrapper** (`deploy/gcp/complete-run.sh`): private `CLOUDSDK_CONFIG` required; the hospital is made before
+  the VM starts; a fresh API key in a 0600 file; `gpu-pro6000-run.sh` as the startup script; wait for
+  `PRO6000-RUN-READY`; live serving record checked; the run; `--after-models` stops the VM as soon as the last model
+  part is done (the walk, backup, update and scale run on the stub and need no card); a trap stops it on any exit,
+  waits for `TERMINATED` and puts `gpu-sim-startup.sh` back; `--stop` does it by hand; `--dry-run` prints the
+  commands.
+* **Fixes found by running it at other sizes.** `list_demo` signs the PI and CRC in again when the demo's clinic day
+  is not the first day (sessions end after 8 hours; a 2,000-patient hospital's first clinic day is days later).
+  `e2e_simple` stage 13 compares GOUT-COH with the numbers pinned before step 7 only on the gate's own hospital (5,000
+  patients, stub); at another size or with the pair it checks that the FEAS and SCREEN funnels never grow.
+* **Tests:** `tests/unit/test_complete_run.py` (the plan of parts, a page for every stage of both tools, the report,
+  no password or key on a command line), `tests/unit/test_doclint.py`.
+
+*The documents: 18 → 8.* The plan's "18 → 8" (TB-PLAN-03 §9) counted the design set in `docs/plan/design/`. That set
+is frozen reference by the owner's build-stage rule (TB-DS-00R §1) and a record by this step's brief, so it stays as
+it is. The maintained documents at the repository level also number 18 (README, SPEC, SPEC_v3 and fifteen in
+`docs/`); they are the ones merged. The eight: `README.md`, `docs/ARCHITECTURE.md`, `docs/RUNBOOK.md`,
+`docs/SECURITY.md`, `docs/DATA.md`, `docs/VALIDATION.md`, `docs/USER_GUIDE.md`, `docs/DECISIONS.md` (unchanged,
+append-only). Records stay records: `docs/reviews/`, `docs/plan/`, `docs/research/`, `spec/v4/`, and the new
+`spec/archive/` (with an index).
+
+| Old | Went to |
+| --- | --- |
+| `README.md` | README (what it is, try it, map); the command table → USER_GUIDE §5; the POC → RUNBOOK §9; the Docker quickstart → RUNBOOK §9 "developer test stack"; site install → RUNBOOK §1 |
+| `docs/ARCHITECTURE.md` | ARCHITECTURE, rewritten to head (one Postgres `trialbox_wf`, no MinIO, no Hermes, the pair, tiers, console roles, data core, site set-up); its test table → VALIDATION §1 |
+| `docs/PLAN.md` (v1 plan) | module list and interfaces → ARCHITECTURE §2; data flows → ARCHITECTURE §4–6; test plan → VALIDATION §1; phase map and resolved §12.2 decisions dropped as stale (in DECISIONS D-02..D-04) |
+| `docs/RUNBOOK.md` | RUNBOOK §1–10, same section numbers for install (§1), logs (§2), updates/backup/secrets (§5), acceptance (§6), Spark and pins (§8), POC (§9), 5090 (§10); mail commands and roles → USER_GUIDE |
+| `docs/HARDENING.md` | SECURITY §1 (disk, TPM, swap, GB10), §2 (egress), §4 (TPM-sealed keys), §6 (updates, retention) |
+| `docs/DEMO_VM.md` | RUNBOOK §11 (demo VM, its update path, cost) |
+| `docs/SERVING_CONFIG.md` | the record and the model gate → VALIDATION §3; capture, GPU runs and cost → RUNBOOK §11; profiles → ARCHITECTURE §7 |
+| `docs/BENCH.md` | VALIDATION §4 (the bench table, the first hosted-model run summarised; per-model table left in `eval/bakeoff/results/2026-10-25/`) |
+| `docs/OPEN_DATA.md` | datasets, licences, the MIMIC notice → DATA §6; what runs, results, limits → VALIDATION §5; per-step funnel tables left in `.cache/open_data/report.md` (re-made by `make open-data-e2e`) |
+| `docs/CONSENT.md` | USER_GUIDE §6 |
+| `docs/HANDOFF.md` (2026-10-24) | the Test Bench rules → VALIDATION §6; how to run and the traps → RUNBOOK §4 and VALIDATION §1; licence traps (Mirth, Soda Core, Db2) and the LiteLLM compromise dropped as already applied (D-86 era); the v4 build order, phases and session rules dropped as stale (superseded by TB-PLAN-04) |
+| `docs/NEXT_SESSION_PROMPT.md` | dropped as stale (the starter prompt of plan v4 is `docs/plan/design/STARTER-PROMPT-plan-v4.md`) |
+| `docs/PROGRESS.md` | dropped as stale: the phase log duplicates DECISIONS D-01..D-111 and git history; its v1.0 checklist is done |
+| `docs/INTEGRATION_SCENARIOS.md` | moved unchanged to `spec/archive/`; the scenario table and open gaps → DATA §5; the legal baseline → SECURITY §7 |
+| `docs/LANDSCAPE.md` | moved unchanged to `spec/archive/` (corrected by `docs/research/2026-10_literature_competitors.md`) |
+| `SPEC.md`, `SPEC_v3.md` | moved unchanged to `spec/archive/` (v1 contract and v3, superseded by `spec/v4/`) |
+
+Words (counted with `wc -w`): the eighteen were 111,717 words (DECISIONS 33,426). The eight are 47,373 words (DECISIONS
+35,965); the seven new documents 11,408 words where their sources had 24,550 (README, ARCHITECTURE, PLAN, RUNBOOK,
+HARDENING, DEMO_VM, SERVING_CONFIG, BENCH, OPEN_DATA, CONSENT, HANDOFF, NEXT_SESSION_PROMPT, PROGRESS), 13,142 (53 %)
+fewer. The 53,741 words moved to `spec/archive/` are records, kept whole. Links fixed in code, scripts and tests
+(`Makefile`, `install.sh`, `check_host.sh`, the GCP scripts, `apply_update.sh`, `tiers.py`, `parity_replay.py`, the
+open-data tools, fixtures and tests, the Test Bench, `channels/grammar.py`). The records keep their links as they were
+written.
+
+*doclint* (`tools/doclint.py`, in `make lint`): the set is exactly the eight and no other Markdown file sits in `docs/`;
+one title, no skipped heading level, no heading twice; every relative link and `#anchor` resolves; every repository
+path in backticks exists or is ignored by git (made on the box); no file outside the records names a retired document.
+DECISIONS is checked for headings only (old entries name files removed later). The design-set linter
+`docs/plan/design/tools/doclint.py` is untouched. Result: clean.
+
+*The local run* (`python -m tools.complete_run --dir <dir>`, head a69b51b, a shared 4-CPU container, stub model,
+5,000 patients): **PASSED, 581 of 581 checks, 60 of 60 screenshots, 19.6 minutes.** The report is committed as
+`eval/complete_run/2026-11-09-stub-5000/report.md` and `report.json` (screenshots not committed).
+
+| Part | Checks | Seconds | Numbers |
+| --- | --- | --- | --- |
+| install | 3/3 | 1 | vendor record measures `rtxpro6000`; `large` resolves on its card; `small` refused |
+| hospital ja | 161/161 | 113 | SCREEN GZQO: S0 3,022 → S1 92 → S3 92 → S4 81; listed 81 (2 high, 79 review); stub, never excludes |
+| hospital zh-TW | 161/161 | 112 | the same funnel |
+| public ja | 112/112 | 44 | PUB-ONC: S0 268 → S1 90 → S3 90; listed 90 |
+| public zh-TW | 112/112 | 44 | the same |
+| walk | 5/5 | 422 | 780 checks over 768 pages, 0 failures; axe 0 serious or critical (84 minor); 21,600 targets, none under 44 px; taps T1–T9 2, 2, 2, 5, 5, 3, 2, 2, 3 |
+| backup | 11/11 | 113 | 11,367 rows in `trialbox_wf` and 982 files restored equal |
+| update | 12/12 | 248 | a good bundle applied; a tampered one refused; a bad migration and an unhealthy release rolled back |
+| scale | 2/2 | 78 | cascade at 5,000 patients: 75 s, 127 model calls |
+
+Earlier runs of the script at 2,000 patients found the two size-bound checks fixed above (the session timeout and the
+pinned GOUT-COH numbers); at 2,000 the GOUT-COH cohort list is empty, so the local run uses 5,000, as the gate does.
+
+*The other checks at this head.* `make lint` clean (with doclint). Unit, console and testbench suites: 1,405 passed,
+2 skipped (1,394 at step 8; 11 new; the first full run found `eval/complete_run/` missing from `eval/DATASETS.yaml`,
+now listed as D0 synthetic). `tools/e2e_simple.py`: PASSED in 115 s. `tools.backup_drill`: PASSED in 133 s.
+`public_e2e --lang ja`: 112/112 in 55 s.
+
+*The GPU run (not run: the owner's OK first).* Commands, from a checkout of the head to be measured:
+
+```sh
+export CLOUDSDK_CONFIG=$(mktemp -d); unset CLOUDSDK_AUTH_ACCESS_TOKEN
+gcloud auth activate-service-account --key-file /mnt/project-files/uploads/hearth/<key file>   # in place, never copied
+gcloud config set project trialbox-demo
+cd trialbox && TB_COMPLETE_DIR=/tmp/tb-complete-gpu deploy/gcp/complete-run.sh --patients 50000
+gcloud compute instances describe tb-gpu-sim --zone asia-east1-a --format='value(status)'   # must say TERMINATED
+```
+
+*Cost.* `tb-gpu-sim` is about US$2.74 an hour while it runs. The estimate, from the local timings above and the
+2026-11-08 PRO 6000 run (`eval/parity/gpu-run-2026-11-08-pro6000/`: `public_e2e` with the pair 1,303 s, of which
+PUB-ONC's SCREEN 563 s for 90 patients at S3, about 6.3 s a patient):
+
+| Step | Basis | Hours |
+| --- | --- | --- |
+| hospital made before the VM starts | 4 s per 10,000 patients here | 0 |
+| boot to `PRO6000-RUN-READY` | about 15 minutes with the weight hashes (the step-1 run) | 0.25 |
+| hospital ja, 50,000 patients | non-model path 113 s at 5,000, linear: about 0.3 h; SCREEN GZQO at S3 92 × 10 = about 920 patients × 6.3 s: 1.6 h; the canary at box start: a few minutes | 1.95 |
+| hospital zh-TW | the same | 1.95 |
+| public ja and zh-TW | 1,303 s each with the pair | 0.72 |
+| stop and check `TERMINATED` | the walk, backup, update and scale run after it | 0.05 |
+| **in all** | | **about 4.9 h, US$13.50** |
+
+Synthetic notes are shorter than the public case reports, so the model part may take half as long: then about 3.3 h,
+US$9. A spot preemption costs another boot (US$0.70) and a re-run. With steps 1 and 6 (about US$1.50 and US$2.30)
+this passes plan v4's "under US$15 of GPU time" by about US$2; the owner decides. A cheaper run at `--patients 20000`
+is about 2.6 h, US$7. Adding N-11 zh-TW on the deployed files while the VM is up (VALIDATION §3) is about 0.2 h more.
+
+*Self-review against the reviews' yardstick* (TB-PLAN-03 §9: complete; no stale references; built claims name a test
+or commit; one owner, status and history; the named reader can act alone. 4.5 = five points with one minor residue).
+This is the author's score; the independent re-review comes after the paid run.
+
+| Document | Score | Below 4.5, or the residue |
+| --- | --- | --- |
+| README | 4.5 | residue: the repository map names packages, not their tests |
+| ARCHITECTURE | 4.5 | residue: the C4 views are tables and text, not a model; "held by" covers each section, not each row |
+| RUNBOOK | 4.5 | residue: the Windows/WSL2 install lives in `docs/handover/` (a second document for that reader) |
+| SECURITY | 4.5 | residue: the law tables need the site's counsel by design (marked *legal review*) |
+| DATA | 4.5 | residue: the canonical column list is `services/adapter/mapping/templates/CANONICAL.md` |
+| VALIDATION | 4.5 | residue: the model-gate numbers are from the 2026-11-08 card runs, not from this head |
+| USER_GUIDE | **4.0** | gap: written in English only, pointing to the in-console help in ja and zh-TW; no committed screenshots (they come from the complete run). A ja and zh-TW copy is not cheap: left for after the re-review |
+| DECISIONS | **4.0** | gap: 35,000 words, entries of varying shape, old entries name removed files; append-only, so not fixed here |
+| The build | **4.0** | gaps: the complete run on the card has not run (plan v4 §5: not complete until it passes); N-11 zh-TW on the deployed files not recorded; no TOTP; HAPI and Postgres have no per-caller token; only `large` is installable (Spark and 5090 unmeasured); OCR never run on a real scan; no anti-rollback in the update manifest |
+
+Cheap gaps fixed in this step: an owner, status and history line on each of the seven new documents; the test that holds
+each built claim named in ARCHITECTURE, RUNBOOK and SECURITY; VALIDATION's gate table refreshed from this head's
+runs.
+
+*Not done.*
+
+* **The paid run** (above) and so the done-check's "run report with a screenshot per stage from head" on the card:
+  only the stub run exists. Until it passes the platform is not complete (plan v4 §5).
+* **The independent re-review** of the eight documents and the build.
+* **Not run here:** nothing ran on a GPU, in Docker or on the cloud; `deploy/gcp/complete-run.sh` was checked
+  with `--dry-run` only. The pair has never run the `e2e_simple` path; stage 12's chart reading and the hospital's
+  SCREEN with the real models may show checks that only held for the stub. The time estimate rests on one public
+  run's rate.
+* **The documents.** USER_GUIDE in ja and zh-TW; DECISIONS stays long. The design set in `docs/plan/design/` keeps its
+  own 18 documents and its own linter. `spec/v4/` still names the moved files as they were (a record).
+* **Numbers in VALIDATION** that are not from this head: the model gate (2026-11-08 card runs) and the bench
+  (2026-10).

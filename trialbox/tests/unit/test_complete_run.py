@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _args(**kw: object) -> argparse.Namespace:
-    base = {"langs": ["ja", "zh-TW"], "skip": []}
+    base: dict[str, object] = {"langs": ["ja", "zh-TW"], "skip": []}
     base.update(kw)
     return argparse.Namespace(**base)
 

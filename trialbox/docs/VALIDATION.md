@@ -12,14 +12,14 @@ Run in `trialbox/` with the venv (`make venv`). All use synthetic or public data
 | Gate | Command | Checks | Last result |
 | --- | --- | --- | --- |
 | lint | `make lint PY=.venv/bin/python` | contracts fresh, ruff, ruff format, mypy --strict, doclint | clean |
-| suites | `pytest -q -m "not integration and not e2e and not llm and not perf" tests/unit tests/console tests/testbench` | unit, console pages, testbench | 1,394 passed, 2 skipped (D-138) |
-| **the build gate** | `make e2e-simple` (`tools/e2e_simple.py`) | the whole path on a 5,000-patient synthetic hospital, every count recounted from the source | PASSED in 110 s (D-138) |
-| public data | `python -m tools.public_e2e --lang ja` | the same path in the console on real public notes | 112/112 (D-138) |
-| the walk | `node tools/public_walk.js` against `public_e2e --serve` | 5 roles × 3 languages × desktop and phone: status, language, no English on ja/zh-TW pages, axe-core, 44 px targets, tap counts | 780 checks, 0 failures; axe 0 serious or critical (D-135) |
-| backup | `make backup-drill` (`tools/backup_drill.py`) | backed up, wiped, restored: every table, file, mark, participant, site set-up and code list the same | PASSED in 136 s (D-138) |
-| update | `python -m tools.update_drill` | a signed update applied; a tampered bundle refused; a bad migration and an unhealthy release rolled back | PASSED, 13 checks in 233 s (D-138) |
+| suites | `pytest -q -m "not integration and not e2e and not llm and not perf" tests/unit tests/console tests/testbench` | unit, console pages, testbench | 1,405 passed, 2 skipped (D-139) |
+| **the build gate** | `make e2e-simple` (`tools/e2e_simple.py`) | the whole path on a 5,000-patient synthetic hospital, every count recounted from the source | PASSED in 115 s (D-139) |
+| public data | `python -m tools.public_e2e --lang ja` | the same path in the console on real public notes | 112/112 (D-139) |
+| the walk | `node tools/public_walk.js` against `public_e2e --serve` | 5 roles × 3 languages × desktop and phone: status, language, no English on ja/zh-TW pages, axe-core, 44 px targets, tap counts | 780 checks over 768 pages, 0 failures; axe 0 serious or critical (D-139) |
+| backup | `make backup-drill` (`tools/backup_drill.py`) | backed up, wiped, restored: every table, file, mark, participant, site set-up and code list the same | PASSED, 11 checks in 112 s (D-139) |
+| update | `python -m tools.update_drill` | a signed update applied; a tampered bundle refused; a bad migration and an unhealthy release rolled back | PASSED, 12 checks in 247 s (D-139) |
 | documents | `python tools/doclint.py` | the eight documents, links, headings, paths, no retired name | clean (D-139) |
-| complete run | `python -m tools.complete_run` | every part above in ja and zh-TW, with a screenshot per stage | D-139 |
+| complete run | `python -m tools.complete_run` | every part above in ja and zh-TW, with a screenshot per stage | PASSED, 581/581 checks, 60/60 screenshots in 19.6 min, stub, 5,000 patients (`eval/complete_run/2026-11-09-stub-5000/report.md`, D-139) |
 
 `tests/integration` (with `TB_INTEGRATION=1` and the compose test stack) adds HAPI CQL, the equivalence gate, the HL7
 validator and mail. `make test-e2e` runs every mail scenario against the stack. `tests/llm` needs a real model.
@@ -132,7 +132,8 @@ tests.
 
 `tools/complete_run.py` (D-139) runs every stage of plan v4 §5 in one go, ja and zh-TW, and writes a report with a
 screenshot per stage. Locally it uses the stub and the 5,000-patient hospital; on the GPU VM it uses the pair and
-50,000 patients ([Runbook §11](RUNBOOK.md#11-cloud-runs-owners-ok-first)).
+50,000 patients ([Runbook §11](RUNBOOK.md#11-cloud-runs-owners-ok-first)). The last local report is
+`eval/complete_run/2026-11-09-stub-5000/report.md`.
 
 ## 8. How documents and the build are scored
 
