@@ -29,7 +29,7 @@ from tb_contracts import Job
 
 from console import s28
 from console import studies as st
-from console.auth import Session, reveal_reason
+from console.auth import REVEAL_REASONS, Session, reveal_reason
 from console.backend import Refused
 from console.sitestore import (
     CAP_VALUES,
@@ -95,6 +95,12 @@ class ApiOutcome(BaseModel):
     outcome: str
     retry: str = ""
     note: str = Field(default="", max_length=300)
+
+
+class ApiReveal(BaseModel):
+    """``POST /api/v1/studies/{rs}/patients/{pid}/reveal`` (D-143): the reason is required, as on the page."""
+
+    reason: str = Field(default="", max_length=40)
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -598,18 +604,17 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         return h.page(request, "patient.html", sess, **patient_ctx(sess, rid, pid))
 
-    @app.post("/studies/{rs}/patients/{pid}/reveal")
-    def patient_reveal(request: Request, rs: str, pid: str, csrf: str = Form(""), reason: str = Form("")) -> Response:
-        """One chart number, shown once, audited on both sides (D-99). Coordinators and administrators only: from
-        D-133 (review F-38) the investigator does not reveal here, as the role text says; the coordinator, who keeps
-        the screening log and makes the call, does."""
-        sess = h.need(request)
+    def apply_reveal(sess: Session, path: str, rs: str, pid: str, reason: str) -> tuple[dict[str, Any], str]:
+        """One chart number for the page and ``/api/v1`` alike (D-99): identifier authority for the study
+        (administrator, coordinator, and the study's investigator since the owner's decision of 2026-11-09, D-143),
+        a reason, one audit record on each side and the orchestrator's per-person rate limit. Viewer and CRO
+        accounts get 403."""
         rid = study_or_404(sess, rs)
-        if not h.csrf_ok(sess, csrf):
-            raise h.problem(400, "csrf")
-        if not sess.user.can_reveal:  # D-133 (review F-38): the investigator's role text says "no chart numbers"
-            au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
+        if not sess.user.sees_ids(rid):
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
+        if reason not in REVEAL_REASONS:
+            raise h.problem(400, "request.refused", reason="choose why you need the chart number")
         ctx = patient_ctx(sess, rid, pid)
         job = ctx["job"]
         au.append(
@@ -628,7 +633,17 @@ def register(app: FastAPI, h: Helpers) -> None:
             mrn = bk.reveal(job.job_id, pid, h.actor(sess))
         except Refused as exc:
             raise h.problem(409, "request.refused", reason=str(exc)) from exc
-        ctx["mrn"] = mrn or ""
+        return ctx, mrn or ""
+
+    @app.post("/studies/{rs}/patients/{pid}/reveal")
+    def patient_reveal(request: Request, rs: str, pid: str, csrf: str = Form(""), reason: str = Form("")) -> Response:
+        """One chart number, shown once, audited on both sides (D-99, D-143)."""
+        sess = h.need(request)
+        study_or_404(sess, rs)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        ctx, mrn = apply_reveal(sess, request.url.path, rs, pid, reason)
+        ctx["mrn"] = mrn
         return h.page(request, "patient.html", sess, **ctx)
 
     def back_to(rid: str, pid: str, back: str, done: str) -> str:
@@ -870,6 +885,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = api_session(request)
         rid, no = apply_outcome(sess, request.url.path, rs, pid, body.outcome, body.retry, body.note)
         return {"study": rid, "pid": pid, "outcome": body.outcome, "screening_no": no}
+
+    @app.post("/api/v1/studies/{rs}/patients/{pid}/reveal")
+    def api_reveal(request: Request, rs: str, pid: str, body: ApiReveal) -> dict[str, Any]:
+        """The chart number of one listed patient for an account with identifier authority (D-143), audited and
+        rate-limited exactly as on the patient page."""
+        sess = api_session(request)
+        _ctx, mrn = apply_reveal(sess, request.url.path, rs, pid, body.reason)
+        return {"study": rs.strip().upper(), "pid": pid, "mrn": mrn or None}
 
     @app.get("/api/v1/studies/{rs}/screening-log")
     def api_screening_log(request: Request, rs: str) -> list[dict[str, str]]:

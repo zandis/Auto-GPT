@@ -14,7 +14,9 @@ and the windows), N1 the investigator's participants' visits of the week and the
 Visits are named by the patient's pseudonym and the visit's name.
 
 Both carry pseudonyms (eight characters), with the study's screening number beside the pseudonym once the patient has
-one (owner, 2026-11-08, D-136), times and counts: never a chart number or a name. Each says why it was sent and
+one (owner, 2026-11-08, D-136), times and counts: never a chart number or a name. D-143 (owner, 2026-11-09): the
+investigator may see chart numbers on the pages after sign-in, but N1 still carries none, since mail leaves TrialBox
+(a point for the owner to confirm). Each says why it was sent and
 links to the person's notice settings (FR-NOTIF-09). Mail leaves through the orchestrator's ``POST /notices`` and
 the mail gateway, tagged ``aggregate`` and internal addresses only.
 

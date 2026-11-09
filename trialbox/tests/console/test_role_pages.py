@@ -245,10 +245,12 @@ def test_weekly_list_marks_and_patient_page_in_three_languages(box: dict[str, An
     assert sum(1 for e in events if e.get("event") == "console.pi_mark") == 2
     p = pi.get(f"/studies/GZQO/patients/{'a' * 32}").text
     assert "two flares this spring" in p and 'data-testid="criteria"' in p
-    # D-133 (review F-38): the investigator's role text says "no chart numbers": no reveal button, and a 403
-    assert 'data-testid="reveal"' not in p
+    # D-143 (owner, 2026-11-09, reversing D-133): the investigator has full authorisation for the study's patients
+    assert 'data-testid="reveal"' in p
+    r = pi.post(f"/studies/GZQO/patients/{'a' * 32}/reveal", data={"csrf": _csrf(p), "reason": ""})
+    assert r.status_code == 400 and not box["backend"].revealed  # a reason, always
     r = pi.post(f"/studies/GZQO/patients/{'a' * 32}/reveal", data={"csrf": _csrf(p), "reason": "contact"})
-    assert r.status_code == 403 and "MRN-000123" not in r.text and not box["backend"].revealed
+    assert "MRN-000123" in r.text and box["backend"].revealed[-1][2] == "console:drsato"
     crc = _user(box, "crc1", "coordinator")
     cp = crc.get(f"/studies/GZQO/patients/{'a' * 32}").text
     assert 'data-testid="reveal"' in cp and "recorded with your name" in cp
@@ -490,5 +492,15 @@ def test_api_v1_does_what_the_pages_do_with_a_bearer_token(box: dict[str, Any]) 
     assert r.status_code == 200
     log = api.get("/api/v1/studies/GZQO/screening-log", headers=crc).json()
     assert any(x["pid"].startswith("aaaaaaaa") for x in log)
+    # D-143: the investigator reveals through /api/v1 as on the page (reason, audit); a viewer never does
+    r = api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/reveal", json={"reason": "contact"}, headers=pi)
+    assert r.status_code == 200 and r.json()["mrn"] == "MRN-000123"
+    assert box["backend"].revealed[-1][2] == "console:drsato"
+    assert api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/reveal", json={}, headers=pi).status_code == 400
+    v_tok = api.post("/api/v1/session", json={"username": "viewer", "password": "viewer-password-0001"}).json()
+    v = {"Authorization": f"Bearer {v_tok['token']}"}
+    n = len(box["backend"].revealed)
+    r = api.post(f"/api/v1/studies/GZQO/patients/{'a' * 32}/reveal", json={"reason": "contact"}, headers=v)
+    assert r.status_code == 403 and len(box["backend"].revealed) == n
     api.delete("/api/v1/session", headers=pi)
     assert api.get("/api/v1/studies", headers=pi).status_code == 401

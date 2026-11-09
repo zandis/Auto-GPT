@@ -1082,7 +1082,8 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     approached = picks[0]["pid"]
     page = pi.get(f"/studies/{TRIAL}/patients/{approached}")
     r = pi.post(f"/studies/{TRIAL}/patients/{approached}/reveal", data={"csrf": fd._csrf(page.text), "reason": reason})
-    s.check("D-133: the investigator may not reveal a chart number (role text)", r.status_code == 403, r.status_code)
+    s.check("D-143: the study's investigator reveals a chart number (owner, 2026-11-09)", r.status_code == 200,
+            r.status_code)  # fmt: skip
     page = crc.get(f"/studies/{TRIAL}/patients/{approached}")
     r = crc.post(f"/studies/{TRIAL}/patients/{approached}/reveal", data={"csrf": fd._csrf(page.text), "reason": reason})
     s.check("the coordinator reveals one chart number", r.status_code == 200, r.status_code)
@@ -1101,6 +1102,8 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
             f"01a: every {jb.type} output file in the audit", {o.filename for o in jb.outputs or []} <= outs, len(outs)
         )
     rv = [r for r in recs if r["event"] == "console.reveal_patient" and det(r).get("pid") == approached]
+    pi_rv = [r for r in rv if r.get("actor") == "console:pi" and det(r).get("role") == "investigator"]
+    s.check("01b: the investigator's reveal is recorded with the role", bool(pi_rv), len(rv))
     s.check(
         "01b: reveal with user, study, pid, reason and time",
         bool(rv)

@@ -38,7 +38,7 @@ EN: dict[str, str] = {
     "users.help": "Accounts of this TrialBox. A new account gets a one-time password, shown once; the person changes "
     "it under My account after the first sign-in. Disabling signs the person out everywhere.",
     "users.role.investigator": "read everything a viewer reads, plus candidate rows and patient checks, and decide "
-    "which patients to contact; no chart numbers, no runs",
+    "which patients to contact; may show the study's chart numbers (recorded with your name); no runs",
     # marks (glossary: one vocabulary)
     "mark.reason.for": "Reason (needed for “Not suitable now”)",
     "mark.reason.choose": "Choose a reason",
@@ -150,7 +150,7 @@ JA: dict[str, str] = {
     "users.help": "この TrialBox のアカウント。新規アカウントには 1 回だけ表示される初期パスワードが発行され、"
     "本人が初回ログイン後に「マイアカウント」で変更します。無効化すると全端末からログアウトされます。",
     "users.role.investigator": "閲覧者の権限に加え、候補患者の行と患者ごとの確認を閲覧し、声をかける患者を決めます。"
-    "カルテ番号の表示と処理の開始は不可",
+    "担当試験のカルテ番号を表示できます（氏名とともに記録）。処理の開始は不可",
     "mark.reason.for": "理由（「今回は見合わせる」に必須）",
     "mark.reason.choose": "理由を選んでください",
     "mark.reason_needed": "先に理由を選んでください。「今回は見合わせる」は、医師が選んだ理由と一緒にだけ記録されます。"
@@ -251,8 +251,8 @@ ZH: dict[str, str] = {
     "users.username.rule": "只能用小寫英文字母 a–z、數字與 . _ -，最多 32 字（例如：lin.yt）。",
     "users.help": "此 TrialBox 的帳號。新帳號會取得只顯示一次的一次性密碼，本人第一次登入後在「我的帳號」更改。"
     "停用會使該人員在所有裝置登出。",
-    "users.role.investigator": "檢視者的權限，加上候選病人列與病人檢核，並決定要聯絡哪些病人；不可顯示病歷號，"
-    "不可啟動作業",
+    "users.role.investigator": "檢視者的權限，加上候選病人列與病人檢核，並決定要聯絡哪些病人；可顯示所負責試驗的病歷號"
+    "（連同您的姓名記錄），不可啟動作業",
     "mark.reason.for": "原因（「暫不邀請」必填）",
     "mark.reason.choose": "請選擇原因",
     "mark.reason_needed": "請先選擇原因。「暫不邀請」只會連同主持人選的原因一起記錄。",

@@ -144,6 +144,15 @@ def test_n1_on_clinic_days_with_the_week_folded_below() -> None:
     assert "5/6 criteria met" in n.body
 
 
+def test_n1_never_carries_a_chart_number_even_for_the_investigator() -> None:
+    """D-143: the investigator may see chart numbers on the pages after sign-in, but the mail leaves TrialBox: N1
+    keeps pseudonyms (and screening numbers) only, whatever the row carries."""
+    row = {**_row("1" * 16, "2026-11-03T09:00:00+09:00"), "mrn": "70000054", "name": "山田太郎"}
+    n = notify.build_n1(PI, NotifyPerson("pi", "P1", lang="ja"), date(2026, 11, 3), [("GZQO", [row])])
+    assert n is not None and "11111111" in n.body
+    assert "70000054" not in n.body + n.subject and "山田" not in n.body + n.subject
+
+
 def test_n1_monday_fallback_without_a_practitioner_id() -> None:
     rows = [_row("1" * 16, "2026-11-03T09:00:00+09:00"), _row("2" * 16, "2026-11-12T10:00:00+09:00")]
     person = NotifyPerson("pi", None, lang="ja")

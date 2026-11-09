@@ -237,6 +237,27 @@ def mask_ids(text: str) -> str:
     return _ID_IN_TEXT.sub(lambda m: f"{m.group(1)}=•••", text or "")
 
 
+class IdViews:
+    """At most ``TB_REVEAL_MAX_PER_HOUR`` (default 60, the orchestrator's reveal cap) identifiers shown per person per
+    rolling hour by the console itself (a request line with ``mrn=``), per process (D-143). A view over the cap is
+    masked and recorded as refused."""
+
+    def __init__(self) -> None:
+        self._seen: dict[str, list[float]] = {}
+
+    def allow(self, who: str) -> bool:
+        import time
+
+        cap = int(os.environ.get("TB_REVEAL_MAX_PER_HOUR", "60"))
+        t = time.monotonic()
+        recent = [x for x in self._seen.get(who, []) if t - x < 3600]
+        if len(recent) >= cap:
+            self._seen[who] = recent
+            return False
+        self._seen[who] = [*recent, t]
+        return True
+
+
 def job_line(job: Job) -> str:
     opts = dict(job.options or {})
     target = job.ruleset or opts.pop("target", "")
@@ -366,11 +387,13 @@ def create_app(
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     site_tz = site_zone(backend)
     templates.env.filters["local"] = lambda v, n=16: local_time(v, site_tz, n)
+    templates.env.filters["mask_ids"] = lambda v: mask_ids(str(v))  # audit tables never show a chart number (P-01)
     templates.env.globals["reason_label"] = reason_label  # a candidate row's reason code in the page language (D-118)
     templates.env.globals["feas_notes"] = feas_notes  # a feasibility result's notes in the page language (D-119)
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users
+    id_views = IdViews()
 
     boot: list[Callable[[], Any]] = []  # started with the app (the box's own timers, D-121)
 
@@ -1068,12 +1091,13 @@ def create_app(
         audit_recs = bk.audit(job_id, 200)
         subjects = [str(r.detail.get("subject", "")) for r in audit_recs if r.event == "mail.received"]
         thread = bk.thread(job_id)
-        thread_rows: list[tuple[MailItem | None, str]] = [
-            (m, mask_ids(m.subject or (subjects[0] if m.direction == "in" and subjects else ""))) for m in thread
+        raw_rows: list[tuple[MailItem | None, str]] = [
+            (m, m.subject or (subjects[0] if m.direction == "in" and subjects else "")) for m in thread
         ]
         if not any(m.direction == "in" for m in thread) and any(r.event == "console.request" for r in audit_recs):
             web = next(r for r in audit_recs if r.event == "console.request")
-            thread_rows.insert(0, (None, str(web.detail.get("line", ""))))
+            raw_rows.insert(0, (None, str(web.detail.get("line", ""))))
+        thread_rows = [(m, shown_ids(sess, job, text, "thread")) for m, text in raw_rows]
         return page(
             request,
             "job.html",
@@ -1095,6 +1119,21 @@ def create_app(
             case=_case_card(job),
             screen=_screen_card(job, sess, revealed),
         )
+
+    def shown_ids(sess: Session, job: Job, text: str, where: str) -> str:
+        """A request line or subject as this reader may see it (P-01, D-143): the chart number in clear for an
+        account with identifier authority for the job's study (administrator, coordinator, the study's
+        investigator), as one audited view under the reveal cap; masked for everyone else (viewer, CRO)."""
+        masked = mask_ids(text)
+        if masked == text or not sess.user.sees_ids(job.ruleset):
+            return masked
+        if not id_views.allow(actor(sess)):
+            au.append("console.view_id_refused", job_id=job.job_id, ruleset=job.ruleset, actor=actor(sess),
+                      detail={"where": where, "reason": "rate limit"})  # fmt: skip
+            return masked
+        au.append("console.view_id", job_id=job.job_id, ruleset=job.ruleset, actor=actor(sess),
+                  detail={"where": where, "role": sess.user.role})  # fmt: skip
+        return text
 
     def _screen_card(job: Job, sess: Session, revealed: dict[str, str] | None = None) -> dict[str, Any] | None:
         """The coordinator's screen for a finished SCREEN / MICROBATCH job (D-99): the run summary from the
@@ -1164,9 +1203,12 @@ def create_app(
     def job_reveal(
         request: Request, job_id: str, csrf: str = Form(""), pid: str = Form(""), reason: str = Form("")
     ) -> Response:
-        """One chart number for one listed pseudonym, shown once on the page and audited on both sides (D-99)."""
-        sess = need_requester(request, csrf)
+        """One chart number for one listed pseudonym, shown once on the page and audited on both sides (D-99). Any
+        account with identifier authority for the study: administrator, coordinator, the study's investigator
+        (D-143)."""
+        sess = need(request)
         job = _job_or_404(job_id)
+        _need_role(request, csrf, sess.user.sees_ids(job.ruleset), sess)
         if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
             raise _Problem(409, "request.refused", reason="chart numbers are revealed for finished screening jobs only")
         pid = pid.strip()
@@ -1604,7 +1646,7 @@ def create_app(
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(404, "notfound")
-        if not sess.user.can_request:  # the export carries chart numbers (phi): requesters only
+        if not sess.user.sees_ids(rs):  # the export carries chart numbers (phi): identifier authority (D-143)
             raise _Problem(403, "forbidden")
         data = bk.registry_export(rs)
         au.append(

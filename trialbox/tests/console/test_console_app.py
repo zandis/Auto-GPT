@@ -1441,15 +1441,23 @@ def test_sponsor_pack_is_audited_and_for_requesters_only(box: dict[str, Any]) ->
     assert viewer.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip").status_code == 403
 
 
-def test_investigator_sees_candidate_rows_and_case_sheet_but_no_reveal(box: dict[str, Any]) -> None:
+def test_investigator_sees_candidate_rows_and_case_sheet_and_reveals(box: dict[str, Any]) -> None:
+    """D-143 (owner, 2026-11-09): the study's investigator may reveal a chart number, audited like a coordinator."""
     box["users"].create("pi", "investigator", VIEWER_PW, "pi@hospa.test")
     screen = _done_screen(box["backend"], _ulid(951))
     c, csrf = login(box["app"], "pi", VIEWER_PW)
     page = c.get(f"/pilot/jobs/{screen.job_id}").text
     assert 'data-testid="screen-rows"' in page  # pseudonymous rows, as a coordinator sees them
-    assert 'data-testid="reveal"' not in page  # chart numbers stay with the requesters
-    r = c.post(f"/pilot/jobs/{screen.job_id}/reveal", data={"csrf": csrf, "pid": "a" * 32}, follow_redirects=False)
-    assert r.status_code == 403
+    assert 'data-testid="reveal"' in page
+    r = c.post(f"/pilot/jobs/{screen.job_id}/reveal", data={"csrf": csrf, "pid": "a" * 32, "reason": "contact"})
+    assert r.status_code == 200 and "MRN-000123" in r.text
+    assert box["backend"].revealed[-1] == (screen.job_id, "a" * 32, "console:pi")
+    assert any(rec.event == "console.reveal" and rec.actor == "console:pi" for rec in box["backend"].audit())
+    box["users"].create("pi2", "investigator", VIEWER_PW, "pi2@hospa.test")
+    box["users"].set_scope("pi2", studies="OTHER")  # an investigator of another study has no authority here
+    c2, csrf2 = login(box["app"], "pi2", VIEWER_PW)
+    r = c2.post(f"/pilot/jobs/{screen.job_id}/reveal", data={"csrf": csrf2, "pid": "a" * 32}, follow_redirects=False)
+    assert r.status_code in (403, 404) and len(box["backend"].revealed) == 1
     case = _done_case(box["backend"])
     sheet = next(o for o in case.outputs or [] if o.filename.endswith(".html"))
     assert c.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 200
@@ -1502,6 +1510,43 @@ def test_job_line_never_shows_a_chart_number() -> None:
     job = SimpleNamespace(type="CASE", ruleset="PUB-ONC", options={"mrn": "70000054", "lang": "en", "name": "山田"})
     line = job_line(job)  # type: ignore[arg-type]
     assert line == "CASE PUB-ONC lang=en" and "70000054" not in line and "山田" not in line
+
+
+def test_case_request_row_shows_the_chart_number_to_the_study_team_only(box: dict[str, Any]) -> None:
+    """Review 2026-11-09 P-01 and the owner's decision (D-143): the CASE job page's "web request" row printed
+    ``mrn=70000054`` to every role. The study's investigator (and coordinator, administrator) sees it, as one audited
+    view; a viewer, a CRO account and an investigator of another study see it masked, also in the audit table."""
+    job = _done_case(box["backend"])
+    box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
+                        detail={"line": "CASE GZQO mrn=70000054 lang=en", "channel": "web"})  # fmt: skip
+    box["users"].create("pi", "investigator", VIEWER_PW, "pi@hospa.test")
+    box["users"].create("pi2", "investigator", VIEWER_PW, "pi2@hospa.test")
+    box["users"].set_scope("pi2", studies="OTHER")
+    pi, _ = login(box["app"], "pi", VIEWER_PW)
+    page = pi.get(f"/pilot/jobs/{job.job_id}").text
+    thread = page[page.index('data-testid="thread"') :]
+    assert "mrn=70000054" in thread[: thread.index("</table>")]
+    assert "mrn=70000054" not in page[page.index('data-testid="audit"') :]  # the audit table masks it
+    views = [r for r in box["backend"].audit(job.job_id) if r.event == "console.view_id"]
+    assert len(views) == 1 and views[0].actor == "console:pi" and views[0].detail["role"] == "investigator"
+    viewer, _ = login(box["app"], "viewer", VIEWER_PW)
+    vpage = viewer.get(f"/pilot/jobs/{job.job_id}").text
+    assert "70000054" not in vpage and "mrn=•••" in vpage
+    other, _ = login(box["app"], "pi2", VIEWER_PW)
+    assert "70000054" not in other.get(f"/pilot/jobs/{job.job_id}").text
+    assert len([r for r in box["backend"].audit(job.job_id) if r.event == "console.view_id"]) == 1
+
+
+def test_identifier_views_are_rate_limited(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-143: a view of an identifier counts against the reveal cap; over it the line is masked and refused."""
+    monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
+    job = _done_case(box["backend"])
+    box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
+                        detail={"line": "CASE GZQO mrn=70000054 lang=en"})  # fmt: skip
+    c, _ = login(box["app"])
+    assert "mrn=70000054" in c.get(f"/pilot/jobs/{job.job_id}").text
+    assert "mrn=70000054" not in c.get(f"/pilot/jobs/{job.job_id}").text
+    assert any(r.event == "console.view_id_refused" for r in box["backend"].audit(job.job_id))
 
 
 def test_request_subjects_are_masked() -> None:
