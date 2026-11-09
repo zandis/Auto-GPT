@@ -3200,9 +3200,10 @@ Docker.
    sub-investigator, CRC, other), the tasks the PI ticks (`screen` = see candidates, `approach` = mark Approach,
    `refer` = ask a treating doctor, `enter_data`), first and last day, GCP training date and certificate. It is the
    box's copy of the trial office's signed log, which stays the record; a monthly comparison is recorded on the page
-   (match / differs), and the CRC's home and the week page remind when it is more than 30 days old. One permission
-   function (`services/console/team.py` `standing`) answers for the pages and `/api/v1`: the logged PI has every
-   task; a sub-investigator only the ticked ones, on the days the entry runs; an investigator not on a log that names
+   (match / differs), and the CRC's home and the week page remind when it is more than 30 days old. The rights are rows
+   of D-146's role table (`libs/tb_common/authz.py`: `STUDY_TASKS`, `ROLE_STUDY_TASKS`, `study_tasks`); one function
+   (`services/console/team.py` `standing`) reads the study's log into it for the pages and `/api/v1`: the logged PI
+   has every task; a sub-investigator only the ticked ones, on the days the entry runs; an investigator not on a log that names
    a PI is refused (403) on the week list, the patient page and the candidates. Only the logged PI approves criteria
    (S20) and keeps the log. **Until a study's log names a PI, every investigator of the study acts as its PI**
    (screen, approach, refer: the behaviour before D-147), so a study without a log keeps working. Coordinators and
@@ -3211,7 +3212,8 @@ Docker.
    `console.delegation`, `console.pi_mark`, `console.referral`, ...).
 2. **Candidates across the hospital** (`/studies/{rs}/candidates`): every candidate of the study's latest screening
    run, whoever the treating doctor is, with the doctor as a *suggestion* from the data or "unknown", the referral
-   state and the mark. A candidate's page opens only with a purpose (decide fit, ask the doctor, prepare contact,
+   state and the mark. Whose patients the run looked at comes from D-146's "Who to screen": the page says whether it
+   was the whole hospital or some doctors' patients, and links the choice on the study's set-up. A candidate's page opens only with a purpose (decide fit, ask the doctor, prepare contact,
    other); each view is audited (`console.candidate_view`: study, pseudonym, purpose) and counted in the `team`
    schema, and limited per person (`TB_CANDIDATE_VIEWS_PER_HOUR`, default 60; over it, 429 and
    `console.rate_limited`). It shows the identifiers, why the patient fits or not, the cited record (the patient
@@ -3272,16 +3274,15 @@ D-143's reveal with a reason and the purpose, Approach refused without the tick,
 CRC's agreement, the override recorded, the XLSX route and outcome, the CRO and viewer refused, an opt-out entered
 by chart number registered under the pseudonym, gone from the lists, and left out of the next SCREEN run with its
 audit event. `tools/complete_run.py` maps stage 15 to the candidates page; the browser walk opens the new pages for
-the PI and the CRC and expects 403 for the viewer and the CRO. Runs here: `make lint` clean; `e2e_simple` PASSED
-(183 checks); `tools.backup_drill` PASSED; `public_e2e --lang ja` 112/112; the walk 888 checks, 0 failures, axe 0
-serious, no target under 44 px. `make test`: 1,519 passed, 3 failed, the same three that fail on the base commit
-(`tests/integration/test_twpas_inproc.py` and `test_cohort_inproc.py`: module-scoped boxes across per-test
-schemas). Two suite fixes on the way: `tests/conftest.py` no longer lets the demo tools' service token leak into
-later tests (it made unrelated HTTP tests answer 401), and `tests/integration/test_list_demo.py` checks D-136 (the
-screening number beside the pseudonym in the mail) instead of its absence.
+the PI and the CRC and expects 403 for the viewer and the CRO. Runs here: `make lint` clean; `e2e_simple` PASSED (184 checks, stage 15: 15); `tools.backup_drill` PASSED;
+`public_e2e --lang ja` 120/120; the walk 1,002 checks, 0 failures, axe 0 serious, no target under 44 px. `make test`
+in file order (`-p no:randomly`): 1,681 passed, 1 failed: `tests/unit/test_no_direct_model_calls.py` flags model API calls in
+D-148's `tools/bench_profile.py` and `tests/unit/test_gpu_prep.py`, files this entry does not touch. With `pytest-randomly`, which is in this machine's shared
+virtual environment but not in `pyproject.toml`, the order changes on each run and up to six integration tests fail:
+`tests/integration/test_twpas_inproc.py`, `test_cohort_inproc.py` and `test_screen_inproc.py` share a module-scoped
+box and need their tests in file order. The same tests fail on the base commit alone under that plugin.
 
-*Not done.* The screening run's population is still the practitioner and appointment scope of D-103; "the entire
-database" as the scope is the Wave 1 / G1 work. FEAS counts do not read the opt-out register (the feed's consent
+*Not done.* FEAS counts do not read the opt-out register (the feed's consent
 table still applies there), and the data core's own exports (ODM, REDCap CSV of consented participants) are not
 filtered by it. The doctor's own console page and the mail with answer buttons are later (owner decision). No
 steward role yet: the coordinator and the administrator keep the staff directory and the register.

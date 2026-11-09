@@ -22,9 +22,11 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from tb_common.authz import STUDY_TASKS
+
 from console.storedb import open_db
 
-TASKS = ("screen", "approach", "refer", "enter_data")
+TASKS = STUDY_TASKS  # the role table's study tasks (tb_common.authz, D-147)
 LOG_ROLES = ("pi", "sub_pi", "crc", "other")
 ROUTES = ("suggested", "directory", "typed", "outside", "department")
 ANSWERS = ("agree", "decline", "discuss")

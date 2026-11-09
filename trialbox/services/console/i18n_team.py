@@ -8,6 +8,9 @@ delegation. Joined into ``console.i18n`` last."""
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "team.scope.hospital": "This run screened the whole hospital: every doctor's patients are here.",
+    "team.scope.pract": "This run screened only these doctors' patients: {ids}.",
+    "team.scope.change": "Choose the whole hospital under Who to screen",
     "team.cand.title": "Candidates",
     "team.cand.one": "Candidate",
     "team.cand.count": "{n} candidates in the hospital",
@@ -200,6 +203,9 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "team.scope.hospital": "この実行は病院全体をスクリーニングしました。すべての医師の患者さんが載っています。",
+    "team.scope.pract": "この実行はこの医師たちの患者さんだけをスクリーニングしました：{ids}。",
+    "team.scope.change": "「スクリーニングの対象」で病院全体を選ぶ",
     "team.cand.title": "院内の候補者",
     "team.cand.one": "候補者",
     "team.cand.count": "院内の候補者 {n} 人",
@@ -392,6 +398,9 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    "team.scope.hospital": "本次執行篩選了全院：所有醫師的病人都在這裡。",
+    "team.scope.pract": "本次執行只篩選了這些醫師的病人：{ids}。",
+    "team.scope.change": "在「篩選對象」中選擇全院",
     "team.cand.title": "全院候選者",
     "team.cand.one": "候選者",
     "team.cand.count": "全院候選者 {n} 位",

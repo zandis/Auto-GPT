@@ -473,3 +473,32 @@ def test_team_pages_render_in_three_languages_with_their_strings(box: dict[str, 
     for lang in ("ja", "zh-TW"):
         same = [k for k, v in i18n_team.EN.items() if CATALOGUES[lang][k] == v and not re.fullmatch(r"[A-Z ]+", v)]
         assert same == [], (lang, same)
+
+
+def test_study_tasks_live_in_the_role_table() -> None:
+    """D-147: the delegation rights are rows of tb_common.authz's role table, read with the study's log."""
+    from tb_common.authz import ROLE_STUDY_TASKS, STUDY_TASKS, study_tasks
+
+    none: frozenset[str] = frozenset()
+    assert study_tasks("investigator", log_names_pi=False, is_pi=True, ticked=none) == ROLE_STUDY_TASKS["investigator"]
+    assert study_tasks("investigator", log_names_pi=True, is_pi=True, ticked=none) == frozenset(STUDY_TASKS)
+    assert study_tasks("investigator", log_names_pi=True, is_pi=False, ticked=frozenset({"refer", "x"})) == {"refer"}
+    assert study_tasks("investigator", log_names_pi=True, is_pi=False, ticked=none) == none
+    assert study_tasks("coordinator", log_names_pi=True, is_pi=False, ticked=none) == {"screen", "enter_data"}
+    assert study_tasks("viewer", log_names_pi=False, is_pi=False, ticked=frozenset(STUDY_TASKS)) == none
+    assert study_tasks("cro", log_names_pi=True, is_pi=False, ticked=frozenset(STUDY_TASKS)) == none
+
+
+def test_candidates_say_whose_patients_the_run_screened(box: dict[str, Any]) -> None:
+    """D-146's "Who to screen": the page says whether the run looked at the whole hospital and links the choice."""
+    jid = _ulid(973)
+    _done_screen(box["backend"], jid)
+    pi = _user(box, "drsato", "investigator")
+    page = pi.get("/studies/GZQO/candidates").text
+    assert 'data-testid="scope-pract"' in page and "DR-LIN" in page and "/studies/GZQO/setup#who" in page
+    key = next(k for k in box["backend"].objects if k.startswith(f"outputs/{jid}/screen_"))
+    summary = json.loads(box["backend"].objects[key])
+    summary["scope"] = {"practitioners": [], "whole_hospital": True}
+    box["backend"].objects[key] = json.dumps(summary).encode()
+    page = pi.get("/studies/GZQO/candidates").text
+    assert 'data-testid="scope-hospital"' in page and 'data-testid="scope-pract"' not in page

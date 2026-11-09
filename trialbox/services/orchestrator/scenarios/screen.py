@@ -146,7 +146,7 @@ def scope_patients(
     out = [Scoped(r["pid"], local_iso(r["next_appt"], tz), r["practitioner_id"], r["dept"]) for r in rows]
     if departments:
         out = [s for s in out if s.department in departments]
-    return drop_opted_out(ctx, out)
+    return out
 
 
 def drop_opted_out(ctx: Ctx, scoped: list[Scoped]) -> list[Scoped]:
@@ -445,7 +445,8 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
         raise StepFailed("running", "window must be a number of days") from exc
     depts = [d.strip().upper() for d in opts["dept"].split(",")] if opts.get("dept") else []
     recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
-    scoped = scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot)
+    # D-147: the research office's opt-out register applies to every screening run (and MICROBATCH's incident run)
+    scoped = drop_opted_out(ctx, scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot))
     ctx.metrics(patients_scoped=len(scoped))
     judge = judge_for(ctx, rs)
     judging = judging_info(judge)

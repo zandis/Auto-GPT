@@ -35,6 +35,7 @@ from typing import Any
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
+from tb_common.authz import study_tasks
 from tb_common.optout import SOURCES, OptOutError, OptOutRegister
 
 from console import s28
@@ -62,7 +63,6 @@ _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _CHART = re.compile(r"^[A-Za-z0-9-]{1,40}$")
 CHECK_DAYS = 30  # the copy is compared with the office's signed log every month
-LEGACY_TASKS = frozenset({"screen", "approach", "refer"})  # an investigator before the log names a PI
 
 
 @dataclass(frozen=True)
@@ -76,25 +76,18 @@ class Standing:
 
 
 def standing(team: TeamStore, user: User, rs: str, today: date) -> Standing:
-    """The one permission function of D-147: pages and ``/api/v1`` both ask it."""
+    """The one permission function of D-147: pages and ``/api/v1`` both ask it. The rights per role come from the
+    role table (``tb_common.authz.study_tasks``); this reads the study's delegation log into it."""
     if not user.sees_study(rs) or user.aggregate_only:
         return Standing(False, frozenset(), False)
     entries = team.entries(rs)
     pi = next((e for e in reversed(entries) if e.role == "pi" and e.active_on(today)), None)
     mine = [e for e in entries if e.username == user.username and e.active_on(today)]
     own = mine[-1] if mine else None
-    if user.role == "investigator":
-        if pi is None:
-            return Standing(True, LEGACY_TASKS, False, own)
-        if pi.username == user.username:
-            return Standing(True, frozenset(TASKS), True, pi)
-        tasks = frozenset(t for e in mine if e.role == "sub_pi" for t in e.tasks)
-        return Standing(False, tasks, True, own)
-    if user.role == "coordinator":
-        return Standing(False, frozenset({"screen", "enter_data"}), pi is not None, own)
-    if user.role == "admin":
-        return Standing(False, frozenset({"screen"}), pi is not None, own)
-    return Standing(False, frozenset(), pi is not None, own)
+    is_pi = user.role == "investigator" and (pi is None or pi.username == user.username)
+    ticked = frozenset(t for e in mine if e.role == "sub_pi" for t in e.tasks)
+    tasks = study_tasks(user.role, log_names_pi=pi is not None, is_pi=is_pi, ticked=ticked)
+    return Standing(is_pi, tasks, pi is not None, pi if is_pi and pi is not None else own)
 
 
 def check_due(team: TeamStore, rs: str, today: date) -> bool:
