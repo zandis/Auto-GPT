@@ -221,6 +221,9 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
         if up in lk["dx"]:
             icd, name = lk["dx"][up]
             return {"system": ICD10CM, "code": icd, "display": name, "method": "lookup", "confidence": "1.00"}
+        moved = _tw_2014(up)
+        if moved is not None:
+            return moved
         if _ICD.match(up):
             return {"system": ICD10CM, "code": up, "display": display, "method": "same", "confidence": "1.00"}
     if kind == "lab-code":
@@ -229,13 +232,71 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
             return {"system": LOINC, "code": loinc, "display": name, "method": "lookup", "confidence": "1.00"}
         if _LOINC.match(up):
             return {"system": LOINC, "code": up, "display": display, "method": "same", "confidence": "1.00"}
+        nhi = _nhi_lab(up)
+        if nhi:
+            return nhi
     if kind == "drug-code":
         if up in lk["drug"]:
             atc, name = lk["drug"][up]
             return {"system": ATC, "code": atc, "display": name, "method": "lookup", "confidence": "1.00"}
         if _ATC.match(up):
             return {"system": ATC, "code": up, "display": display, "method": "same", "confidence": "1.00"}
+        nhi = _nhi_drug(up)
+        if nhi:
+            return nhi
     return _by_name(domain, display or code)
+
+
+# ------------------------------------------------------------- the Taiwan maps of the reference data (D-170, D-171)
+def _refdata(system: str, code: str) -> list[dict[str, Any]]:
+    from tb_common.refdata import map_targets_or_empty
+
+    return map_targets_or_empty(system, code)
+
+
+def _nhi_drug(code: str) -> dict[str, str]:
+    """An NHI 藥品代號 -> the ATC code the NHIA list gives (``refdata``), when it is a full (level 5) code."""
+    from tb_common import refdata_tw as tw
+
+    atc = {t["target_code"] for t in _refdata(tw.NHI_DRUG, code) if _ATC.match(t["target_code"])}
+    if len(atc) != 1:
+        return {}
+    return {"system": ATC, "code": atc.pop(), "display": "", "method": "refdata", "confidence": "1.00"}
+
+
+def _nhi_lab(code: str) -> dict[str, str]:
+    """An NHI lab order code -> LOINC from the NHIA ConceptMap. Its targets are candidates (relatedto): one target,
+    or exactly one of them in the curated lab table, is a suggestion; several give none (the coordinator picks)."""
+    from tb_common import refdata_tw as tw
+
+    rows = _refdata(tw.NHI_SERVICE, code)
+    loinc = sorted({t["target_code"] for t in rows if _LOINC.match(t["target_code"])})
+    if len(loinc) > 1:
+        try:
+            known = {c.code for c in _terminology().expand("loinc", "", "prefix")}
+        except Exception:
+            known = set()
+        loinc = [c for c in loinc if c in known]
+    if len(loinc) != 1:
+        return {}
+    disp = next((t["source_display"] for t in rows), "")
+    return {"system": LOINC, "code": loinc[0], "display": disp, "method": "refdata", "confidence": "0.90"}
+
+
+def _tw_2014(code: str) -> dict[str, str] | None:
+    """A TW 2014-edition ICD-10-CM code that the 2023 edition no longer has (NHIA map): one 2023 code -> that code;
+    several (a split) -> no suggestion, the coordinator picks. None when the code is still a 2023 code (I10 stays
+    I10 although I16 was split out of it) or the map does not know it."""
+    from tb_common import refdata_tw as tw
+
+    rows = _refdata(tw.ICD_CM_2014, code)
+    targets = sorted({t["target_code"] for t in rows})
+    if not rows or code in targets:
+        return None
+    if len(targets) == 1 and _ICD.match(targets[0]):
+        return {"system": ICD10CM, "code": targets[0], "display": rows[0]["target_display"], "method": "refdata",
+                "confidence": "0.90"}  # fmt: skip
+    return {}
 
 
 def valid_target(domain: str, system: str, code: str) -> bool:

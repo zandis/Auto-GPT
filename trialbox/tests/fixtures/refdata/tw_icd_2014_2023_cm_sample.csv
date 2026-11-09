@@ -1,0 +1,14 @@
+﻿2014年版ICD-10-CM/PCS,2014年版ICD-10-CM/PCS_英文名稱,2014年版ICD-10-CM/PCS_中文名稱,2023年版ICD-10-CM/PCS,2023年版ICD-10-CM/PCS_英文名稱,2023年版ICD-10-CM/PCS_中文名稱,2014代碼狀態,2023代碼狀態,修訂日期
+A00.0,"Cholera due to Vibrio cholerae 01, biovar cholerae",血清型01 cholerae霍亂弧菌所致之霍亂,A00.0,"Cholera due to Vibrio cholerae 01, biovar cholerae",血清型01 cholerae霍亂弧菌所致之霍亂, ,,
+A04.7,Enterocolitis due to Clostridium difficile,艱難梭菌所致腸道感染,A04.71,"Enterocolitis due to Clostridium difficile, recurrent",艱難梭菌所致腸道感染，復發型,2014代碼改為不可用,2023代碼新增,
+A04.7,Enterocolitis due to Clostridium difficile,艱難梭菌所致腸道感染,A04.72,"Enterocolitis due to Clostridium difficile, not specified as recurrent",艱難梭菌所致腸道感染，未明示為復發型,2014代碼改為不可用,2023代碼新增,
+E11.9,Type 2 diabetes mellitus without complications,第二型糖尿病，未伴有併發症,E11.9,Type 2 diabetes mellitus without complications,第二型糖尿病，未伴有併發症, ,,
+I10,Essential (primary) hypertension,本態性(原發性)高血壓,I10,Essential (primary) hypertension,本態性(原發性)高血壓, ,,
+I10,Essential (primary) hypertension,本態性(原發性)高血壓,I16.0,Hypertensive urgency,高血壓緊急狀況, ,2023代碼新增,
+I10,Essential (primary) hypertension,本態性(原發性)高血壓,I16.1,Hypertensive emergency,高血壓急症, ,2023代碼新增,
+I10,Essential (primary) hypertension,本態性(原發性)高血壓,I16.9,"Hypertensive crisis, unspecified",高血壓危象, ,2023代碼新增,
+M10.9,"Gout, unspecified",痛風,M10.9,"Gout, unspecified",痛風, ,,
+P83.8,Other specified conditions of integument specific to newborn,特發於新生兒其他特定體表病況,P83.88,Other specified conditions of integument specific to newborn,特發於新生兒其他特定體表病況,2014代碼改為不可用,2023代碼新增,
+T84.040A,"Periprosthetic fracture around internal prosthetic right hip joint, initial encounter",右側內人工髖關節附近人工置換裝置周圍骨折之初期照護,M97.01XA,"Periprosthetic fracture around internal prosthetic right hip joint, initial encounter",右側人工髖關節附近之置換裝置物周圍骨折之初期照護,2014代碼刪除,2023代碼新增,
+B18.1,Chronic viral hepatitis B without delta-agent,慢性病毒性B型肝炎未伴有D 型肝炎病毒,B18.1,Chronic viral hepatitis B without delta-agent,慢性病毒性B型肝炎未伴有D 型肝炎病毒, ,,
+Z22.51,Carrier of viral hepatitis B,B型病毒性肝炎之帶原者,B18.1,Chronic viral hepatitis B without delta-agent,慢性病毒性B型肝炎未伴有D 型肝炎病毒,2014代碼刪除,,113.11.18增列對應

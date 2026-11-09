@@ -5,15 +5,29 @@ outbound access.
 inside the signed update bundle, payload kind ``refdata``)::
 
     manifest.json        format, pack_id, data_as_of, created_at, sample, and one entry per source:
-                         id, name, kind (ctgov | trial | term), url, downloaded_at, download_sha256, records,
-                         licence, licence_url, terms, attribution, refresh, distribution (ship | site-fetch),
-                         files [{path, sha256, bytes, records}]
+                         id, name, kind (ctgov | trial | term | map | synonym), url, downloaded_at,
+                         download_sha256, version, records, licence, licence_url, terms, attribution, refresh,
+                         distribution (ship | site-fetch), files [{path, sha256, bytes, records}]
     NOTICE.md            the attribution and licence text of every source, generated from the manifest
     <source>/<file>.jsonl.gz   one JSON object per line:
         ctgov:  {"nct_id", "study": <ClinicalTrials.gov API v2 study record, unchanged>}
         trial:  {"registry", "trial_id", "title", "status", "phase", "sponsor", "conditions": [], "countries": [],
                  "inclusion", "exclusion", "start", "end", "updated", "codes": [], "record": {<source row>}}
         term:   {"system", "code", "display", "extra": {}}
+        map:    {"source_system", "source_code", "source_display", "target_system", "target_code", "target_display",
+                 "relation" (FHIR R4 ConceptMap equivalence, see RELATIONS), "extra": {}}       (D-170)
+        synonym: {"term", "lang", "canonical", "canonical_lang", "domain", "system", "code", "curated", "extra": {}}
+                 one surface form (zh-TW, an abbreviation) -> the name the matcher knows (D-172)
+
+``version`` (D-170) is the source's own version or edition (an IG version, a dataset's modified date, the download
+date for a daily list). Packs built before D-170 have no ``version``; it is required for the kinds map and synonym.
+Each source's licence was read at the source; a source whose licence forbids redistribution is ``site-fetch``: the
+vendor never ships it and the hospital loads its own download (``tools/refdata_fetch.py site-load``).
+
+**Items** (D-170). Every source is one :class:`Item` in one registry (``tools/refdata_fetch.py`` ``SOURCES``):
+where it comes from, its licence and terms, its attribution, how to read its version, and its own parser (its
+loader). Country modules add their items (``tb_common.refdata_tw``: the Taiwan maps and synonyms); the box itself
+never downloads anything: it reads the pack from the signed update bundle (offline media).
 
 :func:`verify` checks every file's size, sha256 and record count against the manifest. The update bundle's Ed25519
 signature covers the tar, so the manifest itself is authentic when it arrives through ``apply_update``.
@@ -34,8 +48,10 @@ id, by condition, by status and by country (Japan or Taiwan sites); it returns t
 from __future__ import annotations
 
 import argparse
+import csv
 import gzip
 import hashlib
+import io
 import json
 import os
 import re
@@ -43,15 +59,21 @@ import shutil
 import sys
 import tarfile
 import tempfile
-from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
+import time
+import unicodedata
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 FORMAT = "trialbox-refdata/1"
-KINDS = ("ctgov", "trial", "term")
+KINDS = ("ctgov", "trial", "term", "map", "synonym")
+VERSIONED = ("map", "synonym")  # kinds added by D-170: their sources must state a version
+# FHIR R4 ConceptMap equivalence: how the target's meaning relates to the source's
+RELATIONS = ("equivalent", "equal", "wider", "subsumes", "narrower", "specializes", "inexact", "relatedto",
+             "unmatched")  # fmt: skip
 REQUIRED = ("id", "name", "kind", "url", "downloaded_at", "download_sha256", "records", "licence", "terms",
             "attribution", "distribution", "files")  # fmt: skip
 PACK_ID = re.compile(r"^trialbox-refdata-\d{8}(-[a-z0-9-]+)?$")
@@ -74,10 +96,80 @@ CREATE TABLE IF NOT EXISTS trial (registry TEXT NOT NULL, trial_id TEXT NOT NULL
 CREATE TABLE IF NOT EXISTS term (system TEXT NOT NULL, code TEXT NOT NULL, display TEXT NOT NULL,
   extra JSONB NOT NULL, source_id TEXT NOT NULL, PRIMARY KEY (system, code))
 """
+DDL_V2 = """
+ALTER TABLE source ADD COLUMN IF NOT EXISTS version TEXT NOT NULL DEFAULT '';
+ALTER TABLE source ADD COLUMN IF NOT EXISTS download_sha256 TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS concept_map (source_system TEXT NOT NULL, source_code TEXT NOT NULL,
+  target_system TEXT NOT NULL, target_code TEXT NOT NULL, relation TEXT NOT NULL, source_display TEXT NOT NULL,
+  target_display TEXT NOT NULL, extra JSONB NOT NULL, source_id TEXT NOT NULL,
+  PRIMARY KEY (source_id, source_system, source_code, target_system, target_code));
+CREATE INDEX IF NOT EXISTS concept_map_source ON concept_map (source_system, source_code);
+CREATE INDEX IF NOT EXISTS concept_map_target ON concept_map (target_system, target_code);
+CREATE TABLE IF NOT EXISTS synonym (term_norm TEXT NOT NULL, term TEXT NOT NULL, lang TEXT NOT NULL,
+  canonical TEXT NOT NULL, canonical_lang TEXT NOT NULL, domain TEXT NOT NULL, system TEXT NOT NULL,
+  code TEXT NOT NULL, curated BOOLEAN NOT NULL, extra JSONB NOT NULL, source_id TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS synonym_term ON synonym (term_norm)
+"""
+TABLES = ("ctgov_study", "trial", "term", "concept_map", "synonym")
+MAP_COLS = ("source_system", "source_code", "target_system", "target_code", "relation", "source_display",
+            "target_display", "extra", "source_id")  # fmt: skip
+SYN_COLS = ("term_norm", "term", "lang", "canonical", "canonical_lang", "domain", "system", "code", "curated",
+            "extra", "source_id")  # fmt: skip
 
 
 class PackError(ValueError):
     """The pack is malformed, or a file does not match the manifest."""
+
+
+Parser = Callable[[Path], Iterator[dict[str, Any]]]
+
+
+@dataclass(frozen=True)
+class Item:
+    """One reference data source in the registry (D-140, D-170): where it comes from, its licence, its terms, the
+    credit it asks for, and its loader.
+
+    ``distribution``: ship (the vendor builds it into the pack), site-fetch (the licence forbids redistribution or
+    the download needs the hospital's account: the hospital loads its own copy) or not usable. ``parse`` reads the
+    fetched file into the pack's records (built-in parsers of ``tools/refdata_fetch.py`` when None). ``extra_files``
+    are further ``(file name, URL)`` downloads of the same item; ``derived_from`` names the item whose download this
+    one reads (no second download). ``meta_url`` is a data.gov.tw dataset API URL read at fetch time for the
+    dataset's modified date (the version); ``version`` is a fixed version when the source states one in the file
+    (``version_of`` reads it from the file)."""
+
+    id: str
+    name: str
+    kind: str  # ctgov | trial | term | map | synonym
+    distribution: str  # ship | site-fetch | not usable
+    url: str
+    licence: str
+    licence_url: str
+    terms: str
+    attribution: str
+    refresh: str
+    size: str
+    note: str = ""
+    filename: str = ""
+    fetch: bool = True  # False: the file comes from an account download (--file) or the hospital
+    country: str = ""
+    decision: str = ""
+    parse: Parser | None = None
+    extra_files: tuple[tuple[str, str], ...] = ()
+    derived_from: str = ""
+    meta_url: str = ""
+    version: str = ""
+    version_of: Callable[[Path], str] | None = None
+
+
+def norm_name(text: str) -> str:
+    """The matcher's normal form (``criteria_compiler.terminology.mapper.norm``): NFKC, trimmed, lower case."""
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text or "").strip().lower())
+
+
+def csv_rows(data: bytes) -> list[dict[str, str]]:
+    """A UTF-8 CSV (BOM or not) as stripped dicts."""
+    text = data.decode("utf-8-sig")
+    return [{(k or "").strip(): (v or "").strip() for k, v in r.items()} for r in csv.DictReader(io.StringIO(text))]
 
 
 # ------------------------------------------------------------------------------------------------ writing a pack
@@ -132,6 +224,7 @@ def notice(m: dict[str, Any]) -> str:
             f"* Source: {s['url']}",
             f"* Downloaded: {s['downloaded_at']}; {s['records']:,} records; sha256 of the download "
             f"`{s['download_sha256']}`",
+            *([f"* Version: {s['version']}"] if s.get("version") else []),
             f"* Licence: {s['licence']}" + (f" ({s['licence_url']})" if s.get("licence_url") else ""),
             f"* Terms: {s['terms']}",
             f"* Attribution: {s['attribution']}",
@@ -155,6 +248,8 @@ def check_manifest(m: dict[str, Any]) -> None:
             raise PackError(f"source {s.get('id')!r}: missing {', '.join(missing)}")
         if s["kind"] not in KINDS:
             raise PackError(f"source {s['id']}: kind {s['kind']!r} is not one of {', '.join(KINDS)}")
+        if s["kind"] in VERSIONED and not s.get("version"):
+            raise PackError(f"source {s['id']}: a {s['kind']} source must state its version")
         if s["distribution"] not in ("ship", "site-fetch"):
             raise PackError(f"source {s['id']}: distribution must be ship or site-fetch")
         if s["id"] in ids:
@@ -268,6 +363,26 @@ def ctgov_row(rec: dict[str, Any], source_id: str) -> tuple[str, ...]:
     )
 
 
+def map_row(rec: dict[str, Any], source_id: str) -> tuple[Any, ...]:
+    rel = str(rec.get("relation") or "")
+    if rel not in RELATIONS:
+        raise PackError(f"{source_id}: relation {rel!r} is not one of {', '.join(RELATIONS)}")
+    vals = [str(rec.get(k) or "").strip() for k in ("source_system", "source_code", "target_system", "target_code")]
+    if not all(vals):
+        raise PackError(f"{source_id}: a map row needs source and target system and code: {rec!r}")
+    return (*vals, rel, str(rec.get("source_display") or ""), str(rec.get("target_display") or ""),
+            json.dumps(rec.get("extra") or {}, ensure_ascii=False), source_id)  # fmt: skip
+
+
+def synonym_row(rec: dict[str, Any], source_id: str) -> tuple[Any, ...]:
+    term, canonical = str(rec.get("term") or "").strip(), str(rec.get("canonical") or "").strip()
+    if not term or not canonical or not rec.get("lang"):
+        raise PackError(f"{source_id}: a synonym row needs term, lang and canonical: {rec!r}")
+    return (norm_name(term), term, str(rec["lang"]), canonical, str(rec.get("canonical_lang") or ""),
+            str(rec.get("domain") or ""), str(rec.get("system") or ""), str(rec.get("code") or ""),
+            bool(rec.get("curated")), json.dumps(rec.get("extra") or {}, ensure_ascii=False), source_id)  # fmt: skip
+
+
 @dataclass(frozen=True)
 class LoadResult:
     pack_id: str
@@ -282,7 +397,7 @@ class RefStore:
         from tb_common.db import ENV, Database
 
         self.db = Database.connect(url or os.environ.get(ENV), SCHEMA)
-        self.db.migrate([DDL])
+        self.db.migrate([DDL, DDL_V2])
 
     def close(self) -> None:
         self.db.close()
@@ -301,7 +416,7 @@ class RefStore:
         with self.db.transaction() as tx:
             for s in m["sources"]:
                 sid = s["id"]
-                for table in ("ctgov_study", "trial", "term"):
+                for table in TABLES:
                     tx.execute(f"DELETE FROM {table} WHERE source_id = ?", (sid,))
                 tx.execute("DELETE FROM source WHERE source_id = ?", (sid,))
                 n = 0
@@ -320,6 +435,10 @@ class RefStore:
                               _bar(r.get("countries") or []), json.dumps(r, ensure_ascii=False), sid)
                              for r in recs),
                         )  # fmt: skip
+                    elif s["kind"] == "map":
+                        n += tx.copy_rows("concept_map", MAP_COLS, (map_row(r, sid) for r in recs))
+                    elif s["kind"] == "synonym":
+                        n += tx.copy_rows("synonym", SYN_COLS, (synonym_row(r, sid) for r in recs))
                     else:
                         n += tx.copy_rows(
                             "term",
@@ -329,9 +448,9 @@ class RefStore:
                         )  # fmt: skip
                 tx.execute(
                     "INSERT INTO source (source_id, pack_id, name, kind, distribution, records, url, downloaded_at, "
-                    "licence, attribution) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "licence, attribution, version, download_sha256) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (sid, m["pack_id"], s["name"], s["kind"], s["distribution"], n, s["url"], s["downloaded_at"],
-                     s["licence"], s["attribution"]),
+                     s["licence"], s["attribution"], str(s.get("version") or ""), s["download_sha256"]),
                 )  # fmt: skip
                 counts[sid] = n
             tx.execute("DELETE FROM pack WHERE pack_id = ?", (m["pack_id"],))
@@ -390,6 +509,32 @@ class RefStore:
         row = self.db.fetchone("SELECT display, extra FROM term WHERE system = ? AND code = ?", (system, code))
         return {"system": system, "code": code, "display": row[0], "extra": _json(row[1])} if row else None
 
+    def map_targets(self, source_system: str, code: str) -> list[dict[str, Any]]:
+        """What one code maps to (every loaded map from ``source_system``), e.g. an NHI lab code -> LOINC."""
+        return self._map("source_system = ? AND source_code = ?", (source_system, code.strip()))
+
+    def map_sources(self, target_system: str, code: str) -> list[dict[str, Any]]:
+        """The reverse: which codes map to this one (e.g. the 2014 codes behind a 2023 TW ICD-10-CM code)."""
+        return self._map("target_system = ? AND target_code = ?", (target_system, code.strip()))
+
+    def _map(self, where: str, args: tuple[str, str]) -> list[dict[str, Any]]:
+        rows = self.db.fetchdicts(
+            "SELECT source_system, source_code, source_display, target_system, target_code, target_display, relation, "
+            f"extra, source_id FROM concept_map WHERE {where} ORDER BY source_code, target_code",
+            args,
+        )
+        return [r | {"extra": _json(r["extra"])} for r in rows]
+
+    def synonyms(self, term: str, domain: str = "") -> list[dict[str, Any]]:
+        """The dictionary entries of one surface form (matched in the matcher's normal form). An entry without a
+        domain answers every domain."""
+        rows = self.db.fetchdicts(
+            "SELECT term, lang, canonical, canonical_lang, domain, system, code, curated, source_id FROM synonym "
+            "WHERE term_norm = ? AND (domain = '' OR ? = '' OR domain = ?) ORDER BY curated DESC, source_id, canonical",
+            (norm_name(term), domain, domain),
+        )
+        return [r | {"curated": bool(r["curated"])} for r in rows]
+
     def status(self) -> dict[str, Any] | None:
         """What the admin page shows: the vendor pack's date ("data as of"), every source with its records and
         licence, and the parts the hospital loaded itself. None when nothing is loaded."""
@@ -398,7 +543,8 @@ class RefStore:
         if not packs:
             return None
         srcs = self.db.fetchdicts("SELECT source_id, pack_id, name, kind, distribution, records, downloaded_at, "
-                                  "licence, attribution FROM source ORDER BY source_id")  # fmt: skip
+                                  "licence, attribution, version, download_sha256 FROM source "
+                                  "ORDER BY source_id")  # fmt: skip
         vendor = next((p for p in packs if p["origin"] == "vendor"), packs[0])
         return {
             "pack_id": vendor["pack_id"],
@@ -415,8 +561,9 @@ class RefStore:
         for (m,) in self.db.fetchall("SELECT manifest FROM pack ORDER BY origin DESC, pack_id"):
             man = _json(m)
             for s in man.get("sources") or []:
-                out.append({k: s.get(k, "") for k in ("id", "name", "url", "downloaded_at", "records", "licence",
-                                                      "licence_url", "terms", "attribution", "distribution")}
+                out.append({k: s.get(k, "") for k in ("id", "name", "kind", "url", "downloaded_at", "records",
+                                                      "version", "download_sha256", "licence", "licence_url", "terms",
+                                                      "attribution", "distribution")}
                            | {"pack_id": man.get("pack_id", "")})  # fmt: skip
         return out
 
@@ -427,6 +574,72 @@ def notices_or_empty(url: str | None = None) -> list[dict[str, Any]]:
             return st.notices()
     except Exception:
         return []
+
+
+_SHARED: dict[str, RefStore] = {}  # at most one: the database the process uses
+_FAILED: dict[str, float] = {}
+
+
+def shared(url: str | None = None) -> RefStore | None:
+    """One open store for lookups made often (the name matcher, site set-up suggestions); None when no database is
+    configured or it cannot be reached. Another URL closes the previous store (one connection per process). Never
+    touches the network beyond the trial database."""
+    from tb_common.db import ENV
+
+    url = url or os.environ.get(ENV)
+    if not url:
+        return None
+    st = _SHARED.get(url)
+    if st is None:
+        if time.monotonic() - _FAILED.get(url, -1e9) < 60:
+            return None  # not reachable a moment ago: do not wait on it for every name
+        for old in _SHARED.values():
+            with suppress(Exception):
+                old.close()
+        _SHARED.clear()
+        try:
+            st = RefStore(url)
+        except Exception:
+            _FAILED[url] = time.monotonic()
+            return None
+        _SHARED[url] = st
+    return st
+
+
+def map_targets_or_empty(source_system: str, code: str, url: str | None = None) -> list[dict[str, Any]]:
+    """:meth:`RefStore.map_targets`, or [] when nothing is loaded or the database is not reachable."""
+    st = shared(url)
+    try:
+        return st.map_targets(source_system, code) if st else []
+    except Exception:
+        return []
+
+
+def synonyms_or_empty(term: str, domain: str = "", url: str | None = None) -> list[dict[str, Any]]:
+    st = shared(url)
+    try:
+        return st.synonyms(term, domain) if st else []
+    except Exception:
+        return []
+
+
+def synonym_lookup(url: str | None = None) -> Callable[[str, str], list[dict[str, Any]]]:
+    """The name matcher's dictionary (``Terminology(name_synonyms=...)``, D-172): the loaded synonym sources."""
+
+    def lookup(term: str, domain: str = "") -> list[dict[str, Any]]:
+        return synonyms_or_empty(term, domain, url)
+
+    return lookup
+
+
+def in_set_via_map(targets: Iterable[dict[str, Any]], wanted: set[tuple[str, str]]) -> str:
+    """Whether a code read through a map (e.g. a TW 2014 ICD-10-CM code from an old record) is in a code list:
+    ``yes`` when every target is in it, ``no`` when none is, ``unknown`` when only some are (a 2014 code split into
+    several 2023 codes) or when the code has no map row at all. Unknown never excludes."""
+    got = [(t["target_system"], t["target_code"]) in wanted for t in targets]
+    if not got:
+        return "unknown"
+    return "yes" if all(got) else "no" if not any(got) else "unknown"
 
 
 def _esc(s: str) -> str:

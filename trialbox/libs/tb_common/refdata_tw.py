@@ -1,0 +1,288 @@
+"""Taiwan reference data items (D-170, D-171, D-172): the NHI drug code -> ATC map, the NHIA ICD-10-CM/PCS 2014 <->
+2023 map, the NHI lab code -> LOINC map and the zh-TW clinical synonyms for the name matcher.
+
+Each item is one :class:`tb_common.refdata.Item` in the registry (``tools/refdata_fetch.py`` adds :data:`ITEMS`):
+its source, licence (read at the source on 2026-11-09), terms, attribution, how its version is read, and its own
+parser. The box never downloads them: the vendor runs ``tools/refdata_fetch.py fetch`` and ``build``, and the pack
+reaches the box inside the signed update bundle (offline media).
+
+Licences checked at the source (2026-11-09):
+
+* data.gov.tw datasets 23715 (NHI drug list), 177508 (ICD-10-CM/PCS 2014 <-> 2023 map) and 15460 (NAER medical
+  terms): dataset API field ``license`` = 1, the Open Government Data License version 1.0 (https://data.gov.tw/
+  license): use, reproduction, distribution, adaptation and products of any kind, with no fee, on condition of the
+  provider's attribution statement.
+* The NHIA PAS IG package ``tw.gov.mohw.nhi.pas`` 1.3.0 (``ConceptMap-nhi-loinc``): ``package.json`` licence
+  ``CC0-1.0``. The parser refuses a package with another licence.
+* The curated zh-TW synonyms are TrialBox's own work (``tb_common/refdata_src/zh_tw_clinical_synonyms.csv``).
+
+Nothing here is site-fetch: every licence allows redistribution.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import re
+import tarfile
+from collections import Counter
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+from tb_common.refdata import Item, csv_rows
+
+OGDL = "Open Government Data License, version 1.0 (Taiwan)"
+OGDL_URL = "https://data.gov.tw/license"
+OGDL_TERMS = "Free use, reuse and redistribution, commercial included, with attribution of the provider."
+
+ATC = "http://www.whocc.no/atc"
+LOINC = "http://loinc.org"
+NHI_DRUG = "urn:tw:nhi:drug"  # the pack's system for 藥品代號 (nhi_drugs, D-140)
+NHI_SERVICE = "https://twcore.mohw.gov.tw/ig/twcore/CodeSystem/medical-service-payment-tw"  # 醫療服務給付項目
+ICD_CM_2014 = "urn:tw:nhi:icd-10-cm-2014"
+ICD_CM_2023 = "urn:tw:nhi:icd-10-cm-2023"  # the pack's system of tw_icd10_zh (D-140)
+ICD_PCS_2014 = "urn:tw:nhi:icd-10-pcs-2014"
+ICD_PCS_2023 = "urn:tw:nhi:icd-10-pcs-2023"
+
+_ATC_SHAPE = re.compile(r"^[A-Z](\d{2}([A-Z]([A-Z](\d{2})?)?)?)?$")
+_ATC_LEVEL = {1: 1, 3: 2, 4: 3, 5: 4, 7: 5}  # code length -> ATC level
+REPO_SYNONYMS = Path(__file__).resolve().parent / "refdata_src" / "zh_tw_clinical_synonyms.csv"
+
+
+def roc(s: str) -> str:
+    """A 民國 date ``YYYMMDD`` (``1001201``, `` 960901``) or ``YYY.MM.DD`` -> ISO; anything else unchanged."""
+    s = (s or "").strip()
+    m = re.fullmatch(r"(\d{2,3})\.(\d{1,2})\.(\d{1,2})", s)
+    if m:
+        return f"{int(m.group(1)) + 1911}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    if re.fullmatch(r"\d{6,7}", s):
+        s = s.zfill(7)
+        return f"{int(s[:3]) + 1911}-{s[3:5]}-{s[5:7]}"
+    return s
+
+
+# ------------------------------------------------------------------------------------------------ D-170 NHI -> ATC
+def latest_nhi_rows(path: Path) -> dict[str, dict[str, str]]:
+    """One row per 藥品代號: the row with the latest 有效起日 (the list has one row per validity period)."""
+    best: dict[str, dict[str, str]] = {}
+    for r in csv_rows(path.read_bytes()):
+        code = r.get("藥品代號", "")
+        if not code:
+            continue
+        r["有效起日"], r["有效迄日"] = roc(r.get("有效起日", "")), roc(r.get("有效迄日", ""))
+        if code not in best or r["有效起日"] >= best[code]["有效起日"]:
+            best[code] = r
+    return best
+
+
+def parse_nhi_drug_atc(path: Path) -> Iterator[dict[str, Any]]:
+    """NHI 藥品代號 -> the ``ATC代碼`` the NHIA list gives (kept as given, D-140: no WHO ATC/DDD text). The product is
+    narrower than its ATC class, so the target is ``wider``. Codes without an ATC, or with a value that is not
+    ATC-shaped, give no row (unknown, never a guess)."""
+    for code, r in sorted(latest_nhi_rows(path).items()):
+        atc = r.get("ATC代碼", "").strip().upper()
+        if not atc or not _ATC_SHAPE.match(atc) or len(atc) not in _ATC_LEVEL:
+            continue
+        yield {
+            "source_system": NHI_DRUG, "source_code": code, "source_display": r.get("藥品中文名稱", ""),
+            "target_system": ATC, "target_code": atc, "target_display": "", "relation": "wider",
+            "extra": {"atc_level": _ATC_LEVEL[len(atc)], "name_en": r.get("藥品英文名稱", ""),
+                      "ingredient": r.get("成分", ""), "valid_from": r.get("有效起日", ""),
+                      "valid_to": r.get("有效迄日", "")},
+        }  # fmt: skip
+
+
+# ------------------------------------------------------------------------------------------------ D-171 ICD map
+ICD_COLS = ("2014年版ICD-10-CM/PCS", "2014年版ICD-10-CM/PCS_英文名稱", "2014年版ICD-10-CM/PCS_中文名稱",
+            "2023年版ICD-10-CM/PCS", "2023年版ICD-10-CM/PCS_英文名稱", "2023年版ICD-10-CM/PCS_中文名稱",
+            "2014代碼狀態", "2023代碼狀態", "修訂日期")  # fmt: skip
+
+
+def icd_map_rows(data: bytes, pcs: bool) -> Iterator[dict[str, Any]]:
+    """One NHIA 2014 <-> 2023 file (CM or PCS; same columns). The relation says how the 2023 code's meaning relates
+    to the 2014 code's: the same code with one target and one source is ``equivalent``; a 2014 code split into
+    several 2023 codes gives ``narrower`` targets; several 2014 codes merged into one 2023 code give a ``wider``
+    target; both at once, or a one-to-one change of code, ``inexact``."""
+    rows = csv_rows(data)
+    if rows and not set(ICD_COLS[:6]) <= set(rows[0]):
+        raise ValueError(f"not an NHIA 2014/2023 ICD-10 map: columns {sorted(rows[0])[:6]}")
+    c14, c23 = ICD_COLS[0], ICD_COLS[3]
+    pairs = [(r[c14], r[c23], r) for r in rows if r.get(c14) and r.get(c23)]
+    uniq = {(a, b) for a, b, _ in pairs}
+    n_targets, n_sources = Counter(a for a, _ in uniq), Counter(b for _, b in uniq)
+    seen: set[tuple[str, str]] = set()
+    src, tgt = (ICD_PCS_2014, ICD_PCS_2023) if pcs else (ICD_CM_2014, ICD_CM_2023)
+    for a, b, r in pairs:
+        if (a, b) in seen:
+            continue
+        seen.add((a, b))
+        split, merged = n_targets[a] > 1, n_sources[b] > 1
+        if split and merged:
+            rel = "inexact"
+        elif split:
+            rel = "narrower"
+        elif merged:
+            rel = "wider"
+        else:
+            rel = "equivalent" if a == b else "inexact"
+        yield {
+            "source_system": src, "source_code": a, "source_display": r.get(ICD_COLS[1], ""),
+            "target_system": tgt, "target_code": b, "target_display": r.get(ICD_COLS[4], ""), "relation": rel,
+            "extra": {"source_zh": r.get(ICD_COLS[2], ""), "target_zh": r.get(ICD_COLS[5], ""),
+                      "status_2014": r.get(ICD_COLS[6], ""), "status_2023": r.get(ICD_COLS[7], ""),
+                      "revised": r.get(ICD_COLS[8], "")},
+        }  # fmt: skip
+
+
+def parse_tw_icd_2014_2023(path: Path) -> Iterator[dict[str, Any]]:
+    """The fetched CM file (``path``) and, beside it, the PCS file when it was fetched."""
+    yield from icd_map_rows(path.read_bytes(), pcs=False)
+    pcs = path.parent / "tw_icd_2014_2023_pcs.csv"
+    if pcs.is_file():
+        yield from icd_map_rows(pcs.read_bytes(), pcs=True)
+
+
+# ------------------------------------------------------------------------------------------------ D-171 NHI -> LOINC
+def _pas_package(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``package.json`` and ``ConceptMap-nhi-loinc.json`` from the package tgz (or a directory holding them)."""
+    if path.is_dir():
+        return (json.loads((path / "package.json").read_text(encoding="utf-8")),
+                json.loads((path / "ConceptMap-nhi-loinc.json").read_text(encoding="utf-8")))  # fmt: skip
+    with tarfile.open(path, "r:*") as tf:
+
+        def read(name: str) -> dict[str, Any]:
+            f = tf.extractfile(f"package/{name}")
+            if f is None:
+                raise ValueError(f"{path.name}: no package/{name}")
+            return dict(json.load(io.TextIOWrapper(f, encoding="utf-8")))
+
+        return read("package.json"), read("ConceptMap-nhi-loinc.json")
+
+
+def parse_nhi_lab_loinc(path: Path) -> Iterator[dict[str, Any]]:
+    """The NHIA ConceptMap ``nhi-loinc``: NHI 醫療服務給付項目 (lab order) code -> LOINC, every target as a row with
+    its equivalence (``relatedto`` throughout 1.3.0: candidates, not equivalents). LOINC codes only, no LOINC text."""
+    pkg, cm = _pas_package(path)
+    if str(pkg.get("license", "")).upper() != "CC0-1.0":
+        raise ValueError(f"the NHI PAS package's licence is {pkg.get('license')!r}, not CC0-1.0: do not ship")
+    seen: set[tuple[str, str]] = set()
+    for g in cm.get("group") or []:
+        if g.get("target") != LOINC:
+            continue
+        system = g.get("source") or NHI_SERVICE
+        for e in g.get("element") or []:
+            for t in e.get("target") or []:
+                key = (str(e["code"]), str(t["code"]))
+                if key in seen:
+                    continue
+                seen.add(key)
+                yield {
+                    "source_system": system, "source_code": key[0], "source_display": e.get("display", ""),
+                    "target_system": LOINC, "target_code": key[1], "target_display": t.get("display", ""),
+                    "relation": t.get("equivalence") or t.get("relationship") or "relatedto",
+                    "extra": {"conceptmap": cm.get("url", ""), "conceptmap_version": cm.get("version", "")},
+                }  # fmt: skip
+
+
+def pas_version(path: Path) -> str:
+    pkg, cm = _pas_package(path)
+    return f"{pkg.get('name', '')} {pkg.get('version', '')}, ConceptMap nhi-loinc {cm.get('version', '')}".strip()
+
+
+# ------------------------------------------------------------------------------------------------ D-172 synonyms
+def parse_naer_terms(path: Path) -> Iterator[dict[str, Any]]:
+    """NAER 醫學學術名詞: one row per zh-TW name (``中文名稱`` lists several, split at ``；``) -> the English term.
+    These are academic translations, one English term with several senses: not curated (the matcher flags them)."""
+    seen: set[tuple[str, str]] = set()
+    for r in csv_rows(path.read_bytes()):
+        en = r.get("英文名稱", "")
+        for zh in re.split(r"[；;]", r.get("中文名稱", "")):
+            zh = zh.strip()
+            if not en or not zh or (zh, en.lower()) in seen:
+                continue
+            seen.add((zh, en.lower()))
+            yield {"term": zh, "lang": "zh-TW", "canonical": en, "canonical_lang": "en", "domain": "", "system": "",
+                   "code": "", "curated": False, "extra": {"naer_no": r.get("序號", "")}}  # fmt: skip
+
+
+def parse_zh_tw_synonyms(path: Path) -> Iterator[dict[str, Any]]:
+    """TrialBox's own curated list: zh-TW clinical words and the abbreviations of Taiwanese notes -> the name the
+    matcher knows, per domain. Curated: a match through it needs no review."""
+    for r in csv_rows(path.read_bytes()):
+        if r.get("term") and r.get("canonical"):
+            yield {"term": r["term"], "lang": r.get("lang") or "zh-TW", "canonical": r["canonical"],
+                   "canonical_lang": r.get("canonical_lang") or "en", "domain": r.get("domain", ""), "system": "",
+                   "code": "", "curated": True, "extra": {"note": r.get("note", "")}}  # fmt: skip
+
+
+def synonyms_version(path: Path) -> str:
+    import hashlib
+
+    return f"TrialBox zh-TW synonyms, {sum(1 for _ in parse_zh_tw_synonyms(path))} entries, " \
+           f"sha256 {hashlib.sha256(path.read_bytes()).hexdigest()[:12]}"  # fmt: skip
+
+
+# ------------------------------------------------------------------------------------------------ the items
+NHIA = "National Health Insurance Administration (衛生福利部中央健康保險署)"
+ITEMS: tuple[Item, ...] = (
+    Item(
+        "nhi_drug_atc", "NHI drug code -> ATC (from 健保用藥品項查詢項目檔, data.gov.tw 23715)", "map", "ship",
+        "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-E41001-001", OGDL, OGDL_URL,
+        OGDL_TERMS + " The ATC codes are given as the NHIA list carries them; no WHO ATC/DDD index text is shipped.",
+        f"健保用藥品項查詢項目檔, {NHIA}, via data.gov.tw (dataset 23715), Open Government Data License 1.0. "
+        "ATC codes as listed by NHIA.",
+        "monthly", "one map row per drug code with an ATC code (about 45,000 codes in 2026-11)",
+        "Read from the nhi_drugs download (no second download); non-ATC-shaped values are left out.",
+        country="TW", decision="D-170", derived_from="nhi_drugs", parse=parse_nhi_drug_atc,
+        meta_url="https://data.gov.tw/api/v2/rest/dataset/23715",
+    ),
+    Item(
+        "tw_icd_2014_2023", "Taiwan ICD-10-CM/PCS 2014 <-> 2023 map (NHIA, data.gov.tw 177508)", "map", "ship",
+        "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20026-007", OGDL, OGDL_URL, OGDL_TERMS,
+        f"2014年版與2023年版ICD-10-CM/PCS對應檔, {NHIA}, via data.gov.tw (dataset 177508), Open Government Data "
+        "License 1.0. ICD-10-CM/PCS is based on the WHO ICD-10 (copyright World Health Organization); ICD-10-CM and "
+        "ICD-10-PCS are by NCHS and CMS (U.S.).",
+        "with each NHIA revision (months)", "CM 74,872 rows (21 MB CSV), PCS 79,062 rows (21 MB CSV), 2026-09",
+        "NHI claims moved from the 2014 to the 2023 edition on 2025-01-01: records before then carry 2014 codes.",
+        "tw_icd_2014_2023_cm.csv", country="TW", decision="D-171", parse=parse_tw_icd_2014_2023,
+        extra_files=(("tw_icd_2014_2023_pcs.csv",
+                      "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20026-008"),),
+        meta_url="https://data.gov.tw/api/v2/rest/dataset/177508",
+    ),
+    Item(
+        "nhi_lab_loinc", "NHI lab order code -> LOINC (NHIA PAS IG ConceptMap nhi-loinc)", "map", "ship",
+        "https://packages.fhir.org/tw.gov.mohw.nhi.pas/1.3.0", "CC0 1.0 (public domain dedication)",
+        "https://creativecommons.org/publicdomain/zero/1.0/",
+        "No restriction (package.json licence CC0-1.0, checked by the parser). The targets are LOINC codes only.",
+        f"臺灣健保署醫療服務給付項目對應LOINC (ConceptMap nhi-loinc), {NHIA}, 臺灣健保事前審查實作指引 (PAS IG). "
+        "This material contains content from LOINC (http://loinc.org); LOINC is copyright Regenstrief Institute, "
+        "Inc. and the LOINC Committee and is available at no cost under the license at http://loinc.org/license.",
+        "with each IG release", "806 rows, 53 NHI codes (1.3.0); about 1.6 MB package",
+        "Candidates (relatedto), not equivalents: site set-up suggests one only when the choice is clear.",
+        "nhi_pas.tgz", country="TW", decision="D-171", parse=parse_nhi_lab_loinc, version_of=pas_version,
+    ),
+    Item(
+        "naer_medical_terms", "NAER medical terms en <-> zh-TW (國家教育研究院 醫學學術名詞, data.gov.tw 15460)",
+        "synonym", "ship",
+        "https://opendata.naer.edu.tw/%E5%AD%B8%E8%A1%93%E5%90%8D%E8%A9%9E/%E5%9C%8B%E5%AE%B6%E6%95%99%E8%82%B2"
+        "%E7%A0%94%E7%A9%B6%E9%99%A2-%E9%86%AB%E5%AD%B8%E5%AD%B8%E8%A1%93%E5%90%8D%E8%A9%9E.csv",
+        OGDL, OGDL_URL, OGDL_TERMS,
+        "國家教育研究院 醫學學術名詞 (National Academy for Educational Research), via data.gov.tw (dataset 15460), "
+        "Open Government Data License 1.0.",
+        "rarely (dataset modified 2026-08-12)", "30,797 terms, 2.1 MB CSV",
+        "Academic translations: an English term lists several zh-TW names and senses, so matches are reviewed.",
+        "naer_medical_terms.csv", country="TW", decision="D-172", parse=parse_naer_terms,
+        meta_url="https://data.gov.tw/api/v2/rest/dataset/15460",
+    ),
+    Item(
+        "tw_zh_synonyms", "TrialBox zh-TW clinical synonyms and note abbreviations (curated)", "synonym", "ship",
+        "repo:libs/tb_common/refdata_src/zh_tw_clinical_synonyms.csv", "TrialBox (own work)", "",
+        "Written by the TrialBox team; shipped with the product.",
+        "TrialBox zh-TW clinical synonyms, Aimedics.",
+        "with releases", "about 60 entries",
+        "Colloquial zh-TW words and Taiwanese note abbreviations -> the matcher's names; curated, no review.",
+        "zh_tw_clinical_synonyms.csv", country="TW", decision="D-172", parse=parse_zh_tw_synonyms,
+        version_of=synonyms_version,
+    ),
+)  # fmt: skip

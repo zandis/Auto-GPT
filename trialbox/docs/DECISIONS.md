@@ -3444,3 +3444,89 @@ alert) are separate P0 items. Stored derived rows with provenance, `tb_score_def
 shipped mappings declare no `unit_defaults` yet: each site declares them in its survey (its lab lookup already
 carries a unit per analyte). The R-31 check of a row's own unit against the lookup's (WS-01.2) is still open for
 feed rows mapped through a lookup.
+
+**D-170 Reference data items: one registry with version and sha256, and the NHI drug code -> ATC map.** WS-08.8,
+builds on D-140; 2026-11-09. Built in a cloud container with network access through a proxy; tests on committed
+excerpts only.
+
+1. *One registry of items.* Every reference data source is one `tb_common.refdata.Item` (the old
+   `tools/refdata_fetch.py` `Source` is now this class): name, kind, distribution (ship, site-fetch, not usable),
+   URL, licence and licence URL, terms, attribution, refresh, size, note, and new fields: `country`, `decision`,
+   `parse` (the item's own loader), `extra_files` (more files of one item), `derived_from` (read another item's
+   download, no second download), `meta_url` (a data.gov.tw dataset API URL read at fetch time for the dataset's
+   modified date) and `version` / `version_of`. Country modules add their items: `tb_common/refdata_tw.py` holds the
+   Taiwan items, parsers and constants; a Japan module can add its own the same way (`SOURCES = (..., *tw.ITEMS)`).
+2. *Pack format* stays `trialbox-refdata/1` (additive). New kinds `map` (`source_system`, `source_code`,
+   `source_display`, `target_system`, `target_code`, `target_display`, `relation`, `extra`; relation is the FHIR R4
+   ConceptMap equivalence) and `synonym` (`term`, `lang`, `canonical`, `canonical_lang`, `domain`, `curated`,
+   `extra`). Every source in a new pack records `version` (the file's own version, the dataset's modified date, or
+   "downloaded <date>" for a daily list) beside the existing `download_sha256`; a map or synonym source without a
+   version is refused. Older packs still verify and load.
+3. *Store.* Schema `refdata` version 2 (`DDL_V2`): `source` gains `version` and `download_sha256`; new tables
+   `concept_map` (indexed both ways) and `synonym` (indexed on the matcher's normal form, NFKC and lower case).
+   Queries: `map_targets`, `map_sources`, `synonyms`; `in_set_via_map` answers yes / no / unknown for a code read
+   through a map (only some targets in the list, or no map row, is unknown: unknown never excludes). Lookups made
+   often use one shared store per process (`refdata.shared`); a database that does not answer is not retried for
+   60 s.
+4. *Offline.* Only `tools/refdata_fetch.py fetch` downloads. The box reads the pack loaded from the signed update
+   bundle; the matcher and site set-up read the trial database.
+5. *NHI drug code -> ATC* (`nhi_drug_atc`, kind map, ship). Read from the `nhi_drugs` download (健保用藥品項查詢項目檔,
+   data.gov.tw 23715): the latest validity period per 藥品代號, its `ATC代碼` as given (D-140 owner decision 5: no
+   WHO ATC/DDD text), relation `wider`, ATC level in `extra`; empty or non-ATC-shaped values give no row. Licence
+   checked at the source today: dataset API `license` = 1, the Open Government Data License 1.0 (use, reproduction,
+   distribution and adaptation, commercial included, with the provider's attribution). The version is the dataset's
+   modified date read at fetch time.
+6. *The sources page* (`/admin/notice`) and `NOTICE.md` show each item's version and the sha256 of its download
+   (two new strings in en, ja and zh-TW).
+7. *Site set-up.* An NHI drug code with one full ATC code in the map is suggested (method `refdata`, 1.00).
+
+*Evidence.* `tests/unit/test_refdata_tw.py` (17), `tests/unit/test_refdata.py`, `tests/console/test_refdata_pages.py`
+(version and sha256 on the page for every item); `e2e_simple` stage 14 checks the Taiwan suggestions offline. On the
+real list (the first 33 MB of 97 MB; info.nhi.gov.tw cut the transfer from here three times): 13,904 codes, all with
+an ATC code (13,583 level 5, 307 level 4, 14 level 3), 0.5 MB in the pack.
+
+**D-171 Taiwan ICD-10-CM/PCS 2014 <-> 2023 map and the NHI lab code -> LOINC map.** WS-08.8; 2026-11-09.
+
+1. *ICD 2014 <-> 2023* (`tw_icd_2014_2023`, kind map, ship). NHIA 2014年版與2023年版ICD-10-CM/PCS對應檔, data.gov.tw
+   177508, two CSVs (CM `rId=A21030000I-D20026-007`, PCS `-008`), fetched as one item (sha256 over both). Licence:
+   dataset API `license` = 1 (OGDL 1.0); the attribution also names WHO (ICD-10) and NCHS / CMS. NHI claims moved
+   to the 2023 edition on 2025-01-01, so records before then carry 2014 codes. Systems
+   `urn:tw:nhi:icd-10-cm-2014` -> `urn:tw:nhi:icd-10-cm-2023` (the system of `tw_icd10_zh`), PCS likewise; the
+   reverse direction is `map_sources`. Relation: same code, one target and one source `equivalent`; a 2014 code split
+   into several 2023 codes `narrower`; several 2014 codes merged `wider`; both, or a one-to-one change of code,
+   `inexact`. The 2014 and 2023 status, the zh names and the revision note go in `extra`. Real files today: CM
+   74,872 rows -> 74,863 pairs (67,637 equivalent, 5,613 narrower, 236 wider, 1,377 inexact); PCS 79,062 rows ->
+   77,892 pairs; 3.5 MB in the pack. Note: 2014 I10 maps to 2023 I10 and I16.0 / I16.1 / I16.9, so a 2014 I10 read
+   against a list holding only I10 is unknown, not yes.
+2. *Site set-up.* A dx code that the 2023 edition no longer has and that maps to one 2023 code is suggested
+   (`refdata`, 0.90; e.g. P83.8 -> P83.88); a split gives no suggestion (the coordinator picks); a code still in
+   2023 (I10) is suggested as itself, as before.
+3. *NHI lab code -> LOINC* (`nhi_lab_loinc`, kind map, ship). The ConceptMap `nhi-loinc` of the NHIA PAS IG package
+   `tw.gov.mohw.nhi.pas` 1.3.0 (https://packages.fhir.org/tw.gov.mohw.nhi.pas/1.3.0, sha256
+   1bdc33f3...dcfe3 today). Licence: `package.json` says `CC0-1.0` (read today); the parser refuses a package with
+   another licence. 806 rows, 53 NHI codes, every target `relatedto` (candidates: 09026C has 16 LOINC codes). Only
+   LOINC codes are shipped, no LOINC names; the attribution carries the LOINC notice. Version from the package
+   (`tw.gov.mohw.nhi.pas 1.3.0, ConceptMap nhi-loinc 1.3.0`). Site set-up suggests a LOINC code when the NHI code
+   has one target, or exactly one of its targets is in the curated lab table (09015C -> 2160-0); otherwise none.
+
+**D-172 zh-TW clinical synonyms for the name matcher.** WS-08.8; 2026-11-09.
+
+1. *Two synonym items* (kind synonym, ship). `naer_medical_terms`: 國家教育研究院 醫學學術名詞 (data.gov.tw 15460,
+   licence field 1 = OGDL 1.0, read today; 30,797 terms -> 32,083 zh-TW forms after splitting `；`; 0.6 MB). These
+   are academic translations: an English term lists several senses (stroke: 猝發；發作；中風), so they are not
+   curated. `tw_zh_synonyms`: TrialBox's own list (`libs/tb_common/refdata_src/zh_tw_clinical_synonyms.csv`, 62
+   rows): colloquial zh-TW words (洗腎, 類風濕關節炎 without 性, 第2型糖尿病) and the abbreviations of Taiwanese notes
+   (HTN, CKD, GPT = ALT, MTX), each with a domain; curated. The cross-strait list (data.gov.tw 15314, 885 rows) is
+   not added: the medical list covers it.
+2. *Matcher.* `Terminology(name_synonyms=...)` gets a step 2a between the curated synonym table and the model's
+   synonyms: the dictionary's canonical names for the name (curated entries only when there are any), then the
+   curated table and the exact names on those. A match through curated entries is `synonym` with no review; through
+   NAER only it is flagged `needs_review`. The note names the sources. The criteria compiler service wires
+   `refdata.synonym_lookup()`; every other `Terminology()` is unchanged. No database or no pack: the step is skipped.
+
+*Licence summary.* All five items allow redistribution (OGDL 1.0, CC0, own work), so none is site-fetch.
+
+*Not done.* The full NHI drug list was not fetched here in one piece (transfers cut off); the vendor runs `fetch
+nhi_drugs` and `build` as for D-140. The mapping of a 2014 code in an old record at ingest (lake, adapter) is not
+wired: `in_set_via_map` is ready for it. The NHI 醫療服務給付項目 list itself (codes and names beyond the 53 lab
+codes) is still open (D-140).

@@ -10,6 +10,7 @@ every code in the families, so a valid code is never outside the list for want o
 the LLM candidates still read the curated ``icd10cm_tw`` only, so a grouper name is never shadowed by a header row.
 
 Steps: exact display-name match -> synonym table (exact codes or code-prefix groups expanded against the tables) ->
+the loaded synonym dictionary (D-172: zh-TW words and note abbreviations -> the names above; ``name_synonyms``) ->
 LLM ``concept_map`` over the top-20 lexical candidates, always flagged ``needs_review``. Output ValueSets carry only
 ``compose.include[].concept[]`` (no implicit expansions).
 """
@@ -89,6 +90,8 @@ class MappingResult:
 
 
 ConceptMapLLM = Callable[[str, str, list[Concept]], tuple[list[tuple[str, str, float]], bool]]
+# (name, domain) -> dictionary entries {canonical, curated, source_id}; tb_common.refdata.synonym_lookup (D-172)
+NameSynonyms = Callable[[str, str], list[dict[str, Any]]]
 
 
 def vs_resource_id(ruleset: str, vs_name: str) -> str:
@@ -109,8 +112,9 @@ def vs_name_for(concept: str, unique: bool = False) -> str:
 
 
 class Terminology:
-    def __init__(self, directory: Path = TERM_DIR) -> None:
+    def __init__(self, directory: Path = TERM_DIR, name_synonyms: NameSynonyms | None = None) -> None:
         self.dir = directory
+        self.name_synonyms = name_synonyms
         self.rows: dict[str, list[dict[str, Any]]] = {}
         for key, fname in TABLE_FILES.items():
             path = directory / f"{fname}.parquet"
@@ -174,22 +178,43 @@ class Terminology:
                 if set(self._names(table, r)) & set(candidates)
             ]
 
-        # 1. exact display-name match on the concept name itself
-        hits = exact([primary])
-        if hits:
-            return MappingResult(name, domain, _dedupe(hits), "exact", False)
-        # 2. curated synonym/grouper table (name first, then the model's synonyms) — a grouper such as
-        #    "urate-lowering therapy" must win over exact matches of individual example drugs
-        for candidates in ([primary], names):
-            hits = []
+        def grouped(candidates: list[str]) -> tuple[list[Concept], set[tuple[str, str]]]:
+            hits: list[Concept] = []
             fams: set[tuple[str, str]] = set()
             for s in self.synonyms:
                 if s["domain"] == domain and norm(s["name"]) in candidates:
                     hits.extend(self.expand(s["table"], s["code"], s["match"]))
                     if s["match"] == "prefix":
                         fams.add((SYSTEMS[s["table"]], s["code"]))
+            return hits, fams
+
+        # 1. exact display-name match on the concept name itself
+        hits = exact([primary])
+        if hits:
+            return MappingResult(name, domain, _dedupe(hits), "exact", False)
+        # 2. curated synonym/grouper table on the name — a grouper such as "urate-lowering therapy" must win over
+        #    exact matches of individual example drugs
+        hits, fams = grouped([primary])
+        if hits:
+            return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
+        # 2a. the loaded synonym dictionary (D-172): 洗腎 -> hemodialysis, HTN -> hypertension, then steps 2 and 1 on
+        #     those names. Only curated entries are trusted; a public dictionary's translation is flagged for review.
+        via = self._dictionary(name, domain, primary)
+        if via:
+            canon = sorted({norm(e["canonical"]) for e in via})
+            hits, fams = grouped(canon)
+            if not hits:
+                hits, fams = exact(canon), set()
             if hits:
-                return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
+                curated = all(e.get("curated") for e in via)
+                srcs = ", ".join(sorted({str(e.get("source_id") or "") for e in via}))
+                return MappingResult(name, domain, _dedupe(hits), "synonym", not curated,
+                                     [f"via synonym dictionary ({srcs}): {', '.join(canon)}"],
+                                     families=sorted(fams))  # fmt: skip
+        # 2 (cont.). the curated table on the model's synonyms
+        hits, fams = grouped(names)
+        if hits:
+            return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
         # 2b. exact match on the synonyms (flagged for review: the grouping came from the model)
         hits = exact(names[1:])
         if hits:
@@ -202,6 +227,18 @@ class Terminology:
             if chosen:
                 return MappingResult(name, domain, _dedupe(chosen), "llm", True, [f"LLM-proposed (review={review})"])
         return MappingResult(name, domain, [], "none", True, ["no mapping found"])
+
+    def _dictionary(self, name: str, domain: str, primary: str) -> list[dict[str, Any]]:
+        """The dictionary's entries for the name, curated ones only when there are any (a curated entry is the
+        meaning the team chose; a public dictionary may list other senses). Never raises."""
+        if self.name_synonyms is None:
+            return []
+        try:
+            got = [e for e in self.name_synonyms(name, domain) if norm(str(e.get("canonical") or "")) != primary]
+        except Exception:
+            return []
+        curated = [e for e in got if e.get("curated")]
+        return curated or got
 
     def candidates(self, domain: str, names: list[str], k: int) -> list[Concept]:
         def toks(s: str) -> set[str]:

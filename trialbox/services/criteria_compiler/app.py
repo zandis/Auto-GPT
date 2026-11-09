@@ -46,6 +46,8 @@ def _egfr(tz: str, locale: str | None) -> str:
 def compiler() -> Compiler:
     global _compiler
     if _compiler is None:
+        from tb_common.refdata import synonym_lookup
+
         cfg = get_config()
         audit = AuditLog(cfg.env.audit_path, cfg.env.tz)
         th = cfg.settings.thresholds
@@ -53,7 +55,7 @@ def compiler() -> Compiler:
             store=from_config(),
             repo=RulesetRepo(cfg.env.rulesets_path, SEED),
             llm=LlmClient.from_config(audit),
-            term=Terminology(),
+            term=Terminology(name_synonyms=synonym_lookup()),  # D-172: the loaded zh-TW synonym dictionary
             settings_thresholds={
                 "equivalence_min_pct": th.equivalence_min_pct,
                 "tier_high_confidence": th.tier_high_confidence,

@@ -60,10 +60,11 @@ def test_the_manifest_records_url_date_sha_count_licence_terms_and_attribution(p
     m = rd.verify(pack)
     assert m["format"] == "trialbox-refdata/1" and m["pack_id"] == "trialbox-refdata-20261109" and m["sample"]
     ids = {s["id"] for s in m["sources"]}
-    assert ids == {"ctgov", "tfda_trials", "tfda_indication", "mhlw_yakka", "nhi_drugs", "icd10cm"}
+    assert ids == {"ctgov", "tfda_trials", "tfda_indication", "mhlw_yakka", "nhi_drugs", "icd10cm", "nhi_drug_atc",
+                   "tw_icd_2014_2023", "nhi_lab_loinc", "naer_medical_terms", "tw_zh_synonyms"}  # fmt: skip
     for s in m["sources"]:
         assert all(s[k] not in ("", None) for k in ("url", "downloaded_at", "download_sha256", "records", "licence",
-                                                     "terms", "attribution"))  # fmt: skip
+                                                     "terms", "attribution", "version"))  # fmt: skip
         assert s["distribution"] == "ship"
     ct = next(s for s in m["sources"] if s["id"] == "ctgov")
     assert (

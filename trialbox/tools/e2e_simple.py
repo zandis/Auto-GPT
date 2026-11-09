@@ -779,7 +779,8 @@ def _stage14(work: Path, box: Any) -> Stage:
     """Stage 14 (D-140): ClinicalTrials.gov offline. The sample reference data pack (the synthetic trials of the
     cassettes, two real records, tiny TFDA / MHLW / NHI / ICD-10-CM excerpts) is built, verified and loaded; with every
     outbound connection refused, a trial is found by NCT id, by condition and by a Japan or Taiwan site, and the
-    criteria are drafted from the pack's full record."""
+    criteria are drafted from the pack's full record. D-170 to D-172: the Taiwan maps and synonyms of the same pack
+    answer offline (NHI drug -> ATC, NHI lab -> LOINC, a TW 2014 ICD code -> 2023, a zh-TW word in the matcher)."""
     from criteria_compiler.ctgov import CtGov
     from tb_common import refdata as rd
     from tb_contracts import CompileRequest, CtgovSearchRequest, ParseRequest
@@ -791,7 +792,7 @@ def _stage14(work: Path, box: Any) -> Stage:
     tar = rf.build(rf.sample_raw(work / "refdata" / "raw"), work / "refdata", "20261109", sample=True)
     with rd.opened(tar) as pack:
         m = rd.verify(pack)
-        s.check("the pack verifies: every file's sha256 and record count", len(m["sources"]) == 6, m["pack_id"])
+        s.check("the pack verifies: every file's sha256 and record count", len(m["sources"]) == 11, m["pack_id"])
         s.check("each source has its URL, date, sha256, count, licence, terms and attribution",
                 all(x["url"] and x["download_sha256"] and x["attribution"] for x in m["sources"]))  # fmt: skip
         with rd.RefStore() as st:
@@ -820,6 +821,19 @@ def _stage14(work: Path, box: Any) -> Stage:
             requested_by="e2e_simple", options={"index_date": "2026-11-01", "incremental": "false"}))  # fmt: skip
     s.check("criteria drafted from the pack's record, with no network",
             bool(res.draft_zip_key) and bool(parsed.ie_block.inclusion), res.draft_zip_key)  # fmt: skip
+    from criteria_compiler.terminology.mapper import Terminology
+    from sitesetup import mapping as sm
+
+    with _no_network():
+        drug = sm.suggest("medication", sm.local_system("drug-code"), "B004858100")
+        lab = sm.suggest("observation", sm.local_system("lab-code"), "09015C")
+        dx = sm.suggest("condition", sm.local_system("dx-code"), "P83.8")
+        hd = Terminology(name_synonyms=rd.synonym_lookup()).map("condition", "類風濕關節炎")
+    s.check("D-170/171: NHI drug -> ATC, NHI lab -> LOINC and TW 2014 -> 2023 ICD suggested offline",
+            (drug.get("code"), lab.get("code"), dx.get("code")) == ("N05AF01", "2160-0", "P83.88"),
+            (drug, lab, dx))  # fmt: skip
+    s.check("D-172: a zh-TW word maps through the curated synonym dictionary, no review",
+            hd.method == "synonym" and not hd.needs_review and bool(hd.concepts), hd.notes)  # fmt: skip
     s.seconds = time.perf_counter() - t
     return s
 
