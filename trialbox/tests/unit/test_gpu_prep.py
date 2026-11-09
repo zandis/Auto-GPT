@@ -270,3 +270,14 @@ def test_the_vm_runs_its_shard_and_the_embed_bench_in_the_vllm_image() -> None:
     assert "TB_BENCH_EMBED_CMD=/usr/local/sbin/tb-embed-py" in vm and "--entrypoint python3 $VLLM" in vm
     assert "bench-embed/result.json" in vm and "bench-profile/result.json" in vm
     assert vm.index("tb-watchdog") < vm.index("ONLY=$(md tb-only")
+
+
+def test_vm_door_is_reachable_from_the_nginx_container_and_checks_the_key() -> None:
+    """The first cloud run got 502: the door listened on 127.0.0.1, which nginx in its container cannot reach."""
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[2] / "deploy" / "gcp" / "complete-run-vm.sh").read_text()
+    door = text.split("cat >/usr/local/sbin/tb-door.py <<'PY'", 1)[1].split("\nPY\n", 1)[0]
+    assert '("127.0.0.1", 8081)' not in door
+    assert "sys.argv[1], 8081" in door and 'tb-door.py "$DOOR_HOST"' in text
+    assert "compare_digest" in door and "send_error(401)" in door
