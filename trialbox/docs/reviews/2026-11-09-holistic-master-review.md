@@ -6,7 +6,7 @@
 | Head reviewed | `claude/trialbox-plan-v4-oxn56n` 6eb7ed8 (code equal to `origin/master` e91871c plus the review records). Wave 1a and 1b fixes (D-141 to D-143) were on the branch `wave1-scenarios` when the register was written and are marked "branch"; **they merged to master as 40606a4 (PR #47) on 2026-11-09**, so every "branch" row now reads *done, confirmed at G1*. Revised the same evening for the owner's hardware, hosting, IRB and go-live-order decisions (§2.9, §3 C-29 to C-31, §4 I-68 to I-73). |
 | Owner | Changfu Kuo (Aimedics) |
 | Author | Claude, lead architect, for the master plan TB-PLAN-05 (`docs/plan/25-master-plan.md`) |
-| Status | Record. The register, the contradictions and the coverage check are the input to TB-PLAN-05. New facts go into DECISIONS. |
+| Status | Record. The register, the contradictions and the coverage check are the input to TB-PLAN-05. New facts go into DECISIONS. The independent review of TB-PLAN-05 v1.1 (`2026-11-09-master-plan-independent-review.md`, 40 findings) is answered finding by finding in TB-PLAN-05 v1.2 §14; its register rows are not duplicated here. |
 | Binding input | `2026-11-09-owner-decisions-data-and-profile.md`, including its newest section "Master plan and pilot". Where any review disagrees with it, the decisions document wins. |
 
 ## 0. What this review is
