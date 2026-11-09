@@ -64,6 +64,8 @@ class RedcapSource:
                     keys[rid] = str(r[self.pid_field]).strip()
         self.refused = []
         out = []
+        merged: dict[str, Row] = {}  # longitudinal, no event configured: one row per record (D-142, review B-03)
+        spread: dict[str, dict[str, set[str]]] = {}
         for r in rows:
             if self.dag and str(r.get("redcap_data_access_group") or "") != self.dag:
                 continue
@@ -74,11 +76,34 @@ class RedcapSource:
                     self.refused.append({"at": f"record {rid}", "reason": "no screening number and no pseudonym"})
                 continue
             ev = str(r.get("redcap_event_name") or "")
+            repeat = str(r.get("redcap_repeat_instrument") or "") or str(r.get("redcap_repeat_instance") or "")
             if self.event and ev and ev != self.event:
                 vals = {}
             else:
                 vals = {self._tb(f): str(r.get(f) or "") for f in self.field_map if f in r}
-            out.append(Row(key, "", vals, rid))
+            if self.event or not (ev or repeat):
+                out.append(Row(key, "", vals, rid))
+                continue
+            # one row per record x event (or repeat instance): a field lives on one event and comes back blank on
+            # every other one. A blank there is never a value: the record's value is its non-blank cell
+            row = merged.get(rid)
+            if row is None:
+                row = merged[rid] = Row(key, "", {}, rid)
+                out.append(row)
+            for f, v in vals.items():
+                row.values.setdefault(f, "")
+                if v.strip():
+                    spread.setdefault(rid, {}).setdefault(f, set()).add(v)
+        for rid, fields in spread.items():
+            row = merged[rid]
+            for f, seen in fields.items():
+                if len(seen) == 1:
+                    row.values[f] = next(iter(seen))
+                else:  # two events disagree: TrialBox cannot tell which one is meant, so it takes neither
+                    del row.values[f]
+                    self.refused.append(
+                        {"at": f"record {rid}", "reason": f"{f} differs between events: set the REDCap event"}
+                    )
         return out
 
     def push(self, rows: list[Row]) -> dict[str, str]:
