@@ -23,14 +23,34 @@ KEY = b"trialbox-test-site-key-0123456789abcdef"
 RUN = date(2026, 10, 5)
 
 
-@pytest.fixture(scope="module")
-def world(synth_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    tmp = tmp_path_factory.mktemp("twpas")
-    sec = tmp / "sec"
+#: HL7 validator results by input (jar, IGs, bundles): one JVM run per distinct set of bundles, whichever test runs
+#: it first. The NAV bundles of a fresh box are the same bytes in every test, and the validator is a pure function of
+#: its input, so a hit returns exactly what a new run would.
+_VALIDATED: dict[str, Any] = {}
+
+
+@pytest.fixture(autouse=True)
+def _memo_hl7_validator(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = Hl7Validator.validate
+
+    def validate(self: Hl7Validator, resources: list[dict[str, Any]], extra_args: list[str] | None = None) -> Any:
+        blob = json.dumps([str(self.jar), self.igs, resources, extra_args], sort_keys=True, ensure_ascii=False)
+        key = hashlib.sha256(blob.encode()).hexdigest()
+        if key not in _VALIDATED:
+            _VALIDATED[key] = real(self, resources, extra_args)
+        return _VALIDATED[key]
+
+    monkeypatch.setattr(Hl7Validator, "validate", validate)
+
+
+@pytest.fixture
+def world(synth_dir: Path, tmp_path: Path) -> dict[str, Any]:
+    """A fresh box per test (its own lake, pid map and job tables), so every test runs alone and in any order."""
+    sec = tmp_path / "sec"
     sec.mkdir()
     (sec / "site_hmac.key").write_bytes(KEY)
-    ingest_site(synth_dir / "site-a", tmp / "lake", sec, "2026-10-04")
-    box = make_box(tmp / "box", tmp / "lake", sec, RUN)
+    ingest_site(synth_dir / "site-a", tmp_path / "lake", sec, "2026-10-04")
+    box = make_box(tmp_path / "box", tmp_path / "lake", sec, RUN)
     pts = list(csv.DictReader((synth_dir / "site-a" / "patient.csv").open(encoding="utf-8")))
     states = json.loads((synth_dir / "site-a" / "states.json").read_text(encoding="utf-8"))
     return {
@@ -72,8 +92,7 @@ def _live(box: Box, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_nav_onc_builds_bundles(world: dict[str, Any]) -> None:
     box: Box = world["box"]
-    job, files = _nav(box)
-    world["nav"] = job
+    _job, files = _nav(box)
     nav = c.NavLists.model_validate_json(
         next(v for k, v in files.items() if k.startswith("nav_lists") and k.endswith(".json"))
     )
@@ -111,7 +130,7 @@ def test_nav_onc_builds_bundles(world: dict[str, Any]) -> None:
 
 def test_submit_dry_run(world: dict[str, Any]) -> None:
     box: Box = world["box"]
-    nav: c.Job = world["nav"]
+    nav, _files = _nav(box)  # this test's own NAV run (the real validator and pre-check)
     out = next(o for o in nav.outputs or [] if o.filename.startswith("twpas_ONC-OSI_"))
     pid = next(p for p in world["patient"] if out.filename == f"twpas_ONC-OSI_{p[:12]}.json")
     # not a physician → refused at intake (permissions.SUBMIT = [physicians])
@@ -141,7 +160,7 @@ def test_submit_dry_run(world: dict[str, Any]) -> None:
 
 def test_submit_live_requires_validator_and_precheck(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     box: Box = world["box"]
-    nav: c.Job = world["nav"]
+    nav, _files = _nav(box)  # this test's own NAV run (the real validator and pre-check)
     out = next(o for o in nav.outputs or [] if o.filename.startswith("twpas_ONC-OSI_"))
     pid = next(p for p in world["patient"] if out.filename == f"twpas_ONC-OSI_{p[:12]}.json")
     report = json.loads(box.store.get(f"outputs/{nav.job_id}/twpas_validation_ONC-OSI.json"))
@@ -192,8 +211,11 @@ def test_submit_live_posts_audited_bundle(world: dict[str, Any], monkeypatch: py
             assert "already submitted" in job.error.message and len(posted) == 1
 
 
-def _live_ready(box: Box, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
-    """A NAV run whose bundles count as validated + pre-checked, in live mode: (pid, bundle sha) not yet live."""
+def _live_ready(
+    box: Box, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> tuple[c.Job, list[tuple[str, str]]]:
+    """A NAV run whose bundles count as validated + pre-checked, in live mode: the run and its (pid, bundle sha) not
+    yet live."""
     from orchestrator.precheck import PrecheckResult, PrecheckRunner
     from orchestrator.scenarios import twpas
 
@@ -206,8 +228,7 @@ def _live_ready(box: Box, world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
         if o.filename.startswith("twpas_ONC-OSI_") and not box.orch.db.submissions(o.sha256, live_only=True):
             pid = next(p for p in world["patient"] if o.filename == f"twpas_ONC-OSI_{p[:12]}.json")
             out.append((pid, o.sha256))
-    world["nav_live"] = nav
-    return out
+    return nav, out
 
 
 def _submit_job(box: Box, nav: c.Job, pid: str) -> str:
@@ -229,9 +250,8 @@ def test_live_submit_is_once_under_concurrency_and_restart(
     import httpx
 
     box: Box = world["box"]
-    ready = _live_ready(box, world, monkeypatch)
+    nav, ready = _live_ready(box, world, monkeypatch)
     assert len(ready) >= 3
-    nav = world["nav_live"]
     posted: list[bytes] = []
 
     def slow_post(url: str, content: bytes, headers: dict[str, str], timeout: float) -> httpx.Response:
@@ -281,8 +301,7 @@ def test_live_submit_failure_classification(world: dict[str, Any], monkeypatch: 
     import httpx
 
     box: Box = world["box"]
-    ready = _live_ready(box, world, monkeypatch)
-    nav = world["nav_live"]
+    nav, ready = _live_ready(box, world, monkeypatch)
     pid, sha = ready[0]
     calls: list[str] = []
 

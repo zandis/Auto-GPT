@@ -5,6 +5,7 @@ ClinicalTrials.gov cassette (SPEC §8.3)."""
 
 from __future__ import annotations
 
+import copy
 import csv
 import io
 from datetime import date
@@ -26,9 +27,10 @@ AUTH_B = "mx.hospb.test; spf=pass smtp.mailfrom=hospb.test; dkim=pass header.d=h
 AUTH_A_FROM_B = "mx.hospa.test; spf=pass smtp.mailfrom=hospb.test; dkim=pass header.d=hospb.test; dmarc=pass"
 
 
-@pytest.fixture(scope="module")
-def boxes(synth_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Box]:
-    tmp = tmp_path_factory.mktemp("cohort")
+@pytest.fixture
+def boxes(synth_dir: Path, tmp_path: Path) -> dict[str, Box]:
+    """Fresh boxes A (root) and B (member) per test, so every test runs alone and in any order."""
+    tmp = tmp_path
     out: dict[str, Box] = {}
     for site in ("a", "b"):
         sec = tmp / f"sec-{site}"
@@ -120,21 +122,17 @@ def test_cohort_site_a(boxes: dict[str, Box], synth_dir: Path) -> None:
     assert len(box.orch.db.trial_cache_all()) == 3
 
 
-def test_member_shares_and_root_merges(boxes: dict[str, Box], synth_dir: Path) -> None:
-    a, b = boxes["a"], boxes["b"]
+def _share_and_merge(a: Box, b: Box) -> tuple[Sent, Any, Sent]:
+    """A runs its own COHORT; B runs ``COHORT GOUT-COH lookback=1`` and mails its table to the root A as ``COHORT
+    MERGE``; A merges. Returns B's share mail, A's merge job and A's merged-table reply."""
+    _done(a, "COHORT GOUT-COH lookback=1")  # the root's own table (DEMO-A) is part of every merge
     b.mail("COHORT GOUT-COH lookback=1", sender="crc1@hospb.test", auth=AUTH_B)
     b.orch.drain()
     bjob = b.orch.db.find(type_="COHORT")[0]
     assert bjob.state == "done", bjob.error
     share = next(s for s in b.sent if s.subject.startswith("COHORT MERGE"))
-    assert share.to == ["trialbox@hospa.test"]
-    shared = share.attachments()
-    assert list(shared) == ["cohort_table_GOUT-COH_DEMO-B_2026Q3.csv"]
-    b_rows = _csv_rows(shared["cohort_table_GOUT-COH_DEMO-B_2026Q3.csv"])
-    pop_b, _ = _oracle(synth_dir / "site-b", date(2026, 9, 30))
-    assert int(next(r for r in b_rows if r["criterion_id"] == "GOUT-COH-INC-01")["n"]) == len(pop_b)
     # the root's MTA adds Authentication-Results; the mail arrives at A's intake mailbox
-    msg = share.msg
+    msg = copy.deepcopy(share.msg)
     del msg["Authentication-Results"]
     msg["Authentication-Results"] = AUTH_A_FROM_B
     assert a.gw.handle(msg.as_bytes(policy=policy.SMTP)) == "Processed"
@@ -142,6 +140,17 @@ def test_member_shares_and_root_merges(boxes: dict[str, Box], synth_dir: Path) -
     merge = a.orch.db.find(type_="COHORT", ruleset="MERGE")[0]
     assert merge.state == "done", merge.error
     out = next(s for s in reversed(a.sent) if is_job_mail(s.subject, "done", merge.job_id) and s.attachments())
+    return share, merge, out
+
+
+def test_member_shares_and_root_merges(boxes: dict[str, Box], synth_dir: Path) -> None:
+    share, _merge, out = _share_and_merge(boxes["a"], boxes["b"])
+    assert share.to == ["trialbox@hospa.test"]
+    shared = share.attachments()
+    assert list(shared) == ["cohort_table_GOUT-COH_DEMO-B_2026Q3.csv"]
+    b_rows = _csv_rows(shared["cohort_table_GOUT-COH_DEMO-B_2026Q3.csv"])
+    pop_b, _ = _oracle(synth_dir / "site-b", date(2026, 9, 30))
+    assert int(next(r for r in b_rows if r["criterion_id"] == "GOUT-COH-INC-01")["n"]) == len(pop_b)
     assert "trialbox@hospb.test" in out.to
     merged = _csv_rows(next(iter(out.attachments().values())))
     pop = {r["site_id"]: r for r in merged if r["criterion_id"] == "GOUT-COH-INC-01" and r["quarter"] == "2026Q3"}
@@ -158,7 +167,7 @@ def test_merge_rerun_uses_the_tables_as_they_were(boxes: dict[str, Box]) -> None
     from orchestrator.scenarios.cohort import to_csv
 
     a = boxes["a"]
-    first = a.orch.db.find(type_="COHORT", ruleset="MERGE")[0]
+    _share, first, _out = _share_and_merge(a, boxes["b"])
     rows = [r for r in a.orch.db.cohort_rows("gout", "2026Q3") if r["site_id"] == "DEMO-B"]
     fixed = [{**r, "n": r["n"] + 1} if r["criterion_id"] == "GOUT-COH-INC-01" else r for r in rows]
     a.mail(
@@ -182,6 +191,7 @@ def test_merge_refuses_tables_for_other_sites(boxes: dict[str, Box]) -> None:
     from orchestrator.scenarios.cohort import to_csv
 
     a = boxes["a"]
+    _share_and_merge(a, boxes["b"])  # A holds its own table and B's, contributed from B's box
     before = a.orch.db.cohort_rows("gout", "2026Q3")
     b_rows = [r for r in before if r["site_id"] == "DEMO-B"]
     a_rows = [r for r in before if r["site_id"] == "DEMO-A"]
