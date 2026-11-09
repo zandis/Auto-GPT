@@ -59,7 +59,7 @@ from matching.cascade.model import (
 )
 from matching.cascade.s2b_semantic import BatchEmbedder, Embedder, ThresholdTable, screen
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
-from matching.proposed import PROPOSED_FACT, Proposed
+from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 
 PATIENT_CLASS = "D3"  # every cascade output is patient level (§7.1)
 # no row of the compiled SQL's base for a scoped patient: not in this snapshot, or deceased / not yet born at every
@@ -444,7 +444,9 @@ class _Run:
         self.stages[0].patients_out = n_scope
         alive = self.alive()
         n_struct = len(applied)
-        n_prop = sum(1 for t in alive if any(o.reason == PROPOSED_FACT for o in t.outcomes.values()))
+        n_prop = sum(
+            1 for t in alive if any(o.reason in (PROPOSED_FACT, SUSPECTED_DIAGNOSIS) for o in t.outcomes.values())
+        )
         self.log(
             "S1",
             n_scope,
@@ -475,9 +477,10 @@ class _Run:
         ev = [{"source": "lake", "record": x.split("|")[0], "date": x.split("|")[1] if "|" in x else None,
                "lineage": f"snapshot:{self.cfg.snapshot or ''}", "index_date": row["index_date"].isoformat()}
               for x in fids[:20]]  # fmt: skip
+        why = self.proposed.reason(str(row["pid"]), fids)  # proposed_fact, or suspected_diagnosis (D-142)
         if c.kind == "exclusion":  # an exclusion left unknown keeps the patient (D-18); the list says unknown
-            return Outcome(c.id, "pass", "S1", unknown_kind="data_gap", evidence=ev, reason=PROPOSED_FACT)
-        return Outcome(c.id, "unknown", "S1", unknown_kind="data_gap", evidence=ev, reason=PROPOSED_FACT)
+            return Outcome(c.id, "pass", "S1", unknown_kind="data_gap", evidence=ev, reason=why)
+        return Outcome(c.id, "unknown", "S1", unknown_kind="data_gap", evidence=ev, reason=why)
 
     def _s1_coded(self, c: CriterionIR, row: Mapping[str, Any]) -> Outcome:
         v = row.get(f"C_{c.id}")

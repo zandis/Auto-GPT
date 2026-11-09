@@ -19,7 +19,7 @@ LOINC = "http://loinc.org"
 # no compiled criterion can count it as met or let it exclude. A *confirmed* fact goes to the coded table like any
 # coded record and is also listed in ``site_fact`` (how much of a count rests on confirmed facts). Demographic facts
 # from a chart are observations in DEMOGRAPHIC, listed in ``site_fact`` only (the patient row carries the value once
-# it is confirmed).
+# it is confirmed). A suspected diagnosis (D-142) is listed the same way, with basis ``suspected``.
 BASIS = "urn:trialbox:basis"
 DEMOGRAPHIC = "urn:trialbox:demographic"
 
@@ -132,6 +132,19 @@ SCHEMAS: dict[str, list[tuple[str, str]]] = {
         ("date", "DATE"),
     ],
 }
+
+
+# FHIR Condition.verificationStatus: a suspected diagnosis (SS-MIX2 PRB-13 疑い, a provisional or differential
+# diagnosis from any FHIR source) goes to ``site_fact`` with basis ``suspected``, never to ``condition`` (D-142)
+SUSPECTED = frozenset({"provisional", "differential", "unconfirmed"})
+NOT_PRESENT = frozenset({"refuted", "entered-in-error"})
+
+
+def verification_of(r: Resource) -> str:
+    for c in (r.get("verificationStatus") or {}).get("coding") or []:
+        if c.get("code"):
+            return str(c["code"])
+    return ""
 
 
 def basis_of(r: Resource) -> str | None:
@@ -381,6 +394,15 @@ class Flattener:
             keep = []
             for r in by_type.get(rtype, []):
                 b = basis_of(r)
+                if rtype == "Condition":
+                    vs = verification_of(r)
+                    if vs in NOT_PRESENT:  # refuted, entered in error: not a diagnosis at all
+                        continue
+                    if vs in SUSPECTED and b != "proposed":
+                        # D-142: a suspected diagnosis (疑い) is listed, never coded: it can only send a patient to
+                        # "needs information" (matching.proposed), never count as met or exclude
+                        facts.append(self.site_fact(rtype, r, "suspected"))
+                        continue
                 demographic = rtype == "Observation" and any(
                     c.get("system") == DEMOGRAPHIC for c in (r.get("code") or {}).get("coding") or []
                 )

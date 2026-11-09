@@ -111,8 +111,8 @@ class SqlEngine:
                 # D-135: a proposed fact that could change a decided answer makes it unknown ("needs information");
                 # it never decides one: it is not in the coded tables the SQL reads
                 fids = prop.refs(c, str(row["pid"]), index_date, res.get(c.id))
-                if fids:
-                    res[c.id], ev[c.id], reasons[c.id] = None, fids, Reason.PROPOSED_FACT.value
+                if fids:  # a suspected diagnosis (疑い, D-142) the same way, with its own reason
+                    res[c.id], ev[c.id], reasons[c.id] = None, fids, prop.reason(str(row["pid"]), fids)
             out[row["pid"]] = PatientEvaluation(
                 pid=row["pid"], index_date=index_date, engine="sql", results=res, evidence=ev, reasons=reasons or None
             )

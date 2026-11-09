@@ -22,6 +22,7 @@ class Reason(StrEnum):
     CODE_OUTSIDE_LIST = "code_outside_list"  # coded inside the grouper's family, outside its list (D-113)
     UNKNOWN_CODE_SYSTEM = "unknown_code_system"  # a record coded in a system the mapping does not know (D-130)
     PROPOSED_FACT = "proposed_fact"  # a fact read from a chart that a person has not confirmed yet (D-135)
+    SUSPECTED_DIAGNOSIS = "suspected_diagnosis"  # a diagnosis recorded as suspected (疑い, provisional; D-142)
     ABSTAINED = "abstained"  # the model said it cannot tell from the notes
     QUOTE_NOT_FOUND = "quote_not_found"  # the model's quote is not in the notes
     VERIFIER_QUOTE_MISSING = "verifier_quote_missing"  # the second model's quote is not in the notes
@@ -87,6 +88,11 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "a fact read from a chart, not yet confirmed: please check",
         "ja": "カルテから読み取った未確認の情報あり：確認してください",
         "zh-TW": "有從病歷讀取、尚未確認的資料：請確認",
+    },
+    "suspected_diagnosis": {
+        "en": "a diagnosis recorded as suspected, not confirmed: please check",
+        "ja": "疑い病名として記録された診断あり（確定ではない）：確認してください",
+        "zh-TW": "有記錄為疑似、尚未確診的診斷：請確認",
     },
     "abstained": {"en": "the notes do not say", "ja": "記録の文章からは判断できない", "zh-TW": "病歷文字無法判斷"},
     "quote_not_found": {
