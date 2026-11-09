@@ -74,7 +74,8 @@ class Helpers:
     # set by console.lifecycle_pages (D-134): the home page's visits and serious AEs; the visits for N1/N2
     life_home: Callable[[Session], dict[str, Any]] | None = None
     life_mail: Callable[[str, date], dict[str, Any]] | None = None
-    life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's ongoing serious AEs (the week page)
+    life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's unacknowledged SAEs (the week page)
+    life_reports: Callable[[str], list[dict[str, Any]]] | None = None  # one study's overdue SAE reports (P-03)
 
 
 class ApiLogin(BaseModel):
@@ -549,6 +550,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             steps=st.STEPS,
             approvals=approvals(sess),
             sae=[{**a, "rs": rid} for a in h.life_sae(rid)] if h.life_sae else [],
+            sae_reports=[{**a, "rs": rid} for a in h.life_reports(rid)] if h.life_reports else [],
         )
 
     def study_step(rid: str) -> int:

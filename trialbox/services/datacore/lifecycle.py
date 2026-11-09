@@ -77,6 +77,67 @@ CREATE TABLE IF NOT EXISTS schedule (study TEXT NOT NULL, visit TEXT NOT NULL, s
   win_after INTEGER NOT NULL, origin TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (study, visit))
 """
 
+# review 2026-11-09 P-02/P-03 (D-143): an investigator acknowledges every serious AE (version 3 of the schema)
+SAE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ae_ack (study TEXT NOT NULL, record TEXT NOT NULL, event TEXT NOT NULL,
+  who TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (study, record, event))
+"""
+
+# The SAE reporting clock (P-03, D-143): days from the day the site learned of a serious AE (``ae_aware``, else the
+# onset) to the report, as (fatal or life-threatening, other serious); 0 = not tracked. Plain defaults that each site
+# confirms with its IRB SOP and the protocol before the first patient (TB_SAE_REPORT_DAYS overrides):
+# * Japan (J-GCP art. 48): the investigator tells the sponsor and the head of the institution "at once" (直ちに), here
+#   one day; an investigator-initiated trial (医師主導治験) reports to PMDA itself in 7 days (death or a threat to
+#   life, unexpected) or 15 days (other).
+# * Taiwan (藥品優良臨床試驗作業準則): the investigator tells the sponsor at once (one day); the IRB in 7 or 15 days, as
+#   most Taiwanese IRB SOPs ask; TFDA in 7 or 15 days (the sponsor's duty unless the investigator sponsors the trial).
+REPORT_PARTIES = ("sponsor", "irb", "regulator")
+REPORT_FIELDS = {"sponsor": "ae_rep_sponsor", "irb": "ae_rep_irb", "regulator": "ae_rep_reg"}
+REPORT_RULES: dict[str, dict[str, tuple[int, int]]] = {
+    "jp": {"sponsor": (1, 1), "irb": (1, 1), "regulator": (7, 15)},
+    "tw": {"sponsor": (1, 1), "irb": (7, 15), "regulator": (7, 15)},
+}
+
+
+def report_rules(tz: str = "", override: str = "", rules: str = "") -> dict[str, tuple[int, int]]:
+    """The clock in force: ``rules`` (``jp`` / ``tw``; by default from the site's zone, Asia/Tokyo is Japan), then
+    ``override`` (``TB_SAE_REPORT_DAYS``: ``sponsor=1,irb=7/15,regulator=0``; one number is both)."""
+    name = (rules or ("jp" if tz == "Asia/Tokyo" else "tw")).strip().lower()
+    out = dict(REPORT_RULES.get(name, REPORT_RULES["tw"]))
+    for part in (override or "").split(","):
+        key, _, val = part.partition("=")
+        key, val = key.strip().lower(), val.strip()
+        if key not in REPORT_PARTIES or not val:
+            continue
+        a, _, b = val.partition("/")
+        try:
+            out[key] = (max(0, int(a)), max(0, int(b or a)))
+        except ValueError:
+            continue
+    return out
+
+
+def grave(e: dict[str, Any]) -> bool:
+    """Fatal or life-threatening: the short clock."""
+    return e.get("ae_outcome") == "5" or e.get("ae_serious_why") in ("1", "2")
+
+
+def report_clock(e: dict[str, Any], today: date, rules: dict[str, tuple[int, int]]) -> list[dict[str, Any]]:
+    """Each report a serious AE needs: party, due date, the day it was reported (or ""), overdue on ``today``."""
+    if e.get("ae_serious") != "1":
+        return []
+    start = _day(str(e.get("ae_aware") or "")) or _day(str(e.get("ae_onset") or ""))
+    out = []
+    for party in REPORT_PARTIES:
+        days = rules.get(party, (0, 0))[0 if grave(e) else 1]
+        if days <= 0:
+            continue
+        due = start + timedelta(days=days) if start else None
+        done = str(e.get(REPORT_FIELDS[party]) or "")
+        out.append({"party": party, "days": days, "due": due.isoformat() if due else "", "done": done,
+                    "overdue": bool(due and not done and today > due)})  # fmt: skip
+    return out
+
 
 class LifeError(ValueError):
     """A refused step. ``why`` is a plain-reason key (``life.why.<why>`` in the console's catalogues)."""
@@ -372,6 +433,17 @@ class Lifecycle:
                                                                      "n": int(m.group(1))})  # fmt: skip
             e[str(r["field"])] = str(r["value"])
         return sorted(out.values(), key=lambda e: (e["record"], e["n"]))
+
+    def acks(self, study: str) -> dict[tuple[str, str], dict[str, Any]]:
+        """The investigator's acknowledgements of serious AEs, by (record, event)."""
+        rows = self.db.fetchdicts("SELECT * FROM ae_ack WHERE study = ?", (study,))
+        return {(str(r["record"]), str(r["event"])): r for r in rows}
+
+    def ack(self, study: str, record: str, event: str, who: str, at: str) -> dict[str, Any]:
+        """One tap: the first acknowledgement stands (who and when); a second is a no-op."""
+        self.db.execute("INSERT INTO ae_ack (study, record, event, who, at) VALUES (?,?,?,?,?) "
+                        "ON CONFLICT (study, record, event) DO NOTHING", (study, record, event, who, at))  # fmt: skip
+        return self.acks(study)[(record, event)]
 
     def next_event(self, study: str, record: str, prefix: str) -> str:
         pat = AE_EVENT if prefix == "ae" else DV_EVENT
