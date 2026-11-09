@@ -63,8 +63,10 @@ for p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+from tools import pin_model  # noqa: E402  (after the path setup, as the parts import it)
+
 LANGS = ("ja", "zh-TW")
-JUDGE, VERIFIER = "local/gemma-4-26b-a4b-nvfp4", "local/qwen3.5-9b-awq"  # the vLLM served names (D-124)
+JUDGE, VERIFIER = pin_model.JUDGE_SERVED, pin_model.VERIFIER_SERVED  # the vLLM served names (D-124)
 VENDOR_RECORD = ROOT / "deploy" / "measured" / "serving_config.rtxpro6000.json"
 NODE_TOOLS = Path("/opt/node-tools/node_modules")  # the preinstalled Playwright (never `playwright install`)
 
@@ -119,13 +121,53 @@ def _one(name: str, checks: list[tuple[str, bool, Any]], seconds: float) -> list
     return [{"name": name, "ok": all(c[1] for c in checks), "seconds": round(seconds, 1), "checks": checks}]
 
 
-def git_head() -> dict[str, Any]:
-    def g(*a: str) -> str:
-        r = subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, check=False)
-        return r.stdout.strip()
+HEAD_FILE = "TB_HEAD.json"  # written into the uploaded archive by the driver (git archive --add-file): the VM's HEAD
 
-    return {"head": g("rev-parse", "HEAD"), "subject": g("log", "-1", "--format=%s"),
-            "dirty": bool(g("status", "--porcelain"))}  # fmt: skip
+
+def git_head() -> dict[str, Any]:
+    """The commit this code is: from git when this is a checkout, else from :data:`HEAD_FILE`, which the driver adds
+    to the archive it uploads (the VM has the archive, not the repository: the cloud run's first rehearsal died here
+    on a missing ``git``, review M-08). Never raises."""
+
+    def g(*a: str) -> str:
+        try:
+            r = subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, check=False)
+        except OSError:
+            return ""
+        return r.stdout.strip() if r.returncode == 0 else ""
+
+    head = g("rev-parse", "HEAD")
+    if head:
+        return {"head": head, "subject": g("log", "-1", "--format=%s"), "dirty": bool(g("status", "--porcelain")),
+                "source": "git"}  # fmt: skip
+    for p in (ROOT / HEAD_FILE, ROOT.parent / HEAD_FILE):
+        if p.is_file():
+            d = json.loads(p.read_text(encoding="utf-8"))
+            return {"head": str(d.get("head", "")), "subject": str(d.get("subject", "")),
+                    "dirty": bool(d.get("dirty", False)), "source": "archive"}  # fmt: skip
+    return {"head": "", "subject": "", "dirty": False, "source": "unknown"}
+
+
+def host_facts() -> dict[str, Any]:
+    return {"machine": platform.machine(), "cpus": os.cpu_count(), "python": platform.python_version(),
+            "node": platform.node()}  # fmt: skip
+
+
+def run_identity(run_id: str) -> dict[str, Any]:
+    """What a part result carries (review H-01, M-02): the run it belongs to, the commit and the host that made it."""
+    g = git_head()
+    return {"id": run_id, "head": g["head"], "subject": g["subject"], "dirty": g["dirty"], "host": host_facts()}
+
+
+def same_run(res: dict[str, Any], run_id: str, head: str) -> tuple[bool, str]:
+    """``--resume`` keeps a part only when it was made by this run id at this HEAD (review H-01: a disk that outlives
+    a run must never carry a passed part into the next one)."""
+    r = res.get("run") or {}
+    if r.get("id") != run_id:
+        return False, f"run {r.get('id') or '?'}"
+    if not head or r.get("head") != head:
+        return False, f"HEAD {str(r.get('head') or '?')[:12]}"
+    return True, ""
 
 
 def _free_port() -> int:
@@ -535,9 +577,38 @@ def part_profile(a: argparse.Namespace) -> dict[str, Any]:
         ("every sentence cites only that patient's facts", m["citations_valid"] == 1.0, m["citations_valid"]),
         ("tokens in and out counted", m["tokens_in"]["mean"] > 0 and m["tokens_out"]["mean"] > 0, m["tokens_out"]),
     ]
+    findings: list[dict[str, Any]] = []
+    if a.model == "pair" and not a.direct:
+        # the bench measures the gateway path; a fallback to direct calls still measures the cost, but the installed
+        # box's chain did not answer: that is a failed check and a finding, never a green row (review M-03/M-06)
+        via_gateway = res["path"].startswith("gateway")
+        checks.append(("the installed box's gateway answered (no fallback to direct calls)", via_gateway,
+                       res.get("gateway_refused") or res["path"]))  # fmt: skip
+        if not via_gateway:
+            findings.append({"id": "PROFILE-GW", "what": "the profile bench fell back to direct calls",
+                             "expected": "every call through the gateway", "got": res["path"],
+                             "holds": False})  # fmt: skip
     return {"stages": _one(f"profile cost stand-in (tools.bench_profile, {res['path'][:40]})", checks,
                            time.perf_counter() - t0),
-            "profile": bench_profile.summary(res)}  # fmt: skip
+            "profile": bench_profile.summary(res), "findings": findings}  # fmt: skip
+
+
+def part_selftest(a: argparse.Namespace) -> dict[str, Any]:
+    """The rehearsal's silent part (``tests/rehearsal``; never in a plan unless ``--only`` names it): no output for
+    ``TB_SELFTEST_SECONDS`` (default 300). ``selftest-busy`` works on the CPU the whole time, as a 50,000-patient
+    SCREEN does between its log lines: the in-run heartbeat must keep the VM alive. ``selftest-hang`` sleeps, as a
+    stuck part does: the VM's watchdog must power it off (review H-03)."""
+    seconds = float(os.environ.get("TB_SELFTEST_SECONDS", "300"))
+    t0 = time.perf_counter()
+    n = 0
+    while time.perf_counter() - t0 < seconds:
+        if a.scenario == "hang":
+            time.sleep(min(5.0, seconds))
+        else:
+            n += sum(i * i for i in range(20_000))
+    took = time.perf_counter() - t0
+    return {"stages": _one(f"selftest-{a.scenario}: silent for {seconds:.0f} s",
+                           [("silent part ran to its end", took >= seconds, round(took, 1))], took)}  # fmt: skip
 
 
 def _bench_synth(work: Path, sites: str) -> Path:
@@ -563,17 +634,66 @@ PARTS = {
     "scenario": part_scenario,
     "embed": part_embed,
     "profile": part_profile,
+    "selftest": part_selftest,
 }
-NO_CONSOLE = ("prepare", "install", "backup", "update", "scale", "embed", "profile")
+NO_CONSOLE = ("prepare", "install", "backup", "update", "scale", "embed", "profile", "selftest")
 MODEL_PARTS = ("hospital", "public", "scenario", "embed", "profile")  # on the card; walk, backup, update, scale: stub
 BENCH_PARTS = ("embed", "profile")  # in a run only when --only names them (not part of the complete run, G1)
 STUB_PARTS = ("walk", "backup", "update", "scale")  # run on the driver after the VM has stopped
+SELFTESTS = ("busy", "hang")  # the rehearsal's silent parts (selftest-busy, selftest-hang): only when --only names them
 
 
 def _tag(part: str, lang: str = "", scenario: str = "") -> str:
     if part == "scenario":
         return f"scenario-{scenario}"
+    if part == "selftest":
+        return f"selftest-{scenario}"
     return part + (f"-{lang}" if part in ("hospital", "public") and lang else "")
+
+
+# ---------------------------------------------------------------- the data a part needs (review C-02, C-03)
+# What is not in git and the part cannot run without; tools/fetch_run_data.py fetches each on the VM. A part whose data
+# is missing fails at once with a "data missing" row: it never starts, so it costs no card time (review C-03).
+def _data_cql() -> str:
+    from criteria_compiler.compile_cql import translator
+
+    try:
+        translator.fhirhelpers_source()
+    except (FileNotFoundError, OSError, KeyError) as exc:
+        return f"the CQL translator's FHIRHelpers (quick-5.4.0.jar in {translator._lib_dir()}): {exc}"
+    return ""
+
+
+def _data_medtxt() -> str:
+    from tools import medtxt_eval
+
+    d = medtxt_eval.CACHE / "Test collection"
+    return "" if any(d.glob("*/*.xml")) else f"MedTxt (CC BY 4.0) in {d}"
+
+
+def _data_trec() -> str:
+    from tools import trec_ct_eval
+
+    need = ["sample_trials.json", "ctgov_fields.json"]
+    need += [f"{k}{y}.{e}" for y in trec_ct_eval.YEARS for k, e in (("topics", "xml"), ("qrels", "txt"))]
+    gone = [n for n in need if not (trec_ct_eval.CACHE / n).is_file()]
+    return f"TREC CT 2021/2022 (NIST) in {trec_ct_eval.CACHE}: no {', '.join(gone)}" if gone else ""
+
+
+DATA_CHECKS = {"cql": _data_cql, "medtxt": _data_medtxt, "trec": _data_trec}
+
+
+def data_needs(tag: str) -> tuple[str, ...]:
+    if tag.startswith("hospital-"):
+        return ("cql",)
+    if tag.startswith("public-"):  # the public console: MedTxt notes, and its FEAS compiles criteria
+        return ("medtxt", "cql")
+    return {"scenario-public-medtxt": ("medtxt",), "scenario-public-trec": ("trec",)}.get(tag, ())
+
+
+def data_missing(tag: str) -> list[str]:
+    """Why ``tag`` cannot run on this machine (empty: its data is here)."""
+    return [why for need in data_needs(tag) if (why := DATA_CHECKS[need]())]
 
 
 def _passed(res: dict[str, Any]) -> bool:
@@ -588,17 +708,37 @@ def run_part(a: argparse.Namespace) -> int:
     a.shots.mkdir(parents=True, exist_ok=True)
     tag = _tag(a.part, a.lang, a.scenario)
     final = a.dir / "parts" / f"{tag}.json"
-    if a.resume and final.exists() and _passed(json.loads(final.read_text(encoding="utf-8"))):
-        print(f"      {tag}: done earlier, kept (--resume)", flush=True)
-        return 0
+    ident = run_identity(a.run_id)
+    if a.resume and final.exists():
+        old = json.loads(final.read_text(encoding="utf-8"))
+        same, why = same_run(old, a.run_id, ident["head"])
+        if same and _passed(old):
+            print(f"      {tag}: done earlier in this run at this HEAD, kept (--resume)", flush=True)
+            return 0
+        if not same:
+            print(f"      {tag}: a result from another {why} is on disk: not kept, the part runs again", flush=True)
+        final.unlink()
     t0 = time.perf_counter()
-    try:
-        res = PARTS[a.part](a)
-    except Exception as exc:  # one broken part is a failed row in the report, not a lost run
-        import traceback
+    res: dict[str, Any]
+    missing = data_missing(tag)
+    if missing:  # fail fast, before any box is built: no card time for a part that cannot run (review C-03)
+        res = {"stages": _one(f"{tag}: data missing, not run", [("the part's data is on this machine", False,
+                                                                 "; ".join(missing)[:300])], 0),
+               "not_run": "data missing"}  # fmt: skip
+    else:
+        try:
+            res = PARTS[a.part](a)
+        except Exception as exc:  # one broken part is a failed row in the report, not a lost run
+            import traceback
 
-        tb = traceback.format_exc().splitlines()[-3:]
-        res = {"stages": _one(f"{tag} crashed", [("part ran", False, f"{exc!r} {' | '.join(tb)}"[:300])], 0)}
+            tb = traceback.format_exc().splitlines()[-3:]
+            res = {"stages": _one(f"{tag} crashed", [("part ran", False, f"{exc!r} {' | '.join(tb)}"[:300])], 0),
+                   "not_run": "crashed"}  # fmt: skip
+    res["run"] = ident
+    if a.model == "pair":
+        from tools import scenarios
+
+        res["run"]["weight_pins"] = scenarios.weight_pins()
     res["wall_seconds"] = round(time.perf_counter() - t0, 1)
     if a.part in NO_CONSOLE:
         url = table_page(a.shots / f"{tag}.html", f"TrialBox complete run: {tag}", res["stages"])
@@ -625,6 +765,7 @@ def plan(a: argparse.Namespace) -> list[tuple[str, str, str]]:
     out += [("scenario", a.langs[0], sc) for sc in (a.scenarios or scenarios.SCENARIOS)]
     out += [("walk", "", ""), ("backup", "", ""), ("update", "", ""), ("scale", "", "")]
     out += [(b, "", "") for b in BENCH_PARTS if b in (a.only or [])]
+    out += [("selftest", "", s) for s in SELFTESTS if f"selftest-{s}" in (a.only or [])]
     keep = [p for p in out if p[0] not in a.skip]
     if a.only:
         keep = [p for p in keep if p[0] in a.only or _tag(*p) in a.only]
@@ -633,7 +774,7 @@ def plan(a: argparse.Namespace) -> list[tuple[str, str, str]]:
 
 def _cmd(a: argparse.Namespace, part: str, lang: str, scenario: str, shots: Path) -> list[str]:
     cmd = [sys.executable, "-m", "tools.complete_run", "part", part, "--dir", str(a.dir), "--shots", str(shots),
-           "--patients", str(a.patients), "--model", a.model, "--ocr", a.ocr]  # fmt: skip
+           "--patients", str(a.patients), "--model", a.model, "--ocr", a.ocr, "--run-id", a.run_id]  # fmt: skip
     if lang:
         cmd += ["--lang", lang]
     if scenario:
@@ -653,18 +794,98 @@ def _cmd(a: argparse.Namespace, part: str, lang: str, scenario: str, shots: Path
     return cmd
 
 
+def _tree_cpu(pid: int) -> float | None:
+    """CPU seconds used so far by ``pid`` and every process below it (Linux ``/proc``; None elsewhere)."""
+    proc = Path("/proc")
+    if not (proc / str(pid)).exists():
+        return None
+    kids: dict[int, list[int]] = {}
+    ticks: dict[int, int] = {}
+    for d in proc.iterdir():
+        if not d.name.isdigit():
+            continue
+        try:
+            f = (d / "stat").read_text().rsplit(")", 1)[1].split()
+        except OSError:
+            continue
+        kids.setdefault(int(f[1]), []).append(int(d.name))  # f[1] = ppid
+        ticks[int(d.name)] = int(f[11]) + int(f[12])  # utime + stime
+    total, todo = 0, [pid]
+    while todo:
+        p = todo.pop()
+        total += ticks.get(p, 0)
+        todo += kids.get(p, [])
+    return total / (os.sysconf("SC_CLK_TCK") or 100)
+
+
+class Heartbeat:
+    """The in-run heartbeat (review H-03): while a part runs, touch ``path`` every ``every`` seconds in which the
+    part's processes used CPU. A 50,000-patient SCREEN is silent in the log for hours but always busy, so the VM's
+    idle watchdog no longer depends on the driver being alive; a part that is stuck (no CPU at all) stops touching it
+    and the watchdog powers the VM off after its idle limit, as before."""
+
+    def __init__(self, path: str, pid: int, every: float = 30.0) -> None:
+        self.path, self.pid, self.every = Path(path), pid, every
+        self.stop = threading.Event()
+        self.beats = 0
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def _run(self) -> None:
+        last = _tree_cpu(self.pid)
+        while not self.stop.wait(self.every):
+            now = _tree_cpu(self.pid)
+            if now is None or last is None or now > last:  # no /proc: keep the old behaviour (alive while running)
+                self.path.touch()
+                self.beats += 1
+            last = now
+
+    def close(self) -> None:
+        self.stop.set()
+        self.thread.join(timeout=5)
+
+
+def _run_part_process(a: argparse.Namespace, cmd: list[str], env: dict[str, str]) -> int:
+    p = subprocess.Popen(cmd, cwd=ROOT, env=env)
+    hb = Heartbeat(a.heartbeat, p.pid, a.heartbeat_seconds) if a.heartbeat else None
+    try:
+        return p.wait()
+    finally:
+        if hb is not None:
+            hb.close()
+
+
+def drop_stale_parts(parts: Path, run_id: str, head: str) -> list[str]:
+    """Remove every part result on disk that another run id or HEAD made (review H-01); returns their tags."""
+    gone = []
+    for f in sorted(parts.glob("*.json")) if parts.is_dir() else []:
+        try:
+            same, _ = same_run(json.loads(f.read_text(encoding="utf-8")), run_id, head)
+        except (OSError, ValueError):
+            same = False
+        if not same:
+            f.unlink()
+            gone.append(f.stem)
+    return gone
+
+
 def run_all(a: argparse.Namespace) -> int:
     a.dir.mkdir(parents=True, exist_ok=True)
     report_dir = a.dir / "report"
     shots = report_dir / "shots"
+    head = git_head()
     if not a.resume:
         shutil.rmtree(report_dir, ignore_errors=True)
         shutil.rmtree(a.dir / "parts", ignore_errors=True)
+    else:
+        gone = drop_stale_parts(a.dir / "parts", a.run_id, head["head"])
+        if gone:
+            print(f"      --resume: {len(gone)} part result(s) of another run or HEAD removed: {' '.join(gone)}",
+                  flush=True)  # fmt: skip
     shots.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, TB_ENV=os.environ.get("TB_ENV") or "DEV", PYTHONPATH="libs:services:.")
     env.setdefault("TB_DEMO_PASSWORD", secrets.token_urlsafe(12))  # one random password for every part, never printed
     started = datetime.now(UTC)
-    head = git_head()
     todo = plan(a)
     rows: list[dict[str, Any]] = []
     for i, (part, lang, scenario) in enumerate(todo):
@@ -673,27 +894,40 @@ def run_all(a: argparse.Namespace) -> int:
         print(f"[{i + 1}/{len(todo)}] {tag}", flush=True)
         if a.heartbeat:
             Path(a.heartbeat).touch()
-        rc = subprocess.run(_cmd(a, part, lang, scenario, shots), cwd=ROOT, env=env, check=False).returncode
+        rc = _run_part_process(a, _cmd(a, part, lang, scenario, shots), env)
         f = a.dir / "parts" / f"{tag}.json"
-        res = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {
-            "stages": _one(f"{tag} did not report", [("part ran", False, f"exit {rc}")], 0)}  # fmt: skip
+        res: dict[str, Any] = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {
+            "stages": _one(f"{tag} did not report", [("part ran", False, f"exit {rc}")], 0),
+            "not_run": "did not report"}  # fmt: skip
         res.update({"part": part, "lang": lang, "tag": tag, "seconds_total": round(time.perf_counter() - t, 1)})
         rows.append(res)
         bad = sum(1 for st in res["stages"] for c in st["checks"] if not c[1])
         print(f"      {'PASS' if bad == 0 else 'FAIL'} in {res['seconds_total']} s", flush=True)
+        # the report so far, then the operator's hook (the VM packs results.tgz: a stop at any moment loses at most
+        # the part that was running, review M-10)
+        _write_report(a, rows, head, started, report_dir)
+        if a.after_part:
+            subprocess.run(a.after_part, shell=True, cwd=ROOT, check=False)  # the operator's own command
         last_model_part = not any(p in MODEL_PARTS for p, _, _ in todo[i + 1 :])
         if a.after_models and part in MODEL_PARTS and last_model_part:
             # the paid card is no longer needed: the wrapper stops the VM while walk, backup, update and scale run
             print(f"      after the model parts: {a.after_models}", flush=True)
             subprocess.run(a.after_models, shell=True, cwd=ROOT, check=False)  # the operator's own command
-    rep = report(a, rows, head, started)
-    (report_dir / "report.json").write_text(json.dumps(rep, default=str, ensure_ascii=False, indent=1), "utf-8")
-    (report_dir / "report.md").write_text(markdown(rep), encoding="utf-8")
+    rep = _write_report(a, rows, head, started, report_dir)
     verdict = "PASSED" if rep["ok"] else "FAILED"
     print(f"complete run {verdict}: {rep['checks'] - rep['failed']}/{rep['checks']} checks, "
           f"{rep['shots_ok']}/{rep['shots']} screenshots, {len(rep['findings'])} known findings, {rep['seconds']} s; "
           f"{report_dir / 'report.md'}")  # fmt: skip
     return 0 if rep["ok"] else 1
+
+
+def _write_report(a: argparse.Namespace, rows: list[dict[str, Any]], head: dict[str, Any], started: datetime,
+                  out: Path) -> dict[str, Any]:  # fmt: skip
+    rep = report(a, rows, head, started)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.json").write_text(json.dumps(rep, default=str, ensure_ascii=False, indent=1), "utf-8")
+    (out / "report.md").write_text(markdown(rep), encoding="utf-8")
+    return rep
 
 
 def report_only(a: argparse.Namespace) -> int:
@@ -705,11 +939,12 @@ def report_only(a: argparse.Namespace) -> int:
     for part, lang, scenario in plan(a):
         tag = _tag(part, lang, scenario)
         f = a.dir / "parts" / f"{tag}.json"
-        res = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {
-            "stages": _one(f"{tag} did not report", [("part ran", False, "no result file")], 0)}  # fmt: skip
+        res: dict[str, Any] = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {
+            "stages": _one(f"{tag} did not report", [("part ran", False, "no result file")], 0),
+            "not_run": "did not report"}  # fmt: skip
         res.update({"part": part, "lang": lang, "tag": tag, "seconds_total": res.get("wall_seconds", 0)})
         rows.append(res)
-    rep = report(a, rows, git_head(), datetime.now(UTC))
+    rep = report(a, rows, made_by(rows) or git_head(), datetime.now(UTC))
     out = a.dir / "report"
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(rep, default=str, ensure_ascii=False, indent=1), "utf-8")
@@ -719,25 +954,61 @@ def report_only(a: argparse.Namespace) -> int:
     return 0 if rep["ok"] else 1
 
 
+def made_by(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """The commit the parts ran from, as their results record it (the VM's, not the driver's at collect time:
+    review M-02). Model parts first; several commits are named, never hidden."""
+    runs = [r["run"] for r in sorted(rows, key=lambda r: r.get("part") not in MODEL_PARTS) if r.get("run")]
+    heads = list(dict.fromkeys(x.get("head", "") for x in runs if x.get("head")))
+    if not heads:
+        return {}
+    first = next(x for x in runs if x.get("head") == heads[0])
+    return {"head": heads[0], "subject": first.get("subject", ""), "dirty": bool(first.get("dirty")),
+            "source": "parts", "heads": heads}  # fmt: skip
+
+
+def planned_checks(path: Path | None) -> dict[str, int]:
+    """Checks per part tag in a reference report (``--planned-from``: a full local run's report.json)."""
+    if path is None or not path.exists():
+        return {}
+    rep = json.loads(path.read_text(encoding="utf-8"))
+    rows = [r for r in rep.get("parts") or [] if not r.get("not_run")]
+    return {r["tag"]: sum(len(st["checks"]) for st in r["stages"]) for r in rows}
+
+
 def report(
     a: argparse.Namespace, rows: list[dict[str, Any]], head: dict[str, Any], started: datetime
 ) -> dict[str, Any]:
+    # the host and the weight pins of the machine the model parts ran on (the VM), else this one (review M-02, M-09)
+    runs = [r["run"] for r in sorted(rows, key=lambda r: r.get("part") not in MODEL_PARTS) if r.get("run")]
+    host = (runs[0].get("host") if runs else None) or host_facts()
+    pins = next((x["weight_pins"] for x in runs if x.get("weight_pins")), "")
+    path = ("direct" if a.direct else "gateway (installed box)") if a.model == "pair" else "stub in process"
+    if a.model == "pair" and not a.direct and pins == "synthetic":
+        path = "gateway (installed box, synthetic weight pins)"
     rep: dict[str, Any] = {
-        "schema": "tb-complete-run/2",
+        "schema": "tb-complete-run/3",
         "git": head,
         "started": started.isoformat(timespec="seconds"),
         "finished": datetime.now(UTC).isoformat(timespec="seconds"),
         "model": a.model,
         "models": [JUDGE, VERIFIER] if a.model == "pair" else ["stub"],
-        "path": ("direct" if a.direct else "gateway (installed box)") if a.model == "pair" else "stub in process",
+        "path": path,
         "ocr": a.ocr,
         "patients": a.patients,
         "langs": list(a.langs),
-        "host": {"machine": platform.machine(), "cpus": os.cpu_count(), "python": platform.python_version()},
+        "host": host,
+        "run_ids": sorted({str(x.get("id")) for x in runs if x.get("id")}),
         "parts": rows,
     }
     rep["checks"] = sum(len(st["checks"]) for r in rows for st in r["stages"])
     rep["failed"] = sum(1 for r in rows for st in r["stages"] for c in st["checks"] if not c[1])
+    # a part that crashed, did not report or had no data counts one failed check; its own checks never ran (review
+    # M-03): named in the headline, with their number when a reference run gives it
+    ref = planned_checks(getattr(a, "planned_from", None))
+    rep["not_run"] = [{"tag": r["tag"], "why": r["not_run"], "planned_checks": ref.get(r["tag"])}
+                      for r in rows if r.get("not_run")]  # fmt: skip
+    known = [x["planned_checks"] for x in rep["not_run"] if x["planned_checks"]]
+    rep["checks_never_ran"] = sum(known) if rep["not_run"] and len(known) == len(rep["not_run"]) else None
     rep["shots"] = sum(1 for r in rows for st in r["stages"] if st.get("shot"))
     rep["shots_ok"] = sum(1 for r in rows for st in r["stages"] if st.get("shot_ok"))
     rep["findings"] = [{**f, "part": r["tag"]} for r in rows for f in r.get("findings") or []]
@@ -804,18 +1075,28 @@ def _scenario_sections(rep: dict[str, Any]) -> list[str]:
 
 def markdown(rep: dict[str, Any]) -> str:
     g = rep["git"]
+    heads = g.get("heads") or []
+    mixed = f" (parts from {len(heads)} commits: {', '.join(h[:12] for h in heads)})" if len(heads) > 1 else ""
+    not_run = rep.get("not_run") or []
+    never = ""
+    if not_run:
+        n = rep.get("checks_never_ran")
+        never = (f" **{len(not_run)} part(s) crashed or never ran** ({', '.join(x['tag'] for x in not_run)}): "
+                 + (f"{n} of their checks never ran" if n else "their own checks never ran (number unknown)")
+                 + "; each counts as one failed check above.")  # fmt: skip
     lines = [
         "# TrialBox complete-platform run",
         "",
-        f"Head `{g['head'][:12]}` ({g['subject']}){' with local changes' if g['dirty'] else ''}. "
+        f"Head `{g['head'][:12]}` ({g['subject'] or g.get('source', '')}){' with local changes' if g['dirty'] else ''}"
+        f"{mixed}. Run: {', '.join(rep.get('run_ids') or []) or '-'}. "
         f"Model: {', '.join(rep['models'])} ({rep.get('path', '')}). Hospital: {rep['patients']:,} synthetic patients. "
         f"Languages: {', '.join(rep['langs'])}. OCR: {rep.get('ocr', '-')}. "
-        f"Host: {rep['host']['machine']}, {rep['host']['cpus']} CPUs.",
+        f"Host: {rep['host'].get('machine')}, {rep['host'].get('cpus')} CPUs.",
         f"Started {rep['started']}, finished {rep['finished']}.",
         "",
         f"**{'PASSED' if rep['ok'] else 'FAILED'}**: {rep['checks'] - rep['failed']} of {rep['checks']} checks; "
         f"{rep['shots_ok']} of {rep['shots']} screenshots; {rep['seconds'] / 60:.1f} min in all; "
-        f"{len(rep.get('findings') or [])} known findings reported.",
+        f"{len(rep.get('findings') or [])} known findings reported.{never}",
         "",
         "Screenshots are in the run's `report/shots/` folder (not committed).",
         "",
@@ -931,6 +1212,28 @@ def estimate(patients: int, langs: tuple[str, ...] = LANGS, local: dict[str, flo
             "cap_usd": round(cap * PRICE_PER_HOUR, 2), "parts": list(parts)}  # fmt: skip
 
 
+def restrict(e: dict[str, Any], only: list[str]) -> dict[str, Any]:
+    """The estimate of a bounded run (``--only`` tags, e.g. the first paid launch after a failed one): the start and
+    setup rows, and only the work rows of those parts. ``install`` and ``prepare`` have no row of their own."""
+    import math
+
+    if not only:
+        return e
+    selftests = [f"selftest-{s}" for s in SELFTESTS if f"selftest-{s}" in only]  # the rehearsal's (tests/rehearsal)
+    known = {t for r in e["rows"] for t in r["tags"]} | {"install", "prepare", *selftests}
+    unknown = sorted(set(only) - known)
+    if unknown:
+        raise ValueError(f"--only: no such part in the plan: {' '.join(unknown)}")
+    rows = [r for r in e["rows"] if not r["tags"] or set(r["tags"]) & set(only)]
+    rows += [{"scenario": t, "patients": 0, "model_items": 0, "seconds": 600.0, "tags": [t], "hours": 0.17,
+              "usd": round(0.17 * e["price_per_hour"], 2)} for t in selftests]  # fmt: skip
+    hours = sum(r["seconds"] for r in rows) / 3600
+    cap = math.ceil(hours * 1.3)
+    price = e["price_per_hour"]
+    return {**e, "rows": rows, "only": list(only), "hours": round(hours, 2), "usd": round(hours * price, 2),
+            "cap_hours": cap, "cap_usd": round(cap * price, 2)}  # fmt: skip
+
+
 def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
     """Split the estimate's work over ``vms`` VMs, each a whole RTX PRO 6000 with both models resident.
 
@@ -955,7 +1258,7 @@ def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
         if "g1" in e.get("parts", ["g1"]):
             if any(t.startswith("hospital-") for t in tags):
                 tags = ["prepare", *tags]
-            if i == 0:
+            if i == 0 and (not e.get("only") or "install" in e["only"]):
                 tags = ["install", *tags]
         sec = fixed_s + sum(r["seconds"] for r in b)
         h = sec / 3600
@@ -967,6 +1270,64 @@ def shard_plan(e: dict[str, Any], vms: int) -> dict[str, Any]:
     return {"vms": len(shards), "shards": shards, "wall_hours": max(x["hours"] for x in shards),
             "hours": round(total, 2), "usd": round(sum(x["usd"] for x in shards), 2),
             "cap_usd": round(sum(x["cap_usd"] for x in shards), 2)}  # fmt: skip
+
+
+CPUS_PER_VM = 48  # g4-standard-48
+
+
+def _quota(quotas: list[dict[str, Any]], match: Any) -> dict[str, float] | None:
+    q = next((x for x in quotas if match(str(x.get("metric", "")))), None)
+    return None if q is None else {"limit": float(q.get("limit", 0)), "usage": float(q.get("usage", 0))}
+
+
+def quota_problems(project: dict[str, Any], regions: dict[str, dict[str, Any]], zones: list[str],
+                   cpus_per_vm: int = CPUS_PER_VM) -> list[str]:  # fmt: skip
+    """Why ``len(zones)`` Spot RTX PRO 6000 VMs (one per zone) cannot run now, from ``gcloud compute project-info
+    describe --format=json`` and ``gcloud compute regions describe <region> --format=json`` (review H-05). Spot VMs
+    draw on the PREEMPTIBLE_ quota when the project has one (limit > 0), else on the regular one; the project's
+    GPUS_ALL_REGIONS bounds them all. Empty: the quota is there. A quota that cannot be read is a problem too."""
+    out: list[str] = []
+    q = _quota(project.get("quotas") or [], lambda m: m == "GPUS_ALL_REGIONS")
+    if q is None:
+        out.append("project quota GPUS_ALL_REGIONS not readable")
+    elif q["limit"] - q["usage"] < len(zones):
+        out.append(f"project quota GPUS_ALL_REGIONS: limit {q['limit']:g}, in use {q['usage']:g}, free "
+                   f"{q['limit'] - q['usage']:g}; this run needs {len(zones)} GPU(s)")  # fmt: skip
+    need: dict[str, int] = {}
+    for z in zones:
+        need[z.rsplit("-", 1)[0]] = need.get(z.rsplit("-", 1)[0], 0) + 1
+    for region, n in need.items():
+        qs = (regions.get(region) or {}).get("quotas") or []
+        for what, per_vm, regular, pre in (
+            ("RTX PRO 6000 GPUs", 1, lambda m: "RTX_PRO_6000" in m and not m.startswith("PREEMPTIBLE"),
+             lambda m: m.startswith("PREEMPTIBLE") and "RTX_PRO_6000" in m),
+            ("CPUs", cpus_per_vm, lambda m: m == "CPUS", lambda m: m == "PREEMPTIBLE_CPUS"),
+        ):  # fmt: skip
+            p, r = _quota(qs, pre), _quota(qs, regular)
+            use, name = (p, "PREEMPTIBLE") if p is not None and p["limit"] > 0 else (r, "regular")
+            if use is None:
+                out.append(f"{region}: {what} quota not readable")
+            elif use["limit"] - use["usage"] < n * per_vm:
+                out.append(f"{region}: {what} ({name} quota, which Spot VMs use here): limit {use['limit']:g}, in use "
+                           f"{use['usage']:g}; {n} VM(s) need {n * per_vm}")  # fmt: skip
+    return out
+
+
+def quota_check(folder: Path, zones: list[str]) -> int:
+    """``--quota-check DIR``: DIR holds ``project.json`` and ``region-<region>.json`` (the driver writes them with
+    read-only gcloud calls). Exit 0 when the quota is there, 4 with every shortfall printed otherwise."""
+    project = json.loads((folder / "project.json").read_text(encoding="utf-8"))
+    regions = {p.stem.removeprefix("region-"): json.loads(p.read_text(encoding="utf-8"))
+               for p in folder.glob("region-*.json")}  # fmt: skip
+    bad = quota_problems(project, regions, zones)
+    for b in bad:
+        print(f"quota: {b}", file=sys.stderr)
+    if bad:
+        print(f"quota: {len(zones)} VM(s) cannot run now; nothing was started or made. Ask for a quota increase "
+              "(IAM & Admin > Quotas) or use fewer VMs (--vms).", file=sys.stderr)  # fmt: skip
+        return 4
+    print(f"quota: enough for {len(zones)} VM(s) in {', '.join(zones)}")
+    return 0
 
 
 def print_shards(e: dict[str, Any], p: dict[str, Any]) -> str:
@@ -992,6 +1353,7 @@ def print_estimate(e: dict[str, Any]) -> str:
         )
     lines += ["", f"{'total':<42}{'':>10}{'':>13}{e['hours']:>8.2f}{e['usd']:>9.2f}",
               f"hard cap (estimate x 1.3, rounded up): {e['cap_hours']} h, at most US${e['cap_usd']}",
+              f"a bounded run: only {' '.join(e['only'])}" if e.get("only") else
               "walk, backup, update and scale run on the stub after the VM stops: no card time."]  # fmt: skip
     return "\n".join(lines)
 
@@ -1025,10 +1387,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--keep-work", action="store_true", help="keep each scenario's work folder (disk)")
     ap.add_argument("--profile-patients", type=int, default=400, help="profile bench: patients sampled")
     ap.add_argument("--profile-workers", type=int, default=16, help="profile bench: parallel calls (vLLM batch)")
+    ap.add_argument("--run-id", default=os.environ.get("TB_RUN_ID", ""),
+                    help="the run's id: --resume keeps only parts of this run id and HEAD (H-01)")  # fmt: skip
     if argv[:1] == ["part"]:
         ap.add_argument("part", nargs="?", choices=sorted(PARTS))
         ap.add_argument("--lang", default="ja", choices=["ja", "zh-TW", "en"])
-        ap.add_argument("--scenario", default="", choices=["", *scenarios.SCENARIOS])
+        ap.add_argument("--scenario", default="", choices=["", *scenarios.SCENARIOS, *SELFTESTS])
         ap.add_argument("--shots", type=Path, required=True)
         a = ap.parse_args(argv[1:])
         return run_part(a)
@@ -1037,7 +1401,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--only", nargs="*", default=[], help="run only these parts or tags (e.g. scenario-it-dump)")
     ap.add_argument("--scenarios", nargs="*", default=[], choices=scenarios.SCENARIOS)
     ap.add_argument("--after-models", default="", help="a command to run once the model parts are done (stop the VM)")
-    ap.add_argument("--heartbeat", default="", help="a file to touch before each part (the VM's watchdog)")
+    ap.add_argument("--heartbeat", default="", help="a file to touch before each part and while a part works (the "
+                    "VM's watchdog; review H-03)")  # fmt: skip
+    ap.add_argument("--heartbeat-seconds", type=float, default=30.0, help="--heartbeat: how often a busy part beats")
+    ap.add_argument("--after-part", default="", help="a command to run after each part (the VM packs results.tgz)")
+    ap.add_argument("--planned-from", type=Path, default=os.environ.get("TB_PLANNED_FROM") or None,
+                    help="a full run's report.json: the checks a crashed part would have run (M-03)")  # fmt: skip
+    ap.add_argument("--quota-check", type=Path, help="a folder of gcloud quota JSON: refuse when too small (H-05)")
+    ap.add_argument("--quota-zones", default="", help="--quota-check: the run's zones, comma list (one VM each)")
     ap.add_argument("--estimate", action="store_true", help="print hours and US$ per scenario on the card and exit")
     ap.add_argument("--estimate-from", type=Path, help="a local stub report.json whose part times to scale")
     ap.add_argument("--json", action="store_true", help="--estimate: print JSON")
@@ -1046,14 +1417,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--report-only", action="store_true", help="build the report from parts/ (the VM's and these)")
     ap.add_argument("--report-parts", nargs="*", default=[], help="--report-only: only these parts or tags")
     a = ap.parse_args(argv)
+    if a.quota_check:
+        return quota_check(a.quota_check, [z for z in a.quota_zones.split(",") if z])
     if a.estimate:
         local, n = _local_timings(a.estimate_from)
         parts = tuple(x for x in a.parts.split(",") if x)
         if not parts or set(parts) - {"g1", *BENCH_PARTS}:
             ap.error(f"--parts: g1, {', '.join(BENCH_PARTS)}")
         e = estimate(a.patients, tuple(a.langs), local, n, parts, a.profile_patients)
+        try:
+            e = restrict(e, a.only)
+        except ValueError as exc:
+            ap.error(str(exc))
         e["plan"] = shard_plan(e, a.vms)
-        text = print_estimate(e) + ("\n\n" + print_shards(e, e["plan"]) if a.vms > 1 or parts != ("g1",) else "")
+        many = a.vms > 1 or parts != ("g1",) or bool(a.only)
+        text = print_estimate(e) + ("\n\n" + print_shards(e, e["plan"]) if many else "")
         print(json.dumps(e, indent=1) if a.json else text)
         return 0
     if a.report_only:
