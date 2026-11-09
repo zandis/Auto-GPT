@@ -26,6 +26,7 @@ from tb_contracts import Job
 from console import studies as st
 from console.auth import Session
 from console.home import Helpers
+from console.i18n import translate
 
 _ULID = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 _CRIT = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,63}$")
@@ -182,7 +183,7 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         return RedirectResponse(f"/pilot/jobs/{job_id}/approval?done=label#{crit}", status_code=303)
 
     @app.post("/pilot/jobs/{job_id}/approve")
-    def approve(request: Request, job_id: str, csrf: str = Form("")) -> Response:
+    def approve(request: Request, job_id: str, csrf: str = Form(""), confirm: str = Form("")) -> Response:
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
@@ -195,6 +196,9 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             raise h.problem(
                 409, "request.refused", reason="open every amber row first: " + ", ".join(ctx["missing"][:5])
             )
+        if confirm != "yes" and h.confirm is not None:  # P-10 (D-143): the consequence first
+            text = translate(sess.lang, "confirm.approve_all", n=len(ctx["rows"]))
+            return h.confirm(request, sess, text, request.url.path, {}, f"/pilot/jobs/{job.job_id}/approval")
         au.append(
             "console.approve_all",
             job_id=job.job_id,

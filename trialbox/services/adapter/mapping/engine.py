@@ -46,6 +46,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import yaml
+from tb_common import labvalue
 from tb_common.crypto import pid_for_mrn
 
 Row = dict[str, Any]
@@ -387,14 +388,22 @@ class Mapper:
                     "text": str(raw),
                 }
             }
+        comparator: str | None = None
         try:
             num = Decimal(str(raw).strip())
         except InvalidOperation:
-            return {"valueString": str(raw)}
+            # D-142 (review B-01): "75 H" is 75 with a flag, "<0.3" / "0.3未満" is censored (Quantity.comparator);
+            # anything else stays text, which the screening engine reads as unknown, never as a failed test
+            got = labvalue.parse(raw)
+            if got is None:
+                return {"valueString": str(raw)}
+            num, comparator = Decimal(repr(got[0])), got[1]
         factor = Decimal(lk.get("factor") or "1")
         val = num * factor
         unit = lk.get("ucum") or ""
         q: dict[str, Any] = {"value": float(val) if val % 1 else int(val), "unit": unit}
+        if comparator:
+            q["comparator"] = comparator
         if unit:
             q["system"] = self.m.systems["ucum"]
             q["code"] = unit

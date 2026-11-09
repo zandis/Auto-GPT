@@ -121,15 +121,21 @@ class CqlGenerator:
             case _:
                 raise CompileError(f"unsupported domain {atom.domain}")
         joiner = " " if retrieve.endswith(" and") else " where "
-        defs = [f"define {q('Q_' + p)}:\n  {retrieve}{joiner}{date} in {win}"]
+        un, qn = q("U_" + p), q("Q_" + p)
+        # an undated record cannot be placed in the window: unknown where the dated ones do not settle the atom, as
+        # the SQL says (scenario run DUMP-01)
+        defs = [
+            f"define {qn}:\n  {retrieve}{joiner}{date} in {win}",
+            f"define {un}:\n  {retrieve}{joiner}{date} is null",
+        ]
         quant = atom.quantifier or "any"
         if quant == "count>=":
-            a = f"Count({q('Q_' + p)}) >= {atom.count}"
-        elif quant == "none":
-            a = f"not exists ({q('Q_' + p)})"
+            settled, reach = f"Count({qn}) >= {atom.count}", f"Count({qn}) + Count({un}) >= {atom.count}"
         else:
-            a = f"exists ({q('Q_' + p)})"
-        ev = f"{q('Q_' + p)} X return X.id + '|' + ToString({date})"
+            settled, reach = f"exists ({qn})", f"exists ({un})"
+        hit, miss = ("false", "true") if quant == "none" else ("true", "false")
+        a = f"if {settled} then {hit} else if {reach} then null as Boolean else {miss}"
+        ev = f"{qn} X return X.id + '|' + ToString({date})"
         fams = self.vs.families(atom.valueset)
         if not fams:
             return defs, a, ev
@@ -137,21 +143,21 @@ class CqlGenerator:
         # is coded inside the grouper's family and outside its list, the answer is null (unknown), as the SQL says
         if atom.domain not in FAMILY_CODINGS:
             raise CompileError(f"code families are not supported on {atom.domain} atoms")
-        on, qn = q("O_" + p), q("Q_" + p)
+        on = q("O_" + p)
         in_family = " or ".join(
             f"(Cd.system.value = '{sy}' and StartsWith(Cd.code.value, '{pre}'))" for sy, pre in sorted(set(fams))
         )
-        defs.append(
-            f"define {on}:\n  [{FAMILY_CODINGS[atom.domain][0]}] X where ({date} in {win})\n"
-            f"    and exists (({FAMILY_CODINGS[atom.domain][1]}) Cd where ({in_family}) "
-            f"and not (FHIRHelpers.ToCode(Cd) in {vs}))"
-        )
+        for name, when in ((on, f"{date} in {win}"), (q("UO_" + p), f"{date} is null")):
+            defs.append(
+                f"define {name}:\n  [{FAMILY_CODINGS[atom.domain][0]}] X where ({when})\n"
+                f"    and exists (({FAMILY_CODINGS[atom.domain][1]}) Cd where ({in_family}) "
+                f"and not (FHIRHelpers.ToCode(Cd) in {vs}))"
+            )
         if quant == "count>=":
-            settled = f"Count({qn}) >= {atom.count}"
+            reach = f"Count({qn}) + Count({un}) + Count({q('UO_' + p)}) >= {atom.count}"
         else:
-            settled = f"exists ({qn})"
-        hit, miss = ("false", "true") if quant == "none" else ("true", "false")
-        a = f"if {settled} then {hit} else if exists ({on}) then null as Boolean else {miss}"
+            reach = f"exists ({un}) or exists ({q('UO_' + p)})"
+        a = f"if {settled} then {hit} else if exists ({on}) then null as Boolean else if {reach} then null as Boolean else {miss}"
         ev = f"if exists ({qn}) then ({ev}) else ({on} X return X.id + '|' + ToString({date}))"
         return defs, a, ev
 
@@ -191,14 +197,24 @@ class CqlGenerator:
             ev = f"if {ln} is null then List<String>{{}} else {{ {ln}.id + '|' + ToString(TB.ObsDate({ln})) }}"
             return defs, a, ev
         c = cmp_expr(atom, val("X"), code("X"))
+        # D-142 (review B-01), as the SQL: a record without a readable number leaves the answer unknown unless the
+        # readable records settle it; it never counts as a failed test
+        unread = f"exists ({qn} X where ({c}) is null)"
         if quant == "any":
-            a = f"if not exists ({qn}) then null else exists ({qn} X where {c})"
+            a = f"if not exists ({qn}) then null else if exists ({qn} X where {c}) then true else if {unread} then null else false"
         elif quant == "none":
-            a = f"if not exists ({qn}) then null else not exists ({qn} X where {c})"
+            a = f"if not exists ({qn}) then null else if exists ({qn} X where {c}) then false else if {unread} then null else true"
         elif quant == "all":
-            a = f"if not exists ({qn}) then null else AllTrue({qn} X return {c})"
+            a = (
+                f"if not exists ({qn}) then null else if exists ({qn} X where not ({c})) then false "
+                f"else if {unread} then null else true"
+            )
         elif quant == "count>=":
-            a = f"if not exists ({qn}) then null else Count({qn} X where {c}) >= {atom.count}"
+            met = f"Count({qn} X where {c})"
+            a = (
+                f"if not exists ({qn}) then null else if {met} >= {atom.count} then true "
+                f"else if {met} + Count({qn} X where ({c}) is null) >= {atom.count} then null else false"
+            )
         else:
             raise CompileError(f"quantifier {quant}")
         ev = f"{qn} X where {c} return X.id + '|' + ToString(TB.ObsDate(X))"

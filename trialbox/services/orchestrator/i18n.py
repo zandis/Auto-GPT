@@ -63,6 +63,8 @@ T: dict[str, dict[str, str]] = {
         "last 12 months; {scoped} patients evaluated.",
         "screen.unknown_system": "Diagnoses or medicines in an unknown code system: {n} patients (their coded "
         "inclusions are unknown, not failed; a person checks).",
+        "screen.budget_hit": "This run's limit of {max} model calls was reached: the notes of {n} patients were not "
+        "all read. They are listed for review, never excluded. Run again with a higher max_pairs to read them.",
         "screen.judging.none": "Note criteria were not judged (no model on this box): they go to review.",
         "screen.judging.pair": "Note criteria: judged by {judge} and checked by {verifier}; a note answer excludes a "
         "patient only when both models agree.",
@@ -175,6 +177,8 @@ T: dict[str, dict[str, str]] = {
         "screen.scope1": "ルールセット {rs} v{ver}、実行日 {run}、スナップショット {snapshot}。",
         "screen.scope2": "対象：担当医 {pract}；今後 {window} 日以内の予約、または過去 12 か月の受診がある患者；{scoped} 名を評価。",
         "screen.unknown_system": "不明なコード体系の病名・薬剤：{n} 人（コードによる選択基準は「不明」とし、除外せず担当者が確認）。",
+        "screen.budget_hit": "今回の実行のモデル呼び出し上限 {max} 回に達しました：{n} 名は記録を読み切れていません。"
+        "除外せず確認待ちに回します。max_pairs を上げて再実行すると読みます。",
         "screen.judging.none": "記録基準は判定していません（この装置にモデルなし）：確認待ちに回します。",
         "screen.judging.pair": "記録基準：{judge} が判定し {verifier} が検証。両モデルが一致したときのみ記録の回答で除外します。",
         "screen.judging.single": "記録基準：{judge} のみが判定。この実行では記録の回答で除外した患者はいません（{why}）。"
@@ -283,6 +287,8 @@ T: dict[str, dict[str, str]] = {
         "screen.scope1": "規則集 {rs} v{ver}，執行日 {run}，快照 {snapshot}。",
         "screen.scope2": "範圍：主治醫師 {pract}；未來 {window} 天內有預約或過去 12 個月內有就診的病人；共評估 {scoped} 位。",
         "screen.unknown_system": "診斷或藥品使用無法辨識的代碼系統：{n} 位（其結構化納入條件列為未知、不排除，由人員確認）。",
+        "screen.budget_hit": "本次執行已達模型呼叫上限 {max} 次：{n} 位病人的病歷未全部判讀，列為待確認、不排除。"
+        "提高 max_pairs 後重新執行即可判讀。",
         "screen.judging.none": "病歷條件未經判讀（本機沒有模型）：列為待確認。",
         "screen.judging.pair": "病歷條件：由 {judge} 判讀、{verifier} 驗證；兩個模型一致時病歷判讀才會排除病人。",
         "screen.judging.single": "病歷條件：僅由 {judge} 判讀；本次執行中病歷判讀未排除任何人（{why}）。病歷條件不符的病人列入待確認。",

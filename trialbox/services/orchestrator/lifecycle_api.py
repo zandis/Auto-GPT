@@ -10,7 +10,9 @@
 * ``GET/PUT /studies/{rs}/schedule`` (the schedule of events), ``POST /studies/{rs}/schedule/redcap`` (read from a
   REDCap project's arms and events: ``day_offset``, ``offset_min``, ``offset_max``).
 * ``GET /studies/{rs}/visits?today=`` (every visit of every subject on that day: due, open, overdue, done, missed,
-  and the coordinator's list: today, this week, overdue); ``GET /studies/{rs}/aes`` (every AE, serious ones apart).
+  and the coordinator's list: today, this week, overdue); ``GET /studies/{rs}/aes`` (every AE, serious ones apart,
+  those an investigator has not acknowledged yet, and the reports that are overdue); ``POST
+  /studies/{rs}/aes/{record}/{event}/ack`` (the investigator's one-tap acknowledgement, audited ``life.sae_ack``).
 * ``GET /studies/{rs}/report`` and ``/report/{csv|xlsx}``: the investigator's enrolment report.
 
 ``today`` is the site's local date (``now()`` is in the site's zone) unless a caller gives one, so tests step through
@@ -24,6 +26,7 @@ from __future__ import annotations
 import base64
 import csv
 import io
+import os
 import re
 from collections import deque
 from collections.abc import Callable
@@ -109,6 +112,10 @@ class VisitBody(BaseModel):
 
 class ScheduleBody(BaseModel):
     visits: list[VisitBody]
+    by: str
+
+
+class AckBody(BaseModel):
     by: str
 
 
@@ -259,13 +266,36 @@ def visit_rows(life: Lifecycle, rs: str, today: date) -> list[dict[str, Any]]:
     return rows
 
 
-def ae_view(e: dict[str, Any]) -> dict[str, Any]:
-    keep = ("record", "event", "n", "ae_term", "ae_onset", "ae_serious", "ae_serious_why", "ae_severity",
-            "ae_outcome", "ae_end", "ae_related")  # fmt: skip
+def sae_rules(svc: Host) -> dict[str, tuple[int, int]]:
+    """The reporting clock in force on this box (``TB_SAE_RULES``, ``TB_SAE_REPORT_DAYS``; the site's zone)."""
+    tz = str(getattr(svc.now().tzinfo, "key", "") or "")
+    return lc.report_rules(tz, os.environ.get("TB_SAE_REPORT_DAYS", ""), os.environ.get("TB_SAE_RULES", ""))
+
+
+def ae_view(e: dict[str, Any], today: date | None = None, rules: dict[str, tuple[int, int]] | None = None,
+            ack: dict[str, Any] | None = None) -> dict[str, Any]:  # fmt: skip
+    """One AE as the pages show it. A serious AE needs the investigator's acknowledgement whatever its outcome
+    (review 2026-11-09 P-02: a fatal SAE used to count as "not ongoing" and left the banner and N1 at once), and
+    carries its reporting clock (P-03)."""
+    keep = ("record", "event", "n", "ae_term", "ae_onset", "ae_aware", "ae_serious", "ae_serious_why", "ae_severity",
+            "ae_outcome", "ae_end", "ae_related", *lc.REPORT_FIELDS.values())  # fmt: skip
     out = {k: e.get(k, "") for k in keep}
     out["serious"] = e.get("ae_serious") == "1"
+    out["fatal"] = e.get("ae_outcome") == "5"
     out["ongoing"] = e.get("ae_outcome", "") in ("", "2", "3", "6")
+    out["ack_by"] = str((ack or {}).get("who") or "")
+    out["ack_at"] = str((ack or {}).get("at") or "")
+    out["needs_ack"] = out["serious"] and not out["ack_by"]
+    out["clock"] = lc.report_clock(e, today, rules) if today is not None and rules is not None else []
+    out["overdue"] = [c["party"] for c in out["clock"] if c["overdue"]]
     return out
+
+
+def aes_of(svc: Host, rid: str, record: str | None, today: date) -> list[dict[str, Any]]:
+    life = Lifecycle(svc.dc)
+    acks, rules = life.acks(rid), sae_rules(svc)
+    return [ae_view(e, today, rules, acks.get((str(e["record"]), str(e["event"]))))
+            for e in life.entries(rid, record, AE_EVENT)]  # fmt: skip
 
 
 def report_files(rep: dict[str, Any], rs: str, at: str) -> dict[str, Any]:
@@ -345,7 +375,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
             "subject": subject_view(life, rid, sub, day, sched),
             "steps": life.steps(rid, rec),
             "visits": life.visits(rid, rec, day, sched, sub),
-            "aes": [ae_view(e) for e in life.entries(rid, rec, AE_EVENT)],
+            "aes": aes_of(svc, rid, rec, day),
             "deviations": life.entries(rid, rec, DV_EVENT),
             "next_ae": life.next_event(rid, rec, "ae"),
             "next_dv": life.next_event(rid, rec, "dv"),
@@ -442,10 +472,29 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         return {"study": rid, "today": day.isoformat(), "rows": rows, "list": lc.worklist(rows, day)}
 
     @r.get("/studies/{rs}/aes")
-    def get_aes(rs: str) -> dict[str, Any]:
+    def get_aes(rs: str, today: str = "") -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
-        aes = [ae_view(e) for e in Lifecycle(svc.dc).entries(rid, None, AE_EVENT)]
-        return {"study": rid, "aes": aes, "serious": [a for a in aes if a["serious"]]}
+        day = _today(svc, today)
+        aes = aes_of(svc, rid, None, day)
+        pids = {str(s["record"]): str(s["pid"]) for s in Lifecycle(svc.dc).subjects(rid)}
+        for a in aes:
+            a["pid"] = pids.get(str(a["record"]), "")
+        return {"study": rid, "today": day.isoformat(), "aes": aes, "serious": [a for a in aes if a["serious"]],
+                "unacked": [a for a in aes if a["needs_ack"]], "overdue": [a for a in aes if a["overdue"]]}  # fmt: skip
+
+    @r.post("/studies/{rs}/aes/{record}/{event}/ack")
+    def post_ack(rs: str, record: str, event: str, body: AckBody) -> dict[str, Any]:
+        """The investigator has seen this serious AE (P-02, D-143): one tap, who and when, audited."""
+        svc, rid, rec = get(), _rs(rs), _rec(record)
+        life = Lifecycle(svc.dc)
+        one = next((e for e in life.entries(rid, rec, AE_EVENT) if e["event"] == event), None)
+        if one is None or one.get("ae_serious") != "1":
+            raise HTTPException(status_code=404, detail={"code": "LIFE-SAE", "message": "no such serious AE"})
+        ack = life.ack(rid, rec, event, body.by, svc.stamp())
+        svc.audit.append("life.sae_ack", ruleset=rid, actor=body.by,
+                         detail={"record": rec, "event": event, "at": ack["at"], "by": ack["who"],
+                                 "outcome": one.get("ae_outcome", "")})  # fmt: skip
+        return {"study": rid, "record": rec, "event": event, "ack_by": ack["who"], "ack_at": ack["at"]}
 
     @r.get("/studies/{rs}/report")
     def get_report(rs: str) -> dict[str, Any]:

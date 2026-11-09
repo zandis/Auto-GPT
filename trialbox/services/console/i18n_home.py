@@ -1169,3 +1169,12 @@ from console.i18n_site import ZH as _SITE_ZH  # noqa: E402
 EN.update(_SITE_EN)
 JA.update(_SITE_JA)
 ZH.update(_SITE_ZH)
+
+# review 2026-11-09, wave 1b (D-143): the excluded-patients page (P-04) and the confirmation steps (P-10); new keys
+from console.i18n_review import EN as _RV_EN  # noqa: E402
+from console.i18n_review import JA as _RV_JA  # noqa: E402
+from console.i18n_review import ZH as _RV_ZH  # noqa: E402
+
+EN.update(_RV_EN)
+JA.update(_RV_JA)
+ZH.update(_RV_ZH)

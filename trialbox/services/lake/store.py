@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import threading
 import time
 from dataclasses import dataclass
@@ -72,6 +73,40 @@ def memory_limit() -> str:
         return env
     total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
     return f"{max(1, int(total * 0.4 / 2**30))}GB"
+
+
+def temp_limit(temp_dir: Path) -> str:
+    """``TB_LAKE_MAX_TEMP`` (e.g. ``20GB``) or a quarter of the free space where the lake spills, at most 50 GB and
+    at least 1 GB: a query that needs more fails with :class:`LakeLimitError` instead of filling the disk the lake,
+    the audit log and the backups share (review XL-02)."""
+    env = os.environ.get("TB_LAKE_MAX_TEMP")
+    if env:
+        return env
+    try:
+        free = shutil.disk_usage(temp_dir).free
+    except OSError:
+        free = 4 * 2**30
+    return f"{max(1, min(50, int(free * 0.25 / 2**30)))}GB"
+
+
+def temp_dir(lake_dir: Path) -> Path:
+    """Where DuckDB spills: ``TB_LAKE_TEMP_DIR`` or ``<lake>/tmp`` (on the lake volume, never the container's root)."""
+    env = os.environ.get("TB_LAKE_TEMP_DIR")
+    return Path(env) if env else lake_dir / "tmp"
+
+
+class LakeLimitError(RuntimeError):
+    """A lake query needed more memory or spill space than the box allows (``TB_LAKE_MEMORY_LIMIT``,
+    ``TB_LAKE_MAX_TEMP``). The query is stopped; nothing is left on disk."""
+
+
+def _limit_message(exc: Exception) -> str:
+    return (
+        "LAKE-LIMIT: the lake query needed more than the box allows (memory_limit "
+        f"{memory_limit()}, spill limit TB_LAKE_MAX_TEMP) and was stopped before it filled the disk. This usually "
+        "means a join that multiplies rows (one patient listed twice); raise TB_LAKE_MAX_TEMP only if the data "
+        f"really is that large. DuckDB: {str(exc).splitlines()[0][:200]}"
+    )
 
 
 class Lake:
@@ -247,9 +282,11 @@ class Lake:
             if not (row and row[0]):
                 con.execute(f"LOAD '{fts_extension_path()}'")
                 # bounded memory, spill to the lake volume: a hospital-scale FEAS must not take the host down (D-80)
-                (self.dir / "tmp").mkdir(exist_ok=True)
+                tmp = temp_dir(self.dir)
+                tmp.mkdir(parents=True, exist_ok=True)
                 con.execute(f"SET memory_limit = '{memory_limit()}'")
-                con.execute(f"SET temp_directory = '{self.dir / 'tmp'}'")
+                con.execute(f"SET temp_directory = '{tmp}'")
+                con.execute(f"SET max_temp_directory_size = '{temp_limit(tmp)}'")
                 con.execute("SET preserve_insertion_order = false")
                 con.execute("SET enable_external_access = false")
                 con.execute("SET lock_configuration = true")
@@ -266,6 +303,9 @@ class Lake:
         timer.start()
         try:
             return con.execute(sql, params or []).to_arrow_table()
+        except duckdb.OutOfMemoryException as exc:
+            log.error("lake query stopped at its limit: %s", str(exc).splitlines()[0][:200])
+            raise LakeLimitError(_limit_message(exc)) from exc
         finally:
             timer.cancel()
             con.close()

@@ -24,12 +24,16 @@ vs_window_note,tb_visit,notes,Window note,許容範囲についてのメモ,訪�
 vs_weight,tb_visit,text,Body weight (kg),体重(kg),體重(公斤),,,,number,1,400,[vs_status] = '1',
 ae_term,tb_adverse_event,text,Adverse event (term as written),有害事象(記載どおり),不良事件(依原文記載),,,,,,,,y
 ae_onset,tb_adverse_event,text,Onset date,発現日,發生日期,,,,date_ymd,2000-01-01,,,y
+ae_aware,tb_adverse_event,text,Date the site learned of it (starts the reporting clock),施設が知った日（報告期限の起算日）,院方獲知日期（通報期限的起算日）,,,,date_ymd,2000-01-01,,,
 ae_serious,tb_adverse_event,radio,Serious,重篤,嚴重,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y
 ae_serious_why,tb_adverse_event,radio,Why serious,重篤と判断した理由,判定為嚴重的原因,"1, Death | 2, Life-threatening | 3, Hospital stay or a longer stay | 4, Disability | 5, Congenital anomaly | 6, Other important medical event","1, 死亡 | 2, 生命を脅かす | 3, 入院または入院期間の延長 | 4, 障害 | 5, 先天異常 | 6, その他の医学的に重要な事象","1, 死亡 | 2, 危及生命 | 3, 住院或延長住院 | 4, 殘障 | 5, 先天性異常 | 6, 其他重要醫學事件",,,,[ae_serious] = '1',y
 ae_severity,tb_adverse_event,radio,Severity,重症度,嚴重程度,"1, Mild | 2, Moderate | 3, Severe","1, 軽度 | 2, 中等度 | 3, 高度","1, 輕度 | 2, 中度 | 3, 重度",,,,,y
 ae_outcome,tb_adverse_event,radio,Outcome,転帰,結果,"1, Recovered | 2, Recovering | 3, Not recovered | 4, Recovered with lasting effects | 5, Fatal | 6, Unknown","1, 回復 | 2, 軽快 | 3, 未回復 | 4, 後遺症あり | 5, 死亡 | 6, 不明","1, 痊癒 | 2, 改善中 | 3, 未痊癒 | 4, 痊癒但有後遺症 | 5, 死亡 | 6, 不明",,,,,
 ae_end,tb_adverse_event,text,End date,消失日,結束日期,,,,date_ymd,2000-01-01,,[ae_outcome] = '1' or [ae_outcome] = '4',
 ae_related,tb_adverse_event,radio,Related to the study treatment or procedure,研究治療・手順との関連,與研究治療或程序相關,"1, Yes | 0, No | 9, Unknown","1, あり | 0, なし | 9, 不明","1, 是 | 0, 否 | 9, 不明",,,,,y
+ae_rep_sponsor,tb_adverse_event,text,Reported to the sponsor on,治験依頼者への報告日,通報試驗委託者日期,,,,date_ymd,2000-01-01,,[ae_serious] = '1',
+ae_rep_irb,tb_adverse_event,text,Reported to the IRB (and the head of the institution) on,IRB（実施医療機関の長）への報告日,通報人體試驗委員會（IRB）日期,,,,date_ymd,2000-01-01,,[ae_serious] = '1',
+ae_rep_reg,tb_adverse_event,text,Reported to the regulator (PMDA / TFDA) on,規制当局（PMDA）への報告日,通報主管機關（TFDA）日期,,,,date_ymd,2000-01-01,,[ae_serious] = '1',
 ae_note,tb_adverse_event,notes,Description,詳細,描述,,,,,,,,
 dv_date,tb_deviation,text,Date of the deviation,逸脱日,偏差日期,,,,date_ymd,2000-01-01,,,y
 dv_kind,tb_deviation,radio,Kind,種類,類別,"1, Eligibility | 2, Consent | 3, Visit window | 4, Procedure | 5, Other","1, 適格性 | 2, 同意 | 3, 来院の許容範囲 | 4, 手順 | 5, その他","1, 資格 | 2, 同意 | 3, 訪視窗口 | 4, 程序 | 5, 其他",,,,,y

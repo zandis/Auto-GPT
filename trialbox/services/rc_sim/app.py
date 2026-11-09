@@ -31,7 +31,7 @@ from fastapi.responses import JSONResponse
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # ``record`` is the export, or the import when ``data`` is sent
-SUPPORTED = {"version", "project", "metadata", "record", "dag", "event", "arm"}
+SUPPORTED = {"version", "project", "metadata", "record", "dag", "event", "arm", "formEventMapping"}
 NO_PERMISSION = "You do not have permissions to use the API"
 
 
@@ -281,6 +281,10 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             return [m for m in proj["metadata"] if not fields or m["field_name"] in fields]
         if content == "dag":
             return proj["dags"]
+        if content == "formEventMapping":  # REDCap answers it for a longitudinal project only
+            if not int(proj["project"].get("is_longitudinal", 0)):
+                return _err(400, "You cannot export form/event mappings for classic projects")
+            return list(proj.get("form_event_mapping") or [])
         if content in ("event", "arm"):  # REDCap answers these for a longitudinal project only
             if not int(proj["project"].get("is_longitudinal", 0)):
                 return _err(400, "You cannot export arms or events for classic projects")

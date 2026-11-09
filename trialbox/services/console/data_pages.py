@@ -32,6 +32,7 @@ from console import s28
 from console.auth import Session
 from console.backend import Problem, Unavailable
 from console.home import Helpers
+from console.i18n import translate
 from console.studies import known_study
 from console.study_setup import can_change_setup, parse_map
 
@@ -272,11 +273,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         return RedirectResponse(f"/studies/{rid}/sources?done=attach", status_code=303)
 
     @app.post("/studies/{rs}/sources/redcap/detach")
-    def detach(request: Request, rs: str, csrf: str = Form("")) -> Response:
+    def detach(request: Request, rs: str, csrf: str = Form(""), confirm: str = Form("")) -> Response:
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
         rid = study_or_404(sess, rs)
+        need_change(sess, request.url.path)
+        if confirm != "yes" and h.confirm is not None:  # P-10 (D-143): the consequence first
+            return h.confirm(request, sess, translate(sess.lang, "confirm.detach"), request.url.path, {},
+                             f"/studies/{rid}/sources")  # fmt: skip
         try:
             apply_detach(sess, request.url.path, rid)
         except (Problem, Unavailable) as exc:
@@ -323,11 +328,26 @@ def register(app: FastAPI, h: Helpers) -> None:
         return conflicts_page(request, sess, study_or_404(sess, rs, rows=True), all == "1")
 
     @app.post("/studies/{rs}/conflicts/{cid}")
-    def resolve(request: Request, rs: str, cid: int, csrf: str = Form(""), keep: str = Form("")) -> Response:
+    def resolve(request: Request, rs: str, cid: int, csrf: str = Form(""), keep: str = Form(""),
+                confirm: str = Form("")) -> Response:  # fmt: skip
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
         rid = study_or_404(sess, rs, rows=True)
+        need_change(sess, request.url.path)
+        if keep not in KEEP:
+            raise h.problem(400, "request.refused", reason="keep is trialbox or theirs")
+        if confirm != "yes" and h.confirm is not None:  # P-10 (D-143): the consequence first
+            lang = sess.lang
+            try:
+                src = next((str(c.get("source") or "") for c in read_conflicts(rid) if c.get("id") == cid), "")
+            except (Problem, Unavailable):
+                src = ""
+            name = translate(lang, f"dc.source.{src}") if src and f"dc.source.{src}" != translate(
+                lang, f"dc.source.{src}") else (src or "REDCap")  # fmt: skip
+            key = "confirm.keep" if keep == "trialbox" else "confirm.take"
+            return h.confirm(request, sess, translate(lang, key, source=name), request.url.path, {"keep": keep},
+                             f"/studies/{rid}/conflicts")  # fmt: skip
         try:
             apply_resolve(sess, request.url.path, rid, cid, keep)
         except (Problem, Unavailable) as exc:

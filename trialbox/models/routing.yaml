@@ -8,7 +8,7 @@
 # Endpoint zones: perimeter (on box or the attested tenant), tre (Z-TRE), external (vendor model, topology C),
 # dev_public (developer / bake-off endpoints, Z-DEV). Only tb-gateway reads endpoint addresses (LLM-1);
 # deploy/egress.py turns the non-perimeter hosts into egress rules for the gateway container only (NFR-B9).
-version: routing-2026-11-07.1
+version: routing-2026-11-09.1
 
 # MOD-4 sampling the gateway forces on every role except free-form ones (frontdesk_converse)
 sampling: {temperature: 0, top_p: 1, seed: 20261025}
@@ -140,6 +140,18 @@ callers:
   testbench:
     roles: ["*"]
     purposes: [development, evaluation]
+
+# PHI on the box (D-142, review A-01). On an on-prem appliance (topology A) the models answer on the box itself, so a
+# D3 call from a listed caller is allowed by this policy without a confirmed study step: the data never leaves the
+# box. The gateway then sends it to perimeter endpoints only and records step_basis "box_policy". Where a step
+# confirmer is wired (LLM-2), its answer alone decides. D4 and every other topology (a cloud tenant, model egress)
+# still need a live, delegated step, and may_reach still keeps D3/D4 off every external route. The loader refuses
+# any topology but A and any class but D3.
+phi_on_box:
+  topologies: [A]
+  environments: [PRODUCTION]
+  classes: [D3]
+  callers: [orchestrator, matching]
 
 routes:
   # ------------------------------------------------------------------ validation / production (§8.5 table)

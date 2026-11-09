@@ -172,6 +172,41 @@ def test_a_failed_restart_keeps_both_hashes_so_nothing_is_cut_off(box: Path) -> 
     assert sa.token_hash(old) in reg["services"]["console"] and len(reg["services"]["console"]) == 2
 
 
+def test_only_the_console_can_name_a_signed_in_user(box: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review 2026-11-09 S-09 (D-143): ``X-TB-Actor`` was whatever a token holder wrote. The console signs it with a
+    key derived from its own token; the orchestrator verifies it with the key file ``init`` writes for it alone."""
+    keys = sx.actor_keys_path(box)
+    assert stat.S_IMODE(keys.stat().st_mode) == 0o600 and stat.S_IMODE(keys.parent.stat().st_mode) == 0o700
+    assert _tok(box, "console") not in keys.read_text(encoding="utf-8")  # a derived key, never the token
+    _as(monkeypatch, box, "console")
+    signed = sa.actor_header("dr_tanaka", "sess-1")
+    _as(monkeypatch, box, "mail-gateway")
+    forged = sa.actor_header("dr_tanaka", "sess-1")  # the mail gateway signs with its own token
+    monkeypatch.setenv(sa.ACTOR_KEYS_ENV, str(keys))
+    who = sa.verify_actor(signed[sa.ACTOR_HEADER], signed[sa.ASSERTION_HEADER])
+    assert who.name == "dr_tanaka" and who.session == "sess-1" and who.verified
+    for bad in (forged[sa.ASSERTION_HEADER], "", "v1.1.x.y", signed[sa.ASSERTION_HEADER].replace("sess-1", "sess-2")):
+        with pytest.raises(sa.ActorError):
+            sa.verify_actor(signed[sa.ACTOR_HEADER], bad)
+    with pytest.raises(sa.ActorError, match="expired"):  # short-lived
+        sa.verify_actor(signed[sa.ACTOR_HEADER], signed[sa.ASSERTION_HEADER], now=__import__("time").time() + 600)
+    with pytest.raises(sa.ActorError):  # another name under the console's assertion
+        sa.verify_actor(sa.actor_header("dr_sato")[sa.ACTOR_HEADER], signed[sa.ASSERTION_HEADER])
+    monkeypatch.delenv(sa.ACTOR_KEYS_ENV)  # a registry and no key file: nothing verifies (fail closed)
+    with pytest.raises(sa.ActorError):
+        sa.verify_actor(signed[sa.ACTOR_HEADER], signed[sa.ASSERTION_HEADER])
+    # a console rotation keeps the old key valid until the console restarted, then drops it
+    old = _tok(box, "console")
+    calls: list[tuple[list[str], str | None]] = []
+    sx.rotate(box, ["console"], runner=_runner(calls), uid=None)
+    assert keys.read_text(encoding="utf-8").split() == [sx.actor_key_hex(_tok(box, "console"))]
+    assert sx.actor_key_hex(old) not in keys.read_text(encoding="utf-8")
+    over = yaml.safe_load((ROOT / "deploy/docker-compose.secrets.yml").read_text(encoding="utf-8"))["services"]
+    mounts = {n: [v for v in svc.get("volumes", []) if "actor" in v] for n, svc in over.items()}
+    assert {n for n, m in mounts.items() if m} == {"orchestrator"}  # nobody else holds the verification key
+    assert over["orchestrator"]["environment"][sa.ACTOR_KEYS_ENV] == "/etc/trialbox/actor/keys"
+
+
 def test_rotate_db_sends_the_passwords_on_stdin_only(box: Path) -> None:
     (box / ".env").write_text(
         "POSTGRES_PASSWORD=a\nPOSTGRES_WF_PASSWORD=b\nTB_DB_URL=postgresql://trialbox:b@db:5432/trialbox_wf\n",

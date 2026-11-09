@@ -8,12 +8,28 @@
 
 {% macro vlabel(v) %}{% set l = v.labels.get(lang) if v.labels else '' %}{% if l %}{{ l }} {% elif v.labels and v.labels.get('en') %}{{ given(v.labels.get('en')) }} {% endif %}<span class="mono">{{ v.visit }}</span>{% endmacro %}
 
-{# serious adverse events, prominent: the investigator's and the coordinator's home and week pages #}
-{% macro sae_banner(sae) %}{% if sae %}<section class="card attention sae" role="alert" data-testid="sae-banner">
+{# serious adverse events, prominent: the investigator's and the coordinator's home and week pages. Every serious AE
+   stays until the investigator acknowledges it, whatever its outcome (review 2026-11-09 P-02, D-143). #}
+{% macro sae_banner(sae, back='home') %}{% if sae %}<section class="card attention sae" role="alert" data-testid="sae-banner">
 <h2>{{ t('life.sae.title') }}</h2>
-<ul class="plain">{% for a in sae %}<li data-testid="sae-{{ a.record }}-{{ a.event }}">{{ t('life.sae.row', r=a.record, rs=a.rs, term=a.ae_term, day=a.ae_onset or '–') }}
+<p class="hint">{{ t('life.sae.help') }}</p>
+<ul class="plain">{% for a in sae %}<li data-testid="sae-{{ a.record }}-{{ a.event }}">{{ t('life.sae.row', r=a.record, rs=a.rs, term=a.ae_term, day=a.ae_onset or '–') }}{% if a.fatal %} <span class="pill bad" data-testid="sae-fatal">{{ t('life.sae.fatal') }}</span>{% endif %}
+ <a class="button secondary" href="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}">{{ t('life.sae.open') }}</a>
+ {% if user.role == 'investigator' %}<form method="post" action="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}/aes/{{ a.event }}/ack" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ back }}"><button type="submit" data-testid="sae-ack-{{ a.record }}-{{ a.event }}">{{ t('life.sae.ack') }}</button></form>{% else %}<span class="hint">{{ t('life.sae.wait_pi') }}</span>{% endif %}</li>{% endfor %}</ul>
+</section>{% endif %}{% endmacro %}
+
+{# SAE reports past their due day (P-03): the investigator's and the coordinator's home pages #}
+{% macro report_banner(reports) %}{% if reports %}<section class="card attention" role="alert" data-testid="sae-reports">
+<h2>{{ t('life.reports.title') }}</h2>
+<ul class="plain">{% for a in reports %}<li data-testid="sae-report-{{ a.record }}-{{ a.event }}-{{ a.party }}">{{ t('life.reports.row', r=a.record, rs=a.rs, party=t('life.clock.party.' + a.party), day=a.due) }}
  <a class="button secondary" href="/studies/{{ a.rs }}/subjects/{{ a.record|urlencode }}">{{ t('life.sae.open') }}</a></li>{% endfor %}</ul>
 </section>{% endif %}{% endmacro %}
+
+{# one serious AE's reporting clock (P-03) #}
+{% macro report_clock(a) %}{% if a.serious %}<div class="clock" data-testid="clock-{{ a.event }}"><span class="hint">{{ t('life.clock.title') }}:</span>
+{% if not a.clock %} <span class="hint">{{ t('life.clock.nostart') }}</span>{% endif %}
+{% for c in a.clock %}<span class="nowrap" data-testid="clock-{{ a.event }}-{{ c.party }}">{{ t('life.clock.party.' + c.party) }} · {% if c.done %}{{ t('life.clock.done', day=c.done) }}{% elif c.due %}{{ t('life.clock.due', day=c.due, n=c.days) }}{% else %}{{ t('life.clock.nostart') }}{% endif %}{% if c.overdue %} <span class="pill bad">{{ t('life.clock.overdue') }}</span>{% endif %}</span>{% if not loop.last %}; {% endif %}{% endfor %}
+<br><span class="hint">{{ t('life.clock.help') }}</span></div>{% endif %}{% endmacro %}
 
 {# one visit row with its one-tap actions; back = where Save returns #}
 {% macro visit_row(rs, r, today, editable, back) %}<li class="vrow" data-testid="visit-{{ r.record }}-{{ r.visit }}">

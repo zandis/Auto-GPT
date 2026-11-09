@@ -19,7 +19,7 @@ Run in `trialbox/` with the venv (`make venv`). All use synthetic or public data
 | backup | `make backup-drill` (`tools/backup_drill.py`) | backed up, wiped, restored: every table, file, mark, participant, site set-up and code list the same | PASSED, 11 checks in 112 s (D-139) |
 | update | `python -m tools.update_drill` | a signed update applied; a tampered bundle refused; a bad migration and an unhealthy release rolled back | PASSED, 12 checks in 247 s (D-139) |
 | documents | `python tools/doclint.py` | the eight documents, links, headings, paths, no retired name | clean (D-139) |
-| complete run | `python -m tools.complete_run` | every part above in ja and zh-TW, with a screenshot per stage | PASSED, 581/581 checks, 60/60 screenshots in 19.6 min, stub, 5,000 patients (`eval/complete_run/2026-11-09-stub-5000/report.md`, D-139) |
+| complete run | `python -m tools.complete_run` | every part above in ja and zh-TW and the scenario matrix, with a screenshot per stage | PASSED, 662/662 checks, 84/84 screenshots in 34 min, stub, 5,000 patients, 12 known findings reported (`eval/complete_run/2026-11-09-matrix-stub-5000/report.md`, D-141) |
 
 `tests/integration` (with `TB_INTEGRATION=1` and the compose test stack) adds HAPI CQL, the equivalence gate, the HL7
 validator and mail. `make test-e2e` runs every mail scenario against the stack. `tests/llm` needs a real model.
@@ -133,7 +133,39 @@ tests.
 `tools/complete_run.py` (D-139) runs every stage of plan v4 §5 in one go, ja and zh-TW, and writes a report with a
 screenshot per stage. Locally it uses the stub and the 5,000-patient hospital; on the GPU VM it uses the pair and
 50,000 patients ([Runbook §11](RUNBOOK.md#11-cloud-runs-owners-ok-first)). The last local report is
-`eval/complete_run/2026-11-09-stub-5000/report.md`.
+`eval/complete_run/2026-11-09-stub-5000/report.md`; the scenario matrix's is below.
+
+**The scenario matrix** (D-141, `tools/scenarios.py`): every way a site gives TrialBox data runs as its own part,
+screened, and counted against a recount it did not compute: the database feed (the `hospital` parts), SS-MIX2,
+FHIR, the site's Excel and CSV lists, pasted charts, chart files through OCR, REDCap and the built-in forms, an IT
+dump with local codes, the offline registry, and three real public datasets (MIMIC-IV demo on FHIR, MedTxt-CR,
+TREC CT). The chart scenarios score extraction against the charts' known facts and check that a proposed fact never
+excludes before confirmation; every screening scenario lists the model's exclusions against the generator's note
+truth (false exclusions must be 0). Known findings of the 2026-11-09 review are reported beside the checks, not
+counted. `python -m tools.complete_run --estimate --patients 50000` prints the hours and US$ on the card.
+
+Local proof on the stub, 5,000-patient feed (`eval/complete_run/2026-11-09-matrix-stub-5000/report.md`): 22 parts,
+**662 of 662 checks, 84 of 84 screenshots**, about 34 minutes. Every scenario passes: SS-MIX2 and FHIR give the
+generator's FEAS recount and the CSV path's funnel; the Excel, Shift_JIS and Big5 lists give each of 100 patients the
+generator's state; the pasted and file charts (Word, text PDF, PNG and image-only PDF through the fake OCR) are read
+at precision and recall 1.0 by the stub, no proposed fact excludes before confirmation, and after the coordinator
+the patient check equals the recount; the IT dump's 200 patients match after mapping; REDCap gets all 50 records and
+gives back 16 consent dates; MIMIC, MedTxt and TREC run. Known findings the run reports (not fixed here):
+
+| Id | Where | Seen |
+| --- | --- | --- |
+| A-01 | gateway probe | a judge call through the installed box's gateway is refused (`step_unconfirmed`) |
+| GW-02 | gateway probe | `chart_facts` has no role in `libs/tb_llm/v1_roles.yaml`: chart reading cannot go through the gateway |
+| P-04 | SS-MIX2 | 5 of 5 patients whose only cancer is a 疑い diagnosis are excluded by GZQO-EXC-07 |
+| FHIR-01 | FHIR | SCREEN scope is 0: the bulk path hashes Practitioner references but keeps Practitioner ids |
+| XL-02 | Excel | SCREEN on the hospital's own space after a site list is published spills without bound (stopped at 2 GB) |
+| B-03 | REDCap | a longitudinal project linked with no event: 0 of 5 records written ("event name '' is not valid") |
+| MAP-01 | IT dump | name suggestions: 胃癌 and 乳癌 to C22.0, 本態性高血圧症 to E78.5 |
+| DUMP-01 | IT dump | 2 of 3 patients with an undated cancer row are "ready" |
+| B-01 | SS-MIX2 | flagged lab values ("8.2 H", ">8.2") read as unknown, not FALSE, on this path: holds here |
+
+What only the card can show: model exclusions against the note truth (the stub may not exclude), extraction
+precision and recall of the real model in ja and zh-TW, real OCR quality, and the gateway path end to end.
 
 ## 8. How documents and the build are scored
 

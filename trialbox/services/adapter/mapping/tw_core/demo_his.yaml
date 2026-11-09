@@ -24,6 +24,7 @@ systems:
   obs_category: http://terminology.hl7.org/CodeSystem/observation-category
   condition_category: http://terminology.hl7.org/CodeSystem/condition-category
   condition_clinical: http://terminology.hl7.org/CodeSystem/condition-clinical
+  condition_verification: http://terminology.hl7.org/CodeSystem/condition-ver-status
   v2_0203: http://terminology.hl7.org/CodeSystem/v2-0203
 # logical table -> source table; `delta` = change-tracking column used by `adapter run --since`
 tables:
@@ -110,6 +111,9 @@ resources:
     elements:
       clinicalStatus.coding[0].system: {template: "{sys.condition_clinical}"}
       clinicalStatus.coding[0].code: {column: status, map: {A: active, R: resolved}, default: active}
+      # D-142: a suspected diagnosis (疑い / 疑似) is provisional; the lake keeps it out of the coded table
+      verificationStatus.coding[0].system: {template: "{sys.condition_verification}", when: {column: suspected, in: [Y, y, "1"]}}
+      verificationStatus.coding[0].code: {column: suspected, map: {Y: provisional, y: provisional, "1": provisional}}
       category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/condition-category", code: encounter-diagnosis}}
       code.coding[0]: {builder: coding, column: icd10, system: icd10cm}
       subject.reference: {ref: {type: Patient, pid: mrn}}

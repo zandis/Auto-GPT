@@ -111,6 +111,7 @@ NAME|disable NAME|list-users`.
 | Equivalence gate under 98 % | the review sheet "equivalence" | edit or reject the flagged criteria |
 | SUBMIT refused | the reply names the check | NAV older than 14 days: rerun NAV |
 | Lake slow or out of memory | `docker stats` | raise `TB_LAKE_MEMORY_LIMIT` (default 40 % of RAM; spills to `/data/lake/tmp`) |
+| A job fails with `LAKE-LIMIT` | the job's error; `df -h /data` | the query hit its spill cap (`TB_LAKE_MAX_TEMP`, default a quarter of the free disk, at most 50 GB; `TB_LAKE_TEMP_DIR` moves the spill) and was stopped before it filled the disk. Usually a join that multiplies rows: report it; raise the cap only for data that really is that large |
 | Containers lost egress after a restart | `deploy/network.sh status` | `deploy/network.sh apply` |
 | `CERTIFICATE_VERIFY_FAILED` | hospital TLS inspection | put the hospital CA on the host, set `TB_EXTRA_CA=/abs/path/ca.pem` in `deploy/.env`, `docker compose up -d` |
 | Notes never exclude | `selftest.failed` in the audit, the admin health tile | the pair canary failed: check the models (§8, §10) |
@@ -157,7 +158,7 @@ and `tools/backup_drill.py`.
 | `python3 -m tools.trialbox secrets rotate` | **at handover, then yearly**: every service token, the operator token and both database passwords |
 | `... secrets rotate --service orchestrator` | one service's token; only it restarts |
 | `... secrets rotate --service db` | the two database passwords (`ALTER ROLE`, on stdin) |
-| `... secrets init` | make any missing token (the installer runs it) |
+| `... secrets init` | make any missing token and the orchestrator's actor key (the installer runs it; run it once on a box updated past D-143, else chart-number reveals and exports are refused) |
 
 The mail passwords and a cloud-model key are the hospital's: change them at their source, put the new value in
 `deploy/.env`, then `docker compose --project-directory deploy up -d --force-recreate mail-gateway` (or `gateway`). A
@@ -215,6 +216,11 @@ python -m tools.pin_model --build qwen3.5-9b-spark --model-dir deploy/models/qwe
     --served-name qwen3.5-9b --endpoint verifier
 # RTX PRO 6000: the same with the -rtxpro6000 builds
 ```
+
+`deploy/install.sh` does this for the GPU profile's pair (`python -m tools.pin_model --install <gpu>`, D-142): the
+sha256 of the weights under deploy/models, the served names compose gives vLLM, and status `champion`, the only status
+a PRODUCTION route accepts (a pin by hand without `--status champion` routes in DEV and TEST only). A build already
+pinned is kept; missing weights are reported and that model routes nothing until install runs again.
 
 `--verify` re-checks the weights. Restart the gateway after a new pin. `make verify-models` checks every pin at
 install.
@@ -292,11 +298,34 @@ with the weights is kept, so boot to serving is about 10–15 minutes).
 | 32 GB-capped pair (the 5090 stand-in) | `deploy/gcp/gpu-sim-startup.sh` (the usual startup script) | per run |
 | serving record with hashes | `deploy/gcp/capture-serving-config.sh prepare`, start, `fetch`, stop | 0.5 h |
 | N-12 on the deployed files (done 2026-11-08) | `tools/trec_ct_eval.py` against the VM | 0.85 h, US$2.30 |
-| the complete-platform run (step 9) | `deploy/gcp/complete-run.sh` | see D-139 |
+| the complete-platform run with the scenario matrix (step 9) | `deploy/gcp/complete-run.sh` | `--estimate`; D-141 |
 
-`deploy/gcp/complete-run.sh` makes the synthetic hospital first, then puts the PRO 6000 startup script on the VM,
-starts it, waits for `PRO6000-RUN-READY`, fetches the live serving record and runs `tools/complete_run.py --model pair
---patients 50000` from this checkout against `http://<vm>/judge/v1` and `/verifier/v1`. When the last model part is
-done it stops the VM (the walk, backup, update and the cascade at scale need no card), checks `TERMINATED` and puts
-the usual startup script back; it does the same on any failure. `deploy/gcp/complete-run.sh --stop` does it by hand.
-The API key is made fresh for the run, kept in instance metadata and in a 0600 file, never printed.
+**The complete run is fail-safe** (D-141, after the 2026-11-09 incident: a killed driver left the VM on for an hour).
+The workload runs on the VM; the VM stops itself; the driver only uploads, polls and collects.
+
+1. `deploy/gcp/complete-run.sh --estimate --patients 50000` prints the hours and US$ per scenario. `--dry-run` prints
+   every command and starts nothing.
+2. The run: `export CLOUDSDK_CONFIG=<private folder> TB_SA_KEY_FILE=<key file, in place>`, activate the service
+   account once, then `deploy/gcp/complete-run.sh --patients 50000`. It:
+   * probes the credential (`gc_probe`) and refuses unless the VM is `TERMINATED`;
+   * sets the **cloud-side hard cap**: `gcloud compute instances set-scheduling tb-gpu-sim --zone asia-east1-a
+     --max-run-duration=<estimate x 1.3, rounded up>h --instance-termination-action=STOP` (`--hours N` to change);
+   * puts `deploy/gcp/complete-run-vm.sh` on the VM as its startup script with a fresh key (0600 file, metadata,
+     never printed), starts it, and uploads the code (`git archive` of HEAD: local changes are not in the run).
+3. On the VM: a systemd hard cap and a watchdog start first. The watchdog powers off when the heartbeat is not
+   touched for 20 minutes (the run touches it as its log grows; the driver touches it over HTTP), when setup takes
+   more than an hour, or 30 minutes after the done marker (at once when the driver has collected). The model parts
+   run there with `--resume --ocr tesseract` (tesseract with `jpn`, `chi_tra`, `eng` is installed by the script) and
+   through the gateway built as an installed box builds it.
+4. The driver polls once a minute with short calls only, downloads `results.tgz`, runs the walk, backup, update and
+   scale on the stub here and writes the report. If the driver dies, nothing is lost:
+   `deploy/gcp/complete-run.sh --collect <run id>` picks the run up; a stopped VM keeps its disk, and starting it
+   again resumes the parts not yet passed.
+5. Every gcloud call goes through `gc` (`deploy/gcp/gcloud-auth.sh`): an authentication error re-activates the
+   service account from `TB_SA_KEY_FILE` and retries once.
+6. Afterwards: `gcloud compute instances describe tb-gpu-sim --zone asia-east1-a --format='value(status)'` must say
+   `TERMINATED`; `deploy/gcp/complete-run.sh --stop` stops it by hand and puts the usual startup script back.
+
+Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the VM's service account needs storage
+access); without it they go over plain HTTP to the VM with the key in a header. A billing budget with a kill switch
+is the last net; it needs billing permissions this project's service account does not have: the owner sets it.

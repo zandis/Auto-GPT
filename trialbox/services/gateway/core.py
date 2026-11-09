@@ -6,7 +6,9 @@ Processing order for ``POST /v1/chat/completions`` (each step passes or refuses;
 2. header validation: class, purpose, role, study, context of use and prompt are required (LLM-2, ENG-04); D3/D4
    also need a study and step that the step confirmer accepts as live, except a D3 (never D4) call without a step
    on the intake role of a conversation engine whose caller entry sets ``d3_intake_without_step`` (FR-CONV-8: intake
-   precedes any study step); a schema-constrained ``response_format`` is required except for free-form roles (LLM-22);
+   precedes any study step), or, with no step confirmer wired, a D3 call the box policy allows (``phi_on_box``,
+   D-142: topology A, listed callers, perimeter endpoints only, because the data never leaves the box); a
+   schema-constrained ``response_format`` is required except for free-form roles (LLM-22);
 3. route lookup: ``(role, class, topology, environment, profile)`` → ordered candidates, each checked with
    ``may_reach`` (§7.2) — no route or no permitted endpoint is refused (``no_route``, ``class_route_mismatch``);
 4. PHI tripwire on D0–D2 calls (LLM-15): a hit blocks the call, it is never relabelled;
@@ -109,6 +111,7 @@ class _Call:
     schema_valid: bool | None = None
     guard: str = "not_run"
     fallbacks: int = 0
+    step_basis: str = ""  # D3/D4: "step" (confirmed), "intake" (FR-CONV-8) or "box_policy" (D-142)
 
 
 def _content_text(messages: Any) -> str:
@@ -252,9 +255,20 @@ class Gateway:
             and label.data_class == DataClass.D3
             and not call.step
         )
-        if label.data_class.rank >= 3 and not intake:
-            confirmed = self.step_confirm is not None and bool(call.step)
-            if not confirmed or not self.step_confirm(call.caller, call.study, call.step):  # type: ignore[misc]
+        box_only = False
+        if intake:
+            call.step_basis = "intake"
+        elif label.data_class.rank >= 3:
+            cfg = self.config
+            if self.step_confirm is not None and call.step and self.step_confirm(call.caller, call.study, call.step):
+                call.step_basis = "step"
+            elif self.step_confirm is None and self.policy.box_phi.allows(
+                call.caller, label, cfg.topology, cfg.environment
+            ):
+                # D-142: on an on-prem box without a step confirmer the data never leaves the box; perimeter
+                # endpoints only (below). Where a confirmer is wired (LLM-2), its answer alone decides.
+                call.step_basis, box_only = "box_policy", True
+            else:
                 raise Refusal("step_unconfirmed", "D3/D4 calls need a live, delegated study step (LLM-2)")
         if not isinstance(messages, list) or not messages:
             raise Refusal("request_invalid", "messages must be a non-empty list")
@@ -270,6 +284,10 @@ class Gateway:
             call.role, label, cfg.topology, cfg.environment, cfg.profile, cloud_opt_in=cfg.cloud_opt_in, flags=flags
         )
         call.route_id = route.id
+        if box_only:
+            candidates = [c for c in candidates if c.endpoint.zone == "perimeter"]
+            if not candidates:
+                raise Refusal("step_unconfirmed", "D3 without a confirmed step goes to on-box models only (D-142)")
         wanted = body.get("model")
         if wanted:
             candidates = [c for c in candidates if c.alias == wanted]
@@ -482,6 +500,7 @@ class Gateway:
             "role": call.role,
             "study": call.study,
             "step": call.step,
+            "step_basis": call.step_basis,
             "context_of_use": call.context_of_use,
             "route_id": call.route_id,
             "policy_version": self.policy.version,

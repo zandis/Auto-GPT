@@ -4,11 +4,11 @@
 {% from "_mark.html" import mark_box, mark_bar, toast, outcome_box with context %}
 {% block title %}{{ t('week.title') }} · {{ rs }}{% endblock %}
 {% block content %}
-{% from "_life.html" import sae_banner with context %}
+{% from "_life.html" import sae_banner, report_banner with context %}
 <div class="headrow"><h1>{{ t('wb.title') }} · {{ rs }}</h1>
-{% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }}</span>{% endif %}</div>
+{% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }} · <a href="/studies/{{ rs }}/excluded" data-testid="to-excluded">{{ t('ex.link') }}</a></span>{% endif %}</div>
 {{ steps_bar(steps, step) }}
-{{ sae_banner(sae) }}
+{{ sae_banner(sae, 'week') }}{{ report_banner(sae_reports) }}
 {% for j in approvals or [] %}<p class="warn" data-testid="approval-waiting"><a href="/pilot/jobs/{{ j.job_id }}/approval">{{ t('s20.waiting', rs=j.ruleset, v=j.ruleset_version) }}</a></p>{% endfor %}
 {% if not wk %}
 <section class="card"><p>{{ t('week.none') }}</p>{% if user.can_request %}<a class="button" href="/pilot/request?ruleset={{ rs }}">{{ t('next.screen') }}</a>{% endif %}</section>

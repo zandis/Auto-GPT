@@ -9,26 +9,29 @@ import re
 from pathlib import Path
 
 from tools import complete_run as cr
+from tools import scenarios
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def _args(**kw: object) -> argparse.Namespace:
-    base: dict[str, object] = {"langs": ["ja", "zh-TW"], "skip": []}
+    base: dict[str, object] = {"langs": ["ja", "zh-TW"], "skip": [], "only": [], "scenarios": []}
     base.update(kw)
     return argparse.Namespace(**base)
 
 
 def test_every_part_of_plan_v4_section_5_in_both_languages() -> None:
     parts = cr.plan(_args())
-    assert parts[:2] == [("prepare", ""), ("install", "")]
+    assert parts[:2] == [("prepare", "", ""), ("install", "", "")]
     for part in ("hospital", "public"):
-        assert [(p, lang) for p, lang in parts if p == part] == [(part, "ja"), (part, "zh-TW")]
-    assert [p for p, _ in parts[-4:]] == ["walk", "backup", "update", "scale"]
-    assert ("backup", "") not in cr.plan(_args(skip=["backup"]))
+        assert [(p, lang) for p, lang, _ in parts if p == part] == [(part, "ja"), (part, "zh-TW")]
+    assert [sc for p, _, sc in parts if p == "scenario"] == list(scenarios.SCENARIOS)
+    assert [p for p, _, _ in parts[-4:]] == ["walk", "backup", "update", "scale"]
+    assert ("backup", "", "") not in cr.plan(_args(skip=["backup"]))
+    assert cr.plan(_args(only=["scenario-it-dump"])) == [("scenario", "ja", "it-dump")]
     # the parts after the last model part need no card: on the GPU run the VM stops before them
-    last_model = max(i for i, (p, _) in enumerate(parts) if p in cr.MODEL_PARTS)
-    assert {p for p, _ in parts[last_model + 1 :]} == {"walk", "backup", "update", "scale"}
+    last_model = max(i for i, (p, _, _) in enumerate(parts) if p in cr.MODEL_PARTS)
+    assert {p for p, _, _ in parts[last_model + 1 :]} == {"walk", "backup", "update", "scale"}
 
 
 def _stage_names(path: Path) -> list[str]:
@@ -72,12 +75,23 @@ def test_table_page_and_markdown(tmp_path: Path) -> None:
         "shots": 1,
         "shots_ok": 1,
         "seconds": 60.0,
-        "parts": [{"tag": "backup", "stages": stages, "seconds_total": 1.0}],
+        "findings": [
+            {
+                "id": "A-01",
+                "part": "scenario-gateway",
+                "what": "judge",
+                "expected": "answered",
+                "got": "refused",
+                "holds": False,
+            }
+        ],
+        "parts": [{"part": "backup", "lang": "", "tag": "backup", "stages": stages, "seconds_total": 1.0}],
     }
     md = cr.markdown(rep)
     assert "Head `0123456789ab`" in md and "**FAILED**" in md
     assert "| backup | backup | 0/1 | FAIL | 1.0 | `backup.png` |" in md
     assert "- backup / backup: restored: <rows differ>" in md
+    assert "| A-01 | scenario-gateway | judge | answered | refused | NO |" in md
 
 
 def test_the_password_and_key_never_reach_a_command_line() -> None:

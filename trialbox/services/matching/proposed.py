@@ -8,6 +8,10 @@ FALSE) it asks: could a proposed fact of this patient change the answer? If so, 
 the reason ``proposed_fact`` and the facts as evidence, so the patient goes to "needs information" and a person
 looks. Once a coordinator confirms the fact, it is a coded record like any other and counts (and may exclude).
 
+A suspected diagnosis (D-142: SS-MIX2 PRB-13 疑い, FHIR ``verificationStatus`` provisional or differential) follows
+the same rule: the lake lists it in ``site_fact`` with basis ``suspected`` and keeps it out of ``condition``, and the
+reason is ``suspected_diagnosis``. "肺癌の疑い" never makes "history of malignancy" true.
+
 Whether a fact *could* change an answer, per atom of the criterion's logic:
 
 * a condition or medication present (``any``, ``count>=``, a duration): a fact makes it truer, so it matters when
@@ -32,10 +36,12 @@ from criteria_compiler.terminology.mapper import FAMILY_EXT
 from tb_contracts import Atom, BoolExpr, CriterionIR
 
 PROPOSED_FACT = "proposed_fact"
+SUSPECTED_DIAGNOSIS = "suspected_diagnosis"  # D-142: a diagnosis recorded as suspected (疑い, provisional)
 SQL = """
-SELECT fid, pid, domain, coalesce(code, '') AS code, coalesce(system, '') AS system, d
+SELECT fid, pid, domain, coalesce(code, '') AS code, coalesce(system, '') AS system, d, basis
 FROM site_fact
-WHERE basis = 'proposed' AND (CAST($1 AS VARCHAR[]) IS NULL OR list_contains(CAST($1 AS VARCHAR[]), pid))
+WHERE basis IN ('proposed', 'suspected')
+  AND (CAST($1 AS VARCHAR[]) IS NULL OR list_contains(CAST($1 AS VARCHAR[]), pid))
 ORDER BY pid, fid
 """
 DEMOGRAPHIC_CODES = {"birth_date": "age", "sex": "sex"}
@@ -52,6 +58,7 @@ class FactRow:
     code: str
     system: str
     d: date | None
+    basis: str = "proposed"
 
 
 def signed_atoms(expr: Atom | BoolExpr, positive: bool = True) -> list[tuple[Atom, str]]:
@@ -112,7 +119,14 @@ class Proposed:
         out: dict[str, list[FactRow]] = {}
         for r in table.to_pylist():
             out.setdefault(str(r["pid"]), []).append(
-                FactRow(str(r["fid"]), str(r["domain"]), str(r["code"] or ""), str(r["system"] or ""), r["d"])
+                FactRow(
+                    str(r["fid"]),
+                    str(r["domain"]),
+                    str(r["code"] or ""),
+                    str(r["system"] or ""),
+                    r["d"],
+                    str(r.get("basis") or "proposed"),
+                )
             )
         return cls(out, valuesets or {})
 
@@ -172,6 +186,13 @@ class Proposed:
                         out.append(ref)
         return out
 
+    def reason(self, pid: str, refs: list[str]) -> str:
+        """The reason code for ``refs``: ``suspected_diagnosis`` when every one is a suspected diagnosis (D-142),
+        else ``proposed_fact``."""
+        ids = {r.split("|")[0] for r in refs}
+        bases = {f.basis for f in self.rows.get(pid, []) if f.fid in ids}
+        return SUSPECTED_DIAGNOSIS if bases == {"suspected"} else PROPOSED_FACT
+
 
 BASIS_SQL = "SELECT DISTINCT pid, basis FROM site_fact WHERE basis IN ('proposed', 'confirmed') ORDER BY pid, basis"
 
@@ -191,4 +212,4 @@ def site_basis(lake: _Lake, snapshot: str | None) -> tuple[set[str], set[str]]:
     return confirmed, proposed
 
 
-__all__ = ["PROPOSED_FACT", "SQL", "FactRow", "Proposed", "signed_atoms", "site_basis"]
+__all__ = ["PROPOSED_FACT", "SQL", "SUSPECTED_DIAGNOSIS", "FactRow", "Proposed", "signed_atoms", "site_basis"]

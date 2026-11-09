@@ -256,7 +256,7 @@ class FakeBackend:
                 n += 1
         return n
 
-    def registry_export(self, ruleset: str) -> bytes:
+    def registry_export(self, ruleset: str, by: str = "") -> bytes:
         return b"PK\x03\x04fake-xlsx-" + ruleset.encode()
 
 
@@ -664,6 +664,9 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     s20 = p.get(f"/pilot/jobs/{job.job_id}/approval?open=GZQO-DEMO-EXC-01").text
     assert 'data-testid="approve-missing"' not in s20
     r = p.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": pcsrf}, follow_redirects=False)
+    assert r.status_code == 200 and 'data-testid="confirm-text"' in r.text  # P-10: the consequence first
+    assert "Approve all" in r.text and 'name="confirm" value="yes"' in r.text
+    r = p.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": pcsrf, "confirm": "yes"}, follow_redirects=False)
     assert r.status_code == 303
     appr = box["backend"].created[-1]
     assert appr.type == "APPROVE" and appr.ruleset == "GZQO-DEMO" and appr.options == {"version": "1.0.0"}
@@ -1233,6 +1236,27 @@ def test_viewer_reads_registry_but_cannot_change_or_export(box: dict[str, Any]) 
     assert box["backend"].registry == {}
 
 
+def test_the_export_names_the_signed_in_user_signed_with_the_session(
+    box: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S-09 (D-143): the console names the user to the orchestrator with a signed assertion bound to the session."""
+    from tb_common import service_auth as sa
+
+    monkeypatch.setenv("TB_SERVICE_TOKEN", "console-test-token-0123456789")
+    seen: list[dict[str, str]] = []
+    real = box["backend"].registry_export
+
+    def spy(rs: str, by: str) -> bytes:
+        seen.append(sa.actor_header(by))  # what the HTTP backend sends with the call
+        return bytes(real(rs, by))
+
+    monkeypatch.setattr(box["backend"], "registry_export", spy)
+    c, _ = login(box["app"])
+    assert c.get("/pilot/registry/GZQO/export.xlsx").status_code == 200
+    who = sa.verify_actor(seen[0][sa.ACTOR_HEADER], seen[0][sa.ASSERTION_HEADER])
+    assert who.name == "console:admin" and who.verified and len(who.session) == 16
+
+
 # ---------------------------------------------------------------------------------------------- D-93 roles and SSO
 def test_coordinator_requests_and_approves_but_does_not_operate(box: dict[str, Any]) -> None:
     box["users"].create("crc", "coordinator", "crc-password-1234", "crc1@hospa.test")
@@ -1291,7 +1315,14 @@ def test_users_page_add_reset_disable(box: dict[str, Any]) -> None:
     assert pw2 and pw2.group(1) != pw.group(1)
     # cannot disable yourself; can disable others; duplicates and bad roles are refused with a reason
     assert c.post("/ops/users", data={"csrf": csrf, "action": "disable", "username": "admin"}).status_code == 400
-    r = c.post("/ops/users", data={"csrf": csrf, "action": "disable", "username": "nurse.lin"}, follow_redirects=False)
+    r = c.post("/ops/users", data={"csrf": csrf, "action": "disable", "username": "nurse.lin"})
+    assert 'data-testid="confirm-text"' in r.text and "Disable the account nurse.lin?" in r.text  # P-10
+    assert 'href="/ops/users" data-testid="confirm-no"' in r.text
+    r = c.post(
+        "/ops/users",
+        data={"csrf": csrf, "action": "disable", "username": "nurse.lin", "confirm": "yes"},
+        follow_redirects=False,
+    )
     assert r.status_code == 303 and 'data-user="nurse.lin"' not in c.get("/ops/users").text
     assert (
         c.post("/ops/users", data={"csrf": csrf, "action": "add", "username": "viewer", "role": "viewer"}).status_code
@@ -1441,15 +1472,23 @@ def test_sponsor_pack_is_audited_and_for_requesters_only(box: dict[str, Any]) ->
     assert viewer.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip").status_code == 403
 
 
-def test_investigator_sees_candidate_rows_and_case_sheet_but_no_reveal(box: dict[str, Any]) -> None:
+def test_investigator_sees_candidate_rows_and_case_sheet_and_reveals(box: dict[str, Any]) -> None:
+    """D-143 (owner, 2026-11-09): the study's investigator may reveal a chart number, audited like a coordinator."""
     box["users"].create("pi", "investigator", VIEWER_PW, "pi@hospa.test")
     screen = _done_screen(box["backend"], _ulid(951))
     c, csrf = login(box["app"], "pi", VIEWER_PW)
     page = c.get(f"/pilot/jobs/{screen.job_id}").text
     assert 'data-testid="screen-rows"' in page  # pseudonymous rows, as a coordinator sees them
-    assert 'data-testid="reveal"' not in page  # chart numbers stay with the requesters
-    r = c.post(f"/pilot/jobs/{screen.job_id}/reveal", data={"csrf": csrf, "pid": "a" * 32}, follow_redirects=False)
-    assert r.status_code == 403
+    assert 'data-testid="reveal"' in page
+    r = c.post(f"/pilot/jobs/{screen.job_id}/reveal", data={"csrf": csrf, "pid": "a" * 32, "reason": "contact"})
+    assert r.status_code == 200 and "MRN-000123" in r.text
+    assert box["backend"].revealed[-1] == (screen.job_id, "a" * 32, "console:pi")
+    assert any(rec.event == "console.reveal" and rec.actor == "console:pi" for rec in box["backend"].audit())
+    box["users"].create("pi2", "investigator", VIEWER_PW, "pi2@hospa.test")
+    box["users"].set_scope("pi2", studies="OTHER")  # an investigator of another study has no authority here
+    c2, csrf2 = login(box["app"], "pi2", VIEWER_PW)
+    r = c2.post(f"/pilot/jobs/{screen.job_id}/reveal", data={"csrf": csrf2, "pid": "a" * 32}, follow_redirects=False)
+    assert r.status_code in (403, 404) and len(box["backend"].revealed) == 1
     case = _done_case(box["backend"])
     sheet = next(o for o in case.outputs or [] if o.filename.endswith(".html"))
     assert c.get(f"/pilot/jobs/{case.job_id}/view/{sheet.filename}").status_code == 200
@@ -1504,8 +1543,64 @@ def test_job_line_never_shows_a_chart_number() -> None:
     assert line == "CASE PUB-ONC lang=en" and "70000054" not in line and "山田" not in line
 
 
+def test_case_request_row_shows_the_chart_number_to_the_study_team_only(box: dict[str, Any]) -> None:
+    """Review 2026-11-09 P-01 and the owner's decision (D-143): the CASE job page's "web request" row printed
+    ``mrn=70000054`` to every role. The study's investigator (and coordinator, administrator) sees it, as one audited
+    view; a viewer, a CRO account and an investigator of another study see it masked, also in the audit table."""
+    job = _done_case(box["backend"])
+    box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
+                        detail={"line": "CASE GZQO mrn=70000054 lang=en", "channel": "web"})  # fmt: skip
+    box["users"].create("pi", "investigator", VIEWER_PW, "pi@hospa.test")
+    box["users"].create("pi2", "investigator", VIEWER_PW, "pi2@hospa.test")
+    box["users"].set_scope("pi2", studies="OTHER")
+    pi, _ = login(box["app"], "pi", VIEWER_PW)
+    page = pi.get(f"/pilot/jobs/{job.job_id}").text
+    thread = page[page.index('data-testid="thread"') :]
+    assert "mrn=70000054" in thread[: thread.index("</table>")]
+    assert "mrn=70000054" not in page[page.index('data-testid="audit"') :]  # the audit table masks it
+    views = [r for r in box["backend"].audit(job.job_id) if r.event == "console.view_id"]
+    assert len(views) == 1 and views[0].actor == "console:pi" and views[0].detail["role"] == "investigator"
+    viewer, _ = login(box["app"], "viewer", VIEWER_PW)
+    vpage = viewer.get(f"/pilot/jobs/{job.job_id}").text
+    assert "70000054" not in vpage and "mrn=•••" in vpage
+    other, _ = login(box["app"], "pi2", VIEWER_PW)
+    assert "70000054" not in other.get(f"/pilot/jobs/{job.job_id}").text
+    assert len([r for r in box["backend"].audit(job.job_id) if r.event == "console.view_id"]) == 1
+
+
+def test_identifier_views_are_rate_limited(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-143: a view of an identifier counts against the reveal cap; over it the line is masked and refused."""
+    monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
+    job = _done_case(box["backend"])
+    box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
+                        detail={"line": "CASE GZQO mrn=70000054 lang=en"})  # fmt: skip
+    c, _ = login(box["app"])
+    assert "mrn=70000054" in c.get(f"/pilot/jobs/{job.job_id}").text
+    assert "mrn=70000054" not in c.get(f"/pilot/jobs/{job.job_id}").text
+    assert any(r.event == "console.view_id_refused" for r in box["backend"].audit(job.job_id))
+
+
 def test_request_subjects_are_masked() -> None:
     from console.app import mask_ids
 
     assert mask_ids("CASE GZQO mrn=70000054 lang=ja") == "CASE GZQO mrn=••• lang=ja"
     assert mask_ids("FEAS GZQO") == "FEAS GZQO"
+
+
+def test_healthz_touches_the_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-142 (review A-02): the console looks healthy only while its store answers; a lost connection is reopened."""
+    backend = FakeBackend()
+    backend.audit_dir = tmp_path / "audit"
+    users = UserStore()
+    app = create_app(
+        {**PILOT_ENV, "TB_CONSOLE_DIR": str(tmp_path)}, backend=backend, audit=AuditLog(backend.audit_dir), users=users
+    )
+    c = TestClient(app)
+    r = c.get("/healthz")
+    assert r.status_code == 200 and r.json()["checks"] == {f"db:{users.db.schema}": "ok"}
+    users.db._con.close()  # lost: reopened on the way
+    assert c.get("/healthz").status_code == 200 and users.db.reconnects == 1
+    monkeypatch.setattr(users.db, "url", "postgresql://nobody@/nowhere?host=/nonexistent")
+    users.db._con.close()  # lost, and nowhere to reopen it: the container must not look healthy
+    r = c.get("/healthz")
+    assert r.status_code == 503 and r.json()["status"] == "degraded"

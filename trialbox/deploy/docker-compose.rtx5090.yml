@@ -148,4 +148,5 @@ services:
 
   orchestrator:
     environment:
+      TB_SCREEN_LLM_CONCURRENCY: "${JUDGE_MAX_SEQS:-4}"   # SCREEN calls in flight: vLLM --max-num-seqs (D-142)
       TB_MODEL_SWAP: "${TB_MODEL_SWAP:-sleep}"

@@ -40,7 +40,7 @@ from orchestrator.scenarios.evaluate import (
     sort_key,
 )
 from orchestrator.scenarios.review import recipients, require_approved
-from orchestrator.scenarios.screen_cascade import pipeline, screen_with_cascade
+from orchestrator.scenarios.screen_cascade import max_pairs_of, pipeline, screen_with_cascade
 
 SCOPE_SQL = """
 WITH a AS (
@@ -119,8 +119,15 @@ def judging_sentence(j: dict[str, Any], lang: str = "en") -> str:
 
 
 def scope_patients(
-    ctx: Ctx, practitioners: list[str], run_date: date, window_days: int, recent_months: int, departments: list[str]
+    ctx: Ctx,
+    practitioners: list[str],
+    run_date: date,
+    window_days: int,
+    recent_months: int,
+    departments: list[str],
+    snapshot: str | None = None,
 ) -> list[Scoped]:
+    """The patients in scope, read from the snapshot the screening then runs on (D-142, review B-02)."""
     rows = ctx.services.lake.query(
         SCOPE_SQL,
         [
@@ -129,6 +136,7 @@ def scope_patients(
             (run_date + timedelta(days=window_days)).isoformat(),
             add_months(run_date, -recent_months).isoformat(),
         ],
+        snapshot=snapshot,
     ).to_pylist()
     tz = ctx.cfg.env.tz
     out = [Scoped(r["pid"], local_iso(r["next_appt"], tz), r["practitioner_id"], r["dept"]) for r in rows]
@@ -386,14 +394,23 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
         raise StepFailed("running", "window must be a number of days") from exc
     depts = [d.strip().upper() for d in opts["dept"].split(",")] if opts.get("dept") else []
     recent = int(sc.recent_encounter_months if sc and sc.recent_encounter_months else 12)
-    scoped = scope_patients(ctx, practitioners, run_date, window, recent, depts)
+    scoped = scope_patients(ctx, practitioners, run_date, window, recent, depts, snapshot)
     ctx.metrics(patients_scoped=len(scoped))
     judge = judge_for(ctx, rs)
     judging = judging_info(judge)
     cascade: dict[str, Any] | None = None
     if pipeline() == "cascade":  # D-103: the v4 cascade is the screening engine
         cs = screen_with_cascade(
-            ctx, rs, run_date, snapshot, [s.pid for s in scoped], judge, judging, threshold(ctx, rs), recent
+            ctx,
+            rs,
+            run_date,
+            snapshot,
+            [s.pid for s in scoped],
+            judge,
+            judging,
+            threshold(ctx, rs),
+            recent,
+            max_pairs_of(opts),
         )
         results, judging, cascade = cs.results, cs.judging, cs.summary
         tiers = {t: sum(1 for v in results.values() if v.tier == t) for t in ("high", "review", "excluded")}
@@ -412,6 +429,7 @@ def run_screen(ctx: Ctx, rs: Ruleset, run_date: date, snapshot: str) -> ScreenRu
                 "tiers": tiers,
                 "n_after": cascade["n_after"],
                 "judging": judging,
+                "budget": cascade.get("budget"),
             },
         )
     else:
@@ -446,6 +464,45 @@ def candidate_list(run: ScreenRun) -> CandidateList:
         summary=TierSummary(**tiers),
         judging=Judging(**run.judging) if run.judging else None,
     )
+
+
+def confirmed_facts(ctx: Ctx, pids: list[str]) -> set[str]:
+    """The record ids of the site's confirmed facts for these patients (D-135): a coded record that a person typed
+    or confirmed from a chart, not one the hospital's systems coded."""
+    if not pids:
+        return set()
+    try:
+        rows = ctx.services.lake.query("SELECT fid FROM site_fact WHERE basis = 'confirmed'").to_pylist()
+    except Exception:  # an older snapshot has no site_fact table: no confirmed fact
+        return set()
+    return {str(r["fid"]) for r in rows if r.get("fid")}
+
+
+def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
+    """Every patient the run excluded, with the criterion (or the scope or consent rule) that excluded them, where
+    the answer came from (the coded records, a confirmed fact, or the notes with both models agreeing) and its
+    evidence (review 2026-11-09 P-04, D-143). Stored with the job for the console's "Excluded patients and why"
+    page; never mailed."""
+    ex = [r for r in run.rows if r.tier == "excluded"]
+    facts = confirmed_facts(ctx, [r.pid for r in ex])
+
+    def source(v: Any) -> str:
+        ev = v.evidence
+        if ev is not None and (ev.reason == "note" or ev.quote):
+            return "notes"
+        refs = {x.rsplit("/", 1)[-1] for x in (ev.resource_refs or [])} if ev is not None else set()
+        return "fact" if refs & facts else "coded"
+
+    rows = []
+    for r in ex:
+        failing = [
+            {"id": v.id, "source": source(v), **(v.evidence.model_dump(mode="json", exclude_none=True)
+                                                 if v.evidence is not None else {})}
+            for v in r.criteria if v.verdict == "fail"
+        ]  # fmt: skip
+        rows.append({"pid": r.pid, "criteria": failing, "actions": list(r.actions)})
+    return {"ruleset": run.rs.id, "version": run.rs.version, "run_date": run.run_date.isoformat(),
+            "snapshot": run.snapshot, "judging": run.judging or {}, "rows": rows}  # fmt: skip
 
 
 def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
@@ -569,6 +626,8 @@ def run(ctx: Ctx) -> Outcome:
         ctx, rs, srun.rows, meta, stem, extra=(f"candidate_list_{rs.id}_v{rs.version}.json", body)
     )
     persist_pool(ctx, rs, [r for r in srun.rows if r.tier in ("high", "review")])
+    excluded = json.dumps(excluded_doc(ctx, srun), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
+    ctx.publish(f"excluded_{rs.id}_v{rs.version}.json", excluded, "phi", [])  # P-04: the console only, never mailed
     agg_to = recipients(rs.manifest.routing, job.requested_by)
 
     def n(v: int) -> int:  # D-99: internal mail, PDF and console show exact counts; the sponsor pack suppresses
@@ -592,6 +651,11 @@ def run(ctx: Ctx) -> Outcome:
     unknown_system = unknown_system_counts(srun.rows)
     if unknown_system:
         scope_lines.append(t(lang, "screen.unknown_system", n=n(unknown_system)))
+    budget = (srun.cascade or {}).get("budget") or {}
+    if budget.get("hit"):  # D-142 (review A-07): never a silent cap
+        scope_lines.append(
+            t(lang, "screen.budget_hit", max=budget.get("max_pairs"), n=n(int(budget.get("unprocessed") or 0)))
+        )
     unknown_by: dict[str, int] = {}
     for r in srun.rows:
         if r.tier in ("high", "review"):

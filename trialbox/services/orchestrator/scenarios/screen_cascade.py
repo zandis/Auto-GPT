@@ -23,6 +23,7 @@ from datetime import date
 from typing import Any
 
 from matching.cascade import CascadeConfig, CascadeError, CascadeResult, run_cascade
+from matching.cascade.engine import NOT_AT_INDEX
 from matching.cascade.judge import JudgeReply
 from matching.cascade.model import Outcome, PatientTrace
 from tb_common.reasons import Reason, code_of
@@ -158,9 +159,10 @@ def verdict_of(o: Outcome) -> CriterionVerdict:
     )
 
 
-def verdicts_of(rs: Ruleset, t: PatientTrace) -> PatientVerdicts:
+def verdicts_of(rs: Ruleset, t: PatientTrace, dated: bool = False) -> PatientVerdicts:
     """A patient's trace as the row every report understands: verdicts in protocol order, the candidate-list tier,
-    the actions of the open criteria and the number of unknowns."""
+    the actions of the open criteria and the number of unknowns. ``dated``: the snapshot holds this patient, so a
+    patient without a base row was dropped for a death or birth date, not for being absent."""
     vs: list[CriterionVerdict] = []
     actions: list[str] = []
     unknown = 0
@@ -181,6 +183,9 @@ def verdicts_of(rs: Ruleset, t: PatientTrace) -> PatientVerdicts:
             unknown += 1
         if (v.verdict in ("unknown", "pending_human") or (o.status == "fail" and not o.hard)) and c.action:
             actions.append(c.action)
+    if not t.in_scope and t.scope_reason == NOT_AT_INDEX:
+        # no base row: never "excluded" with the engine's words; a person looks (D-142, review B-02)
+        return not_in_snapshot(rs, t.pid, reason=Reason.CHECK_DATES if dated else Reason.NOT_IN_SNAPSHOT)
     tier = TIER.get(t.tier, "review")
     if tier == "high" and unknown:
         tier = "review"  # an open question (null value, data gap) is a person's check, as in v1
@@ -210,7 +215,8 @@ def summary(res: CascadeResult) -> dict[str, Any]:
         "semantics": res.semantics,
         "n_after": dict(m.n_after),
         "notes_read": sum(1 for t in res.traces.values() if judged(t)),
-        "opted_out": sum(1 for t in res.traces.values() if not t.in_scope),
+        "opted_out": sum(1 for t in res.traces.values() if not t.in_scope and t.scope_reason != NOT_AT_INDEX),
+        "not_at_index": sum(1 for t in res.traces.values() if t.scope_reason == NOT_AT_INDEX),
         "contact_denied": sum(1 for t in res.traces.values() if t.in_scope and not t.contact_ok),
         "stages": [
             {
@@ -253,6 +259,41 @@ class CascadeScreen:
     judge: OrchestratorJudge | None
 
 
+# D-142 (review A-07): SCREEN's budget of model calls is explicit (job option ``max_pairs``, else
+# TB_SCREEN_MAX_PAIRS, else this default) and the run says when it ran out; calls run TB_SCREEN_LLM_CONCURRENCY at a
+# time (compose sets it to the serving profile's vLLM --max-num-seqs)
+SCREEN_MAX_PAIRS = 20000
+
+
+def max_pairs_of(opts: dict[str, Any] | None = None) -> int:
+    raw = str((opts or {}).get("max_pairs") or os.environ.get("TB_SCREEN_MAX_PAIRS") or SCREEN_MAX_PAIRS)
+    try:
+        v = int(raw)
+    except ValueError as exc:
+        raise StepFailed("running", "max_pairs must be a whole number of model calls") from exc
+    if v < 1:
+        raise StepFailed("running", "max_pairs must be at least 1")
+    return v
+
+
+def llm_concurrency(env: dict[str, str] | None = None) -> int:
+    e = os.environ if env is None else env
+    try:
+        return max(1, min(64, int(e.get("TB_SCREEN_LLM_CONCURRENCY") or 1)))
+    except ValueError:
+        return 1
+
+
+def held_in_snapshot(ctx: Ctx, pids: list[str], snapshot: str) -> set[str]:
+    """Which of ``pids`` the snapshot's patient table holds (they were dropped for a date, not for being absent)."""
+    if not pids:
+        return set()
+    rows = ctx.services.lake.query(
+        "SELECT pid FROM patient WHERE list_contains(CAST($1 AS VARCHAR[]), pid)", [pids], snapshot=snapshot
+    ).to_pylist()
+    return {str(r["pid"]) for r in rows}
+
+
 def screen_with_cascade(
     ctx: Ctx,
     rs: Ruleset,
@@ -263,6 +304,7 @@ def screen_with_cascade(
     judging: dict[str, Any],
     confidence_floor: float,
     lookback_months: int,
+    max_pairs: int = SCREEN_MAX_PAIRS,
 ) -> CascadeScreen:
     """Run the cascade over the scoped patients and return their verdict rows, the judging record and the stage log.
 
@@ -287,6 +329,8 @@ def screen_with_cascade(
         population=pids,
         note_block=may_block,
         absence_semantics=False,
+        max_llm_items=max_pairs,
+        llm_concurrency=llm_concurrency(),
     )
     try:
         res = two_phase(  # one GPU for both models (TB_MODEL_SWAP=sleep): judge pass, verifier pass, merge
@@ -296,7 +340,9 @@ def screen_with_cascade(
     except CascadeError as exc:
         raise StepFailed("running", f"The screening cascade could not run for {rs.id} v{rs.version}: {exc}") from exc
     check_failures(judge)
-    results = {pid: verdicts_of(rs, res.traces[pid]) for pid in pids if pid in res.traces}
+    dropped = [pid for pid, t in res.traces.items() if t.scope_reason == NOT_AT_INDEX]
+    held = held_in_snapshot(ctx, dropped, snapshot)
+    results = {pid: verdicts_of(rs, res.traces[pid], pid in held) for pid in pids if pid in res.traces}
     for pid in pids:
         if pid not in results:  # not in the lake's patient table on this snapshot: a person looks (D-118)
             results[pid] = not_in_snapshot(rs, pid)
@@ -308,7 +354,10 @@ def screen_with_cascade(
             tokens_in=(m.tokens_in if m else 0) + judge.tokens_in,
             tokens_out=(m.tokens_out if m else 0) + judge.tokens_out,
         )
-    return CascadeScreen(results, judging, summary(res), judge)
+    out = summary(res)
+    # D-142 (review A-07): the budget of model calls and whether it ran out, for the report and the job record
+    out["budget"] = {"max_pairs": max_pairs, "unprocessed": res.metrics.unprocessed, "hit": res.metrics.unprocessed > 0}
+    return CascadeScreen(results, judging, out, judge)
 
 
 __all__ = [

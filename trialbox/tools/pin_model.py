@@ -15,6 +15,9 @@ Only safetensors or GGUF weights are accepted; pickle-format weights and Python 
 refused (SEC-63: no pickle loading, no ``trust_remote_code``). Hidden files and directories (``.cache``, ``.git``)
 are not part of the manifest.
 
+``--install <gpu>`` (``deploy/install.sh``, D-142) pins the GPU profile's deployed pair from the site's own weights as
+``champion``, the status PRODUCTION routes accept; a build already pinned is left alone.
+
 ``--verify`` recomputes the manifest and exits 1 when it differs from the pinned sha256 (SEC-64: weights changed
 since the pin); it writes nothing. ``--verify-all deploy/models`` does that for every build in the override (each
 under its recorded ``model_dir``); ``deploy/install.sh`` runs it before a GPU stack starts. Exit 2 on a usage error
@@ -198,6 +201,60 @@ def verify_all(models_root: Path, out: Path = DEFAULT_OVERRIDE) -> tuple[bool, l
     return ok, lines
 
 
+# D-142 (review R-01): the pair each GPU profile's compose file serves, as (build, endpoint, model dir variable and
+# default, served-name variable and default). ``install_pins`` pins it from the site's own weights at install.
+PROFILE_PAIRS: dict[str, list[tuple[str, str, str, str, str, str]]] = {
+    "rtxpro6000": [
+        ("gemma-4-26b-a4b-it-rtxpro6000", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
+         "gemma-4-26b-a4b-it"),
+        ("qwen3.5-9b-rtxpro6000", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL",
+         "qwen3.5-9b"),
+    ],
+    "gb10": [
+        ("gemma-4-26b-a4b-it-spark", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
+         "gemma-4-26b-a4b-it"),
+        ("qwen3.5-9b-spark", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL", "qwen3.5-9b"),
+    ],
+    "rtx5090": [
+        ("gemma-4-26b-a4b-it-rtx5090", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
+         "gemma-4-26b-a4b-it"),
+        ("qwen3.5-9b-rtx5090", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL", "qwen3.5-9b"),
+    ],
+    "rtx4090": [  # judge alone (the verifier is scaled to 0; TB_NOTE_BLOCK=never)
+        ("gemma-4-26b-a4b-it-rtx5090", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
+         "gemma-4-26b-a4b-it"),
+    ],
+}  # fmt: skip
+
+
+def install_pins(
+    gpu: str, models_root: Path, out: Path = DEFAULT_OVERRIDE, env: dict[str, str] | None = None
+) -> tuple[bool, list[str]]:
+    """Pin the profile's deployed pair at install (D-142, review R-01): the sha256 of the site's own weights, the
+    served name compose gives vLLM, and status ``champion``, the one status a PRODUCTION route accepts (the pair is the
+    profile's measured release, D-112). A build already pinned is left alone (``--verify-all`` checks it); a missing
+    weights directory is reported and nothing is invented, so that model routes nothing until it is pinned."""
+    e = env or {}
+    pairs = PROFILE_PAIRS.get(gpu)
+    if pairs is None:
+        return False, [f"no deployed pair for GPU profile {gpu!r}"]
+    have = (load_override(out).get("builds") or {}) if out.exists() else {}
+    ok, lines = True, []
+    for build, endpoint, dir_var, dir_default, name_var, name_default in pairs:
+        if (have.get(build) or {}).get("sha256"):
+            lines.append(f"{build}: already pinned")
+            continue
+        d = models_root / (e.get(dir_var) or dir_default)
+        if not d.is_dir():
+            ok = False
+            lines.append(f"{build}: no weights in {d}: this model routes nothing until it is pinned (RUNBOOK §8)")
+            continue
+        m, _ = pin(build, d, served_name=e.get(name_var) or name_default, endpoint=endpoint, out=out,
+                   status="champion")  # fmt: skip
+        lines.append(f"{build}: pinned {m.sha256[:12]} ({m.files} files) as champion on {endpoint}")
+    return ok, lines
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--build", help="build_id in models/registry.yaml")
@@ -214,7 +271,23 @@ def main(argv: list[str] | None = None) -> int:
         metavar="MODELS_ROOT",
         help="re-check every pinned build against MODELS_ROOT/<model_dir>; exit 1 on any mismatch or no pins",
     )
+    ap.add_argument(
+        "--install",
+        metavar="GPU",
+        help="pin GPU profile's deployed pair from --models-root (install.sh); exit 1 when weights are missing",
+    )
+    ap.add_argument("--models-root", type=Path, default=ROOT / "deploy" / "models")
     args = ap.parse_args(argv)
+    if args.install:
+        import os
+
+        try:
+            good, lines = install_pins(args.install, args.models_root, args.out, dict(os.environ))
+        except PinError as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 2
+        print("\n".join(lines))
+        return 0 if good else 1
     if args.verify_all is not None:
         try:
             good, lines = verify_all(args.verify_all, args.out)

@@ -328,7 +328,11 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         page = pi.get(f"/pilot/jobs/{job.job_id}/approval")
         for cid in re.findall(r'data-testid="open-([A-Z0-9-]+)"', page.text):
             page = pi.get(f"/pilot/jobs/{job.job_id}/approval?open={cid}")
-        r = pi.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": fd._csrf(page.text)}, follow_redirects=False)
+        r = pi.post(
+            f"/pilot/jobs/{job.job_id}/approve",
+            data={"csrf": fd._csrf(page.text), "confirm": "yes"},
+            follow_redirects=False,
+        )
         after = box.orch.db.get(job.job_id)
         s.check(
             f"investigator approves {rs}; FEAS finishes",
@@ -419,6 +423,12 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         scr["judging"],
     )
 
+    # P-04 (D-143): every patient the run excluded is on "Excluded patients and why", with criterion and source
+    ex = pi.get(f"/studies/{TRIAL}/excluded").text
+    m = re.search(r'data-testid="ex-run">([^<]*)<', ex)
+    s.check("the excluded patients and why: every excluded patient, with criterion and source",
+            m is not None and str(scr["tiers"]["excluded"]) in m.group(1) and 'data-testid="ex-source-' in ex,
+            m.group(1) if m else _text(ex)[-200:])  # fmt: skip
     out["screen"] = {
         "funnel": fun,
         "tiers": scr["tiers"],
@@ -790,6 +800,27 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     s.seconds = time.perf_counter() - t
     stages.append(s)
 
+    # ------------------------------------------------------------------ 7b identifiers by role (P-01, P-32, D-143)
+    s = Stage("7b chart numbers and names by role")
+    t = time.perf_counter()
+    walk = {"trial": TRIAL, "cohort": COHORT, "pid_marked": picks[1]["pid"] if len(picks) > 1 else picks[0]["pid"],
+            "feas_job": fj.job_id, "approval_job": jobs[TRIAL].job_id, "case_job": cj.job_id if cj else "",
+            "consent_job": kj.job_id if kj else "", "screen_job": sj.job_id, "record": out.get("screening_no") or "",
+            "life_record": out.get("life_record") or "", "site_ws": "practice"}  # fmt: skip
+    ident = mrns | {p[k] for p in patients for k in ("name", "id_no", "phone") if p.get(k)}
+    swept = identifier_sweep(app, password, lang, walk_pages(walk), ident)
+    for who, seen in swept.items():
+        s.check(f"{who}: no chart number or name on any page of the walk ({len(seen['pages'])} pages)",
+                not seen["leaks"], seen["leaks"][:3])  # fmt: skip
+    if cj is not None:  # the study's investigator has identifier authority: the CASE request row in clear, audited
+        page = pi.get(f"/pilot/jobs/{cj.job_id}").text
+        s.check("the study's investigator sees the CASE request's chart number (D-143)",
+                f"mrn={case_p['mrn']}" in page, "")  # fmt: skip
+        s.check("and that view is audited", any(r.event == "console.view_id" and r.actor == "console:pi"
+                                                for r in h.bk.audit(cj.job_id)))  # fmt: skip
+    s.seconds = time.perf_counter() - t
+    stages.append(s)
+
     # ------------------------------------------------------------------ 8 audit chain
     s = Stage("8 audit chain")
     t = time.perf_counter()
@@ -831,6 +862,53 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
             "admin": admin,
         }
     )
+    return out
+
+
+# roles that hold no identifier authority (D-143): they must never see a chart number or a patient's name
+NO_ID_ROLES = ("viewer", "cra")
+
+
+def walk_pages(w: dict[str, Any]) -> list[str]:
+    """Every page ``tools/public_walk.js`` opens for any role (its PAGES and FORBIDDEN lists), plus the job pages,
+    so that the identifier sweep covers what the walk shows."""
+    t, c, lr = w["trial"], w["cohort"], w["life_record"]
+    sq = f"ws={w['site_ws']}&study={t}"
+    site = [f"/site?{sq}", f"/site/start?{sq}&step=2", f"/site/charts?{sq}", f"/site/facts?{sq}", f"/site/codes?{sq}",
+            f"/site/checks?{sq}", f"/site/sheets?{sq}", f"/site/people?{sq}", f"/site/patients?{sq}",
+            f"/site/help?{sq}"]  # fmt: skip
+    life = [f"/studies/{t}/subjects", f"/studies/{t}/subjects/{lr}", f"/studies/{t}/visits",
+            f"/studies/{t}/schedule", f"/studies/{t}/enrolment"]  # fmt: skip
+    pages = ["/home", "/help", "/account", "/notices/received", "/settings/notices", f"/ask?q=next&{sq}", "/week",
+             f"/studies/{t}/week?list=all", f"/studies/{t}/patients/{w['pid_marked']}", f"/studies/{c}/cohort",
+             f"/studies/{t}/feasibility", f"/studies/{t}/screening-log", f"/studies/{t}/setup",
+             f"/studies/{t}/sources", f"/studies/{t}/conflicts?all=1", f"/studies/{t}/forms",
+             f"/studies/{t}/excluded", f"/studies/{t}/entry?record={w['record']}&form=tb_consent",
+             f"/studies/{t}/history?record={w['record']}", *life, *site, "/pilot/protocol", "/pilot/request",
+             "/pilot/case", "/pilot/consent", f"/pilot/registry/{c}", "/reports", "/reports/research-office",
+             "/jobs", "/audit", "/admin?tab=health", "/admin?tab=jobs", "/ops/users"]  # fmt: skip
+    for k in ("feas_job", "case_job", "consent_job", "screen_job"):
+        if w.get(k):
+            pages.append(f"/pilot/jobs/{w[k]}")
+    if w.get("approval_job"):
+        pages.append(f"/pilot/jobs/{w['approval_job']}/approval")
+    return pages
+
+
+def identifier_sweep(app: Any, password: str, lang: str, pages: list[str], ids: set[str]) -> dict[str, Any]:
+    """Every page of the walk, as each role without identifier authority, searched for every chart number and name
+    of the site (review 2026-11-09 P-01/P-32: the CASE job page printed ``mrn=`` to the viewer; only the mail was
+    swept)."""
+    pats = [re.compile(rf"(?<![0-9A-Za-z]){re.escape(x)}(?![0-9A-Za-z])") for x in sorted(ids) if len(x) >= 4]
+    out: dict[str, Any] = {}
+    for who in NO_ID_ROLES:
+        c = ld.sign_in(app, who, password, lang)
+        seen: dict[str, Any] = {"pages": [], "leaks": []}
+        for path in pages:
+            r = c.get(path)
+            seen["pages"].append((path, r.status_code))
+            seen["leaks"] += [(path, m.pattern[-24:]) for m in pats if m.search(r.text)]
+        out[who] = seen
     return out
 
 

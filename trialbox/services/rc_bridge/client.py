@@ -151,6 +151,11 @@ class RedcapClient:
         out = self._post("event")
         return [dict(e) for e in out] if isinstance(out, list) else []
 
+    def form_event_mapping(self) -> list[dict[str, Any]]:
+        """A longitudinal project's instrument designations: ``{arm_num, unique_event_name, form}`` per pair."""
+        out = self._post("formEventMapping")
+        return [dict(m) for m in out] if isinstance(out, list) else []
+
     def records(
         self,
         fields: list[str] | None = None,

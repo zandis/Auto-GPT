@@ -16,8 +16,9 @@ The message types read, and the canonical tables (``mapping/templates/CANONICAL.
   ``prev_enc_type`` with the time of the change (``Encounter.classHistory``). A change for a visit the storage does not
   hold is counted (``stats``), never turned into a visit.
 * ``PPR-01`` (PPR^ZD1, PRB) -> diagnosis: PRB-3 標準病名 ``code^name^99XYZ^ICD-10^name^I10``, PRB-4 id, PRB-2
-  recorded, PRB-16 onset, PRB-14 status, PV1-19 visit no. The 標準病名 code is kept (``byomei_code``) beside the
-  ICD-10, so a code nothing can read reaches the lake as itself, not as an empty code (D-130, D-137).
+  recorded, PRB-16 onset, PRB-14 status, PRB-13 the 疑い flag (``suspected``, D-142), PV1-19 visit no. The 標準病名
+  code is kept (``byomei_code``) beside the ICD-10, so a code nothing can read reaches the lake as
+  itself, not as an empty code (D-130, D-137).
 * ``OMP-01`` prescription / ``OMP-02`` injection orders (RDE^O11, ORC/RXE/TQ1) -> medication: ORC-2 order no, ORC-4
   Rp group, ORC-9 date, ORC-5 status, RXE-2 the drug (YJ or HOT, with an alternate ATC, YJ or HOT), RXE-3 dose,
   RXE-5 unit, TQ1-7/8 start/end, file dept.
@@ -117,6 +118,15 @@ def _lookup(path: Path, key: str, field: str) -> dict[str, str]:
         return {}
     with path.open(encoding="utf-8-sig", newline="") as fh:
         return {r[key]: r[field] for r in csv.DictReader(fh) if r.get(key) and r.get(field)}
+
+
+def _suspected(prb: hl7.Segment) -> bool:
+    """A suspected diagnosis: PRB-13 ``1^疑いあり^JHSD0005`` (any coding system name, as vendors vary), or a 病名
+    whose text carries the 修飾語 "の疑い" / "疑い" when the vendor sends no flag."""
+    flag, text, system = prb.comp(13, 1).strip(), prb.comp(13, 2), prb.comp(13, 3).strip().upper()
+    if (flag == "1" and system in ("", "JHSD0005")) or "疑いあり" in text:
+        return True
+    return "疑い" in prb.comp(3, 2)
 
 
 def _alt(seg: hl7.Segment, n: int, systems: tuple[str, ...]) -> str:
@@ -368,6 +378,9 @@ class Ssmix2Source:
         return rows
 
     def _diagnosis(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:
+        """PPR-01 PRB segments. PRB-13 is the 疑い病名フラグ (SS-MIX2 標準化ストレージ仕様書 v1.2h 表 3-47,
+        JHSD 表 0005: ``1`` 疑いあり), read into ``suspected``: the diagnosis becomes ``verificationStatus =
+        provisional`` and never excludes (D-142)."""
         pv1 = msg.first("PV1")
         enc = pv1.comp(19, 1) if pv1 else ""
         for prb in msg.all("PRB"):
@@ -385,6 +398,7 @@ class Ssmix2Source:
                 "diag_date": hl7.ts(prb.field(16)) or "",
                 "recorded_date": hl7.ts(prb.field(2)) or hl7.ts(prb.field(7)) or "",
                 "status": "R" if prb.comp(14, 1) in ("R", "resolved") else "A",
+                "suspected": "Y" if _suspected(prb) else "",
             }
 
     def _drug_row(self, sf: StoredFile, orc: hl7.Segment, codes: dict[str, str]) -> Row:
