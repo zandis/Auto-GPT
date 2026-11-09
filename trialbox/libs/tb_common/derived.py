@@ -12,8 +12,21 @@
 * BASDAI = (Q1 + Q2 + Q3 + Q4 + (Q5 + Q6) / 2) / 5 (each 0-10).
 * ASDAS-CRP = 0.12 back pain + 0.06 morning-stiffness duration + 0.11 patient global (0-10) + 0.07 peripheral pain
   + 0.58 ln(CRP + 1).
-* CDAI = TJC28 + SJC28 + PtGA (0-10) + EvGA (0-10); SDAI = CDAI + CRP (mg/dL). Python reference only (the stored
-  derived rows of WS-04.3 bring them to the engines).
+* CDAI = TJC28 + SJC28 + PtGA (0-10) + EvGA (0-10); SDAI = CDAI + CRP (mg/dL) (D-189: in the SQL and CQL engines
+  too). The 0-10 globals are their LOINC items (75844-1, 75846-6); a 0-100 mm VAS recorded under them is divided by
+  10, a 10 cm VAS is already 0-10, and a value outside 0-10 is no value (``derived_unit``: not the item's scale).
+* DAS28-ESR and DAS28-CRP each on its own (``das28_esr``, ``das28_crp``; stored derived rows, D-190): the catalogue
+  computes both variants and never mixes them; ``das28`` above stays the screening atom's ESR-else-CRP form.
+
+Definitions (D-189). The catalogue's ``catalogue/scores/*.yaml`` is the source: ``tools/gen_score_defs.py`` writes
+``score_defs.json``, :mod:`tb_common.scores` reads it, and the same-visit windows of CDAI, SDAI and the two DAS28
+variants come from it (:data:`SAME_VISIT`). Stored rows with provenance, recompute and conflicts with a documented
+score: :mod:`tb_common.derived_store` (D-190).
+
+Inputs that count (D-190). A row counts only when its status is one of :data:`COUNTS` (a feed result is ``final``).
+A proposed fact (a value a model read from a chart, not yet confirmed) never counts as an input, nor does a rejected,
+preliminary or entered-in-error row: the score then has no value and says which input is missing, as for any
+missing input.
 
 Units (dataflow review P0-5, D-149). Every component value is converted to the unit the formula expects with the
 factors of :data:`UNITS` (UCUM codes; ``mg/dL`` CRP x 10 = ``mg/L``, ``umol/L`` creatinine / 88.4 = ``mg/dL``). A row
@@ -41,6 +54,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
 
+from tb_common import scores
+
 LOINC = "http://loinc.org"
 SCORE = "https://trialbox.local/fhir/CodeSystem/clinical-score"
 
@@ -60,6 +75,8 @@ CODES: dict[str, tuple[str, str]] = {
     "basdai_q4": (SCORE, "BASDAI-Q4"),
     "basdai_q5": (SCORE, "BASDAI-Q5"),
     "basdai_q6": (SCORE, "BASDAI-Q6"),
+    "ptga10": (LOINC, "75844-1"),  # patient global assessment 0-10 (CDAI, SDAI; catalogue rheum.ptga_0_10)
+    "evga": (LOINC, "75846-6"),  # evaluator global assessment 0-10 (catalogue rheum.evga_0_10)
 }
 
 COMPONENTS: dict[str, list[str]] = {
@@ -70,6 +87,11 @@ COMPONENTS: dict[str, list[str]] = {
     "das28": ["tjc28", "sjc28", "ptga", "esr", "crp"],
     "basdai": ["basdai_q1", "basdai_q2", "basdai_q3", "basdai_q4", "basdai_q5", "basdai_q6"],
     "asdas": ["basdai_q2", "basdai_q6", "ptga", "basdai_q3", "crp"],
+    # the anchor component first: a missing input is reported in this order by every engine
+    "cdai": ["tjc28", "sjc28", "ptga10", "evga"],
+    "sdai": ["tjc28", "sjc28", "ptga10", "evga", "crp"],
+    "das28_esr": ["tjc28", "sjc28", "ptga", "esr"],
+    "das28_crp": ["tjc28", "sjc28", "ptga", "crp"],
 }
 
 DEFAULT_WINDOW_DAYS: dict[str, int] = {
@@ -80,6 +102,10 @@ DEFAULT_WINDOW_DAYS: dict[str, int] = {
     "das28": 90,
     "basdai": 90,
     "asdas": 90,
+    "cdai": 90,
+    "sdai": 90,
+    "das28_esr": 90,
+    "das28_crp": 90,
 }
 
 EGFR = {
@@ -113,7 +139,13 @@ UNITS: dict[str, tuple[str, dict[str, float]]] = {
     "esr": ("mm/h", {"mm/h": 1.0, "mm/hr": 1.0, "mm/(1.h)": 1.0, "mm/1h": 1.0}),
     "weight": ("kg", {"kg": 1.0, "g": 0.001, "[lb_av]": 0.45359237, "lb": 0.45359237}),
     "height": ("cm", {"cm": 1.0, "m": 100.0, "mm": 0.1, "[in_i]": 2.54, "in": 2.54}),
+    # 0-10 globals: no unit or a score annotation; a 10 cm VAS is 0-10; a 0-100 mm VAS is divided by 10
+    "ptga10": ("{score}", {"": 1.0, "1": 1.0, "{score}": 1.0, "cm": 1.0, "mm": 0.1}),
+    "evga": ("{score}", {"": 1.0, "1": 1.0, "{score}": 1.0, "cm": 1.0, "mm": 0.1}),
 }
+# the item's scale after conversion: a value outside it is no value with ``derived_unit`` (a 40 entered under the
+# 0-10 item is a 0-100 mm VAS without its unit, not a 40)
+RANGE: dict[str, tuple[float, float]] = {"ptga10": (0.0, 10.0), "evga": (0.0, 10.0)}
 # components that are counts or scores: no unit, or a UCUM annotation for "a number"; any other unit is wrong.
 # The patient global is a 0-100 mm VAS by definition of the item, so ``mm`` is its only unit.
 UNITLESS = {"", "1", "{count}", "{score}", "{#}", "{joints}"}
@@ -125,6 +157,16 @@ SAME_VISIT: dict[str, tuple[str, dict[str, int]]] = {
     "basdai": ("basdai_q1", {f"basdai_q{i}": 0 for i in range(2, 7)}),
     "asdas": ("basdai_q2", {"basdai_q6": 0, "ptga": 0, "basdai_q3": 0, "crp": 7}),
 }
+
+# the scores whose same-visit windows are read from their catalogue definition (D-189)
+for _score in ("cdai", "sdai", "das28_esr", "das28_crp"):
+    SAME_VISIT[_score] = scores.visit_rule(_score)
+    # the anchor is reported first everywhere, and the definition names exactly the engine's inputs
+    if SAME_VISIT[_score][0] != COMPONENTS[_score][0] or set(SAME_VISIT[_score][1]) != set(COMPONENTS[_score][1:]):
+        raise ValueError(f"the catalogue definition of {_score} does not match its engine inputs")
+
+# row statuses that count as an input (D-190); anything else, a proposed fact first of all, never does
+COUNTS = frozenset({"final", "amended", "corrected", "confirmed", "signed"})
 
 MISSING = "derived_missing_input"
 UNIT = "derived_unit"
@@ -143,7 +185,11 @@ def convert(comp: str, value: float | None, unit: str | None) -> tuple[float | N
     u = norm_unit(unit)
     if comp in UNITS:
         factor = UNITS[comp][1].get(u)
-        return (value * factor, None) if factor is not None else (None, f"{UNIT}:{comp}")
+        if factor is None:
+            return None, f"{UNIT}:{comp}"
+        lo, hi = RANGE.get(comp, (-math.inf, math.inf))
+        v = value * factor
+        return (v, None) if lo <= v <= hi else (None, f"{UNIT}:{comp}")
     allowed = UNIT_OF_SCORE_ITEM.get(comp, UNITLESS)
     return (value, None) if u in allowed else (None, f"{UNIT}:{comp}")
 
@@ -153,7 +199,11 @@ def unit_sql(comp: str, value: str, unit: str) -> str:
     u = f"lower(replace(replace(replace(coalesce({unit}, ''), ' ', ''), 'µ', 'u'), 'μ', 'u'))"
     if comp in UNITS:
         arms = " ".join(f"WHEN '{k}' THEN {value} * {v!r}" for k, v in sorted(UNITS[comp][1].items()))
-        return f"(CASE {u} {arms} ELSE NULL END)"
+        conv = f"(CASE {u} {arms} ELSE NULL END)"
+        if comp not in RANGE:
+            return conv
+        lo, hi = RANGE[comp]
+        return f"(CASE WHEN {conv} BETWEEN {lo!r} AND {hi!r} THEN {conv} ELSE NULL END)"
     allowed = ", ".join(f"'{k}'" for k in sorted(UNIT_OF_SCORE_ITEM.get(comp, UNITLESS)))
     return f"(CASE WHEN {u} IN ({allowed}) THEN {value} ELSE NULL END)"
 
@@ -263,6 +313,7 @@ class Obs:
     unit: str | None
     on: date
     oid: str = ""
+    status: str = "final"  # a proposed fact is "proposed" and never counts (:data:`COUNTS`)
 
 
 @dataclass
@@ -288,7 +339,7 @@ def compute(
 ) -> Derived:
     """The reference engine the SQL templates mirror: pick the visit's components (:data:`SAME_VISIT`), convert their
     units (:data:`UNITS`), compute, or say why not. ``obs`` holds each component's rows inside the window."""
-    rows = {c: list(obs.get(c, ())) for c in COMPONENTS[score]}
+    rows = {c: [o for o in obs.get(c, ()) if o.status in COUNTS] for c in COMPONENTS[score]}
     picked: dict[str, Obs] = {}
     rule = SAME_VISIT.get(score)
     if rule is not None:
@@ -332,6 +383,17 @@ def compute(
                 return Derived(None, f"{MISSING}:esr", picked)
             return Derived(das28_esr(val["tjc28"], val["sjc28"], val["ptga"], val["esr"]), None, picked)
         return Derived(das28_crp(val["tjc28"], val["sjc28"], val["ptga"], val["crp"]), None, picked)
+    if score in ("das28_esr", "das28_crp"):
+        joints = (val["tjc28"], val["sjc28"], val["ptga"])
+        if score == "das28_crp":
+            return Derived(das28_crp(*joints, val["crp"]), None, picked)
+        if val["esr"] <= 0:  # ln(0): the catalogue's zero rule is "no value"
+            return Derived(None, f"{MISSING}:esr", picked)
+        return Derived(das28_esr(*joints, val["esr"]), None, picked)
+    if score == "cdai":
+        return Derived(cdai(val["tjc28"], val["sjc28"], val["ptga10"], val["evga"]), None, picked)
+    if score == "sdai":  # CRP in mg/dL: the unit table gives mg/L
+        return Derived(sdai(val["tjc28"], val["sjc28"], val["ptga10"], val["evga"], val["crp"] / 10.0), None, picked)
     if score == "basdai":
         return Derived(basdai(*(val[f"basdai_q{i}"] for i in range(1, 7))), None, picked)
     if score == "asdas":
