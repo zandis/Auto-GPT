@@ -294,7 +294,9 @@ with the weights is kept, so boot to serving is about 10–15 minutes).
 | N-12 on the deployed files (done 2026-11-08) | `tools/trec_ct_eval.py` against the VM | 0.85 h, US$2.30 |
 | the complete-platform run (step 9) | `deploy/gcp/complete-run.sh` | see D-139 |
 
-`deploy/gcp/complete-run.sh` puts the PRO 6000 startup script on the VM, starts it, waits for `PRO6000-RUN-READY`,
-fetches the live serving record, runs `tools/complete_run.py --model pair --patients 50000` from this checkout
-against `http://<vm>/judge/v1` and `/verifier/v1`, then stops the VM, checks `TERMINATED` and puts the usual startup
-script back. The API key is made fresh for the run, kept in instance metadata and in a 0600 file, never printed.
+`deploy/gcp/complete-run.sh` makes the synthetic hospital first, then puts the PRO 6000 startup script on the VM,
+starts it, waits for `PRO6000-RUN-READY`, fetches the live serving record and runs `tools/complete_run.py --model pair
+--patients 50000` from this checkout against `http://<vm>/judge/v1` and `/verifier/v1`. When the last model part is
+done it stops the VM (backup, update and the cascade at scale need no card), checks `TERMINATED` and puts the usual
+startup script back; it does the same on any failure. `deploy/gcp/complete-run.sh --stop` does it by hand. The API key
+is made fresh for the run, kept in instance metadata and in a 0600 file, never printed.

@@ -412,6 +412,7 @@ PARTS = {
     "scale": part_scale,
 }
 NO_CONSOLE = ("prepare", "install", "backup", "update", "scale")
+MODEL_PARTS = ("hospital", "public")  # the parts the pair serves; backup, update and scale run on the stub
 
 
 def run_part(a: argparse.Namespace) -> int:
@@ -485,6 +486,11 @@ def run_all(a: argparse.Namespace) -> int:
         rows.append(res)
         bad = sum(1 for st in res["stages"] for c in st["checks"] if not c[1])
         print(f"      {'PASS' if bad == 0 else 'FAIL'} in {res['seconds_total']} s", flush=True)
+        last_model_part = not any(p in MODEL_PARTS for p, _ in todo[i + 1 :])
+        if a.after_models and part in MODEL_PARTS and last_model_part:
+            # the paid card is no longer needed: the wrapper stops the VM while backup, update and scale run here
+            print(f"      after the model parts: {a.after_models}", flush=True)
+            subprocess.run(a.after_models, shell=True, cwd=ROOT, check=False)  # the operator's own command
     rep: dict[str, Any] = {
         "schema": "tb-complete-run/1",
         "git": head,
@@ -568,6 +574,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--langs", nargs="+", default=list(LANGS), choices=["ja", "zh-TW", "en"])
     ap.add_argument("--skip", nargs="*", default=[], choices=sorted(set(PARTS) - {"prepare"}))
     ap.add_argument("--no-walk", dest="walk", action="store_false")
+    ap.add_argument("--after-models", default="", help="a command to run once the model parts are done (stop the VM)")
     a = ap.parse_args(argv)
     if a.model == "pair" and not (a.judge_url and a.verifier_url and os.environ.get("TB_GPU_KEY")):
         ap.error("--model pair needs --judge-url, --verifier-url and TB_GPU_KEY in the environment")
