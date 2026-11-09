@@ -23,6 +23,17 @@ These decisions govern the OMOP, profile and vector work. They will be entered a
 | Monitors (CRA) | SDV access to enrolled subjects only, limited to the cited record items. |
 | Break-glass | The user gives a reason and a second person on the steward/admin rota confirms. Time-limited and audited. |
 
+## Whole-hospital screening, sub-investigators and referral
+
+The aim of a study is to screen the **entire database** for potential patients. Candidates may belong to a sub-PI or to another treating physician, so the PI needs to see them, choose whom to include, and ask for a referral.
+
+| Topic | Decision |
+|---|---|
+| Sub-investigators (sub-PI) | Rights come by delegation. The PI adds sub-PIs to the study's delegation log (ICH E6 style) and ticks the tasks each may do: screen and see candidates, mark Approach, request referrals, enter data. Only the PI approves criteria and signs off. Every action records who did it. |
+| Candidate view | The PI and delegated sub-PIs see **everything needed to decide** about any candidate the study's screen finds anywhere in the hospital: identifiers, the cited record and profile, and why the candidate fits or doesn't. Each view is logged with the study and purpose, and is rate-limited. |
+| Referral | The treating physician is asked first. The PI or sub-PI sends a referral request in TrialBox. The treating physician gets it on the console and by mail, sees why the patient may fit, and answers: *agree to introduce*, *decline with a reason*, or *discuss*. The PI contacts the patient only after agreement. Each step is logged and counted in the screening log. |
+| Referral target | TrialBox suggests the attending physician of the latest relevant visit, taken from the hospital data, and lists the other recent ones. The PI picks one. If no physician is known, the request goes to the department contact person set by the steward. |
+
 ## Data model
 
 | Topic | Decision |
