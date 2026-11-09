@@ -11,7 +11,8 @@
   <dt>{{ t('admin.attrib.source') }}</dt><dd><span class="mono">{{ s.url }}</span></dd>
   <dt>{{ t('admin.attrib.downloaded') }}</dt><dd>{{ (s.downloaded_at or '')[:10] }} · {{ num(s.records) }}</dd>
   {% if s.version %}<dt>{{ t('admin.attrib.version') }}</dt><dd data-testid="version-{{ s.id }}">{{ s.version }}</dd>{% endif %}
-  {% if s.download_sha256 %}<dt>{{ t('admin.attrib.sha256') }}</dt><dd><span class="mono wrap" data-testid="sha256-{{ s.id }}">{{ s.download_sha256 }}</span></dd>{% endif %}
+  {% if s.parts %}{% for p in s.parts %}<dt>{{ t('admin.attrib.sha256') }}</dt><dd>{{ p.file }} <span class="mono wrap" data-testid="sha256-{{ s.id }}-{{ loop.index }}">{{ p.sha256 }}</span></dd>{% endfor %}
+  {% elif s.download_sha256 %}<dt>{{ t('admin.attrib.sha256') }}</dt><dd><span class="mono wrap" data-testid="sha256-{{ s.id }}">{{ s.download_sha256 }}</span></dd>{% endif %}
   <dt>{{ t('admin.attrib.licence') }}</dt><dd>{{ s.licence }}{% if s.licence_url %} <span class="mono">({{ s.licence_url }})</span>{% endif %}</dd>
   <dt>{{ t('admin.attrib.terms') }}</dt><dd>{{ s.terms }}</dd>
   <dt>{{ t('admin.attrib.attribution') }}</dt><dd data-testid="attribution-{{ s.id }}">{{ s.attribution }}</dd>

@@ -828,12 +828,14 @@ def _stage14(work: Path, box: Any) -> Stage:
         drug = sm.suggest("medication", sm.local_system("drug-code"), "B004858100")
         lab = sm.suggest("observation", sm.local_system("lab-code"), "09015C")
         dx = sm.suggest("condition", sm.local_system("dx-code"), "P83.8")
-        hd = Terminology(name_synonyms=rd.synonym_lookup()).map("condition", "類風濕關節炎")
-    s.check("D-170/171: NHI drug -> ATC, NHI lab -> LOINC and TW 2014 -> 2023 ICD suggested offline",
-            (drug.get("code"), lab.get("code"), dx.get("code")) == ("N05AF01", "2160-0", "P83.88"),
+        ra = Terminology(name_synonyms=rd.synonym_lookup()).map("condition", "類風濕關節炎")
+    dx_want = "P83.88" if sm.site_country() == "TW" else "P83.8"  # the 2014 -> 2023 step runs at Taiwan sites only
+    s.check("D-170/171: NHI drug -> ATC, NHI lab -> LOINC and (Taiwan) TW 2014 -> 2023 ICD suggested offline",
+            (drug.get("code"), lab.get("code"), dx.get("code")) == ("N05AF01", "2160-0", dx_want),
             (drug, lab, dx))  # fmt: skip
-    s.check("D-172: a zh-TW word maps through the curated synonym dictionary, no review",
-            hd.method == "synonym" and not hd.needs_review and bool(hd.concepts), hd.notes)  # fmt: skip
+    s.check("D-172: 類風濕關節炎 maps to rheumatoid arthritis through the curated synonym dictionary, no review",
+            ra.method == "synonym" and not ra.needs_review and bool(ra.concepts)
+            and "tw_zh_synonyms" in " ".join(ra.notes), ra.notes)  # fmt: skip
     s.seconds = time.perf_counter() - t
     return s
 

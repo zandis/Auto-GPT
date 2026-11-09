@@ -10,7 +10,8 @@ every code in the families, so a valid code is never outside the list for want o
 the LLM candidates still read the curated ``icd10cm_tw`` only, so a grouper name is never shadowed by a header row.
 
 Steps: exact display-name match -> synonym table (exact codes or code-prefix groups expanded against the tables) ->
-the loaded synonym dictionary (D-172: zh-TW words and note abbreviations -> the names above; ``name_synonyms``) ->
+the loaded synonym dictionary's curated entries (D-172; ``name_synonyms``) -> the model's synonyms -> the
+dictionary's other entries (public translations, ambiguous abbreviations: method ``dictionary``, reviewed) ->
 LLM ``concept_map`` over the top-20 lexical candidates, always flagged ``needs_review``. Output ValueSets carry only
 ``compose.include[].concept[]`` (no implicit expansions).
 """
@@ -83,7 +84,7 @@ class MappingResult:
     name: str
     domain: str
     concepts: list[Concept]
-    method: str  # exact | synonym | llm | none
+    method: str  # exact | synonym | dictionary (D-172, always reviewed) | llm | none
     needs_review: bool
     notes: list[str] = field(default_factory=list)
     families: list[tuple[str, str]] = field(default_factory=list)  # (system, code prefix) of prefix groupers
@@ -197,20 +198,13 @@ class Terminology:
         hits, fams = grouped([primary])
         if hits:
             return MappingResult(name, domain, _dedupe(hits), "synonym", False, families=sorted(fams))
-        # 2a. the loaded synonym dictionary (D-172): 洗腎 -> hemodialysis, HTN -> hypertension, then steps 2 and 1 on
-        #     those names. Only curated entries are trusted; a public dictionary's translation is flagged for review.
-        via = self._dictionary(name, domain, primary)
-        if via:
-            canon = sorted({norm(e["canonical"]) for e in via})
-            hits, fams = grouped(canon)
-            if not hits:
-                hits, fams = exact(canon), set()
-            if hits:
-                curated = all(e.get("curated") for e in via)
-                srcs = ", ".join(sorted({str(e.get("source_id") or "") for e in via}))
-                return MappingResult(name, domain, _dedupe(hits), "synonym", not curated,
-                                     [f"via synonym dictionary ({srcs}): {', '.join(canon)}"],
-                                     families=sorted(fams))  # fmt: skip
+        # 2a. the loaded synonym dictionary (D-172), trusted entries only: TrialBox's curated rows that are not
+        #     ambiguous (類風濕關節炎 -> rheumatoid arthritis, GPT -> alt), then the curated table and the exact names
+        #     on their canonical names. Such a match is a curated synonym: no review.
+        trusted, other = self._dictionary(name, domain, primary)
+        found = self._via(name, domain, trusted, grouped, exact, "synonym", False)
+        if found is not None:
+            return found
         # 2 (cont.). the curated table on the model's synonyms
         hits, fams = grouped(names)
         if hits:
@@ -219,6 +213,11 @@ class Terminology:
         hits = exact(names[1:])
         if hits:
             return MappingResult(name, domain, _dedupe(hits), "exact", True, ["matched via model synonyms"])
+        # 2c. the rest of the dictionary (a public dictionary's translations, ambiguous abbreviations): only after
+        #     everything above, with its own method, always for review (one English term has several senses)
+        found = self._via(name, domain, other, grouped, exact, "dictionary", True)
+        if found is not None:
+            return found
         # 3. LLM-proposed candidates (always needs_review)
         cands = self.candidates(domain, names, 20)
         if llm is not None and cands:
@@ -228,17 +227,39 @@ class Terminology:
                 return MappingResult(name, domain, _dedupe(chosen), "llm", True, [f"LLM-proposed (review={review})"])
         return MappingResult(name, domain, [], "none", True, ["no mapping found"])
 
-    def _dictionary(self, name: str, domain: str, primary: str) -> list[dict[str, Any]]:
-        """The dictionary's entries for the name, curated ones only when there are any (a curated entry is the
-        meaning the team chose; a public dictionary may list other senses). Never raises."""
+    def _dictionary(self, name: str, domain: str, primary: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """The dictionary's entries for the name: (trusted, other). Trusted = curated by the TrialBox team and not
+        marked ambiguous (``curated``); other = public dictionaries and ambiguous rows. Never raises."""
         if self.name_synonyms is None:
-            return []
+            return [], []
         try:
             got = [e for e in self.name_synonyms(name, domain) if norm(str(e.get("canonical") or "")) != primary]
         except Exception:
-            return []
-        curated = [e for e in got if e.get("curated")]
-        return curated or got
+            return [], []
+        return [e for e in got if e.get("curated")], [e for e in got if not e.get("curated")]
+
+    @staticmethod
+    def _via(
+        name: str,
+        domain: str,
+        entries: list[dict[str, Any]],
+        grouped: Callable[[list[str]], tuple[list[Concept], set[tuple[str, str]]]],
+        exact: Callable[[list[str]], list[Concept]],
+        method: str,
+        review: bool,
+    ) -> MappingResult | None:
+        """The curated table, then the exact names, on the entries' canonical names; None when nothing resolves."""
+        if not entries:
+            return None
+        canon = sorted({norm(str(e["canonical"])) for e in entries})
+        hits, fams = grouped(canon)
+        if not hits:
+            hits, fams = exact(canon), set()
+        if not hits:
+            return None
+        srcs = ", ".join(sorted({str(e.get("source_id") or "") for e in entries}))
+        note = f"via synonym dictionary ({srcs}): {', '.join(canon)}"
+        return MappingResult(name, domain, _dedupe(hits), method, review, [note], families=sorted(fams))
 
     def candidates(self, domain: str, names: list[str], k: int) -> list[Concept]:
         def toks(s: str) -> set[str]:

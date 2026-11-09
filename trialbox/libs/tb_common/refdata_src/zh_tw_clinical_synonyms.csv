@@ -1,63 +1,43 @@
-term,lang,canonical,canonical_lang,domain,note
-痛風性關節炎,zh-TW,gouty arthritis,en,condition,
-高尿酸血症,zh-TW,hyperuricemia,en,condition,
-類風濕關節炎,zh-TW,rheumatoid arthritis,en,condition,without 性
-RA,en,rheumatoid arthritis,en,condition,abbreviation in TW physician notes
-第2型糖尿病,zh-TW,type 2 diabetes mellitus,en,condition,Arabic numeral form
-二型糖尿病,zh-TW,type 2 diabetes mellitus,en,condition,
-T2DM,en,type 2 diabetes mellitus,en,condition,abbreviation
-第1型糖尿病,zh-TW,type 1 diabetes mellitus,en,condition,Arabic numeral form
-一型糖尿病,zh-TW,type 1 diabetes mellitus,en,condition,
-T1DM,en,type 1 diabetes mellitus,en,condition,abbreviation
-糖尿病,zh-TW,diabetes mellitus,en,condition,type not stated
-DM,en,diabetes mellitus,en,condition,abbreviation; type not stated
-心衰竭,zh-TW,heart failure,en,condition,
-心臟衰竭,zh-TW,heart failure,en,condition,
-心肌梗塞,zh-TW,myocardial infarction,en,condition,
-MI,en,myocardial infarction,en,condition,abbreviation
-中風,zh-TW,stroke,en,condition,
-腦中風,zh-TW,stroke,en,condition,
-CVA,en,stroke,en,condition,cerebrovascular accident
-胰臟炎,zh-TW,pancreatitis,en,condition,
-胰腺炎,zh-TW,pancreatitis,en,condition,
-慢性B型肝炎,zh-TW,chronic hepatitis b,en,condition,
-慢性B肝,zh-TW,chronic hepatitis b,en,condition,colloquial
-活動性結核病,zh-TW,active tuberculosis,en,condition,
-懷孕,zh-TW,pregnancy,en,condition,
-妊娠,zh-TW,pregnancy,en,condition,
-非小細胞肺癌,zh-TW,non-small cell lung cancer,en,condition,
-NSCLC,en,non-small cell lung cancer,en,condition,abbreviation
-甲狀腺髓質癌,zh-TW,medullary thyroid carcinoma,en,condition,
-惡性腫瘤,zh-TW,malignancy,en,condition,
-高血壓,zh-TW,hypertension,en,condition,
-HTN,en,hypertension,en,condition,abbreviation
-慢性腎臟病,zh-TW,chronic kidney disease,en,condition,
-CKD,en,chronic kidney disease,en,condition,abbreviation
-末期腎臟病,zh-TW,end stage renal disease,en,condition,
-ESRD,en,end stage renal disease,en,condition,abbreviation
-冠狀動脈疾病,zh-TW,coronary artery disease,en,condition,
-冠心病,zh-TW,coronary artery disease,en,condition,colloquial
-CAD,en,coronary artery disease,en,condition,abbreviation
-慢性阻塞性肺病,zh-TW,chronic obstructive pulmonary disease,en,condition,
-COPD,en,chronic obstructive pulmonary disease,en,condition,abbreviation
-心房顫動,zh-TW,atrial fibrillation,en,condition,
-高血脂症,zh-TW,hyperlipidemia,en,condition,
-血清尿酸,zh-TW,serum urate,en,observation,
-糖化血色素,zh-TW,hba1c,en,observation,
-醣化血色素,zh-TW,hba1c,en,observation,variant character
-GPT,en,alt,en,observation,TW usage: GPT = ALT
-SGPT,en,alt,en,observation,TW usage: SGPT = ALT
-收縮壓,zh-TW,systolic blood pressure,en,observation,
-B肝表面抗原,zh-TW,hbsag,en,observation,
-驗孕,zh-TW,pregnancy test,en,observation,
-肌酸酐,zh-TW,creatinine,en,observation,
-秋水仙素,zh-TW,colchicine,en,medication,
-降尿酸藥物,zh-TW,urate-lowering therapy,en,medication,
-胺甲葉酸,zh-TW,methotrexate,en,medication,TW generic name
-MTX,en,methotrexate,en,medication,abbreviation
-洗腎,zh-TW,hemodialysis,en,procedure,colloquial
-血液透析,zh-TW,hemodialysis,en,procedure,
-腹膜透析,zh-TW,peritoneal dialysis,en,procedure,
-減重手術,zh-TW,bariatric surgery,en,procedure,
-胸部X光,zh-TW,chest x-ray,en,report,
-CXR,en,chest x-ray,en,report,abbreviation
+term,lang,canonical,canonical_lang,domain,review,note
+痛風性關節炎,zh-TW,gouty arthritis,en,condition,,
+類風濕關節炎,zh-TW,rheumatoid arthritis,en,condition,,without 性
+RA,en,rheumatoid arthritis,en,condition,yes,abbreviation in TW physician notes; ambiguous: also refractory anaemia
+第2型糖尿病,zh-TW,type 2 diabetes mellitus,en,condition,,Arabic numeral form
+二型糖尿病,zh-TW,type 2 diabetes mellitus,en,condition,,
+T2DM,en,type 2 diabetes mellitus,en,condition,,abbreviation
+第1型糖尿病,zh-TW,type 1 diabetes mellitus,en,condition,,Arabic numeral form
+一型糖尿病,zh-TW,type 1 diabetes mellitus,en,condition,,
+T1DM,en,type 1 diabetes mellitus,en,condition,,abbreviation
+心衰竭,zh-TW,heart failure,en,condition,,
+心臟衰竭,zh-TW,heart failure,en,condition,,
+心肌梗塞,zh-TW,myocardial infarction,en,condition,,
+MI,en,myocardial infarction,en,condition,yes,abbreviation; ambiguous: also mitral insufficiency
+中風,zh-TW,stroke,en,condition,,
+腦中風,zh-TW,stroke,en,condition,,
+CVA,en,stroke,en,condition,yes,cerebrovascular accident; ambiguous: also costovertebral angle
+胰臟炎,zh-TW,pancreatitis,en,condition,,
+胰腺炎,zh-TW,pancreatitis,en,condition,,
+慢性B型肝炎,zh-TW,chronic hepatitis b,en,condition,,
+慢性B肝,zh-TW,chronic hepatitis b,en,condition,,colloquial
+活動性結核病,zh-TW,active tuberculosis,en,condition,,
+懷孕,zh-TW,pregnancy,en,condition,,
+妊娠,zh-TW,pregnancy,en,condition,,
+非小細胞肺癌,zh-TW,non-small cell lung cancer,en,condition,,
+NSCLC,en,non-small cell lung cancer,en,condition,,abbreviation
+甲狀腺髓質癌,zh-TW,medullary thyroid carcinoma,en,condition,,
+惡性腫瘤,zh-TW,malignancy,en,condition,,
+血清尿酸,zh-TW,serum urate,en,observation,,
+糖化血色素,zh-TW,hba1c,en,observation,,
+醣化血色素,zh-TW,hba1c,en,observation,,variant character
+GPT,en,alt,en,observation,yes,TW usage: GPT = ALT; short form: review
+SGPT,en,alt,en,observation,,TW usage: SGPT = ALT
+收縮壓,zh-TW,systolic blood pressure,en,observation,,
+B肝表面抗原,zh-TW,hbsag,en,observation,,
+驗孕,zh-TW,pregnancy test,en,observation,,
+秋水仙素,zh-TW,colchicine,en,medication,,
+降尿酸藥物,zh-TW,urate-lowering therapy,en,medication,,
+胺甲葉酸,zh-TW,methotrexate,en,medication,,TW generic name
+MTX,en,methotrexate,en,medication,yes,abbreviation; short form: review
+減重手術,zh-TW,bariatric surgery,en,procedure,,
+胸部X光,zh-TW,chest x-ray,en,report,,
+CXR,en,chest x-ray,en,report,,abbreviation

@@ -46,7 +46,10 @@ def test_the_tile_and_the_sources_page(box: dict[str, Any], db_url: str, tmp_pat
     # D-170: every item shows its version and the sha256 of its download; the Taiwan maps and synonyms are listed
     for s in m["sources"]:
         assert f'data-testid="version-{s["id"]}">{s["version"]}<' in notice
-        assert f'data-testid="sha256-{s["id"]}">{s["download_sha256"]}<' in notice
+        if len(s["parts"]) > 1:  # a download of several files: each part's own sha256 (D-170, review H3)
+            assert all(f'-{i}">{p["sha256"]}<' in notice for i, p in enumerate(s["parts"], start=1))
+        else:
+            assert f'data-testid="sha256-{s["id"]}">{s["download_sha256"]}<' in notice
     assert "CC0 1.0" in notice and "國家教育研究院" in notice and "tw.gov.mohw.nhi.pas 1.3.0" in notice
     viewer, _ = login(box["app"], "viewer", VIEWER_PW)
     assert viewer.get("/admin/notice").status_code == 403

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 from criteria_compiler.terminology.mapper import Terminology
@@ -57,8 +58,12 @@ def test_the_pack_records_version_and_sha256_and_notice_lists_them(sample_tar: P
         s = src[sid]
         assert s["version"] and len(s["download_sha256"]) == 64 and s["country"] == "TW" and s["records"] > 0
         assert f"* Version: {s['version']}" in notice and s["download_sha256"] in notice
-    assert src["nhi_lab_loinc"]["version"] == "tw.gov.mohw.nhi.pas 1.3.0, ConceptMap nhi-loinc 1.3.0"
-    assert src["tw_zh_synonyms"]["version"].startswith("TrialBox zh-TW synonyms, 62 entries")
+    assert src["nhi_lab_loinc"]["version"] == "tw.gov.mohw.nhi.pas 1.3.0, ConceptMap nhi-loinc 1.3.0, LOINC 2.77"
+    assert src["tw_zh_synonyms"]["version"].startswith("TrialBox zh-TW synonyms, 42 entries")
+    icd = src["tw_icd_2014_2023"]  # two files: each part with its own sha256, listed in NOTICE
+    assert [p["file"] for p in icd["parts"]] == ["tw_icd_2014_2023_cm.csv", "tw_icd_2014_2023_pcs.csv"]
+    assert all(p["sha256"] in notice for p in icd["parts"]) and "over the parts' sha256s" in notice
+    assert src["nhi_lab_loinc"]["parts"][0]["sha256"] == src["nhi_lab_loinc"]["download_sha256"]
 
 
 def test_a_map_or_synonym_source_without_a_version_is_refused(sample_tar: Path, tmp_path: Path) -> None:
@@ -82,15 +87,88 @@ def test_fetch_is_the_only_network_path_and_a_derived_item_fetches_its_parent(mo
         return {"url": url, "downloaded_at": "2026-11-09T00:00:00+00:00", "sha256": "0" * 64, "bytes": 1}
 
     monkeypatch.setattr(rf, "download", fake_download)
-    monkeypatch.setattr(rf, "dataset_version", lambda url: f"v:{url.rsplit('/', 1)[-1]}")
+    monkeypatch.setattr(rf, "dataset_meta", lambda url: {"version": f"v:{url.rsplit('/', 1)[-1]}", "license": "1"})
     rf.fetch(["nhi_drug_atc", "tw_icd_2014_2023", "tw_zh_synonyms"], tmp_path)
     assert calls == [rf.BY_ID["nhi_drugs"].url, rf.BY_ID["tw_icd_2014_2023"].url,
                      rf.BY_ID["tw_icd_2014_2023"].extra_files[0][1]]  # fmt: skip
     nhi = json.loads((tmp_path / "nhi_drugs/fetch.json").read_text())
     assert nhi["versions"] == {"nhi_drug_atc": "v:23715"}
     icd = json.loads((tmp_path / "tw_icd_2014_2023/fetch.json").read_text())
-    assert icd["version"] == "v:177508" and len(icd["parts"]) == 2  # sha256 over both files
+    assert icd["version"] == "v:177508" and [p["path"] for p in icd["parts"]] == [
+        "tw_icd_2014_2023_cm.csv", "tw_icd_2014_2023_pcs.csv"]  # fmt: skip
+    assert icd["licence_check"]["license"] == "1"  # the licence field read at fetch time, kept as evidence
     assert (tmp_path / "tw_zh_synonyms/zh_tw_clinical_synonyms.csv").read_bytes() == tw.REPO_SYNONYMS.read_bytes()
+
+
+def test_fetch_refuses_a_changed_licence_or_a_pinned_file_that_changed(monkeypatch: pytest.MonkeyPatch,
+                                                                         tmp_path: Path) -> None:  # fmt: skip
+    def fake_download(url: str, dest: Path, **_: object) -> dict[str, object]:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"x")
+        return {"url": url, "downloaded_at": "2026-11-09T00:00:00+00:00", "sha256": "0" * 64, "bytes": 1}
+
+    monkeypatch.setattr(rf, "download", fake_download)
+    monkeypatch.setattr(rf, "dataset_meta", lambda url: {"version": "v", "license": "2"})
+    with pytest.raises(SystemExit, match="licence '2'"):
+        rf.fetch(["naer_medical_terms"], tmp_path)
+    with pytest.raises(SystemExit, match="pinned to sha256"):
+        rf.fetch(["nhi_lab_loinc"], tmp_path)  # the 1.3.0 package's sha256 is pinned
+
+
+# ------------------------------------------------------------------------------------------------ build checks
+def test_build_rehashes_every_part_and_requires_the_pcs_file(tmp_path: Path) -> None:
+    raw = rf.sample_raw(tmp_path / "raw")
+    cm = raw / "tw_icd_2014_2023" / "tw_icd_2014_2023_cm.csv"
+    good = cm.read_bytes()
+    cm.write_bytes(good.replace(b"A04.71", b"A04.79"))
+    with pytest.raises(SystemExit, match="changed after the fetch"):
+        rf.build(raw, tmp_path / "o1", "20261109", ids=["tw_icd_2014_2023"], sample=True)
+    cm.write_bytes(good)
+    (raw / "tw_icd_2014_2023" / "tw_icd_2014_2023_pcs.csv").unlink()
+    with pytest.raises(SystemExit, match="tw_icd_2014_2023_pcs.csv is missing"):
+        rf.build(raw, tmp_path / "o2", "20261109", ids=["tw_icd_2014_2023"], sample=True)
+    with pytest.raises(ValueError, match="missing beside"):
+        list(tw.parse_tw_icd_2014_2023(cm))
+    # a vendor build (not a sample) checks the pinned sha256 of the PAS package
+    with pytest.raises(SystemExit, match="pinned to sha256"):
+        rf.build(raw, tmp_path / "o3", "20261109", ids=["nhi_lab_loinc"])
+
+
+def test_build_refuses_zero_records_and_a_changed_shape(tmp_path: Path) -> None:
+    raw = rf.sample_raw(tmp_path / "raw")
+    f = raw / "naer_medical_terms" / "naer_medical_terms.csv"
+    f.write_text("序號,English,Chinese\n1,gout,痛風\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="columns 英文名稱, 中文名稱 are missing"):
+        list(tw.parse_naer_terms(f))
+    for bad in ("", "藥品代號,X\n"):
+        f.write_text(bad, encoding="utf-8")
+        with pytest.raises(ValueError):
+            list(tw.parse_nhi_drug_atc(f))
+    with pytest.raises(ValueError, match="no rows"):
+        list(tw.icd_map_rows(b"", pcs=False))
+    # a parser that yields nothing (every drug without an ATC code) is refused at build
+    nhi = raw / "nhi_drugs" / "nhi_drugs_sample.csv"
+    nhi.write_bytes(nhi.read_bytes().replace(b"N05AF01", b""))
+    meta = json.loads((raw / "nhi_drugs" / "fetch.json").read_text())
+    meta["sha256"] = rd.sha256_file(nhi)
+    (raw / "nhi_drugs" / "fetch.json").write_text(json.dumps(meta))
+    with pytest.raises(SystemExit, match="0 records"):
+        rf.build(raw, tmp_path / "o", "20261109", ids=["nhi_drug_atc"], sample=True)
+
+
+def test_a_bad_relation_fails_at_verify_not_at_the_hospital(sample_tar: Path, tmp_path: Path) -> None:
+    with rd.opened(sample_tar) as p:
+        pack = Path(shutil.copytree(p, tmp_path / p.name))
+    rel = "nhi_lab_loinc/map.jsonl.gz"
+    recs = list(rd.rows(pack, rel))
+    recs[0]["relation"] = "related-to"  # an R5 value the box's load refuses
+    n = rd.write_jsonl_gz(pack / rel, recs)
+    m = json.loads((pack / "manifest.json").read_text(encoding="utf-8"))
+    src = next(s for s in m["sources"] if s["id"] == "nhi_lab_loinc")
+    src["files"] = [rd.file_entry(pack, rel, n)]
+    (pack / "manifest.json").write_text(json.dumps(m), encoding="utf-8")
+    with pytest.raises(rd.PackError, match="relation 'related-to'"):
+        rd.verify(pack)
 
 
 # ------------------------------------------------------------------------------------------------ the parsers
@@ -127,7 +205,7 @@ def test_icd_2014_2023_relations(tmp_path: Path) -> None:
     a047 = next(r for r in rows if r["source_code"] == "A04.7")
     assert a047["extra"]["status_2014"] == "2014代碼改為不可用" and a047["extra"]["target_zh"].startswith("艱難梭菌")
     assert any(r["source_system"] == tw.ICD_PCS_2014 for r in rows)  # the PCS file beside it
-    with pytest.raises(ValueError, match="not an NHIA"):
+    with pytest.raises(ValueError, match="the source changed shape"):
         list(tw.icd_map_rows(b"a,b\n1,2\n", pcs=False))
 
 
@@ -136,6 +214,7 @@ def test_nhi_lab_loinc_reads_the_cc0_conceptmap_and_refuses_another_licence(tmp_
     creat = sorted(r["target_code"] for r in rows if r["source_code"] == "09015C")
     assert "2160-0" in creat and len(creat) > 1 and {r["relation"] for r in rows} == {"relatedto"}
     assert all(r["source_system"] == tw.NHI_SERVICE and r["target_display"] == "" for r in rows)  # codes only
+    assert rows[0]["extra"]["loinc_version"] == "2.77"
     bad = Path(shutil.copytree(SAMPLES / "nhi_pas_sample", tmp_path / "pkg"))
     pkg = json.loads((bad / "package.json").read_text(encoding="utf-8"))
     (bad / "package.json").write_text(json.dumps(pkg | {"license": "CC-BY-NC-4.0"}), encoding="utf-8")
@@ -143,13 +222,42 @@ def test_nhi_lab_loinc_reads_the_cc0_conceptmap_and_refuses_another_licence(tmp_
         list(tw.parse_nhi_lab_loinc(bad))
 
 
+def _pas_with_target(tmp_path: Path, target: dict[str, str]) -> Path:
+    pkg = Path(shutil.copytree(SAMPLES / "nhi_pas_sample", tmp_path / "pkg5"))
+    cm = json.loads((pkg / "ConceptMap-nhi-loinc.json").read_text(encoding="utf-8"))
+    cm["group"][0]["element"] = [{"code": "09015C", "display": "肌酸酐、血", "target": [target]}]
+    (pkg / "ConceptMap-nhi-loinc.json").write_text(json.dumps(cm), encoding="utf-8")
+    return pkg
+
+
+def test_a_later_ig_with_r5_relationships_and_loinc_names(tmp_path: Path) -> None:
+    pkg = _pas_with_target(tmp_path, {"code": "2160-0", "display": "Creatinine [Mass/volume] in Serum or Plasma",
+                                      "relationship": "related-to"})  # fmt: skip
+    (row,) = tw.parse_nhi_lab_loinc(pkg)
+    assert row["relation"] == "relatedto" and row["target_display"] == ""  # R5 -> R4; never a LOINC name
+    pkg = _pas_with_target(tmp_path / "b", {"code": "2160-0", "relationship": "made-up"})
+    with pytest.raises(ValueError, match="unknown relation"):
+        list(tw.parse_nhi_lab_loinc(pkg))
+    pkg = _pas_with_target(tmp_path / "c", {"display": "no code"})
+    with pytest.raises(ValueError, match="without a code"):
+        list(tw.parse_nhi_lab_loinc(pkg))
+
+
 def test_synonyms_naer_split_and_curated_flag() -> None:
     naer = list(tw.parse_naer_terms(SAMPLES / "naer_medical_terms_sample.csv"))
     stroke = sorted(r["term"] for r in naer if r["canonical"] == "stroke")
     assert stroke == ["中風", "猝發", "發作"] and not any(r["curated"] for r in naer)
     own = list(tw.parse_zh_tw_synonyms(tw.REPO_SYNONYMS))
-    assert len(own) == 62 and all(r["curated"] for r in own)
-    assert {(r["term"], r["canonical"]) for r in own} >= {("洗腎", "hemodialysis"), ("HTN", "hypertension")}
+    review = {r["term"] for r in own if not r["curated"]}
+    assert len(own) == 42 and review == {"RA", "MI", "CVA", "GPT", "MTX"}  # ambiguous abbreviations: reviewed
+    assert {(r["term"], r["canonical"]) for r in own} >= {("類風濕關節炎", "rheumatoid arthritis"), ("SGPT", "alt")}
+
+
+def test_every_curated_synonym_resolves_in_its_domain() -> None:
+    t = Terminology()
+    dead = [(r["term"], r["canonical"]) for r in tw.parse_zh_tw_synonyms(tw.REPO_SYNONYMS)
+            if t.map(r["domain"], r["canonical"]).method not in ("exact", "synonym")]  # fmt: skip
+    assert dead == []
 
 
 def test_roc_dates() -> None:
@@ -164,14 +272,14 @@ def test_the_store_answers_maps_both_ways_and_synonyms(loaded: str) -> None:
         assert sorted(t["target_code"] for t in st.map_targets(tw.ICD_CM_2014, "A04.7")) == ["A04.71", "A04.72"]
         assert sorted(s["source_code"] for s in st.map_sources(tw.ICD_CM_2023, "B18.1")) == ["B18.1", "Z22.51"]
         assert len(st.map_targets(tw.NHI_SERVICE, "09026C")) > 1
-        hd = st.synonyms(" 洗腎 ", "procedure")
-        assert [(s["canonical"], s["curated"]) for s in hd] == [("hemodialysis", True)]
-        assert st.synonyms("洗腎", "condition") == []  # another domain
-        assert {s["canonical"] for s in st.synonyms("htn")} == {"hypertension"}  # NFKC + case like the matcher
-        assert {s["source_id"] for s in st.synonyms("高血壓")} == {"naer_medical_terms", "tw_zh_synonyms"}
+        bs = st.synonyms(" 減重手術 ", "procedure")
+        assert [(s["canonical"], s["curated"]) for s in bs] == [("bariatric surgery", True)]
+        assert st.synonyms("減重手術", "condition") == []  # another domain
+        assert {s["canonical"] for s in st.synonyms("ｎｓｃｌｃ")} == {"non-small cell lung cancer"}  # NFKC + case
+        assert {s["source_id"] for s in st.synonyms("中風")} == {"naer_medical_terms", "tw_zh_synonyms"}
         status = {s["source_id"]: s for s in (st.status() or {})["sources"]}
         assert (
-            status["nhi_lab_loinc"]["version"].endswith("1.3.0")
+            status["nhi_lab_loinc"]["version"].endswith("LOINC 2.77")
             and len(status["nhi_lab_loinc"]["download_sha256"]) == 64
         )
         notes = {n["id"]: n for n in st.notices()}
@@ -182,12 +290,41 @@ def test_a_2014_code_against_a_2023_list_is_unknown_when_split(loaded: str) -> N
     with rd.RefStore(loaded) as st:
         i10 = st.map_targets(tw.ICD_CM_2014, "I10")
         a047 = st.map_targets(tw.ICD_CM_2014, "A04.7")
+        lab = st.map_targets(tw.NHI_SERVICE, "09015C")
     only_i10 = {(tw.ICD_CM_2023, "I10")}
     all_htn = {(tw.ICD_CM_2023, c) for c in ("I10", "I16.0", "I16.1", "I16.9")}
-    assert rd.in_set_via_map(i10, all_htn) == "yes"
+    assert rd.in_set_via_map(i10, all_htn) == "yes"  # every part of the split is in the list
     assert rd.in_set_via_map(i10, only_i10) == "unknown"  # 2014 I10 may have been a hypertensive crisis
     assert rd.in_set_via_map(a047, only_i10) == "no"
     assert rd.in_set_via_map([], only_i10) == "unknown"  # a code the map does not know never excludes
+    # NHI lab candidates (relatedto) never decide, in or out of the list
+    assert rd.in_set_via_map(lab, {(tw.LOINC, "2160-0")}) == "unknown"
+    assert rd.in_set_via_map(lab, {(tw.LOINC, "0000-0")}) == "unknown"
+
+
+def _t(code: str, relation: str) -> dict[str, str]:
+    return {"target_system": "s", "target_code": code, "relation": relation}
+
+
+@pytest.mark.parametrize(
+    ("rows", "want_in", "want_out"),
+    [
+        ([_t("A", "equivalent")], "yes", "no"),
+        ([_t("A", "equal")], "yes", "no"),
+        ([_t("A", "wider")], "yes", "unknown"),  # out: the wider class missing says nothing about the code
+        ([_t("A", "subsumes")], "yes", "unknown"),
+        ([_t("A", "narrower")], "yes", "no"),  # the only part of the source, in or out
+        ([_t("A", "specializes")], "yes", "no"),
+        ([_t("A", "inexact")], "unknown", "unknown"),
+        ([_t("A", "relatedto")], "unknown", "unknown"),
+        ([_t("A", "unmatched")], "unknown", "unknown"),
+        ([_t("A", "narrower"), _t("B", "narrower")], "unknown", "no"),  # A in, B out: a split half in the list
+        ([_t("A", "equivalent"), _t("B", "unmatched")], "yes", "no"),  # unmatched rows are dropped
+    ],
+)
+def test_in_set_via_map_per_relation(rows: list[dict[str, str]], want_in: str, want_out: str) -> None:
+    assert rd.in_set_via_map(rows, {("s", "A")}) == want_in
+    assert rd.in_set_via_map(rows, {("s", "Z")}) == want_out
 
 
 def test_a_bad_relation_is_refused() -> None:
@@ -206,32 +343,85 @@ def test_the_name_matcher_reads_the_dictionary(loaded: str) -> None:
     ra = with_dict.map("condition", "類風濕關節炎")  # curated: 類風濕關節炎 -> rheumatoid arthritis
     assert ra.method == "synonym" and not ra.needs_review and ra.concepts and "tw_zh_synonyms" in ra.notes[0]
     assert ra.concepts == plain.map("condition", "rheumatoid arthritis").concepts
-    gpt = with_dict.map("observation", "GPT")  # TW usage: GPT = ALT
-    assert gpt.method == "synonym" and {c.code for c in gpt.concepts} == {"1742-6"}
-    # NAER only (not curated): 高尿酸血症 is in our list too, 猝發 only in NAER -> stroke, flagged for review
-    stroke = with_dict.map("condition", "猝發")
-    assert stroke.method == "synonym" and stroke.needs_review
+    sgpt = with_dict.map("observation", "SGPT")  # TW usage: SGPT = ALT
+    assert sgpt.method == "synonym" and not sgpt.needs_review and {c.code for c in sgpt.concepts} == {"1742-6"}
+    # an ambiguous abbreviation (GPT, MI) or a NAER translation (猝發 -> stroke): method dictionary, reviewed
+    for domain, term in (("observation", "GPT"), ("condition", "MI"), ("condition", "猝發")):
+        res = with_dict.map(domain, term)
+        assert res.method == "dictionary" and res.needs_review and res.concepts, term
     assert with_dict.map("condition", "痛風").method in ("exact", "synonym")  # the curated table still wins
 
 
-def test_the_matcher_without_a_database_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_naer_sense_never_pre_empts_the_curated_table_on_the_models_synonym(loaded: str) -> None:
+    with_dict = Terminology(name_synonyms=rd.synonym_lookup(loaded))
+    res = with_dict.map("condition", "發作", synonyms=["gout"])  # NAER: 發作 -> stroke; the model says gout
+    assert res == Terminology().map("condition", "發作", synonyms=["gout"])
+    assert res.method == "synonym" and not res.needs_review and all(c.code.startswith("M1") for c in res.concepts)
+
+
+def test_a_dead_curated_entry_does_not_hide_the_others() -> None:
+    entries = [{"canonical": "no such name", "curated": True, "source_id": "own"},
+               {"canonical": "stroke", "curated": False, "source_id": "naer"}]  # fmt: skip
+
+    def lookup(name: str, domain: str = "") -> list[dict[str, Any]]:
+        return entries
+
+    res = Terminology(name_synonyms=lookup).map("condition", "x")
+    assert res.method == "dictionary" and res.needs_review and res.concepts and "naer" in res.notes[0]
+
+
+def test_the_matcher_without_a_database_is_unchanged(loaded: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert Terminology(name_synonyms=rd.synonym_lookup(loaded)).map("condition", "類風濕關節炎").method == "synonym"
     monkeypatch.delenv("TB_DB_URL", raising=False)
-    t = Terminology(name_synonyms=rd.synonym_lookup())
-    assert t.map("condition", "洗腎").method == Terminology().map("condition", "洗腎").method
+    t = Terminology(name_synonyms=rd.synonym_lookup())  # no database: the same answer as no dictionary at all
+    assert t.map("condition", "類風濕關節炎") == Terminology().map("condition", "類風濕關節炎")
 
 
 # ------------------------------------------------------------------------------------------------ site set-up
-def test_site_setup_suggests_from_the_taiwan_maps(loaded: str) -> None:
+def test_site_setup_suggests_from_the_taiwan_maps(loaded: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sm, "site_country", lambda: "TW")
     drug = sm.suggest("medication", sm.local_system("drug-code"), "B004858100")
-    assert drug["code"] == "N05AF01" and drug["method"] == "refdata"
+    assert drug["code"] == "N05AF01" and drug["method"] == "refdata" and drug["confidence"] == "0.90"
     creat = sm.suggest("observation", sm.local_system("lab-code"), "09015C")  # several targets, one in our table
-    assert creat["code"] == "2160-0" and creat["method"] == "refdata"
+    assert creat["code"] == "2160-0" and creat["method"] == "refdata" and creat["confidence"] == "0.80"
     psa = sm.suggest("observation", sm.local_system("lab-code"), "12198C")  # one target
-    assert psa["code"] == "83113-1"
+    assert psa["code"] == "83113-1" and psa["confidence"] == "0.90"
     moved = sm.suggest("condition", sm.local_system("dx-code"), "P83.8")  # gone in 2023, one new code
     assert moved["code"] == "P83.88" and moved["method"] == "refdata"
     assert sm.suggest("condition", sm.local_system("dx-code"), "A04.7") == {}  # split: the coordinator picks
     assert sm.suggest("condition", sm.local_system("dx-code"), "I10")["method"] == "same"  # still a 2023 code
+
+
+def test_the_2014_step_runs_at_taiwan_sites_only(loaded: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    for country in ("JP", None):
+        monkeypatch.setattr(sm, "site_country", lambda c=country: c)
+        assert sm.suggest("condition", sm.local_system("dx-code"), "P83.8")["method"] == "same"
+        assert sm.suggest("condition", sm.local_system("dx-code"), "A04.7")["method"] == "same"
+
+
+def test_the_method_has_a_label_in_three_languages() -> None:
+    from console.i18n_site import EN, JA, ZH
+
+    assert all(d.get("site.codes.method.refdata") for d in (EN, JA, ZH))
+
+
+def test_a_version_1_refdata_schema_is_migrated(db_url: str, tmp_path: Path) -> None:
+    from tb_common.db import Database
+
+    db = Database.connect(db_url, rd.SCHEMA)
+    db.migrate([rd.DDL])  # a box from before D-170, with a source and a term
+    db.execute("INSERT INTO source (source_id, pack_id, name, kind, distribution, records, url, downloaded_at, "
+               "licence, attribution) VALUES ('old', 'trialbox-refdata-20261101', 'Old', 'term', 'ship', 1, 'u', "
+               "'2026-11-01', 'l', 'a')")  # fmt: skip
+    db.execute("INSERT INTO term (system, code, display, extra, source_id) VALUES ('s', 'c', 'd', '{}', 'old')")
+    db.close()
+    tar = rf.build(rf.sample_raw(tmp_path / "raw"), tmp_path, "20261109", sample=True)
+    with rd.opened(tar) as p, rd.RefStore(db_url) as st:
+        st.load(p)
+        assert st.term("s", "c") == {"system": "s", "code": "c", "display": "d", "extra": {}}
+        old = st.db.fetchdicts("SELECT version, download_sha256 FROM source WHERE source_id = 'old'")
+        assert old == [{"version": "", "download_sha256": ""}]
+        assert st.map_targets(tw.NHI_DRUG, "B004858100")
 
 
 def test_site_setup_without_reference_data_is_unchanged() -> None:

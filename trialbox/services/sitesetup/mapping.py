@@ -199,7 +199,9 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
     """A suggested standard code for one local code: ``{system, code, display, method}`` (``licensed``: the site's
     licensed MEDIS / JLAC10 / YJ release, its standard code or the name it gives; ``lookup``: the shipped table for
     this code; ``same``: the code already is a standard code; ``term``: a known diagnosis name; ``title``: an ICD-10
-    title; ``name``: found by its name) with its ``confidence`` (0..1), or ``{}`` when TrialBox is not sure."""
+    title; ``name``: found by its name; ``refdata``: a map of the reference data pack, D-170 / D-171: NHI drug ->
+    ATC, NHI lab -> LOINC, and at Taiwan sites a 2014 ICD-10-CM code -> its 2023 code) with its ``confidence``
+    (0..1), or ``{}`` when TrialBox is not sure."""
     kind = system.rsplit(":", 1)[-1]
     up = code.strip().upper()
     lic = _licensed(kind, up)
@@ -221,7 +223,7 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
         if up in lk["dx"]:
             icd, name = lk["dx"][up]
             return {"system": ICD10CM, "code": icd, "display": name, "method": "lookup", "confidence": "1.00"}
-        moved = _tw_2014(up)
+        moved = _tw_2014(up) if site_country() == "TW" else None
         if moved is not None:
             return moved
         if _ICD.match(up):
@@ -261,30 +263,51 @@ def _nhi_drug(code: str) -> dict[str, str]:
     atc = {t["target_code"] for t in _refdata(tw.NHI_DRUG, code) if _ATC.match(t["target_code"])}
     if len(atc) != 1:
         return {}
-    return {"system": ATC, "code": atc.pop(), "display": "", "method": "refdata", "confidence": "1.00"}
+    # 0.90, not 1.00: the ATC class is wider than the product (relation ``wider``)
+    return {"system": ATC, "code": atc.pop(), "display": "", "method": "refdata", "confidence": "0.90"}
 
 
 def _nhi_lab(code: str) -> dict[str, str]:
-    """An NHI lab order code -> LOINC from the NHIA ConceptMap. Its targets are candidates (relatedto): one target,
-    or exactly one of them in the curated lab table, is a suggestion; several give none (the coordinator picks)."""
+    """An NHI lab order code -> LOINC from the NHIA ConceptMap. Its targets are candidates (relatedto): one target is
+    a suggestion at 0.90; when there are several, the one that is also in TrialBox's curated lab table is offered at
+    0.80 only (that says what TrialBox knows, not which specimen or method the hospital uses: a person confirms);
+    otherwise none (the coordinator picks)."""
     from tb_common import refdata_tw as tw
 
     rows = _refdata(tw.NHI_SERVICE, code)
     loinc = sorted({t["target_code"] for t in rows if _LOINC.match(t["target_code"])})
+    conf = "0.90"
     if len(loinc) > 1:
-        try:
-            known = {c.code for c in _terminology().expand("loinc", "", "prefix")}
-        except Exception:
-            known = set()
-        loinc = [c for c in loinc if c in known]
+        loinc, conf = [c for c in loinc if c in _known_loinc()], "0.80"
     if len(loinc) != 1:
         return {}
     disp = next((t["source_display"] for t in rows), "")
-    return {"system": LOINC, "code": loinc[0], "display": disp, "method": "refdata", "confidence": "0.90"}
+    return {"system": LOINC, "code": loinc[0], "display": disp, "method": "refdata", "confidence": conf}
+
+
+@lru_cache(maxsize=1)
+def _known_loinc() -> frozenset[str]:
+    try:
+        return frozenset(c.code for c in _terminology().expand("loinc", "", "prefix"))
+    except Exception:
+        return frozenset()
+
+
+def site_country() -> str | None:
+    """``TW``, ``JP`` or None from the site's settings (time zone, else page locale)."""
+    try:
+        from tb_common.config import get_config
+        from tb_common.derived import country_of
+
+        cfg = get_config()
+        return country_of(cfg.env.tz, cfg.settings.site.locale)
+    except Exception:
+        return None
 
 
 def _tw_2014(code: str) -> dict[str, str] | None:
-    """A TW 2014-edition ICD-10-CM code that the 2023 edition no longer has (NHIA map): one 2023 code -> that code;
+    """Taiwan sites only. A TW 2014-edition ICD-10-CM code that the 2023 edition no longer has (NHIA map): one 2023
+    code -> that code;
     several (a split) -> no suggestion, the coordinator picks. None when the code is still a 2023 code (I10 stays
     I10 although I16 was split out of it) or the map does not know it."""
     from tb_common import refdata_tw as tw

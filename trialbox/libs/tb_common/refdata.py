@@ -159,11 +159,23 @@ class Item:
     meta_url: str = ""
     version: str = ""
     version_of: Callable[[Path], str] | None = None
+    sha256: str = ""  # the expected sha256 of a version-pinned URL: fetch and build refuse another file
 
 
 def norm_name(text: str) -> str:
     """The matcher's normal form (``criteria_compiler.terminology.mapper.norm``): NFKC, trimmed, lower case."""
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text or "").strip().lower())
+
+
+def require_columns(rows: list[dict[str, str]], cols: Iterable[str], what: str) -> list[dict[str, str]]:
+    """The rows, when there are any and they have every column; otherwise ValueError (a source that changed shape,
+    or an error page, never builds into an empty or half-read item)."""
+    if not rows:
+        raise ValueError(f"{what}: no rows")
+    missing = [c for c in cols if c not in rows[0]]
+    if missing:
+        raise ValueError(f"{what}: columns {', '.join(missing)} are missing (the source changed shape?)")
+    return rows
 
 
 def csv_rows(data: bytes) -> list[dict[str, str]]:
@@ -223,14 +235,22 @@ def notice(m: dict[str, Any]) -> str:
             "",
             f"* Source: {s['url']}",
             f"* Downloaded: {s['downloaded_at']}; {s['records']:,} records; sha256 of the download "
-            f"`{s['download_sha256']}`",
+            f"`{s['download_sha256']}`" + (" (over the parts' sha256s, in order)" if _multi(s) else ""),
             *([f"* Version: {s['version']}"] if s.get("version") else []),
+            *(f"  * part {p['file']}: sha256 `{p['sha256']}` ({p['url']})" for p in _multi(s)),
             f"* Licence: {s['licence']}" + (f" ({s['licence_url']})" if s.get("licence_url") else ""),
             f"* Terms: {s['terms']}",
             f"* Attribution: {s['attribution']}",
             "",
         ]
     return "\n".join(out)
+
+
+def _multi(s: dict[str, Any]) -> list[dict[str, Any]]:
+    """The parts of a download of several files (each with its own sha256); none for a single file, whose sha256
+    is the download's."""
+    parts = s.get("parts") or []
+    return list(parts) if len(parts) > 1 else []
 
 
 # ------------------------------------------------------------------------------------------------ reading a pack
@@ -311,10 +331,20 @@ def verify(pack: Path) -> dict[str, Any]:
                 raise PackError(f"{s['id']}: file {f['path']} is missing")
             if p.stat().st_size != int(f["bytes"]) or sha256_file(p) != f["sha256"]:
                 raise PackError(f"{s['id']}: {f['path']} does not match its sha256 (a damaged or changed pack)")
-            n = sum(1 for _ in rows(pack, f["path"]))
+            n = sum(1 for _ in check_records(s, rows(pack, f["path"])))
             if n != int(f["records"]):
                 raise PackError(f"{s['id']}: {f['path']} has {n} records, the manifest says {f['records']}")
     return m
+
+
+def check_records(source: dict[str, Any], recs: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    """Each record checked as the box's load checks it (a relation outside RELATIONS, a synonym without its term),
+    so a pack that would fail at the hospital fails at the vendor's build and verify instead."""
+    check = {"map": map_row, "synonym": synonym_row}.get(str(source.get("kind")))
+    for r in recs:
+        if check is not None:
+            check(r, str(source.get("id")))
+        yield r
 
 
 def pack_tar(pack: Path, out: Path) -> Path:
@@ -564,6 +594,7 @@ class RefStore:
                 out.append({k: s.get(k, "") for k in ("id", "name", "kind", "url", "downloaded_at", "records",
                                                       "version", "download_sha256", "licence", "licence_url", "terms",
                                                       "attribution", "distribution")}
+                           | {"parts": _multi(s)}
                            | {"pack_id": man.get("pack_id", "")})  # fmt: skip
         return out
 
@@ -632,14 +663,31 @@ def synonym_lookup(url: str | None = None) -> Callable[[str, str], list[dict[str
     return lookup
 
 
+YES_RELATIONS = ("equivalent", "equal", "wider", "subsumes")  # the target holds all of the source's meaning
+NO_RELATIONS = ("equivalent", "equal", "narrower", "specializes")  # the targets together hold all of it
+
+
 def in_set_via_map(targets: Iterable[dict[str, Any]], wanted: set[tuple[str, str]]) -> str:
-    """Whether a code read through a map (e.g. a TW 2014 ICD-10-CM code from an old record) is in a code list:
-    ``yes`` when every target is in it, ``no`` when none is, ``unknown`` when only some are (a 2014 code split into
-    several 2023 codes) or when the code has no map row at all. Unknown never excludes."""
-    got = [(t["target_system"], t["target_code"]) in wanted for t in targets]
-    if not got:
+    """Whether a code read through a map (e.g. a TW 2014 ICD-10-CM code from an old record) is in a code list of
+    exact ``(system, code)`` pairs (a prefix family is not expanded here). Unknown never excludes:
+
+    * ``yes`` only when a target that holds the whole meaning (equivalent, equal, wider, subsumes) is in the list,
+      or every target of a split (narrower, specializes) is;
+    * ``no`` only when every target is equivalent, equal, narrower or specializes (together they cover the source)
+      and none is in the list;
+    * ``unknown`` otherwise: some targets in and some out (a split), an inexact or relatedto row (candidates, not
+      meanings), or no row at all. ``unmatched`` rows are dropped first."""
+    rows = [t for t in targets if t.get("relation") != "unmatched"]
+    if not rows:
         return "unknown"
-    return "yes" if all(got) else "no" if not any(got) else "unknown"
+    inside = [(t["target_system"], t["target_code"]) in wanted for t in rows]
+    if any(i and t.get("relation") in YES_RELATIONS for i, t in zip(inside, rows, strict=True)):
+        return "yes"
+    if all(inside) and all(t.get("relation") in NO_RELATIONS for t in rows):
+        return "yes"  # a split whose every part is in the list (2014 I10 against I10 and I16.0 / .1 / .9)
+    if not any(inside) and all(t.get("relation") in NO_RELATIONS for t in rows):
+        return "no"
+    return "unknown"
 
 
 def _esc(s: str) -> str:

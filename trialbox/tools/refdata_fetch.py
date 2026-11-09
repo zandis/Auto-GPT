@@ -281,35 +281,49 @@ def fetch_mhlw(dest: Path) -> dict[str, Any]:
     parts = []
     for k in sorted(newest):
         meta = download("https://www.mhlw.go.jp" + newest[k], dest / f"yakka_0{k}.xlsx", timeout=120)
-        parts.append(meta)
+        parts.append({**meta, "path": f"yakka_0{k}.xlsx"})
+    return _joined(index, parts) | {"workbooks": [p["url"] for p in parts]}
+
+
+def _joined(url: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """A download of several files: each part's path, URL, sha256 and bytes, and one sha256 over the parts' sha256s
+    in order (the manifest lists the parts; the page shows each part's own sha256)."""
     joined = "".join(p["sha256"] for p in parts)
-    return {"url": index, "downloaded_at": _now(), "sha256": hashlib.sha256(joined.encode()).hexdigest(),
-            "bytes": sum(int(p["bytes"]) for p in parts), "workbooks": [p["url"] for p in parts]}  # fmt: skip
+    return {"url": url, "downloaded_at": _now(), "sha256": hashlib.sha256(joined.encode()).hexdigest(),
+            "bytes": sum(int(p["bytes"]) for p in parts),
+            "parts": [{k: p[k] for k in ("path", "url", "sha256", "bytes")} for p in parts]}  # fmt: skip
 
 
-def dataset_version(meta_url: str) -> str:
-    """A data.gov.tw dataset's modified date (its version), from the dataset API; empty when it does not answer."""
+OGDL_LICENSE_ID = "1"  # data.gov.tw dataset API: license 1 = Open Government Data License 1.0
+
+
+def dataset_meta(meta_url: str) -> dict[str, str]:
+    """A data.gov.tw dataset's modified date (its version) and its licence field, from the dataset API; empty when
+    it does not answer. The licence field is kept in fetch.json as evidence of the licence read at fetch time."""
     import httpx
 
     try:
         r = httpx.get(meta_url, timeout=60)
         r.raise_for_status()
         res = r.json()["result"]
-        return f"data.gov.tw {res['datasetId']} modified {res['modifiedDate']}"
+        return {"version": f"data.gov.tw {res['datasetId']} modified {res['modifiedDate']}",
+                "license": str(res.get("license", "")), "meta_url": meta_url}  # fmt: skip
     except Exception:
-        return ""
+        return {}
+
+
+def dataset_version(meta_url: str) -> str:
+    return dataset_meta(meta_url).get("version", "")
 
 
 def fetch_parts(s: Source, dest: Path, file: Path | None) -> dict[str, Any]:
     """An item of several files (``extra_files``): the main file, then each further file beside it. The download's
     sha256 is over the files' sha256s in order (as for the MHLW workbooks)."""
-    parts = [local_file(file, dest, s.url) if file is not None else download(s.url, dest)]
+    first = local_file(file, dest, s.url) if file is not None else download(s.url, dest)
+    parts = [{**first, "path": dest.name}]
     for name, url in s.extra_files:
-        parts.append(download(url, dest.parent / name))
-    joined = "".join(p["sha256"] for p in parts)
-    return {"url": s.url, "downloaded_at": _now(), "sha256": hashlib.sha256(joined.encode()).hexdigest(),
-            "bytes": sum(int(p["bytes"]) for p in parts), "parts": [{"url": p["url"], "sha256": p["sha256"]}
-                                                                     for p in parts]}  # fmt: skip
+        parts.append({**download(url, dest.parent / name), "path": name})
+    return _joined(s.url, parts)
 
 
 def fetch(ids: list[str], raw: Path, file: Path | None = None, slice_n: int = 0) -> list[str]:
@@ -337,11 +351,26 @@ def fetch(ids: list[str], raw: Path, file: Path | None = None, slice_n: int = 0)
             dest = raw / sid / "index.html"
         else:
             meta = download(s.url, dest)
-        version = dataset_version(s.meta_url) if s.meta_url else ""
-        if version:
-            meta["version"] = version
-        for child in (c for c in SOURCES if c.derived_from == sid and c.meta_url and c.meta_url != s.meta_url):
-            meta.setdefault("versions", {})[child.id] = dataset_version(child.meta_url)
+        meta.setdefault("parts", [{"path": dest.name, "url": meta["url"], "sha256": meta["sha256"],
+                                   "bytes": meta["bytes"]}])  # fmt: skip
+        if s.sha256 and meta["parts"][0]["sha256"] != s.sha256:
+            raise SystemExit(
+                f"{sid}: {s.url} is pinned to sha256 {s.sha256}, the download is "
+                f"{meta['parts'][0]['sha256']}: the published file changed, check it before shipping"
+            )
+        for item in (s, *(c for c in SOURCES if c.derived_from == sid)):
+            if not item.meta_url:
+                continue
+            dm = dataset_meta(item.meta_url)
+            if dm and dm.get("license") != OGDL_LICENSE_ID:
+                raise SystemExit(
+                    f"{item.id}: data.gov.tw now gives licence {dm.get('license')!r}, not "
+                    f"{OGDL_LICENSE_ID} (OGDL 1.0): read the terms before shipping"
+                )
+            if item is s:
+                meta.update({"version": dm.get("version", ""), "licence_check": dm} if dm else {})
+            else:
+                meta.setdefault("versions", {})[item.id] = dm.get("version", "")
         (raw / sid / "fetch.json").write_text(json.dumps({**meta, "path": dest.name}, indent=1), encoding="utf-8")
         done.append(f"{sid}: {meta['bytes']:,} bytes, sha256 {meta['sha256'][:16]}")
     return done
@@ -554,6 +583,36 @@ def _meta(raw: Path, sid: str) -> tuple[dict[str, Any], Path]:
     return meta, raw / src / meta["path"]
 
 
+def check_raw(raw: Path, sid: str, meta: dict[str, Any], pinned: bool = True) -> list[dict[str, Any]]:
+    """Every part of a fetched item re-hashed and compared with fetch.json; every ``extra_files`` member present; a
+    version-pinned URL's file equal to its pin. Returns the parts (path, url, sha256, bytes) for the manifest. A
+    raw file changed or lost after the fetch never builds into a pack with the old hash."""
+    s = BY_ID[sid]
+    src = s.derived_from or sid
+    parts = meta.get("parts") or [{"path": meta["path"], "url": meta.get("url") or s.url, "sha256": meta["sha256"],
+                                   "bytes": meta.get("bytes", 0)}]  # fmt: skip
+    have = {p["path"] for p in parts}
+    missing = [name for name, _ in BY_ID[src].extra_files if name not in have]
+    if missing:
+        raise SystemExit(f"{src}: {', '.join(missing)} missing from the fetch (fetch {src} again)")
+    for p in parts:
+        f = raw / src / p["path"]
+        if not f.is_file():
+            raise SystemExit(f"{src}: {p['path']} is missing (fetch {src} again)")
+        got = rd.sha256_file(f)
+        if got != p["sha256"]:
+            raise SystemExit(
+                f"{src}: {p['path']} has sha256 {got}, fetch.json says {p['sha256']}: the raw file "
+                "changed after the fetch"
+            )
+    if len(parts) == 1 and meta.get("sha256") != parts[0]["sha256"]:
+        raise SystemExit(f"{src}: fetch.json's sha256 does not match its file")
+    if pinned and BY_ID[src].sha256 and parts[0]["sha256"] != BY_ID[src].sha256:
+        raise SystemExit(f"{src}: pinned to sha256 {BY_ID[src].sha256}, the file is {parts[0]['sha256']}")
+    return [{"file": p["path"], "url": p["url"], "sha256": p["sha256"], "bytes": int(p.get("bytes") or 0)}
+            for p in parts]  # fmt: skip
+
+
 def _version(s: Source, meta: dict[str, Any], path: Path) -> str:
     """The item's version (D-170): stated in the file (``version_of``), the dataset's modified date read at fetch
     time, a fixed version, or else the download date (a daily list's only version)."""
@@ -562,14 +621,15 @@ def _version(s: Source, meta: dict[str, Any], path: Path) -> str:
     return str(meta.get("version") or s.version or f"downloaded {str(meta['downloaded_at'])[:10]}")
 
 
-def _entry(s: Source, meta: dict[str, Any], files: list[dict[str, Any]], path: Path) -> dict[str, Any]:
+def _entry(s: Source, meta: dict[str, Any], files: list[dict[str, Any]], path: Path,
+           parts: list[dict[str, Any]]) -> dict[str, Any]:  # fmt: skip
     downloaded = str(meta["downloaded_at"])[:10]
     return {
         "id": s.id, "name": s.name, "kind": s.kind, "url": meta.get("url") or s.url,
         "downloaded_at": meta["downloaded_at"], "download_sha256": meta["sha256"], "version": _version(s, meta, path),
         "records": sum(int(f["records"]) for f in files), "licence": s.licence, "licence_url": s.licence_url,
         "terms": s.terms, "attribution": s.attribution.replace("{date}", downloaded), "refresh": s.refresh,
-        "distribution": s.distribution, "files": files,
+        "distribution": s.distribution, "files": files, "parts": parts,
         **({"slice": meta["slice"]} if meta.get("slice") else {}),
         **({"country": s.country} if s.country else {}), **({"decision": s.decision} if s.decision else {}),
     }  # fmt: skip
@@ -589,13 +649,16 @@ def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = 
     entries = []
 
     def write(rel: str, recs: Iterable[dict[str, Any]]) -> dict[str, Any]:
-        n = rd.write_jsonl_gz(pack / rel, recs)
+        n = rd.write_jsonl_gz(pack / rel, rd.check_records({"id": s.id, "kind": s.kind}, recs))
+        if n == 0:
+            raise SystemExit(f"{s.id}: 0 records from the parser (the source changed shape?): not built")
         return rd.file_entry(pack, rel, n)
 
     indications: dict[str, list[str]] = {}
     for sid in sorted(ids, key=lambda x: x != "tfda_indication"):  # the indication codes first: tfda_trials uses them
         s = BY_ID[sid]
         meta, path = _meta(raw, sid)
+        parts = check_raw(raw, sid, meta, pinned=not sample)
         if sid == "ctgov":
             files = [write("ctgov/studies.jsonl.gz", parse_ctgov(path))]
         elif sid == "tfda_indication":
@@ -613,7 +676,7 @@ def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = 
             files = [write(f"{sid}/{'trials' if s.kind == 'trial' else 'terms'}.jsonl.gz", PARSERS[sid](path))]
         else:
             raise SystemExit(f"{sid}: no parser")
-        entries.append(_entry(s, meta, files, path))
+        entries.append(_entry(s, meta, files, path, parts))
     as_of = max(str(e["downloaded_at"])[:10] for e in entries)
     rd.write_manifest(pack, as_of, entries, sample=sample)
     rd.verify(pack)
@@ -666,12 +729,18 @@ def sample_raw(raw: Path) -> Path:
     wb.save(xb)
     put("mhlw_yakka", "yakka_sample.xlsx", xb.getvalue(), BY_ID["mhlw_yakka"].url)
     # D-170 to D-172: excerpts of the real files (the ICD map, the PAS ConceptMap, NAER) and the curated list
-    (raw / "tw_icd_2014_2023").mkdir(parents=True, exist_ok=True)
-    (raw / "tw_icd_2014_2023" / "tw_icd_2014_2023_pcs.csv").write_bytes(
-        (SAMPLES / "tw_icd_2014_2023_pcs_sample.csv").read_bytes()
-    )
-    put("tw_icd_2014_2023", "tw_icd_2014_2023_cm.csv", (SAMPLES / "tw_icd_2014_2023_cm_sample.csv").read_bytes(),
-        BY_ID["tw_icd_2014_2023"].url)  # fmt: skip
+    icd = BY_ID["tw_icd_2014_2023"]
+    (raw / icd.id).mkdir(parents=True, exist_ok=True)
+    icd_parts = []
+    for name, url, sample_name in (
+        (icd.filename, icd.url, "tw_icd_2014_2023_cm_sample.csv"),
+        (icd.extra_files[0][0], icd.extra_files[0][1], "tw_icd_2014_2023_pcs_sample.csv"),
+    ):
+        data = (SAMPLES / sample_name).read_bytes()
+        (raw / icd.id / name).write_bytes(data)
+        icd_parts.append({"path": name, "url": url, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+    joined = _joined(icd.url, icd_parts) | stamp | {"path": icd.filename}
+    (raw / icd.id / "fetch.json").write_text(json.dumps(joined), encoding="utf-8")  # fmt: skip
     tb = io.BytesIO()
     with tarfile.open(fileobj=tb, mode="w:gz") as tf:
         for f in sorted((SAMPLES / "nhi_pas_sample").glob("*.json")):

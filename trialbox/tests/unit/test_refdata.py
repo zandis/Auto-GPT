@@ -183,6 +183,9 @@ def test_a_new_pack_replaces_its_sources_and_keeps_the_hospitals_own(loaded: str
     page = json.loads((raw / "ctgov/sample.json").read_text())
     page["studies"] = page["studies"][:1]
     (raw / "ctgov/sample.json").write_text(json.dumps(page))
+    meta = json.loads((raw / "ctgov/fetch.json").read_text())  # as a new fetch would record it (the build re-hashes)
+    meta["sha256"] = rd.sha256_file(raw / "ctgov/sample.json")
+    (raw / "ctgov/fetch.json").write_text(json.dumps(meta))
     tar = rf.build(raw, tmp_path / "out", "20261210", sample=True)
     with rd.opened(tar) as p, rd.RefStore(loaded) as st:
         st.load(p)
