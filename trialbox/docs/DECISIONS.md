@@ -3104,3 +3104,68 @@ weekly list by itself (the study team sees it on the page); the SS-MIX2 疑い f
 D-142 (wave 1a, integrated on this branch); "approached" still has two words per language (連絡済み / 声かけ済み, 已聯絡 / 已邀請); the rate limits are per
 process and in memory, not in Postgres; no Undo after a confirmed conflict decision; the owner confirms the N1
 decision and the site confirms the SAE defaults.
+
+**D-146 Review wave 1c: the user journeys' high-risk findings (owner decisions).** User-journey review of 2026-11-09
+(`docs/reviews/2026-11-09-user-journeys-e2e.md`: J-01 to J-05, J-07, J-08, J-16, J-17, J-18, J-22, J-26, J-27), and the
+owner's decisions of the same day: a study must be able to screen the **whole hospital**, and **only the PI approves
+criteria**. Builds on D-104, D-108, D-120 and D-143 (S-09's signed actor). The sub-investigator delegation and
+referral work is on another branch and is not here; the role changes below are kept to `tb_common.authz`,
+`console.app._scope_check` and the approval page.
+
+* **J-01, a request is allowed by the person's role, not by a mailbox.** The console sends the signed-in person and
+  role with `POST /jobs` (`X-TB-Actor`, `X-TB-Actor-Role`; the S-09 assertion now covers the role, so a changed role
+  does not verify). The orchestrator then authorises by `tb_common.authz.ROLE_COMMANDS`: administrator and coordinator
+  start FEAS, SCREEN, COHORT, NAV, MICROBATCH, CASE, CONSENT, RELEASE, STATUS, CANCEL and FEEDBACK; the investigator
+  APPROVE and STATUS; viewer and CRO nothing. A mailed request (no person named) keeps the `settings.yaml` mailbox
+  rules. The mailbox stays the reply address; the `job.state` audit names the person and role. A refusal is a page in
+  the user's language (role, mailbox, or limit), never the orchestrator's JSON.
+* **J-02, the daily limit counts heavy runs only.** `rate_limit_per_sender_per_day` (default 20) now applies to each
+  heavy type on its own (FEAS, SCREEN, COHORT, NAV, MICROBATCH, CALIBRATION); CASE, CONSENT, STATUS, APPROVE and the
+  others are not counted. `rate_limits_per_day: {TYPE: n}` overrides per type (0 = no limit). Reached, the console
+  answers 429 with "Today's limit is reached" in en, ja and zh-TW. The mail gateway's own per-mail limit is unchanged.
+* **J-03 to J-05, one role rule for pages and `/api/v1`.** An aggregate-only account (viewer, CRO; D-104) is refused,
+  in one place (`console.app._aggregate_denied`, called from the page sign-in and from the API's bearer sign-in): every
+  `/studies/{rs}/…` page and `/api/v1/studies/{rs}/…` route but the study's feasibility report, the runs list, every
+  job page but a feasibility run's (the CASE job page printed a chart number line), the registry, the audit trail, the
+  site set-up and `/api/v1/site/…`, and the REDCap connections (`/admin/redcap` is the administrator's only; the
+  viewer read it). The patients and screening-log APIs check the page's `can_view_phi` too. The menus no longer offer
+  those pages to a viewer. The D-143 masking is unchanged: viewer and CRO are masked everywhere.
+* **J-07.** A PDF's text layer with NUL bytes (CJK fonts without a usable ToUnicode map) crashed the fact store
+  (`psycopg.DataError`) and the console said "try again later". Chart text of every format, and every string the model
+  writes back, is stripped of NUL, the other C0 controls but tab and line breaks, DEL and lone surrogates
+  (`sitesetup.charts.clean`).
+* **J-08.** `GET /setup/templates/codes` was read as the codes of a workspace named "templates" (a list; the console's
+  download was a 500). The template route is declared before the `/setup/{ws}/…` routes.
+* **J-26, Who to screen.** The study's set-up page has a "Who to screen" card (coordinator): **the whole hospital**
+  (every patient with a booked appointment in the window or a visit in the last 12 months, whoever the doctor) or only
+  some doctors' patients. Stored in S-28 (`study.screen_scope`, migration 3; `GET/PUT /studies/{rs}/screen-scope`,
+  audited `study.screen_scope`). A SCREEN uses, in order: the request's `pract=` (or `scope=hospital`), the set-up
+  page's choice, the ruleset's `scopes.screen`; with none it fails with "choose … under 'Who to screen' on the study's
+  set-up page". The run's mail and JSON say "the whole hospital" (`whole_hospital`).
+* **J-27, only the PI ticks and approves.** The per-criterion tick is the investigator's (was the coordinator's); the
+  page says who does what in three languages. The coordinator (and the PI) give the site's labels.
+* **Quick fixes.** J-17: the site pages show the account name, not `console:crc` (a `who` filter). J-22 / the draft
+  in English: the approval page shows the site's label above the protocol's words, which are marked as written
+  (`data-authored`, "as written in the protocol"); the feasibility funnel uses the site's label over the run's English
+  one. J-18: the username `pattern` is valid under the `v` flag (`[a-z0-9._\-]+`); a test checks every pattern. J-16:
+  `GET /api/v1/site/readiness` without `study=` answers 400 `study-required` (with the account's studies) when the
+  account has more than one.
+
+*Evidence.* `tests/unit/test_journey_rules.py` (role versus mailbox, the signed role, the heavy-only limit, NUL in a
+chart and a PDF, the whole-hospital scope on a real lake, the S-28 scope API and its order),
+`tests/console/test_journey_pages.py` (the person and role sent, the three refusals in three languages, every GET
+route walked as viewer and CRO, the study team's pages kept, the codes template, the account name, the readiness API,
+Who to screen, the strings, the site label, every `pattern`), and the updated `test_console_app.py` and
+`test_data_pages.py` (the PI ticks, the viewer's 403s). Each new test fails on f9481a2 (34 failed) and passes here.
+Also: `tests/conftest.py` restores `TB_SERVICE_TOKEN` after each test (the demo box set it for the process, and 5
+HTTP-surface tests failed after `test_list_demo` in `make test`, also on f9481a2), and `test_list_demo` follows D-143
+(N1/N2 carry the screening number). Checks: `make lint` clean; `make test` 1,640 passed, 2 skipped;
+`tools/e2e_simple.py` PASSED in 111 s; backup drill PASSED in 117 s; `public_e2e --lang ja` 120/120; the walk
+(`node tools/public_walk.js` on a fresh `public_e2e --serve`, random password never printed): 900 checks, 0 failures
+over 888 pages (viewer and CRA 403 on the CASE job, registry, audit, runs, set-up, sources and REDCap pages), axe 0
+serious (84 minor), 23,913 targets, 0 under 44 px, taps T1 to T9 within target.
+
+*Open.* The mail gateway still limits mail per sender (all commands, 20 a day); a console account without its own
+mailbox uses the administrator's address, so their limits are shared; the investigator does not refresh feasibility
+(J-22's second half); the site set-up pages are per site, not per study (J-06); no screen yet for the IT work (J-09) or
+the data steward (J-10).
