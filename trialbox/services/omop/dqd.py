@@ -1,4 +1,4 @@
-"""OHDSI Data Quality Dashboard-style checks on the OMOP store (D-149): a small subset, run as SQL on the box.
+"""OHDSI Data Quality Dashboard-style checks on the OMOP store (D-151): a small subset, run as SQL on the box.
 
     python -m omop dqd --json /tmp/dqd.json       # exit 1 when a check fails
 

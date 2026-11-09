@@ -14,7 +14,7 @@ wiped, restored from the backup with the hospital's key, and must then be the sa
    inputs, facts with their status, the hospital codes' mapping, the "please check" answers) reads back through its
    store as before, and every uploaded chart file is back in the orchestrator's data folder; the licensed code lists
    (D-137: each release with its version, source and codes) read back through the terminology store as before; the
-   OMOP store (D-149: the ``omop`` schema, loaded from the box's lake before the backup) has the same rows, the same
+   OMOP store (D-151: the ``omop`` schema, loaded from the box's lake before the backup) has the same rows, the same
    provenance and conflicts, and exports the same lake.
 """
 
@@ -111,7 +111,7 @@ def run(base: Path) -> dict[str, Any]:
                    f"{len(terms_before['releases'])} releases, {len(terms_before['codes'])} codes"))  # fmt: skip
     omop_after = _omop(work, load=False)
     checks.append(("restore: the OMOP store reads back the same: rows, provenance, conflicts and the lake it exports "
-                   "(D-149)", omop_before["rows"]["person"] > 0 and omop_after == omop_before,
+                   "(D-151)", omop_before["rows"]["person"] > 0 and omop_after == omop_before,
                    ", ".join(f"{v} {k}" for k, v in omop_before["rows"].items())))  # fmt: skip
     return {"ok": all(c[1] for c in checks), "checks": checks, "seconds": round(time.perf_counter() - t0, 1)}
 
@@ -181,7 +181,7 @@ def _terminology() -> dict[str, list[tuple[Any, ...]]]:
 
 
 def _omop(work: Path, load: bool) -> dict[str, Any]:
-    """The OMOP store (D-149) of the run's schemas: loaded from the box's current lake snapshot and site inputs
+    """The OMOP store (D-151) of the run's schemas: loaded from the box's current lake snapshot and site inputs
     (``load``), then its row counts, its open conflicts and a digest of the lake it exports."""
     import hashlib
 

@@ -1,4 +1,4 @@
-"""Load the normalized feed (FHIR R4 NDJSON, as the adapter writes it, and the site's own inputs) into OMOP (D-149).
+"""Load the normalized feed (FHIR R4 NDJSON, as the adapter writes it, and the site's own inputs) into OMOP (D-151).
 
     report = load_batch(db, "feed", "2026-10-31", by_type, files={"Condition": "ndjson/2026-10-31/Condition.ndjson"})
 
@@ -967,7 +967,7 @@ def _derive(tx: Any, persons: set[int], providers: set[int], batch: str, rep: Lo
             f"TrialBox {site_name}".strip()[:255],
             (site_name or "TrialBox")[:25],
             "the hospital (data steward); TrialBox holds it on the site's box",
-            "The hospital feed and the site's own inputs, pseudonymised at the door (D-144, D-149).",
+            "The hospital feed and the site's own inputs, pseudonymised at the door (D-144, D-151).",
             "trialbox/docs/DATA.md",
             "trialbox/services/omop/load.py",
             _batch_date(batch),

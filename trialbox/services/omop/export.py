@@ -1,4 +1,4 @@
-"""The lake exported from OMOP (D-149): the same 13 tables, the same columns, the same rows as the flattener's.
+"""The lake exported from OMOP (D-151): the same 13 tables, the same columns, the same rows as the flattener's.
 
     rows = export_rows(db)          # {"patient": [...], "condition": [...], ...}  in ``lake.flatten.SCHEMAS`` shape
 

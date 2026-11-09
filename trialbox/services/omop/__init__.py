@@ -1,4 +1,4 @@
-"""TrialBox's OMOP CDM v5.4 core (D-144, D-149): the store of record for clinical facts in the trial database.
+"""TrialBox's OMOP CDM v5.4 core (D-144, D-151): the store of record for clinical facts in the trial database.
 
 * :mod:`omop.schema` the ``omop`` schema: the pinned official DDL and TrialBox's ``tb_*`` extension tables;
 * :mod:`omop.vocab` standard, shared and local concepts (local ids >= 2,000,000,000);

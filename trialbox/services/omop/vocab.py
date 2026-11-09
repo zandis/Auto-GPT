@@ -1,5 +1,5 @@
 """Concepts for the OMOP store: the few standard concepts the loader writes, TrialBox's shared concepts and the
-site's local concepts (D-149).
+site's local concepts (D-151).
 
 * **Standard concepts the loader writes** (:data:`STANDARD`): gender, visit, the EHR type concept, the measurement
   value operators, UTF-8 and concept 0. They are seeded with their OHDSI ids so the Athena bundle, when it is loaded
@@ -47,7 +47,8 @@ STANDARD: tuple[tuple[int, str, str, str, str, str], ...] = (
     (21, "Measurement", "Metadata", "Domain", "Domain", "OMOP generated"),
 )
 GENDER = {"male": 8507, "female": 8532}
-VISIT = {"AMB": 9202, "IMP": 9201, "EMER": 9203}
+# FHIR v3 ActCode encounter class -> OMOP visit; OBSENC and SS (observation, short stay) wait for the vocabulary load
+VISIT = {"AMB": 9202, "IMP": 9201, "ACUTE": 9201, "NONAC": 9201, "EMER": 9203}
 EHR = 32817
 UTF8 = 32678
 OPERATOR = {"<": 4171756, "<=": 4171754, "=": 4172703, ">": 4172704, ">=": 4171755}

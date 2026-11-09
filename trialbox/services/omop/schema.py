@@ -1,4 +1,4 @@
-"""The ``omop`` schema in the trial database: the official OMOP CDM v5.4 DDL plus TrialBox's extension tables (D-149).
+"""The ``omop`` schema in the trial database: the official OMOP CDM v5.4 DDL plus TrialBox's extension tables (D-151).
 
 **The CDM tables** come from the four PostgreSQL files of OHDSI/CommonDataModel tag v5.4.2, copied unchanged into
 ``omop/ddl/`` and pinned by sha256 in ``omop/ddl/pin.json`` (a changed file is refused, never applied). Migration 1
@@ -73,7 +73,7 @@ CDM_TABLES = (
 )
 FILES = ("ddl", "primary_keys", "indices")
 
-# record status (D-149): coded = from the hospital's coded record; the rest as the design's state machine
+# record status (D-151): coded = from the hospital's coded record; the rest as the design's state machine
 STATUSES = ("coded", "proposed", "confirmed", "signed", "derived", "rejected", "superseded", "tombstoned")
 # the statuses a coded lake table admits (proposed and rejected never; tombstoned and superseded are gone)
 COUNTED = frozenset({"coded", "confirmed", "signed", "derived"})

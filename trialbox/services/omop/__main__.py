@@ -1,4 +1,4 @@
-"""The OMOP store from the command line (D-149). The database is ``TB_OMOP_DB_URL`` or ``TB_DB_URL``.
+"""The OMOP store from the command line (D-151). The database is ``TB_OMOP_DB_URL`` or ``TB_DB_URL``.
 
 python -m omop load --lake /data/lake [--snapshot 2026-10-31] [--tz Asia/Taipei]   # a snapshot + the site inputs
 python -m omop status                                                              # rows per table, conflicts

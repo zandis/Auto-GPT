@@ -1,4 +1,4 @@
-"""Where the lake's rows come from (D-149): ``TB_LAKE_SOURCE=legacy`` (the default for now) or ``omop``.
+"""Where the lake's rows come from (D-151): ``TB_LAKE_SOURCE=legacy`` (the default for now) or ``omop``.
 
 * ``legacy``: the FHIR NDJSON of the snapshot and the site's inputs, flattened (``lake.flatten``), as before.
 * ``omop``: the same NDJSON is loaded into the OMOP CDM store of record (``omop.load``: the snapshot as the

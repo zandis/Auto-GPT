@@ -305,7 +305,7 @@ class Lake:
         for f in sorted((self.dir / "site").glob("*.ndjson")):
             with f.open(encoding="utf-8") as fh:
                 site.setdefault(f.stem, []).extend(json.loads(line) for line in fh if line.strip())
-        # D-149: flattened from the NDJSON (TB_LAKE_SOURCE=legacy) or exported from the OMOP store (omop)
+        # D-151: flattened from the NDJSON (TB_LAKE_SOURCE=legacy) or exported from the OMOP store (omop)
         rows = lake_rows(by_type, site, tz=self.tz, snapshot=snapshot, lake_dir=self.dir)
         by_type.clear()  # the flat rows replace the resources; free them before the embedding pass
         site.clear()

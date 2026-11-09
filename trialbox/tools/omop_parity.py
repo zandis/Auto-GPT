@@ -1,4 +1,4 @@
-"""The OMOP equivalence test (D-149, WS-03.4/03.5, TST-GOLD-02): the lake built from OMOP must screen exactly as the
+"""The OMOP equivalence test (D-151, WS-03.4/03.5, TST-GOLD-02): the lake built from OMOP must screen exactly as the
 lake flattened from the NDJSON.
 
     python -m tools.omop_parity --dir /tmp/tb-omop-parity                     # every data set, every ruleset

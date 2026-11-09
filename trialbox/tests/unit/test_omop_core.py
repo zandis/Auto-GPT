@@ -1,4 +1,4 @@
-"""The OMOP CDM v5.4 core (D-149): pinned DDL, the loader (pseudonyms, local concepts, source values, idempotent
+"""The OMOP CDM v5.4 core (D-151): pinned DDL, the loader (pseudonyms, local concepts, source values, idempotent
 re-loads, tombstones, status, provenance, conflicts), the export, the ``TB_LAKE_SOURCE`` setting, the DQD checks,
 and the equivalence of the two lakes for every committed ruleset."""
 
