@@ -297,11 +297,34 @@ with the weights is kept, so boot to serving is about 10–15 minutes).
 | 32 GB-capped pair (the 5090 stand-in) | `deploy/gcp/gpu-sim-startup.sh` (the usual startup script) | per run |
 | serving record with hashes | `deploy/gcp/capture-serving-config.sh prepare`, start, `fetch`, stop | 0.5 h |
 | N-12 on the deployed files (done 2026-11-08) | `tools/trec_ct_eval.py` against the VM | 0.85 h, US$2.30 |
-| the complete-platform run (step 9) | `deploy/gcp/complete-run.sh` | see D-139 |
+| the complete-platform run with the scenario matrix (step 9) | `deploy/gcp/complete-run.sh` | `--estimate`; D-141 |
 
-`deploy/gcp/complete-run.sh` makes the synthetic hospital first, then puts the PRO 6000 startup script on the VM,
-starts it, waits for `PRO6000-RUN-READY`, fetches the live serving record and runs `tools/complete_run.py --model pair
---patients 50000` from this checkout against `http://<vm>/judge/v1` and `/verifier/v1`. When the last model part is
-done it stops the VM (the walk, backup, update and the cascade at scale need no card), checks `TERMINATED` and puts
-the usual startup script back; it does the same on any failure. `deploy/gcp/complete-run.sh --stop` does it by hand.
-The API key is made fresh for the run, kept in instance metadata and in a 0600 file, never printed.
+**The complete run is fail-safe** (D-141, after the 2026-11-09 incident: a killed driver left the VM on for an hour).
+The workload runs on the VM; the VM stops itself; the driver only uploads, polls and collects.
+
+1. `deploy/gcp/complete-run.sh --estimate --patients 50000` prints the hours and US$ per scenario. `--dry-run` prints
+   every command and starts nothing.
+2. The run: `export CLOUDSDK_CONFIG=<private folder> TB_SA_KEY_FILE=<key file, in place>`, activate the service
+   account once, then `deploy/gcp/complete-run.sh --patients 50000`. It:
+   * probes the credential (`gc_probe`) and refuses unless the VM is `TERMINATED`;
+   * sets the **cloud-side hard cap**: `gcloud compute instances set-scheduling tb-gpu-sim --zone asia-east1-a
+     --max-run-duration=<estimate x 1.3, rounded up>h --instance-termination-action=STOP` (`--hours N` to change);
+   * puts `deploy/gcp/complete-run-vm.sh` on the VM as its startup script with a fresh key (0600 file, metadata,
+     never printed), starts it, and uploads the code (`git archive` of HEAD: local changes are not in the run).
+3. On the VM: a systemd hard cap and a watchdog start first. The watchdog powers off when the heartbeat is not
+   touched for 20 minutes (the run touches it as its log grows; the driver touches it over HTTP), when setup takes
+   more than an hour, or 30 minutes after the done marker (at once when the driver has collected). The model parts
+   run there with `--resume --ocr tesseract` (tesseract with `jpn`, `chi_tra`, `eng` is installed by the script) and
+   through the gateway built as an installed box builds it.
+4. The driver polls once a minute with short calls only, downloads `results.tgz`, runs the walk, backup, update and
+   scale on the stub here and writes the report. If the driver dies, nothing is lost:
+   `deploy/gcp/complete-run.sh --collect <run id>` picks the run up; a stopped VM keeps its disk, and starting it
+   again resumes the parts not yet passed.
+5. Every gcloud call goes through `gc` (`deploy/gcp/gcloud-auth.sh`): an authentication error re-activates the
+   service account from `TB_SA_KEY_FILE` and retries once.
+6. Afterwards: `gcloud compute instances describe tb-gpu-sim --zone asia-east1-a --format='value(status)'` must say
+   `TERMINATED`; `deploy/gcp/complete-run.sh --stop` stops it by hand and puts the usual startup script back.
+
+Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the VM's service account needs storage
+access); without it they go over plain HTTP to the VM with the key in a header. A billing budget with a kill switch
+is the last net; it needs billing permissions this project's service account does not have: the owner sets it.

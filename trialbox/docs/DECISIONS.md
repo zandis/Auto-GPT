@@ -2810,6 +2810,115 @@ committed sheet says offline is the default.
   `query.cond` has); trials of the TFDA and UMIN parts are queryable by the store but not yet used by COHORT.
 * Not run: Docker, a compose box's `apply_update` with a real refdata payload, `install.sh` beyond `--ctgov-check`.
 
+**D-141 Step 9: the scenario matrix and the fail-safe cloud run.** TB-PLAN-04 step 9 (owner decision 2026-11-09;
+builds on D-123, D-131, D-132, D-135, D-137, D-139, D-140), 2026-11-09. Built in a cloud container with no GPU and no
+Docker; no cloud resource was started.
+
+*Owner decisions (2026-11-09).*
+
+1. The complete run uses 50,000 synthetic patients as the bulk scale test, and only synthetic and public data.
+2. Every way a site gives TrialBox data is its own scenario, screened with the real judge and verifier pair: the
+   hospital database feed, the EMR (SS-MIX2 and FHIR), the site's own lists, a single chart pasted, chart files
+   (PDF, Word, scans), REDCap and the built-in forms, an IT dump with local codes, the offline registry.
+3. The real public datasets already downloaded run too, one scenario each where the licence allows it.
+4. The cloud run must survive a dead driver: the VM stops itself.
+
+*The scenario matrix* (`tools/scenarios.py`, run as `complete_run part scenario --scenario <name>`; one section per
+scenario in the report: input, counts, expected and got, model calls, model exclusions, time, a screenshot).
+
+| Scenario | Input (card / laptop) | Independent recount |
+| --- | --- | --- |
+| db-csv | the `hospital:<lang>` parts: CGRD-style CSV, 50,000 / 5,000 | lake = generator counts; FEAS INC-01/02 from the CSVs; model exclusions vs the note truth |
+| emr-ssmix2 | SS-MIX2 storage (ADT-52, OMP-02/11/12, extended storage, 疑い diagnoses, flagged lab values), 5,000 / 500 | FEAS = recount and = the CSV path's; JP Core `$validate` on 50 per type |
+| emr-fhir | FHIR bulk export (NDJSON with chart numbers, names, phones), 5,000 / 500 | every resource read; same pseudonyms as the feed; FEAS = recount and = CSV |
+| site-excel | an Excel list (title row, merged cells, era dates, full width, µmol/L, dd/mm dates), a Shift_JIS CSV and a Big5 CSV (民國), 1,000 / 100 rows over a 5,000 / 500 feed | each patient's state (SITE5B) from the generator's feed and list values |
+| chart-paste | EMR screen text, ja and zh-TW, 200 / 20 patients with a second chart for a quarter | precision and recall against the charts' facts; states from the confirmed facts |
+| chart-files | the same as Word, a PDF with a text layer, PNG scans and image-only PDFs, 60 / 12 | as chart-paste; OCR `tesseract` (jpn, chi_tra, eng) on the VM, `fake` here |
+| redcap | `rc_sim` project 202 (longitudinal, DAGs) two-way; the built-in forms; 500 / 50 records | every record in REDCap; REDCap's consent dates back; ODM export count |
+| it-dump | a Shift_JIS dump with five local diagnosis codes, a JLAC10 lab code, a YJ drug code, 2,000 / 200 | each patient's state before (unknown) and after mapping |
+| registry | the reference data pack sample, no network | trials by condition and country = recount of the raw records |
+| public-mimic | MIMIC-IV demo on FHIR (100 patients, ODbL) | patients = the release's; FEAS invariants; the cascade S0..S5 |
+| public-medtxt | MedTxt-CR case reports (ja, CC BY 4.0), 148 / 16, pasted as charts | the corpus's own positive / negative / suspected tags |
+| public-trec | TREC CT 2021/22 topics, qrels and trial texts, 100 / 10 pairs | the qrels (eligible 2, excluded 1) |
+| gateway | a judge and a chart-reading call through the gateway built as an installed box | none: a probe, reported as a finding |
+
+Not run, and why (`tools/scenarios.py` `NOT_RUN`): Chia and open_cohorts are not in `.cache` on this machine;
+Synthea has no mapping in this build; the full reference data pack is a box's install step.
+
+*Rules the scenarios keep.*
+
+* A proposed fact never excludes before confirmation (D-135): checked on every chart scenario, before the
+  coordinator acts, as "no exclusion and no failed criterion rests on a proposed fact".
+* Model exclusions are counted per scenario and checked against the generator's note truth (`note_truth.json`):
+  a model-driven exclusion (a note criterion failed, no coded one, not consent or scope) is true when the truth
+  blocks on that criterion; false exclusions must be 0. Each excluded patient is listed with its reason. On the stub
+  no note may exclude (D-115), so the card is where this counts.
+* With `--model pair` every model call goes through the gateway built as an installed box builds it
+  (`TB_ENV=PRODUCTION`, `TB_PROFILE=P-PRO6000`, no `TB_DATA_CLASS`); `--direct` bypasses it. On the VM nginx adds the
+  key on 127.0.0.1:8080, so the routing file stays the installed box's.
+* Known findings of the 2026-11-09 review are reported, not fixed, and do not fail the run: each has an id, what was
+  expected, what was seen.
+* Every DuckDB connection of a scenario may spill at most 2 GB to disk (a harness guard, after XL-02 filled the disk).
+
+*The fail-safe cloud run* (`deploy/gcp/complete-run.sh`, `deploy/gcp/complete-run-vm.sh`, `deploy/gcp/gcloud-auth.sh`).
+After the 2026-11-09 incident (the wrapper ran detached in a sandbox that killed it; its EXIT trap never ran; the
+service-account auth in the private config failed after about an hour; the VM ran 61 minutes until stopped by hand):
+
+1. **Cloud-side hard cap.** Before the start: `gcloud compute instances set-scheduling <vm> --zone <z>
+   --max-run-duration=<N>h --instance-termination-action=STOP`, N = the estimate × 1.3 rounded up (`--hours`).
+   Flags checked against `gcloud compute instances set-scheduling --help` (Cloud SDK 570.0.0, no authentication).
+2. **The VM stops itself.** The startup script starts a systemd hard cap and a watchdog before anything else: poweroff
+   when the heartbeat file is not touched for 20 minutes (the run touches it as its log grows; the driver over HTTP),
+   when setup passes 60 minutes, or when the done marker has stood 30 minutes (at once after the driver collects).
+3. **The workload runs on the VM** (48 vCPU), not on the driver. Chosen over "restartable parts on the driver"
+   because the incident's failure was the driver itself: with the workload on the VM, a dead driver costs at most the
+   time to the done marker plus 30 minutes, or 20 minutes of no progress, or the cap; the driver only uploads `git
+   archive` of HEAD, polls with short calls, downloads `results.tgz`, and runs the stub parts (walk, backup, update,
+   scale) after the VM has stopped. `--collect <run id>` picks a run up again. The parts are also restartable.
+4. **Fresh auth for every gcloud call.** `gc` re-activates the service account from `TB_SA_KEY_FILE` when a call fails
+   with an authentication error and retries once; `gc_probe` checks the credential before the start. The key file's
+   content is never printed.
+5. **Idempotent and resumable.** `complete_run --resume` keeps every part whose `parts/<tag>.json` has every check
+   passed; a part writes to a temporary file and renames it. A restarted VM resumes.
+6. **`--estimate`** prints hours and US$ per scenario: note-stage patients × 6.3 s (VALIDATION §3), a chart read as
+   one, criterion checks at 0.3 s, the canary per box, and the part's stub time scaled from the local run.
+7. Review A-12: `set -x` removed from `gpu-sim-startup.sh` and `gpu-fit-test.sh` (the key was on traced command lines).
+
+A billing budget with a kill switch is the last net; it needs billing permissions the project's service account does
+not have, so it stays an owner action.
+
+*Evidence (local, stub, 2026-11-09).*
+
+* `python -m tools.complete_run --patients 5000` with the matrix: **PASSED, 662 of 662 checks, 84 of 84 screenshots**,
+  22 parts in about 34 minutes (`eval/complete_run/2026-11-09-matrix-stub-5000/report.md`). Per scenario: db-csv
+  338/338 (both languages); emr-ssmix2 9/9 (500 patients, JP Core 615 sampled, 0 errors); emr-fhir 9/9; site-excel 7/7
+  (100 of 100 patients as the generator says); chart-paste 8/8 and chart-files 9/9 (precision and recall 1.0 on the
+  stub); redcap 8/8; it-dump 3/3; registry 2/2; public-mimic 5/5; public-medtxt 3/3; public-trec 1/1; gateway 1/1.
+* Known findings the run reports, each with what was seen: A-01 (the installed box's gateway refuses a judge call,
+  `step_unconfirmed`); GW-02 (`chart_facts` has no role in `libs/tb_llm/v1_roles.yaml`); P-04 (5 of 5 疑い-only
+  patients excluded by GZQO-EXC-07); FHIR-01 (SCREEN scope 0 on the FHIR path: Practitioner references hashed, ids
+  kept); XL-02 (SCREEN on `main` after a site list is published spills without bound; stopped at the 2 GB guard);
+  B-03 (a longitudinal REDCap link with no event: REDCap refuses every record); MAP-01 (name suggestions 胃癌 and 乳癌 to
+  C22.0, 本態性高血圧症 to E78.5); DUMP-01 (2 of 3 patients with an undated cancer row are "ready"). B-01 (flagged lab
+  values) holds on these paths: "8.2 H" and ">8.2" read as unknown, not FALSE, in the SQL engine and at S1.
+* `deploy/gcp/complete-run.sh --dry-run --patients 50000`: probe, `set-scheduling --max-run-duration=12h
+  --instance-termination-action=STOP` before `start`, metadata with the watchdog's limits, upload, poll, collect.
+* `--estimate --patients 50000`: about 8.9 h, US$24.3; hard cap 12 h, at most US$32.9.
+* Unit tests: `tests/unit/test_scenario_matrix.py` (the generators' truth, the stub against the chart traps, the
+  recounts, the estimate, resume, report-only, `gc` re-activating once and never printing the key, the driver's cap
+  before the start, the VM script's nets and no `set -x`). The stub now also treats 家族史 as a family history.
+
+*Not done; only the card can show.*
+
+* With the pair the default path is the installed box's gateway; until A-01 and GW-02 are fixed every model call of
+  the card run is refused there (the canary, SCREEN, chart reading). `--direct` runs the pair straight, as D-139 did.
+* Model exclusions against the note truth, extraction precision and recall of the real model in ja and zh-TW, and
+  tesseract on the rendered scans run only on the card. The floors (precision 0.90, recall 0.70) are this run's own.
+* The VM script, the watchdog, the HTTP door and the bucket path have not run on a VM; the gcloud flags were checked
+  against the SDK's help only. No billing budget (an owner action).
+* MIMIC's cascade uses `tools.cascade_e2e`'s own model path (the stub), TREC the evaluation client: neither goes
+  through the box. Chia, open_cohorts and Synthea are not run (`NOT_RUN` in `tools/scenarios.py`).
+
 **D-142 Review wave 1a: screening and data blockers fixed.** Pre-release review of 2026-11-09 (reports 01, 02 and 06;
 consolidated items R-01, R-37, R-38), 2026-11-09. One commit per item, each with a test that fails before the fix.
 Built in a cloud container, no GPU, no Docker; synthetic data only.
