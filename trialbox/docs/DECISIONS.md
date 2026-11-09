@@ -3267,7 +3267,13 @@ purpose, Approach refused without the tick, an "outside TrialBox" referral numbe
 CRC's agreement, the override recorded, the XLSX route and outcome, the CRO and viewer refused, an opt-out entered
 by chart number registered under the pseudonym, gone from the lists, and left out of the next SCREEN run with its
 audit event. `tools/complete_run.py` maps stage 15 to the candidates page; the browser walk opens the new pages for
-the PI and the CRC and expects 403 for the viewer and the CRO.
+the PI and the CRC and expects 403 for the viewer and the CRO. Runs here: `make lint` clean; `e2e_simple` PASSED
+(183 checks); `tools.backup_drill` PASSED; `public_e2e --lang ja` 112/112; the walk 888 checks, 0 failures, axe 0
+serious, no target under 44 px. `make test`: 1,519 passed, 3 failed, the same three that fail on the base commit
+(`tests/integration/test_twpas_inproc.py` and `test_cohort_inproc.py`: module-scoped boxes across per-test
+schemas). Two suite fixes on the way: `tests/conftest.py` no longer lets the demo tools' service token leak into
+later tests (it made unrelated HTTP tests answer 401), and `tests/integration/test_list_demo.py` checks D-136 (the
+screening number beside the pseudonym in the mail) instead of its absence.
 
 *Not done.* The screening run's population is still the practitioner and appointment scope of D-103; "the entire
 database" as the scope is the Wave 1 / G1 work. FEAS counts do not read the opt-out register (the feed's consent

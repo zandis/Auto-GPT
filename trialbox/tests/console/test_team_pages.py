@@ -440,7 +440,8 @@ def test_team_pages_render_in_three_languages_with_their_strings(box: dict[str, 
         for path in ("/studies/GZQO/candidates", f"/studies/GZQO/candidates/{A}", "/studies/GZQO/referrals",
                      "/studies/GZQO/team", "/studies/GZQO/irb", "/site/staff"):  # fmt: skip
             r = pi.get(path)
-            assert r.status_code == 200 and "team." not in re.sub(r"<[^>]+>", " ", r.text), (lang, path)
+            text = re.sub(r"<[^>]+>", " ", r.text)
+            assert r.status_code == 200 and "team." not in text and not re.search(r"\bNone\b", text), (lang, path)
         r = crc.get("/site/opt-outs")
         assert r.status_code == 200 and "team." not in re.sub(r"<[^>]+>", " ", r.text), lang
     from console import i18n_team
