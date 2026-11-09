@@ -75,14 +75,14 @@ fi
 
 # ------------------------------------------------------------------------------------------------ 1. host
 say "host"
-command -v docker >/dev/null || die "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/HARDENING.md)"
+command -v docker >/dev/null || die "Docker is not installed (Docker Engine 27+ with the compose plugin; docs/SECURITY.md)"
 docker info >/dev/null 2>&1 || die "Docker is not running (sudo systemctl start docker)"
 docker compose version >/dev/null 2>&1 || die "the docker compose plugin is missing"
 if [ "$MODE" = auto ]; then
   if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then MODE=gpu; else MODE=stub; fi
 fi
 case "$MODE" in
-  gpu) command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 || die "--mode gpu but nvidia-smi finds no GPU (driver + container toolkit; docs/HARDENING.md)"
+  gpu) command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 || die "--mode gpu but nvidia-smi finds no GPU (driver + container toolkit; docs/SECURITY.md)"
        docker info 2>/dev/null | grep -qi nvidia || echo "install: warning: Docker lists no nvidia runtime; the model service may not start" >&2 ;;
   stub) echo "    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model" ;;
   *) die "--mode must be gpu or stub" ;;
@@ -253,7 +253,7 @@ echo "    add coordinators and viewers on the console's Users page, or: docker c
 
 # ------------------------------------------------------------------------------------------------ 6. check
 say "host check"
-sh "$ROOT/deploy/check_host.sh" $( [ "$(uname -m)" = aarch64 ] && echo --gb10 ) || echo "install: host check reported FAIL lines above: fix them before go-live (docs/HARDENING.md)" >&2
+sh "$ROOT/deploy/check_host.sh" $( [ "$(uname -m)" = aarch64 ] && echo --gb10 ) || echo "install: host check reported FAIL lines above: fix them before go-live (docs/SECURITY.md)" >&2
 PORT="$(sed -n 's/^TB_HOST_CONSOLE_PORT=//p' deploy/.env | head -1)"
 cat <<EOT
 

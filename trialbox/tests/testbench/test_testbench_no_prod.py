@@ -1,4 +1,4 @@
-"""The Test Bench never ships in a product image or a production compose file (docs/HANDOFF.md §5).
+"""The Test Bench never ships in a product image or a production compose file (docs/VALIDATION.md §6).
 
 This is how the bench stays out of the FR-UX-12 surface inventory: not by an allow-list, but by proving that nothing
 that can run in production contains it. Product images are checked through their build context (every ``COPY`` source

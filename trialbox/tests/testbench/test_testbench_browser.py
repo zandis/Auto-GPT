@@ -1,4 +1,4 @@
-"""Browser smoke test of the Test Bench with Playwright (docs/HANDOFF.md §5).
+"""Browser smoke test of the Test Bench with Playwright (docs/VALIDATION.md §6).
 
 The Python ``playwright`` package is not in the venv, so the browser part is ``tests/testbench/browser_smoke.js`` on
 Node Playwright with the preinstalled Chromium (``PLAYWRIGHT_BROWSERS_PATH``); this wrapper starts the bench on a free

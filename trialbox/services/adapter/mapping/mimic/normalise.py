@@ -2,7 +2,7 @@
 
 MIMIC-on-FHIR is already FHIR R4, but it uses MIMIC code systems and a per-patient date shift that the lake and the
 criteria compiler cannot use as they are. This step runs before the ``fhir_bulk`` adapter source and is
-table-driven (``tables/*.csv``; every table is documented in docs/OPEN_DATA.md):
+table-driven (``tables/*.csv``; summarised in docs/VALIDATION.md §5):
 
 * **Diagnoses.** ``mimic-diagnosis-icd10`` codes (no dot, e.g. ``I5023``) become ICD-10-CM (``I50.23``).
   ``mimic-diagnosis-icd9`` codes are cross-walked to ICD-10-CM with ``icd9_to_icd10cm.csv``: a small explicit table

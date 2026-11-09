@@ -5,7 +5,7 @@
 #
 #   gcloud compute instances add-metadata tb-gpu-sim --zone asia-east1-a \
 #     --metadata-from-file startup-script=deploy/gcp/gpu-pro6000-run.sh,tb-serving-config=tools/serving_config.py
-#   (start the VM only with the owner's OK: about US$2.74 an hour; docs/SERVING_CONFIG.md)
+#   (start the VM only with the owner's OK: about US$2.74 an hour; docs/RUNBOOK.md §11)
 #
 # nginx :80: /judge/ and /verifier/ (whole servers), /record/ (serving_config.json, written with no capped_to so
 # that `tools/serving_config.py measured rtxpro6000` accepts it, and gpu_peak.json). The API key comes from the

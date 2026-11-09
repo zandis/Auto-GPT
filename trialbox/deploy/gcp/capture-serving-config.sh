@@ -2,7 +2,7 @@
 # FR-MOD-10 (D-111): the serving-configuration record of the judge and verifier on the GPU VM (tb-gpu-sim).
 #
 #   deploy/gcp/capture-serving-config.sh prepare [VM] [ZONE]   # VM stopped or running: attach the capture code
-#   (start the VM on purpose: docs/SERVING_CONFIG.md; the startup script captures once both servers answer)
+#   (start the VM on purpose: docs/RUNBOOK.md §11; the startup script captures once both servers answer)
 #   deploy/gcp/capture-serving-config.sh fetch   [VM] [ZONE]   # VM running: download and check the record
 #
 # The VM's startup script (gpu-sim-startup.sh) runs tools/serving_config.py capture on the box (docker inspect,

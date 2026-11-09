@@ -17,7 +17,7 @@
 #    in the audit log. Any failure after the rollback point: images, models and database are put back, the box
 #    restarts and is checked again, `update.rolled_back` is audited, exit 1.
 #    A box that is not running yet (the first install) only loads the payloads; install.sh audits it after start.
-#    --target demo: the one-container demo VM (docs/DEMO_VM.md), checked by running e2e_simple in the new container.
+#    --target demo: the one-container demo VM (docs/RUNBOOK.md §11), checked by running e2e_simple in the new container.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BUNDLE=${1:?usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup]}

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Appliance host checks (SPEC §10.1; docs/HARDENING.md). Prints PASS / WARN / FAIL per item; exit 1 on any FAIL.
+# Appliance host checks (SPEC §10.1; docs/SECURITY.md). Prints PASS / WARN / FAIL per item; exit 1 on any FAIL.
 #
 #   deploy/check_host.sh [--gb10] [--env deploy/.env] [--secrets <dir>]
 #

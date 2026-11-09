@@ -6,7 +6,7 @@
 # Code: a clone of the repo at metadata "tb-base" (a commit), plus the optional gzip+base64 patch in metadata
 # "tb-patch" (local commits not yet on GitHub). Password: metadata "tb-admin-password" (never traced to the log).
 # Cookies are not marked Secure (the demo seeds itself over in-process http); Caddy still serves https only.
-# Re-runs on every boot; a restart reseeds both sites. Stop the VM when the demo is over (docs/DEMO_VM.md).
+# Re-runs on every boot; a restart reseeds both sites. Stop the VM when the demo is over (docs/RUNBOOK.md §11).
 set -u
 exec > >(tee -a /var/log/trialbox-setup.log /dev/ttyS0) 2>&1
 step() { echo "=== $(date -u +%H:%M:%S) $*"; }

@@ -3,7 +3,7 @@
 # Startup script: installs Docker, loads the demo image from the GCS object named in metadata "tb-demo-image"
 # (gs://.../trialbox-demo.tar.gz, made by `make demo-bundle`), and runs it on :80 with the password from metadata
 # "tb-demo-password". The image seeds and checks the whole step 1-4 flow on synthetic data (about 70 s), then serves
-# the console. Nothing here creates or starts the VM: see docs/DEMO_VM.md.
+# the console. Nothing here creates or starts the VM: see docs/RUNBOOK.md §11.
 exec > >(tee -a /var/log/tb-demo-startup.log /dev/ttyS0) 2>&1
 set -x
 MD=http://metadata.google.internal/computeMetadata/v1/instance/attributes

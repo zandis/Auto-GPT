@@ -12,7 +12,7 @@ check in ``eval/trec_ct/AUDIT.md``.
 
 For each build the replay says which recordings exist and, when one is missing, exactly which file a GPU run must
 produce (``python -m tools.trialgpt_compare run --pipelines trialbox ...`` on the card, see
-``docs/SERVING_CONFIG.md``).
+``docs/VALIDATION.md`` §3).
 
     python -m tools.parity_replay                   # table + eval/parity/replay.json
     python -m tools.parity_replay --check           # exit 1 when a recorded number does not reproduce

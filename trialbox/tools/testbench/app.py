@@ -1,4 +1,4 @@
-"""TrialBox Test Bench web app (FastAPI + Jinja2 + vendored htmx; docs/HANDOFF.md §5).
+"""TrialBox Test Bench web app (FastAPI + Jinja2 + vendored htmx; docs/VALIDATION.md §6).
 
     TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.testbench          # 127.0.0.1:8765
     TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m uvicorn tools.testbench.app:app --port 8765
