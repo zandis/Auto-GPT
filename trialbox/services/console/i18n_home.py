@@ -1196,3 +1196,12 @@ from console.i18n_team import ZH as _TEAM_ZH  # noqa: E402
 EN.update(_TEAM_EN)
 JA.update(_TEAM_JA)
 ZH.update(_TEAM_ZH)
+
+# D-178 / D-179: the operations screens, the confirmations and undos (J-09, J-14), the study-scoped site pages (J-06)
+from console.i18n_ops import EN as _OPS_EN  # noqa: E402
+from console.i18n_ops import JA as _OPS_JA  # noqa: E402
+from console.i18n_ops import ZH as _OPS_ZH  # noqa: E402
+
+EN.update(_OPS_EN)
+JA.update(_OPS_JA)
+ZH.update(_OPS_ZH)

@@ -209,6 +209,9 @@ services:
       - audit-data:/data/audit
       - rulesets-data:/data/rulesets:ro
       - objects-data:/data/objects
+      # D-178: the operations folder shared with the host's runner (python3 -m tools.trialbox ops run): requests in,
+      # results and the status out; never a secret
+      - ${TB_OPS_DIR:-./ops}:/data/ops
     ports: ["${TB_CONSOLE_BIND:-127.0.0.1}:${TB_HOST_CONSOLE_PORT:-8090}:8090"]
     depends_on:
       db: {condition: service_healthy}

@@ -337,6 +337,17 @@ class UserStore:
             tx.execute("UPDATE users SET disabled = 1 WHERE username = ?", (username,))
             tx.execute("DELETE FROM sessions WHERE username = ?", (username,))
 
+    def enable(self, username: str) -> None:
+        """D-178 (review J-14): the undo of :meth:`disable`. The password is the one the account had; its sessions
+        stay ended (the person signs in again)."""
+        with self.db.transaction() as tx:
+            if tx.execute("UPDATE users SET disabled = 0 WHERE username = ? AND disabled = 1", (username,)) != 1:
+                raise AuthError(f"no disabled account {username}")
+
+    def disabled_users(self) -> list[User]:
+        rows = self.db.fetchall(f"SELECT {_COLS} FROM users WHERE disabled = 1 ORDER BY username")
+        return [_row_user(r) for r in rows]
+
     # ------------------------------------------------------------------ login
     def locked(self, username: str) -> bool:
         since = (self.clock() - LOCKOUT).isoformat()

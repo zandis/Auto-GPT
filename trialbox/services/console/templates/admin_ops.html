@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{# D-178 (review J-09, WS-08.5 / WS-14.7): the administrator's operations screens. Every action asks first and names
+   its consequence; the host's runner does the work (tools/trialbox/ops.py). Secrets are listed by name, never a value. #}
+{% block title %}{{ t('ops.title') }}{% endblock %}
+{% macro act(action, label, cls='secondary', bundle='') %}{% if allowed[action] %}<form method="post" action="/admin/ops/{{ action }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}">{% if bundle %}<input type="hidden" name="bundle" value="{{ bundle }}">{% endif %}<button type="submit" class="{{ cls }}"{% if action in pending %} disabled{% endif %} data-testid="ops-{{ action }}{{ '-' ~ bundle if bundle else '' }}">{{ label }}</button></form>{% endif %}{% endmacro %}
+{% macro res(r) %}{% if r %}<span class="pill {{ 'ok' if r.ok else 'bad' }}" data-testid="ops-result">{{ t('ops.ok') if r.ok else t('ops.failed') }}</span> <span class="hint">{{ (r.finished or '')|local }} · {{ r.by|who }}</span>{% if r.summary %}<br><span class="hint mono" data-src="ops">{{ r.summary }}</span>{% endif %}{% endif %}{% endmacro %}
+{% block content %}
+<div class="headrow"><h1>{{ t('ops.title') }}</h1><a class="button secondary" href="/admin">{{ t('nav.admin') }}</a></div>
+<nav class="tabs" aria-label="{{ t('ops.title') }}" data-testid="ops-tabs">{% for tb in tabs %}<a href="/admin/ops?tab={{ tb }}" class="{{ 'active' if tb == tab else '' }}" data-testid="opstab-{{ tb }}"{% if tb == tab %} aria-current="page"{% endif %}>{{ t('ops.tab.' + tb) }}</a>{% endfor %}</nav>
+{% if mine %}<section class="card" role="status" data-testid="ops-request" data-action="{{ mine.action }}" data-state="{{ 'done' if mine.result else 'waiting' }}">
+<h2>{{ t('ops.action.' + mine.action) }}</h2>
+{% if mine.result %}<p>{{ res(mine.result) }}</p>{% if mine.result.lines %}<details><summary>{{ t('ops.details') }}</summary><pre class="mono" data-src="ops">{% for l in mine.result.lines %}{{ l }}
+{% endfor %}</pre></details>{% endif %}
+{% else %}<p><span class="pill warn">{{ t('ops.waiting') }}</span> {{ t('ops.waiting.help') }}</p>{% endif %}
+</section>{% endif %}
+{% if sm.agent_late %}<p class="warn" data-testid="ops-agent-late">{{ t('ops.agent.late') if sm.agent_seen_h is not none else t('ops.agent.never') }}</p>{% endif %}
+
+{% if tab == 'overview' %}
+<div class="tiles" data-testid="ops-overview">
+  <section class="card tile" data-testid="ops-version">
+    <h2>{{ t('ops.version') }}</h2>
+    <p class="big mono">{{ sm.version.trialbox or sm.console_version }}</p>
+    <p class="hint">{{ t('ops.version.bundle') }}: <span class="mono" data-testid="ops-bundle">{{ sm.version.bundle or t('ops.version.none') }}</span>{% if sm.version.applied_at %} · {{ sm.version.applied_at|local }}{% endif %}</p>
+    <p class="hint">{{ t('ops.version.console') }}: <span class="mono">{{ sm.console_version }}</span></p>
+  </section>
+  <section class="card tile" data-testid="ops-backup-tile">
+    <h2>{{ t('ops.tab.backups') }}</h2>
+    {% if sm.newest_backup %}<p class="big"><span class="pill {{ 'bad' if sm.backup_red else 'ok' }}" data-testid="ops-backup-age">{{ t('ops.backup.age', h=sm.backup_age_h) }}</span></p><p class="hint">{{ sm.newest_backup|local }}</p>
+    {% else %}<p class="big"><span class="pill bad" data-testid="ops-backup-age">{{ t('ops.backup.none') }}</span></p>{% endif %}
+    {% if not sm.backup_key %}<p class="warn">{{ t('ops.backup.nokey') }}</p>{% endif %}
+    <p>{{ t('ops.backup.last_check') }}: {% if sm.last_check %}{{ res(sm.last_check) }}{% else %}–{% endif %}</p>
+    <a href="/admin/ops?tab=backups">{{ t('ops.open') }}</a>
+  </section>
+  <section class="card tile" data-testid="ops-update-tile">
+    <h2>{{ t('ops.tab.update') }}</h2>
+    {% set u = (st.updates or [])[:1] %}{% if u %}<p>{{ u[0].bundle }} · <span class="pill {{ 'ok' if u[0].outcome == 'applied' else 'warn' }}">{{ t('ops.update.' ~ (u[0].outcome or 'running')) }}</span></p>{% else %}<p class="hint">{{ t('ops.update.none') }}</p>{% endif %}
+    <p class="hint">{{ t('ops.update.staged', n=(st.incoming or [])|length) }} · {{ t('ops.update.points', n=(st.rollback_points or [])|length) }}</p>
+    <a href="/admin/ops?tab=update">{{ t('ops.open') }}</a>
+  </section>
+  <section class="card tile" data-testid="ops-disk-tile">
+    <h2>{{ t('ops.disk') }}</h2>
+    {% if st.disk %}<ul class="plain">{% for d in st.disk %}<li><span class="mono">{{ d.path }}</span> · {{ t('ops.disk.free', free=(d.free / 1073741824)|round(1), total=(d.total / 1073741824)|round(1)) }}</li>{% endfor %}</ul>{% else %}<p class="hint">–</p>{% endif %}
+  </section>
+  <section class="card tile" data-testid="ops-secrets-tile">
+    <h2>{{ t('ops.tab.secrets') }}</h2>
+    {% set missing = secrets_rows|rejectattr('present')|list %}
+    <p class="big">{{ secrets_rows|selectattr('present')|list|length }}/{{ secrets_rows|length }}</p>
+    {% if missing %}<p class="warn">{{ t('ops.secrets.missing', n=missing|length) }}</p>{% endif %}
+    <a href="/admin/ops?tab=secrets">{{ t('ops.open') }}</a>
+  </section>
+  <section class="card tile" data-testid="ops-network-tile">
+    <h2>{{ t('ops.tab.network') }}</h2>
+    <p class="hint">{{ t('ops.network.help') }}</p>
+    <a href="/admin/ops?tab=network">{{ t('ops.open') }}</a>
+  </section>
+</div>
+<section class="card">
+<h2>{{ t('ops.recent') }}</h2>
+{% if history %}<div class="scroll" tabindex="0"><table data-testid="ops-history">
+<thead><tr><th scope="col">{{ t('ops.col.when') }}</th><th scope="col">{{ t('ops.col.action') }}</th><th scope="col">{{ t('ops.col.who') }}</th><th scope="col">{{ t('ops.col.result') }}</th></tr></thead>
+<tbody>{% for r in history %}<tr data-req="{{ r.id }}"><td class="nowrap">{{ r.at|local }}</td><td>{{ t('ops.action.' + r.action) }}{% if r.args and r.args.bundle %} <span class="mono">{{ r.args.bundle }}</span>{% endif %}</td><td>{{ r.by|who }}</td>
+<td>{% if r.result %}<span class="pill {{ 'ok' if r.result.ok else 'bad' }}">{{ t('ops.ok') if r.result.ok else t('ops.failed') }}</span>{% else %}<span class="pill warn">{{ t('ops.waiting') }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
+</table></div>{% else %}<p class="hint" data-testid="ops-history-none">{{ t('ops.recent.none') }}</p>{% endif %}
+</section>
+
+{% elif tab == 'backups' %}
+<section class="card" data-testid="ops-backups">
+<p class="hint">{{ t('ops.backup.help') }}</p>
+<p class="row">{{ act('backup', t('ops.action.backup'), '') }} {{ act('backup_check', t('ops.action.backup_check')) }}</p>
+<p>{{ t('ops.backup.last_check') }}: {% if sm.last_check %}{{ res(sm.last_check) }}{% else %}–{% endif %}</p>
+{% set bk = st.backups or {} %}
+{% if not bk.targets %}<p class="warn" data-testid="ops-no-targets">{{ t('ops.backup.notargets') }}</p>{% endif %}
+{% for tg in bk.targets or [] %}<h3 class="mono">{{ tg.path }}</h3>
+{% if not tg.reachable %}<p class="warn">{{ t('ops.backup.unreachable') }}</p>{% endif %}
+{% if tg.files %}<div class="scroll" tabindex="0"><table data-testid="ops-backup-files">
+<thead><tr><th scope="col">{{ t('ops.col.file') }}</th><th scope="col">{{ t('ops.col.when') }}</th><th scope="col">{{ t('ops.col.size') }}</th></tr></thead>
+<tbody>{% for f in tg.files %}<tr><td class="mono">{{ f.name }}</td><td class="nowrap">{{ f.at|local }}</td><td>{{ (f.bytes / 1048576)|round(1) }} MB</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="hint">{{ t('ops.backup.none') }}</p>{% endif %}{% endfor %}
+<p class="hint">{{ t('ops.backup.verify_cli') }}</p>
+</section>
+
+{% elif tab == 'update' %}
+<section class="card" data-testid="ops-update">
+<p class="hint">{{ t('ops.update.help') }}</p>
+<h2>{{ t('ops.update.incoming') }}</h2>
+{% if st.incoming %}<ul class="plain" data-testid="ops-incoming">{% for b in st.incoming %}<li><span class="mono">{{ b.name }}</span> · {{ (b.bytes / 1048576)|round(1) }} MB · {{ b.at|local }}<br>{{ act('update_check', t('ops.action.update_check'), 'secondary', b.name) }} {{ act('update_apply', t('ops.action.update_apply'), 'danger', b.name) }}</li>{% endfor %}</ul>
+{% else %}<p class="hint" data-testid="ops-incoming-none">{{ t('ops.update.incoming.none') }}</p>{% endif %}
+<h2>{{ t('ops.update.history') }}</h2>
+{% if st.updates %}<div class="scroll" tabindex="0"><table data-testid="ops-updates">
+<thead><tr><th scope="col">{{ t('ops.col.bundle') }}</th><th scope="col">{{ t('ops.col.when') }}</th><th scope="col">{{ t('ops.col.result') }}</th></tr></thead>
+<tbody>{% for u in st.updates %}<tr><td class="mono">{{ u.bundle }}</td><td class="nowrap">{{ u.last|local }}</td><td><span class="pill {{ 'ok' if u.outcome == 'applied' else 'warn' }}">{{ t('ops.update.' ~ (u.outcome or 'running')) }}</span></td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="hint">{{ t('ops.update.none') }}</p>{% endif %}
+<h2>{{ t('ops.update.rollback') }}</h2>
+<p class="hint">{{ t('ops.update.rollback.help') }}</p>
+{% if st.rollback_points %}<ul class="plain" data-testid="ops-points">{% for p in st.rollback_points %}<li><span class="mono">{{ p.bundle }}</span> · {{ t('ops.update.point', images=p.images, dumps=p.dumps_kept) }} · {{ p.at|local }}</li>{% endfor %}</ul>{% else %}<p class="hint">–</p>{% endif %}
+</section>
+
+{% elif tab == 'logs' %}
+<section class="card" data-testid="ops-logs">
+<p class="hint">{{ t('ops.logs.help') }}</p>
+<p>{{ act('logs_collect', t('ops.action.logs_collect')) }}</p>
+{% set days = (st.logs or {}).days or [] %}
+{% if days %}<ul class="plain">{% for d in days %}<li>{{ d.day }} · {{ t('ops.logs.files', n=d.files) }} · {{ (d.bytes / 1048576)|round(1) }} MB</li>{% endfor %}</ul>{% else %}<p class="hint" data-testid="ops-logs-none">{{ t('ops.logs.none') }}</p>{% endif %}
+</section>
+
+{% elif tab == 'secrets' %}
+<section class="card" data-testid="ops-secrets">
+<p class="hint">{{ t('ops.secrets.help') }}</p>
+{% if secrets_rows %}<div class="scroll" tabindex="0"><table data-testid="ops-secrets-table">
+<thead><tr><th scope="col">{{ t('ops.col.name') }}</th><th scope="col">{{ t('ops.col.present') }}</th><th scope="col">{{ t('ops.col.age') }}</th><th scope="col">{{ t('ops.col.registered') }}</th></tr></thead>
+<tbody>{% for r in secrets_rows %}<tr data-secret="{{ r.name }}"><td class="mono">{{ r.name }}</td><td>{% if r.present %}<span class="pill ok">{{ t('ops.yes') }}</span>{% else %}<span class="pill bad">{{ t('ops.no') }}</span>{% endif %}</td><td>{{ t('ops.days', n=r.age_days) if r.age_days is not none else '–' }}</td><td>{{ (t('ops.yes') if r.registered else t('ops.no')) if r.registered is not none else '–' }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="hint" data-testid="ops-secrets-none">{{ t('ops.secrets.none') }}</p>{% endif %}
+<p class="hint">{{ t('ops.secrets.rotate') }}</p>
+</section>
+
+{% else %}
+<section class="card" data-testid="ops-network">
+<p class="hint">{{ t('ops.network.help') }}</p>
+<p>{{ act('network_sheet', t('ops.action.network_sheet')) }}</p>
+{% if sheets %}<ul class="plain" data-testid="ops-sheets">{% for s in sheets %}<li><a href="/admin/ops/network/{{ s }}" download>{{ s }}</a></li>{% endfor %}</ul>{% else %}<p class="hint" data-testid="ops-sheets-none">{{ t('ops.network.none') }}</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

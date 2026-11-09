@@ -100,3 +100,26 @@ def daily_limit(settings: Settings, command: str) -> int | None:
     else:
         return None
     return n if n > 0 else None
+
+
+# D-178 (review J-09, J-14): the administrator's operations screens (backups, update and rollback, logs, secrets
+# status, the network sheet, the version) and the account actions. One table for the pages and ``/api/v1``: a role
+# not listed has none of these actions. The steward, PI, CRC, viewer and CRO roles have no operations rights.
+ADMIN_ACTIONS: tuple[str, ...] = (
+    "ops.view",  # read the operations pages: version, backups, update history, logs, secrets status, network sheet
+    "ops.backup",  # ask for a backup now (the host runs ``trialbox backup``)
+    "ops.backup_check",  # check the newest backups without the key (complete, copies equal)
+    "ops.update_check",  # verify a staged update bundle (``apply_update.sh --dry-run``): nothing changes
+    "ops.update_apply",  # apply a staged, signed bundle (backup first, automatic rollback on failure)
+    "ops.logs",  # collect yesterday's service logs (``trialbox logs collect``)
+    "ops.network",  # write the network sheet again (``tools/network_sheet.py``)
+    "account.reset",  # a new one-time password for an account
+    "account.disable",  # disable an account
+    "account.enable",  # enable a disabled account again (the undo of disable)
+)
+ROLE_ADMIN_ACTIONS: dict[str, frozenset[str]] = {"admin": frozenset(ADMIN_ACTIONS)}
+
+
+def admin_allowed(role: str, action: str) -> bool:
+    """True when a console account with ``role`` may take the operations or account ``action``."""
+    return action in ROLE_ADMIN_ACTIONS.get(role, frozenset())
