@@ -1,9 +1,18 @@
-"""ClinicalTrials.gov API v2 client for COHORT trial simulation (SPEC §8.3).
+"""ClinicalTrials.gov API v2 client: COHORT trial simulation (SPEC §8.3) and criteria drafting from a registry record.
 
-Public registry data only (no PHI is sent): ``GET /api/v2/studies`` with ``query.cond``, ``query.locn`` and
-``filter.overallStatus``. ``TB_CTGOV_MODE=cassette`` (CI, demo box without egress) replays
-``cassettes/ctgov/<condition-slug>.json`` written by ``tools/make_ctgov_cassettes.py``; ``live`` (default) calls
-``TB_CTGOV_BASE_URL`` (default ``https://clinicaltrials.gov/api/v2``) through the compiler's egress.
+Public registry data only (no PHI is sent). Three modes (``TB_CTGOV_MODE``; the hospital chooses live or offline at
+install, D-140):
+
+* ``live``: ``GET /api/v2/studies`` with ``query.cond``, ``query.locn`` and ``filter.overallStatus`` (or
+  ``GET /api/v2/studies/<NCT id>``) on ``TB_CTGOV_BASE_URL`` (default ``https://clinicaltrials.gov/api/v2``) through
+  the compiler's egress: the box may reach clinicaltrials.gov:443.
+* ``offline``: no outbound access; the studies come from the reference data pack in the trial database
+  (``tb_common.refdata``, schema ``refdata``), refreshed by the signed update bundle. Same questions, same records.
+* ``cassette``: CI and the demo box; replays ``cassettes/ctgov/<condition-slug>.json`` written by
+  ``tools/make_ctgov_cassettes.py``.
+
+With nothing set the client is ``offline`` (owner decision, 2026-11-09); the install question and the settings
+wizard write the hospital's choice (a box installed before D-140 has ``live`` in its ``.env`` and keeps it).
 """
 
 from __future__ import annotations
@@ -13,13 +22,14 @@ import os
 import re
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from tb_contracts import CtgovSearchRequest, CtgovSearchResult, CtgovStudy
 
 CASSETTES = Path(__file__).resolve().parent / "cassettes" / "ctgov"
 DEFAULT_BASE = "https://clinicaltrials.gov/api/v2"
+MODES = ("live", "offline", "cassette")
 
 
 class CtgovError(RuntimeError):
@@ -59,6 +69,10 @@ def to_study(raw: dict[str, Any]) -> CtgovStudy | None:
     )
 
 
+def _nct(raw: dict[str, Any]) -> str:
+    return str(((raw.get("protocolSection") or {}).get("identificationModule") or {}).get("nctId") or "")
+
+
 class CtGov:
     def __init__(
         self,
@@ -66,18 +80,59 @@ class CtGov:
         base_url: str | None = None,
         cassette_dir: Path = CASSETTES,
         http: httpx.Client | None = None,
+        db_url: str | None = None,
     ) -> None:
-        self.mode = (mode or os.environ.get("TB_CTGOV_MODE", "live")).lower()
+        self.mode = (mode or os.environ.get("TB_CTGOV_MODE") or "offline").lower()
+        if self.mode not in MODES:
+            raise CtgovError(f"TB_CTGOV_MODE={self.mode} is not one of {', '.join(MODES)}")
         self.base = (base_url or os.environ.get("TB_CTGOV_BASE_URL") or DEFAULT_BASE).rstrip("/")
         self.cassette_dir = cassette_dir
         self.http = http
+        self.db_url = db_url  # offline mode: the trial database (default TB_DB_URL)
+
+    @property
+    def origin(self) -> str:
+        """The result's ``source``: api (live), refdata (offline) or cassette."""
+        return {"live": "api", "offline": "refdata", "cassette": "cassette"}[self.mode]
 
     def _cassette(self, req: CtgovSearchRequest) -> list[dict[str, Any]]:
-        path = self.cassette_dir / f"{slug(req.condition)}.json"
-        if not path.exists():
+        files = (
+            sorted(self.cassette_dir.glob("*.json"))
+            if req.nct_id
+            else [self.cassette_dir / f"{slug(req.condition)}.json"]
+        )
+        studies: list[dict[str, Any]] = []
+        for path in files:
+            if path.exists():
+                studies += json.loads(path.read_text(encoding="utf-8")).get("studies", [])
+        return [s for s in studies if _nct(s) == req.nct_id] if req.nct_id else studies
+
+    def _offline(self, req: CtgovSearchRequest) -> list[dict[str, Any]]:
+        from tb_common.refdata import RefStore
+
+        try:
+            with RefStore(self.db_url) as st:
+                if st.status() is None:
+                    raise CtgovError(
+                        "offline mode: no reference data pack is loaded (tools/apply_update.sh <refdata bundle>)"
+                    )
+                if req.nct_id:
+                    one = st.ctgov_study(req.nct_id)
+                    return [one] if one else []
+                return st.ctgov_search(req.condition, req.locations or [], req.status or "RECRUITING",
+                                       req.max_studies or 50)  # fmt: skip
+        except CtgovError:
+            raise
+        except Exception as exc:  # the trial database is not reachable
+            raise CtgovError(f"offline mode: the reference data could not be read ({type(exc).__name__})") from exc
+
+    def _live_one(self, client: httpx.Client, nct_id: str) -> list[dict[str, Any]]:
+        resp = client.get(f"{self.base}/studies/{nct_id}", params={"format": "json"})
+        if resp.status_code == 404:
             return []
-        studies: list[dict[str, Any]] = json.loads(path.read_text(encoding="utf-8")).get("studies", [])
-        return studies
+        if resp.status_code >= 400:
+            raise CtgovError(f"ClinicalTrials.gov answered HTTP {resp.status_code}")
+        return [resp.json()]
 
     def _live(self, req: CtgovSearchRequest) -> list[dict[str, Any]]:
         client = self.http or httpx.Client(timeout=60)
@@ -92,6 +147,8 @@ class CtGov:
         out: list[dict[str, Any]] = []
         token: str | None = None
         try:
+            if req.nct_id:
+                return self._live_one(client, req.nct_id)
             while len(out) < (req.max_studies or 50):
                 if token:
                     params["pageToken"] = token
@@ -110,20 +167,30 @@ class CtGov:
                 client.close()
         return out[: req.max_studies or 50]
 
+    def raw(self, req: CtgovSearchRequest) -> list[dict[str, Any]]:
+        """The full API v2 records (criteria drafting reads their eligibility module)."""
+        if not (req.nct_id or req.condition.strip()):
+            raise CtgovError("a ClinicalTrials.gov search needs a condition or an NCT id")
+        if self.mode == "cassette":
+            return self._cassette(req)
+        return self._offline(req) if self.mode == "offline" else self._live(req)
+
     def search(self, req: CtgovSearchRequest) -> CtgovSearchResult:
-        raw = self._cassette(req) if self.mode == "cassette" else self._live(req)
         wanted = {c.lower() for c in req.locations or []}
         studies = []
-        for r in raw:
+        for r in self.raw(req):
             s = to_study(r)
-            if s is None or s.overall_status.upper() != (req.status or "RECRUITING").upper():
+            if s is None:
                 continue
-            if wanted and not wanted & {c.lower() for c in s.countries or []}:
-                continue
+            if not req.nct_id:  # one study asked for by its id comes back whatever its status and sites
+                if s.overall_status.upper() != (req.status or "RECRUITING").upper():
+                    continue
+                if wanted and not wanted & {c.lower() for c in s.countries or []}:
+                    continue
             studies.append(s)
         return CtgovSearchResult(
-            condition=req.condition,
-            source="cassette" if self.mode == "cassette" else "api",
+            condition=req.condition or (req.nct_id or ""),
+            source=cast(Any, self.origin),
             fetched_at=datetime.now(UTC),
             studies=studies,
         )

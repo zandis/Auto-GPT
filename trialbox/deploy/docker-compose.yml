@@ -114,7 +114,7 @@ services:
     image: ${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}
     command: ["uvicorn", "criteria_compiler.app:app", "--host", "0.0.0.0", "--port", "8012"]
     environment: {PORT: "8012", TB_SERVICE_NAME: criteria-compiler, TB_RULESETS_DIR: /data/rulesets, TB_AUDIT_DIR: /data/audit,
-                  TB_CTGOV_MODE: "${TB_CTGOV_MODE:-live}", TB_GATEWAY_URL: "http://gateway:8020/v1",
+                  TB_CTGOV_MODE: "${TB_CTGOV_MODE:-offline}", TB_GATEWAY_URL: "http://gateway:8020/v1",
                   TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_DATA_CLASS: "${TB_DATA_CLASS:-}"}
     # only service allowed to reach clinicaltrials.gov (public registry, COHORT; network.sh); its cloud LLM calls go
     # through the gateway like every other model call

@@ -112,15 +112,38 @@ T: dict[str, dict[str, str]] = {
     "dest": {"en": "Destination", "ja": "宛先", "zh-TW": "目的地"},
     "why": {"en": "Why", "ja": "用途", "zh-TW": "用途"},
     "out_default": {
-        "en": "With no site settings the box reaches nothing outside, except ClinicalTrials.gov from criteria-compiler "
-        "while TB_CTGOV_MODE=live (public registry, no patient data; set TB_CTGOV_MODE=cassette to close it). "
-        "Each line below opens only when its setting is filled in.",
-        "ja": "施設設定がなければ外部には何も接続しません。例外は TB_CTGOV_MODE=live の間の criteria-compiler から "
-        "ClinicalTrials.gov（公開レジストリ、患者データなし。TB_CTGOV_MODE=cassette で閉じる）。下表の各行は、"
-        "その設定を入れたときだけ開きます。",
-        "zh-TW": "未做院方設定時，本機不對外連線；唯一例外是 TB_CTGOV_MODE=live 時 criteria-compiler 連 "
-        "ClinicalTrials.gov（公開登錄，無病人資料；設 TB_CTGOV_MODE=cassette 即關閉）。"
-        "下表每一列僅在填入該設定後開放。",
+        "en": "With no site settings the box reaches nothing outside. ClinicalTrials.gov is offline by default: the "
+        "trials come from the reference data pack of each signed update (TB_CTGOV_MODE=offline). A hospital that "
+        "chose live at install (TB_CTGOV_MODE=live) opens criteria-compiler to clinicaltrials.gov:443 (public "
+        "registry, no patient data). Each line below opens only when its setting is filled in.",
+        "ja": "施設設定がなければ外部には何も接続しません。ClinicalTrials.gov は既定でオフラインです。"
+        "試験情報は署名付き"
+        "更新に含まれる参照データから読みます（TB_CTGOV_MODE=offline）。導入時に live を選んだ病院では "
+        "criteria-compiler から clinicaltrials.gov:443 に接続します（公開レジストリ、患者データなし。"
+        "TB_CTGOV_MODE=live）。下表の各行は、その設定を入れたときだけ開きます。",
+        "zh-TW": "未做院方設定時，本機不對外連線。ClinicalTrials.gov 預設為離線：試驗資料來自每次簽章更新附帶的參考資料"
+        "（TB_CTGOV_MODE=offline）。安裝時選擇 live 的醫院，criteria-compiler 會連 clinicaltrials.gov:443"
+        "（公開登錄，無病人資料；TB_CTGOV_MODE=live）。下表每一列僅在填入該設定後開放。",
+    },
+    "ctgov_live": {
+        "en": "ClinicalTrials.gov: live (chosen at install). criteria-compiler reaches clinicaltrials.gov:443; no "
+        "patient data is sent.",
+        "ja": "ClinicalTrials.gov：live（導入時に選択）。criteria-compiler が clinicaltrials.gov:443 に接続します。"
+        "患者データは送りません。",
+        "zh-TW": "ClinicalTrials.gov：live（安裝時選擇）。criteria-compiler 連 clinicaltrials.gov:443；"
+        "不傳送病人資料。",
+    },
+    "ctgov_offline": {
+        "en": "ClinicalTrials.gov: offline (chosen at install). No outbound access; the trials come from the "
+        "reference data pack of each signed update.",
+        "ja": "ClinicalTrials.gov：オフライン（導入時に選択）。外部へは接続しません。試験情報は署名付き更新に含まれる"
+        "参照データから読みます。",
+        "zh-TW": "ClinicalTrials.gov：離線（安裝時選擇）。不對外連線；試驗資料來自每次簽章更新附帶的參考資料。",
+    },
+    "ctgov_cassette": {
+        "en": "ClinicalTrials.gov: cassette (test and demo box only). No outbound access.",
+        "ja": "ClinicalTrials.gov：cassette（試験・デモ機のみ）。外部へは接続しません。",
+        "zh-TW": "ClinicalTrials.gov：cassette（僅測試與展示機）。不對外連線。",
     },
     "setting": {"en": "Opened by", "ja": "開く設定", "zh-TW": "開放條件"},
     "secrets_h": {
@@ -282,7 +305,7 @@ OUTBOUND = (
         "criteria-compiler",
         "clinicaltrials.gov:443",
         "ClinicalTrials.gov public registry (COHORT)",
-        "TB_CTGOV_MODE=live",
+        "TB_CTGOV_MODE=live (chosen at install; the default is offline)",
     ),
     ("orchestrator", "NHI_TWPAS_BASE_URL", "NHI TWPAS (SUBMIT only)", "NHI_TWPAS_BASE_URL"),
     ("any", "EGRESS_EXTRA", "site additions", "EGRESS_EXTRA"),
@@ -294,6 +317,12 @@ def outbound(env: dict[str, str] | None) -> list[tuple[str, str, str, str]]:
         return list(OUTBOUND)
     allows = _egress_module().allowlist(env)
     return [(a.service, f"{a.host}:{a.port}", a.why, "") for a in allows]
+
+
+def ctgov_key(env: dict[str, str]) -> str:
+    """The sheet's ClinicalTrials.gov line for the site's mode (D-140: offline unless live was chosen)."""
+    mode = (env.get("TB_CTGOV_MODE") or "offline").strip().lower()
+    return f"ctgov_{mode}" if mode in ("live", "offline", "cassette") else "ctgov_offline"
 
 
 def secrets_rows(svcs: list[Service], lang: str) -> list[tuple[str, str, str]]:
@@ -380,7 +409,7 @@ def render_md(files: list[str], env: dict[str, str] | None, lang: str, root: Pat
         f"## {L('nets_h')}",
         _md_table([L("nets"), ""], t["nets"]),
         f"## {L('out_h')}",
-        L("out_default") if env is None else "",
+        L("out_default") if env is None else L(ctgov_key(env)),
         _md_table([L("service"), L("dest"), L("why"), L("setting")], t["out"]) if t["out"] else "-",
         f"## {L('secrets_h')}",
         _md_table([L("secret"), L("where"), L("given")], t["secrets"]),
@@ -415,7 +444,7 @@ def render_html(files: list[str], env: dict[str, str] | None, lang: str, root: P
         + table([L("service"), L("port"), L("host"), L("nets"), L("who"), L("when")], t["ports"]),
         f"<h2>{L('nets_h')}</h2>" + table([L("nets"), ""], t["nets"]),
         f"<h2>{L('out_h')}</h2>"
-        + (f"<p>{L('out_default')}</p>" if env is None else "")
+        + (f"<p>{L('out_default')}</p>" if env is None else f"<p>{L(ctgov_key(env))}</p>")
         + (table([L("service"), L("dest"), L("why"), L("setting")], t["out"]) if t["out"] else "<p>-</p>"),
         f"<h2>{L('secrets_h')}</h2>"
         + table([L("secret"), L("where"), L("given")], t["secrets"])

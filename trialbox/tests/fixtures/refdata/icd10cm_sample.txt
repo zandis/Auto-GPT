@@ -1,0 +1,10 @@
+A000    Cholera due to Vibrio cholerae 01, biovar cholerae
+E1165   Type 2 diabetes mellitus with hyperglycemia
+I10     Essential (primary) hypertension
+M0500   Felty's syndrome, unspecified site
+M069    Rheumatoid arthritis, unspecified
+M1A00X0 Idiopathic chronic gout, unspecified site, without tophus (tophi)
+M1A9XX0 Chronic gout, unspecified, without tophus (tophi)
+M1000   Idiopathic gout, unspecified site
+M109    Gout, unspecified
+N184    Chronic kidney disease, stage 4 (severe)

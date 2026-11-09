@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin.notice_page') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('admin.notice_page') }}</h1><a href="/admin">{{ t('nav.admin') }}</a></div>
+<p class="hint">{{ t('admin.attrib.help') }}</p>
+{% if refdata %}<p data-testid="notice-asof">{{ t('admin.refdata.asof', pack=refdata.pack_id) }} · {{ refdata.data_as_of }}</p>{% endif %}
+{% if sources %}
+{% for s in sources %}<section class="card" data-testid="notice-{{ s.id }}">
+<h2>{{ s.name }}</h2>
+<dl class="facts">
+  <dt>{{ t('admin.attrib.source') }}</dt><dd><span class="mono">{{ s.url }}</span></dd>
+  <dt>{{ t('admin.attrib.downloaded') }}</dt><dd>{{ (s.downloaded_at or '')[:10] }} · {{ num(s.records) }}</dd>
+  <dt>{{ t('admin.attrib.licence') }}</dt><dd>{{ s.licence }}{% if s.licence_url %} <span class="mono">({{ s.licence_url }})</span>{% endif %}</dd>
+  <dt>{{ t('admin.attrib.terms') }}</dt><dd>{{ s.terms }}</dd>
+  <dt>{{ t('admin.attrib.attribution') }}</dt><dd data-testid="attribution-{{ s.id }}">{{ s.attribution }}</dd>
+  {% if s.distribution == 'site-fetch' %}<dt></dt><dd><span class="pill">{{ t('admin.refdata.site') }}</span></dd>{% endif %}
+</dl>
+</section>{% endfor %}
+{% else %}<p data-testid="notice-none">{{ t('admin.refdata.none') }}</p>{% endif %}
+{% endblock %}

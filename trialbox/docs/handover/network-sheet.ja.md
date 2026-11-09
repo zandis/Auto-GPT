@@ -36,7 +36,7 @@
 
 ## 外部への通信
 
-施設設定がなければ外部には何も接続しません。例外は TB_CTGOV_MODE=live の間の criteria-compiler から ClinicalTrials.gov（公開レジストリ、患者データなし。TB_CTGOV_MODE=cassette で閉じる）。下表の各行は、その設定を入れたときだけ開きます。
+施設設定がなければ外部には何も接続しません。ClinicalTrials.gov は既定でオフラインです。試験情報は署名付き更新に含まれる参照データから読みます（TB_CTGOV_MODE=offline）。導入時に live を選んだ病院では criteria-compiler から clinicaltrials.gov:443 に接続します（公開レジストリ、患者データなし。TB_CTGOV_MODE=live）。下表の各行は、その設定を入れたときだけ開きます。
 
 | サービス | 宛先 | 用途 | 開く設定 |
 | --- | --- | --- | --- |
@@ -44,7 +44,7 @@
 | mail-gateway | IMAP_HOST:IMAP_PORT | intake mailbox | IMAP_HOST |
 | gateway | external model endpoints of models/routing.yaml | model endpoint (refused for D3/D4 data) | the endpoint's URL |
 | gateway | CLOUD_LLM_BASE_URL | cloud model, through the gateway only | CLOUD_LLM_BASE_URL |
-| criteria-compiler | clinicaltrials.gov:443 | ClinicalTrials.gov public registry (COHORT) | TB_CTGOV_MODE=live |
+| criteria-compiler | clinicaltrials.gov:443 | ClinicalTrials.gov public registry (COHORT) | TB_CTGOV_MODE=live (chosen at install; the default is offline) |
 | orchestrator | NHI_TWPAS_BASE_URL | NHI TWPAS (SUBMIT only) | NHI_TWPAS_BASE_URL |
 | any | EGRESS_EXTRA | site additions | EGRESS_EXTRA |
 

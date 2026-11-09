@@ -8,7 +8,8 @@ Allowed (only when the variable is set):
 * gateway           -> every non-perimeter model endpoint of ``models/routing.yaml`` (zone external / dev_public)
                        whose URL is set, and the host of CLOUD_LLM_BASE_URL (spec v4 NFR-B9, S1-06: only tb-gateway
                        reaches a model host; the v1 criteria-compiler cloud rule is gone)
-* criteria-compiler -> clinicaltrials.gov:443 when TB_CTGOV_MODE=live (COHORT, D-76)
+* criteria-compiler -> clinicaltrials.gov:443 when TB_CTGOV_MODE=live (COHORT, D-76; offline, the default since D-140,
+                       reads the reference data pack and needs no outbound access)
 * orchestrator      -> host of NHI_TWPAS_BASE_URL (SUBMIT)
 * EGRESS_EXTRA      -> "service=host:port[,service=host:port]" for site-specific additions (documented in RUNBOOK);
                        an entry that would give any service other than the gateway a model host is refused
@@ -151,7 +152,7 @@ def allowlist(env: dict[str, str], routing: Path | None = ROUTING) -> list[Allow
     cloud = _url(env.get("CLOUD_LLM_BASE_URL", ""))
     if cloud:
         out.append(Allow(GATEWAY, cloud[0], cloud[1], "cloud LLM (through tb-gateway only)"))
-    if (env.get("TB_CTGOV_MODE") or "live").lower() == "live":
+    if (env.get("TB_CTGOV_MODE") or "offline").lower() == "live":  # D-140: offline by default
         out.append(Allow("criteria-compiler", CTGOV[0], CTGOV[1], "ClinicalTrials.gov public registry"))
     nhi = _url(env.get("NHI_TWPAS_BASE_URL", ""))
     if nhi:

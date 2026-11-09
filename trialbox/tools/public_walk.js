@@ -98,14 +98,14 @@ const PAGES = {
     "/reports/research-office",
     "/jobs",
   ],
-  admin: ["/admin?tab=health", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/codes?${SQ}`, `/site/help?${SQ}`],
+  admin: ["/admin?tab=health", "/admin/notice", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/codes?${SQ}`, `/site/help?${SQ}`],
   viewer: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`],
   cra: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`],
 };
 // pages a role must not open: a 403 page (in the chosen language), never a 500
 const FORBIDDEN = {
   pi: ["/admin?tab=health"],
-  crc: ["/admin?tab=health"],
+  crc: ["/admin?tab=health", "/admin/notice"],
   viewer: [`/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`],
   cra: [`/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`],
 };

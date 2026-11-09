@@ -41,8 +41,12 @@ def test_allowlist_from_env() -> None:
         ("orchestrator", "twpas.nhi.example", 8443),
         ("adapter", "10.1.2.3", 1433),
     ]
-    # unset variables add nothing; ClinicalTrials.gov only in live mode; no dev endpoint outside DEV
-    assert [(a.service, a.host) for a in eg.allowlist({})] == [("criteria-compiler", "clinicaltrials.gov")]
+    # unset variables add nothing; ClinicalTrials.gov only in live mode (offline is the default, D-140); no dev
+    # endpoint outside DEV
+    assert eg.allowlist({}) == []
+    assert [(a.service, a.host) for a in eg.allowlist({"TB_CTGOV_MODE": "live"})] == [
+        ("criteria-compiler", "clinicaltrials.gov")
+    ]
 
 
 def test_render_default_deny_and_rules() -> None:

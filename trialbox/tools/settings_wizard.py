@@ -13,6 +13,7 @@ Secrets in ``.env`` (MinIO, Postgres, mailbox) are generated randomly unless giv
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import secrets
 import sys
@@ -69,7 +70,26 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("retention_rules", "Retention defaults (jp | tw; empty = from the report language)", "", "str"),
     ("logs_days", "Days to keep service logs (empty = the default of those rules)", "", "str"),
     ("mail_log_days", "Days to keep the mail logs (empty = the default of those rules)", "", "str"),
+    # D-140 (owner, 2026-11-09): ClinicalTrials.gov offline (the data pack of each update) unless the hospital says live
+    ("ctgov_mode", "ClinicalTrials.gov (offline | live)", "offline", "ctgov"),
 ]
+
+# D-140: the ClinicalTrials.gov choice in plain words, in the three languages of the box (install.sh asks the same)
+CTGOV_QUESTION = {
+    "en": "ClinicalTrials.gov: may this box reach clinicaltrials.gov on the internet?\n"
+    "  offline = no (default). TrialBox uses the copy that comes with each update: no outbound access; the data are "
+    "as of the update.\n"
+    "  live    = yes. TrialBox asks ClinicalTrials.gov directly: always current; one outbound address; no patient data "
+    "is sent.",
+    "ja": "ClinicalTrials.gov：この機器からインターネット上の clinicaltrials.gov に接続してよいですか？\n"
+    "  offline = いいえ（既定）。更新のたびに届く写しを使います。外部へは接続しません。データは更新の時点のものです。\n"
+    "  live    = はい。TrialBox が ClinicalTrials.gov に直接問い合わせます。常に最新。外部への接続先は1か所で、"
+    "患者データは送りません。",
+    "zh-TW": "ClinicalTrials.gov：本機可以連上網際網路的 clinicaltrials.gov 嗎？\n"
+    "  offline = 不可以（預設）。使用每次更新附帶的資料副本：不對外連線；資料為該次更新當時的版本。\n"
+    "  live    = 可以。TrialBox 直接查詢 ClinicalTrials.gov：資料隨時最新；只對外連一個位址；不傳送病人資料。",
+}
+CTGOV_MODES = ("offline", "live")
 
 
 class WizardError(ValueError):
@@ -133,7 +153,13 @@ def defaults() -> dict[str, Any]:
 def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[str, Any]:
     base = defaults()
     out: dict[str, Any] = {}
-    for key, question, default, _kind in QUESTIONS:
+    preset = os.environ.get("TB_CTGOV_MODE", "").strip().lower()  # install.sh --ctgov: already answered
+    for key, question, default, kind in QUESTIONS:
+        if kind == "ctgov":
+            if preset in CTGOV_MODES:
+                out[key] = preset
+                continue
+            print("\n".join(CTGOV_QUESTION[lang] for lang in ("en", "ja", "zh-TW")))
         d = default if default is not None else base.get(key, "")
         shown = ", ".join(d) if isinstance(d, list) else d
         if isinstance(d, dict):
@@ -194,6 +220,13 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         warnings.append(
             "mta_authserv_id is empty: the top-most Authentication-Results header is trusted whoever wrote it; set it "
             "unless the MTA always adds its own header in front of the intake mailbox"
+        )
+    ctgov = str(a.get("ctgov_mode") or os.environ.get("TB_CTGOV_MODE") or "offline").strip().lower()
+    if ctgov not in CTGOV_MODES:
+        errors.append(f"ctgov_mode must be offline or live, not {ctgov!r}")
+    elif ctgov == "live":
+        warnings.append(
+            "ClinicalTrials.gov live: the box will reach clinicaltrials.gov:443 (the network sheet lists it)"
         )
     twpas = _bool(a.get("twpas_enabled", "no"))
     if twpas and not a.get("twpas_org_id"):
@@ -311,7 +344,7 @@ def build(a: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str], list[str]]
         "LOG_LEVEL": "INFO",
         "POSTGRES_PASSWORD": secrets.token_urlsafe(24),
         "TB_SETTINGS": "/etc/trialbox/settings.yaml",
-        "TB_CTGOV_MODE": "live",
+        "TB_CTGOV_MODE": ctgov,
     }
     if ds_type == "cgrd_sql" and a.get("data_source_dsn"):
         env[str(get("data_source_dsn_env"))] = str(a["data_source_dsn"])

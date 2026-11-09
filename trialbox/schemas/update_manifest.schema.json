@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/update_manifest.schema.json",
   "title": "UpdateManifest",
-  "description": "Offline update bundle manifest (SPEC 10.1), signed with the vendor Ed25519 key. Schema version 1.0.0.",
+  "description": "Offline update bundle manifest (SPEC 10.1), signed with the vendor Ed25519 key. Schema version 1.1.0 (1.1.0: payload kind refdata, the reference data pack of D-140).",
   "type": "object",
   "required": [
     "bundle_id",
@@ -58,6 +58,7 @@
             "model",
             "ruleset",
             "image",
+            "refdata",
             "other"
           ]
         },

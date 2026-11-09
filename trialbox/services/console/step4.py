@@ -307,7 +307,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         tab = tab if tab in TABS else "health"
         ctx: dict[str, Any] = {"tab": tab, "tabs": TABS, "notice": notice}
         if tab == "health":
-            ctx.update(admin_ctx(sess), health=bk.health(), models=bk.models())
+            from tb_common.refdata import status_or_none
+
+            ctx.update(admin_ctx(sess), health=bk.health(), models=bk.models(), refdata=status_or_none())
         elif tab == "jobs":
             jobs = bk.list_jobs(limit=300)
             types = sorted({j.type for j in jobs})
@@ -353,6 +355,14 @@ def register(app: FastAPI, h: Helpers) -> None:
             state=state,
             day=day,
         )
+
+    @app.get("/admin/notice")
+    def admin_notice(request: Request) -> Response:
+        """D-140: every source of the loaded reference data, with its licence and the attribution it requires."""
+        from tb_common.refdata import notices_or_empty, status_or_none
+
+        sess = need_admin(request)
+        return h.page(request, "admin_notice.html", sess, sources=notices_or_empty(), refdata=status_or_none())
 
     h.admin_page = admin_page  # type: ignore[attr-defined]  # /home for the administrator (console.home)
 
