@@ -34,6 +34,8 @@ class Reason(StrEnum):
     NOT_EVALUATED = "not_evaluated"  # not judged on this run (budget, not sampled, no judge)
     NOT_IN_SNAPSHOT = "not_in_snapshot"  # the patient is not in this snapshot of the records
     CHECK_DATES = "check_dates"  # deceased or not yet born at the screening date by the records (D-142)
+    DERIVED_MISSING_INPUT = "derived_missing_input"  # a score lacks an input at the visit (D-149)
+    DERIVED_UNIT = "derived_unit"  # a score's input has a unit the formula cannot use (D-149)
 
 
 CODES = frozenset(r.value for r in Reason)
@@ -57,6 +59,8 @@ _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
     (("unknown_kept", "unknown kept"), Reason.UNKNOWN_KEPT),
     (("unknown code system", "unknown_code_system"), Reason.UNKNOWN_CODE_SYSTEM),
     (("proposed_fact", "proposed fact"), Reason.PROPOSED_FACT),
+    (("derived_unit",), Reason.DERIVED_UNIT),
+    (("derived_missing_input",), Reason.DERIVED_MISSING_INPUT),
     (("no value", "no record", "not compiled", "index_absent", "data_gap", "index condition absent"), Reason.DATA_GAP),
     (("matching record", "failing value", "index rescued"), Reason.CODED),
 )
@@ -132,6 +136,16 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "the records give a death or birth date that rules out this date: please check the dates",
         "ja": "記録上の死亡日または生年月日ではこの日付に該当しない：日付を確認してください",
         "zh-TW": "紀錄中的死亡日期或出生日期與此日期不符：請確認日期",
+    },
+    "derived_missing_input": {
+        "en": "the score cannot be computed: an input is missing at that visit",
+        "ja": "スコアを計算できない：その受診日の入力値が不足",
+        "zh-TW": "無法計算分數：該次就診缺少輸入值",
+    },
+    "derived_unit": {
+        "en": "the score cannot be computed: an input has a unit that cannot be used, please check",
+        "ja": "スコアを計算できない：入力値の単位が使用できないため確認してください",
+        "zh-TW": "無法計算分數：輸入值的單位無法使用，請確認",
     },
 }
 

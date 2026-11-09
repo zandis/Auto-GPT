@@ -35,6 +35,14 @@ _compiler: Compiler | None = None
 SEED = Path(__file__).resolve().parents[2] / "rulesets"
 
 
+def _egfr(tz: str, locale: str | None) -> str:
+    """D-149: a plain "eGFR" criterion is JSN 2009 at a Japanese site, CKD-EPI 2021 (``egfr``) elsewhere."""
+    from tb_common.derived import country_of, egfr_for_site
+
+    site = egfr_for_site(country_of(tz, locale))
+    return "egfr" if site == "egfr_ckd_epi" else site
+
+
 def compiler() -> Compiler:
     global _compiler
     if _compiler is None:
@@ -58,6 +66,7 @@ def compiler() -> Compiler:
             translator=Translator() if available() else None,
             audit=audit,
             judge_model=(cfg.settings.models.judge if cfg.settings.models else "") or "",
+            egfr_equation=_egfr(cfg.env.tz, cfg.settings.site.locale),
         )
         _compiler = Compiler(deps)
     return _compiler

@@ -29,6 +29,7 @@ from tb_common.authz import allowed, daily_limit, norm, role_allowed
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.fhir import FhirEvaluator
+from tb_common.flowledger import level_of_tag, record_export
 from tb_common.http import ServiceError
 from tb_common.llm import LlmClient
 from tb_common.objstore import ObjectStore
@@ -186,6 +187,26 @@ class Ctx:
             output_sha=out.sha256,
             recipients=out.recipients,
             detail={"filename": safe, "tag": tag, "bytes": len(data)},
+        )
+        job = self._job
+        record_export(  # the export ledger (dataflow P0-8, D-149): what leaves, how identifiable, under what approval
+            self.orch.audit,
+            channel="job_output",
+            filename=safe,
+            sha256=out.sha256,
+            nbytes=len(data),
+            identifier_level=level_of_tag(tag),
+            approval=(
+                f"ruleset {job.ruleset}@{job.ruleset_version}; job {job.type} requested by {job.requested_by}"
+                if job.ruleset
+                else f"job {job.type} requested by {job.requested_by}"
+            ),
+            recipients=out.recipients,
+            actor="orchestrator",
+            ruleset=job.ruleset,
+            ruleset_version=job.ruleset_version,
+            job_id=job.job_id,
+            snapshot=job.snapshot_date.isoformat() if job.snapshot_date else None,
         )
         outputs = [o for o in (self._job.outputs or []) if o.filename != safe] + [out]
         self.update(outputs=outputs)

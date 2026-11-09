@@ -267,7 +267,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rows: dict[str, dict[str, Any]] = {}
         stale = (h.clock() - timedelta(hours=48)).isoformat()
         for r in bk.audit(None, 5000):  # newest first
-            if r.event not in ("ingest.done", "ingest.failed"):
+            if r.event not in ("ingest.done", "ingest.failed", "ingest.held"):  # held: dataflow P0-2
                 continue
             src = str(r.detail.get("source") or "csv")
             row = rows.setdefault(

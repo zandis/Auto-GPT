@@ -10,7 +10,18 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import ClassVar
 
-from tb_common.derived import ASDAS, CODES, COMPONENTS, DAS28, EGFR
+from tb_common.derived import (
+    ASDAS,
+    CODES,
+    COMPONENTS,
+    DAS28,
+    EGFR,
+    EGFR_JSN,
+    MISSING,
+    SAME_VISIT,
+    UNIT,
+    unit_sql,
+)
 from tb_contracts import Atom, BoolExpr, CriterionIR
 
 from criteria_compiler.semantics import (
@@ -249,30 +260,61 @@ class SqlGenerator:
         )
         return [cte], f"{name}.v", f"{name}.ev"
 
-    def _latest_component(self, name: str, comp: str, w: Window) -> str:
+    def _latest_component(self, name: str, comp: str, w: Window, near: tuple[str, int] | None = None) -> str:
+        """The newest row of ``comp`` in the window (with ``near``: within that many days of the anchor component's
+        row, the same-visit rule of D-149), its value converted to the formula's unit (``conv``; NULL when the unit
+        is not allowed)."""
         system, code = CODES[comp]
+        anchor = ""
+        if near is not None:
+            a, days = near
+            anchor = (
+                f"\n    JOIN {name}_{a} a ON a.pid = b.pid AND a.index_date = b.index_date"
+                f" AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= {int(days)}"
+            )
         return (
-            f"{name}_{comp} AS (\n  SELECT pid, index_date, value_num, oid, effective FROM (\n"
-            f"    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,\n"
+            f"{name}_{comp} AS (\n  SELECT pid, index_date, value_num, conv, oid, effective FROM (\n"
+            f"    SELECT b.pid, b.index_date, o.value_num, {unit_sql(comp, 'o.value_num', 'o.unit')} AS conv, o.oid, "
+            f"o.effective,\n"
             f"           row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC)"
-            f" AS rn\n    FROM base b JOIN observation o ON o.pid = b.pid AND {in_window('o.effective::DATE', w)}\n"
+            f" AS rn\n    FROM base b JOIN observation o ON o.pid = b.pid AND {in_window('o.effective::DATE', w)}"
+            f"{anchor}\n"
             f"    WHERE o.system = {lit(system)} AND o.code = {lit(code)}) WHERE rn = 1)"
         )
 
     def _derived(self, name: str, atom: Atom, w: Window) -> tuple[list[str], str, str]:
+        """A score from its components (D-149): the same visit, units converted, and no value with a reason
+        (``derived_missing_input:<c>`` / ``derived_unit:<c>`` in the evidence) when an input is missing or its unit
+        does not fit: never FALSE."""
         assert atom.derived is not None
-        comps = COMPONENTS[atom.derived]
-        ctes = [self._latest_component(name, comp, w) for comp in comps]
+        score = atom.derived
+        if score not in COMPONENTS:
+            raise CompileError(f"derived {score}")
+        comps = COMPONENTS[score]
+        rule = SAME_VISIT.get(score)
+        order = [rule[0], *[c for c in comps if c != rule[0]]] if rule else list(comps)
+        ctes = [
+            self._latest_component(name, c, w, (rule[0], rule[1][c]) if rule and c != rule[0] else None) for c in order
+        ]
         joins = "\n  ".join(
             f"LEFT JOIN {name}_{c} {c} ON {c}.pid = b.pid AND {c}.index_date = b.index_date" for c in comps
         )
-        v = {c: f"{c}.value_num" for c in comps}
-        match atom.derived:
+        v = {c: f"{c}.conv" for c in comps}
+
+        def checks(cs: list[str]) -> list[tuple[str, str]]:  # (condition, reason) in the order they are reported
+            out = []
+            for c in cs:
+                out.append((f"{c}.oid IS NULL OR {c}.value_num IS NULL", f"{MISSING}:{c}"))
+                out.append((f"{c}.conv IS NULL", f"{UNIT}:{c}"))
+            return out
+
+        female = "(CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END)"
+        age = "date_sub('year', b.birth_date, b.index_date)"
+        need = checks(list(comps))
+        match score:
             case "bmi":
                 value = f"{v['weight']} / pow({v['height']} / 100.0, 2)"
-            case "egfr":
-                female = "(CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END)"
-                age = "date_sub('year', b.birth_date, b.index_date)"
+            case "egfr" | "egfr_ckd_epi":
                 kappa = f"(CASE WHEN {female} THEN {EGFR['kappa_f']} ELSE {EGFR['kappa_m']} END)"
                 alpha = f"(CASE WHEN {female} THEN {EGFR['alpha_f']} ELSE {EGFR['alpha_m']} END)"
                 # least()/greatest() ignore NULLs in DuckDB: guard every input explicitly (CQL does the same)
@@ -283,17 +325,36 @@ class SqlGenerator:
                     f"pow({EGFR['age_base']}, {age}) * (CASE WHEN {female} THEN {EGFR['female']} ELSE 1.0 END) "
                     f"END)"
                 )
+                need += [(f"{age} IS NULL", f"{MISSING}:age"), (f"{female} IS NULL", f"{MISSING}:sex")]
+            case "egfr_jsn":
+                value = (
+                    f"(CASE WHEN {v['creatinine']} IS NULL OR {v['creatinine']} <= 0 OR {age} IS NULL OR {age} <= 0 "
+                    f"OR {female} IS NULL THEN NULL "
+                    f"ELSE {EGFR_JSN['k']} * pow({v['creatinine']}, {EGFR_JSN['scr_exp']}) * "
+                    f"pow({age}, {EGFR_JSN['age_exp']}) * (CASE WHEN {female} THEN {EGFR_JSN['female']} ELSE 1.0 END) "
+                    f"END)"
+                )
+                need += [(f"{age} IS NULL", f"{MISSING}:age"), (f"{female} IS NULL", f"{MISSING}:sex")]
             case "das28":
                 base = (
                     f"{DAS28['tjc']} * sqrt({v['tjc28']}) + {DAS28['sjc']} * sqrt({v['sjc28']}) + "
                     f"{DAS28['gh']} * {v['ptga']}"
                 )
+                # ESR when the visit has one (its own unit must fit, and ln(0) is no value), else CRP
                 value = (
                     f"(CASE WHEN {v['tjc28']} IS NULL OR {v['sjc28']} IS NULL OR {v['ptga']} IS NULL THEN NULL "
-                    f"WHEN {v['esr']} IS NOT NULL THEN {base} + {DAS28['esr_ln']} * ln({v['esr']}) "
+                    f"WHEN esr.oid IS NOT NULL THEN (CASE WHEN {v['esr']} > 0 THEN "
+                    f"{base} + {DAS28['esr_ln']} * ln({v['esr']}) ELSE NULL END) "
                     f"WHEN {v['crp']} IS NOT NULL THEN {base} + {DAS28['crp_ln']} * ln({v['crp']} + 1) + "
                     f"{DAS28['crp_const']} ELSE NULL END)"
                 )
+                need = [
+                    *checks(["tjc28", "sjc28", "ptga"]),
+                    ("esr.oid IS NOT NULL AND esr.value_num IS NULL", f"{MISSING}:esr"),
+                    ("esr.oid IS NOT NULL AND esr.conv IS NULL", f"{UNIT}:esr"),
+                    ("esr.oid IS NOT NULL AND esr.conv <= 0", f"{MISSING}:esr"),
+                    *checks(["crp"]),
+                ]
             case "basdai":
                 q = [v[f"basdai_q{i}"] for i in range(1, 7)]
                 value = f"(({q[0]} + {q[1]} + {q[2]} + {q[3]} + ({q[4]} + {q[5]}) / 2.0) / 5.0)"
@@ -304,11 +365,19 @@ class SqlGenerator:
                     f"{ASDAS['crp_ln']} * ln({v['crp']} + 1))"
                 )
             case _:
-                raise CompileError(f"derived {atom.derived}")
-        ev = (
+                raise CompileError(f"derived {score}")
+        refs = (
             "concat_ws(';', " + ", ".join(f"{c}.oid || '|' || strftime({c}.effective, '%Y-%m-%d')" for c in comps) + ")"
         )
-        ctes.append(f"{name} AS (\n  SELECT b.pid, b.index_date, {value} AS val, {ev} AS ev\n  FROM base b\n  {joins})")
+        why = "(CASE " + " ".join(f"WHEN {cond} THEN {lit(r)}" for cond, r in need) + f" ELSE {lit(MISSING)} END)"
+        ctes.append(
+            f"{name}_v AS (\n  SELECT b.pid, b.index_date, {value} AS val, {refs} AS refs,\n"
+            f"         {why} AS why\n  FROM base b\n  {joins})"
+        )
+        ctes.append(
+            f"{name} AS (\n  SELECT pid, index_date, val, CASE WHEN val IS NULL THEN why ELSE refs END AS ev\n"
+            f"  FROM {name}_v)"
+        )
         expr = (
             cmp_sql(atom, value=f"{name}.val")
             if atom.value is not None

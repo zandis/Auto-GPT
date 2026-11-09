@@ -188,7 +188,9 @@ def test_a_token_holder_cannot_name_a_user_or_reset_the_cap_and_exports_are_audi
     assert client.get("/registry/GZQO/export.xlsx", headers=unsigned).status_code == 403
     r = client.get("/registry/GZQO/export.xlsx", headers=signed)
     assert r.status_code == 200 and r.content == b"PK-xlsx"
-    ev = events[-1]
+    ev, flow = events[-2], events[-1]  # D-149: the export ledger row follows the export event
     assert ev["kind"] == "registry.export" and ev["actor"] == "dr_tanaka" and ev["output_sha"]
+    assert flow["kind"] == "flow.export" and flow["output_sha"] == ev["output_sha"]
+    assert flow["detail"]["identifier_level"] == "identified"
     assert client.get("/registry/GZQO/export.xlsx", headers=signed).status_code == 429
     assert events[-1]["kind"] == "registry.export_refused"
