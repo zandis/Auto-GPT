@@ -466,6 +466,45 @@ def candidate_list(run: ScreenRun) -> CandidateList:
     )
 
 
+def confirmed_facts(ctx: Ctx, pids: list[str]) -> set[str]:
+    """The record ids of the site's confirmed facts for these patients (D-135): a coded record that a person typed
+    or confirmed from a chart, not one the hospital's systems coded."""
+    if not pids:
+        return set()
+    try:
+        rows = ctx.services.lake.query("SELECT fid FROM site_fact WHERE basis = 'confirmed'").to_pylist()
+    except Exception:  # an older snapshot has no site_fact table: no confirmed fact
+        return set()
+    return {str(r["fid"]) for r in rows if r.get("fid")}
+
+
+def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
+    """Every patient the run excluded, with the criterion (or the scope or consent rule) that excluded them, where
+    the answer came from (the coded records, a confirmed fact, or the notes with both models agreeing) and its
+    evidence (review 2026-11-09 P-04, D-143). Stored with the job for the console's "Excluded patients and why"
+    page; never mailed."""
+    ex = [r for r in run.rows if r.tier == "excluded"]
+    facts = confirmed_facts(ctx, [r.pid for r in ex])
+
+    def source(v: Any) -> str:
+        ev = v.evidence
+        if ev is not None and (ev.reason == "note" or ev.quote):
+            return "notes"
+        refs = {x.rsplit("/", 1)[-1] for x in (ev.resource_refs or [])} if ev is not None else set()
+        return "fact" if refs & facts else "coded"
+
+    rows = []
+    for r in ex:
+        failing = [
+            {"id": v.id, "source": source(v), **(v.evidence.model_dump(mode="json", exclude_none=True)
+                                                 if v.evidence is not None else {})}
+            for v in r.criteria if v.verdict == "fail"
+        ]  # fmt: skip
+        rows.append({"pid": r.pid, "criteria": failing, "actions": list(r.actions)})
+    return {"ruleset": run.rs.id, "version": run.rs.version, "run_date": run.run_date.isoformat(),
+            "snapshot": run.snapshot, "judging": run.judging or {}, "rows": rows}  # fmt: skip
+
+
 def persist_pool(ctx: Ctx, rs: Ruleset, rows: list[CandidateRow]) -> None:
     ctx.orch.db.pool_upsert(
         rs.id,
@@ -587,6 +626,8 @@ def run(ctx: Ctx) -> Outcome:
         ctx, rs, srun.rows, meta, stem, extra=(f"candidate_list_{rs.id}_v{rs.version}.json", body)
     )
     persist_pool(ctx, rs, [r for r in srun.rows if r.tier in ("high", "review")])
+    excluded = json.dumps(excluded_doc(ctx, srun), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
+    ctx.publish(f"excluded_{rs.id}_v{rs.version}.json", excluded, "phi", [])  # P-04: the console only, never mailed
     agg_to = recipients(rs.manifest.routing, job.requested_by)
 
     def n(v: int) -> int:  # D-99: internal mail, PDF and console show exact counts; the sponsor pack suppresses

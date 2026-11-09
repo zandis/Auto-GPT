@@ -599,6 +599,85 @@ def register(app: FastAPI, h: Helpers) -> None:
             "mrn": None,
         }
 
+    # ------------------------------------------------------------------ excluded patients and why (P-04, D-143)
+    ex_sources = ("coded", "fact", "notes", "rule")
+
+    def excluded_bundle(rid: str) -> tuple[Job | None, dict[str, Any] | None]:
+        """The latest screening run of the study that stored its excluded list (``excluded_*.json``)."""
+        jobs = [j for j in bk.list_jobs(limit=500) if j.ruleset == rid and j.type in SCREEN_TYPES and j.state == "done"]
+        for job in sorted(jobs, key=lambda j: j.updated_at or j.received_at, reverse=True):
+            doc = load(job, "excluded_", ".json")
+            if doc is not None:
+                return job, doc
+        return None, None
+
+    def excluded_rows(rid: str, doc: dict[str, Any], lang: str) -> list[dict[str, Any]]:
+        crit = crit_of(rid, lang)
+        out = []
+        for r in doc.get("rows") or []:
+            items = [
+                {"id": c["id"], "label": crit[c["id"]].label if c["id"] in crit else c["id"],
+                 "kind": crit[c["id"]].kind if c["id"] in crit else "", "source": c.get("source") or "coded",
+                 "quote": c.get("quote"), "date": c.get("quote_date"), "reason": c.get("reason"),
+                 "records": len(c.get("resource_refs") or [])}
+                for c in r.get("criteria") or []
+            ]  # fmt: skip
+            if not items:  # excluded by the run's own rules: scope, research-contact consent
+                items = [{"id": "", "label": "consent" if "consent" in a.lower() or a.startswith("contact")
+                          else "scope", "kind": "", "source": "rule", "quote": None, "date": None, "reason": None,
+                          "records": 0} for a in r.get("actions") or ["scope"]]  # fmt: skip
+            out.append({"pid": str(r["pid"]), "short": str(r["pid"])[:8], "items": items})
+        return out
+
+    def need_excluded(sess: Session, rs: str, path: str) -> str:
+        rid = study_or_404(sess, rs)
+        if not sess.user.can_view_phi:  # the PI and the CRC (and the administrator); never viewer or CRO
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
+            raise h.problem(403, "forbidden")
+        return rid
+
+    @app.get("/studies/{rs}/excluded")
+    def excluded(request: Request, rs: str, src: str = "", page: int = 1, done: str = "") -> Response:
+        sess = h.need(request)
+        rid = need_excluded(sess, rs, request.url.path)
+        job, doc = excluded_bundle(rid)
+        rows = excluded_rows(rid, doc, sess.lang) if doc else []
+        sent = store.excluded_reviews(rid)
+        counts = {s: sum(1 for r in rows if any(i["source"] == s for i in r["items"])) for s in ex_sources}
+        if src in ex_sources:
+            rows = [r for r in rows if any(i["source"] == src for i in r["items"])]
+        rows.sort(key=lambda r: (r["pid"] not in sent, r["pid"]))  # sent to review first
+        pages = max(1, -(-len(rows) // st.PAGE_SIZE))
+        page_no = min(max(1, page), pages)
+        au.append("console.view", ruleset=rid, actor=h.actor(sess), detail={"page": "excluded", "rows": len(rows)})
+        total = len((doc or {}).get("rows") or [])
+        return h.page(request, "excluded.html", sess, rs=rid, job=job, doc=doc, total=total,
+                      rows=rows[(page_no - 1) * st.PAGE_SIZE: page_no * st.PAGE_SIZE], sent=sent, counts=counts,
+                      src=src if src in ex_sources else "", sources=ex_sources, page_no=page_no, pages=pages,
+                      done=done == "sent")  # fmt: skip
+
+    @app.post("/studies/{rs}/excluded/{pid}/review")
+    def excluded_review(request: Request, rs: str, pid: str, csrf: str = Form(""), crit: str = Form(""),
+                        note: str = Form("")) -> Response:  # fmt: skip
+        """ "This is wrong, send to review": recorded with the person and the time, audited (P-04)."""
+        sess = h.need(request)
+        if not h.csrf_ok(sess, csrf):
+            raise h.problem(400, "csrf")
+        rid = need_excluded(sess, rs, request.url.path)
+        job, doc = excluded_bundle(rid)
+        if (
+            job is None
+            or doc is None
+            or not _PID.match(pid)
+            or not any(str(r.get("pid")) == pid for r in doc.get("rows") or [])
+        ):
+            raise h.problem(404, "notfound")
+        crit = crit.strip()[:40]
+        store.send_excluded_review(rid, pid, job.job_id, crit, note.strip()[:300], h.actor(sess), h.clock().isoformat())
+        au.append("console.excluded_review", job_id=job.job_id, ruleset=rid, actor=h.actor(sess),
+                  detail={"pid": pid, "criterion": crit, "role": sess.user.role})  # fmt: skip
+        return RedirectResponse(f"/studies/{rid}/excluded?done=sent#x-{pid[:8]}", status_code=303)
+
     @app.get("/studies/{rs}/patients/{pid}")
     def patient(request: Request, rs: str, pid: str) -> Response:
         sess = h.need(request)

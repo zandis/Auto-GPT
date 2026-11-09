@@ -1,0 +1,88 @@
+"""Strings of the pre-release review fixes of 2026-11-09, wave 1b (D-143): the "Excluded patients and why" page
+(P-04) and the confirmation steps (P-10). Every key in all three languages, from the glossary's words."""
+
+from __future__ import annotations
+
+EN: dict[str, str] = {
+    "ex.title": "Excluded patients and why",
+    "ex.help": "Every patient the latest screening run left out, with the criterion that excluded them, where the "
+    "answer came from and its evidence. Look through some of them each week; if one looks wrong, send it to review.",
+    "ex.none": "The latest screening run excluded nobody.",
+    "ex.no_run": "No screening run with an excluded list yet. Run screening again to see the excluded patients.",
+    "ex.run": "Run of {day} (records of {snapshot}): {n} patients excluded.",
+    "ex.col.patient": "Patient",
+    "ex.col.criterion": "Criterion that excluded them",
+    "ex.col.source": "Where the answer came from",
+    "ex.col.evidence": "Evidence",
+    "ex.src.coded": "the coded records",
+    "ex.src.fact": "a confirmed fact",
+    "ex.src.notes": "the notes, both models agreed",
+    "ex.src.rule": "a rule of the run",
+    "ex.rule.consent": "no research-contact consent (never listed)",
+    "ex.rule.scope": "outside the run's scope (clinic, doctor or visit window)",
+    "ex.filter": "Show:",
+    "ex.filter.all": "all",
+    "ex.records": "{n} records",
+    "ex.wrong": "This is wrong, send to review",
+    "ex.wrong.note": "What looks wrong (optional)",
+    "ex.sent": "Sent to review by {who} at {at}",
+    "ex.sent.done": "Sent to review. It is recorded with your name; the study team sees it at the top of this page.",
+    "ex.sent.title": "Sent to review: {n}",
+    "ex.link": "Excluded patients and why",
+}
+
+JA: dict[str, str] = {
+    "ex.title": "除外された患者と理由",
+    "ex.help": "最新のスクリーニングで除外されたすべての患者を、除外の理由となった基準、判断の出どころ、根拠とともに"
+    "表示します。毎週いくつか確認し、誤りと思われるものは確認に回してください。",
+    "ex.none": "最新のスクリーニングで除外された患者はいません。",
+    "ex.no_run": "除外一覧のあるスクリーニングはまだありません。もう一度スクリーニングを行うと表示されます。",
+    "ex.run": "{day} の処理（{snapshot} 時点の記録）：除外 {n} 名。",
+    "ex.col.patient": "患者",
+    "ex.col.criterion": "除外の理由となった基準",
+    "ex.col.source": "判断の出どころ",
+    "ex.col.evidence": "根拠",
+    "ex.src.coded": "コード化された記録",
+    "ex.src.fact": "確認済みの情報",
+    "ex.src.notes": "記録の文章（2 つのモデルが一致）",
+    "ex.src.rule": "処理の規則",
+    "ex.rule.consent": "研究への連絡の同意なし（一覧に載せない）",
+    "ex.rule.scope": "処理の対象外（外来、医師、来院の期間）",
+    "ex.filter": "表示：",
+    "ex.filter.all": "すべて",
+    "ex.records": "記録 {n} 件",
+    "ex.wrong": "誤りなので確認に回す",
+    "ex.wrong.note": "誤りと思われる点（任意）",
+    "ex.sent": "{who} が {at} に確認に回しました",
+    "ex.sent.done": "確認に回しました。氏名とともに記録され、試験チームにはこのページの上部に表示されます。",
+    "ex.sent.title": "確認に回した患者：{n} 名",
+    "ex.link": "除外された患者と理由",
+}
+
+ZH: dict[str, str] = {
+    "ex.title": "被排除的病人與原因",
+    "ex.help": "列出最近一次篩選排除的所有病人，以及排除他們的條件、判斷的來源與依據。請每週抽看幾位；"
+    "若有看起來不對的，請送回審閱。",
+    "ex.none": "最近一次篩選沒有排除任何病人。",
+    "ex.no_run": "尚無附排除清單的篩選。請重新執行篩選以查看被排除的病人。",
+    "ex.run": "{day} 的作業（{snapshot} 的紀錄）：排除 {n} 位病人。",
+    "ex.col.patient": "病人",
+    "ex.col.criterion": "排除他們的條件",
+    "ex.col.source": "判斷的來源",
+    "ex.col.evidence": "依據",
+    "ex.src.coded": "編碼病歷",
+    "ex.src.fact": "已確認的資料",
+    "ex.src.notes": "病歷文字（兩個模型一致）",
+    "ex.src.rule": "作業的規則",
+    "ex.rule.consent": "無研究聯絡同意（不列入名單）",
+    "ex.rule.scope": "不在作業範圍內（門診、醫師或就診期間）",
+    "ex.filter": "顯示：",
+    "ex.filter.all": "全部",
+    "ex.records": "{n} 筆紀錄",
+    "ex.wrong": "這是錯的，送回審閱",
+    "ex.wrong.note": "看起來不對的地方（選填）",
+    "ex.sent": "{who} 已於 {at} 送回審閱",
+    "ex.sent.done": "已送回審閱，並連同您的姓名記錄；試驗團隊會在本頁上方看到。",
+    "ex.sent.title": "已送回審閱：{n} 位",
+    "ex.link": "被排除的病人與原因",
+}
