@@ -131,3 +131,23 @@ def test_a_stale_confirmation_or_a_long_reason_is_refused(box: dict[str, Any]) -
                follow_redirects=False)  # fmt: skip
     assert r.status_code == 400
     assert fl.Flags().row("lake.source") == "legacy" and not _events(box, "flag.set")
+
+
+def test_a_flag_store_that_does_not_answer_is_a_503_page(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """T-655 (PR #71 review): the trial database is down: the list, the sheet and a Yes are a 503 page, never a 500 or
+    a 400, and nothing is changed or audited."""
+    import os
+
+    c, _ = login(box["app"])
+    csrf = _csrf(c.get("/ops/flags").text)
+    url = os.environ["TB_DB_URL"]
+    monkeypatch.setenv("TB_DB_URL", "postgresql://nobody@/nowhere?host=/nonexistent")
+    fl.clear_cache()
+    r = c.get("/ops/flags")
+    assert r.status_code == 503 and "cannot be read just now" in r.text
+    form = {"csrf": csrf, "name": "lake.source", "value": "omop", "reason": "D-207 test: store down"}
+    assert c.post("/ops/flags", data=form, follow_redirects=False).status_code == 503
+    r = c.post("/ops/flags", data={**form, "confirm": "yes", "old": "legacy"}, follow_redirects=False)
+    assert r.status_code == 503
+    monkeypatch.setenv("TB_DB_URL", url)
+    assert fl.Flags().row("lake.source") == "legacy" and not _events(box, "flag.set")

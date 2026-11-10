@@ -1,0 +1,113 @@
+# The plan calendar as data (TB-PLAN-06 card T-662; deep review PLAN-011, PLAN-012, PLAN-013, PLAN-016).
+#
+# Check:      python -m tools.gen_calendar --check
+# Print:      python -m tools.gen_calendar             (one Markdown table, by date)
+# Count:      python -m tools.gen_calendar --span TW 2027-03-29 2027-04-23
+# Re-verify:  python -m tools.gen_calendar --verify-sources   (downloads the official files; network)
+#
+# Milestones are build milestones only (D-311: no IRB, committee, ethics or sign-off milestones).
+# Each milestone lists the sites whose days off it must avoid. "day" is the weekday the plan prints;
+# the check fails when it is wrong.
+#
+# Holidays are the official days off from 2026-11-01 to 2027-06-30, copied from the source named per
+# country and year. A year whose source could not be fetched is marked "unverified", never guessed.
+# kind "holiday" is a public holiday or a substitute day off; kind "closure" is a statutory office
+# closure that is not a public holiday (Japan's 年末年始).
+
+window:
+  start: 2026-11-01
+  end: 2027-06-30
+
+sites:
+  TW: Taiwan (CGMH)
+  JP: Japan
+
+milestones:
+  - date: 2026-12-04
+    day: Fri
+    id: G1
+    what: The 50k run
+    sites: [TW, JP]
+  - date: 2026-12-11
+    day: Fri
+    id: G1b
+    what: B200 qualified on the owner's host
+    sites: [TW, JP]
+  - date: 2027-01-08
+    day: Fri
+    id: G2
+    what: Platform freeze (design freeze)
+    sites: [TW, JP]
+  - date: 2027-02-26
+    day: Fri
+    id: G3
+    what: Feature complete
+    sites: [TW, JP]
+
+sources:
+  JP:
+    2026:
+      status: verified
+      checked: 2026-11-10
+      publisher: Cabinet Office, 国民の祝日について
+      url: https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html
+      file: https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv
+      closure: https://laws.e-gov.go.jp/law/363AC0000000091
+    2027:
+      status: verified
+      checked: 2026-11-10
+      publisher: Cabinet Office, 国民の祝日について
+      url: https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html
+      file: https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv
+      closure: https://laws.e-gov.go.jp/law/363AC0000000091
+  TW:
+    2026:
+      status: verified
+      checked: 2026-11-10
+      publisher: DGPA, 115年中華民國政府行政機關辦公日曆表
+      url: https://www.dgpa.gov.tw/informationlist?uid=30
+      file: https://www.dgpa.gov.tw/FileConversion?filename=dgpa/files/202506/a52331bd-a189-466b-b0f0-cae3062bbf74.csv&nfix=&name=115.csv
+    2027:
+      status: verified
+      checked: 2026-11-10
+      publisher: DGPA, 116年中華民國政府行政機關辦公日曆表
+      url: https://www.dgpa.gov.tw/informationlist?uid=30
+      file: https://www.dgpa.gov.tw/FileConversion?filename=dgpa/files/202607/f538b1ff-ba60-4c63-9477-10db8e6612d1.csv&nfix=&name=116.csv
+
+holidays:
+  JP:
+    - {date: 2026-11-03, day: Tue, kind: holiday, name: 文化の日}
+    - {date: 2026-11-23, day: Mon, kind: holiday, name: 勤労感謝の日}
+    - {date: 2026-12-29, day: Tue, kind: closure, name: 年末年始}
+    - {date: 2026-12-30, day: Wed, kind: closure, name: 年末年始}
+    - {date: 2026-12-31, day: Thu, kind: closure, name: 年末年始}
+    - {date: 2027-01-01, day: Fri, kind: holiday, name: 元日}
+    - {date: 2027-01-02, day: Sat, kind: closure, name: 年末年始}
+    - {date: 2027-01-03, day: Sun, kind: closure, name: 年末年始}
+    - {date: 2027-01-11, day: Mon, kind: holiday, name: 成人の日}
+    - {date: 2027-02-11, day: Thu, kind: holiday, name: 建国記念の日}
+    - {date: 2027-02-23, day: Tue, kind: holiday, name: 天皇誕生日}
+    - {date: 2027-03-21, day: Sun, kind: holiday, name: 春分の日}
+    - {date: 2027-03-22, day: Mon, kind: holiday, name: 休日}
+    - {date: 2027-04-29, day: Thu, kind: holiday, name: 昭和の日}
+    - {date: 2027-05-03, day: Mon, kind: holiday, name: 憲法記念日}
+    - {date: 2027-05-04, day: Tue, kind: holiday, name: みどりの日}
+    - {date: 2027-05-05, day: Wed, kind: holiday, name: こどもの日}
+  TW:
+    - {date: 2026-12-25, day: Fri, kind: holiday, name: 行憲紀念日}
+    - {date: 2027-01-01, day: Fri, kind: holiday, name: 開國紀念日}
+    - {date: 2027-02-04, day: Thu, kind: holiday, name: 小年夜}
+    - {date: 2027-02-05, day: Fri, kind: holiday, name: 農曆除夕}
+    - {date: 2027-02-06, day: Sat, kind: holiday, name: 春節}
+    - {date: 2027-02-07, day: Sun, kind: holiday, name: 春節}
+    - {date: 2027-02-08, day: Mon, kind: holiday, name: 春節}
+    - {date: 2027-02-09, day: Tue, kind: holiday, name: 補假}
+    - {date: 2027-02-10, day: Wed, kind: holiday, name: 補假}
+    - {date: 2027-02-28, day: Sun, kind: holiday, name: 和平紀念日}
+    - {date: 2027-03-01, day: Mon, kind: holiday, name: 補假}
+    - {date: 2027-04-04, day: Sun, kind: holiday, name: 兒童節}
+    - {date: 2027-04-05, day: Mon, kind: holiday, name: 清明節}
+    - {date: 2027-04-06, day: Tue, kind: holiday, name: 補假}
+    - {date: 2027-04-30, day: Fri, kind: holiday, name: 補假}
+    - {date: 2027-05-01, day: Sat, kind: holiday, name: 勞動節}
+    - {date: 2027-06-09, day: Wed, kind: holiday, name: 端午節}
