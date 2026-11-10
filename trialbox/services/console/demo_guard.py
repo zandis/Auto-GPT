@@ -22,7 +22,8 @@ data-handling scan (``tools/data_scan``, its patterns and allowlist) over the gi
 box's data) and over every text column of the trial database (``TB_DB_URL``, all its schemas). A hit names the place
 and the pattern and shows the value masked, as the repository scan does. ``--write-baseline FILE`` after seeding the
 demo records what the synthetic seed itself holds; ``--baseline FILE`` after a session reports only what is new.
-Exit 0 clean, 2 on a hit.
+Exit 0 clean, 2 on a hit. The columns of :data:`MUST_SCAN` (the free-text fields testers type into, such as the
+feedback comment of T-510) must be among those read: when one is missing the scan says so and exits 1.
 """
 
 from __future__ import annotations
@@ -78,6 +79,10 @@ GUARDED: tuple[re.Pattern[str], ...] = tuple(
 ACK_OPEN = frozenset({"/demo/ack", "/login", "/login/totp", "/logout", "/lang", "/account", "/account/password",
                       "/healthz", "/api/v1/session"})  # fmt: skip
 ACK_OPEN_PREFIX = ("/static/", "/auth/oidc/")
+
+#: free-text columns of the trial database (``schema.table.column``, without ``tb_prefix``) the ``--db`` scan must read:
+#: the scan fails (exit 1) when one is missing, so a renamed field cannot drop out of it unnoticed
+MUST_SCAN = ("feedback.entry.comment",)  # T-510 (D-331): the comment of the feedback control on every page
 
 
 def flag_on() -> bool:
@@ -254,8 +259,9 @@ def register(app: FastAPI, h: Helpers, read_flag: Callable[[], bool] = flag_on) 
 
 
 # ---------------------------------------------------------------------------------------------- the scan
-def _db_texts(url: str) -> Iterator[tuple[str, str]]:
-    """``(place, text)`` for every non-empty text, varchar and JSON value in every schema of the database."""
+def _db_texts(url: str, seen: set[str] | None = None) -> Iterator[tuple[str, str]]:
+    """``(place, text)`` for every non-empty text, varchar and JSON value in every schema of the database. ``seen``
+    collects every column read, as ``schema.table.column`` without the ``tb_prefix``."""
     import psycopg
     from tb_common.db import split_url
 
@@ -271,22 +277,25 @@ def _db_texts(url: str) -> Iterator[tuple[str, str]]:
             (prefix.replace("_", "\\_") + "%",),
         ).fetchall()
         for schema, table, column in cols:
+            if seen is not None:
+                seen.add(f"{schema[len(prefix) :]}.{table}.{column}")
             q = f'SELECT "{column}"::text FROM "{schema}"."{table}" WHERE "{column}" IS NOT NULL'
             for (value,) in con.execute(q):  # the names come from the catalogue
                 if value:
                     yield f"db:{schema}.{table}.{column}", str(value)
 
 
-def scan_stored(paths: list[Path], db_url: str | None = None) -> list[Any]:
+def scan_stored(paths: list[Path], db_url: str | None = None, seen: set[str] | None = None) -> list[Any]:
     """The data-handling scan over stored demo input: the files under ``paths`` and, with ``db_url``, every text
-    value of the trial database. A database value is placed by its column and a short hash of the value."""
+    value of the trial database. A database value is placed by its column and a short hash of the value. ``seen``
+    collects the database columns read (:data:`MUST_SCAN`)."""
     from tools import data_scan as ds
 
     patterns, allow = ds.load_patterns(), ds.load_allow()
     files = ds._expand(paths)
     hits = list(ds.run(files, ds.ROOT, patterns, allow, in_repo=False))
     if db_url:
-        for place, text in _db_texts(db_url):
+        for place, text in _db_texts(db_url, seen):
             tag = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
             hits += ds.scan_text(text, f"{place}#{tag}", patterns, allow)
     return sorted(set(hits))
@@ -307,7 +316,13 @@ def main(argv: list[str] | None = None) -> int:
     if a.db and not url:
         print("demo_guard scan: --db needs TB_DB_URL", file=sys.stderr)
         return 1
-    hits = [str(x) for x in scan_stored(a.paths, url)]
+    seen: set[str] = set()
+    hits = [str(x) for x in scan_stored(a.paths, url, seen)]
+    missing = [c for c in MUST_SCAN if c not in seen] if url else []
+    if missing:
+        print(f"demo_guard scan: not scanned: {', '.join(missing)} (has the console started on this database?)",
+              file=sys.stderr)  # fmt: skip
+        return 1
     if a.write_baseline:
         a.write_baseline.write_text("".join(f"{x}\n" for x in hits), encoding="utf-8")
         print(f"demo_guard scan: baseline of {len(hits)} hit(s) written")

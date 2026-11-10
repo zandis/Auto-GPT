@@ -51,7 +51,8 @@
 </main>
 <footer>{{ t('footer', env=settings.environment, dc=settings.data_class) }}
 <p class="hint" data-testid="intended-use">{{ t('footer.statement') }}</p>
-{% with demo_at = 'foot' %}{% include "_demo_banner.html" %}{% endwith %}</footer>
+{% with demo_at = 'foot' %}{% include "_demo_banner.html" %}{% endwith %}
+{% include "_feedback.html" %}</footer>
 <script>{{ console_js|safe }}</script>
 </body>
 </html>

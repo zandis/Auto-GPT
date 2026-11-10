@@ -315,7 +315,7 @@ def test_require_extensions_names_the_missing_ones(db_url: str) -> None:
 def store_migrations() -> dict[str, list[str]]:
     """Every store's schema versions, as each passes them to ``migrate`` (store name: its schema)."""
     from adapter import licensed, pidmap
-    from console import auth, saerecord, sitestore, teamstore
+    from console import auth, feedback, saerecord, sitestore, teamstore
     from criteria_compiler.library import ddl as library
     from datacore import lifecycle
     from datacore import store as datacore
@@ -349,6 +349,7 @@ def store_migrations() -> dict[str, list[str]]:
         "auth": list(auth.MIGRATIONS),
         "site": list(sitestore.MIGRATIONS),
         "team": list(teamstore.MIGRATIONS),
+        "feedback": list(feedback.MIGRATIONS),
         "edc": [edc.SCHEMA],
         "sae": list(saerecord.MIGRATIONS),
         "app": list(flags.MIGRATIONS),
@@ -366,13 +367,15 @@ ADDED: dict[str, tuple[str, ...]] = {
     "omop": ("0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",),
     # T-612: pidmap version 2, the site key's fingerprint
     "pidmap": ("b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",),
+    # T-510 (D-331): the feedback store, new after the baseline
+    "feedback": ("3981b6201cd514508bed945433f3415993494cb24e52809cca7f37fe3801e368",),
 }
-PINNED: dict[str, tuple[str, ...]] = {k: v + ADDED.get(k, ()) for k, v in BASELINE.items()}
+PINNED: dict[str, tuple[str, ...]] = {k: BASELINE.get(k, ()) + ADDED.get(k, ()) for k in BASELINE.keys() | ADDED.keys()}
 
 #: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)
 STORE_FILES = {
     "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
-    "services/adapter/pidmap.py", "services/console/auth.py", "services/console/saerecord.py",
+    "services/adapter/pidmap.py", "services/console/auth.py", "services/console/feedback.py", "services/console/saerecord.py",
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
     "services/datacore/store.py", "services/dataplat/mpi/__init__.py", "services/edc/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
