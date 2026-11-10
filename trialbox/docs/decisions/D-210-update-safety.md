@@ -86,6 +86,21 @@ rows D-11 to D-14, D-16 to D-18; D-15 in part, see "Not done").
   a table to a schema of the dump, a new schema and a table in `public`; the database restarts with exactly the
   dump's data and extensions (reported `SKIP`, not passed, without Docker or the image).
 
+* **Review fixes (2026-11-10).** (1) The load-only path is for a box never installed (no `installed.json`) only;
+  an installed box that is not running (crashed, or `compose ps` failed) is refused, with or without
+  `TB_SKIP_AUDIT`. (2) `installed.json` and `trust.json` are recorded in `rollback/state.before.json` (their text,
+  or null when absent) **before** the marker is created; a rollback deletes a file only when the record says it was
+  absent, and without a record touches nothing. (3) The summary carries `trust_sha256`, the sha256 of the
+  `trust.json` verify read (null: the `deploy/keys` files); under the lock the update refuses when `trust.json` is
+  no longer that file, so a rotation applied in between is never overwritten. (4) The summary is written to
+  `$STAGE/summary.json` (the 0700 stage) and the update path refuses a summary outside the stage or whose
+  `manifest_sha256` is not the staged `manifest.json`'s. (5) A completed apply or rollback sets the marker's step to
+  `finished`, deletes the dumps and their key, then removes the marker; `rollback` of a `finished` marker only
+  cleans up. (6) `apply_update.sh` refuses paths with whitespace or glob characters (the docker fallback's mount
+  arguments). (7) After `docker load`, an image that `release.json` pins must have that ID
+  (`docker image inspect {{.Id}}`), else the apply fails and rolls back; this reads `digest` as the image ID, which
+  T-110b must keep.
+
 ## Why
 
 The update path is the one moment the hospital's box is changed by the vendor; its failure modes (half-applied

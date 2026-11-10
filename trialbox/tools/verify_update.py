@@ -199,7 +199,7 @@ def verify(
 
     pubkeys = [pubkey] if isinstance(pubkey, Path) else list(pubkey or [])
     try:
-        trust_rec = us.load_trust(trust_file)
+        trust_rec, trust_sha = us.load_trust_with_sha(trust_file)
         inst = us.load_installed(installed_file)
     except ValueError as exc:
         raise Rejected(f"the box's update state is unreadable: {exc}") from exc
@@ -350,8 +350,10 @@ def verify(
             for part in sorted(stage.rglob("*.part")):
                 part.rename(part.with_suffix(""))
             (stage / MANIFEST).write_bytes(manifest_bytes)
+    # trust_sha256: the trust.json this bundle was verified against (None: the deploy/keys files); the update path
+    # refuses under its lock when trust.json is no longer exactly that file (a rotation applied in between)
     manifest.update(manifest_sha256=manifest_sha, compat=meta[COMPAT], release=release, trust_after=trust_after,
-                    downgrade=downgrade, compat_notes=notes)  # fmt: skip
+                    trust_sha256=trust_sha, downgrade=downgrade, compat_notes=notes)  # fmt: skip
     return dict(manifest)
 
 
@@ -491,7 +493,8 @@ def _cleanup(stage: Path) -> None:
 
 
 SUMMARY_KEYS = ("bundle_id", "signer", "manifest_sha256", "release_seq", "min_installed_version", "key_id",
-                "not_after", "compat", "release", "rotation", "trust_after", "downgrade", "compat_notes")  # fmt: skip
+                "not_after", "compat", "release", "rotation", "trust_after", "trust_sha256", "downgrade",
+                "compat_notes")  # fmt: skip
 
 
 def summary(m: dict[str, Any]) -> dict[str, Any]:

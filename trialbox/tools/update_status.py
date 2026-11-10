@@ -33,6 +33,7 @@ import argparse
 import contextlib
 import errno
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -190,6 +191,29 @@ def load_trust(path: Path | None) -> dict[str, Any] | None:
 
 def trust(updates: Path) -> dict[str, Any] | None:
     return load_trust(updates / TRUST)
+
+
+def file_sha256(path: Path) -> str | None:
+    """sha256 of a file's bytes, None when it does not exist (trust.json's identity between verify and the update)."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except FileNotFoundError:
+        return None
+
+
+def load_trust_with_sha(path: Path | None) -> tuple[dict[str, Any] | None, str | None]:
+    """:func:`load_trust` and the sha256 of exactly the bytes it parsed (one read), or ``(None, None)``."""
+    if path is None:
+        return None, None
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return None, None
+    t = json.loads(raw)
+    if not isinstance(t, dict) or t.get("format") != TRUST_FORMAT or not isinstance(t.get("keys"), dict) \
+            or not t["keys"]:  # fmt: skip
+        raise ValueError(f"{path} is not a {TRUST_FORMAT} file with at least one key")
+    return t, hashlib.sha256(raw).hexdigest()
 
 
 # ------------------------------------------------------------------------------------------------ compatibility

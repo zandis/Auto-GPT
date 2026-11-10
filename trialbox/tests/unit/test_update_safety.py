@@ -8,6 +8,7 @@ The whole path with real bundles, the kill -9 cases and the db image is ``tools/
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import os
@@ -568,3 +569,157 @@ def test_compose_rollback_restore_resets_the_role_first_and_never_runs_a_cut_off
     body = (tmp_path / "psql_in").read_text()
     assert body.startswith("DO $tb$") and body.rstrip().endswith("SELECT 1;")
     assert "DROP SCHEMA %I CASCADE" in up.RESET_SQL and "deptype = 'e'" in up.RESET_SQL
+
+
+# ------------------------------------------------------------------------------------------------ review fixes
+def _main_apply_stage(tmp_path: Path, seq: int = 2) -> tuple[Path, Path]:
+    stage = tmp_path / "stage"
+    (stage / "model/judge").mkdir(parents=True)
+    (stage / "model/judge/config.json").write_text("new")
+    (stage / "manifest.json").write_bytes(b'{"m": 1}')
+    compat = {"format": us.COMPAT_FORMAT, "bundle_id": "B2", "rows": [{}]}
+    summary = stage / "summary.json"
+    summary.write_text(json.dumps({"bundle_id": "B2", "signer": "v", "files": [], "release_seq": seq,
+                                   "manifest_sha256": hashlib.sha256(b'{"m": 1}').hexdigest(),
+                                   "compat": compat, "trust_sha256": None}))  # fmt: skip
+    return stage, summary
+
+
+@pytest.mark.parametrize("skip_audit", [False, True])
+def test_an_installed_box_that_is_not_running_is_refused_not_loaded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, skip_audit: bool
+) -> None:
+    deploy = tmp_path / "deploy"
+    updates = deploy / "updates"
+    us.write_atomic(updates / us.INSTALLED, {"format": us.INSTALLED_FORMAT, "release_seq": 1, "bundle_id": "B1",
+                                             "state": {}})  # fmt: skip
+    before = (updates / us.INSTALLED).read_text()
+    (tmp_path / "models/judge").mkdir(parents=True)
+    (tmp_path / "models/judge/config.json").write_text("old")
+    monkeypatch.setenv("TB_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("TB_COMPOSE", "false")  # `compose ps` fails: the box looks stopped (a crash)
+    if skip_audit:
+        monkeypatch.setenv("TB_SKIP_AUDIT", "1")
+    stage, summary = _main_apply_stage(tmp_path)
+    assert up.main_apply(stage, summary, "compose", deploy) == 1
+    assert (tmp_path / "models/judge/config.json").read_text() == "old"  # nothing loaded
+    assert (updates / us.INSTALLED).read_text() == before and us.marker(updates) is None
+    assert not (updates / "pending_audit").exists()
+
+
+def test_the_summary_must_sit_in_the_stage_and_name_its_manifest(tmp_path: Path) -> None:
+    deploy = tmp_path / "deploy"
+    stage, summary = _main_apply_stage(tmp_path)
+    outside = tmp_path / "stage.summary.json"  # the old place: beside the stage, in a shared TMPDIR
+    outside.write_text(summary.read_text())
+    assert up.main_apply(stage, outside, "compose", deploy) == 1
+    (stage / "manifest.json").write_bytes(b'{"m": 2}')  # a summary of another bundle
+    assert up.main_apply(stage, summary, "compose", deploy) == 1
+    assert not (deploy / "updates").exists()
+
+
+def test_a_kill_right_after_the_marker_rolls_back_to_the_recorded_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    updates = tmp_path / "updates"
+    us.write_atomic(updates / us.INSTALLED, {"format": us.INSTALLED_FORMAT, "release_seq": 1, "bundle_id": "B0",
+                                             "state": {}})  # fmt: skip
+    us.write_atomic(updates / us.TRUST, {"format": us.TRUST_FORMAT, "keys": {"ed25519:" + "2" * 16: {}}})
+    inst, trust = (updates / us.INSTALLED).read_text(), (updates / us.TRUST).read_text()
+
+    class Stop(BaseException):
+        pass
+
+    real = us.create_marker
+
+    def create_then_die(*a: Any, **kw: Any) -> dict[str, Any]:
+        real(*a, **kw)
+        raise Stop  # kill -9 right after the marker exists
+
+    monkeypatch.setattr(us, "create_marker", create_then_die)
+    plan = _plan(tmp_path)
+    plan.trust_sha256 = us.file_sha256(updates / us.TRUST)
+    with pytest.raises(Stop):
+        up.Updater(Recorder(), updates, say=lambda _m: None).run(plan)
+    monkeypatch.setattr(us, "create_marker", real)
+    assert us.marker(updates) is not None
+    assert up.Updater(Recorder(), updates, say=lambda _m: None).recover("B1")["ok"]
+    assert (updates / us.INSTALLED).read_text() == inst and (updates / us.TRUST).read_text() == trust
+
+
+def test_restore_state_without_a_record_deletes_nothing(tmp_path: Path) -> None:
+    updates = tmp_path / "updates"
+    us.write_atomic(updates / us.TRUST, {"format": us.TRUST_FORMAT, "keys": {"k": {}}})
+    rb = updates / "B1/rollback"
+    rb.mkdir(parents=True)
+    up.Updater(Recorder(), updates, say=lambda _m: None)._restore_state(rb)
+    assert (updates / us.TRUST).is_file()
+    up.record_state(updates, rb)  # recorded: trust present, installed absent
+    us.write_atomic(updates / us.INSTALLED, {"format": us.INSTALLED_FORMAT, "release_seq": 5, "state": {}})
+    up.Updater(Recorder(), updates, say=lambda _m: None)._restore_state(rb)
+    assert (updates / us.TRUST).is_file() and not (updates / us.INSTALLED).exists()
+
+
+def test_a_trust_change_between_verify_and_the_update_is_refused(v: dict[str, Any]) -> None:
+    from tools.verify_update import trusted_keys
+
+    s = summary(_verify(v, _bundle(v)))
+    assert "trust_sha256" in s and s["trust_sha256"] is None  # verified against the deploy/keys files
+    us.write_atomic(v["updates"] / us.TRUST, trusted_keys(None, [v["pub"]])[1])  # a rotation landed meanwhile
+    assert summary(_verify(v, _bundle(v)))["trust_sha256"] == us.file_sha256(v["updates"] / us.TRUST)
+    plan = _plan(v["tmp"])
+    plan.trust_sha256 = s["trust_sha256"]
+    box = Recorder()
+    with pytest.raises(up.UpdateRefused, match="trust.json changed since this bundle was verified"):
+        up.Updater(box, v["updates"], say=lambda _m: None).run(plan)
+    assert box.calls == [] and us.marker(v["updates"]) is None
+
+
+def test_a_crash_after_finish_leaves_no_key_or_dump_and_rollback_only_cleans_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    updates = tmp_path / "updates"
+
+    class Stop(BaseException):
+        pass
+
+    real = us.remove_marker
+
+    def die(_u: Path) -> None:
+        raise Stop
+
+    monkeypatch.setattr(us, "remove_marker", die)
+    with pytest.raises(Stop):
+        up.Updater(Recorder(), updates, say=lambda _m: None).run(_plan(tmp_path))
+    monkeypatch.setattr(us, "remove_marker", real)
+    rb = updates / "B1/rollback"
+    assert (us.marker(updates) or {}).get("step") == up.FINISHED
+    assert not (rb / up.SEAL_KEY).exists() and not list(rb.glob("*.dump*"))
+    rec = Recorder()
+    assert up.Updater(rec, updates, say=lambda _m: None).recover("B1")["from_step"] == up.FINISHED
+    assert rec.calls == [] and rec.audits == [] and us.marker(updates) is None
+    assert us.installed(updates)["release_seq"] == 2  # the completed update stays
+
+
+def test_a_loaded_image_must_have_the_pinned_id(tmp_path: Path) -> None:
+    ids = {"trialbox-py:1.0.0": DIGEST}
+    box = up.ComposeBox(tmp_path, run=lambda argv, *a, **kw: ids.get(argv[-1], "") + "\n")
+    plan = _plan(tmp_path)
+    plan.release = {"images": {"py": {"image": "trialbox-py:1.0.0", "digest": DIGEST}}}
+    box.check_loaded(plan, "trialbox-py:1.0.0")
+    box.check_loaded(plan, "other:1")  # not pinned by this release: not compared
+    ids["trialbox-py:1.0.0"] = "sha256:" + "b" * 64
+    with pytest.raises(up.UpdateFailed, match="is not the pinned digest"):
+        box.check_loaded(plan, "trialbox-py:1.0.0")
+
+
+def test_the_shell_entry_refuses_a_path_with_a_space(tmp_path: Path) -> None:
+    d = tmp_path / "a b"
+    d.mkdir()
+    (d / "b.tar").write_bytes(b"x")
+    pub = tmp_path / "vendor.pub"
+    pub.write_text("k")
+    env = {**os.environ, "TB_VENDOR_PUBKEY": str(pub), "TMPDIR": str(tmp_path)}
+    r = subprocess.run(["sh", str(ROOT / "tools/apply_update.sh"), str(d / "b.tar")], env=env, capture_output=True,
+                       text=True, check=False)  # fmt: skip
+    assert r.returncode == 2 and "space or a glob character" in r.stderr

@@ -8,6 +8,7 @@ box are tested against a fake runner (no Docker here); the in-process box runs f
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tarfile
 from pathlib import Path
@@ -236,10 +237,12 @@ def test_first_install_only_loads_and_defers_the_audit(
     stage = tmp_path / "stage"
     (stage / "model/judge").mkdir(parents=True)
     (stage / "model/judge/config.json").write_text("new")
-    summary = tmp_path / "s.json"
+    (stage / "manifest.json").write_bytes(b"{}")
+    summary = stage / "summary.json"  # D-210: in the stage folder, bound to the staged manifest
     compat = {"format": "trialbox-update-compat/1", "bundle_id": "B0", "rows": [{}]}
-    summary.write_text(json.dumps({"bundle_id": "B0", "manifest_sha256": "a" * 64, "signer": "v", "files": [],
-                                   "release_seq": 1, "compat": compat}))  # fmt: skip
+    summary.write_text(json.dumps({"bundle_id": "B0", "manifest_sha256": hashlib.sha256(b"{}").hexdigest(),
+                                   "signer": "v", "files": [], "release_seq": 1, "compat": compat,
+                                   "trust_sha256": None}))  # fmt: skip
     monkeypatch.setenv("TB_SKIP_AUDIT", "1")
     assert up.main_apply(stage, summary, "compose", deploy) == 0
     assert (deploy / "updates/pending_audit/B0.json").is_file()

@@ -91,6 +91,7 @@ class Plan:
     trust_after: dict[str, Any] | None = None
     downgrade: dict[str, Any] | None = None
     release: dict[str, Any] | None = None
+    trust_sha256: str | None = None  # the trust.json verify read (None: none, the deploy/keys files)
 
     @classmethod
     def load(cls, stage: Path, summary: dict[str, Any]) -> Plan:
@@ -108,6 +109,7 @@ class Plan:
             summary.get("trust_after"),
             summary.get("downgrade"),
             summary.get("release"),
+            summary.get("trust_sha256"),
         )
 
     def kind(self, kind: str) -> Path:
@@ -141,6 +143,30 @@ def save_point(rb: Path, point: Point) -> None:
     from tools.update_status import write_atomic
 
     write_atomic(rb / "point.json", point.__dict__)
+
+
+STATE_BEFORE = "state.before.json"
+FINISHED = "finished"
+
+
+def record_state(updates: Path, rb: Path) -> None:
+    """``rb/state.before.json``: installed.json and trust.json as they are (their text, or null when absent), written
+    atomically before the marker exists."""
+    from tools import update_status as us
+
+    rec: dict[str, str | None] = {}
+    for name in (us.INSTALLED, us.TRUST):
+        try:
+            rec[name] = (updates / name).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            rec[name] = None
+    us.write_atomic(rb / STATE_BEFORE, rec)
+
+
+def drop_secrets(rb: Path) -> None:
+    """The rollback dumps (sealed or not) and the key that opens them."""
+    for p in [rb / SEAL_KEY, *rb.glob("*.dump"), *rb.glob("*.dump.enc"), *rb.glob("*.restore")]:
+        p.unlink(missing_ok=True)
 
 
 def _now() -> str:
@@ -462,6 +488,12 @@ class Updater:
                 plan.downgrade = None  # another update moved the box since verify: not a downgrade any more
             if plan.compat is None:
                 raise UpdateRefused("the bundle has no compatibility table (compat.json)")
+            now_sha = us.file_sha256(self.dir / us.TRUST)
+            if now_sha != plan.trust_sha256:
+                raise UpdateRefused(
+                    "trust.json changed since this bundle was verified (another update or a key rotation in "
+                    "between): run tools/apply_update.sh again; nothing was changed"
+                )
         if plan.compat is not None:
             try:
                 state = self.state()
@@ -533,16 +565,13 @@ class Updater:
         rb = self.dir / plan.bundle_id / "rollback"
         if rb.exists():  # a left-over of an earlier, finished attempt of this bundle (dumps included)
             shutil.rmtree(rb)
+        rb.mkdir(parents=True, exist_ok=True)
+        os.chmod(rb, 0o700)
+        record_state(self.dir, rb)  # before the marker: a marker never exists without the state it rolls back to
         m = us.create_marker(self.dir, {"bundle_id": plan.bundle_id, "manifest_sha256": plan.manifest_sha256,
                                         "release_seq": plan.release_seq, "target": self.box.name,
                                         "rollback_dir": str(rb), "stage": str(plan.stage), "step": None,
                                         "downgrade": plan.downgrade})  # fmt: skip
-        rb.mkdir(parents=True, exist_ok=True)
-        os.chmod(rb, 0o700)
-        for name in (us.INSTALLED, us.TRUST):  # the state files as they were, for a rollback
-            src = self.dir / name
-            if src.is_file():
-                shutil.copy2(src, rb / f"{name}.before")
         steps: list[tuple[str, bool, str]] = []
 
         def enter(name: str) -> None:
@@ -674,14 +703,21 @@ class Updater:
             return False
 
     def _restore_state(self, rb: Path) -> None:
+        """installed.json and trust.json as :func:`record_state` recorded them. A file is deleted only when the record
+        says it was absent; without a record nothing is touched (the state was never changed without one)."""
         from tools import update_status as us
 
+        rec = us.read_json(rb / STATE_BEFORE)
+        if rec is None:
+            self.say(f"      update state: no record in {rb}; installed.json and trust.json left as they are")
+            return
         for name in (us.INSTALLED, us.TRUST):
-            before = rb / f"{name}.before"
-            if before.is_file():
-                us.write_atomic(self.dir / name, before.read_text(encoding="utf-8"))
-            else:
+            if name not in rec:
+                continue
+            if rec[name] is None:
                 (self.dir / name).unlink(missing_ok=True)
+            else:
+                us.write_atomic(self.dir / name, rec[name])
 
     def _abandon(self, plan: Plan, rb: Path) -> None:
         """The update stopped before it changed anything but the services (backup or rollback point failed): start
@@ -701,6 +737,10 @@ class Updater:
         left-over point of an earlier update."""
         from tools import update_status as us
 
+        m = us.marker(self.dir)
+        if m is not None:
+            us.set_step(self.dir, m, FINISHED)  # a crash from here on: `rollback` only cleans up
+        drop_secrets(rb)  # the sealed dumps and their key go before the marker does
         us.remove_marker(self.dir)
         shutil.rmtree(rb, ignore_errors=True)
         for old in us.stale_rollback_dirs(self.dir):
@@ -724,6 +764,10 @@ class Updater:
                 plan = Plan(bundle_id, str(m.get("manifest_sha256") or ""), "", [], Path(str(m.get("stage") or rb)))
                 step = str(m.get("step"))
                 self._history(plan, f"recover from step {step!r}", True, "tools/apply_update.sh rollback")
+                if step == FINISHED:  # the apply or the rollback had completed; only the clean-up was cut short
+                    self._done(plan, rb)
+                    self._history(plan, "clean-up finished", True, "the update had completed; nothing rolled back")
+                    return {"ok": True, "bundle_id": bundle_id, "from_step": step}
                 if step in ("None", "backup", "rollback point") or not (rb / "point.json").is_file():
                     resume = getattr(self.box, "resume", None)
                     if resume is not None:
@@ -816,7 +860,20 @@ class _DockerImages:
         for tar in sorted(p for p in img.rglob("*") if p.is_file()) if img.is_dir() else []:
             self.run(["docker", "load", "-i", str(tar)], timeout=3600)
             done.append(f"image {tar.name}")
+            for tag in image_tags(tar):
+                self.check_loaded(plan, tag)
         return done
+
+    def check_loaded(self, plan: Plan, tag: str) -> None:
+        """The loaded image's ID (``docker image inspect {{.Id}}``) equals the digest release.json pins for that
+        reference (verified against images.lock before extraction); a mismatch fails the apply, which rolls back."""
+        pins = {str(r.get("image")): r.get("digest") for r in ((plan.release or {}).get("images") or {}).values()
+                if isinstance(r, dict)}  # fmt: skip
+        if tag not in pins:
+            return
+        have = self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag]).strip()
+        if have != pins[tag]:
+            raise UpdateFailed(f"image {tag}: loaded ID {have or '(none)'} is not the pinned digest {pins[tag]}")
 
     def restore_images(self, point: Point) -> None:
         for tag, rt in point.images.items():
@@ -1410,19 +1467,34 @@ class InProcessBox:
 
 
 def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backup: bool = True) -> int:
-    """``apply_update.sh`` after verify: a box that is not running yet (first install) only loads the payloads, as
-    before; a running box takes the whole path. The summary must come from a D-210 ``verify_update.py``
-    (``release_seq``, the compatibility table, the trust after it): an older summary is refused."""
+    """``apply_update.sh`` after verify. A box never installed (no ``installed.json``) that is not running yet, or
+    install.sh's first load (``TB_SKIP_AUDIT``), only loads the payloads; an installed box that is not running is
+    refused (start it, then update: a crashed box never takes the path without marker, backup or compat check); a
+    running installed box takes the whole path. The summary must come from a D-210 ``verify_update.py``, sit in
+    the stage folder (0700) and name the staged manifest's sha256: anything else is refused."""
     from tools import update_status as us
 
+    if summary_file.resolve().parent != stage.resolve():
+        print(f"update REFUSED: the summary must be in the stage folder {stage} (not {summary_file})")
+        return 1
     summary = json.loads(summary_file.read_text(encoding="utf-8"))
-    if not isinstance(summary.get("release_seq"), int) or not isinstance(summary.get("compat"), dict):
-        print("update REFUSED: the summary has no release_seq or compatibility table (verify_update.py, D-210)")
+    if not isinstance(summary.get("release_seq"), int) or not isinstance(summary.get("compat"), dict) \
+            or "trust_sha256" not in summary:  # fmt: skip
+        print("update REFUSED: the summary has no release_seq, compatibility table or trust sha256 "
+              "(verify_update.py, D-210)")  # fmt: skip
+        return 1
+    if us.file_sha256(stage / "manifest.json") != summary.get("manifest_sha256"):
+        print("update REFUSED: the summary does not belong to the staged manifest.json (sha256 differs)")
         return 1
     plan = Plan.load(stage, summary)
     updates = deploy / "updates"
     box: ComposeBox | DemoBox = DemoBox(deploy) if target == "demo" else ComposeBox(deploy)
-    if os.environ.get("TB_SKIP_AUDIT") or not box.running():
+    installed_before = (updates / us.INSTALLED).is_file()
+    if installed_before and not box.running():
+        print("update REFUSED: the box is installed but not running (crashed, or its compose ps failed); "
+              "start it, then run the update again; nothing was changed")  # fmt: skip
+        return 1
+    if not installed_before and (os.environ.get("TB_SKIP_AUDIT") or not box.running()):
         try:
             with us.locked(updates):
                 if us.marker(updates) is not None:

@@ -62,7 +62,7 @@ if [ -f "$UPDATES/IN_PROGRESS.json" ]; then
 fi
 [ -f "$UPDATES/trust.json" ] || [ -f "$PUBKEY" ] || { echo "vendor public key not installed: $PUBKEY" >&2; exit 2; }
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/tb-update.XXXXXX")
-trap 'rm -rf "$STAGE" "$STAGE.summary.json"' EXIT INT TERM HUP
+trap 'rm -rf "$STAGE"' EXIT INT TERM HUP
 BUNDLE_ABS=$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")
 
 # the verifier's arguments: the trust and the installed record are read only, and only when they exist
@@ -76,6 +76,10 @@ if [ ! -f "$UPDATES/trust.json" ]; then
   [ -f "$NEXTKEY" ] && set -- "$@" --pubkey "$NEXTKEY"
 fi
 [ -n "$DOWNGRADE" ] && set -- "$@" --allow-downgrade "$DOWNGRADE"
+# the docker fallback passes these paths as mount arguments: no whitespace or glob characters in any of them
+case "$ROOT|$BUNDLE_ABS|$STAGE|$PUBKEY" in
+  *[[:space:]*?\[]*) echo "update REFUSED: a path has a space or a glob character: $ROOT, $BUNDLE_ABS, $STAGE, $PUBKEY" >&2; exit 2 ;;
+esac
 
 # host python3 with cryptography (a clean site host has it from the media's debs; tools/verify_update.py checks the
 # manifest schema without jsonschema there, D-176): on a first install the trialbox-py image is still inside the bundle
@@ -100,7 +104,8 @@ if [ "$DRY" = "--dry-run" ]; then
   exit 0
 fi
 
-( umask 077; printf '%s' "$SUMMARY" > "$STAGE.summary.json" )
+# in the 0700 stage folder, beside the staged manifest.json whose sha256 the update path checks against it
+( umask 077; printf '%s' "$SUMMARY" > "$STAGE/summary.json" )
 cd "$ROOT"
-python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE.summary.json" --target "$TARGET" \
+python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE/summary.json" --target "$TARGET" \
   --deploy "$ROOT/deploy" $NOBACKUP
