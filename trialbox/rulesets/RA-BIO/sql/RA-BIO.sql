@@ -4948,6 +4948,7 @@ vsf(vs_id, system, prefix) AS (VALUES
   ('VS_ACTIVE_TUBERCULOSIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'A18'),
   ('VS_ACTIVE_TUBERCULOSIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'A19'),
   ('VS_HEART_FAILURE', 'http://hl7.org/fhir/sid/icd-10-cm', 'I50'),
+  ('VS_MALIGNANCY', 'http://hl7.org/fhir/sid/icd-10', 'C97'),
   ('VS_MALIGNANCY', 'http://hl7.org/fhir/sid/icd-10-cm', 'C0'),
   ('VS_MALIGNANCY', 'http://hl7.org/fhir/sid/icd-10-cm', 'C1'),
   ('VS_MALIGNANCY', 'http://hl7.org/fhir/sid/icd-10-cm', 'C2'),

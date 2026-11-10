@@ -5447,6 +5447,10 @@
  "extension": [
   {
    "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10|C97"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
    "valueString": "http://hl7.org/fhir/sid/icd-10-cm|C0"
   },
   {

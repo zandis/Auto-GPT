@@ -701,6 +701,7 @@ vs(vs_id, system, code) AS (VALUES
 vsf(vs_id, system, prefix) AS (VALUES
   ('VS_GOUT', 'http://hl7.org/fhir/sid/icd-10-cm', 'M10'),
   ('VS_GOUT', 'http://hl7.org/fhir/sid/icd-10-cm', 'M1A'),
+  ('VS_TYPE_2_DIABETES_MELLITUS', 'http://hl7.org/fhir/sid/icd-10', 'E14'),
   ('VS_TYPE_2_DIABETES_MELLITUS', 'http://hl7.org/fhir/sid/icd-10-cm', 'E11'),
   ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AA'),
   ('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AB')),
