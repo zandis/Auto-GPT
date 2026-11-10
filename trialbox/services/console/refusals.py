@@ -13,6 +13,20 @@ from collections.abc import Mapping
 
 # English sentence -> (Japanese, Traditional Chinese)
 REFUSALS: dict[str, tuple[str, str]] = {
+    # D-192: sign-in and recovery (/ops/identity, the TOTP step)
+    "no such account": ("そのアカウントはありません", "沒有此帳號"),
+    "this account signs in through the identity provider": (
+        "このアカウントは病院アカウントでログインします",
+        "此帳號以醫院帳號登入",
+    ),
+    "the authenticator key file does not match; ask an administrator": (
+        "認証アプリの鍵ファイルが一致しません。管理者に連絡してください",
+        "驗證器金鑰檔案不符，請聯絡管理者",
+    ),
+    "another administrator does this for your account": (
+        "ご自身のアカウントには別の管理者が行います",
+        "您自己的帳號須由另一位管理者處理",
+    ),
     "choose the page language the label is in first": (
         "先に表示名の言語をページの言語として選んでください",
         "請先將頁面語言切換為標籤的語言",

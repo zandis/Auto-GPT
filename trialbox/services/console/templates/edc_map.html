@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{# EDC prefill (D-160): the item map. Each row: the eCRF item, its CDASH tag, where its value may come from. #}
+{% block title %}{{ t('edc.map.title') }} · {{ rs }}{% endblock %}
+{% set q = request.query_params %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('edc.map.title') }}</h1></div>
+{% include "_edc_nav.html" %}
+<p class="hint">{{ t('edc.map.help') }}</p>
+{% if err %}{% include "_edc_err.html" %}{% endif %}
+{% if q.get('fields') %}<p class="ok" role="status" data-testid="edc-dict-done">{{ t('edc.dict.done', n=q.get('fields')) }}</p>{% endif %}
+<section class="card" data-testid="edc-dict">
+<h2>{{ t('edc.dict.title') }}</h2>
+<p class="hint">{{ t('edc.dict.help') }}</p>
+<form method="post" action="/studies/{{ rs }}/edc/dictionary" class="inline">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="dict-ref">{{ t('edc.map.connection') }}</label><select id="dict-ref" name="token_ref" data-testid="edc-dict-ref">{% for c in connections %}<option value="{{ c }}"{% if st.target and st.target.token_ref == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+<label for="dict-rec">{{ t('edc.map.id_field') }}</label><input id="dict-rec" name="record_field" class="mono" maxlength="100" value="{{ st.target.id_field if st.target else 'record_id' }}">
+<button type="submit" class="secondary" data-testid="edc-dict-go">{{ t('edc.dict.go') }}</button></form>
+</section>
+{% if rows %}
+<form method="post" action="/studies/{{ rs }}/edc/map" data-testid="edc-map-form">
+<input type="hidden" name="csrf" value="{{ csrf }}">
+<section class="card">
+<h2>{{ t('edc.map.target_title') }}</h2>
+<label for="token_ref">{{ t('edc.map.connection') }}</label><select id="token_ref" name="token_ref" data-testid="edc-target-ref">{% for c in connections %}<option value="{{ c }}"{% if st.target and st.target.token_ref == c %} selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+<label for="key_field">{{ t('edc.map.key_field') }}</label><input id="key_field" name="key_field" class="mono" value="{{ st.target.key_field if st.target else 'tb_screening_no' }}">
+<label for="id_field">{{ t('edc.map.id_field') }}</label><input id="id_field" name="id_field" class="mono" value="{{ st.target.id_field if st.target else 'record_id' }}">
+</section>
+<section class="card">
+<p><a href="?suggest=1" data-testid="edc-suggest">{{ t('edc.map.suggest') }}</a> · <span class="hint">{{ t('edc.map.suggest.help') }}</span></p>
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="edc-map">
+<thead><tr><th>{{ t('edc.col.item') }}</th><th>{{ t('edc.col.cdash') }}</th><th>{{ t('edc.col.source') }}</th><th>{{ t('edc.col.codes') }}</th><th>{{ t('edc.col.unit') }}</th><th>{{ t('edc.col.window') }}</th><th>{{ t('edc.col.answer') }}</th></tr></thead>
+<tbody>{% for r in rows %}{% set f = fields.get(r.item) or {} %}{% set probs = bad.get(r.item, []) %}
+<tr data-testid="map-{{ r.item }}"{% if probs %} class="flagged"{% endif %}>
+<td><input type="hidden" name="item" value="{{ r.item }}"><span class="mono">{{ r.item }}</span><br><span class="hint">{{ (f.labels or {}).get(lang) or f.label or '' }}</span>{% for p in probs %}<br><span class="pill warn" data-testid="map-problem-{{ r.item }}">{{ t_or('edc.problem.' + p, p) }}</span>{% endfor %}</td>
+<td><input name="cdash-{{ r.item }}" value="{{ r.cdash }}" class="mono" size="11" maxlength="11" aria-label="CDASH" data-testid="map-cdash-{{ r.item }}"><input name="test-{{ r.item }}" value="{{ r.test }}" class="mono" size="8" maxlength="8" aria-label="TESTCD"></td>
+<td><select name="source-{{ r.item }}" aria-label="{{ t('edc.col.source') }}" data-testid="map-source-{{ r.item }}">{% for s in sources %}<option value="{{ s }}"{% if s == r.source %} selected{% endif %}>{{ t('edc.source.' + s) }}</option>{% endfor %}</select>
+<select name="what-{{ r.item }}" aria-label="{{ t('edc.col.what') }}" data-testid="map-what-{{ r.item }}">{% for s in sources %}{% for w in what[s] %}{% if w %}<option value="{{ w }}"{% if w == r.what and s == r.source %} selected{% endif %}>{{ t('edc.what.' + w) }}</option>{% endif %}{% endfor %}{% endfor %}<option value=""{% if not r.what %} selected{% endif %}>–</option></select>
+<select name="pick-{{ r.item }}" aria-label="{{ t('edc.col.pick') }}"><option value="latest_before"{% if r.pick != 'nearest' %} selected{% endif %}>{{ t('edc.pick.latest_before') }}</option><option value="nearest"{% if r.pick == 'nearest' %} selected{% endif %}>{{ t('edc.pick.nearest') }}</option></select></td>
+<td><input name="codes-{{ r.item }}" value="{{ (r.codes or [])|join(', ') }}" class="mono" size="14" aria-label="{{ t('edc.col.codes') }}" data-testid="map-codes-{{ r.item }}"><input type="hidden" name="system-{{ r.item }}" value="{{ r.system or '' }}"></td>
+<td><input name="unit-{{ r.item }}" value="{{ r.unit or '' }}" class="mono" size="7" aria-label="{{ t('edc.col.unit') }}"></td>
+<td><input name="window_days-{{ r.item }}" value="{{ r.window_days if r.window_days is not none else 30 }}" size="4" inputmode="numeric" aria-label="{{ t('edc.col.window') }}"></td>
+<td><input name="yes_code-{{ r.item }}" value="{{ r.yes_code or '1' }}" class="mono" size="3" aria-label="{{ t('edc.col.yes') }}"> <input name="sex_codes-{{ r.item }}" value="{% for k, v in (r.sex_codes or {}).items() %}{{ k }}={{ v }}{% if not loop.last %},{% endif %}{% endfor %}" class="mono" size="14" placeholder="male=1,female=2" aria-label="{{ t('edc.col.sex') }}"><br><input name="question-{{ r.item }}" value="{{ r.question or '' }}" size="24" maxlength="300" placeholder="{{ t('edc.col.question') }}" aria-label="{{ t('edc.col.question') }}"></td>
+</tr>{% endfor %}</tbody></table></div>
+<p class="hint">{{ t('edc.map.rules') }}</p>
+<button type="submit" data-testid="edc-map-save">{{ t('edc.map.save') }}</button>
+</section></form>
+{% else %}<section class="card"><p class="empty">{{ t('edc.map.no_fields') }}</p></section>{% endif %}
+{% endblock %}

@@ -1,0 +1,120 @@
+# TrialBox identity and TLS overlay (D-192, D-193; review of 2026-11-10, H4): the real tools on the real files.
+#   1. `caddy validate` on deploy/identity/Caddyfile, in both TLS modes (the pinned Caddy image)
+#   2. `docker compose config` of the base file plus deploy/docker-compose.identity.yml, and the pytest checks on the
+#      merged result (only Caddy publishes, only 443; the console publishes nothing)
+#   3. a smoke run: the pinned Caddy with the Caddyfile in front of a stand-in console that echoes request headers;
+#      443 answers with HSTS, the identity headers a browser sends never reach the upstream, 80 and 8090 are closed
+# No secrets, no patient data; the stand-in console is python's http.server.
+name: TrialBox identity overlay
+
+on:
+  pull_request:
+    paths:
+      - "trialbox/deploy/identity/**"
+      - "trialbox/deploy/docker-compose.yml"
+      - "trialbox/deploy/docker-compose.identity.yml"
+      - "trialbox/services/console/identity.py"
+      - "trialbox/tests/console/test_identity.py"
+      - ".github/workflows/trialbox-identity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trialbox-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  overlay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: trialbox
+    env:
+      CADDY_IMAGE: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
+      TB_TLS_HOSTNAME: trialbox.hosp.test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: caddy validate (internal CA)
+        run: |
+          docker run --rm -e TB_TLS_MODE=internal -e TB_TLS_HOSTNAME -e TB_AUTH_HOSTNAME=auth.hosp.test \
+            -v "$PWD/deploy/identity/Caddyfile:/etc/caddy/Caddyfile:ro" "$CADDY_IMAGE" \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: caddy validate (hospital certificate)
+        run: |
+          mkdir -p "$RUNNER_TEMP/certs"
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=$TB_TLS_HOSTNAME" \
+            -addext "subjectAltName=DNS:$TB_TLS_HOSTNAME,DNS:auth.hosp.test" \
+            -keyout "$RUNNER_TEMP/certs/site.key" -out "$RUNNER_TEMP/certs/site.crt"
+          chmod 644 "$RUNNER_TEMP/certs/site.key"
+          docker run --rm -e TB_TLS_MODE=hospital -e TB_TLS_HOSTNAME -e TB_AUTH_HOSTNAME=auth.hosp.test \
+            -v "$PWD/deploy/identity/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$RUNNER_TEMP/certs:/etc/caddy/certs:ro" \
+            "$CADDY_IMAGE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: docker compose config (base + identity overlay)
+        run: |
+          touch deploy/.env
+          docker compose --project-directory deploy -f deploy/docker-compose.yml \
+            -f deploy/docker-compose.identity.yml --profile oidc config > "$RUNNER_TEMP/merged.yml"
+          grep -n "published" "$RUNNER_TEMP/merged.yml"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/pyproject.toml
+
+      - name: PostgreSQL server binaries
+        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+
+      - name: pytest on the merged config and the identity code
+        run: |
+          make venv
+          rm -f deploy/.env
+          .venv/bin/python -m pytest -q tests/console/test_identity.py
+
+      - name: smoke run (Caddy in front of a stand-in console)
+        run: |
+          set -eu
+          docker network create tb-smoke
+          cat > "$RUNNER_TEMP/echo.py" <<'EOF'
+          import http.server, json
+          class H(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  body = json.dumps({k.lower(): v for k, v in self.headers.items()}).encode()
+                  self.send_response(200); self.send_header("Content-Type", "application/json")
+                  self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+          http.server.ThreadingHTTPServer(("0.0.0.0", 8090), H).serve_forever()
+          EOF
+          docker run -d --name console --network tb-smoke -v "$RUNNER_TEMP/echo.py:/echo.py:ro" \
+            python:3.12-alpine python /echo.py
+          docker run -d --name caddy --network tb-smoke -p 127.0.0.1:443:443 \
+            -e TB_TLS_MODE=internal -e TB_TLS_HOSTNAME -e TB_AUTH_HOSTNAME=auth.hosp.test \
+            -e TB_CONSOLE_SSO_HEADER=X-Site-Sso-User \
+            -v "$PWD/deploy/identity/Caddyfile:/etc/caddy/Caddyfile:ro" "$CADDY_IMAGE"
+          for i in $(seq 1 30); do
+            curl -sk --resolve "$TB_TLS_HOSTNAME:443:127.0.0.1" "https://$TB_TLS_HOSTNAME/" -o /dev/null && break
+            sleep 1
+          done
+          curl -sk -D "$RUNNER_TEMP/h.txt" --resolve "$TB_TLS_HOSTNAME:443:127.0.0.1" \
+            -H "X-Forwarded-User: admin" -H "Remote-User: admin" -H "X-Site-Sso-User: admin" -H "X-Keep: yes" \
+            "https://$TB_TLS_HOSTNAME/login?state=secret-state" -o "$RUNNER_TEMP/body.json"
+          cat "$RUNNER_TEMP/h.txt" "$RUNNER_TEMP/body.json"
+          grep -qi "^strict-transport-security: max-age=31536000" "$RUNNER_TEMP/h.txt"
+          if grep -qi "^server:" "$RUNNER_TEMP/h.txt"; then echo "Server header leaked"; exit 1; fi
+          python3 - "$RUNNER_TEMP/body.json" <<'EOF'
+          import json, sys
+          got = json.load(open(sys.argv[1]))
+          assert got.get("x-keep") == "yes", got
+          for h in ("x-forwarded-user", "remote-user", "x-site-sso-user"):
+              assert h not in got, (h, got)
+          print("identity headers stripped")
+          EOF
+          for port in 80 8090; do
+            if curl -s --max-time 3 "http://127.0.0.1:$port/" -o /dev/null; then echo "port $port is open"; exit 1; fi
+          done
+          docker logs caddy 2>&1 | tee "$RUNNER_TEMP/caddy.log" | tail -5
+          if grep -q "secret-state" "$RUNNER_TEMP/caddy.log"; then echo "query string in the log"; exit 1; fi

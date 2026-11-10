@@ -93,11 +93,27 @@ Set `TB_LOG_DIR` and `TB_AUDIT_ARCHIVE_DIR` in `deploy/.env` to the hospital sha
 not verify is not archived: run `tools/audit_verify.py` first. Never use `rsync --delete` on the audit volume.
 Held by `tests/unit/test_log_retention.py`.
 
+### EDC prefill (D-160)
+
+Prefill is per study and **off by default**. Before a PI turns it on, check that the sponsor's acknowledgement is on
+file (WS-07.7) and the site's blind re-entry record exists (WS-16.4). The REDCap target is an S36 connection (Admin,
+REDCap); the token needs export and import rights on the CRF project. Data lives in schema `edc` of the trial
+database (in every backup). Each step writes an `edc.*` event to the audit chain (`edc.switch`, `edc.dictionary`,
+`edc.map`, `edc.drafts`, `edc.decide`, `edc.sign`, `edc.sent`, `edc.export`); a failed signing password writes
+`console.edc_reauth_failed` and counts toward the account lock. If REDCap reports a conflict, the CRC settles it in
+REDCap; TrialBox never overwrites a value it did not write. A `readback` result means REDCap stored something else
+than was sent: stop sending for the study (switch off) and call the vendor. Note items use the gateway prompt
+`crf_prefill` (role `abstract_field`); without a model, note items stay unknown with "no_model" and the rest works.
+The orchestrator takes the person from the console's signed assertion (D-162); a call without one is refused with
+403 `edc.actor` or `edc.role`. Signing needs the person's own delegation-log entry, and switching on needs the PI on
+the log. A project with repeating instruments is refused (`edc.repeating`). Held by `tests/unit/test_edc.py`,
+`tests/console/test_edc_pages.py` and e2e stage 16.
+
 ## 3. Accounts
 
 Administrators add accounts on **Users** (`/ops/users`). The one-time password shows once, in a read-only field; hand
-it over in person or by phone (D-133). Five failed sign-ins lock an account for 15 minutes; sessions end after 30
-minutes idle or 8 hours. Roles and the work they do: [User guide](USER_GUIDE.md). In the POC container:
+it over in person or by phone (D-133). Five failed sign-ins lock an account for 15 minutes; sessions end after 10
+minutes idle or 8 hours; local accounts give a TOTP code after the password ([§12](#12-identity-and-tls-d-192-d-193)). Roles and the work they do: [User guide](USER_GUIDE.md). In the POC container:
 `docker exec -i trialbox-console-1 python -m console.cli bootstrap-admin|add-user NAME --role ROLE|reset-password
 NAME|disable NAME|list-users`.
 
@@ -139,18 +155,73 @@ Every step is in `deploy/updates/history.jsonl`. `--no-backup` is for a test box
 itself fails, restore from the backup. Driver updates are outside the bundle and need a change request. Held by
 `tests/unit/test_update_path.py` and `tools/update_drill.py`.
 
-**Backup** (D-126). Once, with hospital IT: `python -m tools.trialbox backup-keygen --private
+**Backup** (D-126, D-187, D-188). Once, with hospital IT: `python -m tools.trialbox backup-keygen --private
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the
-box keeps only the public key and cannot read its own backups. Then `trialbox backup --to <NAS share> --to <USB
-disk>` (keeps the newest 14 per target). Check one with `trialbox backup-verify <file> --key <private key>`. A
-backup holds both databases, every data folder and a manifest of hashes and row counts, compressed with zstd level 3
-on every core and then encrypted (AES-256-GCM to an X25519 key); a backup made before D-149 (gzip) still verifies and
-restores. The ruleset repository `/data/rulesets` is in it; it is also a git repository you may push to the
-hospital's git server.
+box keeps only the public key and cannot read its own backups. A backup (`.tbbak`) holds the trial and HAPI
+databases, every data folder and a manifest, compressed with zstd level 3 on every core and then encrypted
+(AES-256-GCM to an X25519 key). The box keeps running: each database is dumped and counted in one database snapshot,
+and a file that changes while it is read is read again. Left out on purpose: the vendor reference pack's rows (public;
+the pack file is kept in `deploy/refdata/loaded` and loaded again by the restore; the hospital's own reference rows
+are in the backup), the lake's NDJSON except that of `CURRENT` and the two newest snapshots (every Parquet and DuckDB
+file and every report is kept), the lake's `tmp/` spill and half-built snapshots. The manifest lists what was left
+out, the sha256 and size of every file and the rows of every table. `<file>.sha256` beside each backup marks it
+complete (`sha256sum -c` works on it). The ruleset repository `/data/rulesets` is in it; it is also a git repository
+you may push to the hospital's git server.
 
-**Restore.** Reinstall (§1), then `trialbox restore <file> --key <private key> --yes` (hospital IT brings the key).
-Every hash is checked first; replaced folders are moved aside, not deleted. Held by `tests/unit/test_backup.py`
-and `tools/backup_drill.py`.
+1. **Targets.** In `deploy/.env`, `TB_BACKUP_TARGETS=<NAS share> <USB disk>` (keep the newest `TB_BACKUP_KEEP`, 14,
+   of this box's files; other boxes' files on the same share are never touched). At least one must be **off-box**:
+   an NFS or SMB share, a USB disk, or a path hospital IT names in `TB_BACKUP_OFFBOX` (e.g. an iSCSI volume in
+   another room; on Windows/WSL2 a share mapped as a drive letter). A named path counts only on another device than
+   the box's own disk, or when hospital IT puts a file `.trialbox-offbox` in it. In PRODUCTION a box whose targets
+   are all on its own disks still writes the backup, but the run fails and stays red.
+2. **Schedule.** As root in the install folder: `sed "s#/opt/trialbox#$PWD#" deploy/backup/trialbox-backup.cron >
+   /etc/cron.d/trialbox-backup`. It runs `python3 -m tools.trialbox backup-nightly` at 04:45 (move it after the
+   night's jobs) and `backup-status --quiet` every hour. A run checks free space first and never runs twice at once.
+   The result is in `deploy/site/backup-last.json` and the audit (`backup.done`, `backup.failed`).
+3. **Age alert.** `python3 -m tools.trialbox backup-status` shows the newest good off-box backup (the one
+   `backup-last.json` records, with the same name, size and sha256 on the share) and its age. It turns red (exit 1)
+   when that backup is older than `TB_BACKUP_MAX_AGE_HOURS` (36) or dated in the future, when the last nightly run
+   or its pgBackRest step failed, or when WAL archiving fails, is off on the server, or has archived nothing for 26
+   hours. Red is audited (`backup.alert`, again every 24 h, `backup.alert_cleared` when it ends), mailed by cron to
+   `MAILTO`, and piped to `TB_BACKUP_ALERT_CMD` when set (a command that reads the message on stdin, e.g. the
+   hospital's mail tool). The message holds no patient data. Fix the cause, then run `backup-nightly` by hand.
+4. **Check a backup** with hospital IT: `trialbox backup-verify <file> --key <private key>` (reads it all, checks
+   every hash and the sidecar). A backup made before D-187 (layout 1, gzip or zstd) still verifies and restores.
+
+**Point-in-time restore (pgBackRest, optional).** The `db` service compresses WAL with zstd and TOAST with lz4 and
+gives new databases data checksums. Three weekly full backups are kept, so the database restores to any second of at
+least the last two weeks:
+
+1. Build the image with pgBackRest: `docker build -t trialbox-db-pitr:16 deploy/pgbackrest`; in `deploy/.env` set
+   `POSTGRES_IMAGE=trialbox-db-pitr:16` and `TB_PGBACKREST_REPO=<a folder on the hospital share>`.
+2. The repository key: `install -d -m 700 deploy/secrets/pgbackrest; (umask 077; printf '[global]\nrepo1-cipher-pass=%s\n'
+   "$(openssl rand -base64 48)" > deploy/secrets/pgbackrest/cipher.conf)`, then give the file and the repository
+   folder to the container's postgres user (`docker compose --project-directory deploy exec db id -u postgres`, then
+   `chown -R <uid> ...`). Hospital IT keeps a copy of the key with the backup key: the box holds this one, unlike the
+   `.tbbak` key, and without it the repository cannot be read.
+3. `docker compose --project-directory deploy up -d db`, then `docker compose --project-directory deploy exec -u
+   postgres db pgbackrest --stanza=trialbox stanza-create`.
+4. Only now set `TB_PG_ARCHIVE_MODE=on` in `deploy/.env`, run `docker compose --project-directory deploy up -d db`
+   (it recreates `db` with the new setting; a plain restart keeps the old one) and run `... pgbackrest
+   --stanza=trialbox check` (it must say the WAL segment was archived). Never turn archiving on before: with
+   archiving on and no working pgBackRest, Postgres keeps every WAL file until the disk is full (`backup-status`
+   turns red first). `backup-nightly` then takes a full backup on Sundays (`TB_PGBACKREST_FULL_DAY`, the box's local
+   day) and a differential on other days.
+5. **To restore to a time:** stop the services, then `docker compose --project-directory deploy stop db`, `docker
+   compose --project-directory deploy run --rm -u postgres db pgbackrest --stanza=trialbox --delta --type=time
+   "--target=2026-11-08 14:05:00+09" --target-action=promote restore`, and start everything again. Then run
+   `backup-nightly` so a new full chain starts.
+
+**Restore.** Reinstall (§1), then `trialbox restore <file> --key <private key> --yes [--refdata <folder>]` (hospital
+IT brings the key). Every hash is checked first; replaced folders are moved aside, not deleted. The restore loads the
+vendor reference packs the backup names again from `deploy/refdata/loaded` (where install and update keep them) or
+`--refdata`. If a pack is not there it says so and exits 3: put the pack file (from the update bundle or the vendor)
+in that folder and run the restore again. Rows that do not match the backup fail the restore; a backup made before
+D-187 or by the update path, counted on a running box, gives a warning instead. Held by `tests/unit/test_backup.py`,
+`tests/unit/test_backup_schedule.py` and `tools/backup_drill.py` (`make backup-drill`: the nightly run, layout,
+status and alert, wipe, restore with the pack loaded again, an old-format restore, the Postgres settings and a
+point-in-time recovery).
+
 
 ### Secrets (D-128, D-138): the one place to rotate them
 
@@ -213,9 +284,9 @@ disk. Spark memory as set, not yet measured on a Spark: `JUDGE_GPU_MEM_UTIL` 0.3
 
 ```sh
 python -m tools.pin_model --build gemma-4-26b-a4b-it-spark --model-dir deploy/models/gemma-4-26b-a4b-it-4bit \
-    --served-name gemma-4-26b-a4b-it
+    --served-name local/gemma-4-26b-a4b-nvfp4
 python -m tools.pin_model --build qwen3.5-9b-spark --model-dir deploy/models/qwen3.5-9b-4bit \
-    --served-name qwen3.5-9b --endpoint verifier
+    --served-name local/qwen3.5-9b-awq --endpoint verifier
 # RTX PRO 6000: the same with the -rtxpro6000 builds
 ```
 
@@ -303,37 +374,83 @@ with the weights is kept, so boot to serving is about 10–15 minutes).
 | the complete-platform run with the scenario matrix (step 9) | `deploy/gcp/complete-run.sh` | `--estimate`; D-141 |
 | the same on four VMs, with the embedding and profile benches | `deploy/gcp/complete-run.sh --vms 4 --parts g1,embed,profile` | about 2.8 h, US$30; D-148 |
 
-**The complete run is fail-safe** (D-141, after the 2026-11-09 incident: a killed driver left the VM on for an hour).
-The workload runs on the VM; the VM stops itself; the driver only uploads, polls and collects.
+**The complete run is fail-safe** (D-141, after the 2026-11-09 incident: a killed driver left the VM on for an hour;
+D-150, after the independent review of the four failed runs of that day). The workload runs on the VM; the VM stops
+itself; the driver only uploads, polls and collects.
 
-1. `deploy/gcp/complete-run.sh --estimate --patients 50000` prints the hours and US$ per scenario. `--dry-run` prints
-   every command and starts nothing.
+**Gate before any paid launch: the rehearsal** (D-150). `make rehearse` runs the real driver and the real VM script,
+on the exact commit to be launched (it uploads `git archive` of HEAD, as the paid run does), in an Ubuntu 24.04
+container that stands in for `tb-gpu-sim`: real apt, PyPI, Node.js, Playwright, the data downloads and nginx; strict
+vLLM stand-ins (the API key is checked, any but the served name is a 404); fakes only for gcloud, the metadata
+server, systemd, docker and the GPU (`tests/rehearsal/rehearse.sh` says what each is). About an hour, US$0. It must
+end with `REHEARSAL PASSED`; no paid launch without it, and none from a commit it did not pass on. Its cases:
+
+| Case | What it shows |
+| --- | --- |
+| `run-a` | a fresh disk, a bounded run at 500 patients (hospital-ja, public-ja, the gateway probe, emr-fhir, it-dump, MedTxt, TREC), driven with `--no-wait` and repeated `--collect`: setup, the data, both model servers' check, every part reported, no 404 or 401 at the servers, the report's HEAD = the commit, power-off once collected |
+| `run-b` | the same disk, a new run: nothing kept from `run-a`, a fresh log |
+| `served` | the judge serves a wrong name: `TB-SERVING-FAILED` before any part, the servers' logs in `results.tgz` |
+| `no-upload` | nobody uploads: `TB-NO-CODE`, power-off after the grace |
+| `hang` | a stuck, silent part and no driver: the idle watchdog powers off; `--collect` then gets the results from the stopped VM |
+| `busy` | a part silent for 5 minutes but working (idle limit 2): it is never powered off as idle; it finishes; `--collect` gets it |
+
+It needs docker (it starts a private `dockerd` when none answers and stops it afterwards), about 4 GB of disk and
+the ports 80 and 8080 free; the evidence of each case stays in `$TB_REHEARSAL_DIR/evidence/<case>/`. Model quality
+is not rehearsed (the stand-ins answer with the deterministic stub, so the canary may fail there): plumbing, names,
+keys, setup, state and timing are, the layer every failure of 2026-11-09 was in.
+
+1. `deploy/gcp/complete-run.sh --estimate --patients 50000` prints the hours and US$ per scenario (`--only TAG,TAG`
+   for a bounded run). `--dry-run` prints every command and starts nothing.
 2. The run: `export CLOUDSDK_CONFIG=<private folder> TB_SA_KEY_FILE=<key file, in place>`, activate the service
-   account once, then `deploy/gcp/complete-run.sh --patients 50000`. It:
-   * probes the credential (`gc_probe`) and refuses unless the VM is `TERMINATED`;
+   account once, then `deploy/gcp/complete-run.sh --patients 50000 --no-wait` (or `--detach`). It:
+   * probes the credential (`gc_probe`), reads the GPU and CPU quota (read-only) and refuses when the VMs cannot run,
+     and refuses unless every VM is `TERMINATED`;
    * sets the **cloud-side hard cap**: `gcloud compute instances set-scheduling tb-gpu-sim --zone asia-east1-a
      --max-run-duration=<estimate x 1.3, rounded up>h --instance-termination-action=STOP` (`--hours N` to change);
    * puts `deploy/gcp/complete-run-vm.sh` on the VM as its startup script with a fresh key (0600 file, metadata,
-     never printed), starts it, and uploads the code (`git archive` of HEAD: local changes are not in the run).
-3. On the VM: a systemd hard cap and a watchdog start first. The watchdog powers off when the heartbeat is not
-   touched for 20 minutes (the run touches it as its log grows; the driver touches it over HTTP), when setup takes
-   more than an hour, or 30 minutes after the done marker (at once when the driver has collected). The model parts
-   run there with `--resume --ocr tesseract` (tesseract with `jpn`, `chi_tra`, `eng` is installed by the script) and
-   through the gateway built as an installed box builds it.
-4. The driver polls once a minute with short calls only, downloads `results.tgz`, runs the walk, backup, update and
-   scale on the stub here and writes the report. If the driver dies, nothing is lost:
-   `deploy/gcp/complete-run.sh --collect <run id>` picks the run up; a stopped VM keeps its disk, and starting it
-   again resumes the parts not yet passed.
+     never printed) and the sha256 of the code, starts it, and uploads the code (`git archive` of HEAD with
+     `TB_HEAD.json`: local changes are not in the run; the VM refuses an archive with another sha256).
+3. On the VM: a systemd hard cap and a watchdog start first; then a pre-flight (docker with the NVIDIA runtime, the
+   weights in `/models`, 50 GB free: else `TB-PREFLIGHT-FAILED`); then both model servers, which must be healthy,
+   list exactly their served names, answer one chat call and refuse a call without the key, else
+   `TB-SERVING-FAILED` and their logs in the results; only then `PRO6000-RUN-READY`. Setup installs git, the venv,
+   Node.js, Playwright (Chromium must launch) and fetches the data git does not carry (`tools/fetch_run_data.py`: the
+   CQL translator's `quick-5.4.0.jar`, MedTxt, TREC CT; a dataset it cannot fetch is named `TB-DATA-MISSING`, and
+   its parts fail at once as "data missing" without using the card). The watchdog limits each phase (serving and
+   setup 45 minutes, the code 35) and, in the run, powers off when no part has worked for 20 minutes (the run's own
+   heartbeat follows the part's CPU, so a long silent SCREEN stays alive and a stuck one does not), and 30 minutes
+   after the done marker (at once when the driver has collected). The model parts run in the run's own directory
+   (`/var/lib/tb/runs/<run id>`) with `--resume --ocr tesseract`, through the gateway built as an installed box builds
+   it; `results.tgz` is re-packed after every part.
+4. Collect: `deploy/gcp/complete-run.sh --collect <run id>`, as often as wanted (each call is short: one look, the
+   results so far, the report so far, "still running"; `--follow` polls to the end). The driver need not live through
+   the run: the operator's shell may be capped at two hours, the run is not. When the VM has stopped with its
+   results not yet collected, `--collect` starts it once in a **results-only** mode (no models, no run, a 20-minute
+   cloud cap; it powers off as soon as the results are here; about US$0.20). Once every VM is done, it runs the walk,
+   backup, update and scale on the stub here (at the run's `--patients`, OCR tesseract) and writes the report, whose
+   head, host and run id are the VM's. A restart of the same run (`TB_RUN_ID=<run id> --shard i`) keeps the parts
+   passed in that run at that HEAD; a new run never keeps anything.
 5. Every gcloud call goes through `gc` (`deploy/gcp/gcloud-auth.sh`): an authentication error re-activates the
    service account from `TB_SA_KEY_FILE` and retries once.
 6. Afterwards: `gcloud compute instances describe tb-gpu-sim --zone asia-east1-a --format='value(status)'` must say
-   `TERMINATED`; `deploy/gcp/complete-run.sh --stop` stops it by hand and puts the usual startup script back.
+   `TERMINATED`; `deploy/gcp/complete-run.sh --stop` stops it by hand and puts the usual startup script back (a VM
+   started by hand after that runs both model servers with no watchdog: only its cloud cap stops it). Read
+   `report.md`: a part that "crashed or never ran" is named in the headline, and a `profile` row whose path says
+   "direct (the gateway refused...)" is a failed check, whatever else passed.
+
+**The first launch after a failed one is bounded**: `deploy/gcp/complete-run.sh --patients 5000 --only
+install,hospital-ja,scenario-gateway,scenario-emr-fhir --no-wait`, then `--collect <run id>`; read `report.md`, and only
+then the full plan.
 
 **Several VMs at once** (D-148). `--vms N` splits the run into N shards of whole parts (no part is split, so the
 merged report is the single-VM report); VM 1 is `tb-gpu-sim` in the first zone, VM i is `tb-gpu-sim-i` in zone i of
 `--zones` (one zone per region where the GPU quota is 1 per region). Each VM gets its own cap (its estimate × 1.3),
 key, watchdog and results; the driver waits for all, merges, runs the stub parts and writes one report. `--parts`
 adds the benches: `embed` (`tools/bench_embed.py`) and `profile` (`tools/bench_profile.py`).
+
+The project had one GPU in all (`GPUS_ALL_REGIONS = 1`, `PREEMPTIBLE_CPUS = 0`: Spot VMs then draw on the regular
+quota) when D-150 was written, so `--vms N > 1` is refused until the owner has the quota raised; the driver checks
+it before any start or `--provision` and makes nothing it could not run.
 
 1. The owner checks the zones and the quota (read-only; `--dry-run` prints these commands for the chosen zones):
    `gcloud compute accelerator-types list --filter='name~rtx'`, `gcloud compute regions describe <region>
@@ -351,3 +468,91 @@ adds the benches: `embed` (`tools/bench_embed.py`) and `profile` (`tools/bench_p
 Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the VM's service account needs storage
 access); without it they go over plain HTTP to the VM with the key in a header. A billing budget with a kill switch
 is the last net; it needs billing permissions this project's service account does not have: the owner sets it.
+
+## 12. Identity and TLS (D-192, D-193)
+
+The console is reached at `https://<TB_TLS_HOSTNAME>` through Caddy on 443; its own port is no longer published.
+Local accounts sign in with a password and a TOTP code. The hospital account (AD through Authelia, OIDC) is optional
+and off by default. All settings are in `deploy/.env`; the list with comments is
+`deploy/identity/identity.env.example`.
+
+**Ask hospital IT on day one** (lead time 2 to 6 weeks): a DNS name for the console (and one for Authelia when the
+site uses the hospital account), the firewall rule for 443 from the clinic PCs, and either a certificate for those
+names or permission to install Caddy's root certificate on the staff PCs. For the hospital account: a read-only AD
+bind account, the AD groups to map (below) and LDAPS (636) from the box to a domain controller.
+
+**TLS.**
+
+1. Put `TB_TLS_HOSTNAME` (and `TB_TLS_MODE`) in `deploy/.env`. With the hospital's certificate set
+   `TB_TLS_MODE=hospital`, `TB_TLS_CERT_FILE` (certificate and chain, PEM) and `TB_TLS_KEY_FILE` (key, PEM, 0600
+   root), then check them with `python -m console.cli check-tls` (in the console container, or on the host with the
+   same variables). It fails on a missing file, a key that is not the certificate's, a name the certificate does not
+   carry, or a certificate that is not valid today, and warns 30 days before it ends.
+2. Add the overlay: append `:deploy/docker-compose.identity.yml` to `COMPOSE_FILE` in `deploy/.env` (after the
+   secrets overlay), then `docker compose up -d --wait`.
+3. Internal CA only: copy the root certificate out once (`docker compose cp
+   caddy:/data/caddy/pki/authorities/local/root.crt deploy/secrets/tls/caddy-root.crt`) and have hospital IT install
+   it as a trusted root on the staff PCs (group policy). Never copy anything else out of the `caddy-data` volume: it
+   holds the CA's private keys.
+4. Open `https://<TB_TLS_HOSTNAME>/login` from a clinic PC: no certificate warning.
+
+**Local accounts (TOTP, the default).** `TB_CONSOLE_MFA=totp` is the default and can be turned off only in DEV and
+TEST. An account sets up its authenticator only with a one-time **enrolment code** from an administrator (valid 24
+hours, works once): after the password the console shows a key, the person adds it to an authenticator app (or a
+hospital device) and types the enrolment code and the app's code. Without a valid enrolment code an account with no
+authenticator cannot sign in at all, so knowing a password is never enough to register a device. Every later sign-in
+asks for the current code; a code works once. A wrong or reused code, or a wrong enrolment code, counts as a failed
+sign-in: five failures in 15 minutes lock the account for 15 minutes, and the lock is in the audit trail
+(`console.lockout`).
+
+- **After the upgrade, and for every new account**: **Sign-in and recovery** (`/ops/identity`) lists the accounts
+  without an authenticator at the top. For each, check who it is and choose **Enrolment code**; hand the code over in
+  person or read it out on a call back to the extension in the staff directory. The code is shown once and never
+  written to a log or the audit (`console.enrol_code` records who issued one for whom).
+- **The first administrator** (no other administrator can issue a code): on the box,
+  `python -m console.cli enrol-code admin` in the console container prints the code. This shell step is the
+  supervised path; record it in the install checklist.
+- **Lost phone**: on the same page choose **Reset authenticator** for that person, after the same identity check. The
+  account is signed out everywhere and the page shows the enrolment code for the new device. An administrator's own
+  authenticator is reset by another administrator, or with `console.cli reset-totp NAME` (prints the code).
+- **Locked out**: wait 15 minutes, or an administrator chooses **Unlock** on the same page (`console.cli unlock
+  NAME`). All actions are audited (`console.totp_reset`, `console.enrol_code`, `console.unlock`;
+  `console.totp_enrolled` says whether it was a first device or one after a reset).
+- **Sessions** end after `TB_CONSOLE_IDLE_MINUTES` without activity (default 10; set the hospital's policy for shared
+  clinic PCs, at most 60) and after `TB_CONSOLE_SESSION_HOURS` in all (default 8). A page that refreshes itself (a
+  running job) does not count as activity. Cookies are Secure, HttpOnly and SameSite=Strict; an explicit
+  `TB_CONSOLE_SECURE_COOKIE=0` is refused in PRODUCTION.
+- The trusted-header SSO (`TB_CONSOLE_SSO_HEADER`, D-93) runs only with TOTP off (DEV, TEST) and OIDC off, never signs
+  in a local account, and Caddy strips identity headers from every request: a hospital uses the OIDC sign-in below.
+- The TOTP secrets are stored encrypted, with the key `totp.key` on the `console-data` volume, not in the database.
+  Back up both; with the database but without the key, every person sets up a new authenticator (an administrator
+  resets them all).
+
+**Hospital account (OIDC through Authelia, optional).**
+
+1. Copy `deploy/identity/authelia/configuration.example.yml` to `deploy/site/authelia/configuration.yml` and fill in
+   the values marked `SITE` (domain controller, base DN, bind account, the two host names).
+2. Make the secrets in `deploy/secrets/authelia/` (0600, root): `jwt_secret`, `session_secret`, `storage_key`,
+   `oidc_hmac` (each 64 random characters), `ldap_password` (the bind account's), `oidc_jwks.pem` (an RSA 2048 key,
+   `openssl genrsa -out oidc_jwks.pem 2048`) and `oidc_client_secret.txt` (the client secret; its digest goes into
+   the configuration, as the comment at its top says).
+3. In `deploy/.env`: `TB_OIDC_ENABLED=1`, `TB_AUTH_HOSTNAME`, `TB_OIDC_ISSUER=https://<TB_AUTH_HOSTNAME>`,
+   `TB_OIDC_CLIENT_SECRET`, `TB_OIDC_LOGOUT_URL=https://<TB_AUTH_HOSTNAME>/logout`, `TB_OIDC_CA` (the internal root
+   from TLS step 3, or the hospital's CA chain) and `TB_OIDC_GROUP_ROLES`, for example
+   `TB-Coordinators:coordinator,TB-Investigators:investigator,TB-Monitors:cro,TB-Admins:admin`.
+4. Open LDAPS for Authelia only: add `authelia=<domain controller>:636` to `EGRESS_EXTRA` and run
+   `deploy/network.sh apply` ([Security §2](SECURITY.md#2-network)).
+5. `docker compose --profile oidc up -d --wait`. The sign-in page shows **Sign in with the hospital account**.
+
+Only the groups in `TB_OIDC_GROUP_ROLES` give a role. A person in no mapped group, or in groups that map to two
+different roles, is refused, and the refusal is audited (`console.login_failed`, `via: oidc`); a `role` claim or any
+other group is ignored. The role is read again at every sign-in, so removing someone from a group takes effect at
+their next sign-in. Authelia asks for the second factor (TOTP or a security key), and the console refuses a sign-in
+the provider did not report as two-factor. A hospital account never takes over a local account of the same name.
+Sign-out also signs out of Authelia. Add the `authelia-data` volume to the backup (the authenticators registered by
+directory users). Authelia's OIDC provider is certified but still called beta by its makers (D-192).
+
+The overlay is checked in CI (`.github/workflows/trialbox-identity.yml`: `caddy validate` in both TLS modes,
+`docker compose config` of the merged files, and Caddy run in front of a stand-in console: HSTS on 443, identity
+headers stripped, 80 and 8090 closed, no query strings in its log). The whole stack with Authelia has not been started
+on a box yet. Run the four TLS steps and one sign-in of each kind at IQ.

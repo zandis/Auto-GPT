@@ -67,24 +67,44 @@ VARIANTS = {"base": "", "negation": NEGATION}
 
 
 # ---------------------------------------------------------------- data
-def fetch() -> None:
+def _download(url: str, dest: Path) -> None:
+    tmp = dest.with_name(dest.name + ".part")
+    with httpx.stream("GET", url, timeout=900, follow_redirects=True) as r, tmp.open("wb") as fh:
+        r.raise_for_status()
+        for chunk in r.iter_bytes():
+            fh.write(chunk)
+    tmp.replace(dest)  # never half a file under the final name
+
+
+def _corpus_lines(year: str) -> Any:
+    """The NCBI corpus of one year, line by line: from ``.cache`` when it is there, else streamed (``fetch(keep_corpus=
+    False)``: the cloud run needs only the sampled trials, not 275 MB on its disk)."""
+    local = CACHE / f"trec_{year}_corpus.jsonl"
+    if local.exists():
+        with local.open(encoding="utf-8") as fh:
+            yield from fh
+        return
+    with httpx.stream("GET", f"{NCBI}trec_{year}_corpus.jsonl", timeout=900, follow_redirects=True) as r:
+        r.raise_for_status()
+        yield from r.iter_lines()
+
+
+def fetch(keep_corpus: bool = True) -> None:
     CACHE.mkdir(parents=True, exist_ok=True)
     for y in YEARS:
-        for name, base in ((f"qrels{y}.txt", NIST), (f"topics{y}.xml", NIST), (f"trec_{y}_corpus.jsonl", NCBI)):
-            dest = CACHE / name
-            if not dest.exists():
-                with httpx.stream("GET", base + name, timeout=900, follow_redirects=True) as r, dest.open("wb") as fh:
-                    r.raise_for_status()
-                    for chunk in r.iter_bytes():
-                        fh.write(chunk)
+        files = [(f"qrels{y}.txt", NIST), (f"topics{y}.xml", NIST)]
+        files += [(f"trec_{y}_corpus.jsonl", NCBI)] if keep_corpus else []
+        for name, base in files:
+            if not (CACHE / name).exists():
+                _download(base + name, CACHE / name)
     sel = selection()
     trials_file = CACHE / "sample_trials.json"
     if not trials_file.exists():
         need = {n for _, _, n, _ in sel}
         out = {}
         for y in YEARS:
-            with (CACHE / f"trec_{y}_corpus.jsonl").open(encoding="utf-8") as fh:
-                for line in fh:
+            for line in _corpus_lines(y):
+                if line.strip():
                     d = json.loads(line)
                     if d["_id"] in need and d["_id"] not in out:
                         m = d["metadata"]
@@ -93,9 +113,13 @@ def fetch() -> None:
                             "inclusion_criteria": m.get("inclusion_criteria", ""),
                             "exclusion_criteria": m.get("exclusion_criteria", ""),
                         }
-        trials_file.write_text(json.dumps(out, ensure_ascii=False))
+        tmp = trials_file.with_name(trials_file.name + ".part")
+        tmp.write_text(json.dumps(out, ensure_ascii=False))
+        tmp.replace(trials_file)
     ct_file = CACHE / "ctgov_fields.json"
-    ct: dict[str, Any] = json.loads(ct_file.read_text()) if ct_file.exists() else {}
+    part = CACHE / "ctgov_fields.json.part"  # progress of an interrupted fetch; the final name only when complete
+    src = ct_file if ct_file.exists() else part
+    ct: dict[str, Any] = json.loads(src.read_text()) if src.exists() else {}
     todo = sorted({n for _, _, n, _ in sel} - set(ct))
     with httpx.Client(timeout=60) as http:
         for i in range(0, len(todo), 50):
@@ -122,8 +146,9 @@ def fetch() -> None:
                 }
             for n in ids:
                 ct.setdefault(n, None)  # withdrawn / renamed: no structured fields
-            ct_file.write_text(json.dumps(ct, indent=0, sort_keys=True))
-    ct_file.write_text(json.dumps(ct, indent=0, sort_keys=True))
+            part.write_text(json.dumps(ct, indent=0, sort_keys=True))
+    part.write_text(json.dumps(ct, indent=0, sort_keys=True))
+    part.replace(ct_file)
 
 
 def topics(year: str) -> dict[str, str]:
