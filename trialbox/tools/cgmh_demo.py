@@ -378,8 +378,10 @@ def run(work: Path, password: str, walk: str, lang: str) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR", "/tmp/tb-cgmh-demo")))
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR") or scratch_root() / "tb-cgmh-demo"))
     ap.add_argument("--walk", default="list", choices=WALKS)
     ap.add_argument("--lang", default="zh-TW", choices=["ja", "zh-TW", "en"])
     ap.add_argument("--fresh", action="store_true", help="delete --dir first")
