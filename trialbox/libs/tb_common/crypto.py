@@ -46,15 +46,51 @@ def pid_for_mrn(site_key: bytes, mrn: str) -> str:
 
 
 def load_or_create_key(path: Path, size: int = 32) -> bytes:
-    """Read a binary key file, creating it (mode 0600) with random bytes when absent."""
+    """Read a binary key file, creating it (mode 0600) with random bytes when absent.
+
+    Never for the site key (``site_hmac.key``, T-612, DATA-004): a new site key changes every pseudonym, so it is made
+    only by the install ceremony (:func:`create_key`) and read with :func:`load_key`."""
     if path.exists():
         return path.read_bytes()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    key = os.urandom(size)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(key)
+    create_key(path, size)
+    return path.read_bytes()
+
+
+#: the pseudonymisation key of the site, in the secrets folder (SPEC §4.6, D-09)
+SITE_KEY_FILE = "site_hmac.key"
+
+
+class KeyMissingError(FileNotFoundError):
+    """A key file that must already exist is absent or empty (T-612): it is never made on first use."""
+
+
+def load_key(path: Path) -> bytes:
+    """Read a key file that the install ceremony made; :class:`KeyMissingError` when it is absent or empty."""
+    try:
+        key = path.read_bytes()
+    except FileNotFoundError:
+        raise KeyMissingError(f"key file {path} is missing") from None
+    if not key:
+        raise KeyMissingError(f"key file {path} is empty")
     return key
+
+
+def create_key(path: Path, size: int = 32) -> bool:
+    """The install ceremony's step (T-612): write ``size`` random bytes to ``path`` (mode 0600) when it is absent.
+    Returns whether a key was made; an existing key is never replaced."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(os.urandom(size))
+    return True
+
+
+def key_fingerprint(key: bytes) -> str:
+    """A one-way, domain-separated fingerprint of a key (32 hex): stored and shown, it reveals nothing of the key."""
+    return hashlib.sha256(b"trialbox key fingerprint\x00" + key).hexdigest()[:32]
 
 
 def aes_encrypt(key: bytes, plaintext: bytes, aad: bytes = b"") -> bytes:
