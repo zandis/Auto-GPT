@@ -3,7 +3,7 @@ candidate-row mapping, the failure gate, the pipeline switch and the one named f
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -43,7 +43,8 @@ class FakeLlm:
         if isinstance(a, Exception):
             raise a
         assert isinstance(a, LlmResult)
-        return a
+        # each fake is its own model: two answers under one model name are one model's answer (D-276)
+        return replace(a, model=f"{self.model}-{id(self)}")
 
 
 def _ask(j: OrchestratorJudge, role: str = "judge") -> Any:

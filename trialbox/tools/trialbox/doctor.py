@@ -25,7 +25,10 @@ closed). Checks:
   runs the backup and the log jobs in it; ``TB_HOST_TZ`` when doctor runs in a container) must name the same zone.
   FAIL when none is set, one is not a zone, or two differ; the host is not compared when it cannot be read;
 * ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
-  box's first start (T-008, D-207): WARN, naming the flag's value and where to change it.
+  box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
+* ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
+  is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
+  ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key.
 
 ``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
 runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
@@ -246,6 +249,46 @@ def check_registry_pins(inp: DoctorInputs) -> Check:
     return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}")
 
 
+def verifier_is_the_judge(env: Mapping[str, str]) -> str | None:
+    """Why the configured verifier is the judge's own model, read from the settings alone (the running box checks
+    the served models too: ``tb_common.pair.same_model`` and ``combine``); None when the names differ.
+
+    The orchestrator builds the judge from ``TB_GATEWAY_URL`` / ``TB_GATEWAY_MODEL`` (else ``LLM_BASE_URL`` /
+    ``LLM_MODEL``) and the verifier from ``TB_GATEWAY_VERIFIER_MODEL`` (else ``LLM_VERIFIER_BASE_URL`` /
+    ``LLM_VERIFIER_MODEL``, which falls back to ``LLM_MODEL``)."""
+
+    def key(v: str | None) -> str:
+        return " ".join((v or "").split()).casefold()
+
+    def url(v: str | None) -> str:
+        return (v or "").strip().rstrip("/").casefold()
+
+    from tb_common.pair import gateway_default_alias
+
+    judge_gw = url(env.get("TB_GATEWAY_URL"))
+    v_alias = key(env.get("TB_GATEWAY_VERIFIER_MODEL"))
+    v_gw = url(env.get("TB_GATEWAY_VERIFIER_URL")) or judge_gw
+    if v_alias and v_gw:
+        if not judge_gw:  # the judge goes straight to an endpoint: the two cannot be told apart (D-276, F-02)
+            return "the verifier goes through the gateway and the judge does not, so they cannot be told apart"
+        if judge_gw != v_gw:
+            return None
+        default = gateway_default_alias(env.get("TB_ENV", "DEV"))
+        j_alias = key(env.get("TB_GATEWAY_MODEL")) or default
+        if j_alias == v_alias:
+            return f"TB_GATEWAY_VERIFIER_MODEL={v_alias} is the build the judge gets (TB_GATEWAY_MODEL, or the default)"
+        return None
+    if env.get("LLM_VERIFIER_BASE_URL"):
+        if judge_gw:
+            return "the judge goes through the gateway and the verifier (LLM_VERIFIER_BASE_URL) does not"
+        v_model = key(env.get("LLM_VERIFIER_MODEL"))
+        if not v_model:
+            return "LLM_VERIFIER_MODEL is not set, so the verifier asks for the judge's model (LLM_MODEL)"
+        if v_model == key(env.get("LLM_MODEL")):
+            return f"LLM_VERIFIER_MODEL={v_model} is the judge's model (LLM_MODEL)"
+    return None
+
+
 def check_note_block(inp: DoctorInputs) -> Check:
     policy = (inp.env.get("TB_NOTE_BLOCK") or "both_agree").strip().lower()
     if policy == "never":
@@ -259,6 +302,23 @@ def check_note_block(inp: DoctorInputs) -> Check:
     direct = bool(inp.env.get("LLM_VERIFIER_BASE_URL"))
     if mode != "single" and (gw or direct):
         via = "gateway verifier build" if gw else "LLM_VERIFIER_BASE_URL"
+        one = verifier_is_the_judge(inp.env)
+        if one:  # D-276 (review S-2): a verifier that is the judge again agrees with it every time
+            return Check(
+                "note_block",
+                "FAIL",
+                f"TB_NOTE_BLOCK=both_agree but the verifier is not a second model: {one}. The box treats this as "
+                f"one model and never excludes on a note answer; name a different verifier model",
+            )
+        env = inp.env.get("TB_ENV", "DEV")
+        if not gw and env in ("VALIDATION", "PRODUCTION"):  # D-276 (review F-02): fail closed on the direct path
+            return Check(
+                "note_block",
+                "FAIL",
+                "TB_NOTE_BLOCK=both_agree with a direct verifier (LLM_VERIFIER_BASE_URL): which weights each endpoint "
+                "serves is known only from its /models at start, so this check cannot confirm two models. Use the "
+                "gateway verifier build (TB_GATEWAY_VERIFIER_MODEL), whose build hash is compared on every answer",
+            )
         return Check("note_block", "PASS", f"both_agree with a verifier ({via}): two models must agree to exclude")
     why = "TB_SCREEN_JUDGE=single" if mode == "single" else "no verifier configured"
     env = inp.env.get("TB_ENV", "DEV")
@@ -470,6 +530,53 @@ def check_flags(inp: DoctorInputs) -> Check:
     return Check("flags", "PASS", "every seed variable that is set agrees with its flag")
 
 
+def check_site_key(inp: DoctorInputs) -> Check:
+    """T-612 (DATA-004): the site key is in the secrets folder and is the key the box's data was made with (the
+    fingerprint in ``<lake>/site_key.json`` and in the pid map's ``site_key`` table). Shows the fingerprint, never
+    the key."""
+    from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key
+
+    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    if not sec.is_dir():
+        return Check("site_key", "WARN", f"the secrets folder {sec} is not here (TB_SECRETS_DIR): the key was not read")
+    try:
+        key = load_key(sec / SITE_KEY_FILE)
+    except KeyMissingError as exc:
+        return Check(
+            "site_key",
+            "FAIL",
+            f"{exc}: the ingest refuses every night. Put the site's key back from the backup; only a new box makes "
+            f"one (deploy/install.sh, `python -m adapter.cli keys-init`)",
+        )
+    except PermissionError:
+        return Check("site_key", "WARN", f"{sec / SITE_KEY_FILE} cannot be read by this user: the key was not checked")
+    fp = key_fingerprint(key)
+    lake = Path(inp.env.get("TB_LAKE_DIR") or Path(inp.env.get("TB_DATA_DIR") or "/data") / "lake")
+    seen: list[str] = []
+    record = lake / "site_key.json"  # adapter.pipeline.SITE_KEY_RECORD
+    if record.is_file():
+        stored = str(json.loads(record.read_text(encoding="utf-8")).get("fingerprint"))
+        if stored != fp:
+            return Check("site_key", "FAIL", f"key {fp} is not the lake's {stored}: the ingest refuses every night")
+        seen.append("the lake")
+    site_id = str((inp.settings.get("site") or {}).get("id") or "")
+    url = inp.env.get("TB_DB_URL", "")
+    if url and site_id:
+        try:
+            from tb_common.db import Database
+
+            with Database.connect(url, "pidmap") as db:
+                row = db.fetchone("SELECT fingerprint FROM site_key WHERE site_id = ?", (site_id,))
+        except Exception as e:  # the pid map lives on the box: unreadable from here is worth a look
+            return Check("site_key", "WARN", f"key {fp}; the pid map's record cannot be read ({type(e).__name__})")
+        if row is not None and row[0] != fp:
+            return Check("site_key", "FAIL", f"key {fp} is not the pid map's {row[0]}: the ingest refuses every night")
+        if row is not None:
+            seen.append("the pid map")
+    where = f"; the same as {' and '.join(seen)}" if seen else "; no night has recorded one yet"
+    return Check("site_key", "PASS", f"key {fp}{where}")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -482,6 +589,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_registry_pins,
     check_site_tz,
     check_flags,
+    check_site_key,
 )
 
 

@@ -288,8 +288,10 @@ def seed_activity(work: Path, bk: InprocBackend) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR", "/tmp/tb-role-demo")))
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR") or scratch_root() / "tb-role-demo"))
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     ap.add_argument("--host", default=os.environ.get("TB_DEMO_HOST", "127.0.0.1"))
     ap.add_argument("--fresh", action="store_true", help="delete --dir first")

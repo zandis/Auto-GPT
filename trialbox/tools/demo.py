@@ -461,8 +461,10 @@ def main(argv: list[str] | None = None) -> int:
     from tb_common.config import adopt_site_tz
 
     adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR", "/tmp/tb-demo")))
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR") or scratch_root() / "tb-demo"))
     ap.add_argument("--lang", default=os.environ.get("TB_DEMO_LANG", "ja"), choices=list(LANGS))
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     ap.add_argument("--host", default=os.environ.get("TB_DEMO_HOST", "127.0.0.1"))

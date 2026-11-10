@@ -41,7 +41,7 @@ if [ -d "$SECRETS" ]; then
     if [ -f "$SECRETS/$f" ]; then
       m=$(mode "$SECRETS/$f"); case "$m" in 600|400|640|644) [ "$m" = "600" ] || [ "$m" = "400" ] && pass "$f mode $m" || warn "$f mode $m (want 600)";; *) fail "$f mode $m";; esac
     else
-      warn "$f not present yet (created at first ingest)"
+      warn "$f not present (made only by install.sh, T-612; the ingest refuses a night without the site key)"
     fi
   done
 else

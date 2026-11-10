@@ -1722,15 +1722,56 @@ def report(out: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def missing_prerequisites() -> list[str]:
+    """What the run needs from outside the Python venv and lacks, named before anything starts (DATA-019): the CQL
+    translator's ``quick-*.jar``, which holds ``FHIRHelpers-4.0.1.cql``. The run compiles with the in-process fake
+    translator (``tests/inproc_box.py``), so it needs no Java and no ``cql-to-elm-cli`` jar (the demo image has
+    neither). Without the jar the run used to fail late, as a FEAS job "failed in compiling"."""
+    import zipfile
+
+    from criteria_compiler.compile_cql import translator
+
+    lib = translator._lib_dir()
+    try:
+        translator.fhirhelpers_source()
+    except (FileNotFoundError, KeyError, OSError, zipfile.BadZipFile) as exc:
+        return [f"the CQL translator jars are missing or broken in {lib} ({exc}): run `make jvm-deps` "
+                "(or set TB_CQL_TRANSLATOR_LIB to a folder that holds quick-*.jar)"]  # fmt: skip
+    return []
+
+
+def prepare_root() -> None:
+    """Mark ``TB_TEST_ROOT`` as a test root before anything is made in it (DATA-019): ``make e2e-simple`` puts the
+    work folder inside the root, and a root that holds that folder and no marker is refused by ``pglocal`` (the
+    shared cluster's home). A root that already holds other files and no marker is still refused here."""
+    from tools import pglocal
+
+    env = os.environ.get("TB_TEST_ROOT")
+    if env:
+        pglocal.mark_test_root(Path(env))
+
+
 def main(argv: list[str] | None = None) -> int:
     from tb_common.config import adopt_site_tz
 
+    from tools.pglocal import scratch_root
+
     adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_E2E_DIR", "/tmp/tb-e2e-simple")))
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_E2E_DIR") or scratch_root() / "tb-e2e-simple"))
     ap.add_argument("--lang", default="ja", choices=["ja", "zh-TW", "en"])
     ap.add_argument("--json", type=Path, help="also write the checks as JSON here")
     a = ap.parse_args(argv)
+    missing = missing_prerequisites()
+    for m in missing:
+        print(f"e2e_simple: {m}", file=sys.stderr)
+    if missing:
+        return 2
+    try:
+        prepare_root()
+    except ValueError as exc:
+        print(f"e2e_simple: {exc}", file=sys.stderr)
+        return 2
     import logging
 
     logging.disable(logging.INFO)  # the in-process services log every request; the checks are the output

@@ -214,7 +214,9 @@ fi
 NOTE_BLOCK=both_agree; [ "$GPU" = rtx4090 ] && NOTE_BLOCK=never
 # the pair profiles run the verifier build: name it, or both_agree has no second model (doctor note_block), D-142
 case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
-  grep -q '^TB_GATEWAY_VERIFIER_MODEL=.' deploy/.env || { sed -i "/^TB_GATEWAY_VERIFIER_MODEL=/d" deploy/.env; echo "TB_GATEWAY_VERIFIER_MODEL=v-verifier" >> deploy/.env; } ;;
+  grep -q '^TB_GATEWAY_VERIFIER_MODEL=.' deploy/.env || { sed -i "/^TB_GATEWAY_VERIFIER_MODEL=/d" deploy/.env; echo "TB_GATEWAY_VERIFIER_MODEL=v-verifier" >> deploy/.env; }
+  # and the judge build by name: a judge that names none could be answered by another build of its route (D-276)
+  grep -q '^TB_GATEWAY_MODEL=.' deploy/.env || { sed -i "/^TB_GATEWAY_MODEL=/d" deploy/.env; echo "TB_GATEWAY_MODEL=j-workhorse" >> deploy/.env; } ;;
 esac
 grep -q '^TB_NOTE_BLOCK=' deploy/.env && sed -i "s/^TB_NOTE_BLOCK=.*/TB_NOTE_BLOCK=$NOTE_BLOCK/" deploy/.env || echo "TB_NOTE_BLOCK=$NOTE_BLOCK" >> deploy/.env
 grep -q '^COMPOSE_PROFILES=' deploy/.env && sed -i "s/^COMPOSE_PROFILES=.*/COMPOSE_PROFILES=$MODE/" deploy/.env || echo "COMPOSE_PROFILES=$MODE" >> deploy/.env
@@ -320,6 +322,11 @@ if [ "$PULL" = never ]; then
   [ -z "$MISSING" ] || die "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)"
   echo "    every image of the stack is on this box (nothing is pulled)"
 fi
+# T-612 (DATA-004): the site keys are made here and nowhere else. A key already in the secrets volume is kept; the
+# ingest refuses a night whose key is missing or is not the one the box's pseudonyms were made with
+say "site keys (made once, never replaced)"
+"${COMPOSE[@]}" run --rm --no-deps -T adapter python -m adapter.cli keys-init | sed 's/^/    /' \
+  || die "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)"
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then
