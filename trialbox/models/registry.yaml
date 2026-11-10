@@ -13,6 +13,7 @@ version: registry-2026-10-25.3
 
 aliases:
   trialbox-stub: {class: J, description: "deterministic OpenAI-compatible stub (services/llm_stub), DEV/TEST only"}
+  stub-verifier: {class: V, description: "the stub under a second served name, DEV/TEST only: a stub box's verifier"}
   j-workhorse: {class: J, description: "judge / workhorse (judging, extraction, intake, drafting)"}
   v-verifier: {class: V, description: "verifier (second opinion, second extraction)"}
   f-frontdesk: {class: F, description: "front desk (frontdesk_converse, tools, at least 64k context)"}
@@ -56,6 +57,23 @@ builds:
     status: champion
     serving: stub
     served: {stub: trialbox-stub}
+    sha256: null
+    revision: null
+    repository: services/llm_stub (this repository)
+    quantisation: none
+    context_length: null
+    family: trialbox-stub
+    licence: {name: Proprietary (TrialBox), spdx: null, verified: true}
+    origin: {developer: TrialBox, country: TW, non_prc: true}
+
+  # The stub under a second served name: the verifier of a stub box (deploy/poc.sh, TB_GATEWAY_VERIFIER_MODEL). A
+  # verifier that is the judge's own build is one model, and the box then never excludes on a note answer (D-276),
+  # so the stub box names two. Reached only when the caller names the alias; unpinned, so DEV/TEST only.
+  - build_id: stub-verifier-1
+    alias: stub-verifier
+    status: champion
+    serving: stub
+    served: {stub: stub-verifier}
     sha256: null
     revision: null
     repository: services/llm_stub (this repository)

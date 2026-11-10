@@ -117,7 +117,9 @@ master stay); reservations D-208 to D-262 stay valid.
 | --- | --- | --- | --- |
 | D-270 | merged | fix group D-270 (PR #86) | the console's "today" is the site's date; `docs/DECISIONS.md` (its last entry) |
 | D-271 | merged | fix group D-271 (PR #97) | the data pipeline never promotes nothing; `docs/decisions/D-271-data-pipeline-integrity.md` |
-| D-272..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-272..D-275 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-276 | merged | fix group FG-G (PR #101) | the two-model check needs two different models; `docs/decisions/D-276-two-model-check.md` |
+| D-277..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-290..D-299 | unused | — | below the new block; never given |
 
 ## New numbers (from D-300)

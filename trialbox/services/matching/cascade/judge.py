@@ -18,7 +18,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Protocol
 
-from tb_common.pair import Vote, combine, needs_verifier
+from tb_common.pair import Vote, combine, needs_verifier, served_keys
 from tb_common.quotes import quote_key
 
 JUDGE_PROMPT = "judge"
@@ -191,7 +191,7 @@ def _vote(r: JudgeReply) -> Vote:
     """A cascade reply as a vote: a refusal counts as a model that did not answer (never an agreement)."""
     if r.refused:
         return Vote("unknown", 0.0, "model_down")
-    return Vote(r.verdict, r.confidence, None)
+    return Vote(r.verdict, r.confidence, None, served_keys(build=r.build_sha))  # one build twice: one model (D-276)
 
 
 def norm(text: str) -> str:
