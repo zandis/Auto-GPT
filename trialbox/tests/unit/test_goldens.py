@@ -150,6 +150,46 @@ def test_goldens_carry_their_provenance_and_cover_the_kinds() -> None:
     assert dele["site_fact"]["rows"] < base["site_fact"]["rows"]
 
 
+def test_the_third_night_restores_the_first(tmp_path: Path) -> None:
+    """T-655 (PR #71 review): a third night puts back everything the second took away; its lake tables equal the
+    first night's (the OMOP store lifts its tombstones), and no ruleset is run on it."""
+    sets = committed()["lake/tables@ci.json"]["sets"]
+    rest, base = sets["synthetic-jp-a-restored"], sets["synthetic-jp-a"]
+    assert rest["kind"] == "restored (tombstones lifted)" and rest["site_inputs"] == base["site_inputs"]
+    assert rest["snapshot"] > sets["synthetic-jp-a-deletes"]["snapshot"] > base["snapshot"]
+    for name, t in base["tables"].items():
+        assert rest["tables"][name]["rows"] == t["rows"], name
+    for rel, body in committed().items():
+        if rel.startswith(("funnels/", "screen/")):
+            assert "synthetic-jp-a-restored" not in body["sets"], rel
+
+
+def _built(tmp_path: Path, name: str, kind: str, store: dict[str, int] | None, said: str | None) -> g.Built:
+    lake = tmp_path / name
+    lake.mkdir()
+    if said:
+        (lake / "source.jsonl").write_text(json.dumps({"snapshot": "s", "source": said}) + "\n", encoding="utf-8")
+    return g.Built(name, kind, lake, "s", g.REF, "Asia/Tokyo", store=store)
+
+
+def test_check_source_holds_each_night_to_its_own_store_and_record(tmp_path: Path) -> None:
+    ok = [
+        _built(tmp_path, "a", "csv feed + site inputs", {"persons": 5, "tombstoned": 0}, "omop"),
+        _built(tmp_path, "b", "deletes (tombstones)", {"persons": 5, "tombstoned": 3}, "omop"),
+        _built(tmp_path, "c", "restored (tombstones lifted)", {"persons": 5, "tombstoned": 0}, "omop"),
+    ]
+    assert g.check_source("omop", ok) == []
+    bad = [
+        _built(tmp_path, "d", "restored (tombstones lifted)", {"persons": 5, "tombstoned": 2}, "omop"),
+        _built(tmp_path, "e", "csv feed + site inputs", {"persons": 5, "tombstoned": 0}, "legacy"),
+        _built(tmp_path, "f", "csv feed + site inputs", None, None),
+    ]
+    out = g.check_source("omop", bad)
+    assert any("d restored every record, but 2 are still tombstoned" in x for x in out)
+    assert any("e was meant to come from omop, its rebuild recorded legacy" in x for x in out)
+    assert any("f was meant to come from OMOP, but its OMOP store holds no person" in x for x in out)
+
+
 def test_goldens_are_small() -> None:
     total = sum(p.stat().st_size for p in GOLDEN.rglob("*") if p.is_file())
     assert total < 2_000_000, total
@@ -175,6 +215,57 @@ def test_write_keeps_unchanged_files_and_records_the_reason(tmp_path: Path) -> N
     meta = json.loads((gd / "funnels/GZQO@ci.json").read_text(encoding="utf-8"))["meta"]
     assert meta["reason"] == "D-999: one more patient" and meta["written_with_source"] == "omop"
     assert g.compare(gd, now).ok
+
+
+def test_write_needs_both_sources_and_a_decision_that_exists(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """T-655 (PR #71 review): one set of goldens serves both lake sources, so ``--write`` builds from both and never
+    from one; the reason must name a decision that exists."""
+    assert g.decision_known("D-205: the goldens") and not g.decision_known("D-999: nothing by that number")
+    for src in ("legacy", "omop"):
+        assert g.main(["--write", "--source", src, "--reason", "D-205: x", "--golden-dir", str(tmp_path)]) == 2
+    assert "builds from both lake sources" in capsys.readouterr().out
+    assert g.main(["--write", "--reason", "D-999: no such decision", "--golden-dir", str(tmp_path)]) == 2
+    assert "names no decision" in capsys.readouterr().out
+    assert not list(tmp_path.iterdir())
+
+
+def test_write_writes_nothing_when_the_sources_disagree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    gd = tmp_path / "golden"
+    shutil.copytree(GOLDEN, gd)
+    before = {p: p.read_bytes() for p in gd.rglob("*.json")}
+    asked: list[str] = []
+
+    def fake_run_ci(work: Path, source: str) -> tuple[dict[str, dict[str, Any]], str, list[str]]:
+        asked.append(source)
+        now = committed()
+        if source == "omop":
+            now["funnels/GZQO@ci.json"]["sets"]["public-en"]["start"] += 1
+        return now, source, []
+
+    monkeypatch.setattr(g, "run_ci", fake_run_ci)
+    rc = g.main(["--write", "--reason", "D-205: test", "--golden-dir", str(gd), "--dir", str(tmp_path / "w")])
+    out = capsys.readouterr().out
+    assert rc == 1 and asked == ["legacy", "omop"] and "nothing written" in out
+    assert "funnels/GZQO@ci.json: legacy and omop disagree: sets.public-en.start" in out
+    assert {p: p.read_bytes() for p in gd.rglob("*.json")} == before
+    monkeypatch.setattr(g, "run_ci", lambda work, source: (committed(), source, []))
+    assert g.main(["--write", "--reason", "D-205: test", "--golden-dir", str(gd), "--dir", str(tmp_path / "w")]) == 0
+    assert "every golden unchanged" in capsys.readouterr().out
+
+
+def test_write_removes_a_golden_nothing_computes(tmp_path: Path) -> None:
+    gd = tmp_path / "golden"
+    shutil.copytree(GOLDEN, gd)
+    now = committed()
+    del now["funnels/GZQO@ci.json"]
+    assert g.write(gd, now, "D-205: ruleset gone", "legacy+omop", prune="ci") == [
+        "funnels/GZQO@ci.json (removed: nothing computes it now)"
+    ]
+    assert not (gd / "funnels/GZQO@ci.json").exists() and g.compare(gd, now).ok
 
 
 # ---------------------------------------------------------------- the 50k goldens: only from a run's report
