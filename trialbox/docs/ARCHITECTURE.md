@@ -157,6 +157,20 @@ record measured on its own uncapped card (D-124, D-138). Only `large` has one to
 (`deploy/measured/serving_config.rtxpro6000.json`). Held by `tests/unit/test_hardware_profiles.py`,
 `tests/unit/test_install_tiers.py` and `tests/unit/test_model_swap.py`.
 
+Prompts are registry objects (D-300): the texts live in `libs/tb_llm/prompts/` (one file, the EDC prefill prompt,
+is registered at its own path until its folder is free), and `registry.yaml` there lists each version with its
+file, sha256, output schema and the schema's sha256, approver, date and qualification record.
+`libs/tb_llm/prompt_registry.py` resolves `(id, version)` (newest when none is named) and refuses an unknown version,
+a file or schema whose sha differs from the registry, a prompt with no schema for patient data (D2 to D4), and, in
+PRODUCTION, a version without a qualification that holds (the prompts in service when the registry was made, text
+and schema, are a frozen baseline). Every loader (`tb_common.llm.load_prompt`) reads through it. The gateway
+resolves the `X-TB-Prompt` header the same way and refuses a call whose messages are not that template rendered
+(the literal text between its `{{ }}` expressions, exact, in order and anchored at both ends; what the expressions
+render to is not checked), whose response schema is not the registered one, or, outside DEV and TEST, that does not
+send the registered sha; it refuses to start in PRODUCTION on a bad entry, and its trace names `prompt_id@version`.
+A job that recorded `judge@4` resolves `judge@4` after `judge@5` is registered. Held by
+`tests/unit/test_prompt_registry.py`.
+
 ## 8. The console and the work
 
 Five roles: administrator, coordinator (CRC), investigator (PI), CRO monitor and viewer (D-110). Each lands on its
