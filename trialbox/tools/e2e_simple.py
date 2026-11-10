@@ -1723,6 +1723,9 @@ def report(out: dict[str, Any]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_E2E_DIR", "/tmp/tb-e2e-simple")))
     ap.add_argument("--lang", default="ja", choices=["ja", "zh-TW", "en"])

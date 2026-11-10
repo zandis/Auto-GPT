@@ -61,6 +61,17 @@ class MappingError(ValueError):
     pass
 
 
+def _zone(path: Path, name: object) -> ZoneInfo:
+    """A mapping states its source's zone (``tz``); it is the site's zone, and doctor compares it with ``TB_TZ``.
+    A mapping without one is refused: there is no default zone (D-315)."""
+    if not name:
+        raise MappingError(f"{path}: no tz: state the source's IANA time zone (the site's site.tz, e.g. Asia/Tokyo)")
+    try:
+        return ZoneInfo(str(name))
+    except Exception as exc:
+        raise MappingError(f"{path}: tz {name!r} is not a valid IANA time zone") from exc
+
+
 def resource_id(site_key: bytes, rtype: str, value: str) -> str:
     """Stable pseudonymous id for a non-patient resource (no source keys leave the adapter)."""
     return hmac.new(site_key, f"{rtype}|{value}".encode(), hashlib.sha256).hexdigest()[:32]
@@ -161,7 +172,7 @@ class Mapping:
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
         return cls(
             name=doc.get("name", path.stem),
-            tz=ZoneInfo(doc.get("tz", "Asia/Taipei")),
+            tz=_zone(path, doc.get("tz")),
             systems=doc.get("systems") or {},
             tables=doc.get("tables") or {},
             lookups=lookups,

@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import yaml
 from lake.client import LakeAPI
 from tb_common.audit import AuditLog
+from tb_common.config import site_tz
 from tb_common.derived import country_of, egfr_for_site
 from tb_common.fhir import FhirEvaluator, library_resource
 from tb_common.llm import LlmClient, LlmError
@@ -96,7 +97,7 @@ class CompilerDeps:
     llm: LlmClient
     term: Terminology
     settings_thresholds: dict[str, float]
-    tz: str = "Asia/Taipei"
+    tz: str = ""  # the site's zone; empty: TB_TZ (D-315), never a default
     mrn_regex: str | None = None
     lake: LakeAPI | None = None
     fhir: FhirEvaluator | None = None
@@ -107,6 +108,9 @@ class CompilerDeps:
     ctgov: CtGov | None = None  # ClinicalTrials.gov client (COHORT trial simulation); default from TB_CTGOV_MODE
     # what a plain "eGFR" criterion becomes at this site (D-149); None: from the site's time zone (JP: JSN 2009)
     egfr_equation: str | None = None
+
+    def __post_init__(self) -> None:
+        self.tz = site_tz(self.tz or None)
 
     def egfr(self) -> str:
         if self.egfr_equation:

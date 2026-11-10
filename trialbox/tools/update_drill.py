@@ -214,6 +214,9 @@ def backup_work(work: Path, to: Path) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["backup-work"]:
         ap = argparse.ArgumentParser(prog="update_drill backup-work")

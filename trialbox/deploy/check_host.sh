@@ -85,7 +85,10 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
     && command -v docker >/dev/null 2>&1 && docker image inspect "${TB_IMAGE:-trialbox-py:1.0.0}" >/dev/null 2>&1; then
   # a site host has no pydantic (found by the box rehearsal, D-176): the doctor runs in the box's own image
   set -- ; [ -f "$ROOT_DIR/deploy/settings.yaml" ] && set -- --settings /app/deploy/settings.yaml
-  if docker run --rm --network none --env-file "$ENV_FILE" -v "$ROOT_DIR/deploy:/app/deploy:ro" --user 0:0 \
+  # the host's zone for doctor's site_tz check (D-315): the container's /etc is the image's, not the host's
+  HOST_TZ="$(timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null \
+    || readlink /etc/localtime 2>/dev/null | sed 's|.*zoneinfo/||')"
+  if docker run --rm --network none --env-file "$ENV_FILE" -e TB_HOST_TZ="$HOST_TZ" -v "$ROOT_DIR/deploy:/app/deploy:ro" --user 0:0 \
       "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
     pass "trialbox doctor"
   else
