@@ -128,3 +128,21 @@ def daily_limit(settings: Settings, command: str) -> int | None:
     else:
         return None
     return n if n > 0 else None
+
+
+# D-191 (independent plan review PR-17): the SAE register. Deny by default: a role or an action not listed here may do
+# nothing. Everyone listed reads the register (pseudonym, screening number, dates, parties; never the AE term); only
+# the study's coordinator records a report sent, a receipt or a follow-up, because the sent date is written to the AE
+# form (the data core) and only the coordinator enters trial data. The investigator still acknowledges on the
+# participant page (D-143). Viewer and CRO (sponsor, monitor) accounts see nothing.
+SAE_ACTIONS: tuple[str, ...] = ("view", "record")
+ROLE_SAE_ACTIONS: dict[str, frozenset[str]] = {
+    "admin": frozenset({"view"}),
+    "coordinator": frozenset({"view", "record"}),
+    "investigator": frozenset({"view"}),
+}
+
+
+def sae_allowed(role: str, action: str) -> bool:
+    """True only when the role table above grants ``action`` on the SAE register to ``role``."""
+    return action in SAE_ACTIONS and action in ROLE_SAE_ACTIONS.get(role, frozenset())
