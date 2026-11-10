@@ -110,6 +110,11 @@ def register(app: FastAPI, h: Helpers) -> None:
     def lang_of(sess: Session) -> str:
         return sess.lang if sess.lang in LANGS else "en"
 
+    def not_gone(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """D-273 (PV-4): rows of patients on the opt-out register left out of a site set-up page."""
+        gone = h.gone()
+        return [r for r in rows if str(r.get("pid") or "") not in gone] if gone else rows
+
     def need_view(sess: Session, path: str) -> None:
         if sess.user.role == "cro":
             raise h.problem(404, "notfound")
@@ -445,6 +450,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         facts: list[dict[str, Any]] = []
         with contextlib.suppress(Problem, Unavailable):
             facts = list(get(f"/setup/{w}/facts?status={show}"))
+        facts = not_gone(facts)
         return h.page(
             request,
             "site_facts.html",
@@ -629,6 +635,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         data: dict[str, Any] = {"people": [], "disagreements": []}
         with contextlib.suppress(Problem, Unavailable):
             data = dict(get(f"/setup/{w}/people"))
+        data["people"], data["disagreements"] = not_gone(data["people"]), not_gone(data["disagreements"])
         return h.page(
             request,
             "site_people.html",
@@ -662,8 +669,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         w, rs = ws_of(ws), study_of(sess, study)
         out: dict[str, Any] = {"approved": False, "patients": []}
         if rs:
+            # D-273 (PV-3, PV-4): every patient's verdicts for one study, so the study's delegation log applies (as
+            # on /ask), opted-out patients are left out, and each view is one audit event
+            h.delegated(sess, rs, "/site/patients", ("screen",))
             with contextlib.suppress(Problem, Unavailable):
                 out = dict(get(f"/setup/{w}/patients?study={quote(rs)}"))
+            out["patients"] = not_gone(list(out.get("patients") or []))
+            au.append("console.site_patients", ruleset=rs, actor=h.actor(sess),
+                      detail={"ws": w, "patients": len(out["patients"]), "role": sess.user.role})  # fmt: skip
         return h.page(request, "site_patients.html", sess, **ctx(sess, w, rs), out=out)
 
     @app.get("/site/help")
@@ -782,9 +795,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = api_session(request)
         need_view(sess, request.url.path)
         try:
-            return get(f"/setup/{ws_of(ws)}/facts?status={quote(status)}")
+            facts = list(get(f"/setup/{ws_of(ws)}/facts?status={quote(status)}"))
         except (Problem, Unavailable) as exc:
             return refused(exc)
+        # D-273 (PV-6): no full pseudonym beside the input it came from (a pasted chart would turn a chart number
+        # into a pseudonym in one step); the first 8 characters, as the pages show; no opted-out patient
+        return [{k: v for k, v in f.items() if k != "pid"} | {"short": str(f.get("pid") or "")[:8]}
+                for f in not_gone(facts)]  # fmt: skip
 
     @app.post("/api/v1/site/facts/{fid}", response_model=None)
     def api_fact(request: Request, fid: int, body: ApiDecide, ws: str = "main") -> Any:
