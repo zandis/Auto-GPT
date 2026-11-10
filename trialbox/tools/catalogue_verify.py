@@ -109,7 +109,13 @@ PH_OUT_COLUMNS = [
     "may_exclude",
     "note",
 ]
-ACTIONS = {"adopt", "keep_local", "fit_partial"}
+# adopt / adopt_partial: give a local item this LOINC code (exact / partial fit); fit_exact / fit_partial: a person
+# read an existing code against the item; keep_local: the search hits were read and none fits. A coded item with no
+# decision has code_fit = unreviewed, which never excludes.
+ACTIONS = {"adopt", "adopt_partial", "keep_local", "fit_exact", "fit_partial"}
+ADOPT = {"adopt", "adopt_partial"}
+FIT = {"adopt": "exact", "fit_exact": "exact", "adopt_partial": "partial", "fit_partial": "partial"}
+JLAC10_FITS = {"exact", "partial"}
 # segments of a phenotype `codes` cell that name another vocabulary, not ICD-10-CM
 NON_ICD_PREFIXES = ("LOINC", "ATC", "MEDIS", "ICD-O", "local", "procedure")
 ICD_TOKEN = re.compile(r"\b([A-Z]\d[0-9A-Z](?:\.[0-9A-Z]{1,4})?)")
@@ -132,19 +138,57 @@ def search_term(name_en: str) -> str:
     return " ".join(term.split())
 
 
-def icd_tokens(codes: str) -> list[str]:
-    """ICD-10-CM code prefixes named in a free-text `codes` cell (``M05.*`` -> ``M05``; ranges give both ends)."""
+ICD_RANGE = re.compile(r"\b([A-Z]\d[0-9A-Z](?:\.[0-9A-Z]{1,4})?)\*?\s*-\s*([A-Z]\d[0-9A-Z](?:\.[0-9A-Z]{1,4})?)\*?")
+EXCL = re.compile(r"\(?\s*\bexcl(?:\.|uding)?\s*([^)]*)\)?")
+
+
+def expand_icd_range(low: str, high: str) -> list[str]:
+    """Every code a range names: ``A15-A19`` -> A15..A19, ``G40.0-G40.2`` -> G40.0..G40.2. A range that is not
+    plain numbers on one stem gives its two ends only."""
+    a, b = low.partition("."), high.partition(".")
+    if not a[1] and not b[1] and low[0] == high[0] and low[1:].isdigit() and high[1:].isdigit():
+        lo, hi = int(low[1:]), int(high[1:])
+        if lo <= hi:
+            return [f"{low[0]}{n:02d}" for n in range(lo, hi + 1)]
+    if a[1] and b[1] and a[0] == b[0] and len(a[2]) == len(b[2]):
+        head_lo, head_hi = a[2][:-1], b[2][:-1]
+        if head_lo == head_hi and a[2][-1].isdigit() and b[2][-1].isdigit() and a[2][-1] <= b[2][-1]:
+            return [f"{a[0]}.{head_lo}{d}" for d in range(int(a[2][-1]), int(b[2][-1]) + 1)]
+    return [low, high]
+
+
+def _icd_list(text: str) -> list[str]:
     out: list[str] = []
+    pos = 0
+    for m in ICD_RANGE.finditer(text):
+        out += ICD_TOKEN.findall(text[pos : m.start()])
+        out += expand_icd_range(m.group(1), m.group(2))
+        pos = m.end()
+    out += ICD_TOKEN.findall(text[pos:])
+    return list(dict.fromkeys(out))
+
+
+def icd_split(codes: str) -> tuple[list[str], list[str]]:
+    """ICD-10-CM codes of a free-text `codes` cell, as (included, excluded). ``M05.*`` -> ``M05``; a range gives every
+    code in it; ``(excl. M06.1, M06.4)`` gives excluded codes, never included ones."""
+    inc: list[str] = []
+    exc: list[str] = []
     for segment in codes.split(";"):
         seg = segment.strip()
         if seg.startswith("ICD-10-CM"):
             seg = seg[len("ICD-10-CM") :].strip()
-        if not seg or seg.startswith(NON_ICD_PREFIXES):
+        if not seg or seg.startswith(NON_ICD_PREFIXES) or seg.startswith("MEDIS"):
             continue
-        for tok in ICD_TOKEN.findall(seg):
-            if tok not in out:
-                out.append(tok)
-    return out
+        for m in EXCL.finditer(seg):
+            exc += [t for t in _icd_list(m.group(1)) if t not in exc]
+        inc += [t for t in _icd_list(EXCL.sub(" ", seg)) if t not in inc and t not in exc]
+    return inc, exc
+
+
+def icd_tokens(codes: str) -> list[str]:
+    """Every ICD-10-CM code a `codes` cell names, included then excluded (each must exist)."""
+    inc, exc = icd_split(codes)
+    return inc + [t for t in exc if t not in inc]
 
 
 LOINC_TOKEN = re.compile(r"(?<![\w.-])(\d{3,7}-\d)(?![\w.-])")
@@ -153,6 +197,8 @@ ATC_TOKEN = re.compile(r"\b([A-V]\d{2}(?:[A-Z]{1,2}(?:\d{2})?)?)\b")
 CDISC_CELL_TOKEN = re.compile(r"\b([A-Z][A-Z0-9]{3,})\b")
 CDISC_TEXT_TOKEN = re.compile(r"\b([A-Z][A-Z0-9]*\d[A-Z0-9]*TC)\b")
 CDISC_WORDS = {"CDISC", "RECIST", "RSCAT"}  # words in the `cdisc_qrs` cell that are not codelist names
+# code shapes found without a keyword: a LOINC code with a valid check digit, an ATC code of level 3 or deeper
+ATC_SHAPE = re.compile(r"(?<![\w.])([A-V]\d{2}[A-Z](?:[A-Z](?:\d{2})?)?)(?![\w.])")
 ICDO_TOKEN = re.compile(r"\b(C\d{2}(?:\.\d)?)\b")
 
 
@@ -169,17 +215,24 @@ def loinc_check_digit_ok(code: str) -> bool:
 
 
 def loinc_tokens(text: str) -> list[str]:
-    """LOINC-shaped codes in a cell that mentions LOINC (``98979-8/62238-1`` gives both)."""
+    """LOINC codes in a cell: every LOINC shape when the cell says LOINC (``98979-8/62238-1`` gives both, a typo
+    included), and otherwise every shape whose check digit is right (``eye 9267-6; verbal 9270-0``)."""
+    found = LOINC_TOKEN.findall(text)
     if "LOINC" not in text:
-        return []
-    return list(dict.fromkeys(LOINC_TOKEN.findall(text)))
+        found = [t for t in found if loinc_check_digit_ok(t)]
+    return list(dict.fromkeys(found))
 
 
 def atc_tokens(text: str) -> list[str]:
-    """ATC codes written after the word ATC (``ATC C02/C03`` gives both)."""
+    """ATC codes: any written after the word ATC (``ATC C02/C03`` gives both), and any of level 3 or deeper in a
+    cell about drug exposure (``no M05B/G03XC exposure``)."""
     out: list[str] = []
     for group in ATC_AFTER.findall(text):
         for tok in ATC_TOKEN.findall(group):
+            if tok not in out:
+                out.append(tok)
+    if "ATC" in text or "exposure" in text:  # a drug context; KRAS G12C is not an ATC code
+        for tok in ATC_SHAPE.findall(text):
             if tok not in out:
                 out.append(tok)
     return out
@@ -296,9 +349,11 @@ class Curated:
 class CodeRef:
     """One code named somewhere in the catalogue. `use` says what the code is for:
 
-    ``code``     a code column or a phenotype's `codes` cell: a rule may use it
-    ``mapping``  a hand-made ICD-10-CM set in phenotype_icd10cm.csv (mapping_verified = no)
-    ``text``     named in a note, a source cell or a score file: never read by a rule
+    ``code``       a code column or a phenotype's `codes` cell: a rule may use it
+    ``exclude``    a code a phenotype's `codes` cell excludes (``excl. M06.1``): never a reason to include
+    ``mapping``    a hand-made ICD-10-CM set in phenotype_icd10cm.csv (mapping_verified = no)
+    ``reference``  a CDISC CT codelist: names a questionnaire's test codes, not a patient fact
+    ``text``       named in a note, a source cell or a score file: never read by a rule
     """
 
     file: str
@@ -319,8 +374,8 @@ def phenotype_code_refs(row: dict[str, str]) -> list[CodeRef]:
     are names, not codes, and are left out."""
     refs: list[CodeRef] = []
 
-    def add(system: str, code: str) -> None:
-        refs.append(CodeRef("phenotypes.csv", row["id"], "codes", system, code, "code"))
+    def add(system: str, code: str, use: str = "code") -> None:
+        refs.append(CodeRef("phenotypes.csv", row["id"], "codes", system, code, use))
 
     for segment in row.get("codes", "").split(";"):
         seg = segment.strip()
@@ -334,11 +389,16 @@ def phenotype_code_refs(row: dict[str, str]) -> list[CodeRef]:
             for code in ICDO_TOKEN.findall(seg):
                 add("ICD-O-3", code)
         elif seg and not seg.startswith(NON_ICD_PREFIXES) and not seg.startswith("MEDIS"):
-            for code in icd_tokens(seg):
+            inc, exc = icd_split(seg)
+            for code in inc:
                 add("ICD-10-CM", code)
+            for code in exc:
+                add("ICD-10-CM", code, "exclude")
     for fld in ("definition", "notes"):
         for code in loinc_tokens(row.get(fld, "")):
             refs.append(CodeRef("phenotypes.csv", row["id"], fld, "LOINC", code, "text"))
+        for code in atc_tokens(row.get(fld, "")):
+            refs.append(CodeRef("phenotypes.csv", row["id"], fld, "ATC", code, "text"))
     return refs
 
 
@@ -358,13 +418,15 @@ def scan_refs(
         for code in split_list(r.get("jlac10", "")):
             refs.append(CodeRef("items.csv", rid, "jlac10", "JLAC10", code, "code"))
         for code in cdisc_tokens(r.get("cdisc_qrs", "")):
-            refs.append(CodeRef("items.csv", rid, "cdisc_qrs", "CDISC CT", code, "code"))
+            refs.append(CodeRef("items.csv", rid, "cdisc_qrs", "CDISC CT", code, "reference"))
         for fld, cell in r.items():
             if fld in ITEM_CODE_FIELDS or not cell:
                 continue
             for code in loinc_tokens(cell):
                 if code != primary:
                     refs.append(CodeRef("items.csv", rid, fld, "LOINC", code, "text"))
+            for code in atc_tokens(cell):
+                refs.append(CodeRef("items.csv", rid, fld, "ATC", code, "text"))
     for r in phenos:
         refs.extend(phenotype_code_refs(r))
     for r in icd_rows:
@@ -428,23 +490,31 @@ def check_ref(ref: CodeRef, ev: Evidence) -> tuple[bool, str, str, str]:
 
 
 def build_codes(refs: list[CodeRef], ev: Evidence, items: list[dict[str, str]], cur: Curated) -> list[dict[str, str]]:
-    """codes_checked.csv: one row per code and place. `may_exclude` is yes only for a verified code in a code column
-    whose meaning fits the item exactly; text mentions and the hand-made ICD-10-CM sets never exclude."""
+    """codes_checked.csv: one row per code and place. `may_exclude` is yes only for a verified code in an item's
+    `loinc` or `jlac10` column that a person read against the item and found to fit exactly. Everything else is no:
+    unreviewed and partial fits, phenotype codes (no per-code fit review yet), excluded codes, mappings, CDISC
+    codelists and text mentions. When unsure, no: unknown never excludes."""
     by_item = {r["id"]: r for r in items}
     out = []
     for ref in refs:
         ok, name, source, note = check_ref(ref, ev)
-        may = ok and ref.use == "code"
-        if may and ref.file == "items.csv" and ref.fld == "loinc":
-            may = by_item[ref.row].get("code_fit") == "exact"
-            if not may:
-                note = "the code covers only part of the item"
-        if may and ref.fld == "jlac10" and cur.jlac10.get(ref.row, {}).get("fit") == "partial":
-            may, note = False, "the MHLW item covers only part of the catalogue item"
-        if ok and ref.use == "mapping":
-            note = "the code exists; the mapping to the cohort is not verified"
-        if ok and ref.use == "text":
-            note = "named in text only"
+        may = False
+        if ok and ref.file == "items.csv" and ref.fld == "loinc":
+            fit = by_item[ref.row].get("code_fit", "")
+            may = fit == "exact"
+            note = "" if may else f"code_fit {fit}: not read against the item, or only part of it"
+        elif ok and ref.file == "items.csv" and ref.fld == "jlac10":
+            may = cur.jlac10[ref.row]["fit"] == "exact"
+            note = "" if may else "the MHLW item covers only part of the catalogue item"
+        elif ok and ref.use == "code":
+            note = "found; its fit to this phenotype is not reviewed"
+        elif ok:
+            note = {
+                "exclude": "excluded by the phenotype",
+                "mapping": "the code exists; the mapping to the cohort is not verified",
+                "reference": "a CDISC codelist: names the test codes, not a patient fact",
+                "text": "named in text only",
+            }[ref.use]
         out.append(
             {
                 "file": ref.file,
@@ -492,7 +562,7 @@ def build_items(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> list[
         own_retired = dec.get("retired_local_id", "") if dec else ""
         if row.get("omop_concept_id") in retired and row["omop_concept_id"] != own_retired:
             raise CatalogueError(f"{row['id']}: reuses retired local id {row['omop_concept_id']}")
-        if action == "adopt":
+        if action in ADOPT:
             code = dec["loinc"] if dec else ""
             if code not in ev.loinc_codes:
                 raise CatalogueError(f"{row['id']}: adopted LOINC {code} is not in the evidence")
@@ -513,13 +583,13 @@ def build_items(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> list[
                 row["verified_note"] = f"LOINC {code} not found in {SRC_LOINC}; check by hand"
             else:
                 row.update(verified="yes", verified_source=f"{SRC_LOINC}: {code} '{name}'", verified_date=ev.date)
-                row["code_fit"] = "partial" if action == "fit_partial" else "exact"
+                row["code_fit"] = FIT.get(action, "unreviewed")
                 row["verified_note"] = note
-                if action == "adopt":
+                if action in ADOPT:
                     row["verified_note"] = "; ".join(p for p in (_searches_note(terms, ev), note) if p)
         else:
-            if action == "fit_partial":
-                raise CatalogueError(f"{row['id']}: fit_partial on a local item")
+            if action in ("fit_partial", "fit_exact"):
+                raise CatalogueError(f"{row['id']}: {action} on a local item")
             auto = search_term(row["name_en"])
             hit = ev.loinc_searches.get(auto)
             if hit is None:
@@ -542,6 +612,11 @@ def _fill_jlac10(row: dict[str, str], cur: Curated, ev: Evidence) -> None:
     if not jl:
         return
     codes = split_list(jl["jlac10"])
+    fit = jl.get("fit", "")
+    if codes and fit not in JLAC10_FITS:
+        raise CatalogueError(f"{row['id']}: jlac10_map fit must be exact or partial, not {fit!r}")
+    if not codes and fit:
+        raise CatalogueError(f"{row['id']}: jlac10_map fit without a code")
     for code in codes:
         if code not in ev.jlac10:
             raise CatalogueError(f"{row['id']}: JLAC10 {code} is not in the MHLW evidence")
@@ -579,7 +654,9 @@ def build_phenotypes(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> 
         tokens = icd_tokens(row["codes"])
         missing = [t for t in tokens if not ev.icd_exists(t)]
         if missing:
-            problems.append("not ICD-10-CM codes: " + ", ".join(missing))
+            problems.append(
+                "not in ICD-10-CM (WHO ICD-10 only, or a range category ICD-10-CM lacks): " + ", ".join(missing)
+            )
         others = [ref for ref in phenotype_code_refs(row) if ref.use == "code" and ref.system != "ICD-10-CM"]
         unchecked = []
         for ref in others:
@@ -600,7 +677,7 @@ def build_phenotypes(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> 
         if tr:
             parts.append("ICD-10-CM translation in phenotype_icd10cm.csv" + (f" ({tr['note']})" if tr["note"] else ""))
         row["verified"] = "no" if problems else "yes"
-        row["may_exclude"] = row["verified"]
+        row["may_exclude"] = "no"  # no per-code fit review of phenotype codes yet: unknown never excludes
         systems = {ref.system for ref in others}
         extra_src = [src for system, src in (("LOINC", SRC_LOINC), ("ATC", SRC_ATC)) if system in systems]
         row["verified_source"] = "; ".join([SRC_ICD] + extra_src + ([SRC_OHDSI] if ids else []))

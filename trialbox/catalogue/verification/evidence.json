@@ -283,7 +283,10 @@
   "90264-3": "Fracture Risk Assessment [FRAX]",
   "90265-0": "Major osteoporotic fracture 10-year probability [Likelihood] Fracture Risk Assessment",
   "91544-7": "Myelin oligodendrocyte glycoprotein Ab [Titer] in Serum by Cell binding immunofluorescent assay",
+  "9267-6": "Glasgow coma score eye opening",
+  "9268-4": "Glasgow coma score motor",
   "9269-2": "Glasgow coma score total",
+  "9270-0": "Glasgow coma score verbal",
   "9274-2": "5 minute Apgar Score",
   "93124-6": "New York Heart Association Functional Classification panel",
   "9318-7": "Albumin/Creatinine [Mass Ratio] in Urine",
@@ -493,39 +496,6 @@
   "Amyloid PET result": {
    "total": 0,
    "hits": []
-  },
-  "Anti-MDA5 antibody": {
-   "total": 7,
-   "hits": [
-    [
-     "110186-4",
-     "MDA5 Ab [Measurement] in Serum"
-    ],
-    [
-     "105529-2",
-     "MDA5 Ab [Units/volume] in Serum"
-    ],
-    [
-     "82424-3",
-     "MDA5 Ab [Presence] in Serum by Line blot"
-    ],
-    [
-     "88725-7",
-     "MDA5 Ab [Units/volume] in Serum by Line blot"
-    ],
-    [
-     "82994-5",
-     "MDA5 IgG Ab [Presence] in Serum by Line blot"
-    ],
-    [
-     "103691-2",
-     "MDA5 Ab [Units/volume] in Serum by Immunoassay"
-    ],
-    [
-     "107563-9",
-     "MDA5 Ab [Presence] in Serum or Plasma"
-    ]
-   ]
   },
   "Antihypertensive drug classes": {
    "total": 0,
@@ -2361,10 +2331,6 @@
      "Acarboxyprothrombin [Mass/volume] in Serum or Plasma"
     ]
    ]
-  },
-  "PIVKA-II": {
-   "total": 0,
-   "hits": []
   },
   "Partial Mayo score": {
    "total": 0,
@@ -11060,6 +11026,10 @@
     ]
    ]
   },
+  "A16": {
+   "n": 0,
+   "sample": []
+  },
   "A17": {
    "n": 7,
    "sample": [
@@ -11219,6 +11189,128 @@
     ]
    ]
   },
+  "C01": {
+   "n": 1,
+   "sample": [
+    [
+     "C01",
+     "Malignant neoplasm of base of tongue"
+    ]
+   ]
+  },
+  "C02": {
+   "n": 7,
+   "sample": [
+    [
+     "C02.0",
+     "Malignant neoplasm of dorsal surface of tongue"
+    ],
+    [
+     "C02.1",
+     "Malignant neoplasm of border of tongue"
+    ]
+   ]
+  },
+  "C03": {
+   "n": 3,
+   "sample": [
+    [
+     "C03.0",
+     "Malignant neoplasm of upper gum"
+    ],
+    [
+     "C03.1",
+     "Malignant neoplasm of lower gum"
+    ]
+   ]
+  },
+  "C04": {
+   "n": 4,
+   "sample": [
+    [
+     "C04.0",
+     "Malignant neoplasm of anterior floor of mouth"
+    ],
+    [
+     "C04.1",
+     "Malignant neoplasm of lateral floor of mouth"
+    ]
+   ]
+  },
+  "C05": {
+   "n": 5,
+   "sample": [
+    [
+     "C05.0",
+     "Malignant neoplasm of hard palate"
+    ],
+    [
+     "C05.1",
+     "Malignant neoplasm of soft palate"
+    ]
+   ]
+  },
+  "C06": {
+   "n": 6,
+   "sample": [
+    [
+     "C06.0",
+     "Malignant neoplasm of cheek mucosa"
+    ],
+    [
+     "C06.1",
+     "Malignant neoplasm of vestibule of mouth"
+    ]
+   ]
+  },
+  "C07": {
+   "n": 1,
+   "sample": [
+    [
+     "C07",
+     "Malignant neoplasm of parotid gland"
+    ]
+   ]
+  },
+  "C08": {
+   "n": 3,
+   "sample": [
+    [
+     "C08.0",
+     "Malignant neoplasm of submandibular gland"
+    ],
+    [
+     "C08.1",
+     "Malignant neoplasm of sublingual gland"
+    ]
+   ]
+  },
+  "C09": {
+   "n": 4,
+   "sample": [
+    [
+     "C09.0",
+     "Malignant neoplasm of tonsillar fossa"
+    ],
+    [
+     "C09.1",
+     "Malignant neoplasm of tonsillar pillar (anterior) (posterior)"
+    ]
+   ]
+  },
+  "C10": {
+   "n": 7,
+   "sample": [
+    [
+     "C10.0",
+     "Malignant neoplasm of vallecula"
+    ],
+    [
+     "C10.1",
+     "Malignant neoplasm of anterior surface of epiglottis"
+    ]
+   ]
+  },
   "C11": {
    "n": 6,
    "sample": [
@@ -11229,6 +11321,28 @@
     [
      "C11.1",
      "Malignant neoplasm of posterior wall of nasopharynx"
+    ]
+   ]
+  },
+  "C12": {
+   "n": 1,
+   "sample": [
+    [
+     "C12",
+     "Malignant neoplasm of pyriform sinus"
+    ]
+   ]
+  },
+  "C13": {
+   "n": 5,
+   "sample": [
+    [
+     "C13.0",
+     "Malignant neoplasm of postcricoid region"
+    ],
+    [
+     "C13.1",
+     "Malignant neoplasm of aryepiglottic fold, hypopharyngeal aspect"
     ]
    ]
   },
@@ -11443,6 +11557,19 @@
     [
      "C77.1",
      "Secondary and unspecified malignant neoplasm of intrathoracic lymph nodes"
+    ]
+   ]
+  },
+  "C78": {
+   "n": 15,
+   "sample": [
+    [
+     "C78.00",
+     "Secondary malignant neoplasm of unspecified lung"
+    ],
+    [
+     "C78.01",
+     "Secondary malignant neoplasm of right lung"
     ]
    ]
   },
@@ -12485,6 +12612,19 @@
     ]
    ]
   },
+  "G40.1": {
+   "n": 4,
+   "sample": [
+    [
+     "G40.101",
+     "Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes with simple partial seizures, not intractable, with status epilepticus"
+    ],
+    [
+     "G40.109",
+     "Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes with simple partial seizures, not intractable, without status epilepticus"
+    ]
+   ]
+  },
   "G40.2": {
    "n": 4,
    "sample": [
@@ -12838,6 +12978,10 @@
      "Hypertensive heart and chronic kidney disease with heart failure and with stage 5 chronic kidney disease, or end stage renal disease"
     ]
    ]
+  },
+  "I14": {
+   "n": 0,
+   "sample": []
   },
   "I15": {
    "n": 5,
@@ -13920,6 +14064,71 @@
     ]
    ]
   },
+  "Q21": {
+   "n": 17,
+   "sample": [
+    [
+     "Q21.0",
+     "Ventricular septal defect"
+    ],
+    [
+     "Q21.10",
+     "Atrial septal defect, unspecified"
+    ]
+   ]
+  },
+  "Q22": {
+   "n": 9,
+   "sample": [
+    [
+     "Q22.0",
+     "Pulmonary valve atresia"
+    ],
+    [
+     "Q22.1",
+     "Congenital pulmonary valve stenosis"
+    ]
+   ]
+  },
+  "Q23": {
+   "n": 9,
+   "sample": [
+    [
+     "Q23.0",
+     "Congenital stenosis of aortic valve"
+    ],
+    [
+     "Q23.1",
+     "Congenital insufficiency of aortic valve"
+    ]
+   ]
+  },
+  "Q24": {
+   "n": 9,
+   "sample": [
+    [
+     "Q24.0",
+     "Dextrocardia"
+    ],
+    [
+     "Q24.1",
+     "Levocardia"
+    ]
+   ]
+  },
+  "Q25": {
+   "n": 22,
+   "sample": [
+    [
+     "Q25.0",
+     "Patent ductus arteriosus"
+    ],
+    [
+     "Q25.1",
+     "Coarctation of aorta"
+    ]
+   ]
+  },
   "Q26": {
    "n": 9,
    "sample": [
@@ -14658,6 +14867,7 @@
  },
  "atc": {
   "A10": "DRUGS USED IN DIABETES",
+  "A10A": "INSULINS AND ANALOGUES",
   "A10BK": "Sodium-glucose co-transporter 2 (SGLT2) inhibitors",
   "B01AE": "Direct thrombin inhibitors",
   "B01AF": "Direct factor Xa inhibitors",
@@ -14666,14 +14876,21 @@
   "C07": "BETA BLOCKING AGENTS",
   "C08": "CALCIUM CHANNEL BLOCKERS",
   "C09": "AGENTS ACTING ON THE RENIN-ANGIOTENSIN SYSTEM",
+  "G03XC": "Selective estrogen receptor modulators",
   "H02AB": "Glucocorticoids",
   "J05AF": "Nucleoside and nucleotide reverse transcriptase inhibitors",
+  "J05AP": "Antivirals for treatment of HCV infections",
+  "L01FF": "PD-1/PD-L1 (Programmed cell death protein 1/death ligand 1) inhibitors",
+  "L01XA": "Platinum compounds",
   "L04AA": "Selective immunosuppressants",
   "L04AB": "Tumor necrosis factor alpha (TNF-alpha) inhibitors",
   "L04AC": "Interleukin inhibitors",
+  "M04A": "ANTIGOUT PREPARATIONS",
   "M04AA": "Preparations inhibiting uric acid production",
   "M04AB": "Preparations increasing uric acid excretion",
+  "M05B": "DRUGS AFFECTING BONE STRUCTURE AND MINERALIZATION",
   "N03": "ANTIEPILEPTICS",
+  "N04": "ANTI-PARKINSON DRUGS",
   "N04B": "DOPAMINERGIC AGENTS"
  },
  "cdisc": {

@@ -1,13 +1,13 @@
 item_id,action,loinc,retired_local_id,search_terms,note
-lab.anti_mda5,adopt,107563-9,2000001001,MDA5,"LOINC 'MDA5 Ab [Presence] in Serum or Plasma' fits the coded result; a numeric index is 105529-2 'MDA5 Ab [Units/volume] in Serum' (map at site)"
+lab.anti_mda5,adopt_partial,107563-9,2000001001,MDA5,LOINC 'MDA5 Ab [Presence] in Serum or Plasma' fits the coded result; a numeric index is 105529-2 'MDA5 Ab [Units/volume] in Serum' (map at site)
 lab.kl6,adopt,93369-7,2000001002,KL-6,LOINC 'Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay' (U/mL)
 lab.sp_d,adopt,74541-4,2000001003,,LOINC 'Surfactant pulmonary-associated protein D [Mass/volume] in Serum' (ng/mL)
-lab.pivka2,adopt,93768-0,2000001005,PIVKA;Des-gamma-carboxyprothrombin;prothrombin induced by vitamin K absence,"LOINC calls PIVKA-II acarboxyprothrombin; 93768-0 is [Units/volume] for mAU/mL; a mass result (ng/mL) is 34444-0"
+lab.pivka2,adopt_partial,93768-0,2000001005,PIVKA;Des-gamma-carboxyprothrombin;prothrombin induced by vitamin K absence,LOINC calls PIVKA-II acarboxyprothrombin; 93768-0 is [Units/volume] for mAU/mL; a mass result (ng/mL) is 34444-0
 lab.afb_smear,keep_local,,,acid fast stain sputum;Mycobacterium sp identified in Sputum by Acid fast stain,"candidate 11477-7 'Microscopic observation [Identifier] in Sputum by Acid fast stain' reports what was seen, not the smear grade (negative, scanty, 1+ to 3+); no graded code found"
 endo.trab,adopt,5385-0,2000001203,,LOINC 'Thyrotropin receptor Ab [Units/volume] in Serum' (IU/L); method-specific codes (57416-0 immunoassay) map at site
 pulm.feno,adopt,96269-6,2000001189,,LOINC 'Fractional concentration of exhaled nitric oxide' (property VFr; ppb)
 rheum.dlco_pct_pred,adopt,98130-8,2000001052,DLCO;Diffusion capacity.carbon monoxide measured/predicted;diffusion capacity carbon monoxide predicted,"LOINC 'Diffusion capacity.carbon monoxide/Predicted' (property RelFldConduct, the measured/predicted ratio); 19911-7 is the absolute DLCO and 19910-9 the predicted value"
-onc.pdl1_cps,adopt,105303-2,2000001125,PD-L1 combined positive score;Programmed cell death ligand 1 combined;PD-L1 CPS;Programmed cell death ligand 1;PD-L1,"the LOINC name does not say CPS; its component 'Tumor cells+Macrophages+Lymphocytes.Programmed cell death ligand 1/Viable tumor cells' is the CPS definition; TPS is 105304-0 (onc.pdl1_tps)"
+onc.pdl1_cps,adopt_partial,105303-2,2000001125,PD-L1 combined positive score;Programmed cell death ligand 1 combined;PD-L1 CPS;Programmed cell death ligand 1;PD-L1,the LOINC name does not say CPS; its component 'Tumor cells+Macrophages+Lymphocytes.Programmed cell death ligand 1/Viable tumor cells' is the CPS definition; TPS is 105304-0 (onc.pdl1_tps)
 gi.cap_steatosis,adopt,81894-8,2000001178,,LOINC 'Liver ultrasound attenuation by transient elastography' is the controlled attenuation parameter (dB/m)
 id.sofa,adopt,96790-1,2000001219,,LOINC 'SOFA Total Score'
 id.qsofa,adopt,96791-9,2000001220,,LOINC 'Quick SOFA score SOFA.quick'
@@ -69,7 +69,7 @@ onc.recist_response,keep_local,,,RECIST;response evaluation criteria in solid tu
 onc.ctcae_grade_max,keep_local,,,CTCAE,
 onc.lansky,keep_local,,,Lansky,
 onc.weight_loss_pct_6m,keep_local,,,weight loss percent,
-heme.bm_blast_pct,keep_local,,,Blasts/100 leukocytes in Bone marrow;Blasts in Bone marrow,"hits are flow-cytometry immunophenotype fractions and narratives; no morphology blast-percent code among the top hits (search not exhaustive)"
+heme.bm_blast_pct,keep_local,,,Blasts/100 leukocytes in Bone marrow;Blasts in Bone marrow,hits are flow-cytometry immunophenotype fractions and narratives; no morphology blast-percent code among the top hits (search not exhaustive)
 heme.ipss_r,keep_local,,,IPSS-R;International prognostic scoring system,
 heme.iss,keep_local,,,International staging system myeloma,
 heme.ipi,keep_local,,,International prognostic index,
@@ -90,8 +90,8 @@ derm.itch_nrs,keep_local,,,Peak pruritus;itch numeric rating,
 derm.iga_psoriasis,keep_local,,,Investigator global assessment,
 id.culture_organism,keep_local,,,,hits are organism-specific culture codes (589 hits); the site maps its culture codes
 id.tb_status,keep_local,,,,"candidate 45241-7 'Tuberculosis status' (property Type, reported; answer list not checked)"
-id.hiv_status,keep_local,,,,"candidate 55277-8 'HIV status' (answer list not checked)"
-id.hbv_status,keep_local,,,Hepatitis B status,"candidate 55275-2 'Hepatitis B virus status' (answer list not checked)"
+id.hiv_status,keep_local,,,,candidate 55277-8 'HIV status' (answer list not checked)
+id.hbv_status,keep_local,,,Hepatitis B status,candidate 55275-2 'Hepatitis B virus status' (answer list not checked)
 id.vaccination_covid,keep_local,,,COVID-19 vaccine doses,
 oph.va_logmar,keep_local,,,,"per-eye codes exist (65893-0 right, 65897-1 left best corrected); the item has no laterality yet"
 oph.va_etdrs_letters,keep_local,,,ETDRS letter;letter score,the one hit is a PhenX letter question
@@ -99,7 +99,7 @@ oph.dr_etdrs_level,keep_local,,,,"per-eye codes exist (71491-5 right, 71490-7 le
 oph.refraction_se,keep_local,,,,"per-eye codes exist (95294-5 right, 95295-2 left, autorefractor); the item has no laterality yet"
 oph.cst_oct,keep_local,,,central subfield thickness;retinal thickness OCT,hits are nerve-fibre-layer thickness; no central subfield code among the hits
 oph.visual_field_md,keep_local,,,visual field mean deviation;Mean deviation,no visual-field hit
-social.living_situation,keep_local,,,,"candidate 57043-2 'Living arrangements' (answer list not checked); others are housing-status terms"
+social.living_situation,keep_local,,,,candidate 57043-2 'Living arrangements' (answer list not checked); others are housing-status terms
 social.jp_yokaigo,keep_local,,,long-term care level,
 social.caregiver_available,keep_local,,,caregiver available,the one hit is a PAM caregiver question
 pulm.cat,keep_local,,,COPD assessment test;CAT total,no CAT questionnaire hit ('CAT total' matches catecholamines)
@@ -143,3 +143,5 @@ heme.bcr_abl_is,fit_partial,,,,69381-2 is the b2a2 transcript only; b3a2 and com
 psy.gds15,fit_partial,,,,48543-3 is the panel; the total score code was not looked up
 ped.birth_weight,fit_partial,,,,56056-5 is the reported birth weight; a measured one was not looked up
 oph.cup_disc_ratio,fit_partial,,,,71485-7 is the right optic nerve only; the item has no laterality yet
+rheum.tjc28,fit_partial,,,,88981-6 'Tender joint #' names no joint set; the 28-joint count is one use of it
+rheum.sjc28,fit_partial,,,,88980-8 'Swollen joint #' names no joint set; the 28-joint count is one use of it

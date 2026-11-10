@@ -4,3 +4,4 @@ ph.dementia,NEUR,Dementia,33,"F00-F03, G30.*"
 ph.gout_refractory,RHEU,Refractory gout,local,M10.*; ATC M04AA; LOINC 3084-1
 ph.breast_cancer,ONC,Breast cancer,local,M10.*; ICD-O-3 C50
 ph.local_only,GIM,Local only,local,local items
+ph.tb,ID,Tuberculosis,local,A15-A19

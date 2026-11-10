@@ -114,7 +114,10 @@ def test_phenotypes_verified_and_translated(cat: Path) -> None:
     built = _build(cat)
     ph = built["phenotypes.csv"]
     assert ph["ph.ra"]["verified"] == "yes" and "858 Pending peer review" in ph["ph.ra"]["verified_note"]
-    assert ph["ph.dementia"]["verified"] == "no" and "not ICD-10-CM codes: F00" in ph["ph.dementia"]["verified_note"]
+    assert (
+        ph["ph.dementia"]["verified"] == "no"
+        and "(WHO ICD-10 only, or a range category ICD-10-CM lacks): F00" in ph["ph.dementia"]["verified_note"]
+    )
     assert ph["ph.gout_refractory"]["verified"] == "yes"  # ATC M04AA and LOINC are not read as ICD codes
     tr = built["phenotype_icd10cm.csv"]
     assert set(tr) == {"ph.ra", "ph.dementia"}
@@ -128,13 +131,9 @@ def test_phenotypes_verified_and_translated(cat: Path) -> None:
     assert "Athena" in ra["derivation"] and ra["may_exclude"] == "no"
     assert ph["ph.breast_cancer"]["verified"] == "no" and "ICD-O-3 C50" in ph["ph.breast_cancer"]["verified_note"]
     assert ph["ph.local_only"]["verified"] == "no" and "no code in `codes`" in ph["ph.local_only"]["verified_note"]
-    assert {k: v["may_exclude"] for k, v in ph.items()} == {
-        "ph.ra": "yes",
-        "ph.dementia": "no",
-        "ph.gout_refractory": "yes",
-        "ph.breast_cancer": "no",
-        "ph.local_only": "no",
-    }
+    assert ph["ph.tb"]["verified"] == "no" and "A16" in ph["ph.tb"]["verified_note"]  # a range: every category checked
+    # phenotype codes have no per-code fit review yet: no phenotype may exclude
+    assert {v["may_exclude"] for v in ph.values()} == {"no"}
 
 
 def test_phenotype_codes_outside_icd_must_be_found(cat: Path) -> None:
@@ -151,6 +150,8 @@ def _codes(cat: Path) -> dict[tuple[str, str, str, str], dict[str, str]]:
 
 def test_every_code_is_registered_with_its_source(cat: Path) -> None:
     codes = _codes(cat)
+    assert codes[("phenotypes.csv", "ph.tb", "codes", "A16")]["verified"] == "no"
+    assert codes[("phenotypes.csv", "ph.tb", "codes", "A17")]["verified"] == "yes"
     cr = codes[("items.csv", "lab.creatinine", "loinc", "2160-0")]
     assert cr["verified"] == "yes" and cr["source"] == cv.SRC_LOINC and cr["may_exclude"] == "yes"
     assert cr["name_in_source"] == "Creatinine [Mass/volume] in Serum or Plasma" and cr["verified_date"] == "2026-11-09"
@@ -161,10 +162,12 @@ def test_every_code_is_registered_with_its_source(cat: Path) -> None:
     assert vitd["verified"] == "yes" and vitd["may_exclude"] == "no"  # a partial fit never excludes
     haq = codes[("items.csv", "rheum.haq_di", "cdisc_qrs", "HAQ01TC")]
     assert haq["verified"] == "yes" and haq["name_in_source"].startswith("C106667 Health Assessment")
+    assert haq["use"] == "reference" and haq["may_exclude"] == "no"  # a codelist is not a patient fact
     assert codes[("items.csv", "rheum.haq_di", "cdisc_qrs", "HAQ99TC")]["verified"] == "no"
     typo = codes[("items.csv", "rheum.haq_di", "source", "1234-5")]
     assert typo["verified"] == "no" and typo["note"] == "the LOINC check digit is wrong"
-    assert codes[("phenotypes.csv", "ph.gout_refractory", "codes", "M04AA")]["may_exclude"] == "yes"
+    gout = codes[("phenotypes.csv", "ph.gout_refractory", "codes", "M04AA")]
+    assert gout["verified"] == "yes" and gout["may_exclude"] == "no"  # fit to the phenotype not reviewed
     assert codes[("phenotypes.csv", "ph.dementia", "codes", "F00")]["verified"] == "no"
     assert codes[("phenotypes.csv", "ph.breast_cancer", "codes", "C50")]["system"] == "ICD-O-3"
     mapped = codes[("phenotype_icd10cm.csv", "ph.ra", "icd10cm_include", "M05")]
@@ -188,18 +191,82 @@ def test_unknown_never_excludes(cat: Path) -> None:
 
 def test_a_partial_jlac10_never_excludes(cat: Path) -> None:
     jl = cat / "verification" / "jlac10_map.csv"
-    jl.write_text(jl.read_text(encoding="utf-8").replace("3C015000002327101,,", "3C015000002327101,partial,"))
+    jl.write_text(jl.read_text(encoding="utf-8").replace("3C015000002327101,exact,", "3C015000002327101,partial,"))
     row = _codes(cat)[("items.csv", "lab.creatinine", "jlac10", "3C015000002327101")]
     assert row["verified"] == "yes" and row["may_exclude"] == "no"
 
 
+def _shipped(name: str) -> list[dict[str, str]]:
+    with (cv.CATALOGUE / name).open(encoding="utf-8", newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
 def test_the_shipped_catalogue_obeys_unknown_never_excludes() -> None:
-    for name in ("items.csv", "phenotypes.csv", "phenotype_icd10cm.csv", "codes_checked.csv"):
-        with (cv.CATALOGUE / name).open(encoding="utf-8", newline="") as fh:
-            for r in csv.DictReader(fh):
-                if r["may_exclude"] == "yes":
-                    assert r.get("verified", r.get("codes_verified")) == "yes", (name, r)
-                    assert r.get("use", "code") == "code" and r.get("code_fit", "exact") == "exact", (name, r)
+    items = _shipped("items.csv")
+    assert any(r["may_exclude"] == "yes" for r in items)  # the rule is not vacuous
+    for r in items:
+        if r["may_exclude"] == "yes":
+            assert r["verified"] == "yes" and r["code_fit"] == "exact", r["id"]
+        if r["code_fit"] in ("unreviewed", "partial", "none"):
+            assert r["may_exclude"] == "no", r["id"]
+    assert {r["may_exclude"] for r in _shipped("phenotypes.csv")} == {"no"}
+    assert {r["may_exclude"] for r in _shipped("phenotype_icd10cm.csv")} == {"no"}
+    codes = _shipped("codes_checked.csv")
+    for r in codes:
+        if r["may_exclude"] == "yes":
+            assert r["verified"] == "yes" and r["use"] == "code", r
+            assert r["file"] == "items.csv" and r["field"] in ("loinc", "jlac10"), r
+    ra = {(r["code"], r["use"]) for r in codes if r["row"] == "ph.ra" and r["file"] == "phenotypes.csv"}
+    assert ("M06.1", "exclude") in ra and ("M06.4", "exclude") in ra and ("M06.1", "code") not in ra
+    sle = [r for r in codes if r["file"] == "phenotypes.csv" and r["row"] == "ph.sle" and r["code"] == "M32.0"]
+    assert sle and all(r["use"] == "exclude" and r["may_exclude"] == "no" for r in sle)
+    for item_id in ("rheum.tjc28", "rheum.sjc28"):
+        assert next(r for r in items if r["id"] == item_id)["may_exclude"] == "no"
+
+
+def test_a_code_has_one_fit_everywhere() -> None:
+    """A code that is a partial or unreviewed fit anywhere is never may_exclude = yes anywhere else."""
+    items = {r["id"]: r for r in _shipped("items.csv")}
+    weak = {r["loinc"] for r in items.values() if r["code_fit"] in ("partial", "unreviewed")}
+    for r in _shipped("codes_checked.csv"):
+        if r["system"] == "LOINC" and r["code"] in weak:
+            assert r["may_exclude"] == "no", r
+
+
+def test_every_code_shape_in_the_shipped_catalogue_is_registered() -> None:
+    """Grep each catalogue file for LOINC (valid check digit) and ATC (level 3+) shapes, independently of the scanner;
+    each one must be in codes_checked.csv for that file and row."""
+    import re
+
+    registered = {(r["file"], r["row"], r["code"]) for r in _shipped("codes_checked.csv")}
+    loinc = re.compile(r"(?<![\w.-])(\d{3,7}-\d)(?![\w.-])")
+    atc = re.compile(r"(?<![\w.])([A-V]\d{2}[A-Z](?:[A-Z](?:\d{2})?)?)(?![\w.])")
+    missing = []
+    skip = {"verified_source", "verified_date", "licence_notes", "jlac10_source"}
+    for name, key in (("items.csv", "id"), ("phenotypes.csv", "id"), ("specialties.csv", "specialty_id")):
+        for r in _shipped(name):
+            for fld, cell in r.items():
+                if fld in skip:
+                    continue
+                shapes = [t for t in loinc.findall(cell) if cv.loinc_check_digit_ok(t)]
+                if "exposure" in cell or "ATC" in cell:
+                    shapes += atc.findall(cell)
+                missing += [(name, r[key], t) for t in shapes if (name, r[key], t) not in registered]
+    assert missing == []
+
+
+def test_jlac10_fit_is_required(cat: Path) -> None:
+    jl = cat / "verification" / "jlac10_map.csv"
+    jl.write_text(jl.read_text(encoding="utf-8").replace("3C015000002327101,exact,", "3C015000002327101,,"))
+    with pytest.raises(cv.CatalogueError, match="fit must be exact or partial"):
+        cv.build(cv.Paths(cat))
+
+
+def test_an_unreviewed_code_never_excludes(cat: Path) -> None:
+    dec = cat / "verification" / "loinc_decisions.csv"
+    dec.write_text(dec.read_text(encoding="utf-8").replace("lab.creatinine,fit_exact,,,,read against the item\n", ""))
+    cr = _build(cat)["items.csv"]["lab.creatinine"]
+    assert cr["verified"] == "yes" and cr["code_fit"] == "unreviewed" and cr["may_exclude"] == "no"
 
 
 def test_loinc_check_digit_and_tokens() -> None:
@@ -247,7 +314,10 @@ def test_icd_tokens() -> None:
     assert cv.icd_tokens("E11.*; ATC A10; LOINC 4548-4") == ["E11"]
     assert cv.icd_tokens("M10.*, M1A.*") == ["M10", "M1A"]
     assert cv.icd_tokens("C34.* + morphology 8140/8070") == ["C34"]
-    assert cv.icd_tokens("I60-I64") == ["I60", "I64"]
+    assert cv.icd_tokens("I60-I64") == ["I60", "I61", "I62", "I63", "I64"]
+    assert cv.icd_tokens("C92.0*, C92.4-C92.6") == ["C92.0", "C92.4", "C92.5", "C92.6"]
+    assert cv.icd_split("M32.* (excl. M32.0 drug-induced)") == (["M32"], ["M32.0"])
+    assert cv.icd_split("ICD-10-CM M05.*, M06.* (excl. M06.1, M06.4)") == (["M05", "M06"], ["M06.1", "M06.4"])
     assert cv.icd_tokens("LOINC 98979-8/62238-1/local JSN") == []
     assert cv.search_term("Creatinine, serum (enzymatic)") == "Creatinine serum"
 

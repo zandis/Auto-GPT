@@ -36,37 +36,47 @@ Edit the files in `verification/`, never the generated columns by hand.
 
 What the columns mean:
 
-- `verified = yes` on an item: its LOINC code was found in the NLM Clinical Tables LOINC service on `verified_date`
-  and its long name (in `verified_source`) was read against the item by a person. `code_fit = partial` when the
-  code covers only part of the item (the note says how). `verified = no`: the item is local; `verified_note` lists
-  the LOINC searches run and their hit counts. A local item whose name search found any LOINC term has a reviewed
+- `verified = yes` on an item: its LOINC code was found in the NLM Clinical Tables LOINC service on `verified_date`;
+  its long name is in `verified_source`. `code_fit` says whether a person read that name against the item:
+  `exact` or `partial` (a row in `verification/loinc_decisions.csv`: `adopt`, `adopt_partial`, `fit_exact`,
+  `fit_partial`; the note says how), `unreviewed` (no row yet), `none` (local item). `verified = no`: the item is
+  local; `verified_note` lists the LOINC searches run and their hit counts. A local item whose name search found any LOINC term has a reviewed
   row in `verification/loinc_decisions.csv`; the build stops otherwise.
 - A code reaches a CSV only when `evidence.json` holds it. Nothing is typed in from memory.
 - Adopting a LOINC code retires the item's local id (kept in `loinc_decisions.csv` as `retired_local_id`); a
   retired id is never given to another item.
 - `jlac10`: the 17-digit codes from the MHLW 特定健診 XML item table (付属2 Ver.4), the only public JLAC10 source
   that could be read (the JSLM pages refused automated reading). Items outside that table have no JLAC10 code here.
-- Phenotypes: `verified = yes` when every library cohort id exists in PhenotypeLibrary 3.37.0 and every ICD-10-CM
-  code in `codes` exists in ICD-10-CM (NLM Clinical Tables). It does not say the definition is clinically right.
+  `jlac10_map.csv` must give each mapped row a `fit` of `exact` or `partial` (the build stops otherwise).
+- Phenotypes: `verified = yes` when every library cohort id exists in PhenotypeLibrary 3.37.0 and every code in
+  `codes` was found: ICD-10-CM (NLM Clinical Tables; a range such as `A15-A19` is checked category by category, and
+  `(excl. M06.1)` codes are recorded as excluded, `use = exclude`), LOINC and ATC. It does not say the definition is clinically right.
   `phenotype_icd10cm.csv` has `codes_verified` (all codes exist) and `mapping_verified = no` throughout: the sets
   were made by hand from the cohorts' entry concept names, not from the OMOP Maps-to table (Athena refused).
-- Other codes: ATC codes are checked against the WHOCC ATC/DDD Index, CDISC CT codelists (`cdisc_qrs`) against the
-  NCI EVS SDTM Terminology file, and every LOINC code in a note or a score file against NLM (with its check digit).
+- Other codes: ATC codes are checked against the WHOCC ATC/DDD Index, CDISC CT codelists (`cdisc_qrs`, `use =
+  reference`) against the NCI EVS SDTM Terminology file, and every LOINC code in a note, a component list or a score
+  file against NLM (with its check digit). Cells are scanned for code shapes with or without the word LOINC or ATC
+  (a LOINC shape with a valid check digit; an ATC code of level 3 or deeper in a drug-exposure cell).
   `codes_checked.csv` lists each one with the name the source gives, so a reader can see what the code really is.
   ICD-O-3 is not checked (no public machine-readable source was read); MEDIS names and `local items` are names, not
   codes. OMOP concept ids are kept for the cohorts' entry concepts; SNOMED CT concept codes are not stored here
-  (the SNOMED CT licence question is open, D-161).
+  (the SNOMED CT licence question is open, D-161). The entry concepts' names (OMOP concept names, which for SNOMED
+  concepts are the SNOMED preferred terms) are still in `evidence.json` and `phenotype_icd10cm.csv`: the name check
+  needs them. Whether they may stay is an open owner question under D-161.
 
-`may_exclude` (items, phenotypes, `phenotype_icd10cm.csv`, `codes_checked.csv`): **unknown never excludes**. It is
-`yes` only for a code that was found in its public source, sits in a code column (not a note) and fits the item
-exactly (`code_fit = exact`; a JLAC10 row marked `fit = partial` in `jlac10_map.csv` is `no`). A phenotype is `yes`
-only when every code in its `codes` was found. The hand-made ICD-10-CM sets are `no` throughout
-(`mapping_verified = no`). A loader (T-107) may let a `may_exclude = no` code or phenotype raise a candidate or show
-evidence, never remove a patient: such a criterion is "unknown" when nothing else decides it. `may_exclude = yes`
-says only that the code is real and means the item; the screening rules still need a coded or confirmed fact, and
-proposed facts never count. Tests: `test_unknown_never_excludes`, `test_the_shipped_catalogue_obeys_unknown_never_excludes`.
+`may_exclude` (items, phenotypes, `phenotype_icd10cm.csv`, `codes_checked.csv`): **unknown never excludes**; when
+unsure, `no`. It is `yes` only for a code that was found in its public source, sits in an item's `loinc` or `jlac10`
+column and was read against the item and found to fit exactly (`code_fit = exact`; `fit = exact` in
+`jlac10_map.csv`). Everything else is `no`: unreviewed and partial fits, every phenotype and phenotype code (no
+per-code fit review of phenotype codes yet), excluded codes, the hand-made ICD-10-CM sets (`mapping_verified = no`),
+CDISC codelists, codes named in text, and anything not found. A loader (T-107) may let a `may_exclude = no` code or
+phenotype raise a candidate or show evidence, never remove a patient: such a criterion is "unknown" when nothing else
+decides it. `may_exclude = yes` says only that the code is real and means the item; the screening rules still need a
+coded or confirmed fact, and proposed facts never count. Tests: `test_unknown_never_excludes`,
+`test_the_shipped_catalogue_obeys_unknown_never_excludes`, `test_a_code_has_one_fit_everywhere`,
+`test_every_code_shape_in_the_shipped_catalogue_is_registered`.
 
 How this relates to the reference-data loaders (D-170 to D-175): the `jlac10` column says which MHLW 特定健診 rows
 name the same thing as a catalogue item, by a person's reading of the names. It is not a JLAC10 to LOINC map and
 must not be loaded as one; a site's own JLAC10 to LOINC file (D-174) is the only map. The WHO-only codes flagged
-here (F00, I64) are the same kind of difference that the WHO ICD-10 to ICD-10-CM bridge of D-173 handles.
+here (F00, I64, A16) are the same kind of difference that the WHO ICD-10 to ICD-10-CM bridge of D-173 handles.
