@@ -144,3 +144,9 @@ Where a recommendation conflicts with an overriding decision above, the decision
 | Review hours | About 14 hours a week each for Changfu and Makoto, as planned, plus the part-time safety-core engineer. |
 | Sponsor acknowledgement | EDC prefill is switched on per study only after the sponsor acknowledges in writing that TrialBox is in its source-data chain. |
 | Japan hardware | **Buy one DGX Spark now and benchmark it** (model pair, 5k/50k screening, profile writer) before choosing between a Spark with a CPU-only workstation and an RTX PRO 6000 box. If the Spark isn't enough, it becomes the development and demo machine. |
+
+## Study A PI (2026-11-09, evening)
+
+| Topic | Decision |
+|---|---|
+| Study A PI | **Changfu Kuo is the PI of Study A** at CGMH (answers S-04 of the Study A review). |

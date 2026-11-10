@@ -34,16 +34,37 @@ services:
     # One PostgreSQL server for the box (TB-PLAN-03 step 6, D-121): database `hapi` for the FHIR store and
     # `trialbox_wf` for durable steps, outbox and recall ledger (spec v4 §11.0), made by db-init on first start.
     # Multi-arch index digest (linux/amd64 and linux/arm64 manifests). One volume, one backup, one restore.
+    # D-187 (WS-08.6): WAL compressed with zstd, TOAST with lz4 (PG 16 offers pglz and lz4 only); new clusters get
+    # data checksums. WAL archiving to pgBackRest (point-in-time restore) is off until the site turns it on: it needs
+    # an image with pgBackRest (POSTGRES_IMAGE, deploy/pgbackrest/Dockerfile), the repository on the hospital share
+    # (TB_PGBACKREST_REPO) and the cipher file in deploy/secrets/pgbackrest (RUNBOOK §5). Never set archive_mode=on
+    # without a working archive_command: Postgres would keep every WAL file until the disk is full.
     logging: *logging
     image: ${POSTGRES_IMAGE:-postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}
+    command:
+      - postgres
+      - -c
+      - wal_compression=${TB_PG_WAL_COMPRESSION:-zstd}
+      - -c
+      - default_toast_compression=${TB_PG_TOAST_COMPRESSION:-lz4}
+      - -c
+      - archive_mode=${TB_PG_ARCHIVE_MODE:-off}
+      - -c
+      - archive_command=${TB_PG_ARCHIVE_COMMAND:-pgbackrest --stanza=trialbox archive-push %p}
+      - -c
+      - archive_timeout=${TB_PG_ARCHIVE_TIMEOUT:-300}
     environment:
       POSTGRES_DB: hapi
       POSTGRES_USER: hapi
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_WF_PASSWORD: ${POSTGRES_WF_PASSWORD:-${POSTGRES_PASSWORD}}
+      POSTGRES_INITDB_ARGS: ${POSTGRES_INITDB_ARGS:---data-checksums}
     volumes:
       - db-pg:/var/lib/postgresql/data
       - ./docker/db-init:/docker-entrypoint-initdb.d:ro
+      - ./pgbackrest/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
+      - ./secrets/pgbackrest:/etc/pgbackrest/conf.d:ro
+      - ${TB_PGBACKREST_REPO:-./pgbackrest/repo}:/var/lib/pgbackrest
     networks: [trialbox-net]
     restart: unless-stopped
     healthcheck:
@@ -86,7 +107,8 @@ services:
     <<: *py
     command: ["uvicorn", "lake.app:app", "--host", "0.0.0.0", "--port", "8013", "--workers", "2"]
     environment: {PORT: "8013", TB_SERVICE_NAME: lake, TB_LAKE_DIR: /data/lake, TB_LAKE_EMBEDDER: http,
-                  TB_LAKE_MEMORY_LIMIT: "${TB_LAKE_MEMORY_LIMIT:-}", TB_LAKE_MAX_TEMP: "${TB_LAKE_MAX_TEMP:-}"}
+                  TB_LAKE_MEMORY_LIMIT: "${TB_LAKE_MEMORY_LIMIT:-}", TB_LAKE_MAX_TEMP: "${TB_LAKE_MAX_TEMP:-}",
+                  TB_LAKE_SOURCE: "${TB_LAKE_SOURCE:-legacy}"}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - lake-data:/data/lake

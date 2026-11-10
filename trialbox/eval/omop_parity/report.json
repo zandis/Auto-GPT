@@ -1,0 +1,1414 @@
+{
+ "rulesets": [
+  "GOUT-COH",
+  "GZQO",
+  "ONC-OSI",
+  "RA-BIO",
+  "RA-COH",
+  "EMPULSE",
+  "STARRT-AKI"
+ ],
+ "sets": {
+  "synthetic-jp-a": {
+   "snapshot": "2026-10-31",
+   "site_inputs": {
+    "Patient": 40,
+    "Condition": 80,
+    "Observation": 80,
+    "MedicationRequest": 40,
+    "Encounter": 40
+   },
+   "tables": {
+    "patient": {
+     "rows": 2500,
+     "omop_rows": 2500,
+     "identical": true,
+     "first_difference": null
+    },
+    "practitioner": {
+     "rows": 8,
+     "omop_rows": 8,
+     "identical": true,
+     "first_difference": null
+    },
+    "encounter": {
+     "rows": 17133,
+     "omop_rows": 17133,
+     "identical": true,
+     "first_difference": null
+    },
+    "appointment": {
+     "rows": 1566,
+     "omop_rows": 1566,
+     "identical": true,
+     "first_difference": null
+    },
+    "condition": {
+     "rows": 7156,
+     "omop_rows": 7156,
+     "identical": true,
+     "first_difference": null
+    },
+    "observation": {
+     "rows": 21220,
+     "omop_rows": 21220,
+     "identical": true,
+     "first_difference": null
+    },
+    "medication": {
+     "rows": 22461,
+     "omop_rows": 22461,
+     "identical": true,
+     "first_difference": null
+    },
+    "procedure": {
+     "rows": 26,
+     "omop_rows": 26,
+     "identical": true,
+     "first_difference": null
+    },
+    "report": {
+     "rows": 281,
+     "omop_rows": 281,
+     "identical": true,
+     "first_difference": null
+    },
+    "document": {
+     "rows": 4428,
+     "omop_rows": 4428,
+     "identical": true,
+     "first_difference": null
+    },
+    "claim": {
+     "rows": 396,
+     "omop_rows": 396,
+     "identical": true,
+     "first_difference": null
+    },
+    "site_fact": {
+     "rows": 180,
+     "omop_rows": 180,
+     "identical": true,
+     "first_difference": null
+    },
+    "consent": {
+     "rows": 1619,
+     "omop_rows": 1619,
+     "identical": true,
+     "first_difference": null
+    }
+   },
+   "screening": {
+    "GOUT-COH": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "GOUT-COH-INC-01": 734,
+       "GOUT-COH-INC-02": 556,
+       "GOUT-COH-INC-03": 371,
+       "GOUT-COH-INC-04": 124,
+       "GOUT-COH-INC-05": 28,
+       "GOUT-COH-INC-06": 12,
+       "GOUT-COH-INC-07": 4
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 4351,
+      "not_met": 9820,
+      "met": 3329
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "GZQO": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "GZQO-INC-01": 2414,
+       "GZQO-INC-02": 707,
+       "GZQO-INC-03": 355,
+       "GZQO-INC-04": 234,
+       "GZQO-INC-06": 111,
+       "GZQO-INC-08": 72,
+       "GZQO-INC-09": 68,
+       "GZQO-EXC-01": 60,
+       "GZQO-EXC-02": 53,
+       "GZQO-EXC-03": 50,
+       "GZQO-EXC-04": 49,
+       "GZQO-EXC-05": 47,
+       "GZQO-EXC-06": 39,
+       "GZQO-EXC-07": 37,
+       "GZQO-EXC-08": 37,
+       "GZQO-EXC-09": 35,
+       "GZQO-EXC-10": 35,
+       "GZQO-EXC-13": 32
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 10288,
+      "not_met": 26590,
+      "met": 8122
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "ONC-OSI": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "ONC-OSI-INC-01": 2414,
+       "ONC-OSI-INC-02": 110,
+       "ONC-OSI-INC-03": 71,
+       "ONC-OSI-EXC-01": 56
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 2424,
+      "not_met": 9695,
+      "met": 2881
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "RA-BIO": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "RA-BIO-INC-01": 2414,
+       "RA-BIO-INC-02": 518,
+       "RA-BIO-INC-03": 300,
+       "RA-BIO-INC-04": 167,
+       "RA-BIO-INC-05": 121,
+       "RA-BIO-INC-06": 35,
+       "RA-BIO-EXC-01": 31,
+       "RA-BIO-EXC-02": 29,
+       "RA-BIO-EXC-03": 27,
+       "RA-BIO-EXC-04": 26,
+       "RA-BIO-EXC-05": 24,
+       "RA-BIO-EXC-06": 21,
+       "RA-BIO-EXC-07": 19
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 10077,
+      "not_met": 27732,
+      "met": 7191
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "RA-COH": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "RA-COH-INC-01": 601,
+       "RA-COH-INC-02": 477,
+       "RA-COH-INC-03": 331,
+       "RA-COH-INC-04": 0,
+       "RA-COH-INC-05": 0,
+       "RA-COH-INC-06": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "not_met": 7204,
+      "unknown": 5968,
+      "met": 1828
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "EMPULSE": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "EMPULSE-INC-01": 2414,
+       "EMPULSE-INC-02": 13,
+       "EMPULSE-INC-06": 0,
+       "EMPULSE-INC-07": 0,
+       "EMPULSE-EXC-01": 0,
+       "EMPULSE-EXC-02": 0,
+       "EMPULSE-EXC-05": 0,
+       "EMPULSE-EXC-06": 0,
+       "EMPULSE-EXC-08": 0,
+       "EMPULSE-EXC-09": 0,
+       "EMPULSE-EXC-10": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 4934,
+      "not_met": 20039,
+      "met": 2527
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "STARRT-AKI": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "STARRT-AKI-INC-01": 2414,
+       "STARRT-AKI-INC-02": 0,
+       "STARRT-AKI-INC-03": 0,
+       "STARRT-AKI-INC-04": 0,
+       "STARRT-AKI-EXC-01": 0,
+       "STARRT-AKI-EXC-02": 0,
+       "STARRT-AKI-EXC-05": 0,
+       "STARRT-AKI-EXC-06": 0,
+       "STARRT-AKI-EXC-07": 0,
+       "STARRT-AKI-EXC-08": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 9840,
+      "not_met": 12725,
+      "met": 2435
+     },
+     "patients_different": 0,
+     "first_different": []
+    }
+   },
+   "omop": {
+    "rows": {
+     "person": 2500,
+     "visit_occurrence": 17133,
+     "condition_occurrence": 7206,
+     "drug_exposure": 22481,
+     "measurement": 21240,
+     "observation": 40,
+     "procedure_occurrence": 26,
+     "note": 4709,
+     "death": 0,
+     "fact_relationship": 8068,
+     "concept": 109,
+     "tb_record": 81862,
+     "local_concepts": 89,
+     "conflicts_open": 8
+    },
+    "dqd": {
+     "checks": 226,
+     "pass": 221,
+     "fail": 0,
+     "known": 5
+    },
+    "dqd_not_pass": [
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "condition_occurrence",
+      "cdmFieldName": "condition_concept_id",
+      "numViolatedRows": 7206,
+      "numDenominatorRows": 7206,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "drug_exposure",
+      "cdmFieldName": "drug_concept_id",
+      "numViolatedRows": 22481,
+      "numDenominatorRows": 22481,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "procedure_occurrence",
+      "cdmFieldName": "procedure_concept_id",
+      "numViolatedRows": 26,
+      "numDenominatorRows": 26,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "measurement",
+      "cdmFieldName": "measurement_concept_id",
+      "numViolatedRows": 21240,
+      "numDenominatorRows": 21240,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "observation",
+      "cdmFieldName": "observation_concept_id",
+      "numViolatedRows": 40,
+      "numDenominatorRows": 40,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     }
+    ]
+   },
+   "identical": true
+  },
+  "synthetic-tw-a": {
+   "snapshot": "2026-10-31",
+   "site_inputs": {
+    "Patient": 40,
+    "Condition": 80,
+    "Observation": 80,
+    "MedicationRequest": 40,
+    "Encounter": 40
+   },
+   "tables": {
+    "patient": {
+     "rows": 2500,
+     "omop_rows": 2500,
+     "identical": true,
+     "first_difference": null
+    },
+    "practitioner": {
+     "rows": 8,
+     "omop_rows": 8,
+     "identical": true,
+     "first_difference": null
+    },
+    "encounter": {
+     "rows": 17017,
+     "omop_rows": 17017,
+     "identical": true,
+     "first_difference": null
+    },
+    "appointment": {
+     "rows": 1537,
+     "omop_rows": 1537,
+     "identical": true,
+     "first_difference": null
+    },
+    "condition": {
+     "rows": 7024,
+     "omop_rows": 7024,
+     "identical": true,
+     "first_difference": null
+    },
+    "observation": {
+     "rows": 21150,
+     "omop_rows": 21150,
+     "identical": true,
+     "first_difference": null
+    },
+    "medication": {
+     "rows": 22539,
+     "omop_rows": 22539,
+     "identical": true,
+     "first_difference": null
+    },
+    "procedure": {
+     "rows": 30,
+     "omop_rows": 30,
+     "identical": true,
+     "first_difference": null
+    },
+    "report": {
+     "rows": 296,
+     "omop_rows": 296,
+     "identical": true,
+     "first_difference": null
+    },
+    "document": {
+     "rows": 4461,
+     "omop_rows": 4461,
+     "identical": true,
+     "first_difference": null
+    },
+    "claim": {
+     "rows": 395,
+     "omop_rows": 395,
+     "identical": true,
+     "first_difference": null
+    },
+    "site_fact": {
+     "rows": 180,
+     "omop_rows": 180,
+     "identical": true,
+     "first_difference": null
+    },
+    "consent": {
+     "rows": 1617,
+     "omop_rows": 1617,
+     "identical": true,
+     "first_difference": null
+    }
+   },
+   "screening": {
+    "GOUT-COH": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "GOUT-COH-INC-01": 750,
+       "GOUT-COH-INC-02": 545,
+       "GOUT-COH-INC-03": 349,
+       "GOUT-COH-INC-04": 114,
+       "GOUT-COH-INC-05": 26,
+       "GOUT-COH-INC-06": 14,
+       "GOUT-COH-INC-07": 2
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 4371,
+      "not_met": 9741,
+      "met": 3388
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "GZQO": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "GZQO-INC-01": 2400,
+       "GZQO-INC-02": 714,
+       "GZQO-INC-03": 383,
+       "GZQO-INC-04": 252,
+       "GZQO-INC-06": 116,
+       "GZQO-INC-08": 86,
+       "GZQO-INC-09": 78,
+       "GZQO-EXC-01": 70,
+       "GZQO-EXC-02": 64,
+       "GZQO-EXC-03": 63,
+       "GZQO-EXC-04": 62,
+       "GZQO-EXC-05": 59,
+       "GZQO-EXC-06": 52,
+       "GZQO-EXC-07": 50,
+       "GZQO-EXC-08": 50,
+       "GZQO-EXC-09": 49,
+       "GZQO-EXC-10": 48,
+       "GZQO-EXC-13": 42
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 10308,
+      "not_met": 26590,
+      "met": 8102
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "ONC-OSI": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "ONC-OSI-INC-01": 2400,
+       "ONC-OSI-INC-02": 116,
+       "ONC-OSI-INC-03": 74,
+       "ONC-OSI-EXC-01": 56
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 2424,
+      "not_met": 9694,
+      "met": 2882
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "RA-BIO": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "RA-BIO-INC-01": 2400,
+       "RA-BIO-INC-02": 510,
+       "RA-BIO-INC-03": 272,
+       "RA-BIO-INC-04": 152,
+       "RA-BIO-INC-05": 108,
+       "RA-BIO-INC-06": 26,
+       "RA-BIO-EXC-01": 25,
+       "RA-BIO-EXC-02": 19,
+       "RA-BIO-EXC-03": 16,
+       "RA-BIO-EXC-04": 14,
+       "RA-BIO-EXC-05": 14,
+       "RA-BIO-EXC-06": 14,
+       "RA-BIO-EXC-07": 13
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 10018,
+      "not_met": 27754,
+      "met": 7228
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "RA-COH": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "RA-COH-INC-01": 607,
+       "RA-COH-INC-02": 473,
+       "RA-COH-INC-03": 332,
+       "RA-COH-INC-04": 0,
+       "RA-COH-INC-05": 0,
+       "RA-COH-INC-06": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "not_met": 7225,
+      "unknown": 5929,
+      "met": 1846
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "EMPULSE": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "EMPULSE-INC-01": 2400,
+       "EMPULSE-INC-02": 16,
+       "EMPULSE-INC-06": 0,
+       "EMPULSE-INC-07": 0,
+       "EMPULSE-EXC-01": 0,
+       "EMPULSE-EXC-02": 0,
+       "EMPULSE-EXC-05": 0,
+       "EMPULSE-EXC-06": 0,
+       "EMPULSE-EXC-08": 0,
+       "EMPULSE-EXC-09": 0,
+       "EMPULSE-EXC-10": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 4928,
+      "not_met": 20062,
+      "met": 2510
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "STARRT-AKI": {
+     "feas_identical": true,
+     "feas": {
+      "start": 2500,
+      "remaining": {
+       "STARRT-AKI-INC-01": 2400,
+       "STARRT-AKI-INC-02": 0,
+       "STARRT-AKI-INC-03": 0,
+       "STARRT-AKI-INC-04": 0,
+       "STARRT-AKI-EXC-01": 0,
+       "STARRT-AKI-EXC-02": 0,
+       "STARRT-AKI-EXC-05": 0,
+       "STARRT-AKI-EXC-06": 0,
+       "STARRT-AKI-EXC-07": 0,
+       "STARRT-AKI-EXC-08": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 2500,
+     "patients_evaluated": 2500,
+     "verdicts": {
+      "unknown": 9830,
+      "not_met": 12743,
+      "met": 2427
+     },
+     "patients_different": 0,
+     "first_different": []
+    }
+   },
+   "omop": {
+    "rows": {
+     "person": 2500,
+     "visit_occurrence": 17017,
+     "condition_occurrence": 7074,
+     "drug_exposure": 22559,
+     "measurement": 21170,
+     "observation": 40,
+     "procedure_occurrence": 30,
+     "note": 4757,
+     "death": 0,
+     "fact_relationship": 7936,
+     "concept": 109,
+     "tb_record": 81641,
+     "local_concepts": 89,
+     "conflicts_open": 8
+    },
+    "dqd": {
+     "checks": 226,
+     "pass": 221,
+     "fail": 0,
+     "known": 5
+    },
+    "dqd_not_pass": [
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "condition_occurrence",
+      "cdmFieldName": "condition_concept_id",
+      "numViolatedRows": 7074,
+      "numDenominatorRows": 7074,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "drug_exposure",
+      "cdmFieldName": "drug_concept_id",
+      "numViolatedRows": 22559,
+      "numDenominatorRows": 22559,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "procedure_occurrence",
+      "cdmFieldName": "procedure_concept_id",
+      "numViolatedRows": 30,
+      "numDenominatorRows": 30,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "measurement",
+      "cdmFieldName": "measurement_concept_id",
+      "numViolatedRows": 21170,
+      "numDenominatorRows": 21170,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "observation",
+      "cdmFieldName": "observation_concept_id",
+      "numViolatedRows": 40,
+      "numDenominatorRows": 40,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     }
+    ]
+   },
+   "identical": true
+  },
+  "public-en+ja": {
+   "snapshot": "2026-10-31",
+   "site_inputs": {},
+   "tables": {
+    "patient": {
+     "rows": 268,
+     "omop_rows": 268,
+     "identical": true,
+     "first_difference": null
+    },
+    "practitioner": {
+     "rows": 2,
+     "omop_rows": 2,
+     "identical": true,
+     "first_difference": null
+    },
+    "encounter": {
+     "rows": 268,
+     "omop_rows": 268,
+     "identical": true,
+     "first_difference": null
+    },
+    "appointment": {
+     "rows": 89,
+     "omop_rows": 89,
+     "identical": true,
+     "first_difference": null
+    },
+    "condition": {
+     "rows": 149,
+     "omop_rows": 149,
+     "identical": true,
+     "first_difference": null
+    },
+    "observation": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "medication": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "procedure": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "report": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "document": {
+     "rows": 268,
+     "omop_rows": 268,
+     "identical": true,
+     "first_difference": null
+    },
+    "claim": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "site_fact": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "consent": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    }
+   },
+   "screening": {
+    "GOUT-COH": {
+     "feas_identical": true,
+     "feas": {
+      "start": 268,
+      "remaining": {
+       "GOUT-COH-INC-01": 0,
+       "GOUT-COH-INC-02": 0,
+       "GOUT-COH-INC-03": 0,
+       "GOUT-COH-INC-04": 0,
+       "GOUT-COH-INC-05": 0,
+       "GOUT-COH-INC-06": 0,
+       "GOUT-COH-INC-07": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 268,
+     "patients_evaluated": 268,
+     "verdicts": {
+      "not_met": 1064,
+      "unknown": 804,
+      "met": 8
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "GZQO": {
+     "feas_identical": true,
+     "feas": {
+      "start": 268,
+      "remaining": {
+       "GZQO-INC-01": 129,
+       "GZQO-INC-02": 0,
+       "GZQO-INC-03": 0,
+       "GZQO-INC-04": 0,
+       "GZQO-INC-06": 0,
+       "GZQO-INC-08": 0,
+       "GZQO-INC-09": 0,
+       "GZQO-EXC-01": 0,
+       "GZQO-EXC-02": 0,
+       "GZQO-EXC-03": 0,
+       "GZQO-EXC-04": 0,
+       "GZQO-EXC-05": 0,
+       "GZQO-EXC-06": 0,
+       "GZQO-EXC-07": 0,
+       "GZQO-EXC-08": 0,
+       "GZQO-EXC-09": 0,
+       "GZQO-EXC-10": 0,
+       "GZQO-EXC-13": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 268,
+     "patients_evaluated": 268,
+     "verdicts": {
+      "met": 203,
+      "not_met": 2818,
+      "unknown": 1803
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "ONC-OSI": {
+     "feas_identical": true,
+     "feas": {
+      "start": 268,
+      "remaining": {
+       "ONC-OSI-INC-01": 129,
+       "ONC-OSI-INC-02": 2,
+       "ONC-OSI-INC-03": 0,
+       "ONC-OSI-EXC-01": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 268,
+     "patients_evaluated": 268,
+     "verdicts": {
+      "met": 173,
+      "not_met": 1047,
+      "unknown": 388
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "RA-BIO": {
+     "feas_identical": true,
+     "feas": {
+      "start": 268,
+      "remaining": {
+       "RA-BIO-INC-01": 129,
+       "RA-BIO-INC-02": 0,
+       "RA-BIO-INC-03": 0,
+       "RA-BIO-INC-04": 0,
+       "RA-BIO-INC-05": 0,
+       "RA-BIO-INC-06": 0,
+       "RA-BIO-EXC-01": 0,
+       "RA-BIO-EXC-02": 0,
+       "RA-BIO-EXC-03": 0,
+       "RA-BIO-EXC-04": 0,
+       "RA-BIO-EXC-05": 0,
+       "RA-BIO-EXC-06": 0,
+       "RA-BIO-EXC-07": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 268,
+     "patients_evaluated": 268,
+     "verdicts": {
+      "met": 209,
+      "not_met": 3155,
+      "unknown": 1460
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "RA-COH": {
+     "feas_identical": true,
+     "feas": {
+      "start": 268,
+      "remaining": {
+       "RA-COH-INC-01": 0,
+       "RA-COH-INC-02": 0,
+       "RA-COH-INC-03": 0,
+       "RA-COH-INC-04": 0,
+       "RA-COH-INC-05": 0,
+       "RA-COH-INC-06": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 268,
+     "patients_evaluated": 268,
+     "verdicts": {
+      "not_met": 804,
+      "unknown": 804
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "EMPULSE": {
+     "feas_identical": true,
+     "feas": {
+      "start": 268,
+      "remaining": {
+       "EMPULSE-INC-01": 129,
+       "EMPULSE-INC-02": 1,
+       "EMPULSE-INC-06": 0,
+       "EMPULSE-INC-07": 0,
+       "EMPULSE-EXC-01": 0,
+       "EMPULSE-EXC-02": 0,
+       "EMPULSE-EXC-05": 0,
+       "EMPULSE-EXC-06": 0,
+       "EMPULSE-EXC-08": 0,
+       "EMPULSE-EXC-09": 0,
+       "EMPULSE-EXC-10": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 268,
+     "patients_evaluated": 268,
+     "verdicts": {
+      "met": 129,
+      "not_met": 2163,
+      "unknown": 656
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "STARRT-AKI": {
+     "feas_identical": true,
+     "feas": {
+      "start": 268,
+      "remaining": {
+       "STARRT-AKI-INC-01": 129,
+       "STARRT-AKI-INC-02": 0,
+       "STARRT-AKI-INC-03": 0,
+       "STARRT-AKI-INC-04": 0,
+       "STARRT-AKI-EXC-01": 0,
+       "STARRT-AKI-EXC-02": 0,
+       "STARRT-AKI-EXC-05": 0,
+       "STARRT-AKI-EXC-06": 0,
+       "STARRT-AKI-EXC-07": 0,
+       "STARRT-AKI-EXC-08": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 268,
+     "patients_evaluated": 268,
+     "verdicts": {
+      "met": 129,
+      "not_met": 1478,
+      "unknown": 1073
+     },
+     "patients_different": 0,
+     "first_different": []
+    }
+   },
+   "omop": {
+    "rows": {
+     "person": 268,
+     "visit_occurrence": 268,
+     "condition_occurrence": 149,
+     "drug_exposure": 0,
+     "measurement": 0,
+     "observation": 0,
+     "procedure_occurrence": 0,
+     "note": 268,
+     "death": 0,
+     "fact_relationship": 0,
+     "concept": 42,
+     "tb_record": 1314,
+     "local_concepts": 22,
+     "conflicts_open": 0
+    },
+    "dqd": {
+     "checks": 226,
+     "pass": 224,
+     "fail": 0,
+     "known": 2
+    },
+    "dqd_not_pass": [
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "condition_occurrence",
+      "cdmFieldName": "condition_concept_id",
+      "numViolatedRows": 149,
+      "numDenominatorRows": 149,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "plausibleValueLow",
+      "cdmTableName": "person",
+      "cdmFieldName": "year_of_birth",
+      "numViolatedRows": 120,
+      "numDenominatorRows": 268,
+      "status": "known",
+      "notes": "year_of_birth 0: no birth date in any source; the person is kept, because OMOP's 'drop the person' convention would exclude an unknown (D-144: unknown never excludes)"
+     }
+    ]
+   },
+   "identical": true
+  },
+  "mimic-iv-demo": {
+   "snapshot": "2026-09-30",
+   "site_inputs": {},
+   "tables": {
+    "patient": {
+     "rows": 100,
+     "omop_rows": 100,
+     "identical": true,
+     "first_difference": null
+    },
+    "practitioner": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "encounter": {
+     "rows": 415,
+     "omop_rows": 415,
+     "identical": true,
+     "first_difference": null
+    },
+    "appointment": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "condition": {
+     "rows": 4506,
+     "omop_rows": 4506,
+     "identical": true,
+     "first_difference": null
+    },
+    "observation": {
+     "rows": 26905,
+     "omop_rows": 26905,
+     "identical": true,
+     "first_difference": null
+    },
+    "medication": {
+     "rows": 17552,
+     "omop_rows": 17552,
+     "identical": true,
+     "first_difference": null
+    },
+    "procedure": {
+     "rows": 2190,
+     "omop_rows": 2190,
+     "identical": true,
+     "first_difference": null
+    },
+    "report": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "document": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "claim": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "site_fact": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    },
+    "consent": {
+     "rows": 0,
+     "omop_rows": 0,
+     "identical": true,
+     "first_difference": null
+    }
+   },
+   "screening": {
+    "GOUT-COH": {
+     "feas_identical": true,
+     "feas": {
+      "start": 100,
+      "remaining": {
+       "GOUT-COH-INC-01": 7,
+       "GOUT-COH-INC-02": 0,
+       "GOUT-COH-INC-03": 0,
+       "GOUT-COH-INC-04": 0,
+       "GOUT-COH-INC-05": 0,
+       "GOUT-COH-INC-06": 0,
+       "GOUT-COH-INC-07": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 100,
+     "patients_evaluated": 70,
+     "verdicts": {
+      "unknown": 299,
+      "not_met": 176,
+      "met": 15
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "GZQO": {
+     "feas_identical": true,
+     "feas": {
+      "start": 100,
+      "remaining": {
+       "GZQO-INC-01": 100,
+       "GZQO-INC-02": 7,
+       "GZQO-INC-03": 0,
+       "GZQO-INC-04": 0,
+       "GZQO-INC-06": 0,
+       "GZQO-INC-08": 0,
+       "GZQO-INC-09": 0,
+       "GZQO-EXC-01": 0,
+       "GZQO-EXC-02": 0,
+       "GZQO-EXC-03": 0,
+       "GZQO-EXC-04": 0,
+       "GZQO-EXC-05": 0,
+       "GZQO-EXC-06": 0,
+       "GZQO-EXC-07": 0,
+       "GZQO-EXC-08": 0,
+       "GZQO-EXC-09": 0,
+       "GZQO-EXC-10": 0,
+       "GZQO-EXC-13": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 100,
+     "patients_evaluated": 70,
+     "verdicts": {
+      "met": 107,
+      "unknown": 480,
+      "not_met": 673
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "ONC-OSI": {
+     "feas_identical": true,
+     "feas": {
+      "start": 100,
+      "remaining": {
+       "ONC-OSI-INC-01": 100,
+       "ONC-OSI-INC-02": 1,
+       "ONC-OSI-INC-03": 0,
+       "ONC-OSI-EXC-01": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 100,
+     "patients_evaluated": 70,
+     "verdicts": {
+      "met": 71,
+      "unknown": 120,
+      "not_met": 229
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "RA-BIO": {
+     "feas_identical": true,
+     "feas": {
+      "start": 100,
+      "remaining": {
+       "RA-BIO-INC-01": 100,
+       "RA-BIO-INC-02": 0,
+       "RA-BIO-INC-03": 0,
+       "RA-BIO-INC-04": 0,
+       "RA-BIO-INC-05": 0,
+       "RA-BIO-INC-06": 0,
+       "RA-BIO-EXC-01": 0,
+       "RA-BIO-EXC-02": 0,
+       "RA-BIO-EXC-03": 0,
+       "RA-BIO-EXC-04": 0,
+       "RA-BIO-EXC-05": 0,
+       "RA-BIO-EXC-06": 0,
+       "RA-BIO-EXC-07": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 100,
+     "patients_evaluated": 70,
+     "verdicts": {
+      "met": 82,
+      "unknown": 491,
+      "not_met": 687
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "RA-COH": {
+     "feas_identical": true,
+     "feas": {
+      "start": 100,
+      "remaining": {
+       "RA-COH-INC-01": 0,
+       "RA-COH-INC-02": 0,
+       "RA-COH-INC-03": 0,
+       "RA-COH-INC-04": 0,
+       "RA-COH-INC-05": 0,
+       "RA-COH-INC-06": 0
+      }
+     },
+     "feas_omop": null,
+     "patients": 100,
+     "patients_evaluated": 70,
+     "verdicts": {
+      "unknown": 312,
+      "not_met": 108
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "EMPULSE": {
+     "feas_identical": true,
+     "feas": {
+      "start": 100,
+      "remaining": {
+       "EMPULSE-INC-01": 100,
+       "EMPULSE-INC-02": 17,
+       "EMPULSE-INC-06": 3,
+       "EMPULSE-INC-07": 3,
+       "EMPULSE-EXC-01": 2,
+       "EMPULSE-EXC-02": 2,
+       "EMPULSE-EXC-05": 2,
+       "EMPULSE-EXC-06": 2,
+       "EMPULSE-EXC-08": 2,
+       "EMPULSE-EXC-09": 2,
+       "EMPULSE-EXC-10": 2
+      }
+     },
+     "feas_omop": null,
+     "patients": 100,
+     "patients_evaluated": 70,
+     "verdicts": {
+      "met": 77,
+      "not_met": 554,
+      "unknown": 139
+     },
+     "patients_different": 0,
+     "first_different": []
+    },
+    "STARRT-AKI": {
+     "feas_identical": true,
+     "feas": {
+      "start": 100,
+      "remaining": {
+       "STARRT-AKI-INC-01": 100,
+       "STARRT-AKI-INC-02": 78,
+       "STARRT-AKI-INC-03": 22,
+       "STARRT-AKI-INC-04": 7,
+       "STARRT-AKI-EXC-01": 7,
+       "STARRT-AKI-EXC-02": 7,
+       "STARRT-AKI-EXC-05": 3,
+       "STARRT-AKI-EXC-06": 3,
+       "STARRT-AKI-EXC-07": 2,
+       "STARRT-AKI-EXC-08": 2
+      }
+     },
+     "feas_omop": null,
+     "patients": 100,
+     "patients_evaluated": 70,
+     "verdicts": {
+      "met": 72,
+      "not_met": 348,
+      "unknown": 280
+     },
+     "patients_different": 0,
+     "first_different": []
+    }
+   },
+   "omop": {
+    "rows": {
+     "person": 100,
+     "visit_occurrence": 415,
+     "condition_occurrence": 4506,
+     "drug_exposure": 17552,
+     "measurement": 26905,
+     "observation": 0,
+     "procedure_occurrence": 2190,
+     "note": 0,
+     "death": 31,
+     "fact_relationship": 0,
+     "concept": 3417,
+     "tb_record": 51668,
+     "local_concepts": 3397,
+     "conflicts_open": 0
+    },
+    "dqd": {
+     "checks": 226,
+     "pass": 221,
+     "fail": 1,
+     "known": 4
+    },
+    "dqd_not_pass": [
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "visit_occurrence",
+      "cdmFieldName": "visit_concept_id",
+      "numViolatedRows": 100,
+      "numDenominatorRows": 415,
+      "status": "fail",
+      "notes": ""
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "condition_occurrence",
+      "cdmFieldName": "condition_concept_id",
+      "numViolatedRows": 4506,
+      "numDenominatorRows": 4506,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "drug_exposure",
+      "cdmFieldName": "drug_concept_id",
+      "numViolatedRows": 17552,
+      "numDenominatorRows": 17552,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "procedure_occurrence",
+      "cdmFieldName": "procedure_concept_id",
+      "numViolatedRows": 2190,
+      "numDenominatorRows": 2190,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     },
+     {
+      "checkName": "standardConceptRecordCompleteness",
+      "cdmTableName": "measurement",
+      "cdmFieldName": "measurement_concept_id",
+      "numViolatedRows": 26905,
+      "numDenominatorRows": 26905,
+      "status": "known",
+      "notes": "no standard concepts until the Athena vocabulary bundle is loaded (WS-04.2; no SNOMED, design Q2)"
+     }
+    ]
+   },
+   "identical": true
+  }
+ },
+ "seconds": {
+  "synthetic": 115.4,
+  "public": 13.4,
+  "mimic": 27.6
+ },
+ "identical": true
+}
