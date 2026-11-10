@@ -62,8 +62,8 @@ def test_no_taipei_literal_in_code_outside_settings_and_tests() -> None:
                 continue
             found += [f"{rel}:{n}" for n in _literals(f)]
     assert not found, f"a site zone in code (set it in settings: site.tz / TB_TZ, D-315): {found}"
-    for f in ("deploy/docker-compose.yml", "deploy/docker-compose.gb10.yml", "deploy/platform/base/fhir-store.yaml"):
-        assert LITERAL not in (ROOT / f).read_text(encoding="utf-8"), f
+    for name in ("deploy/docker-compose.yml", "deploy/docker-compose.gb10.yml", "deploy/platform/base/fhir-store.yaml"):
+        assert LITERAL not in (ROOT / name).read_text(encoding="utf-8"), name
 
 
 def test_the_allowlist_is_not_stale() -> None:
@@ -72,9 +72,9 @@ def test_the_allowlist_is_not_stale() -> None:
 
 
 def test_compose_refuses_to_start_hapi_without_tb_tz() -> None:
-    for f in ("deploy/docker-compose.yml", "deploy/docker-compose.gb10.yml"):
-        text = (ROOT / f).read_text(encoding="utf-8")
-        assert "-Duser.timezone=${TB_TZ:?" in text, f
+    for name in ("deploy/docker-compose.yml", "deploy/docker-compose.gb10.yml"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert "-Duser.timezone=${TB_TZ:?" in text, name
 
 
 def test_site_tz_has_no_default(monkeypatch: pytest.MonkeyPatch) -> None:

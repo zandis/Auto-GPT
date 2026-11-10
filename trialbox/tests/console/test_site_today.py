@@ -197,7 +197,8 @@ def test_an_account_ends_at_0000_the_day_after_its_end_date(zone: datetime, box:
 
 
 # ------------------------------------------------------------------------------- the zone itself: never a silent UTC
-def test_a_wrong_or_missing_site_zone_is_a_configuration_error(tmp_path: Path) -> None:
+def test_a_wrong_or_missing_site_zone_is_a_configuration_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TB_TZ", raising=False)  # tests/conftest.py sets it (D-315); this box has no zone at all
     bad = SimpleNamespace(cfg=SimpleNamespace(env=SimpleNamespace(tz="Mars/Olympus")))
     with pytest.raises(SiteZoneError, match="Mars/Olympus"):
         site_zone(bad)

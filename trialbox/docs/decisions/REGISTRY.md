@@ -135,4 +135,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
 | D-308 | reserved | T-501 | held for T-501 |
 | D-309..D-314 | reserved | — | given by the integrator to other wave cards of TB-PLAN-06; the holders write their rows |
-| D-315 | reserved | T-656 | site time zone as one setting (file) |
+| D-315 | merged | T-656 | site time zone as one setting (file) |

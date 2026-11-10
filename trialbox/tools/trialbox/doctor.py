@@ -73,6 +73,7 @@ class DoctorInputs:
     datasets_path: Path = ROOT / "eval" / "DATASETS.yaml"
     dataplat_workdir: Path | None = None
     host_tz: str | None = None  # the host's zone; None: TB_HOST_TZ, else read from /etc (check site_tz)
+    platform: bool = False  # doctor --platform: pods on a cluster, no host cron, so no host zone to compare
 
 
 def _egress() -> ModuleType:
@@ -383,7 +384,7 @@ def _host_zone(inp: DoctorInputs) -> str | None:
     given = inp.host_tz or inp.env.get("TB_HOST_TZ")
     if given:
         return given.strip()
-    if Path("/.dockerenv").exists() or os.environ.get("KUBERNETES_SERVICE_HOST"):
+    if inp.platform or Path("/.dockerenv").exists() or os.environ.get("KUBERNETES_SERVICE_HOST"):
         return None
     try:
         name = (ETC / "timezone").read_text(encoding="utf-8").strip()
@@ -448,7 +449,7 @@ def check_site_tz(inp: DoctorInputs) -> Check:
     if any(not _same_zone(first, v) for v in given.values()):
         names = ", ".join(f"{k} {v}" for k, v in given.items())
         return Check("site_tz", "FAIL", f"the site's time zone differs: {names}; records near midnight move a day")
-    unread = "" if host else "; host zone not read (set TB_HOST_TZ)"
+    unread = "" if host else ("; no host on a platform" if inp.platform else "; host zone not read (set TB_HOST_TZ)")
     return Check("site_tz", "PASS", f"{first} ({', '.join(given)}){unread}")
 
 

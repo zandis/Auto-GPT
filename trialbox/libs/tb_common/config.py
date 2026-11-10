@@ -257,6 +257,11 @@ class Config:
     env: Env
     settings: Settings
 
+    def __post_init__(self) -> None:
+        # an env without TB_TZ takes the site's zone from site.tz, wherever the Config is built (D-315)
+        if not self.env.tz and self.settings.site.tz:
+            object.__setattr__(self, "env", Env(**{**self.env.__dict__, "tz": self.settings.site.tz}))
+
 
 def load(dotenv: Path | None = None, settings_path: Path | None = None) -> Config:
     """Load and validate the full configuration (SPEC §10.4 ``tb_common.config.load()``)."""
