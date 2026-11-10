@@ -16,7 +16,7 @@ KEYS = [k for k in EN if k.startswith(("admin.refdata", "admin.attrib", "admin.n
 
 
 def test_the_strings_exist_in_three_languages() -> None:
-    assert len(KEYS) == 12
+    assert len(KEYS) == 14  # D-170 added the version and the sha256
     for k in KEYS:
         assert JA[k] and ZH[k] and JA[k] != EN[k] and ZH[k] != EN[k]
     assert "{pack}" in JA["admin.refdata.asof"] and "{pack}" in ZH["admin.refdata.asof"]
@@ -43,5 +43,13 @@ def test_the_tile_and_the_sources_page(box: dict[str, Any], db_url: str, tmp_pat
         assert f'data-testid="notice-{s["id"]}"' in notice
     assert "U.S. National Library of Medicine" in notice and "Open Government Data License" in notice
     assert "出典：厚生労働省" in notice  # the MHLW credit as the licence asks for it
+    # D-170: every item shows its version and the sha256 of its download; the Taiwan maps and synonyms are listed
+    for s in m["sources"]:
+        assert f'data-testid="version-{s["id"]}">{s["version"]}<' in notice
+        if len(s["parts"]) > 1:  # a download of several files: each part's own sha256 (D-170, review H3)
+            assert all(f'-{i}">{p["sha256"]}<' in notice for i, p in enumerate(s["parts"], start=1))
+        else:
+            assert f'data-testid="sha256-{s["id"]}">{s["download_sha256"]}<' in notice
+    assert "CC0 1.0" in notice and "國家教育研究院" in notice and "tw.gov.mohw.nhi.pas 1.3.0" in notice
     viewer, _ = login(box["app"], "viewer", VIEWER_PW)
     assert viewer.get("/admin/notice").status_code == 403
