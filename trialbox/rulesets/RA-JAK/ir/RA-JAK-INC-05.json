@@ -1,0 +1,22 @@
+{
+ "action": "investigator to confirm the csDMARD response",
+ "class": "human",
+ "human_question": "In the investigator's judgement, has the patient had an inadequate response to at least one conventional synthetic DMARD?",
+ "id": "RA-JAK-INC-05",
+ "kind": "inclusion",
+ "label": "csDMARD inadequate response",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-11-11T01:14:46.107743+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-JAK",
+ "source_ref": "5.1 Inclusion Criteria 納入條件 #5",
+ "text": "Inadequate response to at least one conventional synthetic DMARD, in the investigator's judgement.",
+ "time_sensitive": false
+}

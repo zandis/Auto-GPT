@@ -1,0 +1,87 @@
+id: RA-JAK
+kind: trial
+title: RA-JAK 類風濕關節炎 JAK 抑制劑第三期試驗（合成）
+trial_alias: RA-JAK
+sponsor: 合成藥業股份有限公司（虛構）
+version: 1.0.0
+status: approved
+source_documents:
+- RA-JAK_試驗計畫書_v1.pdf
+protocol_version: '1.0'
+language: zh-TW
+index_date_rule: run_date
+library: TB_RA_JAK_v1_0
+criteria:
+- RA-JAK-INC-01
+- RA-JAK-INC-02
+- RA-JAK-INC-03
+- RA-JAK-INC-04
+- RA-JAK-INC-05
+- RA-JAK-EXC-01
+- RA-JAK-EXC-02
+- RA-JAK-EXC-03
+- RA-JAK-EXC-04
+- RA-JAK-EXC-05
+- RA-JAK-EXC-06
+- RA-JAK-EXC-07
+- RA-JAK-EXC-08
+- RA-JAK-EXC-09
+- RA-JAK-EXC-10
+- RA-JAK-EXC-11
+scopes:
+  feas:
+    population: hospital
+    lookback_months: 36
+  screen:
+    practitioners:
+    - P12345
+    - P23456
+    appointment_window_days: 180
+    departments:
+    - RHEU
+    recent_encounter_months: 12
+    microbatch_window_days: 14
+routing:
+  aggregate_to:
+  - crc1@hospa.test
+  list_to:
+  - pi@hospa.test
+  - crc1@hospa.test
+thresholds:
+  tier_high_confidence: 0.75
+  small_cell: 5
+models:
+  judge: qwen3.5-35b-a3b-q4
+  judge_prompt: judge_v4
+review:
+  approved_by: crc1@hospa.test
+  approved_at: '2026-11-11T01:14:46.107743+08:00'
+  approved_via: e-mail
+  rounds: 1
+  split:
+    structured: 12
+    mixed: 2
+    note: 0
+    human: 2
+  routing_confirmed: true
+equivalence:
+  overall_pct: 100.0
+  sample_size: 675
+  per_criterion:
+    RA-JAK-EXC-01: 100.0
+    RA-JAK-EXC-02: 100.0
+    RA-JAK-EXC-04: 100.0
+    RA-JAK-EXC-05: 100.0
+    RA-JAK-EXC-06: 100.0
+    RA-JAK-EXC-07: 100.0
+    RA-JAK-EXC-08: 100.0
+    RA-JAK-EXC-09: 100.0
+    RA-JAK-EXC-10: 100.0
+    RA-JAK-EXC-11: 100.0
+    RA-JAK-INC-01: 100.0
+    RA-JAK-INC-02: 100.0
+    RA-JAK-INC-03: 100.0
+    RA-JAK-INC-04: 100.0
+  failing: []
+  evaluated_at: '2026-11-11T01:14:46.107743+08:00'
+terminology_release: TR-d7399b879108

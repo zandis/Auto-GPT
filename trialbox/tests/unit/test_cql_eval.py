@@ -1,0 +1,39 @@
+"""tools/cql_eval.py (T-504, D-321): the local CQL engine answers as the HAPI FHIR 8.12 recordings do.
+
+The engine needs a JDK and its jars (``python -m tools.cql_eval --fetch``); without them only the pure parts run.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from tools import cql_eval
+
+
+def test_patient_references_are_found_anywhere_in_a_resource() -> None:
+    r = {"resourceType": "Observation", "subject": {"reference": "Patient/p-1"},
+         "performer": [{"reference": "Practitioner/x"}], "focus": [{"reference": "Patient/p-2"}]}  # fmt: skip
+    assert cql_eval._patient_refs(r) == {"p-1", "p-2"}
+    assert cql_eval._patient_refs({"resourceType": "ValueSet", "id": "v"}) == set()
+
+
+def test_the_engine_is_reported_missing_not_guessed(monkeypatch: pytest.MonkeyPatch, tmp_path: object) -> None:
+    monkeypatch.setattr(cql_eval, "LIB", tmp_path)
+    assert not cql_eval.available()
+    with pytest.raises(RuntimeError, match="--fetch"):
+        cql_eval.run([], "X", "1.0.0", __import__("datetime").date(2026, 11, 2), ["A"], ["p"])
+
+
+@pytest.mark.skipif(not cql_eval.available(), reason="local CQL engine not fetched (python -m tools.cql_eval --fetch)")
+def test_the_engine_reproduces_the_hapi_recording_of_ra_coh() -> None:
+    agree, total, bad = cql_eval.check("RA-COH")
+    assert total >= 1200 and agree == total, bad[:5]
+
+
+def test_ra_jak_records_its_engine_and_known_differences() -> None:
+    exp = json.loads((cql_eval.ROOT / "rulesets/RA-JAK/tests/expected.json").read_text(encoding="utf-8"))
+    assert exp["engine"] == cql_eval.ENGINE
+    assert set(exp["agreement"]["known_differences"]) == {"RA-JAK-INC-04", "RA-JAK-EXC-11"}
+    assert all("D-321" in v for v in exp["agreement"]["known_differences"].values())

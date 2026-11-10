@@ -437,7 +437,7 @@ def test_dqd_passes_on_the_loaded_site_and_catches_a_broken_reference(feed_dir: 
 def test_every_committed_ruleset_screens_the_same_on_both_lakes(feed_dir: Path, db_url: str, tmp_path: Path) -> None:
     from tools import omop_parity as op
 
-    assert len(op.RULESETS) == 9  # T-503 added AD-MAB and NEUR-COH
+    assert len(op.RULESETS) == 10  # T-503 added AD-MAB and NEUR-COH, T-504 RA-JAK
     ds = op.DataSet("site-a", feed_dir, _site(feed_dir), SNAP, date(2026, 10, 5), "Asia/Taipei")
     lakes = op.build_lakes(ds, tmp_path, db_url)
     tables = op.compare_tables(lakes, SNAP)
@@ -460,6 +460,7 @@ def test_every_committed_ruleset_screens_the_same_on_both_lakes(feed_dir: Path, 
         "STARRT-AKI",
         "AD-MAB",
         "NEUR-COH",
+        "RA-JAK",
     }
     for rid, r in res.items():
         assert r["feas_identical"] and r["patients_different"] == 0, (rid, r)

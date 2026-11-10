@@ -1,0 +1,24 @@
+{
+ "class": "structured",
+ "id": "RA-JAK-INC-01",
+ "kind": "inclusion",
+ "label": "Age 18-75",
+ "logic": {
+  "age": {
+   "max": 75.0,
+   "min": 18.0
+  },
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-11-11T01:14:46.107743+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-JAK",
+ "source_ref": "5.1 Inclusion Criteria 納入條件 #1",
+ "text": "Aged 18 to 75 years at screening.",
+ "time_sensitive": false
+}

@@ -1,0 +1,32 @@
+{
+ "action": "order creatinine",
+ "class": "structured",
+ "id": "RA-JAK-EXC-11",
+ "kind": "exclusion",
+ "label": "eGFR <40",
+ "logic": {
+  "derived": "egfr",
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 40.0,
+   "op": "<",
+   "unit": "mL/min/{1.73_m2}"
+  },
+  "valueset": "VS_EGFR_COMPONENTS",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-11-11T01:14:46.107743+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-JAK",
+ "source_ref": "5.2 Exclusion Criteria 排除條件 #11",
+ "text": "Estimated GFR below 40 mL/min/1.73 m² (CKD-EPI 2021) at screening.",
+ "time_sensitive": false
+}

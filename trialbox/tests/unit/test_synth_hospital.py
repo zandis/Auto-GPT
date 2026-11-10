@@ -10,7 +10,7 @@ from pathlib import Path
 from tools.synth.generator import RATES, Generator, generate, tw_id_valid
 from tools.synth.lang import Lang, roc_year, wareki
 from tools.synth.reserved import is_reserved
-from tools.synth_hospital import AD_SLOTS, SLOTS, note_criteria, run
+from tools.synth_hospital import AD_SLOTS, RAJAK_SLOTS, SLOTS, note_criteria, run
 
 ROOT = Path(__file__).resolve().parents[2]
 REF = date(2026, 11, 1)
@@ -65,7 +65,7 @@ def test_gold_offsets_findings_and_phi_spans() -> None:
             if s["type"] == "chart":
                 assert span == gn["mrn"]
             phi_types.add(s["type"])
-    assert crits == set(SLOTS) - set(AD_SLOTS)  # the ad archetype is only on the jp-ad site (T-503)
+    assert crits == set(SLOTS) - set(AD_SLOTS) - set(RAJAK_SLOTS)  # ad: jp-ad only (T-503); rajak: tw-ra (T-504)
     assert {"name", "date", "chart", "phone", "address"} <= phi_types
     # TW national IDs never carry a valid check digit in gold mode
     assert not any(tw_id_valid(r["id_no"]) for r in data.tables["patient"])

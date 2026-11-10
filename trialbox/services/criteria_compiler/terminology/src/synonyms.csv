@@ -125,3 +125,15 @@ medication,抗凝固薬,atc,B01AE,prefix
 medication,抗凝固薬,atc,B01AF,prefix
 encounter,memory clinic visit,department,NEUR,exact
 encounter,memory clinic visit,department,PSY,exact
+condition,herpes zoster,icd10cm,B02,prefix
+condition,帶狀皰疹,icd10cm,B02,prefix
+condition,venous thromboembolism,icd10cm,I26,prefix
+condition,venous thromboembolism,icd10cm,I82.4,prefix
+condition,venous thromboembolism,icd10cm,I82.5,prefix
+condition,靜脈血栓栓塞,icd10cm,I26,prefix
+condition,靜脈血栓栓塞,icd10cm,I82.4,prefix
+condition,靜脈血栓栓塞,icd10cm,I82.5,prefix
+medication,biologic dmard or jak inhibitor,atc,L04AB,prefix
+medication,biologic dmard or jak inhibitor,atc,L04AC07,exact
+medication,biologic dmard or jak inhibitor,atc,L04AF,prefix
+medication,jak inhibitor,atc,L04AF,prefix

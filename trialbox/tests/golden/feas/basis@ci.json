@@ -1,13 +1,13 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "5b31ff48d3df539a42b2d482bc405f74e0d2a3d4",
+  "head": "3dc4b7d24b34ac9221e21b1d051e6d56198c4a7a",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: adds the goldens of the new AD-MAB and NEUR-COH rulesets (T-503); no existing value moves",
+  "reason": "D-321: T-504 adds the RA-JAK ruleset",
   "ref_date": "2026-11-01",
   "seed": 42,
-  "written_with_source": "legacy"
+  "written_with_source": "legacy+omop"
  },
  "rulesets": {
   "AD-MAB": {
@@ -1232,6 +1232,214 @@
       "RA-COH-INC-06": {
        "coded": 0,
        "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    }
+   }
+  },
+  "RA-JAK": {
+   "ruleset_version": "1.0.0",
+   "sets": {
+    "public-en": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "synthetic-jp-a": {
+     "basis": {
+      "RA-JAK-EXC-01": {
+       "coded": 202,
+       "confirmed": 3,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-02": {
+       "coded": 161,
+       "confirmed": 3,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-04": {
+       "coded": 153,
+       "confirmed": 2,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-05": {
+       "coded": 153,
+       "confirmed": 2,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-08": {
+       "coded": 147,
+       "confirmed": 1,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-09": {
+       "coded": 141,
+       "confirmed": 1,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-10": {
+       "coded": 137,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-JAK-EXC-11": {
+       "coded": 137,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-JAK-INC-01": {
+       "coded": 2158,
+       "confirmed": 14,
+       "proposed": 5
+      },
+      "RA-JAK-INC-02": {
+       "coded": 490,
+       "confirmed": 3,
+       "proposed": 19
+      },
+      "RA-JAK-INC-03": {
+       "coded": 371,
+       "confirmed": 3,
+       "proposed": 19
+      },
+      "RA-JAK-INC-04": {
+       "coded": 288,
+       "confirmed": 3,
+       "proposed": 19
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-jp-a-deletes": {
+     "basis": {
+      "RA-JAK-EXC-01": {
+       "coded": 139,
+       "confirmed": 2,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-02": {
+       "coded": 116,
+       "confirmed": 2,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-04": {
+       "coded": 109,
+       "confirmed": 1,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-05": {
+       "coded": 108,
+       "confirmed": 1,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-08": {
+       "coded": 105,
+       "confirmed": 1,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-09": {
+       "coded": 101,
+       "confirmed": 1,
+       "proposed": 19
+      },
+      "RA-JAK-EXC-10": {
+       "coded": 97,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-JAK-EXC-11": {
+       "coded": 97,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-JAK-INC-01": {
+       "coded": 2152,
+       "confirmed": 18,
+       "proposed": 5
+      },
+      "RA-JAK-INC-02": {
+       "coded": 475,
+       "confirmed": 4,
+       "proposed": 19
+      },
+      "RA-JAK-INC-03": {
+       "coded": 355,
+       "confirmed": 3,
+       "proposed": 19
+      },
+      "RA-JAK-INC-04": {
+       "coded": 206,
+       "confirmed": 2,
+       "proposed": 19
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-tw-a": {
+     "basis": {
+      "RA-JAK-EXC-01": {
+       "coded": 194,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-JAK-EXC-02": {
+       "coded": 155,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-JAK-EXC-04": {
+       "coded": 151,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-JAK-EXC-05": {
+       "coded": 150,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-JAK-EXC-08": {
+       "coded": 139,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-JAK-EXC-09": {
+       "coded": 135,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-JAK-EXC-10": {
+       "coded": 134,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-JAK-EXC-11": {
+       "coded": 134,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "RA-JAK-INC-01": {
+       "coded": 2133,
+       "confirmed": 14,
+       "proposed": 6
+      },
+      "RA-JAK-INC-02": {
+       "coded": 491,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-JAK-INC-03": {
+       "coded": 364,
+       "confirmed": 1,
+       "proposed": 20
+      },
+      "RA-JAK-INC-04": {
+       "coded": 279,
+       "confirmed": 1,
        "proposed": 20
       }
      },

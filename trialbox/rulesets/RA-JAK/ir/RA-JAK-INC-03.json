@@ -1,0 +1,30 @@
+{
+ "action": "confirm the methotrexate dose has been stable for 8 weeks",
+ "class": "structured",
+ "id": "RA-JAK-INC-03",
+ "kind": "inclusion",
+ "label": "MTX ≥3 months",
+ "logic": {
+  "domain": "medication",
+  "duration": {
+   "gap_days": 30,
+   "min_days": 90
+  },
+  "quantifier": "any",
+  "valueset": "VS_METHOTREXATE",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-11-11T01:14:46.107743+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-JAK",
+ "source_ref": "5.1 Inclusion Criteria 納入條件 #3",
+ "text": "Methotrexate for at least 3 months before screening (refills no more than 30 days apart).",
+ "time_sensitive": false
+}

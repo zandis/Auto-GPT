@@ -1,0 +1,31 @@
+{
+ "action": "record a DAS28 with all four components",
+ "class": "structured",
+ "id": "RA-JAK-INC-04",
+ "kind": "inclusion",
+ "label": "DAS28 ≥3.2",
+ "logic": {
+  "derived": "das28",
+  "domain": "observation",
+  "quantifier": "latest",
+  "value": {
+   "num": 3.2,
+   "op": ">="
+  },
+  "valueset": "VS_DAS28_COMPONENTS",
+  "window": {
+   "anchor": "index",
+   "from_days": -90,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-11-11T01:14:46.107743+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-JAK",
+ "source_ref": "5.1 Inclusion Criteria 納入條件 #4",
+ "text": "DAS28 (CRP or ESR) of 3.2 or more within 90 days before screening.",
+ "time_sensitive": false
+}
