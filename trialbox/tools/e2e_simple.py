@@ -1308,12 +1308,13 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     ends = month_ends(fj.run_date or box.orch.today(), 36)
     lo, ref = add_months(ends[0], -1).isoformat(), ends[-1]
     with (hosp / "encounter.csv").open(encoding="utf-8") as fh:
-        seen = {r["mrn"] for r in csv.DictReader(fh) if lo <= r["visit_datetime"][:10] <= ref.isoformat()}
-    adults = {p["mrn"] for p in patients if p["mrn"] in seen and _age(p["birth_date"], ref) >= 18}
+        in_window = {r["mrn"] for r in csv.DictReader(fh) if lo <= r["visit_datetime"][:10] <= ref.isoformat()}
+    adults = {p["mrn"] for p in patients if p["mrn"] in in_window and _age(p["birth_date"], ref) >= 18}
     gout = {
         r["mrn"] for r in csv.DictReader((hosp / "diagnosis.csv").open(encoding="utf-8")) if r["icd10"].startswith(GOUT)
     }
-    s.check("start = every patient seen in 36 months", raw["start_n"] == len(seen), (raw["start_n"], len(seen)))
+    s.check("start = every patient seen in 36 months", raw["start_n"] == len(in_window),
+            (raw["start_n"], len(in_window)))  # fmt: skip
     s.check(
         "INC-01 age >= 18 = recount from patient.csv",
         raw["remaining"]["GZQO-INC-01"] == len(adults),
