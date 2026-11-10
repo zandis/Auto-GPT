@@ -895,8 +895,9 @@ class _DockerImages:
         for tar in sorted(p for p in img.rglob("*") if p.is_file()) if img.is_dir() else []:
             configs, manifests = tar_images(tar)
             tags = sorted(configs)
-            if plan.release is not None and not (set(tags) & set(pins)):
-                raise UpdateFailed(f"image {tar.name}: its tags {tags} are not pinned by release.json")
+            unpinned = [t for t in tags if t not in pins]
+            if plan.release is not None and (not tags or unpinned):  # every tag it would move is checked
+                raise UpdateFailed(f"image {tar.name}: tags {unpinned or tags} are not pinned by release.json")
             for tag in tags:  # before loading: the archive's config digest is the pin (D-210)
                 if tag in pins and configs[tag] != pins[tag]:
                     raise UpdateFailed(f"image {tar.name}: {tag} has config {configs[tag] or '(none)'}, "
@@ -943,6 +944,7 @@ class ComposeBox(_DockerImages):
             os.environ.get("TB_COMPOSE") or f"docker compose --project-directory {shlex.quote(str(deploy))}"
         )
         self.models = Path(os.environ.get("TB_MODELS_DIR") or deploy / "models")
+        self.docker = shlex.split(os.environ.get("TB_DOCKER") or "docker")
 
     def _c(self, *args: str) -> list[str]:
         return [*self.compose, *args]
@@ -954,12 +956,17 @@ class ComposeBox(_DockerImages):
             return False
 
     def data_volumes(self) -> list[str]:
-        """The compose project's volumes (``compose volumes -q``): a box that has run has them. [] when compose
-        cannot tell."""
+        """The compose project's volumes, by Docker's own label (no compose file is read): a box that has run has
+        them. Fails closed: when Docker cannot answer, the box counts as holding data (refused while stopped),
+        unless it has no deploy at all (no ``docker-compose.yml``: nothing was ever installed here)."""
+        project = os.environ.get("COMPOSE_PROJECT_NAME") or self.env.get("COMPOSE_PROJECT_NAME") or "trialbox"
         try:
-            return self.run(self._c("volumes", "-q")).split()
-        except (UpdateFailed, OSError):
-            return []
+            return self.run([*self.docker, "volume", "ls", "-q", "--filter",
+                             f"label=com.docker.compose.project={project}"]).split()  # fmt: skip
+        except (UpdateFailed, OSError) as exc:
+            if not (self.deploy / "docker-compose.yml").is_file():
+                return []
+            return [f"(docker volume ls failed: {str(exc)[:80]}; counted as data)"]
 
     def _dump(self, db: str, user: str, out: Path) -> None:
         self.run(self._c("exec", "-T", "db", "pg_dump", "-Fc", "--no-owner", "-U", user, "-d", db), stdout_file=out)
@@ -1237,6 +1244,7 @@ class DemoBox(_DockerImages):
         self.run_script = Path(os.environ.get("TB_DEMO_RUN", "/etc/trialbox-demo/run.sh"))
         self.wait_url = wait_url
         self.models = Path(os.environ.get("TB_MODELS_DIR") or deploy / "models")
+        self.docker = shlex.split(os.environ.get("TB_DOCKER") or "docker")
 
     def running(self) -> bool:
         try:
@@ -1556,7 +1564,11 @@ def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backu
     plan = Plan.load(stage, summary)
     updates = deploy / "updates"
     box: ComposeBox | DemoBox = DemoBox(deploy) if target == "demo" else ComposeBox(deploy)
-    inst = us.installed(updates)
+    try:
+        inst = us.installed(updates)
+    except ValueError as exc:  # a malformed record: never guessed
+        print(f"update REFUSED: {updates / us.INSTALLED} is unreadable ({exc}); RUNBOOK §5; nothing was changed")
+        return 1
     if inst.get("manifest_sha256") == plan.manifest_sha256 and us.marker(updates) is None:
         print(f"update {plan.bundle_id}: already installed (same manifest); nothing to do")
         return 0
