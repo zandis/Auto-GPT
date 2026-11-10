@@ -33,7 +33,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from console import s28
+from console import demo_guard, s28
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
 from console.home import Helpers
@@ -415,6 +415,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.post("/site/charts")
     async def charts_post(request: Request) -> Response:
         sess = h.need(request)
+        demo_guard.guard(request, h.problem)  # T-502: no pasted chart text or chart file in demo mode
         form = await request.form()
         if not h.csrf_ok(sess, str(form.get("csrf") or "")):
             raise h.problem(400, "csrf")
@@ -521,6 +522,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         up = form.get("file")
         try:
             if up is not None and not isinstance(up, str) and getattr(up, "filename", None):
+                demo_guard.guard(request, h.problem)  # T-502: no upload in demo mode
                 need_change(sess, "/site/codes")
                 data = await up.read(MAX_UPLOAD + 1)
                 post(f"/setup/{w}/codes/sheet", {"b64": base64.b64encode(data).decode("ascii"), "by": h.actor(sess)})
@@ -610,6 +612,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 up = form.get("file")
                 if up is None or isinstance(up, str) or not getattr(up, "filename", None):
                     return RedirectResponse(f"/site/sheets?{q(w, rs, err='SETUP-FILE')}", status_code=303)
+                demo_guard.guard(request, h.problem)  # T-502: no upload in demo mode
                 data = await up.read(MAX_UPLOAD + 1)
                 kind = "dump" if str(form.get("kind") or "") == "dump" else "sheet"
                 post(
@@ -814,6 +817,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.post("/api/v1/site/charts", response_model=None)
     def api_chart(request: Request, body: ApiChart, ws: str = "main") -> Any:
         sess = api_session(request)
+        demo_guard.guard(request, h.problem)  # T-502: no chart text in demo mode
         data = base64.b64decode(body.b64) if body.b64 else None
         try:
             return act_chart(sess, ws_of(ws), body.chart_no, body.text, body.name, data)

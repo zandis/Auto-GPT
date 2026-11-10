@@ -31,6 +31,7 @@ EN: dict[str, str] = {
     "flags.err.store": "The flags cannot be read just now. Nothing was changed; try again in a minute.",
     "flags.err.stale": "{flag} was changed by someone else meanwhile (it is now {now}). Nothing was changed; look again before you change it.",
     "flags.err.same": "{flag} is already {value}. Nothing was changed.",
+    "flags.desc.demo.mode": "Demonstration mode for the proof of concept: on refuses uploads and pasted chart text, shows the synthetic-data banner on every page and asks each account to accept the acknowledgement once.",
     "flags.desc.lake.source": "Where the screening lake's rows come from at the next rebuild: legacy (flattened from the hospital's snapshot) or omop (exported from the OMOP store of record).",
 }
 
@@ -61,6 +62,7 @@ JA: dict[str, str] = {
     "flags.err.store": "いまフラグを読み込めません。変更はしていません。少し待ってからもう一度お試しください。",
     "flags.err.stale": "{flag} はその間に別の人が変更しました（現在は {now}）。変更はしていません。もう一度確認してから変更してください。",
     "flags.err.same": "{flag} はすでに {value} です。変更はしていません。",
+    "flags.desc.demo.mode": "概念実証用のデモモード：on にするとアップロードとカルテ本文の貼り付けを受け付けず、すべてのページに合成データの表示を出し、各アカウントに確認事項への同意を一度求めます。",
     "flags.desc.lake.source": "次の再構築でスクリーニング用レイクの行をどこから作るか：legacy（病院のスナップショットを展開）または omop（OMOP の記録用ストアから書き出し）。",
 }
 
@@ -91,5 +93,6 @@ ZH: dict[str, str] = {
     "flags.err.store": "目前無法讀取旗標。未做任何變更，請稍候再試。",
     "flags.err.stale": "{flag} 在此期間已被他人變更（目前為 {now}）。未做任何變更，請重新確認後再變更。",
     "flags.err.same": "{flag} 已經是 {value}。未做任何變更。",
+    "flags.desc.demo.mode": "概念驗證展示模式：設為 on 時拒絕上傳與貼上病歷文字，每一頁顯示合成資料橫幅，並請每個帳號接受一次確認聲明。",
     "flags.desc.lake.source": "下一次重建時篩選用資料湖的資料來源：legacy（展開醫院的快照）或 omop（從 OMOP 記錄庫匯出）。",
 }
