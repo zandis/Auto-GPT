@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{# EDC prefill (D-160): every draft, decision, signature and send of one subject, oldest first. #}
+{% block title %}{{ t('edc.trail.title') }} · {{ record }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ rs }} · {{ t('edc.trail.title') }} · <span class="mono">{{ record }}</span></h1></div>
+{% include "_edc_nav.html" %}
+<p class="hint">{{ t('edc.trail.help') }}</p>
+<section class="card"><h2>{{ t('edc.trail.decisions') }}</h2>
+{% if not trail.decisions %}<p class="empty">–</p>{% else %}<div class="scroll" tabindex="0"><table class="candidates" data-testid="trail-decisions">
+<thead><tr><th>{{ t('edc.trail.when') }}</th><th>{{ t('edc.trail.who') }}</th><th>{{ t('edc.col.visit') }}</th><th>{{ t('edc.col.item') }}</th><th>{{ t('edc.col.action') }}</th><th>{{ t('edc.trail.old') }}</th><th>{{ t('edc.trail.new') }}</th><th>{{ t('edc.review.reason') }}</th></tr></thead>
+<tbody>{% for x in trail.decisions %}<tr><td class="nowrap">{{ x.at|local }}</td><td>{{ x.by_user }}</td><td class="mono">{{ x.visit }}</td><td class="mono">{{ x.item }}</td><td>{{ t('edc.action.' + x.action) }}</td><td>{{ x.old if x.old is not none else '–' }}</td><td>{{ x.new if x.new is not none else '–' }}</td><td>{{ x.reason or '' }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+<section class="card"><h2>{{ t('edc.trail.signatures') }}</h2>
+{% if not trail.signatures %}<p class="empty">–</p>{% else %}<ul class="plain" data-testid="trail-signatures">{% for s in trail.signatures %}<li>{{ s.at|local }} · <strong>{{ s.printed_name }}</strong> ({{ s.signer }}, {{ t('role.' + s.role) }}) · <span class="mono">{{ s.visit }}</span> · {{ s.meaning_text }} <span class="hint mono">{{ s.content_sha[:12] }}</span></li>{% endfor %}</ul>{% endif %}
+</section>
+<section class="card"><h2>{{ t('edc.trail.sent') }}</h2>
+{% if not trail.sent %}<p class="empty">–</p>{% else %}<div class="scroll" tabindex="0"><table class="candidates" data-testid="trail-sent">
+<thead><tr><th>{{ t('edc.trail.when') }}</th><th>{{ t('edc.trail.who') }}</th><th>{{ t('edc.col.visit') }}</th><th>{{ t('edc.col.item') }}</th><th>{{ t('edc.col.value') }}</th><th>{{ t('edc.trail.result') }}</th></tr></thead>
+<tbody>{% for x in trail.sent %}<tr><td class="nowrap">{{ x.at|local }}</td><td>{{ x.by_user }}</td><td class="mono">{{ x.visit }}</td><td class="mono">{{ x.item }}</td><td>{{ x.value }}</td><td>{{ t('edc.result.' + x.result) }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+<section class="card"><h2>{{ t('edc.trail.drafts') }}</h2>
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="trail-drafts">
+<thead><tr><th>{{ t('edc.trail.when') }}</th><th>{{ t('edc.trail.who') }}</th><th>{{ t('edc.col.visit') }}</th><th>{{ t('edc.col.item') }}</th><th>{{ t('edc.col.value') }}</th><th>{{ t('edc.col.fate') }}</th><th>{{ t('edc.trail.version') }}</th></tr></thead>
+<tbody>{% for x in trail.drafts %}<tr><td class="nowrap">{{ x.built_at|local }}</td><td>{{ x.built_by }}</td><td class="mono">{{ x.visit }}</td><td class="mono">{{ x.item }}</td><td>{{ x.value or ('– ' + t('edc.why.' + x.why) if x.why else '–') }}</td><td>{{ t('edc.fate.' + x.fate) }}</td><td class="mono hint">{{ x.version }}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

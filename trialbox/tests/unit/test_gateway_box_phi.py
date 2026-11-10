@@ -106,8 +106,8 @@ def test_install_pins_the_profile_pair_once_and_reports_missing_weights(tmp_path
     assert again == (True, [f"{JUDGE}: already pinned", f"{VERIFIER}: already pinned"])
     reg = Registry.from_env({"TB_REGISTRY_OVERRIDE": str(out)})
     for alias, endpoint, served in (
-        ("j-workhorse", "serving", "gemma-4-26b-a4b-it"),
-        ("v-verifier", "verifier", "qwen3.5-9b"),
+        ("j-workhorse", "serving", "local/gemma-4-26b-a4b-nvfp4"),
+        ("v-verifier", "verifier", "local/qwen3.5-9b-awq"),
     ):
         res = reg.resolve(alias, endpoint, role="judge", env=Environment.PRODUCTION)
         assert res.served_name == served  # the name compose gives vLLM (--served-model-name)

@@ -38,7 +38,8 @@ import pyarrow.parquet as pq
 from embed_service.embedder import Embedder
 from tb_common.crypto import sha256_text
 
-from lake.flatten import SCHEMAS, Flattener
+from lake.flatten import SCHEMAS
+from lake.source import lake_rows
 from lake.textproc import chunk, token_string
 
 log = logging.getLogger("lake")
@@ -300,11 +301,14 @@ class Lake:
             with f.open(encoding="utf-8") as fh:
                 by_type[f.stem] = [json.loads(line) for line in fh if line.strip()]
         # D-135: the site's own inputs (sheets, dumps, charts; ``put_site``) join every snapshot built here
+        site: dict[str, list[dict[str, Any]]] = {}
         for f in sorted((self.dir / "site").glob("*.ndjson")):
             with f.open(encoding="utf-8") as fh:
-                by_type.setdefault(f.stem, []).extend(json.loads(line) for line in fh if line.strip())
-        rows = Flattener(self.tz).flatten(by_type)
+                site.setdefault(f.stem, []).extend(json.loads(line) for line in fh if line.strip())
+        # D-151: flattened from the NDJSON (TB_LAKE_SOURCE=legacy) or exported from the OMOP store (omop)
+        rows = lake_rows(by_type, site, tz=self.tz, snapshot=snapshot, lake_dir=self.dir)
         by_type.clear()  # the flat rows replace the resources; free them before the embedding pass
+        site.clear()
         counts = {name: len(rows[name]) for name in SCHEMAS}
         pdir = self.dir / "parquet" / f"snapshot={snapshot}"
         pdir.mkdir(parents=True, exist_ok=True)

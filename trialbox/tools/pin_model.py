@@ -149,13 +149,34 @@ def pin(
     manifest_path = out.parent / "manifests" / f"{build_id}.sha256"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(m.text, encoding="utf-8")
+    _write_override(out, doc)
+    return m, out
+
+
+def _write_override(out: Path, doc: dict[str, Any]) -> None:
     header = (
         "# Site registry override (tools/pin_model.py). Not committed: pins of this box's model builds only.\n"
         "# The gateway reads it through TB_REGISTRY_OVERRIDE; re-check the weights with `python -m tools.pin_model"
         " --verify`.\n"
     )
     out.write_text(header + yaml.safe_dump(doc, sort_keys=True, allow_unicode=True), encoding="utf-8")
-    return m, out
+
+
+def set_served(build_id: str, endpoint: str, served_name: str, out: Path = DEFAULT_OVERRIDE) -> None:
+    """Change the served name of a build already pinned in ``out``; its weights and sha256 stay as pinned. The gateway
+    sends this name as each request's ``model`` and checks that the upstream echoes it (MOD-6)."""
+    from registry.registry import DEFAULT_PATH, Registry, apply_override
+
+    if not served_name:
+        raise PinError("a served name is required (vLLM --served-model-name)")
+    doc = load_override(out)
+    entry = doc["builds"].get(build_id)
+    if not entry:
+        raise PinError(f"{build_id} is not pinned in {out}")
+    entry["served"] = {**(entry.get("served") or {}), endpoint: served_name}
+    committed = yaml.safe_load(DEFAULT_PATH.read_text(encoding="utf-8")) or {}
+    Registry(apply_override(committed, doc))  # validates the merged registry; raises before writing
+    _write_override(out, doc)
 
 
 def verify(build_id: str, model_dir: Path, out: Path = DEFAULT_OVERRIDE) -> tuple[bool, str]:
@@ -201,28 +222,35 @@ def verify_all(models_root: Path, out: Path = DEFAULT_OVERRIDE) -> tuple[bool, l
     return ok, lines
 
 
+# The pair's served names (vLLM --served-model-name), one per model on every path: every GPU profile's compose default,
+# the measured serving records (deploy/measured/serving_config.<gpu>.json), the cloud runs (deploy/gcp/*.sh) and
+# tools/complete_run.py. A pin with any other name makes vLLM answer 404 to every call the gateway sends (the first
+# complete run, 2026-11-09: compose said gemma-4-26b-a4b-it, the card served local/gemma-4-26b-a4b-nvfp4).
+JUDGE_SERVED = "local/gemma-4-26b-a4b-nvfp4"
+VERIFIER_SERVED = "local/qwen3.5-9b-awq"
+
 # D-142 (review R-01): the pair each GPU profile's compose file serves, as (build, endpoint, model dir variable and
 # default, served-name variable and default). ``install_pins`` pins it from the site's own weights at install.
 PROFILE_PAIRS: dict[str, list[tuple[str, str, str, str, str, str]]] = {
     "rtxpro6000": [
         ("gemma-4-26b-a4b-it-rtxpro6000", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
-         "gemma-4-26b-a4b-it"),
+         JUDGE_SERVED),
         ("qwen3.5-9b-rtxpro6000", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL",
-         "qwen3.5-9b"),
+         VERIFIER_SERVED),
     ],
     "gb10": [
         ("gemma-4-26b-a4b-it-spark", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
-         "gemma-4-26b-a4b-it"),
-        ("qwen3.5-9b-spark", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL", "qwen3.5-9b"),
+         JUDGE_SERVED),
+        ("qwen3.5-9b-spark", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL", VERIFIER_SERVED),
     ],
     "rtx5090": [
         ("gemma-4-26b-a4b-it-rtx5090", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
-         "gemma-4-26b-a4b-it"),
-        ("qwen3.5-9b-rtx5090", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL", "qwen3.5-9b"),
+         JUDGE_SERVED),
+        ("qwen3.5-9b-rtx5090", "verifier", "VERIFIER_MODEL_DIR", "qwen3.5-9b-4bit", "VERIFIER_MODEL", VERIFIER_SERVED),
     ],
     "rtx4090": [  # judge alone (the verifier is scaled to 0; TB_NOTE_BLOCK=never)
         ("gemma-4-26b-a4b-it-rtx5090", "serving", "JUDGE_MODEL_DIR", "gemma-4-26b-a4b-it-4bit", "JUDGE_MODEL",
-         "gemma-4-26b-a4b-it"),
+         JUDGE_SERVED),
     ],
 }  # fmt: skip
 
@@ -232,8 +260,10 @@ def install_pins(
 ) -> tuple[bool, list[str]]:
     """Pin the profile's deployed pair at install (D-142, review R-01): the sha256 of the site's own weights, the
     served name compose gives vLLM, and status ``champion``, the one status a PRODUCTION route accepts (the pair is the
-    profile's measured release, D-112). A build already pinned is left alone (``--verify-all`` checks it); a missing
-    weights directory is reported and nothing is invented, so that model routes nothing until it is pinned."""
+    profile's measured release, D-112). A build already pinned keeps its weights pin (``--verify-all`` checks it), but
+    its served name follows the one compose serves now, so an update that renames the served model does not leave the
+    gateway asking vLLM for the old name (HTTP 404). A missing weights directory is reported and nothing is invented,
+    so that model routes nothing until it is pinned."""
     e = env or {}
     pairs = PROFILE_PAIRS.get(gpu)
     if pairs is None:
@@ -241,16 +271,21 @@ def install_pins(
     have = (load_override(out).get("builds") or {}) if out.exists() else {}
     ok, lines = True, []
     for build, endpoint, dir_var, dir_default, name_var, name_default in pairs:
+        name = e.get(name_var) or name_default
         if (have.get(build) or {}).get("sha256"):
-            lines.append(f"{build}: already pinned")
+            was = ((have.get(build) or {}).get("served") or {}).get(endpoint)
+            if was != name:
+                set_served(build, endpoint, name, out)
+                lines.append(f"{build}: already pinned; served name on {endpoint} now {name!r} (was {was!r})")
+            else:
+                lines.append(f"{build}: already pinned")
             continue
         d = models_root / (e.get(dir_var) or dir_default)
         if not d.is_dir():
             ok = False
             lines.append(f"{build}: no weights in {d}: this model routes nothing until it is pinned (RUNBOOK §8)")
             continue
-        m, _ = pin(build, d, served_name=e.get(name_var) or name_default, endpoint=endpoint, out=out,
-                   status="champion")  # fmt: skip
+        m, _ = pin(build, d, served_name=name, endpoint=endpoint, out=out, status="champion")
         lines.append(f"{build}: pinned {m.sha256[:12]} ({m.files} files) as champion on {endpoint}")
     return ok, lines
 
