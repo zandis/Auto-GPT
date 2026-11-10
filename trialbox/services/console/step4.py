@@ -219,7 +219,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             {
                 "kind": k,
                 "day": d,
-                "at": a[:16].replace("T", " "),
+                "at": a,  # a UTC instant; the page shows it in the site's zone (T-513, UX-020)
                 "subject": s,
                 "href": "/week" if k == "N1" else "/home",
             }
