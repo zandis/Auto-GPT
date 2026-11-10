@@ -13716,12 +13716,16 @@
     ]
    ]
   },
-  "N02.8": {
-   "n": 1,
+  "N02.B": {
+   "n": 7,
    "sample": [
     [
-     "N02.8",
-     "Recurrent and persistent hematuria with other morphologic changes"
+     "N02.B1",
+     "Recurrent and persistent immunoglobulin A nephropathy with glomerular lesion"
+    ],
+    [
+     "N02.B2",
+     "Recurrent and persistent immunoglobulin A nephropathy with focal and segmental glomerular lesion"
     ]
    ]
   },
@@ -14633,6 +14637,7 @@
   "L04AA": "Selective immunosuppressants",
   "L04AB": "Tumor necrosis factor alpha (TNF-alpha) inhibitors",
   "L04AC": "Interleukin inhibitors",
+  "L04AF": "Janus-associated kinase (JAK) inhibitors",
   "M04A": "ANTIGOUT PREPARATIONS",
   "M04AA": "Preparations inhibiting uric acid production",
   "M04AB": "Preparations increasing uric acid excretion",

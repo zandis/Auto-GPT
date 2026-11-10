@@ -634,7 +634,7 @@ phenotypes.csv,ph.aki,codes,ICD-10-CM,N17,code,yes,5 codes; first N17.0 Acute ki
 phenotypes.csv,ph.dkd,codes,ICD-10-CM,E11.2,code,yes,3 codes; first E11.21 Type 2 diabetes mellitus with diabetic nephropathy,NLM Clinical Tables icd10cm,2026-11-10,no,found; its fit to this phenotype is not reviewed
 phenotypes.csv,ph.dkd,codes,ICD-10-CM,N18,code,yes,"9 codes; first N18.1 Chronic kidney disease, stage 1",NLM Clinical Tables icd10cm,2026-11-10,no,found; its fit to this phenotype is not reviewed
 phenotypes.csv,ph.dkd,codes,LOINC,9318-7,code,yes,Albumin/Creatinine [Mass Ratio] in Urine,NLM Clinical Tables loinc_items,2026-11-10,no,found; its fit to this phenotype is not reviewed
-phenotypes.csv,ph.igan,codes,ICD-10-CM,N02.8,code,yes,1 codes; first N02.8 Recurrent and persistent hematuria with other morphologic changes,NLM Clinical Tables icd10cm,2026-11-10,no,found; its fit to this phenotype is not reviewed
+phenotypes.csv,ph.igan,codes,ICD-10-CM,N02.B,code,yes,7 codes; first N02.B1 Recurrent and persistent immunoglobulin A nephropathy with glomerular lesion,NLM Clinical Tables icd10cm,2026-11-10,no,found; its fit to this phenotype is not reviewed
 phenotypes.csv,ph.nephrotic,codes,ICD-10-CM,N04,code,yes,16 codes; first N04.0 Nephrotic syndrome with minor glomerular abnormality,NLM Clinical Tables icd10cm,2026-11-10,no,found; its fit to this phenotype is not reviewed
 phenotypes.csv,ph.adpkd,codes,ICD-10-CM,Q61.2,code,yes,"1 codes; first Q61.2 Polycystic kidney, adult type",NLM Clinical Tables icd10cm,2026-11-10,no,found; its fit to this phenotype is not reviewed
 phenotypes.csv,ph.kidney_transplant,codes,ICD-10-CM,Z94.0,code,yes,1 codes; first Z94.0 Kidney transplant status,NLM Clinical Tables icd10cm,2026-11-10,no,found; its fit to this phenotype is not reviewed
@@ -973,6 +973,7 @@ scores/sdai.yaml,line 34,text,LOINC,75845-8,text,yes,Total score [SDAI],NLM Clin
 specialties.csv,RHEU,text,ATC,L04AB,text,yes,Tumor necrosis factor alpha (TNF-alpha) inhibitors,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
 specialties.csv,RHEU,text,ATC,L04AC,text,yes,Interleukin inhibitors,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
 specialties.csv,RHEU,text,ATC,L04AA,text,yes,Selective immunosuppressants,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
+specialties.csv,RHEU,text,ATC,L04AF,text,yes,Janus-associated kinase (JAK) inhibitors,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
 specialties.csv,RHEU,text,ATC,M04A,text,yes,ANTIGOUT PREPARATIONS,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
 specialties.csv,NEUR,text,ATC,B01AE,text,yes,Direct thrombin inhibitors,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
 specialties.csv,NEUR,text,ATC,B01AF,text,yes,Direct factor Xa inhibitors,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
