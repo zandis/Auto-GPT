@@ -357,7 +357,10 @@ def store_migrations() -> dict[str, list[str]]:
 
 
 #: checksums of versions added after the D-204 baseline, per store (append here; never edit the baseline)
-ADDED: dict[str, tuple[str, ...]] = {}
+ADDED: dict[str, tuple[str, ...]] = {
+    # D-279: users.must_change, login_failures.source, sessions.via
+    "auth": ("44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",),
+}
 PINNED: dict[str, tuple[str, ...]] = {k: v + ADDED.get(k, ()) for k, v in BASELINE.items()}
 
 #: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)
