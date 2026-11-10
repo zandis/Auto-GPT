@@ -197,7 +197,8 @@ def test_every_new_key_in_every_language() -> None:
         cat = CATALOGUES[lang]
         for word in ("ジョブ", "ルールセット", "コンパイル", "サインイン", "(?<!コント)ロール", "(?<!信)箱", "装置",
                      "工作(?![簿日天])", "規則集", "編譯", "贊助者", "權杖", "已納入"):  # fmt: skip
-            bad = [k for k, v in cat.items() if re.search(word, v)]
+            # the intended-use statement (TB-IU-01 §1) is quoted as signed: 工作人員 there means staff, not a job
+            bad = [k for k, v in cat.items() if re.search(word, v) and k != "footer.statement"]
             assert not bad, (lang, word, bad[:5])
         # review 2026-11-09 P-08 (D-143): one word per participant state, on the screening log and the lifecycle
         # pages alike (enrolled: 登録 / 已收案, the glossary's words), so the two exports agree in words too
