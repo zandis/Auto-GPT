@@ -93,6 +93,22 @@ Set `TB_LOG_DIR` and `TB_AUDIT_ARCHIVE_DIR` in `deploy/.env` to the hospital sha
 not verify is not archived: run `tools/audit_verify.py` first. Never use `rsync --delete` on the audit volume.
 Held by `tests/unit/test_log_retention.py`.
 
+### EDC prefill (D-160)
+
+Prefill is per study and **off by default**. Before a PI turns it on, check that the sponsor's acknowledgement is on
+file (WS-07.7) and the site's blind re-entry record exists (WS-16.4). The REDCap target is an S36 connection (Admin,
+REDCap); the token needs export and import rights on the CRF project. Data lives in schema `edc` of the trial
+database (in every backup). Each step writes an `edc.*` event to the audit chain (`edc.switch`, `edc.dictionary`,
+`edc.map`, `edc.drafts`, `edc.decide`, `edc.sign`, `edc.sent`, `edc.export`); a failed signing password writes
+`console.edc_reauth_failed` and counts toward the account lock. If REDCap reports a conflict, the CRC settles it in
+REDCap; TrialBox never overwrites a value it did not write. A `readback` result means REDCap stored something else
+than was sent: stop sending for the study (switch off) and call the vendor. Note items use the gateway prompt
+`crf_prefill` (role `abstract_field`); without a model, note items stay unknown with "no_model" and the rest works.
+The orchestrator takes the person from the console's signed assertion (D-162); a call without one is refused with
+403 `edc.actor` or `edc.role`. Signing needs the person's own delegation-log entry, and switching on needs the PI on
+the log. A project with repeating instruments is refused (`edc.repeating`). Held by `tests/unit/test_edc.py`,
+`tests/console/test_edc_pages.py` and e2e stage 16.
+
 ## 3. Accounts
 
 Administrators add accounts on **Users** (`/ops/users`). The one-time password shows once, in a read-only field; hand

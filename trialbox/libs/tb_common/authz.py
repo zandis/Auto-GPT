@@ -83,6 +83,34 @@ def study_tasks(role: str, *, log_names_pi: bool, is_pi: bool, ticked: frozenset
     return frozenset(STUDY_TASKS) if is_pi else frozenset(ticked) & frozenset(STUDY_TASKS)
 
 
+# D-160: EDC prefill. Who may do what, on top of the study tasks above. The prefill path is data entry (the
+# ``enter_data`` task: a coordinator, the PI, a sub-investigator the PI ticked for it); turning prefill on is the
+# study PI's alone (they hold the sponsor's acknowledgement); turning it off is the PI's or an admin's (stop at once).
+# A viewer, a CRO account and anyone without the task do nothing here.
+EDC_ACTIONS: tuple[str, ...] = ("view", "map", "draft", "review", "sign", "send", "export", "switch_on", "switch_off")
+
+
+def edc_allowed(role: str, action: str, *, tasks: frozenset[str], is_pi: bool) -> bool:
+    """May an account with ``role`` (and these study tasks) take this EDC prefill ``action`` in one study?"""
+    if action not in EDC_ACTIONS or role in ("viewer", "cro"):
+        return False
+    if action == "switch_on":
+        return role == "investigator" and is_pi
+    if action == "switch_off":
+        return (role == "investigator" and is_pi) or role == "admin"
+    if action == "view":
+        return "enter_data" in tasks or (role == "investigator" and is_pi)
+    return "enter_data" in tasks
+
+
+def edc_role_may(role: str, action: str) -> bool:
+    """The orchestrator's own check of an EDC action (D-162, review E-01): the most this console role could ever do
+    in a study. The console adds the delegation log on top (``edc_allowed`` with the person's study tasks)."""
+    inv = role == "investigator"
+    tasks = study_tasks(role, log_names_pi=False, is_pi=inv, ticked=frozenset())
+    return edc_allowed(role, action, tasks=tasks, is_pi=inv)
+
+
 # D-146 (review J-02): the daily per-sender limit protects the box from runs that read every patient. It counts only
 # these job types, each on its own; a case question, a consent draft, a status or an approval is never counted.
 HEAVY_JOBS: tuple[str, ...] = ("FEAS", "SCREEN", "COHORT", "NAV", "MICROBATCH", "CALIBRATION")
@@ -100,3 +128,21 @@ def daily_limit(settings: Settings, command: str) -> int | None:
     else:
         return None
     return n if n > 0 else None
+
+
+# D-191 (independent plan review PR-17): the SAE register. Deny by default: a role or an action not listed here may do
+# nothing. Everyone listed reads the register (pseudonym, screening number, dates, parties; never the AE term); only
+# the study's coordinator records a report sent, a receipt or a follow-up, because the sent date is written to the AE
+# form (the data core) and only the coordinator enters trial data. The investigator still acknowledges on the
+# participant page (D-143). Viewer and CRO (sponsor, monitor) accounts see nothing.
+SAE_ACTIONS: tuple[str, ...] = ("view", "record")
+ROLE_SAE_ACTIONS: dict[str, frozenset[str]] = {
+    "admin": frozenset({"view"}),
+    "coordinator": frozenset({"view", "record"}),
+    "investigator": frozenset({"view"}),
+}
+
+
+def sae_allowed(role: str, action: str) -> bool:
+    """True only when the role table above grants ``action`` on the SAE register to ``role``."""
+    return action in SAE_ACTIONS and action in ROLE_SAE_ACTIONS.get(role, frozenset())

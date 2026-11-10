@@ -410,10 +410,14 @@ class HttpBackend:
             raise Unavailable(str(exc)) from exc
         return str(data.get("message_id") or "")
 
-    def study_api(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
-        """The orchestrator's S-28 study store and REDCap routes (D-109)."""
+    def study_api(self, method: str, path: str, body: dict[str, Any] | None = None,
+                  headers: dict[str, str] | None = None) -> Any:  # fmt: skip
+        """The orchestrator's S-28 study store and REDCap routes (D-109); ``headers`` carry the signed-in user's
+        signed assertion where the orchestrator acts on who the user is (EDC prefill, D-162)."""
         try:
             kw: dict[str, Any] = {} if body is None else {"json": body}
+            if headers:
+                kw["headers"] = headers
             return self.orch._request(method, path, **kw).json()
         except ServiceError as exc:
             raise problem_of(exc.status, exc.detail) from exc

@@ -100,6 +100,8 @@ URS-CRC-08,FS-06,-,TST-WALK-02,WS-06.11,W,planned,gate: feature complete
 URS-PI-16,FS-06,-,TST-SEC-01,WS-06.12,S,planned,gate: feature complete (code); IQ/OQ (site pattern)
 URS-CRC-04,FS-06,RSK-41,TST-E2E-02,WS-06.13,E,planned,gate: feature complete
 URS-CRC-04,FS-06,RSK-41,TST-OQ-01,WS-06.13,OQ,planned,gate: feature complete
+URS-CRC-04,FS-06,RSK-50,TST-E2E-02,WS-06.13,E,planned,gate: feature complete
+URS-CRC-04,FS-06,RSK-50,TST-OQ-01,WS-06.13,OQ,planned,gate: feature complete
 URS-CRC-09,FS-07,RSK-20,TST-EDC-01,WS-07.1,E,planned,gate: feature complete
 URS-CRA-02,FS-07,RSK-20,TST-EDC-01,WS-07.1,E,planned,gate: feature complete
 URS-CRC-10,FS-07,RSK-20,TST-EDC-02,WS-07.2,I,planned,gate: feature complete (code); IQ/OQ (site round trip)
