@@ -14,7 +14,7 @@
 <tbody>{% for r in rows %}<tr data-testid="member-{{ r.short }}"><td><b>{{ t('week.patient', p=r.short) }}</b> <span class="pill stt-new">{{ t('cohort.new') }}</span></td><td class="num">{{ r.met }}/{{ r.total }}</td><td class="num">{{ r.visit or t('week.no_visit') }}</td><td>{{ r.department or '–' }}</td></tr>{% endfor %}</tbody>
 </table></div>{% endif %}
 <p class="hint">{{ t('cohort.no_contact') }}</p>
-<p class="hint">{{ t('week.meta', job=job.type, date=job.updated_at.date().isoformat(), snapshot=(job.snapshot_date.isoformat() if job.snapshot_date else '–')) }}</p>
+<p class="hint" data-testid="cohort-run">{{ t('week.meta', job=job.type, date=(job.run_date.isoformat() if job.run_date else job.updated_at|local(10)), snapshot=(job.snapshot_date.isoformat() if job.snapshot_date else '–')) }}</p>
 </section>
 {% endif %}
 {% endblock %}

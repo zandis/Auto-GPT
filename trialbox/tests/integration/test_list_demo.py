@@ -30,7 +30,7 @@ def test_a_later_clinic_day_moves_the_box_with_the_console(tmp_path: Path, monke
     assert res["day"] == later
     assert local_today(h.clock(), site_zone(h.bk)) == box.orch.today() == later  # one site, one date
     # as e2e stage 16: the PI names themselves on the log and switches prefill on, acknowledged on the console's date
-    today = h.clock().date().isoformat()
+    today = local_today(h.clock(), site_zone(h.bk)).isoformat()
     log = pi.post("/studies/GZQO/team", data={"csrf": fd._csrf(pi.get("/home").text), "username": "pi", "role": "pi",
                                              "start": today}, follow_redirects=False)  # fmt: skip
     assert log.status_code == 303
@@ -47,6 +47,7 @@ def test_a_later_clinic_day_moves_the_box_with_the_console(tmp_path: Path, monke
 def test_approve_list_mark_and_mail(tmp_path: Path) -> None:
     res = list_demo.run(tmp_path, "pw-" + "x" * 16, "ja")
     box, h = res["box"], res["app"].state.helpers
+    assert res["day"] == fd.data_day() and not res["live"]  # TB_DEMO_DAY unset: the data's own day, nothing moved
     # S20: both drafts were approved by the investigator on one page; the trial's new exclusion was amber
     assert res["versions"] == {"GOUT-COH": "1.1.0", "GZQO": "1.1.0"}
     assert "GZQO-EXC-15" in res["approvals"]["GZQO"]["amber"]
@@ -134,3 +135,60 @@ def test_alzheimers_trial_in_japanese(tmp_path: Path, monkeypatch: pytest.Monkey
     assert amyloid and (amyloid[0].startswith("不明") or amyloid[0] == "人の確認"), amyloid  # T-506 wording
     assert "対象外" not in res["list_html"]
     assert {m.to[0] for m in res["mails"]} == {"crc1@hospa.test", "pi@hospa.test"}
+
+
+DATE = re.compile(r"\b20\d\d-\d\d-\d\d\b")
+
+
+def _dates(html: str) -> set[str]:
+    return set(DATE.findall(re.sub(r"<[^>]+>", " ", html)))
+
+
+def test_the_demo_day_is_the_real_day(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """T-513 (UX-003, UX-020): with ``TB_DEMO_DAY=today`` (the served demo's default) the demo day is the real day in
+    the site's zone (the Friday before on a weekend), the hospital's dates are moved to it, the box, the console and
+    the mail share that day, no page dates a run, a mark, a mail or a log row after today, the week page and the
+    not-matched page name the same run, and the morning digest list reads in site time. After the seed the console
+    and the box follow the real clock."""
+    from datetime import UTC, datetime
+
+    from console.timefmt import local_time, local_today, site_zone
+
+    monkeypatch.setenv(list_demo.DAY_ENV, "today")
+    res = list_demo.run(tmp_path, "pw-" + "x" * 16, "ja")
+    box, h, pi, crc = res["box"], res["app"].state.helpers, res["pi"], res["crc"]
+    zone = site_zone(h.bk)
+    today = local_today(datetime.now(UTC), zone)
+    day = list_demo.seed_day(today)
+    assert res["live"] and res["day"] == day
+    assert box.orch.today() == h.today() == local_today(h.clock(), zone) == day  # one clock while seeding
+    shift = (day - fd.data_day()).days
+    assert (tmp_path / "hospital" / fd.SHIFT_FILE).read_text().strip() == str(shift)
+    with (tmp_path / "hospital" / "appointment.csv").open(encoding="utf-8") as fh:
+        visits = {r["appt_datetime"][:10] for r in csv.DictReader(fh)}
+    # pages that record what happened: nothing after today
+    for c, path in ((pi, "/studies/GZQO/excluded"), (pi, "/notices/received"), (crc, "/notices/received"),
+                    (crc, "/studies/GZQO/screening-log"), (pi, "/reports")):  # fmt: skip
+        r = c.get(path)
+        assert r.status_code == 200, path
+        assert not {d for d in _dates(r.text) if d > today.isoformat()}, (path, sorted(_dates(r.text)))
+    # pages with the clinic calendar: a date after today is a booked visit of the (moved) hospital data, nothing else
+    for path in ("/week", f"/studies/{res['trial']}/week?list=all", f"/studies/{res['cohort']}/cohort",
+                 f"/studies/{res['trial']}/patients/{res['picks'][1]['pid']}"):  # fmt: skip
+        later = {d for d in _dates(pi.get(path).text) if d > today.isoformat()}
+        assert later <= visits, (path, sorted(later - visits))
+    # one run, one date: the list and the not-matched page
+    week = re.search(r'data-testid="week-run">(.*?)</p>', pi.get("/studies/GZQO/week?list=all").text, re.S)
+    excl = re.search(r'data-testid="ex-run">(.*?)</p>', pi.get("/studies/GZQO/excluded").text, re.S)
+    assert week and excl and DATE.findall(week.group(1))[:1] == DATE.findall(excl.group(1))[:1] == [day.isoformat()]
+    # UX-020: the digest list shows when the mail went out in site time, as the footer says
+    sent = h.store.notices_for("pi")
+    assert sent
+    page = pi.get("/notices/received").text
+    shown = re.findall(r'data-testid="received-at">([^<]+)<', page)
+    assert shown == [local_time(a, zone) for _k, _d, a, _s in sent], (shown, sent)
+    assert all(x.startswith(day.isoformat()) for x in shown)
+    # after the seed: the real clock, in the site's zone
+    list_demo.go_live(box, res["clock"])
+    now = local_today(datetime.now(UTC), zone)
+    assert box.orch.today() == h.today() == now and abs((h.clock() - datetime.now(UTC)).total_seconds()) < 60
