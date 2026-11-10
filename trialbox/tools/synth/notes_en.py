@@ -81,3 +81,60 @@ NEEDLES: list[tuple[str, str]] = [
     ("Had rhabdomyolysis after a marathon", "marathon rhabdomyolysis"),
     ("Rash after sulfonamide antibiotics in the past", "sulfonamide rash"),
 ]
+
+
+# ------------------------------------------------------------------------------------------------ Alzheimer's (T-503)
+# Memory-clinic notes and reports of the ``ad`` archetype in English (the share of English notes at a Japanese site).
+AD_FILLER = [
+    "Family report more forgetfulness about dates and appointments; the patient has little insight. ",
+    "Neurological examination: cranial nerves intact, no weakness or sensory loss, gait steady. ",
+    "Independent in basic activities; family help with money and medicines. ",
+    "No low mood or visual hallucinations; sleeping well. ",
+    "Conversation and responses much as at the last visit. ",
+    "Family note that the same stories are repeated more often. ",
+    "Vitamin B12, folate and thyroid function normal. ",
+    "Advised to keep active and socially engaged. ",
+    "Has stopped driving after discussion with the family. ",
+    "Cognitive testing to be repeated at the next visit. ",
+]
+
+
+def mmse_sentence(date_text: str, mmse: int, hdsr: int | None) -> str:
+    if hdsr is None:
+        return f"Cognitive testing on {date_text}: MMSE {mmse}/30. "
+    return f"Cognitive testing on {date_text}: MMSE {mmse}/30, HDS-R {hdsr}/30. "
+
+
+def hdsr_only_sentence(date_text: str, hdsr: int) -> str:
+    return f"HDS-R {hdsr}/30 on {date_text}; MMSE not done today. "
+
+
+def cdr_sentence(cdr: str) -> str:
+    return f"Clinical Dementia Rating (CDR) global score {cdr}. "
+
+
+def amyloid_pet_report(date_text: str, positive: bool) -> str:
+    if positive:
+        return f"Amyloid PET {date_text}: diffuse cortical amyloid uptake, visual read positive. "
+    return f"Amyloid PET {date_text}: no cortical amyloid uptake, visual read negative. "
+
+
+def csf_report(date_text: str) -> str:
+    return f"CSF {date_text}: low Abeta42/40 ratio and raised p-tau181, consistent with amyloid pathology (positive). "
+
+
+def amyloid_not_done_sentence() -> str:
+    return "No amyloid PET or CSF testing has been done. "
+
+
+def mri_report(date_text: str, microbleeds: int, siderosis: bool) -> str:
+    head = f"MRI brain {date_text}: mild bilateral hippocampal atrophy. "
+    mb = f"{microbleeds} cerebral microbleeds on T2* imaging. " if microbleeds else "No cerebral microbleeds on T2*. "
+    ss = "Superficial siderosis over the left parietal lobe. " if siderosis else "No superficial siderosis. "
+    return head + mb + ss
+
+
+def partner_sentence(has_partner: bool) -> str:
+    if has_partner:
+        return "Lives with a daughter, who comes to every visit. "
+    return "Lives alone with no family nearby and always attends alone. "

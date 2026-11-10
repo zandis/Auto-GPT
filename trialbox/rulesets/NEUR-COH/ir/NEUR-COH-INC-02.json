@@ -1,0 +1,26 @@
+{
+ "class": "structured",
+ "id": "NEUR-COH-INC-02",
+ "kind": "inclusion",
+ "label": "もの忘れ外来受診（12か月）",
+ "logic": {
+  "count": 1,
+  "domain": "encounter",
+  "quantifier": "count>=",
+  "valueset": "VS_MEMORY_CLINIC_VISIT",
+  "window": {
+   "anchor": "index",
+   "from_days": -365,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-11-10T22:19:28.826951+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "NEUR-COH",
+ "source_ref": "2.1 選択基準 #2",
+ "text": "過去12か月以内にもの忘れ外来（脳神経内科または精神科）を1回以上受診した者。",
+ "time_sensitive": true
+}

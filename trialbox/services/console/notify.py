@@ -273,6 +273,10 @@ def collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[No
         studies: list[Any] = []
         life: dict[str, dict[str, Any]] = {}
         for r in h.trials(sess):
+            # D-273 (PV-3): N1 carries the study's patient rows; an investigator gets them only as delegated
+            may = getattr(h, "may", None)
+            if kind == "N1" and may is not None and not may(u, r.id, "screen"):
+                continue
             nos = store.screening_nos(r.id)
             lf = h.life_mail(r.id, today) if getattr(h, "life_mail", None) else None
             if lf and any(lf.get(k) for k in ("today", "week", "overdue", "sae", "reports")):

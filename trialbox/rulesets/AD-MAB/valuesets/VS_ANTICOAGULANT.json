@@ -1,0 +1,52 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "B01AA03",
+      "display": "warfarin"
+     },
+     {
+      "code": "B01AE07",
+      "display": "dabigatran etexilate"
+     },
+     {
+      "code": "B01AF01",
+      "display": "rivaroxaban"
+     },
+     {
+      "code": "B01AF02",
+      "display": "apixaban"
+     },
+     {
+      "code": "B01AF03",
+      "display": "edoxaban"
+     }
+    ],
+    "system": "http://www.whocc.no/atc"
+   }
+  ]
+ },
+ "extension": [
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|B01AA"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|B01AE"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|B01AF"
+  }
+ ],
+ "id": "AD-MAB-VS-ANTICOAGULANT",
+ "name": "VS_ANTICOAGULANT",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "anticoagulant",
+ "url": "http://trialbox.local/fhir/ValueSet/AD-MAB-VS-ANTICOAGULANT",
+ "version": "1.0.0-v32caeb77"
+}

@@ -178,18 +178,18 @@ class InprocBackend:
     def registry_promote(self, ruleset: str, req: Any) -> int:
         return int(self._call("POST", f"/registry/{ruleset}/promote", req)["added"])
 
-    def registry_export(self, ruleset: str, by: str) -> bytes:
+    def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes:
         from console.backend import Refused
 
-        r = self.c.get(f"/registry/{ruleset}/export.xlsx", headers=actor_header(by))
+        r = self.c.get(f"/registry/{ruleset}/export.xlsx", headers=actor_header(by, role=role, scope=scope))
         if r.status_code != 200:
             raise Refused(r.text[:200])
         return bytes(r.content)
 
-    def reveal(self, job_id: str, pid: str, by: str) -> str | None:
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None:
         from console.backend import Refused
 
-        r = self.c.post(f"/jobs/{job_id}/reveal", json={"pid": pid}, headers=actor_header(by))
+        r = self.c.post(f"/jobs/{job_id}/reveal", json={"pid": pid}, headers=actor_header(by, role=role, scope=scope))
         if r.status_code == 404:
             return None
         if r.status_code != 200:

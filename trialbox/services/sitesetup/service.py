@@ -26,7 +26,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from tb_common import dates
+from tb_common import chartno, dates
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn, sha256_bytes
 
@@ -108,8 +108,10 @@ class SiteSetup:
         return "".join(out)
 
     def pseudonym(self, chart_no: str) -> str:
+        """The chart number written the site's way (``tb_common.chartno``: width, leading zeros, hex case; R-48),
+        then hashed with the site key, as the feed's own chart numbers are."""
         key = self.site_key()
-        return pid_for_mrn(key, messy.half_width(chart_no).strip())
+        return pid_for_mrn(key, chartno.normalise(None, chart_no))
 
     # ------------------------------------------------------------------ sheets and dumps
     def add_sheet(self, ws: str, kind: str, name: str, data: bytes, roles: dict[str, str], by: str) -> dict[str, Any]:
@@ -223,7 +225,7 @@ class SiteSetup:
             detail={"ws": ws, "input": iid, "pid": pid, "method": ct.method, "proposed": len(ids), "dropped": dropped},
         )
         self.publish(ws, by)
-        return {"input": iid, "pid": pid, **summary}
+        return {"input": iid, **summary}  # D-273 (PV-6): no pseudonym back for a chart number; the audit keeps it
 
     # ------------------------------------------------------------------ decisions
     def decide(self, fid: int, action: str, by: str, changes: dict[str, str] | None = None) -> dict[str, Any]:
@@ -347,6 +349,8 @@ class SiteSetup:
             if not force and last is not None and last["digest"] == dg and lake.snapshot():
                 return {"snapshot": last["snapshot"], "unchanged": True, "counts": last["counts"]}
             snap = (lake.snapshot() if ws == "main" else None) or self.today().isoformat()
+            # D-273 (CR-055, DI-5): the audit event goes first; if it cannot be written, nothing is published
+            self.audit.append("setup.publish_begin", actor=by, detail={"ws": ws, "snapshot": snap, "digest": dg[:16]})
             lake.put_site(res)
             if ws == "main":  # the hospital's lake: never rebuilt from a missing or empty feed once it had one (D-271)
                 lake.rebuild(snap)

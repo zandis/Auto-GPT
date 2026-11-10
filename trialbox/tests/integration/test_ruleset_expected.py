@@ -24,7 +24,19 @@ def _results(ingested: dict[str, Any], rs: Ruleset, index_date: str) -> dict[str
     return {r["pid"]: {k[2:]: v for k, v in r.items() if k.startswith("C_")} for r in rows}
 
 
-@pytest.mark.parametrize("ruleset", [p.parent.parent.name for p in sorted(ROOT.glob("rulesets/*/tests/expected.json"))])
+def _site_a_rulesets() -> list[str]:
+    """Rulesets whose expected verdicts were recorded on site A (the Japanese memory-clinic rulesets AD-MAB and
+    NEUR-COH are recorded on their own synthetic site: ``tests/integration/test_ad_mab.py``)."""
+    out = []
+    for p in sorted(ROOT.glob("rulesets/*/tests/expected.json")):
+        if str(json.loads(p.read_text(encoding="utf-8")).get("source", "")).startswith(
+            "tests/fixtures/synthetic_patients/site-a"
+        ):
+            out.append(p.parent.parent.name)
+    return out
+
+
+@pytest.mark.parametrize("ruleset", _site_a_rulesets())
 def test_sql_matches_recorded_cql(ingested: dict[str, Any], ruleset: str) -> None:
     rs = Ruleset.load(ROOT / "rulesets" / ruleset)
     expected = json.loads((ROOT / "rulesets" / ruleset / "tests" / "expected.json").read_text(encoding="utf-8"))

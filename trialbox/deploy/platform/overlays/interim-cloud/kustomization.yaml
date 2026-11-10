@@ -1,0 +1,26 @@
+# Interim hosting on a hospital private cloud with GPU (WS-10.8, WS-11.9; D-211): the same images and objects as
+# shared-quota, on whole GPU cards instead of MIG instances (one card each for the judge and the verifier). Only
+# where survey question 50 is "yes, approved for identified data"; the move to the final host is the migration
+# protocol (backup, restore, counts, hashes, the audit chain), never a copy. The serving values are measured on the
+# cloud's cards before use (serving.env reads `unmeasured` until then).
+#
+#   kustomize build deploy/platform/overlays/interim-cloud | kubectl apply -n <namespace> -f -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+components:
+  - ../../components/gpu-pair
+  - ../../components/release-images
+configMapGenerator:
+  - name: trialbox-env
+    behavior: merge
+    literals:
+      - TB_PROFILE=P-INTERIM-CLOUD
+  - name: trialbox-serving
+    envs:
+      - serving.env
+  - name: trialbox-platform
+    behavior: merge
+    literals:
+      - TB_GPU_PROFILE=interim-cloud

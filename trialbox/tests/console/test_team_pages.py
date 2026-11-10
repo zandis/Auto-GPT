@@ -34,7 +34,7 @@ A, B = "a" * 32, "b" * 32
 
 def _events(b: dict[str, Any], name: str) -> list[dict[str, Any]]:
     out = []
-    for f in sorted((b["dir"] / "audit").glob("*")):
+    for f in sorted((b["dir"] / "audit").glob("*.jsonl")):
         for line in f.read_text().splitlines():
             if line and json.loads(line).get("event") == name:
                 out.append(json.loads(line))
@@ -252,7 +252,7 @@ def test_candidate_views_are_rate_limited_and_reveals_meet_the_d143_cap(box: dic
     assert "MRN-000123" in pi.post(f"/studies/GZQO/candidates/{A}/reveal", data=form).text
     real = box["backend"].reveal
 
-    def capped(job_id: str, pid: str, by: str) -> str | None:  # the orchestrator's per-person cap (D-143)
+    def capped(job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None:  # D-143 cap
         raise Refused("too many chart numbers revealed in the last hour")
 
     box["backend"].reveal = capped

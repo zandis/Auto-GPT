@@ -72,9 +72,11 @@ def test_approve_list_mark_and_mail(tmp_path: Path) -> None:
     # found by the public-data e2e: an exclusion the patient does not have was labelled "該当" (met), which reads
     # as "the patient has it"; exclusion rows now say whether the condition is present
     exc = re.findall(r'data-testid="verdict-GZQO-EXC-\d+">([^<]+)<', s5)
-    assert exc and "該当" not in exc and set(exc) <= {"該当なし", "該当（除外）", "不明", "人の確認"}, exc
+    assert exc and "該当" not in exc and set(exc) <= {"該当なし", "該当あり", "不明（記録なし）", "要確認（担当者）"}, (
+        exc
+    )
     inc = re.findall(r'data-testid="verdict-GZQO-INC-\d+">([^<]+)<', s5)
-    assert "該当" in inc, inc
+    assert "満たす" in inc, inc  # T-506 (UX-017): inclusion verdicts say 満たす / 満たさない
     # the approached patient has a screening number; the set-aside one left the list until its date
     assert res["screening_no"] == "GZQO-0001"
     marks = h.store.latest_marks("GZQO")
@@ -107,3 +109,28 @@ def test_approve_list_mark_and_mail(tmp_path: Path) -> None:
     office = crc.get(f"/reports/research-office?year={res['day'].year}")
     assert office.status_code == 200 and "GZQO" in office.text
     assert crc.get(f"/reports/research-office.xlsx?year={res['day'].year}").status_code == 200
+
+
+def test_alzheimers_trial_in_japanese(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """T-503 scenario J1: ``list_demo --lang ja --trial AD-MAB`` on the Japanese memory clinic exits 0. The site's
+    zone is Asia/Tokyo, no page carries Chinese text, and with no amyloid result nobody reads "criteria not matched"."""
+    from console.timefmt import site_zone
+
+    got: dict[str, object] = {}
+    real = list_demo.run
+    monkeypatch.setattr(list_demo, "run", lambda *a, **k: got.setdefault("res", real(*a, **k)))
+    assert list_demo.main(["--dir", str(tmp_path), "--lang", "ja", "--trial", "AD-MAB"]) == 0
+    res = got["res"]
+    assert isinstance(res, dict)
+    h = res["app"].state.helpers
+    assert str(site_zone(h.bk)) == "Asia/Tokyo"
+    assert res["versions"] == {"NEUR-COH": "1.1.0", "AD-MAB": "1.1.0"} and res["screening_no"] == "AD-MAB-0001"
+    zh_only = re.compile("[醫斷說發藥檢續應體關歲與為兩對區號]")
+    for page in (res["list_html"], res["patient_html"], res["cohort_html"], res["approvals"]["AD-MAB"]["html"]):
+        m = zh_only.search(re.sub(r'<option value="zh-TW"[^<]*</option>', "", page))  # the language menu names 繁體中文
+        assert not m, m
+    s5 = res["patient_html"]
+    amyloid = re.findall(r'data-testid="verdict-AD-MAB-INC-05">([^<]+)<', s5)
+    assert amyloid and (amyloid[0].startswith("不明") or amyloid[0] == "人の確認"), amyloid  # T-506 wording
+    assert "対象外" not in res["list_html"]
+    assert {m.to[0] for m in res["mails"]} == {"crc1@hospa.test", "pi@hospa.test"}

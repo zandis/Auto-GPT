@@ -98,6 +98,7 @@ class FakeBackend:
         self.refuse: str | None = None
         self.models_info: dict[str, Any] | None = dict(MODELS_INFO)
         self.revealed: list[tuple[str, str, str]] = []
+        self.signed: list[tuple[str, str, str]] = []  # D-273: (call, role, scope) sent to the orchestrator
         self.audit_dir: Path | None = None
         self.ingested = 0
         self.registry: dict[tuple[str, str], RegistryEntry] = {}
@@ -190,8 +191,9 @@ class FakeBackend:
             "criteria": 7,
         }
 
-    def reveal(self, job_id: str, pid: str, by: str) -> str | None:
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None:
         self.revealed.append((job_id, pid, by))
+        self.signed.append(("reveal", role, scope))
         return {"a" * 32: "MRN-000123"}.get(pid)
 
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
@@ -257,7 +259,8 @@ class FakeBackend:
                 n += 1
         return n
 
-    def registry_export(self, ruleset: str, by: str = "") -> bytes:
+    def registry_export(self, ruleset: str, by: str = "", role: str = "", scope: str = "") -> bytes:
+        self.signed.append(("export", role, scope))
         return b"PK\x03\x04fake-xlsx-" + ruleset.encode()
 
 
@@ -877,7 +880,7 @@ def test_case_job_card_renders_counts_in_every_language(box: dict[str, Any]) -> 
     page = c.get(f"/pilot/jobs/{jid}").text
     assert 'data-testid="case-counts"' in page and "met 15" in page and "not met 2" in page and "for a human 3" in page
     assert f"/pilot/jobs/{jid}/view/case_GZQO_ja.html" in page
-    for lang, needle in (("ja", "該当 15"), ("zh-TW", "符合 15")):
+    for lang, needle in (("ja", "満たす 15"), ("zh-TW", "符合 15")):
         c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
         r = c.get(f"/pilot/jobs/{jid}")
         assert r.status_code == 200 and needle in r.text, lang
@@ -981,29 +984,41 @@ def test_screen_job_page_shows_candidates_and_reveals_a_chart_number_once(box: d
     page = c.get(f"/pilot/jobs/{jid}").text
     assert (
         'data-testid="screen"' in page
-        and "2 patients likely eligible, 1 to review, 58 excluded, of 61 in scope" in page
+        and "2 patients may meet the criteria, 1 to review, criteria not matched for 58, of 61 in scope" in page
     )
     assert 'data-testid="screen-rows"' in page and page.count("<tr data-pid=") == 2  # excluded rows are not listed
-    assert page.index("a" * 12) < page.index("b" * 12)  # likely eligible first
+    assert page.index("a" * 12) < page.index("b" * 12)  # "may meet the criteria" first
     assert "two flares this spring" in page and "Dr Lin" in page and "confirm flare dates" in page
     assert "90 %" not in page  # FR-UI-17 (D-108): no model confidence on a clinical page
     assert "read by j-workhorse alone" in page and f'href="/pilot/registry/GZQO#p-{"a" * 32}"' in page
     assert page.count('data-testid="reveal"') == 2 and "MRN-000123" not in page
-    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "a" * 32})
+    # D-273 (PV-2): the job page reveals through the one guarded path: a reason is required
+    assert c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "a" * 32}).status_code == 400
+    # ROLE-016: "other" needs a written reason of 10 characters or more
+    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "a" * 32, "reason": "other", "note": "x"})
+    assert r.status_code == 400 and box["backend"].revealed == []
+    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "a" * 32, "reason": "other",
+                                                  "note": "sponsor query on visit dates"})  # fmt: skip
     assert r.status_code == 200 and 'data-testid="mrn"' in r.text and "MRN-000123" in r.text
     assert r.text.count('data-testid="reveal"') == 1  # the other row still has its button
     assert box["backend"].revealed == [(jid, "a" * 32, "console:admin")]
-    assert any(rec.event == "console.reveal" for rec in box["backend"].audit(jid))
-    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "b" * 32})
+    assert box["backend"].signed == [("reveal", "admin", "*")]  # the role and studies travel signed (PV-15)
+    assert any(rec.event == "console.reveal_patient" for rec in box["backend"].audit(jid))
+    raw = b"".join(p.read_bytes() for p in (box["dir"] / "audit").rglob("*") if p.is_file())
+    assert b'"via":"job"' in raw and b"sponsor query on visit dates" in raw  # the written reason is kept
+    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "b" * 32, "reason": "contact"})
     assert r.status_code == 200 and "no chart number on this box" in r.text
     assert c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "x"}).status_code == 400
+    # a patient who is not on the study's latest list is refused
+    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "d" * 32, "reason": "contact"})
+    assert r.status_code == 404
     # viewers: no screening job page (D-146, J-04), no reveal
     viewer, vcsrf = login(box["app"], "viewer", VIEWER_PW)
     assert viewer.get(f"/pilot/jobs/{jid}").status_code == 403
     assert viewer.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": vcsrf, "pid": "a" * 32}).status_code == 403
     # Japanese
     c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
-    assert "適格の可能性が高い 2 名" in c.get(f"/pilot/jobs/{jid}").text
+    assert "条件に合う可能性 2 名" in c.get(f"/pilot/jobs/{jid}").text
 
 
 # ---------------------------------------------------------------------------------------------- models card
@@ -1108,7 +1123,7 @@ def test_catalogues_complete() -> None:
 
 
 # ---------------------------------------------------------------------------------------------- D-91 CASE
-def _done_case(backend: FakeBackend) -> Job:
+def _done_case(backend: FakeBackend, options: dict[str, str] | None = None) -> Job:
     jid = _ulid(950)
     now = datetime(2026, 10, 25, 9, 5, tzinfo=UTC)
     rec = {
@@ -1135,7 +1150,7 @@ def _done_case(backend: FakeBackend) -> Job:
             received_at=now,
             updated_at=now,
             state="done",
-            options={"lang": "en"},
+            options=options or {"lang": "en"},
             inputs=[],
             outputs=outs,
         )
@@ -1245,7 +1260,8 @@ def test_registry_pages_add_promote_export(box: dict[str, Any]) -> None:
     )
     assert c.get("/pilot/registry/BAD").status_code == 400
     events = [e.event for e in read_audit(box["dir"] / "audit")]
-    assert events.count("console.registry") == 5  # 2 updates + 1 refused update + promote + export
+    # 2 updates + 1 refused update + promote + export requested (D-273, before the file is built) + export
+    assert events.count("console.registry") == 6
     assert verify(box["dir"] / "audit").ok
 
 
@@ -1270,15 +1286,17 @@ def test_the_export_names_the_signed_in_user_signed_with_the_session(
     seen: list[dict[str, str]] = []
     real = box["backend"].registry_export
 
-    def spy(rs: str, by: str) -> bytes:
-        seen.append(sa.actor_header(by))  # what the HTTP backend sends with the call
+    def spy(rs: str, by: str, role: str = "", scope: str = "") -> bytes:
+        seen.append(sa.actor_header(by, role=role, scope=scope))  # what the HTTP backend sends with the call
         return bytes(real(rs, by))
 
     monkeypatch.setattr(box["backend"], "registry_export", spy)
     c, _ = login(box["app"])
     assert c.get("/pilot/registry/GZQO/export.xlsx").status_code == 200
-    who = sa.verify_actor(seen[0][sa.ACTOR_HEADER], seen[0][sa.ASSERTION_HEADER])
+    h = seen[0]
+    who = sa.verify_actor(h[sa.ACTOR_HEADER], h[sa.ASSERTION_HEADER], role=h[sa.ROLE_HEADER], scope=h[sa.SCOPE_HEADER])
     assert who.name == "console:admin" and who.verified and len(who.session) == 16
+    assert who.role == "admin" and who.scope == "*"  # D-273 (PV-5): the role and studies are signed too
 
 
 # ---------------------------------------------------------------------------------------------- D-93 roles and SSO
@@ -1511,7 +1529,7 @@ def test_investigator_sees_candidate_rows_and_case_sheet_and_reveals(box: dict[s
     r = c.post(f"/pilot/jobs/{screen.job_id}/reveal", data={"csrf": csrf, "pid": "a" * 32, "reason": "contact"})
     assert r.status_code == 200 and "MRN-000123" in r.text
     assert box["backend"].revealed[-1] == (screen.job_id, "a" * 32, "console:pi")
-    assert any(rec.event == "console.reveal" and rec.actor == "console:pi" for rec in box["backend"].audit())
+    assert any(rec.event == "console.reveal_patient" and rec.actor == "console:pi" for rec in box["backend"].audit())
     box["users"].create("pi2", "investigator", VIEWER_PW, "pi2@hospa.test")
     box["users"].set_scope("pi2", studies="OTHER")  # an investigator of another study has no authority here
     c2, csrf2 = login(box["app"], "pi2", VIEWER_PW)
@@ -1575,9 +1593,10 @@ def test_case_request_row_shows_the_chart_number_to_the_study_team_only(box: dic
     """Review 2026-11-09 P-01 and the owner's decision (D-143): the CASE job page's "web request" row printed
     ``mrn=70000054`` to every role. The study's investigator (and coordinator, administrator) sees it, as one audited
     view; a viewer, a CRO account and an investigator of another study see it masked, also in the audit table."""
-    job = _done_case(box["backend"])
+    job = _done_case(box["backend"], {"mrn": "70000054", "lang": "en"})
+    # the audit holds the line masked (D-272); the page takes the chart number from the job's options
     box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
-                        detail={"line": "CASE GZQO mrn=70000054 lang=en", "channel": "web"})  # fmt: skip
+                        detail={"line": "CASE GZQO mrn=••• lang=en", "channel": "web"})  # fmt: skip
     box["users"].create("pi", "investigator", VIEWER_PW, "pi@hospa.test")
     box["users"].create("pi2", "investigator", VIEWER_PW, "pi2@hospa.test")
     box["users"].set_scope("pi2", studies="OTHER")
@@ -1599,7 +1618,8 @@ def test_case_request_row_shows_the_chart_number_to_the_study_team_only(box: dic
 def test_identifier_views_are_rate_limited(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     """D-143: a view of an identifier counts against the reveal cap; over it the line is masked and refused."""
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
-    job = _done_case(box["backend"])
+    # a row written before D-272: the page masks it the same way
+    job = _done_case(box["backend"], {"mrn": "70000054", "lang": "en"})
     box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
                         detail={"line": "CASE GZQO mrn=70000054 lang=en"})  # fmt: skip
     c, _ = login(box["app"])
@@ -1609,10 +1629,33 @@ def test_identifier_views_are_rate_limited(box: dict[str, Any], monkeypatch: pyt
 
 
 def test_request_subjects_are_masked() -> None:
-    from console.app import mask_ids
+    from tb_common.audit import mask_ids  # the console's pages and the audit writers share one rule (D-272)
 
     assert mask_ids("CASE GZQO mrn=70000054 lang=ja") == "CASE GZQO mrn=••• lang=ja"
     assert mask_ids("FEAS GZQO") == "FEAS GZQO"
+    # D-272 (CR-016): the page mask covers every key the job line hides, and the stored ``options`` form
+    assert mask_ids("CASE GZQO dob=1900-01-01 patient=TEST-ZZ") == "CASE GZQO dob=••• patient=•••"
+    assert mask_ids(str({"mrn": "TEST-0000001", "lang": "ja"})) == "{'mrn': '•••', 'lang': 'ja'}"
+    assert mask_ids('{"chart_no": "TEST-0000003"}') == "{\"chart_no\": '•••'}"
+
+
+def test_the_web_request_line_is_audited_masked(box: dict[str, Any]) -> None:
+    """D-272 (CR-016, PX-3): the console's own request writer stores the line with its chart number masked, and the
+    audit table shows the stored form; the job keeps the chart number in its options for the run."""
+    c, csrf = login(box["app"])
+    r = c.post(
+        "/pilot/case",
+        data={"csrf": csrf, "ruleset": "GZQO", "mrn": "TEST-0000001", "lang": "en"},
+        files=[("charts", ("chart.md", b"# synthetic summary", "text/markdown"))],
+        follow_redirects=False,
+    )
+    assert r.status_code == 303, r.text[:300]
+    rows = [json.loads(x) for f in sorted(box["audit"].directory.glob("*.jsonl")) for x in f.read_text().splitlines()]
+    assert rows and not any("TEST-0000001" in json.dumps(x, ensure_ascii=False) for x in rows)
+    req = next(x for x in rows if x["event"] == "console.request")
+    assert "mrn=•••" in req["detail"]["line"]
+    assert box["backend"].created[-1].options["mrn"] == "TEST-0000001"
+    assert "TEST-0000001" not in c.get("/audit").text
 
 
 def test_healthz_touches_the_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

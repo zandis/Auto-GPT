@@ -29,7 +29,7 @@ from tb_contracts import (
 from criteria_compiler.compile_cql.translator import Translator, available
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.service import CompileFailed, Compiler, CompilerDeps
-from criteria_compiler.terminology.mapper import Terminology
+from criteria_compiler.terminology import resolver
 
 _compiler: Compiler | None = None
 SEED = Path(__file__).resolve().parents[2] / "rulesets"
@@ -55,7 +55,8 @@ def compiler() -> Compiler:
             store=from_config(),
             repo=RulesetRepo(cfg.env.rulesets_path, SEED),
             llm=LlmClient.from_config(audit),
-            term=Terminology(name_synonyms=synonym_lookup()),  # D-172: the loaded zh-TW synonym dictionary
+            # D-172: the loaded zh-TW synonym dictionary; the source and release from the resolver (D-301)
+            term=resolver.terminology(name_synonyms=synonym_lookup()),
             settings_thresholds={
                 "equivalence_min_pct": th.equivalence_min_pct,
                 "tier_high_confidence": th.tier_high_confidence,

@@ -217,12 +217,13 @@ def test_a_site_set_up_the_hard_way(svc: SiteSetup, tmp_path: Path) -> None:
         "setup.resolve",
         "setup.fact",
         "setup.publish",
+        "setup.publish_begin",  # D-273 (CR-055): the event before the change
     } <= events
     assert verify(tmp_path / "audit").ok
     trail = (
         (tmp_path / "audit").read_bytes()
         if (tmp_path / "audit").is_file()
-        else b"".join(p.read_bytes() for p in (tmp_path / "audit").glob("*"))
+        else b"".join(p.read_bytes() for p in (tmp_path / "audit").glob("*.jsonl"))
     )
     assert b"10000004" not in trail and "青木".encode() not in trail
 

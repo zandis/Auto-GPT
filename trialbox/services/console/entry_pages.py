@@ -94,6 +94,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_view_phi:
             au.append("console.denied", actor=h.actor(sess), detail={"action": f"entry {rid}"})
             raise h.problem(403, "forbidden")
+        # D-273 (PV-3): trial values and their exports as the participants page: an investigator as delegated only
+        h.delegated(sess, rid, f"entry {rid}", ("screen", "enter_data"))
         return rid
 
     def enters(user: User, rid: str | None) -> bool:

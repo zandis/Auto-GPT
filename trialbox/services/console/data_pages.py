@@ -117,6 +117,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if rows and not sess.user.can_view_phi:
             au.append("console.denied", actor=h.actor(sess), detail={"action": f"conflicts {rid}"})
             raise h.problem(403, "forbidden")
+        if rows:  # D-273: per-record trial values follow the delegation log, as the participants pages do
+            h.delegated(sess, rid, f"conflicts {rid}", ("screen", "enter_data"))
         return rid
 
     def need_change(sess: Session, path: str) -> None:

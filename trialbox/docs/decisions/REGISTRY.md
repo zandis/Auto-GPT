@@ -39,7 +39,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-160..D-163 | merged | EDC prefill, Study A documents | `docs/DECISIONS.md` |
 | D-164..D-169 | unused | — | gap recorded by TB-ASSESS-01 |
 | D-170..D-179 | merged | reference data, rehearsal, IT screens (PRs #66, #68, #76 and earlier) | `docs/DECISIONS.md` |
-| D-180 | reserved | PR #80 | catalogue completion with verified codes; becomes a file at merge (the log is frozen) |
+| D-180 | merged | PR #80 | catalogue completion with verified codes (file) |
 | D-181 | merged | PR #64 | judge bake-off; `docs/DECISIONS.md` |
 | D-182..D-184 | unused | — | held for the sibling session, which was given D-185 to D-193 instead |
 | D-185..D-193 | merged | sibling session | supply chain, backups, derived scores, SAE register, identity, TLS; `docs/DECISIONS.md` |
@@ -117,9 +117,13 @@ master stay); reservations D-208 to D-262 stay valid.
 | --- | --- | --- | --- |
 | D-270 | merged | fix group D-270 (PR #86) | the console's "today" is the site's date; `docs/DECISIONS.md` (its last entry) |
 | D-271 | merged | fix group D-271 (PR #97) | the data pipeline never promotes nothing; `docs/decisions/D-271-data-pipeline-integrity.md` |
-| D-272..D-275 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-272 | merged | fix group D-272 (FG-C) | audit integrity: no chart number in the audit chain, a head anchor, an archive that never overwrites (file) |
+| D-273 | merged | fix group D-273 | console privacy guards: one reveal path, delegation and opt-out on every patient-level reader, signed role and study (file) |
+| D-274..D-275 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-276 | merged | fix group FG-G (PR #101) | the two-model check needs two different models; `docs/decisions/D-276-two-model-check.md` |
-| D-277..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-277..D-278 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-279 | merged | fix group D-279 | identity follow-ups: forced first password change, sign-in lock per account and address, OIDC session lifetime, second factor at signing; `docs/decisions/D-279-identity-follow-ups.md` (file) |
+| D-280..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-290..D-299 | unused | — | below the new block; never given |
 
 ## New numbers (from D-300)
@@ -127,11 +131,15 @@ master stay); reservations D-208 to D-262 stay valid.
 | Number | State | Holder | Note |
 | --- | --- | --- | --- |
 | D-300 | merged | T-101 | prompt registry, renumbered from the PR's D-201 (file) |
-| D-301 | reserved | T-105, PR #82 | vocabulary schema (renumbered from the PR's D-205) |
+| D-301 | merged | T-105, PR #82 | vocabulary schema (renumbered from the PR's D-205) (file) |
 | D-302 | reserved | T-102a | permission matrix |
 | D-303 | reserved | T-106 | OMOP schema name |
 | D-304 | reserved | T-106 | dual write |
-| D-305 | reserved | T-012a | `trialbox eval qualify` |
+| D-305 | unused | — | was reserved for T-012a, which took D-313 |
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
 | D-308 | reserved | T-501 | held for T-501 |
+| D-309..D-312 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-313 | merged | T-012a | `trialbox eval qualify` and the qualification record (file) |
+| D-314..D-318 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-319 | merged | T-655 | the review fixes of PR #71: what changes from D-205 and D-207 (file) |

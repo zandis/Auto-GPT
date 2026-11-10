@@ -6,7 +6,7 @@
 {% block content %}
 <h1>{{ t('identity.title') }}</h1>
 <p>{{ t('identity.help') }}</p>
-<p class="hint" data-testid="identity-policy">{{ t('identity.policy', mfa=mfa, oidc=('on' if oidc else 'off'), idle=idle_minutes, hours=session_hours) }}</p>
+<p class="hint" data-testid="identity-policy">{{ t('identity.policy', mfa=t('identity.mfa.' + mfa), oidc=t('identity.oidc.' + ('on' if oidc else 'off')), idle=idle_minutes, hours=session_hours) }}</p>
 {% if done == 'unlock' %}<p class="ok" role="status" data-testid="identity-done">{{ t('identity.done.unlock') }}</p>{% endif %}
 {% if code %}<section class="card attention" data-testid="identity-code" aria-labelledby="code-h">
 <h2 id="code-h">{{ t('identity.code.title', user=code_for) }}</h2>

@@ -14,6 +14,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from tb_common import chartno
+
 PID_HEX_LEN = 32  # DECISIONS D-09
 
 
@@ -34,10 +36,13 @@ def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
 
 
 def pid_for_mrn(site_key: bytes, mrn: str) -> str:
-    """Stable pseudonymous patient id: ``hex(HMAC-SHA256(site_key, MRN))[:32]`` (SPEC §4.6, D-09)."""
+    """Stable pseudonymous patient id: ``hex(HMAC-SHA256(site_key, MRN))[:32]`` (SPEC §4.6, D-09). The chart number
+    is written the site's way first (``tb_common.chartno``, R-48, D-301): with the default rule a chart number that is
+    already written that way hashes exactly as before."""
     if len(site_key) < 16:
         raise ValueError("site HMAC key must be at least 16 bytes")
-    return hmac.new(site_key, mrn.strip().encode("utf-8"), hashlib.sha256).hexdigest()[:PID_HEX_LEN]
+    norm = chartno.normalise(None, mrn)
+    return hmac.new(site_key, norm.encode("utf-8"), hashlib.sha256).hexdigest()[:PID_HEX_LEN]
 
 
 def load_or_create_key(path: Path, size: int = 32) -> bytes:

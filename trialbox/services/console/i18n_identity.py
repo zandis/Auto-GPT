@@ -5,6 +5,10 @@
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "identity.mfa.totp": "authenticator app (TOTP)",
+    "identity.mfa.off": "off (build and synthetic data only)",
+    "identity.oidc.on": "on",
+    "identity.oidc.off": "off",
     "login.oidc": "Sign in with the hospital account",
     "login.oidc.failed": "The hospital sign-in did not complete. Try again, or ask the administrator to check your "
     "groups.",
@@ -44,6 +48,10 @@ EN: dict[str, str] = {
     "at their next sign-in. Check who is asking before you do this.",
 }
 JA: dict[str, str] = {
+    "identity.mfa.totp": "認証アプリ（TOTP）",
+    "identity.mfa.off": "なし（開発環境と合成データのみ）",
+    "identity.oidc.on": "使用する",
+    "identity.oidc.off": "使用しない",
     "login.oidc": "病院アカウントでログイン",
     "login.oidc.failed": "病院アカウントでのログインが完了しませんでした。もう一度試すか、管理者にグループの確認を依頼してください。",
     "login.local": "または TrialBox アカウントでログイン",
@@ -80,6 +88,10 @@ JA: dict[str, str] = {
     "依頼者が本人であることを確認してから実行してください。",
 }
 ZH: dict[str, str] = {
+    "identity.mfa.totp": "驗證器 App（TOTP）",
+    "identity.mfa.off": "未啟用（僅限開發環境與合成資料）",
+    "identity.oidc.on": "啟用",
+    "identity.oidc.off": "未啟用",
     "login.oidc": "以醫院帳號登入",
     "login.oidc.failed": "醫院帳號登入未完成。請再試一次，或請管理者確認您的群組。",
     "login.local": "或以 TrialBox 帳號登入",
@@ -164,5 +176,43 @@ ZH.update(
         "identity.code.issue": "註冊碼",
         "identity.unenrolled.title": "{n} 個帳號尚無法登入：未設定驗證器",
         "identity.unenrolled.help": "每個帳號都需要管理者發放的註冊碼才能設定驗證器。",
+    }
+)
+
+# D-279: the forced first change, the per-address wait, the second factor at signing
+EN.update(
+    {
+        "login.slowed": "Too many failed sign-ins from this computer's address. Wait {n} second(s) and try again. No account was locked by this.",
+        "account.must_change": "An administrator set this password, so only you may choose the next one: set your own password now. Nothing else opens until you do.",
+        "problem.h.account.must_change": "Set your own password first",
+        "problem.why.account.must_change": "Open My account (/account) and set your own password.",
+        "account.err.same": "Choose a new password, not the one you were given.",
+        "edc.sign.otp": "Code from your authenticator app",
+        "edc.err.edc.otp": "The authenticator code is not right, or it was used already. Nothing was signed.",
+        "edc.err.edc.must_change": "Set your own password on My account before you sign. Nothing was signed.",
+    }
+)
+JA.update(
+    {
+        "login.slowed": "このコンピューターのアドレスからのログイン失敗が多すぎます。{n} 秒待ってからもう一度お試しください。これによってロックされたアカウントはありません。",
+        "account.must_change": "このパスワードは管理者が設定したものです。次のパスワードはご本人だけが決めます。今すぐご自分のパスワードを設定してください。設定するまで他の画面は開きません。",
+        "problem.h.account.must_change": "まずご自分のパスワードを設定してください",
+        "problem.why.account.must_change": "「マイアカウント」（/account）を開き、ご自分のパスワードを設定してください。",
+        "account.err.same": "渡されたパスワードではなく、新しいパスワードを選んでください。",
+        "edc.sign.otp": "認証アプリのコード",
+        "edc.err.edc.otp": "認証コードが違うか、すでに使われています。署名していません。",
+        "edc.err.edc.must_change": "署名の前に「マイアカウント」でご自分のパスワードを設定してください。署名していません。",
+    }
+)
+ZH.update(
+    {
+        "login.slowed": "此電腦位址的登入失敗次數過多。請等待 {n} 秒後再試。沒有任何帳號因此被鎖定。",
+        "account.must_change": "此密碼由管理者設定，下一個密碼只能由您本人決定：請立即設定您自己的密碼。設定完成前無法開啟其他頁面。",
+        "problem.h.account.must_change": "請先設定您自己的密碼",
+        "problem.why.account.must_change": "請開啟「我的帳號」（/account）並設定您自己的密碼。",
+        "account.err.same": "請選擇新密碼，而不是您收到的密碼。",
+        "edc.sign.otp": "驗證器 App 的代碼",
+        "edc.err.edc.otp": "驗證碼不正確或已被使用。未簽章。",
+        "edc.err.edc.must_change": "簽章前請先在「我的帳號」設定您自己的密碼。未簽章。",
     }
 )

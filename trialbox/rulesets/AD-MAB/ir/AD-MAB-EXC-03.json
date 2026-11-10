@@ -1,0 +1,40 @@
+{
+ "class": "structured",
+ "id": "AD-MAB-EXC-03",
+ "kind": "exclusion",
+ "label": "脳卒中・TIA（12か月以内）",
+ "logic": {
+  "args": [
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_STROKE",
+    "window": {
+     "anchor": "index",
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   {
+    "domain": "condition",
+    "quantifier": "any",
+    "valueset": "VS_TRANSIENT_ISCHEMIC_ATTACK",
+    "window": {
+     "anchor": "index",
+     "from_days": -365,
+     "to_days": 0
+    }
+   }
+  ],
+  "op": "or"
+ },
+ "review": {
+  "at": "2026-11-10T22:18:12.342983+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "AD-MAB",
+ "source_ref": "5.2 除外基準 #3",
+ "text": "スクリーニング前12か月以内に脳卒中または一過性脳虚血発作（TIA）の既往がある者。",
+ "time_sensitive": true
+}
