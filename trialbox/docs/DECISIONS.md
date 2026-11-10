@@ -3799,7 +3799,7 @@ password change and on disable.
 
 *Open.* WebAuthn in the console (Authelia offers it for directory users), step-up re-authentication before a reveal,
 an export or a signature, the breached-password list, password history and the forced first change, `doctor`
-failing without MFA (and `doctor` still reads an unset `TB_CONSOLE_SECURE_COOKIE` as off), removing the trusted-header
+failing without MFA (its `secure_cookie` check now follows the console's default), removing the trusted-header
 SSO altogether, the `steward` role (the role table stays as it is here). The full stack with Authelia has not been
 started on a box (no Docker daemon on the build machine).
 
