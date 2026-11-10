@@ -198,18 +198,73 @@ Every step is in `deploy/updates/history.jsonl`. `--no-backup` is for a test box
 itself fails, restore from the backup. Driver updates are outside the bundle and need a change request. Held by
 `tests/unit/test_update_path.py` and `tools/update_drill.py`.
 
-**Backup** (D-126). Once, with hospital IT: `python -m tools.trialbox backup-keygen --private
+**Backup** (D-126, D-187, D-188). Once, with hospital IT: `python -m tools.trialbox backup-keygen --private
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the
-box keeps only the public key and cannot read its own backups. Then `trialbox backup --to <NAS share> --to <USB
-disk>` (keeps the newest 14 per target). Check one with `trialbox backup-verify <file> --key <private key>`. A
-backup holds both databases, every data folder and a manifest of hashes and row counts, compressed with zstd level 3
-on every core and then encrypted (AES-256-GCM to an X25519 key); a backup made before D-149 (gzip) still verifies and
-restores. The ruleset repository `/data/rulesets` is in it; it is also a git repository you may push to the
-hospital's git server.
+box keeps only the public key and cannot read its own backups. A backup (`.tbbak`) holds the trial and HAPI
+databases, every data folder and a manifest, compressed with zstd level 3 on every core and then encrypted
+(AES-256-GCM to an X25519 key). The box keeps running: each database is dumped and counted in one database snapshot,
+and a file that changes while it is read is read again. Left out on purpose: the vendor reference pack's rows (public;
+the pack file is kept in `deploy/refdata/loaded` and loaded again by the restore; the hospital's own reference rows
+are in the backup), the lake's NDJSON except that of `CURRENT` and the two newest snapshots (every Parquet and DuckDB
+file and every report is kept), the lake's `tmp/` spill and half-built snapshots. The manifest lists what was left
+out, the sha256 and size of every file and the rows of every table. `<file>.sha256` beside each backup marks it
+complete (`sha256sum -c` works on it). The ruleset repository `/data/rulesets` is in it; it is also a git repository
+you may push to the hospital's git server.
 
-**Restore.** Reinstall (§1), then `trialbox restore <file> --key <private key> --yes` (hospital IT brings the key).
-Every hash is checked first; replaced folders are moved aside, not deleted. Held by `tests/unit/test_backup.py`
-and `tools/backup_drill.py`.
+1. **Targets.** In `deploy/.env`, `TB_BACKUP_TARGETS=<NAS share> <USB disk>` (keep the newest `TB_BACKUP_KEEP`, 14,
+   of this box's files; other boxes' files on the same share are never touched). At least one must be **off-box**:
+   an NFS or SMB share, a USB disk, or a path hospital IT names in `TB_BACKUP_OFFBOX` (e.g. an iSCSI volume in
+   another room; on Windows/WSL2 a share mapped as a drive letter). A named path counts only on another device than
+   the box's own disk, or when hospital IT puts a file `.trialbox-offbox` in it. In PRODUCTION a box whose targets
+   are all on its own disks still writes the backup, but the run fails and stays red.
+2. **Schedule.** As root in the install folder: `sed "s#/opt/trialbox#$PWD#" deploy/backup/trialbox-backup.cron >
+   /etc/cron.d/trialbox-backup`. It runs `python3 -m tools.trialbox backup-nightly` at 04:45 (move it after the
+   night's jobs) and `backup-status --quiet` every hour. A run checks free space first and never runs twice at once.
+   The result is in `deploy/site/backup-last.json` and the audit (`backup.done`, `backup.failed`).
+3. **Age alert.** `python3 -m tools.trialbox backup-status` shows the newest good off-box backup (the one
+   `backup-last.json` records, with the same name, size and sha256 on the share) and its age. It turns red (exit 1)
+   when that backup is older than `TB_BACKUP_MAX_AGE_HOURS` (36) or dated in the future, when the last nightly run
+   or its pgBackRest step failed, or when WAL archiving fails, is off on the server, or has archived nothing for 26
+   hours. Red is audited (`backup.alert`, again every 24 h, `backup.alert_cleared` when it ends), mailed by cron to
+   `MAILTO`, and piped to `TB_BACKUP_ALERT_CMD` when set (a command that reads the message on stdin, e.g. the
+   hospital's mail tool). The message holds no patient data. Fix the cause, then run `backup-nightly` by hand.
+4. **Check a backup** with hospital IT: `trialbox backup-verify <file> --key <private key>` (reads it all, checks
+   every hash and the sidecar). A backup made before D-187 (layout 1, gzip or zstd) still verifies and restores.
+
+**Point-in-time restore (pgBackRest, optional).** The `db` service compresses WAL with zstd and TOAST with lz4 and
+gives new databases data checksums. Three weekly full backups are kept, so the database restores to any second of at
+least the last two weeks:
+
+1. Build the image with pgBackRest: `docker build -t trialbox-db-pitr:16 deploy/pgbackrest`; in `deploy/.env` set
+   `POSTGRES_IMAGE=trialbox-db-pitr:16` and `TB_PGBACKREST_REPO=<a folder on the hospital share>`.
+2. The repository key: `install -d -m 700 deploy/secrets/pgbackrest; (umask 077; printf '[global]\nrepo1-cipher-pass=%s\n'
+   "$(openssl rand -base64 48)" > deploy/secrets/pgbackrest/cipher.conf)`, then give the file and the repository
+   folder to the container's postgres user (`docker compose --project-directory deploy exec db id -u postgres`, then
+   `chown -R <uid> ...`). Hospital IT keeps a copy of the key with the backup key: the box holds this one, unlike the
+   `.tbbak` key, and without it the repository cannot be read.
+3. `docker compose --project-directory deploy up -d db`, then `docker compose --project-directory deploy exec -u
+   postgres db pgbackrest --stanza=trialbox stanza-create`.
+4. Only now set `TB_PG_ARCHIVE_MODE=on` in `deploy/.env`, run `docker compose --project-directory deploy up -d db`
+   (it recreates `db` with the new setting; a plain restart keeps the old one) and run `... pgbackrest
+   --stanza=trialbox check` (it must say the WAL segment was archived). Never turn archiving on before: with
+   archiving on and no working pgBackRest, Postgres keeps every WAL file until the disk is full (`backup-status`
+   turns red first). `backup-nightly` then takes a full backup on Sundays (`TB_PGBACKREST_FULL_DAY`, the box's local
+   day) and a differential on other days.
+5. **To restore to a time:** stop the services, then `docker compose --project-directory deploy stop db`, `docker
+   compose --project-directory deploy run --rm -u postgres db pgbackrest --stanza=trialbox --delta --type=time
+   "--target=2026-11-08 14:05:00+09" --target-action=promote restore`, and start everything again. Then run
+   `backup-nightly` so a new full chain starts.
+
+**Restore.** Reinstall (§1), then `trialbox restore <file> --key <private key> --yes [--refdata <folder>]` (hospital
+IT brings the key). Every hash is checked first; replaced folders are moved aside, not deleted. The restore loads the
+vendor reference packs the backup names again from `deploy/refdata/loaded` (where install and update keep them) or
+`--refdata`. If a pack is not there it says so and exits 3: put the pack file (from the update bundle or the vendor)
+in that folder and run the restore again. Rows that do not match the backup fail the restore; a backup made before
+D-187 or by the update path, counted on a running box, gives a warning instead. Held by `tests/unit/test_backup.py`,
+`tests/unit/test_backup_schedule.py` and `tools/backup_drill.py` (`make backup-drill`: the nightly run, layout,
+status and alert, wipe, restore with the pack loaded again, an old-format restore, the Postgres settings and a
+point-in-time recovery).
+
 
 ### Secrets (D-128, D-138): the one place to rotate them
 
