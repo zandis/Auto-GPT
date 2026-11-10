@@ -34,12 +34,14 @@ licence at the source when the vendor fetches it (D-173).
 :func:`verify` checks every file's size, sha256 and record count against the manifest. The update bundle's Ed25519
 signature covers the tar, so the manifest itself is authentic when it arrives through ``apply_update``.
 
-**Store**. :class:`RefStore` loads a pack into the schema ``refdata`` of the trial database (D-126), so the box's
-backup carries it. A pack replaces the rows of its own sources in one transaction; parts a hospital loads itself
-(``distribution: site-fetch``, e.g. UMIN-CTR, whose terms forbid redistribution) live beside the vendor's pack and a
-vendor update does not touch them. :meth:`RefStore.ctgov_search` answers what ``TB_CTGOV_MODE=live`` answers: by NCT
-id, by condition, by status and by country (Japan or Taiwan sites); it returns the full API v2 record, which
-``criteria_compiler.ctgov.to_study`` turns into the eligibility text the criteria are drafted from.
+**Store**. :class:`RefStore` loads a pack into the schema ``refdata`` of the trial database (D-126). The box's backup
+carries the ``pack`` and ``source`` rows and the hospital's own (``site-fetch``) rows; the vendor pack's rows are left
+out and the restore loads the kept pack file again (D-187, ``tools/trialbox/backup.py``). A pack replaces the rows
+of its own sources in one transaction; parts a hospital loads itself (``distribution: site-fetch``, e.g. UMIN-CTR,
+whose terms forbid redistribution) live beside the vendor's pack and a vendor update does not touch them.
+:meth:`RefStore.ctgov_search` answers what ``TB_CTGOV_MODE=live`` answers: by NCT id, by condition, by status and by
+country (Japan or Taiwan sites); it returns the full API v2 record, which ``criteria_compiler.ctgov.to_study`` turns
+into the eligibility text the criteria are drafted from.
 
     python -m tb_common.refdata verify PACK            # a directory or a .tar
     python -m tb_common.refdata load PACK [--by NAME]  # into TB_DB_URL's schema refdata
