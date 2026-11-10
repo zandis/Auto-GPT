@@ -13,6 +13,7 @@ Layout::
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,10 @@ from tb_common.fhir import library_name
 
 class RulesetNotApproved(RuntimeError):
     pass
+
+
+class RecompileNeeded(RulesetNotApproved):
+    """The ruleset was compiled against another terminology release (D-205)."""
 
 
 @dataclass
@@ -95,8 +100,15 @@ class Ruleset:
         return cls.from_files(files, directory)
 
 
-def load_approved(rulesets_dir: Path, ruleset_id: str, version: str | None = None) -> Ruleset:
-    """Approved ruleset from the materialized repo copy; refuses drafts and version mismatches (SPEC §5 step 4)."""
+def load_approved(
+    rulesets_dir: Path,
+    ruleset_id: str,
+    version: str | None = None,
+    terminology: Callable[[RulesetManifest], None] | None = None,
+) -> Ruleset:
+    """Approved ruleset from the materialized repo copy; refuses drafts and version mismatches (SPEC §5 step 4).
+    ``terminology`` (``criteria_compiler.terminology.resolver.guard()``, D-205) refuses a ruleset compiled against
+    another terminology release than the box's until it is recompiled; its refusal is :class:`RulesetNotApproved`."""
     directory = rulesets_dir / ruleset_id
     if not (directory / "manifest.yaml").exists():
         raise RulesetNotApproved(f"ruleset {ruleset_id} has no approved version on this box")
@@ -108,6 +120,13 @@ def load_approved(rulesets_dir: Path, ruleset_id: str, version: str | None = Non
     tag_ok = (rulesets_dir / ".git").exists() is False or _has_tag(rulesets_dir, f"{ruleset_id}/v{rs.version}")
     if not tag_ok:
         raise RulesetNotApproved(f"ruleset {ruleset_id} v{rs.version} has no approval tag")
+    if terminology is not None:
+        try:
+            terminology(rs.manifest)
+        except RulesetNotApproved:
+            raise
+        except RuntimeError as exc:  # TerminologyMismatch: recompile needed (D-205)
+            raise RecompileNeeded(str(exc)) from exc
     return rs
 
 

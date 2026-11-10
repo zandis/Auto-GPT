@@ -282,6 +282,7 @@ PINNED: dict[str, tuple[str, ...]] = {
     "omop": (
         "d1b8130f6cc7ae41e0cadec24ad648f9b00919482ac98228c7dd18ed02c4fedb",
         "a9dfd840a8666e0060540bc6171819d22541a021dcd15ee8e6687ad203db292b",
+        "0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",  # D-205: one-million block, vocabulary
     ),
     "trace": ("bfdb0077229852c4e139292ba57b6b1f79fffdd9610d33071b6478feba109cab",),
     "datacore": (

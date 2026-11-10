@@ -26,7 +26,11 @@ plain CDM tables:
 * ``tb_load``: one row per load (batch, counts, seconds).
 
 Local concepts are minted from ``tb_local_concept_seq`` in the site's block (``TB_OMOP_CONCEPT_BLOCK``, default
-2,100,000,000; never below 2,000,000,000, which is TrialBox's shared range, D-144).
+2,100,000,000; never below 2,000,000,000, which is TrialBox's shared range, D-144). A site block is one million ids
+(D-205, the D-151 overflow fix: 47 sites fit below the integer maximum, where ten million fitted four); a block that
+would end above 2,147,483,647 is refused. Migration 2 keeps the text it was applied with (ten million, D-204: an
+applied migration never changes); migration 3 narrows the sequence to the one-million block and adds the vocabulary
+tables of D-205 (``omop.vocab_load``).
 """
 
 from __future__ import annotations
@@ -92,7 +96,12 @@ TRANSITIONS: dict[str, frozenset[str]] = {
 LOCAL_MIN = 2_000_000_000  # D-144: local concepts are >= 2e9; TB-SHARED is 2,000,000,000-2,099,999,999
 INT4_MAX = 2_147_483_647  # OMOP ids are ``integer``: a site block ends here at the latest
 DEFAULT_BLOCK = 2_100_000_000  # the first site block (design §2.4)
-BLOCK_SIZE = 10_000_000
+BLOCK_SIZE = 1_000_000  # D-205: one million ids per site (the D-151 overflow fix)
+V2_BLOCK_SIZE = 10_000_000  # the block size migration 2 was applied with; its text never changes (D-204)
+# reference concepts (D-205): the public and licensed code lists loaded without the Athena bundle (ICD-10-CM, LOINC,
+# ATC, the NHI lists, MEDIS, JLAC10, YJ, ...) get box-local ids in TrialBox's range, above the shared concepts and
+# the catalogue (2,000,001,001 and up, WS-04.1); like every id >= 2e9 they are never standard
+REF_MIN, REF_MAX = 2_010_000_000, 2_099_999_999
 
 
 class OmopError(RuntimeError):
@@ -157,18 +166,32 @@ def foreign_keys(tables: tuple[str, ...] = CDM_TABLES) -> list[tuple[str, str, s
     ]
 
 
-def concept_block() -> tuple[int, int]:
-    """``(first, last)`` id of this site's local concepts: ``TB_OMOP_CONCEPT_BLOCK`` (its first id), 10 million ids,
-    cut at the integer maximum. Refused below 2,000,000,000 (D-144)."""
+def _block_first() -> int:
     first = int(os.environ.get("TB_OMOP_CONCEPT_BLOCK") or DEFAULT_BLOCK)
     if first < LOCAL_MIN or first >= INT4_MAX:
         raise OmopError(f"TB_OMOP_CONCEPT_BLOCK={first}: local concepts must be >= {LOCAL_MIN:,} (D-144)")
-    return first, min(first + BLOCK_SIZE - 1, INT4_MAX)
+    return first
+
+
+def concept_block() -> tuple[int, int]:
+    """``(first, last)`` id of this site's local concepts: ``TB_OMOP_CONCEPT_BLOCK`` (its first id) and one million
+    ids (D-205). Refused below 2,000,000,000 (D-144) and when the block would end above the integer maximum
+    (2,147,483,647: OMOP's ``concept_id`` is an ``integer``), never cut short."""
+    first = _block_first()
+    last = first + BLOCK_SIZE - 1
+    if last > INT4_MAX:
+        raise OmopError(
+            f"TB_OMOP_CONCEPT_BLOCK={first:,}: the block would end at {last:,}, above the integer maximum "
+            f"{INT4_MAX:,} (D-205); the last block starts at {INT4_MAX - BLOCK_SIZE + 1:,}"
+        )
+    return first, last
 
 
 def tb_ddl() -> str:
-    """Migration 2: TrialBox's extension tables (never inside a standard table)."""
-    first, last = concept_block()
+    """Migration 2: TrialBox's extension tables (never inside a standard table). Its text is the one applied on
+    every box (the ten-million block of D-151; migration 3 narrows it)."""
+    first = _block_first()
+    last = min(first + V2_BLOCK_SIZE - 1, INT4_MAX)
     statuses = ", ".join(f"'{s}'" for s in STATUSES)
     return f"""
 CREATE TABLE tb_record (
@@ -277,8 +300,64 @@ CREATE SEQUENCE tb_row_seq MAXVALUE {INT4_MAX} NO CYCLE
 """
 
 
+def vocab_ddl() -> str:
+    """Migration 3 (D-205): the one-million site block, the reference-concept sequence and the vocabulary's
+    TrialBox tables (``omop.vocab_load``): releases, the attributes a concept row has no column for, the compiler's
+    groupers, the relation of a map row and the rulesets' release pins."""
+    first, last = concept_block()
+    return f"""
+ALTER SEQUENCE tb_local_concept_seq MINVALUE {first} MAXVALUE {last};
+CREATE SEQUENCE tb_ref_concept_seq MINVALUE {REF_MIN} MAXVALUE {REF_MAX} START {REF_MIN} NO CYCLE;
+CREATE TABLE tb_vocab_release (
+    release_name TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    vocabulary_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    source TEXT NOT NULL,
+    rows INTEGER NOT NULL,
+    compile BOOLEAN NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT true,
+    loaded_by TEXT NOT NULL,
+    loaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (release_name, sha256)
+);
+CREATE TABLE tb_concept_attr (
+    concept_id INTEGER NOT NULL,
+    attr TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (concept_id, attr)
+);
+CREATE TABLE tb_term_grouper (
+    ord INTEGER NOT NULL,
+    domain TEXT NOT NULL,
+    name TEXT NOT NULL,
+    tbl TEXT NOT NULL,
+    code TEXT NOT NULL,
+    match TEXT NOT NULL CHECK (match IN ('exact', 'prefix')),
+    PRIMARY KEY (domain, name, tbl, code, match)
+);
+CREATE TABLE tb_map_relation (
+    source_vocabulary_id TEXT NOT NULL,
+    source_code TEXT NOT NULL,
+    target_concept_id INTEGER NOT NULL,
+    relation TEXT NOT NULL,
+    map_release TEXT NOT NULL,
+    PRIMARY KEY (source_vocabulary_id, source_code, target_concept_id)
+);
+CREATE TABLE tb_ruleset_release (
+    ruleset_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    compiled_release TEXT NOT NULL,
+    recompile_needed BOOLEAN NOT NULL,
+    marked_for TEXT NOT NULL,
+    marked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (ruleset_id, version)
+)
+"""
+
+
 def migrations() -> list[str]:
-    return [cdm_ddl(), tb_ddl()]
+    return [cdm_ddl(), tb_ddl(), vocab_ddl()]
 
 
 def db_url() -> str | None:

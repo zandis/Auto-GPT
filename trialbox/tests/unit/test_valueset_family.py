@@ -109,3 +109,78 @@ def test_offlist_unknown_names_its_reason_in_both_paths() -> None:
     assert v.verdict == "unknown" and v.evidence is not None and v.evidence.reason == CODE_OUTSIDE_LIST
     gap = PatientEvaluation(pid="p", index_date=date(2026, 1, 1), engine="sql", results={c.id: None}, evidence={})
     assert structured_verdict(c, gap).evidence.reason == "data_gap"  # type: ignore[union-attr]
+
+
+# ------------------------------------------------------------------------------------------------ WHO-only ICD-10
+WHO = "http://hl7.org/fhir/sid/icd-10"
+
+
+def _run_coded(sql: str, codes: dict[str, list[tuple[str, str]]]) -> dict[str, bool | None]:
+    con = duckdb.connect()
+    con.execute("CREATE TABLE patient (pid VARCHAR, birth_date DATE, sex VARCHAR, deceased_date DATE)")
+    con.execute(
+        "CREATE TABLE condition (pid VARCHAR, cid VARCHAR, system VARCHAR, code VARCHAR, onset DATE, recorded DATE)"
+    )
+    for i, (pid, cs) in enumerate(codes.items()):
+        con.execute("INSERT INTO patient VALUES (?, DATE '1960-01-01', 'female', NULL)", [pid])
+        for j, (sy, c) in enumerate(cs):
+            con.execute("INSERT INTO condition VALUES (?, ?, ?, ?, DATE '2025-01-01', NULL)", [pid, f"c{i}{j}", sy, c])
+    rows = con.execute(sql, [[date(2026, 1, 1).isoformat()], list(codes)]).fetchall()
+    cols = [d[0] for d in con.description]
+    return {
+        dict(zip(cols, r, strict=True))["pid"]: next(v for k, v in zip(cols, r, strict=True) if k.startswith("C_"))
+        for r in rows
+    }
+
+
+def _grouper(term: Terminology, concept: str, vs_name: str) -> ValueSets:
+    res = term.map("condition", concept)
+    return ValueSets("FAM", {vs_name: valueset("FAM", vs_name, concept, res.concepts, "1.0.0", families=res.families)})
+
+
+def _crit_vs(vs_name: str) -> CriterionIR:
+    return CriterionIR.model_validate(
+        {"id": "FAM-INC-09", "ruleset": "FAM", "text": vs_name, "kind": "inclusion", "class": "structured",
+         "logic": {"domain": "condition", "valueset": vs_name}}
+    )  # fmt: skip
+
+
+WHO_PATIENTS = {
+    "who_only": [(WHO, "M10.97")],  # WHO-only (gout, ankle and foot): no such ICD-10-CM code
+    "who_listed": [(WHO, "M10.9")],  # a WHO code that is also a listed ICD-10-CM code: D-130 reads it at runtime
+    "cm_listed": [(ICD, "M10.9")],
+    "who_other": [(WHO, "J45.97")],  # WHO-only, outside the gout family
+}
+
+
+def test_who_only_code_resolves_to_its_icd10cm_family_and_fails_closed_outside_it() -> None:
+    """Baseline correction 3 (D-205): a WHO-only ``M10`` code is inside the ICD-10-CM gout family, so the grouper is
+    unknown (never a silent false); outside the family the compiled SQL says false and the D-130 runtime check still
+    turns it unknown (WHO ICD-10 is not a system any ValueSet reads)."""
+    from matching.coverage import Coverage, GapRow, known_systems
+
+    term = Terminology()
+    gout = _grouper(term, "gout", "VS_GOUT")
+    assert (ICD, "M10") in gout.families("VS_GOUT")
+    got = _run_coded(SqlGenerator("FAM", "1.0.0", gout).render([_crit_vs("VS_GOUT")]), WHO_PATIENTS)
+    assert got == {"who_only": None, "who_listed": False, "cm_listed": True, "who_other": False}
+    malig = _grouper(term, "malignancy", "VS_MALIGNANCY")
+    got = _run_coded(SqlGenerator("FAM", "1.0.0", malig).render([_crit_vs("VS_MALIGNANCY")]), WHO_PATIENTS)
+    assert got == {"who_only": False, "who_listed": False, "cm_listed": False, "who_other": False}
+    # outside the family: the runtime's unknown-code-system check (D-130) still holds the WHO rows for review
+    assert WHO not in known_systems(malig.by_name)
+    cov = Coverage({"who_only": [GapRow("condition", "c00", date(2025, 1, 1), WHO)]})
+    assert cov.refs(_crit_vs("VS_MALIGNANCY"), "who_only", date(2026, 1, 1)) == ["c00|2025-01-01"]
+    # a plain list (no grouper) is untouched: no family, no WHO clause
+    plain = term.map("condition", "medullary thyroid carcinoma")
+    vs = ValueSets("FAM", {"VS_MTC": valueset("FAM", "VS_MTC", "mtc", plain.concepts, "1.0.0")})
+    assert f"'{WHO}'" not in SqlGenerator("FAM", "1.0.0", vs).render([_crit_vs("VS_MTC")])
+
+
+def test_who_family_twin_in_cql_too() -> None:
+    from criteria_compiler.compile_cql.generator import CqlGenerator
+
+    gout = _grouper(Terminology(), "gout", "VS_GOUT")
+    cql = CqlGenerator("FAM", "1.0.0", gout).render([_crit_vs("VS_GOUT")])
+    assert f"Cd.system.value = '{WHO}' and StartsWith(Cd.code.value, 'M10')" in cql
+    assert f"Code {{ code: Cd.code.value, system: '{ICD}' }} in \"VS_GOUT\"" in cql

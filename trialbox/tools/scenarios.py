@@ -1037,6 +1037,9 @@ def sheets(feed: Path, n: int, seed: int = 7) -> tuple[list[tuple[str, bytes]], 
             cell_v, unit = f"{round(v * 59.48)}", "µmol/L"
             planted["unit"] += 1
         no = m.translate(FW) if i % 5 == 0 else m
+        if i % 7 == 6 and m.isdigit():  # R-48: the PI's system printed the chart number zero-padded
+            no = "00" + m
+            planted["zero_pad"] += 1
         planted["width"] += (i % 5 == 0) + (i % 4 == 3)
         if i % 4 == 3:
             cell_v = cell_v.translate(FW)
@@ -1083,11 +1086,27 @@ def sheets(feed: Path, n: int, seed: int = 7) -> tuple[list[tuple[str, bytes]], 
             [["病歷號", "姓名", "出生日期", "性別", "診斷", "尿酸值", "單位", "就診日"], *rows["big5"]]
         )
         files.append(("候選名單_big5.csv", s.getvalue().encode("big5", errors="replace")))
-    info = {"rows": {k: len(v) for k, v in rows.items()}, "planted": dict(planted), "patients": pick}
+    info = {"rows": {k: len(v) for k, v in rows.items()}, "planted": dict(planted), "patients": pick, "order": jp}
     return files, {m: truth[m] for m in pick}, info
 
 
 def sc_excel(a: Any, work: Path) -> Result:
+    from tb_common import chartno
+
+    # the site's chart-number rule (R-48, D-205): digits, leading zeros not significant, so a zero-padded number in
+    # a PI's list joins the feed's unpadded one
+    before = os.environ.get(chartno.ENV)
+    os.environ[chartno.ENV] = "digits"
+    try:
+        return _sc_excel(a, work)
+    finally:
+        if before is None:
+            os.environ.pop(chartno.ENV, None)
+        else:
+            os.environ[chartno.ENV] = before
+
+
+def _sc_excel(a: Any, work: Path) -> Result:
     from tb_common.crypto import pid_for_mrn
 
     res = Result("site-excel")
@@ -1130,6 +1149,12 @@ def sc_excel(a: Any, work: Path) -> Result:
     tw = {pid_for_mrn(fd.KEY, m) for m in info["patients"] if not m.startswith("2")}
     cmp = compare_states(got, want)
     joined = sum(1 for p in want if p in got)
+    padded = [pid_for_mrn(fd.KEY, m) for i, m in enumerate(info["order"]) if i % 7 == 6 and m.isdigit()]
+    s.check(
+        "R-48: a zero-padded chart number joins its unpadded twin in the feed",
+        bool(padded) and all(got.get(p) == want[p] for p in padded),
+        {"padded": len(padded), "joined": sum(1 for p in padded if got.get(p) == want[p])},
+    )
     for label, group in (
         ("Excel and Shift_JIS", [p for p in want if p not in tw]),
         ("Big5 (zh-TW, 民國)", [p for p in want if p in tw]),

@@ -1,0 +1,12 @@
+{
+ "about": "SYNTHETIC rows in the shape of the NHIA ICD-10-CM 2014 <-> 2023 map as the refdata parser yields them (tb_common.refdata_tw.icd_map_rows, D-171, PR #65). Not the NHIA file: invented for the test of omop.vocab_load (D-205). Relations: equivalent (same code), inexact (a one-to-one change of code), narrower (a split), relatedto (a candidate NHIA added for a deleted code), unmatched (no 2023 code).",
+ "version": "synthetic 2026-11",
+ "rows": [
+  {"source_system": "urn:tw:nhi:icd-10-cm-2014", "source_code": "M10.9", "source_display": "Gout, unspecified", "target_system": "urn:tw:nhi:icd-10-cm-2023", "target_code": "M10.9", "target_display": "Gout, unspecified", "relation": "equivalent"},
+  {"source_system": "urn:tw:nhi:icd-10-cm-2014", "source_code": "E78.0", "source_display": "Pure hypercholesterolemia", "target_system": "urn:tw:nhi:icd-10-cm-2023", "target_code": "E78.00", "target_display": "Pure hypercholesterolemia, unspecified", "relation": "inexact"},
+  {"source_system": "urn:tw:nhi:icd-10-cm-2014", "source_code": "K21.0", "source_display": "Gastro-esophageal reflux disease with esophagitis", "target_system": "urn:tw:nhi:icd-10-cm-2023", "target_code": "K21.00", "target_display": "GERD with esophagitis, without bleeding", "relation": "narrower"},
+  {"source_system": "urn:tw:nhi:icd-10-cm-2014", "source_code": "K21.0", "source_display": "Gastro-esophageal reflux disease with esophagitis", "target_system": "urn:tw:nhi:icd-10-cm-2023", "target_code": "K21.01", "target_display": "GERD with esophagitis, with bleeding", "relation": "narrower"},
+  {"source_system": "urn:tw:nhi:icd-10-cm-2014", "source_code": "Z22.51", "source_display": "Carrier of viral hepatitis B", "target_system": "urn:tw:nhi:icd-10-cm-2023", "target_code": "B18.1", "target_display": "Chronic viral hepatitis B without delta-agent", "relation": "relatedto"},
+  {"source_system": "urn:tw:nhi:icd-10-cm-2014", "source_code": "Z99.0", "source_display": "Synthetic deleted code", "target_system": "urn:tw:nhi:icd-10-cm-2023", "target_code": "", "target_display": "", "relation": "unmatched"}
+ ]
+}

@@ -40,7 +40,8 @@ from criteria_compiler.semantics import (
     kind,
     window,
 )
-from criteria_compiler.terminology.mapper import ValueSets
+from criteria_compiler.terminology.mapper import SYSTEMS, ValueSets
+from criteria_compiler.terminology.resolver import ICD10_WHO
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 _env = Environment(
@@ -174,9 +175,19 @@ class CqlGenerator:
         if atom.domain not in FAMILY_CODINGS:
             raise CompileError(f"code families are not supported on {atom.domain} atoms")
         on = q("O_" + p)
+        cm = SYSTEMS["icd10cm"]
         in_family = " or ".join(
             f"(Cd.system.value = '{sy}' and StartsWith(Cd.code.value, '{pre}'))" for sy, pre in sorted(set(fams))
         )
+        # an ICD-10-CM family also holds the WHO ICD-10 codes of its prefix that are not listed ICD-10-CM codes
+        # (baseline correction 3, D-205), as the SQL says
+        who = [pre for sy, pre in sorted(set(fams)) if sy == cm]
+        if who:
+            in_family += " or " + " or ".join(
+                f"(Cd.system.value = '{ICD10_WHO}' and StartsWith(Cd.code.value, '{pre}') "
+                f"and not (Code {{ code: Cd.code.value, system: '{cm}' }} in {vs}))"
+                for pre in who
+            )
         for name, when in ((on, f"{date} in {win}"), (q("UO_" + p), f"{date} is null")):
             defs.append(
                 f"define {name}:\n  [{FAMILY_CODINGS[atom.domain][0]}] X where ({when})\n"

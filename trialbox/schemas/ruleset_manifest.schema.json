@@ -32,6 +32,7 @@
     "cohort": {"$ref": "#/$defs/cohort_config"},
     "population": {"$ref": "#/$defs/population_spec"},
     "nct_id": {"type": "string"},
+    "terminology_release": {"type": "string", "pattern": "^TR-[0-9a-f]{12}$", "description": "the terminology release the ruleset was compiled against (D-205): a run against another release is refused until it is recompiled"},
     "source_last_update": {"type": "string"}
   },
   "$defs": {

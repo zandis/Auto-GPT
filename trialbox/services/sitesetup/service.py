@@ -26,6 +26,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from tb_common import chartno
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn, sha256_bytes
 
@@ -107,8 +108,10 @@ class SiteSetup:
         return "".join(out)
 
     def pseudonym(self, chart_no: str) -> str:
+        """The chart number written the site's way (``tb_common.chartno``: width, leading zeros, hex case; R-48),
+        then hashed with the site key, as the feed's own chart numbers are."""
         key = self.site_key()
-        return pid_for_mrn(key, messy.half_width(chart_no).strip())
+        return pid_for_mrn(key, chartno.normalise(None, chart_no))
 
     # ------------------------------------------------------------------ sheets and dumps
     def add_sheet(self, ws: str, kind: str, name: str, data: bytes, roles: dict[str, str], by: str) -> dict[str, Any]:
