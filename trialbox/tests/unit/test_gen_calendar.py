@@ -15,7 +15,7 @@ from tools import gen_calendar as gc
 BASE: dict[str, Any] = {
     "window": {"start": "2027-04-01", "end": "2027-05-31"},
     "sites": {"TW": "Taiwan", "JP": "Japan"},
-    "milestones": [{"id": "G9", "date": "2027-04-28", "day": "Wed", "what": "x", "sites": ["TW", "JP"]}],
+    "milestones": [{"id": "MX", "date": "2027-04-28", "day": "Wed", "what": "x", "sites": ["TW", "JP"]}],
     "sources": {
         "TW": {2027: {"status": "verified", "checked": "2026-11-10", "url": "https://example.org/tw", "file": "tw"}},
         "JP": {2027: {"status": "verified", "checked": "2026-11-10", "url": "https://example.org/jp", "file": "jp"}},
@@ -70,7 +70,7 @@ def test_wrong_weekday_on_a_milestone_fails() -> None:
     data = copy.deepcopy(BASE)
     data["milestones"][0]["day"] = "Thu"
     errors, _ = gc.check(gc.parse(data))
-    assert errors == ["G9 2027-04-28: printed Thu, is Wed"]
+    assert errors == ["MX 2027-04-28: printed Thu, is Wed"]
 
 
 def test_wrong_weekday_on_a_holiday_fails() -> None:
@@ -84,7 +84,7 @@ def test_milestone_on_a_holiday_of_its_site_fails() -> None:
     data = copy.deepcopy(BASE)
     data["milestones"][0].update(date="2027-04-30", day="Fri")
     errors, _ = gc.check(gc.parse(data))
-    assert errors == ["G9 2027-04-30: on a day off at TW (補假)"]
+    assert errors == ["MX 2027-04-30: on a day off at TW (補假)"]
 
 
 def test_milestone_on_a_holiday_of_another_site_passes() -> None:
@@ -96,7 +96,7 @@ def test_milestone_on_a_holiday_of_another_site_passes() -> None:
 def test_milestone_on_a_weekend_fails() -> None:
     data = copy.deepcopy(BASE)
     data["milestones"][0].update(date="2027-05-01", day="Sat", sites=["JP"])
-    assert gc.check(gc.parse(data))[0] == ["G9 2027-05-01: on a weekend"]
+    assert gc.check(gc.parse(data))[0] == ["MX 2027-05-01: on a weekend"]
 
 
 def test_a_year_without_source_fails_and_unverified_is_a_note() -> None:
