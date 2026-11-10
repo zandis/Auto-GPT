@@ -39,7 +39,7 @@ def test_admin_sees_the_flags_seeded_at_start(box: dict[str, Any]) -> None:
     assert r.status_code == 200
     assert 'data-flag="lake.source"' in r.text and 'data-value="legacy"' in r.text
     assert 'data-kind="seed"' in r.text  # the first value is in the history
-    assert len(_events(box, "flag.seed")) == 1
+    assert len(_events(box, "flag.seed")) == len(fl.DECLARED)  # each declared flag seeded once
 
 
 def test_a_change_needs_a_reason_and_a_confirmation_and_is_audited(box: dict[str, Any]) -> None:

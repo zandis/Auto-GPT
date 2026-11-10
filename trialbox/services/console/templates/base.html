@@ -12,6 +12,7 @@
 <body>
 <a class="skip" href="#main">{{ t('skip') }}</a>
 <header class="top">
+  {% include "_demo_banner.html" %}
   {% if pilot %}<div class="banner" role="note" data-testid="banner"><span class="long">{{ t('pilot.banner.public' if settings.data_source == 'public' else 'pilot.banner', env=settings.environment) }}</span><span class="short">{{ t('pilot.banner.short') }}</span></div>
   {% else %}<div class="banner prod" role="note" data-testid="banner">{{ t('prod.banner') }}</div>{% endif %}
   <div class="bar">
@@ -49,7 +50,8 @@
 {% block content %}{% endblock %}
 </main>
 <footer>{{ t('footer', env=settings.environment, dc=settings.data_class) }}
-<p class="hint" data-testid="intended-use">{{ t('footer.statement') }}</p></footer>
+<p class="hint" data-testid="intended-use">{{ t('footer.statement') }}</p>
+{% with demo_at = 'foot' %}{% include "_demo_banner.html" %}{% endwith %}</footer>
 <script>{{ console_js|safe }}</script>
 </body>
 </html>

@@ -154,3 +154,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-320 | merged | T-505a | the API sign-in asks for the second factor; one channel per session (file) |
 | D-321 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
 | D-322 | merged | T-613a | the shipped rulesets recompiled offline from their cassettes, and the CI drift check (file) |
+| D-328 | merged | T-502 | PoC demonstration mode behind the audited flag `demo.mode`: uploads and chart paste refused, banner, `demo.ack`, the scan of stored input (file) |
