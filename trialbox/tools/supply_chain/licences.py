@@ -29,7 +29,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from tools.supply_chain.allowlist import Allowlist, norm
+from tools.supply_chain.allowlist import LOCK_SUBJECT, STRICT_ECOSYSTEMS, Allowlist, is_own, norm
 
 RANK = {"ok": 0, "dual": 1, "unknown": 2, "lgpl": 3, "gpl": 4, "agpl": 5}
 FLAGS = ("dual", "unknown", "lgpl", "gpl", "agpl")
@@ -345,18 +345,99 @@ def report(sboms: dict[str, dict[str, Any]], allow: Allowlist, *, gate_os_packag
     return rows
 
 
-def render(rows: list[Row]) -> str:
-    """Markdown table for the release record."""
+def subject_of(doc: dict[str, Any]) -> str:
+    """Whose SBOM this is: an image repository (Syft's container name) or the Python lock."""
+    comp = (doc.get("metadata") or {}).get("component") or {}
+    return str(comp.get("name")) if comp.get("type") == "container" and comp.get("name") else LOCK_SUBJECT
+
+
+@dataclass(frozen=True)
+class BudgetUse:
+    subject: str
+    ecosystem: str  # "*" for a third-party image: all its open flags count together
+    count: int
+    max: int | None
+    reason: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.max is not None and self.count <= self.max
+
+
+@dataclass
+class LicenceGate:
+    rows: list[Row]
+    failing: list[tuple[Row, str]]  # (row, subject) that no entry and no budget may cover
+    budgets: list[BudgetUse]
+
+    @property
+    def ok(self) -> bool:
+        return not self.failing and all(b.ok for b in self.budgets)
+
+
+def evaluate(sboms: dict[str, dict[str, Any]], allow: Allowlist, *, gate_os_packages: bool = False) -> LicenceGate:
+    """The licence gate.
+
+    Our images and the lock: a copyleft or dual flag, or an unknown licence in a strict ecosystem (pypi, npm), needs a
+    package entry; unknown licences in other ecosystems (jars, Go and Rust binaries, generic binaries, where Syft
+    finds no licence data) are counted per image and ecosystem against a reviewed budget. Third-party images,
+    redistributed unmodified under their publishers' terms: all open flags are counted per image against a reviewed
+    budget. A count over its budget, or with no budget, fails, so new components get reviewed.
+    """
+    rows = report(sboms, allow, gate_os_packages=gate_os_packages)
+    subjects = {name: subject_of(doc) for name, doc in sboms.items()}
+    failing: list[tuple[Row, str]] = []
+    uses: dict[tuple[str, str], set[tuple[str, str, str]]] = {}
+    for r in rows:
+        if not r.failing:
+            continue
+        for src in r.sources:
+            subj = subjects.get(src, src)
+            if is_own(subj):
+                if r.open_flags - {"unknown"} or r.ecosystem in STRICT_ECOSYSTEMS:
+                    if all(row is not r for row, _ in failing):
+                        failing.append((r, subj))
+                    continue
+                key = (subj, r.ecosystem)
+            else:
+                key = (subj, "*")
+            uses.setdefault(key, set()).add((r.package, r.version, r.ecosystem))
+    budgets = []
+    for (subj, eco), found in sorted(uses.items()):
+        entry = allow.budget(subj, eco)
+        budgets.append(BudgetUse(subj, eco, len(found), entry.max if entry else None, entry.reason if entry else ""))
+    return LicenceGate(rows, failing, budgets)
+
+
+def render(result: LicenceGate) -> str:
+    """Markdown report for the release record."""
+    rows = result.rows
     counts = {c: sum(1 for r in rows if r.cls == c) for c in RANK}
-    failing = [r for r in rows if r.failing]
+    failing_rows = {id(r) for r, _ in result.failing}
+    over = [b for b in result.budgets if not b.ok]
     head = [
         "# Licence report",
         "",
         f"{len(rows)} components: "
         + ", ".join(f"{counts[c]} {c}" for c in ("agpl", "gpl", "lgpl", "unknown", "dual", "ok")),
-        f"Result: {'FAIL' if failing else 'PASS'} ({len(failing)} flagged without an allow-list entry)",
+        f"Result: {'PASS' if result.ok else 'FAIL'} ({len(result.failing)} flagged without an allow-list entry, "
+        f"{len(over)} budgets exceeded or missing)",
         "",
-        "| Package | Version | Type | Licence | Flags | Accepted because |",
+        "## Budgets (open flags counted per image and ecosystem)",
+        "",
+        "| Image | Ecosystem | Open | Budget | Result |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for b in result.budgets:
+        state = "ok" if b.ok else ("**no budget**" if b.max is None else "**over budget**")
+        if b.ok and b.max is not None and b.count < b.max:
+            state = f"ok (budget can drop to {b.count})"
+        head.append(f"| {b.subject} | {b.ecosystem} | {b.count} | {'-' if b.max is None else b.max} | {state} |")
+    head += [
+        "",
+        "## Flagged components",
+        "",
+        "| Package | Version | Type | Licence | Flags | Status |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
     body = []
@@ -364,8 +445,10 @@ def render(rows: list[Row]) -> str:
         if not r.flags:
             continue
         flags = ", ".join(sorted(r.flags, key=RANK.__getitem__, reverse=True))
-        if r.failing:
+        if id(r) in failing_rows:
             why = "**not allow-listed: " + ", ".join(sorted(r.open_flags)) + "**"
+        elif r.failing:
+            why = "counted in its image's budget"
         elif not r.gated and r.open_flags:
             why = f"base-image {r.ecosystem} package (distro notices)"
         else:

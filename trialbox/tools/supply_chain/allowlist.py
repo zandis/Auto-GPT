@@ -24,6 +24,13 @@ A finding is accepted only by a written entry: which package, why, and until whe
         reason: ...                      # unknown: ``licence`` records what a person verified
         review_by: 2027-05-01
 
+    budgets:                             # open licence flags counted per image and ecosystem (licences.evaluate)
+      - image: trialbox-jvm              # an image repository, or requirements.lock
+        ecosystem: maven                 # a purl type; "*" (all) for a third-party image only
+        max: 68                          # more fails; never pypi or npm (or "*") for our own images
+        reason: ...
+        review_by: 2027-02-01
+
 The checker rejects an entry with no reason, a reason shorter than 20 characters, no or a bad ``review_by``, a date
 in the past or more than 180 days ahead, an unknown or duplicate key, a duplicate entry, a vulnerability entry without
 a package, a dual entry without ``chosen``, and an unknown entry without ``licence``. "Today" is the build machine's
@@ -33,7 +40,7 @@ date (``today()``); there is no override on the command line.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +54,15 @@ LICENCE_CLASSES = ("lgpl", "gpl", "agpl", "unknown", "dual")
 
 _VULN_KEYS = {"id", "package", "reason", "review_by", "owner"}
 _LIC_KEYS = {"package", "class", "chosen", "licence", "reason", "review_by", "owner"}
+_BUDGET_KEYS = {"image", "ecosystem", "max", "reason", "review_by", "owner"}
+# in our own images and the lock, an unknown licence in these ecosystems is never budgeted: each needs an entry
+STRICT_ECOSYSTEMS = ("pypi", "npm")
+LOCK_SUBJECT = "requirements.lock"
+
+
+def is_own(subject: str) -> bool:
+    """Our images (trialbox-*, in any registry) and the Python lock: the strict licence rules apply."""
+    return subject == LOCK_SUBJECT or subject.rsplit("/", 1)[-1].startswith("trialbox-")
 
 
 def today() -> dt.date:
@@ -72,10 +88,20 @@ class LicenceEntry:
     licence: str | None = None
 
 
+@dataclass(frozen=True)
+class BudgetEntry:
+    image: str  # the SBOM subject: an image repository ("trialbox-jvm", "vllm/vllm-openai") or "requirements.lock"
+    ecosystem: str  # a purl type ("maven", "golang", "cargo", "generic"...) or "*" (a third-party image only)
+    max: int
+    reason: str
+    review_by: dt.date
+
+
 @dataclass
 class Allowlist:
     vulnerabilities: list[VulnEntry]
     licences: list[LicenceEntry]
+    budgets: list[BudgetEntry] = field(default_factory=list)
 
     def vuln(self, ids: set[str], package: str) -> VulnEntry | None:
         """The entry accepting a finding known by any of ``ids`` in ``package``, if one does."""
@@ -88,6 +114,13 @@ class Allowlist:
     def licence(self, package: str, cls: str) -> LicenceEntry | None:
         for e in self.licences:
             if e.package == norm(package) and e.cls == cls:
+                return e
+        return None
+
+    def budget(self, subject: str, ecosystem: str) -> BudgetEntry | None:
+        """The budget for open licence flags of ``ecosystem`` in the SBOM of ``subject``, if one is written."""
+        for e in self.budgets:
+            if (subject == e.image or subject.endswith("/" + e.image)) and e.ecosystem in (ecosystem, "*"):
                 return e
         return None
 
@@ -158,9 +191,11 @@ def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
         return out, errors
     if not isinstance(data, dict):
         return out, ["the allow-list must be a mapping with 'vulnerabilities' and 'licences'"]
-    errors += [f"unknown top-level key {k!r}" for k in sorted(set(data) - {"vulnerabilities", "licences"}, key=str)]
+    errors += [
+        f"unknown top-level key {k!r}" for k in sorted(set(data) - {"vulnerabilities", "licences", "budgets"}, key=str)
+    ]
     lists: dict[str, list[Any]] = {}
-    for list_key in ("vulnerabilities", "licences"):
+    for list_key in ("vulnerabilities", "licences", "budgets"):
         value = data.get(list_key)
         if value is None:
             lists[list_key] = []
@@ -216,6 +251,27 @@ def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
         errors += errs
         if not errs and when is not None and pkg and isinstance(cls, str):
             out.licences.append(LicenceEntry(norm(pkg), cls, str(raw["reason"]).strip(), when, chosen, licence))
+    seen_b: set[tuple[str, str]] = set()
+    for i, raw in enumerate(lists["budgets"]):
+        if not isinstance(raw, dict):
+            errors.append(f"budgets[{i}]: must be a mapping")
+            continue
+        image, eco, top = _text(raw, "image"), _text(raw, "ecosystem"), raw.get("max")
+        where = f"budgets[{i}] ({image} {eco})"
+        errs, when = _common(where, raw, _BUDGET_KEYS, today)
+        if not image or not eco:
+            errs.append(f"{where}: needs image and ecosystem")
+        if not isinstance(top, int) or isinstance(top, bool) or top < 0:
+            errs.append(f"{where}: max must be a whole number of components, 0 or more")
+        if image and eco and is_own(image) and (eco in STRICT_ECOSYSTEMS or eco == "*"):
+            errs.append(f"{where}: unknown {eco} licences in our own images are not budgeted; write an entry each")
+        if image and eco:
+            if (image, eco) in seen_b:
+                errs.append(f"{where}: duplicate entry")
+            seen_b.add((image, eco))
+        errors += errs
+        if not errs and when is not None and image and eco and isinstance(top, int):
+            out.budgets.append(BudgetEntry(image, eco, top, str(raw["reason"]).strip(), when))
     return out, errors
 
 

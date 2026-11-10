@@ -10,6 +10,9 @@ FROM ${PYTHON_IMAGE}
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONPATH=/app/libs:/app/services:/app MPLBACKEND=Agg TB_DATA_DIR=/data MPLCONFIGDIR=/tmp/mpl \
     TB_FONTS_DIR=/opt/trialbox/fonts
+# Debian security updates for the packages the base already has (no new package, D-23): the pinned base may lag a
+# fix (zlib1g, Nov 2026); the release gates scan the result by image id (D-186)
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin tb \
     && mkdir -p /app /data/lake /data/audit /data/orchestrator /data/rulesets /data/mail /data/traces /run/secrets/trialbox \
     && chown -R tb:tb /data /run/secrets/trialbox && chmod 700 /run/secrets/trialbox

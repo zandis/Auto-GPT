@@ -193,14 +193,24 @@ The build side needs the network; the box never runs these tools. Code: `tools/s
   installed metadata. The lock's SBOM must name every locked package that installs on the box, at its version.
 - **Licences.** `make licences` reads the SBOMs (nested components, licence ids, names, expressions, URLs and full
   texts) and flags GPL, LGPL, AGPL, unknown licences, and dual licences. Only a licence on the known permissive list
-  counts as an `OR` choice: `LicenseRef-*`, `NOASSERTION`, `Proprietary` never do. Each flag of a package needs its
-  own allow-list entry, so a stricter licence fails again; a dual entry names the branch taken, an unknown entry the
-  licence a person verified. Distro packages of the base image are listed, not gated. Today: eight LGPL packages
-  (psycopg, psycopg-binary, docxtpl, py7zr and its four helpers), dulwich under Apache-2.0, six Python packages whose
-  licence the SBOM cannot read (verified in the wheels), and the base image's interpreter and pip launchers.
+  counts as an `OR` choice: `LicenseRef-*`, `NOASSERTION`, `Proprietary` never do. Who must answer for a flag:
+  - *The Python lock and our images* (trialbox-py, trialbox-jvm, trialbox-demo): every copyleft or dual flag, and
+    every unknown licence of a Python or npm package, needs its own allow-list entry (a dual entry names the branch
+    taken, an unknown entry the licence a person verified), so a stricter licence fails again. Jars, Go and Rust
+    binaries and other binaries carry no licence data Syft can read: their unknowns are counted per image and
+    ecosystem against a reviewed budget, which fails as soon as one more appears.
+  - *Third-party images* (postgres, HAPI, GreenMail, MailHog, vLLM), redistributed unmodified under their
+    publishers' terms: all their open flags are counted per image against a reviewed budget; the image's terms are
+    reviewed as a whole (counsel: vLLM's CUDA libraries).
+  - Distro packages of a base image are listed, not gated.
+  Today: eight LGPL packages (psycopg, psycopg-binary, docxtpl, py7zr and its four helpers), dulwich under
+  Apache-2.0, six Python packages whose licence the SBOM cannot read (verified in the wheels), the base image's
+  interpreter and pip launchers, the JRE, one HL7 FHIR package; budgets of 68 jars (trialbox-jvm), 64 jars
+  (trialbox-demo) and the third-party images' counts from the first CI run.
 - **The allow-list** (`deploy/supply-chain-allowlist.yaml`) is the only way to ship with a finding. Each entry needs
-  its package, a reason of at least 20 characters and a `review_by` date at most 180 days ahead; `make
-  allowlist-check` rejects an entry without them, a key given twice and a list given as anything else. After
+  its package (or, for a budget, its image and ecosystem), a reason of at least 20 characters and a `review_by` date
+  at most 180 days ahead; `make allowlist-check` rejects an entry without them, a key given twice and a list given
+  as anything else. After
   `review_by` every gate fails until the entry is reviewed or removed. Changes need the security owner's approval.
 - **Not done yet** (WS-14.6): `THIRD_PARTY_NOTICES.md`; the SBOMs inside the signed bundle; `--gates` made
   mandatory in `tools/make_bundle.sh` (optional today, with a warning, so the demo VM's update script keeps working);

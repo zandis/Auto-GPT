@@ -229,6 +229,7 @@ def test_shipped_allowlist_dates_are_within_the_window() -> None:
     (On the machine's real date, `make allowlist-check` in CI decides; an expired entry fails there, on purpose.)"""
     allow, _ = allowlist.load(today=None)
     dates = [e.review_by for e in allow.vulnerabilities] + [e.review_by for e in allow.licences]
+    dates += [e.review_by for e in allow.budgets]
     _, errors = allowlist.load(today=min(dates) - dt.timedelta(days=1))
     assert errors == []
 
@@ -707,8 +708,8 @@ def test_licence_report_flags_and_needs_matching_entries() -> None:
     assert rows["bash"].cls == "gpl" and rows["bash"].ecosystem == "deb" and not rows["bash"].failing
     assert {r.package: r for r in licences.report({"image": doc}, allow, gate_os_packages=True)}["bash"].failing
 
-    text = licences.render(list(rows.values()))
-    assert "Result: FAIL (4 flagged without an allow-list entry)" in text
+    text = licences.render(licences.evaluate({"image": doc}, allow))
+    assert "Result: FAIL (4 flagged without an allow-list entry, 0 budgets exceeded or missing)" in text
     assert "| pgsearch-ext | 0.1.0 | pypi | AGPL-3.0-only | agpl | **not allow-listed: agpl** |" in text
     assert "| pydantic |" not in text  # permissive rows are counted, not listed
 
@@ -734,39 +735,148 @@ def test_licence_cli_with_shipped_allowlist(tmp_path: Path) -> None:
     assert "| pgsearch-ext |" in text and "**not allow-listed: agpl**" in text
 
 
+def _image(name: str, components: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "metadata": {"component": {"type": "container", "name": name, "version": "1"}},
+        "components": components,
+    }
+
+
+def _jar(name: str, licenses: Any = None) -> dict[str, Any]:
+    c: dict[str, Any] = {"type": "library", "name": name, "version": "1.0", "purl": f"pkg:maven/org.x/{name}@1.0"}
+    if licenses is not None:
+        c["licenses"] = licenses
+    return c
+
+
+def _budget(image: str, eco: str, top: int) -> dict[str, Any]:
+    return {"image": image, "ecosystem": eco, "max": top, "reason": GOOD_REASON, "review_by": days(30)}
+
+
+@pytest.mark.parametrize(
+    ("entry", "needle"),
+    [
+        (_budget("trialbox-jvm", "pypi", 3), "not budgeted"),
+        (_budget("trialbox-py", "npm", 3), "not budgeted"),
+        (_budget("localhost:5000/trialbox-jvm", "*", 3), "not budgeted"),
+        (_budget("requirements.lock", "maven", 1) | {"ecosystem": "pypi"}, "not budgeted"),
+        (_budget("vllm/vllm-openai", "*", -1), "whole number"),
+        (_budget("vllm/vllm-openai", "*", True), "whole number"),
+        ({"ecosystem": "*", "max": 1, "reason": GOOD_REASON, "review_by": days(3)}, "needs image and ecosystem"),
+        (_budget("vllm/vllm-openai", "*", 1) | {"review_by": days(-2)}, "has passed"),
+    ],
+)
+def test_allowlist_rejects_bad_budgets(entry: dict[str, Any], needle: str) -> None:
+    allow, errors = allowlist.parse({"budgets": [entry]}, today=TODAY)
+    assert any(needle in e for e in errors), errors
+    assert allow.budgets == []
+
+
+def test_allowlist_rejects_duplicate_budget() -> None:
+    _, errors = allowlist.parse({"budgets": [_budget("postgres", "*", 1), _budget("postgres", "*", 2)]}, today=TODAY)
+    assert any("duplicate" in e for e in errors)
+
+
+def test_licence_budgets_for_our_images() -> None:
+    """Our images: unknown jars are counted against a budget; pypi/npm unknowns and copyleft jars need entries."""
+    jars = [_jar("a"), _jar("b")]
+    sboms = {"jvm.cdx.json": _image("trialbox-jvm", jars)}
+    assert not licences.evaluate(sboms, _allow({})).ok  # no budget
+    budget = _allow({"budgets": [_budget("trialbox-jvm", "maven", 2)]})
+    result = licences.evaluate(sboms, budget)
+    assert result.ok and [(b.subject, b.ecosystem, b.count, b.max) for b in result.budgets] == [
+        ("trialbox-jvm", "maven", 2, 2)
+    ]
+    grown = {"jvm.cdx.json": _image("trialbox-jvm", [*jars, _jar("c")])}
+    assert not licences.evaluate(grown, budget).ok  # a new unknown jar fails until reviewed
+    # the same budget in a registry build of the image (images-multiarch)
+    assert licences.evaluate({"m.cdx.json": _image("localhost:5000/trialbox-jvm", jars)}, budget).ok
+    gpl_jar = {"jvm.cdx.json": _image("trialbox-jvm", [*jars[:1], _jar("g", [{"license": {"id": "GPL-3.0-only"}}])])}
+    result = licences.evaluate(gpl_jar, budget)
+    assert [r.package for r, _ in result.failing] == ["g"]  # copyleft is never budgeted in our images
+    pypi = {"py.cdx.json": _image("trialbox-py", [_comp("mystery")])}
+    assert [r.package for r, _ in licences.evaluate(pypi, budget).failing] == ["mystery"]
+    lock_doc = {"bomFormat": "CycloneDX", "specVersion": "1.6", "components": [_comp("mystery")]}
+    assert [r.package for r, _ in licences.evaluate({"lock.cdx.json": lock_doc}, budget).failing] == ["mystery"]
+
+
+def test_licence_budgets_for_third_party_images() -> None:
+    """A third-party image's open flags (any ecosystem, copyleft too) count against one budget for the image."""
+    comps = [_comp("mystery"), _comp("gplpkg", [{"license": {"id": "GPL-2.0-only"}}]), _jar("j")]
+    sboms = {"v.cdx.json": _image("vllm/vllm-openai", comps)}
+    assert not licences.evaluate(sboms, _allow({})).ok
+    result = licences.evaluate(sboms, _allow({"budgets": [_budget("vllm/vllm-openai", "*", 3)]}))
+    assert result.ok and result.failing == [] and result.budgets[0].count == 3
+    loose = licences.evaluate(sboms, _allow({"budgets": [_budget("vllm/vllm-openai", "*", 5)]}))
+    assert loose.ok and "budget can drop to 3" in licences.render(loose)
+    tight = licences.evaluate(sboms, _allow({"budgets": [_budget("vllm/vllm-openai", "*", 2)]}))
+    assert not tight.ok and "**over budget**" in licences.render(tight)
+
+
+def test_shipped_budgets_cover_the_ci_counts() -> None:
+    """The shipped budgets name our two jar-carrying images and the third-party images compose pulls."""
+    allow, _ = allowlist.load(today=None)
+    names = {(b.image, b.ecosystem) for b in allow.budgets}
+    assert {("trialbox-jvm", "maven"), ("trialbox-demo", "maven"), ("vllm/vllm-openai", "*")} <= names
+    assert not any(allowlist.is_own(b.image) and b.ecosystem in allowlist.STRICT_ECOSYSTEMS for b in allow.budgets)
+
+
 # ---------------------------------------------------------------- release gates and the bundle
+
+
+LAYERS = ["sha256:l1", "sha256:l2"]
 
 
 def _report(image_id: str, digests: list[str], platform: str = "linux/amd64") -> vulns.TrivyReport:
     os_, arch = platform.split("/")[:2]
     data = _json("trivy_clean.json")
-    data["Metadata"].update(ImageID=image_id, RepoDigests=digests, ImageConfig={"os": os_, "architecture": arch})
+    data["Metadata"].update(
+        ImageID=image_id, RepoDigests=digests, ImageConfig={"os": os_, "architecture": arch}, DiffIDs=LAYERS
+    )
     return vulns.parse_trivy(data)
 
 
+def _sbom(version: str, layers: list[str]) -> dict[str, Any]:
+    comp = {
+        "type": "library",
+        "name": "x",
+        "properties": [{"name": "syft:location:0:layerID", "value": v} for v in layers],
+    }
+    return {"metadata": {"component": {"type": "container", "name": "trialbox-py", "version": version}},
+            "components": [comp]}  # fmt: skip
+
+
 def test_identity_of_a_local_image() -> None:
+    """Syft names a local image by its tag; its layers must be the image's layers."""
     target = release.Target("trialbox-py:1.0.0")
     pinned = {"image_id": "sha256:aa", "repo_digests": []}
-    assert release.identity_problems(target, pinned, _report("sha256:aa", []), "sha256:aa") == []
+    ok = _sbom("1.0.0", LAYERS[:1])
+    assert release.identity_problems(target, pinned, _report("sha256:aa", []), ok) == []
+    assert any("not the pinned" in p for p in release.identity_problems(target, pinned, _report("sha256:bb", []), ok))
+    other = _sbom("1.0.0", ["sha256:elsewhere"])
     assert any(
-        "not the pinned" in p for p in release.identity_problems(target, pinned, _report("sha256:bb", []), "sha256:aa")
+        "not in the scanned image" in p
+        for p in release.identity_problems(target, pinned, _report("sha256:aa", []), other)
     )
     assert any(
-        "SBOM names" in p for p in release.identity_problems(target, pinned, _report("sha256:aa", []), "sha256:cc")
+        "no image layers" in p
+        for p in release.identity_problems(target, pinned, _report("sha256:aa", []), _sbom("1.0.0", []))
     )
 
 
 def test_identity_of_a_registry_image_by_digest_and_platform() -> None:
     target = release.Target("python@sha256:ab", "linux/arm64", remote=True)
     pinned = {"image_id": None, "repo_digests": [target.ref]}
+    doc = _sbom("sha256:ab", LAYERS)
     good = _report("sha256:cfg", ["python@sha256:ab"], "linux/arm64")
-    assert release.identity_problems(target, pinned, good, "sha256:ab") == []
+    assert release.identity_problems(target, pinned, good, doc) == []
     wrong_platform = _report("sha256:cfg", ["python@sha256:ab"], "linux/amd64")
-    assert any("platform" in p for p in release.identity_problems(target, pinned, wrong_platform, "sha256:ab"))
+    assert any("platform" in p for p in release.identity_problems(target, pinned, wrong_platform, doc))
     wrong_digest = _report("sha256:cfg", ["python@sha256:ff"], "linux/arm64")
-    assert any(
-        "does not name the digest" in p for p in release.identity_problems(target, pinned, wrong_digest, "sha256:ab")
-    )
+    assert any("does not name the digest" in p for p in release.identity_problems(target, pinned, wrong_digest, doc))
+    assert any("SBOM names" in p for p in release.identity_problems(target, pinned, good, _sbom("sha256:zz", LAYERS)))
 
 
 def test_targets_and_repositories() -> None:

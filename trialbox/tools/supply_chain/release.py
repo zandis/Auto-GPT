@@ -86,9 +86,15 @@ def _digest(ref: str) -> str | None:
 
 
 def identity_problems(
-    target: Target, pinned: dict[str, Any], report: vulns.TrivyReport, sbom_version: str
+    target: Target, pinned: dict[str, Any], report: vulns.TrivyReport, sbom_doc: dict[str, Any]
 ) -> list[str]:
-    """The Trivy report and the SBOM must name the image that was pinned before the scan."""
+    """The Trivy report and the SBOM must name the image that was pinned before the scan.
+
+    Trivy reports the image id (config digest), repo digests and layer diff ids. Syft names a registry image by the
+    digest it pulled, but a local image only by its tag; so for both, every layer the SBOM found a package in must be
+    one of the layers Trivy scanned, and for a registry image the SBOM must also name the digest."""
+    sbom_version = sbom.subject_version(sbom_doc)
+    layers = sbom.layer_ids(sbom_doc)
     problems: list[str] = []
     if pinned.get("image_id") and report.image_id != pinned["image_id"]:
         problems.append(f"Trivy scanned image {report.image_id or '?'}, not the pinned {pinned['image_id']}")
@@ -97,15 +103,18 @@ def identity_problems(
         problems.append(f"Trivy report does not name the digest {digest} (repo digests {list(report.repo_digests)})")
     if target.platform and not same_platform(target.platform, report.platform):
         problems.append(f"Trivy scanned platform {report.platform}, asked for {target.platform}")
-    names = {report.image_id, *(d.split("@", 1)[-1] for d in report.repo_digests)}
-    if digest:
-        names.add(digest)
-    if pinned.get("image_id"):
-        names.add(pinned["image_id"])
-    if sbom_version not in names:
-        problems.append(
-            f"the SBOM names {sbom_version or '?'}, not the scanned image ({sorted(n for n in names if n)})"
-        )
+    if not layers:
+        problems.append("the SBOM names no image layers; it cannot be tied to the scanned image")
+    elif not layers <= set(report.diff_ids):
+        problems.append(f"the SBOM has {len(layers - set(report.diff_ids))} layers that are not in the scanned image")
+    if target.remote:
+        names = {report.image_id, *(d.split("@", 1)[-1] for d in report.repo_digests)}
+        if digest:
+            names.add(digest)
+        if sbom_version not in names:
+            problems.append(
+                f"the SBOM names {sbom_version or '?'}, not the scanned image ({sorted(n for n in names if n)})"
+            )
     return problems
 
 
@@ -180,7 +189,7 @@ def run_gates(
             source = f"registry:{target.ref}" if remote else f"docker:{target.ref}"
             sbom_path = sbom_dir / sbom.file_name(target.ref, plat)
             doc = sbom.run_syft(source, sbom_path, syft_env, platform=plat if remote else None)
-            entry["errors"] += identity_problems(target, pinned, report, sbom.subject_version(doc))
+            entry["errors"] += identity_problems(target, pinned, report, doc)
             result = vulns.gate(list(report.findings), allow, fails=fails)
             entry.update(
                 platform=report.platform,
@@ -208,11 +217,15 @@ def run_gates(
             )
         except (vulns.ReportError, sbom.SbomError, OSError, json.JSONDecodeError) as exc:
             entry["errors"].append(str(exc))
-    rows = licences.report(sboms, allow)
-    (sbom_dir / "licences.md").write_text(licences.render(rows), encoding="utf-8")
+    lic = licences.evaluate(sboms, allow)
+    (sbom_dir / "licences.md").write_text(licences.render(lic), encoding="utf-8")
     record["licences"] = {
-        "ok": not any(r.failing for r in rows),
-        "failing": [f"{r.package} {r.version}: {', '.join(sorted(r.open_flags))}" for r in rows if r.failing],
+        "ok": lic.ok,
+        "failing": [f"{r.package} {r.version} ({subj}): {', '.join(sorted(r.open_flags))}" for r, subj in lic.failing],
+        "budgets": [
+            {"image": b.subject, "ecosystem": b.ecosystem, "open": b.count, "max": b.max, "ok": b.ok}
+            for b in lic.budgets
+        ],
         "report": "licences.md",
     }
     record["db_errors"] = db_errors
@@ -245,6 +258,9 @@ def render(record: dict[str, Any]) -> str:
     lic = record.get("licences", {})
     lines.append(f"  {'PASS' if lic.get('ok') else 'FAIL'}  licences ({lic.get('report')})")
     lines += [f"        FAIL  {x}" for x in lic.get("failing", [])]
+    for b in lic.get("budgets", []):
+        state = "ok  " if b["ok"] else "FAIL"
+        lines.append(f"        {state}  budget {b['image']} {b['ecosystem']}: {b['open']} open, budget {b['max']}")
     return "\n".join(lines)
 
 

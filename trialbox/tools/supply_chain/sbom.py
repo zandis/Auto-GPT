@@ -67,6 +67,21 @@ def subject_version(doc: dict[str, Any]) -> str:
     return str((meta.get("component") or {}).get("version", ""))
 
 
+def layer_ids(doc: dict[str, Any]) -> set[str]:
+    """The image layers (diff ids) Syft found packages in (``syft:location:N:layerID`` properties)."""
+    out: set[str] = set()
+    stack = list(doc.get("components") or [])
+    while stack:
+        comp = stack.pop()
+        if not isinstance(comp, dict):
+            continue
+        stack += list(comp.get("components") or [])
+        for prop in comp.get("properties") or []:
+            if isinstance(prop, dict) and str(prop.get("name", "")).endswith(":layerID") and prop.get("value"):
+                out.add(str(prop["value"]))
+    return out
+
+
 def pypi_components(doc: dict[str, Any]) -> set[tuple[str, str]]:
     """(name, version) of every Python package in the SBOM, from its purl."""
     out: set[tuple[str, str]] = set()

@@ -182,6 +182,7 @@ class TrivyReport:
     artifact: str
     image_id: str
     repo_digests: tuple[str, ...]
+    diff_ids: tuple[str, ...]
     platform: str
     findings: tuple[Finding, ...]
 
@@ -240,6 +241,7 @@ def parse_trivy(data: Any, expect_lang: frozenset[str] | None = None) -> TrivyRe
         artifact=artifact,
         image_id=str(meta.get("ImageID", "")),
         repo_digests=tuple(str(d) for d in meta.get("RepoDigests") or []),
+        diff_ids=tuple(str(d) for d in meta.get("DiffIDs") or []),
         platform=platform,
         findings=tuple(findings),
     )

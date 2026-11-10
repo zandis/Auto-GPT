@@ -3744,8 +3744,11 @@ licence report.** Source: the same review, row 2 and §3; WS-14.6; the independe
 5. **Licence report** from the SBOMs (nested components, ids, names, expressions, URLs, full texts searched to the
    end; Licence and License): flags GPL, LGPL, AGPL, unknown and dual. Only a licence on the known permissive list
    counts as an `OR` choice; `LicenseRef-*`, `NOASSERTION`, `Proprietary` never do. Each flag of a package needs its
-   own allow-list entry; a dual entry names the branch taken, an unknown entry the licence a person verified.
-   Distro packages of a base image are listed, not gated.
+   own allow-list entry in the lock and our images; a dual entry names the branch taken, an unknown entry the licence
+   a person verified. Unknown licences of jars and Go, Rust and other binaries in our images (Syft reads no licence
+   there) are counted per image and ecosystem against a reviewed budget that fails when one more appears (Python and
+   npm unknowns are never budgeted). Third-party images, redistributed unmodified, have one budget per image for all
+   their open flags; their terms are reviewed as a whole. Distro packages of a base image are listed, not gated.
 6. **The allow-list** `deploy/supply-chain-allowlist.yaml`: every entry needs its package, a reason (20 characters or
    more) and `review_by` at most 180 days ahead; a key given twice or a list given as anything else is refused; after
    `review_by` every gate fails until the entry is reviewed or removed; there is no date override. It starts with
@@ -3755,12 +3758,16 @@ licence report.** Source: the same review, row 2 and §3; WS-14.6; the independe
 7. Every GitHub action is pinned to a commit; Syft and Trivy are release archives with pinned sha256.
 8. Two faults that broke `make images` before this decision are fixed: `python.Dockerfile` copied `integrations/`,
    removed in D-121; the root `.dockerignore` left out the JVM image's validator and FHIR packages
-   (`deploy/docker/jvm.Dockerfile.dockerignore` now applies to that build). A test checks every COPY source.
+   (`deploy/docker/jvm.Dockerfile.dockerignore` now applies to that build). A test checks every COPY source. The
+   build contexts also leave out the scanners and their outputs (the first CI run found Syft and Trivy, with their
+   Go modules, inside the demo image), and the Python images take Debian's security updates of the base's packages.
 
 *Evidence.* `tests/unit/test_supply_chain.py` (offline, fixtures trimmed from real Trivy and Syft output);
-`make pip-audit`, `make licences` and `make lock-check` PASS; the gates run for real on the pinned base image, both
-platforms: two HIGH zlib1g findings with a Debian fix (CVE-2026-76844, CVE-2026-85091) fail it, so the image gate
-stays red until the base image is rebuilt or the owner decides.
+`make pip-audit`, `make licences` and `make lock-check` PASS; the first CI runs of the image gates (amd64 and arm64)
+found real HIGH and CRITICAL findings with fixes: zlib1g in the base (now upgraded at build), jackson-databind,
+the HL7 FHIR core libraries, commons-beanutils, guava and httpcore5 in the validator and cql-to-elm jars, and many
+in the third-party images (MailHog alone over 1,500; MailHog has no arm64 image). Those are not allow-listed here:
+moving the jar versions and the third-party digests, or accepting a finding, is the security owner's decision.
 
 *Not done here.* `THIRD_PARTY_NOTICES.md`; the SBOMs inside the signed bundle; `--gates` mandatory in
 `tools/make_bundle.sh` (optional with a warning, so the demo VM's update script keeps working).

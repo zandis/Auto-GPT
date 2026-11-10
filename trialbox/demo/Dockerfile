@@ -13,7 +13,8 @@ RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin tb
 WORKDIR /app
 # PostgreSQL server binaries: since D-126 the demo's trial data lives in a throwaway local cluster (tools/pglocal.py),
 # and the update path backs it up with pg_dump first (D-138)
-RUN apt-get update && apt-get install -y --no-install-recommends postgresql && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends postgresql && rm -rf /var/lib/apt/lists/*  # upgrade: Debian security fixes (D-186)
 COPY deploy/requirements.lock /tmp/requirements.lock
 # Optional build secret "extra_ca" (PEM) is trusted during the build only (corporate TLS proxies).
 RUN --mount=type=secret,id=extra_ca,required=false \

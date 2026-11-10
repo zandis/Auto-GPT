@@ -142,15 +142,15 @@ def cmd_licences(args: argparse.Namespace) -> int:
             print(f"licences: {p}: {'; '.join(bad)}", file=sys.stderr)
             return 2
         docs[Path(p).name] = doc
-    rows = licences.report(docs, allow, gate_os_packages=args.gate_os_packages)
-    text = licences.render(rows)
+    result = licences.evaluate(docs, allow, gate_os_packages=args.gate_os_packages)
+    text = licences.render(result)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(text, encoding="utf-8")
     print(text)
     for e in errors:
         print(f"licences: allow-list: {e}", file=sys.stderr)
-    return 1 if errors or any(r.failing for r in rows) else 0
+    return 1 if errors or not result.ok else 0
 
 
 def cmd_scanners(args: argparse.Namespace) -> int:
