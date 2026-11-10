@@ -160,6 +160,12 @@ class FakeRun:
         return ""
 
 
+@pytest.fixture(autouse=True)
+def _no_real_docker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`docker volume ls` through TB_DOCKER: `true` answers "no volumes" without the host's Docker."""
+    monkeypatch.setenv("TB_DOCKER", "true")
+
+
 @pytest.fixture()
 def deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     d = tmp_path / "deploy"

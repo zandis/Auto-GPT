@@ -174,7 +174,11 @@ def test_microbatch_changes_on_seeded_changes(world: dict[str, Any], synth_dir: 
     }
     assert got == want
     tiers = {r[1]: r[2] for r in wb["candidates"].iter_rows(min_row=2, values_only=True) if r[1]}
-    assert all(tiers[p] == "excluded" for p in glp + flare)
+    assert all(tiers[p] == "excluded" for p in glp)  # a coded exclusion (GLP-1 started) excludes
+    # this box has one model (the stub judge, no verifier): its note "flare now" sends the patient to review, never
+    # out, as SCREEN on the same box does. Before D-276 (review F-01) MICROBATCH re-tiered with the configured policy
+    # alone and these patients were excluded on one model's word.
+    assert all(tiers[p] == "review" for p in flare), {p: tiers[p] for p in flare}
 
 
 def test_feedback_and_calibration(world: dict[str, Any]) -> None:
