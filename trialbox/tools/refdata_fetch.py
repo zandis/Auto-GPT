@@ -10,8 +10,13 @@ each source is recorded here and in DECISIONS.md D-140:
   across vendor updates).
 * **not usable**: listed so nobody tries again; no fetcher.
 
+Country modules add their items to the same registry (D-170): ``tb_common.refdata_tw`` (NHI drug -> ATC, ICD-10-CM/PCS
+2014 <-> 2023, NHI lab -> LOINC, zh-TW synonyms). Each item has its own parser and records its version and sha256.
+
     python tools/refdata_fetch.py sources                                  # the table (markdown)
     python tools/refdata_fetch.py fetch --raw .cache/refdata/raw tfda_trials mhlw_yakka icd10cm
+    python tools/refdata_fetch.py fetch --raw .cache/refdata/raw nhi_drug_atc tw_icd_2014_2023 nhi_lab_loinc \
+        naer_medical_terms tw_zh_synonyms                                  # the Taiwan items (D-170 to D-172)
     python tools/refdata_fetch.py fetch --raw .cache/refdata/raw ctgov --slice 200   # one API page, JP/TW sites
     python tools/refdata_fetch.py fetch --raw .cache/refdata/raw loinc --file Loinc_2.81.zip   # account download
     python tools/refdata_fetch.py build --raw .cache/refdata/raw --out dist/   # dist/trialbox-refdata-<date>.tar
@@ -33,12 +38,13 @@ import io
 import json
 import re
 import sys
+import tarfile
 import zipfile
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 for _p in (ROOT / "libs", ROOT / "services"):
@@ -46,10 +52,10 @@ for _p in (ROOT / "libs", ROOT / "services"):
         sys.path.insert(0, str(_p))
 
 from tb_common import refdata as rd  # noqa: E402
+from tb_common import refdata_tw as tw  # noqa: E402
 
 SAMPLES = ROOT / "tests" / "fixtures" / "refdata"
-OGDL = "Open Government Data License, version 1.0 (Taiwan)"
-OGDL_URL = "https://data.gov.tw/license"
+OGDL, OGDL_URL = tw.OGDL, tw.OGDL_URL
 NLM_TERMS = (
     "ClinicalTrials.gov data are provided by the U.S. National Library of Medicine (NLM) and may be used and "
     "redistributed; NLM asks users to state the source and the date of download, to say what was changed, and not to "
@@ -64,22 +70,8 @@ NLM_DISCLAIMER = (
 )
 
 
-@dataclass(frozen=True)
-class Source:
-    id: str
-    name: str
-    kind: str  # ctgov | trial | term
-    distribution: str  # ship | site-fetch | not usable
-    url: str
-    licence: str
-    licence_url: str
-    terms: str
-    attribution: str
-    refresh: str
-    size: str
-    note: str = ""
-    filename: str = ""
-    fetch: bool = True  # False: the file comes from an account download (--file) or the hospital
+# One registry of items (D-170): the sources below plus the country modules' items (tb_common.refdata_tw).
+Source = rd.Item
 
 
 SOURCES: tuple[Source, ...] = (
@@ -205,6 +197,7 @@ SOURCES: tuple[Source, ...] = (
         "investigators' names; in 177218 the dose column holds units and the unit column is mostly empty.",
         "-", "monthly", "4.9 MB, 0.2 MB, 0.4 MB zips", fetch=False,
     ),
+    *tw.ITEMS,  # D-170 to D-172: the Taiwan maps and synonyms
 )  # fmt: skip
 BY_ID = {s.id: s for s in SOURCES}
 
@@ -289,20 +282,77 @@ def fetch_mhlw(dest: Path) -> dict[str, Any]:
     parts = []
     for k in sorted(newest):
         meta = download("https://www.mhlw.go.jp" + newest[k], dest / f"yakka_0{k}.xlsx", timeout=120)
-        parts.append(meta)
+        parts.append({**meta, "path": f"yakka_0{k}.xlsx"})
+    return _joined(index, parts) | {"workbooks": [p["url"] for p in parts]}
+
+
+def _joined(url: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """A download of several files: each part's path, URL, sha256 and bytes, and one sha256 over the parts' sha256s
+    in order (the manifest lists the parts; the page shows each part's own sha256)."""
     joined = "".join(p["sha256"] for p in parts)
-    return {"url": index, "downloaded_at": _now(), "sha256": hashlib.sha256(joined.encode()).hexdigest(),
-            "bytes": sum(int(p["bytes"]) for p in parts), "workbooks": [p["url"] for p in parts]}  # fmt: skip
+    return {"url": url, "downloaded_at": _now(), "sha256": hashlib.sha256(joined.encode()).hexdigest(),
+            "bytes": sum(int(p["bytes"]) for p in parts),
+            "parts": [{k: p[k] for k in ("path", "url", "sha256", "bytes")} for p in parts]}  # fmt: skip
 
 
-def fetch(ids: list[str], raw: Path, file: Path | None = None, slice_n: int = 0) -> list[str]:
+def fetch_parts(s: Source, dest: Path, file: Path | None) -> dict[str, Any]:
+    """An item of several files (``extra_files``): the main file, then each further file beside it. The download's
+    sha256 is over the files' sha256s in order (as for the MHLW workbooks)."""
+    first = local_file(file, dest, s.url) if file is not None else download(s.url, dest)
+    parts = [{**first, "path": dest.name}]
+    for name, url in s.extra_files:
+        parts.append({**download(url, dest.parent / name), "path": name})
+    return _joined(s.url, parts)
+
+
+def check_licence(item: Source, urls: Iterable[str] = ()) -> dict[str, Any]:
+    """The item's dataset record read at fetch time ({} for an item without one). Fails closed: a record that
+    cannot be read (timeout, changed API), that names another licence, or that lists download URLs not including
+    the ones fetched (``urls``: the licence must cover the file actually downloaded) stops the fetch, so nothing
+    ships without the licence evidence (D-170)."""
+    if not item.meta_url:
+        return {}
+    if item.read_meta is None:
+        raise SystemExit(f"{item.id}: meta_url {item.meta_url} has no reader (read_meta)")
+    dm = item.read_meta(item.meta_url)
+    if not dm:
+        raise SystemExit(
+            f"{item.id}: the dataset record {item.meta_url} did not answer: the licence was not checked; "
+            "fetch again later"
+        )
+    if item.licence_id and dm.get("license") != item.licence_id:
+        raise SystemExit(
+            f"{item.id}: the dataset record now gives licence {dm.get('license')!r}, not {item.licence_id!r} "
+            f"({item.licence}): read the terms before shipping"
+        )
+    listed = {unquote(u) for u in dm.get("downloads") or []}
+    stray = sorted(u for u in (unquote(u) for u in urls) if listed and u not in listed)
+    if stray:
+        raise SystemExit(
+            f"{item.id}: {', '.join(stray)} is not a download of the dataset record {item.meta_url} "
+            f"(it lists {', '.join(sorted(listed))}): the licence read there may not cover it"
+        )
+    return dm
+
+
+def fetch(
+    ids: list[str], raw: Path, file: Path | None = None, slice_n: int = 0, licence_check: bool = True
+) -> list[str]:
+    """Download each item into ``raw/<id>/`` with ``fetch.json`` (URL, date, sha256, bytes, version). The only
+    place that reaches the network: the box reads the built pack from the update bundle. ``licence_check=False``
+    (``--no-licence-check``, after reading the terms by hand) skips reading the dataset records; the skip is
+    recorded in fetch.json."""
     done = []
-    for sid in ids:
+    for sid in dict.fromkeys(BY_ID[i].derived_from or i for i in ids):  # a derived item reads its parent's file
         s = BY_ID[sid]
         if s.distribution != "ship":
             raise SystemExit(f"{sid} is {s.distribution}: {s.note or s.terms}")
         dest = raw / sid / (s.filename or f"{sid}.bin")
-        if sid == "ctgov" and slice_n:
+        if s.url.startswith("repo:"):
+            meta = local_file(ROOT / s.url.removeprefix("repo:"), dest, s.url)
+        elif s.extra_files:
+            meta = fetch_parts(s, dest, file)
+        elif sid == "ctgov" and slice_n:
             dest = raw / sid / "slice.json"
             meta = ctgov_slice(dest, slice_n)
         elif file is not None:
@@ -314,15 +364,33 @@ def fetch(ids: list[str], raw: Path, file: Path | None = None, slice_n: int = 0)
             dest = raw / sid / "index.html"
         else:
             meta = download(s.url, dest)
+        meta.setdefault("parts", [{"path": dest.name, "url": meta["url"], "sha256": meta["sha256"],
+                                   "bytes": meta["bytes"]}])  # fmt: skip
+        if s.sha256 and meta["parts"][0]["sha256"] != s.sha256:
+            raise SystemExit(
+                f"{sid}: {s.url} is pinned to sha256 {s.sha256}, the download is "
+                f"{meta['parts'][0]['sha256']}: the published file changed, check it before shipping"
+            )
+        fetched = [] if s.url.startswith("repo:") else [s.url, *(u for _, u in s.extra_files)]
+        for item in (s, *(c for c in SOURCES if c.derived_from == sid)):
+            if licence_check:
+                dm = check_licence(item, fetched)
+            else:
+                dm = {"skipped": "--no-licence-check"} if item.meta_url else {}
+            if not dm:
+                continue
+            meta.setdefault("licence_checks", {})[item.id] = dm
+            if item is s:
+                meta.update({"version": dm.get("version", ""), "licence_check": dm})
+            else:
+                meta.setdefault("versions", {})[item.id] = dm.get("version", "")
         (raw / sid / "fetch.json").write_text(json.dumps({**meta, "path": dest.name}, indent=1), encoding="utf-8")
         done.append(f"{sid}: {meta['bytes']:,} bytes, sha256 {meta['sha256'][:16]}")
     return done
 
 
 # ------------------------------------------------------------------------------------------------ parsers
-def _csv_rows(data: bytes) -> list[dict[str, str]]:
-    text = data.decode("utf-8-sig")
-    return [{(k or "").strip(): (v or "").strip() for k, v in r.items()} for r in csv.DictReader(io.StringIO(text))]
+_csv_rows = rd.csv_rows
 
 
 def _unzip_one(path: Path, suffix: str = ".csv") -> bytes:
@@ -354,13 +422,7 @@ def _tw_date(s: str) -> str:
     return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}" if m else ""
 
 
-def _roc(s: str) -> str:
-    """A 民國 date ``YYYMMDD`` (``1001201``, `` 960901``) -> ISO; anything else unchanged."""
-    s = (s or "").strip()
-    if re.fullmatch(r"\d{6,7}", s):
-        s = s.zfill(7)
-        return f"{int(s[:3]) + 1911}-{s[3:5]}-{s[5:7]}"
-    return s
+_roc = tw.roc
 
 
 def parse_tfda_indication(path: Path) -> Iterator[dict[str, Any]]:
@@ -439,15 +501,7 @@ def parse_mhlw_yakka(paths: list[Path]) -> Iterator[dict[str, Any]]:
 
 def parse_nhi_drugs(path: Path) -> Iterator[dict[str, Any]]:
     """One term per 藥品代號: the row with the latest 有效起日 (the file has one row per validity period)."""
-    best: dict[str, dict[str, str]] = {}
-    for r in _csv_rows(path.read_bytes()):
-        code = r.get("藥品代號", "")
-        if not code:
-            continue
-        r["有效起日"], r["有效迄日"] = _roc(r.get("有效起日", "")), _roc(r.get("有效迄日", ""))
-        if code not in best or r["有效起日"] >= best[code]["有效起日"]:
-            best[code] = r
-    for code, r in sorted(best.items()):
+    for code, r in sorted(tw.latest_nhi_rows(path).items()):
         extra = {k: r.get(k, "") for k in ("藥品英文名稱", "成分", "規格量", "規格單位", "單複方", "支付價",
                                             "有效起日", "有效迄日", "劑型", "ATC代碼", "藥品分類")}  # fmt: skip
         yield {"system": "urn:tw:nhi:drug", "code": code, "display": r.get("藥品中文名稱", ""), "extra": extra}
@@ -534,20 +588,64 @@ def parse_umin(path: Path) -> Iterator[dict[str, Any]]:
 
 # ------------------------------------------------------------------------------------------------ build
 def _meta(raw: Path, sid: str) -> tuple[dict[str, Any], Path]:
-    f = raw / sid / "fetch.json"
+    src = BY_ID[sid].derived_from or sid
+    f = raw / src / "fetch.json"
     meta = json.loads(f.read_text(encoding="utf-8"))
-    return meta, raw / sid / meta["path"]
+    if src != sid:
+        meta = {**meta, "version": (meta.get("versions") or {}).get(sid) or meta.get("version", ""),
+                "licence_check": (meta.get("licence_checks") or {}).get(sid) or {}}  # fmt: skip
+    return meta, raw / src / meta["path"]
 
 
-def _entry(s: Source, meta: dict[str, Any], files: list[dict[str, Any]], url: str | None = None) -> dict[str, Any]:
+def check_raw(raw: Path, sid: str, meta: dict[str, Any], pinned: bool = True) -> list[dict[str, Any]]:
+    """Every part of a fetched item re-hashed and compared with fetch.json; every ``extra_files`` member present; a
+    version-pinned URL's file equal to its pin. Returns the parts (path, url, sha256, bytes) for the manifest. A
+    raw file changed or lost after the fetch never builds into a pack with the old hash."""
+    s = BY_ID[sid]
+    src = s.derived_from or sid
+    parts = meta.get("parts") or [{"path": meta["path"], "url": meta.get("url") or s.url, "sha256": meta["sha256"],
+                                   "bytes": meta.get("bytes", 0)}]  # fmt: skip
+    have = {p["path"] for p in parts}
+    missing = [name for name, _ in BY_ID[src].extra_files if name not in have]
+    if missing:
+        raise SystemExit(f"{src}: {', '.join(missing)} missing from the fetch (fetch {src} again)")
+    for p in parts:
+        f = raw / src / p["path"]
+        if not f.is_file():
+            raise SystemExit(f"{src}: {p['path']} is missing (fetch {src} again)")
+        got = rd.sha256_file(f)
+        if got != p["sha256"]:
+            raise SystemExit(
+                f"{src}: {p['path']} has sha256 {got}, fetch.json says {p['sha256']}: the raw file "
+                "changed after the fetch"
+            )
+    if len(parts) == 1 and meta.get("sha256") != parts[0]["sha256"]:
+        raise SystemExit(f"{src}: fetch.json's sha256 does not match its file")
+    if pinned and BY_ID[src].sha256 and parts[0]["sha256"] != BY_ID[src].sha256:
+        raise SystemExit(f"{src}: pinned to sha256 {BY_ID[src].sha256}, the file is {parts[0]['sha256']}")
+    return [{"file": p["path"], "url": p["url"], "sha256": p["sha256"], "bytes": int(p.get("bytes") or 0)}
+            for p in parts]  # fmt: skip
+
+
+def _version(s: Source, meta: dict[str, Any], path: Path) -> str:
+    """The item's version (D-170): stated in the file (``version_of``), the dataset's modified date read at fetch
+    time, a fixed version, or else the download date (a daily list's only version)."""
+    if s.version_of is not None:
+        return s.version_of(path)
+    return str(meta.get("version") or s.version or f"downloaded {str(meta['downloaded_at'])[:10]}")
+
+
+def _entry(s: Source, meta: dict[str, Any], files: list[dict[str, Any]], path: Path,
+           parts: list[dict[str, Any]]) -> dict[str, Any]:  # fmt: skip
     downloaded = str(meta["downloaded_at"])[:10]
     return {
-        "id": s.id, "name": s.name, "kind": s.kind, "url": url or meta.get("url") or s.url,
-        "downloaded_at": meta["downloaded_at"], "download_sha256": meta["sha256"],
+        "id": s.id, "name": s.name, "kind": s.kind, "url": meta.get("url") or s.url,
+        "downloaded_at": meta["downloaded_at"], "download_sha256": meta["sha256"], "version": _version(s, meta, path),
         "records": sum(int(f["records"]) for f in files), "licence": s.licence, "licence_url": s.licence_url,
         "terms": s.terms, "attribution": s.attribution.replace("{date}", downloaded), "refresh": s.refresh,
-        "distribution": s.distribution, "files": files,
+        "distribution": s.distribution, "files": files, "parts": parts,
         **({"slice": meta["slice"]} if meta.get("slice") else {}),
+        **({"country": s.country} if s.country else {}), **({"decision": s.decision} if s.decision else {}),
     }  # fmt: skip
 
 
@@ -560,17 +658,25 @@ def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = 
     day = day or date.today().strftime("%Y%m%d")
     pack = out / (f"trialbox-refdata-{day}" + (f"-{suffix}" if suffix else ""))
     pack.mkdir(parents=True, exist_ok=True)
-    ids = ids or [s.id for s in SOURCES if (raw / s.id / "fetch.json").is_file()]
+    ids = ids or [s.id for s in SOURCES if s.distribution != "not usable"
+                  and (raw / (s.derived_from or s.id) / "fetch.json").is_file()]  # fmt: skip
     entries = []
 
     def write(rel: str, recs: Iterable[dict[str, Any]]) -> dict[str, Any]:
-        n = rd.write_jsonl_gz(pack / rel, recs)
+        n = rd.write_jsonl_gz(pack / rel, rd.check_records({"id": s.id, "kind": s.kind}, recs))
+        if n == 0:
+            raise SystemExit(f"{s.id}: 0 records from the parser (the source changed shape?): not built")
         return rd.file_entry(pack, rel, n)
 
     indications: dict[str, list[str]] = {}
     for sid in sorted(ids, key=lambda x: x != "tfda_indication"):  # the indication codes first: tfda_trials uses them
         s = BY_ID[sid]
         meta, path = _meta(raw, sid)
+        parts = check_raw(raw, sid, meta, pinned=not sample)
+        lc = meta.get("licence_check") or {}
+        if s.meta_url and not sample and not (lc.get("license") or lc.get("skipped")):
+            raise SystemExit(f"{sid}: fetch.json has no licence check of {s.meta_url}: fetch {s.derived_from or sid} "
+                             "again")  # fmt: skip
         if sid == "ctgov":
             files = [write("ctgov/studies.jsonl.gz", parse_ctgov(path))]
         elif sid == "tfda_indication":
@@ -582,17 +688,20 @@ def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = 
         elif sid == "mhlw_yakka":
             books = sorted((raw / sid).glob("*.xlsx"))
             files = [write("mhlw_yakka/terms.jsonl.gz", parse_mhlw_yakka(books))]
+        elif s.parse is not None:
+            files = [write(f"{sid}/{KIND_FILE[s.kind]}.jsonl.gz", s.parse(path))]
         elif sid in PARSERS:
             files = [write(f"{sid}/{'trials' if s.kind == 'trial' else 'terms'}.jsonl.gz", PARSERS[sid](path))]
         else:
             raise SystemExit(f"{sid}: no parser")
-        entries.append(_entry(s, meta, files))
+        entries.append(_entry(s, meta, files, path, parts))
     as_of = max(str(e["downloaded_at"])[:10] for e in entries)
     rd.write_manifest(pack, as_of, entries, sample=sample)
     rd.verify(pack)
     return rd.pack_tar(pack, out / f"{pack.name}.tar")
 
 
+KIND_FILE = {"ctgov": "studies", "trial": "trials", "term": "terms", "map": "map", "synonym": "synonyms"}
 PARSERS: dict[str, Callable[[Path], Iterator[dict[str, Any]]]] = {
     "nhi_drugs": parse_nhi_drugs,
     "icd10cm": parse_icd10cm,
@@ -637,6 +746,33 @@ def sample_raw(raw: Path) -> Path:
     xb = io.BytesIO()
     wb.save(xb)
     put("mhlw_yakka", "yakka_sample.xlsx", xb.getvalue(), BY_ID["mhlw_yakka"].url)
+    # D-170 to D-172: excerpts of the real files (the ICD map, the PAS ConceptMap, NAER) and the curated list
+    icd = BY_ID["tw_icd_2014_2023"]
+    (raw / icd.id).mkdir(parents=True, exist_ok=True)
+    icd_parts = []
+    for name, url, sample_name in (
+        (icd.filename, icd.url, "tw_icd_2014_2023_cm_sample.csv"),
+        (icd.extra_files[0][0], icd.extra_files[0][1], "tw_icd_2014_2023_pcs_sample.csv"),
+    ):
+        data = (SAMPLES / sample_name).read_bytes()
+        (raw / icd.id / name).write_bytes(data)
+        icd_parts.append({"path": name, "url": url, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+    joined = _joined(icd.url, icd_parts) | stamp | {"path": icd.filename}
+    (raw / icd.id / "fetch.json").write_text(json.dumps(joined), encoding="utf-8")  # fmt: skip
+    tb = io.BytesIO()
+    with tarfile.open(fileobj=tb, mode="w:gz") as tf:
+        for f in sorted((SAMPLES / "nhi_pas_sample").glob("*.json")):
+            ti = tarfile.TarInfo(f"package/{f.name}")
+            data = f.read_bytes()
+            ti.size = len(data)
+            tf.addfile(ti, io.BytesIO(data))
+    put("nhi_lab_loinc", "nhi_pas.tgz", tb.getvalue(), BY_ID["nhi_lab_loinc"].url)
+    put("naer_medical_terms", "naer_medical_terms.csv", (SAMPLES / "naer_medical_terms_sample.csv").read_bytes(),
+        BY_ID["naer_medical_terms"].url)  # fmt: skip
+    put("tw_zh_synonyms", "zh_tw_clinical_synonyms.csv", tw.REPO_SYNONYMS.read_bytes(), BY_ID["tw_zh_synonyms"].url)
+    for sid in ("tw_icd_2014_2023", "naer_medical_terms"):
+        meta = json.loads((raw / sid / "fetch.json").read_text(encoding="utf-8"))
+        (raw / sid / "fetch.json").write_text(json.dumps({**meta, "version": "sample"}), encoding="utf-8")
     return raw
 
 
@@ -671,6 +807,11 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--raw", type=Path, default=ROOT / ".cache" / "refdata" / "raw")
     f.add_argument("--file", type=Path, help="an account download (LOINC, the NHIA workbook) instead of the URL")
     f.add_argument("--slice", type=int, default=0, help="ctgov only: one API page of N studies with JP/TW sites")
+    f.add_argument(
+        "--no-licence-check",
+        action="store_true",
+        help="items with a dataset record: do not read it (recorded in fetch.json as skipped)",
+    )
     b = sub.add_parser("build")
     b.add_argument("--raw", type=Path, default=ROOT / ".cache" / "refdata" / "raw")
     b.add_argument("--out", type=Path, default=ROOT / ".cache" / "refdata")
@@ -686,7 +827,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "sources":
         print(table_md(), end="")
     elif a.cmd == "fetch":
-        for line in fetch(a.ids, a.raw, a.file, a.slice):
+        for line in fetch(a.ids, a.raw, a.file, a.slice, not a.no_licence_check):
             print(line)
     elif a.cmd == "build":
         print(build(a.raw, a.out, a.date, a.ids))
