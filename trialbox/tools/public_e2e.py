@@ -335,6 +335,15 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
         page = pi.get(f"/pilot/jobs/{job.job_id}/approval")
         for cid in re.findall(r'data-testid="open-([A-Z0-9-]+)"', page.text):
             page = pi.get(f"/pilot/jobs/{job.job_id}/approval?open={cid}")
+        # D-309 (T-507): a criterion with no label in the page's language (none saved above, none shipped) gets one
+        # before Approve all, as the investigator would type it
+        for cid in re.findall(r'data-testid="label-missing-([A-Z0-9-]+)"', page.text):
+            pi.post(
+                f"/pilot/jobs/{job.job_id}/approval/label",
+                data={"csrf": fd._csrf(page.text), "crit": cid, "text": cid.rsplit("-", 2)[-2] + " " + cid[-2:]},
+                follow_redirects=False,
+            )
+        page = pi.get(f"/pilot/jobs/{job.job_id}/approval")
         r = pi.post(
             f"/pilot/jobs/{job.job_id}/approve",
             data={"csrf": fd._csrf(page.text), "confirm": "yes"},
