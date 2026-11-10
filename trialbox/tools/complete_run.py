@@ -1377,8 +1377,11 @@ def _local_timings(path: Path | None) -> tuple[dict[str, float], int]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tb_common.config import adopt_site_tz
+
     from tools import scenarios
 
+    adopt_site_tz()  # synthetic sites on one VM: the example site's site.tz as TB_TZ, for every part (D-315)
     argv = list(sys.argv[1:] if argv is None else argv)
     from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
 
