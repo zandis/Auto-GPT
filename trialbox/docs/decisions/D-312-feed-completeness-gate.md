@@ -3,7 +3,7 @@
 **D-312 A nightly ingest is checked per source table against the last good night before anything is published. A
 missing or emptied table, a full night's table with more than `feed_completeness.max_table_drop_pct` (default 10) %
 fewer rows, or a patient who left the feed while their records stayed holds the night. An OMOP feed batch that makes
-a Relational Data Quality check fail on more rows than before is refused. Held nights never count towards the
+the Data Quality foreign-key check of a `person_id` fail on more rows than before is refused. Held nights never count towards the
 snapshots retention keeps.**
 Task T-611 (TB-PLAN-06 wave 1; deep review TB-DR-06 DATA-001, DATA-009, DATA-017). Builds on D-271. Date 2026-11-10.
 
@@ -27,8 +27,9 @@ Task T-611 (TB-PLAN-06 wave 1; deep review TB-DR-06 DATA-001, DATA-009, DATA-017
   patient the snapshot does not hold.
 * **Override.** D-271's `TB_FEED_DROP_OVERRIDE='<snapshot>: <reason>'` lets that one night through this gate too; the
   reason is in the audit record (`drop_override`).
-* **OMOP.** `omop.load` runs `omop.dqd.relational_violations` (isRequired, isPrimaryKey, isForeignKey) inside a feed
-  batch's transaction before and after its writes. A check with more violated rows after is a refusal: the
+* **OMOP.** `omop.load` runs `omop.dqd.relational_violations(person_only=True)` (the isForeignKey checks of references
+  to `person`) inside a feed batch's transaction before and after its writes. A check with more violated rows after
+  is a refusal. Other Relational checks do not hold a batch (a feed may name a visit it does not send): the
   transaction rolls back, a `feed-refused` row is kept in `tb_load`, the lake answers 409 and the night is held. The
   same override names the batch.
 * **Retention.** `tb_common.retention.snapshots_to_keep(..., good=)` counts only nights that passed (`passed.json`, a
