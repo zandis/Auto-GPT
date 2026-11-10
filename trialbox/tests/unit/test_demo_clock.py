@@ -64,7 +64,7 @@ def test_go_live_moves_the_box_with_the_console() -> None:
 def test_shift_dates_moves_dates_and_keeps_intervals(tmp_path: Path) -> None:
     rows = [
         {
-            "mrn": "20000001",
+            "mrn": "x1",
             "appt_datetime": "2026-11-02 10:40:00",
             "birth": "1960-02-28",
             "phone": "090-1234-5678",
