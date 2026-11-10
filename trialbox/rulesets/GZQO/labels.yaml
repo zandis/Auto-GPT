@@ -1,0 +1,109 @@
+# Criterion labels, criterion text and to-dos in the site's languages (T-507, D-309).
+# `source` is the criterion text as the protocol wrote it (the IR's `text`); a translation is shown only while the
+# approved criterion still has exactly this text, so an amended criterion never keeps an old translation.
+# `todo_source` is the IR's `action`. Every translation here needs a native read before the PoC (T-507 PR body).
+ruleset: GZQO
+criteria:
+  GZQO-INC-01:
+    source: Male or female participants aged 18 years or older at screening.
+    ja: {label: 18歳以上, text: スクリーニング時に18歳以上の男性または女性。}
+    zh-TW: {label: 年滿18歲, text: 篩選時年滿18歲之男性或女性。}
+  GZQO-INC-02:
+    source: Diagnosis of gout according to the 2015 ACR/EULAR gout classification criteria.
+    ja: {label: 痛風（分類基準）, text: 2015年ACR/EULAR痛風分類基準を満たす痛風。}
+    zh-TW: {label: 痛風（分類標準）, text: 符合2015年ACR/EULAR痛風分類標準之痛風。}
+  GZQO-INC-03:
+    source: Body mass index (BMI) ≥27 kg/m² at screening.
+    todo_source: measure height and weight
+    ja: {label: BMI 27以上, text: スクリーニング時の体格指数（BMI）が27 kg/m²以上。, todo: 身長と体重を測定する}
+    zh-TW: {label: BMI ≥27, text: 篩選時身體質量指數（BMI）≥27 kg/m²。, todo: 測量身高與體重}
+  GZQO-INC-04:
+    source: Serum urate ≥6.8 mg/dL at screening, or ≥6.0 mg/dL if receiving urate-lowering therapy.
+    todo_source: order serum urate
+    ja: {label: 尿酸値 6.8以上（降下療法中は6.0以上）, text: スクリーニング時の血清尿酸値が6.8 mg/dL以上、尿酸降下療法中の場合は6.0 mg/dL以上。, todo: 血清尿酸値を検査する}
+    zh-TW: {label: 血清尿酸 ≥6.8（降尿酸治療中 ≥6.0）, text: 篩選時血清尿酸值 ≥6.8 mg/dL；正接受降尿酸治療者 ≥6.0 mg/dL。, todo: 安排血清尿酸檢驗}
+  GZQO-INC-05:
+    source: At least 2 gout flares within the 12 months before screening.
+    todo_source: confirm flare dates with patient
+    ja: {label: 12か月以内の痛風発作2回以上, text: スクリーニング前12か月以内に痛風発作が2回以上。, todo: 発作の日付を患者に確認する}
+    zh-TW: {label: 12個月內痛風發作≥2次, text: 篩選前12個月內至少2次痛風發作。, todo: 向病人確認發作日期}
+  GZQO-INC-06:
+    source: Receiving stable urate-lowering therapy for at least 3 months (continuous within the past 6 months, gaps ≤30 days).
+    ja: {label: 尿酸降下療法3か月以上, text: 安定した尿酸降下療法を3か月以上継続している（過去6か月以内に継続、中断は30日以内）。}
+    zh-TW: {label: 降尿酸治療≥3個月, text: 接受穩定降尿酸治療至少3個月（過去6個月內持續使用，中斷不超過30日）。}
+  GZQO-INC-07:
+    source: Willing and able to self-inject study intervention once weekly.
+    todo_source: ask injection willingness
+    ja: {label: 自己注射の意思, text: 治験薬を週1回自己注射する意思と能力がある。, todo: 自己注射の意思を確認する}
+    zh-TW: {label: 願意自行注射, text: 願意且能夠每週自行注射一次試驗藥物。, todo: 詢問自行注射意願}
+  GZQO-INC-08:
+    source: Estimated GFR ≥30 mL/min/1.73 m² (CKD-EPI 2021) at screening.
+    todo_source: order creatinine
+    ja: {label: eGFR 30以上, text: スクリーニング時の推算糸球体濾過量（eGFR）が30 mL/min/1.73 m²以上（CKD-EPI 2021式）。, todo: クレアチニンを検査する}
+    zh-TW: {label: eGFR ≥30, text: 篩選時估算腎絲球過濾率（eGFR）≥30 mL/min/1.73 m²（CKD-EPI 2021公式）。, todo: 安排肌酸酐檢驗}
+  GZQO-INC-09:
+    source: Followed at the rheumatology or metabolism clinic with at least one visit in the past 12 months.
+    ja: {label: 12か月以内の外来受診, text: リウマチ科または代謝内科の外来に通院し、過去12か月以内に1回以上受診している。}
+    zh-TW: {label: 12個月內門診就診, text: 於風濕科或新陳代謝科門診追蹤，過去12個月內至少就診1次。}
+  GZQO-EXC-01:
+    source: Type 1 diabetes mellitus.
+    ja: {label: 1型糖尿病, text: 1型糖尿病。}
+    zh-TW: {label: 第一型糖尿病, text: 第一型糖尿病。}
+  GZQO-EXC-02:
+    source: History of acute or chronic pancreatitis.
+    ja: {label: 膵炎, text: 急性または慢性膵炎の既往。}
+    zh-TW: {label: 胰臟炎, text: 急性或慢性胰臟炎病史。}
+  GZQO-EXC-03:
+    source: Personal history of medullary thyroid carcinoma or multiple endocrine neoplasia type 2.
+    ja: {label: 甲状腺髄様癌・MEN2, text: 本人の甲状腺髄様癌または多発性内分泌腫瘍症2型（MEN2）の既往。}
+    zh-TW: {label: 甲狀腺髓質癌・MEN2, text: 本人有甲狀腺髓質癌或第二型多發性內分泌腫瘤（MEN2）病史。}
+  GZQO-EXC-04:
+    source: Use of a GLP-1 receptor agonist or GIP/GLP-1 receptor agonist within 90 days before screening.
+    ja: {label: 90日以内のGLP-1受容体作動薬, text: スクリーニング前90日以内のGLP-1受容体作動薬またはGIP/GLP-1受容体作動薬の使用。}
+    zh-TW: {label: 90日內使用GLP-1受體促效劑, text: 篩選前90日內使用GLP-1受體促效劑或GIP/GLP-1受體促效劑。}
+  GZQO-EXC-05:
+    source: Prior or planned bariatric surgery.
+    ja: {label: 肥満外科手術, text: 肥満外科手術の既往または予定。}
+    zh-TW: {label: 減重手術, text: 曾接受或預定接受減重手術。}
+  GZQO-EXC-06:
+    source: HbA1c >10% at screening.
+    todo_source: order HbA1c
+    ja: {label: HbA1c 10%超, text: スクリーニング時のHbA1cが10%超。, todo: HbA1cを検査する}
+    zh-TW: {label: HbA1c >10%, text: 篩選時HbA1c >10%。, todo: 安排HbA1c檢驗}
+  GZQO-EXC-07:
+    source: Malignancy within the past 5 years, except non-melanoma skin cancer.
+    ja: {label: 5年以内の悪性腫瘍, text: 過去5年以内の悪性腫瘍（悪性黒色腫以外の皮膚癌は含まない）。}
+    zh-TW: {label: 5年內惡性腫瘤, text: 過去5年內之惡性腫瘤（不含非黑色素瘤皮膚癌）。}
+  GZQO-EXC-08:
+    source: Pregnant or breastfeeding, or positive pregnancy test.
+    ja: {label: 妊娠・授乳, text: 妊娠中または授乳中、あるいは妊娠検査が陽性。}
+    zh-TW: {label: 懷孕或哺乳, text: 懷孕或哺乳中，或驗孕結果陽性。}
+  GZQO-EXC-09:
+    source: Uncontrolled hypertension (systolic blood pressure ≥160 mmHg) at screening.
+    todo_source: measure blood pressure
+    ja: {label: 収縮期血圧160以上, text: スクリーニング時のコントロール不良の高血圧（収縮期血圧160 mmHg以上）。, todo: 血圧を測定する}
+    zh-TW: {label: 收縮壓≥160, text: 篩選時血壓控制不良（收縮壓≥160 mmHg）。, todo: 測量血壓}
+  GZQO-EXC-10:
+    source: Myocardial infarction or stroke within 90 days before screening.
+    ja: {label: 90日以内の心筋梗塞・脳卒中, text: スクリーニング前90日以内の心筋梗塞または脳卒中。}
+    zh-TW: {label: 90日內心肌梗塞或中風, text: 篩選前90日內發生心肌梗塞或中風。}
+  GZQO-EXC-11:
+    source: Acute gout flare ongoing at screening (within 14 days).
+    todo_source: confirm current flare status at visit
+    ja: {label: 現在の痛風発作, text: スクリーニング時に急性痛風発作が続いている（14日以内）。, todo: 受診時に痛風発作が続いているか確認する}
+    zh-TW: {label: 目前痛風發作, text: 篩選時急性痛風發作中（14日內）。, todo: 就診時確認目前是否痛風發作}
+  GZQO-EXC-12:
+    source: Planned surgery during the study period.
+    todo_source: ask about planned surgery
+    ja: {label: 手術予定, text: 試験期間中に予定されている手術。, todo: 手術の予定を確認する}
+    zh-TW: {label: 預定手術, text: 試驗期間內預定接受手術。, todo: 詢問是否預定手術}
+  GZQO-EXC-13:
+    source: ALT >3× upper limit of normal (>120 U/L) at screening.
+    todo_source: order ALT
+    ja: {label: ALT 基準値上限の3倍超, text: スクリーニング時のALTが基準値上限の3倍超（120 U/L超）。, todo: ALTを検査する}
+    zh-TW: {label: ALT >3倍正常上限, text: 篩選時ALT >3倍正常值上限（>120 U/L）。, todo: 安排ALT檢驗}
+  GZQO-EXC-14:
+    source: Participation in another interventional study within 30 days before screening.
+    todo_source: ask about other studies
+    ja: {label: 30日以内の他の介入研究参加, text: スクリーニング前30日以内の他の介入研究への参加。, todo: 他の研究への参加を確認する}
+    zh-TW: {label: 30日內參加其他試驗, text: 篩選前30日內參加其他介入性研究。, todo: 詢問是否參加其他研究}

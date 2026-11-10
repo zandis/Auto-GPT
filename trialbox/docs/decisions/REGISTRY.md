@@ -133,3 +133,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
 | D-308 | reserved | T-501 | held for T-501 |
+| D-309 | merged | T-507 | criterion labels in the site's languages, the label step at approval, the test-model label (file) |

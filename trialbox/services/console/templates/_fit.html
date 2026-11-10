@@ -6,5 +6,6 @@
 {% if fit.not_met %}<span class="pill rd-nogo">{{ t('fit.not_met') }}</span> <span>{{ fit.not_met[:3]|join(' · ') }}</span><br>{% endif %}
 {% if fit.open %}<span>{{ t('fit.open') }} {{ fit.open[:3]|join(' · ') }}{% if fit.open|length > 3 %} +{{ fit.open|length - 3 }}{% endif %}</span>{% endif %}
 {% if fit.person %}<br><span>{{ t('fit.person') }} {{ fit.person[:3]|join(' · ') }}</span>{% endif %}
-{% if actions %}<br><span class="hint">{{ t('fit.todo') }} {{ actions[:2]|join(' · ') }}</span>{% endif %}
+{# D-309: a to-do in the page language where the ruleset ships it #}
+{% if actions %}<br><span class="hint">{{ t('fit.todo') }} {% for a in actions[:2] %}{{ (fit.todo_words or {}).get(a, a) }}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}
 {%- endmacro %}

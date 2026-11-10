@@ -28,6 +28,8 @@ from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved
 from tb_common.service_auth import actor_header
 from tb_contracts import Job, JobCreate, JobFile, RegistryEntry, RegistryPromote, RegistrySummary, RegistryUpdate
 
+from console import ruleset_labels
+
 
 class Refused(RuntimeError):
     """The orchestrator refused the request (permission, rate limit, invalid request)."""
@@ -134,15 +136,26 @@ class Backend(Protocol):
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str: ...
 
 
-def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, str]]:
+def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, Any]]:
     """Inclusion and exclusion criteria of the approved ruleset, in protocol order (id, kind, class, label, text):
-    what the role pages (D-104) print next to a verdict. Empty when there is no approved version."""
+    what the role pages (D-104) print next to a verdict. Empty when there is no approved version. T-507 (D-309):
+    ``action`` is the criterion's to-do and ``i18n`` the label, text and to-do the ruleset ships per language for
+    exactly this text (``console.ruleset_labels``)."""
     try:
         rs = load_approved(rulesets_dir, ruleset)
     except (RulesetNotApproved, FileNotFoundError, ValueError):
         return []
+    shipped = ruleset_labels.shipped(ruleset, rulesets_dir)
     return [
-        {"id": c.id, "kind": c.kind, "class": c.class_, "label": c.label or c.text[:60], "text": c.text}
+        {
+            "id": c.id,
+            "kind": c.kind,
+            "class": c.class_,
+            "label": c.label or c.text[:60],
+            "text": c.text,
+            "action": c.action or "",
+            "i18n": ruleset_labels.words(shipped.get(c.id), c.text, c.action or ""),
+        }
         for c in rs.active()
         if c.kind in ("inclusion", "exclusion")
     ]
