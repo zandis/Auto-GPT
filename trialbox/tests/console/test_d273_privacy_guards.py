@@ -20,6 +20,9 @@ from tb_contracts import RegistryUpdate
 from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - the fixture by name
 from tests.console.test_excluded_page import _with_excluded
 from tests.console.test_role_pages import PW, _csrf, _user
+from tests.console.test_site_setup_pages import KEY as SITE_KEY
+from tests.console.test_site_setup_pages import PW as SITE_PW
+from tests.console.test_site_setup_pages import sb  # noqa: F401 - the fixture by name
 from tests.console.test_team_pages import _log_pi_and_sub
 
 A, B, C = "a" * 32, "b" * 32, "c" * 32
@@ -311,3 +314,102 @@ def test_the_job_reveal_has_no_preselected_reason(box: dict[str, Any]) -> None: 
     assert '<select name="reason" required data-testid="reveal-reason"><option value="">' in page
     r = admin.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": A, "reason": ""})
     assert r.status_code == 400 and box["backend"].revealed == []
+
+
+# ---------------------------------------------------------------------------------------------- follow-up review
+def _verdicts(pid: str) -> dict[str, Any]:
+    return {"pid": pid, "short": pid[:8], "state": "needs",
+            "criteria": [{"id": "I1", "kind": "inclusion", "label": "urate", "verdict": "met", "reason": "",
+                          "facts": []}]}  # fmt: skip
+
+
+def test_the_site_patient_check_follows_the_delegation_log_and_the_opt_out_register(
+    box: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def study_api(method: str, path: str, body: dict[str, Any] | None = None, **_: Any) -> Any:
+        if path.startswith("/setup/main/patients"):
+            return {"approved": True, "patients": [_verdicts(A), _verdicts(B)]}
+        raise Unavailable("no study store in this test")
+
+    monkeypatch.setattr(box["backend"], "study_api", study_api, raising=False)
+    _done_screen(box["backend"], _ulid(987))
+    pi = _user(box, "drsato", "investigator")
+    sub = _user(box, "drkato", "investigator")
+    crc = _user(box, "crc1", "coordinator")
+    _log_pi_and_sub(box, pi, ("refer",))
+    assert sub.get("/site/patients?study=GZQO").status_code == 403  # refused here as at /ask
+    assert any(e["detail"]["action"] == "/site/patients" for e in _events(box, "console.denied"))
+    page = pi.get("/site/patients?study=GZQO").text
+    assert 'data-testid="pc-aaaaaaaa"' in page and 'data-testid="pc-bbbbbbbb"' in page
+    _opt_out(box, crc, B)
+    page = pi.get("/site/patients?study=GZQO").text
+    assert 'data-testid="pc-aaaaaaaa"' in page and "bbbbbbbb" not in page
+    seen = _events(box, "console.site_patients")
+    assert len(seen) == 2 and seen[-1]["actor"] == "console:drsato" and seen[-1]["detail"]["patients"] == 1
+
+
+def test_the_site_facts_and_people_leave_out_opted_out_patients_and_the_api_gives_no_pseudonym(
+    sb: dict[str, Any],  # noqa: F811
+) -> None:
+    from sitesetup import help as site_help
+    from tb_common.crypto import pid_for_mrn
+
+    crc, _ = login(sb["app"], "crc", SITE_PW)
+    api = TestClient(sb["app"])
+    api.headers["Authorization"] = (
+        "Bearer " + api.post("/api/v1/session", json={"username": "crc", "password": SITE_PW}).json()["token"]
+    )
+    no, text = site_help.PRACTICE_CHARTS[0]
+    assert api.post("/api/v1/site/charts", json={"chart_no": no, "text": text}).status_code == 200
+    pid = pid_for_mrn(SITE_KEY, no)
+    facts = api.get("/api/v1/site/facts").json()
+    assert facts and all("pid" not in f and f["short"] == pid[:8] for f in facts)
+    assert pid not in json.dumps(facts)
+    assert pid[:8] in crc.get("/site/facts?study=GZQO").text
+    assert f'data-testid="person-{pid[:8]}"' in crc.get("/site/people?study=GZQO").text
+    _opt_out(sb, crc, pid)
+    assert api.get("/api/v1/site/facts").json() == []
+    assert pid[:8] not in crc.get("/site/facts?study=GZQO").text
+    assert f'data-testid="person-{pid[:8]}"' not in crc.get("/site/people?study=GZQO").text
+
+
+def test_a_running_case_job_masks_an_opted_out_subjects_chart_number(
+    box: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import UTC, datetime
+
+    from tb_contracts import Job
+
+    asked: list[dict[str, Any]] = []
+    answer: dict[str, Any] = {"pid": "ab" * 16}
+
+    def study_api(method: str, path: str, body: dict[str, Any] | None = None, **_: Any) -> Any:
+        if path == "/setup/pseudonym":
+            asked.append(dict(body or {}))
+            if not answer:
+                raise Unavailable("the box is down")
+            return answer
+        raise Unavailable("no study store in this test")
+
+    monkeypatch.setattr(box["backend"], "study_api", study_api, raising=False)
+    now = datetime(2026, 11, 10, 9, 0, tzinfo=UTC)
+    job = box["backend"].add_job(Job(job_id=_ulid(988), type="CASE", ruleset="GZQO", ruleset_version="1.0.0",
+                                     requested_by="admin@hospa.test", received_at=now, updated_at=now,
+                                     state="running", options={"mrn": "70000054", "lang": "en"}, inputs=[],
+                                     outputs=[]))  # fmt: skip
+    box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
+                        detail={"line": "CASE GZQO mrn=••• lang=en", "channel": "web"})  # fmt: skip
+    admin, _ = login(box["app"])
+    assert "mrn=70000054" in admin.get(f"/pilot/jobs/{job.job_id}").text
+    assert asked == []  # nobody on the register: no lookup at all
+    _opt_out(box, _user(box, "crc1", "coordinator"), "cd" * 16)  # someone else
+    assert "mrn=70000054" in admin.get(f"/pilot/jobs/{job.job_id}").text
+    assert asked == [{"chart_no": "70000054"}]
+    crc, _ = login(box["app"], "crc1", PW)
+    _opt_out(box, crc, "ab" * 16)  # the subject
+    page = admin.get(f"/pilot/jobs/{job.job_id}").text
+    assert "70000054" not in page and "mrn=•••" in page
+    answer.clear()  # the box cannot answer: the line stays masked
+    assert "70000054" not in admin.get(f"/pilot/jobs/{job.job_id}").text
