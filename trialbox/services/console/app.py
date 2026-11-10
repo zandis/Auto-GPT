@@ -958,6 +958,7 @@ def create_app(
         return app
 
     from console import (
+        admin_flags,
         approval,
         data_pages,
         edc_pages,
@@ -1003,6 +1004,7 @@ def create_app(
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
+    admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00

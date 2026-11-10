@@ -46,6 +46,7 @@ def test_default_install_passes() -> None:
         "publish_gate",
         "note_block",
         "registry_pins",
+        "flags",
     }
 
 

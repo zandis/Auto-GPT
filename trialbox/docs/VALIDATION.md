@@ -25,6 +25,18 @@ Run in `trialbox/` with the venv (`make venv`). All use synthetic or public data
 `tests/integration` (with `TB_INTEGRATION=1` and the compose test stack) adds HAPI CQL, the equivalence gate, the HL7
 validator and mail. `make test-e2e` runs every mail scenario against the stack. `tests/llm` needs a real model.
 
+**The committed goldens** (`tests/golden/`, `make goldens-check`, T-006, D-205) are the merge gate for every
+data-core branch: the FEAS funnel and the SCREEN candidate set (after the coded filters) of every committed ruleset,
+the FEAS basis table, a per-column hash of every lake table and the lake schema, computed from fixed inputs (the
+synthetic hospital of profile `ci` with planted site inputs, its next night with a tenth of the records deleted, an
+SS-MIX2 storage and the SIGIR public notes; Asia/Tokyo and Asia/Taipei; a fixed synthetic site key) and compared with the committed JSON;
+any difference fails with the changed values by path and a unified diff. The same goldens hold for both lake sources
+(`TB_LAKE_SOURCE=omop make goldens-check`), so they also pin the OMOP parity, tombstones included. A deliberate
+change regenerates them in the same pull request (`make goldens REASON="D-nnn: ..."`); the 50k funnels are written
+only from the report of a paid run (`--from-report`). Last result: identical from either source, 17 goldens, about
+100 s (D-205). `tests/unit/test_goldens.py` keeps the schema golden and the one-golden-per-ruleset rule in every
+`make test`.
+
 ## 2. What `e2e_simple` proves
 
 One synthetic hospital (two sites of 2,500 patients, notes 90 % ja or zh-TW and 10 % en), checked against things it
