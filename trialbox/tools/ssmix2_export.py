@@ -47,6 +47,9 @@ _LOCAL_TO_JLAC10 = {
     "HCGU": "4F040000001305911",
 }
 STAMP = "20261101000000000"
+# a Japanese laboratory writes a presence result in words: the export does too, and the JP mapping reads them through
+# the shared normaliser (tb_common.labvalue.presence, D-334) to the same LOINC answers as POS / NEG
+_JP_PRESENCE = {"POS": "陽性", "NEG": "陰性"}
 _RX_STATUS = {"active": "IP", "completed": "CM", "stopped": "DC"}
 _CLASS = {"OPD": "O", "IPD": "I", "ER": "E"}
 INJECTABLE = ("L04AB", "L04AC", "A10BJ", "A10BX")  # biologics and GLP-1: injection orders (OMP-02 / OMP-12)
@@ -210,7 +213,9 @@ def export(src: Path, out: Path) -> dict[str, int]:
     for lab in _read(src / "lab.csv"):
         jlac = _LOCAL_TO_JLAC10.get(lab["local_code"], lab["local_code"])
         system = "JC10" if lab["local_code"] in _LOCAL_TO_JLAC10 else "99HOSP"  # scores: the hospital's own code
-        obx = ["OBX", "1", "NM", f"{jlac}^{_e(lab.get('item_name'))}^{system}", "", _e(lab.get("result_value"))]
+        value = lab.get("result_value") or ""
+        value = _JP_PRESENCE.get(value, value)
+        obx = ["OBX", "1", "NM", f"{jlac}^{_e(lab.get('item_name'))}^{system}", "", _e(value)]
         obx += [_e(lab.get("unit"))] + [""] * 15
         obx[14], obx[21] = hl7.hl7_ts(lab.get("sample_datetime")), _e(lab["lab_no"])
         day = _day(lab.get("sample_datetime"))
