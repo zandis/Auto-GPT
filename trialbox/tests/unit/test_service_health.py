@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +19,16 @@ SERVICES = [
 
 
 @pytest.mark.parametrize("svc", SERVICES)
-def test_healthz(svc: str) -> None:
+def test_healthz(svc: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # every service's state under the test's own folder: the defaults (/data, fs:/data/objects, /data/lake) are the
+    # box's, and a CI runner (not root) cannot write them
+    monkeypatch.setenv("TB_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("TB_OBJECT_STORE", f"fs:{tmp_path / 'objects'}")
+    monkeypatch.setenv("TB_LAKE_DIR", str(tmp_path / "lake"))
+    monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path / "audit"))
+    # the compiler's ruleset repository defaults to the committed rulesets/ folder, which it would re-materialise in
+    # place (rmtree + rename) while parallel tests copy it: give it the test's own folder
+    monkeypatch.setenv("TB_RULESETS_DIR", str(tmp_path / "rulesets"))
     mod = importlib.import_module(f"{svc}.app")
     with TestClient(mod.app) as client:
         resp = client.get("/healthz")

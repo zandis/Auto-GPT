@@ -78,8 +78,9 @@ def _lookups() -> dict[str, dict[str, tuple[str, str]]]:
 @lru_cache(maxsize=1)
 def _terminology() -> Any:
     from criteria_compiler.terminology.mapper import Terminology
+    from tb_common.refdata import synonym_lookup
 
-    return Terminology()
+    return Terminology(name_synonyms=synonym_lookup())  # D-172: zh-TW local names read through the dictionary
 
 
 # Japanese (shinjitai) forms of characters whose Traditional Chinese form the ICD-10 titles use
@@ -199,7 +200,10 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
     """A suggested standard code for one local code: ``{system, code, display, method}`` (``licensed``: the site's
     licensed MEDIS / JLAC10 / YJ release, its standard code or the name it gives; ``lookup``: the shipped table for
     this code; ``same``: the code already is a standard code; ``term``: a known diagnosis name; ``title``: an ICD-10
-    title; ``name``: found by its name) with its ``confidence`` (0..1), or ``{}`` when TrialBox is not sure."""
+    title; ``name``: found by its name; ``refdata``: a map of the reference data pack, D-170 / D-171: NHI drug ->
+    ATC, NHI lab -> LOINC, and at Taiwan sites a 2014 ICD-10-CM code -> its 2023 code; D-174: a YJ code -> ATC by
+    its stem, a JLAC10 code -> LOINC from the hospital's own map) with its ``confidence``
+    (0..1), or ``{}`` when TrialBox is not sure."""
     kind = system.rsplit(":", 1)[-1]
     up = code.strip().upper()
     lic = _licensed(kind, up)
@@ -221,6 +225,9 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
         if up in lk["dx"]:
             icd, name = lk["dx"][up]
             return {"system": ICD10CM, "code": icd, "display": name, "method": "lookup", "confidence": "1.00"}
+        moved = _tw_2014(up) if site_country() == "TW" else None
+        if moved is not None:
+            return moved
         if _ICD.match(up):
             return {"system": ICD10CM, "code": up, "display": display, "method": "same", "confidence": "1.00"}
     if kind == "lab-code":
@@ -229,13 +236,116 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
             return {"system": LOINC, "code": loinc, "display": name, "method": "lookup", "confidence": "1.00"}
         if _LOINC.match(up):
             return {"system": LOINC, "code": up, "display": display, "method": "same", "confidence": "1.00"}
+        nhi = _nhi_lab(up)
+        if nhi:
+            return nhi
+        jlac = _jlac10_loinc(up)
+        if jlac:
+            return jlac
     if kind == "drug-code":
         if up in lk["drug"]:
             atc, name = lk["drug"][up]
             return {"system": ATC, "code": atc, "display": name, "method": "lookup", "confidence": "1.00"}
         if _ATC.match(up):
             return {"system": ATC, "code": up, "display": display, "method": "same", "confidence": "1.00"}
+        nhi = _nhi_drug(up)
+        if nhi:
+            return nhi
+        yj = _yj_atc(up)
+        if yj:
+            return yj
     return _by_name(domain, display or code)
+
+
+# ------------------------------------------------------------- the Taiwan maps of the reference data (D-170, D-171)
+def _refdata(system: str, code: str) -> list[dict[str, Any]]:
+    from tb_common.refdata import map_targets_or_empty
+
+    return map_targets_or_empty(system, code)
+
+
+def _nhi_drug(code: str) -> dict[str, str]:
+    """An NHI 藥品代號 -> the ATC code the NHIA list gives (``refdata``), when it is a full (level 5) code."""
+    from tb_common import refdata_tw as tw
+
+    atc = {t["target_code"] for t in _refdata(tw.NHI_DRUG, code) if _ATC.match(t["target_code"])}
+    if len(atc) != 1:
+        return {}
+    # 0.90, not 1.00: the ATC class is wider than the product (relation ``wider``)
+    return {"system": ATC, "code": atc.pop(), "display": "", "method": "refdata", "confidence": "0.90"}
+
+
+def _nhi_lab(code: str) -> dict[str, str]:
+    """An NHI lab order code -> LOINC from the NHIA ConceptMap. Its targets are candidates (relatedto): exactly one
+    target is a suggestion at 0.90; several (serum or urine, method A or B) give none: which one the hospital's
+    order means is the coordinator's choice, and no table of TrialBox's can make it. The display is left empty: the
+    NHI order's own name is not the LOINC name, and LOINC names are not shipped."""
+    from tb_common import refdata_tw as tw
+
+    rows = [t for t in _refdata(tw.NHI_SERVICE, code) if t.get("relation") != "unmatched"]
+    loinc = sorted({t["target_code"] for t in rows if _LOINC.match(t["target_code"])})
+    if len(loinc) != 1:
+        return {}
+    return {"system": LOINC, "code": loinc[0], "display": "", "method": "refdata", "confidence": "0.90"}
+
+
+def site_country() -> str | None:
+    """``TW``, ``JP`` or None from the site's settings (time zone, else page locale)."""
+    try:
+        from tb_common.config import get_config
+        from tb_common.derived import country_of
+
+        cfg = get_config()
+        return country_of(cfg.env.tz, cfg.settings.site.locale)
+    except Exception:
+        return None
+
+
+def _tw_2014(code: str) -> dict[str, str] | None:
+    """Taiwan sites only. A TW 2014-edition ICD-10-CM code that the 2023 edition no longer has (NHIA map): one 2023
+    code -> that code; several (a split) -> no suggestion, the coordinator picks; deleted with no 2023 code at all
+    (an ``unmatched`` row) -> no suggestion either, never the obsolete code as ``same``. None when the code is still
+    a 2023 code (I10 stays I10 although I16 was split out of it) or the map does not know it."""
+    from tb_common import refdata_tw as tw
+
+    rows = _refdata(tw.ICD_CM_2014, code)
+    if rows and all(t.get("relation") == "relatedto" for t in rows):
+        return {}  # a mapping NHIA added later (carrier -> chronic hepatitis B): the coordinator picks
+    targets = sorted({t["target_code"] for t in rows if t.get("target_code") and t.get("relation") != "unmatched"})
+    if not rows or code in targets:
+        return None
+    rows = [t for t in rows if t["target_code"] in targets]
+    if len(targets) == 1 and _ICD.match(targets[0]):
+        return {"system": ICD10CM, "code": targets[0], "display": rows[0]["target_display"], "method": "refdata",
+                "confidence": "0.90"}  # fmt: skip
+    return {}
+
+
+# ------------------------------------------------------------- the Japan maps of the reference data (D-174)
+def _yj_atc(code: str) -> dict[str, str]:
+    """A YJ (or 薬価基準) code -> the ATC code of its 7-character stem in TrialBox's YJ -> ATC table (``refdata``,
+    0.90: the class is wider than the product)."""
+    from tb_common import refdata_jp as jp
+
+    rows = jp.yj_atc_targets(code)
+    atc = {t["target_code"] for t in rows if _ATC.match(t["target_code"])}
+    if len(atc) != 1:
+        return {}
+    name = next((str(t.get("extra", {}).get("name_en") or "") for t in rows), "")
+    return {"system": ATC, "code": atc.pop(), "display": name, "method": "refdata", "confidence": "0.90"}
+
+
+def _jlac10_loinc(code: str) -> dict[str, str]:
+    """A JLAC10 code -> LOINC from the hospital's own map (site-loaded, D-174): one target is a suggestion (0.90;
+    the hospital's file, a person confirms); several, none."""
+    from tb_common import refdata_jp as jp
+
+    rows = jp.jlac10_loinc_targets(code)
+    loinc = sorted({t["target_code"] for t in rows if _LOINC.match(t["target_code"])})
+    if len(loinc) != 1:
+        return {}
+    disp = next((t["source_display"] for t in rows), "")
+    return {"system": LOINC, "code": loinc[0], "display": disp, "method": "refdata", "confidence": "0.90"}
 
 
 def valid_target(domain: str, system: str, code: str) -> bool:

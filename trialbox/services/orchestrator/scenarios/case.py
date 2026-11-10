@@ -34,6 +34,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from tb_common import dates
 from tb_common.crypto import pid_for_mrn, sha256_bytes
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
@@ -66,34 +67,14 @@ MAX_CHART_CHARS = 200_000
 MAX_EXCERPT_CHARS = 1_800  # about 450 tokens; long paragraphs are split so that one criterion sees several excerpts
 LANGS = ("en", "ja", "zh-TW")
 
-# dates as they appear in Taiwan and Japan charts: ISO, slashed, 2026年3月14日, 民國115年3月14日 / 115.03.14,
-# 令和8年3月14日 / R8.3.14, 平成31年
-_ISO = re.compile(r"(?<!\d)((?:19|20)\d{2})[-/.年]\s?(\d{1,2})[-/.月]\s?(\d{1,2})日?(?!\d)")
-_MINGUO = re.compile(r"(?:民國\s?)?(?<![\d.])(1[0-2]\d)[./年]\s?(\d{1,2})[./月]\s?(\d{1,2})日?(?!\d)")
-_ERA = re.compile(r"(令和|平成|R|H)\s?(\d{1,2})[./年]\s?(\d{1,2})[./月]\s?(\d{1,2})日?(?!\d)")
-_ERA_BASE = {"令和": 2018, "R": 2018, "平成": 1988, "H": 1988}
 _HEADING = re.compile(r"^\s*(#{1,6}\s+|[【\[][^】\]]{1,40}[】\]]\s*$)")
 
 
 # ------------------------------------------------------------------------------------------------ chart text
 def find_date(text: str) -> date | None:
-    """The first plausible calendar date in ``text`` (ISO or slashed first, then Minguo, then a Japanese era)."""
-    for m in _ISO.finditer(text):
-        try:
-            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        except ValueError:
-            continue
-    for m in _ERA.finditer(text):
-        try:
-            return date(_ERA_BASE[m.group(1)] + int(m.group(2)), int(m.group(3)), int(m.group(4)))
-        except ValueError:
-            continue
-    for m in _MINGUO.finditer(text):
-        try:
-            return date(1911 + int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        except ValueError:
-            continue
-    return None
+    """The first plausible calendar date in ``text`` (ISO or slashed first, then a Japanese era, then Minguo):
+    :func:`tb_common.dates.find` (D-215)."""
+    return dates.find(text)
 
 
 def _split_long(text: str) -> list[str]:

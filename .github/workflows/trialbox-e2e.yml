@@ -1,47 +1,53 @@
-# TrialBox build gate (SRS FR-OPS-11, trialbox/docs/DECISIONS.md D-111): e2e_simple on every pull request that
-# touches trialbox/. One synthetic hospital, stub model, no network services, no secrets; then the backup drill (D-126).
-name: TrialBox e2e_simple
+# TrialBox nightly (D-206, T-007): the longer runs that are not on every pull request. The per-pull-request gate,
+# e2e_simple (SRS FR-OPS-11, D-111) included, is trialbox-ci.yml. Here, each on its own runner, every night and on
+# demand: public_e2e on the public-data site, the backup and restore drill (TB-PLAN-04 step 2, D-126) and the update
+# drill (TB-PLAN-04 step 8, D-138: signed bundles, a failed migration and an unhealthy release roll back).
+name: TrialBox nightly
 
 on:
-  pull_request:
-    paths:
-      - "trialbox/**"
-      - ".github/workflows/trialbox-e2e.yml"
+  schedule:
+    - cron: "17 19 * * *"  # 03:17 in Taipei and 04:17 in Tokyo, outside both sites' working day
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: trialbox-e2e-${{ github.ref }}
-  cancel-in-progress: true
+  group: trialbox-nightly
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+    working-directory: trialbox
+
+env:
+  TB_SCRATCH: ${{ github.workspace }}/../tb-scratch
 
 jobs:
-  e2e-simple:
+  nightly:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: trialbox
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [public-e2e, backup-drill, update-drill]
+    name: ${{ matrix.run }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
-
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
         with:
           version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
-          cache-dependency-glob: trialbox/pyproject.toml
-
+          cache-dependency-glob: trialbox/uv.lock
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4.9.1
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
           cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
-
       - name: Python environment
         run: make venv
-
       # CQL translator jars, FHIR packages and fonts: fetched once, then cached on the script/pom hash
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
@@ -49,26 +55,17 @@ jobs:
             trialbox/.cache/jvm
             trialbox/.cache/fonts
           key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
-
       - name: JVM dependencies and fonts
         run: make jvm-deps fonts
-
-      # D-126: the box's trial database is PostgreSQL; tools/pglocal.py starts a throwaway cluster from the server
-      # binaries (the runner image ships them; installed here only if missing)
+      # D-126: tools/pglocal.py starts a throwaway cluster from the server binaries (installed here only if missing)
       - name: PostgreSQL server binaries
         run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
-
-      - name: e2e_simple
-        run: make e2e-simple E2E_DIR=${{ runner.temp }}/e2e
-
-      # TB-PLAN-04 step 2 done-check: run the path, back up, wipe, restore with the hospital's key, check the box
+      - name: public_e2e (stub model, the public-data site)
+        if: matrix.run == 'public-e2e'
+        run: TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.public_e2e --dir "$RUNNER_TEMP/public" --lang en
       - name: Backup and restore drill
-        run: make backup-drill DRILL_DIR=${{ runner.temp }}/drill
-
-      - name: Keep the check list
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: e2e-simple
-          path: ${{ runner.temp }}/e2e.json
-          if-no-files-found: ignore
+        if: matrix.run == 'backup-drill'
+        run: make backup-drill DRILL_DIR="$RUNNER_TEMP/drill"
+      - name: Update drill
+        if: matrix.run == 'update-drill'
+        run: TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.update_drill --dir "$RUNNER_TEMP/update"

@@ -16,6 +16,8 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
+from tb_common import encoding
+
 from sitesetup import mapping, messy
 
 
@@ -51,14 +53,10 @@ def read_grid(name: str, data: bytes) -> tuple[messy.Grid, list[tuple[int, int, 
         merged = [(r.min_row - 1, r.min_col - 1, r.max_row - 1, r.max_col - 1) for r in ws.merged_cells.ranges]
         grid = [[_cell(v) for v in row] for row in ws.iter_rows(values_only=True)]
         return grid, merged
-    for enc in ("utf-8-sig", "cp932", "big5"):
-        try:
-            text = data.decode(enc)
-            break
-        except UnicodeDecodeError:
-            continue
-    else:
-        raise IntakeError("SHEET-READ", "the file is not UTF-8, Shift_JIS or Big5 text")
+    try:  # D-215: one detector for UTF-8, Shift_JIS and Big5; a file it cannot tell is refused, never guessed
+        text, _ = encoding.decode(data)
+    except encoding.EncodingRefused as exc:
+        raise IntakeError("SHEET-READ", str(exc)) from exc
     return [list(r) for r in csv.reader(io.StringIO(text))], []
 
 

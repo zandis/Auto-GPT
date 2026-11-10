@@ -189,7 +189,7 @@ def test_installed_box_runs_judge_verifier_and_chart_facts_on_the_box(box: Any) 
         assert d["endpoint"] in ("serving", "verifier") and d["topology"] == "A"
 
 
-def _external_policy(topology: Topology) -> Gateway:
+def _external_policy(topology: Topology, audit_dir: Path) -> Gateway:
     """The shipped policy with the external endpoint approved and on the patient route: PHI must still not go."""
     doc = yaml.safe_load((ROOT / "models" / "routing.yaml").read_text(encoding="utf-8"))
     doc["endpoints"]["external_x"]["g5_record"] = "G5-test"
@@ -199,7 +199,7 @@ def _external_policy(topology: Topology) -> Gateway:
     return Gateway(
         RoutingPolicy(doc),
         Registry.load(),
-        AuditLog(Path("/nonexistent")),
+        AuditLog(audit_dir),  # replaced by the box's own audit below; never a path outside the test
         GatewayConfig(topology=topology, environment=Environment.PRODUCTION, cloud_opt_in=True),
         env={},
     )
@@ -209,7 +209,7 @@ def _external_policy(topology: Topology) -> Gateway:
 def test_phi_never_leaves_the_box_by_this_policy(box: Any, tmp_path: Path) -> None:
     gw, llm, _verifier, _ = box
     # the route lists only an external endpoint: refused before anything is sent (may_reach, then the box policy)
-    ext = _external_policy(Topology.A)
+    ext = _external_policy(Topology.A, tmp_path / "ext-audit")
     ext.audit = gw.audit
     llm.gateway.http = TestClient(create_app(ext))
     with pytest.raises(LlmError, match="class_route_mismatch|step_unconfirmed"):
