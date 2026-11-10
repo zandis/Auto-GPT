@@ -1216,6 +1216,29 @@ class DataSource(BaseModel):
     lab_local_to_loinc: str | None = None
 
 
+class FeedCompleteness(BaseModel):
+    """
+    The completeness gate of the nightly ingest (T-611): a night that fails it is held, never published
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    max_table_drop_pct: float = Field(10, ge=0.0, le=100.0)
+    """
+    a full night whose source table has this share fewer rows than the last good night is held
+    """
+    required_tables: list[str] = []
+    """
+    mapping tables that must be present with rows on every night, the first one too
+    """
+    optional_tables: list[str] = []
+    """
+    mapping tables that may be absent or empty on a night although the last good night had rows
+    """
+
+
 class Profiles(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1379,6 +1402,10 @@ class Settings(BaseModel):
     Per job type daily limit per sender, overriding rate_limit_per_sender_per_day; 0 = no limit (D-146)
     """
     data_source: DataSource = Field(..., title="DataSource")
+    feed_completeness: FeedCompleteness | None = Field(None, title="FeedCompleteness")
+    """
+    The completeness gate of the nightly ingest (T-611): a night that fails it is held, never published
+    """
     mrn_regex: str = "^\\d{8}$"
     profiles: Profiles | None = Field(None, title="Profiles")
     models: SiteModels | None = Field(None, title="SiteModels")

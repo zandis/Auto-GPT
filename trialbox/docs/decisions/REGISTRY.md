@@ -139,7 +139,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-309 | merged | T-507 | criterion labels in the site's languages, the label step at approval, the test-model label (file) |
 | D-310 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
 | D-311 | merged | owner rule, branch `agent/no-dev-gates` | no development gates; gates apply only when real patient data is read; CGMH covered by the existing CGRD approval (file) |
-| D-312 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-312 | merged | T-611 | feed completeness gate before publish (file) |
 | D-313 | merged | T-012a | `trialbox eval qualify` and the qualification record (file) |
 | D-314 | merged | T-614 | Japan ICD-10 as WHO ICD-10: WHO URI, ICD-10-CM twin only for the same code, WHO-only grouper categories (file) |
 | D-315 | merged | T-656 | site time zone as one setting (file) |

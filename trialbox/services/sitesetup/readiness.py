@@ -5,7 +5,8 @@
 2. **Which patients could fit?** Red: no input. Amber with what is missing: proposed facts to check, local codes not
    mapped, sheet rows without a chart number, other "please check" items, inputs that disagree, the share of
    diagnoses in a code system TrialBox cannot read, and "feasibility needs a bulk source" when there are only charts.
-   Green: none of these.
+   For the hospital's own workspace also a held night of the feed (T-611): the box still serves the night before,
+   and the item names the tables the completeness gate refused. Green: none of these.
 3. **Where do trial records live?** Green: TrialBox's forms are added (or REDCap is linked). Amber otherwise.
 
 :func:`patient_check` runs the approved criteria (the SQL engine with D-130's and D-135's rules) on the workspace's
@@ -16,8 +17,10 @@ coded, confirmed and proposed facts.
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from matching.coverage import ICD10CM
@@ -47,6 +50,46 @@ def unknown_share(svc: SiteSetup, ws: str) -> tuple[int, int]:
     return int(row["n"] or 0), int(row["unknown"] or 0)
 
 
+def last_feed_night(audit_dir: Path | None, days: int = 7) -> dict[str, Any] | None:
+    """T-611: the newest ``ingest.*`` record of the audit chain's last ``days`` day files, or None. Read only."""
+    if audit_dir is None or not audit_dir.is_dir():
+        return None
+    for f in sorted(audit_dir.glob("*.jsonl"), reverse=True)[:days]:
+        try:
+            lines = f.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            if '"ingest.' not in line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if str(rec.get("event", "")).startswith("ingest."):
+                return dict(rec)
+    return None
+
+
+def feed_held(svc: SiteSetup) -> dict[str, Any] | None:
+    """T-611 (DATA-001): when the newest night of the hospital feed was held, what the readiness page says: the box
+    still serves the snapshot before it, and the tables the gate named."""
+    rec = last_feed_night(getattr(getattr(svc, "audit", None), "directory", None))
+    if not rec or rec.get("event") != "ingest.held":
+        return None
+    detail = rec.get("detail") or {}
+    problems = [str(p) for p in detail.get("incomplete") or []]
+    names = sorted({p.split(":", 1)[0] for p in problems})
+    return {
+        "key": "patients.feed_held",
+        "n": max(len(names), 1),
+        "tables": ", ".join(names) or "-",
+        "snapshot": str(rec.get("snapshot") or ""),
+        "problems": problems[:10],
+        "link": "/admin?tab=sources",
+    }
+
+
 def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str, Any]) -> dict[str, Any]:
     """``study``: ``{id, exists, approved (version or None), waiting (drafts to approve), criteria}``;
     ``records``: ``{forms, redcap}`` of the study's data core."""
@@ -62,6 +105,9 @@ def readiness(svc: SiteSetup, ws: str, study: dict[str, Any], records: dict[str,
     kinds = Counter(i["kind"] for i in inputs)
     feed = ws == "main" and bool(svc.lake(ws).snapshot()) and not inputs
     patients: list[dict[str, Any]] = []
+    held = feed_held(svc) if ws == "main" else None
+    if held:
+        patients.append(held)
     facts = st.facts(ws)
     n_prop = sum(1 for f in facts if f["status"] == "proposed")
     if n_prop:

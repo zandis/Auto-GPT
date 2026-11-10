@@ -569,13 +569,20 @@ def _load(
                 f"OMOP holds {kind} batch {last}; refusing the older batch {batch} (a store of record "
                 "moves forward; an older snapshot's lake is kept as it was built)"
             )
+        dqd_before: dict[str, int] | None = None
         if kind == "feed":
             rep.override = _tombstone_guard(tx, batch, recs)
+            from omop.dqd import relational_violations
+
+            dqd_before = relational_violations(tx, person_only=True)
         concepts = Concepts(tx)
         concepts.prepare((c for r in recs for c in r.codes), (p for r in recs for p in r.std_only))
         _resolve(tx, kind, batch, recs, concepts, rep)
         affected_persons, affected_providers = _write(tx, kind, batch, recs, files, rep)
         _derive(tx, affected_persons, affected_providers, batch, rep, site_name)
+        if dqd_before is not None:
+            held = _dqd_hold(tx, batch, dqd_before)
+            rep.override = "; ".join(x for x in (rep.override, held) if x)
         rep.concepts_minted = concepts.minted
         rep.skipped = dict(sorted({**stats, **rep.skipped}.items()))
         rep.seconds = round(time.perf_counter() - t0, 2)
@@ -609,6 +616,26 @@ def _tombstone_guard(tx: Any, batch: str, recs: list[Rec]) -> str:
     if not bad:
         return ""
     what = f"OMOP feed batch {batch} would tombstone {'; '.join(bad)} live records (limit {pct:g} %)"
+    reason = feedguard.override_for(batch)
+    if not reason:
+        raise _Refused(what)
+    logging.getLogger("omop").warning("%s: loaded under %s: %s", what, feedguard.OVERRIDE_ENV, reason)
+    return f"{what}; override: {reason}"
+
+
+def _dqd_hold(tx: Any, batch: str, before: dict[str, int]) -> str:
+    """T-611 (DATA-009): a feed batch after which the DQD ``isForeignKey`` check of a ``person_id`` (a fact whose person
+    left the feed) fails on more rows than before it is held: refused (``_Refused``, the transaction rolls back,
+    nothing is loaded and no record is tombstoned) unless ``TB_FEED_DROP_OVERRIDE`` names this batch with a reason,
+    which is returned (kept in ``tb_load``). Other Relational checks are not held on: a hospital export may name a
+    visit it does not send, which DQD reports and the box has always loaded."""
+    from omop.dqd import relational_violations
+
+    after = relational_violations(tx, person_only=True)
+    worse = [f"{k}: {before.get(k, 0)} -> {v}" for k, v in sorted(after.items()) if v > before.get(k, 0)]
+    if not worse:
+        return ""
+    what = f"OMOP feed batch {batch} makes the Data Quality checks fail: {'; '.join(worse[:6])}"
     reason = feedguard.override_for(batch)
     if not reason:
         raise _Refused(what)
