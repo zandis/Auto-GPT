@@ -73,7 +73,7 @@ def _is_vocabulary(path: Path) -> bool:
             return False
         opener = gzip.open if name.endswith(".gz") else open
         try:
-            with opener(path, "rt", encoding="utf-8", errors="replace") as fh:  # type: ignore[operator]
+            with opener(path, "rt", encoding="utf-8", errors="replace") as fh:
                 header = fh.readline()
         except OSError:
             return False
