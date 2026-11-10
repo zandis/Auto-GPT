@@ -962,7 +962,8 @@ def test_known_image_findings_lists_every_report_mode_image() -> None:
     rows = {line.split("|")[1].strip() for line in text.splitlines() if line.startswith("| ") and "---" not in line}
     missing = sorted(name for name in release.VULN_REPORT_ONLY if name not in rows)
     assert missing == [], f"report-mode images without a row in {path.name}: {missing}"
-    assert "trialbox-py" not in release.VULN_REPORT_ONLY  # its vulnerability gate always blocks
+    # our own images always block: trialbox-py from the start, trialbox-jvm and trialbox-demo since T-672
+    assert not {"trialbox-py", "trialbox-jvm", "trialbox-demo"} & release.VULN_REPORT_ONLY
 
 
 def test_report_mode_defers_only_fixable_high_findings_of_named_images() -> None:
@@ -973,14 +974,20 @@ def test_report_mode_defers_only_fixable_high_findings_of_named_images() -> None
         _finding("CVE-4", "MEDIUM"),  # only fails with --severity ...MEDIUM: stays blocking
         _finding("CVE-5", "INVALID('HIGH ')"),
     ]
-    blocking, deferred = release.split_report_mode(failing, "trialbox-jvm:1.0.0", "report")
+    blocking, deferred = release.split_report_mode(failing, "hapiproject/hapi:v8.12.0-2", "report")
     assert [f.id for f in deferred] == ["CVE-1", "CVE-2"]
     assert [f.id for f in blocking] == ["CVE-3", "CVE-4", "CVE-5"]
-    assert release.split_report_mode(failing, "localhost:5000/trialbox-jvm@sha256:ab", "report")[1]
+    assert release.split_report_mode(failing, "docker.io/hapiproject/hapi@sha256:ab", "report")[1]
     assert release.split_report_mode(failing, "vllm/vllm-openai@sha256:ab", "report")[1]
-    # trialbox-py, and every image in block mode, keep every finding blocking
-    assert release.split_report_mode(failing, "trialbox-py:1.0.0", "report") == (failing, [])
-    assert release.split_report_mode(failing, "trialbox-jvm:1.0.0", "block") == (failing, [])
+    # our own images, and every image in block mode, keep every finding blocking (T-672: jvm and demo block)
+    for own in (
+        "trialbox-py:1.0.0",
+        "trialbox-jvm:1.0.0",
+        "localhost:5000/trialbox-jvm@sha256:ab",
+        "trialbox-demo:step5",
+    ):
+        assert release.split_report_mode(failing, own, "report") == (failing, [])
+    assert release.split_report_mode(failing, "vllm/vllm-openai@sha256:ab", "block") == (failing, [])
 
 
 def test_report_mode_still_fails_on_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1014,16 +1021,16 @@ def test_summary_lists_every_finding_and_bundle_refuses_report_mode_images() -> 
         "licences": {"ok": True, "failing": []},
         "images": [
             {"ref": "trialbox-py:1.0.0", "platform": "linux/amd64", "image_id": "sha256:py", "ok": True},
-            {"ref": "trialbox-jvm:1.0.0", "platform": "linux/arm64", "image_id": "sha256:jvm", "ok": True,
+            {"ref": "hapiproject/hapi:v8.12.0-2", "platform": "linux/arm64", "image_id": "sha256:hapi", "ok": True,
              "report_mode_findings": [row]},
         ],
     }  # fmt: skip
     text = release.summary_markdown(record)
-    assert "### trialbox-jvm:1.0.0 (linux/arm64)" in text
+    assert "### hapiproject/hapi:v8.12.0-2 (linux/arm64)" in text
     assert "| reported | CVE-2026-1 | HIGH | pkg | 1.0 | 2.0 |" in text
     assert "known-image-findings.md" in text
     assert release.bundle_problems(record, {"trialbox-py:1.0.0": "sha256:py"}) == []
-    assert release.bundle_problems(record, {"trialbox-jvm:1.0.0": "sha256:jvm"})  # passed only in report mode
+    assert release.bundle_problems(record, {"hapiproject/hapi:v8.12.0-2": "sha256:hapi"})  # passed only in report mode
 
 
 def test_arm64_gates_name_the_amd64_only_images() -> None:

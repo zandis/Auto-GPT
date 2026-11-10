@@ -30,7 +30,7 @@ from tb_contracts import Job
 
 from console import s28
 from console import studies as st
-from console.auth import REVEAL_REASONS, Session, reveal_reason
+from console.auth import REVEAL_REASONS, Session, reveal_reason, source_of
 from console.backend import Refused
 from console.i18n import translate
 from console.sitestore import (
@@ -96,6 +96,7 @@ class Helpers:
     team_due: Callable[[str], bool] | None = None
     apply_reveal: Callable[..., tuple[dict[str, Any], str]] | None = None  # set by register(): D-143's reveal
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
+    identity: Any = None  # console.identity.Identity (D-279): the second factor at signing; None in bare test apps
 
     def today(self) -> date:
         """The site's calendar date now (site.tz), the one "today" of every console rule (D-270).
@@ -1047,6 +1048,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess: Session | None = h.users.session(token) if token else None
         if sess is None:
             raise h.problem(401, "login")
+        if h.users.must_change(sess.user.username):  # D-279 (SEC-1): the owner replaces the password on the page
+            raise h.problem(403, "account.must_change")
         if h.scope_check is not None:  # D-146 (J-03): the API refuses what the page refuses, in one place
             h.scope_check(request, sess)
         bind_session(sess.token_sha[:16])  # S-09: the actor sent to the orchestrator is signed with this session
@@ -1055,12 +1058,27 @@ def register(app: FastAPI, h: Helpers) -> None:
     h.api_session = api_session  # the other /api/v1 routes (console.data_pages) sign in the same way
 
     @app.post("/api/v1/session")
-    def api_login(body: ApiLogin) -> dict[str, Any]:
-        user = h.users.authenticate(body.username, body.password)
+    def api_login(body: ApiLogin, request: Request) -> dict[str, Any]:
+        # D-279 (SEC-9, ROLE-006): the same per-address count as the page; a busy address waits (429), no account
+        # is locked by someone else's guesses. The second factor on this route is T-505a's.
+        src = source_of(request.client.host if request.client else None)
+        wait = h.users.throttled(src)
+        if wait:
+            au.append("console.login_failed", actor=f"console:{body.username[:60]}",
+                      detail={"via": "api", "reason": "slowed", "source": src})  # fmt: skip
+            raise h.problem(429, "login.slowed", n=wait)
+        user = h.users.authenticate(body.username, body.password, source=src)
         if user is None:
-            au.append("console.login_failed", actor=f"console:{body.username[:60]}", detail={"via": "api"})
+            au.append("console.login_failed", actor=f"console:{body.username[:60]}",
+                      detail={"via": "api", "source": src})  # fmt: skip
+            if h.identity is not None:
+                h.identity.after_failure(body.username, src)
             raise h.problem(401, "login")
-        token, sess = h.users.new_session(user, body.lang if body.lang in ("ja", "zh-TW", "en") else "en")
+        if h.users.must_change(user.username):  # D-279 (SEC-1): no API session on a password someone else set
+            au.append("console.login_failed", actor=f"console:{user.username}",
+                      detail={"via": "api", "reason": "must_change"})  # fmt: skip
+            raise h.problem(403, "account.must_change")
+        token, sess = h.users.new_session(user, body.lang if body.lang in ("ja", "zh-TW", "en") else "en", "api")
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": "api"})
         return {"token": token, "username": user.username, "role": user.role,
                 "expires": getattr(sess, "expires", None)}  # fmt: skip
