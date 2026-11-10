@@ -9,7 +9,8 @@ closed). Checks:
 * ``routing_perimeter``: ``models/routing.yaml`` has no row, and no lookup, that sends D3/D4 outside the perimeter;
 * ``gateway_only_model_reach``: the egress allowlist (``deploy/egress.py``) gives a model host to the gateway only;
 * ``channel_engine``: ``channels.engine`` is valid (native is the only engine, D-121);
-* ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``). FAIL in
+* ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``, or unset or empty in
+  PRODUCTION, the console's default since D-192). FAIL in
   PRODUCTION and VALIDATION, WARN elsewhere (a DEV/TEST box may serve plain http on localhost; D-121);
 * ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known;
 * ``note_block``: ``TB_NOTE_BLOCK=both_agree`` (the default, D-95) needs a verifier build (``TB_GATEWAY_VERIFIER_MODEL``
@@ -171,10 +172,14 @@ def check_channel_engine(inp: DoctorInputs) -> Check:
 
 
 def check_secure_cookie(inp: DoctorInputs) -> Check:
-    on = inp.env.get("TB_CONSOLE_SECURE_COOKIE", "0").lower() in ("1", "true")
-    if on:
-        return Check("secure_cookie", "PASS", "console session cookie is Secure (https only)")
+    """The console's own rule (``console.identity.secure_cookie_default``, D-192): an explicit value wins; unset or
+    empty means Secure in PRODUCTION (the base compose file passes it empty) and off elsewhere."""
     env = inp.env.get("TB_ENV", "DEV")
+    raw = (inp.env.get("TB_CONSOLE_SECURE_COOKIE") or "").strip().lower()
+    on = raw in ("1", "true", "on", "yes") if raw else env.strip().upper() == "PRODUCTION"
+    if on:
+        why = "console session cookie is Secure (https only)" + ("" if raw else ", the PRODUCTION default")
+        return Check("secure_cookie", "PASS", why)
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
     why = f"TB_CONSOLE_SECURE_COOKIE is off in {env}: the session cookie can travel on http"
     return Check("secure_cookie", status, why)
