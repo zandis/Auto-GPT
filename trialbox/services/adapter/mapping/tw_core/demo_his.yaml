@@ -30,16 +30,16 @@ systems:
 tables:
   patient: {source: patient, key: mrn, identity: {name: name, national_id: id_no}}  # identity: pid map only
   practitioner: {source: practitioner, key: staff_id}
-  encounter: {source: encounter, key: enc_no, delta: visit_datetime}
+  encounter: {source: encounter, key: enc_no, delta: updated_at}
   appointment: {source: appointment, key: appt_no}
-  diagnosis: {source: diagnosis, key: diag_no, delta: recorded_date}
-  lab: {source: lab, key: lab_no, delta: sample_datetime}
-  vital: {source: vital, key: vital_no, delta: measure_datetime}
-  medication: {source: medication, key: rx_no, delta: order_date}
-  procedure: {source: procedure, key: proc_no, delta: proc_date}
-  report: {source: report, key: rpt_no, delta: exam_date}
-  note: {source: note, key: note_no, delta: note_datetime}
-  claim: {source: claim, key: claim_no, delta: created_date}
+  diagnosis: {source: diagnosis, key: diag_no, delta: updated_at}
+  lab: {source: lab, key: lab_no, delta: updated_at}
+  vital: {source: vital, key: vital_no, delta: updated_at}
+  medication: {source: medication, key: rx_no, delta: updated_at}
+  procedure: {source: procedure, key: proc_no, delta: updated_at}
+  report: {source: report, key: rpt_no, delta: updated_at}
+  note: {source: note, key: note_no, delta: updated_at}
+  claim: {source: claim, key: claim_no, delta: updated_at}
   registry: {source: registry, key: mrn}  # research-contact consent; settings.registry_source may point elsewhere
 lookups:
   lab: {file: lab_local_to_loinc.csv, key: local_code}
@@ -126,7 +126,11 @@ resources:
     where: [{lookup: {name: lab, key: local_code, field: code}, not_empty: true}]
     profile: {lookup: {name: lab, key: local_code, field: profile}}
     elements:
-      status: {const: final}
+      # D-275: the result's own status (optional column `result_status`, FHIR words; the SS-MIX2 reader fills it from
+      # OBX-11). Written in error or cancelled: not counted; a code the map does not know: `unknown` (no usable value);
+      # none at all: `unknown` tagged "not recorded" (counts, as it did; never invented as `final`)
+      status: {column: result_status, map: {final: final, amended: amended, corrected: corrected, preliminary: preliminary, registered: registered, cancelled: cancelled, entered-in-error: entered-in-error}, default: unknown, unmapped: unknown}
+      meta.tag[0]: {const: {system: "urn:trialbox:status-source", code: not-recorded}, when: {column: result_status, not_empty: false}}
       category[0].coding[0].system: {template: "{sys.obs_category}"}
       category[0].coding[0].code: {lookup: {name: lab, key: local_code, field: category}}
       code.coding[0].system: {template: "{sys.loinc}", when: {lookup: {name: lab, key: local_code, field: system}, equals: loinc}}
@@ -195,7 +199,11 @@ resources:
     id: {hid: rx_no}
     profile: https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/MedicationRequest-twcore
     elements:
-      status: {column: status, map: {active: active, completed: completed, stopped: stopped}, default: active}
+      # D-275: a cancelled, mistaken or draft order is that (the lake does not count it); a code the map does not know
+      # is `unknown` (the lake cannot place it: unknown, never counted as given); no status at all is `unknown` tagged
+      # "not recorded" (the HIS keeps no status: the order counts, as it did)
+      status: {column: status, map: {active: active, completed: completed, stopped: stopped, on-hold: on-hold, cancelled: cancelled, entered-in-error: entered-in-error, draft: draft}, default: unknown, unmapped: unknown}
+      meta.tag[0]: {const: {system: "urn:trialbox:status-source", code: not-recorded}, when: {column: status, not_empty: false}}
       intent: {const: order}
       medicationCodeableConcept.coding[0]: {builder: coding, column: nhi_drug_code, system: nhi_drug, display_column: drug_name}
       medicationCodeableConcept.coding[1]: {builder: coding, column: atc, system: atc}

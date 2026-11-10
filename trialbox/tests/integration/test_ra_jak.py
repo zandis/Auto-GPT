@@ -62,7 +62,7 @@ def test_sql_gives_the_recorded_cql_and_the_gold(tw: dict[str, Any]) -> None:
     exp = json.loads((ROOT / "rulesets" / RID / "tests" / "expected.json").read_text(encoding="utf-8"))
     assert exp["index_date"] == RUN.isoformat()
     known = set(exp["agreement"]["known_differences"])
-    assert known == {"RA-JAK-INC-04", "RA-JAK-EXC-11"}  # D-321: the engine's ReplaceMatches, derived scores only
+    assert known == set() and exp["agreement"]["all_equal"]  # D-321: the UnitOf defect is fixed; CQL equals SQL
     assert len(exp["patients"]) >= 200
     for m, verdicts in exp["patients"].items():
         for cid, v in verdicts.items():

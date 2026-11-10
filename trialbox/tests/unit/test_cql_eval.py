@@ -35,5 +35,12 @@ def test_the_engine_reproduces_the_hapi_recording_of_ra_coh() -> None:
 def test_ra_jak_records_its_engine_and_known_differences() -> None:
     exp = json.loads((cql_eval.ROOT / "rulesets/RA-JAK/tests/expected.json").read_text(encoding="utf-8"))
     assert exp["engine"] == cql_eval.ENGINE
-    assert set(exp["agreement"]["known_differences"]) == {"RA-JAK-INC-04", "RA-JAK-EXC-11"}
-    assert all("D-321" in v for v in exp["agreement"]["known_differences"].values())
+    assert exp["agreement"]["known_differences"] == {} and exp["agreement"]["all_equal"]  # UnitOf fixed (D-321)
+
+
+@pytest.mark.skipif(not cql_eval.available(), reason="local CQL engine not fetched (python -m tools.cql_eval --fetch)")
+def test_the_unit_of_a_result_is_recognised_under_the_engine() -> None:
+    """The recompiled RA-BIO and GZQO (DAS28, unit conversions) answer as their HAPI recordings did (D-321)."""
+    for rid in ("RA-BIO", "GZQO"):
+        agree, total, bad = cql_eval.check(rid)
+        assert total >= 3600 and agree == total, (rid, bad[:5])

@@ -1231,6 +1231,10 @@ class DataSource(BaseModel):
     mapping: str | None = None
     nightly_at: str | None = Field(None, pattern="^[0-2][0-9]:[0-5][0-9]$")
     lab_local_to_loinc: str | None = None
+    encoding: Literal["utf-8", "big5", "cp950", "shift_jis", "cp932"] | None = None
+    """
+    The character set the site declares for its csv export (T-615b): tried first by the one detector; UTF-8 is always read
+    """
 
 
 class FeedCompleteness(BaseModel):

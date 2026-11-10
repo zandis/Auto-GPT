@@ -120,6 +120,8 @@ jobs:
       - run: make venv
       - name: generated contracts are what the schemas generate (no hand edit)
         run: make contracts-check
+      - name: shipped rulesets are what the compiler gives (ValueSets, SQL, CQL; T-613a, D-322)
+        run: TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. .venv/bin/python -m tools.build_rulesets --check
 
   trace:
     runs-on: ubuntu-latest
@@ -141,7 +143,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 25  # each xdist worker starts its own throwaway cluster
+    timeout-minutes: 40  # each xdist worker starts its own throwaway cluster; the suite takes 15 to 25 minutes
     # no service container: the tests start throwaway clusters from the runner's own PostgreSQL (tools/pglocal.py),
     # so pg_dump/pg_restore and the server are one version, as on a developer machine (a postgres:16 service with the
     # runner's newer client tools failed the backup tests on transaction_timeout)

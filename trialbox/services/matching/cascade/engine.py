@@ -38,7 +38,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from tb_common.derived import reason_of as derived_reason
+from criteria_compiler.compile_sql.overlay import safe_sql
+from tb_common.labunit import reason_of as derived_reason
 from tb_common.reasons import CODES as REASON_CODES
 from tb_common.ruleset import Ruleset
 from tb_common.timeutil import add_months, month_ends
@@ -409,7 +410,8 @@ class _Run:
         scope = [t.pid for t in self.traces.values() if t.in_scope]
         if not applied:
             raise CascadeError(f"ruleset {self.rs.id} has no compiled structured criteria")
-        table = self.lake.query(self.rs.sql, [[d.isoformat() for d in idx], scope], self.cfg.snapshot).to_pylist()
+        # D-275: SQL approved before the unit / sex / order-date rules runs guarded by them (unknown on a difference)
+        table = self.lake.query(safe_sql(self.rs), [[d.isoformat() for d in idx], scope], self.cfg.snapshot).to_pylist()
         self.coverage = Coverage.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         self.proposed = Proposed.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         by_pid: dict[str, list[dict[str, Any]]] = {}

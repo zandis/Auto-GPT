@@ -2,6 +2,7 @@
 -- Deterministic template output; never edited by hand or produced by an LLM.
 -- Parameters: $1 index_dates DATE[] ; $2 pids VARCHAR[] (NULL = all patients alive at index).
 -- Output: one row per (pid, index_date) with "C_<ID>" BOOLEAN/NULL and "E_<ID>" VARCHAR per criterion.
+-- Safety rules: D-275 (units, sex, order dates).
 WITH
 params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids),
 idx AS (SELECT unnest(idx_dates) AS index_date FROM params),
@@ -16,71 +17,514 @@ vs(vs_id, system, code) AS (VALUES
   ('VS_RA_BIOLOGIC', 'http://www.whocc.no/atc', 'L04AB01'),
   ('VS_RA_BIOLOGIC', 'http://www.whocc.no/atc', 'L04AB04'),
   ('VS_RA_BIOLOGIC', 'http://www.whocc.no/atc', 'L04AC07'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.0'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.00'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.01'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.011'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.012'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.019'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.02'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.021'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.022'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.029'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.03'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.031'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.032'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.039'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.04'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.041'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.042'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.049'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.05'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.051'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.052'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.059'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.06'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.061'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.062'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.069'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.07'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.071'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.072'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.079'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.09'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.1'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.10'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.11'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.111'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.112'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.119'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.12'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.121'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.122'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.129'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.13'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.131'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.132'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.139'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.14'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.141'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.142'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.149'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.15'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.151'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.152'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.159'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.16'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.161'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.162'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.169'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.17'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.171'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.172'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.179'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.19'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.2'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.20'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.21'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.211'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.212'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.219'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.22'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.221'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.222'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.229'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.23'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.231'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.232'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.239'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.24'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.241'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.242'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.249'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.25'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.251'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.252'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.259'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.26'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.261'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.262'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.269'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.27'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.271'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.272'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.279'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.29'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.3'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.30'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.31'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.311'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.312'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.319'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.32'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.321'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.322'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.329'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.33'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.331'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.332'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.339'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.34'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.341'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.342'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.349'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.35'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.351'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.352'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.359'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.36'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.361'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.362'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.369'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.37'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.371'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.372'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.379'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.39'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.4'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.40'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.41'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.411'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.412'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.419'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.42'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.421'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.422'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.429'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.43'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.431'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.432'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.439'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.44'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.441'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.442'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.449'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.45'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.451'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.452'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.459'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.46'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.461'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.462'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.469'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.47'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.471'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.472'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.479'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.49'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.5'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.50'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.51'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.511'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.512'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.519'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.52'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.521'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.522'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.529'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.53'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.531'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.532'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.539'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.54'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.541'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.542'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.549'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.55'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.551'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.552'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.559'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.56'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.561'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.562'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.569'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.57'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.571'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.572'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.579'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.59'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.6'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.60'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.61'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.611'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.612'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.619'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.62'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.621'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.622'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.629'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.63'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.631'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.632'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.639'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.64'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.641'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.642'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.649'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.65'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.651'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.652'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.659'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.66'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.661'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.662'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.669'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.67'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.671'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.672'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.679'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.69'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.7'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.70'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.71'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.711'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.712'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.719'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.72'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.721'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.722'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.729'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.73'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.731'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.732'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.739'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.74'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.741'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.742'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.749'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.75'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.751'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.752'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.759'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.76'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.761'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.762'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.769'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.77'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.771'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.772'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.779'),
   ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.79'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.7A'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.8'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.80'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.81'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.811'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.812'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.819'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.82'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.821'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.822'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.829'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.83'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.831'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.832'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.839'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.84'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.841'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.842'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.849'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.85'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.851'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.852'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.859'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.86'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.861'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.862'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.869'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.87'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.871'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.872'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.879'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.89'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.8A'),
   ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.9'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05.A'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.0'),
   ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.00'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.01'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.011'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.012'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.019'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.02'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.021'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.022'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.029'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.03'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.031'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.032'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.039'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.04'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.041'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.042'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.049'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.05'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.051'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.052'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.059'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.06'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.061'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.062'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.069'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.07'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.071'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.072'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.079'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.08'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.09'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.0A'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.1'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.2'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.20'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.21'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.211'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.212'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.219'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.22'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.221'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.222'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.229'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.23'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.231'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.232'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.239'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.24'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.241'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.242'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.249'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.25'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.251'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.252'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.259'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.26'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.261'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.262'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.269'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.27'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.271'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.272'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.279'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.28'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.29'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.3'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.30'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.31'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.311'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.312'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.319'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.32'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.321'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.322'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.329'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.33'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.331'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.332'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.339'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.34'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.341'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.342'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.349'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.35'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.351'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.352'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.359'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.36'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.361'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.362'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.369'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.37'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.371'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.372'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.379'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.38'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.39'),
   ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.4'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.8'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.80'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.81'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.811'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.812'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.819'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.82'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.821'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.822'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.829'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.83'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.831'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.832'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.839'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.84'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.841'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.842'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.849'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.85'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.851'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.852'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.859'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.86'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.861'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.862'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.869'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.87'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.871'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.872'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.879'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.88'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.89'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.8A'),
   ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06.9')),
+vsf(vs_id, system, prefix) AS (VALUES
+  ('VS_RA_BIOLOGIC', 'http://www.whocc.no/atc', 'L04AB'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M05'),
+  ('VS_RHEUMATOID_ARTHRITIS', 'http://hl7.org/fhir/sid/icd-10-cm', 'M06')),
 a_ra_coh_inc_01_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RHEUMATOID_ARTHRITIS' AND vs.system = x.system AND vs.code = x.code)) e ON e.pid = b.pid AND e.d <= b.index_date
   GROUP BY b.pid, b.index_date),
+a_ra_coh_inc_01_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RHEUMATOID_ARTHRITIS' AND vs.system = x.system AND vs.code = x.code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_RHEUMATOID_ARTHRITIS' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RHEUMATOID_ARTHRITIS' AND vs.system = x.system AND vs.code = x.code)))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
+a_ra_coh_inc_01_1_off AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
+  FROM base b JOIN (SELECT pid, cid AS rid, coalesce(onset, recorded) AS d FROM condition x WHERE (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_RHEUMATOID_ARTHRITIS' AND vsf.system = x.system AND starts_with(x.code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RHEUMATOID_ARTHRITIS' AND vs.system = x.system AND vs.code = x.code))) e ON e.pid = b.pid AND e.d <= b.index_date
+  GROUP BY b.pid, b.index_date),
 -- RA-COH-INC-01 (inclusion): 曾經診斷類風濕性關節炎（ICD-10-CM M05 或 M06）之病人。
 c_ra_coh_inc_01 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_ra_coh_inc_01_1.n, 0) > 0) AS v,
-         concat_ws(';', a_ra_coh_inc_01_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_ra_coh_inc_01_1.n, 0) > 0) THEN TRUE WHEN coalesce(a_ra_coh_inc_01_1_off.n, 0) > 0 THEN NULL WHEN (coalesce(a_ra_coh_inc_01_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_ra_coh_inc_01_1.ev, a_ra_coh_inc_01_1_off.ev, a_ra_coh_inc_01_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_ra_coh_inc_01_1 ON a_ra_coh_inc_01_1.pid = b.pid AND a_ra_coh_inc_01_1.index_date = b.index_date),
+  LEFT JOIN a_ra_coh_inc_01_1 ON a_ra_coh_inc_01_1.pid = b.pid AND a_ra_coh_inc_01_1.index_date = b.index_date
+  LEFT JOIN a_ra_coh_inc_01_1_nd ON a_ra_coh_inc_01_1_nd.pid = b.pid AND a_ra_coh_inc_01_1_nd.index_date = b.index_date
+  LEFT JOIN a_ra_coh_inc_01_1_off ON a_ra_coh_inc_01_1_off.pid = b.pid AND a_ra_coh_inc_01_1_off.index_date = b.index_date),
 a_ra_coh_inc_02_1 AS (
   SELECT b.pid, b.index_date, count(*) AS n,
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_ra_coh_inc_02_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
 -- RA-COH-INC-02 (inclusion): 一年內曾使用 methotrexate。
 c_ra_coh_inc_02 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_ra_coh_inc_02_1.n, 0) > 0) AS v,
-         concat_ws(';', a_ra_coh_inc_02_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_ra_coh_inc_02_1.n, 0) > 0) THEN TRUE WHEN (coalesce(a_ra_coh_inc_02_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_ra_coh_inc_02_1.ev, a_ra_coh_inc_02_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_ra_coh_inc_02_1 ON a_ra_coh_inc_02_1.pid = b.pid AND a_ra_coh_inc_02_1.index_date = b.index_date),
+  LEFT JOIN a_ra_coh_inc_02_1 ON a_ra_coh_inc_02_1.pid = b.pid AND a_ra_coh_inc_02_1.index_date = b.index_date
+  LEFT JOIN a_ra_coh_inc_02_1_nd ON a_ra_coh_inc_02_1_nd.pid = b.pid AND a_ra_coh_inc_02_1_nd.index_date = b.index_date),
 a_ra_coh_inc_03_1_tjc28 AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'TJC28') WHERE rn = 1),
 a_ra_coh_inc_03_1_sjc28 AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
+    JOIN a_ra_coh_inc_03_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'SJC28') WHERE rn = 1),
 a_ra_coh_inc_03_1_ptga AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END)) THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
+    JOIN a_ra_coh_inc_03_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'PTGA') WHERE rn = 1),
 a_ra_coh_inc_03_1_esr AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
+    JOIN a_ra_coh_inc_03_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
     WHERE o.system = 'http://loinc.org' AND o.code = '4537-7') WHERE rn = 1),
 a_ra_coh_inc_03_1_crp AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
+    JOIN a_ra_coh_inc_03_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
     WHERE o.system = 'http://loinc.org' AND o.code = '1988-5') WHERE rn = 1),
-a_ra_coh_inc_03_1 AS (
-  SELECT b.pid, b.index_date, (CASE WHEN tjc28.value_num IS NULL OR sjc28.value_num IS NULL OR ptga.value_num IS NULL THEN NULL WHEN esr.value_num IS NOT NULL THEN 0.56 * sqrt(tjc28.value_num) + 0.28 * sqrt(sjc28.value_num) + 0.014 * ptga.value_num + 0.7 * ln(esr.value_num) WHEN crp.value_num IS NOT NULL THEN 0.56 * sqrt(tjc28.value_num) + 0.28 * sqrt(sjc28.value_num) + 0.014 * ptga.value_num + 0.36 * ln(crp.value_num + 1) + 0.96 ELSE NULL END) AS val, concat_ws(';', tjc28.oid || '|' || strftime(tjc28.effective, '%Y-%m-%d'), sjc28.oid || '|' || strftime(sjc28.effective, '%Y-%m-%d'), ptga.oid || '|' || strftime(ptga.effective, '%Y-%m-%d'), esr.oid || '|' || strftime(esr.effective, '%Y-%m-%d'), crp.oid || '|' || strftime(crp.effective, '%Y-%m-%d')) AS ev
+a_ra_coh_inc_03_1_v AS (
+  SELECT b.pid, b.index_date, (CASE WHEN tjc28.conv IS NULL OR sjc28.conv IS NULL OR ptga.conv IS NULL THEN NULL WHEN esr.oid IS NOT NULL THEN (CASE WHEN esr.conv > 0 THEN 0.56 * sqrt(tjc28.conv) + 0.28 * sqrt(sjc28.conv) + 0.014 * ptga.conv + 0.7 * ln(esr.conv) ELSE NULL END) WHEN crp.conv IS NOT NULL THEN 0.56 * sqrt(tjc28.conv) + 0.28 * sqrt(sjc28.conv) + 0.014 * ptga.conv + 0.36 * ln(crp.conv + 1) + 0.96 ELSE NULL END) AS val, concat_ws(';', tjc28.oid || '|' || strftime(tjc28.effective, '%Y-%m-%d'), sjc28.oid || '|' || strftime(sjc28.effective, '%Y-%m-%d'), ptga.oid || '|' || strftime(ptga.effective, '%Y-%m-%d'), esr.oid || '|' || strftime(esr.effective, '%Y-%m-%d'), crp.oid || '|' || strftime(crp.effective, '%Y-%m-%d')) AS refs,
+         (CASE WHEN tjc28.oid IS NULL OR tjc28.value_num IS NULL THEN 'derived_missing_input:tjc28' WHEN tjc28.conv IS NULL THEN 'derived_unit:tjc28' WHEN sjc28.oid IS NULL OR sjc28.value_num IS NULL THEN 'derived_missing_input:sjc28' WHEN sjc28.conv IS NULL THEN 'derived_unit:sjc28' WHEN ptga.oid IS NULL OR ptga.value_num IS NULL THEN 'derived_missing_input:ptga' WHEN ptga.conv IS NULL THEN 'derived_unit:ptga' WHEN esr.oid IS NOT NULL AND esr.value_num IS NULL THEN 'derived_missing_input:esr' WHEN esr.oid IS NOT NULL AND esr.conv IS NULL THEN 'derived_unit:esr' WHEN esr.oid IS NOT NULL AND esr.conv <= 0 THEN 'derived_missing_input:esr' WHEN crp.oid IS NULL OR crp.value_num IS NULL THEN 'derived_missing_input:crp' WHEN crp.conv IS NULL THEN 'derived_unit:crp' ELSE 'derived_missing_input' END) AS why
   FROM base b
   LEFT JOIN a_ra_coh_inc_03_1_tjc28 tjc28 ON tjc28.pid = b.pid AND tjc28.index_date = b.index_date
   LEFT JOIN a_ra_coh_inc_03_1_sjc28 sjc28 ON sjc28.pid = b.pid AND sjc28.index_date = b.index_date
   LEFT JOIN a_ra_coh_inc_03_1_ptga ptga ON ptga.pid = b.pid AND ptga.index_date = b.index_date
   LEFT JOIN a_ra_coh_inc_03_1_esr esr ON esr.pid = b.pid AND esr.index_date = b.index_date
   LEFT JOIN a_ra_coh_inc_03_1_crp crp ON crp.pid = b.pid AND crp.index_date = b.index_date),
+a_ra_coh_inc_03_1 AS (
+  SELECT pid, index_date, val, CASE WHEN val IS NULL THEN why ELSE refs END AS ev
+  FROM a_ra_coh_inc_03_1_v),
 -- RA-COH-INC-03 (inclusion): 九十日內最近一次 DAS28 大於 5.1（高疾病活動度）。
 c_ra_coh_inc_03 AS (
   SELECT b.pid, b.index_date, (a_ra_coh_inc_03_1.val > 5.1) AS v,
@@ -88,43 +532,51 @@ c_ra_coh_inc_03 AS (
   FROM base b
   LEFT JOIN a_ra_coh_inc_03_1 ON a_ra_coh_inc_03_1.pid = b.pid AND a_ra_coh_inc_03_1.index_date = b.index_date),
 a_ra_coh_inc_04_1_tjc28 AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'TJC28') WHERE rn = 1),
 a_ra_coh_inc_04_1_sjc28 AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
+    JOIN a_ra_coh_inc_04_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'SJC28') WHERE rn = 1),
 a_ra_coh_inc_04_1_ptga AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END)) THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
+    JOIN a_ra_coh_inc_04_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'PTGA') WHERE rn = 1),
 a_ra_coh_inc_04_1_esr AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
+    JOIN a_ra_coh_inc_04_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
     WHERE o.system = 'http://loinc.org' AND o.code = '4537-7') WHERE rn = 1),
 a_ra_coh_inc_04_1_crp AS (
-  SELECT pid, index_date, value_num, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, o.oid, o.effective,
+  SELECT pid, index_date, value_num, conv, oid, effective FROM (
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
+    JOIN a_ra_coh_inc_04_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
     WHERE o.system = 'http://loinc.org' AND o.code = '1988-5') WHERE rn = 1),
-a_ra_coh_inc_04_1 AS (
-  SELECT b.pid, b.index_date, (CASE WHEN tjc28.value_num IS NULL OR sjc28.value_num IS NULL OR ptga.value_num IS NULL THEN NULL WHEN esr.value_num IS NOT NULL THEN 0.56 * sqrt(tjc28.value_num) + 0.28 * sqrt(sjc28.value_num) + 0.014 * ptga.value_num + 0.7 * ln(esr.value_num) WHEN crp.value_num IS NOT NULL THEN 0.56 * sqrt(tjc28.value_num) + 0.28 * sqrt(sjc28.value_num) + 0.014 * ptga.value_num + 0.36 * ln(crp.value_num + 1) + 0.96 ELSE NULL END) AS val, concat_ws(';', tjc28.oid || '|' || strftime(tjc28.effective, '%Y-%m-%d'), sjc28.oid || '|' || strftime(sjc28.effective, '%Y-%m-%d'), ptga.oid || '|' || strftime(ptga.effective, '%Y-%m-%d'), esr.oid || '|' || strftime(esr.effective, '%Y-%m-%d'), crp.oid || '|' || strftime(crp.effective, '%Y-%m-%d')) AS ev
+a_ra_coh_inc_04_1_v AS (
+  SELECT b.pid, b.index_date, (CASE WHEN tjc28.conv IS NULL OR sjc28.conv IS NULL OR ptga.conv IS NULL THEN NULL WHEN esr.oid IS NOT NULL THEN (CASE WHEN esr.conv > 0 THEN 0.56 * sqrt(tjc28.conv) + 0.28 * sqrt(sjc28.conv) + 0.014 * ptga.conv + 0.7 * ln(esr.conv) ELSE NULL END) WHEN crp.conv IS NOT NULL THEN 0.56 * sqrt(tjc28.conv) + 0.28 * sqrt(sjc28.conv) + 0.014 * ptga.conv + 0.36 * ln(crp.conv + 1) + 0.96 ELSE NULL END) AS val, concat_ws(';', tjc28.oid || '|' || strftime(tjc28.effective, '%Y-%m-%d'), sjc28.oid || '|' || strftime(sjc28.effective, '%Y-%m-%d'), ptga.oid || '|' || strftime(ptga.effective, '%Y-%m-%d'), esr.oid || '|' || strftime(esr.effective, '%Y-%m-%d'), crp.oid || '|' || strftime(crp.effective, '%Y-%m-%d')) AS refs,
+         (CASE WHEN tjc28.oid IS NULL OR tjc28.value_num IS NULL THEN 'derived_missing_input:tjc28' WHEN tjc28.conv IS NULL THEN 'derived_unit:tjc28' WHEN sjc28.oid IS NULL OR sjc28.value_num IS NULL THEN 'derived_missing_input:sjc28' WHEN sjc28.conv IS NULL THEN 'derived_unit:sjc28' WHEN ptga.oid IS NULL OR ptga.value_num IS NULL THEN 'derived_missing_input:ptga' WHEN ptga.conv IS NULL THEN 'derived_unit:ptga' WHEN esr.oid IS NOT NULL AND esr.value_num IS NULL THEN 'derived_missing_input:esr' WHEN esr.oid IS NOT NULL AND esr.conv IS NULL THEN 'derived_unit:esr' WHEN esr.oid IS NOT NULL AND esr.conv <= 0 THEN 'derived_missing_input:esr' WHEN crp.oid IS NULL OR crp.value_num IS NULL THEN 'derived_missing_input:crp' WHEN crp.conv IS NULL THEN 'derived_unit:crp' ELSE 'derived_missing_input' END) AS why
   FROM base b
   LEFT JOIN a_ra_coh_inc_04_1_tjc28 tjc28 ON tjc28.pid = b.pid AND tjc28.index_date = b.index_date
   LEFT JOIN a_ra_coh_inc_04_1_sjc28 sjc28 ON sjc28.pid = b.pid AND sjc28.index_date = b.index_date
   LEFT JOIN a_ra_coh_inc_04_1_ptga ptga ON ptga.pid = b.pid AND ptga.index_date = b.index_date
   LEFT JOIN a_ra_coh_inc_04_1_esr esr ON esr.pid = b.pid AND esr.index_date = b.index_date
   LEFT JOIN a_ra_coh_inc_04_1_crp crp ON crp.pid = b.pid AND crp.index_date = b.index_date),
+a_ra_coh_inc_04_1 AS (
+  SELECT pid, index_date, val, CASE WHEN val IS NULL THEN why ELSE refs END AS ev
+  FROM a_ra_coh_inc_04_1_v),
 -- RA-COH-INC-04 (inclusion): 九十日內最近一次 DAS28 小於或等於 3.2（低疾病活動度）。
 c_ra_coh_inc_04 AS (
   SELECT b.pid, b.index_date, (a_ra_coh_inc_04_1.val <= 3.2) AS v,
@@ -133,9 +585,10 @@ c_ra_coh_inc_04 AS (
   LEFT JOIN a_ra_coh_inc_04_1 ON a_ra_coh_inc_04_1.pid = b.pid AND a_ra_coh_inc_04_1.index_date = b.index_date),
 a_ra_coh_inc_05_1 AS (
   SELECT pid, index_date, (o.value_code IN ('LA6576-8')) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE <= b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBSAG' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- RA-COH-INC-05 (inclusion): 最近一次 B 型肝炎表面抗原（HBsAg）陽性。
@@ -149,12 +602,24 @@ a_ra_coh_inc_06_1 AS (
          string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
   FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
   GROUP BY b.pid, b.index_date),
+a_ra_coh_inc_06_1_nd AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|', ';' ORDER BY e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_RA_BIOLOGIC' AND vsf.system = 'http://www.whocc.no/atc' AND starts_with(x.atc, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc))) OR (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_RA_BIOLOGIC' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code)))) e ON e.pid = b.pid AND e.d IS NULL
+  GROUP BY b.pid, b.index_date),
+a_ra_coh_inc_06_1_off AS (
+  SELECT b.pid, b.index_date, count(*) AS n,
+         string_agg(e.rid || '|' || strftime(e.d, '%Y-%m-%d'), ';' ORDER BY e.d, e.rid) AS ev
+  FROM base b JOIN (SELECT pid, mid AS rid, authored AS d FROM medication x WHERE (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_RA_BIOLOGIC' AND vsf.system = 'http://www.whocc.no/atc' AND starts_with(x.atc, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = x.atc)) OR (EXISTS (SELECT 1 FROM vsf WHERE vsf.vs_id = 'VS_RA_BIOLOGIC' AND vsf.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND starts_with(x.nhi_code, vsf.prefix)) AND NOT EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_RA_BIOLOGIC' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = x.nhi_code))) e ON e.pid = b.pid AND e.d BETWEEN (b.index_date + -365) AND b.index_date
+  GROUP BY b.pid, b.index_date),
 -- RA-COH-INC-06 (inclusion): 一年內曾使用生物製劑。
 c_ra_coh_inc_06 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_ra_coh_inc_06_1.n, 0) > 0) AS v,
-         concat_ws(';', a_ra_coh_inc_06_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN (coalesce(a_ra_coh_inc_06_1.n, 0) > 0) THEN TRUE WHEN coalesce(a_ra_coh_inc_06_1_off.n, 0) > 0 THEN NULL WHEN (coalesce(a_ra_coh_inc_06_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', coalesce(a_ra_coh_inc_06_1.ev, a_ra_coh_inc_06_1_off.ev, a_ra_coh_inc_06_1_nd.ev)) AS ev
   FROM base b
-  LEFT JOIN a_ra_coh_inc_06_1 ON a_ra_coh_inc_06_1.pid = b.pid AND a_ra_coh_inc_06_1.index_date = b.index_date)
+  LEFT JOIN a_ra_coh_inc_06_1 ON a_ra_coh_inc_06_1.pid = b.pid AND a_ra_coh_inc_06_1.index_date = b.index_date
+  LEFT JOIN a_ra_coh_inc_06_1_nd ON a_ra_coh_inc_06_1_nd.pid = b.pid AND a_ra_coh_inc_06_1_nd.index_date = b.index_date
+  LEFT JOIN a_ra_coh_inc_06_1_off ON a_ra_coh_inc_06_1_off.pid = b.pid AND a_ra_coh_inc_06_1_off.index_date = b.index_date)
 SELECT b.pid, b.index_date,
   c_ra_coh_inc_01.v AS "C_RA-COH-INC-01", c_ra_coh_inc_01.ev AS "E_RA-COH-INC-01",
   c_ra_coh_inc_02.v AS "C_RA-COH-INC-02", c_ra_coh_inc_02.ev AS "E_RA-COH-INC-02",

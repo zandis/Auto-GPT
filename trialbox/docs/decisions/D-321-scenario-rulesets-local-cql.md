@@ -42,4 +42,9 @@ of any ruleset with a derived score would fail the equivalence check.
 - The `"UnitOf"` defect is for the owner of the CQL generator (a protected file). A fix that avoids
   `ReplaceMatches`, for example `Combine(Split(s, ' '), '')`, would make CQL and SQL agree. RA-JAK should then be
   rebuilt and its `known_differences` removed. AD-MAB EXC-04 (eGFR) has the same problem.
+- **Fixed (2026-11-10, with the merge of D-275 and T-613a).** The recompiled shipped rulesets now call `"UnitOf"`
+  for every lab and score input, so RA-COH also lost its DAS28 answers under the engine (1014 of 1200). The template
+  now uses `"Swap"(s, a, b)` = `Combine(Split(s, a), b)` (with `''` kept as `''`) in `"UnitOf"` and `"UnitKey"`.
+  RA-BIO, GZQO and RA-COH replay their HAPI recordings exactly again; RA-JAK was rebuilt and agrees 100% on all
+  14 compiled criteria, with no known differences.
 - The local engine is not a replacement for the HAPI gate at a site. It is a build check.

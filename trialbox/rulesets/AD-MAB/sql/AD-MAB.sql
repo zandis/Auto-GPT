@@ -2,6 +2,7 @@
 -- Deterministic template output; never edited by hand or produced by an LLM.
 -- Parameters: $1 index_dates DATE[] ; $2 pids VARCHAR[] (NULL = all patients alive at index).
 -- Output: one row per (pid, index_date) with "C_<ID>" BOOLEAN/NULL and "E_<ID>" VARCHAR per criterion.
+-- Safety rules: D-275 (units, sex, order dates).
 WITH
 params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids),
 idx AS (SELECT unnest(idx_dates) AS index_date FROM params),
@@ -241,13 +242,13 @@ c_ad_mab_exc_03 AS (
   LEFT JOIN a_ad_mab_exc_03_2_nd ON a_ad_mab_exc_03_2_nd.pid = b.pid AND a_ad_mab_exc_03_2_nd.index_date = b.index_date),
 a_ad_mab_exc_04_1_creatinine AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END) > 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
     WHERE o.system = 'http://loinc.org' AND o.code = '2160-0') WHERE rn = 1),
 a_ad_mab_exc_04_1_v AS (
-  SELECT b.pid, b.index_date, (CASE WHEN creatinine.conv IS NULL OR creatinine.conv <= 0 OR date_sub('year', b.birth_date, b.index_date) IS NULL OR date_sub('year', b.birth_date, b.index_date) <= 0 OR (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) IS NULL THEN NULL ELSE 194.0 * pow(creatinine.conv, -1.094) * pow(date_sub('year', b.birth_date, b.index_date), -0.287) * (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 0.739 ELSE 1.0 END) END) AS val, concat_ws(';', creatinine.oid || '|' || strftime(creatinine.effective, '%Y-%m-%d')) AS refs,
-         (CASE WHEN creatinine.oid IS NULL OR creatinine.value_num IS NULL THEN 'derived_missing_input:creatinine' WHEN creatinine.conv IS NULL THEN 'derived_unit:creatinine' WHEN date_sub('year', b.birth_date, b.index_date) IS NULL THEN 'derived_missing_input:age' WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) IS NULL THEN 'derived_missing_input:sex' ELSE 'derived_missing_input' END) AS why
+  SELECT b.pid, b.index_date, (CASE WHEN creatinine.conv IS NULL OR creatinine.conv <= 0 OR date_sub('year', b.birth_date, b.index_date) IS NULL OR date_sub('year', b.birth_date, b.index_date) <= 0 OR (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) IS NULL THEN NULL ELSE 194.0 * pow(creatinine.conv, -1.094) * pow(date_sub('year', b.birth_date, b.index_date), -0.287) * (CASE WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) THEN 0.739 ELSE 1.0 END) END) AS val, concat_ws(';', creatinine.oid || '|' || strftime(creatinine.effective, '%Y-%m-%d')) AS refs,
+         (CASE WHEN creatinine.oid IS NULL OR creatinine.value_num IS NULL THEN 'derived_missing_input:creatinine' WHEN creatinine.conv IS NULL THEN 'derived_unit:creatinine' WHEN date_sub('year', b.birth_date, b.index_date) IS NULL THEN 'derived_missing_input:age' WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) IS NULL THEN 'derived_missing_input:sex' ELSE 'derived_missing_input' END) AS why
   FROM base b
   LEFT JOIN a_ad_mab_exc_04_1_creatinine creatinine ON creatinine.pid = b.pid AND creatinine.index_date = b.index_date),
 a_ad_mab_exc_04_1 AS (

@@ -30,7 +30,7 @@ from typing import Any
 
 import duckdb
 import pytest
-from criteria_compiler.compile_sql.generator import SqlGenerator
+from criteria_compiler.compile_sql.generator import MARK, SqlGenerator
 from criteria_compiler.terminology.mapper import Concept, Terminology, ValueSets, valueset
 from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
@@ -76,7 +76,8 @@ def _ruleset(crits: Sequence[CriterionIR], *, sql: str | None = None, vs: dict[s
     rid = crits[0].ruleset
     manifest = BASE_MANIFEST.model_copy(update={"id": rid, "library": None, "criteria": [c.id for c in crits]})
     if sql is None:  # a stand-in for the compiled SQL: the cascade reads which criteria it carries from the text
-        sql = "-- " + " ".join(f'"C_{c.id}"' for c in crits if c.class_ in ("structured", "mixed"))
+        # it carries the D-275 mark, as freshly compiled SQL does, so the cascade runs it as it is (no overlay)
+        sql = MARK + "\n-- " + " ".join(f'"C_{c.id}"' for c in crits if c.class_ in ("structured", "mixed"))
     return Ruleset(manifest=manifest, criteria=list(crits), valuesets=vs or {}, sql=sql)
 
 

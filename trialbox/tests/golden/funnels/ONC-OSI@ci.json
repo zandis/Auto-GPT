@@ -1,15 +1,15 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
+  "head": "1b3051cba638bf14f495ce397dccc72e5dd956f4",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
+  "reason": "D-322: the five shipped rulesets recompiled with family expansion (T-613a)",
   "ref_date": "2026-11-01",
   "ruleset": "ONC-OSI",
   "ruleset_version": "1.0.0",
   "seed": 42,
-  "written_with_source": "legacy"
+  "written_with_source": "legacy+omop"
  },
  "sets": {
   "public-en": {
@@ -81,7 +81,7 @@
    "remaining": {
     "ONC-OSI-EXC-01": 55,
     "ONC-OSI-INC-01": 2413,
-    "ONC-OSI-INC-02": 109,
+    "ONC-OSI-INC-02": 116,
     "ONC-OSI-INC-03": 70
    },
    "start": 2500,
@@ -89,10 +89,10 @@
     "ONC-OSI-EXC-01": 0,
     "ONC-OSI-INC-01": 8,
     "ONC-OSI-INC-02": 0,
-    "ONC-OSI-INC-03": 10
+    "ONC-OSI-INC-03": 17
    },
    "variants": {
-    "unknown_as_pass": 84
+    "unknown_as_pass": 93
    }
   },
   "synthetic-jp-a-deletes": {
@@ -150,7 +150,7 @@
    "remaining": {
     "ONC-OSI-EXC-01": 56,
     "ONC-OSI-INC-01": 2400,
-    "ONC-OSI-INC-02": 116,
+    "ONC-OSI-INC-02": 123,
     "ONC-OSI-INC-03": 74
    },
    "start": 2500,
@@ -158,10 +158,10 @@
     "ONC-OSI-EXC-01": 0,
     "ONC-OSI-INC-01": 8,
     "ONC-OSI-INC-02": 0,
-    "ONC-OSI-INC-03": 16
+    "ONC-OSI-INC-03": 23
    },
    "variants": {
-    "unknown_as_pass": 90
+    "unknown_as_pass": 99
    }
   }
  }

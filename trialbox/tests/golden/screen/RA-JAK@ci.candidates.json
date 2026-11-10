@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "3dc4b7d24b34ac9221e21b1d051e6d56198c4a7a",
+  "head": "1028cd3c2ab262005e06178094b43440fc55f250",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-321: T-504 adds the RA-JAK ruleset",
+  "reason": "D-321 on D-275: RA-JAK recompiled with the D-275 rules after merging master",
   "ref_date": "2026-11-01",
   "ruleset": "RA-JAK",
   "ruleset_version": "1.0.0",
@@ -308,7 +308,7 @@
     "fd7be4962be6aaa2c61387ff84e3f27b"
    ],
    "candidates": 89,
-   "outcomes_sha": "8f35e489fd145727c5a8d53a4585037fbeed93ffa6fc4997c551dbbb3483ee2d",
+   "outcomes_sha": "deae5b82a8862477dd96cc38f6d4fa4bcc9dad56a2e67575fad420b2147a004a",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -389,8 +389,8 @@
     },
     "RA-JAK-INC-03": {
      "met": 429,
-     "not_met": 2071,
-     "unknown": 0
+     "not_met": 2056,
+     "unknown": 15
     },
     "RA-JAK-INC-04": {
      "met": 385,
@@ -680,7 +680,7 @@
     "fa2efd1ed5627ac07b7fe164e4800f78"
    ],
    "candidates": 86,
-   "outcomes_sha": "bd47f1d57c43dc7c5fdcdb3825292c04c85cec7c1f3481c0d8d759c9c34fc6da",
+   "outcomes_sha": "6cf691275cda87de9bd8b4c13b8a5281495ad99f2066b238d1ea4280cc1631df",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -761,8 +761,8 @@
     },
     "RA-JAK-INC-03": {
      "met": 409,
-     "not_met": 2091,
-     "unknown": 0
+     "not_met": 2072,
+     "unknown": 19
     },
     "RA-JAK-INC-04": {
      "met": 401,

@@ -144,6 +144,16 @@
         },
         "lab_local_to_loinc": {
           "type": "string"
+        },
+        "encoding": {
+          "description": "The character set the site declares for its csv export (T-615b): tried first by the one detector; UTF-8 is always read",
+          "enum": [
+            "utf-8",
+            "big5",
+            "cp950",
+            "shift_jis",
+            "cp932"
+          ]
         }
       }
     },

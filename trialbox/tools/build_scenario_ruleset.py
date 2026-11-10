@@ -36,12 +36,13 @@ KEY = b"trialbox-test-site-key-0123456789abcdef"
 # Where CQL may answer nothing although SQL answers (and only there): the derived scores. TB_Common's "UnitOf" calls
 # ReplaceMatches, and CQL engine 5.4.0 (clinical-reasoning 4.13.0, the one HAPI 8.12 runs) returns the input wrapped
 # in quotes when the pattern does not match (ReplaceMatches('abc', 'x', 'y') = "'abc'"), so no unit is recognised and
-# every unit-converted component is null. The generator is not this card's (D-321); the build records the gap.
+# every unit-converted component is null. Fixed in the generator (TB_Common "Swap" = Combine(Split(..))): no known
+# difference is left, and the mechanism stays for a future engine defect, named here and never hidden (D-321).
 ENGINE_DEFECT = (
     "CQL engine 5.4.0 ReplaceMatches returns the input in quotes when nothing matches; TB_Common UnitOf then "
     "recognises no unit and the derived score is null under CQL (D-321)"
 )
-KNOWN = {"RA-JAK-INC-04": ENGINE_DEFECT, "RA-JAK-EXC-11": ENGINE_DEFECT}
+KNOWN: dict[str, str] = {}
 # ruleset -> (protocol document, kind, synth profile, site id, time zone, archetype of the scenario's patients)
 SCENARIOS: dict[str, dict[str, str]] = {
     "RA-JAK": {

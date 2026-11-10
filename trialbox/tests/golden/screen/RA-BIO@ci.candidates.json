@@ -1,21 +1,21 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
+  "head": "f9ac1647cb157cb94f2b92975e13a3ca288e8507",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
+  "reason": "D-275 on master after T-613a: shipped rulesets recompiled with the D-275 rules; unusable structured data is unknown",
   "ref_date": "2026-11-01",
   "ruleset": "RA-BIO",
   "ruleset_version": "1.0.0",
   "seed": 42,
-  "written_with_source": "legacy"
+  "written_with_source": "legacy+omop"
  },
  "sets": {
   "public-en": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "8a184c8e7413753f1f0e32801ee4bb772a37771199bc978dc9cc119de13a4e21",
+   "outcomes_sha": "94587da40653fa999d9d31e676fe3283a69a3903a4ed74f2da4bdbf388c47634",
    "patients": 53,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -134,7 +134,7 @@
     "f52e566fc933d39f0b9789fdad0aaf83"
    ],
    "candidates": 5,
-   "outcomes_sha": "4892c76b12bba094dd852aaf473d6b6007afd4856dce44eb58169e53eaa9c6dd",
+   "outcomes_sha": "7625d63a211f17fbb8c3614dd1205a86dcc87203401605dada84ddf048d1d847",
    "patients": 400,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -295,7 +295,7 @@
     "f98d30f6a9ffe6bfb42a2bc7e5707416"
    ],
    "candidates": 47,
-   "outcomes_sha": "4b676db0639325067a923bc694e79b74e2c023509dcd598adeb16b89ed791f77",
+   "outcomes_sha": "175a0935d0379373afce0c29d1835e99cfe4ad2b6402b9278f85a926e44fed2c",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -349,9 +349,9 @@
      "unknown": 1950
     },
     "RA-BIO-EXC-04": {
-     "met": 165,
-     "not_met": 2335,
-     "unknown": 0
+     "met": 175,
+     "not_met": 2305,
+     "unknown": 20
     },
     "RA-BIO-EXC-05": {
      "met": 33,
@@ -380,8 +380,8 @@
     },
     "RA-BIO-INC-03": {
      "met": 374,
-     "not_met": 2126,
-     "unknown": 0
+     "not_met": 2110,
+     "unknown": 16
     },
     "RA-BIO-INC-04": {
      "met": 342,
@@ -475,7 +475,7 @@
     "f98d30f6a9ffe6bfb42a2bc7e5707416"
    ],
    "candidates": 66,
-   "outcomes_sha": "0c76f3d2654397389c358f21c50b90ef99c5001ec07b55c3683cb2367c41bd29",
+   "outcomes_sha": "4c6167aaf7e5187d9c41c6c7a020f6a6eb7b43af202a690bb7f5afa9a5922762",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -530,8 +530,8 @@
     },
     "RA-BIO-EXC-04": {
      "met": 145,
-     "not_met": 2355,
-     "unknown": 0
+     "not_met": 2345,
+     "unknown": 10
     },
     "RA-BIO-EXC-05": {
      "met": 28,
@@ -620,7 +620,7 @@
     "f51b5bd2b6061ad7e76f11be17c61fd7"
    ],
    "candidates": 31,
-   "outcomes_sha": "559bf8e0bb2096547e183d740cbfe2bdf19bbd78da6d44513347c67b1fb709ae",
+   "outcomes_sha": "11101fc4031a016de2e38febf33111152b43442621e530664e4e8809990596e3",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -674,9 +674,9 @@
      "unknown": 1947
     },
     "RA-BIO-EXC-04": {
-     "met": 174,
-     "not_met": 2326,
-     "unknown": 0
+     "met": 183,
+     "not_met": 2299,
+     "unknown": 18
     },
     "RA-BIO-EXC-05": {
      "met": 23,
@@ -705,8 +705,8 @@
     },
     "RA-BIO-INC-03": {
      "met": 353,
-     "not_met": 2147,
-     "unknown": 0
+     "not_met": 2128,
+     "unknown": 19
     },
     "RA-BIO-INC-04": {
      "met": 359,

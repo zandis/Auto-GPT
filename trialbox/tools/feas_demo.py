@@ -145,6 +145,21 @@ def build_site(
     return box, orch_client(orch_app.app), work / "box" / "repo", summary
 
 
+def reopen_site(work: Path, settings_update: dict[str, Any] | None = None) -> tuple[Any, Any, Path]:
+    """T-505b (``tools.demo --keep``): the box of an earlier :func:`build_site` run in ``work``, reopened as it was
+    left: the lake, the jobs, the rulesets repo and the audit log are kept, nothing is rebuilt or deleted."""
+    from orchestrator import app as orch_app
+
+    from tests.inproc_box import make_box
+    from tools.role_demo import orch_client
+
+    if not (work / "lake").exists() or not (work / "box" / "repo").exists():
+        raise SystemExit(f"{work} holds no seeded demo to keep; start once without --keep")
+    box = make_box(work / "box", work / "lake", work / "sec", REF + timedelta(days=1), settings_update=settings_update)
+    orch_app._orch = box.orch
+    return box, orch_client(orch_app.app), work / "box" / "repo"
+
+
 def fresh_console_db(work: Path) -> str:
     """The run's trial database URL, with the console's stores (schemas ``auth`` and ``site``, D-126) emptied:
     accounts, sessions, marks and site settings start fresh with the box, as the console's files used to."""

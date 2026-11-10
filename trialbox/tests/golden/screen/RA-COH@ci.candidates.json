@@ -1,21 +1,21 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
+  "head": "09b3ba39dacdff846001ad35148e7e4667f28353",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
+  "reason": "D-275 on master after T-614, AD recompile and D-276: unusable structured data is unknown, never an exclusion",
   "ref_date": "2026-11-01",
   "ruleset": "RA-COH",
   "ruleset_version": "1.0.0",
   "seed": 42,
-  "written_with_source": "legacy"
+  "written_with_source": "legacy+omop"
  },
  "sets": {
   "public-en": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "ac332b39e41882b3f37d449d5b2c60b4f17b2feb6f8177aeab75457e99564c52",
+   "outcomes_sha": "24091df8c5a669286dcb96b322fc1296c1bdc09062ec41e44878f6dfaa18c4b3",
    "patients": 53,
    "structured_criteria": [
     "RA-COH-INC-01",
@@ -64,7 +64,7 @@
     "322bfa5fb6bb6945bb4f1daec4a05dc8"
    ],
    "candidates": 2,
-   "outcomes_sha": "d3526a1c6fb271d4a4eef3b9778330a5922567c07b7a641b3a04419ef2b408a9",
+   "outcomes_sha": "651addf50e71b7f76d9aa614ee1619631bd1c344744f7d6213a5008a3349d26e",
    "patients": 400,
    "structured_criteria": [
     "RA-COH-INC-01",
@@ -121,7 +121,7 @@
     "d62b4d7a910241427dc27842e86dcd37"
    ],
    "candidates": 10,
-   "outcomes_sha": "2e85d9d4eef97f62d46ba59309d0a26156421b457153bfd5a7ad116687104bbb",
+   "outcomes_sha": "35c0464e8bb9a8c4aea9714ba5bef4d0596c5d911534e0ee964a9e741380e399",
    "patients": 2500,
    "structured_criteria": [
     "RA-COH-INC-01",
@@ -195,7 +195,7 @@
     "f9e88c2f493c8ced71f84eab4f9b2a0f"
    ],
    "candidates": 27,
-   "outcomes_sha": "251cdebd21832bbc7fa7286bec987173b02a116d9ad896c9a27de64b126bd366",
+   "outcomes_sha": "a306b94970267740f5c892730f41a45ce835bf6411765dbc012dc96f01bea7a5",
    "patients": 2500,
    "structured_criteria": [
     "RA-COH-INC-01",
@@ -255,7 +255,7 @@
     "fa29f0dd8dd48ca44cb09747aaa6be3f"
    ],
    "candidates": 13,
-   "outcomes_sha": "a9b26975cea38f8c12b8849aa1fde879c5764e50f5f43185fa46765801468095",
+   "outcomes_sha": "ce4684a9ae9f05f1a586b873db54140f37796a2b64deb2ddf75b93712977e4c5",
    "patients": 2500,
    "structured_criteria": [
     "RA-COH-INC-01",

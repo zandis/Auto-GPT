@@ -25,7 +25,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from lake.flatten import DEMOGRAPHIC, SCHEMAS
+from lake.flatten import DEMOGRAPHIC, SCHEMAS, sex_of
 from tb_common.db import Database
 
 from omop import vocab
@@ -112,7 +112,7 @@ def _export(tx: Any) -> dict[str, list[Row]]:
         row = {
             "pid": person[r["person_id"]],
             "birth_date": _day(r["birth_datetime"]),
-            "sex": r["gender_source_value"],
+            "sex": sex_of(r["gender_source_value"]),
             "deceased_date": r["death_date"],
         }
         for item in ("birth_date", "sex", "deceased_date"):
@@ -129,7 +129,7 @@ def _export(tx: Any) -> dict[str, list[Row]]:
     for r in tx.fetchdicts(
         "SELECT r.source_record_id, r.extra, v.person_id, v.visit_start_datetime, v.care_site_id, v.provider_id, "
         f"v.visit_source_value FROM tb_record r JOIN visit_occurrence v ON v.visit_occurrence_id = r.record_id "
-        f"WHERE r.cdm_table = 'visit_occurrence' AND {LIVE} {ORDER}"
+        f"WHERE r.cdm_table = 'visit_occurrence' AND {LIVE} AND r.status <> 'rejected' {ORDER}"
     ):
         out["encounter"].append(
             _apply(
@@ -315,7 +315,7 @@ def _export(tx: Any) -> dict[str, list[Row]]:
     for r in tx.fetchdicts(
         "SELECT r.source_record_id, r.extra, p.person_id, p.procedure_source_value, p.procedure_source_concept_id, "
         "p.procedure_datetime FROM tb_record r JOIN procedure_occurrence p ON p.procedure_occurrence_id = "
-        f"r.record_id WHERE r.cdm_table = 'procedure_occurrence' AND {LIVE} {ORDER}"
+        f"r.record_id WHERE r.cdm_table = 'procedure_occurrence' AND {LIVE} AND r.status <> 'rejected' {ORDER}"
     ):
         out["procedure"].append(
             _apply(
@@ -335,7 +335,8 @@ def _export(tx: Any) -> dict[str, list[Row]]:
         "SELECT r.resource_type, r.source_record_id, r.extra, n.person_id, n.note_datetime, n.note_title, "
         "n.note_text, n.note_source_value, vr.source_record_id AS eid FROM tb_record r JOIN note n "
         "ON n.note_id = r.record_id LEFT JOIN tb_record vr ON vr.cdm_table = 'visit_occurrence' "
-        f"AND vr.record_id = n.visit_occurrence_id WHERE r.cdm_table = 'note' AND {LIVE} {ORDER}"
+        f"AND vr.record_id = n.visit_occurrence_id WHERE r.cdm_table = 'note' AND {LIVE} "
+        f"AND r.status <> 'rejected' {ORDER}"
     ):
         pid = person.get(r["person_id"])
         if r["resource_type"] == "DiagnosticReport":

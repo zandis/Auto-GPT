@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "250c26bbe372fe641d734e1c7f024259a0911214",
+  "head": "09b3ba39dacdff846001ad35148e7e4667f28353",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: T-655 adds the third night (synthetic-jp-a-restored)",
+  "reason": "D-275 on master after T-614, AD recompile and D-276: unusable structured data is unknown, never an exclusion",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -142,10 +142,10 @@
       "birth_date": "4498dbe4a2ce6d0492decc72680b8aa6c622189899a0f25450a61d25ed9f0651",
       "deceased_date": "c8e79ab1981ffd64484247ab521bbc60a15220ffbf5a132decc11badbb090cd1",
       "pid": "0b4e3d3289634bfacbe1fb5e08543ae0ebd71d4fcee6255c75f0e70f78749088",
-      "sex": "8afe45bc35ad723b9a80ec10e9cc9e2f2f1858d404eb56fa5e6ad607c77e8940"
+      "sex": "ed108a4c23482985e25aa0c0644e9fb67d34cdac80c4eefd668f9ef50c9864bc"
      },
      "rows": 53,
-     "sha": "a0cc216ae607afbb64fe0530c00e2ecaab3dfe2640f01f6700bf50007dfe91f2"
+     "sha": "2a6f8ea3025bcb5b273929cd1201e5cdc17abf25baf97dd1462b895c932a957d"
     },
     "practitioner": {
      "columns": {

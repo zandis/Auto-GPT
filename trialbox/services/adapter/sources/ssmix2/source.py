@@ -78,7 +78,24 @@ INJECTION = ("OMP-02", "OMP-12")
 JP_CORE = Path(__file__).resolve().parents[2] / "mapping" / "jp_core"
 NOT_PATIENT_DIRS = ("extended", "extended_storage")
 _CLASS = {"O": "OPD", "I": "IPD", "E": "ER"}
-_RX_STATUS = {"IP": "active", "SC": "active", "CM": "completed", "DC": "stopped", "CA": "stopped"}
+# ORC-5 (HL7 table 0038) as the canonical status (D-275): CA cancelled (never given) and ER (error, order not found)
+# are not counted by the lake. A code not listed here is passed as it is: the site mapping reads a code it does not
+# know as ``unknown`` (never ``active``); an empty ORC-5 stays empty ("not recorded")
+_RX_STATUS = {"IP": "active", "SC": "active", "A": "active", "HD": "on-hold", "CM": "completed", "DC": "stopped",
+              "CA": "cancelled", "ER": "entered-in-error"}  # fmt: skip
+# OBX-11 (HL7 table 0085) as the canonical lab ``result_status`` (FHIR words, D-275): D (delete) and W (wrong) are
+# entered in error, X (cannot be obtained) and N (not asked) cancelled, P / R / S not yet final; an unknown code is
+# passed as it is (the mapping reads it as ``unknown``) and an empty OBX-11 stays empty ("not recorded")
+_OBX_STATUS = {"F": "final", "U": "final", "C": "corrected", "P": "preliminary", "R": "preliminary",
+               "S": "preliminary", "I": "registered", "O": "registered", "D": "entered-in-error",
+               "W": "entered-in-error", "X": "cancelled", "N": "cancelled"}  # fmt: skip
+
+
+def _status(table: dict[str, str], raw: str) -> str:
+    code = (raw or "").strip().upper()
+    return table.get(code, code)
+
+
 # coding-system names vendors write in CWE-3 / CWE-6
 _YJ_SYS = ("99YJ", "YJ", "99YJC")
 _HOT_SYS = ("HOT", "HOT9", "99HOT", "HOT13", "99HOT9", "99HOT13")
@@ -462,7 +479,7 @@ class Ssmix2Source:
             "order_date": hl7.ts(orc.field(9)) or "",
             "rp_no": orc.comp(4, 1),
             "rx_kind": "injection" if sf.type in INJECTION else "prescription",
-            "status": _RX_STATUS.get(orc.field(5), "active"),
+            "status": _status(_RX_STATUS, orc.field(5)),
             "dept_code": "" if sf.dept == "-" else sf.dept,
         }
 
@@ -524,6 +541,7 @@ class Ssmix2Source:
                 "result_value": hl7.unescape(obx.field(5)),
                 "unit": obx.comp(6, 1),
                 "sample_datetime": hl7.ts(obx.field(14)) or "",
+                "result_status": _status(_OBX_STATUS, obx.field(11)),
                 "specimen": _MATERIAL.get(jlac[9:12], "") if len(jlac) >= 12 else "",
             }
 
