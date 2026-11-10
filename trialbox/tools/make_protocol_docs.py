@@ -6,6 +6,9 @@
   protocol excerpt in Japanese (synthetic sponsor; scenario J1, T-503), §5 選択基準 / 除外基準.
 * ``NEUR-COH_登録計画書_v1.pdf`` / ``.docx`` — a fictional MCI and dementia registry (observational, opt-out) in
   Japanese (scenario J2, T-503).
+* ``RA-JAK_試驗計畫書_v1.pdf`` / ``.docx`` — a fictional rheumatoid arthritis JAK-inhibitor phase 3 protocol excerpt
+  with a Traditional Chinese cover and the eligibility criteria in English, as sponsors send them (synthetic sponsor;
+  scenario T2, T-504). Noto Sans TC.
 
 The Japanese documents embed Noto Sans JP from ``.cache/fonts`` (``python -m tools.fetch_fonts``). Their criteria
 are the stub cassettes' texts, so a compile of the document reproduces the cassette extraction.
@@ -166,16 +169,17 @@ JA_DOCS: dict[str, dict[str, object]] = {
 }
 
 
-def _ja_fonts() -> tuple[str, str]:
+def _ja_fonts(script: str = "JP") -> tuple[str, str]:
+    """Register Noto Sans JP (or TC, ``script="TC"``) and return the regular and bold font names."""
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
-    reg, bold = FONT_DIR / "NotoSansJP-Regular.ttf", FONT_DIR / "NotoSansJP-Bold.ttf"
+    reg, bold = FONT_DIR / f"NotoSans{script}-Regular.ttf", FONT_DIR / f"NotoSans{script}-Bold.ttf"
     if not reg.exists() or not bold.exists():
-        raise SystemExit("Noto Sans JP is missing: run python -m tools.fetch_fonts first")
-    pdfmetrics.registerFont(TTFont("NotoJP", str(reg)))
-    pdfmetrics.registerFont(TTFont("NotoJP-Bold", str(bold)))
-    return "NotoJP", "NotoJP-Bold"
+        raise SystemExit(f"Noto Sans {script} is missing: run python -m tools.fetch_fonts first")
+    pdfmetrics.registerFont(TTFont(f"Noto{script}", str(reg)))
+    pdfmetrics.registerFont(TTFont(f"Noto{script}-Bold", str(bold)))
+    return f"Noto{script}", f"Noto{script}-Bold"
 
 
 def write_pdf_ja(path: Path, spec: dict[str, Any], inc: list[str], exc: list[str]) -> None:
@@ -186,7 +190,7 @@ def write_pdf_ja(path: Path, spec: dict[str, Any], inc: list[str], exc: list[str
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
-    reg, bold = _ja_fonts()
+    reg, bold = _ja_fonts(str(spec.get("script", "JP")))
     body = ParagraphStyle("b", fontName=reg, fontSize=10.5, leading=15, wordWrap="CJK")
     h1 = ParagraphStyle("h1", parent=body, fontName=bold, fontSize=13, leading=18, spaceBefore=8)
     h2 = ParagraphStyle("h2", parent=body, fontName=bold, fontSize=11.5, leading=16, spaceBefore=6)
@@ -251,6 +255,43 @@ def write_ja(out: Path) -> list[Path]:
     return paths
 
 
+# ------------------------------------------------------------------------------- Traditional Chinese cover (T-504)
+TW_DOCS: dict[str, dict[str, object]] = {
+    "RA-JAK": {
+        "file": "RA-JAK_試驗計畫書_v1",
+        "script": "TC",
+        "title": "RA-JAK 試驗計畫書 第1.0版（合成摘錄）",
+        "front": [
+            (
+                "1 計畫摘要",
+                "針對對傳統型疾病修飾抗風濕藥物反應不佳之中度至重度活動性類風濕關節炎病人，評估口服 JAK 抑制劑"
+                " RA-JAK 之多中心、隨機分派、雙盲、安慰劑對照第三期試驗。本文件為 TrialBox 測試用之虛構摘錄，"
+                "試驗委託者「合成藥業股份有限公司」為虛構公司，並非任何實際試驗之計畫書。",
+            ),
+            ("2 試驗目的", "主要療效指標：第 12 週達到 ACR20 反應之受試者比例。"),
+            (
+                "3 試驗設計",
+                "約 600 位受試者以 2:1 比例分派至 RA-JAK 每日一次或安慰劑組，皆併用穩定劑量之 methotrexate。",
+            ),
+        ],
+        "population": "5 Study Population 研究族群",
+        "sections": ("5.1 Inclusion Criteria 納入條件", "5.2 Exclusion Criteria 排除條件"),
+        "after": ("6 試驗藥品", "RA-JAK 每日口服一次，治療期間定期監測血球、肝功能、血脂與感染徵候。"),
+    },
+}
+
+
+def write_tw(out: Path) -> list[Path]:
+    paths = []
+    for rid, spec in TW_DOCS.items():
+        inc, exc = criteria(rid)
+        stem = out / str(spec["file"])
+        write_pdf_ja(stem.with_suffix(".pdf"), spec, inc, exc)
+        write_docx_ja(stem.with_suffix(".docx"), spec, inc, exc)
+        paths += [stem.with_suffix(".pdf"), stem.with_suffix(".docx")]
+    return paths
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", type=Path, default=ROOT / "tests" / "fixtures" / "protocols")
@@ -262,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
     write_docx(args.out / "GZQO_protocol_v3.docx", title, inc, exc)
     write_question_xlsx(args.out / "GZQO_questions.xlsx", inc, exc)
     write_ja(args.out)
+    write_tw(args.out)
     print(f"wrote protocol documents to {args.out}")
     return 0
 

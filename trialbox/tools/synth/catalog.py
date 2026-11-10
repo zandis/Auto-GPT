@@ -177,3 +177,24 @@ AD_PRACTITIONERS: list[tuple[str, str, str]] = [
     ("P90002", "合成医師B", "NEUR"),
     ("P90003", "合成医師C", "PSY"),
 ]
+
+# ------------------------------------------------------------------------------------------- RA-JAK trial (T-504)
+# Codes of the ``rajak`` archetype (scenario T2: the synthetic RA JAK-inhibitor trial RA-JAK at the Taiwanese site).
+# Kept apart from the tables above, as the Alzheimer's codes, so the default site draws and the committed fixtures do
+# not change. JAK inhibitors carry their real ATC codes (L04AF); the NHI-format drug codes are synthetic.
+RAJAK_DRUGS: dict[str, Drug] = {
+    d.key: d
+    for d in [
+        Drug("tofacitinib", "BC00101100", "L04AF01", "Tofacitinib 5mg", 10, "mg"),
+        Drug("baricitinib", "BC00102100", "L04AF02", "Baricitinib 4mg", 4, "mg"),
+        Drug("upadacitinib", "BC00103100", "L04AF03", "Upadacitinib 15mg", 15, "mg"),
+        Drug("valacyclovir", "AC00104100", "J05AB11", "Valacyclovir 500mg", 3000, "mg"),
+    ]
+}
+JAK_INHIBITORS = ("tofacitinib", "baricitinib", "upadacitinib")
+RAJAK_DX: dict[str, tuple[str, str]] = {
+    "zoster": ("B02.9", "Zoster without complications"),
+    "zoster_eye": ("B02.39", "Other herpes zoster eye disease"),
+    "dvt": ("I82.409", "Acute embolism and thrombosis of unspecified deep veins of unspecified lower extremity"),
+    "pe": ("I26.99", "Other pulmonary embolism without acute cor pulmonale"),
+}

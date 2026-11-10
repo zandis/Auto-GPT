@@ -43,7 +43,9 @@ def test_seed_happens_once_and_the_environment_is_ignored_after(tmp_path: Path, 
     monkeypatch.setenv("TB_LAKE_SOURCE", "omop")
     f = fl.Flags(audit=_audit(tmp_path))
     assert f.get("lake.source") is None  # nothing seeded yet: the caller's default
-    assert f.seed() == [{"name": "lake.source", "value": "omop", "origin": "TB_LAKE_SOURCE"}]
+    seeded = f.seed()
+    assert {"name": "lake.source", "value": "omop", "origin": "TB_LAKE_SOURCE"} in seeded
+    assert sorted(s["name"] for s in seeded) == sorted(fl.DECLARED)  # every declared flag, once
     assert f.get("lake.source") == "omop"
     monkeypatch.setenv("TB_LAKE_SOURCE", "legacy")  # a later start with another value: ignored
     assert f.seed() == []
@@ -51,14 +53,14 @@ def test_seed_happens_once_and_the_environment_is_ignored_after(tmp_path: Path, 
     assert f.get("lake.source") == "omop"
     ev = f.events("lake.source")
     assert [(e["kind"], e["new_value"], e["actor"]) for e in ev] == [("seed", "omop", fl.SEED_ACTOR)]
-    seeds = _events(tmp_path, "flag.seed")
+    seeds = [e for e in _events(tmp_path, "flag.seed") if e["detail"]["flag"] == "lake.source"]
     assert len(seeds) == 1 and seeds[0]["detail"]["value"] == "omop" and seeds[0]["actor"] == fl.SEED_ACTOR
 
 
 def test_seed_without_the_variable_pins_the_declared_default(tmp_path: Path, monkeypatch: Any) -> None:
     monkeypatch.delenv("TB_LAKE_SOURCE", raising=False)
     f = fl.Flags(audit=_audit(tmp_path))
-    assert f.seed()[0]["value"] == "legacy" and f.row("lake.source") == "legacy"
+    assert {s["name"]: s["value"] for s in f.seed()}["lake.source"] == "legacy" and f.row("lake.source") == "legacy"
     monkeypatch.setenv("TB_LAKE_SOURCE", "omop")
     assert fl.env_drift({"TB_LAKE_SOURCE": "omop"}) == [
         "TB_LAKE_SOURCE=omop is ignored: the flag lake.source is legacy (change it on /ops/flags)"
@@ -90,7 +92,7 @@ def test_set_is_one_event_and_one_audit_event_with_actor_and_reason(tmp_path: Pa
                                "reason": "WS-03.5: goldens held", "event": ev[0]["id"]}  # fmt: skip
     assert verify(tmp_path / "audit").ok
     row = Database.connect(fl.Flags()._url, fl.SCHEMA).fetchdicts("SELECT * FROM flag")
-    assert [(r["name"], r["value"], r["changed_by"]) for r in row] == [("lake.source", "omop", "console:admin")]
+    assert ("lake.source", "omop", "console:admin") in [(r["name"], r["value"], r["changed_by"]) for r in row]
 
 
 @pytest.mark.parametrize(
@@ -104,7 +106,7 @@ def test_set_refuses(tmp_path: Path, kw: dict[str, str], why: str) -> None:
     args = {"value": "omop", "actor": "console:admin", "reason": "x", **kw}
     with pytest.raises(ValueError, match=why):
         f.set("lake.source", args["value"], actor=args["actor"], reason=args["reason"])
-    assert [e["kind"] for e in f.events()] == ["seed"] and not _events(tmp_path, "flag.set")
+    assert [e["kind"] for e in f.events("lake.source")] == ["seed"] and not _events(tmp_path, "flag.set")
 
 
 def test_a_change_needs_an_audit_log_and_a_failed_audit_rolls_it_back(tmp_path: Path) -> None:
@@ -266,7 +268,7 @@ def test_a_read_creates_nothing_in_the_database(db_url: str) -> None:
     assert fl.env_drift({"TB_LAKE_SOURCE": "omop", "TB_DB_URL": db_url})  # the unseeded warning, read only
     assert count("SELECT count(*) FROM pg_namespace WHERE nspname = %s") == 0
     f = fl.Flags()
-    assert [x["value"] for x in f.all()] == [None] and f.events() == []  # the page's reads: no table made
+    assert {x["value"] for x in f.all()} == {None} and f.events() == []  # the page's reads: no table made
     assert count("SELECT count(*) FROM pg_tables WHERE schemaname = %s") == 0
 
 

@@ -1,0 +1,16 @@
+# Site profile for ruleset RA-JAK (merged into manifest.yaml at compile time; not generated).
+# Scenario T2 of the clinician PoC (T-504): a fictional rheumatoid arthritis JAK-inhibitor trial at the Taiwanese site.
+kind: trial
+title: "RA-JAK 類風濕關節炎 JAK 抑制劑第三期試驗（合成）"
+trial_alias: "RA-JAK"
+sponsor: "合成藥業股份有限公司（虛構）"
+protocol_version: "1.0"
+index_date_rule: run_date
+scopes:
+  feas: {population: hospital, lookback_months: 36}
+  screen: {practitioners: ["P12345", "P23456"], appointment_window_days: 180, departments: ["RHEU"],
+           recent_encounter_months: 12, microbatch_window_days: 14}
+routing:
+  aggregate_to: ["crc1@hospa.test"]
+  list_to: ["pi@hospa.test", "crc1@hospa.test"]
+thresholds: {tier_high_confidence: 0.75, small_cell: 5}

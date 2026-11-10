@@ -93,6 +93,14 @@ class Declared:
 
 #: every flag the box knows; an undeclared name is refused
 DECLARED: dict[str, Declared] = {
+    "demo.mode": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env="TB_DEMO_MODE",
+        help="PoC demonstration mode (T-502, D-328): uploads and pasted chart text are refused, a banner says "
+        "synthetic data only and not a medical device on every page, and each account accepts the acknowledgement "
+        "once (audit event demo.ack) before it opens any other page.",
+    ),
     "lake.source": Declared(
         values=("legacy", "omop"),
         default="legacy",

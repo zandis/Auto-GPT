@@ -1,0 +1,95 @@
+# Criterion labels, criterion text and to-dos in the site's languages (T-507, D-309; T-504 scenario T2).
+# `source` is the criterion text as the protocol wrote it (the IR's `text`); a translation is shown only while the
+# approved criterion still has exactly this text. `todo_source` is the IR's `action`. Synthetic trial; every
+# translation here needs a native read before the PoC.
+ruleset: RA-JAK
+criteria:
+  RA-JAK-INC-01:
+    source: Aged 18 to 75 years at screening.
+    en: {label: Age 18-75, text: Aged 18 to 75 years at screening.}
+    ja: {label: 18〜75歳, text: スクリーニング時に18歳以上75歳以下。}
+    zh-TW: {label: 年齡18至75歲, text: 篩選時年齡18至75歲。}
+  RA-JAK-INC-02:
+    source: Rheumatoid arthritis diagnosed at least 6 months before screening.
+    en: {label: RA ≥6 months, text: Rheumatoid arthritis diagnosed at least 6 months before screening.}
+    ja: {label: 関節リウマチ6か月以上, text: スクリーニングの6か月以上前に関節リウマチと診断されている。}
+    zh-TW: {label: 類風濕關節炎≥6個月, text: 篩選前至少6個月已診斷類風濕關節炎。}
+  RA-JAK-INC-03:
+    source: Methotrexate for at least 3 months before screening (refills no more than 30 days apart).
+    todo_source: confirm the methotrexate dose has been stable for 8 weeks
+    en: {label: MTX ≥3 months, text: Methotrexate for at least 3 months before screening (refills no more than 30 days apart)., todo: confirm the methotrexate dose has been stable for 8 weeks}
+    ja: {label: MTX 3か月以上, text: スクリーニング前に3か月以上メトトレキサートを使用（処方の間隔は30日以内）。, todo: メトトレキサートの用量が8週間変わっていないことを確認する}
+    zh-TW: {label: MTX≥3個月, text: 篩選前使用 methotrexate 至少3個月（每次領藥間隔不超過30天）。, todo: 確認 methotrexate 劑量已穩定8週}
+  RA-JAK-INC-04:
+    source: DAS28 (CRP or ESR) of 3.2 or more within 90 days before screening.
+    todo_source: record a DAS28 with all four components
+    en: {label: DAS28 ≥3.2, text: DAS28 (CRP or ESR) of 3.2 or more within 90 days before screening., todo: record a DAS28 with all four components}
+    ja: {label: DAS28 3.2以上, text: スクリーニング前90日以内のDAS28（CRPまたはESR）が3.2以上。, todo: 4項目すべてそろったDAS28を記録する}
+    zh-TW: {label: DAS28≥3.2, text: 篩選前90天內 DAS28（CRP 或 ESR）≥3.2。, todo: 記錄四項齊全的 DAS28}
+  RA-JAK-INC-05:
+    source: Inadequate response to at least one conventional synthetic DMARD, in the investigator's judgement.
+    todo_source: investigator to confirm the csDMARD response
+    en: {label: csDMARD inadequate response, text: "Inadequate response to at least one conventional synthetic DMARD, in the investigator's judgement.", todo: investigator to confirm the csDMARD response}
+    ja: {label: csDMARD効果不十分, text: 試験責任医師の判断で、1剤以上の従来型合成DMARDの効果が不十分。, todo: 試験責任医師がcsDMARDの効果を確認する}
+    zh-TW: {label: csDMARD反應不佳, text: 經試驗主持人判斷，對至少一種傳統合成 DMARD 反應不佳。, todo: 由試驗主持人確認 csDMARD 治療反應}
+  RA-JAK-EXC-01:
+    source: Any prior biologic DMARD or JAK inhibitor.
+    en: {label: Prior biologic or JAK inhibitor, text: Any prior biologic DMARD or JAK inhibitor.}
+    ja: {label: 生物学的製剤・JAK阻害薬の使用歴, text: 生物学的DMARDまたはJAK阻害薬の使用歴がある。}
+    zh-TW: {label: 曾用生物製劑或JAK抑制劑, text: 曾使用任何生物製劑 DMARD 或 JAK 抑制劑。}
+  RA-JAK-EXC-02:
+    source: Positive hepatitis B surface antigen (HBsAg).
+    todo_source: order HBsAg
+    en: {label: HBsAg positive, text: Positive hepatitis B surface antigen (HBsAg)., todo: order HBsAg}
+    ja: {label: HBs抗原陽性, text: B型肝炎表面抗原（HBs抗原）陽性。, todo: HBs抗原を検査する}
+    zh-TW: {label: HBsAg陽性, text: B型肝炎表面抗原（HBsAg）陽性。, todo: 安排 HBsAg 檢驗}
+  RA-JAK-EXC-03:
+    source: Positive hepatitis B core antibody (anti-HBc) with detectable HBV DNA.
+    todo_source: order HBV DNA if anti-HBc is positive
+    en: {label: Anti-HBc with HBV DNA, text: Positive hepatitis B core antibody (anti-HBc) with detectable HBV DNA., todo: order HBV DNA if anti-HBc is positive}
+    ja: {label: HBc抗体陽性かつHBV DNA検出, text: B型肝炎コア抗体（HBc抗体）陽性で、HBV DNAが検出される。, todo: HBc抗体陽性ならHBV DNAを検査する}
+    zh-TW: {label: anti-HBc陽性且HBV DNA可測得, text: B型肝炎核心抗體（anti-HBc）陽性且可測得 HBV DNA。, todo: 若 anti-HBc 陽性，安排 HBV DNA 檢驗}
+  RA-JAK-EXC-04:
+    source: Positive interferon-gamma release assay (IGRA) within 1 year without tuberculosis preventive therapy.
+    todo_source: order an IGRA
+    en: {label: "IGRA positive, untreated", text: Positive interferon-gamma release assay (IGRA) within 1 year without tuberculosis preventive therapy., todo: order an IGRA}
+    ja: {label: IGRA陽性・予防治療なし, text: 1年以内のインターフェロンγ遊離試験（IGRA）陽性で、結核の予防治療を受けていない。, todo: IGRAを検査する}
+    zh-TW: {label: IGRA陽性未治療, text: 1年內丙型干擾素釋放試驗（IGRA）陽性且未接受結核預防性治療。, todo: 安排 IGRA 檢驗}
+  RA-JAK-EXC-05:
+    source: Serious infection (sepsis or pneumonia) within 30 days before screening.
+    en: {label: Serious infection ≤30 days, text: Serious infection (sepsis or pneumonia) within 30 days before screening.}
+    ja: {label: 30日以内の重篤な感染症, text: スクリーニング前30日以内の重篤な感染症（敗血症または肺炎）。}
+    zh-TW: {label: 30天內嚴重感染, text: 篩選前30天內嚴重感染（敗血症或肺炎）。}
+  RA-JAK-EXC-06:
+    source: Herpes zoster within 12 months before screening.
+    todo_source: ask about shingles in the last 12 months
+    en: {label: Herpes zoster ≤12 months, text: Herpes zoster within 12 months before screening., todo: ask about shingles in the last 12 months}
+    ja: {label: 12か月以内の帯状疱疹, text: スクリーニング前12か月以内の帯状疱疹。, todo: 過去12か月の帯状疱疹について尋ねる}
+    zh-TW: {label: 12個月內帶狀皰疹, text: 篩選前12個月內曾患帶狀皰疹。, todo: 詢問過去12個月是否曾患帶狀皰疹}
+  RA-JAK-EXC-07:
+    source: History of venous thromboembolism (deep vein thrombosis or pulmonary embolism).
+    todo_source: ask about past blood clots
+    en: {label: VTE history, text: History of venous thromboembolism (deep vein thrombosis or pulmonary embolism)., todo: ask about past blood clots}
+    ja: {label: 静脈血栓塞栓症の既往, text: 静脈血栓塞栓症（深部静脈血栓症または肺塞栓症）の既往。, todo: 過去の血栓について尋ねる}
+    zh-TW: {label: 靜脈血栓栓塞病史, text: 曾有靜脈血栓栓塞（深部靜脈栓塞或肺栓塞）。, todo: 詢問過去是否曾有血栓}
+  RA-JAK-EXC-08:
+    source: Malignancy within the past 5 years.
+    en: {label: Malignancy ≤5 years, text: Malignancy within the past 5 years.}
+    ja: {label: 5年以内の悪性腫瘍, text: 過去5年以内の悪性腫瘍。}
+    zh-TW: {label: 5年內惡性腫瘤, text: 過去5年內曾患惡性腫瘤。}
+  RA-JAK-EXC-09:
+    source: Heart failure (NYHA class III or IV).
+    en: {label: Heart failure, text: Heart failure (NYHA class III or IV).}
+    ja: {label: 心不全, text: 心不全（NYHA分類III度またはIV度）。}
+    zh-TW: {label: 心臟衰竭, text: 心臟衰竭（NYHA 第III或IV級）。}
+  RA-JAK-EXC-10:
+    source: Pregnancy (a pregnancy diagnosis within 280 days).
+    en: {label: Pregnancy, text: Pregnancy (a pregnancy diagnosis within 280 days).}
+    ja: {label: 妊娠, text: 妊娠（280日以内の妊娠の診断）。}
+    zh-TW: {label: 懷孕, text: 懷孕（280天內有懷孕診斷）。}
+  RA-JAK-EXC-11:
+    source: Estimated GFR below 40 mL/min/1.73 m² (CKD-EPI 2021) at screening.
+    todo_source: order creatinine
+    en: {label: eGFR <40, text: Estimated GFR below 40 mL/min/1.73 m² (CKD-EPI 2021) at screening., todo: order creatinine}
+    ja: {label: eGFR 40未満, text: スクリーニング時の推算GFRが40 mL/min/1.73 m²未満（CKD-EPI 2021）。, todo: クレアチニンを検査する}
+    zh-TW: {label: eGFR<40, text: 篩選時估算腎絲球過濾率低於40 mL/min/1.73 m²（CKD-EPI 2021）。, todo: 安排肌酸酐檢驗}

@@ -1,0 +1,20 @@
+{
+ "class": "structured",
+ "id": "RA-JAK-EXC-09",
+ "kind": "exclusion",
+ "label": "Heart failure",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_HEART_FAILURE"
+ },
+ "review": {
+  "at": "2026-11-11T04:31:43.359347+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-JAK",
+ "source_ref": "5.2 Exclusion Criteria 排除條件 #9",
+ "text": "Heart failure (NYHA class III or IV).",
+ "time_sensitive": false
+}
