@@ -342,23 +342,30 @@ EOF
 wrong-name)
   # someone changes the served name of the judge (deploy/.env JUDGE_MODEL) and restarts its server; the pins keep
   # the old name. The installer's serving check and the doctor must FAIL and name both; the gateway must refuse.
+  # The name is put back whatever happens, so the next step starts from a good box.
   good="$(envget JUDGE_MODEL)"
-  envset JUDGE_MODEL "gemma-4-26b-a4b-it-4bit"
-  dc up -d --wait llm-service || fail "the stand-in with the wrong name did not start"
+  pinned="$(standin_stats | python3 -c 'import json,sys; print(json.load(sys.stdin)["llm-service"]["served"][0])')" \
+    || fail "cannot ask the judge stand-in its served name"
+  wrong="${pinned##*/}-renamed"
+  restore() {
+    if [ -n "$good" ]; then envset JUDGE_MODEL "$good"; else envset JUDGE_MODEL; fi
+    dc up -d --wait llm-service || fail "the judge stand-in did not come back"
+  }
+  envset JUDGE_MODEL "$wrong"
+  dc up -d --wait llm-service || { restore; fail "the stand-in with the wrong name did not start"; }
   out="$(doctor --serving 2>&1)"; rc=$?
   echo "$out"
-  [ "$rc" = 1 ] && echo "$out" | grep -q "FAIL  serving" && echo "$out" | grep -q "pinned to the served name 'gemma-4-26b-a4b-it'" \
-    && echo "$out" | grep -q "gemma-4-26b-a4b-it-4bit" || fail "the doctor did not catch the wrong served name"
-  ok "doctor --serving (the installer's check): FAIL, names the pin and what is served"
+  [ "$rc" = 1 ] && echo "$out" | grep -q "FAIL  serving" && echo "$out" | grep -qF "pinned to the served name '$pinned'" \
+    && echo "$out" | grep -qF "$wrong" || { restore; fail "the doctor did not catch the wrong served name"; }
+  ok "doctor --serving (the installer's check): FAIL, names the pin ($pinned) and what is served ($wrong)"
   gateway_probe refused > "$W/probe-wrong-name.txt" 2>&1   # the verifier still answers: only the judge line counts
   cat "$W/probe-wrong-name.txt"
-  grep -q "^j-workhorse: refused" "$W/probe-wrong-name.txt" || fail "the gateway did not refuse the judge"
+  grep -q "^j-workhorse: refused" "$W/probe-wrong-name.txt" || { restore; fail "the gateway did not refuse the judge"; }
   ok "gateway: the judge call is refused (upstream 404), not answered by another model"
   stats="$(standin_stats)"; echo "stand-ins: $stats"
   echo "$stats" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["llm-service"]["counts"].get("404",0)>0' \
-    || fail "the stand-in counted no 404"
-  if [ -n "$good" ]; then envset JUDGE_MODEL "$good"; else envset JUDGE_MODEL; fi
-  dc up -d --wait llm-service || fail "the judge stand-in did not come back"
+    || { restore; fail "the stand-in counted no 404"; }
+  restore
   doctor --serving >/dev/null || fail "the box did not recover after the name was restored"
   ok "name restored: doctor --serving passes again"
   ;;
@@ -367,16 +374,17 @@ wrong-name)
 missing-key)
   # the gateway loses the key (deploy/.env without TB_LLM_API_KEY, gateway restarted); the servers keep theirs
   key="$(envget TB_LLM_API_KEY)"
+  putback() { envset TB_LLM_API_KEY "$key"; dc up -d --no-deps --wait gateway; }
   envset TB_LLM_API_KEY
   dc up -d --no-deps --wait gateway || fail "the gateway did not restart"
   out="$(doctor --serving 2>&1)"; rc=$?
   echo "$out"
-  [ "$rc" = 1 ] && echo "$out" | grep -q "refused the key (HTTP 401)" || fail "the doctor did not catch the missing key"
+  [ "$rc" = 1 ] && echo "$out" | grep -q "refused the key (HTTP 401)" || { putback; fail "the doctor did not catch the missing key"; }
   ok "doctor --serving: FAIL, 'refused the key (HTTP 401)'"
   gateway_probe refused > "$W/probe-no-key.txt" 2>&1; rc=$?
   cat "$W/probe-no-key.txt"
   [ "$rc" = 0 ] && grep -q "^j-workhorse: refused" "$W/probe-no-key.txt" && grep -q "^v-verifier: refused" "$W/probe-no-key.txt" \
-    || fail "the gateway's calls without the key were not refused"
+    || { putback; fail "the gateway's calls without the key were not refused"; }
   ok "gateway: both calls refused (upstream 401)"
   envset TB_LLM_API_KEY "$key"
   dc up -d --no-deps --wait gateway || fail "the gateway did not come back"
