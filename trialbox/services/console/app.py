@@ -47,7 +47,7 @@ from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
 from tb_common.flowledger import record_export
 from tb_common.reasons import label as reason_label
-from tb_common.service_auth import bind_session
+from tb_common.service_auth import bind_session, scope_of
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
@@ -60,13 +60,19 @@ from console.auth import (
     UserStore,
     csrf_ok,
     random_password,
-    reveal_reason,
     scope_values,
 )
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
-from console.identity import Hooks, Identity, IdentitySettings, secure_cookie_default
+from console.identity import (
+    MUST_CHANGE_OPEN,
+    Hooks,
+    Identity,
+    IdentitySettings,
+    client_source,
+    secure_cookie_default,
+)
 from console.identity import register as register_identity
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
 from console.refusals import localize as localize_refusal
@@ -211,6 +217,10 @@ class ConsoleSettings:
 
 class _LoginRequired(Exception):
     pass
+
+
+class _MustChange(Exception):
+    """A page asked by an account whose password someone else set (D-279): it goes to /account first."""
 
 
 class _Problem(Exception):
@@ -521,9 +531,14 @@ def create_app(
             user = sso_user(request)
             if user is None:
                 raise _LoginRequired()
-            token, sess = us.new_session(user, pick_language(request.headers.get("accept-language")))
+            token, sess = us.new_session(user, pick_language(request.headers.get("accept-language")), "sso")
             request.state.sso_cookie = token
             au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": "sso"})
+        # D-279 (SEC-1): with a password someone else set, the account reaches only its own password page
+        if request.url.path not in MUST_CHANGE_OPEN and us.must_change(sess.user.username):
+            if request.method == "GET" and not request.url.path.startswith("/api/"):
+                raise _MustChange()
+            raise _Problem(403, "account.must_change")
         _scope_check(request, sess)
         bind_session(sess.token_sha[:16])  # S-09: the actor this request names to the orchestrator is signed with it
         return sess
@@ -663,6 +678,10 @@ def create_app(
     async def _to_login(request: Request, _exc: _LoginRequired) -> Response:
         return RedirectResponse("/login", status_code=303)
 
+    @app.exception_handler(_MustChange)
+    async def _to_account(request: Request, _exc: _MustChange) -> Response:
+        return RedirectResponse("/account?must_change=1", status_code=303)  # D-279: the password page first
+
     @app.exception_handler(_Problem)
     async def _problem(request: Request, exc: _Problem) -> Response:
         if request.url.path.startswith("/api/"):  # D-125: the API answers in JSON, never with a page
@@ -794,21 +813,35 @@ def create_app(
         cookie = request.cookies.get(LOGIN_COOKIE, "")
         if not cookie or not secrets.compare_digest(cookie, login_csrf):
             raise _Problem(400, "csrf")
+        src = client_source(request)  # D-279 (SEC-9): failures count per account and address
+        wait = us.throttled(src)
+        if wait:  # this address made many failed tries: it waits, nobody is locked out
+            au.append("console.login_failed", actor=f"console:{username.strip().lower()[:32] or '-'}",
+                      detail={"reason": "slowed", "source": src})  # fmt: skip
+            resp = login_page(request, 429, failed=True, uninitialised=False, wait=wait)
+            resp.headers["Retry-After"] = str(wait)
+            return resp
         # D-192: with a TOTP step to come, a right password does not clear the failure count; the code does
-        user = us.authenticate(username[:64], password[:256], clear_failures=not settings.identity.totp_required)
+        user = us.authenticate(
+            username[:64], password[:256], clear_failures=not settings.identity.totp_required, source=src
+        )
         if user is None:
-            au.append("console.login_failed", actor=f"console:{username.strip().lower()[:32] or '-'}")
-            ident.after_failure(username)
-            until = us.locked_until(username[:64])
+            au.append("console.login_failed", actor=f"console:{username.strip().lower()[:32] or '-'}",
+                      detail={"source": src})  # fmt: skip
+            ident.after_failure(username, src)
+            until = us.locked_until(username[:64], src)
             left = max(1, -(-int((until - us.clock()).total_seconds()) // 60)) if until else 0
             return login_page(
                 request, 401, failed=True, uninitialised=False, until=until.isoformat() if until else "", left=left
             )
         if ident.needs_code(user):  # D-192: local accounts give a TOTP code before a session exists
             return ident.second_step(user)
-        token, _ = us.new_session(user, lang_of(request, None))
+        token, _ = us.new_session(user, lang_of(request, None), "password")
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
-        done = RedirectResponse("/home" if settings.pilot else "/", status_code=303)  # S1: land on the work list
+        landing = "/home" if settings.pilot else "/"  # S1: land on the work list
+        if us.must_change(user.username):  # D-279: a password someone else set is replaced first
+            landing = "/account?must_change=1"
+        done = RedirectResponse(landing, status_code=303)
         done.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=settings.secure_cookie)
         done.delete_cookie(LOGIN_COOKIE)
         done.delete_cookie(LANG_COOKIE)
@@ -963,7 +996,7 @@ def create_app(
                     raise AuthError("unknown role")
                 scope_values(affiliation, studies, expires or None)  # refuse a bad scope before the account exists
                 password = random_password()
-                us.create(name, role, password, mailbox.strip() or None)
+                us.create(name, role, password, mailbox.strip() or None, must_change=True)  # D-279: the owner's first
                 made_user = us.set_scope(name, affiliation, studies, expires or None)
                 au.append(
                     "console.user",
@@ -987,7 +1020,7 @@ def create_app(
                     return confirm_step(request, sess, text, "/ops/users", {"action": "reset", "username": name},
                                         "/ops/users")  # fmt: skip
                 password = random_password()
-                us.set_password(name, password)
+                us.set_password(name, password, must_change=True)  # D-279: the owner replaces it at sign-in
                 au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
                 keep_once(sess, name, password)
                 return RedirectResponse("/ops/users#made", status_code=303)
@@ -1060,6 +1093,7 @@ def create_app(
         users=us,
         clock=us.clock,
         submit=submit,
+        identity=ident,  # D-279: the second factor at signing (console.edc_pages)
     )
     app.state.helpers = helpers  # console.notify (CLI) reads the same helpers
     register_home(app, helpers)
@@ -1181,6 +1215,8 @@ def create_app(
         # investigator may read it in the browser, exactly as the study team receives it by mail. Viewers may not.
         if out.tag != "aggregate" and not (job.type == "CASE" and sess.user.can_view_phi):
             raise _Problem(404, "notfound")
+        if out.tag != "aggregate":  # D-273 (PV-3): an investigator reads a study's patient sheet only as delegated
+            helpers.delegated(sess, job.ruleset or "", request.url.path)
         data = bk.get_object(out.minio_key)
         au.append(
             "console.view",
@@ -1236,7 +1272,9 @@ def create_app(
             web = next(r for r in audit_recs if r.event == "console.request")
             # the audit holds the line masked (D-272); the chart number comes back from the job's options
             raw_rows.insert(0, (None, unmask_ids(mask_ids(str(web.detail.get("line", ""))), job.options)))
-        thread_rows = [(m, shown_ids(sess, job, text, "thread")) for m, text in raw_rows]
+        case = _case_card(job)
+        out = _case_opted_out(job, case)
+        thread_rows = [(m, shown_ids(sess, job, text, "thread", opted_out=out)) for m, text in raw_rows]
         return page(
             request,
             "job.html",
@@ -1255,16 +1293,40 @@ def create_app(
             refresh=job.state not in TERMINAL and job.state != "awaiting_approval",
             rulesets=[r for r in bk.rulesets() if r.status == "approved"],
             consent=_consent_card(job),
-            case=_case_card(job),
+            case=case,
             screen=_screen_card(job, sess, revealed),
         )
 
-    def shown_ids(sess: Session, job: Job, text: str, where: str) -> str:
+    def _case_opted_out(job: Job, case: dict[str, Any] | None) -> bool:
+        """D-273 (PV-4): is the job's subject on the opt-out register now? The pseudonym comes from the finished
+        CASE card or the job's options; for a CASE job still running, or failed, the box turns the job's own chart
+        number into the pseudonym (never shown, never returned). If the box cannot answer, the line stays masked."""
+        gone = helpers.gone()
+        if not gone:
+            return False
+        subj = str(((case or {}).get("subject") or {}).get("pid") or (job.options or {}).get("pid") or "")
+        if subj:
+            return subj in gone
+        chart = str((job.options or {}).get("mrn") or "").strip()
+        if job.type != "CASE" or not chart:
+            return False
+        from console import s28
+
+        try:
+            got = s28.call(bk, "POST", "/setup/pseudonym", {"chart_no": chart})
+        except Exception:  # the box is down or refuses: fail closed
+            return True
+        pid = str((got or {}).get("pid") or "")
+        return not pid or pid in gone
+
+    def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False) -> str:
         """A request line or subject as this reader may see it (P-01, D-143): the chart number in clear for an
         account with identifier authority for the job's study (administrator, coordinator, the study's
         investigator), as one audited view under the reveal cap; masked for everyone else (viewer, CRO)."""
         masked = mask_ids(text)
-        if masked == text or not sess.user.sees_ids(job.ruleset):
+        if masked == text or opted_out or not sess.user.sees_ids(job.ruleset):
+            return masked
+        if not helpers.delegated_ok(sess.user, job.ruleset):
             return masked
         if not id_views.allow(actor(sess)):
             au.append("console.view_id_refused", job_id=job.job_id, ruleset=job.ruleset, actor=actor(sess),
@@ -1296,15 +1358,22 @@ def create_app(
                 card["summary"] = json.loads(bk.get_object(summary_out.minio_key))
             except (KeyError, ValueError, OSError):
                 card["summary"] = None
-        if list_out is not None and sess.user.can_view_phi:
+        # D-273 (PV-3, PV-4): the rows are patient level; an investigator sees them only as delegated ("screen"),
+        # and a patient on the opt-out register now is not shown, however old the job (only the count is)
+        if list_out is not None and sess.user.can_view_phi and helpers.delegated_ok(sess.user, job.ruleset):
             try:
                 cl = json.loads(bk.get_object(list_out.minio_key))
             except (KeyError, ValueError, OSError):
                 cl = None
             if cl is not None:
                 rows = []
+                gone = helpers.gone()
+                card["removed"] = 0
                 for r in cl.get("rows") or []:
                     if r.get("tier") not in ("high", "review"):
+                        continue
+                    if str(r.get("pid", "")) in gone:
+                        card["removed"] += 1
                         continue
                     unknown = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "unknown"]
                     failing = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "fail"]
@@ -1340,11 +1409,17 @@ def create_app(
 
     @app.post("/pilot/jobs/{job_id}/reveal")
     def job_reveal(
-        request: Request, job_id: str, csrf: str = Form(""), pid: str = Form(""), reason: str = Form("")
+        request: Request,
+        job_id: str,
+        csrf: str = Form(""),
+        pid: str = Form(""),
+        reason: str = Form(""),
+        note: str = Form(""),
     ) -> Response:
-        """One chart number for one listed pseudonym, shown once on the page and audited on both sides (D-99). Any
-        account with identifier authority for the study: administrator, coordinator, the study's investigator
-        (D-143)."""
+        """One chart number for one listed pseudonym, shown once on the page (D-99). D-273 (PV-2): through the
+        console's one reveal path, ``home.apply_reveal``: identifier authority for the study, the delegation log for
+        an investigator, a reason (with a written note for "other"), never a patient who is not on the study's latest
+        list (so never an opted-out patient), audited before the orchestrator is asked, and the orchestrator's cap."""
         sess = need(request)
         job = _job_or_404(job_id)
         _need_role(request, csrf, sess.user.sees_ids(job.ruleset), sess)
@@ -1353,18 +1428,10 @@ def create_app(
         pid = pid.strip()
         if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", pid):
             raise _Problem(400, "request.refused", reason="bad pseudonym")
-        au.append(
-            "console.reveal",
-            job_id=job_id,
-            ruleset=job.ruleset,
-            actor=actor(sess),
-            detail={"pid": pid, "reason": reveal_reason(reason)},
-        )
-        try:
-            mrn = bk.reveal(job_id, pid, actor(sess))
-        except Refused as exc:
-            raise _Problem(409, "request.refused", reason=str(exc)) from exc
-        return _job_page(request, sess, job, revealed={pid: mrn or ""})
+        if helpers.apply_reveal is None or not job.ruleset:
+            raise _Problem(403, "forbidden")
+        _ctx, mrn = helpers.apply_reveal(sess, request.url.path, job.ruleset, pid, reason, via="job", note=note)
+        return _job_page(request, sess, job, revealed={pid: mrn})
 
     def _case_card(job: Job) -> dict[str, Any] | None:
         if job.type != "CASE" or job.state != "done":
@@ -1659,7 +1726,8 @@ def create_app(
 
     # ------------------------------------------------------------------ candidate registry (D-92)
     def _registry_page(request: Request, sess: Session, rs: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-        rows = bk.registry_rows(rs)
+        gone = helpers.gone()  # D-273 (PV-4): the screening log's page leaves out who opted out, as its export does
+        rows = [e for e in bk.registry_rows(rs) if e.pid not in gone]
         from orchestrator.candidates import counts as _counts
 
         return page(
@@ -1693,6 +1761,7 @@ def create_app(
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(404, "notfound")
+        helpers.delegated(sess, rs, request.url.path)  # D-273 (PV-3): an investigator as delegated only
         try:
             return _registry_page(request, sess, rs)
         except Refused as exc:
@@ -1794,8 +1863,14 @@ def create_app(
             raise _Problem(404, "notfound")
         if not sess.user.sees_ids(rs):  # the export carries chart numbers (phi): identifier authority (D-143)
             raise _Problem(403, "forbidden")
+        # D-273 (PV-5): the same rule as one reveal: an investigator exports only as the PI or a sub-investigator
+        # ticked "screen"; the request is audited before the file is built; the orchestrator checks the signed role
+        # and studies again
+        helpers.delegated(sess, rs, request.url.path)
+        au.append("console.registry", actor=actor(sess), ruleset=rs,
+                  detail={"action": "export_requested", "role": sess.user.role})  # fmt: skip
         try:
-            data = bk.registry_export(rs, actor(sess))
+            data = bk.registry_export(rs, actor(sess), role=sess.user.role, scope=scope_of(sess.user.studies))
         except Refused as exc:  # the orchestrator's cap on exports with chart numbers (S-09)
             au.append("console.refused", ruleset=rs, actor=actor(sess), detail={"reason": str(exc)[:200]})
             why = "too many exports with chart numbers in the last hour"

@@ -98,6 +98,7 @@ class FakeBackend:
         self.refuse: str | None = None
         self.models_info: dict[str, Any] | None = dict(MODELS_INFO)
         self.revealed: list[tuple[str, str, str]] = []
+        self.signed: list[tuple[str, str, str]] = []  # D-273: (call, role, scope) sent to the orchestrator
         self.audit_dir: Path | None = None
         self.ingested = 0
         self.registry: dict[tuple[str, str], RegistryEntry] = {}
@@ -190,8 +191,9 @@ class FakeBackend:
             "criteria": 7,
         }
 
-    def reveal(self, job_id: str, pid: str, by: str) -> str | None:
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None:
         self.revealed.append((job_id, pid, by))
+        self.signed.append(("reveal", role, scope))
         return {"a" * 32: "MRN-000123"}.get(pid)
 
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
@@ -257,7 +259,8 @@ class FakeBackend:
                 n += 1
         return n
 
-    def registry_export(self, ruleset: str, by: str = "") -> bytes:
+    def registry_export(self, ruleset: str, by: str = "", role: str = "", scope: str = "") -> bytes:
+        self.signed.append(("export", role, scope))
         return b"PK\x03\x04fake-xlsx-" + ruleset.encode()
 
 
@@ -989,14 +992,26 @@ def test_screen_job_page_shows_candidates_and_reveals_a_chart_number_once(box: d
     assert "90 %" not in page  # FR-UI-17 (D-108): no model confidence on a clinical page
     assert "read by j-workhorse alone" in page and f'href="/pilot/registry/GZQO#p-{"a" * 32}"' in page
     assert page.count('data-testid="reveal"') == 2 and "MRN-000123" not in page
-    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "a" * 32})
+    # D-273 (PV-2): the job page reveals through the one guarded path: a reason is required
+    assert c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "a" * 32}).status_code == 400
+    # ROLE-016: "other" needs a written reason of 10 characters or more
+    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "a" * 32, "reason": "other", "note": "x"})
+    assert r.status_code == 400 and box["backend"].revealed == []
+    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "a" * 32, "reason": "other",
+                                                  "note": "sponsor query on visit dates"})  # fmt: skip
     assert r.status_code == 200 and 'data-testid="mrn"' in r.text and "MRN-000123" in r.text
     assert r.text.count('data-testid="reveal"') == 1  # the other row still has its button
     assert box["backend"].revealed == [(jid, "a" * 32, "console:admin")]
-    assert any(rec.event == "console.reveal" for rec in box["backend"].audit(jid))
-    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "b" * 32})
+    assert box["backend"].signed == [("reveal", "admin", "*")]  # the role and studies travel signed (PV-15)
+    assert any(rec.event == "console.reveal_patient" for rec in box["backend"].audit(jid))
+    raw = b"".join(p.read_bytes() for p in (box["dir"] / "audit").rglob("*") if p.is_file())
+    assert b'"via":"job"' in raw and b"sponsor query on visit dates" in raw  # the written reason is kept
+    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "b" * 32, "reason": "contact"})
     assert r.status_code == 200 and "no chart number on this box" in r.text
     assert c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "x"}).status_code == 400
+    # a patient who is not on the study's latest list is refused
+    r = c.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": "d" * 32, "reason": "contact"})
+    assert r.status_code == 404
     # viewers: no screening job page (D-146, J-04), no reveal
     viewer, vcsrf = login(box["app"], "viewer", VIEWER_PW)
     assert viewer.get(f"/pilot/jobs/{jid}").status_code == 403
@@ -1245,7 +1260,8 @@ def test_registry_pages_add_promote_export(box: dict[str, Any]) -> None:
     )
     assert c.get("/pilot/registry/BAD").status_code == 400
     events = [e.event for e in read_audit(box["dir"] / "audit")]
-    assert events.count("console.registry") == 5  # 2 updates + 1 refused update + promote + export
+    # 2 updates + 1 refused update + promote + export requested (D-273, before the file is built) + export
+    assert events.count("console.registry") == 6
     assert verify(box["dir"] / "audit").ok
 
 
@@ -1270,15 +1286,17 @@ def test_the_export_names_the_signed_in_user_signed_with_the_session(
     seen: list[dict[str, str]] = []
     real = box["backend"].registry_export
 
-    def spy(rs: str, by: str) -> bytes:
-        seen.append(sa.actor_header(by))  # what the HTTP backend sends with the call
+    def spy(rs: str, by: str, role: str = "", scope: str = "") -> bytes:
+        seen.append(sa.actor_header(by, role=role, scope=scope))  # what the HTTP backend sends with the call
         return bytes(real(rs, by))
 
     monkeypatch.setattr(box["backend"], "registry_export", spy)
     c, _ = login(box["app"])
     assert c.get("/pilot/registry/GZQO/export.xlsx").status_code == 200
-    who = sa.verify_actor(seen[0][sa.ACTOR_HEADER], seen[0][sa.ASSERTION_HEADER])
+    h = seen[0]
+    who = sa.verify_actor(h[sa.ACTOR_HEADER], h[sa.ASSERTION_HEADER], role=h[sa.ROLE_HEADER], scope=h[sa.SCOPE_HEADER])
     assert who.name == "console:admin" and who.verified and len(who.session) == 16
+    assert who.role == "admin" and who.scope == "*"  # D-273 (PV-5): the role and studies are signed too
 
 
 # ---------------------------------------------------------------------------------------------- D-93 roles and SSO
@@ -1511,7 +1529,7 @@ def test_investigator_sees_candidate_rows_and_case_sheet_and_reveals(box: dict[s
     r = c.post(f"/pilot/jobs/{screen.job_id}/reveal", data={"csrf": csrf, "pid": "a" * 32, "reason": "contact"})
     assert r.status_code == 200 and "MRN-000123" in r.text
     assert box["backend"].revealed[-1] == (screen.job_id, "a" * 32, "console:pi")
-    assert any(rec.event == "console.reveal" and rec.actor == "console:pi" for rec in box["backend"].audit())
+    assert any(rec.event == "console.reveal_patient" and rec.actor == "console:pi" for rec in box["backend"].audit())
     box["users"].create("pi2", "investigator", VIEWER_PW, "pi2@hospa.test")
     box["users"].set_scope("pi2", studies="OTHER")  # an investigator of another study has no authority here
     c2, csrf2 = login(box["app"], "pi2", VIEWER_PW)

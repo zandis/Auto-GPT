@@ -145,6 +145,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if not sess.user.can_view_phi:
             raise h.problem(403, "forbidden")
+        h.delegated(sess, rid, request.url.path)  # D-273 (PV-3): the week page's delegation rule
         link = rc_link(rid)
         reads = (link or {}).get("reads") or []
         return h.page(
@@ -167,6 +168,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_request:
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
+        h.delegated(sess, rid, request.url.path)  # D-273 (PV-3)
         wb = Workbook()
         ws: Any = wb.active
         ws.title = "screening log"
@@ -239,6 +241,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rid = study_or_404(sess, rs)
         if not sess.user.can_view_phi:
             raise h.problem(403, "forbidden")
+        h.delegated(sess, rid, request.url.path)  # D-273 (PV-3): the week page's delegation rule
         info = next((r for r in bk.rulesets() if r.id == rid), None)
         kind = info.kind if info else ""
         conf = s28.load(bk, store, rid, st.study_defaults(rid, kind))

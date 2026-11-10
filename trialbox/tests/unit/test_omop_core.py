@@ -437,7 +437,7 @@ def test_dqd_passes_on_the_loaded_site_and_catches_a_broken_reference(feed_dir: 
 def test_every_committed_ruleset_screens_the_same_on_both_lakes(feed_dir: Path, db_url: str, tmp_path: Path) -> None:
     from tools import omop_parity as op
 
-    assert len(op.RULESETS) == 7
+    assert len(op.RULESETS) == 9  # T-503 added AD-MAB and NEUR-COH
     ds = op.DataSet("site-a", feed_dir, _site(feed_dir), SNAP, date(2026, 10, 5), "Asia/Taipei")
     lakes = op.build_lakes(ds, tmp_path, db_url)
     tables = op.compare_tables(lakes, SNAP)
@@ -450,7 +450,17 @@ def test_every_committed_ruleset_screens_the_same_on_both_lakes(feed_dir: Path, 
         got = [duck[s].query(f"SELECT * FROM {t}").to_pylist() for s in ("legacy", "omop")]
         assert got[0] == got[1] and got[0], t
     res = op.compare_screening(lakes, ds)
-    assert set(res) == {"GOUT-COH", "GZQO", "ONC-OSI", "RA-BIO", "RA-COH", "EMPULSE", "STARRT-AKI"}
+    assert set(res) == {
+        "GOUT-COH",
+        "GZQO",
+        "ONC-OSI",
+        "RA-BIO",
+        "RA-COH",
+        "EMPULSE",
+        "STARRT-AKI",
+        "AD-MAB",
+        "NEUR-COH",
+    }
     for rid, r in res.items():
         assert r["feas_identical"] and r["patients_different"] == 0, (rid, r)
         assert r["patients_evaluated"] == r["patients"] == 600

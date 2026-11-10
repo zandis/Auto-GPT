@@ -19,6 +19,7 @@ or a name.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -292,13 +293,28 @@ class SiteStore:
         return prof
 
     # ------------------------------------------------------------------ PI marks
-    def mark(self, ruleset: str, m: Mark) -> None:
+    def mark(
+        self,
+        ruleset: str,
+        m: Mark,
+        number: StudySettings | None = None,
+        before_commit: Callable[[str | None], None] | None = None,
+    ) -> str | None:
+        """Store one mark; with ``number`` also give the patient the study's screening number (FR-STUDY-08), in the
+        same transaction. D-273 (CR-055, DI-5): ``before_commit`` (the audit append) runs inside that transaction with
+        the number, so a failed append rolls the mark and the number back: no change is ever kept without its audit
+        event. Returns the screening number, or None."""
         if m.mark not in (*MARKS, WITHDRAWN):
             raise ValueError(f"mark must be one of {', '.join(MARKS)}")
-        self.db.execute(
-            "INSERT INTO pi_marks (ruleset, pid, mark, reason, note, by, at, job_id) VALUES (?,?,?,?,?,?,?,?)",
-            (ruleset, m.pid, m.mark, m.reason, m.note, m.by, m.at, m.job_id),
-        )
+        with self.db.transaction() as tx:
+            tx.execute(
+                "INSERT INTO pi_marks (ruleset, pid, mark, reason, note, by, at, job_id) VALUES (?,?,?,?,?,?,?,?)",
+                (ruleset, m.pid, m.mark, m.reason, m.note, m.by, m.at, m.job_id),
+            )
+            no = self._number(tx, ruleset, m.pid, number, m.at) if number is not None else None
+            if before_commit is not None:
+                before_commit(no)
+        return no
 
     def latest_marks(self, ruleset: str) -> dict[str, Mark]:
         out: dict[str, Mark] = {}
@@ -380,18 +396,22 @@ class SiteStore:
     def assign_screening_no(self, ruleset: str, pid: str, settings: StudySettings, at: str) -> str:
         """The study's next screening number for ``pid``; an existing number is kept (never re-used, never moved)."""
         with self.db.transaction() as tx:
-            # one numberer per study at a time, across console processes too
-            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"screening_no:{ruleset}",))
-            row = tx.fetchone("SELECT no FROM screening_no WHERE ruleset = ? AND pid = ?", (ruleset, pid))
-            if row is not None:
-                return str(row[0])
-            top = tx.fetchval("SELECT MAX(seq) FROM screening_no WHERE ruleset = ?", (ruleset,))
-            seq = max(int(top or 0) + 1, settings.first_no)
-            prefix = settings.screening_prefix or f"{ruleset}-"
-            no = f"{prefix}{seq:04d}"
-            tx.execute(
-                "INSERT INTO screening_no (ruleset, pid, seq, no, at) VALUES (?,?,?,?,?)", (ruleset, pid, seq, no, at)
-            )
+            return self._number(tx, ruleset, pid, settings, at)
+
+    @staticmethod
+    def _number(tx: Any, ruleset: str, pid: str, settings: StudySettings, at: str) -> str:
+        # one numberer per study at a time, across console processes too
+        tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"screening_no:{ruleset}",))
+        row = tx.fetchone("SELECT no FROM screening_no WHERE ruleset = ? AND pid = ?", (ruleset, pid))
+        if row is not None:
+            return str(row[0])
+        top = tx.fetchval("SELECT MAX(seq) FROM screening_no WHERE ruleset = ?", (ruleset,))
+        seq = max(int(top or 0) + 1, settings.first_no)
+        prefix = settings.screening_prefix or f"{ruleset}-"
+        no = f"{prefix}{seq:04d}"
+        tx.execute(
+            "INSERT INTO screening_no (ruleset, pid, seq, no, at) VALUES (?,?,?,?,?)", (ruleset, pid, seq, no, at)
+        )
         return no
 
     # ------------------------------------------------------------------ contact outcomes (FR-SCR-10c)

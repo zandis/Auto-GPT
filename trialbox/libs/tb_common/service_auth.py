@@ -59,6 +59,9 @@ TOKEN_HEADER = "X-TB-Service-Token"
 ACTOR_HEADER = "X-TB-Actor"
 ASSERTION_HEADER = "X-TB-Actor-Assertion"
 ROLE_HEADER = "X-TB-Actor-Role"  # the signed-in person's console role, covered by the assertion (D-146, review J-01)
+# D-273 (PV-5, PV-15): the studies the signed-in person may see, "*" for every study, covered by the assertion. Sent on
+# the chart-number calls (reveal, registry export) so that the orchestrator checks the study, not only the name.
+SCOPE_HEADER = "X-TB-Actor-Scope"
 ACTOR_KEYS_ENV = "TB_ACTOR_KEYS_FILE"
 ACTOR_LABEL = b"tb-actor-assertion/1"
 ACTOR_TTL = 120  # seconds an assertion is valid
@@ -216,33 +219,51 @@ def actor_key(token: str) -> bytes:
 
 
 _ROLE = re.compile(r"^[a-z]{1,20}$")
+_SCOPE = re.compile(r"^(\*|[A-Z0-9][A-Z0-9_-]{0,31}(,[A-Z0-9][A-Z0-9_-]{0,31}){0,63})$")
 
 
-def _actor_mac(key: bytes, actor: str, session: str, exp: int, role: str = "") -> str:
-    msg = f"v1\n{actor}\n{session}\n{exp}" + (f"\nrole={role}" if role else "")
+def scope_of(studies: tuple[str, ...] | list[str]) -> str:
+    """The ``X-TB-Actor-Scope`` value for an account's studies: ``*`` when the account sees every study (D-104)."""
+    return ",".join(sorted({s.strip().upper() for s in studies if s.strip()})) or "*"
+
+
+def in_scope(scope: str, study: str | None) -> bool:
+    """May an assertion with ``scope`` act on ``study``? ``*`` covers every study; a job without a study only ``*``."""
+    if scope == "*":
+        return True
+    return bool(study) and str(study).strip().upper() in scope.split(",")
+
+
+def _actor_mac(key: bytes, actor: str, session: str, exp: int, role: str = "", scope: str = "") -> str:
+    msg = f"v1\n{actor}\n{session}\n{exp}" + (f"\nrole={role}" if role else "") + (f"\nscope={scope}" if scope else "")
     return hmac.new(key, msg.encode(), hashlib.sha256).hexdigest()
 
 
-def sign_actor(actor: str, session: str | None = None, now: float | None = None, role: str = "") -> str | None:
-    """``v1.<expiry>.<session>.<hmac>`` for ``actor`` (and its ``role`` when given: the MAC covers it), or None when
-    this service holds no token (DEV/TEST)."""
+def sign_actor(
+    actor: str, session: str | None = None, now: float | None = None, role: str = "", scope: str = ""
+) -> str | None:
+    """``v1.<expiry>.<session>.<hmac>`` for ``actor`` (and its ``role`` and study ``scope`` when given: the MAC
+    covers them), or None when this service holds no token (DEV/TEST)."""
     tok = service_token()
     if not tok:
         return None
     sid = _SID.sub("", _SESSION.get() if session is None else session)[:32]
     exp = int(time.time() if now is None else now) + ACTOR_TTL
-    return f"v1.{exp}.{sid}.{_actor_mac(actor_key(tok), actor, sid, exp, role)}"
+    return f"v1.{exp}.{sid}.{_actor_mac(actor_key(tok), actor, sid, exp, role, scope)}"
 
 
-def actor_header(actor: str, session: str | None = None, role: str = "") -> dict[str, str]:
+def actor_header(actor: str, session: str | None = None, role: str = "", scope: str = "") -> dict[str, str]:
     """``X-TB-Actor`` for a signed-in user (percent-encoded, as a header is ASCII and names may be 日本語) and its
     signed assertion when this service holds a token (S-09, D-143). With ``role`` (D-146, review J-01) the console
     role travels in ``X-TB-Actor-Role`` and the assertion covers it, so the orchestrator authorises a console request
-    by the person's role instead of a mailbox."""
+    by the person's role instead of a mailbox. With ``scope`` (D-273) the person's studies travel in
+    ``X-TB-Actor-Scope``, covered the same way."""
     h = {ACTOR_HEADER: quote(actor, safe="@._-+")}
     if role:
         h[ROLE_HEADER] = role
-    signed = sign_actor(actor, session, role=role)
+    if scope:
+        h[SCOPE_HEADER] = scope
+    signed = sign_actor(actor, session, role=role, scope=scope)
     if signed:
         h[ASSERTION_HEADER] = signed
     return h
@@ -283,22 +304,26 @@ class Actor:
     session: str = ""
     verified: bool = False
     role: str = ""  # the console role the caller sent (D-146); covered by the assertion when verified
+    scope: str = ""  # the studies the caller sent ("*" is every study; D-273); covered by the assertion when verified
 
 
 def verify_actor(header: str | None, assertion: str | None, fallback: str | None = None,
-                 now: float | None = None, role: str | None = None) -> Actor:  # fmt: skip
+                 now: float | None = None, role: str | None = None, scope: str | None = None) -> Actor:  # fmt: skip
     """The audit actor of a call. With keys (any box with a token), ``X-TB-Actor`` counts only with a valid,
-    unexpired assertion over it (and over ``role``, the ``X-TB-Actor-Role`` header, when one is sent); without
-    (DEV/TEST, no token) the old rule of :func:`actor_of` applies."""
+    unexpired assertion over it (and over ``role`` and ``scope``, the ``X-TB-Actor-Role`` and ``X-TB-Actor-Scope``
+    headers, when sent); without (DEV/TEST, no token) the old rule of :func:`actor_of` applies."""
     rl = (role or "").strip()
     if rl and not _ROLE.match(rl):
         raise ActorError("the signed-in user's role is not a role")
+    sc = (scope or "").strip()
+    if sc and not _SCOPE.match(sc):
+        raise ActorError("the signed-in user's study scope is not a list of studies")
     keys = actor_keys()
     if keys is None:
         who = actor_of(header, fallback)
         if who is None:
             raise ActorError("no signed-in user (X-TB-Actor) on this call")
-        return Actor(who, role=rl)
+        return Actor(who, role=rl, scope=sc)
     if not header or not header.strip():
         raise ActorError("no signed-in user (X-TB-Actor) on this call")
     name = unquote(header.strip())[:200]
@@ -309,9 +334,9 @@ def verify_actor(header: str | None, assertion: str | None, fallback: str | None
     t = int(time.time() if now is None else now)
     if exp < t or exp > t + ACTOR_TTL + 5:
         raise ActorError("the signed-in user's assertion has expired")
-    if not any(hmac.compare_digest(_actor_mac(k, name, sid, exp, rl), mac) for k in keys):
+    if not any(hmac.compare_digest(_actor_mac(k, name, sid, exp, rl, sc), mac) for k in keys):
         raise ActorError("the signed-in user's assertion does not verify")
-    return Actor(name, sid, True, rl)
+    return Actor(name, sid, True, rl, sc)
 
 
 Refusal = tuple[int, str]

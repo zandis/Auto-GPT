@@ -95,7 +95,29 @@ def merge_sites(sites: list[Path], out: Path) -> int:
     return patients
 
 
+# the Japanese demo site of scenario J1 (T-503): one hospital in Asia/Tokyo, Japanese page locale, notes in Japanese
+# and English only (UX-004: a ja reader never sees zh-TW note text or a Taipei clock)
+SITE_JP: dict[str, Any] = {
+    "site": {
+        "id": "DEMO-J",
+        "name": "デモ病院J（合成）",
+        "tz": "Asia/Tokyo",
+        "locale": "ja",
+        "contact": "crc1@hospa.test",
+    }
+}
+
+
 def build(work: Path) -> tuple[Any, Any, Path, dict[str, Any]]:
+    """The demo's box on the ``ci`` hospital (tools.complete_run wraps this one-argument form)."""
+    return build_site(work)
+
+
+def build_site(
+    work: Path, profile: str = "ci", settings_update: dict[str, Any] | None = None
+) -> tuple[Any, Any, Path, dict[str, Any]]:
+    """``profile``: the ``tools.synth_hospital`` profile (``ci``: the JP + TW hospital; ``jp-ad``: the Japanese
+    memory-clinic site of scenario J1, with ``settings_update=SITE_JP``)."""
     from orchestrator import app as orch_app
 
     from tests.inproc_box import ingest_site, make_box
@@ -104,7 +126,7 @@ def build(work: Path) -> tuple[Any, Any, Path, dict[str, Any]]:
 
     synth = work / "synth"
     if not (synth / "summary.json").exists():
-        res = synth_run(synth, profile="ci", ref_date=REF)
+        res = synth_run(synth, profile=profile, ref_date=REF)
         if not res.passed:
             raise SystemExit("synthetic hospital checks failed:\n" + "\n".join(res.failures))
     summary = json.loads((synth / "summary.json").read_text(encoding="utf-8"))
@@ -114,10 +136,11 @@ def build(work: Path) -> tuple[Any, Any, Path, dict[str, Any]]:
     sec = work / "sec"
     sec.mkdir(parents=True, exist_ok=True)
     (sec / "site_hmac.key").write_bytes(KEY)
+    site_id = str((settings_update or {}).get("site", {}).get("id") or "DEMO-A")
     if not (work / "lake").exists():
-        ingest_site(hospital, work / "lake", sec, (REF - timedelta(days=1)).isoformat())
+        ingest_site(hospital, work / "lake", sec, (REF - timedelta(days=1)).isoformat(), site_id=site_id)
     shutil.rmtree(work / "box", ignore_errors=True)  # the box (jobs, mail, repo) starts fresh on every run
-    box = make_box(work / "box", work / "lake", sec, REF + timedelta(days=1))
+    box = make_box(work / "box", work / "lake", sec, REF + timedelta(days=1), settings_update=settings_update)
     orch_app._orch = box.orch
     return box, orch_client(orch_app.app), work / "box" / "repo", summary
 
