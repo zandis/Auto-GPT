@@ -157,6 +157,7 @@ _D1 = {
     "ModelManifest",
     "UpdateFile",
     "UpdateManifest",
+    "KeyRotation",
     "Settings",
     "SiteInfo",
     "Allowlist",

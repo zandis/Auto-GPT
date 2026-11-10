@@ -1,54 +1,93 @@
 #!/bin/sh
-# Apply a signed offline update bundle (SPEC §10.1 "Updates"; DECISIONS D-77, D-138). No auto-update: an operator
-# runs this, from the install folder, as root.
+# Apply a signed offline update bundle (SPEC §10.1 "Updates"; DECISIONS D-77, D-138, D-210). No auto-update: an
+# operator runs this, from the install folder, as root.
 #
-#   tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup]
+#   tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup] [--allow-downgrade REASON]
+#   tools/apply_update.sh status              # the update in progress (or not), the installed release, the keys
+#   tools/apply_update.sh rollback BUNDLE_ID  # roll back an update that was interrupted (power cut, kill -9)
+#   tools/apply_update.sh clean               # remove left-over rollback points of finished updates
 #
-# 1. verify: Ed25519 signature of manifest.json with the box's vendor key (TB_VENDOR_PUBKEY, default
-#    deploy/keys/vendor_ed25519.pub), manifest schema, every payload's size + sha256, no extra/unsafe members —
-#    in a network-less trialbox-py container (host python3 + cryptography is used when available);
-#    a tampered or unsigned bundle is REJECTED (exit 1) and nothing is changed;
+# 0. refused while deploy/updates/IN_PROGRESS.json exists (an unfinished update: `status`, then `rollback`);
+# 1. verify (tools/verify_update.py), before any payload is staged: the Ed25519 signature with a key the box trusts
+#    (deploy/updates/trust.json, else deploy/keys/vendor_ed25519.pub and vendor_ed25519.next.pub), key_id, the
+#    manifest schema, not_after, a key rotation (accepted once), release_seq above the installed one (an older or
+#    equal one only with --allow-downgrade REASON, audited as update.downgrade), min_installed_version, the
+#    compatibility table compat.json against deploy/updates/installed.json, release.json's image digests against
+#    images.lock (a null digest is refused), the free space to stage; then every payload's size and sha256 while it
+#    is copied — in a network-less trialbox-py container running this install's verifier (host python3 +
+#    cryptography is used when available). A refused bundle changes nothing (exit 1);
 # 2. stage the verified payloads (re-hashed while copying); --dry-run stops here;
-# 3. the update path (python3 -m tools.trialbox update; tools/trialbox/update.py, D-138):
-#    backup first (D-126; refused without the backup key and a target) -> rollback point (images tagged
-#    <repo>:rollback-<bundle>, overwritten models kept, local database dumps) -> apply (docker load, models, other
-#    files) -> migrate and restart (the services migrate at start) -> rulesets (criteria-compiler import with the
-#    approval and equivalence gates) -> check (every service healthy; TB_UPDATE_CHECK_CMD) -> `update.applied`
-#    in the audit log. Any failure after the rollback point: images, models and database are put back, the box
-#    restarts and is checked again, `update.rolled_back` is audited, exit 1.
+# 3. the update path (python3 -m tools.trialbox update; tools/trialbox/update.py): preflight again under the update
+#    lock (compat.json against the schema versions read from the database, release_seq, the backup key and target,
+#    the free space on every file system it writes, with the numbers) — a refused preflight changes nothing; then
+#    the marker deploy/updates/IN_PROGRESS.json -> backup first (D-126) -> rollback point (images tagged
+#    <repo>:rollback-<bundle>, overwritten models kept, database dumps encrypted with a per-update key,
+#    rulesets-data tagged) -> apply -> migrate and restart -> rulesets -> check -> reference data (its own step) ->
+#    installed.json, trust.json, `update.applied` audited, the rollback point deleted, the marker removed.
+#    Any failure from apply to check: everything is put back, `update.rolled_back` audited, the marker removed;
+#    if the rollback itself fails the marker stays (restore from the backup, RUNBOOK §5).
 #    A box that is not running yet (the first install) only loads the payloads; install.sh audits it after start.
 #    --target demo: the one-container demo VM (docs/RUNBOOK.md §11), checked by running e2e_simple in the new container.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-BUNDLE=${1:?usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup]}
+UPDATES="$ROOT/deploy/updates"
+USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup] [--allow-downgrade REASON] | status | rollback BUNDLE_ID | clean"
+case "${1:-}" in
+  status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" "$1" ;;
+  rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" rollback "${2:?$USAGE}" ;;
+  ""|-h|--help) echo "$USAGE" >&2; exit 2 ;;
+esac
+BUNDLE=$1
 shift
-DRY=""; TARGET=${TB_UPDATE_TARGET:-compose}; NOBACKUP=""
+DRY=""; TARGET=${TB_UPDATE_TARGET:-compose}; NOBACKUP=""; DOWNGRADE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=--dry-run ;;
     --target) TARGET=$2; shift ;;
     --no-backup) NOBACKUP=--no-backup ;;
+    --allow-downgrade) DOWNGRADE=${2:?--allow-downgrade needs a reason}; shift ;;
     *) echo "apply_update: unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
 PUBKEY=${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}
+NEXTKEY="$ROOT/deploy/keys/vendor_ed25519.next.pub"
 IMAGE=${TB_PY_IMAGE:-trialbox-py:1.0.0}
 
 [ -f "$BUNDLE" ] || { echo "no such bundle: $BUNDLE" >&2; exit 2; }
-[ -f "$PUBKEY" ] || { echo "vendor public key not installed: $PUBKEY" >&2; exit 2; }
+if [ -f "$UPDATES/IN_PROGRESS.json" ]; then
+  echo "update REFUSED: an update is unfinished ($UPDATES/IN_PROGRESS.json)." >&2
+  echo "  tools/apply_update.sh status, then tools/apply_update.sh rollback <bundle> (nothing was changed)" >&2
+  exit 1
+fi
+[ -f "$UPDATES/trust.json" ] || [ -f "$PUBKEY" ] || { echo "vendor public key not installed: $PUBKEY" >&2; exit 2; }
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/tb-update.XXXXXX")
-trap 'rm -rf "$STAGE"' EXIT INT TERM
+trap 'rm -rf "$STAGE" "$STAGE.summary.json"' EXIT INT TERM HUP
 BUNDLE_ABS=$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")
-PUB_ABS=$(cd "$(dirname "$PUBKEY")" && pwd)/$(basename "$PUBKEY")
 
-if [ -z "${TB_VERIFY_IN_DOCKER:-}" ] && PYTHONPATH="$ROOT/libs" python3 -c "import cryptography, tb_contracts" 2>/dev/null; then
-  SUMMARY=$(PYTHONPATH="$ROOT/libs" python3 "$ROOT/tools/verify_update.py" "$BUNDLE_ABS" --pubkey "$PUB_ABS" --stage "$STAGE") \
+# the verifier's arguments: the trust and the installed record are read only, and only when they exist
+set -- "$BUNDLE_ABS" --stage "$STAGE"
+[ -f "$UPDATES/trust.json" ] && set -- "$@" --trust "$UPDATES/trust.json"
+[ -f "$UPDATES/installed.json" ] && set -- "$@" --installed "$UPDATES/installed.json"
+[ -f "$ROOT/deploy/images.lock" ] && set -- "$@" --images-lock "$ROOT/deploy/images.lock"
+if [ ! -f "$UPDATES/trust.json" ]; then
+  PUBKEY=$(cd "$(dirname "$PUBKEY")" && pwd)/$(basename "$PUBKEY")
+  set -- "$@" --pubkey "$PUBKEY"
+  [ -f "$NEXTKEY" ] && set -- "$@" --pubkey "$NEXTKEY"
+fi
+[ -n "$DOWNGRADE" ] && set -- "$@" --allow-downgrade "$DOWNGRADE"
+
+if [ -z "${TB_VERIFY_IN_DOCKER:-}" ] && PYTHONPATH="$ROOT/libs:$ROOT" python3 -c "import cryptography, tb_contracts" 2>/dev/null; then
+  SUMMARY=$(PYTHONPATH="$ROOT/libs:$ROOT" python3 "$ROOT/tools/verify_update.py" "$@") \
     || { echo "update REJECTED: $BUNDLE" >&2; exit 1; }
 else
-  SUMMARY=$(docker run --rm --network none --user "$(id -u):$(id -g)" \
-      -v "$BUNDLE_ABS:/in/bundle.tar:ro" -v "$PUB_ABS:/in/vendor.pub:ro" -v "$STAGE:/stage" \
-      "$IMAGE" python /app/tools/verify_update.py /in/bundle.tar --pubkey /in/vendor.pub --stage /stage) \
+  # this install's verifier (mounted read-only), not the one inside the image (the image may be a release older than
+  # the manifest format); every host path keeps its own absolute path inside the container
+  MOUNTS="-v $ROOT:$ROOT:ro -v $BUNDLE_ABS:$BUNDLE_ABS:ro -v $STAGE:$STAGE"
+  [ -f "$PUBKEY" ] && MOUNTS="$MOUNTS -v $PUBKEY:$PUBKEY:ro"
+  # shellcheck disable=SC2086
+  SUMMARY=$(docker run --rm --network none --user "$(id -u):$(id -g)" $MOUNTS -e PYTHONPATH="$ROOT/libs:$ROOT" \
+      "$IMAGE" python "$ROOT/tools/verify_update.py" "$@") \
     || { echo "update REJECTED: $BUNDLE" >&2; exit 1; }
 fi
 echo "verified: $SUMMARY"
@@ -59,8 +98,7 @@ if [ "$DRY" = "--dry-run" ]; then
   exit 0
 fi
 
-printf '%s' "$SUMMARY" > "$STAGE.summary.json"
-trap 'rm -rf "$STAGE" "$STAGE.summary.json"' EXIT INT TERM
+( umask 077; printf '%s' "$SUMMARY" > "$STAGE.summary.json" )
 cd "$ROOT"
 python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE.summary.json" --target "$TARGET" \
   --deploy "$ROOT/deploy" $NOBACKUP
