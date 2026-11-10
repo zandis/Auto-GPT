@@ -387,7 +387,7 @@ class ComposeBox(_DockerImages):
             raise
         return ", ".join(targets)
 
-    def _backup_container(self, rb: Path, pub: Path, targets: list[str]) -> None:
+    def _backup_container(self, rb: Path, pub: Path, targets: list[str], keep: int | None = None) -> None:
         """``trialbox backup`` in a one-off container on trialbox-net with every volume read-only and the dumps just
         taken (``TB_PG_DUMP_DIR``): the image has no pg_dump, the db container has no Python. Passwords travel in
         the environment (``-e NAME`` without a value), never on the command line."""
@@ -416,6 +416,7 @@ class ComposeBox(_DockerImages):
             argv += ["-v", f"{t}:/backup/{i}"]
             tos += ["--to", f"/backup/{i}"]
         argv += [image, "python", "-m", "tools.trialbox", "backup", *tos, "--public", "/in/backup.pub", *dirs]
+        argv += ["--keep", str(keep)] if keep is not None else []  # D-188: the schedule's TB_BACKUP_KEEP
         hapi_pw = self.env.get("POSTGRES_PASSWORD", "")
         env = {
             "TB_DB_URL": self.env.get("TB_DB_URL", ""),
@@ -454,6 +455,9 @@ class ComposeBox(_DockerImages):
             self.run(self._c("cp", str(pack), "criteria-compiler:/tmp/refdata-update.tar"))
             self.run(self._c("exec", "-T", "criteria-compiler", "python", "-m", "tb_common.refdata", "load",
                              "/tmp/refdata-update.tar", "--by", f"update:{plan.bundle_id}"), timeout=7200)  # fmt: skip
+            kept = self.deploy / "refdata" / "loaded"  # D-187: a restore loads the pack again from here
+            kept.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(pack, kept / pack.name)
             done.append(pack.name)
         return done
 
