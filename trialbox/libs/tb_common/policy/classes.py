@@ -167,6 +167,7 @@ _D1 = {
     "Schedule",
     "RegistrySource",
     "Retention",
+    "FeedCompleteness",  # T-611
     "CalibrationDefaults",
     "TwpasSettings",
     "CohortSettings",

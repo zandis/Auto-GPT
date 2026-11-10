@@ -355,15 +355,24 @@ def run(db: Database, today: date | None = None) -> list[dict[str, Any]]:
     return out
 
 
-def relational_violations(tx: Any) -> dict[str, int]:
+def relational_violations(tx: Any, person_only: bool = False) -> dict[str, int]:
     """T-611: the Relational conformance checks of :func:`run` (``isRequired``, ``isPrimaryKey``, ``isForeignKey``,
     threshold 0) as ``"<check> <table>.<field>" -> violated rows``, inside the caller's transaction: what a feed load
-    compares before and after its own writes (``omop.load``). A violated row of these is a ``fail`` in :func:`run`."""
+    compares before and after its own writes (``omop.load``). A violated row of these is a ``fail`` in :func:`run`.
+    ``person_only``: only the ``isForeignKey`` checks of references to ``person``."""
 
     def n(sql: str) -> int:
         return int(tx.fetchval(sql) or 0)
 
     out: dict[str, int] = {}
+    if person_only:
+        for table, col, rtable, rcol in foreign_keys():
+            if rtable == "person":
+                out[f"isForeignKey {table}.{col}"] = n(
+                    f"SELECT count(*) FROM {table} t WHERE t.{col} IS NOT NULL AND NOT EXISTS "
+                    f"(SELECT 1 FROM {rtable} r WHERE r.{rcol} = t.{col})"
+                )
+        return out
     for table, cols in required_columns().items():
         for col in cols:
             out[f"isRequired {table}.{col}"] = n(f"SELECT count(*) FROM {table} WHERE {col} IS NULL")

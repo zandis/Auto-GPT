@@ -12,6 +12,7 @@ import csv
 import json
 import os
 import shutil
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -38,7 +39,8 @@ class _Rebuild:
     """The adapter's lake hook: a real lake (``real``) or a stand-in that only moves ``CURRENT``."""
 
     def __init__(self, lake_dir: Path, real: bool = False) -> None:
-        self.lake_dir, self.real, self.calls = lake_dir, real, []
+        self.lake_dir, self.real = lake_dir, real
+        self.calls: list[str] = []
 
     def __call__(self, snap: str, nd: Path) -> RebuildResult:
         self.calls.append(snap)
@@ -115,11 +117,22 @@ def _assert_held(cfg: AdapterConfig, rb: _Rebuild, rep: Any, *needles: str) -> N
 
 # ------------------------------------------------------------------------- the four bad feeds of the trace
 def test_the_four_bad_feeds_of_the_trace_are_held(good_lake: Path, tmp_path: Path) -> None:
-    variants = {
-        "lab.csv missing": lambda f: (f / "lab.csv").unlink(),
-        "patient.csv header only": lambda f: _rewrite(f / "patient.csv", lambda rows: []),
-        "medication.csv missing": lambda f: (f / "medication.csv").unlink(),
-        "empty export": lambda f: [p.unlink() for p in f.glob("*.csv")],
+    def drop(*names: str) -> Callable[[Path], None]:
+        def go(f: Path) -> None:
+            for p in f.glob("*.csv"):
+                if not names or p.stem in names:
+                    p.unlink()
+
+        return go
+
+    def header_only(f: Path) -> None:
+        _rewrite(f / "patient.csv", lambda rows: [])
+
+    variants: dict[str, Callable[[Path], None]] = {
+        "lab.csv missing": drop("lab"),
+        "patient.csv header only": header_only,
+        "medication.csv missing": drop("medication"),
+        "empty export": drop(),
     }
     needles = {
         "lab.csv missing": "lab: table missing",
@@ -282,7 +295,8 @@ def test_the_readiness_page_names_the_held_tables(good_lake: Path, tmp_path: Pat
         class audit:  # noqa: N801 - the SiteSetup attribute it stands for
             directory = tmp_path / "audit"
 
-    assert last_feed_night(tmp_path / "audit")["event"] == "ingest.held"
+    rec = last_feed_night(tmp_path / "audit")
+    assert rec is not None and rec["event"] == "ingest.held"
     item = feed_held(_Svc())  # type: ignore[arg-type]
     assert item is not None and item["key"] == "patients.feed_held" and "lab" in item["tables"]
     assert item["snapshot"] == BAD and item["link"] == "/admin?tab=sources"

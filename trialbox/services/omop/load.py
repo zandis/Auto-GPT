@@ -572,7 +572,7 @@ def _load(
             rep.override = _tombstone_guard(tx, batch, recs)
             from omop.dqd import relational_violations
 
-            dqd_before = relational_violations(tx)
+            dqd_before = relational_violations(tx, person_only=True)
         concepts = Concepts(tx)
         concepts.prepare((c for r in recs for c in r.codes), (p for r in recs for p in r.std_only))
         _resolve(tx, kind, batch, recs, concepts, rep)
@@ -622,13 +622,14 @@ def _tombstone_guard(tx: Any, batch: str, recs: list[Rec]) -> str:
 
 
 def _dqd_hold(tx: Any, batch: str, before: dict[str, int]) -> str:
-    """T-611 (DATA-009): a feed batch after which a Relational DQD check (a required field, a primary key, a foreign
-    key: a fact of a person who left the feed) fails on more rows than before it is held: refused (``_Refused``, the
-    transaction rolls back, nothing is loaded and no record is tombstoned) unless ``TB_FEED_DROP_OVERRIDE`` names this
-    batch with a reason, which is returned (kept in ``tb_load``)."""
+    """T-611 (DATA-009): a feed batch after which the DQD ``isForeignKey`` check of a ``person_id`` (a fact whose person
+    left the feed) fails on more rows than before it is held: refused (``_Refused``, the transaction rolls back,
+    nothing is loaded and no record is tombstoned) unless ``TB_FEED_DROP_OVERRIDE`` names this batch with a reason,
+    which is returned (kept in ``tb_load``). Other Relational checks are not held on: a hospital export may name a
+    visit it does not send, which DQD reports and the box has always loaded."""
     from omop.dqd import relational_violations
 
-    after = relational_violations(tx)
+    after = relational_violations(tx, person_only=True)
     worse = [f"{k}: {before.get(k, 0)} -> {v}" for k, v in sorted(after.items()) if v > before.get(k, 0)]
     if not worse:
         return ""
