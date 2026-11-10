@@ -33,6 +33,14 @@ Rules (each refusal is a :class:`PromptRegistryError` with a stable ``reason``):
 
 A version named in a job record (``id@version``, :func:`resolve_ref`) keeps resolving to that text after a newer
 version is registered. :func:`active_set` is the admin page's list (one entry per id, the newest).
+
+Ruleset pins (D-318, URS-PI-06). An approved ruleset names the prompts it runs with in its manifest
+(``prompt_pins``: id -> version, text sha256, schema sha256; :meth:`PromptRegistry.pins` writes them at approval).
+:meth:`PromptRegistry.pinned` resolves a pin only when the registry still holds that version with the same text and
+schema (``prompt_pin_changed`` otherwise), so SCREEN keeps the approved text after a newer version is registered.
+:meth:`PromptRegistry.pin_drift` lists the pins whose prompt has a newer registered version: that study needs the
+investigator's re-approval. A manifest from before D-318 pins only a version, through ``models.judge_prompt``
+(``judge_v4``): :func:`manifest_pins` reads it as a pin without shas.
 """
 
 from __future__ import annotations
@@ -501,6 +509,55 @@ class PromptRegistry:
                 "prompt_unqualified", f"{e.ref}: record {q['record']} does not name this prompt, text and schema"
             )
 
+    # ------------------------------------------------------------------------------------------------ ruleset pins
+    def pins(self, refs: dict[str, int | None]) -> dict[str, dict[str, Any]]:
+        """The ``prompt_pins`` an approval writes: per prompt id the given version (the active one when None), with
+        its text sha256 and schema sha256, each verified as :meth:`get` verifies it."""
+        out: dict[str, dict[str, Any]] = {}
+        for pid in sorted(refs):
+            e = self._verify(self.entry(pid, refs[pid])).entry
+            pin: dict[str, Any] = {"version": e.version, "sha256": e.sha256}
+            if e.schema_sha256:
+                pin["schema_sha256"] = e.schema_sha256
+            out[pid] = pin
+        return out
+
+    def pinned(self, prompt_id: str, pin: dict[str, Any], **kw: Any) -> ResolvedPrompt:
+        """The pinned version of ``prompt_id``, refused (``prompt_pin_changed``) unless the registry holds it with
+        the pinned text and schema (a pin without shas, from before D-318, checks the version only)."""
+        r = self.get(prompt_id, int(pin["version"]), **kw)
+        want = {k: pin.get(k) for k in ("sha256", "schema_sha256") if pin.get(k)}
+        have = {"sha256": r.entry.sha256, "schema_sha256": r.entry.schema_sha256}
+        bad = sorted(k for k, v in want.items() if have[k] != v)
+        if bad:
+            raise PromptRegistryError(
+                "prompt_pin_changed",
+                f"{r.ref}: the approved ruleset pinned another {' and '.join(bad)}: the investigator must re-approve",
+            )
+        return r
+
+    def pin_drift(self, pins: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        """One row per pin that is no longer the registry's current prompt: ``newer`` (a newer version is registered:
+        the study needs re-approval, SCREEN keeps the pinned one), ``changed`` (the pinned version is gone or its text
+        or schema differs: SCREEN refuses it) or ``unknown`` (the id is not registered)."""
+        out: list[dict[str, Any]] = []
+        for pid in sorted(pins):
+            pin = pins[pid]
+            ref = f"{pid}@{pin.get('version')}"
+            vs = self.versions(pid)
+            if not vs:
+                out.append({"id": pid, "pinned": ref, "active": None, "state": "unknown"})
+                continue
+            active = f"{pid}@{vs[-1]}"
+            try:
+                self.pinned(pid, pin, environment="DEV")
+            except PromptRegistryError:
+                out.append({"id": pid, "pinned": ref, "active": active, "state": "changed"})
+                continue
+            if int(pin["version"]) < vs[-1]:
+                out.append({"id": pid, "pinned": ref, "active": active, "state": "newer"})
+        return out
+
     def problems(self, environment: str | None = None) -> list[str]:
         """Every entry checked as :meth:`get` would (the start check): an empty list is a clean registry."""
         out: list[str] = []
@@ -547,6 +604,36 @@ def active_set() -> list[dict[str, Any]]:
     """The active prompt set for the admin models page: one row per id (newest version) with its sha, schema,
     approver, date and qualification."""
     return [e.as_dict() for e in default_registry().active_set()]
+
+
+_PINNED_NAME = re.compile(r"([a-z][a-z0-9_]*)_v([1-9][0-9]*)")
+
+
+def manifest_pins(manifest: Any) -> dict[str, dict[str, Any]]:
+    """The prompt pins of a ruleset manifest (D-318): ``prompt_pins`` when the approval wrote them, else the version
+    a manifest from before D-318 names in ``models.judge_prompt`` (``judge_v4``: a pin without shas), else none."""
+    pins = getattr(manifest, "prompt_pins", None)
+    if pins:
+        return {k: (v.model_dump(exclude_none=True) if hasattr(v, "model_dump") else dict(v)) for k, v in pins.items()}
+    models = getattr(manifest, "models", None)
+    name = getattr(models, "judge_prompt", None) if models is not None else None
+    m = _PINNED_NAME.fullmatch(name or "")
+    return {m.group(1): {"version": int(m.group(2))}} if m else {}
+
+
+def pinned_name(manifest: Any, prompt_id: str, default: str) -> str:
+    """The ``tb_common.llm.load_prompt`` name SCREEN uses for ``prompt_id`` (``judge_v4``): the pinned version,
+    checked against the registry (:meth:`PromptRegistry.pinned`), or ``default`` when the manifest pins none."""
+    pin = manifest_pins(manifest).get(prompt_id)
+    if pin is None:
+        return default
+    r = default_registry().pinned(prompt_id, pin)
+    return f"{r.entry.id}_v{r.entry.version}"
+
+
+def pin_drift(manifest: Any) -> list[dict[str, Any]]:
+    """:meth:`PromptRegistry.pin_drift` of a manifest's pins (:func:`manifest_pins`) on the default registry."""
+    return default_registry().pin_drift(manifest_pins(manifest))
 
 
 def main(argv: list[str] | None = None) -> int:

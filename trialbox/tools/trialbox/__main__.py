@@ -153,6 +153,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"doctor --platform: {exc}", file=sys.stderr)
                 return 1
             inp.env = pinp.env  # the base checks see what the pods see (the rendered ConfigMaps included)
+            inp.platform = True  # no host cron on a cluster: site_tz compares no host zone (D-315)
             checks = doctor.run(inp, which) + pf.run(pinp)
             if a.evidence is not None:
                 a.evidence.parent.mkdir(parents=True, exist_ok=True)

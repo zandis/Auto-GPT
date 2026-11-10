@@ -4,19 +4,24 @@
 # extended CSVs (vital, note, ...) use canonical column names too.
 # 1. Copy to services/adapter/mapping/jp_core/<site>.yaml (keep `extends`: the resource definitions are shared).
 # 2. Replace the sample codes in jlac10_to_loinc.csv (JLAC10 -> LOINC), byomei_to_icd10.csv (標準病名 -> ICD-10, used
-#    only when PRB-3 carries no ICD-10 and the site's licensed MEDIS release has no row) and yj_to_atc.csv (YJ -> ATC,
-#    used only when RXE-2 carries no ATC). Every sample row says `verify`: they are synthetic. Load the site's own
+#    only when PRB-3 carries no ICD-10 and the site's licensed MEDIS release has no row; WHO ICD-10, not ICD-10-CM)
+#    and yj_to_atc.csv (YJ -> ATC, used only when RXE-2 carries no ATC). Every sample row says `verify`: they are synthetic. Load the site's own
 #    MEDIS, JLAC10 and YJ releases with `python -m adapter.licensed load` (D-137).
 # 3. python tools/mapping_check.py --mapping <file> --source ssmix2 --path <storage root>
 # 4. settings.yaml: data_source: {type: ssmix2, path: <storage root>, mapping: mapping/jp_core/<site>.yaml}
 # JP Core (D-137): the shared resources carry JP Core 1.1.0 profiles here (`profiles`), with the elements JP Core asks
 # for that the base set lacks (`overlay`); a sample is checked against them at every ingest (validate/jpcore.py).
+# Japan codes diagnoses in WHO ICD-10 (2013, through MEDIS 標準病名), not ICD-10-CM (D-314): every Condition carries
+# the WHO code under `systems.icd10` (http://hl7.org/fhir/sid/icd-10), so E14, I64 or F00 stay the WHO codes they are.
+# Where ICD-10-CM has the very same code (E11.9, M10.9) the reader also gives it as ICD-10-CM (`icd10cm`, D-137's
+# rule) and that coding comes first, the one the lake reads; a WHO-only code reaches the lake under the WHO URI.
 version: 1
 name: ssmix2_site
 extends: ../tw_core/demo_his.yaml
 tz: Asia/Tokyo
 fhir_profiles: jp-core   # the ingest checks a sample against JP Core (adapter.validate.jpcore)
 systems:
+  icd10: http://hl7.org/fhir/sid/icd-10        # WHO ICD-10 (D-314), Japan's diagnosis code system
   nhi_drug: urn:oid:1.2.392.100495.20.1.73   # YJ code (JP Core NamingSystem); the canonical column keeps its name nhi_drug_code
   hot9: urn:oid:1.2.392.200119.4.403.1       # HOT9 (JP Core NamingSystem)
   lab_local: urn:oid:1.2.392.200119.4.504    # JLAC10 (JP Core)
@@ -70,7 +75,9 @@ overlay:
   - type: Condition
     table: diagnosis
     elements:
-      code.coding[1]: {builder: coding, column: byomei_code, system: byomei, display_column: byomei_name}
+      code.coding[0]: {builder: coding, column: icd10cm, system: icd10cm}  # only when ICD-10-CM has the same code
+      code.coding[1]: {builder: coding, column: icd10, system: icd10}      # WHO ICD-10, always (D-314)
+      code.coding[2]: {builder: coding, column: byomei_code, system: byomei, display_column: byomei_name}
       code.text: {column: byomei_name}
   - type: Observation
     table: lab

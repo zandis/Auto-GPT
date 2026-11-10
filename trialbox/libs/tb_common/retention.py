@@ -53,12 +53,25 @@ def defaults_for(country: str, overrides: dict[str, object] | None = None) -> di
     return out
 
 
-def snapshots_to_keep(snapshots: Iterable[str], today: date, nightly: int = 3, month_end_months: int = 36) -> set[str]:
+def snapshots_to_keep(
+    snapshots: Iterable[str],
+    today: date,
+    nightly: int = 3,
+    month_end_months: int = 36,
+    good: Iterable[str] | None = None,
+) -> set[str]:
     """Keep the last ``nightly`` snapshots plus the last snapshot of each of the last ``month_end_months`` completed
     months (the month-end history FEAS/COHORT use; the current month is covered by the nightly ones). Snapshot names
-    are ISO dates."""
-    snaps = sorted(set(snapshots))
+    are ISO dates.
+
+    ``good`` (T-611, DATA-001): the snapshots whose night passed. When given, only they count: the last ``nightly``
+    good ones and each month's last good one are kept, so held nights never push a good snapshot out; a held night
+    newer than the oldest kept good one stays for the steward, an older one goes."""
+    every = sorted(set(snapshots))
+    snaps = every if good is None else sorted(set(good) & set(every))
     keep = set(snaps[-nightly:]) if nightly > 0 else set()
+    if good is not None and keep:
+        keep |= {s for s in every if s > min(keep) and s not in snaps}
     this_month = today.replace(day=1)
     oldest = add_months(this_month, -month_end_months)
     by_month: dict[str, str] = {}

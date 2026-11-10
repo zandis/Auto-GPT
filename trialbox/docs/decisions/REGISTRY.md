@@ -1,13 +1,12 @@
 # Decision number registry
 
-One row per decision number or range. A number belongs to the holder in its row and to nobody else. This file is
-the integrator's: **the row is added before the branch is cut**, in a one-line pull request or in the integrator's
-own merge commit. A card's pull request never edits it, so two pull requests never conflict here. Rules: TB-PLAN-06
-§6.1 rule 3 (`docs/plan/28-master-plan-v6.md`), D-306.
+One row per decision number or range. A number belongs to the holder in its row and to nobody else. A pull request
+that needs a number takes the next free one and adds its row, or writes "decision number needed" (D-311: no waiting
+for the integrator; the old rule "the row is added before the branch is cut" is struck). Rules: D-306, D-311.
 
 `python -m tools.decisions_index --check` (CI job `docs`) holds this table against the text: the frozen log
-`docs/DECISIONS.md` (entries D-01 to D-270) and the files `docs/decisions/D-nnn-<slug>.md`. It fails on a number
-written twice, a decision file with no row here, a new entry in the frozen log, or a number that no row covers.
+`docs/DECISIONS.md` (entries D-01 to D-270) and the files `docs/decisions/D-nnn-<slug>.md`. It fails only on a number
+written twice; a file with no row, a new log entry or a gap is printed as a note (D-311).
 `python -m tools.decisions_index` prints the full index with titles.
 
 States:
@@ -137,7 +136,15 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
 | D-308 | reserved | T-501 | held for T-501 |
-| D-309..D-312 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-309 | merged | T-507 | criterion labels in the site's languages, the label step at approval, the test-model label (file) |
+| D-310 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-311 | merged | owner rule, branch `agent/no-dev-gates` | no development gates; gates apply only when real patient data is read; CGMH covered by the existing CGRD approval (file) |
+| D-312 | merged | T-611 | feed completeness gate before publish (file) |
 | D-313 | merged | T-012a | `trialbox eval qualify` and the qualification record (file) |
-| D-314..D-318 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-314 | merged | T-614 | Japan ICD-10 as WHO ICD-10: WHO URI, ICD-10-CM twin only for the same code, WHO-only grouper categories (file) |
+| D-315 | merged | T-656 | site time zone as one setting (file) |
+| D-316 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-317 | merged | T-618 | reference data remainder (file) |
+| D-318 | merged | T-101b | the approved ruleset pins its prompt and terminology release; approval needed on a change (file) |
 | D-319 | merged | T-655 | the review fixes of PR #71: what changes from D-205 and D-207 (file) |
+| D-320 | merged | T-505a | the API sign-in asks for the second factor; one channel per session (file) |

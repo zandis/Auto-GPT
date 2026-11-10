@@ -6,7 +6,6 @@ import base64
 from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from tb_common import labvalue
 
@@ -177,8 +176,10 @@ def _ref_id(ref: dict[str, Any] | None) -> str | None:
 
 
 class Flattener:
-    def __init__(self, tz: str = "Asia/Taipei") -> None:
-        self.zone = ZoneInfo(tz)
+    def __init__(self, tz: str | None = None) -> None:
+        from tb_common.config import site_zone
+
+        self.zone = site_zone(tz)  # the site's zone; TB_TZ when not given, never a default (D-315)
 
     def ts(self, value: str | None) -> datetime | None:
         """FHIR date/dateTime/instant -> naive local timestamp in the hospital zone."""

@@ -24,6 +24,7 @@ from registry.app import create_app as registry_app
 from registry.registry import Registry
 from starlette.concurrency import run_in_threadpool
 from tb_common.audit import AuditLog
+from tb_common.config import site_tz
 from tb_common.http import make_app
 from tracestore.store import TraceStore
 
@@ -42,7 +43,7 @@ def from_env() -> Gateway:
     return Gateway(
         policy,
         Registry.from_env(e),
-        AuditLog(Path(e.get("TB_AUDIT_DIR") or "/data/audit"), e.get("TZ_SITE", "Asia/Taipei")),
+        AuditLog(Path(e.get("TB_AUDIT_DIR") or "/data/audit"), site_tz(None, e)),
         GatewayConfig.from_env(),
         traces=traces,
         swap=swap,

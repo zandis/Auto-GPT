@@ -32,6 +32,19 @@ def approved_or_none(ctx: Ctx, ruleset: str, version: str | None = None, run: bo
         return None
 
 
+def pin_state(rs: Ruleset) -> dict[str, Any]:
+    """``tb_common.ruleset.approval_state`` of an approved ruleset against this box's prompt registry and terminology
+    release (D-318): ``approval_needed`` sends the same criteria to the investigator again as a new draft."""
+    from criteria_compiler.terminology import resolver
+    from tb_common.ruleset import approval_state
+
+    try:
+        release: str | None = resolver.current_release()
+    except Exception:  # the vocabulary cannot be read: the run itself refuses (D-301); no terminology reason here
+        release = None
+    return approval_state(rs.manifest, terminology_release=release)
+
+
 def protocol_input(ctx: Ctx) -> JobFile | None:
     """The protocol / rule document among the attachments (PDF, DOCX first; then XLSX/TXT/MD/CSV)."""
     files = [f for f in ctx.job.inputs or [] if f.filename.lower().endswith(DOC_EXT)]
@@ -61,7 +74,7 @@ def compile_draft(ctx: Ctx, ruleset: str, doc: JobFile, approved: Ruleset | None
     opts = dict(ctx.job.options or {})
     if approved is not None:
         d = ctx.services.compiler.diff(DiffRequest(ruleset=ruleset, new_doc_key=key, job_id=ctx.job.job_id))
-        if not (d.changed or d.added or d.removed):
+        if not (d.changed or d.added or d.removed) and pin_state(approved)["state"] != "approval_needed":
             return None
     ctx.state("compiling")
     copts = {k: v for k, v in opts.items() if k in ("lookback",)}

@@ -130,6 +130,32 @@ def load_approved(
     return rs
 
 
+def approval_state(
+    manifest: RulesetManifest,
+    *,
+    terminology_release: str | None = None,
+    prompt_drift: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Whether an approved ruleset still stands as the investigator approved it (D-318, URS-PI-06).
+
+    ``approval_needed`` when a prompt it pins has a newer registered version or its pinned text changed
+    (``tb_llm.prompt_registry.pin_drift``), or when the box's terminology release (``terminology_release``, None when
+    it cannot be read) is not the one it was compiled against (D-301). A prompt change leaves SCREEN on the pinned
+    prompt until the re-approval; a terminology change refuses the run until it is recompiled and re-approved, because
+    the box holds only its current release. ``reasons`` lists each cause for the page."""
+    if manifest.status != "approved":
+        return {"state": "draft", "reasons": []}
+    if prompt_drift is None:
+        from tb_llm.prompt_registry import pin_drift
+
+        prompt_drift = pin_drift(manifest)
+    reasons: list[dict[str, Any]] = [{"kind": "prompt", **d} for d in prompt_drift]
+    pinned = manifest.terminology_release
+    if pinned and terminology_release and pinned != terminology_release:
+        reasons.append({"kind": "terminology", "pinned": pinned, "active": terminology_release, "state": "newer"})
+    return {"state": "approval_needed" if reasons else "approved", "reasons": reasons}
+
+
 def _has_tag(repo_dir: Path, tag: str) -> bool:
     from dulwich.repo import Repo
 
