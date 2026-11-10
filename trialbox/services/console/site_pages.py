@@ -25,6 +25,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import re
+from datetime import timedelta
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -67,6 +68,7 @@ _NEXT = re.compile(r"(?i)next|what (do|should) i do|次|何を|どうすれば|�
 # that see every study. A study-scoped account (an SMO or CRO coordinator, D-104) opens only what is per study: its own
 # studies' readiness and the help. Every other site page and API answers 404, as another study's pages do.
 PER_STUDY = frozenset({"/site", "/site/help", "/api/v1/site/readiness"})
+ASK_PER_HOUR = 60  # D-273 (PV-7): one patient's "why" answers per person and hour (the candidate pages' default)
 
 
 def site_wide(user: User) -> bool:
@@ -165,12 +167,19 @@ def register(app: FastAPI, h: Helpers) -> None:
     # ------------------------------------------------------------------ actions (one per page and /api/v1)
     def act_chart(sess: Session, ws: str, chart_no: str, text: str, name: str, data: bytes | None) -> dict[str, Any]:
         need_change(sess, "/site/charts")
+        # D-273 (PV-6): a pasted chart turns a chart number into a pseudonym, so it is a chart-number lookup, under
+        # the same per-person cap as the opt-out door, taken before the call and audited after it
+        if h.chart_lookup is not None:
+            h.chart_lookup(sess, "chart")
         body: dict[str, Any] = {"chart_no": chart_no[:40], "lang": lang_of(sess), "by": h.actor(sess)}
         if data:
             body |= {"name": name[:200], "b64": base64.b64encode(data).decode("ascii")}
         else:
             body |= {"text": text[:60_000]}
         out = dict(post(f"/setup/{ws}/charts", body))
+        out.pop("pid", None)  # never the pseudonym back to the caller (the box's own audit event keeps it)
+        au.append("console.chart_lookup", actor=h.actor(sess),
+                  detail={"for": "chart", "ws": ws, "input": out.get("input"), "role": sess.user.role})  # fmt: skip
         au.append(
             "console.site_chart",
             actor=h.actor(sess),
@@ -283,9 +292,25 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {"kind": kind, "answer": text, "links": links}
 
     def trail(sess: Session, ws: str, rs: str, pid: str) -> list[dict[str, Any]] | None:
-        """The screening trail of one patient: this week's list first (the SCREEN run), else the site check."""
+        """The screening trail of one patient: this week's list first (the SCREEN run), else the site check.
+
+        D-273 (PV-7): one patient's verdicts are patient-level data. The study must be one of the account's, an
+        investigator must be delegated ("screen") as on the patient page, an opted-out patient is never answered
+        (the site-check fallback does not read the register), each answer is capped per person and hour as the
+        candidate page is, and it leaves one audit event."""
         if not _PID.match(pid or "") or not rs:
             return None
+        rs = rs.strip().upper()
+        if not sess.user.sees_study(rs) or not h.delegated_ok(sess.user, rs) or pid in h.gone():
+            au.append("console.denied", actor=h.actor(sess), detail={"action": "ask why", "ruleset": rs})
+            return None
+        if h.team is not None:
+            since = (h.clock() - timedelta(hours=1)).isoformat()
+            # D-273: recorded and counted in one transaction, so parallel questions cannot all pass the cap
+            if not h.team.take(rs, pid, "ask", "ask", sess.user.username, h.clock().isoformat(), since, ASK_PER_HOUR):
+                au.append("console.rate_limited", actor=h.actor(sess), detail={"action": "ask", "limit": ASK_PER_HOUR})
+                return None
+        au.append("console.ask_patient", ruleset=rs, actor=h.actor(sess), detail={"pid": pid, "role": sess.user.role})
         if h.week_bundle is not None:
             try:
                 bundle = h.week_bundle(sess, rs) or {}

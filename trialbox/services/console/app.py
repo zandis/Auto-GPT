@@ -47,7 +47,7 @@ from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
 from tb_common.flowledger import record_export
 from tb_common.reasons import label as reason_label
-from tb_common.service_auth import bind_session
+from tb_common.service_auth import bind_session, scope_of
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
@@ -60,7 +60,6 @@ from console.auth import (
     UserStore,
     csrf_ok,
     random_password,
-    reveal_reason,
     scope_values,
 )
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
@@ -1216,6 +1215,8 @@ def create_app(
         # investigator may read it in the browser, exactly as the study team receives it by mail. Viewers may not.
         if out.tag != "aggregate" and not (job.type == "CASE" and sess.user.can_view_phi):
             raise _Problem(404, "notfound")
+        if out.tag != "aggregate":  # D-273 (PV-3): an investigator reads a study's patient sheet only as delegated
+            helpers.delegated(sess, job.ruleset or "", request.url.path)
         data = bk.get_object(out.minio_key)
         au.append(
             "console.view",
@@ -1271,7 +1272,11 @@ def create_app(
             web = next(r for r in audit_recs if r.event == "console.request")
             # the audit holds the line masked (D-272); the chart number comes back from the job's options
             raw_rows.insert(0, (None, unmask_ids(mask_ids(str(web.detail.get("line", ""))), job.options)))
-        thread_rows = [(m, shown_ids(sess, job, text, "thread")) for m, text in raw_rows]
+        case = _case_card(job)
+        # D-273 (PV-4): a patient on the opt-out register is never shown by chart number, here either
+        subj = str(((case or {}).get("subject") or {}).get("pid") or (job.options or {}).get("pid") or "")
+        out = bool(subj) and subj in helpers.gone()
+        thread_rows = [(m, shown_ids(sess, job, text, "thread", opted_out=out)) for m, text in raw_rows]
         return page(
             request,
             "job.html",
@@ -1290,16 +1295,18 @@ def create_app(
             refresh=job.state not in TERMINAL and job.state != "awaiting_approval",
             rulesets=[r for r in bk.rulesets() if r.status == "approved"],
             consent=_consent_card(job),
-            case=_case_card(job),
+            case=case,
             screen=_screen_card(job, sess, revealed),
         )
 
-    def shown_ids(sess: Session, job: Job, text: str, where: str) -> str:
+    def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False) -> str:
         """A request line or subject as this reader may see it (P-01, D-143): the chart number in clear for an
         account with identifier authority for the job's study (administrator, coordinator, the study's
         investigator), as one audited view under the reveal cap; masked for everyone else (viewer, CRO)."""
         masked = mask_ids(text)
-        if masked == text or not sess.user.sees_ids(job.ruleset):
+        if masked == text or opted_out or not sess.user.sees_ids(job.ruleset):
+            return masked
+        if not helpers.delegated_ok(sess.user, job.ruleset):
             return masked
         if not id_views.allow(actor(sess)):
             au.append("console.view_id_refused", job_id=job.job_id, ruleset=job.ruleset, actor=actor(sess),
@@ -1331,15 +1338,22 @@ def create_app(
                 card["summary"] = json.loads(bk.get_object(summary_out.minio_key))
             except (KeyError, ValueError, OSError):
                 card["summary"] = None
-        if list_out is not None and sess.user.can_view_phi:
+        # D-273 (PV-3, PV-4): the rows are patient level; an investigator sees them only as delegated ("screen"),
+        # and a patient on the opt-out register now is not shown, however old the job (only the count is)
+        if list_out is not None and sess.user.can_view_phi and helpers.delegated_ok(sess.user, job.ruleset):
             try:
                 cl = json.loads(bk.get_object(list_out.minio_key))
             except (KeyError, ValueError, OSError):
                 cl = None
             if cl is not None:
                 rows = []
+                gone = helpers.gone()
+                card["removed"] = 0
                 for r in cl.get("rows") or []:
                     if r.get("tier") not in ("high", "review"):
+                        continue
+                    if str(r.get("pid", "")) in gone:
+                        card["removed"] += 1
                         continue
                     unknown = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "unknown"]
                     failing = [v["id"] for v in r.get("criteria") or [] if v.get("verdict") == "fail"]
@@ -1375,11 +1389,17 @@ def create_app(
 
     @app.post("/pilot/jobs/{job_id}/reveal")
     def job_reveal(
-        request: Request, job_id: str, csrf: str = Form(""), pid: str = Form(""), reason: str = Form("")
+        request: Request,
+        job_id: str,
+        csrf: str = Form(""),
+        pid: str = Form(""),
+        reason: str = Form(""),
+        note: str = Form(""),
     ) -> Response:
-        """One chart number for one listed pseudonym, shown once on the page and audited on both sides (D-99). Any
-        account with identifier authority for the study: administrator, coordinator, the study's investigator
-        (D-143)."""
+        """One chart number for one listed pseudonym, shown once on the page (D-99). D-273 (PV-2): through the
+        console's one reveal path, ``home.apply_reveal``: identifier authority for the study, the delegation log for
+        an investigator, a reason (with a written note for "other"), never a patient who is not on the study's latest
+        list (so never an opted-out patient), audited before the orchestrator is asked, and the orchestrator's cap."""
         sess = need(request)
         job = _job_or_404(job_id)
         _need_role(request, csrf, sess.user.sees_ids(job.ruleset), sess)
@@ -1388,18 +1408,10 @@ def create_app(
         pid = pid.strip()
         if not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", pid):
             raise _Problem(400, "request.refused", reason="bad pseudonym")
-        au.append(
-            "console.reveal",
-            job_id=job_id,
-            ruleset=job.ruleset,
-            actor=actor(sess),
-            detail={"pid": pid, "reason": reveal_reason(reason)},
-        )
-        try:
-            mrn = bk.reveal(job_id, pid, actor(sess))
-        except Refused as exc:
-            raise _Problem(409, "request.refused", reason=str(exc)) from exc
-        return _job_page(request, sess, job, revealed={pid: mrn or ""})
+        if helpers.apply_reveal is None or not job.ruleset:
+            raise _Problem(403, "forbidden")
+        _ctx, mrn = helpers.apply_reveal(sess, request.url.path, job.ruleset, pid, reason, via="job", note=note)
+        return _job_page(request, sess, job, revealed={pid: mrn})
 
     def _case_card(job: Job) -> dict[str, Any] | None:
         if job.type != "CASE" or job.state != "done":
@@ -1694,7 +1706,8 @@ def create_app(
 
     # ------------------------------------------------------------------ candidate registry (D-92)
     def _registry_page(request: Request, sess: Session, rs: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-        rows = bk.registry_rows(rs)
+        gone = helpers.gone()  # D-273 (PV-4): the screening log's page leaves out who opted out, as its export does
+        rows = [e for e in bk.registry_rows(rs) if e.pid not in gone]
         from orchestrator.candidates import counts as _counts
 
         return page(
@@ -1728,6 +1741,7 @@ def create_app(
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(404, "notfound")
+        helpers.delegated(sess, rs, request.url.path)  # D-273 (PV-3): an investigator as delegated only
         try:
             return _registry_page(request, sess, rs)
         except Refused as exc:
@@ -1829,8 +1843,14 @@ def create_app(
             raise _Problem(404, "notfound")
         if not sess.user.sees_ids(rs):  # the export carries chart numbers (phi): identifier authority (D-143)
             raise _Problem(403, "forbidden")
+        # D-273 (PV-5): the same rule as one reveal: an investigator exports only as the PI or a sub-investigator
+        # ticked "screen"; the request is audited before the file is built; the orchestrator checks the signed role
+        # and studies again
+        helpers.delegated(sess, rs, request.url.path)
+        au.append("console.registry", actor=actor(sess), ruleset=rs,
+                  detail={"action": "export_requested", "role": sess.user.role})  # fmt: skip
         try:
-            data = bk.registry_export(rs, actor(sess))
+            data = bk.registry_export(rs, actor(sess), role=sess.user.role, scope=scope_of(sess.user.studies))
         except Refused as exc:  # the orchestrator's cap on exports with chart numbers (S-09)
             au.append("console.refused", ruleset=rs, actor=actor(sess), detail={"reason": str(exc)[:200]})
             why = "too many exports with chart numbers in the last hour"

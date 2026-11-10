@@ -1,0 +1,69 @@
+# FICTIONAL site schema (T-011): describes no real hospital. It is written the way a steward writes one from a
+# signed survey (TB-SITE-01 questions 24 to 35): structure and code lists only, never a patient value. The headers
+# are those of the shipped CGRD-like mapping (services/adapter/mapping/tw_core/demo_his.yaml); the dates are ROC
+# 7-digit and the files Big5, as question 29 allows. The drug codes have the NHI shape and are made up.
+schema_version: 1
+site: tw-sample
+fictional: true
+country: TW
+tz: Asia/Taipei
+survey: TB-SITE-01 v0.2 (fictional answers)
+feed:                     # q24 database export CSV; q29 ROC 7-digit dates, Big5, comma
+  layout: csv
+  encoding: big5
+  date_format: roc7
+  delimiter: ","
+identifiers:
+  chart_number: {letters: 1, digits: 8, check: none}    # q26: one letter and 8 digits (fictional form)
+tables:                   # q29: one header row per table, no data
+  patient:
+    source: patient
+    columns: {mrn: mrn, name: name, birth_date: birth_date, sex: sex}
+  practitioner:
+    source: practitioner
+    columns: {staff_id: staff_id, name: name, dept_code: dept_code}
+  encounter:
+    source: encounter
+    columns: {enc_no: enc_no, mrn: mrn, visit_datetime: visit_datetime, dept_code: dept_code, staff_id: staff_id, enc_type: enc_type}
+  diagnosis:
+    source: diagnosis
+    columns: {diag_no: diag_no, enc_no: enc_no, mrn: mrn, icd10: icd10, diag_date: diag_date, recorded_date: recorded_date, status: status}
+  lab:
+    source: lab
+    columns: {lab_no: lab_no, mrn: mrn, local_code: local_code, item_name: item_name, result_value: result_value, unit: unit, sample_datetime: sample_datetime}
+  medication:
+    source: medication
+    columns: {rx_no: rx_no, mrn: mrn, enc_no: enc_no, nhi_drug_code: nhi_drug_code, atc: atc, drug_name: drug_name, order_date: order_date, start_date: start_date, end_date: end_date, daily_dose: daily_dose, dose_unit: dose_unit, status: status}
+  note:
+    source: note
+    columns: {note_no: note_no, mrn: mrn, enc_no: enc_no, note_datetime: note_datetime, note_type: note_type, text: text}
+code_lists:
+  sex: {M: M, F: F}
+  encounter_type: {OPD: OPD, IPD: IPD, ER: ER}
+  department:
+    - {code: IM, name: 內科}
+    - {code: RHE, name: 風濕免疫科}
+    - {code: NEU, name: 神經內科}
+  lab:
+    - {code: UA, name: 尿酸, unit: mg/dL, range: [3, 9]}
+    - {code: CRE, name: 肌酸酐, unit: mg/dL, range: [0.5, 1.6]}
+    - {code: HBA1C, name: 糖化血色素, unit: "%", range: [4.8, 9.5]}
+    - {code: ALT, name: 肝功能 ALT, unit: U/L, range: [8, 80]}
+    - {code: ESR, name: 紅血球沉降速率, unit: mm/h, range: [2, 40]}
+  diagnosis:              # ICD-10-CM
+    - {code: E11.9, name: 第二型糖尿病}
+    - {code: M10.9, name: 痛風}
+    - {code: I10, name: 高血壓}
+  drug:                   # NHI-shaped, made up
+    - {code: XX00000100, name: 合成藥甲 100mg, atc: M04AA01}
+    - {code: XX00000200, name: 合成藥乙 500mg, atc: A10BA02}
+provider: {in_encounter: true, directory: true}          # q33
+appointments: false                                       # q34: no booking source in the export
+notes: {types: [progress, consult]}                       # q35
+plants:
+  share: 0.04
+  unmapped_lab:           # local codes in no lookup (fictional)
+    - {code: ZZLAB01, name: 虛構檢驗甲, unit: U/L, range: [1, 50]}
+    - {code: ZZLAB02, name: 虛構檢驗乙, unit: mg/dL, range: [1, 5]}
+  unit_mismatch:          # creatinine in µmol/L where the lookup expects mg/dL
+    - {code: CRE, unit: umol/L, factor: 88.4}

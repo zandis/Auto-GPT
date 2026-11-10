@@ -23,6 +23,7 @@
 {% if history %}<section class="card"><h2>{{ t('patient.history') }}</h2><ul>{% for m in history %}<li>{{ m.at|local }} · {{ m.by }} · {{ t('mark.' + m.mark) }}{% if m.mark == 'not_now' and m.reason %}: {{ t('mark.recheck_on', d=m.reason) }}{% elif m.reason %}: {{ t('reason.' + m.reason) }}{% endif %}{% if m.note %} — {{ m.note }}{% endif %}</li>{% endfor %}</ul></section>{% endif %}
 {% if user.sees_ids(rs) and mrn is none %}<section class="card" data-testid="reveal-card"><h2>{{ t('reveal.title') }}</h2>
 <form method="post" action="/studies/{{ rs }}/patients/{{ pid }}/reveal"><input type="hidden" name="csrf" value="{{ csrf }}"><label for="reveal-reason">{{ t('reveal.reason') }}</label><select id="reveal-reason" name="reason" required data-testid="reveal-reason"><option value="">{{ t('mark.reason.choose') }}</option>{% for k in ['contact', 'eligibility', 'consent', 'other'] %}<option value="{{ k }}">{{ t('reveal.reason.' ~ k) }}</option>{% endfor %}</select>
+<label for="reveal-note">{{ t('reveal.note') }}</label><input id="reveal-note" name="note" maxlength="200" data-testid="reveal-note">
 <button type="submit" class="secondary" data-testid="reveal">{{ t('patient.reveal.audited') }}</button></form></section>{% endif %}
 <p class="hint">{{ t('patient.footer2', job=job.job_id[-8:]) }}</p>
 {% endblock %}

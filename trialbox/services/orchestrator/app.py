@@ -23,7 +23,16 @@ from tb_common.fhir import FhirEvaluator
 from tb_common.http import make_app
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
-from tb_common.service_auth import ACTOR_HEADER, ASSERTION_HEADER, ROLE_HEADER, Actor, ActorError, verify_actor
+from tb_common.service_auth import (
+    ACTOR_HEADER,
+    ASSERTION_HEADER,
+    ROLE_HEADER,
+    SCOPE_HEADER,
+    Actor,
+    ActorError,
+    in_scope,
+    verify_actor,
+)
 from tb_contracts import Job, JobCreate, RegistryEntry, RegistryEvent, RegistryPromote, RegistrySummary, RegistryUpdate
 
 from orchestrator.candidates import CandidateRegistry, RegistryError
@@ -145,6 +154,7 @@ def _claim(request: Request, fallback: str | None = None) -> Actor:
             request.headers.get(ASSERTION_HEADER),
             fallback,
             role=request.headers.get(ROLE_HEADER),
+            scope=request.headers.get(SCOPE_HEADER),
         )
     except ActorError as exc:
         if "no signed-in user" in str(exc):
@@ -158,6 +168,29 @@ def _claim(request: Request, fallback: str | None = None) -> Actor:
 def _limit_key(request: Request, who: Actor) -> str:
     """The rate limit is per calling service and verified person (S-09): renaming no longer resets it."""
     return f"{getattr(request.state, 'tb_caller', None) or '-'}|{who.name}"
+
+
+# D-273 (PV-5, PV-15): the console roles with identifier authority (``User.can_reveal``). Fix group D-280 takes the
+# administrator out of this set together with the console (owner decision OD-5: break-glass only).
+ID_ROLES = frozenset({"admin", "coordinator", "investigator"})
+
+
+def _id_authority(o: Any, claim: Actor, rid: str | None, event: str, job_id: str | None = None,
+                  pid: str | None = None) -> None:  # fmt: skip
+    """D-273 (PV-5, PV-15): a chart number goes out only to a person whose signed role has identifier authority and
+    whose signed study scope covers the study. A verified assertion must carry both; on a DEV/TEST box without a
+    token, a role or scope that is sent is checked all the same. A refusal is one audit event."""
+    why = ""
+    if (claim.verified or claim.role) and claim.role not in ID_ROLES:
+        why = "role"
+    elif (claim.verified or claim.scope) and not in_scope(claim.scope, rid):
+        why = "study scope"
+    if why:
+        detail: dict[str, Any] = {"reason": why, "role": claim.role}
+        if pid:
+            detail["pid"] = pid
+        o.audit.append(event, job_id=job_id, ruleset=rid, actor=claim.name, detail=detail)
+        raise HTTPException(status_code=403, detail=f"chart numbers are refused: {why}")
 
 
 @app.get("/models")
@@ -320,14 +353,23 @@ def reveal(job_id: str, req: RevealRequest, request: Request) -> dict[str, Any]:
     job = o.db.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="no such job")
-    if job.type not in ("SCREEN", "MICROBATCH", "NAV") or job.state != "done":
+    # D-273 (PV-15): screening lists only; a NAV job's list is not a candidate list and reveals nothing
+    if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
         raise HTTPException(status_code=409, detail="chart numbers are revealed for finished screening jobs only")
+    _id_authority(o, claim, job.ruleset, "screen.reveal_refused", job_id=job_id, pid=req.pid)
     # security review 2026-11-08 (F-03): only a patient this job listed, and at a bounded rate per person
     listed = listed_pids(o, job)
     if req.pid not in listed:
         o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
                        detail={"pid": req.pid, "reason": "not on this job's list"})  # fmt: skip
         raise HTTPException(status_code=403, detail="this patient is not on this job's list")
+    # D-273 (PV-4): never the chart number of a patient on the opt-out register now, whatever the job's age
+    from tb_common.optout import opted_out
+
+    if req.pid in opted_out():
+        o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
+                       detail={"pid": req.pid, "reason": "opted out"})  # fmt: skip
+        raise HTTPException(status_code=403, detail="this patient opted out")
     if not REVEALS.allow(_limit_key(request, claim)):
         o.audit.append("screen.reveal_refused", job_id=job_id, ruleset=job.ruleset, actor=who,
                        detail={"pid": req.pid, "reason": "rate limit"})  # fmt: skip
@@ -592,6 +634,7 @@ def registry_export(ruleset: str, request: Request, by: str | None = None) -> Re
     o = orch()
     claim = _claim(request, by)  # ``by`` counts only on a DEV/TEST box without a token
     rid = ruleset.strip().upper()
+    _id_authority(o, claim, rid, "registry.export_refused")  # D-273 (PV-5): the role and the study, not only a name
     if not EXPORTS.allow(_limit_key(request, claim)):
         o.audit.append("registry.export_refused", ruleset=rid, actor=claim.name,
                        detail={"reason": "rate limit"})  # fmt: skip

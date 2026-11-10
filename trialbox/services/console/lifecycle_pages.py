@@ -99,6 +99,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_view_phi:
             au.append("console.denied", actor=h.actor(sess), detail={"action": f"participants {rid}"})
             raise h.problem(403, "forbidden")
+        # D-273 (PV-3): an investigator reads a study's participants only as its PI or as a sub-investigator ticked
+        # for screening or data entry, once the delegation log names a PI
+        h.delegated(sess, rid, f"participants {rid}", ("screen", "enter_data"))
         return rid
 
     def need_enter(sess: Session, path: str) -> None:

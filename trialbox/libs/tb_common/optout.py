@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -84,28 +85,34 @@ class OptOutRegister:
     def close(self) -> None:
         self.db.close()
 
-    def _add(self, pid: str, action: str, source: str, note: str, by: str, at: str) -> None:
+    def _add(self, pid: str, action: str, source: str, note: str, by: str, at: str,
+             before_commit: Callable[[], None] | None = None) -> None:  # fmt: skip
         if not _PID.match(pid):
             raise OptOutError("bad pseudonym")
         if action not in ACTIONS:
             raise OptOutError(f"action must be one of {', '.join(ACTIONS)}")
-        self.db.execute(
-            "INSERT INTO optout_events (pid, action, source, note, by, at) VALUES (?,?,?,?,?,?)",
-            (pid, action, source[:20] or None, note.strip()[:300] or None, by, _norm_at(at)),
-        )
+        with self.db.transaction() as tx:
+            tx.execute(
+                "INSERT INTO optout_events (pid, action, source, note, by, at) VALUES (?,?,?,?,?,?)",
+                (pid, action, source[:20] or None, note.strip()[:300] or None, by, _norm_at(at)),
+            )
+            if before_commit is not None:  # D-273 (CR-055): the audit append; if it fails, nothing is kept
+                before_commit()
 
-    def add(self, pid: str, source: str, note: str, by: str, at: str) -> bool:
-        """Record an opt-out; False when the patient is already opted out (nothing is written)."""
+    def add(self, pid: str, source: str, note: str, by: str, at: str,
+            before_commit: Callable[[], None] | None = None) -> bool:  # fmt: skip
+        """Record an opt-out; False when the patient is already opted out (nothing is written). ``before_commit``
+        (the caller's audit append) runs inside the write's transaction, so a failed append keeps nothing."""
         if pid in self.active():
             return False
-        self._add(pid, "opt_out", source if source in SOURCES else "other", note, by, at)
+        self._add(pid, "opt_out", source if source in SOURCES else "other", note, by, at, before_commit)
         return True
 
-    def lift(self, pid: str, note: str, by: str, at: str) -> bool:
-        """The patient takes the opt-out back; False when they were not opted out."""
+    def lift(self, pid: str, note: str, by: str, at: str, before_commit: Callable[[], None] | None = None) -> bool:
+        """The patient takes the opt-out back; False when they were not opted out. ``before_commit`` as in add."""
         if pid not in self.active():
             return False
-        self._add(pid, "lift", "", note, by, at)
+        self._add(pid, "lift", "", note, by, at, before_commit)
         return True
 
     def events(self, pid: str | None = None) -> list[OptOutEvent]:

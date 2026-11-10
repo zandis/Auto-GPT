@@ -600,6 +600,23 @@ class TeamStore:
             (ruleset, pid, purpose, kind, by, at),
         )
 
+    def take(self, ruleset: str, pid: str, purpose: str, kind: str, by: str, at: str, since: str, limit: int) -> bool:
+        """D-273: one capped use. In one transaction, serialised per person and kind, count the uses since ``since``
+        and record this one only when it is within ``limit``; False when the cap is reached. Parallel requests can no
+        longer all pass a count taken before any of them is recorded."""
+        with self.db.transaction() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"candidate_views:{by}:{kind}",))
+            n = tx.fetchval(
+                "SELECT count(*) FROM candidate_views WHERE by = ? AND kind = ? AND at >= ?", (by, kind, since)
+            )
+            if int(n or 0) >= limit:
+                return False
+            tx.execute(
+                "INSERT INTO candidate_views (ruleset, pid, purpose, kind, by, at) VALUES (?,?,?,?,?,?)",
+                (ruleset, pid, purpose, kind, by, at),
+            )
+        return True
+
     def count_views(self, by: str, kind: str, since: str) -> int:
         return int(
             self.db.fetchval(
