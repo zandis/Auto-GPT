@@ -371,6 +371,8 @@ def test_compose_refuses_the_shared_quota_profile_unmeasured(tmp_path: Path) -> 
         "-q",
     ]
     env = {k: v for k, v in os.environ.items() if k not in SERVING_VARS}
+    # the partition's MIG profile is given, so the only missing values are the measured serving ones
+    env["TB_MIG_PROFILE"] = "1g.24gb"
     out = subprocess.run(args, cwd=d, capture_output=True, text=True, check=False, env=env)
     if "is not a docker command" in out.stderr or "unknown command" in out.stderr:
         pytest.skip("docker compose plugin missing")
