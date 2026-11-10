@@ -1,0 +1,5 @@
+id,name_en,loinc,omop_concept_id,source,licence_notes,verified
+lab.creatinine,"Creatinine, serum",2160-0,,LOINC 2160-0,LOINC notice,yes
+lab.kl6,KL-6,local,2000001002,Japanese ILD marker,local concept,no
+lab.vitd,25-hydroxyvitamin D,1989-3,,LOINC 1989-3 (D3),LOINC notice,partial
+rheum.das28_esr,DAS28-ESR,local,2000001009,Prevoo 1995,local concept,yes

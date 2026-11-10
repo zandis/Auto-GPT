@@ -1,0 +1,145 @@
+item_id,action,loinc,retired_local_id,search_terms,note
+lab.anti_mda5,adopt,107563-9,2000001001,MDA5,"LOINC 'MDA5 Ab [Presence] in Serum or Plasma' fits the coded result; a numeric index is 105529-2 'MDA5 Ab [Units/volume] in Serum' (map at site)"
+lab.kl6,adopt,93369-7,2000001002,KL-6,LOINC 'Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay' (U/mL)
+lab.sp_d,adopt,74541-4,2000001003,,LOINC 'Surfactant pulmonary-associated protein D [Mass/volume] in Serum' (ng/mL)
+lab.pivka2,adopt,93768-0,2000001005,PIVKA;Des-gamma-carboxyprothrombin;prothrombin induced by vitamin K absence,"LOINC calls PIVKA-II acarboxyprothrombin; 93768-0 is [Units/volume] for mAU/mL; a mass result (ng/mL) is 34444-0"
+lab.afb_smear,keep_local,,,acid fast stain sputum;Mycobacterium sp identified in Sputum by Acid fast stain,"candidate 11477-7 'Microscopic observation [Identifier] in Sputum by Acid fast stain' reports what was seen, not the smear grade (negative, scanty, 1+ to 3+); no graded code found"
+endo.trab,adopt,5385-0,2000001203,,LOINC 'Thyrotropin receptor Ab [Units/volume] in Serum' (IU/L); method-specific codes (57416-0 immunoassay) map at site
+pulm.feno,adopt,96269-6,2000001189,,LOINC 'Fractional concentration of exhaled nitric oxide' (property VFr; ppb)
+rheum.dlco_pct_pred,adopt,98130-8,2000001052,DLCO;Diffusion capacity.carbon monoxide measured/predicted;diffusion capacity carbon monoxide predicted,"LOINC 'Diffusion capacity.carbon monoxide/Predicted' (property RelFldConduct, the measured/predicted ratio); 19911-7 is the absolute DLCO and 19910-9 the predicted value"
+onc.pdl1_cps,adopt,105303-2,2000001125,PD-L1 combined positive score;Programmed cell death ligand 1 combined;PD-L1 CPS;Programmed cell death ligand 1;PD-L1,"the LOINC name does not say CPS; its component 'Tumor cells+Macrophages+Lymphocytes.Programmed cell death ligand 1/Viable tumor cells' is the CPS definition; TPS is 105304-0 (onc.pdl1_tps)"
+gi.cap_steatosis,adopt,81894-8,2000001178,,LOINC 'Liver ultrasound attenuation by transient elastography' is the controlled attenuation parameter (dB/m)
+id.sofa,adopt,96790-1,2000001219,,LOINC 'SOFA Total Score'
+id.qsofa,adopt,96791-9,2000001220,,LOINC 'Quick SOFA score SOFA.quick'
+card.kccq,adopt,71940-1,2000001166,,LOINC 'Overall summary score [KCCQ]'; the KCCQ-12 summary is 86924-8; storable stays score
+neuro.stroke_subtype_toast,adopt,88003-9,2000001079,,LOINC 'TOAST Classification of subtypes of acute ischemic stroke'
+onc.primary_site_icdo3,adopt,21855-2,2000001100,Primary site,LOINC (NAACCR) 'Primary site Cancer'; the value stays an ICD-O-3 topography code
+onc.morphology_icdo3,adopt,59847-4,2000001101,Histology;Histology ICD-O-3,LOINC (NAACCR) 'Histology and Behavior ICD-O-3 Cancer'; histology alone is 31205-8
+onc.dx_date,adopt,21854-5,2000001110,Date of cancer diagnosis,LOINC (NAACCR) 'Date first Dx Cancer'
+onc.tnm_ct,adopt,21905-5,2000001103,Primary tumor.clinical;clinical T,LOINC 'Primary tumor.clinical [Class] Cancer'; values stay AJCC/UICC categories
+onc.tnm_cn,adopt,21906-3,2000001104,Regional lymph nodes.clinical,LOINC 'Regional lymph nodes.clinical [Class] Cancer'
+onc.tnm_cm,adopt,21907-1,2000001105,Distant metastases.clinical,LOINC 'Distant metastases.clinical [Class] Cancer'
+onc.tnm_pt,adopt,21899-0,2000001106,Primary tumor.pathology,LOINC 'Primary tumor.pathology Cancer'
+onc.tnm_pn,adopt,21900-6,2000001107,Regional lymph nodes.pathology,LOINC 'Regional lymph nodes.pathology [Class] Cancer'
+rheum.tjc68,keep_local,,,68 joint;tender joint 68,candidate 88981-6 'Tender joint #' has no joint set and is already used for the 28-joint count (rheum.tjc28)
+rheum.sjc66,keep_local,,,66 joint;swollen joint 66,candidate 88980-8 'Swollen joint #' has no joint set and is already used for the 28-joint count (rheum.sjc28)
+rheum.ptga_vas100,keep_local,,,patient global assessment VAS;Patient global assessment of disease activity,only 0-10 forms found (75844-1; 75894-6 in 0.5 steps); no 0-100 mm VAS code
+rheum.morning_stiffness_min,keep_local,,,morning stiffness,hits are KOOS/HOOS joint-stiffness severity questions; no duration code
+rheum.rapid3,keep_local,,,,"hits: 90028-2 RAPID3 panel, 90038-1 'Weighted score [RAPID3]' (0-10 scale), 90094-4 severity level; the item is the 0-30 raw score, no code for it found"
+rheum.pasi,keep_local,,,Psoriasis area and severity index,'PASI' matches CD36 (PASI-like) cell terms only; no PASI score code
+rheum.das28_esr,keep_local,,,DAS28;Disease activity score 28,
+rheum.das28_crp,keep_local,,,DAS28 CRP,
+rheum.sledai_2k,keep_local,,,SLEDAI,
+rheum.bvas_v3,keep_local,,,Birmingham vasculitis,
+rheum.mrss,keep_local,,,Rodnan,
+rheum.basdai,keep_local,,,BASDAI;Bath ankylosing,
+rheum.asdas_crp,keep_local,,,ASDAS,
+rheum.basfi,keep_local,,,BASFI,
+rheum.mmt8,keep_local,,,manual muscle test,
+neuro.edss,keep_local,,,Expanded disability status;EDSS;Kurtzke,
+neuro.hoehn_yahr,keep_local,,,Hoehn;Hoehn and Yahr,
+neuro.cdr_sb,keep_local,,,CDR sum of boxes;Clinical dementia rating sum,
+neuro.cdr_memory,keep_local,,,Memory [CDR];CDR memory,
+neuro.adas_cog,keep_local,,,ADAS-Cog;Alzheimer disease assessment scale,
+neuro.faq_total,keep_local,,,Functional activities questionnaire;FAQ total,
+neuro.npi_q,keep_local,,,NPI-Q;Neuropsychiatric inventory,
+neuro.iadl_lawton,keep_local,,,Lawton;instrumental activities of daily living,hits are CMS FASI IADL items; no Lawton IADL code
+neuro.sdmt,keep_local,,,Symbol digit,
+neuro.t25fw,keep_local,,,25 foot walk;25-foot,
+neuro.nhpt,keep_local,,,,"hits are NIH Toolbox 9-Hole Pegboard per hand (83156-0, 83157-8); the MSFC 9HPT is the mean of both hands, a different score"
+neuro.mds_updrs_total,keep_local,,,MDS-UPDRS;MDS-UPDRS total,
+neuro.mds_updrs_part3,keep_local,,,MDS-UPDRS part III;motor examination MDS-UPDRS,
+neuro.updrs_total,keep_local,,,UPDRS total,
+neuro.gds_reisberg,keep_local,,,Global deterioration scale,
+neuro.hdsr_total,keep_local,,,Hasegawa,
+neuro.casi_total,keep_local,,,Cognitive abilities screening,
+neuro.jcs,keep_local,,,Japan coma,
+neuro.ms_phenotype,keep_local,,,,the one hit is 'Apolipoprotein E phenotype ... by LC/MS/MS' (word match only)
+neuro.aspects,keep_local,,,,hits are HCL-32 and Mainz pain items (word match only)
+neuro.carotid_stenosis_pct,keep_local,,,,the one hit is a Doppler velocity ratio (33868-1); no stenosis percent code
+neuro.seizure_freq_month,keep_local,,,,"candidate 99312-1 'Seizure frequency' (property Find, no unit or period); the item is a count per month"
+neuro.amyloid_pet,keep_local,,,amyloid PET,hits are imaging order codes (87907-2; 81577-9) for the study itself; no result code
+neuro.mta_score,keep_local,,,medial temporal atrophy,
+neuro.datscan,keep_local,,,dopamine transporter,
+onc.grade,keep_local,,,,hits are cancer-specific grades (endometrial 98252-0; breast Nottingham 44648-4); no generic grade code
+onc.stage_group,keep_local,,,,"hits split by clinical (21908-9), pathologic (21902-2) and other (21914-7) stage group; the item does not say which, so it stays local"
+onc.treatment_intent,keep_local,,,,the one hit is radiotherapy-specific (21963-4 curative intent of radiation)
+onc.radiotherapy,keep_local,,,,the one hit is a PhenX head-and-neck question
+onc.recist_response,keep_local,,,RECIST;response evaluation criteria in solid tumors,
+onc.ctcae_grade_max,keep_local,,,CTCAE,
+onc.lansky,keep_local,,,Lansky,
+onc.weight_loss_pct_6m,keep_local,,,weight loss percent,
+heme.bm_blast_pct,keep_local,,,Blasts/100 leukocytes in Bone marrow;Blasts in Bone marrow,"hits are flow-cytometry immunophenotype fractions and narratives; no morphology blast-percent code among the top hits (search not exhaustive)"
+heme.ipss_r,keep_local,,,IPSS-R;International prognostic scoring system,
+heme.iss,keep_local,,,International staging system myeloma,
+heme.ipi,keep_local,,,International prognostic index,
+heme.mrd_status,keep_local,,,minimal residual disease;measurable residual disease,hits are disease- and method-specific MRD panels (myeloma; CLL; AML; ALL); map at site
+neph.dialysis_modality,keep_local,,,,hits are 'Dialysis at time of death' and an angioplasty guidance term
+neph.dialysis_start_date,keep_local,,,,the one hit is 68444-9 'Date chronic dialysis began at current facility' (not the first dialysis)
+neph.rrt_access,keep_local,,,,the one hit is 67888-8 'Vascular access for first outpatient dialysis' (first session only)
+neph.kdigo_aki_stage,keep_local,,,AKI stage;acute kidney injury stage,
+neph.kdigo_g,keep_local,,,GFR category;CKD stage,
+endo.diabetes_type,keep_local,,,,hits are PhenX protocols and action plans; no diabetes-type code
+endo.dpn,keep_local,,,,hits are PhenX protocol terms
+endo.foot_ulcer,keep_local,,,,hits are ulcer counts in nursing-home assessments (52588-1; MDSv3)
+endo.dr_grade,keep_local,,,diabetic retinopathy,"hits are PhenX and screening terms; per-eye severity codes are 71490-7 (left) and 71491-5 (right), see oph.dr_etdrs_level"
+derm.easi,keep_local,,,Eczema area and severity,'EASI' matches the word 'easily' only; no EASI code
+derm.dlqi,keep_local,,,Dermatology life quality;DLQI,
+derm.scorad,keep_local,,,SCORAD,
+derm.itch_nrs,keep_local,,,Peak pruritus;itch numeric rating,
+derm.iga_psoriasis,keep_local,,,Investigator global assessment,
+id.culture_organism,keep_local,,,,hits are organism-specific culture codes (589 hits); the site maps its culture codes
+id.tb_status,keep_local,,,,"candidate 45241-7 'Tuberculosis status' (property Type, reported; answer list not checked)"
+id.hiv_status,keep_local,,,,"candidate 55277-8 'HIV status' (answer list not checked)"
+id.hbv_status,keep_local,,,Hepatitis B status,"candidate 55275-2 'Hepatitis B virus status' (answer list not checked)"
+id.vaccination_covid,keep_local,,,COVID-19 vaccine doses,
+oph.va_logmar,keep_local,,,,"per-eye codes exist (65893-0 right, 65897-1 left best corrected); the item has no laterality yet"
+oph.va_etdrs_letters,keep_local,,,ETDRS letter;letter score,the one hit is a PhenX letter question
+oph.dr_etdrs_level,keep_local,,,,"per-eye codes exist (71491-5 right, 71490-7 left, by ophthalmoscopy); the item has no laterality yet"
+oph.refraction_se,keep_local,,,,"per-eye codes exist (95294-5 right, 95295-2 left, autorefractor); the item has no laterality yet"
+oph.cst_oct,keep_local,,,central subfield thickness;retinal thickness OCT,hits are nerve-fibre-layer thickness; no central subfield code among the hits
+oph.visual_field_md,keep_local,,,visual field mean deviation;Mean deviation,no visual-field hit
+social.living_situation,keep_local,,,,"candidate 57043-2 'Living arrangements' (answer list not checked); others are housing-status terms"
+social.jp_yokaigo,keep_local,,,long-term care level,
+social.caregiver_available,keep_local,,,caregiver available,the one hit is a PAM caregiver question
+pulm.cat,keep_local,,,COPD assessment test;CAT total,no CAT questionnaire hit ('CAT total' matches catecholamines)
+pulm.mmrc,keep_local,,,mMRC;Medical Research Council dyspnea,
+pulm.gold_grade,keep_local,,,GOLD,'GOLD' matches gold (Au) assays only
+psy.hamd17,keep_local,,,Hamilton depression;HAM-D,no hits (HAM-D matches acid hemolysis)
+psy.madrs,keep_local,,,Montgomery-Asberg;MADRS,
+psy.ymrs,keep_local,,,Young mania,
+psy.panss,keep_local,,,PANSS;Positive and negative syndrome,
+psy.cgi_s,keep_local,,,Clinical global impression severity;CGI-S,no hits (CGI-S matches MRPS2 gene terms)
+ped.pedsql_total,keep_local,,,PedsQL,
+ped.weight_z,keep_local,,,Weight-for-age z;Body weight [Z-score],
+ped.height_z,keep_local,,,Body height [Z-score];height-for-age z,
+ped.tanner_stage,keep_local,,,Tanner,the one hit is a Tanner-Whitehouse bone-age panel
+card.cha2ds2_vasc,keep_local,,,CHA2DS2;CHADS,
+card.has_bled,keep_local,,,HAS-BLED,
+card.grace_score,keep_local,,,GRACE,'GRACE' matches cephalexin terms only
+card.ccs_angina,keep_local,,,Canadian Cardiovascular Society angina,
+card.killip,keep_local,,,Killip,
+card.htn_controlled,keep_local,,,blood pressure controlled,
+gi.meld_3,keep_local,,,MELD 3.0;Model for end-stage liver disease 3,
+gi.mayo_total,keep_local,,,Mayo score;Mayo ulcerative,
+gi.cdai_crohn,keep_local,,,Crohn disease activity index,
+gi.hbi,keep_local,,,Harvey-Bradshaw,
+gi.child_pugh_class,keep_local,,,Child-Pugh class;Child-Pugh,hits are the Child-Pugh panel (98153-0) and total score (98152-2); no class code
+gi.bclc_stage,keep_local,,,Barcelona clinic liver cancer;BCLC,
+gi.encephalopathy_grade,keep_local,,,West Haven;hepatic encephalopathy grade,the one hit is a pain inventory
+func.contrast_allergy,keep_local,,,contrast allergy,
+vital.waist,fit_partial,,,,LOINC 56086-2 is 'Adult Waist Circumference Protocol'; the generic body-site code is 8280-0 (not looked up)
+lab.procalcitonin,fit_partial,,,,111765-4 is by immunoassay; a method-free code was not looked up
+lab.vitd,fit_partial,,,,1989-3 is 25-hydroxyvitamin D3 only; the total (D2+D3) code was not looked up
+lab.ft3,fit_partial,,,,35230-2 is [Mass or Moles/volume]; a mass-only code was not looked up
+lab.gad_ab,fit_partial,,,,94699-6 is [Moles/volume] by immunoassay; results in U/mL need another code
+lab.hbeag,fit_partial,,,,39007-0 is 'in Specimen'; a serum code was not looked up
+lab.tst,fit_partial,,,,32561-3 is the 1-day reading; the usual 48-72 h reading is 23538-2 (3 days)
+neuro.apoe_genotype,fit_partial,,,,34732-8 is APOE allele 2 only; a genotype code was not looked up
+onc.ki67,fit_partial,,,,33055-5 is presence; the percent index was not looked up
+onc.braf_v600,fit_partial,,,,53844-7 is BRAF targeted mutation analysis (any targeted variant)
+onc.brca_germline,fit_partial,,,,21636-6 is BRCA1 only; BRCA2 needs its own code
+heme.bcr_abl_is,fit_partial,,,,69381-2 is the b2a2 transcript only; b3a2 and combined codes exist
+psy.gds15,fit_partial,,,,48543-3 is the panel; the total score code was not looked up
+ped.birth_weight,fit_partial,,,,56056-5 is the reported birth weight; a measured one was not looked up
+oph.cup_disc_ratio,fit_partial,,,,71485-7 is the right optic nerve only; the item has no laterality yet

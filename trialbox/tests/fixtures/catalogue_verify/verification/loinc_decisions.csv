@@ -1,0 +1,4 @@
+item_id,action,loinc,retired_local_id,search_terms,note
+lab.kl6,adopt,93369-7,2000001002,KL-6,U/mL
+lab.vitd,fit_partial,,,,D3 only
+rheum.das28_esr,keep_local,,,DAS28,no hits

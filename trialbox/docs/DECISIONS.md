@@ -3444,3 +3444,43 @@ alert) are separate P0 items. Stored derived rows with provenance, `tb_score_def
 shipped mappings declare no `unit_defaults` yet: each site declares them in its survey (its lab lookup already
 carries a unit per analyte). The R-31 check of a row's own unit against the lookup's (WS-01.2) is still open for
 feed rows mapped through a lookup.
+
+**D-180 Clinical item catalogue: codes checked against public sources, JLAC10 from the MHLW table, ICD-10-CM sets
+for the OHDSI phenotypes.**
+Source: `docs/reviews/2026-11-09-clinical-item-catalogue.md` §6 (gaps); WS-04.1 of TB-PLAN-05. Sources were read
+on 2026-11-10 (the evidence date); nothing was copied from memory.
+
+*Decision.* A code enters the catalogue only when a public source was read and the result is kept in
+`catalogue/verification/evidence.json`. `tools/catalogue_verify.py fetch` reads the sources (network);
+`tools/catalogue_verify.py build` writes the CSVs offline from the evidence and three curated files in
+`catalogue/verification/` (`loinc_decisions.csv`, `jlac10_map.csv`, `phenotype_icd10cm_map.csv`). Each item and
+phenotype row now says `verified` yes or no, with the source and the date checked. Unknown stays unknown: a local item
+that no search could match stays local and `verified = no`, with the searches and hit counts in `verified_note`.
+
+*What changed.*
+1. LOINC. All 213 coded items were looked up by code in the NLM Clinical Tables LOINC service and their long names
+   were read against the items: all exist; 15 cover only part of the item (`code_fit = partial`, e.g. vitamin D3
+   only, the right eye only). 22 local items got a LOINC code: anti-MDA5 107563-9, KL-6 93369-7, SP-D 74541-4,
+   PIVKA-II 93768-0 (acarboxyprothrombin), TRAb 5385-0, FeNO 96269-6, DLCO % predicted 98130-8, PD-L1 CPS 105303-2
+   (the component is the CPS definition; the name does not say CPS), CAP 81894-8, SOFA 96790-1, qSOFA 96791-9,
+   KCCQ 71940-1, TOAST 88003-9, and the NAACCR cancer items (primary site, histology and behaviour ICD-O-3, date of
+   diagnosis, clinical and pathologic T, N, M). Their local ids are retired, never reused. 235 items stay local;
+   the AFB smear grade, DAS28, EDSS, BASDAI, Hoehn and Yahr, HDS-R, JCS and others found no matching term.
+2. JLAC10. The one public source that could be read is the MHLW 特定健診 XML item table (付属2 Ver.4); the JSLM pages
+   refused automated reading. 39 items carry its 17-digit codes, including eGFR 8A065000002391901 (the table does not
+   name the equation). KL-6 is not in that table and has no JLAC10 code here.
+3. ICD-10-CM for the OHDSI phenotypes. `catalogue/phenotype_icd10cm.csv` gives each of the 89 linked phenotypes an
+   ICD-10-CM include and exclude set, made by hand from the cohort's entry concepts (PhenotypeLibrary v3.37.0) and the
+   ICD-10-CM list; every code family exists in ICD-10-CM (NLM). `mapping_verified = no` throughout: the OMOP Maps-to
+   table was not used (Athena refused, HTTP 403). The check found WHO-only codes in `phenotypes.csv` (F00, I64, and
+   A16 inside the A15-A19 range) and a meaning change (M07 is enteropathic arthropathy in ICD-10-CM; psoriatic arthritis is L40.5); the sets use the
+   ICD-10-CM codes and say why. Six phenotype rows are `verified = no` (three with WHO-only codes, three with no
+   diagnosis code at all).
+
+*Evidence.* `tests/unit/test_catalogue_verify.py` (small fixtures, no network): adopted codes must be in the
+evidence, a local item with search hits needs a reviewed decision, retired ids are not reused, JLAC10 codes must be
+in the MHLW rows, every linked phenotype has a translation whose codes exist, the fetch step with a fake network, and
+the shipped catalogue is up to date with its evidence (`build --check`).
+
+*Not done here.* OMOP concept ids (needs the Athena bundle), a check of the ICD-10-CM sets against the Maps-to table,
+JLAC10 codes outside the 特定健診 table (needs the JSLM or JLAC Center files), and the licence questions of §2 (WS-15.3).

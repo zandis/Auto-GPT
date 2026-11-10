@@ -1,0 +1,4 @@
+id,specialty,name_en,ohdsi_pl_cohort_ids,codes
+ph.ra,RHEU,Rheumatoid arthritis,858;196,"ICD-10-CM M05.*, M06.* (excl. M06.1); MEDIS 標準病名 'リウマチ'"
+ph.dementia,NEUR,Dementia,33,"F00-F03, G30.*"
+ph.gout_refractory,RHEU,Refractory gout,local,M10.*; ATC M04AA; LOINC 3084-1
