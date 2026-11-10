@@ -3,7 +3,8 @@
 Administrators only: anyone else gets 403 (and a ``console.denied`` audit event). The page lists every declared flag
 with its value, when, by whom and why it last changed, and the last changes. A change needs a reason, goes through
 one confirmation sheet (P-10), and is one ``flag_event`` row and one ``flag.set`` audit event with the actor and the
-reason. An undeclared flag name or a value outside the declared ones is refused with 400.
+reason. An undeclared flag name or a value outside the declared ones is refused with 400. A flag store that does not
+answer (the trial database is down) is a 503 page, on the list and on a change: never a 500, never a 400.
 
 When the console starts (``register``, called from ``create_app``) the flags are seeded: a flag that has no row yet
 takes its seed variable (``TB_LAKE_SOURCE``) or its declared default; after that the variable is ignored.
@@ -12,7 +13,8 @@ takes its seed variable (``TB_LAKE_SOURCE``) or its declared default; after that
 from __future__ import annotations
 
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -23,6 +25,7 @@ from console.home import Helpers
 from console.i18n import CATALOGUES, LANGS, translate
 
 log = logging.getLogger("console.flags")
+T = TypeVar("T")
 
 for _lang, _cat in (("en", i18n_flags.EN), ("ja", i18n_flags.JA), ("zh-TW", i18n_flags.ZH)):
     CATALOGUES[_lang].update(_cat)
@@ -52,11 +55,23 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         return sess
 
+    def stored(fn: Callable[[], T]) -> T:
+        """A read or a change of the flag store; a store that does not answer is a 503 page. A ``ValueError`` (a
+        refusal of the store's own rules) is the caller's to turn into a 400."""
+        try:
+            return fn()
+        except ValueError:
+            raise
+        except Exception as e:
+            log.warning("flag store unavailable on /ops/flags (%s: %s)", type(e).__name__, e)
+            raise h.problem(503, "flags.err.store") from e
+
     @app.get("/ops/flags", response_class=HTMLResponse)
     def flags_view(request: Request) -> Response:
         sess = admin(request)
         store = Flags()
-        return h.page(request, "ops_flags.html", sess, flags=store.all(), events=store.events(limit=50))
+        flags, events = stored(lambda: (store.all(), store.events(limit=50)))
+        return h.page(request, "ops_flags.html", sess, flags=flags, events=events)
 
     @app.post("/ops/flags")
     def flags_set(
@@ -81,11 +96,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if len(why) > MAX_REASON:
             raise h.problem(400, "flags.err.long", n=MAX_REASON)
         store = Flags(audit=h.au)
-        try:
-            current = store.row(name) or ""
-        except Exception as e:  # the store is down: say so, never a 500
-            log.warning("flag store unreadable on /ops/flags (%s)", type(e).__name__)
-            raise h.problem(400, "flags.err.store") from e
+        current = stored(lambda: store.row(name)) or ""  # the store is down: a 503 page, never a 500
         if confirm != "yes":
             lang = sess.lang if sess.lang in LANGS else "en"
             text = translate(lang, "flags.confirm", flag=name, old=current or translate(lang, "flags.unset"), new=new,
@@ -96,7 +107,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if old != current:  # someone changed it after this sheet was shown: confirm again on the new value
             raise h.problem(400, "flags.err.stale", flag=name, now=current or "-")
         try:
-            store.set(name, new, actor=h.actor(sess), reason=why)
+            stored(lambda: store.set(name, new, actor=h.actor(sess), reason=why))
         except ValueError as e:  # the value it already has (the only refusal left after the checks above)
             raise h.problem(400, "flags.err.same", flag=name, value=new) from e
         return RedirectResponse(f"/ops/flags#flag-{name}", status_code=303)

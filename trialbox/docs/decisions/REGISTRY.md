@@ -136,5 +136,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
 | D-308 | reserved | T-501 | held for T-501 |
-| D-309..D-316 | reserved | — | given by the integrator to other wave cards of TB-PLAN-06; the holders write their rows |
+| D-309..D-316 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
 | D-317 | merged | T-618 | reference data remainder (file) |
+| D-318 | reserved | the integrator | given to T-101b; its row replaces this one when it lands |
+| D-319 | merged | T-655 | the review fixes of PR #71: what changes from D-205 and D-207 (file) |
