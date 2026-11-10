@@ -70,10 +70,10 @@ def jobs(h: Any) -> dict[str, Callable[[], object]]:
     from console import notify, rc_read
 
     def n1() -> object:
-        return notify.send_all(h, h.clock().date(), ("N1",), by="console:timer")
+        return notify.send_all(h, h.today(), ("N1",), by="console:timer")
 
     def n2() -> object:
-        return notify.send_all(h, h.clock().date(), ("N2",), by="console:timer")
+        return notify.send_all(h, h.today(), ("N2",), by="console:timer")
 
     def rc() -> object:
         return rc_read.run(h)

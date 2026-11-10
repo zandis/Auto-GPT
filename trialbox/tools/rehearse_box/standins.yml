@@ -1,0 +1,57 @@
+# Box-install rehearsal (D-176): what stands in for the GPU. `make rehearse-box` gives this file to the real installer
+# as TB_COMPOSE_OVERRIDE, after the profile's own compose files, so the model servers keep the profile's command line
+# (served names from JUDGE_MODEL / VERIFIER_MODEL) and their key (VLLM_API_KEY from TB_LLM_API_KEY, D-177).
+#
+# * llm-service, llm-verifier: the strict vLLM stand-in (tools/vllm_standin.py) in the trialbox-py image instead of
+#   vLLM on a GPU: exact served names only (404 otherwise), the key on every /v1 call (401 otherwise).
+# * embed-service: the hash embedder; the bge-m3 weights are not on the rehearsal media (the embedder is not a GPU
+#   part, and the rehearsal checks plumbing, names, keys, media and restarts, never a model).
+# * mail-sink: a plain SMTP sink (tools/rehearse_box/smtp_sink.py) answering as the site's relay smtp.hospa.test, so
+#   SCREEN can mail its results; it keeps nothing and logs one line per message. Real mail is not rehearsed.
+# * egress-net: no route out at all, so whatever the box runs came from the offline media (stricter than a site, where
+#   deploy/network.sh allows the mail server and, if chosen, ClinicalTrials.gov).
+# Never on a real box.
+
+x-standin-health: &health
+  test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+  interval: 5s
+  timeout: 5s
+  retries: 12
+  start_period: 5s
+
+services:
+  llm-service:
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    entrypoint: ["python", "-m", "tools.vllm_standin"]
+    user: "10001:10001"
+    deploy: !reset {}   # no GPU reservation
+    healthcheck: *health
+  llm-verifier:
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    entrypoint: ["python", "-m", "tools.vllm_standin"]
+    user: "10001:10001"
+    deploy: !reset {}
+    healthcheck: *health
+  embed-service:
+    environment:
+      TB_EMBED_MODE: hash
+  mail-gateway:
+    environment:
+      SMTP_STARTTLS: "false"   # the sink speaks plain SMTP only
+  mail-sink:
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    command: ["python", "-m", "tools.rehearse_box.smtp_sink", "--port", "587"]
+    user: "10001:10001"
+    restart: unless-stopped
+    networks:
+      egress-net:
+        aliases: [smtp.hospa.test]   # the site's SMTP relay from site_answers.yaml
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 587), 4).close()"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+networks:
+  egress-net:
+    internal: true

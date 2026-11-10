@@ -13,11 +13,45 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: goldens goldens-check rehearse fonts jvm-deps venv e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status test-console test-console-e2e site site-preview clean \
+.PHONY: goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain
 
+# ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
+# Every temporary root of a run derives from TB_TEST_ROOT: one per branch, under TB_SCRATCH (an agent's scratchpad;
+# default /var/tmp/trialbox-<uid>), never a fixed /tmp path that every agent on the machine shares.
+# (tools/pglocal.py branch_slug: a detached HEAD, as in CI or a review worktree, is detached-<sha>)
+BRANCH_SLUG := $(shell PYTHONPATH=libs:services:. $(PY) -c 'import tools.pglocal as p; print(p.branch_slug())' 2>/dev/null)
+TB_SCRATCH ?= /var/tmp/trialbox-$(shell id -u)
+TB_TEST_ROOT ?= $(abspath $(TB_SCRATCH))/tb-tests-$(or $(BRANCH_SLUG),detached)
+export TB_TEST_ROOT
+TB_MIN_FREE_GB ?= 20
+TB_ROOT_BUDGET_GB ?= 10
+# pytest-xdist (D-201): one worker per core; PYTEST_N=0 runs serially
+PYTEST_N ?= auto
+UV_SYNC := uv sync --frozen --group test --extra dev --python 3.12
+
+# .venv is exactly uv.lock (the test plugins included): `uv sync` removes whatever was installed by hand, and a uv
+# venv has no pip, so `pip install` into it is refused. `make test` refuses a venv that drifted from the lock.
 venv:
-	uv venv --allow-existing --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
+	$(UV_SYNC)
+
+venv-check:
+	@$(UV_SYNC) --check >/dev/null 2>&1 || { echo "venv-check: .venv differs from uv.lock (a dependency or pyproject.toml changed, or a package was installed by hand): run 'make venv'" >&2; exit 1; }
+
+# the leftovers of earlier runs that nobody uses now (tools/pglocal.py clean_tmp): /tmp/pytest-of-*, the tb-pgtest-*
+# and tb-pglocal-* clusters, the drills' and e2e_simple's /tmp folders, the rehearsal's runs/, the tarballs of all but
+# the two newest .cache/complete-run runs, and owned clusters whose owner died. DRY=1 lists only.
+clean-tmp:
+	PYTHONPATH=libs:services:. $(PY) -m tools.pglocal clean-tmp $(if $(DRY),--dry-run,)
+
+# the first step of every card (review §5.3): at least TB_MIN_FREE_GB free, and this branch's TB_TEST_ROOT inside its
+# TB_ROOT_BUDGET_GB budget (reported; the budget is advice, the free space is the gate)
+check-disk:
+	@avail=$$(df -Pk "$(CURDIR)" | awk 'NR==2 {print int($$4 / 1048576)}'); \
+	used=$$(du -sk "$(TB_TEST_ROOT)" 2>/dev/null | awk '{print int($$1 / 1048576)}'); \
+	echo "check-disk: $${avail} GB free (need $(TB_MIN_FREE_GB)); $(TB_TEST_ROOT) uses $${used:-0} GB (budget $(TB_ROOT_BUDGET_GB))"; \
+	if [ "$${used:-0}" -gt "$(TB_ROOT_BUDGET_GB)" ]; then echo "check-disk: over the per-branch budget: make clean-tmp, or remove $(TB_TEST_ROOT)" >&2; fi; \
+	if [ "$$avail" -lt "$(TB_MIN_FREE_GB)" ]; then echo "check-disk: FAIL, under $(TB_MIN_FREE_GB) GB free: make clean-tmp first" >&2; exit 1; fi
 
 contracts:
 	$(PY) tools/gen_contracts.py
@@ -39,8 +73,47 @@ $(FONTS):
 
 fonts: $(FONTS)
 
-test: $(FONTS)
-	$(PY) -m pytest -q -m "not integration and not e2e and not llm and not perf"
+# TMPDIR too lives under TB_TEST_ROOT, so tempfile.mkdtemp() in a test never lands in the shared /tmp. The root is
+# checked and marked (tools/pglocal.py mark), and held with flock for the whole run: a second run on the same root
+# stops before it touches anything. Afterwards TMPDIR is emptied, the branch's shared cluster (pglocal.for_work)
+# stopped if no client uses it, and a green run's basetemp removed.
+test: venv-check $(FONTS)
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	@flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-locked; rc=$$?; \
+	if [ $$rc = 75 ]; then echo "test: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
+
+test-locked:
+	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
+	TMPDIR="$(TB_TEST_ROOT)/tmp" $(PY) -m pytest -q -n $(PYTEST_N) --basetemp "$(TB_TEST_ROOT)/pytest" \
+		-m "not integration and not e2e and not llm and not perf"; rc=$$?; \
+	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
+	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
+
+# the data-handling scan (D-203, WS-13.10, TB-SITE-03): every tracked file, or SCAN="paths", or SCAN="--log f.log";
+# exit 2 on a hit (place and pattern only, never the value). The same scan is the pre-commit hook and a CI job.
+data-scan:
+	$(PY) -m tools.data_scan $(SCAN)
+
+# the CI gate's jobs, in the order of .github/workflows/trialbox-ci.yml (D-206): lint, types, docs, contracts, trace,
+# unit (+ the scan of its log), e2e-simple, goldens, data-scan, shell, images (if hadolint is installed); then the
+# offline supply-chain checks (lock-check, allowlist-check; `make supply-chain` is trialbox-supply-chain.yml). Stops at
+# the first failing job.
+CI_LOG ?= $(TB_TEST_ROOT)/unit.log
+ci: venv-check
+	$(PY) -m ruff check . && $(PY) -m ruff format --check .
+	$(PY) -m mypy libs services tools tests
+	$(PY) tools/doclint.py
+	$(MAKE) contracts-check
+	$(PY) tools/gen_traceability.py --check
+	@mkdir -p "$(TB_TEST_ROOT)"
+	set -o pipefail; $(MAKE) test 2>&1 | tee "$(CI_LOG)"
+	$(PY) -m tools.data_scan --log "$(CI_LOG)"
+	$(MAKE) e2e-simple
+	$(MAKE) goldens-check
+	$(MAKE) data-scan
+	git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
+	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile || true; else echo "ci: images: hadolint not installed, skipped"; fi
+	$(MAKE) lock-check allowlist-check
 
 HL7_ENV := TB_HL7_VALIDATOR_JAR=$(CURDIR)/.cache/jvm/validator_cli.jar TB_FHIR_PACKAGE_HOME=$(CURDIR)/.cache/jvm/fhir-home
 
@@ -49,7 +122,7 @@ test-integration:
 
 # the build gate (FR-OPS-11, D-111): one synthetic hospital, criteria -> report -> list -> mail -> REDCap -> log.
 # Stub model, no network, no secrets; about 75 s on one laptop core.
-E2E_DIR ?= /tmp/tb-e2e-simple
+E2E_DIR ?= $(TB_TEST_ROOT)/e2e-simple
 e2e-simple:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.e2e_simple --dir $(E2E_DIR) --json $(E2E_DIR).json
 
@@ -64,7 +137,7 @@ goldens:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.goldens --write --profile ci --reason "$(REASON)"
 
 # TB-PLAN-04 step 2 (D-126): the box runs the path, is backed up, wiped and restored, and must be the same box
-DRILL_DIR ?= /tmp/tb-backup-drill
+DRILL_DIR ?= $(TB_TEST_ROOT)/backup-drill
 backup-drill:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.backup_drill --dir $(DRILL_DIR)
 
@@ -185,6 +258,11 @@ poc-down:
 
 poc-status:
 	deploy/poc.sh status
+
+# the gate before any site's installation qualification (D-176, docs/RUNBOOK.md §16): offline media -> the real
+# install.sh --tier large in a clean Ubuntu 24.04 container, strict vLLM stand-ins for the GPU (tools/vllm_standin.py)
+rehearse-box:
+	PY=$(PY) tools/rehearse_box/rehearse.sh
 
 test-console:
 	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console

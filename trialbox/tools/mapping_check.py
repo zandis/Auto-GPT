@@ -30,7 +30,7 @@ for _p in ("libs", "services"):
     sys.path.insert(0, str(ROOT / _p))
 
 _TOKEN = re.compile(r"\{([A-Za-z_][\w.]*)\}")
-COLUMN_KEYS = ("column", "pid", "hid", "display_column", "start", "end", "add_minutes", "base64")
+COLUMN_KEYS = ("column", "pid", "hid", "display_column", "start", "end", "add_minutes", "base64", "unit_column")
 UNREADABLE = {"diagnosis": "icd10", "medication": "atc"}  # the column whose absence makes a row unreadable (D-130)
 
 

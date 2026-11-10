@@ -21,8 +21,10 @@ import argparse
 import base64
 import hashlib
 import json
+import re
 import sys
 import tarfile
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -91,9 +93,7 @@ def verify(bundle: Path, pubkey: Path, stage: Path | None = None) -> dict[str, A
         except (InvalidSignature, ValueError) as exc:
             raise Rejected("signature does not verify with the vendor key") from exc
         manifest = json.loads(manifest_bytes)
-        from tb_contracts import schema_errors
-
-        errs = schema_errors("update_manifest", manifest)
+        errs = _schema_errors(manifest)
         if errs:
             raise Rejected("manifest violates update_manifest schema: " + "; ".join(errs[:5]))
         listed = {f"{PAYLOAD}{_safe(f['path'])}": f for f in manifest["files"]}
@@ -116,6 +116,57 @@ def verify(bundle: Path, pubkey: Path, stage: Path | None = None) -> dict[str, A
             (stage / MANIFEST).write_bytes(manifest_bytes)
     manifest["manifest_sha256"] = hashlib.sha256(manifest_bytes).hexdigest()
     return dict(manifest)
+
+
+def _schema_errors(manifest: Any) -> list[str]:
+    """``schemas/update_manifest.schema.json`` through tb_contracts (jsonschema) when the host has it, else the same
+    rules in the standard library. A clean site host (Ubuntu 24.04 with python3-cryptography) has no jsonschema, and
+    on a first install the trialbox-py image that has it is inside the bundle being verified (found by the box
+    rehearsal, D-176). The signature is checked before either."""
+    try:
+        from tb_contracts import schema_errors
+    except ImportError:
+        return _stdlib_schema_errors(manifest)
+    return list(schema_errors("update_manifest", manifest))
+
+
+KINDS = ("model", "ruleset", "image", "refdata", "other")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _stdlib_schema_errors(m: Any) -> list[str]:
+    if not isinstance(m, dict):
+        return ["manifest is not an object"]
+    errs = [f"missing {k}" for k in ("bundle_id", "created_at", "signer", "files") if k not in m]
+    errs += [f"unexpected {k}" for k in m if k not in ("bundle_id", "created_at", "signer", "description", "files")]
+    errs += [
+        f"{k} is not a string" for k in ("bundle_id", "created_at", "signer") if k in m and not isinstance(m[k], str)
+    ]
+    if m.get("description") is not None and not isinstance(m["description"], str):
+        errs.append("description is not a string")
+    if isinstance(m.get("created_at"), str):
+        try:
+            datetime.fromisoformat(m["created_at"].replace("Z", "+00:00"))
+        except ValueError:
+            errs.append("created_at is not a date-time")
+    files = m.get("files")
+    if "files" in m and not isinstance(files, list):
+        return [*errs, "files is not an array"]
+    for i, f in enumerate(files or []):
+        if not isinstance(f, dict):
+            errs.append(f"files[{i}] is not an object")
+            continue
+        errs += [f"files[{i}]: missing {k}" for k in ("path", "sha256", "kind") if k not in f]
+        errs += [f"files[{i}]: unexpected {k}" for k in f if k not in ("path", "sha256", "kind", "size")]
+        if "path" in f and not isinstance(f["path"], str):
+            errs.append(f"files[{i}]: path is not a string")
+        if "sha256" in f and not (isinstance(f["sha256"], str) and SHA256.match(f["sha256"])):
+            errs.append(f"files[{i}]: sha256 is not 64 lowercase hex digits")
+        if "kind" in f and f["kind"] not in KINDS:
+            errs.append(f"files[{i}]: kind {f['kind']!r} is not one of {', '.join(KINDS)}")
+        if "size" in f and (not isinstance(f["size"], int) or isinstance(f["size"], bool)):
+            errs.append(f"files[{i}]: size is not an integer")
+    return errs
 
 
 def _check_payloads(

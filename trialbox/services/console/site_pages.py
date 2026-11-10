@@ -13,6 +13,9 @@
 * **Ask TrialBox** (``/ask``, linked from every page's header): explains and links, never changes anything. It reads
   the readiness and the screening trail and asks the local model to phrase the answer.
 
+D-179 (review J-06): these pages are site-wide (the steward's work, every patient). A study-scoped account opens only
+its own studies' readiness and the help; every other site page and API answers 404.
+
 Everything goes through the orchestrator's set-up API (``orchestrator.setup_api``). Roles: the coordinator and the
 administrator change things; the investigator reads; viewer and CRA accounts get 403, CRO accounts 404.
 """
@@ -59,6 +62,18 @@ _WHY = re.compile(r"(?i)why|なぜ|どうして|理由|為什麼|為何|原因|�
 _NEXT = re.compile(r"(?i)next|what (do|should) i do|次|何を|どうすれば|下一步|該做|怎麼做")
 
 
+# D-179 (review J-06): the site set-up pages hold every patient of the site (charts and their quotes, proposed facts,
+# the hospital's codes, lists, the patients against a study's criteria): the steward's work, site-wide, for accounts
+# that see every study. A study-scoped account (an SMO or CRO coordinator, D-104) opens only what is per study: its own
+# studies' readiness and the help. Every other site page and API answers 404, as another study's pages do.
+PER_STUDY = frozenset({"/site", "/site/help", "/api/v1/site/readiness"})
+
+
+def site_wide(user: User) -> bool:
+    """May open the site-wide set-up pages (D-179): an account not limited to some studies."""
+    return not user.studies
+
+
 def can_setup(user: User) -> bool:
     """Who changes the site's set-up: the coordinator and the administrator (D-131: "a CRC or admin confirms")."""
     return user.role in ("coordinator", "admin")
@@ -72,7 +87,7 @@ class ApiChart(BaseModel):
 
 
 class ApiDecide(BaseModel):
-    action: str = Field(pattern=r"^(confirm|correct|reject)$")
+    action: str = Field(pattern=r"^(confirm|correct|reject|undo)$")  # undo: D-178 (review J-14)
     changes: dict[str, str] = Field(default_factory=dict)
 
 
@@ -99,6 +114,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_view_phi:
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
+        if not site_wide(sess.user) and path not in PER_STUDY:  # D-179: site-wide data, not a study's
+            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80], "reason": "study scope"})
+            raise h.problem(404, "notfound")
 
     def need_change(sess: Session, path: str) -> None:
         need_view(sess, path)
@@ -138,7 +156,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             "ws": ws,
             "rs": rs,
             "studies": sorted({*studies(sess), *([rs] if rs else [])}),
-            "editable": can_setup(sess.user),
+            "editable": can_setup(sess.user) and site_wide(sess.user),
+            "site_wide": site_wide(sess.user),  # D-179: a study-scoped account sees readiness and help only
             "qs": q(ws, rs),
             "reason_label": lambda code: t_reason(lang, str(code or "")),
         }
@@ -253,6 +272,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         else:
             points.append(t("ask.answer.help"))
             links.append({"href": f"/help?back={quote('/ask')}", "label": t("help.title")})
+        if not site_wide(sess.user):  # D-179: no link to a site-wide page a study-scoped account cannot open
+            links = [x for x in links if not x["href"].startswith("/site/") or x["href"].split("?")[0] in PER_STUDY]
         draft = " ".join(points)
         try:
             res = post("/assist", {"question": question[:300], "lang": lang, "draft": draft, "points": points})
@@ -284,6 +305,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                         }
                         for v in r.get("criteria") or []
                     ]
+        if not site_wide(sess.user):  # D-179: the site-wide patient check is not a study-scoped account's
+            return None
         try:
             out = get(f"/setup/{ws}/patients?study={quote(rs)}")
         except (Problem, Unavailable):
@@ -309,6 +332,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             for name in ("trial", "patients", "records"):
                 for m in rd["questions"][name]["missing"]:
                     m["href"] = link_of(m, ws, rs)
+                    if not site_wide(sess.user) and m["href"].startswith("/site/"):
+                        m["href"] = ""  # D-179: the fix is the steward's; a study-scoped account has no link
         except (Problem, Unavailable) as exc:
             err = str(exc)[:200]
         return {"rd": rd, "err": err}
@@ -380,7 +405,13 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     @app.get("/site/facts")
     def facts_page(
-        request: Request, ws: str = "main", study: str = "", show: str = "proposed", done: str = "", err: str = ""
+        request: Request,
+        ws: str = "main",
+        study: str = "",
+        show: str = "proposed",
+        done: str = "",
+        err: str = "",
+        fact: int = 0,
     ) -> Response:
         sess = h.need(request)
         need_view(sess, request.url.path)
@@ -399,6 +430,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             n=len(facts),
             done=done[:20],
             err=err[:80],
+            undo_fact=fact if done in ("confirm", "correct", "reject") and fact > 0 else 0,  # D-178: the toast
         )
 
     @app.post("/site/facts/{fid}")
@@ -412,11 +444,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         changes = {
             k: str(form.get(k) or "").strip() for k in ("value", "day", "code") if str(form.get(k) or "").strip()
         }
+        if action == "reject" and str(form.get("confirm") or "") != "yes" and h.confirm is not None:
+            need_change(sess, "/site/facts")  # D-178 (review J-14): a rejected fact never counts; say so first
+            text = translate(lang_of(sess), "confirm.reject_fact")
+            fields = {"action": "reject", "ws": w, "study": rs}
+            return h.confirm(request, sess, text, request.url.path, fields, f"/site/facts?{q(w, rs)}#fact-{fid}")
         try:
             act_fact(sess, w, fid, action, changes)
         except Problem as exc:
             return RedirectResponse(f"/site/facts?{q(w, rs, err=exc.code)}", status_code=303)
-        return RedirectResponse(f"/site/facts?{q(w, rs, done=action)}#facts", status_code=303)
+        more = {"fact": str(fid)} if action != "undo" else {}
+        return RedirectResponse(f"/site/facts?{q(w, rs, done=action, **more)}#facts", status_code=303)
 
     @app.get("/site/codes")
     def codes_page(request: Request, ws: str = "main", study: str = "", done: str = "", err: str = "") -> Response:

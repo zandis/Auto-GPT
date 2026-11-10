@@ -84,7 +84,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
 
     # 3 the CRC creates the REDCap record with the screening number and a consent date; Run now
     sc = TestClient(sim)
-    rec = {"record_id": "3", "tb_screening_no": no, "consent_date": h.clock().date().isoformat()}
+    rec = {"record_id": "3", "tb_screening_no": no, "consent_date": h.today().isoformat()}
     assert sc.post("/sim/records", json={"project_id": 101, "records": [rec]}).status_code == 200
     log = ld.ok(crc.get(f"/studies/{TRIAL}/screening-log"), "log")
     out["before"] = status_of(log.text, no)
