@@ -44,7 +44,7 @@ jobs:
       - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
         with:
           distribution: temurin
-          java-version: "21"
+          java-version-file: trialbox/.java-version
           cache: maven
           cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
       - name: Python environment
@@ -55,7 +55,7 @@ jobs:
           path: |
             trialbox/.cache/jvm
             trialbox/.cache/fonts
-          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/tools/jvm-deps.sha256', 'trialbox/tools/fhir-packages.sha256', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
       - name: JVM dependencies and fonts
         run: make jvm-deps fonts
       # D-126: tools/pglocal.py starts a throwaway cluster from the server binaries (installed here only if missing)

@@ -6,6 +6,11 @@ COMPOSE := docker compose --project-directory deploy -f deploy/docker-compose.ym
 TEST_SETTINGS := .cache/test-settings.yaml
 COMPOSE_TEST := TB_HOST_OBJECTS_DIR=$(CURDIR)/deploy/.objects TB_SETTINGS_FILE=../$(TEST_SETTINGS) $(COMPOSE) -f deploy/docker-compose.test.yml --profile stub --profile test
 BUILD_ARGS := $(if $(HTTPS_PROXY),--network host --build-arg HTTPS_PROXY=$(HTTPS_PROXY) --build-arg https_proxy=$(HTTPS_PROXY),)
+# release identity on every image we build (T-110b, ENG-015): the version from pyproject.toml and the commit
+TB_VERSION := $(shell sed -n 's/^version = "\(.*\)"$$/\1/p' pyproject.toml | head -1)
+TB_REVISION := $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
+OCI_LABELS := --label org.opencontainers.image.version=$(TB_VERSION) --label org.opencontainers.image.revision=$(TB_REVISION) \
+	--label org.opencontainers.image.title=trialbox
 comma := ,
 # test-stack host ports moved in deploy/.env reach every tool and test run from make (the shell environment wins)
 HOST_PORTS := $(shell grep -hE '^TB_HOST_[A-Z_]+_PORT=[0-9]+$$' deploy/.env 2>/dev/null)
@@ -14,7 +19,7 @@ CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),
 
 
 .PHONY: goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked test-random test-random-locked e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
-	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain
+	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle release-version release-tag supply-chain
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
 # Every temporary root of a run derives from TB_TEST_ROOT: one per branch, under TB_SCRATCH (an agent's scratchpad;
@@ -187,19 +192,20 @@ jvm-deps:
 	tools/fetch_jvm_deps.sh
 
 images: jvm-deps $(FONTS)
-	docker build $(BUILD_ARGS) $(CA_SECRET) -f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
-	docker build -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
-	docker build $(BUILD_ARGS) $(CA_SECRET) -f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1 deploy/docker
+	docker build $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) --build-arg TB_REVISION=$(TB_REVISION) \
+		-f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
+	docker build $(OCI_LABELS) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
+	docker build $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1 deploy/docker
 
 # both architectures (x86_64 servers, GB10 aarch64); push to the site registry or export with --output type=oci
 PLATFORMS ?= linux/amd64,linux/arm64
 REGISTRY ?= localhost:5000
 images-multiarch: jvm-deps $(FONTS)
-	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) -f deploy/docker/python.Dockerfile \
-		-t $(REGISTRY)/trialbox-py:1.0.0 --push .
-	docker buildx build --platform $(PLATFORMS) --build-arg BASE_IMAGE=$(REGISTRY)/trialbox-py:1.0.0 \
+	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) \
+		--build-arg TB_REVISION=$(TB_REVISION) -f deploy/docker/python.Dockerfile -t $(REGISTRY)/trialbox-py:1.0.0 --push .
+	docker buildx build --platform $(PLATFORMS) $(OCI_LABELS) --build-arg BASE_IMAGE=$(REGISTRY)/trialbox-py:1.0.0 \
 		-f deploy/docker/jvm.Dockerfile -t $(REGISTRY)/trialbox-jvm:1.0.0 --push .
-	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) -f deploy/docker/db.Dockerfile \
+	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/db.Dockerfile \
 		-t $(REGISTRY)/trialbox-postgres:16-1 --push deploy/docker
 
 up: deploy/.env
@@ -310,7 +316,7 @@ SCANNERS := $(CURDIR)/.cache/scanners/bin
 TRIVY_CACHE ?= .cache/trivy
 # every image a bundle carries: ours (make images, make demo-bundle) and the third-party images compose pulls,
 # the same list tools/make_bundle.sh exports
-SC_OWN_IMAGES ?= trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-demo:step5
+SC_OWN_IMAGES ?= trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1 trialbox-demo:step5
 SC_THIRD_PARTY ?= $(shell docker compose --project-directory deploy -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml \
 	--profile stub --profile test --profile gpu config --images 2>/dev/null | grep -v '^trialbox-' | sort -u)
 # the third-party images are scanned in their registry, by digest, for this machine's platform (or SC_PLATFORM)
@@ -376,14 +382,22 @@ release-gates: lock-sbom sc-images
 
 # the images the gates will scan; fails when compose gave no third-party image (no docker, or a broken config),
 # so a release is never gated on our images alone by accident
+# SC_LOCAL_IMAGES=1: a caller that names local images on purpose (the box rehearsal, the demo VM drill; T-110b)
 sc-images: deploy/.env
 	@printf '%s\n' $(SC_IMAGES)
-	@case " $(SC_IMAGES) " in *" registry:"*) ;; \
+	@[ -n "$(SC_LOCAL_IMAGES)" ] || case " $(SC_IMAGES) " in *" registry:"*) ;; \
 		*) echo "sc-images: no third-party images (docker compose config gave none)" >&2; exit 1 ;; esac
 
-# a bundle only from images that passed the gates (make_bundle.sh --gates); BUNDLE_ARGS="--key ... --id ... --out ..."
+# a bundle only from images that passed the gates (make_bundle.sh needs --gates, T-110b); the SBOMs of dist/sbom ride
+# inside it with release.json. BUNDLE_ARGS="--key ... --id ... --release-seq N --out ..."
 release-bundle: release-gates
-	tools/make_bundle.sh --gates $(SC_DIR)/gates.json $(BUNDLE_ARGS)
+	tools/make_bundle.sh --gates $(SC_DIR)/gates.json --sbom-dir dist/sbom $(BUNDLE_ARGS)
+
+# the release version (pyproject.toml, the one place) and its tag (T-110b)
+release-version:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.release version
+release-tag:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.release tag
 
 # what CI runs on every pull request (no images needed)
 supply-chain: lock-check allowlist-check pip-audit licences

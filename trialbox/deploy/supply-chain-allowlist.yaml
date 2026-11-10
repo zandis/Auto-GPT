@@ -10,7 +10,311 @@
 #   - a key given twice, or a list given as anything else, is refused.
 # Change this file in a pull request the security owner approves.
 
-vulnerabilities: []  # pip-audit on deploy/requirements.lock was clean on 2026-11-09
+vulnerabilities:  # pip-audit on deploy/requirements.lock was clean on 2026-11-09; none accepted for it
+  # Dated per-image exceptions that replace report mode for the HAPI FHIR and vLLM images (T-110b, D-340, ENG-007).
+  # Each accepts one finding of the image gates of 2026-11-10 in that image only (`image:`); a new finding blocks.
+  # They lapse on 2026-12-10, the target date of deploy/security/known-image-findings.md: by then the image moves to
+  # a patched tag (and the entries go) or each entry is reviewed again with a new date and reason.
+  - id: CVE-2026-102554
+    package: com-google-guava:guava
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 33.7.2; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-111497
+    package: libbrotli1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 1.1.0-2+deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-33701
+    package: io-opentelemetry-javaagent:opentelemetry-javaagent
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 2.26.1; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-35568
+    package: io-modelcontextprotocol-sdk:mcp-core
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 1.0.0; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-47884
+    package: org-springframework:spring-webmvc
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 7.0.9; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-47890
+    package: org-springframework:spring-webmvc
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 7.0.9; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-66046
+    package: libexpat1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-76844
+    package: zlib1g
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 1:1.3.dfsg+really1.3.1-1+deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-76956
+    package: libexpat1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-76957
+    package: libexpat1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-77214
+    package: libexpat1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-85091
+    package: zlib1g
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 1:1.3.dfsg+really1.3.1-1+deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89407
+    package: com-fasterxml-jackson-core:jackson-core
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 2.18.11; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89407
+    package: tools-jackson-core:jackson-core
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89425
+    package: com-fasterxml-jackson-core:jackson-core
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 2.21.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-89425
+    package: tools-jackson-core:jackson-core
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-91776
+    package: com-fasterxml-jackson-core:jackson-databind
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 2.18.11; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-91776
+    package: tools-jackson-core:jackson-databind
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-91777
+    package: com-fasterxml-jackson-core:jackson-databind
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 2.21.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-91777
+    package: tools-jackson-core:jackson-databind
+    image: hapiproject/hapi
+    reason: Java library inside the upstream HAPI FHIR server, fixed in 3.1.7; waits for a patched HAPI tag pinned by digest; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-93990
+    package: libexpat1
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 2.9.0-1~deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: DSA-6572-1
+    package: ca-certificates
+    image: hapiproject/hapi
+    reason: Debian package of the upstream HAPI FHIR image, fixed in Debian 20250419+deb13u1; waits for a HAPI tag rebuilt on it; HAPI has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-47273
+    package: setuptools
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 78.1.1; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: dirmngr
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gnupg
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gnupg-utils
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gnupg2
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gpg
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gpg-agent
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gpgconf
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gpgsm
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: gpgv
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2025-68973
+    package: keyboxd
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.4.4-2ubuntu17.4; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-109518
+    package: apt
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.8.4ubuntu0.1; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-109518
+    package: libapt-pkg6-0t64
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 2.8.4ubuntu0.1; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-111497
+    package: libbrotli1
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 1.1.0-2ubuntu0.1; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-114613
+    package: msgpack
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 1.2.3; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-119194
+    package: pyasn1
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-119195
+    package: pyasn1
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-119196
+    package: pyasn1
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-119197
+    package: pyasn1
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 0.6.5; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-45447
+    package: libssl3t64
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.11; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-45447
+    package: openssl
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.11; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-84782
+    package: libssl3t64
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.16; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-84782
+    package: openssl
+    image: vllm/vllm-openai
+    reason: Ubuntu package of the upstream vLLM image, fixed in 3.0.13-0ubuntu3.16; waits for a patched vLLM tag pinned by digest; the model server has no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97687
+    package: urllib3
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 2.8.0; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: CVE-2026-97689
+    package: urllib3
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 2.8.0; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: GHSA-6q48-6c7w-9gw2
+    package: certifi
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 2026.10.18; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: GHSA-6v7p-g79w-8964
+    package: msgpack
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 1.2.1; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
+  - id: GHSA-hq85-5cpj-mr62
+    package: uv
+    image: vllm/vllm-openai
+    reason: Python package inside the upstream vLLM image, fixed in 0.13.4; waits for a patched vLLM tag pinned by digest; no egress (D-340)
+    review_by: 2026-12-10
+    owner: security owner (to assign)
 
 licences:
   # The eight LGPL packages of the layer-2 review (docs/reviews/2026-11-09-component-review-layer2-verification.md

@@ -1046,6 +1046,106 @@ class RegistryUpdate(BaseModel):
     source_job: str | None = None
 
 
+class ReleaseComponent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    path: str
+    kind: Literal["model", "ruleset", "image", "refdata", "other"]
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    size: int = Field(..., ge=0)
+
+
+class ReleaseFile(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    path: str
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    subject: str | None = None
+
+
+class ReleaseImage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    image: str
+    """
+    The tag the saved archive carries (what the box loads).
+    """
+    digest: str = Field(..., pattern="^sha256:[0-9a-f]{64}$")
+    """
+    The image's config digest (its image id), as in the gate record and images.lock.
+    """
+    source: str
+    """
+    The reference the release was built from (a registry digest when it had one).
+    """
+    platform: str | None = None
+    repo_digests: list[str] | None = None
+    archive: str
+    sbom: str
+    sbom_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+
+
+class Source(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    commit: str | None = Field(..., pattern="^[0-9a-f]{40}$")
+    dirty: bool
+    tag: str | None
+
+
+class Gates(BaseModel):
+    """
+    The release-gate record (tools/supply_chain release-gates, D-186) the images passed.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    record_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    created: str
+    ok: Literal[True]
+    vuln_mode: str
+
+
+class ReleaseRecord(BaseModel):
+    """
+    release.json, the release record inside a signed offline bundle (T-110b, D-340). Schema version 1.0.0. Written by tools/release.py from the bundle's own files: the version (pyproject.toml, the one place), the source commit and tag, the passing release-gate record, every image by its config digest with its SBOM, and every payload file with its sha256. images is the map verify_update.py checks against the bundle's images.lock (D-210).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    format: Literal["trialbox-release/1"]
+    product: Literal["trialbox"]
+    version: str = Field(
+        ..., pattern="^[0-9]+\\.[0-9]+\\.[0-9]+([.+-][0-9A-Za-z.-]+)?$"
+    )
+    release_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    release_seq: int = Field(..., ge=1)
+    created_at: AwareDatetime
+    source: Source
+    gates: Gates
+    """
+    The release-gate record (tools/supply_chain release-gates, D-186) the images passed.
+    """
+    images: dict[str, ReleaseImage] = Field(..., min_length=1)
+    sboms: list[ReleaseFile] = Field(..., min_length=1)
+    components: list[ReleaseComponent] = Field(..., min_length=1)
+    """
+    Every payload file of the bundle (files/<path> in the tar), SBOMs included.
+    """
+
+
 class ReportProvenance(BaseModel):
     """
     FR-REP-01 (D-111): how the report was made. Built from the job only, so a re-run writes the same bytes (FR-REP-02).

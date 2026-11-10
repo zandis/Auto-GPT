@@ -449,7 +449,9 @@ def test_trivy_unscored_counts_as_high(tmp_path: Path) -> None:
     result = vulns.trivy_gate([_dump(tmp_path, "t.json", data)], _allow({}))
     assert "DSA-0000-1" in {f.id for f in result.failing}
     assert unfixed["VulnerabilityID"] in {f.id for f in result.reported}
-    assert release.split_report_mode([_finding("DSA-1", "UNKNOWN")], "postgres", "report")[1]  # report mode too
+    assert release.split_report_mode([_finding("DSA-1", "UNKNOWN")], "greenmail/standalone", "report")[
+        1
+    ]  # report mode too
 
 
 @pytest.mark.parametrize("severity", [None, "", "HIGH ", "high", "unknown", "SEVERE"])
@@ -958,12 +960,15 @@ def test_known_image_findings_lists_every_report_mode_image() -> None:
     path = ROOT / "deploy" / "security" / "known-image-findings.md"
     assert path.is_file()
     text = path.read_text(encoding="utf-8")
-    assert "report mode" in text and "2026-12-10" in text and "security owner (to assign)" in text
+    assert "report mode" in text.lower().replace("\n", " ")
+    assert "2026-12-10" in text and "security owner (to assign)" in text
     rows = {line.split("|")[1].strip() for line in text.splitlines() if line.startswith("| ") and "---" not in line}
     missing = sorted(name for name in release.VULN_REPORT_ONLY if name not in rows)
     assert missing == [], f"report-mode images without a row in {path.name}: {missing}"
-    # our own images always block: trialbox-py from the start, trialbox-jvm and trialbox-demo since T-672
-    assert not {"trialbox-py", "trialbox-jvm", "trialbox-demo"} & release.VULN_REPORT_ONLY
+    # our own images always block: trialbox-py from the start, trialbox-jvm and trialbox-demo since T-672; since
+    # T-110b only the test-only mail servers are left in report mode
+    assert not {"trialbox-py", "trialbox-jvm", "trialbox-demo", "trialbox-postgres"} & release.VULN_REPORT_ONLY
+    assert not {"hapiproject/hapi", "vllm/vllm-openai", "postgres"} & release.VULN_REPORT_ONLY
 
 
 def test_report_mode_defers_only_fixable_high_findings_of_named_images() -> None:
@@ -974,11 +979,14 @@ def test_report_mode_defers_only_fixable_high_findings_of_named_images() -> None
         _finding("CVE-4", "MEDIUM"),  # only fails with --severity ...MEDIUM: stays blocking
         _finding("CVE-5", "INVALID('HIGH ')"),
     ]
-    blocking, deferred = release.split_report_mode(failing, "hapiproject/hapi:v8.12.0-2", "report")
+    blocking, deferred = release.split_report_mode(failing, "greenmail/standalone:2.1.3", "report")
     assert [f.id for f in deferred] == ["CVE-1", "CVE-2"]
     assert [f.id for f in blocking] == ["CVE-3", "CVE-4", "CVE-5"]
-    assert release.split_report_mode(failing, "docker.io/hapiproject/hapi@sha256:ab", "report")[1]
-    assert release.split_report_mode(failing, "vllm/vllm-openai@sha256:ab", "report")[1]
+    assert release.split_report_mode(failing, "docker.io/greenmail/standalone@sha256:ab", "report")[1]
+    assert release.split_report_mode(failing, "mailhog/mailhog@sha256:ab", "report")[1]
+    # T-110b: every image a bundle can carry blocks, the third-party ones too
+    for shipped in ("hapiproject/hapi:v8.12.0-2", "vllm/vllm-openai@sha256:ab", "trialbox-postgres:16-1"):
+        assert release.split_report_mode(failing, shipped, "report") == (failing, [])
     # our own images, and every image in block mode, keep every finding blocking (T-672: jvm and demo block)
     for own in (
         "trialbox-py:1.0.0",
@@ -1043,6 +1051,7 @@ def test_arm64_gates_name_the_amd64_only_images() -> None:
 def test_make_bundle_checks_the_gate_record() -> None:
     script = (ROOT / "tools" / "make_bundle.sh").read_text(encoding="utf-8")
     assert "--gates) GATES=" in script and "tools.supply_chain bundle-check" in script
+    assert "--gates is required" in script  # T-110b: not optional
 
 
 # ---------------------------------------------------------------- pinned scanners

@@ -139,7 +139,10 @@ media() (  # a subshell: set -e stops the step, not the run
     echo "$i $(docker image inspect --format '{{.Id}}' "$i")" >> "$W/vendor/bundle-images.txt"
     args+=(--image "$i")
   done
-  tools/make_bundle.sh --key "$W/vendor/keys/vendor_ed25519.key" --id "$ID" --out "$MEDIA/linux/$BUNDLE_NAME" \
+  # no bundle without its checks (T-110b, D-340): the release gates over exactly these images, then the bundle
+  make release-gates SC_LOCAL_IMAGES=1 SC_DIR="$W/vendor/gates" SC_IMAGES="${imgs[*]}" || { echo "the release gates did not pass"; return 1; }
+  tools/make_bundle.sh --key "$W/vendor/keys/vendor_ed25519.key" --id "$ID" --release-seq 1 \
+    --out "$MEDIA/linux/$BUNDLE_NAME" --gates "$W/vendor/gates/gates.json" --sbom-dir dist/sbom \
     --models "$W/vendor/models" --refdata "$pack" "${args[@]}"
   cp "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/"
   cp deploy/measured/serving_config.*.json "$MEDIA/measured/"

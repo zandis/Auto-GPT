@@ -60,3 +60,31 @@ def test_sections_split_on_underlined_headings() -> None:
         {"title": "Title", "blocks": [["intro line", "more"]]},
         {"title": "1. ONE", "blocks": [["a"], ["b"]]},
     ]
+
+
+# T-110b (D-340): the page names the release the box runs
+
+
+def test_about_shows_the_release(box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tools.release import version
+
+    rel = tmp_path / "release.json"
+    rel.write_text('{"release_id": "2026.11-1", "release_seq": 3, "version": "' + version() + '"}', encoding="utf-8")
+    monkeypatch.setenv("TB_REVISION", "0123456789abcdef0123456789abcdef01234567")
+    monkeypatch.setenv("TB_RELEASE_FILE", str(rel))
+    page = html.unescape(TestClient(box["app"]).get("/about").text)
+    assert f'data-testid="about-version">{version()}<' in page
+    assert ">0123456789abcdef0123456789abcdef01234567<" in page
+    assert ">2026.11-1 (seq 3)<" in page
+
+
+def test_release_info_without_a_release_file(tmp_path: Path) -> None:
+    py = tmp_path / "pyproject.toml"
+    py.write_text('[project]\nname = "trialbox"\nversion = "1.2.3"\n', encoding="utf-8")
+    assert about.release_info(py, {"TB_REVISION": "not a sha"}) == {
+        "version": "1.2.3",
+        "revision": None,
+        "release_id": None,
+    }
+    broken = tmp_path / "missing.json"
+    assert about.release_info(tmp_path / "none.toml", {"TB_RELEASE_FILE": str(broken)})["version"] is None
