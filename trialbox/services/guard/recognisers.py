@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
-from tb_common import phi_guard
+from tb_common import dates, phi_guard
 
 # ------------------------------------------------------------------------------------------------ check digits
 _TW_LETTER = {
@@ -126,12 +126,7 @@ ADDRESS_EN = re.compile(
     r"\b\d{1,5}\s+(?:[A-Z][a-z]+\s+){1,3}(?:Street|St|Road|Rd|Avenue|Ave|Lane|Ln|Boulevard|Blvd|Drive|Dr|Way)\b\.?"
     r"(?:,\s*(?:Apt\.?|Unit|Suite)\s*\d+)?(?:,\s*[A-Z][a-z]+(?:\s[A-Z][a-z]+)?)?"
 )
-_DATE = (
-    r"(?:(?:19|20)\d{2}[/\-.]\d{1,2}[/\-.]\d{1,2}|(?:19|20)\d{2}年\s?\d{1,2}月\s?\d{1,2}日"
-    r"|民國\s?\d{2,3}年\s?\d{1,2}月\s?\d{1,2}日|(?:昭和|平成|令和)\s?(?:\d{1,2}|元)年\s?\d{1,2}月\s?\d{1,2}日"
-    r"|\d{1,2}/\d{1,2}/(?:19|20)\d{2}"
-    r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2}, (?:19|20)\d{2})"
-)
+_DATE = dates.DOB_SPAN  # D-215: the pattern lives in tb_common.dates, unchanged
 DOB = re.compile(rf"(?:生日|出生(?:日期)?|生年月日|誕生日|(?i:DOB|date of birth|born(?: on)?))[\s:：]*(?P<v>{_DATE})")
 
 _SURNAMES_ROC = (

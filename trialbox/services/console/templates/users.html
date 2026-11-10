@@ -4,6 +4,9 @@
 <h1>{{ t('users.title') }}</h1>
 <p>{{ t('users.help') }}</p>
 {% if sso %}<p class="hint" data-testid="users-sso">{{ t('users.sso') }}</p>{% endif %}
+{% if undo %}<div class="toastp" role="status" id="undo" data-testid="users-undo"><span>{{ t('users.done.disabled', user=undo) }}</span>
+<form method="post" action="/ops/users" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="enable"><input type="hidden" name="username" value="{{ undo }}"><input type="hidden" name="confirm" value="undo"><button type="submit" class="secondary" data-testid="users-undo-btn">{{ t('mark.undo') }}</button></form></div>{% endif %}
+{% if done %}<p class="ok" role="status" data-testid="users-done">{{ t('users.done.' + done) }}</p>{% endif %}
 {% if made %}<section class="card attention" id="made" data-testid="users-made" aria-labelledby="made-h">
 <h2 id="made-h">{{ t('users.made', user=made) }}</h2>
 <p class="otp" aria-label="{{ t('users.pw.aloud') }}">{% for g in pw_groups %}<span>{{ g }}</span>{% endfor %}</p>
@@ -71,4 +74,10 @@
 {% endfor %}
 </tbody></table></div>
 </section>
+{% if disabled %}<section class="card" data-testid="users-disabled">
+<h2>{{ t('users.disabled.title') }}</h2>
+<p class="hint">{{ t('users.disabled.help') }}</p>
+<ul class="plain">{% for u in disabled %}<li data-disabled-user="{{ u.username }}"><span class="mono">{{ u.username }}</span> · {{ t('role.' + u.role) }}
+<form method="post" action="/ops/users" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="enable"><input type="hidden" name="username" value="{{ u.username }}"><button type="submit" class="small secondary" data-testid="users-enable-{{ u.username }}">{{ t('users.enable') }}</button></form></li>{% endfor %}</ul>
+</section>{% endif %}
 {% endblock %}

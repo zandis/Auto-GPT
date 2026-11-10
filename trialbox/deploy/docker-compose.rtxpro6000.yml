@@ -32,9 +32,9 @@ x-vllm-pro6000: &vllmpro
   environment:
     HF_HUB_OFFLINE: "1"
     VLLM_NO_USAGE_STATS: "1"
+    VLLM_API_KEY: "${TB_LLM_API_KEY:-}"   # D-177: vLLM checks it on /v1 only; model-guard checks every call
   volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
   ipc: host
-  networks: [model-net]
   restart: unless-stopped
   deploy:
     resources:
@@ -50,6 +50,7 @@ x-vllm-pro6000: &vllmpro
 services:
   llm-service:
     <<: *vllmpro
+    networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
     command:
       - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
       - --served-model-name=${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}
@@ -61,6 +62,7 @@ services:
 
   llm-verifier:
     <<: *vllmpro
+    networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)
     command:
       - --model=/models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}
       - --served-model-name=${VERIFIER_MODEL:-local/qwen3.5-9b-awq}
