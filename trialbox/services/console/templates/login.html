@@ -7,7 +7,8 @@
 <nav class="langpick" aria-label="{{ t('lang.label') }}" data-testid="login-lang">{% for l in langs %}<a href="/login?lang={{ l }}" lang="{{ l }}" hreflang="{{ l }}" class="button{{ '' if l == lang else ' secondary' }}"{% if l == lang %} aria-current="true"{% endif %}>{{ t('lang.name.' + l) }}</a>{% endfor %}</nav>
 {% if uninitialised %}<p class="warn" role="alert">{{ t('login.uninitialised') }}</p>{% endif %}
 {% if sso %}<p class="hint" data-testid="sso-hint">{{ t('login.sso') }}</p>{% endif %}
-{% if failed and until %}<div class="error" role="alert" data-testid="login-locked"><p><strong>{{ t('login.locked', n=left, until=until|local) }}</strong></p><p>{{ t('login.locked.wait') }}</p></div>
+{% if failed and wait %}<p class="error" role="alert" data-testid="login-slowed">{{ t('login.slowed', n=wait) }}</p>
+{% elif failed and until %}<div class="error" role="alert" data-testid="login-locked"><p><strong>{{ t('login.locked', n=left, until=until|local) }}</strong></p><p>{{ t('login.locked.wait') }}</p></div>
 {% elif failed and oidc_failed %}<p class="error" role="alert" data-testid="login-oidc-error">{{ t('login.oidc.failed') }}</p>
 {% elif failed %}<p class="error" role="alert" data-testid="login-error">{{ t('login.failed') }}</p>{% endif %}
 {# D-192: the hospital account (OIDC through Authelia) when the site turned it on; local accounts stay below #}
