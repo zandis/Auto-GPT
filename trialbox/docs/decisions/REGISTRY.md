@@ -116,7 +116,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | Number | State | Holder | Note |
 | --- | --- | --- | --- |
 | D-270 | merged | fix group D-270 (PR #86) | the console's "today" is the site's date; `docs/DECISIONS.md` (its last entry) |
-| D-271 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-271 | merged | fix group D-271 (PR #97) | data pipeline; `docs/DECISIONS.md` (its last entry) |
 | D-272 | merged | fix group D-272 (FG-C) | audit integrity: no chart number in the audit chain, a head anchor, an archive that never overwrites (file) |
 | D-273..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-290..D-299 | unused | — | below the new block; never given |
