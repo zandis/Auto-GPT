@@ -9,28 +9,31 @@
 | サービス | ポート | ホスト側 | ネットワーク | 接続できるもの | 起動条件 |
 | --- | --- | --- | --- | --- | --- |
 | adapter | 8016 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: console, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
-| console | 8090 | 127.0.0.1:8090:8090 | trialbox-net | 職員のブラウザ: 既定は 127.0.0.1 のみ。院内 LAN からは施設の TLS プロキシ経由のみ | 常時 |
+| console | 8090 | 127.0.0.1:8090:8090 | console-net, trialbox-net | 職員のブラウザ: 既定は 127.0.0.1 のみ。院内 LAN からは施設の TLS プロキシ経由のみ | 常時 |
 | criteria-compiler | 8012 | 公開なし | egress-net, trialbox-net | 自身のトークンを持つ次のみ: orchestrator; ホスト上の管理者（operator トークン） | 常時 |
 | db | 5432 | 公開なし | trialbox-net | TrialBox の各サービスと fhir-store（パスワード） | 常時 |
 | doc-parser | 8011 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: orchestrator; ホスト上の管理者（operator トークン） | 常時 |
 | embed-service | 8014 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: lake; ホスト上の管理者（operator トークン） | 常時 |
 | fhir-store | 8080 | 公開なし | trialbox-net | adapter、orchestrator、criteria-compiler（ネットワーク分離のみ、トークンなし） | 常時 |
 | gateway | 8020 | 公開なし | egress-net, model-net, trialbox-net | 自身のトークンを持つ次のみ: console, criteria-compiler, doc-parser, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
-| judge-sleep-init | なし（一回限りの処理） | 公開なし | model-net | - | GPU プロファイル (rtx5090) |
-| judge-wake-init | なし（一回限りの処理） | 公開なし | model-net | - | GPU プロファイル (rtx5090) |
+| judge-sleep-init | なし（一回限りの処理） | 公開なし | model-backend-net | - | GPU プロファイル (rtx5090) |
+| judge-wake-init | なし（一回限りの処理） | 公開なし | model-backend-net | - | GPU プロファイル (rtx5090) |
 | lake | 8013 | 公開なし | trialbox-net | 自身のトークンを持つ次のみ: adapter, criteria-compiler, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
-| llm-service | 8000 | 公開なし | model-net | gateway のみ（model-net） | GPU プロファイル |
+| llm-service | 8000 | 公開なし | model-backend-net | model-guard のみ（model-backend-net。すべての呼び出しに鍵、D-177） | GPU プロファイル |
 | llm-stub | 8000 | 公開なし | model-net | gateway のみ（model-net） | GPU なしプロファイル |
-| llm-verifier | 8000 | 公開なし | model-net | gateway のみ（model-net） | GPU プロファイル (rtx5090, gb10, rtxpro6000) |
+| llm-verifier | 8000 | 公開なし | model-backend-net | model-guard のみ（model-backend-net。すべての呼び出しに鍵、D-177） | GPU プロファイル (rtx5090, gb10, rtxpro6000) |
 | mail-gateway | 8015 | 公開なし | egress-net, trialbox-net | 自身のトークンを持つ次のみ: console, orchestrator; ホスト上の管理者（operator トークン） | 常時 |
-| model-swap-init | なし（一回限りの処理） | 公開なし | model-net | - | GPU プロファイル (rtx5090) |
+| model-guard | 8000 | 公開なし | model-backend-net, model-net | gateway のみ（model-net） | GPU プロファイル |
+| model-swap-init | なし（一回限りの処理） | 公開なし | model-backend-net | - | GPU プロファイル (rtx5090) |
 | orchestrator | 8010 | 公開なし | egress-net, trialbox-net | 自身のトークンを持つ次のみ: console, mail-gateway; ホスト上の管理者（operator トークン） | 常時 |
 
 ## ネットワーク
 
 | ネットワーク |  |
 | --- | --- |
+| trialbox-console | コンソールの公開ポート専用: 外部への NAT なし、外部の名前解決なし、それ以外は nftables で遮断（deploy/network.sh） |
 | trialbox-egress | 外部へは下表の宛先のみ（nftables、deploy/network.sh） |
+| trialbox-model-backend | 内部専用: 外部への経路なし |
 | trialbox-model-net | 内部専用: 外部への経路なし |
 | trialbox-net | 内部専用: 外部への経路なし |
 

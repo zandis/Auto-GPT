@@ -81,7 +81,17 @@ fi
 # trialbox doctor (spec v4 S1-16): topology, class ceiling, gateway-only model reach, channel engine, Hermes pin,
 # publish gate. TB_SETTINGS names the site settings file; TB_DATAPLAT_DIR the data-platform workdir.
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-if command -v python3 >/dev/null 2>&1; then
+if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>/dev/null \
+    && command -v docker >/dev/null 2>&1 && docker image inspect "${TB_IMAGE:-trialbox-py:1.0.0}" >/dev/null 2>&1; then
+  # a site host has no pydantic (found by the box rehearsal, D-176): the doctor runs in the box's own image
+  set -- ; [ -f "$ROOT_DIR/deploy/settings.yaml" ] && set -- --settings /app/deploy/settings.yaml
+  if docker run --rm --network none --env-file "$ENV_FILE" -v "$ROOT_DIR/deploy:/app/deploy:ro" --user 0:0 \
+      "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
+    pass "trialbox doctor"
+  else
+    fail "trialbox doctor (see the lines above)"
+  fi
+elif command -v python3 >/dev/null 2>&1; then
   if (cd "$ROOT_DIR" && PYTHONPATH=libs:services:. python3 -m tools.trialbox doctor --env-file "$ENV_FILE" ${TB_SETTINGS:+--settings "$TB_SETTINGS"}); then
     pass "trialbox doctor"
   else
