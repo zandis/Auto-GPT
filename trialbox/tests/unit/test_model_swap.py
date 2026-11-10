@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 import pytest
+from channels.base import ClassifiedIntent
 from fastapi.testclient import TestClient
 from gateway.app import create_app
 from gateway.core import Gateway, GatewayConfig
@@ -207,7 +208,11 @@ CHAT_H = H(
 )
 CHAT_BODY = {
     "messages": [{"role": "user", "content": "how many patients for study X?"}],
-    "response_format": {"type": "json_schema", "json_schema": {"name": "x", "schema": {"type": "object"}}},
+    # the registered schema of classify_intent (D-201: the gateway refuses another one)
+    "response_format": {
+        "type": "json_schema",
+        "json_schema": {"name": "x", "schema": ClassifiedIntent.model_json_schema()},
+    },
 }
 
 

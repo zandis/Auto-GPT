@@ -33,7 +33,8 @@ class JudgeReply:
     reason: str
     call_id: str = ""
     build_sha: str = ""
-    prompt: str = ""
+    prompt: str = ""  # id@version from the prompt registry (D-201)
+    prompt_sha: str = ""  # the registry's sha256 of that text
     tokens_in: int = 0
     tokens_out: int = 0
     refused: str | None = None  # gateway refusal code: the pair stays unknown, never excluded
@@ -98,6 +99,7 @@ class GatewayJudge:
             role=role,
             prompt=prompt,
             step_id=step_id,
+            prompt_sha=p.sha256,
         )
         self.calls += 1
         try:
@@ -110,7 +112,9 @@ class GatewayJudge:
         except GatewayRefused as exc:
             self.refusals.append(exc.reason)
             reason = f"gateway refused: {exc.reason}"
-            return JudgeReply("unknown", 0.0, None, None, reason, prompt=prompt, refused=exc.reason)
+            return JudgeReply(
+                "unknown", 0.0, None, None, reason, prompt=prompt, prompt_sha=p.sha256, refused=exc.reason
+            )
         data = res.data if isinstance(res.data, dict) else {}
         return JudgeReply(
             verdict=str(data.get("verdict", "unknown")),
@@ -121,6 +125,7 @@ class GatewayJudge:
             call_id=res.call_id,
             build_sha=res.build_sha,
             prompt=prompt,
+            prompt_sha=p.sha256,
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
         )
@@ -148,6 +153,9 @@ class AgreementJudge:
         if not needs_verifier(_vote(first)):
             return first
         second: JudgeReply = self.verifier.judge(role=role, **kw)
+        if (first.prompt, first.prompt_sha) != (second.prompt, second.prompt_sha):
+            # D-201: the pair agrees only on one registered prompt text; two texts are not two opinions on one question
+            second = replace(second, verdict="unknown", confidence=0.0)  # combine() -> unknown (disagree)
         d = combine(_vote(first), _vote(second))  # the one two-model rule (tb_common.pair, D-118)
         if d.disagreement:
             self.disagreements += 1

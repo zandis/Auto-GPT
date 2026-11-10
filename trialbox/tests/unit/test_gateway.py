@@ -14,6 +14,7 @@ from typing import Any
 import httpx
 import pytest
 import yaml
+from channels.base import ClassifiedIntent
 from fastapi.testclient import TestClient
 from gateway.app import create_app
 from gateway.core import Gateway, GatewayConfig
@@ -341,7 +342,8 @@ def _intake(caller: str, role: str, data_class: str = "D3", **over: str) -> dict
 
 INTAKE_BODY: dict[str, Any] = {
     "messages": [{"role": "user", "content": "請問 GZQO 目前收案狀況？"}],
-    "response_format": json_schema_format("classify_intent", {"type": "object"}),
+    # the registered schema (D-201: the gateway refuses another one for a registered prompt)
+    "response_format": json_schema_format("classify_intent", ClassifiedIntent.model_json_schema()),
 }
 
 
