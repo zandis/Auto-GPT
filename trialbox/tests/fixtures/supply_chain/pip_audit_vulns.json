@@ -1,0 +1,8 @@
+{"dependencies": [
+  {"name": "annotated-types", "version": "0.8.0", "vulns": []},
+  {"name": "certifi", "version": "2026.7.22", "vulns": [
+    {"id": "PYSEC-2026-4320", "fix_versions": ["2026.10.18"], "aliases": ["GHSA-6q48-6c7w-9gw2"], "description": "sample"}]},
+  {"name": "Pillow", "version": "12.3.0", "vulns": [
+    {"id": "PYSEC-2026-4327", "fix_versions": ["13.0.0"], "aliases": ["CVE-2026-112394", "GHSA-4558-3h8r-v8xp"], "description": "sample"},
+    {"id": "GHSA-p4wg-p73j-c528", "fix_versions": ["13.0.0"], "aliases": ["CVE-2026-112895"], "description": "sample"}]}
+], "fixes": []}
