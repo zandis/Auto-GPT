@@ -33,9 +33,22 @@
     "population": {"$ref": "#/$defs/population_spec"},
     "nct_id": {"type": "string"},
     "terminology_release": {"type": "string", "pattern": "^TR-[0-9a-f]{12}$", "description": "the terminology release the ruleset was compiled against (D-301): a run against another release is refused until it is recompiled"},
+    "prompt_pins": {"type": "object", "additionalProperties": {"$ref": "#/$defs/prompt_pin"}, "description": "the prompts the approved ruleset runs with, by prompt id (D-318): SCREEN runs the pinned version and text until the investigator re-approves; a newer registered version puts the study in approval needed"},
     "source_last_update": {"type": "string"}
   },
   "$defs": {
+    "prompt_pin": {
+      "title": "PromptPin",
+      "description": "One prompt as the investigator approved it (D-318): the registry's version, text sha256 and output schema sha256.",
+      "type": "object",
+      "required": ["version", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "schema_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
     "scopes": {
       "title": "Scopes",
       "type": "object",

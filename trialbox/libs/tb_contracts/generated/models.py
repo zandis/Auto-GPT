@@ -914,6 +914,20 @@ class PromptMeta(BaseModel):
     phi: bool = False
 
 
+class PromptPin(BaseModel):
+    """
+    One prompt as the investigator approved it (D-318): the registry's version, text sha256 and output schema sha256.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    version: int = Field(..., ge=1)
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    schema_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
+
+
 class RebuildRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2073,6 +2087,10 @@ class RulesetManifest(BaseModel):
     terminology_release: str | None = Field(None, pattern="^TR-[0-9a-f]{12}$")
     """
     the terminology release the ruleset was compiled against (D-301): a run against another release is refused until it is recompiled
+    """
+    prompt_pins: dict[str, PromptPin] | None = None
+    """
+    the prompts the approved ruleset runs with, by prompt id (D-318): SCREEN runs the pinned version and text until the investigator re-approves; a newer registered version puts the study in approval needed
     """
     source_last_update: str | None = None
 

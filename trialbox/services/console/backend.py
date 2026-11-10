@@ -148,6 +148,25 @@ def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, str]]:
     ]
 
 
+def approval_state_of(rulesets_dir: Path, ruleset: str) -> dict[str, Any] | None:
+    """Whether the approved version still stands as the investigator approved it (D-318): ``approval_needed`` with
+    the reasons (a newer prompt, a changed pinned prompt, another terminology release); None when nothing is
+    approved. The page shows the state only; the run itself enforces the pins."""
+    from tb_common.ruleset import approval_state
+
+    try:
+        rs = load_approved(rulesets_dir, ruleset)
+    except (RulesetNotApproved, FileNotFoundError, ValueError):
+        return None
+    try:
+        from criteria_compiler.terminology import resolver
+
+        release: str | None = resolver.current_release()
+    except Exception:  # the console may not read the vocabulary: no terminology reason (the run still refuses)
+        release = None
+    return approval_state(rs.manifest, terminology_release=release)
+
+
 # ---------------------------------------------------------------------------------------------- audit reading
 _SHOWN_DETAIL = (
     "from", "to", "type", "filename", "tag", "bytes", "subject", "reason", "action", "line", "role", "run",
@@ -299,6 +318,9 @@ class HttpBackend:
 
     def criteria(self, ruleset: str) -> list[dict[str, str]]:
         return criteria_of(self.cfg.env.rulesets_path, ruleset)
+
+    def approval_state(self, ruleset: str) -> dict[str, Any] | None:
+        return approval_state_of(self.cfg.env.rulesets_path, ruleset)
 
     def models(self) -> dict[str, Any] | None:
         """The orchestrator's ``GET /models`` (judge, verifier, note-block policy in force); None when it is down."""
