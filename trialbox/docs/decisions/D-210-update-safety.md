@@ -62,6 +62,12 @@ rows D-11 to D-14, D-16 to D-18; D-15 in part, see "Not done").
   (`docker compose start`), which completes the rollback, and the marker goes. Apply to check failed: everything is
   put back (images, models, databases, the rulesets refs, the state files), checked, `update.rolled_back` audited, the
   marker and the dumps go. The rollback itself failed: the marker stays (`status` says so; restore from the backup).
+* **The compose box's database restore** is one `psql` transaction: first everything the database's role owns that
+  a later release could have added (its schemas but `public` and an extension's, its relations in `public`), then the
+  dump's own script (`pg_restore --clean --if-exists -f`, a 0600 file in the container, deleted after). `pg_restore
+  --clean` alone drops only what the dump holds, so a table a migration added to a schema of the dump blocked `DROP
+  SCHEMA` and the rollback failed (found by the drill's database-image case on 2026-11-10). Any error rolls the whole
+  restore back, and a `pg_restore` that fails never hands `psql` a cut-off script.
 * **Interrupted** (power cut, `kill -9`): `tools/apply_update.sh status` (= `python3 -m tools.update_status`) reads
   the marker and the lock: bundle, step, steps done, running or interrupted, rebooted since. `tools/apply_update.sh
   rollback <bundle>` rolls back from `point.json` (written after the rollback point and before every model file it
@@ -76,8 +82,9 @@ rows D-11 to D-14, D-16 to D-18; D-15 in part, see "Not done").
   verifier and the preflight; disk full; `kill -9` at each of the eight steps (status names the step and bundle, a
   second update is refused, rollback restores release, models, database and data, the stores start); no plaintext
   dump after a finished update; and a database-image case: the compose box's exact `pg_dump` / `pg_restore` of an
-  unprefixed `trialbox_wf` on `trialbox-postgres:16-1` with the `db-init` extensions, then the database restarts with
-  its data and extensions (reported `SKIP`, not passed, without Docker or the image).
+  unprefixed `trialbox_wf` on `trialbox-postgres:16-1` with the `db-init` extensions, after the "new release" added
+  a table to a schema of the dump, a new schema and a table in `public`; the database restarts with exactly the
+  dump's data and extensions (reported `SKIP`, not passed, without Docker or the image).
 
 ## Why
 
@@ -94,7 +101,7 @@ first change, and leaving one durable record of what was half done, turns each i
   load-only path now checks the marker and the release sequence and records `installed.json`.
 * `tools/make_bundle.sh` and `deploy/gcp/demo-vm-update.sh` build image bundles without `release.json`; such bundles
   are now refused until T-110's release build writes `release.json` and pins `images.lock` digests.
-* Compose-box `pg_restore` of HAPI without `--single-transaction` and `max_locks_per_transaction` (review D-15), the
+* `max_locks_per_transaction` for the one-transaction restore of HAPI's many tables (review D-15), the
   refdata bind mount instead of `docker compose cp` (D-17), pruning `rollback-*` image tags (D-12).
 * The compose and demo boxes' new commands (`compose run` of the rulesets snippet, the `psql` size and schema reads)
   are tested against a fake runner only; the database-image case of the drill runs the dump/restore for real.

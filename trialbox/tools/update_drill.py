@@ -295,7 +295,10 @@ def db_image_case(base: Path) -> tuple[str, str]:
         f = rb / "trialbox_wf.dump"
         box._dump("trialbox_wf", "trialbox", f)  # exactly the compose box's rollback-point dump
         point = up.Point(dumps={"trialbox_wf": str(up.seal(f, rb))})
-        psql("CREATE TABLE site.extra (id INT); UPDATE site.marks SET mark = 'changed'")  # the new release's work
+        psql(
+            "CREATE TABLE site.extra (id INT); UPDATE site.marks SET mark = 'changed'; CREATE SCHEMA later; "
+            "CREATE TABLE later.t (id INT); CREATE TABLE public.extra (id INT)"
+        )  # the new release's work
         try:
             box.restore_databases(rb, point)  # exactly the compose box's rollback restore
         except up.UpdateFailed as exc:
@@ -304,8 +307,9 @@ def db_image_case(base: Path) -> tuple[str, str]:
         if not ready():
             return "FAIL", "the database did not start again after the restore"
         got = psql("SELECT (SELECT mark FROM site.marks WHERE id = 1), (SELECT count(*) FROM information_schema.tables "
-                   "WHERE table_schema = 'site' AND table_name = 'extra'), (SELECT string_agg(extname, ',' ORDER BY "
-                   "extname) FROM pg_extension WHERE extname IN ('vector', 'pgroonga')), "
+                   "WHERE (table_schema, table_name) IN (('site', 'extra'), ('later', 't'), ('public', 'extra'))), "
+                   "(SELECT string_agg(extname, ',' ORDER BY extname) FROM pg_extension "
+                   "WHERE extname IN ('vector', 'pgroonga')), "
                    "(SELECT e::text FROM site.vec WHERE id = 1)").strip()  # fmt: skip
         want = "approach|0|pgroonga,vector|[1,2,3]"
         return ("PASS" if got == want else "FAIL"), f"after restore and restart: {got} (want {want})"

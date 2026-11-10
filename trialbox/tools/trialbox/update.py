@@ -282,6 +282,42 @@ def _with_plain(sealed: Path, rb: Path, use: Callable[[Path], None]) -> None:
             plain.unlink(missing_ok=True)
 
 
+# ------------------------------------------------------------------------------------------------ database restore
+# The compose box's rollback restore (ComposeBox.restore_databases), run in the db container: $1 role, $2 database,
+# $3 RESET_SQL; the dump on stdin. The script goes to a 0600 file (pg_restore from a pipe into psql would let psql
+# commit a cut-off script), RESET_SQL and the script run as one transaction, the file is deleted whatever happens.
+RESTORE_SH = (
+    "umask 077; t=$(mktemp) || exit 1; trap 'rm -f \"$t\"' EXIT; "
+    'pg_restore --clean --if-exists --no-owner -f "$t" || exit 1; '
+    '{ printf "%s\\n" "$3"; cat "$t"; } | psql -X -q -v ON_ERROR_STOP=1 --single-transaction -U "$1" -d "$2"'
+)
+# Everything the role owns that a later release could have added: its schemas (not public, not an extension's) and
+# its relations in public (not an extension's). The dump's script then re-creates exactly what it holds.
+RESET_SQL = """DO $tb$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT n.nspname FROM pg_namespace n
+           WHERE n.nspowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+             AND n.nspname <> 'public' AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
+             AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_namespace'::regclass
+                             AND d.objid = n.oid AND d.deptype = 'e')
+  LOOP
+    EXECUTE format('DROP SCHEMA %I CASCADE', r.nspname);
+  END LOOP;
+  FOR r IN SELECT c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f')
+             AND c.relowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+             AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass
+                             AND d.objid = c.oid AND d.deptype = 'e')
+  LOOP
+    EXECUTE format('DROP %s IF EXISTS public.%I CASCADE', CASE r.relkind WHEN 'v' THEN 'VIEW'
+      WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'S' THEN 'SEQUENCE' WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END,
+      r.relname);
+  END LOOP;
+END
+$tb$;"""
+
+
 # ------------------------------------------------------------------------------------------------ rulesets repo
 # Run with the rulesets image's own python (dulwich; criteria_compiler.repo): "snapshot <tag>" prints every ref and
 # tags main; "restore <refs-json>" puts every ref back, drops refs made since, and rewrites the working copy.
@@ -1031,12 +1067,16 @@ class ComposeBox(_DockerImages):
         return "every service healthy" + serving
 
     def restore_databases(self, rb: Path, point: Point) -> None:
-        """Each dump back with ``pg_restore --clean`` as the database's own role (decrypted to a 0600 file in the
-        rollback folder for the restore, deleted after)."""
+        """Each dump back as the database's own role (decrypted to a 0600 file in the rollback folder for the restore,
+        deleted after). ``pg_restore --clean`` alone drops only what the dump holds: a table the new release's
+        migration added to a schema of the dump blocks ``DROP SCHEMA`` and the rollback fails (found by the drill's
+        db-image case). So the restore is one transaction in ``psql``: first every schema the role owns (but
+        ``public`` and an extension's) and every relation it owns in ``public`` is dropped (``RESET_SQL``), then the
+        dump's own script (``pg_restore --clean --if-exists -f``, written to a 0600 file in the container and
+        deleted). Any error rolls the whole of it back."""
         for db, f in point.dumps.items():
             user = "trialbox" if db == "trialbox_wf" else "hapi"
-            argv = self._c("exec", "-T", "db", "pg_restore", "--clean", "--if-exists", "--no-owner",
-                           "--single-transaction", "-U", user, "-d", db)  # fmt: skip
+            argv = self._c("exec", "-T", "db", "sh", "-c", RESTORE_SH, "tb-restore", user, db, RESET_SQL)
 
             def restore(plain: Path, argv: list[str] = argv) -> None:
                 self.run(argv, stdin_file=plain)

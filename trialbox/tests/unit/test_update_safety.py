@@ -530,3 +530,41 @@ def test_in_process_box_reads_schema_versions_and_refuses_a_changed_or_missing_m
         box.preflight(plan)
     needs = box.space_needs(plan, tmp_path / "updates")
     assert needs[0][0] == tmp_path / "updates" and needs[0][1] > 0
+
+
+def _shims(tmp_path: Path, restore_rc: int) -> dict[str, str]:
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    (bin_ / "pg_restore").write_text(  # writes its "script" to -f FILE, like pg_restore, then exits restore_rc
+        '#!/bin/sh\nwhile [ $# -gt 1 ]; do [ "$1" = -f ] && out=$2; shift; done\n'
+        f'cat >/dev/null; echo "SELECT 1;" > "$out"; echo "$out" > {tmp_path}/script_path; exit {restore_rc}\n'
+    )
+    (bin_ / "psql").write_text(f'#!/bin/sh\necho "$@" > {tmp_path}/psql_args; cat > {tmp_path}/psql_in\n')
+    for f in bin_.iterdir():
+        f.chmod(0o755)
+    return {**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}", "TMPDIR": str(tmp_path)}
+
+
+@pytest.mark.parametrize("restore_rc", [0, 1])
+def test_compose_rollback_restore_resets_the_role_first_and_never_runs_a_cut_off_script(
+    tmp_path: Path, restore_rc: int
+) -> None:
+    """The drill's db-image case found that ``pg_restore --clean`` fails when the new release added a table to a
+    schema of the dump. The restore is RESET_SQL + the dump's script in one psql transaction, and only after
+    pg_restore wrote the whole script."""
+    dump = tmp_path / "wf.dump"
+    dump.write_bytes(b"PGDMP")
+    with dump.open("rb") as stdin:
+        res = subprocess.run(["sh", "-c", up.RESTORE_SH, "tb-restore", "trialbox", "trialbox_wf", up.RESET_SQL],
+                             stdin=stdin, env=_shims(tmp_path, restore_rc), capture_output=True, check=False)  # fmt: skip
+    script = Path((tmp_path / "script_path").read_text().strip())
+    assert not script.exists()  # the plaintext script is deleted whatever happened
+    if restore_rc:
+        assert res.returncode != 0 and not (tmp_path / "psql_args").exists()  # psql never saw a cut-off script
+        return
+    assert res.returncode == 0, res.stderr
+    args = (tmp_path / "psql_args").read_text()
+    assert "--single-transaction" in args and "ON_ERROR_STOP=1" in args and "-U trialbox -d trialbox_wf" in args
+    body = (tmp_path / "psql_in").read_text()
+    assert body.startswith("DO $tb$") and body.rstrip().endswith("SELECT 1;")
+    assert "DROP SCHEMA %I CASCADE" in up.RESET_SQL and "deptype = 'e'" in up.RESET_SQL
