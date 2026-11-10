@@ -1025,6 +1025,9 @@ def create_app(
     from console import ops_pages
 
     ops_pages.register(app, helpers, raw_env)  # D-178: backups, update and rollback, logs, secrets, network sheet
+    from console import sae_pages
+
+    sae_pages.register(app, helpers)  # the SAE register and its worklist (D-191)
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00
