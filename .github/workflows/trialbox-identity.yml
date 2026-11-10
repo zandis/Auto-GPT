@@ -36,7 +36,7 @@ jobs:
       CADDY_IMAGE: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
       TB_TLS_HOSTNAME: trialbox.hosp.test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: caddy validate (internal CA)
         run: |
@@ -62,8 +62,9 @@ jobs:
             -f deploy/docker-compose.identity.yml --profile oidc config > "$RUNNER_TEMP/merged.yml"
           grep -n "published" "$RUNNER_TEMP/merged.yml"
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
         with:
+          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/pyproject.toml
 
@@ -95,7 +96,7 @@ jobs:
             -e TB_TLS_MODE=internal -e TB_TLS_HOSTNAME -e TB_AUTH_HOSTNAME=auth.hosp.test \
             -e TB_CONSOLE_SSO_HEADER=X-Site-Sso-User \
             -v "$PWD/deploy/identity/Caddyfile:/etc/caddy/Caddyfile:ro" "$CADDY_IMAGE"
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do  # 30 tries, one per second
             curl -sk --resolve "$TB_TLS_HOSTNAME:443:127.0.0.1" "https://$TB_TLS_HOSTNAME/" -o /dev/null && break
             sleep 1
           done

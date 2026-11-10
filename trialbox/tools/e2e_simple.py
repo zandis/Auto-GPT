@@ -828,7 +828,7 @@ def _stage14(work: Path, box: Any) -> Stage:
 
     with _no_network():
         drug = sm.suggest("medication", sm.local_system("drug-code"), "B004858100")
-        lab = sm.suggest("observation", sm.local_system("lab-code"), "09015C")
+        lab = sm.suggest("observation", sm.local_system("lab-code"), "12198C")
         dx = sm.suggest("condition", sm.local_system("dx-code"), "P83.8")
         ra = Terminology(name_synonyms=rd.synonym_lookup()).map("condition", "類風濕關節炎")
         yj = sm.suggest("medication", sm.local_system("drug-code"), "3339004F1020")
@@ -838,7 +838,7 @@ def _stage14(work: Path, box: Any) -> Stage:
             nausea = st.term(rdjp.CTCAE5, "Nausea")
     dx_want = "P83.88" if sm.site_country() == "TW" else "P83.8"  # the 2014 -> 2023 step runs at Taiwan sites only
     s.check("D-170/171: NHI drug -> ATC, NHI lab -> LOINC and (Taiwan) TW 2014 -> 2023 ICD suggested offline",
-            (drug.get("code"), lab.get("code"), dx.get("code")) == ("N05AF01", "2160-0", dx_want),
+            (drug.get("code"), lab.get("code"), dx.get("code")) == ("N05AF01", "83113-1", dx_want),
             (drug, lab, dx))  # fmt: skip
     s.check("D-172: 類風濕關節炎 maps to rheumatoid arthritis through the curated synonym dictionary, no review",
             ra.method == "synonym" and not ra.needs_review and bool(ra.concepts)
@@ -1117,7 +1117,8 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     drafted = {k: v["value"] for k, v in d.items() if v["state"] == "drafted"}
     s.check("the subject's visit is drafted; every value carries a citation, every unknown a reason",
             r.status_code == 303 and d and all(bool(v["citation"]) == (v["state"] == "drafted") for v in d.values())
-            and all(v["why"] for v in d.values() if v["state"] == "unknown"), sorted(drafted))  # fmt: skip
+            and all(v["why"] for v in d.values() if v["state"] == "unknown"),
+            (r.status_code, _err_codes(r.text), sorted(drafted)))  # fmt: skip
     s.check("the drafted values equal the hospital record (birth date, uric acid)",
             all(drafted.get(k) == v for k, v in want.items()) and all(
                 k in want for k in drafted if k in ("brthdat", "urate")), (want, drafted))  # fmt: skip

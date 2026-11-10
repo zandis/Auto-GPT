@@ -3724,7 +3724,9 @@ the licence read, the shared store).
    no rows or misses a required column raises; `build` refuses an item with 0 records. For a data.gov.tw item,
    `fetch` reads the dataset API, keeps its answer (`licence_check`) in `fetch.json` as evidence, and stops when
    the `license` field is not 1 (OGDL 1.0) or the API does not answer (`--no-licence-check` skips the read and
-   records that in `fetch.json`). A `meta_url` outside data.gov.tw is refused until a reader for it is added.
+   records that in `fetch.json`). The reader and the expected licence belong to the item (`Item.read_meta`,
+   `Item.licence_id`; since the merge with D-173, the item's `licence_reader`), so a `meta_url` without a reader is refused and another portal brings its own reader; the
+   record must also list the URL fetched (D-172, second-review note, item 1).
 4. *Store.* Schema `refdata` version 2 (`DDL_V2`): `source` gains `version` and `download_sha256`; new tables
    `concept_map` (indexed both ways) and `synonym` (indexed on the matcher's normal form, NFKC and lower case).
    Queries: `map_targets`, `map_sources`, `synonyms`. A box at version 1 migrates in place; its old rows keep an
@@ -3788,10 +3790,10 @@ after the independent review (H3, M4, L2, L3).
    (`tw.gov.mohw.nhi.pas 1.3.0, ConceptMap nhi-loinc 1.3.0, LOINC 2.77`). An R5 `relationship` is turned into the R4
    equivalence; an unknown relation or an element without a code refuses the package; a no-match
    target (`unmatched`, `disjoint`) is skipped; only groups from the NHI service code system are read, and a package
-   without one is refused. Site set-up suggests a LOINC
-   code when the NHI code has one target (0.90), or, at 0.80, when exactly one of several targets is in TrialBox's
-   curated lab table (09015C -> 2160-0; that reflects what TrialBox knows, not the hospital's specimen or method, and
-   a person confirms); otherwise none.
+   without one is refused. Site set-up suggests a LOINC code only when the NHI code has exactly one target (0.90, no
+   display: the NHI order's name is not the LOINC name); several candidates (09015C) give none, the coordinator
+   picks (the earlier 0.80 pick of the one candidate in TrialBox's lab table said nothing about the hospital's
+   specimen or method).
 
 **D-172 zh-TW clinical synonyms for the name matcher.** WS-08.8; 2026-11-09. Revised after the independent review
 (H1, M1, M2, M5).
@@ -3825,6 +3827,26 @@ wired: `in_set_via_map` is ready for it. The NHI 醫療服務給付項目 list i
 codes) is still open (D-140). A source dropped from a later vendor pack keeps its rows (D-140 behaviour: a pack
 replaces only its own sources); withdrawing a source needs a manual delete for now, left for WS-08.8.
 
+*Second independent review (2026-11-10), further fixes* (beyond the revisions noted in D-170 and D-171 above):
+
+1. *Licence evidence binds the file and belongs to the item* (M4, L5): each item with a dataset record names its
+   reader and licence (first as `Item.read_meta` and `Item.licence_id`; merged with D-173's reader into one
+   mechanism, `Item.licence_reader`, see D-173 item 2; `refdata_tw.datagov_meta` reads data.gov.tw), so the
+   generic fetch knows no portal and a Japan module brings its own. The fetch also stops when the record does not
+   list the URL fetched: 15460 lists the opendata.naer.edu.tw CSV the NAER item downloads, 23715 and 177508 the
+   info.nhi.gov.tw files (checked 2026-11-10). `fetch.json` keeps every item's check (`licence_checks`, the derived
+   `nhi_drug_atc` too), and a vendor build refuses an item with a record but neither a check nor a recorded
+   `--no-licence-check` skip.
+2. *Deleted ICD codes* (M6): a 2014 code with no 2023 code gives one `unmatched` row without a target (the pack
+   allows an empty target for `unmatched` only), and site set-up then makes no suggestion instead of offering the
+   obsolete code as `same`. One-to-one code changes stay `inexact` (unknown in `in_set_via_map`; site set-up still
+   suggests them).
+3. *Site set-up* (M7, L1, L2, L4): see D-171 item 3 (no pick among several LOINC candidates, no NHI name as the
+   LOINC display, no cached LOINC table); site set-up's name matcher reads the synonym dictionary too
+   (dictionary-method answers are reviewed, so `_by_name` still ignores them).
+4. *NHI drug -> ATC* (L3): the ATC code of the newest validity period that states one, when the newest left it
+   empty.
+
 **D-173 Japan diagnoses: the WHO ICD-10 <-> ICD-10-CM bridge, the MEDIS 病名 loader, and the licence reader on each
 item.** WS-08.8, builds on D-170; 2026-11-10. Licences read at the source on the same day.
 
@@ -3839,6 +3861,14 @@ item.** WS-08.8, builds on D-170; 2026-11-10. Licences read at the source on the
    `--no-licence-check` skips the read and records that. The data.gov.tw reader moved to
    `refdata_tw.datagov_tw_licence` (set on the three data.gov.tw items); `refdata.page_licence_reader(url, words)`
    reads a licence stated on a page (used for NCI, D-174). `fetch()` no longer knows any one site.
+   *One mechanism for Taiwan and Japan* (merge with the second review of D-170, M3, M4, L5): the D-170 review's
+   `read_meta` / `licence_id` pair became this reader. It fails closed: no answer, another licence, or a dataset
+   URL without a reader stops the fetch. `LicenceRead.downloads` carries the download URLs the licensed record lists
+   (data.gov.tw: the dataset's `distribution`), and fetch stops when a URL fetched is not among them; a record that
+   lists none (a licence page such as NCI's) binds nothing, so the file must then be pinned by `Item.sha256` (CTCAE
+   is), else the fetch stops. `fetch.json` keeps every item's check (`licence_checks`, derived items too), and a
+   vendor build refuses an item with a reader whose `fetch.json` holds neither a passed check nor a recorded
+   `--no-licence-check` skip.
 3. *WHO ICD-10 <-> ICD-10-CM bridge* (`icd10_who_cm_bridge`, kind map, ship; TrialBox's own work). No official map
    exists. Built from the ICD-10-CM code list (`derived_from` the `icd10cm` download, U.S. public domain): one row
    per ICD-10-CM category, WHO category -> the ICD-10-CM category of the same three characters. **The relation is
@@ -3943,6 +3973,93 @@ JLAC10 -> LOINC (no public map; JSLM terms unknown), the JCOG translation (comme
 D-130); the CTCAE terms are not in the AE form; the MEDIS and JCOG permissions are not requested here (the owner's
 step, baseline review §1 actions 1 and 6); MHLW 一般名処方マスタ and the 薬効分類 -> drug-class table are open.
 
+**D-185 One hashed lock: `uv.lock`, exported to `deploy/requirements.lock` with sha256 hashes and checked in CI.**
+Source: `docs/reviews/2026-11-09-component-review-layer2-verification.md` row 2 and R-19; master plan WS-14.6. The
+lock was made with `uv pip compile` without hashes, and pip-audit found 60 advisories in it (pillow 12.3.0: 39, pypdf
+6.19.0: 18, brotli, certifi, opentelemetry-api: 1 each).
+1. `uv.lock` (uv 0.11.32) is the one lock: every file of every package with its sha256. `deploy/requirements.lock` is
+   its `uv export` (runtime dependencies only, no extras, no dev, not the project), written by `make lock`; never
+   edited by hand. Every entry carries `--hash=sha256:`, so the images' `pip install -r` runs in hash-checking mode
+   and refuses a file whose bytes differ. pip-audit itself installs from its own hashed lock
+   (`tools/supply_chain/pip-audit.lock`).
+2. `make lock-check` (CI, every pull request) fails when `uv.lock` no longer satisfies `pyproject.toml`
+   (`uv lock --check`), when `deploy/requirements.lock` is not the export of `uv.lock`, or when an entry has no sha256,
+   is not pinned with `==`, is an option (`-e`, an index) or appears twice; when a `uv.lock` package comes from git or
+   a URL or has a file without a hash; and when the pip-audit lock is unhashed or not pip-audit 2.9.0. A unit test
+   compares the export byte for byte, so uv is pinned to 0.11.32 in the workflows.
+3. Floors for the advisories: `pypdf>=6.21.4` in `pyproject.toml`, `pillow>=13` as a uv constraint. pip-audit on the
+   new lock: none.
+4. The base images are pinned by index digest (`python:3.12-slim@sha256:5e2bdb1b…`, amd64 and arm64) in
+   `deploy/docker/python.Dockerfile` and `demo/Dockerfile`; the demo image installs pytest on its own pip line, since
+   hash-checking mode refuses an unpinned extra requirement.
+
+*Evidence.* `tests/unit/test_supply_chain.py` (lock part); `make lock-check` PASS; an environment installed from
+`deploy/requirements.lock` with `--require-hashes` (73 packages on CPython 3.12 Linux).
+
+*Not done here.* `make venv` still resolves from `pyproject.toml` (not `uv sync --frozen`).
+
+**D-186 SBOM per release, pip-audit and offline Trivy as gates on every shipped image, an allow-list with reasons, a
+licence report.** Source: the same review, row 2 and §3; WS-14.6; the independent review of PR #61 (6 High).
+1. **pip-audit** (2.9.0, from its hashed lock, on Python 3.12; build side only) on `deploy/requirements.lock`: every
+   advisory fails unless allow-listed; the audited set must equal the lock's entries for CPython 3.12 on Linux
+   (markers evaluated); a package it could not audit fails; an empty or unreadable report fails.
+2. **Trivy** (0.75.0) with the database loaded first (`make trivy-db`; on the media, `oras pull` of `trivy-db:2` and
+   `trivy-java-db:1`) and the scan offline, with no ignore file, no config file and every `TRIVY_*` setting removed.
+   CRITICAL or HIGH with a fixed version fails unless allow-listed; UNKNOWN (not scored yet) counts as HIGH; a missing or
+   odd severity fails; unfixed findings
+   and MEDIUM/LOW are listed. A report must show OS packages and the image's own language packages (Python; jars in
+   the JVM image). The database (and the Java one) may be at most 7 days old.
+3. **Release gates** (`make release-gates`): each image is pinned first, a local one by its image id, a third-party
+   one by its registry digest for the platform, and Trivy and Syft must both name that image. They cover
+   trialbox-py, trialbox-jvm, trialbox-demo and every third-party image compose pulls. `gates.json` and
+   `dist/sbom/index.json` record per image the reference, platform, image id, digests, and the report and SBOM with
+   their sha256. CI (`trialbox-images.yml`) runs them on amd64 and arm64 for pull requests that change what goes into
+   an image, weekly and for a release tag, and for a tag also on both platforms of `make images-multiarch` by digest.
+   `make release-bundle` bundles only images in a passing record at most 7 days old (`tools/make_bundle.sh --gates`).
+4. **SBOM per release**: Syft (1.56.0) CycloneDX JSON per image and platform, and for the lock: Syft over an
+   environment installed from the lock with hashes, so each package carries the licence of its installed metadata;
+   it must name every locked package that installs on the box, at its version.
+5. **Licence report** from the SBOMs (nested components, ids, names, expressions, URLs, full texts searched to the
+   end; Licence and License): flags GPL, LGPL, AGPL, unknown and dual. Only a licence on the known permissive list
+   counts as an `OR` choice; `LicenseRef-*`, `NOASSERTION`, `Proprietary` never do. Each flag of a package needs its
+   own allow-list entry in the lock and our images; a dual entry names the branch taken, an unknown entry the licence
+   a person verified. Unknown licences of jars and Go, Rust and other binaries in our images (Syft reads no licence
+   there) are counted per image and ecosystem against a reviewed budget that fails when one more appears (Python and
+   npm unknowns are never budgeted). Third-party images, redistributed unmodified, have one budget per image for all
+   their open flags; their terms are reviewed as a whole. Distro packages of a base image are listed, not gated.
+6. **The allow-list** `deploy/supply-chain-allowlist.yaml`: every entry needs its package, a reason (20 characters or
+   more) and `review_by` at most 180 days ahead; a key given twice or a list given as anything else is refused; after
+   `review_by` every gate fails until the entry is reviewed or removed; there is no date override. It starts with
+   the eight LGPL packages of the review, dulwich under Apache-2.0, six packages whose licence the SBOM cannot read
+   (duckdb, jinja2, kiwisolver, matplotlib, pycryptodomex, reportlab; each read in the wheel; reportlab ships a GPL
+   font as data), the base image's interpreter and pip's Windows launchers, and no vulnerability entries.
+7. Every GitHub action is pinned to a commit; Syft and Trivy are release archives with pinned sha256.
+8. Two faults that broke `make images` before this decision are fixed: `python.Dockerfile` copied `integrations/`,
+   removed in D-121; the root `.dockerignore` left out the JVM image's validator and FHIR packages
+   (`deploy/docker/jvm.Dockerfile.dockerignore` now applies to that build). A test checks every COPY source. The
+   build contexts also leave out the scanners and their outputs (the first CI run found Syft and Trivy, with their
+   Go modules, inside the demo image), and the Python images take Debian's security updates of the base's packages.
+
+*Evidence.* `tests/unit/test_supply_chain.py` (offline, fixtures trimmed from real Trivy and Syft output);
+`make pip-audit`, `make licences` and `make lock-check` PASS; the first CI runs of the image gates (amd64 and arm64)
+found real HIGH and CRITICAL findings with fixes: zlib1g in the base (now upgraded at build), jackson-databind,
+the HL7 FHIR core libraries, commons-beanutils, guava and httpcore5 in the validator and cql-to-elm jars, and many
+in the third-party images (MailHog alone over 1,500; MailHog has no arm64 image). Those are not allow-listed here:
+moving the jar versions and the third-party digests, or accepting a finding, is the security owner's decision.
+
+*Report mode* (owner decision of 2026-11-10, option (a)). Until the follow-up lands, CI runs the image gates with
+`--vuln-mode report`: fixable CRITICAL/HIGH findings in trialbox-jvm, trialbox-demo, MailHog, vLLM, postgres, HAPI
+and GreenMail (`VULN_REPORT_ONLY` in `tools/supply_chain/release.py`) are listed in the CI job summary per image and
+platform (CVE, package, installed and fixed version) and do not fail a pull request. trialbox-py's vulnerability
+gate, the licence gate, `make lock-check`, `make allowlist-check`, `make pip-audit` and every build, scan or report
+error still block, and `tools/make_bundle.sh --gates` never bundles an image that passed only in report mode.
+MailHog, published for amd64 only, is left out of the arm64 gates by name (`SC_AMD64_ONLY`). Each image's findings,
+owner (security owner, to assign), target date (2026-12-10) and planned fix are in
+`deploy/security/known-image-findings.md`; a test keeps that file and the report-mode set in step.
+
+*Not done here.* `THIRD_PARTY_NOTICES.md`; the SBOMs inside the signed bundle; `--gates` mandatory in
+`tools/make_bundle.sh` (optional with a warning, so the demo VM's update script keeps working).
+
 **D-187 Backups, layout 2: one snapshot, stream hashes, what a backup leaves out, sidecars.**
 Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §6.3 and §7.1 to §7.3 (R-45, R-60) and WS-08.6, finishing the backup row D-149 left open.
 1. *One snapshot.* For each database, one session exports a `REPEATABLE READ` snapshot. `pg_dump --snapshot` dumps it, and the same session counts and hashes every table and copies the site-fetch refdata rows. The manifest says `rows_from: snapshot`. A restore that differs from such a manifest fails; one from a live-counted backup (layout 1, the update path) warns.
@@ -3959,6 +4076,55 @@ Source: WS-08.6 and WS-08.5 (the admin tile turns red 36 h after the last backup
 4. *Postgres.* `wal_compression=zstd`, `default_toast_compression=lz4`, data checksums for new clusters. WAL archiving (off by default) goes to pgBackRest: zst, an aes-256-cbc repository, 3 full backups plus 7 differentials, at least two weeks of point-in-time restore. It is turned on per site (RUNBOOK §5); the cipher pass is mounted into db only.
 *Evidence.* `tests/unit/test_backup_schedule.py`; `tools/backup_drill.py`.
 *Not done here.* The docker-side runs; `doctor` failing on a local-only target; `install.sh` installing the cron file; the admin tile (WS-08.5); review items M2, M7, the repo-path half of M8, and the open Lows.
+
+**D-189 Score definitions from the catalogue; CDAI and SDAI in the SQL and CQL engines.**
+Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §0.4, §4.2; D-149 "Not done here"; WS-04.3.
+1. `tools/gen_score_defs.py` generates `libs/tb_common/score_defs.json` from `catalogue/scores/*.yaml`. A
+   definition is `<score_id>@<version>` with the sha256 of its YAML; a YAML changed under the same version is
+   refused (bump the version). `tb_common.scores` reads it; the same-visit windows of CDAI, SDAI, DAS28-ESR and
+   DAS28-CRP come from it, and a test checks that the hand-written eGFR, JSN and DAS28 constants equal the catalogue's
+   coefficients.
+2. CDAI = TJC28 + SJC28 + PtGA + EvGA and SDAI = CDAI + CRP (mg/dL) are in the Python reference, the SQL generator
+   and the CQL `TB_Common` (`CDAI`, `SDAI`). The globals are LOINC 75844-1 / 75846-6 on a 0-10 scale: a 0-100 mm VAS
+   is divided by 10, a 10 cm VAS is 0-10, and a value outside 0-10 gives no value and `derived_unit` in every
+   engine. The criterion IR (schema 1.2.0) and the extract schema accept `cdai` and `sdai` (calculators
+   `cdai@1.0.0`, `sdai@1.0.0`).
+3. Worked examples (catalogue CDAI 27, 1.5, SDAI 31, 1.2; review CDAI 14.5; CKD-EPI 59.3; JSN 63.1) give the same
+   value in Python, in the compiled SQL on a lake and in the CQL helper text; a missing input or a unit that does not
+   fit is the same reason in each, never FALSE.
+4. An impossible value never raises in the Python reference: a creatinine of 0 or less, a joint count outside 0-28, a
+   negative CRP or ESR, or a value that is not a finite number gives no value and `derived_unit:<input>`; an age of 0
+   or less gives `derived_missing_input:age`. The SQL `egfr_jsn` template has the same creatinine and age guard.
+*Evidence.* `tests/unit/test_derived_definitions.py`.
+*Not done.* The SQL and CQL engines do not yet carry the joint-count, CRP and ESR ranges.
+
+**D-190 Stored derived rows with provenance, recompute on change, derived-vs-documented conflicts.**
+Source: the same review §4.2 (storage, recompute triggers, conflicts); WS-04.3.
+1. `tb_common.derived_store`: schema `derived` with `definition`, `score_row` (value or reason; unit; anchor;
+   definition version and sha; site mapping version; every input with its source table, row id, date, value and unit
+   as recorded, status, and the value and unit used), `input_link` (one per input) and `conflict`. Rows are
+   superseded, never updated in place or deleted. Stored scores: CDAI, SDAI, DAS28-ESR, DAS28-CRP, eGFR CKD-EPI
+   2021 and JSN 2009. Two stores opening at once load a definition once (insert or nothing, then re-read its sha).
+2. A row is written only when its fingerprint (definition version and sha, mapping version, inputs; age and sex for
+   eGFR) changes: an input added, corrected, confirmed or deleted, a new mapping or a new definition version. An
+   anchor gone at the source retires its row. `run_batch` reads the lake's `observation` (never `site_fact`). A
+   patient whose recompute fails is counted in the batch report (`failed`, `failed_pids`) and the batch goes on.
+3. Only rows with status final, amended, corrected, confirmed or signed are inputs: a proposed fact never counts.
+   The lake's `observation` has no status column, so the batch records each lake row's status as `not_recorded`,
+   which counts: the lake holds only feed rows and confirmed facts (a proposed fact stays out of `observation` by
+   its basis tag). An entered-in-error or preliminary feed row is not left out until the lake carries
+   `Observation.status`.
+4. A documented score (proposed or signed) within 7 days of a computed row and beyond the tolerance (CDAI and SDAI
+   0.5, DAS28 0.2, eGFR 5) opens a `derived_vs_documented` conflict; neither value is overwritten, the score reads
+   as unknown until a person chooses keep_derived, keep_documented or both_at_dates.
+5. A recomputed row takes over the conflicts of the row it replaces (`carried_from`), checked against the stored
+   documented value even when the batch is not given the documented scores: a conflict that still differs stays
+   open; one that now agrees is closed. A person's decision stays unless the new value differs from the value it was
+   made against (`resolved_value`) by more than the tolerance; then the conflict opens again. A documented record
+   given again with another value or status is checked as new.
+*Evidence.* `tests/unit/test_derived_store.py`.
+*Not done.* Screening reading stored rows; ruleset pinning of definition versions; scheduling the batch; a
+conflicts page; the eGFR under-18 rule; for the lake owner, `Observation.status` in the lake's `observation` table.
 
 **D-191 The SAE register: one record per serious AE on the one reporting clock (independent plan review PR-17).** The review found that the SAE clock had no system of record and no failure mode in the risk file. TrialBox now keeps an SAE register, schema `sae` of the trial database (`services/console/saerecord.py`), with a worklist at `/sae` and a case page at `/studies/{rs}/sae/{record}/{event}` (`services/console/sae_pages.py`).
 

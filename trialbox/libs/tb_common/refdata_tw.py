@@ -29,6 +29,7 @@ from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from tb_common.refdata import (
     RELATIONS,
@@ -62,32 +63,39 @@ REPO_SYNONYMS = Path(__file__).resolve().parent / "refdata_src" / "zh_tw_clinica
 OGDL_LICENSE_ID = "1"  # data.gov.tw dataset API: license 1 = Open Government Data License 1.0
 
 
-def dataset_meta(meta_url: str) -> dict[str, str]:
-    """A data.gov.tw dataset's modified date (its version) and its licence field, from the dataset API; empty when
-    it does not answer."""
+def datagov_meta(meta_url: str) -> dict[str, Any]:
+    """A data.gov.tw dataset's modified date (its version), its licence field and the download URLs it lists, from
+    the dataset API (the vendor's fetch only; the box never calls it); empty when it does not answer. The download
+    URLs bind the licence to the file: the NAER terms are fetched from opendata.naer.edu.tw, and the fetch checks
+    that this is a URL the OGDL-licensed record 15460 distributes (D-172)."""
     import httpx
 
     try:
         r = httpx.get(meta_url, timeout=60)
         r.raise_for_status()
         res = r.json()["result"]
+        downloads = sorted(unquote(str(d.get("resourceDownloadUrl") or "")) for d in res.get("distribution") or [])
         return {"version": f"data.gov.tw {res['datasetId']} modified {res['modifiedDate']}",
-                "license": str(res.get("license", "")), "meta_url": meta_url}  # fmt: skip
+                "license": str(res.get("license", "")), "meta_url": meta_url,
+                "downloads": [d for d in downloads if d]}  # fmt: skip
     except Exception:
         return {}
 
 
 def datagov_tw_licence(item: Item) -> LicenceRead | None:
     """The item's licence reader (D-173, review M4 of D-170): the dataset API's ``license`` field must be 1 (OGDL
-    1.0); the same answer gives the dataset's modified date, the item's version. None when the API does not answer."""
+    1.0); the same answer gives the dataset's modified date (the item's version) and the download URLs the record
+    lists (fetch refuses a file the record does not distribute). None when the API does not answer (fetch then
+    stops: fail closed). ``datagov_meta`` is looked up at call time (tests replace it)."""
     if not item.meta_url.startswith("https://data.gov.tw/"):
         raise ValueError(f"{item.id}: {item.meta_url} is not a data.gov.tw dataset API URL")
-    dm = dataset_meta(item.meta_url)
+    dm = datagov_meta(item.meta_url)
     if not dm:
         return None
     lic = dm.get("license", "")
     return LicenceRead(item.meta_url, f"license {lic}", f"license {OGDL_LICENSE_ID} (OGDL 1.0)",
-                       lic == OGDL_LICENSE_ID, dm.get("version", ""))  # fmt: skip
+                       lic == OGDL_LICENSE_ID, dm.get("version", ""),
+                       tuple(dm.get("downloads") or ()))  # fmt: skip
 
 
 def roc(s: str) -> str:
@@ -106,13 +114,15 @@ def roc(s: str) -> str:
 NHI_DRUG_COLS = ("藥品代號", "藥品中文名稱", "有效起日", "有效迄日", "ATC代碼")
 
 
-def latest_nhi_rows(path: Path) -> dict[str, dict[str, str]]:
-    """One row per 藥品代號: the row with the latest 有效起日 (the list has one row per validity period)."""
+def latest_nhi_rows(path: Path, having: str = "") -> dict[str, dict[str, str]]:
+    """One row per 藥品代號: the row with the latest 有效起日 (the list has one row per validity period). With
+    ``having``, only rows where that column has a value count (the newest row that states an ATC code, when the
+    newest period left it empty)."""
     best: dict[str, dict[str, str]] = {}
     rows = require_columns(csv_rows(path.read_bytes()), NHI_DRUG_COLS, "the NHI drug list (data.gov.tw 23715)")
     for r in rows:
         code = r.get("藥品代號", "")
-        if not code:
+        if not code or (having and not r.get(having, "").strip()):
             continue
         r["有效起日"], r["有效迄日"] = roc(r.get("有效起日", "")), roc(r.get("有效迄日", ""))
         if code not in best or _iso(r["有效起日"]) >= _iso(best[code]["有效起日"]):
@@ -127,9 +137,10 @@ def _iso(d: str) -> str:
 
 def parse_nhi_drug_atc(path: Path) -> Iterator[dict[str, Any]]:
     """NHI 藥品代號 -> the ``ATC代碼`` the NHIA list gives (kept as given, D-140: no WHO ATC/DDD text). The product is
-    narrower than its ATC class, so the target is ``wider``. Codes without an ATC, or with a value that is not
-    ATC-shaped, give no row (unknown, never a guess)."""
-    for code, r in sorted(latest_nhi_rows(path).items()):
+    narrower than its ATC class, so the target is ``wider``. The ATC code is the one of the newest validity period
+    that states one. Codes without an ATC, or with a value that is not ATC-shaped, give no row (unknown, never a
+    guess)."""
+    for code, r in sorted(latest_nhi_rows(path, having="ATC代碼").items()):
         atc = r.get("ATC代碼", "").strip().upper()
         if not atc or not _ATC_SHAPE.match(atc) or len(atc) not in _ATC_LEVEL:
             continue
@@ -151,11 +162,19 @@ ICD_COLS = ("2014年版ICD-10-CM/PCS", "2014年版ICD-10-CM/PCS_英文名稱", "
 
 def icd_map_rows(data: bytes, pcs: bool) -> Iterator[dict[str, Any]]:
     """One NHIA 2014 <-> 2023 file (CM or PCS; same columns). The relation says how the 2023 code's meaning relates
-    to the 2014 code's: the same code with one target and one source is ``equivalent``; a 2014 code split into
-    several 2023 codes gives ``narrower`` targets; several 2014 codes merged into one 2023 code give a ``wider``
-    target; both at once, or a one-to-one change of code, ``inexact``. A mapping NHIA added later for a deleted
-    code (修訂日期 "增列對應", e.g. 2014 Z22.51 carrier -> 2023 B18.1 chronic hepatitis B) is ``relatedto``: a
-    candidate, not the same meaning; it does not count as a merge for the other rows."""
+    to the 2014 code's:
+
+    * the same code with one target and one source: ``equivalent``;
+    * a 2014 code split into several 2023 codes: ``narrower`` targets;
+    * several 2014 codes merged into one 2023 code: a ``wider`` target;
+    * both at once, or a one-to-one change of code: ``inexact``;
+    * a mapping NHIA added later for a deleted code (修訂日期 "增列對應", e.g. 2014 Z22.51 carrier -> 2023 B18.1
+      chronic hepatitis B) is ``relatedto``: a candidate, not the same meaning; it does not count as a merge for the
+      other rows;
+    * a 2014 code with no 2023 code at all (deleted): one ``unmatched`` row without a target, so site set-up never
+      offers the obsolete code as a standard code.
+
+    Cardinality is counted over the file's distinct pairs."""
     rows = require_columns(csv_rows(data), ICD_COLS[:8], "an NHIA 2014/2023 ICD-10 map")
     c14, c23 = ICD_COLS[0], ICD_COLS[3]
     pairs = [(r[c14], r[c23], r) for r in rows if r.get(c14) and r.get(c23)]
@@ -164,6 +183,12 @@ def icd_map_rows(data: bytes, pcs: bool) -> Iterator[dict[str, Any]]:
     n_targets, n_sources = Counter(a for a, _ in uniq), Counter(b for _, b in uniq)
     seen: set[tuple[str, str]] = set()
     src, tgt = (ICD_PCS_2014, ICD_PCS_2023) if pcs else (ICD_CM_2014, ICD_CM_2023)
+
+    def extra(r: dict[str, str]) -> dict[str, str]:
+        return {"source_zh": r.get(ICD_COLS[2], ""), "target_zh": r.get(ICD_COLS[5], ""),
+                "status_2014": r.get(ICD_COLS[6], ""), "status_2023": r.get(ICD_COLS[7], ""),
+                "revised": r.get(ICD_COLS[8], "")}  # fmt: skip
+
     for a, b, r in pairs:
         if (a, b) in seen:
             continue
@@ -182,10 +207,18 @@ def icd_map_rows(data: bytes, pcs: bool) -> Iterator[dict[str, Any]]:
         yield {
             "source_system": src, "source_code": a, "source_display": r.get(ICD_COLS[1], ""),
             "target_system": tgt, "target_code": b, "target_display": r.get(ICD_COLS[4], ""), "relation": rel,
-            "extra": {"source_zh": r.get(ICD_COLS[2], ""), "target_zh": r.get(ICD_COLS[5], ""),
-                      "status_2014": r.get(ICD_COLS[6], ""), "status_2023": r.get(ICD_COLS[7], ""),
-                      "revised": r.get(ICD_COLS[8], "")},
+            "extra": extra(r),
         }  # fmt: skip
+    mapped = {a for a, _, _ in pairs}
+    for r in rows:
+        a = r.get(c14, "")
+        if a and not r.get(c23) and a not in mapped:
+            mapped.add(a)
+            yield {
+                "source_system": src, "source_code": a, "source_display": r.get(ICD_COLS[1], ""),
+                "target_system": tgt, "target_code": "", "target_display": "", "relation": "unmatched",
+                "extra": extra(r),
+            }  # fmt: skip
 
 
 def parse_tw_icd_2014_2023(path: Path) -> Iterator[dict[str, Any]]:
@@ -227,7 +260,7 @@ def parse_nhi_lab_loinc(path: Path) -> Iterator[dict[str, Any]]:
     pkg, cm = _pas_package(path)
     if str(pkg.get("license", "")).upper() != "CC0-1.0":
         raise ValueError(f"the NHI PAS package's licence is {pkg.get('license')!r}, not CC0-1.0: do not ship")
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     groups = [
         g for g in cm.get("group") or [] if g.get("target") == LOINC and (g.get("source") or NHI_SERVICE) == NHI_SERVICE
     ]
@@ -246,13 +279,13 @@ def parse_nhi_lab_loinc(path: Path) -> Iterator[dict[str, Any]]:
                     raise ValueError(f"{path.name}: {e['code']}: a target without a code: {t!r}")
                 if rel not in RELATIONS:
                     raise ValueError(f"{path.name}: {e['code']} -> {t['code']}: unknown relation {t!r}")
-                key = (str(e["code"]), str(t["code"]))
+                key = (str(system), str(e["code"]), str(t["code"]))
                 if key in seen:
                     continue
                 seen.add(key)
                 yield {
-                    "source_system": system, "source_code": key[0], "source_display": e.get("display", ""),
-                    "target_system": LOINC, "target_code": key[1], "target_display": "", "relation": rel,
+                    "source_system": system, "source_code": key[1], "source_display": e.get("display", ""),
+                    "target_system": LOINC, "target_code": key[2], "target_display": "", "relation": rel,
                     "extra": {"conceptmap": cm.get("url", ""), "conceptmap_version": cm.get("version", ""),
                               "loinc_version": g.get("targetVersion", "")},
                 }  # fmt: skip

@@ -15,3 +15,10 @@ deploy/site
 .cache/trec_ct
 .cache/trialgpt_compare
 .cache/medtxt/responses
+# supply-chain tools and outputs (make scanners, lock-env, trivy-db, release-gates): never part of an image
+.cache/scanners
+.cache/trivy
+.cache/lock-env
+.cache/pip-audit-env
+build
+dist

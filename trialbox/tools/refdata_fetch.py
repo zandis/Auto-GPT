@@ -51,6 +51,7 @@ from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 for _p in (ROOT / "libs", ROOT / "services"):
@@ -321,7 +322,9 @@ def fetch(
     ids: list[str], raw: Path, file: Path | None = None, slice_n: int = 0, licence_check: bool = True
 ) -> list[str]:
     """Download each item into ``raw/<id>/`` with ``fetch.json`` (URL, date, sha256, bytes, version). The only
-    place that reaches the network: the box reads the built pack from the update bundle."""
+    place that reaches the network: the box reads the built pack from the update bundle. ``licence_check=False``
+    (``--no-licence-check``, after reading the terms by hand) skips reading the dataset records; the skip is
+    recorded in fetch.json."""
     done = []
     for sid in dict.fromkeys(BY_ID[i].derived_from or i for i in ids):  # a derived item reads its parent's file
         s = BY_ID[sid]
@@ -351,24 +354,28 @@ def fetch(
                 f"{sid}: {s.url} is pinned to sha256 {s.sha256}, the download is "
                 f"{meta['parts'][0]['sha256']}: the published file changed, check it before shipping"
             )
+        fetched = [] if s.url.startswith("repo:") else [s.url, *(u for _, u in s.extra_files)]
         for item in (s, *(c for c in SOURCES if c.derived_from == sid)):
-            dm = read_licence(item, licence_check)
+            dm = read_licence(item, licence_check, fetched)
             if dm is None:
                 continue
+            meta.setdefault("licence_checks", {})[item.id] = dm
             if item is s:
                 meta.update({"version": dm.get("version", ""), "licence_check": dm})
             else:
                 meta.setdefault("versions", {})[item.id] = dm.get("version", "")
-                meta.setdefault("licence_checks", {})[item.id] = dm
         (raw / sid / "fetch.json").write_text(json.dumps({**meta, "path": dest.name}, indent=1), encoding="utf-8")
         done.append(f"{sid}: {meta['bytes']:,} bytes, sha256 {meta['sha256'][:16]}")
     return done
 
 
-def read_licence(item: Source, licence_check: bool = True) -> dict[str, Any] | None:
+def read_licence(item: Source, licence_check: bool = True, fetched: Iterable[str] = ()) -> dict[str, Any] | None:
     """The item's own licence reader (``Item.licence_reader``, D-173), run at fetch time: its evidence for
-    ``fetch.json``, or None for an item without one. Stops when the source does not answer or the licence no longer
-    reads as expected; ``licence_check=False`` (``--no-licence-check``) skips the read and records that."""
+    ``fetch.json``, or None for an item without one. Fails closed (D-170, second review M3, M4, L5): it stops when
+    an item has a dataset record but no reader, when the source does not answer, when the licence no longer reads as
+    expected, or when a fetched URL (``fetched``) is not a download of the licensed record. A record that lists no
+    downloads binds nothing, so the file must then be pinned by sha256. ``licence_check=False``
+    (``--no-licence-check``, after reading the terms by hand) skips the read and records that."""
     if item.licence_reader is None:
         if item.meta_url:
             raise SystemExit(
@@ -380,13 +387,27 @@ def read_licence(item: Source, licence_check: bool = True) -> dict[str, Any] | N
     got = item.licence_reader(item)
     if got is None:
         raise SystemExit(
-            f"{item.id}: the licence could not be read at the source (it did not answer); retry, or pass "
-            "--no-licence-check after reading the terms by hand"
+            f"{item.id}: the licence could not be read at the source (it did not answer): the licence was not "
+            "checked; retry, or pass --no-licence-check after reading the terms by hand"
         )
     if not got.ok:
         raise SystemExit(
             f"{item.id}: the licence now reads {got.read!r} at {got.url}, not {got.expected!r}: read the terms "
             "before shipping"
+        )
+    urls = [unquote(u) for u in fetched]
+    listed = {unquote(u) for u in got.downloads}
+    if listed:
+        stray = sorted(u for u in urls if u not in listed)
+        if stray:
+            raise SystemExit(
+                f"{item.id}: {', '.join(stray)} is not a download of the dataset record {got.url} "
+                f"(it lists {', '.join(sorted(listed))}): the licence read there may not cover it"
+            )
+    elif urls and not BY_ID[item.derived_from or item.id].sha256:
+        raise SystemExit(
+            f"{item.id}: the licence record {got.url} lists no download and the file is not pinned by sha256: "
+            "nothing binds the licence read to the file fetched"
         )
     return got.evidence()
 
@@ -594,7 +615,8 @@ def _meta(raw: Path, sid: str) -> tuple[dict[str, Any], Path]:
     f = raw / src / "fetch.json"
     meta = json.loads(f.read_text(encoding="utf-8"))
     if src != sid:
-        meta = {**meta, "version": (meta.get("versions") or {}).get(sid) or meta.get("version", "")}
+        meta = {**meta, "version": (meta.get("versions") or {}).get(sid) or meta.get("version", ""),
+                "licence_check": (meta.get("licence_checks") or {}).get(sid) or {}}  # fmt: skip
     return meta, raw / src / meta["path"]
 
 
@@ -692,6 +714,10 @@ def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = 
         s = BY_ID[sid]
         meta, path = _meta(raw, sid)
         parts = check_raw(raw, sid, meta, pinned=not sample)
+        lc = meta.get("licence_check") or {}
+        if (s.licence_reader is not None or s.meta_url) and not sample and not (lc.get("ok") or lc.get("skipped")):
+            raise SystemExit(f"{sid}: fetch.json has no licence check of {s.meta_url or s.licence_url}: fetch "
+                             f"{s.derived_from or sid} again")  # fmt: skip
         if sid == "ctgov":
             files = [write("ctgov/studies.jsonl.gz", parse_ctgov(path))]
         elif sid == "tfda_indication":
@@ -847,7 +873,8 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument(
         "--no-licence-check",
         action="store_true",
-        help="do not read the items' licences at the source (recorded in fetch.json as skipped)",
+        help="do not read the items' licences at the source (recorded in fetch.json as skipped; a vendor build "
+        "accepts the recorded skip)",
     )
     b = sub.add_parser("build")
     b.add_argument("--raw", type=Path, default=ROOT / ".cache" / "refdata" / "raw")

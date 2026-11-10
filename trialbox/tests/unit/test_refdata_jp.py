@@ -103,10 +103,11 @@ def test_the_licence_reader_lives_on_the_item_and_fetch_keeps_its_evidence(monke
 
     reads: list[str] = []
 
-    def reader(ok: bool, answer: bool = True) -> Any:
+    def reader(ok: bool, answer: bool = True, downloads: tuple[str, ...] = ()) -> Any:
         def read(item: rd.Item) -> rd.LicenceRead | None:
             reads.append(item.id)
-            return rd.LicenceRead("https://x/terms", "free" if ok else "paid", "free", ok) if answer else None
+            got = rd.LicenceRead("https://x/terms", "free" if ok else "paid", "free", ok, "", downloads)
+            return got if answer else None
 
         return read
 
@@ -117,19 +118,64 @@ def test_the_licence_reader_lives_on_the_item_and_fetch_keeps_its_evidence(monke
                                                                  "sha256": ""}))  # fmt: skip
         with pytest.raises(SystemExit, match=err):
             rf.fetch(["ctcae_v5_en"], tmp_path)
+    # a licence read that lists no download binds nothing: without a sha256 pin the file is refused (fail closed)
     monkeypatch.setitem(rf.BY_ID, "ctcae_v5_en", rd.Item(**{**item.__dict__, "licence_reader": reader(True),
                                                              "sha256": ""}))  # fmt: skip
+    with pytest.raises(SystemExit, match="lists no download"):
+        rf.fetch(["ctcae_v5_en"], tmp_path)
+    monkeypatch.setitem(
+        rf.BY_ID,
+        "ctcae_v5_en",
+        rd.Item(**{**item.__dict__, "sha256": "", "licence_reader": reader(True, True, (item.url,))}),
+    )
     rf.fetch(["ctcae_v5_en"], tmp_path)
     meta = json.loads((tmp_path / "ctcae_v5_en/fetch.json").read_text())
     assert meta["licence_check"] == {"url": "https://x/terms", "read": "free", "expected": "free", "ok": True,
-                                     "version": ""}  # fmt: skip
-    assert reads == ["ctcae_v5_en"] * 3
+                                     "version": "", "downloads": [item.url]}  # fmt: skip
+    assert meta["licence_checks"]["ctcae_v5_en"] == meta["licence_check"]
+    monkeypatch.setitem(
+        rf.BY_ID,
+        "ctcae_v5_en",
+        rd.Item(**{**item.__dict__, "sha256": "", "licence_reader": reader(True, True, ("https://y/z",))}),
+    )
+    with pytest.raises(SystemExit, match="not a download of the dataset record"):
+        rf.fetch(["ctcae_v5_en"], tmp_path)
+    assert reads == ["ctcae_v5_en"] * 5
     # an item without a reader (our own tables) reads nothing; the Taiwan items read data.gov.tw through theirs
     assert rf.read_licence(rf.BY_ID["jp_yj_atc"]) is None
     assert rf.BY_ID["naer_medical_terms"].licence_reader is tw.datagov_tw_licence
     naer = rf.BY_ID["naer_medical_terms"]  # a dataset API URL without a reader is refused, never skipped
     with pytest.raises(SystemExit, match="no licence reader"):
         rf.read_licence(rd.Item(**{**naer.__dict__, "licence_reader": None}))
+
+
+def test_a_pinned_file_needs_no_listed_download_and_build_refuses_an_unchecked_item(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One licence mechanism for Taiwan and Japan (merge of D-170's second review with D-173): a licence page that
+    lists no download (NCI) binds the file through the item's sha256 pin; a vendor build refuses an item with a
+    licence reader whose fetch.json holds no check."""
+    item = rf.BY_ID["ctcae_v5_en"]
+
+    def fake_download(url: str, dest: Path, **_: object) -> dict[str, object]:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"x")
+        return {"url": url, "downloaded_at": "2026-11-10T00:00:00+00:00", "sha256": item.sha256, "bytes": 1}
+
+    monkeypatch.setattr(rf, "download", fake_download)
+    monkeypatch.setitem(rf.BY_ID, "ctcae_v5_en", rd.Item(**{**item.__dict__, "licence_reader": lambda i: rd.LicenceRead(
+        "https://p", "free of copyright", "free of copyright", True)}))  # fmt: skip
+    rf.fetch(["ctcae_v5_en"], tmp_path)
+    meta = json.loads((tmp_path / "ctcae_v5_en/fetch.json").read_text())
+    assert meta["licence_check"]["ok"] and meta["licence_check"]["downloads"] == []
+    meta.pop("licence_check")
+    meta.pop("licence_checks")
+    real = rd.sha256_file(tmp_path / "ctcae_v5_en" / meta["path"])  # unpin, so build reaches the licence check
+    meta["sha256"] = meta["parts"][0]["sha256"] = real
+    (tmp_path / "ctcae_v5_en/fetch.json").write_text(json.dumps(meta))
+    monkeypatch.setitem(rf.BY_ID, "ctcae_v5_en", rd.Item(**{**rf.BY_ID["ctcae_v5_en"].__dict__, "sha256": ""}))
+    with pytest.raises(SystemExit, match="no licence check"):
+        rf.build(tmp_path, tmp_path / "out", "20261110", ids=["ctcae_v5_en"])
 
 
 def test_the_page_reader_needs_every_marker(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -87,7 +87,11 @@ def test_fetch_is_the_only_network_path_and_a_derived_item_fetches_its_parent(mo
         return {"url": url, "downloaded_at": "2026-11-09T00:00:00+00:00", "sha256": "0" * 64, "bytes": 1}
 
     monkeypatch.setattr(rf, "download", fake_download)
-    monkeypatch.setattr(tw, "dataset_meta", lambda url: {"version": f"v:{url.rsplit('/', 1)[-1]}", "license": "1"})
+    icd_item = rf.BY_ID["tw_icd_2014_2023"]
+    listed = {rf.BY_ID["nhi_drug_atc"].meta_url: [rf.BY_ID["nhi_drugs"].url],  # the records list the files fetched
+              icd_item.meta_url: [icd_item.url, icd_item.extra_files[0][1]]}  # fmt: skip
+    monkeypatch.setattr(tw, "datagov_meta", lambda url: {"version": f"v:{url.rsplit('/', 1)[-1]}", "license": "1",
+                                                         "downloads": listed.get(url, [])})  # fmt: skip
     rf.fetch(["nhi_drug_atc", "tw_icd_2014_2023", "tw_zh_synonyms"], tmp_path)
     assert calls == [rf.BY_ID["nhi_drugs"].url, rf.BY_ID["tw_icd_2014_2023"].url,
                      rf.BY_ID["tw_icd_2014_2023"].extra_files[0][1]]  # fmt: skip
@@ -97,6 +101,7 @@ def test_fetch_is_the_only_network_path_and_a_derived_item_fetches_its_parent(mo
     assert icd["version"] == "v:177508" and [p["path"] for p in icd["parts"]] == [
         "tw_icd_2014_2023_cm.csv", "tw_icd_2014_2023_pcs.csv"]  # fmt: skip
     assert icd["licence_check"]["read"] == "license 1" and icd["licence_check"]["ok"]  # evidence, kept
+    assert nhi["licence_checks"]["nhi_drug_atc"]["read"] == "license 1"  # the derived item's own record, too
     assert (tmp_path / "tw_zh_synonyms/zh_tw_clinical_synonyms.csv").read_bytes() == tw.REPO_SYNONYMS.read_bytes()
 
 
@@ -108,12 +113,31 @@ def test_fetch_refuses_a_changed_licence_or_a_pinned_file_that_changed(monkeypat
         return {"url": url, "downloaded_at": "2026-11-09T00:00:00+00:00", "sha256": "0" * 64, "bytes": 1}
 
     monkeypatch.setattr(rf, "download", fake_download)
-    monkeypatch.setattr(tw, "dataset_meta", lambda url: {"version": "v", "license": "2"})
+    monkeypatch.setattr(tw, "datagov_meta", lambda url: {"version": "v", "license": "2"})
     with pytest.raises(SystemExit, match="now reads 'license 2'"):
+        rf.fetch(["naer_medical_terms"], tmp_path)
+    monkeypatch.setattr(tw, "datagov_meta", lambda url: {})  # the dataset record did not answer: fail closed
+    with pytest.raises(SystemExit, match="licence was not checked"):
+        rf.fetch(["naer_medical_terms"], tmp_path)
+    with pytest.raises(SystemExit, match="licence was not checked"):
+        rf.fetch(["nhi_drug_atc"], tmp_path)  # a derived item's record is checked with its parent's fetch
+    # the record's licence covers the file only when the record distributes the URL fetched (NAER: opendata.naer)
+    naer = "https://opendata.naer.edu.tw/學術名詞/國家教育研究院-醫學學術名詞.csv"  # as the record lists it, decoded
+    monkeypatch.setattr(tw, "datagov_meta", lambda url: {"version": "v", "license": "1", "downloads": [naer]})
+    rf.fetch(["naer_medical_terms"], tmp_path)
+    assert json.loads((tmp_path / "naer_medical_terms/fetch.json").read_text())["licence_check"]["downloads"] == [naer]
+    monkeypatch.setattr(tw, "datagov_meta", lambda url: {"version": "v", "license": "1",
+                                                         "downloads": ["https://elsewhere.example/x.csv"]})  # fmt: skip
+    with pytest.raises(SystemExit, match="not a download of the dataset record"):
+        rf.fetch(["naer_medical_terms"], tmp_path)
+    # a record that lists no download binds nothing, and the NAER file is not pinned: refused (merge of D-170 M4
+    # with D-173; before, an empty list let any URL through)
+    monkeypatch.setattr(tw, "datagov_meta", lambda url: {"version": "v", "license": "1"})
+    with pytest.raises(SystemExit, match="lists no download"):
         rf.fetch(["naer_medical_terms"], tmp_path)
     with pytest.raises(SystemExit, match="pinned to sha256"):
         rf.fetch(["nhi_lab_loinc"], tmp_path)  # the 1.3.0 package's sha256 is pinned
-    monkeypatch.setattr(tw, "dataset_meta", lambda url: {})  # the dataset API did not answer
+    monkeypatch.setattr(tw, "datagov_meta", lambda url: {})  # the dataset API did not answer
     with pytest.raises(SystemExit, match="did not answer"):
         rf.fetch(["naer_medical_terms"], tmp_path)
     rf.fetch(["naer_medical_terms"], tmp_path, licence_check=False)  # explicit: recorded as skipped
@@ -138,6 +162,11 @@ def test_build_rehashes_every_part_and_requires_the_pcs_file(tmp_path: Path) -> 
     # a vendor build (not a sample) checks the pinned sha256 of the PAS package
     with pytest.raises(SystemExit, match="pinned to sha256"):
         rf.build(raw, tmp_path / "o3", "20261109", ids=["nhi_lab_loinc"])
+    # ... and refuses an item whose dataset record was not checked at fetch time (the sample has no check)
+    with pytest.raises(SystemExit, match="no licence check"):
+        rf.build(raw, tmp_path / "o4", "20261109", ids=["naer_medical_terms"])
+    with pytest.raises(SystemExit, match="no licence check"):
+        rf.build(raw, tmp_path / "o5", "20261109", ids=["nhi_drug_atc"])
 
 
 def test_build_refuses_zero_records_and_a_changed_shape(tmp_path: Path) -> None:
@@ -197,6 +226,11 @@ def test_nhi_drug_to_atc_skips_empty_and_odd_codes_and_keeps_a_partial_level(tmp
     f.write_text("\n".join([head, line("A1", "N05AA"), line("A2", ""), line("A3", "XYZ-1"), line("A4", "m04aa01")]))
     got = {r["source_code"]: (r["target_code"], r["extra"]["atc_level"]) for r in tw.parse_nhi_drug_atc(f)}
     assert got == {"A1": ("N05AA", 4), "A4": ("M04AA01", 5)}
+    # the newest validity period left the ATC empty: the newest period that states one gives the map row
+    old = line("A5", "C10AA05").replace("1150101", "1100101")
+    f.write_text("\n".join([head, old, line("A5", "")]))
+    (row,) = tw.parse_nhi_drug_atc(f)
+    assert row["target_code"] == "C10AA05" and row["extra"]["valid_from"] == "2021-01-01"
 
 
 def test_icd_2014_2023_relations(tmp_path: Path) -> None:
@@ -208,6 +242,7 @@ def test_icd_2014_2023_relations(tmp_path: Path) -> None:
     assert {rel[("I10", c)] for c in ("I10", "I16.0", "I16.1", "I16.9")} == {"narrower"}
     assert rel[("B18.1", "B18.1")] == "equivalent"  # NHIA's later added mapping does not make it a merge
     assert rel[("Z22.51", "B18.1")] == "relatedto"  # 增列對應: carrier -> chronic hepatitis B is a candidate only
+    assert rel[("Z22.50", "")] == "unmatched"  # deleted, no 2023 code: a row without a target
     assert rel[("P83.8", "P83.88")] == "inexact" and rel[("T84.040A", "M97.01XA")] == "inexact"
     a047 = next(r for r in rows if r["source_code"] == "A04.7")
     assert a047["extra"]["status_2014"] == "2014代碼改為不可用" and a047["extra"]["target_zh"].startswith("艱難梭菌")
@@ -245,11 +280,12 @@ def test_a_later_ig_with_r5_relationships_and_loinc_names(tmp_path: Path) -> Non
     pkg = _pas_with_target(tmp_path / "b", {"code": "2160-0", "relationship": "made-up"})
     with pytest.raises(ValueError, match="unknown relation"):
         list(tw.parse_nhi_lab_loinc(pkg))
-    pkg = _pas_with_target(tmp_path / "c", {"display": "no code"})
+    pkg = _pas_with_target(tmp_path / "c", {"display": "no code", "equivalence": "relatedto"})
     with pytest.raises(ValueError, match="without a code"):
         list(tw.parse_nhi_lab_loinc(pkg))
-    pkg = _pas_with_target(tmp_path / "d", {"equivalence": "unmatched"})  # R4 no-match: skipped, not refused
-    assert list(tw.parse_nhi_lab_loinc(pkg)) == []
+    for i, t in enumerate(({"equivalence": "unmatched"}, {"relationship": "not-related-to"},
+                           {"code": "2160-0", "equivalence": "disjoint"})):  # fmt: skip
+        assert list(tw.parse_nhi_lab_loinc(_pas_with_target(tmp_path / f"u{i}", t))) == []  # no match: skipped
     pkg = _pas_with_target(tmp_path / "e", {"code": "2160-0", "equivalence": "relatedto"})
     cm = json.loads((pkg / "ConceptMap-nhi-loinc.json").read_text(encoding="utf-8"))
     cm["group"][0]["source"] = "urn:other"
@@ -268,11 +304,23 @@ def test_synonyms_naer_split_and_curated_flag() -> None:
     assert {(r["term"], r["canonical"]) for r in own} >= {("類風濕關節炎", "rheumatoid arthritis"), ("SGPT", "alt")}
 
 
-def test_every_curated_synonym_resolves_in_its_domain() -> None:
-    t = Terminology()
-    dead = [(r["term"], r["canonical"]) for r in tw.parse_zh_tw_synonyms(tw.REPO_SYNONYMS)
-            if t.map(r["domain"], r["canonical"]).method not in ("exact", "synonym")]  # fmt: skip
-    assert dead == []
+def _own_lookup() -> Any:
+    own = list(tw.parse_zh_tw_synonyms(tw.REPO_SYNONYMS))
+
+    def lookup(term: str, domain: str = "") -> list[dict[str, Any]]:
+        return [r | {"source_id": "tw_zh_synonyms"} for r in own
+                if rd.norm_name(r["term"]) == rd.norm_name(term) and r["domain"] in ("", domain)]  # fmt: skip
+
+    return lookup
+
+
+def test_a_curated_word_beats_a_single_display_match() -> None:
+    t = Terminology(name_synonyms=_own_lookup())
+    hf = t.map("condition", "心衰竭")  # the zh display of I50.9 alone; the word means the I50 family
+    assert hf.method == "synonym" and not hf.needs_review and len(hf.concepts) > 1
+    assert ("http://hl7.org/fhir/sid/icd-10-cm", "I50") in hf.families
+    assert Terminology().map("condition", "心衰竭").method == "exact"  # without the dictionary: unchanged
+    assert t.map("observation", "收縮壓").method == "exact"  # the same code set either way: the display stays
 
 
 def test_every_trusted_synonym_term_maps_like_its_canonical_name() -> None:
@@ -336,6 +384,16 @@ def test_a_2014_code_against_a_2023_list_is_unknown_when_split(loaded: str) -> N
     # NHI lab candidates (relatedto) never decide, in or out of the list
     assert rd.in_set_via_map(lab, {(tw.LOINC, "2160-0")}) == "unknown"
     assert rd.in_set_via_map(lab, {(tw.LOINC, "0000-0")}) == "unknown"
+    with rd.RefStore(loaded) as st:
+        gone = st.map_targets(tw.ICD_CM_2014, "Z22.50")  # deleted, no 2023 code
+        a000 = st.map_targets(tw.ICD_CM_2014, "A00.0")
+    assert [t["relation"] for t in gone] == ["unmatched"] and rd.in_set_via_map(gone, only_i10) == "unknown"
+    # a list in another system (HL7 ICD-10-CM) is not a list the map can say "no" about
+    assert rd.in_set_via_map(a000, {("http://hl7.org/fhir/sid/icd-10-cm", "A00.0")}) == "unknown"
+    # a prefix family of the list (a ruleset's grouper) counts as inside
+    assert rd.in_set_via_map(a000, set(), families=[(tw.ICD_CM_2023, "A00")]) == "yes"
+    assert rd.in_set_via_map(a000, set(), families=[(tw.ICD_CM_2023, "B")]) == "no"
+    assert rd.in_set_via_map(i10, set(), families=[(tw.ICD_CM_2023, "I1")]) == "yes"  # I10 and every I16
 
 
 def _t(code: str, relation: str) -> dict[str, str]:
@@ -418,6 +476,24 @@ def test_a_dead_curated_entry_does_not_hide_the_others() -> None:
     assert res.method == "dictionary" and res.needs_review and res.concepts and "naer" in res.notes[0]
 
 
+def test_a_failing_shared_store_is_dropped_and_reopened_later(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Broken:
+        closed = False
+
+        def synonyms(self, term: str, domain: str = "") -> list[dict[str, Any]]:
+            raise ConnectionError("server closed the connection")
+
+        def close(self) -> None:
+            self.closed = True
+
+    st = Broken()
+    monkeypatch.setattr(rd, "_SHARED", {"postgresql://x/db": st})
+    monkeypatch.setattr(rd, "_FAILED", {})
+    assert rd.synonyms_or_empty("中風", url="postgresql://x/db") == []
+    assert rd._SHARED == {} and st.closed and "postgresql://x/db" in rd._FAILED  # not kept for the next lookup
+    assert rd.shared("postgresql://x/db") is None  # the 60-second pause, then a fresh store
+
+
 def test_the_matcher_without_a_database_is_unchanged(loaded: str, monkeypatch: pytest.MonkeyPatch) -> None:
     assert Terminology(name_synonyms=rd.synonym_lookup(loaded)).map("condition", "類風濕關節炎").method == "synonym"
     monkeypatch.delenv("TB_DB_URL", raising=False)
@@ -430,10 +506,11 @@ def test_site_setup_suggests_from_the_taiwan_maps(loaded: str, monkeypatch: pyte
     monkeypatch.setattr(sm, "site_country", lambda: "TW")
     drug = sm.suggest("medication", sm.local_system("drug-code"), "B004858100")
     assert drug["code"] == "N05AF01" and drug["method"] == "refdata" and drug["confidence"] == "0.90"
-    creat = sm.suggest("observation", sm.local_system("lab-code"), "09015C")  # several targets, one in our table
-    assert creat["code"] == "2160-0" and creat["method"] == "refdata" and creat["confidence"] == "0.80"
+    creat = sm.suggest("observation", sm.local_system("lab-code"), "09015C")  # several candidates: a person picks
+    assert creat.get("method") != "refdata"
     psa = sm.suggest("observation", sm.local_system("lab-code"), "12198C")  # one target
-    assert psa["code"] == "83113-1" and psa["confidence"] == "0.90"
+    assert psa["code"] == "83113-1" and psa["confidence"] == "0.90" and psa["display"] == ""  # no NHI name as LOINC
+    assert sm.suggest("condition", sm.local_system("dx-code"), "Z22.50") == {}  # deleted: never "same"
     moved = sm.suggest("condition", sm.local_system("dx-code"), "P83.8")  # gone in 2023, one new code
     assert moved["code"] == "P83.88" and moved["method"] == "refdata"
     assert sm.suggest("condition", sm.local_system("dx-code"), "A04.7") == {}  # split: the coordinator picks
