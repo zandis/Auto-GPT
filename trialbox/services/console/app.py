@@ -1002,6 +1002,7 @@ def create_app(
         return app
 
     from console import (
+        admin_flags,
         approval,
         data_pages,
         edc_pages,
@@ -1046,6 +1047,7 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
     from console import sae_pages
 

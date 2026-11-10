@@ -581,7 +581,9 @@ def for_work(work: Path) -> str:
 
 
 def drop_prefix(url: str, prefix: str) -> None:
-    """Drop every schema whose name starts with ``prefix``."""
+    """Drop every schema whose name starts with ``prefix`` (never all of them: an empty prefix is refused)."""
+    if not prefix:
+        raise ValueError("drop_prefix: an empty prefix would drop every schema in the database")
     import psycopg
     from tb_common.db import split_url
 

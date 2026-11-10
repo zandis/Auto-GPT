@@ -13,7 +13,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status test-console test-console-e2e site site-preview clean \
+.PHONY: goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -125,6 +125,16 @@ test-integration:
 E2E_DIR ?= $(TB_TEST_ROOT)/e2e-simple
 e2e-simple:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.e2e_simple --dir $(E2E_DIR) --json $(E2E_DIR).json
+
+# the committed goldens (T-006, D-205): the merge gate for every data-core branch. Profile ci (5,450 synthetic and
+# public patients, fixed site key): both lake sources side by side, about 2.5 minutes; TB_LAKE_SOURCE=omop (or legacy)
+# checks one source only.
+# A deliberate change: make goldens REASON="D-nnn: why the numbers move" in the same pull request.
+goldens-check:
+	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.goldens --check --profile ci
+
+goldens:
+	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.goldens --write --profile ci --reason "$(REASON)"
 
 # TB-PLAN-04 step 2 (D-126): the box runs the path, is backed up, wiped and restored, and must be the same box
 DRILL_DIR ?= $(TB_TEST_ROOT)/backup-drill
