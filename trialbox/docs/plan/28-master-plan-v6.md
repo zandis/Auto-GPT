@@ -37,7 +37,7 @@ The nine scope items of TB-PLAN-05 §1.1 stay. "Full scope" was never defined pe
 | 2 Delegation, candidate view, referral | Used (at least one referral through a treating physician) | Used |
 | 3 OMOP core, lake exported from it, provenance, conflicts, vocabulary | Used (flag on); at least one conflict resolved by the steward | Used |
 | 4a Profiles: cited page, twin, annotations, vectors, "patients like me" | Used for study patients | Used |
-| 4b Setpoints and gap finder | Built, **off** at go-live (owner question Q-06) | the same |
+| 4b Setpoints and gap finder | Built for go-live, flags **off** on go-live day (owner decision Q-06: they stay in the go-live scope) | the same |
 | 5 REDCap prefill under GAMP 5 | Used on one study whose sponsor acknowledgement is on file (choose an investigator-initiated study); otherwise copy-assist, Drilled | Used |
 | 6 Steward role, data-operations console, statistics page | Used | Used |
 | 7 Catalogue and specialty templates | Used: the templates of the pilot studies' specialties | the same |
@@ -61,7 +61,7 @@ The nine scope items of TB-PLAN-05 §1.1 stay. "Full scope" was never defined pe
 
 | Fact | Effect on the plan |
 | --- | --- |
-| Go-live: CGMH Wed 2027-04-28, Japan Thu 2027-05-13, full scope | Unchanged targets. Named fallback dates are proposed (Q-09). TB-PLAN-05's "Fri 2027-05-14" header for Japan is corrected to Thu 05-13. |
+| Go-live: CGMH Wed 2027-04-28, Japan Thu 2027-05-13, full scope | Unchanged targets. The owner decided on 2026-11-10 to name no fallback dates (Q-09); a slip is handled by a dated decision when it happens. TB-PLAN-05's "Fri 2027-05-14" header for Japan is corrected to Thu 05-13. |
 | CGMH hosts on its own shared B200 | WS-11.8 stays. PR #85 needs two MIG instances where the plan asked for one (LLM-027, OPS-067): the request to CGMH changes. The platform kind (Kubernetes, Slurm, plain Docker) is still unknown (OPS-066): asked in the first IT meeting. |
 | The owner's own B200 does the G1b qualification (not a cloud B200) | Card T-114 is rewritten: an offline bundle and one script the owner or a named operator runs; a host fingerprint in the record; two MIG layouts. No rental cost. A new risk: the host differs from CGMH's (RSK-52). |
 | The GCP project has one GPU; the increase was refused | G1 runs on one RTX PRO 6000 spot VM: about 9 hours per 50k run, with pre-emption. No parallel fan-out. A GPU ledger queues the six or more long runs before G3. The 50k functional run moves to the owner's B200 where possible (T-004). Register row CR-070 is closed as moot. |
@@ -74,7 +74,7 @@ The nine scope items of TB-PLAN-05 §1.1 stay. "Full scope" was never defined pe
 
 ### 1.5 Not in the pilot
 
-As TB-PLAN-05 §1.3. Proposed additions, all off or synthetic-only on go-live day, to be dated to the first release after go-live if the owner agrees (Q-06): setpoints and the gap finder and the clinician view of them; consortium work beyond the synthetic two-box count test; taking HAPI out. About 30 agent sessions and two S4 risks leave the go-live path.
+As TB-PLAN-05 §1.3, with no additions. The review proposed dating setpoints, the gap finder and the clinician view of them, consortium work beyond the synthetic two-box test, and taking HAPI out to the first release after go-live. **The owner decided on 2026-11-10 to keep all of them for go-live (Q-06).** Cards T-313, T-316b, T-316c and T-306 are therefore wave 3, due at G3; wave L keeps only the items that were already dated in TB-PLAN-05. The capacity margin to G3 shrinks by about 7 sessions (§4, §6.6).
 
 ## 2. Gates and dates
 
@@ -116,7 +116,7 @@ Holidays marked "confirm" were not checked against the official 2027 calendars (
 | 11-30 | Mon | The hosted demo is up; accounts issued; the statement sent to the testers. |
 | **12-01** | Tue | **GP-1 dry run** by the owner. |
 | 12-02 or 12-03 | | Optional guided first look: 30 minutes per clinician on a call, the owner drives, to settle language and scope before the hands-on week. |
-| **12-04** | Fri | **G1.** Decision point 1 for the fallback dates. |
+| **12-04** | Fri | **G1.** Decision point 1: the owner reviews the float of every chain (§3.1). |
 | **12-08 to 12-11** | Tue to Fri | **GP PoC sessions.** |
 | 12-11 | Fri | **G1b** on the owner's B200. |
 | **12-14** | Mon | **GP exit review**: the triaged list. |
@@ -144,7 +144,6 @@ Holidays marked "confirm" were not checked against the official 2027 calendars (
 | 04-29 to 05-05 | | Golden Week (Japan) |
 | 05-12 | Wed | G6 Japan. |
 | **05-13** | Thu | **Japan go-live.** |
-| 05-19 / 05-27 | | Proposed named fallback dates, CGMH / Japan. Used only by a dated owner decision (Q-09). |
 
 ### 2.3 Weeks to the PoC, day by day
 
@@ -208,7 +207,7 @@ One table, `docs/plan/owner-chains.md` (card T-663), holds each chain's steps wi
 | Wenn | not in TB-PLAN-05 | the PoC (about 4 h); later PQ | ask at the invitation |
 | Safety-core human review | 0 today (nobody named; no CODEOWNERS) | every change to the six safety-core files, `authz`, the prefill path; the G1 signature | **uncovered until named** |
 | GPU: one RTX PRO 6000 spot VM | 1 VM, pre-emptible | at least 6 long runs before G3: the short run, G1 (up to 3 attempts), the profile and embedding tests, the 31B bake-off, the injection suite on the pair, the release re-run | serial, 60 to 90 GPU-hours; fits only with a ledger (T-664) |
-| GPU: the owner's B200 | 1 machine; operator = the owner (assumed) | G1b on two MIG layouts; the 50k functional runs; the acceptance drills; GP-2 | fits if a second operator exists (Q-12) |
+| GPU: the owner's B200 | 1 machine; a named second operator (Q-08); an agent session with remote access once the access design is approved (Q-12, T-630) | G1b on two MIG layouts; the 50k functional runs; the acceptance drills; GP-2 | fits |
 | The shared build machine and CI | 4 cores, 15 GB | the full suite per merge | measured in TB-DR-04; print the wall time in the status file |
 | Wave P (to the freeze, 12 working days) | 36 to 48 verified merges | 25 cards, 13 queued PRs and up to 11 fix groups: 49 merges | **over.** Before the freeze merge only what the PoC path needs (the clean PRs, T-002, six fix groups, the 25 cards: 36 merges); drain the rest in the week of 11-30 (§6.6) |
 | Findings | this review adds 455 rows of all severities to the register's 115 | the fix rate so far is about 20 rows a day | inflow is above outflow this week. Rule: after G0, a new review wave opens only at a gate; between gates the register only shrinks |
@@ -315,7 +314,7 @@ Seven open Blocker or Critical rows rest on unpushed fix groups alone (CR-001, C
 | Rewritten | T-114 (the owner's B200), T-309 (owner decision OD-5), T-205 (what the fix groups leave) |
 | Split | T-012 (a, b) · T-102 (a, b, c) · T-108 (a to d) · T-112 (a, b) · T-203 (a, b, c) · T-206 (a, b) · T-209 (a, b, c) · T-210 (a, b, c) · T-211 (a, b, c) · T-212 (a to d) · T-213 (a, b) · T-301 (a, b) · T-302 (a to d) · T-304 (a, b, c) · T-305 (a, b, c) · T-310 (a, b, c; SAE part to T-602) · T-311 (a, b) · T-315 (a, b, c) · T-316 (a, b, c) · T-320 (a, b) |
 | Merged into another card | T-009 → T-004 (records) and T-607 (embedder decision) · T-308 → T-311a (same page file) · the record half of T-205 → T-115 · T-306 → T-305b, unless dated after go-live (wave L, owner Q-06) |
-| After go-live if the owner agrees (Q-06) | T-313, T-316b, T-316c, T-306 |
+| Proposed for after go-live; **kept for go-live by the owner (Q-06): now wave 3** | T-313, T-316b, T-316c, T-306 |
 
 #### 6.2.3 Wave P: PoC prerequisites, due at the freeze Fri 2026-11-27
 
@@ -1799,8 +1798,20 @@ Given by the owner the same day, after reading the summary of this plan. They ar
 | Q-08 | **Yes, all of it.** Written conflict-of-interest disclosure to CGMH this week; a different contract signer; an independent lead for the Study A reading; named deputies (steward, B200 operator, repository and cloud admin); an operations person from December. | RSK-53 and RSK-54 controls are in force once the names are on file; the names go into the G2b record, never into the repository with contact details. |
 | Q-11 | **Yes.** The owner asks the CGMH HIS team this week to start the export mechanism under the existing approval for his own department. | The CGMH critical path is planned on chain CGMH-A′ (§3.1); the tracker (T-663) records the request date and the named HIS owner. |
 | Q-14 | **A cover note now** to both committees and to hospital IT: the controls marked in the note are in build and are verified at OQ before any patient data is used, with the commitments register attached. | T-641 drafts the note and the register first (due Fri 11-20); the owner sends it. |
+| Q-06 | **No: keep all for go-live.** Setpoints, the gap finder, the clinician view of them, the consortium items and taking HAPI out stay in the go-live scope. | §1.2 row 4b and §1.5 are changed. T-313, T-316b, T-316c and T-306 are wave 3 (due G3, 2027-02-26), not wave L: where §6.2.8, §6.3 and §6.6 still show them in wave L or "if the owner agrees", this row overrides. Wave 3 grows by 4 cards and about 7 sessions (to about 77 cards and 86.5 sessions); the total to G3 is about 197 sessions against a capacity of 195 to 290 verified merges, so the margin at the lower rate is gone. RSK-63 applies. The two top-severity risks tied to these features stay on the go-live path and need their controls tested by G3. |
+| Q-09 | **No fallback dates.** | The fallback row is removed from the calendar; the targets stay CGMH Wed 2027-04-28 and Japan Thu 2027-05-13. The float table of §3.1 stays, and the owner reviews it at G1, G2 and G3. Findings PLAN-010 and PLAN-014 are closed by this decision, not by a date. |
+| Q-10 | **Ask Makoto first.** | The plan keeps 04-01 as provisional for the Japan contract; Dr Makoto confirms how his hospital handles fiscal-year contracts and staff rotation (tracker, T-663). |
+| Q-12 | **Give an agent session remote access to the owner's B200.** | The reviewers recommended against inbound access; the owner decided for it. Before any session connects, a new card **T-630** writes and tests the access design, and the owner approves it: an outbound-only tunnel from the B200 (no open inbound port), one dedicated non-admin account, short-lived credentials that never enter the repository or a chat, a command allow-list for the qualification runs, a session log kept on the B200, no hospital network and no patient data reachable from the machine, and a kill switch the owner holds. T-114 keeps the offline bundle and script as the fallback and as the form CGMH's own platform will need. CGMH is asked for two MIG instances (about 45 GB and 23 GB) and those sizes are qualified. |
+| Q-15 | **Yes to both.** Regulatory consultants in Japan and Taiwan are engaged this month; the treating physician's own-patient view is built last and stays switched off until their opinion. | T-646 to T-648 (the device-status cards) proceed; the flag for the own-patient view is off at go-live unless the opinion is on file. |
+| Q-16 | **Stop note judging and mark unknown.** When the judge is down, those patients go to review as unknown with a visible alert; the verifier never stands in for the judge. | This is the rule T-601 and fix group D-276 implement. |
+| Q-17 | **Off by default.** Prompts and answers of patient calls are not stored; a 24-hour audited debug switch only. | LLM-040 is fixed by changing the default; the IRB cover note (Q-14) says so. |
+| Q-18 | **One stack: the box's adapter, with the governed stack's controls moved into it** (contracts, the publish gate, the patient index); the other path is deleted. | T-659 records the decision; T-659b removes the unused path; T-611 (the completeness gate) is the first control to move. |
+| Q-19 | **Own build, disclose, ask both hospitals, and compare the options, including non-PRC ones** (the owner named Mistral as an example). | The own quantised build from the official weights stays the incumbent. A desk comparison of verifier and embedder candidates is `docs/reviews/2026-11-10-deep-review/03a-verifier-candidates.md`. A new card **T-699** measures the shortlist in the bake-off harness (after #64 and T-012), on the gated judge set per language, before G2. The origin of each model is named in the IT pack. |
+| Q-20 | **No second person; 60 minutes.** The steward and the PI are told at once; steward review within 7 days; a second person only for a non-admin reveal outside the user's own lists. | T-309 is built to this contract (its older text, a second person and 24 hours, is struck). |
+| Q-21 (problem log) | **Enable GitHub Issues.** | The owner enables Issues in the repository settings; T-654 uses Issues as the problem-resolution log; PoC feedback is filed there under tester codes. |
+| Q-21 (private repository) | **Open.** The owner asked how agent sessions keep access if the repository becomes private. | Answer given to the owner: a private repository works for agent sessions when the Claude GitHub App is installed on it (or on the organisation) and the owner's GitHub account is connected; each session is then started with that repository selected. Running sessions do not follow a move: they are restarted on the new repository. The current repository cannot simply be switched if it is a fork of a public one; the usual way is a new private repository with the history pushed to it, then the open PRs re-opened there. Decide after the open PR queue is drained, and before PoC feedback or site material is filed. |
 
-Q-06, Q-09, Q-10, Q-12 and Q-15 to Q-20 are not answered yet. The plan proceeds on their recommendations and records each as an assumption until the owner decides.
+All 21 questions now have an answer, except the private-repository half of Q-21.
 
 ## 11. Assumptions this plan makes where the request was silent
 
@@ -1830,4 +1841,4 @@ The owner's request left these unsaid. Each is filled as stated; any of them can
 
 | Version | Date | Change |
 | --- | --- | --- |
-| 1.0 | 2026-11-10 | First issue (with the owner's answers to Q-01 to Q-05, Q-07, Q-08, Q-11, Q-13, Q-14 and Q-21 of the same day, §10.4), from the deep review of 2026-11-10. Adds the PoC gate (GP-0, GP-1, GP, GP-2); redraws the critical path per site with float; defines "full scope" per site; reorganises the task list (wave P to wave L) with a conflict matrix; adds the standards compliance matrix, the dependency upgrade plan and the test strategy; lists the questions for the owner. |
+| 1.0 | 2026-11-10 | First issue (with the owner's answers to Q-01 to Q-21 of the same day, §10.4), from the deep review of 2026-11-10. Adds the PoC gate (GP-0, GP-1, GP, GP-2); redraws the critical path per site with float; defines "full scope" per site; reorganises the task list (wave P to wave L) with a conflict matrix; adds the standards compliance matrix, the dependency upgrade plan and the test strategy; lists the questions for the owner. |
