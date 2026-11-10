@@ -1795,8 +1795,12 @@ Given by the owner the same day, after reading the summary of this plan. They ar
 | Q-07 | **Yes.** The PoC is product evaluation, not research. The clinicians sign the acknowledgement only. | Recorded as a decision file by T-508 (number from the registry). Counsel reads the statement once. |
 | Q-13 | **Yes** to both: recorded real-model answers may be shown with a label; step 2 (GP-2, real models on the owner's B200, January) is wanted. | T-515 stands; GP-2 is planned, after G1 and G1b. |
 | Q-21 | **Protect master.** | The owner sets branch protection with the required checks of §7.5 (T-007). Agent sessions cannot change repository settings. The owner did not decide on a private repository or on enabling Issues: both stay open, and until decided nothing that names a tester, a host or a hospital contact is committed, and the problem log is `docs/validation/problems.csv` (T-654). |
+| Q-05 | **Yes.** The Japan hardware form is decided on Fri 2026-12-18 from the measured G1 numbers and a short Spark run. | The one-box workstation unless the numbers clearly pass for the Spark. The 14-night run becomes the acceptance of the chosen form. T-667 writes the decision note. |
+| Q-08 | **Yes, all of it.** Written conflict-of-interest disclosure to CGMH this week; a different contract signer; an independent lead for the Study A reading; named deputies (steward, B200 operator, repository and cloud admin); an operations person from December. | RSK-53 and RSK-54 controls are in force once the names are on file; the names go into the G2b record, never into the repository with contact details. |
+| Q-11 | **Yes.** The owner asks the CGMH HIS team this week to start the export mechanism under the existing approval for his own department. | The CGMH critical path is planned on chain CGMH-A′ (§3.1); the tracker (T-663) records the request date and the named HIS owner. |
+| Q-14 | **A cover note now** to both committees and to hospital IT: the controls marked in the note are in build and are verified at OQ before any patient data is used, with the commitments register attached. | T-641 drafts the note and the register first (due Fri 11-20); the owner sends it. |
 
-Q-05, Q-06, Q-08 to Q-12 and Q-14 to Q-20 are not answered yet. The plan proceeds on their recommendations and records each as an assumption until the owner decides.
+Q-06, Q-09, Q-10, Q-12 and Q-15 to Q-20 are not answered yet. The plan proceeds on their recommendations and records each as an assumption until the owner decides.
 
 ## 11. Assumptions this plan makes where the request was silent
 
@@ -1826,4 +1830,4 @@ The owner's request left these unsaid. Each is filled as stated; any of them can
 
 | Version | Date | Change |
 | --- | --- | --- |
-| 1.0 | 2026-11-10 | First issue (with the owner's answers to Q-01 to Q-04, Q-07, Q-13 and Q-21 of the same day, §10.4), from the deep review of 2026-11-10. Adds the PoC gate (GP-0, GP-1, GP, GP-2); redraws the critical path per site with float; defines "full scope" per site; reorganises the task list (wave P to wave L) with a conflict matrix; adds the standards compliance matrix, the dependency upgrade plan and the test strategy; lists the questions for the owner. |
+| 1.0 | 2026-11-10 | First issue (with the owner's answers to Q-01 to Q-05, Q-07, Q-08, Q-11, Q-13, Q-14 and Q-21 of the same day, §10.4), from the deep review of 2026-11-10. Adds the PoC gate (GP-0, GP-1, GP, GP-2); redraws the critical path per site with float; defines "full scope" per site; reorganises the task list (wave P to wave L) with a conflict matrix; adds the standards compliance matrix, the dependency upgrade plan and the test strategy; lists the questions for the owner. |
