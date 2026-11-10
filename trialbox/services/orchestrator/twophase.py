@@ -45,7 +45,7 @@ from tb_common.service_auth import auth_headers
 log = logging.getLogger(__name__)
 
 MAX_ROUNDS = 3
-COUNTERS = ("calls", "tokens_in", "tokens_out", "failures", "disagreements")
+COUNTERS = ("calls", "tokens_in", "tokens_out", "failures", "disagreements", "same_model")
 
 
 def swap_enabled(env: dict[str, str] | None = None) -> bool:
@@ -124,7 +124,9 @@ class DeferredVerifier:
             raise LlmError("verifier answer not available after the swap rounds")
         mine = self.judge.lookup(k)  # the judge was asked the same question just before
         if isinstance(mine, LlmResult):
-            return mine
+            # a stand-in, never a result (the last round is strict): it names no model, so the pair rule does not
+            # take it for the judge answering twice (tb_common.pair, D-276)
+            return replace(mine, model="", build_sha="")
         raise LlmError("deferred verifier: no judge answer to stand in for")
 
     def resolve(self, workers: int, broken: str | None = None) -> int:

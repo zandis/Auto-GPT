@@ -508,6 +508,43 @@ def crf_prefill(inp: dict[str, Any]) -> dict[str, Any]:
 
 MESSAGE_HANDLERS = {"mlbench_judge": mlbench_judge}
 
+
+# ----------------------------------------------------------------------------- judge personas (tests only, D-276)
+def _dissent(a: dict[str, Any]) -> dict[str, Any]:
+    """The other decided answer, with the same (real) quote: a second model that disagrees."""
+    flip = {"pass": "fail", "fail": "pass"}
+    return {**a, "verdict": flip.get(str(a.get("verdict")), a.get("verdict")), "reason": "stub-dissent"}
+
+
+def _lowconf(a: dict[str, Any]) -> dict[str, Any]:
+    return {**a, "confidence": 0.4}
+
+
+def _badquote(a: dict[str, Any]) -> dict[str, Any]:
+    """A decided answer whose quote is in no excerpt."""
+    if a.get("verdict") not in ("pass", "fail"):
+        return a
+    return {**a, "quote": "This sentence is in no note of the patient."}
+
+
+def _olddate(a: dict[str, Any]) -> dict[str, Any]:
+    """A real quote given the wrong date (one day earlier than its note)."""
+    if not a.get("quote_date"):
+        return a
+    return {**a, "quote_date": (date.fromisoformat(str(a["quote_date"])[:10]) - timedelta(days=1)).isoformat()}
+
+
+# model name -> what it does to the plain ``judge`` answer. ``stub-down`` answers 503 to everything (``app.py``).
+# Opt-in by name: a test (or a developer) asks for the persona as the judge or the verifier; no shipped
+# configuration names one, and the registry routes none.
+PERSONAS: dict[str, Any] = {
+    "stub-dissent": _dissent,
+    "stub-lowconf": _lowconf,
+    "stub-badquote": _badquote,
+    "stub-olddate": _olddate,
+    "stub-down": lambda a: a,
+}
+
 HANDLERS = {
     "ir_extract": ir_extract,
     "concept_map": concept_map,
