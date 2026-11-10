@@ -29,7 +29,7 @@ import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlencode
@@ -70,7 +70,7 @@ from console.identity import register as register_identity
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
 from console.refusals import localize as localize_refusal
 from console.registry_view import STATUSES, status_options
-from console.timefmt import local_time, site_zone
+from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
 COOKIE = "tb_console"
@@ -403,7 +403,10 @@ def create_app(
     if settings.pilot and classify is None and settings.gateway_url:
         from console.proposals import gateway_classifier
 
-        classify = gateway_classifier(settings.gateway_url, settings.gateway_model, "D0", date.today)
+        zone = site_zone(backend)  # the site's date, not the container's (D-270)
+        classify = gateway_classifier(
+            settings.gateway_url, settings.gateway_model, "D0", lambda: local_today(datetime.now(UTC), zone)
+        )
     if settings.pilot and cascades is None:
         cascades = CascadeRuns(settings.data_dir / "cascade", settings.source_dir)
     pending: dict[str, _Pending] = {}
@@ -418,6 +421,7 @@ def create_app(
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users
+    us.zone = site_tz  # an account's end date is a site day (D-270)
     id_views = IdViews()
 
     boot: list[Callable[[], Any]] = []  # started with the app (the box's own timers, D-121)

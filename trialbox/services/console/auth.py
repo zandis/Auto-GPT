@@ -26,8 +26,10 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from console.storedb import open_db
+from console.timefmt import local_today, site_zone
 
 Role = Literal["admin", "coordinator", "investigator", "viewer", "cro"]
 ROLES: tuple[Role, ...] = ("admin", "coordinator", "investigator", "viewer", "cro")
@@ -269,12 +271,17 @@ class UserStore:
         self.clock = clock
         self.idle = idle
         self.absolute = absolute
+        self.zone: ZoneInfo | None = None  # the site's zone, set by console.app (D-270)
 
     def close(self) -> None:
         self.db.close()
 
+    def today(self) -> date:
+        """The site's calendar date (D-270): an end date is a site day, and the clock is a UTC instant."""
+        return local_today(self.clock(), self.zone or site_zone(None))
+
     def _expired(self, user: User) -> bool:
-        return bool(user.expires) and self.clock().date().isoformat() > str(user.expires)
+        return bool(user.expires) and self.today().isoformat() > str(user.expires)
 
     # ------------------------------------------------------------------ users
     def count(self, role: Role | None = None) -> int:

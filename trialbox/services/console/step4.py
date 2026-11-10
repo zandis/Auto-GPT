@@ -230,7 +230,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def admin_ctx(sess: Session) -> dict[str, Any]:
         users = h.users.users()
-        today = h.clock().date()
+        today = h.today()  # the site's date (D-270)
         soon = [u for u in users if u.expires and u.expires <= (today + timedelta(days=30)).isoformat()]
         jobs = bk.list_jobs(limit=200)
         since = (h.clock() - timedelta(hours=24)).isoformat()
