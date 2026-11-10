@@ -13,7 +13,7 @@ separate site space with its own lake). Reads:
 
 Writes (each one audited, ``by`` is the person): ``POST /setup/{ws}/sheets`` (a sheet or a dump), ``POST
 /setup/{ws}/sheets/{id}/roles``, ``POST /setup/{ws}/charts`` (pasted text or a file with the chart number),
-``POST /setup/{ws}/facts/{id}`` (confirm, correct, reject), ``POST /setup/{ws}/codes`` (one mapping) and
+``POST /setup/{ws}/facts/{id}`` (confirm, correct, reject, undo), ``POST /setup/{ws}/codes`` (one mapping) and
 ``/codes/sheet`` (a filled mapping sheet), ``POST /setup/{ws}/checks/{id}``, ``POST /setup/{ws}/people/resolve``,
 ``POST /setup/practice/load`` and ``/reset``, ``PUT /setup/remote``.
 
@@ -66,7 +66,7 @@ class ChartBody(BaseModel):
 
 
 class DecideBody(BaseModel):
-    action: str = Field(pattern=r"^(confirm|correct|reject)$")
+    action: str = Field(pattern=r"^(confirm|correct|reject|undo)$")  # undo: D-178
     changes: dict[str, str] = Field(default_factory=dict)
     by: str
 

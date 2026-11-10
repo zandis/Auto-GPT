@@ -3972,6 +3972,33 @@ JLAC10 -> LOINC (no public map; JSLM terms unknown), the JCOG translation (comme
 D-130); the CTCAE terms are not in the AE form; the MEDIS and JCOG permissions are not requested here (the owner's
 step, baseline review §1 actions 1 and 6); MHLW 一般名処方マスタ and the 薬効分類 -> drug-class table are open.
 
+**D-178 Operations screens for hospital IT; every destructive action asks first and can be undone where it can.**
+Review J-09 asked for the box's operations on the console, not only on the command line; J-14 asked for a
+confirmation on each destructive action and an undo where one is possible. The administrator's `/admin/ops` page shows
+the version, backups (age, red after 36 hours, the last check), update and rollback history, logs, secrets by name and
+age only, and the network sheet. Its actions (back up, check backups, verify or apply a bundle, collect logs, write
+the network sheet) wrap the existing commands (`trialbox backup`, the new `trialbox backup-check`,
+`tools/apply_update.sh`, `trialbox logs`, `tools/network_sheet.py`); none is written again. The console container
+has no docker, so it leaves a request in an operations folder and a host runner (`python3 -m tools.trialbox ops run`,
+every minute) runs it and writes the result back, one runner at a time (a lock; a link or a pipe left in the
+requests folder is skipped, never read). A request that started and was cut off (a restart) is shown
+interrupted and never run again; one that waited over 60 minutes is not run; each result is a `console.ops`
+event in the box's audit chain. Tests and the demo run the same runner in process. Who may is a
+table in `tb_common.authz` (administrator only); a refusal is a `console.denied` audit event, each action a
+`console.ops` event. Confirmations: account reset (no undo, said so), disable (undo: enable again, also from a
+Disabled accounts list), rejecting a fact (undo puts it back to proposed with its old values; confirming and
+correcting also have undo), a closing contact outcome (undo restores the earlier status; only the person's own latest
+outcome), detaching a source (undo within 15 minutes, in memory). *Evidence:* `tests/console/test_ops_pages.py`, the
+browser walk's admin pages and role refusals. *Not done here:* `deploy/install.sh` does not install the runner's
+timer yet; RUNBOOK §15 says how.
+
+**D-179 The site pages are site-wide; a study-scoped account sees readiness and help only.**
+Review J-06 asked which site pages a study-scoped account sees. The site's facts, mappings and sources describe the
+whole hospital and belong to its data steward, so they stay site-wide: an account with studies listed gets 404 (and a
+`console.denied` event, reason study scope) on every site page except the readiness page, its API and the help page,
+where it sees a note that the page is site-wide and no fix links or start button. Accounts with no study list keep
+today's pages. Per-study site settings, if a study ever needs them, belong in that study's own pages.
+*Evidence:* `tests/console/test_ops_pages.py` (scoped 404s and 200s).
 **D-181 A judge bake-off that gates on wrong exclusions, with the box's own prompt and parser (no GPU yet).** Before
 a GPU run compares the current judge with `google/gemma-4-31B-it`, the comparison has to measure what matters for
 screening, on a fixed set, through any OpenAI-compatible endpoint.
