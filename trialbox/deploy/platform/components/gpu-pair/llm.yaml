@@ -1,0 +1,99 @@
+# The judge and the verifier (vLLM, the flags of docker-compose.rtxpro6000.yml and docker-compose.shared-quota.yml).
+# Only tb-gateway reaches them (base/networkpolicy.yaml, trialbox-model-isolation).
+---
+apiVersion: v1
+kind: Service
+metadata: {name: llm-service, labels: {app.kubernetes.io/component: llm-service}}
+spec:
+  selector: {app.kubernetes.io/component: llm-service}
+  ports: [{name: http, port: 8000, targetPort: 8000}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: llm-service, labels: {app.kubernetes.io/component: llm-service, trialbox.io/tier: model, trialbox.io/role: judge}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/component: llm-service}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: llm-service, trialbox.io/tier: model, trialbox.io/role: judge}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: llm-service
+          image: vllm
+          args:
+            - --model=/models/$(JUDGE_MODEL_DIR)
+            - --served-model-name=$(JUDGE_MODEL)
+            - --max-model-len=$(JUDGE_MAX_LEN)
+            - --max-num-seqs=$(JUDGE_MAX_SEQS)
+            - --enforce-eager
+            - --gpu-memory-utilization=$(JUDGE_GPU_MEM_UTIL)
+            - --limit-mm-per-prompt={"image":0,"audio":0,"video":0}
+          envFrom: [{configMapRef: {name: trialbox-serving}}]
+          env:
+            - {name: HF_HUB_OFFLINE, value: "1"}
+            - {name: VLLM_NO_USAGE_STATS, value: "1"}
+          ports: [{containerPort: 8000}]
+          readinessProbe: {httpGet: {path: /health, port: 8000}, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 40}
+          startupProbe: {httpGet: {path: /health, port: 8000}, periodSeconds: 30, failureThreshold: 40}
+          resources:
+            requests: {cpu: "2", memory: 16Gi, nvidia.com/gpu: 1}
+            limits: {memory: 48Gi, nvidia.com/gpu: 1}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: models, mountPath: /models, readOnly: true}
+            - {name: shm, mountPath: /dev/shm}
+      volumes:
+        - {name: models, persistentVolumeClaim: {claimName: models-data, readOnly: true}}
+        - {name: shm, emptyDir: {medium: Memory, sizeLimit: 8Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: llm-verifier, labels: {app.kubernetes.io/component: llm-verifier}}
+spec:
+  selector: {app.kubernetes.io/component: llm-verifier}
+  ports: [{name: http, port: 8000, targetPort: 8000}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: llm-verifier, labels: {app.kubernetes.io/component: llm-verifier, trialbox.io/tier: model, trialbox.io/role: verifier}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/component: llm-verifier}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: llm-verifier, trialbox.io/tier: model, trialbox.io/role: verifier}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: llm-verifier
+          image: vllm
+          args:
+            - --model=/models/$(VERIFIER_MODEL_DIR)
+            - --served-model-name=$(VERIFIER_MODEL)
+            - --max-model-len=$(VERIFIER_MAX_LEN)
+            - --max-num-seqs=$(VERIFIER_MAX_SEQS)
+            - --enforce-eager
+            - --gpu-memory-utilization=$(VERIFIER_GPU_MEM_UTIL)
+            - --limit-mm-per-prompt={"image":0,"video":0}
+            - --default-chat-template-kwargs={"enable_thinking":false}
+          envFrom: [{configMapRef: {name: trialbox-serving}}]
+          env:
+            - {name: HF_HUB_OFFLINE, value: "1"}
+            - {name: VLLM_NO_USAGE_STATS, value: "1"}
+          ports: [{containerPort: 8000}]
+          readinessProbe: {httpGet: {path: /health, port: 8000}, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 40}
+          startupProbe: {httpGet: {path: /health, port: 8000}, periodSeconds: 30, failureThreshold: 40}
+          resources:
+            requests: {cpu: "2", memory: 16Gi, nvidia.com/gpu: 1}
+            limits: {memory: 48Gi, nvidia.com/gpu: 1}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: models, mountPath: /models, readOnly: true}
+            - {name: shm, mountPath: /dev/shm}
+      volumes:
+        - {name: models, persistentVolumeClaim: {claimName: models-data, readOnly: true}}
+        - {name: shm, emptyDir: {medium: Memory, sizeLimit: 8Gi}}
