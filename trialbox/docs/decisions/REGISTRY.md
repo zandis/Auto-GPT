@@ -149,4 +149,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-317 | merged | T-618 | reference data remainder (file) |
 | D-318 | merged | T-101b | the approved ruleset pins its prompt and terminology release; approval needed on a change (file) |
 | D-319 | merged | T-655 | the review fixes of PR #71: what changes from D-205 and D-207 (file) |
+| D-309..D-319 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
 | D-320 | merged | T-505a | the API sign-in asks for the second factor; one channel per session (file) |
+| D-321 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-322 | merged | T-613a | the shipped rulesets recompiled offline from their cassettes, and the CI drift check (file) |

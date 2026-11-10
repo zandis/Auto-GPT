@@ -12,6 +12,12 @@
    }
   ]
  },
+ "extension": [
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|L01EB"
+  }
+ ],
  "id": "ONC-OSI-VS-EGFR-TYROSINE-KINASE-INHIBITOR",
  "name": "VS_EGFR_TYROSINE_KINASE_INHIBITOR",
  "resourceType": "ValueSet",

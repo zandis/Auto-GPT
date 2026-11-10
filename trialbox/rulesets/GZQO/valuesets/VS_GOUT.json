@@ -4,8 +4,116 @@
    {
     "concept": [
      {
+      "code": "M10",
+      "display": "Gout"
+     },
+     {
+      "code": "M10.0",
+      "display": "Idiopathic gout"
+     },
+     {
       "code": "M10.00",
       "display": "Idiopathic gout unspecified site"
+     },
+     {
+      "code": "M10.01",
+      "display": "Idiopathic gout, shoulder"
+     },
+     {
+      "code": "M10.011",
+      "display": "Idiopathic gout, right shoulder"
+     },
+     {
+      "code": "M10.012",
+      "display": "Idiopathic gout, left shoulder"
+     },
+     {
+      "code": "M10.019",
+      "display": "Idiopathic gout, unspecified shoulder"
+     },
+     {
+      "code": "M10.02",
+      "display": "Idiopathic gout, elbow"
+     },
+     {
+      "code": "M10.021",
+      "display": "Idiopathic gout, right elbow"
+     },
+     {
+      "code": "M10.022",
+      "display": "Idiopathic gout, left elbow"
+     },
+     {
+      "code": "M10.029",
+      "display": "Idiopathic gout, unspecified elbow"
+     },
+     {
+      "code": "M10.03",
+      "display": "Idiopathic gout, wrist"
+     },
+     {
+      "code": "M10.031",
+      "display": "Idiopathic gout, right wrist"
+     },
+     {
+      "code": "M10.032",
+      "display": "Idiopathic gout, left wrist"
+     },
+     {
+      "code": "M10.039",
+      "display": "Idiopathic gout, unspecified wrist"
+     },
+     {
+      "code": "M10.04",
+      "display": "Idiopathic gout, hand"
+     },
+     {
+      "code": "M10.041",
+      "display": "Idiopathic gout, right hand"
+     },
+     {
+      "code": "M10.042",
+      "display": "Idiopathic gout, left hand"
+     },
+     {
+      "code": "M10.049",
+      "display": "Idiopathic gout, unspecified hand"
+     },
+     {
+      "code": "M10.05",
+      "display": "Idiopathic gout, hip"
+     },
+     {
+      "code": "M10.051",
+      "display": "Idiopathic gout, right hip"
+     },
+     {
+      "code": "M10.052",
+      "display": "Idiopathic gout, left hip"
+     },
+     {
+      "code": "M10.059",
+      "display": "Idiopathic gout, unspecified hip"
+     },
+     {
+      "code": "M10.06",
+      "display": "Idiopathic gout, knee"
+     },
+     {
+      "code": "M10.061",
+      "display": "Idiopathic gout, right knee"
+     },
+     {
+      "code": "M10.062",
+      "display": "Idiopathic gout, left knee"
+     },
+     {
+      "code": "M10.069",
+      "display": "Idiopathic gout, unspecified knee"
+     },
+     {
+      "code": "M10.07",
+      "display": "Idiopathic gout, ankle and foot"
      },
      {
       "code": "M10.071",
@@ -16,12 +124,2140 @@
       "display": "Idiopathic gout left ankle and foot"
      },
      {
+      "code": "M10.079",
+      "display": "Idiopathic gout, unspecified ankle and foot"
+     },
+     {
+      "code": "M10.08",
+      "display": "Idiopathic gout, vertebrae"
+     },
+     {
+      "code": "M10.09",
+      "display": "Idiopathic gout, multiple sites"
+     },
+     {
+      "code": "M10.1",
+      "display": "Lead-induced gout"
+     },
+     {
+      "code": "M10.10",
+      "display": "Lead-induced gout, unspecified site"
+     },
+     {
+      "code": "M10.11",
+      "display": "Lead-induced gout, shoulder"
+     },
+     {
+      "code": "M10.111",
+      "display": "Lead-induced gout, right shoulder"
+     },
+     {
+      "code": "M10.112",
+      "display": "Lead-induced gout, left shoulder"
+     },
+     {
+      "code": "M10.119",
+      "display": "Lead-induced gout, unspecified shoulder"
+     },
+     {
+      "code": "M10.12",
+      "display": "Lead-induced gout, elbow"
+     },
+     {
+      "code": "M10.121",
+      "display": "Lead-induced gout, right elbow"
+     },
+     {
+      "code": "M10.122",
+      "display": "Lead-induced gout, left elbow"
+     },
+     {
+      "code": "M10.129",
+      "display": "Lead-induced gout, unspecified elbow"
+     },
+     {
+      "code": "M10.13",
+      "display": "Lead-induced gout, wrist"
+     },
+     {
+      "code": "M10.131",
+      "display": "Lead-induced gout, right wrist"
+     },
+     {
+      "code": "M10.132",
+      "display": "Lead-induced gout, left wrist"
+     },
+     {
+      "code": "M10.139",
+      "display": "Lead-induced gout, unspecified wrist"
+     },
+     {
+      "code": "M10.14",
+      "display": "Lead-induced gout, hand"
+     },
+     {
+      "code": "M10.141",
+      "display": "Lead-induced gout, right hand"
+     },
+     {
+      "code": "M10.142",
+      "display": "Lead-induced gout, left hand"
+     },
+     {
+      "code": "M10.149",
+      "display": "Lead-induced gout, unspecified hand"
+     },
+     {
+      "code": "M10.15",
+      "display": "Lead-induced gout, hip"
+     },
+     {
+      "code": "M10.151",
+      "display": "Lead-induced gout, right hip"
+     },
+     {
+      "code": "M10.152",
+      "display": "Lead-induced gout, left hip"
+     },
+     {
+      "code": "M10.159",
+      "display": "Lead-induced gout, unspecified hip"
+     },
+     {
+      "code": "M10.16",
+      "display": "Lead-induced gout, knee"
+     },
+     {
+      "code": "M10.161",
+      "display": "Lead-induced gout, right knee"
+     },
+     {
+      "code": "M10.162",
+      "display": "Lead-induced gout, left knee"
+     },
+     {
+      "code": "M10.169",
+      "display": "Lead-induced gout, unspecified knee"
+     },
+     {
+      "code": "M10.17",
+      "display": "Lead-induced gout, ankle and foot"
+     },
+     {
+      "code": "M10.171",
+      "display": "Lead-induced gout, right ankle and foot"
+     },
+     {
+      "code": "M10.172",
+      "display": "Lead-induced gout, left ankle and foot"
+     },
+     {
+      "code": "M10.179",
+      "display": "Lead-induced gout, unspecified ankle and foot"
+     },
+     {
+      "code": "M10.18",
+      "display": "Lead-induced gout, vertebrae"
+     },
+     {
+      "code": "M10.19",
+      "display": "Lead-induced gout, multiple sites"
+     },
+     {
+      "code": "M10.2",
+      "display": "Drug-induced gout"
+     },
+     {
+      "code": "M10.20",
+      "display": "Drug-induced gout, unspecified site"
+     },
+     {
+      "code": "M10.21",
+      "display": "Drug-induced gout, shoulder"
+     },
+     {
+      "code": "M10.211",
+      "display": "Drug-induced gout, right shoulder"
+     },
+     {
+      "code": "M10.212",
+      "display": "Drug-induced gout, left shoulder"
+     },
+     {
+      "code": "M10.219",
+      "display": "Drug-induced gout, unspecified shoulder"
+     },
+     {
+      "code": "M10.22",
+      "display": "Drug-induced gout, elbow"
+     },
+     {
+      "code": "M10.221",
+      "display": "Drug-induced gout, right elbow"
+     },
+     {
+      "code": "M10.222",
+      "display": "Drug-induced gout, left elbow"
+     },
+     {
+      "code": "M10.229",
+      "display": "Drug-induced gout, unspecified elbow"
+     },
+     {
+      "code": "M10.23",
+      "display": "Drug-induced gout, wrist"
+     },
+     {
+      "code": "M10.231",
+      "display": "Drug-induced gout, right wrist"
+     },
+     {
+      "code": "M10.232",
+      "display": "Drug-induced gout, left wrist"
+     },
+     {
+      "code": "M10.239",
+      "display": "Drug-induced gout, unspecified wrist"
+     },
+     {
+      "code": "M10.24",
+      "display": "Drug-induced gout, hand"
+     },
+     {
+      "code": "M10.241",
+      "display": "Drug-induced gout, right hand"
+     },
+     {
+      "code": "M10.242",
+      "display": "Drug-induced gout, left hand"
+     },
+     {
+      "code": "M10.249",
+      "display": "Drug-induced gout, unspecified hand"
+     },
+     {
+      "code": "M10.25",
+      "display": "Drug-induced gout, hip"
+     },
+     {
+      "code": "M10.251",
+      "display": "Drug-induced gout, right hip"
+     },
+     {
+      "code": "M10.252",
+      "display": "Drug-induced gout, left hip"
+     },
+     {
+      "code": "M10.259",
+      "display": "Drug-induced gout, unspecified hip"
+     },
+     {
+      "code": "M10.26",
+      "display": "Drug-induced gout, knee"
+     },
+     {
+      "code": "M10.261",
+      "display": "Drug-induced gout, right knee"
+     },
+     {
+      "code": "M10.262",
+      "display": "Drug-induced gout, left knee"
+     },
+     {
+      "code": "M10.269",
+      "display": "Drug-induced gout, unspecified knee"
+     },
+     {
+      "code": "M10.27",
+      "display": "Drug-induced gout, ankle and foot"
+     },
+     {
+      "code": "M10.271",
+      "display": "Drug-induced gout, right ankle and foot"
+     },
+     {
+      "code": "M10.272",
+      "display": "Drug-induced gout, left ankle and foot"
+     },
+     {
+      "code": "M10.279",
+      "display": "Drug-induced gout, unspecified ankle and foot"
+     },
+     {
+      "code": "M10.28",
+      "display": "Drug-induced gout, vertebrae"
+     },
+     {
+      "code": "M10.29",
+      "display": "Drug-induced gout, multiple sites"
+     },
+     {
+      "code": "M10.3",
+      "display": "Gout due to renal impairment"
+     },
+     {
+      "code": "M10.30",
+      "display": "Gout due to renal impairment, unspecified site"
+     },
+     {
+      "code": "M10.31",
+      "display": "Gout due to renal impairment, shoulder"
+     },
+     {
+      "code": "M10.311",
+      "display": "Gout due to renal impairment, right shoulder"
+     },
+     {
+      "code": "M10.312",
+      "display": "Gout due to renal impairment, left shoulder"
+     },
+     {
+      "code": "M10.319",
+      "display": "Gout due to renal impairment, unspecified shoulder"
+     },
+     {
+      "code": "M10.32",
+      "display": "Gout due to renal impairment, elbow"
+     },
+     {
+      "code": "M10.321",
+      "display": "Gout due to renal impairment, right elbow"
+     },
+     {
+      "code": "M10.322",
+      "display": "Gout due to renal impairment, left elbow"
+     },
+     {
+      "code": "M10.329",
+      "display": "Gout due to renal impairment, unspecified elbow"
+     },
+     {
+      "code": "M10.33",
+      "display": "Gout due to renal impairment, wrist"
+     },
+     {
+      "code": "M10.331",
+      "display": "Gout due to renal impairment, right wrist"
+     },
+     {
+      "code": "M10.332",
+      "display": "Gout due to renal impairment, left wrist"
+     },
+     {
+      "code": "M10.339",
+      "display": "Gout due to renal impairment, unspecified wrist"
+     },
+     {
+      "code": "M10.34",
+      "display": "Gout due to renal impairment, hand"
+     },
+     {
+      "code": "M10.341",
+      "display": "Gout due to renal impairment, right hand"
+     },
+     {
+      "code": "M10.342",
+      "display": "Gout due to renal impairment, left hand"
+     },
+     {
+      "code": "M10.349",
+      "display": "Gout due to renal impairment, unspecified hand"
+     },
+     {
+      "code": "M10.35",
+      "display": "Gout due to renal impairment, hip"
+     },
+     {
+      "code": "M10.351",
+      "display": "Gout due to renal impairment, right hip"
+     },
+     {
+      "code": "M10.352",
+      "display": "Gout due to renal impairment, left hip"
+     },
+     {
+      "code": "M10.359",
+      "display": "Gout due to renal impairment, unspecified hip"
+     },
+     {
+      "code": "M10.36",
+      "display": "Gout due to renal impairment, knee"
+     },
+     {
+      "code": "M10.361",
+      "display": "Gout due to renal impairment, right knee"
+     },
+     {
+      "code": "M10.362",
+      "display": "Gout due to renal impairment, left knee"
+     },
+     {
+      "code": "M10.369",
+      "display": "Gout due to renal impairment, unspecified knee"
+     },
+     {
+      "code": "M10.37",
+      "display": "Gout due to renal impairment, ankle and foot"
+     },
+     {
+      "code": "M10.371",
+      "display": "Gout due to renal impairment, right ankle and foot"
+     },
+     {
+      "code": "M10.372",
+      "display": "Gout due to renal impairment, left ankle and foot"
+     },
+     {
+      "code": "M10.379",
+      "display": "Gout due to renal impairment, unspecified ankle and foot"
+     },
+     {
+      "code": "M10.38",
+      "display": "Gout due to renal impairment, vertebrae"
+     },
+     {
+      "code": "M10.39",
+      "display": "Gout due to renal impairment, multiple sites"
+     },
+     {
+      "code": "M10.4",
+      "display": "Other secondary gout"
+     },
+     {
+      "code": "M10.40",
+      "display": "Other secondary gout, unspecified site"
+     },
+     {
+      "code": "M10.41",
+      "display": "Other secondary gout, shoulder"
+     },
+     {
+      "code": "M10.411",
+      "display": "Other secondary gout, right shoulder"
+     },
+     {
+      "code": "M10.412",
+      "display": "Other secondary gout, left shoulder"
+     },
+     {
+      "code": "M10.419",
+      "display": "Other secondary gout, unspecified shoulder"
+     },
+     {
+      "code": "M10.42",
+      "display": "Other secondary gout, elbow"
+     },
+     {
+      "code": "M10.421",
+      "display": "Other secondary gout, right elbow"
+     },
+     {
+      "code": "M10.422",
+      "display": "Other secondary gout, left elbow"
+     },
+     {
+      "code": "M10.429",
+      "display": "Other secondary gout, unspecified elbow"
+     },
+     {
+      "code": "M10.43",
+      "display": "Other secondary gout, wrist"
+     },
+     {
+      "code": "M10.431",
+      "display": "Other secondary gout, right wrist"
+     },
+     {
+      "code": "M10.432",
+      "display": "Other secondary gout, left wrist"
+     },
+     {
+      "code": "M10.439",
+      "display": "Other secondary gout, unspecified wrist"
+     },
+     {
+      "code": "M10.44",
+      "display": "Other secondary gout, hand"
+     },
+     {
+      "code": "M10.441",
+      "display": "Other secondary gout, right hand"
+     },
+     {
+      "code": "M10.442",
+      "display": "Other secondary gout, left hand"
+     },
+     {
+      "code": "M10.449",
+      "display": "Other secondary gout, unspecified hand"
+     },
+     {
+      "code": "M10.45",
+      "display": "Other secondary gout, hip"
+     },
+     {
+      "code": "M10.451",
+      "display": "Other secondary gout, right hip"
+     },
+     {
+      "code": "M10.452",
+      "display": "Other secondary gout, left hip"
+     },
+     {
+      "code": "M10.459",
+      "display": "Other secondary gout, unspecified hip"
+     },
+     {
+      "code": "M10.46",
+      "display": "Other secondary gout, knee"
+     },
+     {
+      "code": "M10.461",
+      "display": "Other secondary gout, right knee"
+     },
+     {
+      "code": "M10.462",
+      "display": "Other secondary gout, left knee"
+     },
+     {
+      "code": "M10.469",
+      "display": "Other secondary gout, unspecified knee"
+     },
+     {
+      "code": "M10.47",
+      "display": "Other secondary gout, ankle and foot"
+     },
+     {
+      "code": "M10.471",
+      "display": "Other secondary gout, right ankle and foot"
+     },
+     {
+      "code": "M10.472",
+      "display": "Other secondary gout, left ankle and foot"
+     },
+     {
+      "code": "M10.479",
+      "display": "Other secondary gout, unspecified ankle and foot"
+     },
+     {
+      "code": "M10.48",
+      "display": "Other secondary gout, vertebrae"
+     },
+     {
+      "code": "M10.49",
+      "display": "Other secondary gout, multiple sites"
+     },
+     {
       "code": "M10.9",
       "display": "Gout unspecified"
      },
      {
+      "code": "M1A",
+      "display": "Chronic gout"
+     },
+     {
+      "code": "M1A.0",
+      "display": "Idiopathic chronic gout"
+     },
+     {
+      "code": "M1A.00",
+      "display": "Idiopathic chronic gout, unspecified site"
+     },
+     {
       "code": "M1A.00X0",
       "display": "Idiopathic chronic gout unspecified site without tophus"
+     },
+     {
+      "code": "M1A.00X1",
+      "display": "Idiopathic chronic gout, unspecified site, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.01",
+      "display": "Idiopathic chronic gout, shoulder"
+     },
+     {
+      "code": "M1A.011",
+      "display": "Idiopathic chronic gout, right shoulder"
+     },
+     {
+      "code": "M1A.0110",
+      "display": "Idiopathic chronic gout, right shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0111",
+      "display": "Idiopathic chronic gout, right shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.012",
+      "display": "Idiopathic chronic gout, left shoulder"
+     },
+     {
+      "code": "M1A.0120",
+      "display": "Idiopathic chronic gout, left shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0121",
+      "display": "Idiopathic chronic gout, left shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.019",
+      "display": "Idiopathic chronic gout, unspecified shoulder"
+     },
+     {
+      "code": "M1A.0190",
+      "display": "Idiopathic chronic gout, unspecified shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0191",
+      "display": "Idiopathic chronic gout, unspecified shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.02",
+      "display": "Idiopathic chronic gout, elbow"
+     },
+     {
+      "code": "M1A.021",
+      "display": "Idiopathic chronic gout, right elbow"
+     },
+     {
+      "code": "M1A.0210",
+      "display": "Idiopathic chronic gout, right elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0211",
+      "display": "Idiopathic chronic gout, right elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.022",
+      "display": "Idiopathic chronic gout, left elbow"
+     },
+     {
+      "code": "M1A.0220",
+      "display": "Idiopathic chronic gout, left elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0221",
+      "display": "Idiopathic chronic gout, left elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.029",
+      "display": "Idiopathic chronic gout, unspecified elbow"
+     },
+     {
+      "code": "M1A.0290",
+      "display": "Idiopathic chronic gout, unspecified elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0291",
+      "display": "Idiopathic chronic gout, unspecified elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.03",
+      "display": "Idiopathic chronic gout, wrist"
+     },
+     {
+      "code": "M1A.031",
+      "display": "Idiopathic chronic gout, right wrist"
+     },
+     {
+      "code": "M1A.0310",
+      "display": "Idiopathic chronic gout, right wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0311",
+      "display": "Idiopathic chronic gout, right wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.032",
+      "display": "Idiopathic chronic gout, left wrist"
+     },
+     {
+      "code": "M1A.0320",
+      "display": "Idiopathic chronic gout, left wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0321",
+      "display": "Idiopathic chronic gout, left wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.039",
+      "display": "Idiopathic chronic gout, unspecified wrist"
+     },
+     {
+      "code": "M1A.0390",
+      "display": "Idiopathic chronic gout, unspecified wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0391",
+      "display": "Idiopathic chronic gout, unspecified wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.04",
+      "display": "Idiopathic chronic gout, hand"
+     },
+     {
+      "code": "M1A.041",
+      "display": "Idiopathic chronic gout, right hand"
+     },
+     {
+      "code": "M1A.0410",
+      "display": "Idiopathic chronic gout, right hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0411",
+      "display": "Idiopathic chronic gout, right hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.042",
+      "display": "Idiopathic chronic gout, left hand"
+     },
+     {
+      "code": "M1A.0420",
+      "display": "Idiopathic chronic gout, left hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0421",
+      "display": "Idiopathic chronic gout, left hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.049",
+      "display": "Idiopathic chronic gout, unspecified hand"
+     },
+     {
+      "code": "M1A.0490",
+      "display": "Idiopathic chronic gout, unspecified hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0491",
+      "display": "Idiopathic chronic gout, unspecified hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.05",
+      "display": "Idiopathic chronic gout, hip"
+     },
+     {
+      "code": "M1A.051",
+      "display": "Idiopathic chronic gout, right hip"
+     },
+     {
+      "code": "M1A.0510",
+      "display": "Idiopathic chronic gout, right hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0511",
+      "display": "Idiopathic chronic gout, right hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.052",
+      "display": "Idiopathic chronic gout, left hip"
+     },
+     {
+      "code": "M1A.0520",
+      "display": "Idiopathic chronic gout, left hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0521",
+      "display": "Idiopathic chronic gout, left hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.059",
+      "display": "Idiopathic chronic gout, unspecified hip"
+     },
+     {
+      "code": "M1A.0590",
+      "display": "Idiopathic chronic gout, unspecified hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0591",
+      "display": "Idiopathic chronic gout, unspecified hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.06",
+      "display": "Idiopathic chronic gout, knee"
+     },
+     {
+      "code": "M1A.061",
+      "display": "Idiopathic chronic gout, right knee"
+     },
+     {
+      "code": "M1A.0610",
+      "display": "Idiopathic chronic gout, right knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0611",
+      "display": "Idiopathic chronic gout, right knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.062",
+      "display": "Idiopathic chronic gout, left knee"
+     },
+     {
+      "code": "M1A.0620",
+      "display": "Idiopathic chronic gout, left knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0621",
+      "display": "Idiopathic chronic gout, left knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.069",
+      "display": "Idiopathic chronic gout, unspecified knee"
+     },
+     {
+      "code": "M1A.0690",
+      "display": "Idiopathic chronic gout, unspecified knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0691",
+      "display": "Idiopathic chronic gout, unspecified knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.07",
+      "display": "Idiopathic chronic gout, ankle and foot"
+     },
+     {
+      "code": "M1A.071",
+      "display": "Idiopathic chronic gout, right ankle and foot"
+     },
+     {
+      "code": "M1A.0710",
+      "display": "Idiopathic chronic gout, right ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0711",
+      "display": "Idiopathic chronic gout, right ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.072",
+      "display": "Idiopathic chronic gout, left ankle and foot"
+     },
+     {
+      "code": "M1A.0720",
+      "display": "Idiopathic chronic gout, left ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0721",
+      "display": "Idiopathic chronic gout, left ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.079",
+      "display": "Idiopathic chronic gout, unspecified ankle and foot"
+     },
+     {
+      "code": "M1A.0790",
+      "display": "Idiopathic chronic gout, unspecified ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.0791",
+      "display": "Idiopathic chronic gout, unspecified ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.08",
+      "display": "Idiopathic chronic gout, vertebrae"
+     },
+     {
+      "code": "M1A.08X0",
+      "display": "Idiopathic chronic gout, vertebrae, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.08X1",
+      "display": "Idiopathic chronic gout, vertebrae, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.09",
+      "display": "Idiopathic chronic gout, multiple sites"
+     },
+     {
+      "code": "M1A.09X0",
+      "display": "Idiopathic chronic gout, multiple sites, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.09X1",
+      "display": "Idiopathic chronic gout, multiple sites, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.1",
+      "display": "Lead-induced chronic gout"
+     },
+     {
+      "code": "M1A.10",
+      "display": "Lead-induced chronic gout, unspecified site"
+     },
+     {
+      "code": "M1A.10X0",
+      "display": "Lead-induced chronic gout, unspecified site, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.10X1",
+      "display": "Lead-induced chronic gout, unspecified site, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.11",
+      "display": "Lead-induced chronic gout, shoulder"
+     },
+     {
+      "code": "M1A.111",
+      "display": "Lead-induced chronic gout, right shoulder"
+     },
+     {
+      "code": "M1A.1110",
+      "display": "Lead-induced chronic gout, right shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1111",
+      "display": "Lead-induced chronic gout, right shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.112",
+      "display": "Lead-induced chronic gout, left shoulder"
+     },
+     {
+      "code": "M1A.1120",
+      "display": "Lead-induced chronic gout, left shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1121",
+      "display": "Lead-induced chronic gout, left shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.119",
+      "display": "Lead-induced chronic gout, unspecified shoulder"
+     },
+     {
+      "code": "M1A.1190",
+      "display": "Lead-induced chronic gout, unspecified shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1191",
+      "display": "Lead-induced chronic gout, unspecified shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.12",
+      "display": "Lead-induced chronic gout, elbow"
+     },
+     {
+      "code": "M1A.121",
+      "display": "Lead-induced chronic gout, right elbow"
+     },
+     {
+      "code": "M1A.1210",
+      "display": "Lead-induced chronic gout, right elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1211",
+      "display": "Lead-induced chronic gout, right elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.122",
+      "display": "Lead-induced chronic gout, left elbow"
+     },
+     {
+      "code": "M1A.1220",
+      "display": "Lead-induced chronic gout, left elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1221",
+      "display": "Lead-induced chronic gout, left elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.129",
+      "display": "Lead-induced chronic gout, unspecified elbow"
+     },
+     {
+      "code": "M1A.1290",
+      "display": "Lead-induced chronic gout, unspecified elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1291",
+      "display": "Lead-induced chronic gout, unspecified elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.13",
+      "display": "Lead-induced chronic gout, wrist"
+     },
+     {
+      "code": "M1A.131",
+      "display": "Lead-induced chronic gout, right wrist"
+     },
+     {
+      "code": "M1A.1310",
+      "display": "Lead-induced chronic gout, right wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1311",
+      "display": "Lead-induced chronic gout, right wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.132",
+      "display": "Lead-induced chronic gout, left wrist"
+     },
+     {
+      "code": "M1A.1320",
+      "display": "Lead-induced chronic gout, left wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1321",
+      "display": "Lead-induced chronic gout, left wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.139",
+      "display": "Lead-induced chronic gout, unspecified wrist"
+     },
+     {
+      "code": "M1A.1390",
+      "display": "Lead-induced chronic gout, unspecified wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1391",
+      "display": "Lead-induced chronic gout, unspecified wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.14",
+      "display": "Lead-induced chronic gout, hand"
+     },
+     {
+      "code": "M1A.141",
+      "display": "Lead-induced chronic gout, right hand"
+     },
+     {
+      "code": "M1A.1410",
+      "display": "Lead-induced chronic gout, right hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1411",
+      "display": "Lead-induced chronic gout, right hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.142",
+      "display": "Lead-induced chronic gout, left hand"
+     },
+     {
+      "code": "M1A.1420",
+      "display": "Lead-induced chronic gout, left hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1421",
+      "display": "Lead-induced chronic gout, left hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.149",
+      "display": "Lead-induced chronic gout, unspecified hand"
+     },
+     {
+      "code": "M1A.1490",
+      "display": "Lead-induced chronic gout, unspecified hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1491",
+      "display": "Lead-induced chronic gout, unspecified hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.15",
+      "display": "Lead-induced chronic gout, hip"
+     },
+     {
+      "code": "M1A.151",
+      "display": "Lead-induced chronic gout, right hip"
+     },
+     {
+      "code": "M1A.1510",
+      "display": "Lead-induced chronic gout, right hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1511",
+      "display": "Lead-induced chronic gout, right hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.152",
+      "display": "Lead-induced chronic gout, left hip"
+     },
+     {
+      "code": "M1A.1520",
+      "display": "Lead-induced chronic gout, left hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1521",
+      "display": "Lead-induced chronic gout, left hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.159",
+      "display": "Lead-induced chronic gout, unspecified hip"
+     },
+     {
+      "code": "M1A.1590",
+      "display": "Lead-induced chronic gout, unspecified hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1591",
+      "display": "Lead-induced chronic gout, unspecified hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.16",
+      "display": "Lead-induced chronic gout, knee"
+     },
+     {
+      "code": "M1A.161",
+      "display": "Lead-induced chronic gout, right knee"
+     },
+     {
+      "code": "M1A.1610",
+      "display": "Lead-induced chronic gout, right knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1611",
+      "display": "Lead-induced chronic gout, right knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.162",
+      "display": "Lead-induced chronic gout, left knee"
+     },
+     {
+      "code": "M1A.1620",
+      "display": "Lead-induced chronic gout, left knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1621",
+      "display": "Lead-induced chronic gout, left knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.169",
+      "display": "Lead-induced chronic gout, unspecified knee"
+     },
+     {
+      "code": "M1A.1690",
+      "display": "Lead-induced chronic gout, unspecified knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1691",
+      "display": "Lead-induced chronic gout, unspecified knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.17",
+      "display": "Lead-induced chronic gout, ankle and foot"
+     },
+     {
+      "code": "M1A.171",
+      "display": "Lead-induced chronic gout, right ankle and foot"
+     },
+     {
+      "code": "M1A.1710",
+      "display": "Lead-induced chronic gout, right ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1711",
+      "display": "Lead-induced chronic gout, right ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.172",
+      "display": "Lead-induced chronic gout, left ankle and foot"
+     },
+     {
+      "code": "M1A.1720",
+      "display": "Lead-induced chronic gout, left ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1721",
+      "display": "Lead-induced chronic gout, left ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.179",
+      "display": "Lead-induced chronic gout, unspecified ankle and foot"
+     },
+     {
+      "code": "M1A.1790",
+      "display": "Lead-induced chronic gout, unspecified ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.1791",
+      "display": "Lead-induced chronic gout, unspecified ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.18",
+      "display": "Lead-induced chronic gout, vertebrae"
+     },
+     {
+      "code": "M1A.18X0",
+      "display": "Lead-induced chronic gout, vertebrae, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.18X1",
+      "display": "Lead-induced chronic gout, vertebrae, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.19",
+      "display": "Lead-induced chronic gout, multiple sites"
+     },
+     {
+      "code": "M1A.19X0",
+      "display": "Lead-induced chronic gout, multiple sites, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.19X1",
+      "display": "Lead-induced chronic gout, multiple sites, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.2",
+      "display": "Drug-induced chronic gout"
+     },
+     {
+      "code": "M1A.20",
+      "display": "Drug-induced chronic gout, unspecified site"
+     },
+     {
+      "code": "M1A.20X0",
+      "display": "Drug-induced chronic gout, unspecified site, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.20X1",
+      "display": "Drug-induced chronic gout, unspecified site, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.21",
+      "display": "Drug-induced chronic gout, shoulder"
+     },
+     {
+      "code": "M1A.211",
+      "display": "Drug-induced chronic gout, right shoulder"
+     },
+     {
+      "code": "M1A.2110",
+      "display": "Drug-induced chronic gout, right shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2111",
+      "display": "Drug-induced chronic gout, right shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.212",
+      "display": "Drug-induced chronic gout, left shoulder"
+     },
+     {
+      "code": "M1A.2120",
+      "display": "Drug-induced chronic gout, left shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2121",
+      "display": "Drug-induced chronic gout, left shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.219",
+      "display": "Drug-induced chronic gout, unspecified shoulder"
+     },
+     {
+      "code": "M1A.2190",
+      "display": "Drug-induced chronic gout, unspecified shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2191",
+      "display": "Drug-induced chronic gout, unspecified shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.22",
+      "display": "Drug-induced chronic gout, elbow"
+     },
+     {
+      "code": "M1A.221",
+      "display": "Drug-induced chronic gout, right elbow"
+     },
+     {
+      "code": "M1A.2210",
+      "display": "Drug-induced chronic gout, right elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2211",
+      "display": "Drug-induced chronic gout, right elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.222",
+      "display": "Drug-induced chronic gout, left elbow"
+     },
+     {
+      "code": "M1A.2220",
+      "display": "Drug-induced chronic gout, left elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2221",
+      "display": "Drug-induced chronic gout, left elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.229",
+      "display": "Drug-induced chronic gout, unspecified elbow"
+     },
+     {
+      "code": "M1A.2290",
+      "display": "Drug-induced chronic gout, unspecified elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2291",
+      "display": "Drug-induced chronic gout, unspecified elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.23",
+      "display": "Drug-induced chronic gout, wrist"
+     },
+     {
+      "code": "M1A.231",
+      "display": "Drug-induced chronic gout, right wrist"
+     },
+     {
+      "code": "M1A.2310",
+      "display": "Drug-induced chronic gout, right wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2311",
+      "display": "Drug-induced chronic gout, right wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.232",
+      "display": "Drug-induced chronic gout, left wrist"
+     },
+     {
+      "code": "M1A.2320",
+      "display": "Drug-induced chronic gout, left wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2321",
+      "display": "Drug-induced chronic gout, left wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.239",
+      "display": "Drug-induced chronic gout, unspecified wrist"
+     },
+     {
+      "code": "M1A.2390",
+      "display": "Drug-induced chronic gout, unspecified wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2391",
+      "display": "Drug-induced chronic gout, unspecified wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.24",
+      "display": "Drug-induced chronic gout, hand"
+     },
+     {
+      "code": "M1A.241",
+      "display": "Drug-induced chronic gout, right hand"
+     },
+     {
+      "code": "M1A.2410",
+      "display": "Drug-induced chronic gout, right hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2411",
+      "display": "Drug-induced chronic gout, right hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.242",
+      "display": "Drug-induced chronic gout, left hand"
+     },
+     {
+      "code": "M1A.2420",
+      "display": "Drug-induced chronic gout, left hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2421",
+      "display": "Drug-induced chronic gout, left hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.249",
+      "display": "Drug-induced chronic gout, unspecified hand"
+     },
+     {
+      "code": "M1A.2490",
+      "display": "Drug-induced chronic gout, unspecified hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2491",
+      "display": "Drug-induced chronic gout, unspecified hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.25",
+      "display": "Drug-induced chronic gout, hip"
+     },
+     {
+      "code": "M1A.251",
+      "display": "Drug-induced chronic gout, right hip"
+     },
+     {
+      "code": "M1A.2510",
+      "display": "Drug-induced chronic gout, right hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2511",
+      "display": "Drug-induced chronic gout, right hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.252",
+      "display": "Drug-induced chronic gout, left hip"
+     },
+     {
+      "code": "M1A.2520",
+      "display": "Drug-induced chronic gout, left hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2521",
+      "display": "Drug-induced chronic gout, left hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.259",
+      "display": "Drug-induced chronic gout, unspecified hip"
+     },
+     {
+      "code": "M1A.2590",
+      "display": "Drug-induced chronic gout, unspecified hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2591",
+      "display": "Drug-induced chronic gout, unspecified hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.26",
+      "display": "Drug-induced chronic gout, knee"
+     },
+     {
+      "code": "M1A.261",
+      "display": "Drug-induced chronic gout, right knee"
+     },
+     {
+      "code": "M1A.2610",
+      "display": "Drug-induced chronic gout, right knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2611",
+      "display": "Drug-induced chronic gout, right knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.262",
+      "display": "Drug-induced chronic gout, left knee"
+     },
+     {
+      "code": "M1A.2620",
+      "display": "Drug-induced chronic gout, left knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2621",
+      "display": "Drug-induced chronic gout, left knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.269",
+      "display": "Drug-induced chronic gout, unspecified knee"
+     },
+     {
+      "code": "M1A.2690",
+      "display": "Drug-induced chronic gout, unspecified knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2691",
+      "display": "Drug-induced chronic gout, unspecified knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.27",
+      "display": "Drug-induced chronic gout, ankle and foot"
+     },
+     {
+      "code": "M1A.271",
+      "display": "Drug-induced chronic gout, right ankle and foot"
+     },
+     {
+      "code": "M1A.2710",
+      "display": "Drug-induced chronic gout, right ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2711",
+      "display": "Drug-induced chronic gout, right ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.272",
+      "display": "Drug-induced chronic gout, left ankle and foot"
+     },
+     {
+      "code": "M1A.2720",
+      "display": "Drug-induced chronic gout, left ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2721",
+      "display": "Drug-induced chronic gout, left ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.279",
+      "display": "Drug-induced chronic gout, unspecified ankle and foot"
+     },
+     {
+      "code": "M1A.2790",
+      "display": "Drug-induced chronic gout, unspecified ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.2791",
+      "display": "Drug-induced chronic gout, unspecified ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.28",
+      "display": "Drug-induced chronic gout, vertebrae"
+     },
+     {
+      "code": "M1A.28X0",
+      "display": "Drug-induced chronic gout, vertebrae, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.28X1",
+      "display": "Drug-induced chronic gout, vertebrae, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.29",
+      "display": "Drug-induced chronic gout, multiple sites"
+     },
+     {
+      "code": "M1A.29X0",
+      "display": "Drug-induced chronic gout, multiple sites, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.29X1",
+      "display": "Drug-induced chronic gout, multiple sites, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.3",
+      "display": "Chronic gout due to renal impairment"
+     },
+     {
+      "code": "M1A.30",
+      "display": "Chronic gout due to renal impairment, unspecified site"
+     },
+     {
+      "code": "M1A.30X0",
+      "display": "Chronic gout due to renal impairment, unspecified site, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.30X1",
+      "display": "Chronic gout due to renal impairment, unspecified site, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.31",
+      "display": "Chronic gout due to renal impairment, shoulder"
+     },
+     {
+      "code": "M1A.311",
+      "display": "Chronic gout due to renal impairment, right shoulder"
+     },
+     {
+      "code": "M1A.3110",
+      "display": "Chronic gout due to renal impairment, right shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3111",
+      "display": "Chronic gout due to renal impairment, right shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.312",
+      "display": "Chronic gout due to renal impairment, left shoulder"
+     },
+     {
+      "code": "M1A.3120",
+      "display": "Chronic gout due to renal impairment, left shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3121",
+      "display": "Chronic gout due to renal impairment, left shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.319",
+      "display": "Chronic gout due to renal impairment, unspecified shoulder"
+     },
+     {
+      "code": "M1A.3190",
+      "display": "Chronic gout due to renal impairment, unspecified shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3191",
+      "display": "Chronic gout due to renal impairment, unspecified shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.32",
+      "display": "Chronic gout due to renal impairment, elbow"
+     },
+     {
+      "code": "M1A.321",
+      "display": "Chronic gout due to renal impairment, right elbow"
+     },
+     {
+      "code": "M1A.3210",
+      "display": "Chronic gout due to renal impairment, right elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3211",
+      "display": "Chronic gout due to renal impairment, right elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.322",
+      "display": "Chronic gout due to renal impairment, left elbow"
+     },
+     {
+      "code": "M1A.3220",
+      "display": "Chronic gout due to renal impairment, left elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3221",
+      "display": "Chronic gout due to renal impairment, left elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.329",
+      "display": "Chronic gout due to renal impairment, unspecified elbow"
+     },
+     {
+      "code": "M1A.3290",
+      "display": "Chronic gout due to renal impairment, unspecified elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3291",
+      "display": "Chronic gout due to renal impairment, unspecified elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.33",
+      "display": "Chronic gout due to renal impairment, wrist"
+     },
+     {
+      "code": "M1A.331",
+      "display": "Chronic gout due to renal impairment, right wrist"
+     },
+     {
+      "code": "M1A.3310",
+      "display": "Chronic gout due to renal impairment, right wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3311",
+      "display": "Chronic gout due to renal impairment, right wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.332",
+      "display": "Chronic gout due to renal impairment, left wrist"
+     },
+     {
+      "code": "M1A.3320",
+      "display": "Chronic gout due to renal impairment, left wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3321",
+      "display": "Chronic gout due to renal impairment, left wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.339",
+      "display": "Chronic gout due to renal impairment, unspecified wrist"
+     },
+     {
+      "code": "M1A.3390",
+      "display": "Chronic gout due to renal impairment, unspecified wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3391",
+      "display": "Chronic gout due to renal impairment, unspecified wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.34",
+      "display": "Chronic gout due to renal impairment, hand"
+     },
+     {
+      "code": "M1A.341",
+      "display": "Chronic gout due to renal impairment, right hand"
+     },
+     {
+      "code": "M1A.3410",
+      "display": "Chronic gout due to renal impairment, right hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3411",
+      "display": "Chronic gout due to renal impairment, right hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.342",
+      "display": "Chronic gout due to renal impairment, left hand"
+     },
+     {
+      "code": "M1A.3420",
+      "display": "Chronic gout due to renal impairment, left hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3421",
+      "display": "Chronic gout due to renal impairment, left hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.349",
+      "display": "Chronic gout due to renal impairment, unspecified hand"
+     },
+     {
+      "code": "M1A.3490",
+      "display": "Chronic gout due to renal impairment, unspecified hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3491",
+      "display": "Chronic gout due to renal impairment, unspecified hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.35",
+      "display": "Chronic gout due to renal impairment, hip"
+     },
+     {
+      "code": "M1A.351",
+      "display": "Chronic gout due to renal impairment, right hip"
+     },
+     {
+      "code": "M1A.3510",
+      "display": "Chronic gout due to renal impairment, right hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3511",
+      "display": "Chronic gout due to renal impairment, right hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.352",
+      "display": "Chronic gout due to renal impairment, left hip"
+     },
+     {
+      "code": "M1A.3520",
+      "display": "Chronic gout due to renal impairment, left hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3521",
+      "display": "Chronic gout due to renal impairment, left hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.359",
+      "display": "Chronic gout due to renal impairment, unspecified hip"
+     },
+     {
+      "code": "M1A.3590",
+      "display": "Chronic gout due to renal impairment, unspecified hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3591",
+      "display": "Chronic gout due to renal impairment, unspecified hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.36",
+      "display": "Chronic gout due to renal impairment, knee"
+     },
+     {
+      "code": "M1A.361",
+      "display": "Chronic gout due to renal impairment, right knee"
+     },
+     {
+      "code": "M1A.3610",
+      "display": "Chronic gout due to renal impairment, right knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3611",
+      "display": "Chronic gout due to renal impairment, right knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.362",
+      "display": "Chronic gout due to renal impairment, left knee"
+     },
+     {
+      "code": "M1A.3620",
+      "display": "Chronic gout due to renal impairment, left knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3621",
+      "display": "Chronic gout due to renal impairment, left knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.369",
+      "display": "Chronic gout due to renal impairment, unspecified knee"
+     },
+     {
+      "code": "M1A.3690",
+      "display": "Chronic gout due to renal impairment, unspecified knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3691",
+      "display": "Chronic gout due to renal impairment, unspecified knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.37",
+      "display": "Chronic gout due to renal impairment, ankle and foot"
+     },
+     {
+      "code": "M1A.371",
+      "display": "Chronic gout due to renal impairment, right ankle and foot"
+     },
+     {
+      "code": "M1A.3710",
+      "display": "Chronic gout due to renal impairment, right ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3711",
+      "display": "Chronic gout due to renal impairment, right ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.372",
+      "display": "Chronic gout due to renal impairment, left ankle and foot"
+     },
+     {
+      "code": "M1A.3720",
+      "display": "Chronic gout due to renal impairment, left ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3721",
+      "display": "Chronic gout due to renal impairment, left ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.379",
+      "display": "Chronic gout due to renal impairment, unspecified ankle and foot"
+     },
+     {
+      "code": "M1A.3790",
+      "display": "Chronic gout due to renal impairment, unspecified ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.3791",
+      "display": "Chronic gout due to renal impairment, unspecified ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.38",
+      "display": "Chronic gout due to renal impairment, vertebrae"
+     },
+     {
+      "code": "M1A.38X0",
+      "display": "Chronic gout due to renal impairment, vertebrae, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.38X1",
+      "display": "Chronic gout due to renal impairment, vertebrae, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.39",
+      "display": "Chronic gout due to renal impairment, multiple sites"
+     },
+     {
+      "code": "M1A.39X0",
+      "display": "Chronic gout due to renal impairment, multiple sites, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.39X1",
+      "display": "Chronic gout due to renal impairment, multiple sites, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.4",
+      "display": "Other secondary chronic gout"
+     },
+     {
+      "code": "M1A.40",
+      "display": "Other secondary chronic gout, unspecified site"
+     },
+     {
+      "code": "M1A.40X0",
+      "display": "Other secondary chronic gout, unspecified site, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.40X1",
+      "display": "Other secondary chronic gout, unspecified site, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.41",
+      "display": "Other secondary chronic gout, shoulder"
+     },
+     {
+      "code": "M1A.411",
+      "display": "Other secondary chronic gout, right shoulder"
+     },
+     {
+      "code": "M1A.4110",
+      "display": "Other secondary chronic gout, right shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4111",
+      "display": "Other secondary chronic gout, right shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.412",
+      "display": "Other secondary chronic gout, left shoulder"
+     },
+     {
+      "code": "M1A.4120",
+      "display": "Other secondary chronic gout, left shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4121",
+      "display": "Other secondary chronic gout, left shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.419",
+      "display": "Other secondary chronic gout, unspecified shoulder"
+     },
+     {
+      "code": "M1A.4190",
+      "display": "Other secondary chronic gout, unspecified shoulder, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4191",
+      "display": "Other secondary chronic gout, unspecified shoulder, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.42",
+      "display": "Other secondary chronic gout, elbow"
+     },
+     {
+      "code": "M1A.421",
+      "display": "Other secondary chronic gout, right elbow"
+     },
+     {
+      "code": "M1A.4210",
+      "display": "Other secondary chronic gout, right elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4211",
+      "display": "Other secondary chronic gout, right elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.422",
+      "display": "Other secondary chronic gout, left elbow"
+     },
+     {
+      "code": "M1A.4220",
+      "display": "Other secondary chronic gout, left elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4221",
+      "display": "Other secondary chronic gout, left elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.429",
+      "display": "Other secondary chronic gout, unspecified elbow"
+     },
+     {
+      "code": "M1A.4290",
+      "display": "Other secondary chronic gout, unspecified elbow, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4291",
+      "display": "Other secondary chronic gout, unspecified elbow, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.43",
+      "display": "Other secondary chronic gout, wrist"
+     },
+     {
+      "code": "M1A.431",
+      "display": "Other secondary chronic gout, right wrist"
+     },
+     {
+      "code": "M1A.4310",
+      "display": "Other secondary chronic gout, right wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4311",
+      "display": "Other secondary chronic gout, right wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.432",
+      "display": "Other secondary chronic gout, left wrist"
+     },
+     {
+      "code": "M1A.4320",
+      "display": "Other secondary chronic gout, left wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4321",
+      "display": "Other secondary chronic gout, left wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.439",
+      "display": "Other secondary chronic gout, unspecified wrist"
+     },
+     {
+      "code": "M1A.4390",
+      "display": "Other secondary chronic gout, unspecified wrist, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4391",
+      "display": "Other secondary chronic gout, unspecified wrist, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.44",
+      "display": "Other secondary chronic gout, hand"
+     },
+     {
+      "code": "M1A.441",
+      "display": "Other secondary chronic gout, right hand"
+     },
+     {
+      "code": "M1A.4410",
+      "display": "Other secondary chronic gout, right hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4411",
+      "display": "Other secondary chronic gout, right hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.442",
+      "display": "Other secondary chronic gout, left hand"
+     },
+     {
+      "code": "M1A.4420",
+      "display": "Other secondary chronic gout, left hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4421",
+      "display": "Other secondary chronic gout, left hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.449",
+      "display": "Other secondary chronic gout, unspecified hand"
+     },
+     {
+      "code": "M1A.4490",
+      "display": "Other secondary chronic gout, unspecified hand, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4491",
+      "display": "Other secondary chronic gout, unspecified hand, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.45",
+      "display": "Other secondary chronic gout, hip"
+     },
+     {
+      "code": "M1A.451",
+      "display": "Other secondary chronic gout, right hip"
+     },
+     {
+      "code": "M1A.4510",
+      "display": "Other secondary chronic gout, right hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4511",
+      "display": "Other secondary chronic gout, right hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.452",
+      "display": "Other secondary chronic gout, left hip"
+     },
+     {
+      "code": "M1A.4520",
+      "display": "Other secondary chronic gout, left hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4521",
+      "display": "Other secondary chronic gout, left hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.459",
+      "display": "Other secondary chronic gout, unspecified hip"
+     },
+     {
+      "code": "M1A.4590",
+      "display": "Other secondary chronic gout, unspecified hip, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4591",
+      "display": "Other secondary chronic gout, unspecified hip, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.46",
+      "display": "Other secondary chronic gout, knee"
+     },
+     {
+      "code": "M1A.461",
+      "display": "Other secondary chronic gout, right knee"
+     },
+     {
+      "code": "M1A.4610",
+      "display": "Other secondary chronic gout, right knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4611",
+      "display": "Other secondary chronic gout, right knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.462",
+      "display": "Other secondary chronic gout, left knee"
+     },
+     {
+      "code": "M1A.4620",
+      "display": "Other secondary chronic gout, left knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4621",
+      "display": "Other secondary chronic gout, left knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.469",
+      "display": "Other secondary chronic gout, unspecified knee"
+     },
+     {
+      "code": "M1A.4690",
+      "display": "Other secondary chronic gout, unspecified knee, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4691",
+      "display": "Other secondary chronic gout, unspecified knee, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.47",
+      "display": "Other secondary chronic gout, ankle and foot"
+     },
+     {
+      "code": "M1A.471",
+      "display": "Other secondary chronic gout, right ankle and foot"
+     },
+     {
+      "code": "M1A.4710",
+      "display": "Other secondary chronic gout, right ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4711",
+      "display": "Other secondary chronic gout, right ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.472",
+      "display": "Other secondary chronic gout, left ankle and foot"
+     },
+     {
+      "code": "M1A.4720",
+      "display": "Other secondary chronic gout, left ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4721",
+      "display": "Other secondary chronic gout, left ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.479",
+      "display": "Other secondary chronic gout, unspecified ankle and foot"
+     },
+     {
+      "code": "M1A.4790",
+      "display": "Other secondary chronic gout, unspecified ankle and foot, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.4791",
+      "display": "Other secondary chronic gout, unspecified ankle and foot, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.48",
+      "display": "Other secondary chronic gout, vertebrae"
+     },
+     {
+      "code": "M1A.48X0",
+      "display": "Other secondary chronic gout, vertebrae, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.48X1",
+      "display": "Other secondary chronic gout, vertebrae, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.49",
+      "display": "Other secondary chronic gout, multiple sites"
+     },
+     {
+      "code": "M1A.49X0",
+      "display": "Other secondary chronic gout, multiple sites, without tophus (tophi)"
+     },
+     {
+      "code": "M1A.49X1",
+      "display": "Other secondary chronic gout, multiple sites, with tophus (tophi)"
+     },
+     {
+      "code": "M1A.9",
+      "display": "Chronic gout, unspecified"
      },
      {
       "code": "M1A.9XX0",
@@ -36,11 +2272,21 @@
    }
   ]
  },
+ "extension": [
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|M10"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|M1A"
+  }
+ ],
  "id": "GZQO-VS-GOUT",
  "name": "VS_GOUT",
  "resourceType": "ValueSet",
  "status": "active",
  "title": "gout",
  "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-GOUT",
- "version": "1.0.0-v4ecba8ef"
+ "version": "1.0.0-v47dd534f"
 }
