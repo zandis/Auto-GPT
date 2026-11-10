@@ -3990,7 +3990,7 @@ Disabled accounts list), rejecting a fact (undo puts it back to proposed with it
 correcting also have undo), a closing contact outcome (undo restores the earlier status; only the person's own latest
 outcome), detaching a source (undo within 15 minutes, in memory). *Evidence:* `tests/console/test_ops_pages.py`, the
 browser walk's admin pages and role refusals. *Not done here:* `deploy/install.sh` does not install the runner's
-timer yet; RUNBOOK §12 says how.
+timer yet; RUNBOOK §15 says how.
 
 **D-179 The site pages are site-wide; a study-scoped account sees readiness and help only.**
 Review J-06 asked which site pages a study-scoped account sees. The site's facts, mappings and sources describe the
