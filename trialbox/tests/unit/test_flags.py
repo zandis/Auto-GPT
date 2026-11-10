@@ -245,3 +245,116 @@ def test_an_unreadable_flag_store_stops_the_rebuild(monkeypatch: Any) -> None:
         lake_rows({}, {}, tz="Asia/Taipei", snapshot="2026-10-31")
     monkeypatch.delenv("TB_DB_URL")
     assert rebuild_source() == ("legacy", "TB_LAKE_SOURCE (no trial database configured)")
+
+
+# ---------------------------------------------------------------- T-655: the review fixes of PR #71, ported
+def test_a_read_creates_nothing_in_the_database(db_url: str) -> None:
+    """``row``, ``get``, ``read``, ``all``, ``events`` and doctor's ``env_drift`` only read: no schema ``app`` and no
+    table appears because somebody looked (a read-only role can read a flag)."""
+    import psycopg
+    from tb_common.db import split_url
+
+    dsn, prefix = split_url(db_url)
+
+    def count(sql: str) -> int:
+        with psycopg.connect(dsn, autocommit=True) as con:
+            got = con.execute(sql, (prefix + fl.SCHEMA,)).fetchone()
+        return int(got[0]) if got else 0
+
+    assert fl.Flags().row("lake.source") is None and fl.read("lake.source") is None
+    assert fl.Flags().get("lake.source", "legacy") == "legacy"
+    assert fl.env_drift({"TB_LAKE_SOURCE": "omop", "TB_DB_URL": db_url})  # the unseeded warning, read only
+    assert count("SELECT count(*) FROM pg_namespace WHERE nspname = %s") == 0
+    f = fl.Flags()
+    assert [x["value"] for x in f.all()] == [None] and f.events() == []  # the page's reads: no table made
+    assert count("SELECT count(*) FROM pg_tables WHERE schemaname = %s") == 0
+
+
+def test_a_commit_that_fails_after_the_audit_event_is_named_in_the_audit(tmp_path: Path) -> None:
+    """Review M5: the audit event is written inside the transaction; when the commit then fails, the trail must not
+    say the flag changed without also saying it did not (``flag.set.failed``)."""
+    from contextlib import contextmanager
+
+    real = Database.connect(fl.Flags()._url, fl.SCHEMA)
+
+    class LostCommit:
+        url = real.url
+
+        def migrate(self, versions: Any) -> int:
+            return real.migrate(versions)
+
+        @contextmanager
+        def transaction(self) -> Any:
+            with real.transaction() as tx:
+                yield tx
+                raise ConnectionError("server closed the connection at COMMIT")
+
+    f = fl.Flags(LostCommit(), audit=_audit(tmp_path))  # type: ignore[arg-type]
+    with pytest.raises(ConnectionError):
+        f.set("lake.source", "omop", actor="console:admin", reason="flip")
+    real.close()
+    assert fl.Flags().row("lake.source") is None and fl.Flags().events() == []
+    (said,) = _events(tmp_path, "flag.set")
+    (failed,) = _events(tmp_path, "flag.set.failed")
+    assert failed["actor"] == "console:admin"
+    assert failed["detail"] == {**said["detail"], "error": "ConnectionError"}
+    assert verify(tmp_path / "audit").ok
+
+
+def test_a_refused_change_writes_no_failed_event(tmp_path: Path) -> None:
+    """``flag.set.failed`` names only a change whose audit event was written: a refusal before it writes neither."""
+    f = fl.Flags(audit=_audit(tmp_path))
+    f.seed({})
+    with pytest.raises(ValueError, match="already legacy"):
+        f.set("lake.source", "legacy", actor="console:admin", reason="same value")
+    assert not _events(tmp_path, "flag.set") and not _events(tmp_path, "flag.set.failed")
+
+
+def test_a_tool_forces_its_source_whatever_the_flag_says(tmp_path: Path, monkeypatch: Any) -> None:
+    """Review H2: ``tools/omop_parity.py`` and ``tools/goldens.py`` build both lakes in a database whose flag may be
+    seeded; ``force`` wins over the flag and the variable, and ends with its block."""
+    from lake import source as src
+
+    fl.Flags(audit=_audit(tmp_path)).seed({"TB_LAKE_SOURCE": "legacy"})
+    monkeypatch.setenv("TB_LAKE_SOURCE", "legacy")
+    with src.force("omop"):
+        assert src.rebuild_source() == ("omop", "forced by the caller (a tool)")
+        with src.force("legacy"):
+            assert src.rebuild_source()[0] == "legacy"
+        assert src.rebuild_source()[0] == "omop"
+    assert src.rebuild_source() == ("legacy", "flag lake.source")
+    with pytest.raises(ValueError, match="use one of"), src.force("fhir"):
+        pass
+
+
+def test_the_parity_tool_forces_each_source_and_checks_the_record() -> None:
+    from tools import omop_parity as parity
+
+    assert "force(source)" in (ROOT / "tools" / "omop_parity.py").read_text(encoding="utf-8")
+    entry = {"omop": {"rows": {"person": 3}}, "tables": {"patient": {"rows": 3}},
+             "screening": {"R": {"patients_evaluated": 3}}}  # fmt: skip
+    assert parity.failures({**entry, "recorded_source": {"legacy": "legacy", "omop": "omop"}}) == []
+    assert parity.failures({**entry, "recorded_source": {"legacy": "legacy", "omop": "legacy"}}) == [
+        "the omop lake was meant to come from omop, its rebuild recorded legacy"
+    ]
+
+
+def test_the_rebuild_records_its_source(tmp_path: Path, monkeypatch: Any) -> None:
+    """Review M2: what built a snapshot is kept (``source.jsonl`` in the lake, an audit event where the audit log is
+    mounted), not only logged."""
+    from lake.source import lake_rows
+
+    from tools.omop_parity import recorded_source
+
+    monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path / "audit"))
+    monkeypatch.delenv("TB_LAKE_SOURCE", raising=False)
+    fl.Flags(audit=_audit(tmp_path)).seed({})
+    lake = tmp_path / "lake"
+    lake_rows({}, {}, tz="Asia/Taipei", snapshot="2026-10-31", lake_dir=lake)
+    (line,) = [json.loads(x) for x in (lake / "source.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert {k: line[k] for k in ("snapshot", "source", "origin")} == {
+        "snapshot": "2026-10-31", "source": "legacy", "origin": "flag lake.source"}  # fmt: skip
+    (ev,) = _events(tmp_path, "lake.rebuild.source")
+    assert ev["actor"] == "lake" and ev["detail"]["source"] == "legacy" and ev["detail"]["snapshot"] == "2026-10-31"
+    assert verify(tmp_path / "audit").ok
+    assert recorded_source(lake, "2026-10-31") == "legacy" and recorded_source(lake, "2026-11-01") is None

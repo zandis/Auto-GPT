@@ -25,12 +25,22 @@ there is no row, and the caller's default applies.
 not installed, and on any error (logged). Values are cached for :data:`CACHE_SECONDS` per process, so a change made
 on ``/ops/flags`` reaches every service within five seconds, without a restart. A reader that must not change its
 behaviour mid-work reads the flag once when the work starts and keeps the value (the lake rebuild does).
+
+**Reading creates nothing.** :meth:`Flags.row`, :meth:`Flags.get`, :func:`read` and :func:`env_drift` (``trialbox
+doctor``, the lake rebuild) create no schema and no table: a read-only role can read a flag, and looking at a database
+never changes it. :meth:`Flags.all` and :meth:`Flags.events` (the ``/ops/flags`` page) create no table. Only
+:meth:`Flags.seed` and :meth:`Flags.set` install the store.
+
+**A commit that fails after the audit event is named.** The audit event of a change is written inside the
+transaction, so a failed audit write rolls the change back. When the commit itself then fails, the audit trail holds a
+``flag.set`` for a change that did not happen; :meth:`Flags.set` appends a ``flag.set.failed`` event naming it.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -38,7 +48,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from tb_common.db import ENV as DB_URL_ENV
-from tb_common.db import Database
+from tb_common.db import Database, DatabaseError, split_url
 
 log = logging.getLogger("tb.flags")
 
@@ -46,6 +56,7 @@ SCHEMA = "app"
 CACHE_SECONDS = 5.0
 SEED_ACTOR = "install:seed"
 MAX_REASON = 500
+_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")  # a schema name, as tb_common.db accepts it
 
 #: ``migrate`` versions of schema ``app`` (append-only)
 MIGRATIONS = (
@@ -163,18 +174,31 @@ class Flags:
 
     # ------------------------------------------------------------------ read
     def row(self, name: str) -> str | None:
-        """The stored value, None when the flag has no row (or the store is not installed). Raises on errors."""
+        """The stored value, None when the flag has no row (or the store is not installed). Raises on errors
+        (``LookupError`` when no store is configured). Reads only: it creates no schema and no table."""
         declared(name)
-        db, close = self._open()
-        try:
-            with db.transaction() as tx:
+        if self._db is not None:
+            with self._db.transaction() as tx:
                 if tx.fetchval("SELECT to_regclass('flag')") is None:
                     return None
                 v = tx.fetchval("SELECT value FROM flag WHERE name = ?", (name,))
-        finally:
-            if close:
-                db.close()
-        return None if v is None else str(v)
+            return None if v is None else str(v)
+        if not self._url:
+            raise LookupError(f"{DB_URL_ENV} is not set: no flag store")
+        import psycopg
+
+        # not Database.connect: that creates the schema, and a read must leave the database as it found it
+        dsn, prefix = split_url(self._url)
+        schema = prefix + SCHEMA
+        if not _NAME_RE.match(schema):
+            raise DatabaseError(f"bad schema name {schema!r}")
+        table = f'"{schema}".flag'
+        with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
+            reg = con.execute("SELECT to_regclass(%s)", (table,)).fetchone()
+            if not reg or reg[0] is None:
+                return None
+            r = con.execute(f"SELECT value FROM {table} WHERE name = %s", (name,)).fetchone()
+        return None if r is None or r[0] is None else str(r[0])
 
     def get(self, name: str, default: str | None = None) -> str | None:
         """The flag's value; ``default`` when it has no row, when the store is unreachable or on any error (logged).
@@ -205,8 +229,11 @@ class Flags:
         """Every declared flag with its stored value (None when never seeded) and when, by whom and why it changed."""
         db, close = self._open()
         try:
-            self.install(db)
-            rows = {r["name"]: r for r in db.fetchdicts("SELECT name, value, changed_at, changed_by, reason FROM flag")}
+            rows: dict[str, dict[str, Any]] = {}
+            with db.transaction() as tx:  # reads only: no install on the read path
+                if tx.fetchval("SELECT to_regclass('flag')") is not None:
+                    found = tx.fetchdicts("SELECT name, value, changed_at, changed_by, reason FROM flag")
+                    rows = {r["name"]: r for r in found}
         finally:
             if close:
                 db.close()
@@ -221,13 +248,15 @@ class Flags:
     def events(self, name: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         db, close = self._open()
         try:
-            self.install(db)
             where, params = ("WHERE name = ?", [name]) if name else ("", [])
-            return db.fetchdicts(
-                "SELECT id, at, name, kind, old_value, new_value, actor, reason FROM flag_event "
-                f"{where} ORDER BY id DESC LIMIT ?",
-                (*params, int(limit)),
-            )
+            with db.transaction() as tx:  # reads only: no install on the read path
+                if tx.fetchval("SELECT to_regclass('flag_event')") is None:
+                    return []
+                return tx.fetchdicts(
+                    "SELECT id, at, name, kind, old_value, new_value, actor, reason FROM flag_event "
+                    f"{where} ORDER BY id DESC LIMIT ?",
+                    (*params, int(limit)),
+                )
         finally:
             if close:
                 db.close()
@@ -278,7 +307,11 @@ class Flags:
 
     def set(self, name: str, value: str, actor: str, reason: str) -> dict[str, Any]:
         """Change a flag: one ``flag_event`` row and one audit event with the actor and the reason, or nothing. A
-        reason and an actor are required; the value must be one of the declared ones and differ from the stored."""
+        reason and an actor are required; the value must be one of the declared ones and differ from the stored.
+
+        The audit event is written inside the transaction, so a failed audit write (a full disk) rolls the change
+        back. The other way round, a commit that fails after the audit event was written leaves an event for a change
+        that did not happen: a ``flag.set.failed`` event naming it is appended, and the error is raised."""
         v = check_value(name, value)
         why = " ".join((reason or "").split())[:MAX_REASON]
         if not why:
@@ -288,6 +321,7 @@ class Flags:
         if self.audit is None:
             raise ValueError("a flag change must be audited: give Flags an audit log")
         db, close = self._open()
+        written: dict[str, Any] | None = None  # the audit event's detail, once it is written
         try:
             self.install(db)
             with db.transaction() as tx:
@@ -309,6 +343,15 @@ class Flags:
                 # inside the transaction: an audit write that fails (a full disk) rolls the change back
                 detail = {"flag": name, "old": old, "new": v, "reason": why, "event": event_id}
                 self.audit.append("flag.set", actor=actor, detail=detail)
+                written = detail
+        except BaseException as e:
+            if written is not None:  # the audit event is written, the commit failed: say so in the audit trail
+                try:
+                    self.audit.append("flag.set.failed", actor=actor,
+                                      detail={**written, "error": type(e).__name__})  # fmt: skip
+                except Exception:
+                    log.exception("flag %s: the change was not committed and flag.set.failed was not written", name)
+            raise
         finally:
             if close:
                 db.close()
