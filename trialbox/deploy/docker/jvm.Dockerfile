@@ -1,9 +1,11 @@
 # syntax=docker/dockerfile:1.7
-# trialbox-jvm: trialbox-py + JRE 17 + HL7 validator + cql-to-elm 5.4.0 + offline FHIR package cache.
+# trialbox-jvm: trialbox-py + JRE 21 + HL7 validator + cql-to-elm 5.4.0 + offline FHIR package cache.
 # Used by criteria-compiler (CQL translation), adapter (validator sample) and orchestrator (TWPAS validation).
 # Prerequisite: tools/fetch_jvm_deps.sh (fills .cache/jvm in the build context). Multi-arch (amd64/arm64).
 ARG BASE_IMAGE=trialbox-py:1.0.0
-ARG JRE_IMAGE=eclipse-temurin:17-jre@sha256:207ecae0b2b104dfc6dfa763d1e9cd2041cb344800a180e24cb1a28ed533ff90
+# Temurin 21.0.13+9 JRE (the October 2026 CPU), the Java line CI tests with (T-672, DEP-015). Tag 21.0.13_9-jre = 21-jre
+# on 2026-11-10; multi-arch index digest (amd64, arm64), image created 2026-10-29. Only /opt/java/openjdk is copied.
+ARG JRE_IMAGE=eclipse-temurin:21.0.13_9-jre@sha256:0b99b3376fbb50dbf9c0af8535fdd5b8eb0d3fdfc8b1e4967f383b6919f6901a
 # both bases are pinned through their ARG (a digest, or the locally built trialbox-py tag): DL3006 cannot see it
 # hadolint ignore=DL3006
 FROM ${JRE_IMAGE} AS jre

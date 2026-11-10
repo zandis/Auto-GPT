@@ -169,6 +169,8 @@ def test_the_jar_and_font_lists_are_named_in_notice() -> None:
 
     text = NOTICE.read_text(encoding="utf-8")
     pom = (ROOT / "services/criteria_compiler/compile_cql/translator/pom.xml").read_text(encoding="utf-8")
+    # only the direct dependencies; the pins under dependencyManagement are checked as fetched jars below
+    pom = re.sub(r"<dependencyManagement>.*?</dependencyManagement>", "", pom, flags=re.S)
     for artifact, version in re.findall(r"<artifactId>([^<]+)</artifactId>\s*<version>([^<]+)</version>", pom):
         if artifact != "cql-translator":
             assert f"{artifact} {version}" in text, artifact
