@@ -20,7 +20,7 @@ from tb_contracts import (
 )
 
 from lake.sqlguard import SqlRejected
-from lake.store import Lake
+from lake.store import Lake, RebuildError
 
 ARROW_STREAM = "application/vnd.apache.arrow.stream"
 _lake: Lake | None = None
@@ -97,7 +97,16 @@ def put_site(body: dict[str, Any]) -> dict[str, Any]:
 
 @app.post("/rebuild")
 def rebuild(req: RebuildRequest) -> RebuildResult:
-    stats = lake().rebuild(req.snapshot.isoformat(), embedder(), Path(req.ndjson_dir) if req.ndjson_dir else None)
+    try:
+        stats = lake().rebuild(req.snapshot.isoformat(), embedder(), Path(req.ndjson_dir) if req.ndjson_dir else None)
+    except RebuildError as exc:  # D-271: a missing or empty feed is refused; CURRENT stays
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        from omop.schema import OmopError
+
+        if isinstance(exc, OmopError):  # D-271: the OMOP store refused the batch (a mass tombstone, an older batch)
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise
     return RebuildResult(
         snapshot=stats.snapshot,
         tables=stats.tables,

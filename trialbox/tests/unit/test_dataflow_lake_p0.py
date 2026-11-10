@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import csv
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -277,8 +278,220 @@ def test_sidecar_hashes_catch_a_changed_file(tmp_path: Path) -> None:
     pq = tmp_path / "lake" / "parquet" / "snapshot=2026-10-05" / "patient.parquet"
     pq.write_bytes(pq.read_bytes() + b"x")
     assert lake.verify() == ["patient.parquet: content does not match its .sha256 sidecar"]
-    # retention removes the sidecars with their snapshot
+    # retention removes the sidecars with their snapshot (``<snap>.duckdb*``; ``.source``: the folder read, D-271)
     assert sorted(p.name for p in (tmp_path / "lake" / "db").iterdir()) == [
         "2026-10-05.duckdb",
         "2026-10-05.duckdb.sha256",
+        "2026-10-05.duckdb.source",
     ]
+
+
+# ---------------------------------------------------------------------------------------------- D-271 (DI-7, DI-8)
+def test_a_rebuild_from_a_missing_or_empty_folder_is_refused_and_current_stays(tmp_path: Path) -> None:
+    """DI-7: an empty lake made CURRENT would screen every patient out; the rebuild is refused before anything is
+    written and the previous CURRENT keeps serving."""
+    lake = _one_patient_lake(tmp_path)
+    assert lake.current() == "2026-10-05"
+    with pytest.raises(RuntimeError, match="no NDJSON folder"):
+        lake.rebuild("2026-11-09", HashEmbedder())  # a wrong date on POST /rebuild
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    (empty / "Patient.ndjson").write_text("\n")
+    with pytest.raises(RuntimeError, match="holds no patient or clinical record"):
+        lake.rebuild("2026-11-09", HashEmbedder(), empty)
+    assert lake.current() == "2026-10-05" and lake.snapshots() == ["2026-10-05"]
+    # a practice site's lake holds only the site's own inputs: allowed when asked for
+    lake.rebuild("2026-11-09", HashEmbedder(), empty, promote=False, allow_empty=True)
+    # the snapshot's own folder is remembered: rebuilding it again (site set-up "Publish") reads the same NDJSON
+    assert lake.rebuild("2026-10-05", HashEmbedder()).tables["patient"] == 1
+
+
+def test_the_lake_service_answers_409_for_a_rebuild_without_data(tmp_path: Path, monkeypatch: Any) -> None:
+    from fastapi.testclient import TestClient
+    from lake import app as lake_app
+
+    lake = _one_patient_lake(tmp_path)
+    monkeypatch.setattr(lake_app, "lake", lambda: lake)
+    r = TestClient(lake_app.app).post("/rebuild", json={"snapshot": "2026-11-09"})
+    assert r.status_code == 409 and "no NDJSON folder" in r.json()["detail"]
+    assert lake.current() == "2026-10-05"
+
+
+def test_a_held_nights_records_never_reach_current_through_the_next_delta(tmp_path: Path) -> None:
+    """DI-8: night 1 promoted, night 2 held (bad data), night 3 a good delta: the delta merges over night 1, so
+    night 2's rejected rows are not in CURRENT."""
+    lakes = _Lakes(tmp_path / "lake")
+    cfg = _cfg(tmp_path, lakes)
+    _csv(tmp_path / "n1", [_row("D1", "2026-09-01")])
+    assert run_ingest(cfg, "csv", str(tmp_path / "n1"), snapshot="2026-10-01", load_fhir=False, validate=False).passed
+    n1 = _conditions(cfg.lake_dir, "2026-10-01")
+    _csv(tmp_path / "n2", [_row("DBAD", "2026-10-01")])
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n2"), since="2026-10-01", snapshot="2026-10-02", load_fhir=False,
+                     validator=_Bad())  # type: ignore[arg-type]  # fmt: skip
+    assert rep.held and lakes.lake.current() == "2026-10-01"
+    bad = _conditions(cfg.lake_dir, "2026-10-02") - n1
+    assert len(bad) == 1
+    _csv(tmp_path / "n3", [_row("D3", "2026-10-02")])
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n3"), since="2026-10-02", snapshot="2026-10-03", load_fhir=False,
+                     validate=False)  # fmt: skip
+    assert rep.passed and lakes.lake.current() == "2026-10-03"
+    served = {x["cid"] for x in lakes.lake.query("SELECT cid FROM condition").to_pylist()}
+    assert n1 <= served and not (bad & served) and len(served) == 2
+    assert not (bad & _conditions(cfg.lake_dir, "2026-10-03"))
+
+
+def test_merge_base_is_the_last_promoted_snapshot(tmp_path: Path) -> None:
+    from adapter import pipeline
+
+    lake = tmp_path / "lake"
+    for s in ("2026-10-01", "2026-10-02", "2026-10-03"):
+        snapshot_dir(lake, s).mkdir(parents=True)
+    assert pipeline.merge_base(lake, "2026-10-04") is None  # nothing ever promoted: no base
+    (lake / "CURRENT").write_text("2026-10-02")  # folders from before the marker: CURRENT is the base
+    assert pipeline.merge_base(lake, "2026-10-04") == "2026-10-02"
+    (snapshot_dir(lake, "2026-10-01") / pipeline.PASSED).write_text("{}")
+    assert pipeline.merge_base(lake, "2026-10-04") == "2026-10-02"
+    (snapshot_dir(lake, "2026-10-03") / pipeline.PASSED).write_text("{}")
+    assert pipeline.merge_base(lake, "2026-10-04") == "2026-10-03"
+    assert pipeline.merge_base(lake, "2026-10-03") == "2026-10-02"  # a night run again never merges over itself
+
+
+def test_a_delta_night_with_no_promoted_base_is_held(tmp_path: Path) -> None:
+    cfg = _cfg(tmp_path)
+    _csv(tmp_path / "n1", [_row("D1", "2026-09-01")])
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n1"), snapshot="2026-10-01", load_fhir=False,
+                     rebuild_lake=False, validator=_Bad())  # type: ignore[arg-type]  # fmt: skip
+    assert rep.held
+    _csv(tmp_path / "n2", [_row("D2", "2026-10-01")])
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n2"), since="2026-10-01", snapshot="2026-10-02", load_fhir=False,
+                     rebuild_lake=False, validate=False)  # fmt: skip
+    assert rep.held and not rep.passed and any("no earlier snapshot passed" in e for e in rep.errors or [])
+
+
+# ---------------------------------------------------------------------------------------------- D-271 review
+def _served(lakes: _Lakes) -> set[str]:
+    return {x["cid"] for x in lakes.lake.query("SELECT cid FROM condition").to_pylist()}
+
+
+def _night1(tmp_path: Path, rows: list[dict[str, str]] | None = None) -> tuple[_Lakes, AdapterConfig]:
+    lakes = _Lakes(tmp_path / "lake")
+    cfg = _cfg(tmp_path, lakes)
+    _csv(tmp_path / "n1", rows or [_row("D1", "2026-09-01"), _row("D2", "2026-09-02")])
+    assert run_ingest(cfg, "csv", str(tmp_path / "n1"), snapshot="2026-10-01", load_fhir=False, validate=False).passed
+    return lakes, cfg
+
+
+def test_an_empty_export_is_held_not_promoted(tmp_path: Path) -> None:
+    """Review B1: the mapping's static Organization rows are written on every night; an export with only a header
+    must still be held, not promoted as a lake with no patient and no diagnosis."""
+    lakes, cfg = _night1(tmp_path)
+    good = _served(lakes)
+    assert len(good) == 2
+    _csv(tmp_path / "n2", [])  # header only: the HIS export came back empty
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n2"), snapshot="2026-10-02", load_fhir=False)
+    assert rep.held and not rep.passed and any("Condition: 2 of 2" in e for e in rep.errors or [])
+    assert lakes.lake.current() == "2026-10-01" and _served(lakes) == good
+    # the lake itself refuses the folder too (a hand-made POST /rebuild): only static rows is no data
+    with pytest.raises(RuntimeError, match="holds no patient or clinical record"):
+        lakes.lake.rebuild("2026-10-02", HashEmbedder(), snapshot_dir(cfg.lake_dir, "2026-10-02"))
+    assert lakes.lake.current() == "2026-10-01"
+
+
+def test_a_night_that_drops_most_records_of_a_kind_needs_an_override_naming_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review H2 (legacy lake): a full night with 4 of 10 diagnoses is held; an override naming another night does
+    nothing; one naming this night lets it through and is audited."""
+    lakes, cfg = _night1(tmp_path, [_row(f"D{i}", "2026-09-01") for i in range(10)])
+    _csv(tmp_path / "n2", [_row(f"D{i}", "2026-09-01") for i in range(4)])
+    monkeypatch.setenv("TB_FEED_DROP_OVERRIDE", "2026-09-30: an old reason")
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n2"), snapshot="2026-10-02", load_fhir=False, validate=False)
+    assert rep.held and any("Condition: 6 of 10" in e for e in rep.errors or [])
+    assert lakes.lake.current() == "2026-10-01"
+    monkeypatch.setenv("TB_FEED_DROP_OVERRIDE", "2026-10-02: the hospital purged test patients (ticket 7)")
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n2"), snapshot="2026-10-02", load_fhir=False, validate=False)
+    assert rep.passed and lakes.lake.current() == "2026-10-02" and len(_served(lakes)) == 4
+    events = [json.loads(ln) for f in sorted(cfg.audit_dir.glob("*.jsonl")) for ln in f.open()]  # type: ignore[union-attr]
+    assert "ticket 7" in str(events[-1]["detail"]["drop_override"])
+
+
+def test_a_held_rerun_of_the_current_night_never_reaches_current(tmp_path: Path) -> None:
+    """Review C1: re-running the night CURRENT names with bad data is held without touching that night's NDJSON, so
+    neither the next delta nor a site set-up Publish (rebuild of CURRENT) serves the rejected rows."""
+    lakes, cfg = _night1(tmp_path, [_row("D1", "2026-09-01")])
+    good = _served(lakes)
+    _csv(tmp_path / "n1b", [_row("DBAD", "2026-09-01")])
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n1b"), snapshot="2026-10-01", load_fhir=False,
+                     validator=_Bad())  # type: ignore[arg-type]  # fmt: skip
+    assert rep.held and lakes.lake.current() == "2026-10-01"
+    assert _conditions(cfg.lake_dir, "2026-10-01") == good  # the promoted folder is untouched
+    lakes.lake.rebuild("2026-10-01", HashEmbedder())  # Publish: rebuild(CURRENT)
+    assert _served(lakes) == good
+    _csv(tmp_path / "n2", [_row("D3", "2026-10-01")])
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n2"), since="2026-10-01", snapshot="2026-10-02", load_fhir=False,
+                     validate=False)  # fmt: skip
+    assert rep.passed and good <= _served(lakes) and len(_served(lakes)) == 2
+
+
+def test_a_passing_rerun_of_the_current_night_replaces_it(tmp_path: Path) -> None:
+    lakes, cfg = _night1(tmp_path, [_row("D1", "2026-09-01")])
+    _csv(tmp_path / "n1b", [_row("D1", "2026-09-01"), _row("D2", "2026-09-01")])
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n1b"), snapshot="2026-10-01", load_fhir=False, validate=False)
+    assert rep.passed and len(_served(lakes)) == 2 and len(_conditions(cfg.lake_dir, "2026-10-01")) == 2
+    assert not (cfg.lake_dir / "ndjson-rerun" / "2026-10-01").exists()
+
+
+def test_a_delta_on_a_lake_with_current_but_no_ndjson_is_held(tmp_path: Path) -> None:
+    """Review H1: CURRENT exists but no NDJSON folder (a lake built by dataplat, NDJSON not restored): the delta alone
+    must not replace the lake."""
+    lakes, cfg = _night1(tmp_path)
+    shutil.rmtree(cfg.lake_dir / "ndjson")
+    _csv(tmp_path / "n2", [_row("D3", "2026-10-01")])
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n2"), since="2026-10-01", snapshot="2026-10-02", load_fhir=False,
+                     validate=False)  # fmt: skip
+    assert rep.held and lakes.lake.current() == "2026-10-01" and len(_served(lakes)) == 2
+
+
+def test_a_lake_from_before_the_marker_counts_as_fed(tmp_path: Path) -> None:
+    """Review M1: a lake built before D-271 from a folder outside the lake has no FEED, no ndjson/ and no .source; a
+    Publish (rebuild of CURRENT) must not turn it into a site-only lake."""
+    lake = _one_patient_lake(tmp_path)
+    (tmp_path / "lake" / "FEED").unlink()
+    for p in (tmp_path / "lake" / "db").glob("*.source"):
+        p.unlink()
+    shutil.rmtree(tmp_path / "lake" / "ndjson")
+    assert lake.fed()
+    with pytest.raises(RuntimeError, match="no NDJSON folder"):
+        lake.rebuild(str(lake.current()), HashEmbedder())
+    site_only = Lake(tmp_path / "practice")  # a lake that never had a feed: built from the site's inputs
+    site_only.rebuild("2026-10-05", HashEmbedder())
+    assert not site_only.fed() and site_only.current() == "2026-10-05"
+
+
+def test_a_refusal_by_the_lake_holds_the_night_with_its_reason(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review M2: a refusal reaches the ingest report with the lake's reason and holds the night; the lake service
+    answers 409 with the detail for an OMOP refusal too (no bare 500)."""
+    from adapter.pipeline import RebuildRefused
+    from fastapi.testclient import TestClient
+    from lake import app as lake_app
+    from omop.schema import OmopError
+
+    def refuse(snap: str, nd: Path) -> RebuildResult:
+        raise RebuildRefused(f"the lake refused snapshot {snap}: would tombstone person: 600 of 600")
+
+    cfg = _cfg(tmp_path)
+    cfg.rebuild = refuse
+    _csv(tmp_path / "n1", [_row("D1", "2026-09-01")])
+    rep = run_ingest(cfg, "csv", str(tmp_path / "n1"), snapshot="2026-10-01", load_fhir=False, validate=False)
+    assert rep.held and not rep.passed and any("person: 600 of 600" in e for e in rep.errors or [])
+
+    class _Omop:
+        def rebuild(self, *a: Any, **k: Any) -> Any:
+            raise OmopError("OMOP feed batch 2026-10-02 would tombstone person: 600 of 600")
+
+        def current(self) -> str:
+            return "2026-10-01"
+
+    monkeypatch.setattr(lake_app, "lake", _Omop)
+    r = TestClient(lake_app.app).post("/rebuild", json={"snapshot": "2026-10-02"})
+    assert r.status_code == 409 and "person: 600 of 600" in r.json()["detail"]

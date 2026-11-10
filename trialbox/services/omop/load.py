@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
@@ -37,6 +38,7 @@ from decimal import Decimal
 from typing import Any
 
 from lake.flatten import DEMOGRAPHIC, NOT_PRESENT, SUSPECTED, Flattener, basis_of, verification_of
+from tb_common import feedguard
 from tb_common.db import Database
 
 from omop import vocab
@@ -154,6 +156,7 @@ class LoadReport:
     by_table: dict[str, int] = field(default_factory=dict)
     skipped: dict[str, int] = field(default_factory=dict)
     seconds: float = 0.0
+    override: str = ""  # D-271: why a mass tombstone was let through (TB_FEED_DROP_OVERRIDE for this batch)
 
     def as_dict(self) -> dict[str, Any]:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}
@@ -526,6 +529,36 @@ def load_batch(
                     del keyed[rec.key]
                 keyed[rec.key] = rec
     recs = list(keyed.values())
+    try:
+        return _load(db, kind, batch, recs, files, tz, site_name, stats, rep, t0)
+    except _Refused as r:  # rolled back; the refusal itself is kept (D-271)
+        with db.transaction() as tx:
+            tx.execute(
+                "INSERT INTO tb_load (source_kind, batch, seconds, counts) VALUES (?, ?, 0, ?::jsonb)",
+                (f"{kind}-refused", batch, json.dumps({"refused": str(r)})),
+            )
+        raise OmopError(
+            f"{r}: refused, nothing loaded (the lake keeps its CURRENT snapshot). Check the feed; to load it anyway "
+            f"set {feedguard.OVERRIDE_ENV}='{batch}: <reason>' (this batch only; the reason is recorded with the load)"
+        ) from None
+
+
+class _Refused(Exception):
+    """A feed batch that would tombstone (nearly) every live person (D-271)."""
+
+
+def _load(
+    db: Database,
+    kind: str,
+    batch: str,
+    recs: list[Rec],
+    files: Mapping[str, str],
+    tz: str,
+    site_name: str,
+    stats: dict[str, int],
+    rep: LoadReport,
+    t0: float,
+) -> LoadReport:
     with db.transaction() as tx:
         tx.execute("SELECT pg_advisory_xact_lock(hashtext('trialbox-omop-load'))")
         last = tx.fetchval("SELECT max(batch) FROM tb_load WHERE source_kind = ?", (kind,))
@@ -534,6 +567,8 @@ def load_batch(
                 f"OMOP holds {kind} batch {last}; refusing the older batch {batch} (a store of record "
                 "moves forward; an older snapshot's lake is kept as it was built)"
             )
+        if kind == "feed":
+            rep.override = _tombstone_guard(tx, batch, recs)
         concepts = Concepts(tx)
         concepts.prepare((c for r in recs for c in r.codes), (p for r in recs for p in r.std_only))
         _resolve(tx, kind, batch, recs, concepts, rep)
@@ -547,6 +582,36 @@ def load_batch(
             (kind, batch, rep.seconds, json.dumps(rep.as_dict())),
         )
     return rep
+
+
+def _tombstone_guard(tx: Any, batch: str, recs: list[Rec]) -> str:
+    """D-271: a feed batch that would tombstone every live record of a CDM table (persons, conditions, measurements,
+    ...), or more than ``TB_FEED_MAX_DROP_PCT`` (default 20) % of them, is a missing or broken extract, not a hospital
+    that lost its data overnight: refused (``_Refused``) unless ``TB_FEED_DROP_OVERRIDE`` names this batch with a
+    reason, which is returned (kept in ``tb_load``)."""
+    seen = {r.key for r in recs}
+    live: dict[str, int] = defaultdict(int)
+    gone: dict[str, int] = defaultdict(int)
+    for t, s, p, table in tx.fetchall(
+        "SELECT resource_type, source_record_id, part, cdm_table FROM tb_record WHERE source_kind = 'feed' "
+        "AND status <> 'tombstoned'"
+    ):
+        live[str(table)] += 1
+        if (str(t), str(s), int(p)) not in seen:
+            gone[str(table)] += 1
+    try:
+        pct = feedguard.max_drop_pct()
+    except feedguard.FeedGuardError as e:
+        raise _Refused(str(e)) from None
+    bad = feedguard.drops(live, gone, pct)
+    if not bad:
+        return ""
+    what = f"OMOP feed batch {batch} would tombstone {'; '.join(bad)} live records (limit {pct:g} %)"
+    reason = feedguard.override_for(batch)
+    if not reason:
+        raise _Refused(what)
+    logging.getLogger("omop").warning("%s: loaded under %s: %s", what, feedguard.OVERRIDE_ENV, reason)
+    return f"{what}; override: {reason}"
 
 
 def _resolve(tx: Any, kind: str, batch: str, recs: list[Rec], concepts: Concepts, rep: LoadReport) -> None:

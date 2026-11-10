@@ -340,7 +340,10 @@ class SiteSetup:
                 return {"snapshot": last["snapshot"], "unchanged": True, "counts": last["counts"]}
             snap = (lake.snapshot() if ws == "main" else None) or self.today().isoformat()
             lake.put_site(res)
-            lake.rebuild(snap)
+            if ws == "main":  # the hospital's lake: never rebuilt from a missing or empty feed once it had one (D-271)
+                lake.rebuild(snap)
+            else:  # a practice site holds the site's own inputs only
+                lake.rebuild(snap, allow_empty=True)
             counts = publish.counts(res)
             self.store.set_published(ws, self.stamp(), snap, dg, counts)
             self.audit.append("setup.publish", actor=by, detail={"ws": ws, "snapshot": snap, "counts": counts})
