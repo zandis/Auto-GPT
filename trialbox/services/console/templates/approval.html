@@ -33,7 +33,9 @@
 {% if r.codes_list %}<ul class="codes">{% for c in r.codes_list %}<li class="mono">{{ c }}</li>{% endfor %}</ul>{% else %}<p class="hint">{{ t('s20.codes.none') }}</p>{% endif %}
 {% if r.equivalence_pct is not none %}<p class="hint">{{ t('s20.eq', pct=r.equivalence_pct) }}</p>{% endif %}
 </details>
-{% if lang != 'en' and (user.can_request or user.can_approve) %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/label" class="inline labelform"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ r.id }}"><label for="lbl-{{ r.id }}">{{ t('s20.label', language=t('lang.name.' + lang)) }}</label> <input id="lbl-{{ r.id }}" name="text" maxlength="80" value="{{ labels.get(r.id, '') }}" data-testid="label-{{ r.id }}"> <button type="submit" class="small secondary">{{ t('s20.label.save') }}</button></form>{% endif %}
+{% if lang != 'en' and (user.can_request or user.can_approve) %}<form method="post" action="/pilot/jobs/{{ job.job_id }}/approval/label" class="inline labelform"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="crit" value="{{ r.id }}"><label for="lbl-{{ r.id }}">{{ t('s20.label', language=t('lang.name.' + lang)) }}</label> <input id="lbl-{{ r.id }}" name="text" maxlength="80" value="{{ labels.get(r.id, '') }}" data-testid="label-{{ r.id }}"{% if r.id in unlabelled %} required aria-invalid="true"{% endif %}> <button type="submit" class="small secondary">{{ t('s20.label.save') }}</button>
+{# D-309: the label step is required before approval #}
+{% if r.id in unlabelled %}<br><span class="pill warn" data-testid="label-missing-{{ r.id }}">{{ t('s20.label.missing', language=t('lang.name.' + lang)) }}</span>{% elif r.id in shipped %}<br><span class="hint" data-testid="label-shipped-{{ r.id }}">{{ t('s20.label.shipped') }}</span>{% endif %}</form>{% endif %}
 {% if r.id in ticks %}<p class="hint" data-testid="tick-{{ r.id }}">✓ {{ t('s20.ticked_by', by=ticks[r.id][0], at=ticks[r.id][1]|local) }}</p>{% endif %}
 </td>
 <td>{{ t('s20.class.' + (r['class'] or 'structured')) }}</td>
@@ -43,7 +45,8 @@
 </section>
 <section class="card attention" data-testid="approve-box">
 {% if user.can_approve and approver %}
-  {% if missing %}<p class="warn" data-testid="approve-missing">{{ t('s20.missing', n=missing|length) }}</p>
+  {% if missing or unlabelled %}{% if missing %}<p class="warn" data-testid="approve-missing">{{ t('s20.missing', n=missing|length) }}</p>{% endif %}
+  {% if unlabelled %}<p class="warn" data-testid="approve-unlabelled">{{ t('s20.labels.missing', n=unlabelled|length, language=t('lang.name.' + lang)) }}</p>{% endif %}
   <button type="button" disabled data-testid="approve">{{ t('s20.approve_all') }}</button>
   {% else %}
   <form method="post" action="/pilot/jobs/{{ job.job_id }}/approve" class="inline">

@@ -136,7 +136,8 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
 | D-308 | reserved | T-501 | held for T-501 |
-| D-309..D-310 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-309 | merged | T-507 | criterion labels in the site's languages, the label step at approval, the test-model label (file) |
+| D-310 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
 | D-311 | merged | owner rule, branch `agent/no-dev-gates` | no development gates; gates apply only when real patient data is read; CGMH covered by the existing CGRD approval (file) |
 | D-312 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
 | D-313 | merged | T-012a | `trialbox eval qualify` and the qualification record (file) |

@@ -194,19 +194,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         fn = getattr(bk, "criteria", None)
         rows = fn(rs) if fn else []
         mine = store.labels(rs, lang) if lang != "en" else {}
-        out = {}
-        for r in rows:
-            written = r.get("label") or r["id"]
-            local = mine.get(r["id"], "")
-            out[r["id"]] = st.CriterionMeta(
-                r["id"],
-                r["kind"],
-                r.get("class", "structured"),
-                local or written,
-                r.get("text", ""),
-                written if local else "",
-            )
-        return out
+        # T-507 (D-309): the label, text and to-do the ruleset ships in ``lang`` fill in where the site gave none
+        return {r["id"]: st.criterion_meta(r, lang, mine.get(r["id"], "")) for r in rows}
 
     def load(job: Job | None, prefix: str, suffix: str = ".json", tag: str | None = None) -> dict[str, Any] | None:
         out = st.output(job, prefix, suffix, tag)
