@@ -211,6 +211,7 @@ _D3 = {
     # D-135 (step 5b): facts read from one patient's chart with their quotes, and the assistant's answer about a
     # patient's screening trail (by pseudonym): patient-level, the strictest class
     "LlmChartFactsOutput",
+    "LlmCrfPrefillOutput",  # D-160: a value and its quote from one patient's notes: patient level
     "ChartFact",
     "LlmAssistOutput",
     "AuditEvent",
