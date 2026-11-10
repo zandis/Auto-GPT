@@ -3813,3 +3813,102 @@ Source: WS-08.6 and WS-08.5 (the admin tile turns red 36 h after the last backup
 
 *Evidence.* `tests/console/test_sae_record.py` (15 cases); PR #60 (review: 0 Blocker, 4 High fixed).
 *Open.* The office's SAE log stays the inspected record; compare monthly. Not built yet: the write-path sync from the orchestrator, the copy to the office mailbox, the OQ wrong-clock test, follow-ups on home pages and in mail, the `/api/v1` route, void and correct for receipts and requested follow-ups, and review items M5, M7 and M8.
+
+**D-192 Identity for the console: TOTP for local accounts by default, an optional OIDC sign-in through Authelia,
+the administrator's audited recovery, and hardened sessions.** Component review 2026-11-09 layer 1 rows 30 and 36
+and layer 2 item 1 (Authelia, Authlib, pyotp; corrections: the OIDC provider is beta, sign-out goes through
+Authelia, the portal needs a hospital host name and certificate); the IT security pack (§A.4 sign-in, §B session
+controls and password policy); master plan WS-13.1 (part), URS-ADM-01, RSK-07, TST-SEC-06 (part). Built 2026-11-09,
+no Docker.
+
+* **TOTP (RFC 6238) for local accounts, standard library only** (`services/console/totp.py`): HMAC-SHA1, 6 digits,
+  30 s, one step of drift either side, a step accepted once (the last step is stored; a replay is refused and
+  audited). pyotp was not added: the code is 30 lines and the supply-chain lock (task A) was being rebuilt in
+  parallel. Default `TB_CONSOLE_MFA=totp` outside DEV and TEST; `off` is refused in PRODUCTION. An account without an
+  authenticator enrols one at its next sign-in after the password (the first good code confirms it). The secret is
+  AES-256-GCM sealed with the account name as associated data, under `totp.key` on the console volume, not in the
+  database (`auth` schema version 2: `totp_secret`, `totp_step`, `idp_sub`, `pending_logins`, `oidc_pending`).
+* **Sign-in in two steps.** A right password makes a ten-minute pending sign-in (a SameSite=Strict cookie, its hash
+  stored), never a session. A wrong or replayed code counts as a failed sign-in, and with TOTP on a right password
+  no longer clears the failure count, so knowing the password does not buy unlimited code guesses. Five failures in
+  15 minutes lock the account for 15 minutes (as before); the lock is audited once (`console.lockout`).
+* **Recovery.** `/ops/identity` (administrators; new page, the Users page is unchanged) and `console.cli unlock|
+  reset-totp`: lift a lock early, or clear another account's authenticator after a confirmation sheet (never one's
+  own on the page). Both are audited (`console.unlock`, `console.totp_reset`) and the reset signs the account out.
+  The reset account enrols again after its password, so the identity check before a reset is a procedure (RUNBOOK
+  §12), not code.
+* **Sessions.** Idle timeout default 10 minutes (the IT pack's shared-PC lock; was 30), `TB_CONSOLE_IDLE_MINUTES`
+  1-60; absolute 8 h, `TB_CONSOLE_SESSION_HOURS` 1-12. Cookies HttpOnly and SameSite=Strict as before; Secure is now
+  on by default in PRODUCTION when `TB_CONSOLE_SECURE_COOKIE` is unset (the base compose file still passes `0` for
+  the plain-http 127.0.0.1 port; the identity overlay passes `1`).
+* **OIDC through Authelia, off by default** (`services/console/oidc.py`, `TB_OIDC_ENABLED`). Authorization-code flow
+  with PKCE S256, state bound to the browser by a Lax cookie and single use within 10 minutes, nonce; the ID token's
+  signature is checked against the provider's JWKS (RS256 or ES256 only; `none` and HS* refused), then issuer,
+  audience, `azp`, expiry, issue time, nonce and subject; `amr` must report a second factor unless
+  `TB_OIDC_REQUIRE_MFA=0`. No OIDC library was added (Authlib would need the lock regenerated): `httpx` and
+  `cryptography` are already dependencies. Roles come only from `TB_OIDC_GROUP_ROLES` (group:role pairs into the
+  existing five roles); a `role` claim or an unmapped group gives nothing, a person in no mapped group or in groups
+  of two roles is refused, the role is refreshed at each sign-in, an OIDC account is bound to its subject and never
+  takes over a local or header account of the same name. The callback answers with a same-origin page that moves on
+  (a Strict cookie set on a cross-site redirect would not be sent on the next hop). Sign-out continues to Authelia's
+  logout. Authelia's OIDC provider is OpenID Certified but beta (4.39): the console uses only the code flow, the
+  discovery document, the JWKS, the token and userinfo endpoints and a plain logout link.
+* **Unchanged:** the role table (`console.auth.User` properties, `tb_common/authz.py`), the signed actor assertion
+  (S-09, D-143), the trusted-header SSO (D-93).
+
+*Evidence.* `tests/console/test_identity.py` (35 tests: the RFC 6238 vectors; window, replay and input cleaning; the
+sealed secret; the defaults and bounds; enrolment with no session before the code; a half-done sign-in expiring
+after ten minutes; wrong and replayed codes; lock-out
+by codes with the password not resetting the count; password lock-out and the audited unlock; the audited reset and
+who may do it; one-step sign-in in TEST; idle and absolute expiry; Secure, HttpOnly and Strict cookies in PRODUCTION;
+OIDC off by default; OIDC settings refused when unsafe; a mapped group's sign-in, the token request with PKCE, the
+audited login and the provider logout; nine refusal cases including a `role` claim, unmapped and two-role groups, a
+missing second factor, nonce, audience, issuer and expiry; userinfo about another subject; state single-use, bound to
+the browser and expiring; no take-over of a local account; forged, `none`, HS256 and wrong-key tokens; ES256; the
+deploy files). `tests/console/test_console_app.py`: the PRODUCTION control-plane test signs in with the TOTP step
+over https.
+
+*After the independent review (2026-11-10, four High findings).* (H1) The trusted-header SSO (D-93) is refused at
+start unless TOTP and OIDC are both off (so only in DEV and TEST), a header never signs in a local or OIDC account,
+and Caddy strips the common identity headers and the site's configured ones from every request. (H2) A password no
+longer registers a device: an account without an authenticator (every account after the upgrade, and after a reset)
+needs a one-time enrolment code an administrator issues on `/ops/identity` or with `console.cli enrol-code|reset-totp`
+(24 hours, once, only its hash stored, never in the audit); without one it cannot sign in; the page lists the
+accounts without an authenticator first; `console.totp_enrolled` says `first` or `reset`. The first administrator's
+code comes from the shell on the box (the supervised path in RUNBOOK §12). (H3) A page's own 5-second refresh asks
+with `auto=1` and does not move the idle clock. (H4) CI job `trialbox-identity` runs `caddy validate` in both modes,
+`docker compose config` of the merged files (pytest asserts that only Caddy publishes, only 443) and Caddy in front of
+a stand-in console (HSTS, headers stripped, 80 and 8090 closed, no query strings in the log). Also: an explicit
+`TB_CONSOLE_SECURE_COOKIE=0` is refused in PRODUCTION and the base compose file leaves it unset; TOTP off only in DEV
+and TEST; `TB_OIDC_LOGOUT_URL` required with OIDC; the Authelia cookie scoped to its own host; HTTP errors from the
+provider caught; the OIDC state checked against the browser before it is used up; half-done sign-ins cleared on a
+password change and on disable.
+
+*Open.* WebAuthn in the console (Authelia offers it for directory users), step-up re-authentication before a reveal,
+an export or a signature, the breached-password list, password history and the forced first change, `doctor`
+failing without MFA (its `secure_cookie` check now follows the console's default), removing the trusted-header
+SSO altogether, the `steward` role (the role table stays as it is here). The full stack with Authelia has not been
+started on a box (no Docker daemon on the build machine).
+
+**D-193 TLS on the console through Caddy: its internal CA by default, the hospital's certificate by a setting.**
+Component review layer 1 row 36 and layer 2 item 1; IT security pack §A.3 (only 443 from the clinic PCs) and §B "In
+transit"; master plan CP-2 and RSK-27 (the internal CA as the fallback while hospital IT issues a certificate).
+
+* `deploy/docker-compose.identity.yml` adds Caddy 2.11.9 (pinned by digest) on 443 in front of the console, stops
+  publishing the console's own port (`ports: !reset []`, Compose 2.24 or later) and turns on Secure cookies; Authelia
+  4.39.28 (pinned by digest) is in the `oidc` profile with its own SQLite state, on the internal network plus the
+  egress network for LDAPS (opened by `EGRESS_EXTRA`). New services only; the base compose file is not changed.
+* `deploy/identity/Caddyfile`: `TB_TLS_MODE=internal` (default; `tls internal`, `local_certs`, never a public ACME CA)
+  or `hospital` (`TB_TLS_CERT_FILE` and `TB_TLS_KEY_FILE` from settings, mounted read-only); TLS 1.2 and 1.3, HSTS, no
+  Server header, admin API off. The CA keys stay in the `caddy-data` volume, which no other service mounts; the root
+  certificate is copied out for the staff PCs and for the console's back channel to Authelia (`TB_OIDC_CA`).
+* `python -m console.cli check-tls` (`console.identity.check_tls`) checks the hospital certificate before Caddy uses
+  it: readable PEM, valid today (a note 30 days before the end), the key is the certificate's, the host name is in the
+  SAN (wildcards one level), and a note when no intermediate is in the file.
+* Hospital-IT settings: `deploy/identity/identity.env.example` (copied into `deploy/.env`; settings.yaml is not used,
+  because the console and Caddy both read the environment and the settings schema is shared), the Authelia example
+  `deploy/identity/authelia/configuration.example.yml` (`activedirectory` over LDAPS, two-factor policy, PKCE, no
+  remember-me, the same 5/15/15 lock-out), RUNBOOK §12, SECURITY §2 and §3.
+
+*Evidence.* `tests/console/test_identity.py` (internal mode, a hospital certificate good, for another host, a
+wildcard, with a foreign key, expired, ending soon, missing; the CLI; the deploy files agree with the console).
