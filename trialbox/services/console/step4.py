@@ -15,7 +15,7 @@ from fastapi.responses import RedirectResponse
 from tb_contracts import Job, JobCreate
 
 from console import about, command
-from console.auth import AuthError, Session
+from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
 
@@ -153,6 +153,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             last_login=last[:16].replace("T", " "),
             saved=saved == "1",
             error="",
+            must_change=h.users.must_change(u.username),  # D-279: someone else set this password
         )
 
     @app.post("/account/password")
@@ -172,11 +173,14 @@ def register(app: FastAPI, h: Helpers) -> None:
             error = "account.err.sso"
         elif new != again:
             error = "account.err.mismatch"
-        elif h.users.authenticate(u.username, current) is None:
+        elif new == current:  # D-279: replacing a password someone else set with itself is no change
+            error = "account.err.same"
+        elif h.users.authenticate(u.username, current, source=source_of(request.client.host if request.client
+                                                                          else None)) is None:  # fmt: skip
             error = "account.err.current"
         else:
             try:
-                h.users.set_password(u.username, new)
+                h.users.set_password(u.username, new, must_change=False)  # D-279: the owner chose it
             except AuthError:
                 error = "account.err.policy"
         if not error:
@@ -193,6 +197,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             last_login="",
             saved=False,
             error=error,
+            must_change=h.users.must_change(u.username),
         )
 
     # ------------------------------------------------------------------ S29 Help panel

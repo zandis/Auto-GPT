@@ -35,7 +35,7 @@ from tb_common.authz import edc_allowed
 from tb_common.service_auth import actor_header
 
 from console import s28
-from console.auth import Session
+from console.auth import Session, source_of
 from console.backend import Problem, Unavailable
 from console.home import Helpers
 from console.i18n import translate
@@ -95,6 +95,7 @@ class ApiSign(BaseModel):
     record: str = Field(max_length=64)
     visit: str = Field(default="", max_length=100)
     password: str = Field(min_length=1, max_length=200)
+    otp: str = Field(default="", max_length=12)  # D-279 (SEC-1 P-2): the second component when TOTP is on
     meaning_ack: bool = False  # the signer read the meaning of the signature
     seen: dict[int, str] = Field(max_length=2000)  # draft id -> ``sha`` of each value the signer saw (GET drafts)
 
@@ -250,9 +251,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             )
         )
 
-    def do_sign(sess: Session, path: str, rs: str, body: ApiSign) -> dict[str, Any]:
-        """The electronic signature: the signer types their password again (each failure counts toward the lockout)
-        and acknowledges the meaning; the printed name is the one on the delegation log."""
+    def do_sign(sess: Session, path: str, rs: str, body: ApiSign, source: str = "") -> dict[str, Any]:
+        """The electronic signature: the signer types their password again and, with TOTP on, a fresh code from
+        their authenticator (two components, 21 CFR 11.200(a); D-279), each failure counting toward the lockout of
+        that address, and acknowledges the meaning; the printed name is the one on the delegation log."""
         rid = study_or_404(sess, rs, "sign", path)
         if not _VISIT.match(body.visit):
             raise h.problem(400, "edc.err.edc.visit")
@@ -260,10 +262,17 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(409, "edc.err.edc.sign_sso")
         if not body.meaning_ack:
             raise h.problem(400, "edc.err.edc.meaning_ack")
-        if h.users.authenticate(sess.user.username, body.password) is None:
+        if h.users.must_change(sess.user.username):  # D-279 (P-1): never sign with a password someone else set
+            raise h.problem(409, "edc.err.edc.must_change")
+        if h.users.authenticate(sess.user.username, body.password, source=source) is None:
             au.append("console.edc_reauth_failed", ruleset=rid, actor=h.actor(sess),
                       detail={"record": body.record.upper()[:64]})  # fmt: skip
             raise h.problem(401, "edc.err.edc.reauth")
+        why = h.identity.step_up(sess.user.username, body.otp, source) if h.identity is not None else ""
+        if why:  # D-279 (P-2): the second component; a wrong or replayed code signs nothing
+            au.append("console.edc_reauth_failed", ruleset=rid, actor=h.actor(sess),
+                      detail={"record": body.record.upper()[:64], "factor": "totp", "reason": why})  # fmt: skip
+            raise h.problem(401, "edc.err.edc.otp")
         _, _, entry = stand(sess, rid)
         if entry is None or not entry.name:  # the printed name is the delegation log's, never a login name (E-10)
             raise h.problem(409, "edc.err.edc.no_log_entry")
@@ -506,9 +515,11 @@ def register(app: FastAPI, h: Helpers) -> None:
                     record=rec[:64] or "x",
                     visit=visit[:100],
                     password=str(form.get("password") or "")[:200] or " ",
+                    otp=str(form.get("otp") or "")[:12],
                     meaning_ack=str(form.get("meaning_ack") or "") == "1",
                     seen=parse_seen(str(form.get("seen") or "")[:200000]),
                 ),
+                source_of(request.client.host if request.client else None),
             )
         except (Problem, Unavailable) as exc:
             return review_page(request, sess, rid, rec, visit, err_of(exc), 409)
@@ -592,7 +603,9 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.post("/api/v1/studies/{rs}/edc/sign")
     def api_sign(request: Request, rs: str, body: ApiSign) -> dict[str, Any]:
         sess = api(request)
-        return {"study": rs.upper(), "signature": api_call(do_sign, sess, request.url.path, rs, body)}
+        return {"study": rs.upper(),
+                "signature": api_call(do_sign, sess, request.url.path, rs, body,
+                                      source_of(request.client.host if request.client else None))}  # fmt: skip
 
     @app.post("/api/v1/studies/{rs}/edc/send")
     def api_send(request: Request, rs: str, body: ApiSend) -> dict[str, Any]:
