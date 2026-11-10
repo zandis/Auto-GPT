@@ -3,9 +3,10 @@ action is also a command, with the same audit).
 
     bootstrap-admin [--username admin] [--mailbox you@hospital] [--password-stdin]
         First administrator. Without --password-stdin a random password is generated and printed once.
-        Does nothing (exit 0) when an administrator exists.
+        Does nothing (exit 0) when an administrator exists. A printed password is replaced at first sign-in (D-279).
     add-user NAME --role admin|coordinator|investigator|viewer [--mailbox ADDR] [--password-stdin]
     reset-password NAME [--password-stdin]
+        The person who runs these sets the password, so its owner replaces it at the next sign-in (D-279, SEC-1).
     disable NAME
     list-users
     unlock NAME                 lift a sign-in lock before it runs out (audited; D-192)
@@ -191,7 +192,8 @@ def main(argv: list[str] | None = None) -> int:
                 print("console: an administrator exists already (use reset-password to set a new password)")
                 return 0
             pw, generated = _password(args)
-            store.create(args.username, "admin", pw, args.mailbox or None)
+            # D-279: a printed password has been seen on a screen; one typed on stdin is the administrator's own
+            store.create(args.username, "admin", pw, args.mailbox or None, must_change=generated)
             _audit("console.user", detail={"action": "create", "role": "admin"})
             print(
                 f"console: administrator '{args.username}' created"
@@ -201,14 +203,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"console: password (shown once): {pw}")
         elif args.cmd == "add-user":
             pw, generated = _password(args)
-            store.create(args.name, args.role, pw, args.mailbox or None)
+            store.create(args.name, args.role, pw, args.mailbox or None, must_change=True)  # D-279
             _audit("console.user", detail={"action": "create", "role": args.role})
             print(f"console: user '{args.name}' ({args.role}) created")
             if generated:
                 print(f"console: password (shown once): {pw}")
         elif args.cmd == "reset-password":
             pw, generated = _password(args)
-            store.set_password(args.name, pw)
+            store.set_password(args.name, pw, must_change=True)  # D-279: someone else set it
             _audit("console.user", detail={"action": "reset-password"})
             print(f"console: password of '{args.name}' changed; all sessions ended")
             if generated:
