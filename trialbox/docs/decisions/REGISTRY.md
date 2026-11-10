@@ -133,8 +133,8 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-300 | merged | T-101 | prompt registry, renumbered from the PR's D-201 (file) |
 | D-301 | merged | T-105, PR #82 | vocabulary schema (renumbered from the PR's D-205) (file) |
 | D-302 | reserved | T-102a | permission matrix |
-| D-303 | reserved | T-106 | OMOP schema name |
-| D-304 | reserved | T-106 | dual write |
+| D-303 | unused | T-106 | was reserved for the OMOP schema name; T-106 took D-339 (the integrator gave it) |
+| D-304 | unused | T-106 | was reserved for the dual write; T-106 took D-339 (the integrator gave it) |
 | D-305 | unused | — | was reserved for T-012a, which took D-313 |
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | unused | T-508 | was reserved for T-508, which took D-332 (the integrator gave D-332) |
@@ -158,3 +158,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-330 | merged | T-509 | the PoC host: one VM, the image by digest, Cloudflare Access through a tunnel, kept data on its own disk, daily snapshot, purge (file) |
 | D-331 | merged | T-510 | in-product feedback: a flag, a rating and a comment on every page, stored with path, language, role and time; CSV export to issues; the comment in the demo scan (file) |
 | D-332 | merged | T-508 | the clinician PoC is product evaluation, not research: no protocol, subject consent or committee step; the acknowledgement only (file) |
+| D-339 | merged | T-106 | OMOP second slice: schema name stays `omop`; the adapter's dual write behind the flag `omop.dual_write` (a failure never holds the night); the large CDM tables partitioned by year; the Relational checks after every load in the ingest report; parity timings (file) |

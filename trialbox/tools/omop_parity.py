@@ -4,6 +4,7 @@ lake flattened from the NDJSON.
     python -m tools.omop_parity --dir /tmp/tb-omop-parity                     # every data set, every ruleset
     python -m tools.omop_parity --dir /tmp/tb-omop-parity --sets synthetic    # one data set
     python -m tools.omop_parity ... --json eval/omop_parity/report.json        # the committed evidence
+    python -m tools.omop_parity --sets synthetic --profile 50k --json eval/omop_parity/report-50k.json
 
 For each data set the same NDJSON snapshot (and the same site inputs) is rebuilt twice through ``Lake.rebuild``:
 ``TB_LAKE_SOURCE=legacy`` and ``TB_LAKE_SOURCE=omop`` (loaded into its own ``omop`` schema, then exported). Then:
@@ -24,6 +25,11 @@ ruleset, nothing screened or a skipped data set fail; `--allow-skip` accepts a d
 writes only to schemas under a random prefix of its own and drops only those. Each lake is built with its source
 forced (``lake.source.force``), so a ``lake.source`` flag seeded in that database cannot build both lakes from one
 source, and each lake's ``source.jsonl`` must name the source it was built from. Calls no model, no network.
+
+**Timings (T-106).** ``--profile ci`` (2,500 patients per synthetic site, 5k in all) or ``--profile 50k`` (25,000 per
+site). Each data set's entry has ``timings``: wall seconds of each lake's rebuild, the loader's own seconds per batch
+(``tb_load``), and the process's resident memory (RSS) sampled every 50 ms during each rebuild: its peak and its growth
+over the start. The report's ``peak_rss_mb`` is the whole run's peak.
 """
 
 from __future__ import annotations
@@ -52,6 +58,8 @@ RULESETS = [p.parent for p in sorted((ROOT / "rulesets").glob("*/manifest.yaml")
     p.parent for p in sorted((ROOT / "tests/fixtures/open_data/rulesets").glob("*/manifest.yaml"))
 ]
 SETS = ("synthetic", "public", "mimic")
+# --profile: the synthetic sites (``tools.synth_hospital``); None is the profile's own (ci: 2,500 patients per site)
+PROFILES: dict[str, str | None] = {"ci": None, "50k": "jp-a:JP:25000,tw-a:TW:25000"}
 
 
 @dataclass
@@ -62,6 +70,52 @@ class DataSet:
     snapshot: str
     run_date: date
     tz: str
+
+
+class RssSampler:
+    """The resident memory of this process, sampled every ``every`` seconds in a thread while the block runs
+    (``/proc/self/statm``; on a system without it, ``getrusage``'s lifetime peak only)."""
+
+    def __init__(self, every: float = 0.05) -> None:
+        import threading
+
+        self.every = every
+        self.start_mb = self.peak_mb = self._now()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    @staticmethod
+    def _now() -> float:
+        try:
+            pages = int(Path("/proc/self/statm").read_text().split()[1])
+            return pages * os.sysconf("SC_PAGE_SIZE") / 2**20
+        except (OSError, ValueError, IndexError):
+            import resource
+
+            return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.every):
+            self.peak_mb = max(self.peak_mb, self._now())
+
+    def __enter__(self) -> RssSampler:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._stop.set()
+        self._thread.join()
+        self.peak_mb = max(self.peak_mb, self._now())
+
+    def as_dict(self) -> dict[str, float]:
+        return {"rss_start_mb": round(self.start_mb, 1), "rss_peak_mb": round(self.peak_mb, 1),
+                "rss_growth_mb": round(self.peak_mb - self.start_mb, 1)}  # fmt: skip
+
+
+def peak_rss_mb() -> float:
+    import resource
+
+    return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
 
 
 @contextlib.contextmanager
@@ -239,11 +293,11 @@ def planted_site_inputs(ndjson: Path, n: int = 40) -> dict[str, list[dict[str, A
     return out
 
 
-def synthetic(work: Path, ref: date = date(2026, 11, 1)) -> list[DataSet]:
+def synthetic(work: Path, ref: date = date(2026, 11, 1), profile: str = "ci") -> list[DataSet]:
     from tools.synth_hospital import run as synth_run
 
     snap = (ref - timedelta(days=1)).isoformat()
-    synth_run(work / "synth", profile="ci", ref_date=ref)
+    synth_run(work / "synth", profile="ci", sites=PROFILES[profile], ref_date=ref)
     out = []
     for site in ("jp-a", "tw-a"):
         nd = _ingest(
@@ -281,21 +335,28 @@ def mimic(work: Path) -> list[DataSet]:
 
 
 # ------------------------------------------------------------------------------------------------ the comparison
-def build_lakes(ds: DataSet, work: Path, omop_url: str) -> dict[str, Path]:
+def build_lakes(ds: DataSet, work: Path, omop_url: str, timings: dict[str, Any] | None = None) -> dict[str, Path]:
     from embed_service.embedder import HashEmbedder
     from lake.source import force
     from lake.store import Lake
 
     lakes = {}
     for source in ("legacy", "omop"):
+        t0 = time.perf_counter()
         d = work / f"lake-{source}"
         shutil.rmtree(d, ignore_errors=True)
         lake = Lake(d, ds.tz)
         if ds.site:
             lake.put_site(ds.site)
         # D-207: force the source, so a lake.source flag seeded in this database cannot build both lakes from one
-        with _env(TB_LAKE_SOURCE=source, TB_OMOP_DB_URL=omop_url if source == "omop" else None), force(source):
+        with (
+            _env(TB_LAKE_SOURCE=source, TB_OMOP_DB_URL=omop_url if source == "omop" else None),
+            force(source),
+            RssSampler() as rss,
+        ):
             lake.rebuild(ds.snapshot, HashEmbedder(), ds.ndjson)
+        if timings is not None:
+            timings[f"rebuild_{source}"] = {"seconds": round(time.perf_counter() - t0, 2), **rss.as_dict()}
         lakes[source] = d
     return lakes
 
@@ -404,9 +465,19 @@ def omop_summary(url: str, lake_dir: Path) -> dict[str, Any]:
         }
         counts["local_concepts"] = int(db.fetchval("SELECT count(*) FROM concept WHERE concept_id >= 2100000000"))
         counts["conflicts_open"] = int(db.fetchval("SELECT count(*) FROM tb_conflict WHERE state = 'open'"))
+        loads = {
+            str(k): float(s or 0)
+            for k, s in db.fetchall("SELECT source_kind, seconds FROM tb_load ORDER BY load_id")  # one feed, one site
+        }
+        from omop.partitions import PARTITIONED, partitions
+
+        with db.transaction() as tx:
+            parts = {t: len(partitions(tx, t)) for t in PARTITIONED}
         res = dqd.run(db)
         return {
             "rows": counts,
+            "load_seconds": loads,
+            "partitions": parts,
             "dqd": dqd.summary(res),
             "dqd_not_pass": [
                 {
@@ -510,11 +581,18 @@ def failures(entry: dict[str, Any]) -> list[str]:
 BUILDERS = {"synthetic": synthetic, "public": public, "mimic": mimic}
 
 
-def run(base: Path, sets: tuple[str, ...] = SETS, allow_skip: bool = False) -> dict[str, Any]:
+def run(base: Path, sets: tuple[str, ...] = SETS, allow_skip: bool = False, profile: str = "ci") -> dict[str, Any]:
     from tools import pglocal
 
+    if profile not in PROFILES:
+        raise ValueError(f"omop parity: unknown profile {profile!r} (one of {', '.join(PROFILES)})")
     base.mkdir(parents=True, exist_ok=True)
-    report: dict[str, Any] = {"rulesets": [d.name for d in RULESETS], "sets": {}, "failures": []}
+    report: dict[str, Any] = {
+        "profile": profile,
+        "rulesets": [d.name for d in RULESETS],
+        "sets": {},
+        "failures": [],
+    }
     fail: list[str] = report["failures"]
     if not RULESETS:
         fail.append("no ruleset to compare")
@@ -530,7 +608,7 @@ def run(base: Path, sets: tuple[str, ...] = SETS, allow_skip: bool = False) -> d
             t0 = time.perf_counter()
             try:
                 with _env(TB_DB_URL=url):  # the ingest's pid map and the flag store: this run's schemas only
-                    _one_set(name, work, url, prefix, report, allow_skip)
+                    _one_set(name, work, url, prefix, report, allow_skip, profile)
             except BaseException as exc:  # clean up, but never let a clean-up error hide why the run failed
                 try:
                     _drop_own(url, prefix, before)
@@ -544,14 +622,19 @@ def run(base: Path, sets: tuple[str, ...] = SETS, allow_skip: bool = False) -> d
             report.setdefault("seconds", {})[name] = round(time.perf_counter() - t0, 1)
     if not any("skipped" not in v for v in report["sets"].values()):
         fail.append("no data set was compared")
+    report["peak_rss_mb"] = peak_rss_mb()
     report["identical"] = not fail and all(
         v.get("identical", False) for v in report["sets"].values() if "skipped" not in v
     )
     return report
 
 
-def _one_set(name: str, work: Path, url: str, prefix: str, report: dict[str, Any], allow_skip: bool) -> None:
-    dsets = BUILDERS[name](work)
+def _one_set(
+    name: str, work: Path, url: str, prefix: str, report: dict[str, Any], allow_skip: bool, profile: str = "ci"
+) -> None:
+    t0 = time.perf_counter()
+    dsets = synthetic(work, profile=profile) if name == "synthetic" else BUILDERS[name](work)
+    prepared = round(time.perf_counter() - t0, 2)  # synthetic data made and ingested (all of the set's sites)
     if not dsets:
         report["sets"][name] = {"skipped": "data not fetched"}
         if not allow_skip:
@@ -559,7 +642,8 @@ def _one_set(name: str, work: Path, url: str, prefix: str, report: dict[str, Any
     for i, ds in enumerate(dsets):
         omop_url = with_prefix(url, f"{prefix}omop{i}_")  # one more private level per data set
         w = work / ds.name
-        lakes = build_lakes(ds, w, omop_url)
+        timings: dict[str, Any] = {"prepare_set_seconds": prepared}
+        lakes = build_lakes(ds, w, omop_url, timings)
         entry: dict[str, Any] = {
             "snapshot": ds.snapshot,
             "site_inputs": {k: len(v) for k, v in ds.site.items()},
@@ -568,6 +652,8 @@ def _one_set(name: str, work: Path, url: str, prefix: str, report: dict[str, Any
             "omop": omop_summary(omop_url, lakes["omop"]),
             "recorded_source": {src: recorded_source(d, ds.snapshot) for src, d in lakes.items()},
         }
+        timings["load_seconds"] = entry["omop"].pop("load_seconds")
+        entry["timings"] = timings
         entry["failures"] = failures(entry)
         report["failures"].extend(f"{ds.name}: {f}" for f in entry["failures"])
         entry["identical"] = (
@@ -588,6 +674,16 @@ def table(report: dict[str, Any]) -> str:
         rows = sum(t["rows"] for t in e["tables"].values())
         same = sum(1 for t in e["tables"].values() if t["identical"])
         lines.append(f"{name}: lake {same}/{len(e['tables'])} tables identical ({rows:,} rows); DQD {e['omop']['dqd']}")
+        tm = e.get("timings") or {}
+        for src in ("legacy", "omop"):
+            r = tm.get(f"rebuild_{src}")
+            if r:
+                lines.append(
+                    f"  rebuild {src:6} {r['seconds']:>8.1f} s  RSS peak {r['rss_peak_mb']:,.0f} MB "
+                    f"(+{r['rss_growth_mb']:,.0f} MB)"
+                )
+        if tm.get("load_seconds"):
+            lines.append(f"  OMOP load seconds {tm['load_seconds']}")
         for rid, r in e["screening"].items():
             lines.append(
                 f"  {rid:12} FEAS {'=' if r['feas_identical'] else 'DIFF'} start {r['feas']['start']:>5}  "
@@ -606,9 +702,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sets", default=",".join(SETS))
     ap.add_argument("--json", type=Path)
     ap.add_argument("--allow-skip", action="store_true", help="a data set whose data is not fetched is not a failure")
+    ap.add_argument("--profile", choices=sorted(PROFILES), default="ci", help="the synthetic sites' size (T-106)")
     a = ap.parse_args(argv)
     os.environ.setdefault("TB_ENV", "DEV")
-    rep = run(a.dir, tuple(s for s in a.sets.split(",") if s), a.allow_skip)
+    rep = run(a.dir, tuple(s for s in a.sets.split(",") if s), a.allow_skip, a.profile)
     if a.json:
         a.json.parent.mkdir(parents=True, exist_ok=True)
         a.json.write_text(json.dumps(rep, indent=1, default=str, ensure_ascii=False) + "\n", encoding="utf-8")

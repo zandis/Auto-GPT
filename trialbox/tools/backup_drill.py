@@ -178,8 +178,8 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
                    len(terms_before["releases"]) >= 3 and terms_after == terms_before,
                    f"{len(terms_before['releases'])} releases, {len(terms_before['codes'])} codes"))  # fmt: skip
     omop_after = _omop(work, load=False)
-    checks.append(("restore: the OMOP store reads back the same: rows, provenance, conflicts and the lake it exports "
-                   "(D-151)", omop_before["rows"]["person"] > 0 and omop_after == omop_before,
+    checks.append(("restore: the OMOP store reads back the same: rows, provenance, conflicts, the year partitions "
+                   "(T-106) and the lake it exports (D-151)", omop_before["rows"]["person"] > 0 and omop_after == omop_before,
                    ", ".join(f"{v} {k}" for k, v in omop_before["rows"].items())))  # fmt: skip
     with rd.RefStore() as st:
         packs_after = st.status()
@@ -533,6 +533,7 @@ def _omop(work: Path, load: bool) -> dict[str, Any]:
     from omop.__main__ import _read
     from omop.export import export_rows
     from omop.load import load_batch
+    from omop.partitions import layout
 
     db = schema.connect()
     try:
@@ -546,7 +547,9 @@ def _omop(work: Path, load: bool) -> dict[str, Any]:
         rows = {t: int(db.fetchval(f"SELECT count(*) FROM {t}")) for t in tables}
         blob = json.dumps(export_rows(db), sort_keys=True, default=str).encode()
         seq = int(db.fetchval("SELECT last_value FROM tb_row_seq"))
-        return {"rows": rows, "export_sha256": hashlib.sha256(blob).hexdigest(), "row_seq": seq}
+        with db.transaction() as tx:  # T-106: the year partitions come back with their rows
+            parts = layout(tx)
+        return {"rows": rows, "export_sha256": hashlib.sha256(blob).hexdigest(), "row_seq": seq, "partitions": parts}
     finally:
         db.close()
 

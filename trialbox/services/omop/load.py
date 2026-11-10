@@ -22,6 +22,8 @@ the whole hospital, deltas merged) or ``site`` (the site's published inputs, ``l
   ``tb_conflict``; the lake reads the item as unknown until a person resolves it (``resolve_conflict``).
 
 The whole batch is one transaction under an advisory lock: a load is all or nothing and two loads never interleave.
+The large clinical tables are partitioned by year (``omop.partitions``, T-106): a year's partition is made inside the
+same transaction, before the first row of that year is written.
 """
 
 from __future__ import annotations
@@ -43,6 +45,7 @@ from tb_common.config import site_tz
 from tb_common.db import Database
 
 from omop import vocab
+from omop.partitions import PARTITIONED, ensure_years, years_of
 from omop.schema import STATUSES, TRANSITIONS, OmopError
 from omop.vocab import Code, Concepts
 
@@ -867,6 +870,8 @@ def _write(
             before[(table, int(rid))] = js
         tx.execute(f"DELETE FROM {table} WHERE {col} = ANY(?)", (ids,))
     for table, rows in inserts.items():
+        if table in PARTITIONED:  # T-106: each year's partition exists before its rows are written
+            ensure_years(tx, table, years_of(rows, PARTITIONED[table][1]))
         cols = sorted(set().union(*rows))
         tx.copy_rows(table, cols, ([row.get(c) for c in cols] for row in rows))
         rep.by_table[table] = rep.by_table.get(table, 0) + len(rows)
