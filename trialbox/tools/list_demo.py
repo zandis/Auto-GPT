@@ -171,7 +171,19 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
         ambers = re.findall(r'data-testid="open-([A-Z0-9-]+)"', page.text)
         for cid in ambers:
             page = ok(pi.get(f"/pilot/jobs/{job.job_id}/approval?open={cid}"), f"open {cid}")
-        out["approvals"][rs] = {"amber": ambers, "html": page.text}
+        # D-309: a criterion the coordinator reworded has no shipped label in the page language; the PI gives one
+        missing = re.findall(r'data-testid="label-missing-([A-Z0-9-]+)"', page.text)
+        for cid in missing:
+            ok(
+                pi.post(
+                    f"/pilot/jobs/{job.job_id}/approval/label",
+                    data={"csrf": fd._csrf(page.text), "crit": cid, "text": f"{cid} label"},
+                ),
+                f"label {cid}",
+            )
+        if missing:
+            page = ok(pi.get(f"/pilot/jobs/{job.job_id}/approval"), f"S20 {rs} labelled")
+        out["approvals"][rs] = {"amber": ambers, "labelled": missing, "html": page.text}
         r = pi.post(
             f"/pilot/jobs/{job.job_id}/approve",
             data={"csrf": fd._csrf(page.text), "confirm": "yes"},

@@ -95,7 +95,8 @@ def _approval_job(b: dict[str, Any], rows: list[tuple[Any, ...]]) -> Job:
     job = Job(job_id=jid, type="FEAS", ruleset="GZQO", requested_by="crc@hospa.test", received_at=now,
               updated_at=now, state="awaiting_approval", ruleset_version="1.1.0", options={}, inputs=[],
               outputs=[out])  # fmt: skip
-    return b["backend"].add_job(job)
+    added: Job = b["backend"].add_job(job)
+    return added
 
 
 def _gzqo_rows(*ids: str) -> list[tuple[Any, ...]]:
