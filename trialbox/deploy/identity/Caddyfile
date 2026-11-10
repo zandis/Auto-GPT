@@ -55,24 +55,22 @@
 	}
 	# D-192 review H1: no identity header from a browser ever reaches the console. The console also refuses its
 	# trusted-header SSO whenever TOTP or OIDC is on, and a header never signs in a local account.
-	request_header {
-		-Remote-User
-		-Remote-Groups
-		-Remote-Email
-		-Remote-Name
-		-X-Remote-User
-		-X-Forwarded-User
-		-X-Forwarded-Groups
-		-X-Forwarded-Email
-		-X-Forwarded-Preferred-Username
-		-X-Auth-Request-User
-		-X-Auth-Request-Email
-		-X-Auth-Request-Groups
-		-X-Auth-Request-Preferred-Username
-		-{$TB_CONSOLE_SSO_HEADER:X-TB-No-Sso-Header}
-		-{$TB_CONSOLE_SSO_ROLE_HEADER:X-TB-No-Sso-Role}
-		-{$TB_CONSOLE_SSO_MAILBOX_HEADER:X-TB-No-Sso-Mailbox}
-	}
+	request_header -Remote-User
+	request_header -Remote-Groups
+	request_header -Remote-Email
+	request_header -Remote-Name
+	request_header -X-Remote-User
+	request_header -X-Forwarded-User
+	request_header -X-Forwarded-Groups
+	request_header -X-Forwarded-Email
+	request_header -X-Forwarded-Preferred-Username
+	request_header -X-Auth-Request-User
+	request_header -X-Auth-Request-Email
+	request_header -X-Auth-Request-Groups
+	request_header -X-Auth-Request-Preferred-Username
+	request_header -{$TB_CONSOLE_SSO_HEADER:X-TB-No-Sso-Header}
+	request_header -{$TB_CONSOLE_SSO_ROLE_HEADER:X-TB-No-Sso-Role}
+	request_header -{$TB_CONSOLE_SSO_MAILBOX_HEADER:X-TB-No-Sso-Mailbox}
 	reverse_proxy console:8090
 }
 

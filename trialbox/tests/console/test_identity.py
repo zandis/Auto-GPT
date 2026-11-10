@@ -790,7 +790,7 @@ def test_identity_overlay_merged_config(tmp_path: Path) -> None:
 def test_caddy_strips_identity_headers_and_query_strings_from_logs() -> None:
     """Static part of review H1/M4 (the CI smoke run sends the headers through a real Caddy)."""
     caddy = (DEPLOY / "identity" / "Caddyfile").read_text(encoding="utf-8")
-    block = caddy[caddy.index("request_header {") : caddy.index("reverse_proxy console:8090")]
+    block = caddy[caddy.index("request_header -") : caddy.index("reverse_proxy console:8090")]
     for header in ("-X-Forwarded-User", "-Remote-User", "-{$TB_CONSOLE_SSO_HEADER:", "-X-Forwarded-Groups"):
         assert header in block, header
     assert "request>uri regexp" in caddy and "request>headers>Cookie delete" in caddy
