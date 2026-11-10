@@ -9,6 +9,7 @@ PHI spans and finding offsets in ``gold/notes.jsonl``; chunked, streaming output
     python -m tools.synth_hospital --profile full --out /var/tmp/synth           # 500,000 patients (not run in CI)
     python -m tools.synth_hospital --sites jp-a:JP:5000 --lang-mix JP=ja:1.0 --out /tmp/jp
     python -m tools.synth_hospital --profile jp-ad --out /tmp/jp-ad                # the Japanese memory clinic (T-503)
+    python -m tools.synth_hospital --profile tw-ra --out /tmp/tw-ra                # Taiwanese rheumatology site (T-504)
 
 Every patient is fictional. Synthea is optional and off: this build has no Synthea mapping (TB-DS-21 §4); the
 ``--synthea`` flag only reports that.
@@ -45,6 +46,13 @@ PROFILES: dict[str, dict[str, Any]] = {
         "tolerance": 0.05,
         "studies": ["AD-MAB", "NEUR-COH", "GZQO", "RA-BIO"],
     },
+    # scenarios T1 to T3 (T-504): one Taiwanese site with a rheumatology clinic screening for the JAK-inhibitor trial
+    # RA-JAK (``rajak`` patients), gout patients for GZQO and GOUT-COH, RA patients for RA-COH; zh-TW and English notes
+    "tw-ra": {
+        "sites": "tw-ra:TW:1500:mix_tw_ra",
+        "tolerance": 0.05,
+        "studies": ["RA-JAK", "GZQO", "RA-COH", "RA-BIO"],
+    },
 }
 DEFAULT_LANG_MIX = {"JP": {"ja": 0.9, "en": 0.1}, "TW": {"zh-TW": 0.9, "en": 0.1}}
 DEFAULT_STUDIES = ["GOUT-COH", "GZQO", "ONC-OSI", "RA-BIO", "RA-COH"]
@@ -65,6 +73,12 @@ AD_SLOTS: dict[str, list[str]] = {
     "AD-MAB-EXC-02": ["mri_microbleeds"],
 }
 SLOTS.update(AD_SLOTS)
+# the ``rajak`` archetype's slots (T-504): the notes half of the two mixed criteria, required only where the mix has it
+RAJAK_SLOTS: dict[str, list[str]] = {
+    "RA-JAK-EXC-06": ["herpes_zoster"],
+    "RA-JAK-EXC-07": ["venous_thromboembolism"],
+}
+SLOTS.update(RAJAK_SLOTS)
 
 
 @dataclass
@@ -80,6 +94,10 @@ class SiteSpec:
     @property
     def has_ad(self) -> bool:
         return "ad" in RATES["site"][self.mix]
+
+    @property
+    def has_rajak(self) -> bool:
+        return "rajak" in RATES["site"][self.mix]
 
 
 @dataclass
@@ -411,6 +429,8 @@ def run(
             failures.append(f"{r.spec.site_id}: GZQO-INC-07 lacks a willing/unwilling/no_info case")
         for crit in SLOTS:
             if crit == "ONC-OSI-INC-04" or (crit in AD_SLOTS and not r.spec.has_ad):
+                continue
+            if crit in RAJAK_SLOTS and not r.spec.has_rajak:
                 continue
             if not any(k.startswith(crit + "=") for k in r.findings):
                 failures.append(f"{r.spec.site_id}: no planted finding for {crit}")

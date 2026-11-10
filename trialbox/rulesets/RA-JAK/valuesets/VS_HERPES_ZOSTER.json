@@ -1,0 +1,100 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "B02",
+      "display": "Zoster [herpes zoster]"
+     },
+     {
+      "code": "B02.0",
+      "display": "Zoster encephalitis"
+     },
+     {
+      "code": "B02.1",
+      "display": "Zoster meningitis"
+     },
+     {
+      "code": "B02.2",
+      "display": "Zoster with other nervous system involvement"
+     },
+     {
+      "code": "B02.21",
+      "display": "Postherpetic geniculate ganglionitis"
+     },
+     {
+      "code": "B02.22",
+      "display": "Postherpetic trigeminal neuralgia"
+     },
+     {
+      "code": "B02.23",
+      "display": "Postherpetic polyneuropathy"
+     },
+     {
+      "code": "B02.24",
+      "display": "Postherpetic myelitis"
+     },
+     {
+      "code": "B02.29",
+      "display": "Other postherpetic nervous system involvement"
+     },
+     {
+      "code": "B02.3",
+      "display": "Zoster ocular disease"
+     },
+     {
+      "code": "B02.30",
+      "display": "Zoster ocular disease, unspecified"
+     },
+     {
+      "code": "B02.31",
+      "display": "Zoster conjunctivitis"
+     },
+     {
+      "code": "B02.32",
+      "display": "Zoster iridocyclitis"
+     },
+     {
+      "code": "B02.33",
+      "display": "Zoster keratitis"
+     },
+     {
+      "code": "B02.34",
+      "display": "Zoster scleritis"
+     },
+     {
+      "code": "B02.39",
+      "display": "Other herpes zoster eye disease"
+     },
+     {
+      "code": "B02.7",
+      "display": "Disseminated zoster"
+     },
+     {
+      "code": "B02.8",
+      "display": "Zoster with other complications"
+     },
+     {
+      "code": "B02.9",
+      "display": "Zoster without complications"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "extension": [
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|B02"
+  }
+ ],
+ "id": "RA-JAK-VS-HERPES-ZOSTER",
+ "name": "VS_HERPES_ZOSTER",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "herpes zoster",
+ "url": "http://trialbox.local/fhir/ValueSet/RA-JAK-VS-HERPES-ZOSTER",
+ "version": "1.0.0-v6bd935d3"
+}

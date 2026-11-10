@@ -363,6 +363,14 @@ jobs:
                   bad.append((user, path, st))
           sys.exit(f"sign-in failed: {bad}" if bad else 0)
           PY
+      # T-504 (LIFE-002): the CGMH amend-and-approve walk (GZQO amended, approved on S20, the changed list) inside
+      # the container, in ja, zh-TW and en, on its own synthetic site and box (plain http in process: no Secure cookie)
+      - name: The GZQO amend-and-approve walk in the container, in three languages
+        run: |
+          for lang in ja zh-TW en; do
+            # bash -eo pipefail: a failed walk fails the step
+            docker exec -e TB_CONSOLE_SECURE_COOKIE=0 tb-demo python -m tools.cgmh_demo --dir /tmp/tb-cgmh --walk amend --lang "$lang" 2>&1 | grep -v '^{"ts"' | tail -5
+          done
       - name: The container log (password line left out)
         if: always()
         run: docker logs tb-demo 2>&1 | grep -v '^password' | tail -80 || true

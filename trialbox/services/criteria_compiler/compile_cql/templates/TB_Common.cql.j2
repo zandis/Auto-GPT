@@ -35,8 +35,14 @@ define function "BMI"(weightKg System.Decimal, heightCm System.Decimal):
   weightKg / Power(heightCm / 100.0, 2.0)
 
 /* the recorded unit of an Observation, spelled as the conversion table spells it (D-149) */
+/* "Swap" is Combine(Split(..)), not ReplaceMatches: in CQL engine 5.4.0 (HAPI FHIR 8.12) ReplaceMatches returns
+   its input in quotes when the pattern does not match, so no unit was ever recognised (D-321); Split of '' is no
+   list, so '' stays '' (no unit) */
+define function "Swap"(s System.String, a System.String, b System.String):
+  if s is null or s = '' then s else Combine(Split(s, a), b)
+
 define function "UnitOf"(O FHIR.Observation):
-  Lower(ReplaceMatches(ReplaceMatches(ReplaceMatches(Coalesce((O.value as FHIR.Quantity).code.value,
+  Lower("Swap"("Swap"("Swap"(Coalesce((O.value as FHIR.Quantity).code.value,
     (O.value as FHIR.Quantity).unit.value, ''), ' ', ''), 'µ', 'u'), 'μ', 'u'))
 
 /* x when it is inside the item's scale, else null (D-189: a 0-10 global holding 40 is not a 40) */
@@ -45,9 +51,9 @@ define function "InScale"(x System.Decimal, lo System.Decimal, hi System.Decimal
 
 /* the unit of a Quantity as two spellings of it compare equal (tb_common.labunit.key, D-275) */
 define function "UnitKey"(Q FHIR.Quantity):
-  ReplaceMatches(ReplaceMatches(ReplaceMatches(Lower(Coalesce(
+  "Swap"("Swap"("Swap"("Swap"("Swap"("Swap"("Swap"("Swap"("Swap"(Lower(Coalesce(
     if Q.code.value = '' then null else Q.code.value, Q.unit.value, '')),
-    '[\\[\\]{}_ ]', ''), '[µμ]', 'u'), '\\^', '*')
+    '[', ''), ']', ''), '{', ''), '}', ''), '_', ''), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*')
 
 /* a component in the unit its formula expects; null when the recorded unit is not allowed (D-149) */
 {%- for comp, (target, factors, rng) in units %}
