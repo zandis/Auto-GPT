@@ -2,7 +2,8 @@
 # platform's CNI must enforce NetworkPolicy (doctor --platform checks these objects exist; the isolation probe of
 # tests/platform shows they hold). What leaves the namespace is rendered from deploy/egress.py's allowlist, the
 # same source as the appliance's nftables table: `python -m tools.trialbox platform-egress --env-file <site.env>`
-# (one trialbox-egress-<service> policy per service with a host; a site overlay adds the output).
+# (one trialbox-egress-<service> policy per service with a host, and trialbox-egress-doctor for the install-check job;
+# a site overlay adds the output). No rule here is open: every rule names its peers (doctor --platform checks it).
 #
 # 1. default deny: no pod receives or sends anything not allowed below
 apiVersion: networking.k8s.io/v1
@@ -80,23 +81,8 @@ spec:
         - namespaceSelector: {matchLabels: {trialbox.io/console-ingress: "true"}}
       ports: [{protocol: TCP, port: 8090}]
 ---
-# 6. the install-check job: the API server (read-only service account), NTP, the directory, the mail relay and
-#    the backup share, to probe what IQ must show. It mounts no patient data.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata: {name: trialbox-doctor-egress}
-spec:
-  podSelector: {matchLabels: {app.kubernetes.io/component: doctor}}
-  policyTypes: [Egress]
-  egress:
-    - ports:
-        - {protocol: TCP, port: 443}
-        - {protocol: TCP, port: 6443}
-        - {protocol: UDP, port: 123}
-        - {protocol: TCP, port: 25}
-        - {protocol: TCP, port: 465}
-        - {protocol: TCP, port: 587}
-        - {protocol: TCP, port: 389}
-        - {protocol: TCP, port: 636}
-        - {protocol: TCP, port: 445}
-        - {protocol: TCP, port: 2049}
+# 6. the install-check job reaches nothing outside the namespace from the base. Its egress (the API server, NTP, the
+#    directory, the mail relay, the backup share: what IQ must probe) is rendered with the allowlist by
+#    `platform-egress` from the site's declarations (TB_PLATFORM_API_SERVER, TB_NTP_SERVER, TB_DIRECTORY_URL,
+#    SMTP_HOST:SMTP_PORT, TB_PLATFORM_BACKUP_HOST): policy trialbox-egress-doctor, one rule per declared host with its
+#    addresses as ipBlocks. A host not declared gets no rule (fail closed; doctor reports that probe failing).

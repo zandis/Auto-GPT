@@ -1,6 +1,7 @@
 # `trialbox doctor --platform` as a job in the namespace (WS-14.8, TST-IQ-03; D-211): reads the namespace's objects
 # with a read-only service account (Secrets: names and data keys only, never a value), probes NTP, the directory,
-# the mail relay and the backup target, and writes /evidence/iq-evidence.json; the job fails when a check fails.
+# the mail relay and the backup target, and writes /evidence/iq-evidence.json; the job fails when a check fails. Its
+# egress is only what the site declares (trialbox-egress-doctor, rendered by `platform-egress`; networkpolicy.yaml).
 #
 #   kubectl -n <ns> delete job trialbox-doctor --ignore-not-found && kustomize build ... | kubectl apply -f -
 #   kubectl -n <ns> logs job/trialbox-doctor
@@ -14,8 +15,14 @@ kind: Role
 metadata: {name: trialbox-doctor, labels: {app.kubernetes.io/component: doctor}}
 rules:
   - apiGroups: [""]
-    resources: [pods, secrets, configmaps, resourcequotas, persistentvolumeclaims]
+    resources: [pods, configmaps, resourcequotas, persistentvolumeclaims]
     verbs: [get, list]
+  # list only, never get or watch: kek_custody must see every Secret of the namespace (a KEK under any name is the
+  # finding, so named Secrets would not do); the job keeps names, labels, annotations and data keys and drops each
+  # value as it reads the list (platform.KubeApi). Nothing reads one Secret by name.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [list]
   - apiGroups: [apps]
     resources: [deployments, statefulsets]
     verbs: [get, list]

@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # The platform deployment on a kind cluster without a GPU (T-113 acceptance 2 and 3, D-211): what the CI job runs.
 #
-#   make images                                    # trialbox-py:1.0.0 and trialbox-jvm:1.0.0 in the local docker
+#   make images                 # trialbox-py:1.0.0, trialbox-jvm:1.0.0 and trialbox-postgres:16-1 in the local docker
 #   deploy/platform/kind-check.sh                  # needs kind, kubectl, kustomize; about 15 minutes
 #
 # Creates the cluster `tb-platform`, loads the release's images, makes throw-away Secrets (`trialbox secrets init` in
 # a temporary folder; nothing is a real credential), a ResourceQuota for the non-GPU minimum and a test overlay on
 # top of overlays/shared-quota (namespace trialbox, ReadWriteOnce claims for kind's local-path storage, TB_ENV=TEST,
-# TB_PLATFORM_NO_GPU=1); applies it; waits for every non-GPU workload; reads the doctor job's report (every check
+# TB_PLATFORM_NO_GPU=1, which VALIDATION and PRODUCTION refuse; the doctor's egress to the API server rendered by
+# `platform-egress`); applies it; waits for every non-GPU workload; reads the doctor job's report (every check
 # present, the GPU checks `skipped: no device`); runs the isolation probe from a second namespace; deletes the
 # cluster (KEEP=1 keeps it). The judge and the verifier stay Pending: kind has no GPU.
 set -euo pipefail
@@ -46,15 +47,20 @@ kubectl -n "$NS" create quota trialbox --hard=requests.cpu=16,requests.memory=96
 
 O="$WORK/overlay"
 mkdir -p "$O"
+# the doctor job's egress: only the API server here (no NTP, directory, relay or share on kind), rendered from the
+# declaration like a site's (`platform-egress`); without it the job reaches nothing (fail closed)
+API="$(kubectl -n default get endpoints kubernetes -o jsonpath='{.subsets[0].addresses[0].ip}:{.subsets[0].ports[0].port}')"
+printf 'TB_ENV=TEST\nTB_PLATFORM_API_SERVER=%s\n' "$API" > "$WORK/site.env"
+(cd "$ROOT" && "$PY" -m tools.trialbox platform-egress --env-file "$WORK/site.env") > "$O/egress.yaml"
 BASE="$("$PY" -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$ROOT/deploy/platform/overlays/shared-quota" "$O")"
 cat > "$O/kustomization.yaml" <<EOF
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: $NS
-resources: ["$BASE"]
+resources: ["$BASE", egress.yaml]
 configMapGenerator:
   - {name: trialbox-env, behavior: merge, literals: [TB_ENV=TEST, TB_CONSOLE_SECURE_COOKIE=0]}
-  - {name: trialbox-platform, behavior: merge, literals: [TB_PLATFORM_NO_GPU=1]}
+  - {name: trialbox-platform, behavior: merge, literals: [TB_PLATFORM_NO_GPU=1, "TB_PLATFORM_API_SERVER=$API"]}
 patches:
   - target: {kind: PersistentVolumeClaim}
     patch: '[{"op": "replace", "path": "/spec/accessModes", "value": ["ReadWriteOnce"]}]'

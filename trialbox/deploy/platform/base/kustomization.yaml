@@ -31,6 +31,7 @@ configMapGenerator:
   - name: trialbox-db-init
     files:
       - db-init/10-trialbox-wf.sh
+      - db-init/20-extensions.sh
   - name: trialbox-env  # the non-secret part of the appliance's deploy/.env; a site overlay merges its values
     envs:
       - site.env

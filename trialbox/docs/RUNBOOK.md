@@ -846,13 +846,17 @@ TrialBox's own namespace; Aimedics runs the install checks there; the hospital w
 **Apply.** A site overlay sits on top of `deploy/platform/overlays/shared-quota` (or `interim-cloud`): it sets the
 namespace and the storage class, replaces `trialbox-settings` with the site's `settings.yaml`, merges the site's
 values into `trialbox-env` (as `deploy/.env` on a box: `SMTP_HOST`, `TB_SITE_ID` ...) and `trialbox-platform`
-(the platform's declarations: `TB_PLATFORM_STORAGE_CLASS`, `TB_PLATFORM_STORAGE_ENCRYPTED=yes`,
-`TB_PLATFORM_STORAGE_EVIDENCE`, `TB_BACKUP_TARGETS`, `TB_PLATFORM_BACKUP_EVIDENCE`, `TB_NTP_SERVER`,
-`TB_DIRECTORY_URL`, `TB_MIG_PROFILE`), and adds the egress policies:
+(the platform's declarations: `TB_PLATFORM_STORAGE_CLASS` (required in VALIDATION and PRODUCTION),
+`TB_PLATFORM_STORAGE_ENCRYPTED=yes`, `TB_PLATFORM_STORAGE_EVIDENCE`, `TB_BACKUP_TARGETS`,
+`TB_PLATFORM_BACKUP_EVIDENCE`, `TB_PLATFORM_BACKUP_HOST`, `TB_NTP_SERVER`, `TB_DIRECTORY_URL`,
+`TB_PLATFORM_API_SERVER` (the API server's endpoint addresses, `kubectl -n default get endpoints kubernetes`),
+`TB_MIG_PROFILE`), and adds the egress policies:
 
 1. `python -m tools.trialbox platform-egress --env-file <site.env> > egress.yaml` renders the egress allowlist of
    `deploy/egress.py` as NetworkPolicies (the same hosts as the appliance's nftables table; resolved now, so re-run
-   it when an address changes). Add `egress.yaml` to the site overlay's resources.
+   it when an address changes) and the install-check job's own policy `trialbox-egress-doctor` (only the declared
+   API server, NTP, directory, mail relay and backup hosts; an undeclared one gets no rule). Add `egress.yaml` to
+   the site overlay's resources.
 2. `kustomize build <site overlay> | kubeconform -strict -summary` (pinned: kustomize v5.4.3, kubeconform v0.6.7),
    then `python -m tools.trialbox doctor --platform --manifests <build output>` before anything is applied: it
    prints the quota minimum and refuses a `latest` tag.
@@ -886,7 +890,8 @@ the provisional one, with no digest for the images not yet released: the doctor 
 VALIDATION and PRODUCTION.
 
 **On a test cluster (no GPU).** `make images`, then `deploy/platform/kind-check.sh`: a kind cluster, the release's
-images loaded, throw-away Secrets and a ResourceQuota, the overlay applied with `TB_PLATFORM_NO_GPU=1`, every
+images loaded, throw-away Secrets and a ResourceQuota, the overlay applied with `TB_ENV=TEST` and
+`TB_PLATFORM_NO_GPU=1` (refused in VALIDATION and PRODUCTION) and the doctor's egress to the API server, every
 non-GPU workload rolled out, the doctor job's report read (every check present, the GPU ones `skipped: no device`),
 the isolation probe, the cluster deleted. It is what the CI job is to run; the job itself is not wired yet (the
 workflow file is owned elsewhere).

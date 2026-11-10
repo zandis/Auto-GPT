@@ -5,7 +5,8 @@ Done-when (T-113): the overlays build and validate (with ``kustomize`` and ``kub
 and always by the structural check here); the rendered manifests carry ``release.json``'s digests; a ``latest`` tag
 is refused; the NetworkPolicy names the same hosts as the nftables table; ``doctor --platform`` fails on a missing
 NetworkPolicy, a quota under the profile's minimum and a Secret holding the KEK, and reports the GPU checks as
-``skipped: no device`` with ``--no-gpu``; the shared-quota serving values are never defaulted.
+``skipped: no device`` with ``--no-gpu`` (refused in VALIDATION and PRODUCTION); the shared-quota serving values are
+never defaulted. The review fixes of 2026-11-10 (D-211) each have a test below, named after what they refuse.
 """
 
 from __future__ import annotations
@@ -235,7 +236,7 @@ def test_rendered_manifests_carry_the_release_digests(overlay: str) -> None:
 
 def test_a_release_with_other_digests_regenerates_the_component(tmp_path: Path) -> None:
     rel = json.loads(pf.RELEASE.read_text(encoding="utf-8"))
-    for name in ("trialbox-py", "trialbox-jvm", "vllm"):
+    for name in ("trialbox-py", "trialbox-jvm", "vllm", "trialbox-postgres"):
         rel["images"][name]["digest"] = DIGEST
     p = tmp_path / "release.json"
     p.write_text(json.dumps(rel), encoding="utf-8")
@@ -270,9 +271,38 @@ def test_copies_in_the_base_are_byte_identical() -> None:
     """kustomize reads files only under the kustomization, so the base carries two copies; they never drift."""
     base = PLATFORM / "base"
     assert (base / "settings.example.yaml").read_bytes() == (ROOT / "deploy/settings.example.yaml").read_bytes()
-    assert (base / "db-init/10-trialbox-wf.sh").read_bytes() == (
-        ROOT / "deploy/docker/db-init/10-trialbox-wf.sh"
-    ).read_bytes()
+    for f in ("10-trialbox-wf.sh", "20-extensions.sh"):
+        assert (base / "db-init" / f).read_bytes() == (ROOT / "deploy/docker/db-init" / f).read_bytes(), f
+
+
+def test_platform_db_is_the_d204_image() -> None:
+    """Review fix 1 (D-204 came in with the master merge): the platform forms run the box's database image
+    (``trialbox-postgres:16-1``, pgvector and PGroonga), not stock postgres: the release entry is the lock's image and
+    digest, the StatefulSet runs it as the Debian image's uid, every db-init script of the appliance (the extensions
+    too) is in the ConfigMap, the readiness probe is the image's ``tb-db-check``, and the compose platform form's
+    POSTGRES_IMAGE comes from the same entry."""
+    lock = json.loads((ROOT / "deploy/images.lock").read_text(encoding="utf-8"))["images"]["db"]
+    rel = pf.load_release()
+    img = rel.images["trialbox-postgres"]
+    assert (img.image, img.digest) == (lock["image"], lock["digest"])
+    assert not any(i.repository == "postgres" for i in rel.images.values())
+    assert dict(line.split("=", 1) for line in pf.compose_env(rel))["POSTGRES_IMAGE"].startswith(lock["image"])
+    dockerfile = (ROOT / "deploy/docker/db.Dockerfile").read_text(encoding="utf-8")
+    base_ref = re.search(r"^ARG POSTGRES_BASE=(\S+)", dockerfile, re.M)
+    assert base_ref and base_ref.group(1).startswith("postgres:16-trixie@")  # Debian: postgres is uid/gid 999
+    assert "alpine" not in base_ref.group(1) and not re.search(r"^USER ", dockerfile, re.M)
+    sts = next(o for o in build("shared-quota") if o["kind"] == "StatefulSet" and o["metadata"]["name"] == "db")
+    pod = sts["spec"]["template"]["spec"]
+    sc = pod["securityContext"]
+    assert (sc["runAsUser"], sc["runAsGroup"], sc["fsGroup"]) == (999, 999, 999)
+    c = pod["containers"][0]
+    assert c["image"] == "trialbox-postgres:16-1"  # by tag while the lock's digest is null (T-110 releases it)
+    assert c["readinessProbe"]["exec"]["command"] == [Path(lock["healthcheck"]).name]
+    assert "COPY --chmod=0755 db.healthcheck.sh " + lock["healthcheck"] in dockerfile
+    gen = next(g for g in _kustomization(PLATFORM / "base")["configMapGenerator"] if g["name"] == "trialbox-db-init")
+    shipped = sorted(p.name for p in (ROOT / "deploy/docker/db-init").iterdir() if p.suffix == ".sh")
+    assert sorted(Path(f).name for f in gen["files"]) == shipped
+    assert "20-extensions.sh" in shipped
 
 
 # ------------------------------------------------------------------------------------------------ shared-quota
@@ -377,14 +407,7 @@ def test_networkpolicy_names_the_same_hosts_as_nftables() -> None:
         "TB_ENV": "PRODUCTION",
     }
     allows = eg.allowlist(env)
-    dns = {
-        "smtp.hospa.test": ["10.0.0.25", "2001:db8::25"],
-        "imap.hospa.test": ["10.0.0.26"],
-        "twpas.nhi.example": ["203.0.113.10"],
-        "clinicaltrials.gov": ["130.14.1.1"],
-        "llm.example.com": ["198.51.100.8"],
-    }
-    resolver = lambda h: dns.get(h, [h] if re.fullmatch(r"[\d.]+", h) else [])  # noqa: E731
+    resolver = _dns
     box = eg.Box(subnets=["172.18.0.0/16"], addresses={a.service: ["172.18.0.2", "fd00::2"] for a in allows})
     script, w1 = eg.render(box, allows, resolver)
     pols, w2 = eg.render_networkpolicy(allows, resolver)
@@ -438,6 +461,22 @@ def _write(doc: dict[str, Any]) -> Path:
     return Path(name)
 
 
+DNS = {
+    "smtp.hospa.test": ["10.0.0.25", "2001:db8::25"],
+    "imap.hospa.test": ["10.0.0.26"],
+    "twpas.nhi.example": ["203.0.113.10"],
+    "clinicaltrials.gov": ["130.14.1.1"],
+    "llm.example.com": ["198.51.100.8"],
+    "ntp.hospa.test": ["10.0.0.123"],
+    "ad.hospa.test": ["10.0.0.40"],
+    "nas.hospa.test": ["10.0.0.50"],
+}
+
+
+def _dns(h: str) -> list[str]:
+    return DNS.get(h, [h] if re.fullmatch(r"[\d.]+", h) else [])
+
+
 def _inputs(state: pf.PlatformState, no_gpu: bool = False, **env: str) -> pf.PlatformInputs:
     return pf.PlatformInputs(
         state,
@@ -446,6 +485,7 @@ def _inputs(state: pf.PlatformState, no_gpu: bool = False, **env: str) -> pf.Pla
         no_gpu=no_gpu,
         connect=lambda h, p: None,
         sntp=lambda s: 0.01,
+        resolve=_dns,
     )
 
 
@@ -531,7 +571,7 @@ def test_image_digests_against_the_release() -> None:
         v["digest"] = v["digest"] or DIGEST
     released = pf.load_release(_write(rel))
     text = _rendered("shared-quota")
-    for ref in ("trialbox-py:1.0.0", "trialbox-jvm:1.0.0", "vllm/vllm-openai:v0.32.0"):
+    for ref in ("trialbox-py:1.0.0", "trialbox-jvm:1.0.0", "vllm/vllm-openai:v0.32.0", "trialbox-postgres:16-1"):
         text = text.replace(f"image: {ref}", f"image: {pf.split_ref(ref)[0]}@{DIGEST}")
     inp = _inputs(pf.state_from_manifests(text), TB_ENV="PRODUCTION")
     inp.release = released
@@ -554,11 +594,11 @@ def test_image_digests_against_the_release() -> None:
     c = pf.check_image_digests(inp)
     assert c.status == "FAIL" and "running" in c.detail
     # a tag the release does not name, and the kubelet's long form of a repository
-    retag = text.replace("image: postgres@", "image: postgres:15@", 1)
+    retag = text.replace("image: hapiproject/hapi@", "image: hapiproject/hapi:v7@", 1)
     inp3 = _inputs(pf.state_from_manifests(retag), TB_ENV="PRODUCTION")
     inp3.release = released
     assert pf.check_image_digests(inp3).status == "FAIL"
-    assert released.by_repository("docker.io/library/postgres") is released.images["postgres"]
+    assert released.by_repository("docker.io/hapiproject/hapi") is released.images["hapi"]
     # an image outside the release
     other = text.replace(f"image: trialbox-py@{DIGEST}", f"image: evil/trialbox-py@{DIGEST}", 1)
     inp2 = _inputs(pf.state_from_manifests(other), TB_ENV="PRODUCTION")
@@ -641,9 +681,17 @@ def test_doctor_platform_cli_writes_evidence_and_exits(
     man = tmp_path / "rendered.yaml"
     man.write_text(yaml.safe_dump_all(objs), encoding="utf-8")
     ev = tmp_path / "out" / "iq-evidence.json"
+    # PRODUCTION (the manifests' TB_ENV): --no-gpu is refused before any check, and no evidence is written
+    assert cli(["doctor", "--platform", "--no-gpu", "--manifests", str(man), "--evidence", str(ev)]) == 1
+    assert "refused in VALIDATION and PRODUCTION" in capsys.readouterr().err and not ev.exists()
+    rc = cli(["doctor", "--platform", "--manifests", str(man), "--evidence", str(ev)])
+    doc = json.loads(ev.read_text(encoding="utf-8"))
+    assert rc == 1 and doc["passed"] is False  # unreleased images, no serving record, nothing declared
+    assert doc["no_gpu"] is False and by_status(doc, "SKIP") == set()
+    monkeypatch.setenv("TB_ENV", "TEST")
     rc = cli(["doctor", "--platform", "--no-gpu", "--manifests", str(man), "--evidence", str(ev)])
     doc = json.loads(ev.read_text(encoding="utf-8"))
-    assert rc == 1 and doc["passed"] is False  # PRODUCTION (the manifests' TB_ENV) with an unreleased image set
+    assert rc == 0 and doc["passed"] is True, by_status(doc, "FAIL")  # TEST: what is not declared is a WARN
     assert doc["schema"] == pf.EVIDENCE_SCHEMA and doc["no_gpu"] is True and doc["gpu_profile"] == "shared-quota"
     by = {c["name"]: c for c in doc["checks"]}
     assert {n for n, c in by.items() if c["status"] == "SKIP"} == {"serving_record", "gpu_serving", "canary"}
@@ -651,7 +699,6 @@ def test_doctor_platform_cli_writes_evidence_and_exits(
     assert {"topology", "routing_perimeter", "image_digests", "quota", "network_policy", "kek_custody", "ntp"} <= set(
         by
     )
-    assert by["image_digests"]["status"] == "FAIL"
     # a site whose declarations are all in place, with the egress policy its site overlay adds, passes (TEST, so
     # the unreleased tags are a warning)
     eg = doctor._egress()
@@ -670,6 +717,7 @@ def test_doctor_platform_cli_writes_evidence_and_exits(
         monkeypatch.setenv(k, v)
     monkeypatch.setattr(pf, "_connect", lambda h, p: None)
     monkeypatch.setattr(pf, "sntp_offset", lambda s, timeout=3.0: 0.002)
+    monkeypatch.setattr(pf, "_resolve", lambda h: ["10.0.0.25"])  # the egress policy's ipBlocks, compared now
     rc = cli(["doctor", "--platform", "--no-gpu", "--manifests", str(man), "--evidence", str(ev)])
     doc = json.loads(ev.read_text(encoding="utf-8"))
     fails = [c for c in doc["checks"] if c["status"] == "FAIL"]
@@ -677,6 +725,10 @@ def test_doctor_platform_cli_writes_evidence_and_exits(
     capsys.readouterr()
     # not in a cluster and nothing given: refused, not a pass
     assert cli(["doctor", "--platform"]) == 1
+
+
+def by_status(doc: dict[str, Any], status: str) -> set[str]:
+    return {c["name"] for c in doc["checks"] if c["status"] == status}
 
 
 def test_compose_platform_form(tmp_path: Path) -> None:
@@ -767,3 +819,279 @@ def test_kube_api_never_keeps_a_secret_value(tmp_path: Path, monkeypatch: pytest
 def test_doctor_status_skip_is_not_a_failure() -> None:
     checks = [doctor.Check("a", "PASS", ""), doctor.Check("b", "SKIP", pf.NO_DEVICE)]
     assert doctor.ok(checks) and "SKIP" in doctor.render(checks)
+
+
+# ------------------------------------------------------------------------------------------------ review fixes
+def _policy(name: str, spec: dict[str, Any], **labels: str) -> dict[str, Any]:
+    return {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {"name": name, "labels": labels},
+        "spec": spec,
+    }
+
+
+def test_network_policy_refuses_open_rules_and_drift() -> None:
+    """Review fix 2: a false PASS. Policy names and annotations are not enough: an open rule anywhere (no ``to``,
+    no ``from``, a /0 block), a changed model isolation, or egress ipBlocks other than the rendered ones fail."""
+    st = _cluster(quota=ENOUGH)
+    assert pf.open_rules(st.of("NetworkPolicy")) == []
+    assert pf.check_network_policy(_inputs(st)).status == "PASS"
+    open_doctor = _policy(
+        "trialbox-doctor-egress",  # the rule the base shipped before: any address on these ports
+        {
+            "podSelector": {"matchLabels": {"app.kubernetes.io/component": "doctor"}},
+            "policyTypes": ["Egress"],
+            "egress": [{"ports": [{"protocol": "TCP", "port": 443}, {"protocol": "TCP", "port": 445}]}],
+        },
+    )
+    world = _policy(
+        "x-world",
+        {"podSelector": {}, "policyTypes": ["Egress"], "egress": [{"to": [{"ipBlock": {"cidr": "::/0"}}]}]},
+    )
+    any_in = _policy("x-in", {"podSelector": {}, "policyTypes": ["Ingress"], "ingress": [{"from": []}]})
+    v4 = _policy(
+        "x-v4",
+        {"podSelector": {}, "policyTypes": ["Egress"], "egress": [{"to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]}]},
+    )
+    for extra in (open_doctor, world, any_in, v4):
+        bad = _cluster(quota=ENOUGH)
+        bad.objects.append(extra)
+        c = pf.check_network_policy(_inputs(bad))
+        assert c.status == "FAIL" and "open rules" in c.detail and extra["metadata"]["name"] in c.detail, extra
+    # model isolation must be the shipped one: an extra ingress source is a change
+    iso = _cluster(quota=ENOUGH)
+    pol = iso.named("NetworkPolicy", "trialbox-model-isolation")
+    assert pol is not None
+    pol["spec"]["ingress"][0]["from"].append({"podSelector": {"matchLabels": {"app.kubernetes.io/component": "lake"}}})
+    c = pf.check_network_policy(_inputs(iso))
+    assert c.status == "FAIL" and "trialbox-model-isolation differs" in c.detail
+    # the API server's form of the shipped policy (no empty egress list, the default protocol) is the same policy
+    same = _cluster(quota=ENOUGH)
+    pol = same.named("NetworkPolicy", "trialbox-model-isolation")
+    assert pol is not None
+    del pol["spec"]["egress"]
+    assert pf.check_network_policy(_inputs(same)).status == "PASS"
+    # the annotation says smtp, the ipBlock is somewhere else
+    eg = doctor._egress()
+    env = {"SMTP_HOST": "smtp.hospa.test"}
+    pols, _ = eg.render_networkpolicy(eg.allowlist({**env, "TB_ENV": "TEST"}), _dns)
+    good = _cluster([*build("shared-quota"), *pols], quota=ENOUGH)
+    assert pf.check_network_policy(_inputs(good, **env)).status == "PASS"
+    moved = copy.deepcopy(pols)
+    moved[0]["spec"]["egress"][0]["to"] = [{"ipBlock": {"cidr": "192.0.2.99/32"}}]
+    c = pf.check_network_policy(_inputs(_cluster([*build("shared-quota"), *moved], quota=ENOUGH), **env))
+    assert c.status == "FAIL" and "192.0.2.99/32" in c.detail
+
+
+def test_doctor_egress_is_rendered_from_the_site_and_fails_closed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review fix 3: the doctor reaches only the declared API server, NTP, directory, mail relay and backup hosts, as
+    ipBlocks rendered like the egress allowlist; an undeclared host gets no rule; it lists Secrets and nothing more."""
+    base = [o for o in build("shared-quota") if o["kind"] == "NetworkPolicy"]
+    selects_doctor = [
+        p
+        for p in base
+        if (p["spec"]["podSelector"].get("matchLabels") or {}).get("app.kubernetes.io/component") == "doctor"
+    ]
+    assert selects_doctor == [] and pf.open_rules(base) == []
+    env = {
+        "TB_PLATFORM_API_SERVER": "10.96.0.1:6443",
+        "TB_NTP_SERVER": "ntp.hospa.test",
+        "TB_DIRECTORY_URL": "ldaps://ad.hospa.test",
+        "SMTP_HOST": "smtp.hospa.test",
+        "SMTP_PORT": "25",
+        "TB_PLATFORM_BACKUP_HOST": "nas.hospa.test:2049",
+    }
+    pol, warn = pf.render_doctor_policy(env, _dns)
+    assert pol is not None and warn == []
+    assert pol["spec"]["podSelector"] == {"matchLabels": {"app.kubernetes.io/component": "doctor"}}
+    assert all(r["to"] for r in pol["spec"]["egress"]) and pf.open_rules([pol]) == []
+    assert pf._blocks(pol) == {
+        ("10.96.0.1/32", "TCP", "6443"),
+        ("10.0.0.123/32", "UDP", "123"),
+        ("10.0.0.40/32", "TCP", "636"),
+        ("10.0.0.25/32", "TCP", "25"),
+        ("2001:db8::25/128", "TCP", "25"),
+        ("10.0.0.50/32", "TCP", "2049"),
+    }
+    # fail closed: nothing declared, nothing allowed; an unresolvable host gets no rule
+    none, warn = pf.render_doctor_policy({}, _dns)
+    assert none is None and len(warn) == 4 and all("not declared" in w for w in warn)
+    part, warn = pf.render_doctor_policy({"TB_NTP_SERVER": "ntp.hospa.test", "SMTP_HOST": "nowhere.invalid"}, _dns)
+    assert part is not None and pf._blocks(part) == {("10.0.0.123/32", "UDP", "123")}
+    assert any("nowhere.invalid: does not resolve" in w for w in warn)
+    # the command renders it with the allowlist
+    envf = tmp_path / "site.env"
+    envf.write_text("TB_PLATFORM_API_SERVER=10.96.0.1:6443\nTB_NTP_SERVER=10.0.0.123\n", encoding="utf-8")
+    assert cli(["platform-egress", "--env-file", str(envf)]) == 0
+    docs = {d["metadata"]["name"]: d for d in yaml.safe_load_all(capsys.readouterr().out) if d}
+    assert pf._blocks(docs[pf.DOCTOR_POLICY]) == {("10.96.0.1/32", "TCP", "6443"), ("10.0.0.123/32", "UDP", "123")}
+    # doctor --platform compares it with the declarations: a wider or another one fails
+    eg = doctor._egress()
+    allow_pols, _ = eg.render_networkpolicy(eg.allowlist({**env, "TB_ENV": "TEST"}), _dns)
+    st = _cluster([*build("shared-quota"), *allow_pols, pol], quota=ENOUGH)
+    assert pf.check_network_policy(_inputs(st, **env)).status == "PASS"
+    wider = copy.deepcopy(pol)
+    wider["spec"]["egress"][0]["to"].append({"ipBlock": {"cidr": "10.0.0.0/8"}})
+    c = pf.check_network_policy(_inputs(_cluster([*build("shared-quota"), *allow_pols, wider], quota=ENOUGH), **env))
+    assert c.status == "FAIL" and "10.0.0.0/8" in c.detail
+    st = _cluster([*build("shared-quota"), pol], quota=ENOUGH)
+    c = pf.check_network_policy(_inputs(st))  # the site declares nothing, yet the doctor may reach hosts
+    assert c.status == "FAIL" and "declares no doctor destination" in c.detail
+    # the Role: Secrets are listed (kek_custody needs every name), never read one by one
+    role = next(o for o in build("shared-quota") if o["kind"] == "Role" and o["metadata"]["name"] == "trialbox-doctor")
+    secret_rules = [r for r in role["rules"] if "secrets" in r["resources"]]
+    assert secret_rules == [{"apiGroups": [""], "resources": ["secrets"], "verbs": ["list"]}]
+    assert all(set(r["verbs"]) <= {"get", "list"} for r in role["rules"])
+
+
+def test_no_gpu_is_refused_in_validation_and_production(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review fix 4: --no-gpu / TB_PLATFORM_NO_GPU can never turn the GPU checks into SKIP (and the evidence into
+    ``passed: true``) in VALIDATION or PRODUCTION: the command refuses it, and the checks fail if given it anyway."""
+    st = _cluster(quota=ENOUGH)
+    for env in ("VALIDATION", "PRODUCTION"):
+        by = {c.name: c for c in pf.run(_inputs(st, no_gpu=True, TB_ENV=env))}
+        for name in ("serving_record", "gpu_serving", "canary"):
+            assert by[name].status == "FAIL" and "refused" in by[name].detail, (env, name)
+        q = pf.check_quota(_inputs(_cluster(quota={**ENOUGH, "requests.nvidia.com/gpu": "0"}), no_gpu=True, TB_ENV=env))
+        assert q.status == "FAIL" and "gpu" in q.detail  # the GPU quota still counts
+    man = tmp_path / "rendered.yaml"
+    man.write_text(yaml.safe_dump_all(build("shared-quota")), encoding="utf-8")
+    for k in [k for k in os.environ if k.startswith("TB_")]:
+        monkeypatch.delenv(k, raising=False)
+    import argparse
+
+    for env in ("VALIDATION", "PRODUCTION"):
+        for flag, extra in ((True, {}), (False, {"TB_PLATFORM_NO_GPU": "1"})):
+            a = argparse.Namespace(manifests=man, compose_config=None, release=None, no_gpu=flag)
+            with pytest.raises(pf.PlatformError, match="refused in VALIDATION and PRODUCTION"):
+                pf.inputs_from(a, {"TB_ENV": env, **extra}, ROOT / "models" / "routing.yaml")
+    a = argparse.Namespace(manifests=man, compose_config=None, release=None, no_gpu=True)
+    assert pf.inputs_from(a, {"TB_ENV": "TEST"}, ROOT / "models" / "routing.yaml").no_gpu is True
+
+
+def test_gpu_serving_enforces_one_judge_and_one_verifier_one_device_each() -> None:
+    """Review fix 5: two devices, enforced: one judge and one verifier by ``trialbox.io/role``, one device each, no
+    other GPU workload, a GPU quota of at least two."""
+
+    def declared(objs: list[dict[str, Any]], quota: dict[str, str] | None = ENOUGH) -> pf.PlatformState:
+        st = _cluster(objs, quota=quota)
+        st.source = "manifests"  # what is declared; a cluster also needs the pods ready (below)
+        return st
+
+    assert pf.check_gpu_serving(_inputs(declared(build("shared-quota")))).status == "PASS"
+    running = _cluster(quota=ENOUGH)
+    c = pf.check_gpu_serving(_inputs(running))
+    assert c.status == "FAIL" and "llm-service: no ready pod" in c.detail
+    for comp in ("llm-service", "llm-verifier"):
+        running.objects.append(
+            {
+                "kind": "Pod",
+                "metadata": {"name": f"{comp}-0", "labels": {"app.kubernetes.io/component": comp}},
+                "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+            }
+        )
+    assert pf.check_gpu_serving(_inputs(running)).status == "PASS"
+
+    def variant(fn: Any, quota: dict[str, str] | None = ENOUGH) -> pf.Check:
+        objs = copy.deepcopy(build("shared-quota"))
+        fn(objs)
+        return pf.check_gpu_serving(_inputs(declared(objs, quota)))
+
+    def dep(objs: list[dict[str, Any]], name: str) -> dict[str, Any]:
+        return next(o for o in objs if o["kind"] == "Deployment" and o["metadata"]["name"] == name)
+
+    def two_devices(objs: list[dict[str, Any]]) -> None:
+        r = dep(objs, "llm-service")["spec"]["template"]["spec"]["containers"][0]["resources"]
+        r["limits"]["nvidia.com/gpu"] = r["requests"]["nvidia.com/gpu"] = 2
+
+    def no_verifier(objs: list[dict[str, Any]]) -> None:
+        objs.remove(dep(objs, "llm-verifier"))
+
+    def two_judges(objs: list[dict[str, Any]]) -> None:
+        v = dep(objs, "llm-verifier")
+        v["metadata"]["labels"]["trialbox.io/role"] = "judge"
+        v["spec"]["template"]["metadata"]["labels"]["trialbox.io/role"] = "judge"
+
+    def two_replicas(objs: list[dict[str, Any]]) -> None:
+        dep(objs, "llm-verifier")["spec"]["replicas"] = 2
+
+    def gpu_elsewhere(objs: list[dict[str, Any]]) -> None:
+        c = dep(objs, "lake")["spec"]["template"]["spec"]["containers"][0]
+        c["resources"].setdefault("limits", {})["nvidia.com/gpu"] = 1
+
+    def unlabelled(objs: list[dict[str, Any]]) -> None:
+        for name in ("llm-service", "llm-verifier"):
+            d = dep(objs, name)
+            d["metadata"]["labels"].pop("trialbox.io/role")
+            d["spec"]["template"]["metadata"]["labels"].pop("trialbox.io/role")
+
+    for fn, words in (
+        (two_devices, "judge Deployment/llm-service takes 2"),
+        (no_verifier, "0 verifier workloads"),
+        (two_judges, "2 judge workloads"),
+        (two_replicas, "verifier Deployment/llm-verifier takes 2"),
+        (gpu_elsewhere, "Deployment/lake takes 1 GPU devices"),
+        (unlabelled, "0 judge workloads"),
+    ):
+        c = variant(fn)
+        assert c.status == "FAIL" and words in c.detail, (fn.__name__, c.detail)
+    for quota in ({**ENOUGH, "requests.nvidia.com/gpu": "1"}, {"requests.cpu": "16"}, None):
+        c = variant(lambda objs: None, quota)
+        assert c.status == "FAIL" and "GPU quota" in c.detail, quota
+    # the compose form names the pair by service
+    gpu = {"resources": {"reservations": {"devices": [{"device_ids": ["MIG-a"], "capabilities": ["gpu"]}]}}}
+    gpu2 = {"resources": {"reservations": {"devices": [{"device_ids": ["MIG-b"], "capabilities": ["gpu"]}]}}}
+    cst = pf.state_from_compose(
+        {"services": {"llm-service": {"image": "x", "deploy": gpu}, "llm-verifier": {"image": "x", "deploy": gpu2}}}
+    )
+    assert pf.check_gpu_serving(_inputs(cst, TB_PLATFORM_QUOTA="gpu=2")).status == "PASS"
+    assert pf.check_gpu_serving(_inputs(cst, TB_PLATFORM_QUOTA="gpu=1")).status == "FAIL"
+
+
+def test_quota_compares_requests_and_limits_apart() -> None:
+    """Review fix 6: requests.* against the requests, limits.* against the limits (one figure for both let a large
+    limits figure hide a small requests one), the lowest of several quotas, and a bounded limit every container sets."""
+    need, lim = pf.minimum(_cluster()), pf.minimum(_cluster(), "limits")
+    assert lim["memory"] > need["memory"]
+    small_req = {**ENOUGH, "requests.memory": "8Gi", "limits.memory": "2Ti"}
+    c = pf.check_quota(_inputs(_cluster(quota=small_req)))
+    assert c.status == "FAIL" and "memory: quota 8.0Gi < profile minimum" in c.detail
+    small_lim = {**ENOUGH, "limits.memory": f"{int(need['memory'] / 2**30) + 1}Gi"}
+    c = pf.check_quota(_inputs(_cluster(quota=small_lim)))
+    assert c.status == "FAIL" and "limits.memory: quota" in c.detail
+    big_lim = {**ENOUGH, "limits.memory": f"{int(lim['memory'] / 2**30) + 1}Gi"}
+    assert pf.check_quota(_inputs(_cluster(quota=big_lim))).status == "PASS"
+    # two quotas: both apply, so the lower figure counts
+    st = _cluster(quota=ENOUGH)
+    st.objects.append(
+        {"kind": "ResourceQuota", "metadata": {"name": "platform"}, "spec": {"hard": {"requests.cpu": "1"}}}
+    )
+    c = pf.check_quota(_inputs(st))
+    assert c.status == "FAIL" and "cpu: quota 1 < profile minimum" in c.detail
+    # a bounded limit no container sets: every pod would be refused by the quota
+    c = pf.check_quota(_inputs(_cluster(quota={**ENOUGH, "limits.cpu": "1000"})))
+    assert c.status == "FAIL" and "limits.cpu is bounded but" in c.detail
+    # a bare name bounds requests, as in Kubernetes
+    c = pf.check_quota(_inputs(_cluster(quota={**ENOUGH, "cpu": "1"})))
+    assert c.status == "FAIL" and "cpu: quota 1" in c.detail
+
+
+def test_storage_class_is_required_in_validation_and_production() -> None:
+    """Review fix 7: without TB_PLATFORM_STORAGE_CLASS no claim is checked, so VALIDATION and PRODUCTION require it."""
+    st = _cluster(quota=ENOUGH)
+    declared = {"TB_PLATFORM_STORAGE_ENCRYPTED": "yes", "TB_PLATFORM_STORAGE_EVIDENCE": "SC-1"}
+    assert pf.check_storage_encryption(_inputs(st, **declared)).status == "PASS"  # TEST
+    for env in ("VALIDATION", "PRODUCTION"):
+        c = pf.check_storage_encryption(_inputs(st, TB_ENV=env, **declared))
+        assert c.status == "FAIL" and "TB_PLATFORM_STORAGE_CLASS" in c.detail
+    objs = copy.deepcopy(build("shared-quota"))
+    for o in objs:
+        if o["kind"] == "PersistentVolumeClaim":
+            o["spec"]["storageClassName"] = "enc-rwx"
+        for t in (o.get("spec") or {}).get("volumeClaimTemplates") or [] if o["kind"] == "StatefulSet" else []:
+            t["spec"]["storageClassName"] = "enc-rwx"
+    ok = _inputs(_cluster(objs), TB_ENV="PRODUCTION", TB_PLATFORM_STORAGE_CLASS="enc-rwx", **declared)
+    assert pf.check_storage_encryption(ok).status == "PASS"

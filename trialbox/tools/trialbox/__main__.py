@@ -41,7 +41,10 @@ def main(argv: list[str] | None = None) -> int:
     pi.add_argument("--release", type=Path, default=None)
     pi.add_argument("--check", action="store_true", help="exit 1 when the committed component differs")
     pi.add_argument("--env", action="store_true", help="print the compose image variables (platform form)")
-    pe = sub.add_parser("platform-egress", help="the egress allowlist as NetworkPolicy YAML (deploy/egress.py, D-211)")
+    pe = sub.add_parser(
+        "platform-egress",
+        help="the egress allowlist and the doctor job's egress as NetworkPolicy YAML (deploy/egress.py, D-211)",
+    )
     pe.add_argument("--env-file", type=Path, default=None)
     e = sub.add_parser("eval", help="run a public evaluation suite and archive the result")
     e.add_argument("suite")
@@ -178,7 +181,9 @@ def _platform_cmd(a: argparse.Namespace) -> int:
         env = pf.platform_env(inputs_from(env_file=a.env_file, settings=None, routing=None, dataplat=None).env)
         eg = _egress()
         pols, warnings = eg.render_networkpolicy(eg.allowlist(env, eg.ROUTING))
-        for w in warnings:
+        doctor_pol, doctor_warnings = pf.render_doctor_policy(env)  # the install-check job's own egress (D-211)
+        pols = [*pols, *([doctor_pol] if doctor_pol else [])]
+        for w in [*warnings, *doctor_warnings]:
             print(f"warning: {w}", file=sys.stderr)
         print(yaml.safe_dump_all(pols, sort_keys=False, allow_unicode=True) if pols else "# no egress allowed", end="")
         return 0
