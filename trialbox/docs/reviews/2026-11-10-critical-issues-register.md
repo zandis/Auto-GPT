@@ -886,3 +886,70 @@ Rows CR-001 to CR-114 are counted with the status changes in 7.1 ("partly fixed"
 | Critical | 6 | 0 | 1 | 7 |
 | High | 62 | 7 | 15 | 84 |
 | Total | 86 | 8 | 21 | 115 |
+
+## 8. Update 2: where this session stops (2026-11-10, 16:00 UTC)
+
+The owner asked the sub-sessions to finish what was in hand and hand the rest back. This session started six of the fix groups (FG-A, FG-B, FG-C, FG-D, FG-F, FG-G). FG-A, FG-B, FG-F and FG-G were finished and opened as pull requests. FG-C was stopped after two minutes, with no commit, when the hand-back was asked for. The table below covers every fix group. The build session is now the only integrator (`docs/plan/30-integrator-closing-2026-11-10.md`).
+
+### 8.1 Fix groups
+
+| Fix group | Decision | Rows | Pull request | State | Checks (local, under the shared lock) | Adversarial reviews |
+| --- | --- | --- | --- | --- | --- | --- |
+| FG-A site-local "today" | D-270 | CR-049, CR-050 | #86 | merged | lint; 2,171 passed, 9 skipped, 0 failed; e2e_simple passed; CI green | 1 review: 0 B, 0 C, 0 H, 1 M, 7 L. The M and 2 L fixed, the rest Open in the PR. |
+| FG-B data pipeline | D-271 | CR-051, CR-052, CR-053 | #97 | merged | lint; 2,658 passed, 14 skipped, 0 failed; e2e_simple passed | 1 review: 1 B, 1 C, 2 H, 3 M, 3 L, all fixed with tests |
+| FG-C audit integrity | D-272 | CR-016, CR-054 | #104 | merged; built by another session after the hand-back | see #104 | see #104 |
+| FG-D console privacy guards | D-273 | CR-017 to CR-023, CR-055 | #108 | open; another session | see #108 | see #108 |
+| FG-E backup and restore | D-274 | CR-056, CR-057 | none | not started | | |
+| FG-F structured-criteria safety | D-275 | CR-001, CR-005, CR-006, CR-007, CR-115 | #115 | open, draft, head `f514a52` | lint; 2,906 passed, 17 skipped, 2 xfailed, 1 failed (`test_notice.py`, the master break that #111 fixed); e2e_simple passed; decisions check clean | 1 review: 1 C, 2 H, 4 M, 6 L. All fixed except one Low. |
+| FG-G two-model check | D-276 | CR-002, CR-003, CR-004, deep review LLM-002 and LLM-003 | #101 | open, head `5497ce9`; the build session merges master into it and merges it | lint; 2,841 passed, 17 skipped, 0 failed; e2e_simple passed | 2 reviews. First: 1 C, 1 H, 3 M, 4 L. Second, on the LLM-002 part: 1 H, 2 L. All C and H fixed. |
+| FG-H SAE | D-277 | CR-008 to CR-011 | none | not started | | |
+| FG-I orchestrator authorisation and opt-out | D-278 | CR-026, CR-038 | none | not started | | |
+| FG-J identity follow-ups | D-279 | CR-034, CR-033 rest, CR-116, CR-117 | #107 | open; another session | see #107 | see #107 |
+| FG-K data steward and break-glass | D-280 | CR-023, CR-027 | none | not started (owner decision OD-5 in 7.4) | | |
+| FG-L EDC signature controls | D-281 | CR-035, CR-036, SEC-6, SEC-7 | none | not started (patches P-3 to P-6 in section 4) | | |
+
+### 8.2 What the reviews of the fixes found
+
+Every adversarial review of a fix found real defects in work that its author had called finished:
+
+- FG-B's first version still wiped the lake on an empty night, because two Organization rows counted as data. It also let a held night's rows into CURRENT.
+- FG-F's first version still counted cancelled SS-MIX2 orders, through the site mapping. Its unit conversion was a new wrong exclusion at the bound.
+- FG-G's first version left weekly microbatch screening outside the two-model rule. Its consent explainer could still check its own draft.
+
+All of these were fixed, each with a test, before the pull requests were opened. For the rest of the fix groups, a second review of each diff, by a reviewer that does not see the author's reasoning, is worth its cost.
+
+### 8.3 New rows
+
+| ID | Severity | Area | Problem | Evidence | Status | Owner | Note |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| CR-121 | Critical | safety / two-model check | Weekly microbatch screening worked out the tier without the note-block decision, so on a one-model box one model could exclude. | `services/matching/microbatch.py:115` (before #101) | in PR #101 | the build session | Found by FG-G's review (F-01). |
+| CR-122 | Critical | safety / gateway | When the judge's server failed, the gateway answered as the judge from the verifier build, and the verifier then agreed with itself. | `models/routing.yaml:196`; `services/gateway/core.py:307-323` (before #101) | in PR #101 | the build session | Deep review LLM-002, reproduced. |
+| CR-123 | High | safety / consent | The consent explainer's second-model check could be done by the drafting model, through the `protocol` route's fallback. | `services/orchestrator/consent.py` (before #101) | in PR #101 | the build session | Found by the second review of #101 (R2-01). |
+
+### 8.4 Needs the owner's decision
+
+| ID | Question | Recommendation |
+| --- | --- | --- |
+| OD-10 | Under the v1 rulesets, a FALSE structured inclusion is a hard exclusion. FG-F makes missing and unusable data unknown, but a real FALSE still excludes with no person in the loop. | Keep the rule for structured data with a known value, and send every v1 exclusion that rests on a single lab value to the weekly sample (WS-06.7). |
+| OD-11 | The shipped rulesets were not recompiled; #115 adds a guard that keeps an answer only where the approved SQL and a fresh rendering agree. | Recompile and re-approve the five shipped rulesets before G2, then remove the guard. |
+| OD-12 | FEAS counts a patient as dropped on a known FALSE that the approved SQL used to call TRUE (RA-COH, 332 to 331; #115 F6). | Accept; it is the same-visit rule of D-149. |
+| OD-13 | Truncation by retrieval caps (v1 k=5, cascade top-5) is not treated as "evidence left out" (#101 F-05). Treating it so would stop most exclusions from notes. | Measure on G1 how often a capped answer excludes, then decide. |
+| OD-14 | #115 moves 17 goldens, all toward unknown, none toward exclusion, no candidate count. | The goldens owner re-blesses after reviewing #115. |
+
+### 8.5 Counts after update 2
+
+Rows CR-001 to CR-123, Blocker, Critical and High only (CR-116 to CR-120 are Medium or Low and not counted). "In PR" counts as open until it is merged.
+
+| Severity | open | in progress elsewhere or in an open PR | fixed (merged) | Total |
+| --- | --- | --- | --- | --- |
+| Blocker | 15 | 3 | 6 | 24 |
+| Critical | 2 | 5 | 2 | 9 |
+| High | 45 | 20 | 20 | 85 |
+| Total | 62 | 28 | 28 | 118 |
+
+How the rows moved from 7.5:
+- **Merged:** CR-049 (Critical) and CR-050 (High) by #86; CR-051, CR-052 and CR-053 (High) by #97; CR-016 (Blocker) and CR-054 (High) by #104.
+- **Now in an open PR:** CR-001 (Blocker) and CR-005, CR-006, CR-007 and CR-115 (High) in #115; CR-002 and CR-003 (Critical), CR-004 (High) and the new CR-121, CR-122 (Critical) and CR-123 (High) in #101; CR-017 (Critical) and CR-018 to CR-023 and CR-055 (High) in #108; CR-034 (Blocker) in #107.
+- **Unchanged:** the rows that 7.5 counted as in progress elsewhere (the CI, goldens and supply-chain sessions) are still counted that way; this session did not re-check them.
+
+Only #86, #97 and #104 were checked as merged on master `92b02ee`. The open PRs #107 and #108 were not read in this session; their rows follow the integrator's closing note.
