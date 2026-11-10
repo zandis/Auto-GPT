@@ -249,7 +249,8 @@ def test_library_records_hold_no_patient_data_and_need_an_approval() -> None:
 def test_every_v1_criterion_loads_into_the_library() -> None:
     lib, n = _library_with_rulesets()
     records = lib.records()
-    assert n == len(IR_FILES) and n - 10 <= lib.count() < n  # identical criteria across rulesets share one record
+    # identical criteria across rulesets share one record; a few per ruleset at most (RA-JAK shares with RA-BIO, RA-COH)
+    assert n == len(IR_FILES) and 0.85 * n <= lib.count() < n
     assert sum(len(r.texts) for r in records) == n  # every source text is kept on its record
     adults = next(r for r in records if "STARRT-AKI" in r.used_by and len(r.used_by) > 1)
     assert {"EMPULSE", "STARRT-AKI", "ONC-OSI"} <= set(adults.used_by)  # "age >= 18" is one library criterion

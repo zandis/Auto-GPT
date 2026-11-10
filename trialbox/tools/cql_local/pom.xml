@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The CQL engine that HAPI FHIR 8.12's clinical-reasoning module runs (cqf-fhir-cql 4.13.0: engine and
+     translator 5.4.0), for tools/cql_eval.py: CQL verdicts without a FHIR server (T-504, D-321). Fetch with
+     python -m tools.cql_eval --fetch (Maven, into .cache/jvm/cql-local/lib). Build-time only; never in an image. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>local.trialbox</groupId>
+  <artifactId>cql-local</artifactId>
+  <version>1</version>
+  <packaging>pom</packaging>
+  <dependencies>
+    <dependency><groupId>org.opencds.cqf.fhir</groupId><artifactId>cqf-fhir-cql</artifactId><version>4.13.0</version></dependency>
+    <dependency><groupId>org.opencds.cqf.fhir</groupId><artifactId>cqf-fhir-utility</artifactId><version>4.13.0</version></dependency>
+    <dependency><groupId>ca.uhn.hapi.fhir</groupId><artifactId>hapi-fhir-structures-r4</artifactId><version>8.12.0</version></dependency>
+    <dependency><groupId>ca.uhn.hapi.fhir</groupId><artifactId>hapi-fhir-caching-caffeine</artifactId><version>8.12.0</version></dependency>
+    <dependency><groupId>org.slf4j</groupId><artifactId>slf4j-nop</artifactId><version>2.0.16</version></dependency>
+  </dependencies>
+</project>

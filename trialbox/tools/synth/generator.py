@@ -21,7 +21,19 @@ import yaml
 
 from tools.synth import names_en, names_ja
 from tools.synth import notes as N
-from tools.synth.catalog import AD_DRUGS, AD_DX, AD_PRACTITIONERS, BIOLOGICS, DRUGS, DX, LABS, PRACTITIONERS, PROCS
+from tools.synth.catalog import (
+    AD_DRUGS,
+    AD_DX,
+    AD_PRACTITIONERS,
+    BIOLOGICS,
+    DRUGS,
+    DX,
+    LABS,
+    PRACTITIONERS,
+    PROCS,
+    RAJAK_DRUGS,
+    RAJAK_DX,
+)
 from tools.synth.lang import PHI_TEMPLATES, Lang
 from tools.synth.reserved import is_reserved
 
@@ -155,7 +167,8 @@ class Generator:
         keeps ``tools/make_fixtures.py`` byte-identical. ``gold=True`` plants PHI spans, alternative date forms and
         safe identifiers and records ``gold_notes`` (TB-DS-21 §5). ``index_offset``/``counter_base`` let
         ``tools.synth_hospital`` write one site in chunks. ``mix`` names the patient mix in ``rates.yaml`` ``site``:
-        ``mix`` (the default, unchanged) or ``mix_jp_ad`` (the Japanese memory-clinic site of scenario J1, T-503)."""
+        ``mix`` (the default, unchanged), ``mix_jp_ad`` (the Japanese memory-clinic site of scenario J1, T-503) or
+        ``mix_tw_ra`` (the Taiwanese rheumatology site of scenarios T1 to T3, T-504)."""
         if style not in STYLES:
             raise ValueError(f"unknown record style {style!r}")
         self.rng = random.Random(seed)
@@ -226,7 +239,7 @@ class Generator:
 
     def dx(self, mrn: str, key: str, d: date, dept: str = "FM", enc: str | None = None, status: str = "A") -> None:
         enc = enc or self.encounter(mrn, d, dept)
-        code, _ = DX[key] if key in DX else AD_DX[key]
+        code, _ = DX[key] if key in DX else {**AD_DX, **RAJAK_DX}[key]  # archetype codes (T-503, T-504)
         self.t["diagnosis"].append(
             {
                 "diag_no": self.nid("d"),
@@ -280,7 +293,7 @@ class Generator:
         )
 
     def rx(self, mrn: str, key: str, start: date, end: date, dept: str = "FM", status: str = "active") -> None:
-        drug = DRUGS[key] if key in DRUGS else AD_DRUGS[key]
+        drug = DRUGS[key] if key in DRUGS else {**AD_DRUGS, **RAJAK_DRUGS}[key]
         self.t["medication"].append(
             {
                 "rx_no": self.nid("m"),
@@ -1016,6 +1029,13 @@ class Generator:
         from tools.synth.ad import ad_patient
 
         ad_patient(self, i)
+
+    def rajak_patient(self, i: int) -> None:
+        """Rheumatoid arthritis at the rheumatology clinic, screened for a JAK-inhibitor trial (scenario T2, T-504):
+        see ``tools.synth.rajak``."""
+        from tools.synth.rajak import rajak_patient
+
+        rajak_patient(self, i)
 
     def general_patient(self, i: int) -> None:
         sex = self.rng.choice("MF")

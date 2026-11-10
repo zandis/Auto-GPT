@@ -1,0 +1,22 @@
+{
+ "action": "ask about past blood clots",
+ "class": "mixed",
+ "id": "RA-JAK-EXC-07",
+ "kind": "exclusion",
+ "label": "VTE history",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_VENOUS_THROMBOEMBOLISM"
+ },
+ "note_question": "Do the notes document a deep vein thrombosis or a pulmonary embolism at any time?",
+ "review": {
+  "at": "2026-11-11T04:31:43.359347+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-JAK",
+ "source_ref": "5.2 Exclusion Criteria 排除條件 #7",
+ "text": "History of venous thromboembolism (deep vein thrombosis or pulmonary embolism).",
+ "time_sensitive": false
+}

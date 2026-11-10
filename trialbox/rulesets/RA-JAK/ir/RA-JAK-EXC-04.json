@@ -1,0 +1,52 @@
+{
+ "action": "order an IGRA",
+ "class": "structured",
+ "id": "RA-JAK-EXC-04",
+ "kind": "exclusion",
+ "label": "IGRA positive, untreated",
+ "logic": {
+  "args": [
+   {
+    "domain": "observation",
+    "quantifier": "latest",
+    "value": {
+     "codes": [
+      "LA6576-8"
+     ],
+     "op": "in"
+    },
+    "valueset": "VS_IGRA",
+    "window": {
+     "anchor": "index",
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   {
+    "args": [
+     {
+      "domain": "medication",
+      "quantifier": "any",
+      "valueset": "VS_TB_PREVENTIVE_THERAPY",
+      "window": {
+       "anchor": "index",
+       "from_days": -365,
+       "to_days": 0
+      }
+     }
+    ],
+    "op": "not"
+   }
+  ],
+  "op": "and"
+ },
+ "review": {
+  "at": "2026-11-11T04:31:43.359347+08:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "RA-JAK",
+ "source_ref": "5.2 Exclusion Criteria 排除條件 #4",
+ "text": "Positive interferon-gamma release assay (IGRA) within 1 year without tuberculosis preventive therapy.",
+ "time_sensitive": false
+}
