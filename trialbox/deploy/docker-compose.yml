@@ -218,13 +218,14 @@ services:
   console:
     # The product console (D-127, review F-01): sign-in, the PI and CRC lists, marks, approval, the screening log,
     # the REDCap link and the admin control plane. Published on TB_CONSOLE_BIND (127.0.0.1 by default); for other PCs
-    # on the hospital LAN put the site's TLS proxy in front and set TB_CONSOLE_SECURE_COOKIE=1 (RUNBOOK §9).
+    # on the hospital LAN use deploy/docker-compose.identity.yml (Caddy, TLS; RUNBOOK §12). Unset, the session cookie is
+    # Secure in PRODUCTION (D-192); an explicit TB_CONSOLE_SECURE_COOKIE=0 is refused there.
     <<: *py
     command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090",
               "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
     environment: {PORT: "8090", TB_SERVICE_NAME: console, TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit,
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
-                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-0}"}
+                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-}"}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - console-data:/data/console
