@@ -1123,7 +1123,7 @@ def test_catalogues_complete() -> None:
 
 
 # ---------------------------------------------------------------------------------------------- D-91 CASE
-def _done_case(backend: FakeBackend) -> Job:
+def _done_case(backend: FakeBackend, options: dict[str, str] | None = None) -> Job:
     jid = _ulid(950)
     now = datetime(2026, 10, 25, 9, 5, tzinfo=UTC)
     rec = {
@@ -1150,7 +1150,7 @@ def _done_case(backend: FakeBackend) -> Job:
             received_at=now,
             updated_at=now,
             state="done",
-            options={"lang": "en"},
+            options=options or {"lang": "en"},
             inputs=[],
             outputs=outs,
         )
@@ -1593,9 +1593,10 @@ def test_case_request_row_shows_the_chart_number_to_the_study_team_only(box: dic
     """Review 2026-11-09 P-01 and the owner's decision (D-143): the CASE job page's "web request" row printed
     ``mrn=70000054`` to every role. The study's investigator (and coordinator, administrator) sees it, as one audited
     view; a viewer, a CRO account and an investigator of another study see it masked, also in the audit table."""
-    job = _done_case(box["backend"])
+    job = _done_case(box["backend"], {"mrn": "70000054", "lang": "en"})
+    # the audit holds the line masked (D-272); the page takes the chart number from the job's options
     box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
-                        detail={"line": "CASE GZQO mrn=70000054 lang=en", "channel": "web"})  # fmt: skip
+                        detail={"line": "CASE GZQO mrn=••• lang=en", "channel": "web"})  # fmt: skip
     box["users"].create("pi", "investigator", VIEWER_PW, "pi@hospa.test")
     box["users"].create("pi2", "investigator", VIEWER_PW, "pi2@hospa.test")
     box["users"].set_scope("pi2", studies="OTHER")
@@ -1617,7 +1618,8 @@ def test_case_request_row_shows_the_chart_number_to_the_study_team_only(box: dic
 def test_identifier_views_are_rate_limited(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     """D-143: a view of an identifier counts against the reveal cap; over it the line is masked and refused."""
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
-    job = _done_case(box["backend"])
+    # a row written before D-272: the page masks it the same way
+    job = _done_case(box["backend"], {"mrn": "70000054", "lang": "en"})
     box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
                         detail={"line": "CASE GZQO mrn=70000054 lang=en"})  # fmt: skip
     c, _ = login(box["app"])
@@ -1627,10 +1629,33 @@ def test_identifier_views_are_rate_limited(box: dict[str, Any], monkeypatch: pyt
 
 
 def test_request_subjects_are_masked() -> None:
-    from console.app import mask_ids
+    from tb_common.audit import mask_ids  # the console's pages and the audit writers share one rule (D-272)
 
     assert mask_ids("CASE GZQO mrn=70000054 lang=ja") == "CASE GZQO mrn=••• lang=ja"
     assert mask_ids("FEAS GZQO") == "FEAS GZQO"
+    # D-272 (CR-016): the page mask covers every key the job line hides, and the stored ``options`` form
+    assert mask_ids("CASE GZQO dob=1900-01-01 patient=TEST-ZZ") == "CASE GZQO dob=••• patient=•••"
+    assert mask_ids(str({"mrn": "TEST-0000001", "lang": "ja"})) == "{'mrn': '•••', 'lang': 'ja'}"
+    assert mask_ids('{"chart_no": "TEST-0000003"}') == "{\"chart_no\": '•••'}"
+
+
+def test_the_web_request_line_is_audited_masked(box: dict[str, Any]) -> None:
+    """D-272 (CR-016, PX-3): the console's own request writer stores the line with its chart number masked, and the
+    audit table shows the stored form; the job keeps the chart number in its options for the run."""
+    c, csrf = login(box["app"])
+    r = c.post(
+        "/pilot/case",
+        data={"csrf": csrf, "ruleset": "GZQO", "mrn": "TEST-0000001", "lang": "en"},
+        files=[("charts", ("chart.md", b"# synthetic summary", "text/markdown"))],
+        follow_redirects=False,
+    )
+    assert r.status_code == 303, r.text[:300]
+    rows = [json.loads(x) for f in sorted(box["audit"].directory.glob("*.jsonl")) for x in f.read_text().splitlines()]
+    assert rows and not any("TEST-0000001" in json.dumps(x, ensure_ascii=False) for x in rows)
+    req = next(x for x in rows if x["event"] == "console.request")
+    assert "mrn=•••" in req["detail"]["line"]
+    assert box["backend"].created[-1].options["mrn"] == "TEST-0000001"
+    assert "TEST-0000001" not in c.get("/audit").text
 
 
 def test_healthz_touches_the_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

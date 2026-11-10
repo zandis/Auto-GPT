@@ -1,0 +1,46 @@
+# The FHIR store (HAPI, the appliance's `fhir-store`), on database hapi of `db`.
+apiVersion: v1
+kind: Service
+metadata: {name: fhir-store, labels: {app.kubernetes.io/component: fhir-store}}
+spec:
+  selector: {app.kubernetes.io/component: fhir-store}
+  ports: [{name: http, port: 8080, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: fhir-store, labels: {app.kubernetes.io/component: fhir-store, trialbox.io/tier: data}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/component: fhir-store}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: fhir-store, trialbox.io/tier: data}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: fhir-store
+          image: hapi
+          env:
+            - {name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://db:5432/hapi"}
+            - {name: SPRING_DATASOURCE_USERNAME, value: hapi}
+            - {name: SPRING_DATASOURCE_PASSWORD, valueFrom: {secretKeyRef: {name: trialbox-db, key: POSTGRES_PASSWORD}}}
+            - {name: SPRING_DATASOURCE_DRIVERCLASSNAME, value: org.postgresql.Driver}
+            - {name: SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT, value: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect}
+            - {name: HAPI_FHIR_FHIR_VERSION, value: R4}
+            - {name: HAPI_FHIR_CR_ENABLED, value: "true"}
+            - {name: HAPI_FHIR_MAX_PAGE_SIZE, value: "1000"}
+            - {name: HAPI_FHIR_DEFAULT_PAGE_SIZE, value: "200"}
+            - {name: HAPI_FHIR_ENFORCE_REFERENTIAL_INTEGRITY_ON_WRITE, value: "false"}
+            - {name: HAPI_FHIR_ENFORCE_REFERENTIAL_INTEGRITY_ON_DELETE, value: "false"}
+            - {name: HAPI_FHIR_ALLOW_MULTIPLE_DELETE, value: "true"}
+            - {name: HAPI_FHIR_BULK_EXPORT_ENABLED, value: "false"}
+            - {name: HAPI_FHIR_TESTER_HOME_ENABLED, value: "false"}
+            - {name: JAVA_TOOL_OPTIONS, value: "-Xmx3g -Duser.timezone=Asia/Taipei"}
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            exec: {command: ["java", "-cp", "/app", "HealthCheck"]}
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 30
+          resources: {requests: {cpu: 250m, memory: 2Gi}, limits: {memory: 4Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}

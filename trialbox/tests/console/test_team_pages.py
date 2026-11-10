@@ -34,7 +34,7 @@ A, B = "a" * 32, "b" * 32
 
 def _events(b: dict[str, Any], name: str) -> list[dict[str, Any]]:
     out = []
-    for f in sorted((b["dir"] / "audit").glob("*")):
+    for f in sorted((b["dir"] / "audit").glob("*.jsonl")):
         for line in f.read_text().splitlines():
             if line and json.loads(line).get("event") == name:
                 out.append(json.loads(line))

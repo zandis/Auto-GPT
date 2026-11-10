@@ -40,7 +40,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from tb_common.audit import AuditLog
+from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.authz import admin_allowed
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
@@ -245,17 +245,21 @@ _AGGREGATE_DENY = re.compile(
     r"^/(?:jobs|audit|admin/redcap|pilot/registry|pilot/mailbox|pilot/cascade|site|api/v1/site)(?:/|$)"
     r"|^/(?:api/v1/)?studies/[^/]+/(?!feasibility$)"
 )
-_HIDDEN_OPTIONS = frozenset(
-    {"mrn", "chart", "chart_no", "name", "patient", "patient_name", "dob", "birth_date", "phone"}
-)
+# D-272 (CR-016): one rule for the job line, the pages and the audit's stored form (``tb_common.audit``): ``mask_ids``
+# turns ``CASE GZQO mrn=70000054`` into ``CASE GZQO mrn=•••`` and masks the same keys in a printed mapping
+_HIDDEN_OPTIONS = ID_KEYS
 
 
-_ID_IN_TEXT = re.compile(r"(?i)\b(mrn|chart|chart_no|name)=\S+")
+def unmask_ids(text: str, options: Mapping[str, Any] | None) -> str:
+    """A masked request line with the job's own options put back (``mrn=•••`` -> ``mrn=<the job's mrn>``): the audit
+    keeps the line masked (D-272), the job keeps what it was asked; the page decides who sees it (D-143)."""
+    opts = {str(k).lower(): v for k, v in (options or {}).items()}
 
+    def back(m: re.Match[str]) -> str:
+        val = opts.get(m.group(1).lower())
+        return f"{m.group(1)}={val}" if val not in (None, "") else m.group(0)
 
-def mask_ids(text: str) -> str:
-    """``CASE GZQO mrn=70000054`` -> ``CASE GZQO mrn=•••`` (a request subject is shown, its chart number never)."""
-    return _ID_IN_TEXT.sub(lambda m: f"{m.group(1)}=•••", text or "")
+    return ID_IN_TEXT.sub(back, text or "")
 
 
 class IdViews:
@@ -708,7 +712,8 @@ def create_app(
             ruleset=req.ruleset,
             actor=actor(sess),
             input_sha=",".join(f.sha256 for f in inputs) or None,
-            detail={"line": line, "mailbox": mailbox, "role": sess.user.role, "channel": "web"},
+            # D-272 (CR-016, PX-3): the request line is audited with its chart number masked
+            detail={"line": mask_ids(line), "mailbox": mailbox, "role": sess.user.role, "channel": "web"},
         )
         try:
             # D-146 (review J-01): the orchestrator authorises by the signed-in person's role, sent signed
@@ -1230,7 +1235,8 @@ def create_app(
         ]
         if not any(m.direction == "in" for m in thread) and any(r.event == "console.request" for r in audit_recs):
             web = next(r for r in audit_recs if r.event == "console.request")
-            raw_rows.insert(0, (None, str(web.detail.get("line", ""))))
+            # the audit holds the line masked (D-272); the chart number comes back from the job's options
+            raw_rows.insert(0, (None, unmask_ids(mask_ids(str(web.detail.get("line", ""))), job.options)))
         thread_rows = [(m, shown_ids(sess, job, text, "thread")) for m, text in raw_rows]
         return page(
             request,

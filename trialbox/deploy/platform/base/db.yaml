@@ -1,0 +1,51 @@
+# One PostgreSQL server (the appliance's `db`): the box's database image `trialbox-postgres` (D-204: Debian
+# postgres:16 with pgvector and PGroonga, deploy/docker/db.Dockerfile, pinned in deploy/images.lock), databases hapi
+# and trialbox_wf and the two extensions (db-init: 10-trialbox-wf.sh, 20-extensions.sh), the same flags. It runs as
+# the image's postgres user, uid and gid 999 (the Debian postgres image; the alpine one used 70), and is ready only
+# when the image's `tb-db-check` passes (server up, trialbox_wf there, vector and pgroonga installed).
+apiVersion: v1
+kind: Service
+metadata: {name: db, labels: {app.kubernetes.io/component: db}}
+spec:
+  selector: {app.kubernetes.io/component: db}
+  ports: [{name: pg, port: 5432, targetPort: 5432}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: db, labels: {app.kubernetes.io/component: db, trialbox.io/tier: data}}
+spec:
+  serviceName: db
+  replicas: 1
+  selector: {matchLabels: {app.kubernetes.io/component: db}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: db, trialbox.io/tier: data}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: db
+          image: trialbox-postgres
+          args: ["-c", "wal_compression=zstd", "-c", "default_toast_compression=lz4", "-c", "archive_mode=off"]
+          env:
+            - {name: POSTGRES_DB, value: hapi}
+            - {name: POSTGRES_USER, value: hapi}
+            - {name: POSTGRES_INITDB_ARGS, value: --data-checksums}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: trialbox-db, key: POSTGRES_PASSWORD}}}
+            - {name: POSTGRES_WF_PASSWORD, valueFrom: {secretKeyRef: {name: trialbox-db, key: POSTGRES_WF_PASSWORD}}}
+          ports: [{containerPort: 5432}]
+          readinessProbe:
+            exec: {command: ["tb-db-check"]}
+            periodSeconds: 10
+          resources: {requests: {cpu: 250m, memory: 1Gi}, limits: {memory: 4Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: db-pg, mountPath: /var/lib/postgresql/data}
+            - {name: db-init, mountPath: /docker-entrypoint-initdb.d, readOnly: true}
+            - {name: run, mountPath: /var/run/postgresql}
+      volumes:
+        - {name: db-init, configMap: {name: trialbox-db-init, defaultMode: 0555}}  # run, not sourced, as in compose
+        - {name: run, emptyDir: {}}
+  volumeClaimTemplates:
+    - metadata: {name: db-pg}
+      spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 50Gi}}}
