@@ -8,6 +8,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# D-315: the code has no default site zone; a box sets TB_TZ (deploy/.env, from site.tz). The tests run as the
+# synthetic Taiwan demo site of .env.example unless a test sets another zone (monkeypatch) or removes it.
+os.environ.setdefault("TB_TZ", "Asia/Taipei")
+
 
 @pytest.fixture
 def repo_root() -> Path:

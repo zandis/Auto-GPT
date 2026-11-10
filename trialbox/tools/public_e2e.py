@@ -969,6 +969,9 @@ def table(stages: list[Stage]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_PUBLIC_DIR", "/tmp/tb-public")))
     ap.add_argument("--lang", default="en", choices=["ja", "zh-TW", "en"])

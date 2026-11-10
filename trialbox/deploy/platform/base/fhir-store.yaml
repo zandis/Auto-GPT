@@ -35,7 +35,9 @@ spec:
             - {name: HAPI_FHIR_ALLOW_MULTIPLE_DELETE, value: "true"}
             - {name: HAPI_FHIR_BULK_EXPORT_ENABLED, value: "false"}
             - {name: HAPI_FHIR_TESTER_HOME_ENABLED, value: "false"}
-            - {name: JAVA_TOOL_OPTIONS, value: "-Xmx3g -Duser.timezone=Asia/Taipei"}
+            # the site's zone from site.env (TB_TZ), never a zone of its own (D-315)
+            - {name: TB_TZ, valueFrom: {configMapKeyRef: {name: trialbox-env, key: TB_TZ}}}
+            - {name: JAVA_TOOL_OPTIONS, value: "-Xmx3g -Duser.timezone=$(TB_TZ)"}
           ports: [{containerPort: 8080}]
           readinessProbe:
             exec: {command: ["java", "-cp", "/app", "HealthCheck"]}

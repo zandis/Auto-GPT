@@ -67,6 +67,9 @@ def mark_temp_root() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR", "/tmp/tb-demo")))
     ap.add_argument("--lang", default=os.environ.get("TB_DEMO_LANG", "ja"), choices=["ja", "zh-TW", "en"])

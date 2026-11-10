@@ -7,11 +7,15 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
-def now(tz: str = "Asia/Taipei") -> datetime:
-    return datetime.now(ZoneInfo(tz))
+def now(tz: str | None = None) -> datetime:
+    """Now in ``tz``, else in the site's zone (``TB_TZ``); there is no default zone (D-315)."""
+    from tb_common.config import site_tz
+
+    return datetime.now(ZoneInfo(site_tz(tz)))
 
 
-def today(tz: str = "Asia/Taipei") -> date:
+def today(tz: str | None = None) -> date:
+    """The site's calendar date (``tz``, else ``TB_TZ``; D-270, D-315)."""
     return now(tz).date()
 
 

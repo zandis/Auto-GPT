@@ -20,10 +20,9 @@ import secrets
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import yaml
 from tb_common.recall import cp_upper
@@ -32,7 +31,7 @@ from tb_contracts.recall import RecallCell, RecallObservation, Stratum
 from orchestrator.db_pg import canonical_json
 from orchestrator.recall.ledger import RecallLedger, open_ledger_backend
 
-T0 = datetime(2026, 1, 31, 12, 0, tzinfo=ZoneInfo("Asia/Taipei"))
+T0 = datetime(2026, 1, 31, 12, 0, tzinfo=timezone(timedelta(hours=8)))  # a fixed synthetic instant, not a site zone
 
 
 @dataclass(frozen=True)

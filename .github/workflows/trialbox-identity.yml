@@ -35,6 +35,7 @@ jobs:
     env:
       CADDY_IMAGE: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
       TB_TLS_HOSTNAME: trialbox.hosp.test
+      TB_TZ: Asia/Tokyo  # a box's deploy/.env always has it; compose refuses to render without it (D-315)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 

@@ -46,6 +46,10 @@ def problems(root: Path) -> list[str]:
     return di.check(di.load(root))
 
 
+def notes(root: Path) -> list[str]:
+    return di.notes(di.load(root))
+
+
 def test_master_is_clean() -> None:
     assert di.main(["--check"]) == 0
 
@@ -96,30 +100,31 @@ def test_twice_in_the_log_fails(tmp_path: Path) -> None:
     assert any("twice in DECISIONS.md" in e for e in problems(root))
 
 
-def test_file_with_no_registry_row_fails(tmp_path: Path) -> None:
+# D-311 (gates review S6): registry bookkeeping is a note, never a failure
+def test_file_with_no_registry_row_is_a_note(tmp_path: Path) -> None:
     root = make(tmp_path, files={"D-09-new.md": "**D-09 New.** Task T-101.\n"})
-    errs = problems(root)
-    assert any("D-9: D-09-new.md has no row in REGISTRY.md" in e for e in errs)
+    assert problems(root) == []
+    assert any("D-9: D-09-new.md has no row in REGISTRY.md" in e for e in notes(root))
 
 
-def test_gap_without_a_row_fails(tmp_path: Path) -> None:
+def test_gap_without_a_row_is_a_note(tmp_path: Path) -> None:
     root = make(tmp_path, registry=REGISTRY.replace("| D-03 | unused | — | gap |\n", ""))
-    assert any("no row for D-3 " in e for e in problems(root))
+    assert problems(root) == [] and any("no row for D-3 " in e for e in notes(root))
 
 
-def test_two_rows_on_one_number_fail(tmp_path: Path) -> None:
+def test_two_rows_on_one_number_is_a_note(tmp_path: Path) -> None:
     root = make(tmp_path, registry=REGISTRY + "| D-05 | reserved | T-103 | clash |\n")
-    assert any("D-5: two registry rows" in e for e in problems(root))
+    assert problems(root) == [] and any("D-5: two registry rows" in e for e in notes(root))
 
 
-def test_new_entry_in_the_frozen_log_fails(tmp_path: Path) -> None:
+def test_new_entry_in_the_frozen_log_is_a_note(tmp_path: Path) -> None:
     root = make(tmp_path, log=LOG + "\n**D-04 Appended.** Text.\n")
-    assert any("the log is frozen" in e for e in problems(root))
+    assert problems(root) == [] and any("the log is frozen" in e for e in notes(root))
 
 
-def test_file_outside_its_cards_number_fails(tmp_path: Path) -> None:
+def test_file_outside_its_cards_number_is_a_note(tmp_path: Path) -> None:
     root = make(tmp_path, files={"D-04-x.md": "**D-04 X.** Task T-999 took a number it was not given.\n"})
-    assert any("does not name its card (T-101)" in e for e in problems(root))
+    assert problems(root) == [] and any("does not name its card (T-101)" in e for e in notes(root))
 
 
 def test_file_name_and_head_must_agree(tmp_path: Path) -> None:
@@ -132,7 +137,7 @@ def test_file_name_and_head_must_agree(tmp_path: Path) -> None:
 def test_state_against_text(tmp_path: Path) -> None:
     root = make(tmp_path, registry=REGISTRY.replace("| D-05 | reserved |", "| D-05 | merged |"),
                 files={"D-03-x.md": "**D-03 X.**\n"})  # fmt: skip
-    errs = problems(root)
+    errs = notes(root)
     assert any("merged, but D-5 has no text" in e for e in errs)
     assert any("D-3: D-03-x.md lands on a row marked unused" in e for e in errs)
 

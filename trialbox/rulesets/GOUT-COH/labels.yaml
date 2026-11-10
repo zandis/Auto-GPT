@@ -1,0 +1,33 @@
+# Criterion labels and criterion text in the site's other languages (T-507, D-309). The protocol is in Traditional
+# Chinese; `source` is its text (the IR's `text`). A translation is shown only while the approved criterion still has
+# exactly this text. Every translation here needs a native read before the PoC (T-507 PR body).
+ruleset: GOUT-COH
+criteria:
+  GOUT-COH-INC-01:
+    source: 曾經診斷痛風（ICD-10-CM M10 或 M1A）之病人。
+    ja: {label: 痛風, text: 痛風（ICD-10-CM M10 または M1A）の記録がある患者。}
+    en: {label: Gout, text: Patients with a record of gout (ICD-10-CM M10 or M1A).}
+  GOUT-COH-INC-02:
+    source: 一年內最近一次血清尿酸值大於或等於 6.0 mg/dL。
+    ja: {label: 尿酸値 6.0以上, text: 1年以内の直近の血清尿酸値が6.0 mg/dL以上。}
+    en: {label: Urate ≥6.0, text: Latest serum urate within one year at least 6.0 mg/dL.}
+  GOUT-COH-INC-03:
+    source: 六個月內曾使用降尿酸藥物。
+    ja: {label: 尿酸降下薬, text: 6か月以内に尿酸降下薬を使用している。}
+    en: {label: Urate-lowering drug, text: A urate-lowering drug used within six months.}
+  GOUT-COH-INC-04:
+    source: 一年內因痛風就診二次以上。
+    ja: {label: 1年以内の痛風受診2回以上, text: 1年以内に痛風で2回以上受診している。}
+    en: {label: ≥2 gout visits /12 mo, text: Two or more visits for gout within one year.}
+  GOUT-COH-INC-05:
+    source: 一年內最近一次 eGFR 小於 60 mL/min/1.73m²（慢性腎臟病第三期以上）。
+    ja: {label: eGFR 60未満, text: 1年以内の直近のeGFRが60 mL/min/1.73m²未満（慢性腎臓病ステージ3以上）。}
+    en: {label: eGFR <60, text: Latest eGFR within one year below 60 mL/min/1.73m² (chronic kidney disease stage 3 or higher).}
+  GOUT-COH-INC-06:
+    source: 一年內最近一次身體質量指數大於或等於 27 kg/m²。
+    ja: {label: BMI 27以上, text: 1年以内の直近の体格指数（BMI）が27 kg/m²以上。}
+    en: {label: BMI ≥27, text: Latest body mass index within one year at least 27 kg/m².}
+  GOUT-COH-INC-07:
+    source: 合併第二型糖尿病診斷。
+    ja: {label: 2型糖尿病, text: 2型糖尿病を合併している。}
+    en: {label: Type 2 diabetes, text: Type 2 diabetes recorded as well.}

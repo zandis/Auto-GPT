@@ -95,7 +95,7 @@ services:
       HAPI_FHIR_ALLOW_MULTIPLE_DELETE: "true"
       HAPI_FHIR_BULK_EXPORT_ENABLED: "false"
       HAPI_FHIR_TESTER_HOME_ENABLED: "false"
-      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-3g} -Duser.timezone=${TB_TZ:-Asia/Taipei}"
+      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-3g} -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"
     networks: [trialbox-net]
     restart: unless-stopped
     healthcheck:

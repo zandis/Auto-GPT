@@ -1,6 +1,6 @@
 """The OMOP store from the command line (D-151). The database is ``TB_OMOP_DB_URL`` or ``TB_DB_URL``.
 
-python -m omop load --lake /data/lake [--snapshot 2026-10-31] [--tz Asia/Taipei]   # a snapshot + the site inputs
+python -m omop load --lake /data/lake [--snapshot 2026-10-31] [--tz Asia/Tokyo]           # a snapshot + the site inputs
 python -m omop status                                                              # rows per table, conflicts
 python -m omop dqd [--json out.json] [--tz Asia/Tokyo]                             # exit 1 when a check fails
 python -m omop vocab terminology [--rulesets DIR]        # the compiler's Parquet into the vocabulary (D-301)
@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     ld = sub.add_parser("load")
     ld.add_argument("--lake", type=Path, required=True)
     ld.add_argument("--snapshot")
-    ld.add_argument("--tz", default="Asia/Taipei")
+    ld.add_argument("--tz", default=os.environ.get("TB_TZ") or None)  # none: load_batch refuses (D-315)
     sub.add_parser("status")
     dq = sub.add_parser("dqd")
     dq.add_argument("--json", type=Path)

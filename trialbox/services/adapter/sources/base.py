@@ -16,6 +16,13 @@ class Source(Protocol):
         ...
 
 
+def has_table(source: object, source_name: str) -> bool | None:
+    """Whether ``source`` holds ``source_name`` at all (T-611), or None when the reader cannot tell (a SQL view or an
+    SS-MIX2 tree is never "missing"; its row count decides)."""
+    fn = getattr(source, "has_table", None)
+    return bool(fn(source_name)) if callable(fn) else None
+
+
 def after(value: Any, since: str | None) -> bool:
     """Lexicographic ISO comparison (``YYYY-MM-DD[ HH:MM:SS]``) used for delta extraction."""
     if since is None:

@@ -426,6 +426,54 @@ def ja_synonyms_version(path: Path) -> str:
     return own_file_version("TrialBox ja synonyms", path, sum(1 for _ in parse_ja_synonyms(path)))
 
 
+# ------------------------------------------------------------------------------------------------ D-317 jRCT
+# The columns of the CSV that jRCT's search page downloads (「CSVダウンロード」, after 利用規約を確認しました), in
+# Japanese or English; matched by alias. Check them against the hospital's first real download.
+JRCT_COLS: dict[str, tuple[str, ...]] = {
+    "id": (
+        "臨床研究実施計画番号",
+        "臨床研究実施計画・研究概要公開システム番号",
+        "jRCT番号",
+        "jRCT No.",
+        "Trial ID",
+        "jRCT ID",
+    ),
+    "title": ("研究の名称", "平易な研究名称", "Scientific Title", "Public Title", "Title"),
+    "condition": ("対象疾患名", "Health Condition(s) or Problem(s) Studied", "Condition"),
+    "status": ("研究の進捗状況", "Recruitment Status", "Status"),
+    "updated": ("最終公表日", "最終更新日", "公表日", "Last Update", "Date of Last Update"),
+    "inclusion": ("選択基準", "Inclusion Criteria"),
+    "exclusion": ("除外基準", "Exclusion Criteria"),
+    "phase": ("試験のフェーズ", "Phase"),
+}
+_JRCT_ID = re.compile(r"^jRCT[0-9a-z]?\d{6,12}$", re.IGNORECASE)
+
+
+def parse_jrct(path: Path) -> Iterator[dict[str, Any]]:
+    """The hospital's own jRCT search download (CSV, UTF-8 or Shift_JIS, or XLSX) -> trial rows (registry jRCT). A
+    row without a jRCT-shaped id is left out and counted in the log; a file without the id and title columns is
+    refused. TrialBox never fetches jRCT: bulk use needs the help desk's permission (D-140, D-317)."""
+    rows = read_table(path)
+    head, idx = find_header(rows, JRCT_COLS, ("id", "title"), "a jRCT search download")
+    seen: set[str] = set()
+    skipped = 0
+    for row in rows[head + 1 :]:
+        tid = _cell(row, idx, "id").strip()
+        if not _JRCT_ID.match(tid) or tid in seen:
+            skipped += bool(any(row))
+            continue
+        seen.add(tid)
+        cond = _cell(row, idx, "condition")
+        yield {"registry": "jRCT", "trial_id": tid, "title": _cell(row, idx, "title"),
+               "status": _cell(row, idx, "status"), "phase": _cell(row, idx, "phase"),
+               "conditions": [c.strip() for c in re.split(r"[、;；\n]", cond) if c.strip()],
+               "countries": ["Japan"], "inclusion": _cell(row, idx, "inclusion"),
+               "exclusion": _cell(row, idx, "exclusion"), "updated": _cell(row, idx, "updated"), "codes": [],
+               "record": {k: v for k, v in zip(rows[head], row, strict=False) if k}}  # fmt: skip
+    if skipped:
+        log.info("jRCT download: %d rows without a jRCT id left out", skipped)
+
+
 # ------------------------------------------------------------------------------------------------ the items
 OWN = "TrialBox (own work)"
 OWN_TERMS = "Written by the TrialBox team; shipped with the product."
@@ -518,5 +566,19 @@ ITEMS: tuple[Item, ...] = (
         "Japanese disease, drug and test names and note abbreviations -> the matcher's names.",
         "ja_clinical_synonyms.csv", country="JP", decision="D-175", parse=parse_ja_synonyms,
         version_of=ja_synonyms_version,
+    ),
+    Item(
+        "jrct", "jRCT (Japan Registry of Clinical Trials), the hospital's own search download", "trial", "site-fetch",
+        "https://jrct.mhlw.go.jp/search", "jRCT terms of use (MHLW)", "https://jrct.mhlw.go.jp/",
+        "No public API. The search page's CSV download asks the user to accept the terms; bulk or comprehensive "
+        "use and crawling need the jRCT help desk's permission (asked, pending). TrialBox never fetches or ships "
+        "jRCT data: the hospital downloads its own search (for example its conditions, or its own institution) "
+        "and loads it with site-load.",
+        "jRCT (Japan Registry of Clinical Trials), Ministry of Health, Labour and Welfare; downloaded by the "
+        "hospital.",
+        "when the hospital downloads again", "the hospital's search",
+        "JAPIC-CTI and JMACCT were merged into jRCT on 2023-03-06. Column names matched by alias: check them "
+        "against the first real download.",
+        country="JP", decision="D-317", fetch=False, parse=parse_jrct,
     ),
 )  # fmt: skip

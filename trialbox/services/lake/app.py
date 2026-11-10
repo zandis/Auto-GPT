@@ -9,6 +9,7 @@ from typing import Any
 import pyarrow as pa
 from embed_service.embedder import Embedder, from_env
 from fastapi import HTTPException, Response
+from tb_common.config import site_tz
 from tb_common.http import make_app
 from tb_contracts import (
     ChunkHit,
@@ -30,7 +31,7 @@ _embedder: Embedder | None = None
 def lake() -> Lake:
     global _lake
     if _lake is None:
-        _lake = Lake(Path(os.environ.get("TB_LAKE_DIR", "/data/lake")), os.environ.get("TB_TZ", "Asia/Taipei"))
+        _lake = Lake(Path(os.environ.get("TB_LAKE_DIR", "/data/lake")), site_tz())
     return _lake
 
 

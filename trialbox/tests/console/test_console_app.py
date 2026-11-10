@@ -682,6 +682,13 @@ def test_protocol_upload_and_approve_loop(box: dict[str, Any]) -> None:
     assert c.post(f"/pilot/jobs/{job.job_id}/approve", data={"csrf": csrf}).status_code == 403
     s20 = c.get(f"/pilot/jobs/{job.job_id}/approval").text
     assert 'data-testid="approve-who"' in s20 and 'data-testid="row-GZQO-DEMO-EXC-01"' in s20
+    # D-318: a newer prompt than the approved version pinned shows "approval needed" (the page shows the state only)
+    assert 'data-testid="pins-needed"' not in s20
+    newer = {"kind": "prompt", "id": "judge", "pinned": "judge@4", "active": "judge@5", "state": "newer"}
+    box["backend"].approval_state = lambda ruleset: {"state": "approval_needed", "reasons": [newer]}
+    s20 = c.get(f"/pilot/jobs/{job.job_id}/approval").text
+    assert 'data-testid="pin-prompt-newer"' in s20 and "judge@4" in s20 and "judge@5" in s20
+    assert "screening keeps the instructions you approved before" in s20
     # D-146 (J-27): only the investigator ticks, as only the investigator approves; the page says who may
     assert 'data-testid="s20-who"' in s20 and 'data-testid="tick-btn-' not in s20
     r = c.post(f"/pilot/jobs/{job.job_id}/approval/tick", data={"csrf": csrf, "crit": "GZQO-DEMO-INC-01"})
