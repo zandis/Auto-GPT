@@ -622,7 +622,7 @@ class Updater:
             step("rulesets", True, f"{len(done)} imported")
             enter("check")
             step("check", True, self.box.check(plan))
-        except Exception as exc:
+        except (Exception, KeyboardInterrupt) as exc:  # Ctrl-C rolls back too; kill -9 leaves the marker
             failed = f"{type(exc).__name__}: {exc}"
             step("update", False, failed)
         if failed is not None:
@@ -834,6 +834,12 @@ def _env_file(path: Path) -> dict[str, str]:
     return out
 
 
+def _image_pins(plan: Plan) -> dict[str, str]:
+    """release.json's pinned images: reference -> digest."""
+    return {str(r.get("image")): str(r.get("digest")) for r in ((plan.release or {}).get("images") or {}).values()
+            if isinstance(r, dict)}  # fmt: skip
+
+
 class _DockerImages:
     """Shared by the compose and demo boxes: tag the images a bundle replaces, load, tag back."""
 
@@ -857,23 +863,40 @@ class _DockerImages:
     def load_images(self, plan: Plan) -> list[str]:
         img = plan.kind("image")
         done = []
+        pins = _image_pins(plan)
+        checked: set[str] = set()
         for tar in sorted(p for p in img.rglob("*") if p.is_file()) if img.is_dir() else []:
+            tags = image_tags(tar)
+            if plan.release is not None and not (set(tags) & set(pins)):
+                raise UpdateFailed(f"image {tar.name}: its tags {tags} are not pinned by release.json")
             self.run(["docker", "load", "-i", str(tar)], timeout=3600)
             done.append(f"image {tar.name}")
-            for tag in image_tags(tar):
+            for tag in tags:
                 self.check_loaded(plan, tag)
+                checked.add(tag)
+        if done and plan.release is not None and set(pins) - checked:
+            raise UpdateFailed(f"release.json pins images this bundle did not load: {sorted(set(pins) - checked)}")
         return done
 
     def check_loaded(self, plan: Plan, tag: str) -> None:
-        """The loaded image's ID (``docker image inspect {{.Id}}``) equals the digest release.json pins for that
-        reference (verified against images.lock before extraction); a mismatch fails the apply, which rolls back."""
-        pins = {str(r.get("image")): r.get("digest") for r in ((plan.release or {}).get("images") or {}).values()
-                if isinstance(r, dict)}  # fmt: skip
+        """The loaded image is the one release.json pins for that reference (verified against images.lock before
+        extraction), on either Docker image store (as ``tools/image_pins.py``): the classic store's ``{{.Id}}`` is
+        the config digest; the containerd store's is the manifest or index digest, and the pin then resolves to
+        the same image when inspected by itself. A mismatch fails the apply, which rolls back."""
+        pins = _image_pins(plan)
         if tag not in pins:
             return
+        pin = str(pins[tag])
         have = self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag]).strip()
-        if have != pins[tag]:
-            raise UpdateFailed(f"image {tag}: loaded ID {have or '(none)'} is not the pinned digest {pins[tag]}")
+        if have == pin:
+            return
+        try:
+            by_pin = self.run(["docker", "image", "inspect", "-f", "{{.Id}}", pin]).strip()
+        except UpdateFailed:
+            by_pin = ""
+        if have and by_pin == have:
+            return
+        raise UpdateFailed(f"image {tag}: loaded ID {have or '(none)'} is not the pinned digest {pin}")
 
     def restore_images(self, point: Point) -> None:
         for tag, rt in point.images.items():
@@ -903,7 +926,7 @@ class ComposeBox(_DockerImages):
     def running(self) -> bool:
         try:
             return "orchestrator" in self.run(self._c("ps", "--status", "running", "--services")).split()
-        except UpdateFailed:
+        except (UpdateFailed, OSError):  # no compose here: not running
             return False
 
     def _dump(self, db: str, user: str, out: Path) -> None:
@@ -1186,7 +1209,7 @@ class DemoBox(_DockerImages):
     def running(self) -> bool:
         try:
             return self.run(["docker", "inspect", "-f", "{{.State.Running}}", self.container]).strip() == "true"
-        except UpdateFailed:
+        except (UpdateFailed, OSError):
             return False
 
     def backup(self, plan: Plan, rb: Path) -> str:
@@ -1466,6 +1489,16 @@ class InProcessBox:
         _append_audit(self.work / "box" / "audit", event, plan, detail)
 
 
+def box_in_service(deploy: Path) -> str:
+    """What shows this box has been installed and holds data ("" for none): its settings, its update records. A box
+    in the field before D-210 has no installed.json but has these; only a box with none of them is a first install."""
+    for rel in ("updates/installed.json", "updates/history.jsonl", "updates/trust.json", ".env", "settings.yaml",
+                "secrets"):  # fmt: skip
+        if (deploy / rel).exists():
+            return f"deploy/{rel}"
+    return ""
+
+
 def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backup: bool = True) -> int:
     """``apply_update.sh`` after verify. A box never installed (no ``installed.json``) that is not running yet, or
     install.sh's first load (``TB_SKIP_AUDIT``), only loads the payloads; an installed box that is not running is
@@ -1489,16 +1522,26 @@ def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backu
     plan = Plan.load(stage, summary)
     updates = deploy / "updates"
     box: ComposeBox | DemoBox = DemoBox(deploy) if target == "demo" else ComposeBox(deploy)
-    installed_before = (updates / us.INSTALLED).is_file()
-    if installed_before and not box.running():
-        print("update REFUSED: the box is installed but not running (crashed, or its compose ps failed); "
-              "start it, then run the update again; nothing was changed")  # fmt: skip
-        return 1
-    if not installed_before and (os.environ.get("TB_SKIP_AUDIT") or not box.running()):
+    in_service = box_in_service(deploy)
+    if not box.running():
+        if in_service:
+            print(f"update REFUSED: the box is installed ({in_service}) but not running (crashed, restarting, or its "
+                  "compose ps failed); start it, then run the update again; nothing was changed")  # fmt: skip
+            return 1
+        if not os.environ.get("TB_SKIP_AUDIT"):
+            print("update REFUSED: the box is not running and not installed; a first install is "
+                  "deploy/install.sh; nothing was changed")  # fmt: skip
+            return 1
+    elif os.environ.get("TB_SKIP_AUDIT") and in_service:
+        print(f"update: the box is installed ({in_service}) and running: the whole update path, not install.sh's load")
+    if os.environ.get("TB_SKIP_AUDIT") and not in_service:
         try:
             with us.locked(updates):
                 if us.marker(updates) is not None:
                     print("update REFUSED: an update is unfinished (tools/apply_update.sh status)")
+                    return 1
+                if us.file_sha256(updates / us.TRUST) != plan.trust_sha256:
+                    print("update REFUSED: trust.json changed since this bundle was verified; run it again")
                     return 1
                 inst = us.installed(updates)
                 if plan.release_seq is not None and plan.release_seq <= int(inst["release_seq"]) \

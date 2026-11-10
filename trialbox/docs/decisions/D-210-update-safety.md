@@ -101,6 +101,18 @@ rows D-11 to D-14, D-16 to D-18; D-15 in part, see "Not done").
   (`docker image inspect {{.Id}}`), else the apply fails and rolls back; this reads `digest` as the image ID, which
   T-110b must keep.
 
+* **Re-review fixes (2026-11-10).** (1) "Installed" is decided from what shows the box holds data
+  (`deploy/updates/installed.json`, `history.jsonl` or `trust.json`, `deploy/.env`, `deploy/settings.yaml`,
+  `deploy/secrets/`), not from `installed.json` alone, which no box has before its first D-210 update. A box that
+  is not running is refused when it has any of these; with none, it is loaded only when install.sh asks
+  (`TB_SKIP_AUDIT`). The load-only path checks `trust_sha256` too. The Docker volumes are not read (the update path
+  runs no docker command before this decision). (2) The image check accepts either image store, as
+  `tools/image_pins.py` does: the tag's `{{.Id}}` equals the pin, or the pin inspected by itself is the same image.
+  (3) With a `release.json`, every image tar must carry a pinned tag (checked before `docker load`) and every pinned
+  image must be loaded. (4) install.sh runs under `set -euo pipefail`, so a failed load stops it (a test holds it).
+  (5) Ctrl-C (KeyboardInterrupt) during apply to check rolls back like any failure; SIGTERM, SIGHUP and `kill -9`
+  leave the marker for `tools/apply_update.sh rollback`.
+
 ## Why
 
 The update path is the one moment the hospital's box is changed by the vendor; its failure modes (half-applied

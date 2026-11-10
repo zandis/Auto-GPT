@@ -723,3 +723,127 @@ def test_the_shell_entry_refuses_a_path_with_a_space(tmp_path: Path) -> None:
     r = subprocess.run(["sh", str(ROOT / "tools/apply_update.sh"), str(d / "b.tar")], env=env, capture_output=True,
                        text=True, check=False)  # fmt: skip
     assert r.returncode == 2 and "space or a glob character" in r.stderr
+
+
+# ------------------------------------------------------------------------------------------------ re-review fixes
+@pytest.mark.parametrize("evidence", ["updates/history.jsonl", ".env", "settings.yaml", "secrets"])
+@pytest.mark.parametrize("skip_audit", [False, True])
+def test_a_box_in_service_before_d210_that_is_not_running_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, evidence: str, skip_audit: bool
+) -> None:
+    """No installed.json (every box in the field before its first D-210 update), but data: never the load-only
+    path, which has no backup, marker, rollback or compat check (the re-review's reproduction)."""
+    deploy = tmp_path / "deploy"
+    e = deploy / evidence
+    e.parent.mkdir(parents=True, exist_ok=True)
+    if evidence == "secrets":
+        e.mkdir()
+    else:
+        e.write_text("")
+    (tmp_path / "models/judge").mkdir(parents=True)
+    (tmp_path / "models/judge/config.json").write_text("old")
+    monkeypatch.setenv("TB_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("TB_COMPOSE", "false")  # compose ps fails: crashed
+    if skip_audit:
+        monkeypatch.setenv("TB_SKIP_AUDIT", "1")
+    stage, summary = _main_apply_stage(tmp_path)
+    assert up.main_apply(stage, summary, "compose", deploy) == 1
+    assert (tmp_path / "models/judge/config.json").read_text() == "old"
+    assert not (deploy / "updates" / us.INSTALLED).exists() and not (deploy / "updates" / us.TRUST).exists()
+
+
+def test_a_stopped_box_without_data_loads_only_when_install_sh_asks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deploy = tmp_path / "deploy"
+    (tmp_path / "models/judge").mkdir(parents=True)
+    (tmp_path / "models/judge/config.json").write_text("old")
+    monkeypatch.setenv("TB_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("TB_COMPOSE", "false")
+    stage, summary = _main_apply_stage(tmp_path)
+    assert up.main_apply(stage, summary, "compose", deploy) == 1  # not install.sh: refused
+    assert (tmp_path / "models/judge/config.json").read_text() == "old"
+    monkeypatch.setenv("TB_SKIP_AUDIT", "1")
+    assert up.main_apply(stage, summary, "compose", deploy) == 0  # install.sh's first load
+    assert (tmp_path / "models/judge/config.json").read_text() == "new"
+
+
+def test_the_load_only_path_refuses_a_trust_change_since_verify(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deploy = tmp_path / "deploy"
+    us.write_atomic(deploy / "updates" / us.TRUST, {"format": us.TRUST_FORMAT, "keys": {"k": {}}})
+    monkeypatch.setattr(up, "box_in_service", lambda _d: "")  # the trust appeared after the in-service check
+    monkeypatch.setenv("TB_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("TB_COMPOSE", "false")
+    monkeypatch.setenv("TB_SKIP_AUDIT", "1")
+    stage, summary = _main_apply_stage(tmp_path)  # verified with no trust.json (trust_sha256 null)
+    assert up.main_apply(stage, summary, "compose", deploy) == 1
+    assert not (tmp_path / "models/judge/config.json").exists()
+
+
+def test_the_pinned_image_is_accepted_on_the_containerd_store(tmp_path: Path) -> None:
+    index = "sha256:" + "c" * 64  # containerd store: {{.Id}} is the manifest or index digest
+    ids = {"trialbox-py:1.0.0": index, DIGEST: index}
+    box = up.ComposeBox(tmp_path, run=lambda argv, *a, **kw: ids.get(argv[-1], "") + "\n")
+    plan = _plan(tmp_path)
+    plan.release = {"images": {"py": {"image": "trialbox-py:1.0.0", "digest": DIGEST}}}
+    box.check_loaded(plan, "trialbox-py:1.0.0")  # the pin resolves to the same image
+    ids[DIGEST] = "sha256:" + "d" * 64
+    with pytest.raises(up.UpdateFailed, match="is not the pinned digest"):
+        box.check_loaded(plan, "trialbox-py:1.0.0")
+
+
+def _tar(path: Path, tag: str) -> None:
+    body = json.dumps([{"RepoTags": [tag]}]).encode()
+    with tarfile.open(path, "w") as tf:
+        info = tarfile.TarInfo("manifest.json")
+        info.size = len(body)
+        tf.addfile(info, io.BytesIO(body))
+
+
+def test_every_loaded_image_is_pinned_and_every_pinned_image_loaded(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    def run(argv: list[str], *a: Any, **kw: Any) -> str:
+        calls.append(" ".join(argv))
+        return DIGEST + "\n"
+
+    box = up.ComposeBox(tmp_path, run=run)
+    plan = _plan(tmp_path)
+    (plan.stage / "image").mkdir()
+    _tar(plan.stage / "image/py.tar", "trialbox-py:1.0.0")
+    plan.release = {"images": {"py": {"image": "trialbox-py:1.0.0", "digest": DIGEST}}}
+    assert box.load_images(plan) == ["image py.tar"]
+    _tar(plan.stage / "image/other.tar", "elsewhere:1")  # tagged differently: would load unchecked
+    calls.clear()
+    with pytest.raises(up.UpdateFailed, match="not pinned by release.json"):
+        box.load_images(plan)
+    assert not any("load -i" in c and "other.tar" in c for c in calls)  # refused before docker load
+    (plan.stage / "image/other.tar").unlink()
+    plan.release["images"]["db"] = {"image": "trialbox-postgres:16-1", "digest": DIGEST}
+    with pytest.raises(up.UpdateFailed, match="did not load"):
+        box.load_images(plan)
+
+
+def test_ctrl_c_during_apply_rolls_back(tmp_path: Path) -> None:
+    class CtrlC(Recorder):
+        def check(self, plan: up.Plan) -> str:
+            self._step("check")
+            if "rollback" not in self.calls:  # the check after the rollback passes
+                raise KeyboardInterrupt
+            return "healthy"
+
+    box = CtrlC()
+    updates = tmp_path / "updates"
+    with pytest.raises(up.UpdateFailed, match="rolled back"):
+        up.Updater(box, updates, say=lambda _m: None).run(_plan(tmp_path))
+    assert "rollback" in box.calls and us.marker(updates) is None
+    assert [e for e, _ in box.audits] == ["update.rolled_back"]
+
+
+def test_install_sh_stops_when_the_bundle_load_fails() -> None:
+    text = (ROOT / "deploy/install.sh").read_text(encoding="utf-8")
+    load = text.index('TB_SKIP_AUDIT=1 sh "$ROOT/tools/apply_update.sh"')
+    assert "set -euo pipefail" in text[:load]  # the pipe into sed keeps apply_update.sh's exit status
+    assert "|| die" in text[load : text.index("\n", load)]

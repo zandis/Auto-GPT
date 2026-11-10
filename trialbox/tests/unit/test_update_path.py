@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -243,6 +244,8 @@ def test_first_install_only_loads_and_defers_the_audit(
     summary.write_text(json.dumps({"bundle_id": "B0", "manifest_sha256": hashlib.sha256(b"{}").hexdigest(),
                                    "signer": "v", "files": [], "release_seq": 1, "compat": compat,
                                    "trust_sha256": None}))  # fmt: skip
+    (deploy / ".env").unlink()  # a first install: install.sh writes the settings after the load
+    shutil.rmtree(deploy / "secrets")
     monkeypatch.setenv("TB_SKIP_AUDIT", "1")
     assert up.main_apply(stage, summary, "compose", deploy) == 0
     assert (deploy / "updates/pending_audit/B0.json").is_file()
