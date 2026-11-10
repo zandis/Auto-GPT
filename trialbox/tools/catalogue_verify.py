@@ -538,7 +538,6 @@ def entry_concepts(cohort: dict[str, Any]) -> list[dict[str, Any]]:
                     "set": cs["name"],
                     "concept_id": int(c["CONCEPT_ID"]),
                     "vocabulary": c.get("VOCABULARY_ID", ""),
-                    "code": str(c.get("CONCEPT_CODE", "")),
                     "name": c.get("CONCEPT_NAME", ""),
                     "domain": c.get("DOMAIN_ID", ""),
                     "descendants": bool(it.get("includeDescendants")),

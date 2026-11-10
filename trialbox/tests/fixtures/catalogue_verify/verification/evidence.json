@@ -1,17 +1,139 @@
 {
  "date": "2026-11-09",
  "sources": {},
- "loinc_codes": {"1989-3": "25-hydroxyvitamin D3 [Mass/volume] in Serum or Plasma", "2160-0": "Creatinine [Mass/volume] in Serum or Plasma", "93369-7": "Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay"},
- "loinc_searches": {"DAS28": {"total": 0, "hits": []}, "DAS28-ESR": {"total": 0, "hits": []}, "KL-6": {"total": 1, "hits": [["93369-7", "Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay"]]}},
- "jlac10": {"3C015000002327101": {"group": "生化学検査", "name": "血清クレアチニン", "unit": "mg/dl", "method": ""}},
- "cohorts": {
-  "33": {"name": "Dementia", "status": "Pending peer review", "entry_concepts": [{"set": "Dementia", "concept_id": 4182210, "vocabulary": "SNOMED", "code": "52448006", "name": "Dementia", "domain": "Condition", "descendants": true, "excluded": false}]},
-  "196": {"name": "RA with complications", "status": "Pending peer review", "entry_concepts": []},
-  "858": {"name": "Rheumatoid arthritis", "status": "Pending peer review", "entry_concepts": [
-   {"set": "RA", "concept_id": 80809, "vocabulary": "SNOMED", "code": "69896004", "name": "Rheumatoid arthritis", "domain": "Condition", "descendants": true, "excluded": false},
-   {"set": "RA", "concept_id": 4107913, "vocabulary": "SNOMED", "code": "193250002", "name": "Myopathy due to rheumatoid arthritis", "domain": "Condition", "descendants": true, "excluded": false},
-   {"set": "RA", "concept_id": 2107560, "vocabulary": "CPT4", "code": "3472F", "name": "RA disease activity, high", "domain": "Observation", "descendants": true, "excluded": false}]}
+ "loinc_codes": {
+  "1989-3": "25-hydroxyvitamin D3 [Mass/volume] in Serum or Plasma",
+  "2160-0": "Creatinine [Mass/volume] in Serum or Plasma",
+  "93369-7": "Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay"
  },
- "icd10cm_prefixes": {"F00": {"n": 0, "sample": []}, "F01": {"n": 9, "sample": []}, "F02": {"n": 24, "sample": []}, "F03": {"n": 12, "sample": []}, "G30": {"n": 4, "sample": []}, "M05": {"n": 211, "sample": []}, "M06": {"n": 120, "sample": []}, "M06.1": {"n": 1, "sample": []}, "M10": {"n": 300, "sample": []}},
- "icd10cm_names": {"Dementia": ["F03.90"], "Myopathy due to rheumatoid arthritis": [], "Rheumatoid arthritis": ["M06.9", "M79.0"]}
+ "loinc_searches": {
+  "DAS28": {
+   "total": 0,
+   "hits": []
+  },
+  "DAS28-ESR": {
+   "total": 0,
+   "hits": []
+  },
+  "KL-6": {
+   "total": 1,
+   "hits": [
+    [
+     "93369-7",
+     "Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay"
+    ]
+   ]
+  }
+ },
+ "jlac10": {
+  "3C015000002327101": {
+   "group": "生化学検査",
+   "name": "血清クレアチニン",
+   "unit": "mg/dl",
+   "method": ""
+  }
+ },
+ "cohorts": {
+  "33": {
+   "name": "Dementia",
+   "status": "Pending peer review",
+   "entry_concepts": [
+    {
+     "set": "Dementia",
+     "concept_id": 4182210,
+     "vocabulary": "SNOMED",
+     "name": "Dementia",
+     "domain": "Condition",
+     "descendants": true,
+     "excluded": false
+    }
+   ]
+  },
+  "196": {
+   "name": "RA with complications",
+   "status": "Pending peer review",
+   "entry_concepts": []
+  },
+  "858": {
+   "name": "Rheumatoid arthritis",
+   "status": "Pending peer review",
+   "entry_concepts": [
+    {
+     "set": "RA",
+     "concept_id": 80809,
+     "vocabulary": "SNOMED",
+     "name": "Rheumatoid arthritis",
+     "domain": "Condition",
+     "descendants": true,
+     "excluded": false
+    },
+    {
+     "set": "RA",
+     "concept_id": 4107913,
+     "vocabulary": "SNOMED",
+     "name": "Myopathy due to rheumatoid arthritis",
+     "domain": "Condition",
+     "descendants": true,
+     "excluded": false
+    },
+    {
+     "set": "RA",
+     "concept_id": 2107560,
+     "vocabulary": "CPT4",
+     "name": "RA disease activity, high",
+     "domain": "Observation",
+     "descendants": true,
+     "excluded": false
+    }
+   ]
+  }
+ },
+ "icd10cm_prefixes": {
+  "F00": {
+   "n": 0,
+   "sample": []
+  },
+  "F01": {
+   "n": 9,
+   "sample": []
+  },
+  "F02": {
+   "n": 24,
+   "sample": []
+  },
+  "F03": {
+   "n": 12,
+   "sample": []
+  },
+  "G30": {
+   "n": 4,
+   "sample": []
+  },
+  "M05": {
+   "n": 211,
+   "sample": []
+  },
+  "M06": {
+   "n": 120,
+   "sample": []
+  },
+  "M06.1": {
+   "n": 1,
+   "sample": []
+  },
+  "M10": {
+   "n": 300,
+   "sample": []
+  }
+ },
+ "icd10cm_names": {
+  "Dementia": [
+   "F03.90"
+  ],
+  "Myopathy due to rheumatoid arthritis": [],
+  "Rheumatoid arthritis": [
+   "M06.9",
+   "M79.0"
+  ]
+ }
 }
