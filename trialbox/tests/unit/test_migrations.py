@@ -3,27 +3,33 @@
 Every store's schema versions are whole scripts recorded in its own ``_schema_version`` with ``sha256`` and
 ``script_name``. Rows from before D-204 are back-filled once (``backfilled = true``) without failing; from then on a
 changed applied script stops the store with :class:`MigrationChanged` naming the store and the version; a script
-applied out of order is refused. ``PINNED`` below holds the checksum of every store's applied DDL as it is in the
-code: a planted change to any of those strings fails :func:`test_no_applied_ddl_string_changed`. A new version is
-appended to its store's tuple (and to ``PINNED``); an applied one is never edited.
+applied out of order is refused. The D-204 baseline (:mod:`tb_common.migration_baseline`, shipped with the code, which
+also gates the back-fill) plus ``ADDED`` below hold the checksum of every store's applied DDL: a planted change to any
+of those strings fails :func:`test_no_applied_ddl_string_changed`. A new version is appended to its store's tuple and
+its checksum to ``ADDED``; an applied one is never edited, and the baseline never changes.
 """
 
 from __future__ import annotations
 
+import logging
+import re
 from pathlib import Path
 
 import pytest
 from tb_common.db import (
     AppliedVersion,
     Database,
+    DatabaseError,
     Migration,
     MigrationChanged,
     MigrationError,
     MigrationOrderError,
     extensions,
     read_migration_dir,
+    require_extensions,
     script_sha256,
 )
+from tb_common.migration_baseline import BASELINE, baseline_for
 
 V1 = "CREATE TABLE marks (pid TEXT PRIMARY KEY, mark TEXT NOT NULL)"
 V2 = "ALTER TABLE marks ADD COLUMN note TEXT"
@@ -90,6 +96,68 @@ def test_back_fill_only_covers_the_versions_passed(db_url: str) -> None:
         assert [r.sha256 for r in db.applied()] == [None, None]
         db.migrate([V1])
         assert [r.backfilled for r in db.applied()] == [True, False] and db.applied()[1].sha256 is None
+
+
+def _mail() -> list[str]:
+    from mail_gateway.store import SCHEMA_V1, SCHEMA_V2
+
+    return [SCHEMA_V1, SCHEMA_V2]
+
+
+def test_back_fill_of_a_known_store_checks_the_baseline(db_url: str, caplog: pytest.LogCaptureFixture) -> None:
+    """A box on a pre-D-204 schema whose first D-204 release carries an edited past DDL is refused, not recorded."""
+    with Database.connect(db_url, "mail") as db:
+        assert db.store == "mail" and baseline_for(db.store) == BASELINE["mail"]
+        _pre_d204(db, _mail())
+        edited = [_mail()[0] + " ", _mail()[1]]
+        with pytest.raises(MigrationChanged) as ei:
+            db.migrate(edited)
+        assert (ei.value.version, ei.value.recorded) == (1, BASELINE["mail"][0])
+        assert [r.sha256 for r in db.applied()] == [None, None]  # nothing recorded
+        with caplog.at_level(logging.WARNING, logger="tb_common.db"):
+            db.migrate(_mail())
+        assert "back-filled" in caplog.text and "matches the baseline" in caplog.text
+        rows = db.applied()
+        assert [(r.sha256, r.backfilled) for r in rows] == [(h, True) for h in BASELINE["mail"]]
+        assert all(r.backfilled_at is not None for r in rows)
+
+
+def test_a_row_without_checksum_after_the_back_fill_is_refused(db_url: str) -> None:
+    with Database.connect(db_url, "mig_late") as db:
+        db.migrate([V1, V2])
+        db.execute("UPDATE _schema_version SET sha256 = NULL WHERE version = 2")  # an old release or a hand edit
+        with pytest.raises(MigrationError, match=r"\[2\] have no checksum"):
+            db.migrate([V1, V2])
+        db.execute("INSERT INTO _schema_version (version) VALUES (3)")  # an old release applying a version
+        with pytest.raises(MigrationError, match="no checksum"):
+            db.migrate([V1, V2, V3])
+
+
+def test_a_restored_pre_d204_dump_is_back_filled_again_against_the_baseline(db_url: str) -> None:
+    with Database.connect(db_url, "mail") as db:
+        db.migrate(_mail())
+        with db.transaction() as tx:  # what restoring a dump taken before D-204 brings back
+            tx.execute("DROP TABLE _schema_version")
+            tx.execute(
+                "CREATE TABLE _schema_version (version BIGINT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL "
+                "DEFAULT now())"
+            )
+            tx.execute("INSERT INTO _schema_version (version) VALUES (1), (2)")
+        db.migrate(_mail())
+        assert [r.backfilled for r in db.applied()] == [True, True]
+
+
+def test_a_null_row_newer_than_the_baseline_is_refused(db_url: str) -> None:
+    with Database.connect(db_url, "mail") as db:
+        _pre_d204(db, [*_mail(), "CREATE TABLE later (id INT)"])
+        with pytest.raises(MigrationError, match="newer than the D-204 baseline"):
+            db.migrate([*_mail(), "CREATE TABLE later (id INT)"])
+
+
+def test_the_baseline_covers_scratch_twins() -> None:
+    assert baseline_for("omop_0123456789") == BASELINE["omop"]
+    assert baseline_for("orch_rerun_ab12cd34") == BASELINE["orch"]
+    assert baseline_for("mig_x") is None and baseline_for("release") is None
 
 
 def test_a_changed_applied_version_is_refused_naming_store_and_version(db_url: str) -> None:
@@ -180,6 +248,28 @@ def test_migrate_dir_refuses_gaps_duplicates_and_strays(tmp_path: Path, files: l
         read_migration_dir(tmp_path)
 
 
+def test_migrate_dir_refuses_links_folders_odd_suffixes_and_non_utf8(tmp_path: Path) -> None:
+    (tmp_path / "001_a.sql").write_text("SELECT 1")
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.sql"
+    outside.write_text("SELECT 2")
+    (tmp_path / "002_b.sql").symlink_to(outside)
+    with pytest.raises(MigrationOrderError, match="regular file"):
+        read_migration_dir(tmp_path)
+    (tmp_path / "002_b.sql").unlink()
+    (tmp_path / "002_b.sql").mkdir()
+    with pytest.raises(MigrationOrderError, match="regular file"):
+        read_migration_dir(tmp_path)
+    (tmp_path / "002_b.sql").rmdir()
+    (tmp_path / "002_b.SQL").write_text("SELECT 2")
+    with pytest.raises(MigrationOrderError, match="NNN_<name>.sql"):
+        read_migration_dir(tmp_path)
+    (tmp_path / "002_b.SQL").unlink()
+    (tmp_path / "002_b.sql").write_bytes(b"SELECT '\xff'")
+    with pytest.raises(MigrationError, match="002_b.sql is not UTF-8") as ei:
+        read_migration_dir(tmp_path, "mystore")
+    assert ei.value.store == "mystore"
+
+
 def test_migrate_dir_missing_directory(tmp_path: Path) -> None:
     with pytest.raises(MigrationError, match="does not exist"):
         read_migration_dir(tmp_path / "nope")
@@ -213,11 +303,19 @@ def test_extensions_reports_what_is_installed(db_url: str) -> None:
                                                                        "WHERE extname = 'plpgsql'")}  # fmt: skip
 
 
+def test_require_extensions_names_the_missing_ones(db_url: str) -> None:
+    with Database.connect(db_url, "mig_req") as db:
+        assert require_extensions(db, ("plpgsql",)) == {"plpgsql": extensions(db, ("plpgsql",))["plpgsql"]}
+        if not all(extensions(db).values()):  # the local cluster: no pgvector, no PGroonga
+            with pytest.raises(DatabaseError, match="lacks the extension"):
+                require_extensions(db)
+
+
 # ----------------------------------------------------------------------------------------------- the stores
 def store_migrations() -> dict[str, list[str]]:
     """Every store's schema versions, as each passes them to ``migrate`` (store name: its schema)."""
     from adapter import licensed, pidmap
-    from console import auth, sitestore, teamstore
+    from console import auth, saerecord, sitestore, teamstore
     from criteria_compiler.library import ddl as library
     from datacore import lifecycle
     from datacore import store as datacore
@@ -237,7 +335,7 @@ def store_migrations() -> dict[str, list[str]]:
         "optout": list(optout.MIGRATIONS),
         "wf": list(db_pg.MIGRATIONS),
         "recall": list(ledger.MIGRATIONS),
-        "studies": list(studystore.MIGRATIONS),
+        "study": list(studystore.MIGRATIONS),
         "orch": list(orch.MIGRATIONS),
         "sitesetup": [sitesetup.SCHEMA, sitesetup.SCHEMA_V2],
         "mail": [mail.SCHEMA_V1, mail.SCHEMA_V2],
@@ -252,51 +350,47 @@ def store_migrations() -> dict[str, list[str]]:
         "site": list(sitestore.MIGRATIONS),
         "team": list(teamstore.MIGRATIONS),
         "edc": [edc.SCHEMA],
+        "sae": list(saerecord.MIGRATIONS),
     }
 
 
-#: sha256 of every store's applied schema versions (D-204). Append a new version's checksum; never edit one.
-PINNED: dict[str, tuple[str, ...]] = {
-    "refdata": ("abce30a55cd0af022855d67d6dfb60abd2ac6b76b63f4fcf871b48795cc823aa",),
-    "optout": ("c2fc173c7d7df7894299b132c44b8f85cd477099b8234c7583b8ef03f4f90c80",),
-    "wf": ("cf4331c1cfebbaf0a6f2cae40abcf355c7d163511232559b8a53c789237a5093",),
-    "recall": ("d9ea5b8161e5241298321b3c464d503bc6801d22e0707c117a79821131474e6e",),
-    "studies": (
-        "5717d9a039883ec8978f59ee201464037183cb8e5f7f0767b679f688ef35d20e",
-        "811adda424ba9d77e1176bd42e16c9aa7e7d4dcb0506daf65166f508a6f6a1d2",
-        "5c03473c7c1d4842383c7536aa8f47483b2d7023af5b3081c66f2261aac7014d",
-    ),
-    "orch": ("9edc901b745b7b7e2aa1f2c87e0ad1f3d7860c6825e0e638be9cfb8320c40578",),
-    "sitesetup": (
-        "a5869c5da66e3335d50e18aaf520637d760ca8dd59a1216d1a2557872c896a3f",
-        "eba55b194e0590fe228b7556c30e8409cfec5516f9d42d157c50ee8d8d296398",
-    ),
-    "mail": (
-        "df646b957ffbad2bc96bb32327d51f6fe697e549781dc00f982d5065b8069908",
-        "bde1c3613c70f347ce15a163c1c4df2c111ad93ad0e460c96c1687c14f9c20f2",
-    ),
-    "mpi": ("b52288b816a9aeca37187009f576159d8ee3901cdf539a57d962b30075cae022",),
-    "library": ("564fff938db5977ada9d769d6a285708f839f937e9bcbdafd24f72a19b9a58e3",),
-    "terminology": ("d7d6eb1dd726abc79b148fbd8f650a30606230f71d08d984ffaffdc24ae7a769",),
-    "pidmap": ("0e1b2d77c92fecd822baf15acb7cfdb57db4137867869f1d48f079e89821363e",),
-    "omop": (
-        "d1b8130f6cc7ae41e0cadec24ad648f9b00919482ac98228c7dd18ed02c4fedb",
-        "a9dfd840a8666e0060540bc6171819d22541a021dcd15ee8e6687ad203db292b",
-    ),
-    "trace": ("bfdb0077229852c4e139292ba57b6b1f79fffdd9610d33071b6478feba109cab",),
-    "datacore": (
-        "124270ebcd80078b44955fc22be582db67169b8566cefc3d2d8d764cfb1bab24",
-        "0e3a813b0aea05c327f1443e830e0379bd8c13e623aaf4005baed29bec0f494b",
-        "758a9577e1643839cf7ece62ae10bed88404a46b69c6a0252029e062bcd917a3",
-    ),
-    "auth": ("e9a25f1f3827e28dda3aa778c3a1fa46b7fc6b5a93ea23a5a3f27b160ada2f3e",),
-    "site": (
-        "61b88958f98cc442a6fc3ffd35fe1d4b561b1630ef045b6afe06c16391c4bbb5",
-        "462f84721c6f0cc396262d232f3b8b32b3cb48fc09ef6ea8fceb84da47b1f99a",
-    ),
-    "team": ("f7e2ed4c4423ffa6e0c1d7c045108868a2eaf39a6ec829bd2b8536a2b9cdd632",),
-    "edc": ("4adb60686c2312912b6d2991b58d3fe2f901b4d59b539c418090f79bec9b7260",),
+#: checksums of versions added after the D-204 baseline, per store (append here; never edit the baseline)
+ADDED: dict[str, tuple[str, ...]] = {}
+PINNED: dict[str, tuple[str, ...]] = {k: v + ADDED.get(k, ()) for k, v in BASELINE.items()}
+
+#: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)
+STORE_FILES = {
+    "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
+    "services/adapter/pidmap.py", "services/console/auth.py", "services/console/saerecord.py",
+    "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
+    "services/datacore/store.py", "services/dataplat/mpi/__init__.py", "services/edc/store.py",
+    "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
+    "services/orchestrator/db_pg.py", "services/orchestrator/outbox.py", "services/orchestrator/recall/ledger.py",
+    "services/orchestrator/studystore.py", "services/sitesetup/store.py", "services/tracestore/store.py",
+}  # fmt: skip
+#: files that migrate but are not a store: the machinery, the update path's bundle-driven ``release``, the drill's
+#: throwaway database
+NOT_STORES = {
+    "libs/tb_common/db.py",
+    "services/console/storedb.py",
+    "tools/trialbox/update.py",
+    "tools/backup_drill.py",
 }
+
+
+def test_every_store_that_migrates_is_pinned() -> None:
+    """A new store (a new file calling ``migrate`` or ``open_db``) must be added to store_migrations and the pin."""
+    root = Path(__file__).resolve().parents[2]
+    calls = re.compile(r"\.migrate\(|\.migrate_dir\(|\bopen_db\(")
+    found = {
+        str(f.relative_to(root))
+        for top in ("libs", "services", "tools")
+        for f in (root / top).rglob("*.py")
+        if calls.search(f.read_text(encoding="utf-8"))
+    }
+    assert found - NOT_STORES == STORE_FILES, (
+        "files that migrate a store changed: list a new store in store_migrations, PINNED (ADDED) and STORE_FILES"
+    )
 
 
 def test_no_applied_ddl_string_changed(monkeypatch: pytest.MonkeyPatch) -> None:
