@@ -981,6 +981,11 @@ def _edc_expected(lake: Any, pid: str, visit: date) -> dict[str, str]:
     return out
 
 
+def _err_codes(page: str) -> list[str]:
+    """The error codes a refused console page names (``edc.ack_date``...), so a failed check says why."""
+    return sorted(set(re.findall(r"\b(?:edc\.err\.)?edc\.[a-z_]+(?:\.[a-z_]+)*\b", page)) - {"edc.err"})
+
+
 def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, box: Any) -> Stage:
     """D-160: EDC prefill. The PI's switch is refused without the sponsor's acknowledgement, then turned on; the CRC
     reads the CRF's data dictionary from REDCap, saves the item map (CDASH tags), drafts a subject's visit from the
@@ -988,6 +993,7 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     reason, send before signing, a wrong password), confirms, signs with the password and the meaning, and sends:
     a value someone entered in REDCap is not overwritten; every sent value reads back equal; the ODM file re-imports
     into a fresh project equal; viewer and CRA see nothing; off stops sending; the audit chain holds."""
+    from console.timefmt import local_today, site_zone
     from fastapi.testclient import TestClient as SimClient
     from rc_bridge.client import RedcapClient
     from tb_common.audit import verify
@@ -1014,6 +1020,9 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
         s.seconds = time.perf_counter() - t
         return s
     visit = h.clock().date()
+    # the box refuses an acknowledgement or a visit dated after its own day: the console's site day must be the box's
+    site_day = local_today(h.clock(), site_zone(h.bk))
+    s.check("the console and the box keep one site date", site_day == box.orch.today(), (site_day, box.orch.today()))
     sim = SimClient(res["sim"])
     made = sim.post("/sim/projects", json={"title": "GZQO CRF", "metadata": edc_kit.CRF}).json()
     rc = RedcapClient(rc_demo.SIM_URL, made["token"])
@@ -1054,7 +1063,7 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     r3 = crc.post(f"/studies/{TRIAL}/edc/switch", data={**sw, "csrf": fd._csrf(home.text), "reference": "x"})
     s.check("the PI switches prefill on only with the sponsor's acknowledgement; a CRC cannot (403)",
             r1.status_code == 409 and r2.status_code == 303 and r3.status_code == 403,
-            (r1.status_code, r2.status_code, r3.status_code))  # fmt: skip
+            (r1.status_code, r2.status_code, r3.status_code, _err_codes(r2.text)))  # fmt: skip
     # dictionary from REDCap, then the map through /api/v1
     mp = crc.get(f"/studies/{TRIAL}/edc/map")
     r = crc.post(
@@ -1092,7 +1101,8 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     drafted = {k: v["value"] for k, v in d.items() if v["state"] == "drafted"}
     s.check("the subject's visit is drafted; every value carries a citation, every unknown a reason",
             r.status_code == 303 and d and all(bool(v["citation"]) == (v["state"] == "drafted") for v in d.values())
-            and all(v["why"] for v in d.values() if v["state"] == "unknown"), sorted(drafted))  # fmt: skip
+            and all(v["why"] for v in d.values() if v["state"] == "unknown"),
+            (r.status_code, _err_codes(r.text), sorted(drafted)))  # fmt: skip
     s.check("the drafted values equal the hospital record (birth date, uric acid)",
             all(drafted.get(k) == v for k, v in want.items()) and all(
                 k in want for k in drafted if k in ("brthdat", "urate")), (want, drafted))  # fmt: skip
@@ -1103,6 +1113,11 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     )
     rev = crc.get(f"/studies/{TRIAL}/edc/review/{no}")
     c = fd._csrf(rev.text)
+    s.check("the draft has the free-text item and at least one drafted value to review",
+            "comments" in d and bool(drafted), (r.status_code, sorted(d)))  # fmt: skip
+    if "comments" not in d or not drafted:
+        s.seconds = time.perf_counter() - t
+        return s  # a failed check, not a crash: the rest of the stage needs a draft
     r_cite = crc.post(f"/studies/{TRIAL}/edc/decide/{d['comments']['id']}", data={"csrf": c, "action": "confirm",
                                                                                   "record": no})  # fmt: skip
     first = next(iter(drafted))
