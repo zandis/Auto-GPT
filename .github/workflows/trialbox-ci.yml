@@ -27,7 +27,7 @@ defaults:
     working-directory: trialbox
 
 env:
-  TB_SCRATCH: ${{ github.workspace }}/../tb-scratch
+  TB_SCRATCH: ${{ github.workspace }}/../tb-scratch  # pglocal compares resolved paths, so the .. is harmless
 
 jobs:
   changes:

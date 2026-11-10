@@ -140,7 +140,8 @@ def _ours_short(target: Path) -> bool:
     owners = {os.geteuid(), *_postgres_uids()}
     return (
         target.name.startswith("tbpg-")
-        and target.parent in {_short_socket_parent(), Path("/tmp")}
+        # resolved on both sides: a TB_SCRATCH spelled with ".." (CI) must still match the directory made under it
+        and target.parent.resolve() in {_short_socket_parent().resolve(), Path("/tmp").resolve()}
         and not target.is_symlink()
         and st.st_uid in owners
         and all(n.startswith(".s.PGSQL.") for n in names)
@@ -250,7 +251,7 @@ def scratch_root() -> Path:
     """Where per-branch temp roots live: ``TB_SCRATCH`` (an agent's scratchpad), else ``/var/tmp/trialbox-<uid>``;
     never a fixed name directly under ``/tmp``, which every agent on the machine shares."""
     env = os.environ.get("TB_SCRATCH")
-    return Path(env) if env else Path(f"/var/tmp/trialbox-{os.getuid()}")
+    return Path(os.path.abspath(env)) if env else Path(f"/var/tmp/trialbox-{os.getuid()}")  # no ".." left in it
 
 
 def branch_slug(repo: Path | None = None) -> str:
