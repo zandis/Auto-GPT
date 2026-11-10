@@ -137,7 +137,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-304 | reserved | T-106 | dual write |
 | D-305 | unused | — | was reserved for T-012a, which took D-313 |
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
-| D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
+| D-307 | unused | T-508 | was reserved for T-508, which took D-332 (the integrator gave D-332) |
 | D-308 | reserved | T-501 | held for T-501 |
 | D-309 | merged | T-507 | criterion labels in the site's languages, the label step at approval, the test-model label (file) |
 | D-310 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
@@ -156,3 +156,5 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-322 | merged | T-613a | the shipped rulesets recompiled offline from their cassettes, and the CI drift check (file) |
 | D-328 | merged | T-502 | PoC demonstration mode behind the audited flag `demo.mode`: uploads and chart paste refused, banner, `demo.ack`, the scan of stored input (file) |
 | D-329 | merged | T-513 | one demo clock: the demo day is the real day in the site's time zone; dates moved, one clock (file) |
+| D-331 | merged | T-510 | in-product feedback: a flag, a rating and a comment on every page, stored with path, language, role and time; CSV export to issues; the comment in the demo scan (file) |
+| D-332 | merged | T-508 | the clinician PoC is product evaluation, not research: no protocol, subject consent or committee step; the acknowledgement only (file) |
