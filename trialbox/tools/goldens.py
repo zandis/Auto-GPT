@@ -540,11 +540,19 @@ def run_ci(work: Path, source: str) -> tuple[dict[str, dict[str, Any]], str, lis
 
 
 def check_both(argv: list[str]) -> int:
-    """``--source both``: the legacy and the OMOP check side by side (two processes); 0 only when both pass."""
+    """``--source both``: the legacy and the OMOP check side by side (two processes); 0 only when both pass.
+
+    The shared throwaway cluster is started here, once, before the two processes: on a fresh machine (CI) both
+    would otherwise run ``initdb`` on the same directory at the same moment and one of them fails."""
+    env = dict(os.environ)
+    if not env.get("TB_DB_URL"):
+        from tools import pglocal
+
+        env["TB_DB_URL"] = pglocal.ensure(pglocal.SHARED)  # each run still adds its own private prefix
     procs = {
         src: subprocess.Popen(
             [sys.executable, "-m", "tools.goldens", *argv, "--source", src],
-            cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         for src in ("legacy", "omop")
     }  # fmt: skip
