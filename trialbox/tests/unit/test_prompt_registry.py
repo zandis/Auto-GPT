@@ -57,6 +57,12 @@ def _git(*args: str) -> subprocess.CompletedProcess[bytes]:
     return subprocess.run(["git", *args], cwd=REPO, capture_output=True, check=False)
 
 
+FULL_IDS = {  # the baseline commits by their full ids, so that a shallow CI checkout can fetch them
+    "6e11e25": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+    "0cc908b": "0cc908b53af5080c345a3ecc341e4784b718df12",
+}
+
+
 def _have_commit(commit: str) -> bool:
     """The commit is in this clone, fetched on demand in a shallow one. Without a git checkout at all the test
     cannot run; with one, a commit that cannot be had is a failure, not a skip (review M2)."""
@@ -64,7 +70,8 @@ def _have_commit(commit: str) -> bool:
         pytest.skip("not a git checkout")
     if _git("cat-file", "-e", f"{commit}^{{commit}}").returncode == 0:
         return True
-    _git("fetch", "--quiet", "--depth=1", "origin", commit)
+    # a server fetches a commit only by its full id, never by an abbreviation
+    _git("fetch", "--quiet", "--depth=1", "origin", FULL_IDS.get(commit, commit))
     return _git("cat-file", "-e", f"{commit}^{{commit}}").returncode == 0
 
 
