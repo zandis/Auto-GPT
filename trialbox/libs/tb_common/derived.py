@@ -349,7 +349,9 @@ class Obs:
     unit: str | None
     on: date
     oid: str = ""
-    status: str = "final"  # a proposed fact is "proposed" and never counts (:data:`COUNTS`)
+    # the row's status (a proposed fact is "proposed" and never counts, :data:`COUNTS`). A caller that does not know
+    # it gets NOT_RECORDED, which counts but says so in provenance: never an invented "final" (review of #59)
+    status: str = NOT_RECORDED
 
 
 @dataclass
