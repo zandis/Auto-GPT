@@ -53,8 +53,8 @@ fi
 case "$MODE" in
   stub)
     COMPOSE+=(-f deploy/docker-compose.test.yml -f deploy/docker-compose.poc.yml --profile stub ${MAILPROF[@]+"${MAILPROF[@]}"})
-    # the consent explainer's second-model check goes to the stub too (a real pair: v-verifier on the Spark)
-    export TB_ENV=TEST TB_GATEWAY_MODEL="" TB_GATEWAY_VERIFIER_MODEL=trialbox-stub TB_SITE_DIR="./poc/site" ;;
+    # the second-model checks go to the stub under its second served name (a real pair: v-verifier on the Spark)
+    export TB_ENV=TEST TB_GATEWAY_MODEL="" TB_GATEWAY_VERIFIER_MODEL=stub-verifier TB_SITE_DIR="./poc/site" ;;
   openrouter)
     COMPOSE+=(-f deploy/docker-compose.test.yml -f deploy/docker-compose.poc.yml --profile stub ${MAILPROF[@]+"${MAILPROF[@]}"})
     export TB_ENV=DEV TB_GATEWAY_MODEL=j-workhorse TB_SITE_DIR="./poc/site" ;;

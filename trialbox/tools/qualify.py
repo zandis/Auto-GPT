@@ -104,6 +104,9 @@ EVIDENCE_STEPS = {
 PROFILES = {"ci": "", "rtxpro6000": "rtxpro6000", "gb10": "spark", "rtx5090": "rtx5090", "shared-quota": "shared-quota"}
 JUDGE_ALIAS, VERIFIER_ALIAS = "j-workhorse", "v-verifier"
 STUB_BUILD = "trialbox-stub-1"
+# the verifier of the ci pair: the stub under its second served name, so the pair is two models (D-276)
+STUB_VERIFIER_BUILD = "stub-verifier-1"
+STUB_VERIFIER_ALIAS = "stub-verifier"
 SYNTHETIC = "synthetic"
 CALLER = "orchestrator"  # the product's caller for the note judge (models/routing.yaml)
 PROBE_CALLER = "testbench"
@@ -283,7 +286,8 @@ def profile_builds(profile: str, doc: dict[str, Any] | None = None) -> dict[str,
     out: dict[str, Build] = {}
     for role, alias in (("judge", JUDGE_ALIAS), ("verifier", VERIFIER_ALIAS)):
         if profile == "ci":
-            hit = [b for b in rows if b.get("build_id") == STUB_BUILD]
+            want_id = STUB_VERIFIER_BUILD if role == "verifier" else STUB_BUILD
+            hit = [b for b in rows if b.get("build_id") == want_id]
         else:
             hit = [
                 b
@@ -334,11 +338,11 @@ def step_pin(ctx: Ctx) -> StepResult:
     problems: list[str] = []
     listed = ctx.target.models()
     detail["gateway_models"] = sorted(listed)
-    want = {j.alias, v.alias} if ctx.opts.profile != "ci" else {"trialbox-stub"}
+    want = {j.alias, v.alias} if ctx.opts.profile != "ci" else {"trialbox-stub", STUB_VERIFIER_ALIAS}
     missing = sorted(want - set(listed))
     if missing:
         problems.append(f"the gateway does not list {', '.join(missing)}")
-    if j.build_id == v.build_id and ctx.opts.profile != "ci":
+    if j.build_id == v.build_id:
         problems.append("judge and verifier are the same build: the two-model rule needs two")
     for b in ctx.builds.values():
         if ctx.opts.profile != "ci" and not (len(b.weights_sha256) == 64 and b.weights_sha256 != SYNTHETIC):
@@ -982,8 +986,8 @@ def _run_steps(
             name=builds["judge"].build_id,
         )
         verifier = QClient(
-            tgt.gateway(model=None if stub else VERIFIER_ALIAS),
-            alias=None if stub else VERIFIER_ALIAS,
+            tgt.gateway(model=STUB_VERIFIER_ALIAS if stub else VERIFIER_ALIAS),
+            alias=STUB_VERIFIER_ALIAS if stub else VERIFIER_ALIAS,
             name=builds["verifier"].build_id,
         )
         ctx = Ctx(opts, tgt, builds, judge, verifier, work, log)

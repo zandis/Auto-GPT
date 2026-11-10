@@ -6,6 +6,7 @@ import json
 import os
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -50,14 +51,22 @@ def test_tiers() -> None:
     base = [_v(c.id, "pass") for c in GZQO.active() if c.class_ == "structured"]
     human = [_v(c.id, "pending_human") for c in GZQO.active() if c.class_ == "human"]
     notes_ok = [_v("GZQO-INC-05", "pass", 0.9), _v("GZQO-EXC-11", "pass", 0.95)]
-    t, actions, unknown = tier(GZQO, base + notes_ok + human, 0.75)
+    t, actions, unknown = tier(GZQO, base + notes_ok + human, 0.75, note_block=True)
     assert t == "high" and unknown == 0 and "ask injection willingness" in actions
-    assert tier(GZQO, [*base, _v("GZQO-INC-05", "pass", 0.6), _v("GZQO-EXC-11", "pass", 0.9)], 0.75)[0] == "review"
-    assert tier(GZQO, [*base, _v("GZQO-INC-05", "unknown"), _v("GZQO-EXC-11", "pass", 0.9)], 0.75)[0] == "review"
-    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.9)], 0.75)[0] == "excluded"
-    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.5)], 0.75)[0] == "review"  # weak note fail is reviewed
+    assert (
+        tier(GZQO, [*base, _v("GZQO-INC-05", "pass", 0.6), _v("GZQO-EXC-11", "pass", 0.9)], 0.75, note_block=True)[0]
+        == "review"
+    )
+    assert (
+        tier(GZQO, [*base, _v("GZQO-INC-05", "unknown"), _v("GZQO-EXC-11", "pass", 0.9)], 0.75, note_block=True)[0]
+        == "review"
+    )
+    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.9)], 0.75, note_block=True)[0] == "excluded"
+    assert (
+        tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.5)], 0.75, note_block=True)[0] == "review"
+    )  # weak note fail is reviewed
     bad = [_v(v.id, "fail") if v.id == "GZQO-INC-03" else v for v in base]
-    assert tier(GZQO, bad, 0.75)[0] == "excluded"
+    assert tier(GZQO, bad, 0.75, note_block=True)[0] == "excluded"
     assert eligibility("exclusion", True) == "fail" and eligibility("inclusion", None) == "unknown"
     assert keywords("At least 2 gout flares") == ["痛風", "發作", "発作"]
 
@@ -99,16 +108,26 @@ def test_model_outage_fails_the_job_instead_of_an_all_unknown_list() -> None:
 
 def test_note_block_never(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """D-95: on a single-model box a confident note fail sends the patient to review, never out; structured fails
-    still exclude."""
+    still exclude. The tier takes the run's decision (``note_block`` is required, D-276): the policy is read by
+    :func:`effective_note_block`, never by the tier on its own."""
+    from types import SimpleNamespace
+
     base = [_v(c.id, "pass") for c in GZQO.active() if c.class_ == "structured"]
+    j: Any = SimpleNamespace(model="j", served_root="j")
+    v: Any = SimpleNamespace(model="v", served_root="v")
+    pair = NoteJudge(SimpleNamespace(), j, "judge", verifier=v)
+    monkeypatch.setenv("TB_CANARY_GATE", "off")
     monkeypatch.setenv("TB_NOTE_BLOCK", "never")
-    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75)[0] == "review"
+    may = effective_note_block(pair)[0]
+    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75, note_block=may)[0] == "review"
     assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75, note_block=True)[0] == "excluded"
-    monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")
-    assert tier(GZQO, [*base, _v("GZQO-INC-05", "fail", 0.95)], 0.75)[0] == "excluded"
+    bad = [_v(v.id, "fail") if v.id == "GZQO-INC-03" else v for v in base]
+    assert tier(GZQO, bad, 0.75, note_block=may)[0] == "excluded"  # a structured fail still excludes
     monkeypatch.setenv("TB_NOTE_BLOCK", "sometimes")
     with pytest.raises(ValueError):
-        tier(GZQO, base, 0.75)
+        effective_note_block(pair)
+    with pytest.raises(TypeError):
+        tier(GZQO, base, 0.75)  # type: ignore[call-arg]  # no decision, no tier
 
 
 def test_both_agree_without_a_verifier_falls_back_to_never(monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -116,8 +135,10 @@ def test_both_agree_without_a_verifier_falls_back_to_never(monkeypatch) -> None:
     from types import SimpleNamespace
 
     monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")
-    judge_only = NoteJudge(SimpleNamespace(), SimpleNamespace(model="j"), "judge", verifier=None)  # type: ignore[arg-type]
-    pair = NoteJudge(SimpleNamespace(), SimpleNamespace(model="j"), "judge", verifier=SimpleNamespace(model="v"))  # type: ignore[arg-type]
+    judge_only = NoteJudge(SimpleNamespace(), SimpleNamespace(model="j", served_root="j"), "judge", verifier=None)  # type: ignore[arg-type]
+    j: Any = SimpleNamespace(model="j", served_root="j")
+    v: Any = SimpleNamespace(model="v", served_root="v")
+    pair = NoteJudge(SimpleNamespace(), j, "judge", verifier=v)
     assert effective_note_block(None) == (False, "never", "no note judge on this box")
     may, policy, why = effective_note_block(judge_only)
     assert (may, policy) == (False, "never") and "verifier" in why
@@ -138,7 +159,7 @@ def test_both_agree_without_a_verifier_falls_back_to_never(monkeypatch) -> None:
         def judge_patient(self, pid, c, index_date, full=False):  # type: ignore[no-untyped-def]
             return NoteResult("fail", 0.99, quote="documented tophus", reason="note says so")
 
-    lone = LoneJudge(SimpleNamespace(), SimpleNamespace(model="j"), "judge", verifier=None)  # type: ignore[arg-type]
+    lone = LoneJudge(SimpleNamespace(), SimpleNamespace(model="j", served_root="j"), "judge", verifier=None)  # type: ignore[arg-type]
     only = {"GZQO-INC-05"}
     kw = dict(only=only, workers=1, full_record_fallback=False)
     res = evaluate_patients(GZQO, ["p1"], date(2026, 10, 5), Engine(), lone, 0.75, **kw)  # type: ignore[arg-type]

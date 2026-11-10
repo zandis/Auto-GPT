@@ -26,7 +26,7 @@ from matching.proposed import Proposed
 from tb_common.derived import reason_of as derived_reason
 from tb_common.fhir import FhirEvaluator
 from tb_common.llm import LlmClient, LlmError
-from tb_common.pair import Vote, combine, needs_verifier
+from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
 from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
@@ -162,6 +162,7 @@ class NoteResult:
     model_reason: str = ""  # the judge model's own sentence: audit and debugging only, never shown on a page
     call_id: str = ""  # the judge call behind the answer (the cascade's evidence meta)
     model: str = ""
+    build_sha: str = ""  # through the gateway: the build that answered (D-276)
     prompt: str = ""
     tokens_in: int = 0
     tokens_out: int = 0
@@ -174,7 +175,7 @@ def _opinion(role: str, r: NoteResult) -> dict[str, Any]:
 
 
 def _vote(r: NoteResult) -> Vote:
-    return Vote(r.predicate, r.confidence, r.reason)
+    return Vote(r.predicate, r.confidence, r.reason, served_keys(r.model, r.build_sha))
 
 
 @dataclass
@@ -187,7 +188,13 @@ class NoteJudge:
     :func:`tb_common.pair.combine`: it stands only when both agree, else it is ``unknown`` with the reason
     (``disagree``, ``verifier_quote_missing``, ``model_down``), which the tiering sends to review. So a note criterion
     blocks a patient only when both models say so. A model that does not answer counts as a failure for
-    :func:`check_judge`; its error text never reaches a reason (``model_down``)."""
+    :func:`check_judge`; its error text never reaches a reason (``model_down``). Two answers served under one model
+    name or build are one model's answer, so the judge did not really answer: ``unknown`` / ``model_down``, counted
+    as a failure (D-276, review LLM-002).
+
+    D-276 (review S-10): when the token budget left some of the retrieved notes out (:meth:`judge_patient`), an
+    answer that would exclude is not final: ``unknown`` / ``not_evaluated``, and the evaluator's full-record read
+    gets its turn."""
 
     lake: LakeAPI | None
     llm: LlmClient
@@ -199,6 +206,7 @@ class NoteJudge:
     tokens_out: int = 0
     failures: int = 0  # model calls that got no answer (model down, timeout, out-of-schema)
     disagreements: int = 0  # decided answers the verifier did not confirm (became unknown)
+    same_model: int = 0  # decided answers the "verifier" gave as the judge's own model (became unknown, D-276)
     # the counters are bumped from the evaluator's worker threads: one lock, so the >10 % model-down rule and the
     # audit counts never lose an increment (review F-27)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
@@ -218,6 +226,10 @@ class NoteJudge:
         return self.lake
 
     def excerpts(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
+        return self._chunks(pid, c, index_date)[0]
+
+    def _chunks(self, pid: str, c: CriterionIR, index_date: date) -> tuple[list[dict[str, Any]], int]:
+        """The excerpts and how many retrieved chunks the token budget left out (D-276)."""
         lo, hi = note_window(c, index_date)
         query = " ".join([c.note_question or c.text, *keywords(c.text)])
         hits = self._lake().chunks_search(pid, query, k=5, date_from=lo, date_to=hi)
@@ -238,9 +250,13 @@ class NoteJudge:
                     "did": h.get("did"),
                 }
             )
-        return out
+        return out, len(hits) - len(out)
 
     def full_record(self, pid: str, c: CriterionIR, index_date: date) -> list[dict[str, Any]]:
+        return self._record(pid, c, index_date)[0]
+
+    def _record(self, pid: str, c: CriterionIR, index_date: date) -> tuple[list[dict[str, Any]], int]:
+        """The window's notes, newest first, and how many the token budget left out (D-276)."""
         lo, hi = note_window(c, index_date)
         rows = (
             self._lake()
@@ -261,14 +277,22 @@ class NoteJudge:
             out.append(
                 {"date": r["d"].isoformat(), "note_type": r["type"] or "note", "text": r["text"], "did": r["did"]}
             )
-        return out
+        return out, len(rows) - len(out)
 
     def judge_patient(self, pid: str, c: CriterionIR, index_date: date, full: bool = False) -> NoteResult:
-        excerpts = self.full_record(pid, c, index_date) if full else self.excerpts(pid, c, index_date)
+        excerpts, left_out = self._record(pid, c, index_date) if full else self._chunks(pid, c, index_date)
         source = "full_record" if full else "chunks"
         if not excerpts:
             return NoteResult("unknown", 0.0, reason=Reason.NO_NOTES.value, source=source)
-        return self.judge_excerpts(c.text, c.note_question or c.text, index_date, excerpts, source)
+        r = self.judge_excerpts(c.text, c.note_question or c.text, index_date, excerpts, source)
+        # D-276 (review S-10): both models read the same excerpts, so their agreement says nothing about a note the
+        # budget left out. An answer that would exclude is then not final: unknown, a person (or the full read) looks
+        if left_out and r.predicate in DECIDED and eligibility(c.kind, r.predicate == "pass") == "fail":
+            return replace(
+                r, predicate="unknown", confidence=0.0, quote=None, quote_date=None, dids=[],
+                reason=Reason.NOT_EVALUATED.value,
+            )  # fmt: skip
+        return r
 
     def _ask(
         self, client: LlmClient, variables: dict[str, Any], excerpts: list[dict[str, Any]], source: str
@@ -284,6 +308,7 @@ class NoteJudge:
             r,
             call_id=res.output_sha[:16],
             model=res.model,
+            build_sha=getattr(res, "build_sha", ""),
             prompt=f"{res.prompt_id}@{res.prompt_version}",
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
@@ -314,6 +339,8 @@ class NoteJudge:
         d = combine(_vote(first), None if second is None else _vote(second))
         if d.disagreement:
             self._count(disagreements=1)
+        if d.same_model:  # the same build answered twice: the judge did not answer (a failure, review LLM-002)
+            self._count(same_model=1, failures=1)
         t_in = first.tokens_in + (second.tokens_in if second else 0)
         t_out = first.tokens_out + (second.tokens_out if second else 0)
         opinions = [_opinion("judge", first), _opinion("verifier", second)] if d.disagreement and second else []
@@ -512,6 +539,9 @@ def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
         return False, "never", "no note judge on this box"
     if judge.verifier is None:
         return False, "never", "no verifier configured: a single model may not exclude"
+    one = same_model(judge.llm, judge.verifier)  # D-276 (review S-2): two clients are not yet two models
+    if one:
+        return False, "never", f"the verifier is not a second model ({one}): a single model may not exclude"
     from orchestrator.canary_gate import allows_block
 
     ok, why = allows_block()  # D-117: only on a pair that passed its canary (and every wake check since)
@@ -521,13 +551,15 @@ def effective_note_block(judge: NoteJudge | None) -> tuple[bool, str, str]:
 
 
 def tier(
-    rs: Ruleset, verdicts: list[CriterionVerdict], threshold: float, note_block: bool | None = None
+    rs: Ruleset, verdicts: list[CriterionVerdict], threshold: float, *, note_block: bool
 ) -> tuple[str, list[str], int]:
     """high: every structured/note criterion passes (note with confidence ≥ t), only human criteria pending;
-    excluded: any criterion fails (note fails only with confidence ≥ t, and only when note answers may block, see
-    :func:`note_block_policy`); review otherwise. Returns tier, actions, number of unknowns."""
-    if note_block is None:
-        note_block = note_block_policy() != "never"
+    excluded: any criterion fails (note fails only with confidence ≥ t, and only when ``note_block``); review
+    otherwise. Returns tier, actions, number of unknowns.
+
+    ``note_block`` is required and comes from :func:`effective_note_block` of the run's judge: the configured policy
+    alone is not enough (no verifier, one model twice, the canary gate). MICROBATCH once re-tiered with the policy
+    alone and a single model could exclude (D-276, review F-01)."""
     by_id = rs.by_id()
     actions: list[str] = []
     unknown = 0
