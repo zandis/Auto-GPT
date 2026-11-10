@@ -4,7 +4,7 @@
 #   docker build -f demo/Dockerfile -t trialbox-demo .        (context = the trialbox/ folder; a fresh clone is enough)
 #   docker run -p 8080:8080 trialbox-demo                     (no -e needed; the password is printed in the log)
 # Accounts: admin, crc, pi, subpi, cra, viewer; one shared password from TB_DEMO_PASSWORD (else printed in the log).
-# Measured (T-501, demo/README.md): peak memory about 2 GB, first answer on /login after about 3 minutes.
+# Measured (T-501, demo/README.md): peak memory 1.8 GB, first answer on /login after 3 to 6 minutes; plan 4 GB.
 # the same pinned base as deploy/docker/python.Dockerfile (an index digest: amd64 and arm64)
 FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -44,18 +44,19 @@ RUN --mount=type=secret,id=extra_ca,required=false \
       jar="$TB_CQL_TRANSLATOR_LIB/quick-$CQL_QUICK_VERSION.jar"; \
       python -c "import os,ssl,sys,urllib.request as u; c=ssl.create_default_context(cafile=os.environ.get('SSL_CERT_FILE') or None); open(sys.argv[2],'wb').write(u.urlopen(sys.argv[1],timeout=120,context=c).read())" \
         "https://repo1.maven.org/maven2/org/cqframework/quick/$CQL_QUICK_VERSION/quick-$CQL_QUICK_VERSION.jar" "$jar"; \
-      echo "$CQL_QUICK_SHA256  $jar" | sha256sum -c -; \
+      echo "$CQL_QUICK_SHA256  $jar" > /tmp/quick.sha256; sha256sum -c /tmp/quick.sha256; rm /tmp/quick.sha256; \
     fi; \
     PYTHONPATH=services python -c "import sys; from criteria_compiler.compile_cql.translator import fhirhelpers_source as f; open(sys.argv[1],'wb').write(f().encode())" \
       /app/.cache/jvm/FHIRHelpers-4.0.1.cql; \
-    echo "$FHIRHELPERS_SHA256  /app/.cache/jvm/FHIRHelpers-4.0.1.cql" | sha256sum -c -; \
+    echo "$FHIRHELPERS_SHA256  /app/.cache/jvm/FHIRHelpers-4.0.1.cql" > /app/.cache/jvm/FHIRHelpers-4.0.1.cql.sha256; \
+    sha256sum -c /app/.cache/jvm/FHIRHelpers-4.0.1.cql.sha256; \
     chown -R tb:tb /app/.cache
 USER tb
 EXPOSE 8080
 # Every start rebuilds the synthetic hospital, so a restart resets the demo. Default (step 5, D-111): the whole step
-# 1-4 flow seeded and checked by tools.demo (measured: about 3 minutes before the console answers, peak about 2 GB;
+# 1-4 flow seeded and checked by tools.demo (measured: 3 to 6 minutes before the console answers, peak 1.8 GB;
 # demo/README.md). It seeds over https in process, so the Secure cookie above stays on (T-501). TB_DEMO_TOOL=role_demo
-# gives the older role-only demo (600 patients, ready in about 20 s). TB_DEMO_TOOL=public_e2e serves the public-data site
-# (tools.public_site: 268 real public notes, SIGIR + MedTxt; needs .cache/medtxt in the build context).
+# gives the older role-only demo (600 patients, ready in about 20 s). TB_DEMO_TOOL=public_e2e serves the public-data
+# site (tools.public_site: 268 real public notes, SIGIR + MedTxt; needs .cache/medtxt in the build context).
 ENV TB_DEMO_TOOL=demo
 CMD ["sh", "-c", "if [ \"$TB_DEMO_TOOL\" = public_e2e ]; then exec python -m tools.public_e2e --dir /tmp/tb-public --serve --host 0.0.0.0 --port $PORT --lang ${TB_DEMO_LANG:-ja}; else exec python -m tools.${TB_DEMO_TOOL} --fresh; fi"]
