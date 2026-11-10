@@ -15,7 +15,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_
 # fix (zlib1g, Nov 2026); the release gates scan the result by image id (D-186)
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin tb \
-    && mkdir -p /app /data/lake /data/audit /data/orchestrator /data/rulesets /data/mail /data/traces /run/secrets/trialbox \
+    && mkdir -p /app /data/lake /data/audit /data/orchestrator /data/rulesets /data/mail /data/traces /data/objects \
+       /run/secrets/trialbox \
     && chown -R tb:tb /data /run/secrets/trialbox && chmod 700 /run/secrets/trialbox
 COPY deploy/requirements.lock /tmp/requirements.lock
 # $CERT is empty or "--cert <file>": it must split into two words (SC2086 by design)

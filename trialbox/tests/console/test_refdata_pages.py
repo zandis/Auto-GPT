@@ -51,5 +51,6 @@ def test_the_tile_and_the_sources_page(box: dict[str, Any], db_url: str, tmp_pat
         else:
             assert f'data-testid="sha256-{s["id"]}">{s["download_sha256"]}<' in notice
     assert "CC0 1.0" in notice and "國家教育研究院" in notice and "tw.gov.mohw.nhi.pas 1.3.0" in notice
+    assert "National Cancer Institute" in notice and "CTCAE v5.0 (NCI, 2017-11-27)" in notice  # D-174
     viewer, _ = login(box["app"], "viewer", VIEWER_PW)
     assert viewer.get("/admin/notice").status_code == 403
