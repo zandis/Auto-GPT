@@ -8,6 +8,7 @@ import os
 import struct
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from tb_common.db import Database
@@ -166,7 +167,13 @@ def test_a_backup_in_a_previous_format_still_restores(
     (lake / "ndjson" / "2026-01-31" / "Patient.ndjson").unlink()
     out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"],  # type: ignore[arg-type]
                      now=datetime(2026, 11, 9, tzinfo=UTC))  # fmt: skip
-    assert out["ok"] and out["layout"] == 1 and out["rows"]["trialbox_wf"] == 5 and out["reload_refdata"] == []
+    assert (
+        out["ok"]
+        and out["layout"] == 1
+        and out["rows"]["trialbox_wf"] == 5
+        and out["refdata"]["missing"] == []
+        and out["warnings"] == []
+    )
     db2 = Database.connect(str(box["url"]), "site")
     assert db2.fetchall("SELECT mark FROM marks WHERE pid = 'P1'") == [("approach",)]
     assert (lake / "ndjson" / "2026-01-31" / "Patient.ndjson").exists()
@@ -196,7 +203,7 @@ def test_hashes_come_from_the_stream_and_the_sidecar_matches_the_file(
 
     monkeypatch.setattr(bk, "_sha_file", counting)
     files = _backup(box, tmp_path)
-    assert [r.parent.name for r in reads] == ["usbdisk"]  # only the copy on the second target is read back
+    assert [r.parent.name for r in reads] == ["nas", "usbdisk"]  # only the written files, read back from each target
     monkeypatch.setattr(bk, "_sha_file", real)
     for f in files:
         assert bk.read_sidecar(f) == hashlib.sha256(f.read_bytes()).hexdigest()
@@ -337,41 +344,196 @@ def test_a_lake_without_current_keeps_all_ndjson(tmp_path: Path) -> None:
     assert len(keep) == 2 and left == {}
 
 
-def test_refdata_rows_are_left_out_listed_and_the_rest_restores(box: dict[str, object], tmp_path: Path) -> None:
-    """The reference pack (schema ``refdata``) is public and reloaded from the pack: its tables are in the dump, its
-    rows are not, and the manifest and the restore name the packs to load again."""
-    ref = Database.connect(str(box["url"]), "refdata")
-    ref.migrate([
-        "CREATE TABLE pack (pack_id TEXT PRIMARY KEY, data_as_of TEXT NOT NULL, origin TEXT NOT NULL)",
-        "CREATE TABLE ctgov_study (nct_id TEXT PRIMARY KEY, body TEXT)",
-    ])  # fmt: skip
-    ref.execute("INSERT INTO pack VALUES (?, ?, ?)", ("trialbox-refdata-20261109", "2026-11-09", "vendor"))
-    ref.execute("INSERT INTO ctgov_study VALUES (?, ?)", ("NCT99000001", "x" * 50_000))
-    f = _backup(box, tmp_path)[0]
+def test_an_older_snapshot_keeps_its_reports(tmp_path: Path) -> None:
+    for snap in ("2026-10-30", "2026-11-01", "2026-11-02", "2026-11-03"):
+        (tmp_path / "ndjson" / snap).mkdir(parents=True)
+        (tmp_path / "ndjson" / snap / "Patient.ndjson").write_text("{}\n")
+    (tmp_path / "ndjson" / "2026-10-30" / "reader.json").write_text("{}")
+    (tmp_path / "ndjson" / "2026-10-30" / "tombstones.json").write_text("{}")
+    (tmp_path / "CURRENT").write_text("2026-11-03")
+    keep, left = bk.select_files("lake", tmp_path)
+    assert {"ndjson/2026-10-30/reader.json", "ndjson/2026-10-30/tombstones.json"} <= set(keep)
+    assert "ndjson/2026-10-30/Patient.ndjson" not in keep and sum(left.values()) == 2
+
+
+# ------------------------------------------------------------------------------------------------ one snapshot (H1)
+def test_rows_are_counted_in_the_dumps_own_snapshot_while_the_box_writes(
+    box: dict[str, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A row written after the snapshot (here: by the pg_dump wrapper, just before pg_dump starts) is neither in the
+    dump nor in the manifest's counts, so the restore matches exactly. Counting on the live database afterwards, as
+    before, put it in the counts and not in the dump: a good backup then failed its restore."""
+    db: Database = box["db"]  # type: ignore[assignment]
+    from tb_common.db import split_url
+
+    dsn = split_url(str(box["url"]))[0]
+    wrapper = tmp_path / "pg_dump_late_write.sh"
+    wrapper.write_text(f'#!/bin/sh\npsql -X -q --dbname "$LATE_DSN" -c "INSERT INTO {db.schema}.marks VALUES '
+                       "('P9', 'late', NULL)\" >/dev/null\nexec pg_dump \"$@\"\n")  # fmt: skip
+    wrapper.chmod(0o755)
+    monkeypatch.setenv("LATE_DSN", dsn)
+    env = {"TB_DB_URL": str(box["url"]), "TB_SITE_ID": "CGMH", "TB_PG_DUMP_CMD": str(wrapper)}
+    f = bk.backup([tmp_path / "nas"], box["pub"], env=env, dirs=box["dirs"])[0]  # type: ignore[arg-type]
+    assert db.fetchall("SELECT count(*) FROM marks") == [(3,)]  # the late row is in the live database
     m = bk.unpack(f, box["priv"], tmp_path / "x")  # type: ignore[arg-type]
-    db = m["databases"]["trialbox_wf"]
-    assert db["excluded_data_schemas"] == [ref.schema]
-    assert not any(k.startswith(f"{ref.schema}.") for k in db["rows"])
-    assert m["refdata_packs"] == [{"pack_id": "trialbox-refdata-20261109", "data_as_of": "2026-11-09",
-                                   "origin": "vendor"}]  # fmt: skip
-    dump = (tmp_path / "x" / "db" / "trialbox_wf.dump").read_bytes()
-    assert b"NCT99000001" not in dump and b"approach" in dump  # -Z0: the dump is plain inside the encrypted stream
+    twf = m["databases"]["trialbox_wf"]
+    assert twf["rows_from"] == "snapshot" and twf["rows"][f"{db.schema}.marks"][0] == 2
     out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"],  # type: ignore[arg-type]
                      now=datetime(2026, 11, 9, tzinfo=UTC))  # fmt: skip
-    assert out["ok"] and out["reload_refdata"][0]["pack_id"] == "trialbox-refdata-20261109"
-    ref2 = Database.connect(str(box["url"]), "refdata")
-    assert ref2.fetchall("SELECT count(*) FROM ctgov_study") == [(0,)]  # the table is there, empty until reloaded
-    assert Database.connect(str(box["url"]), "site").fetchall("SELECT count(*) FROM marks") == [(2,)]
+    assert out["ok"] and out["warnings"] == [] and db.fetchall("SELECT count(*) FROM marks") == [(2,)]
 
 
-def test_dumps_taken_by_the_db_container_carry_what_they_left_out(box: dict[str, object], tmp_path: Path) -> None:
-    """TB_PG_DUMP_DIR (the nightly run and the update path): ``<name>.dump.json`` says which rows the dump left out;
-    without it the dump is a full one (the update path) and nothing is marked left out."""
+def test_a_snapshot_backup_whose_rows_do_not_come_back_fails_the_restore(
+    box: dict[str, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    f = _backup(box, tmp_path)[0]
+    real = bk.row_counts
+    monkeypatch.setattr(bk, "row_counts", lambda src, skip=(): {**real(src, skip), "x.lost": [1, "0"]})
+    with pytest.raises(bk.BackupError, match="differs from the backup"):
+        bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"])  # type: ignore[arg-type]
+
+
+def test_a_backup_counted_on_a_live_box_warns_on_a_row_mismatch(box: dict[str, object], tmp_path: Path) -> None:
+    """The update path's dumps (TB_PG_DUMP_DIR without ``.rows``) are counted when the backup runs: a row written in
+    between is a warning on restore, not a failure."""
     pre = tmp_path / "dumps"
     pre.mkdir()
     src = bk.db_sources({"TB_DB_URL": str(box["url"])})[0]
     bk.dump(src, pre / "trialbox_wf.dump", {"TB_DB_URL": str(box["url"])})
-    assert bk.dump(src, tmp_path / "a.dump", {"TB_PG_DUMP_DIR": str(pre)}) == ()
-    (pre / "trialbox_wf.dump.json").write_text(json.dumps({"exclude_table_data_schemas": [src.exclude_data()[0]]}))
-    assert bk.dump(src, tmp_path / "b.dump", {"TB_PG_DUMP_DIR": str(pre)}) == src.exclude_data()
-    assert bk.DbSource("hapi", "x", ()).exclude_data() == ()  # HAPI keeps every row
+    box["db"].execute("INSERT INTO marks VALUES (?, ?, ?)", ("P9", "late", None))  # type: ignore[attr-defined]
+    env = {"TB_DB_URL": str(box["url"]), "TB_PG_DUMP_DIR": str(pre), "TB_SITE_ID": "CGMH"}
+    f = bk.backup([tmp_path / "nas"], box["pub"], env=env, dirs=box["dirs"])[0]  # type: ignore[arg-type]
+    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"])  # type: ignore[arg-type]
+    assert out["ok"] and len(out["warnings"]) == 1 and "running box" in out["warnings"][0]
+
+
+def test_a_file_rewritten_while_it_is_read_is_read_again(
+    box: dict[str, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A DuckDB-like file rewritten in place at the same size during the read: the torn copy is followed by a whole
+    one, which the manifest names and the restore extracts. A file that never settles fails the backup."""
+    target = box["dirs"]["lake"] / "patient.parquet"  # type: ignore[index]
+    new = b"NEW!" + bytes(range(256)) * 5000
+    orig = bk._HashReader.read
+    state = {"done": False}
+
+    def rewriting(self: bk._HashReader, size: int = -1) -> bytes:
+        b = orig(self, size)
+        if not state["done"] and b.startswith(b"PAR1"):
+            state["done"] = True
+            target.write_bytes(new)  # same size, new content, new mtime
+            os.utime(target, ns=(target.stat().st_atime_ns, target.stat().st_mtime_ns + 10**9))
+        return b
+
+    monkeypatch.setattr(bk._HashReader, "read", rewriting)
+    f = _backup(box, tmp_path)[0]
+    monkeypatch.setattr(bk._HashReader, "read", orig)
+    m = bk.unpack(f, box["priv"], tmp_path / "x")  # type: ignore[arg-type]
+    assert m["files"]["dirs/lake/patient.parquet"] == hashlib.sha256(new).hexdigest()
+    assert (tmp_path / "x" / "dirs" / "lake" / "patient.parquet").read_bytes() == new
+
+    def always(self: bk._HashReader, size: int = -1) -> bytes:
+        b = orig(self, size)
+        if b.startswith(b"NEW!"):
+            os.utime(target, ns=(target.stat().st_atime_ns, target.stat().st_mtime_ns + 10**9))
+        return b
+
+    monkeypatch.setattr(bk._HashReader, "read", always)
+    with pytest.raises(bk.BackupError, match="kept changing"):
+        _backup(box, tmp_path / "again")
+
+
+# ------------------------------------------------------------------------------------------------ sites (H4)
+def test_prune_keeps_other_sites_files_on_a_shared_target(box: dict[str, object], tmp_path: Path) -> None:
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    other = nas / "trialbox-OTHER-20200101T000000Z.tbbak"
+    other.write_bytes(b"x")
+    bk.sidecar(other).write_text("y")
+    prefix_like = nas / "trialbox-CGMH-EXTRA-20200101T000000Z.tbbak"  # a site whose name starts like this one's
+    prefix_like.write_bytes(b"x")
+    for day in (1, 2):
+        _backup(box, tmp_path, keep=1, now=datetime(2026, 11, day, tzinfo=UTC))
+    assert other.exists() and bk.sidecar(other).exists() and prefix_like.exists()
+    assert len(list(nas.glob("trialbox-CGMH-2026*.tbbak"))) == 1
+
+
+# ------------------------------------------------------------------------------------------------ refdata (H5)
+def _refdata_box(box: dict[str, object], tmp_path: Path) -> tuple[Path, Database]:
+    """The sample vendor pack loaded through the real store, plus a source the hospital fetched itself."""
+    from tb_common import refdata as rd
+
+    from tools import refdata_fetch as rf
+
+    tar = rf.build(rf.sample_raw(tmp_path / "rd" / "raw"), tmp_path / "rd", "20261109", sample=True)
+    with rd.RefStore(str(box["url"])) as st, rd.opened(tar) as pack:
+        st.load(pack, by="test")
+    ref = Database.connect(str(box["url"]), "refdata")
+    ref.execute("INSERT INTO source (source_id, pack_id, name, kind, distribution, records, url, downloaded_at, "
+                "licence, attribution) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("umin-site", "site-pack", "UMIN-CTR", "trial", "site-fetch", 1, "https://example.invalid", "2026",
+                 "site", "site"))  # fmt: skip
+    ref.execute("INSERT INTO trial (registry, trial_id, title, status, conditions, countries, record, source_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                ("umin", "UMIN000099", "site trial", "open", "gout", "Japan", "{}", "umin-site"))  # fmt: skip
+    return tar, ref
+
+
+def _refdata_state(ref: Database) -> dict[str, Any]:
+    return {t: ref.fetchall(f"SELECT * FROM {t} ORDER BY 1, 2") for t in ("ctgov_study", "trial", "term")} | {
+        "source": ref.fetchall("SELECT source_id, distribution FROM source ORDER BY 1"),
+        "versions": ref.fetchall("SELECT * FROM _schema_version ORDER BY 1"),
+    }
+
+
+def test_vendor_reference_rows_are_left_out_and_loaded_again_on_restore(box: dict[str, object], tmp_path: Path) -> None:
+    tar, ref = _refdata_box(box, tmp_path)
+    before = _refdata_state(ref)
+    assert before["ctgov_study"] and before["versions"]
+    f = _backup(box, tmp_path)[0]
+    m = bk.unpack(f, box["priv"], tmp_path / "x")  # type: ignore[arg-type]
+    twf = m["databases"]["trialbox_wf"]
+    assert sorted(twf["excluded_tables"]) == sorted(f"{ref.schema}.{t}" for t in ("ctgov_study", "term", "trial"))
+    assert f"{ref.schema}.pack" in twf["rows"] and f"{ref.schema}.source" in twf["rows"]
+    assert f"{ref.schema}._schema_version" in twf["rows"]
+    assert twf["site_rows"][f"{ref.schema}.trial"][0] == 1  # the hospital's own row is in the backup
+    dump = (tmp_path / "x" / "db" / "trialbox_wf.dump").read_bytes()
+    assert b"NCT99000001" not in dump  # the vendor's rows are not
+    assert [p["pack_id"] for p in m["refdata_packs"]] == [tar.name.removesuffix(".tar")]
+    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"],  # type: ignore[arg-type]
+                     refdata_dir=tar.parent)  # fmt: skip
+    assert out["ok"] and out["refdata"] == {"reloaded": [tar.name.removesuffix(".tar")], "missing": []}
+    after = _refdata_state(Database.connect(str(box["url"]), "refdata"))
+    assert after == before
+
+
+def test_a_restore_without_the_pack_keeps_the_site_rows_and_says_it_is_not_done(
+    box: dict[str, object], tmp_path: Path, capsys: Any
+) -> None:
+    tar, _ref = _refdata_box(box, tmp_path)
+    f = _backup(box, tmp_path)[0]
+    out = bk.restore(f, box["priv"], env={"TB_DB_URL": str(box["url"])}, dirs=box["dirs"],  # type: ignore[arg-type]
+                     refdata_dir=tmp_path / "empty")  # fmt: skip
+    assert not out["ok"] and out["refdata"]["missing"] == [tar.name.removesuffix(".tar")]
+    ref2 = Database.connect(str(box["url"]), "refdata")
+    assert ref2.fetchall("SELECT trial_id FROM trial") == [("UMIN000099",)]  # site-fetch rows came back
+    assert ref2.fetchall("SELECT count(*) FROM ctgov_study") == [(0,)]
+    assert ref2.fetchall("SELECT count(*) FROM pack") == [(1,)] and ref2.fetchall(
+        "SELECT count(*) FROM _schema_version"
+    )
+    rc = cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--refdata", str(tmp_path / "empty"),
+              "--dir", f"audit={box['dirs']['audit']}", "--dir", f"lake={box['dirs']['lake']}"])  # type: ignore[index]  # fmt: skip
+    assert rc == 3 and "reference data is NOT loaded" in capsys.readouterr().err
+    assert cli(["restore", str(f), "--key", str(box["priv"]), "--yes", "--refdata", str(tar.parent),
+                "--dir", f"audit={box['dirs']['audit']}", "--dir", f"lake={box['dirs']['lake']}"]) == 0  # type: ignore[index]  # fmt: skip
+
+
+def test_the_update_paths_full_dump_keeps_every_row(box: dict[str, object], tmp_path: Path) -> None:
+    """``dump`` (the update path's rollback point) is a full dump, reference rows included."""
+    _tar, _ref = _refdata_box(box, tmp_path)
+    src = bk.db_sources({"TB_DB_URL": str(box["url"])})[0]
+    bk.dump(src, tmp_path / "full.dump", {"TB_DB_URL": str(box["url"])})
+    import subprocess
+
+    listing = subprocess.run(["pg_restore", "-f", "-", str(tmp_path / "full.dump")], capture_output=True, check=True)
+    assert b"NCT99000001" in listing.stdout

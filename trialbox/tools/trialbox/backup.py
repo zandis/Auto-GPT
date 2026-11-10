@@ -6,14 +6,17 @@
     trialbox restore <file> --key /media/usb/trialbox-backup.key --yes
 
 What is in a backup (``*.tbbak``, layout 2, D-187): a ``pg_dump`` (custom format, compressed only by the backup's
-zstd stream) of ``trialbox_wf`` (``TB_DB_URL``) without the rows of the schema ``refdata`` (the public reference
-pack: load it again after a restore; the manifest lists the packs that were loaded) and, when ``TB_HAPI_DB_URL`` is
-set, of ``hapi``; every directory of the layout (lake, objects, audit, rulesets, orchestrator files, mail, secrets),
-where the lake keeps every Parquet and DuckDB file, the vector store and the site inputs, but the NDJSON only of
-``CURRENT`` and of the two newest snapshots (a delta night merges over the newest older one), and never ``tmp/``
-(spill) or a ``.building`` file; a manifest with the sha256 and size of every member, taken from the bytes as they
-go into the tar (a file is read once, never a second time to hash it), what was left out and why, and the row count
-and content hash of every table that was dumped with its rows.
+zstd stream) of ``trialbox_wf`` (``TB_DB_URL``) and, when ``TB_HAPI_DB_URL`` is set, of ``hapi``, each taken in one
+database snapshot together with the row count and content hash of every table (``backup_schedule.snapshot_script``):
+the box keeps running, and the manifest still matches the dump exactly. The vendor reference pack's rows
+(``refdata.ctgov_study``, ``trial``, ``term``) are left out; the ``pack``, ``source`` and ``_schema_version`` rows and
+the hospital's own (``site-fetch``) reference rows are in it, and a restore loads the packs again from
+``deploy/refdata/loaded`` (or fails until it can). Then every directory of the layout (lake, objects, audit, rulesets,
+orchestrator files, mail, secrets, console), where the lake keeps every Parquet and DuckDB file, the vector store,
+the site inputs and the snapshot reports, but the ``*.ndjson`` only of ``CURRENT`` and of the two newest snapshots (a
+delta night merges over the newest older one), and never ``tmp/`` (spill) or a ``.building`` file. A file is read
+once, and its sha256 and size in the manifest are those of the bytes that went into the tar; a file that changed
+while it was read (size or modification time) is read again, up to three times, else the backup fails.
 
 **Encryption to the hospital's key.** The box holds only the public key (X25519). Each backup takes a fresh key pair,
 derives an AES-256-GCM key with HKDF-SHA256 from the shared secret, and encrypts the tar stream in 1 MiB chunks. The
@@ -67,7 +70,6 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 # shared with the host-side schedule, which has only the standard library (re-exported: bk.prune, bk.read_sidecar ...)
 from tools.trialbox import backup_schedule as _sched
 
-EXCLUDE_DATA_SCHEMAS = _sched.EXCLUDE_DATA_SCHEMAS
 SUFFIX = _sched.SUFFIX
 prune = _sched.prune
 read_sidecar = _sched.read_sidecar
@@ -91,9 +93,6 @@ DEFAULT_DIRS = {
     "secrets": "tb-secrets",
     "console": "console-data",  # as the update path's backup (update.ComposeBox) already takes it
 }
-# D-187: the rows of EXCLUDE_DATA_SCHEMAS ("refdata") of the trial database are not dumped (their tables are): the
-# reference pack is public, several GB, and loaded again from the pack (tb_common.refdata). The nightly run's own
-# pg_dump (backup_schedule) leaves out the same.
 LAKE_SKIP_TOP = ("tmp",)  # DuckDB spill (lake.store temp_dir default)
 
 
@@ -290,9 +289,10 @@ class DbSource:
     schemas: tuple[str, ...]  # empty: the whole database; else only these schema patterns (a tb_prefix run)
     prefix: str = ""  # the tb_prefix of the schemas ("" on a box)
 
-    def exclude_data(self) -> tuple[str, ...]:
-        """The schemas whose rows a dump leaves out (D-187): ``refdata`` of the trial database; nothing of HAPI."""
-        return tuple(f"{self.prefix}{s}" for s in EXCLUDE_DATA_SCHEMAS) if self.name == "trialbox_wf" else ()
+    @property
+    def refdata(self) -> str | None:
+        """The reference data schema of the trial database (D-187: its vendor rows are left out); HAPI has none."""
+        return f"{self.prefix}{_sched.REFDATA}" if self.name == "trialbox_wf" else None
 
 
 def db_sources(env: Mapping[str, str]) -> list[DbSource]:
@@ -318,31 +318,62 @@ def _libpq(dsn: str) -> tuple[list[str], dict[str, str]]:
     return ["--dbname", dsn], {}
 
 
-def dump(src: DbSource, out: Path, env: Mapping[str, str]) -> tuple[str, ...]:
-    """Dump ``src`` to ``out``; return the schemas whose rows the dump left out."""
+def dump(src: DbSource, out: Path, env: Mapping[str, str]) -> None:
+    """A full dump of ``src`` to ``out`` (the update path's rollback point; a backup uses :func:`take_snapshot`)."""
     pre = env.get("TB_PG_DUMP_DIR")
-    if pre:  # D-138: dumps taken by the db container (update.py ComposeBox, backup_schedule's nightly run)
+    if pre:  # D-138: dumps taken by the db container on a quiet box (tools/trialbox/update.py ComposeBox)
         f = Path(pre) / f"{src.name}.dump"
         if not f.is_file():
             raise BackupError(f"no {f} (TB_PG_DUMP_DIR)")
         shutil.copyfile(f, out)
-        # the taker says what it left out (backup_schedule writes <name>.dump.json); without it, a full dump
-        side = Path(pre) / f"{src.name}.dump.json"
-        if side.is_file():
-            return tuple(json.loads(side.read_text(encoding="utf-8")).get("exclude_table_data_schemas", []))
-        return ()
+        return
     args, extra = _libpq(src.dsn)
-    # -Z0: the dump is compressed once, by the backup's zstd stream (D-187), not twice
-    cmd = [*_cmd(env, "TB_PG_DUMP_CMD", "pg_dump"), "--format=custom", "-Z0", "--no-owner", "--no-privileges", *args]
+    cmd = [*_cmd(env, "TB_PG_DUMP_CMD", "pg_dump"), "--format=custom", "--no-owner", "--no-privileges", *args]
     for s in src.schemas:
         cmd += ["--schema", s]
-    excluded = src.exclude_data()
-    cmd += [f"--exclude-table-data={s}.*" for s in excluded]
     with out.open("wb") as fh:
         r = subprocess.run(cmd, stdout=fh, stderr=subprocess.PIPE, env={**os.environ, **extra}, check=False)
     if r.returncode != 0:
         raise BackupError(f"pg_dump of {src.name} failed: {r.stderr.decode(errors='replace').strip()[-400:]}")
-    return excluded
+
+
+def take_snapshot(src: DbSource, work: Path, env: Mapping[str, str]) -> dict[str, Any]:
+    """The dump of ``src`` in ``work/<name>.dump`` and, from the same database snapshot, its row counts and content
+    hashes, the reference packs and the hospital's own reference rows (``backup_schedule.snapshot_script``, D-187).
+
+    ``TB_PG_DUMP_DIR``: the files the nightly run's db container wrote, or, without a ``<name>.rows`` beside the
+    dump, a full dump the update path took on a quiet box; its rows are then counted now (``rows_from: live``)."""
+    pre = env.get("TB_PG_DUMP_DIR")
+    if pre:
+        d = Path(pre)
+        if not (d / f"{src.name}.dump").is_file():
+            raise BackupError(f"no {d / f'{src.name}.dump'} (TB_PG_DUMP_DIR)")
+        if not (d / f"{src.name}.rows").is_file():
+            shutil.copyfile(d / f"{src.name}.dump", work / f"{src.name}.dump")
+            return {"rows_from": "live", "rows": row_counts(src), "excluded_tables": [], "refdata_schema": None,
+                    "site_rows": {}, "packs": [], "site_files": {}}  # fmt: skip
+        for f in d.glob(f"{src.name}.*"):
+            if f.is_file():
+                shutil.copyfile(f, work / f.name)
+    else:
+        script = work / f"{src.name}.sql"
+        pg_dump = " ".join(shlex.quote(a) for a in _cmd(env, "TB_PG_DUMP_CMD", "pg_dump"))
+        script.write_text(_sched.snapshot_script(str(work), src.name, pg_dump, f'--dbname "{src.dsn}"', src.schemas,
+                                                 src.refdata), encoding="utf-8")  # fmt: skip
+        psql = [*_cmd(env, "TB_PSQL_CMD", "psql"), "-X", "-q", "-v", "ON_ERROR_STOP=1", "--dbname", src.dsn]
+        old = os.umask(0o077)
+        try:
+            r = subprocess.run([*psql, "-f", str(script)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                               check=False)  # fmt: skip
+        finally:
+            os.umask(old)
+        if r.returncode != 0:
+            raise BackupError(f"the snapshot of {src.name} failed: {r.stderr.decode(errors='replace').strip()[-400:]}")
+        (work / f"{src.name}.dump.json").write_text(json.dumps(_sched.snapshot_meta(src.name, src.refdata)))
+    try:
+        return _sched.parse_snapshot(work, src.name)
+    except (OSError, RuntimeError, ValueError) as e:
+        raise BackupError(str(e)) from e
 
 
 def restore_db(src: DbSource, dump_file: Path, env: Mapping[str, str]) -> None:
@@ -367,16 +398,17 @@ def _drop_schemas(src: DbSource) -> None:
                 con.execute(f'DROP SCHEMA "{n}" CASCADE')
 
 
-def row_counts(src: DbSource, skip_schemas: Sequence[str] = ()) -> dict[str, list[Any]]:
-    """``schema.table -> [rows, md5 of the sorted rows as text]`` for every table of the source, except the tables of
-    ``skip_schemas`` (whose rows the dump left out).
+def row_counts(src: DbSource, skip: Sequence[str] = ()) -> dict[str, list[Any]]:
+    """``schema.table -> [rows, md5 of the sorted rows as text]`` for every table of the source, except the tables
+    (``schema.table``) or whole schemas named in ``skip`` (whose rows the dump left out).
 
-    The manifest keeps it; a restore must give the same pair for every table (content, not only counts).
+    The manifest keeps it; a restore must give the same pair for every table (content, not only counts). The same
+    expression runs in the backup's snapshot (``backup_schedule.snapshot_script``).
     """
     import psycopg
 
     likes = [p.replace("*", "%") for p in src.schemas] or ["%"]
-    skip = set(skip_schemas)
+    skipped = set(skip)
     out: dict[str, list[Any]] = {}
     with psycopg.connect(src.dsn, autocommit=True) as con:
         rows = con.execute(
@@ -386,7 +418,7 @@ def row_counts(src: DbSource, skip_schemas: Sequence[str] = ()) -> dict[str, lis
             (likes,),
         ).fetchall()
         for schema, table in rows:
-            if schema in skip:
+            if schema in skipped or f"{schema}.{table}" in skipped:
                 continue
             agg = "md5(COALESCE(string_agg(t::text, chr(10) ORDER BY t::text), ''))"
             q = f'SELECT count(*), {agg} FROM "{schema}"."{table}" t'
@@ -395,17 +427,64 @@ def row_counts(src: DbSource, skip_schemas: Sequence[str] = ()) -> dict[str, lis
     return out
 
 
-def refdata_packs(src: DbSource) -> list[dict[str, str]]:
-    """The reference packs loaded in the trial database (ids and dates only): what to load again after a restore."""
+_SITE_ROWS = "WHERE source_id IN (SELECT source_id FROM \"{s}\".source WHERE distribution = 'site-fetch')"
+
+
+def site_row_counts(src: DbSource, refdata: str) -> dict[str, list[Any]]:
+    """Rows and content hash of the hospital's own (``site-fetch``) rows in each vendor-pack table of ``refdata``."""
     import psycopg
 
-    schema = f"{src.prefix}refdata"
+    out: dict[str, list[Any]] = {}
     with psycopg.connect(src.dsn, autocommit=True) as con:
-        there = con.execute("SELECT to_regclass(%s)", (f'"{schema}".pack',)).fetchone()
-        if not there or there[0] is None:
-            return []
-        rows = con.execute(f'SELECT pack_id, data_as_of, origin FROM "{schema}".pack ORDER BY pack_id').fetchall()
-    return [{"pack_id": str(a), "data_as_of": str(b), "origin": str(c)} for a, b, c in rows]
+        if con.execute("SELECT to_regclass(%s)", (f'"{refdata}".source',)).fetchone() in (None, (None,)):
+            return out
+        for t in _sched.BULK_REFDATA:
+            if con.execute("SELECT to_regclass(%s)", (f'"{refdata}"."{t}"',)).fetchone() in (None, (None,)):
+                continue
+            agg = "md5(COALESCE(string_agg(t::text, chr(10) ORDER BY t::text), ''))"
+            n = con.execute(f'SELECT count(*), {agg} FROM "{refdata}"."{t}" t ' + _SITE_ROWS.format(s=refdata))
+            row = n.fetchone()
+            out[f"{refdata}.{t}"] = [int(row[0]), str(row[1])] if row else [0, ""]
+    return out
+
+
+def _copy_in(src: DbSource, table: str, data: Path) -> None:
+    import psycopg
+
+    schema, _, name = table.partition(".")
+    with psycopg.connect(src.dsn) as con, con.cursor() as cur:
+        with cur.copy(f'COPY "{schema}"."{name}" FROM STDIN') as cp, data.open("rb") as fh:
+            while chunk := fh.read(CHUNK):
+                cp.write(chunk)
+        con.commit()
+
+
+def reload_refdata(src: DbSource, packs: Sequence[Mapping[str, str]], folder: Path | None) -> dict[str, list[str]]:
+    """Load again each vendor pack ``packs`` names, from the pack files in ``folder`` (``deploy/refdata/loaded``);
+    the hospital's own packs (``origin: site``) came back with the dump. Returns what was loaded and what is missing."""
+    want = {p["pack_id"] for p in packs if p.get("origin") != "site"}
+    done: list[str] = []
+    if want and folder is not None and folder.is_dir():
+        from tb_common.refdata import RefStore, opened
+        from tb_common.refdata import verify as verify_pack
+
+        with RefStore(_url_for(src)) as st:
+            for tar in sorted(folder.glob("*.tar")):
+                try:
+                    with opened(tar) as pack:
+                        pid = verify_pack(pack)["pack_id"]
+                        if pid in want and pid not in done:
+                            st.load(pack, by="trialbox restore")
+                            done.append(pid)
+                except Exception:  # a damaged or foreign file: the pack stays missing, and the restore says so
+                    continue
+    return {"reloaded": sorted(done), "missing": sorted(want - set(done))}
+
+
+def _url_for(src: DbSource) -> str:
+    if not src.prefix:
+        return src.dsn
+    return f"{src.dsn}{'&' if '?' in src.dsn else '?'}tb_prefix={src.prefix}"
 
 
 # ------------------------------------------------------------------------------------------------ directories
@@ -452,8 +531,9 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
     Only the lake has rules; every other directory is taken whole. The lake: no ``tmp/`` (DuckDB spill), no
     ``.building`` file (a snapshot being built), and the NDJSON only of ``CURRENT`` and of the two newest snapshots:
     the next delta night merges over the newest one older than itself (a held night's NDJSON is newer than
-    ``CURRENT``; a night run again on the same date merges over the one before). Every Parquet and DuckDB file, the
-    vector store (``embed_cache.duckdb``) and the site inputs are kept. A lake without ``CURRENT`` keeps all NDJSON.
+    ``CURRENT``; a night run again on the same date merges over the one before); an older snapshot keeps its reports
+    (``reader.json``, ``tombstones.json``). Every Parquet and DuckDB file, the vector store (``embed_cache.duckdb``)
+    and the site inputs are kept. A lake without ``CURRENT`` keeps all NDJSON.
     """
     keep: list[str] = []
     left: dict[str, int] = {}
@@ -471,7 +551,7 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
         elif name == "lake" and rel.endswith(".building"):
             why = "lake snapshot being built"
         elif name == "lake" and ndjson_keep is not None and parts[0] == "ndjson" and len(parts) > 2 \
-                and parts[1] not in ndjson_keep:  # fmt: skip
+                and parts[1] not in ndjson_keep and rel.endswith(".ndjson"):  # fmt: skip
             why = "lake NDJSON of older snapshots (their Parquet and DuckDB are kept)"
         if why:
             left[why] = left.get(why, 0) + 1
@@ -480,16 +560,32 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
     return keep, left
 
 
+READ_TRIES = 3
+
+
 def _add(tar: tarfile.TarFile, path: Path, arcname: str) -> tuple[str, int]:
-    """Add one file; return the sha256 and size of exactly the bytes that went into the tar (one read)."""
-    with path.open("rb") as fh:
-        info = tar.gettarinfo(arcname=arcname, fileobj=fh)
-        hr = _HashReader(fh)
+    """Add one file; return the sha256 and size of exactly the bytes that went into the tar (one read per try).
+
+    The box is running: a file whose size or modification time changed while it was read (a DuckDB file rewritten
+    in place at the same size, a log appended to) is added again, and the later copy is the one a restore extracts
+    and the manifest names; after ``READ_TRIES`` the backup fails. A file that shrank under the read cannot be taken
+    back out of the stream: the backup fails at once."""
+    for _ in range(READ_TRIES):
+        with path.open("rb") as fh:
+            before = os.fstat(fh.fileno())
+            info = tar.gettarinfo(arcname=arcname, fileobj=fh)
+            hr = _HashReader(fh)
+            try:
+                tar.addfile(info, hr)
+            except OSError as e:  # the file shrank while it was read
+                raise BackupError(f"{arcname} changed while it was backed up; run the backup again") from e
         try:
-            tar.addfile(info, hr)
-        except OSError as e:  # the file shrank while it was read
-            raise BackupError(f"{arcname} changed while it was backed up; run the backup again") from e
-    return hr.sha.hexdigest(), hr.n
+            after = path.stat()
+        except FileNotFoundError:  # replaced by a rename, gone for now: the copy read is a whole, older file
+            return hr.sha.hexdigest(), hr.n
+        if (after.st_size, after.st_mtime_ns, after.st_ino) == (before.st_size, before.st_mtime_ns, before.st_ino):
+            return hr.sha.hexdigest(), hr.n
+    raise BackupError(f"{arcname} kept changing while it was backed up ({READ_TRIES} reads); run the backup again")
 
 
 def _write_sidecar(file: Path, sha: str) -> None:
@@ -560,7 +656,8 @@ def backup(
     when = now or datetime.now(UTC)
     stamp = when.strftime("%Y%m%dT%H%M%SZ")
     site = site or env.get("TB_SITE_ID") or socket.gethostname()
-    name = f"trialbox-{_safe(site)}-{stamp}{SUFFIX}"
+    prefix = f"trialbox-{_sched.safe(site)}-"
+    name = f"{prefix}{stamp}{SUFFIX}"
     recipient = load_public(public_key)
     srcs = db_sources(env)
     manifest: dict[str, Any] = {"layout": LAYOUT, "hashing": "stream", "created_at": when.isoformat(timespec="seconds"),
@@ -569,12 +666,18 @@ def backup(
                                 "excluded": {}, "refdata_packs": []}  # fmt: skip
     with tempfile.TemporaryDirectory(prefix="tb-backup-") as tmp:
         work = Path(tmp)
+        os.chmod(work, 0o700)
+        snaps = {}
         for src in srcs:
-            excl = dump(src, work / f"{src.name}.dump", env)
-            manifest["databases"][src.name] = {"schemas": list(src.schemas), "excluded_data_schemas": list(excl),
-                                               "rows": row_counts(src, excl)}  # fmt: skip
-            if excl and src.name == "trialbox_wf":
-                manifest["refdata_packs"] = refdata_packs(src)
+            snap = take_snapshot(src, work, env)
+            snaps[src.name] = snap
+            manifest["databases"][src.name] = {
+                "schemas": list(src.schemas), "rows_from": snap["rows_from"], "rows": snap["rows"],
+                "excluded_tables": snap["excluded_tables"], "refdata_schema": snap["refdata_schema"],
+                "site_rows": snap["site_rows"],
+            }  # fmt: skip
+            if snap["refdata_schema"]:
+                manifest["refdata_packs"] = snap["packs"]
         first = Path(targets[0])
         first.mkdir(parents=True, exist_ok=True)
         part = first / (name + ".part")
@@ -586,6 +689,10 @@ def backup(
                 for src in srcs:
                     arc = f"db/{src.name}.dump"
                     manifest["files"][arc], manifest["sizes"][arc] = _add(tar, work / f"{src.name}.dump", arc)
+                    if snaps[src.name]["refdata_schema"]:
+                        for t, f in sorted(snaps[src.name]["site_files"].items()):
+                            arc = f"db/{src.name}.site.{t}.copy"
+                            manifest["files"][arc], manifest["sizes"][arc] = _add(tar, f, arc)
                 for dname, root in sorted(dirs.items()):
                     rels, left = select_files(dname, root)
                     n = 0
@@ -611,6 +718,8 @@ def backup(
         sha = hw.sha.hexdigest()
         final = first / name
         part.rename(final)
+        if _sha_file(final) != sha:  # read back from the first target too, as from every other one
+            raise BackupError(f"{final} does not read back as written")
         _write_sidecar(final, sha)
         written = [final]
         for t in targets[1:]:
@@ -624,12 +733,8 @@ def backup(
             _write_sidecar(t / name, sha)
             written.append(t / name)
     for t in targets:
-        prune(Path(t), keep)
+        prune(Path(t), keep, prefix)
     return written
-
-
-def _safe(s: str) -> str:
-    return "".join(c if c.isalnum() or c in "-_" else "-" for c in s)[:40] or "box"
 
 
 # ------------------------------------------------------------------------------------------------ verify / restore
@@ -683,11 +788,18 @@ def restore(
     env: Mapping[str, str] | None = None,
     dirs: Mapping[str, Path] | None = None,
     now: datetime | None = None,
+    refdata_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Restore the databases and directories of ``file``; return what was restored, with row counts checked, and
-    the reference packs to load again (their rows are not in a layout-2 backup)."""
+    """Restore the databases and directories of ``file``, the hospital's own reference rows and, from the pack files
+    in ``refdata_dir``, the vendor packs a layout-2 backup leaves out; return what was restored, with rows checked.
+
+    ``ok`` is False (and ``refdata.missing`` names them) while a pack could not be loaded again. Rows that differ from
+    the manifest fail the restore when the backup counted them in its own snapshot; a backup that counted them on a
+    live box (layout 1, or the update path's dumps) gives a warning instead."""
     env = dict(os.environ if env is None else env)
     stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
+    warnings: list[str] = []
+    refdata: dict[str, list[str]] = {"reloaded": [], "missing": []}
     with tempfile.TemporaryDirectory(prefix="tb-restore-") as tmp:
         work = Path(tmp)
         manifest = unpack(file, key, work)
@@ -699,12 +811,18 @@ def restore(
         for name in manifest["databases"]:
             if name not in srcs:
                 raise BackupError(f"the backup holds database {name} but its URL is not set")
-        for name in manifest["databases"]:
+        for name, want in manifest["databases"].items():
             restore_db(srcs[name], work / "db" / f"{name}.dump", env)
+            for t in _sched.BULK_REFDATA:
+                f = work / "db" / f"{name}.site.{t}.copy"
+                if f.is_file() and want.get("refdata_schema") and f.stat().st_size:
+                    _copy_in(srcs[name], f"{want['refdata_schema']}.{t}", f)
         for dname in manifest["dirs"]:
             dest = targets[dname]
             if dest.exists() and any(dest.iterdir()):
-                aside = dest.with_name(f"{dest.name}.pre-restore-{stamp}")
+                aside, n = dest.with_name(f"{dest.name}.pre-restore-{stamp}"), 1
+                while aside.exists():  # a second restore within the same second: never over the first one's data
+                    aside, n = dest.with_name(f"{dest.name}.pre-restore-{stamp}-{n}"), n + 1
                 dest.rename(aside)
             dest.mkdir(parents=True, exist_ok=True)
             src = work / "dirs" / dname
@@ -712,11 +830,28 @@ def restore(
                 shutil.copytree(src, dest, dirs_exist_ok=True)
         checked = {}
         for name, want in manifest["databases"].items():
-            got = row_counts(srcs[name], want.get("excluded_data_schemas", []))
+            skip = [*want.get("excluded_tables", []), *want.get("excluded_data_schemas", [])]
+            got = row_counts(srcs[name], skip)
             diff = sorted(k for k in set(got) | set(want["rows"]) if got.get(k) != want["rows"].get(k))
+            if want.get("refdata_schema"):
+                site = site_row_counts(srcs[name], want["refdata_schema"])
+                wsite = want.get("site_rows", {})
+                diff += sorted(f"site:{k}" for k in set(site) | set(wsite)
+                               if site.get(k, [0, _EMPTY_MD5]) != wsite.get(k, [0, _EMPTY_MD5]))  # fmt: skip
             if diff:
-                raise BackupError(f"restored {name} differs from the backup in {len(diff)} tables: {diff[:5]}")
+                msg = f"restored {name} differs from the backup in {len(diff)} tables: {diff[:5]}"
+                if want.get("rows_from") == "snapshot":
+                    raise BackupError(msg)
+                warnings.append(msg + " (this backup counted its rows on a running box: check those tables)")
             checked[name] = sum(r[0] for r in got.values())
-    return {"ok": True, "site": manifest["site"], "created_at": manifest["created_at"],
+        packs = manifest.get("refdata_packs", [])
+        twf = manifest["databases"].get("trialbox_wf", {})
+        if twf.get("refdata_schema") and packs:
+            refdata = reload_refdata(srcs["trialbox_wf"], packs, refdata_dir)
+    return {"ok": not refdata["missing"], "site": manifest["site"], "created_at": manifest["created_at"],
             "layout": manifest.get("layout", 1), "rows": checked, "dirs": sorted(manifest["dirs"]),
-            "reload_refdata": manifest.get("refdata_packs", [])}  # fmt: skip
+            "refdata": refdata, "warnings": warnings}  # fmt: skip
+
+
+_EMPTY_MD5 = hashlib.md5(b"").hexdigest()  # the content hash of no rows, as the database computes it
+_safe = _sched.safe

@@ -44,6 +44,9 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--key", type=Path, required=True)
     r.add_argument("--dir", action="append", default=[])
     r.add_argument("--yes", action="store_true", help="replace the current data (moved aside, not deleted)")
+    kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
+    r.add_argument("--refdata", type=Path, default=Path(os.environ.get("TB_REFDATA_DIR") or kept),
+                   help="the kept reference packs (default: TB_REFDATA_DIR or deploy/refdata/loaded)")  # fmt: skip
     deploy = Path(__file__).resolve().parents[2] / "deploy"
     bn = sub.add_parser("backup-nightly", help="the scheduled backup to TB_BACKUP_TARGETS, then pgBackRest (D-187)")
     bn.add_argument("--deploy", type=Path, default=deploy)
@@ -180,7 +183,15 @@ def _backup_cmd(a: argparse.Namespace) -> int:
         if not a.yes:
             print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")
             return 2
-        print(json.dumps(bk.restore(a.file, a.key, dirs=bk.layout(os.environ, a.dir)), indent=1, ensure_ascii=False))
+        out = bk.restore(a.file, a.key, dirs=bk.layout(os.environ, a.dir), refdata_dir=a.refdata)
+        print(json.dumps(out, indent=1, ensure_ascii=False))
+        for w in out["warnings"]:
+            print(f"restore: warning: {w}", file=sys.stderr)
+        if out["refdata"]["missing"]:  # D-187: a backup holds no vendor pack rows; the box is not whole without them
+            print(f"restore: the reference data is NOT loaded: put {', '.join(out['refdata']['missing'])}.tar in "
+                  f"{a.refdata} (the update bundle or the vendor) and run this restore again, or load it with "
+                  "python -m tb_common.refdata load <pack> (RUNBOOK §5)", file=sys.stderr)  # fmt: skip
+            return 3
         return 0
     except bk.BackupError as exc:
         print(f"{a.cmd}: {exc}", file=sys.stderr)

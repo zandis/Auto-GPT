@@ -84,6 +84,7 @@ def run(base: Path) -> dict[str, Any]:
     terms_before = _terminology()
     with rd.RefStore() as st:
         packs_before = st.status()
+    refrows_before = _refdata_rows()
     omop_before = _omop(work, load=True)
     charts_before = sorted(str(p.relative_to(work)) for p in (work / "box").rglob("sitesetup/*/inputs/*"))
 
@@ -95,6 +96,8 @@ def run(base: Path) -> dict[str, Any]:
     bk.keygen(priv, pub)
     env = {**os.environ, "TB_DB_URL": url, "TB_SITE_ID": "DRILL"}
     nas, usb = base / "nas", base / "usb"
+    nas.mkdir(parents=True, exist_ok=True)
+    (nas / bs.OFFBOX_MARKER).write_text("drill: stands for the hospital share\n")  # same disk here, so marked
     cfg = bs.Config(deploy=base / "deploy", targets=[nas, usb], public_key=pub, production=True,
                     declared_offbox=[str(nas)], site="DRILL")  # fmt: skip
     events: list[tuple[str, dict[str, Any]]] = []
@@ -138,7 +141,7 @@ def run(base: Path) -> dict[str, Any]:
     checks.append(("box wiped", not any(p.exists() for p in dirs.values()), ""))
 
     # 4. restore
-    out = bk.restore(files[1], priv, env=env, dirs=dirs)
+    out = bk.restore(files[1], priv, env=env, dirs=dirs, refdata_dir=work / "refdata")  # the kept pack (install.sh)
     checks.append(("restore: every table equal to the backup (rows and content hash)", bool(out["ok"]),
                    json.dumps(out["rows"])))  # fmt: skip
     after_files = {n: bk.tree_hashes(p) for n, p in dirs.items()}
@@ -171,18 +174,13 @@ def run(base: Path) -> dict[str, Any]:
     checks.append(("restore: the OMOP store reads back the same: rows, provenance, conflicts and the lake it exports "
                    "(D-151)", omop_before["rows"]["person"] > 0 and omop_after == omop_before,
                    ", ".join(f"{v} {k}" for k, v in omop_before["rows"].items())))  # fmt: skip
-    packs = sorted((work / "refdata").glob("*.tar"))
-    wanted = {p["pack_id"] for p in out["reload_refdata"]}
     with rd.RefStore() as st:
-        empty = st.status() is None
-        for tar in packs:
-            with rd.opened(tar) as pack:
-                if rd.verify(pack)["pack_id"] in wanted:
-                    st.load(pack, by="backup_drill")
         packs_after = st.status()
-    checks.append(("restore: the reference pack it names loads again and reads back the same",
-                   empty and bool(out["reload_refdata"]) and _same_pack(packs_after, packs_before),
-                   ", ".join(p["pack_id"] for p in out["reload_refdata"])))  # fmt: skip
+    checks.append(("restore: the reference pack, left out of the backup, is loaded again from the kept pack file and "
+                   "every reference row reads back the same",
+                   out["refdata"]["missing"] == [] and bool(out["refdata"]["reloaded"])
+                   and _same_pack(packs_after, packs_before) and _refdata_rows() == refrows_before,
+                   ", ".join(out["refdata"]["reloaded"])))  # fmt: skip
 
     # 5. a backup in the previous format restores
     rows_now = bk.row_counts(bk.db_sources(env)[0])
@@ -203,6 +201,16 @@ def run(base: Path) -> dict[str, Any]:
     ok_pitr, detail = pitr_drill(Path(tempfile.mkdtemp(prefix="tb-pitr-")))
     checks.append(("PITR: WAL archived (zstd), base backup, recovered to a time between two commits", ok_pitr, detail))
     return {"ok": all(c[1] for c in checks), "checks": checks, "seconds": round(time.perf_counter() - t0, 1)}
+
+
+def _refdata_rows() -> dict[str, list[tuple[Any, ...]]]:
+    """Every reference row (the pack's and the hospital's own) and the sources, read through the store's database."""
+    from tb_common.refdata import RefStore
+
+    with RefStore() as st:
+        out = {t: st.db.fetchall(f"SELECT * FROM {t} ORDER BY 1, 2") for t in ("ctgov_study", "trial", "term")}
+        out["source"] = st.db.fetchall("SELECT source_id, pack_id, distribution, records FROM source ORDER BY 1")
+        return out
 
 
 def _same_pack(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:
