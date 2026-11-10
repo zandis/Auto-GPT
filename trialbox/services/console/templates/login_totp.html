@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{# D-192: the second sign-in step (TOTP, RFC 6238). On a first sign-in, or after an administrator reset the
+   authenticator, the page first shows the key to add to an authenticator app; the first good code confirms it. #}
+{% block title %}{{ t('totp.title') }}{% endblock %}
+{% block content %}
+<section class="card narrow" data-testid="totp">
+<h1>{{ t('totp.title') }}</h1>
+{% if enrol %}<section data-testid="totp-enrol" aria-labelledby="enrol-h">
+<h2 id="enrol-h">{{ t('totp.enrol.title') }}</h2>
+<p>{{ t('totp.enrol.help') }}</p>
+<label for="totp-key">{{ t('totp.enrol.key') }}</label>
+<input id="totp-key" class="mono" readonly value="{{ enrol.key }}" data-testid="totp-key" autocomplete="off" spellcheck="false">
+<p><a href="{{ enrol.uri }}" data-testid="totp-uri">{{ t('totp.enrol.link') }}</a></p>
+</section>{% endif %}
+{% if failed %}<p class="error" role="alert" data-testid="totp-error">{{ t('totp.failed.' + failed) }}</p>{% endif %}
+<form method="post" action="/login/totp">
+  <input type="hidden" name="mfa_csrf" value="{{ mfa_csrf }}">
+  <label for="code">{{ t('totp.code') }}</label>
+  <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required maxlength="12" autofocus>
+  <button type="submit" data-testid="totp-submit">{{ t('totp.submit') }}</button>
+</form>
+<p><a href="/login">{{ t('totp.cancel') }}</a></p>
+</section>
+{% endblock %}

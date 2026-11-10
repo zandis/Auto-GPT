@@ -46,8 +46,12 @@ Container addresses change on restart, so re-apply from a systemd unit after Doc
 (`ExecStart=/opt/trialbox/deploy/network.sh apply`, plus a path unit or a 5-minute timer). `sudo make test-egress`
 proves it on a running stack: a fake outside host is reachable before the rules and only the allowed pairs after.
 
-Only the console is published, on `127.0.0.1:8090`; the hospital reaches it through its TLS proxy with
-`TB_CONSOLE_SECURE_COOKIE=1`. HAPI and Postgres have no per-caller token yet: network isolation and a password only
+Only the console is published, on `127.0.0.1:8090`. For the hospital LAN the identity overlay
+(`deploy/docker-compose.identity.yml`, D-193) puts Caddy on 443 in front of it and stops publishing 8090: TLS 1.2 or
+1.3 with Caddy's internal CA (its root installed on the staff PCs) or the hospital's certificate (`TB_TLS_MODE`,
+`TB_TLS_CERT_FILE`, `TB_TLS_KEY_FILE`; `console.cli check-tls` checks the files, the key and the host name first),
+HSTS, and Secure session cookies. Authelia, when used, reaches the hospital AD by LDAPS only through an
+`EGRESS_EXTRA` entry (`authelia=<domain controller>:636`). Steps: [Runbook §12](RUNBOOK.md#12-identity-and-tls-d-192-d-193). HAPI and Postgres have no per-caller token yet: network isolation and a password only
 (D-138, not done).
 
 ## 3. Who may call what
@@ -62,10 +66,25 @@ Only the console is published, on `127.0.0.1:8090`; the hospital reaches it thro
   orchestrator mounts, before a reveal, a screening-log export, a notice or a cancel. An unsigned name is refused
   and audited (`actor.refused`); the reveal and export caps count per calling service and verified person.
 - **People** (`services/console/auth.py`). Five roles; study scope, affiliation and expiry per account; scrypt
-  hashes; lockout after 5 failures for 15 minutes with a countdown; sessions end after 30 minutes idle or 8 hours;
-  CSRF token on every form; a Content-Security-Policy that allows no outside script. Hospital SSO through a trusted
-  header from listed proxies ([Runbook §1](RUNBOOK.md#1-install-a-new-site-about-one-day)). TOTP is not built
-  (Japan's MHLW guideline v7.0 asks for two factors from FY2027).
+  hashes; lockout after 5 failures for 15 minutes with a countdown; CSRF token on every form; a
+  Content-Security-Policy that allows no outside script. Hospital SSO through a trusted header from listed proxies
+  ([Runbook §1](RUNBOOK.md#1-install-a-new-site-about-one-day)).
+- **Identity** (D-192; `services/console/identity.py`, `totp.py`, `oidc.py`; tests `tests/console/test_identity.py`).
+  Local accounts sign in with a password and a TOTP code (RFC 6238: SHA-1, 6 digits, 30 s, one step of drift, a code
+  works once). It is the default outside DEV and TEST and cannot be turned off in PRODUCTION (Japan's MHLW guideline
+  v7.0 asks for two factors from FY2027). The TOTP secret is AES-GCM encrypted with a key file on the console volume,
+  not in the database. A wrong or replayed code counts as a failed sign-in, and a right password does not reset the
+  count; the lock is audited (`console.lockout`). An administrator lifts a lock or resets another person's
+  authenticator on `/ops/identity` (audited `console.unlock`, `console.totp_reset`; the account is signed out).
+  Sessions end after 10 minutes idle (`TB_CONSOLE_IDLE_MINUTES`, 1 to 60) or 8 hours (`TB_CONSOLE_SESSION_HOURS`,
+  1 to 12); session cookies are HttpOnly and SameSite=Strict, and Secure by default in PRODUCTION.
+  Optional sign-in with the hospital account through Authelia (OIDC code flow with PKCE, off unless
+  `TB_OIDC_ENABLED=1`): the ID token's signature (RS256 or ES256 only), issuer, audience, expiry and nonce are
+  checked, a second factor must be reported (`amr`), and the role comes only from `TB_OIDC_GROUP_ROLES`; a person in
+  no mapped group or in groups of two roles is refused, a `role` claim is ignored, and a directory account never takes
+  over a local account. The role table (`console.auth.User`, `tb_common/authz.py`) and the signed actor assertion are
+  unchanged. Not done: WebAuthn in the console itself (Authelia offers it), step-up before a reveal, the
+  breached-password list and password history (master plan WS-13.1), and removing the trusted-header SSO.
 - **Chart numbers.** The coordinator, the administrator and the study's investigator (owner's decision of
   2026-11-09, D-143, reversing D-133) may reveal one, for a listed patient, with a reason, under a rate limit
   (`TB_REVEAL_MAX_PER_HOUR`, 60); viewer and CRO accounts never see one. Each reveal or view is in the audit. The

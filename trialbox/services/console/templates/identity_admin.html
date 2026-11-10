@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{# D-192: the administrator's recovery actions. Unlock and Reset authenticator are audited and sign the account
+   out; an administrator never resets their own authenticator here (another administrator or console.cli does). #}
+{% block title %}{{ t('identity.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('identity.title') }}</h1>
+<p>{{ t('identity.help') }}</p>
+<p class="hint" data-testid="identity-policy">{{ t('identity.policy', mfa=mfa, oidc=('on' if oidc else 'off'), idle=idle_minutes, hours=session_hours) }}</p>
+{% if done %}<p class="ok" role="status" data-testid="identity-done">{{ t('identity.done.' + done) }}</p>{% endif %}
+<table data-testid="identity-table">
+<thead><tr><th>{{ t('identity.col.user') }}</th><th>{{ t('identity.col.kind') }}</th><th>{{ t('identity.col.totp') }}</th><th>{{ t('identity.col.lock') }}</th><th></th></tr></thead>
+<tbody>
+{% for r in rows %}<tr data-user="{{ r.user.username }}">
+<td>{{ r.user.username }} · {{ t('role.' + r.user.role) }}</td>
+<td>{{ t('identity.kind.idp') if r.idp else t('identity.kind.local') }}</td>
+<td>{% if r.idp %}–{% else %}{{ t('identity.yes') if r.totp else t('identity.no') }}{% endif %}</td>
+<td>{{ r.locked_until|local if r.locked_until else '–' }}</td>
+<td class="row">
+{% if r.locked_until %}<form method="post" action="/ops/identity" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="unlock"><input type="hidden" name="username" value="{{ r.user.username }}"><button type="submit" class="secondary" data-testid="unlock-{{ r.user.username }}">{{ t('identity.unlock') }}</button></form>{% endif %}
+{% if not r.idp and r.totp and r.user.username != user.username %}<form method="post" action="/ops/identity" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="action" value="reset_totp"><input type="hidden" name="username" value="{{ r.user.username }}"><button type="submit" class="secondary" data-testid="reset-totp-{{ r.user.username }}">{{ t('identity.reset') }}</button></form>{% endif %}
+</td></tr>{% endfor %}
+</tbody>
+</table>
+{% endblock %}

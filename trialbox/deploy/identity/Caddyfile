@@ -1,0 +1,55 @@
+# TrialBox edge (D-193): TLS on 443 in front of the console and, when the site uses it, Authelia.
+# Started by deploy/docker-compose.identity.yml; every value comes from deploy/.env (deploy/identity/identity.env.example).
+#
+#   TB_TLS_MODE=internal   Caddy's own CA issues the certificate (the default). Install its root certificate on the
+#                          staff PCs once (RUNBOOK §12). Nothing is fetched from the internet.
+#   TB_TLS_MODE=hospital   the hospital's certificate: TB_TLS_CERT_FILE (chain, PEM) and TB_TLS_KEY_FILE (PEM),
+#                          mounted read-only at /etc/caddy/certs. Check them first: python -m console.cli check-tls
+#
+# The certificate must name TB_TLS_HOSTNAME and, with OIDC, TB_AUTH_HOSTNAME (two names or a wildcard).
+{
+	admin off
+	# the box has no route to a public ACME CA: never try one; certificates are internal or the hospital's
+	local_certs
+	skip_install_trust
+	auto_https disable_redirects
+	servers {
+		protocols h1 h2
+	}
+}
+
+(tls_internal) {
+	tls internal
+}
+
+(tls_hospital) {
+	tls /etc/caddy/certs/site.crt /etc/caddy/certs/site.key {
+		protocols tls1.2 tls1.3
+	}
+}
+
+(edge) {
+	import tls_{$TB_TLS_MODE:internal}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+	log {
+		output stdout
+		format json
+	}
+}
+
+{$TB_TLS_HOSTNAME}:443 {
+	import edge
+	request_body {
+		max_size 60MB
+	}
+	reverse_proxy console:8090
+}
+
+{$TB_AUTH_HOSTNAME:auth.invalid}:443 {
+	import edge
+	reverse_proxy authelia:9091
+}

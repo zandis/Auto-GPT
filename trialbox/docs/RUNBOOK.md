@@ -96,8 +96,8 @@ Held by `tests/unit/test_log_retention.py`.
 ## 3. Accounts
 
 Administrators add accounts on **Users** (`/ops/users`). The one-time password shows once, in a read-only field; hand
-it over in person or by phone (D-133). Five failed sign-ins lock an account for 15 minutes; sessions end after 30
-minutes idle or 8 hours. Roles and the work they do: [User guide](USER_GUIDE.md). In the POC container:
+it over in person or by phone (D-133). Five failed sign-ins lock an account for 15 minutes; sessions end after 10
+minutes idle or 8 hours; local accounts give a TOTP code after the password ([§12](#12-identity-and-tls-d-192-d-193)). Roles and the work they do: [User guide](USER_GUIDE.md). In the POC container:
 `docker exec -i trialbox-console-1 python -m console.cli bootstrap-admin|add-user NAME --role ROLE|reset-password
 NAME|disable NAME|list-users`.
 
@@ -397,3 +397,77 @@ it before any start or `--provision` and makes nothing it could not run.
 Optional `TB_BUCKET=gs://<bucket>` moves code and results through a bucket (the VM's service account needs storage
 access); without it they go over plain HTTP to the VM with the key in a header. A billing budget with a kill switch
 is the last net; it needs billing permissions this project's service account does not have: the owner sets it.
+
+## 12. Identity and TLS (D-192, D-193)
+
+The console is reached at `https://<TB_TLS_HOSTNAME>` through Caddy on 443; its own port is no longer published.
+Local accounts sign in with a password and a TOTP code. The hospital account (AD through Authelia, OIDC) is optional
+and off by default. All settings are in `deploy/.env`; the list with comments is
+`deploy/identity/identity.env.example`.
+
+**Ask hospital IT on day one** (lead time 2 to 6 weeks): a DNS name for the console (and one for Authelia when the
+site uses the hospital account), the firewall rule for 443 from the clinic PCs, and either a certificate for those
+names or permission to install Caddy's root certificate on the staff PCs. For the hospital account: a read-only AD
+bind account, the AD groups to map (below) and LDAPS (636) from the box to a domain controller.
+
+**TLS.**
+
+1. Put `TB_TLS_HOSTNAME` (and `TB_TLS_MODE`) in `deploy/.env`. With the hospital's certificate set
+   `TB_TLS_MODE=hospital`, `TB_TLS_CERT_FILE` (certificate and chain, PEM) and `TB_TLS_KEY_FILE` (key, PEM, 0600
+   root), then check them with `python -m console.cli check-tls` (in the console container, or on the host with the
+   same variables). It fails on a missing file, a key that is not the certificate's, a name the certificate does not
+   carry, or a certificate that is not valid today, and warns 30 days before it ends.
+2. Add the overlay: append `:deploy/docker-compose.identity.yml` to `COMPOSE_FILE` in `deploy/.env` (after the
+   secrets overlay), then `docker compose up -d --wait`.
+3. Internal CA only: copy the root certificate out once (`docker compose cp
+   caddy:/data/caddy/pki/authorities/local/root.crt deploy/secrets/tls/caddy-root.crt`) and have hospital IT install
+   it as a trusted root on the staff PCs (group policy). Never copy anything else out of the `caddy-data` volume: it
+   holds the CA's private keys.
+4. Open `https://<TB_TLS_HOSTNAME>/login` from a clinic PC: no certificate warning.
+
+**Local accounts (TOTP, the default).** `TB_CONSOLE_MFA=totp` is the default outside DEV and TEST and cannot be
+turned off in PRODUCTION. At the first sign-in, after the password, the console shows a key; the person adds it to
+an authenticator app (or a hospital token) and types the code. Every later sign-in asks for the current code; a code
+works once. A wrong or reused code counts as a failed sign-in: five failures in 15 minutes lock the account for 15
+minutes, and the lock is in the audit trail (`console.lockout`).
+
+- **Lost phone**: an administrator opens **Sign-in and recovery** (`/ops/identity`) and chooses **Reset
+  authenticator** for that person, after checking who is asking (in person, or a call back to the extension in the
+  staff directory). The account is signed out everywhere and sets up a new authenticator at its next sign-in. An
+  administrator's own authenticator is reset by another administrator, or on the box with
+  `python -m console.cli reset-totp NAME` in the console container.
+- **Locked out**: wait 15 minutes, or an administrator chooses **Unlock** on the same page (`console.cli unlock
+  NAME`). Both actions are audited (`console.totp_reset`, `console.unlock`).
+- **Sessions** end after `TB_CONSOLE_IDLE_MINUTES` without activity (default 10; set the hospital's policy for shared
+  clinic PCs, at most 60) and after `TB_CONSOLE_SESSION_HOURS` in all (default 8). Cookies are Secure, HttpOnly and
+  SameSite=Strict.
+- The TOTP secrets are stored encrypted, with the key `totp.key` on the `console-data` volume, not in the database.
+  Back up both; with the database but without the key, every person sets up a new authenticator (an administrator
+  resets them all).
+
+**Hospital account (OIDC through Authelia, optional).**
+
+1. Copy `deploy/identity/authelia/configuration.example.yml` to `deploy/site/authelia/configuration.yml` and fill in
+   the values marked `SITE` (domain controller, base DN, bind account, the two host names).
+2. Make the secrets in `deploy/secrets/authelia/` (0600, root): `jwt_secret`, `session_secret`, `storage_key`,
+   `oidc_hmac` (each 64 random characters), `ldap_password` (the bind account's), `oidc_jwks.pem` (an RSA 2048 key,
+   `openssl genrsa -out oidc_jwks.pem 2048`) and `oidc_client_secret.txt` (the client secret; its digest goes into
+   the configuration, as the comment at its top says).
+3. In `deploy/.env`: `TB_OIDC_ENABLED=1`, `TB_AUTH_HOSTNAME`, `TB_OIDC_ISSUER=https://<TB_AUTH_HOSTNAME>`,
+   `TB_OIDC_CLIENT_SECRET`, `TB_OIDC_LOGOUT_URL=https://<TB_AUTH_HOSTNAME>/logout`, `TB_OIDC_CA` (the internal root
+   from TLS step 3, or the hospital's CA chain) and `TB_OIDC_GROUP_ROLES`, for example
+   `TB-Coordinators:coordinator,TB-Investigators:investigator,TB-Monitors:cro,TB-Admins:admin`.
+4. Open LDAPS for Authelia only: add `authelia=<domain controller>:636` to `EGRESS_EXTRA` and run
+   `deploy/network.sh apply` ([Security §2](SECURITY.md#2-network)).
+5. `docker compose --profile oidc up -d --wait`. The sign-in page shows **Sign in with the hospital account**.
+
+Only the groups in `TB_OIDC_GROUP_ROLES` give a role. A person in no mapped group, or in groups that map to two
+different roles, is refused, and the refusal is audited (`console.login_failed`, `via: oidc`); a `role` claim or any
+other group is ignored. The role is read again at every sign-in, so removing someone from a group takes effect at
+their next sign-in. Authelia asks for the second factor (TOTP or a security key), and the console refuses a sign-in
+the provider did not report as two-factor. A hospital account never takes over a local account of the same name.
+Sign-out also signs out of Authelia. Add the `authelia-data` volume to the backup (the authenticators registered by
+directory users). Authelia's OIDC provider is certified but still called beta by its makers (D-192).
+
+The overlay was written and checked as files only; it has not been started on a box yet (no Docker on the build
+machine). Run the four TLS steps and one sign-in of each kind at IQ.

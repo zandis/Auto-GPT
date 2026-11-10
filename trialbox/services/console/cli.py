@@ -8,6 +8,9 @@ action is also a command, with the same audit).
     reset-password NAME [--password-stdin]
     disable NAME
     list-users
+    unlock NAME                 lift a sign-in lock before it runs out (audited; D-192)
+    reset-totp NAME             clear an account's authenticator (lost phone); it enrols a new one at the next sign-in
+    check-tls                   check TB_TLS_* (the hospital certificate, its key and host name) before Caddy uses it
     ingest                      load the configured source (synthetic site A in the POC) through the adapter
     poc-settings --in FILE --out FILE --admin-email ADDR [--rate-limit N]
         POC settings: the example settings with the administrator's mailbox added to the senders and reviewers.
@@ -127,6 +130,9 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("disable")
     d.add_argument("name")
     sub.add_parser("list-users")
+    for name in ("unlock", "reset-totp"):
+        sub.add_parser(name).add_argument("name")
+    sub.add_parser("check-tls")
     sub.add_parser("ingest")
     p = sub.add_parser("poc-settings")
     p.add_argument("--in", dest="src", type=Path, required=True)
@@ -144,6 +150,17 @@ def main(argv: list[str] | None = None) -> int:
         sha = openrouter_pin(args.model, build, args.out)
         print(f"wrote {args.out}: {build} -> openrouter:{args.model} (pin {sha[:12]})")
         return 0
+
+    if args.cmd == "check-tls":
+        from console.identity import check_tls
+
+        tls = check_tls(os.environ)
+        print(f"tls: mode {tls.mode}, host {tls.hostname or '-'}")
+        for note in tls.notes:
+            print(f"note: {note}")
+        for problem in tls.problems:
+            print(f"FAIL: {problem}", file=sys.stderr)
+        return 0 if tls.ok else 1
 
     if args.cmd == "poc-settings":
         poc_settings(args.src, args.out, args.admin_email, args.rate_limit)
@@ -201,6 +218,16 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "list-users":
             for u in store.users():
                 print(f"{u.username}\t{u.role}\t{u.mailbox or '-'}")
+        elif args.cmd == "unlock":
+            was = store.unlock(args.name)
+            _audit("console.unlock", detail={"user": args.name, "was_locked": was})
+            print(f"console: '{args.name}' unlocked" + ("" if was else " (it was not locked)"))
+        elif args.cmd == "reset-totp":
+            if store.is_sso(args.name):
+                raise AuthError("this account signs in through the identity provider")
+            store.reset_totp(args.name)
+            _audit("console.totp_reset", detail={"user": args.name})
+            print(f"console: authenticator of '{args.name}' reset; all sessions ended; it enrols at the next sign-in")
     except AuthError as exc:
         print(f"console: {exc}", file=sys.stderr)
         return 2

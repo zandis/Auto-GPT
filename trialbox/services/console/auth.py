@@ -4,9 +4,13 @@
   password: the first administrator is created by ``python -m console.cli bootstrap-admin`` (random password printed
   once) or, at first start, from the file named by ``TB_CONSOLE_ADMIN_PASSWORD_FILE`` (a compose secret).
 * Passwords are stored as scrypt hashes (stdlib ``hashlib.scrypt``, per-user salt); at least 12 characters.
-* Five failed logins within 15 minutes lock the account for 15 minutes (audited by the app).
-* Sessions are server-side: the cookie carries a random token, the table stores only its SHA-256. Idle timeout 30 min,
-  absolute lifetime 8 h. Each session has its own CSRF token, checked on every state-changing request.
+* Five failed logins within 15 minutes lock the account for 15 minutes (audited by the app). A wrong second-factor
+  code counts as a failed login; an administrator can lift a lock early (``unlock``, audited; D-192).
+* Sessions are server-side: the cookie carries a random token, the table stores only its SHA-256. Idle timeout
+  (default 10 min, ``TB_CONSOLE_IDLE_MINUTES``) and absolute lifetime (default 8 h, ``TB_CONSOLE_SESSION_HOURS``).
+  Each session has its own CSRF token, checked on every state-changing request.
+* Local accounts carry an optional TOTP secret (``console.totp``), sealed with a key outside the database; the
+  sign-in in two steps, the enrolment and the hospital identity provider (OIDC) are in ``console.identity`` (D-192).
 * Roles: ``admin`` (start requests, approve, operate) and ``viewer`` (read only).
 """
 
@@ -30,11 +34,14 @@ ROLES: tuple[Role, ...] = ("admin", "coordinator", "investigator", "viewer", "cr
 # D-104: where an account sits. An SMO coordinator is a study-scoped coordinator; a CRO account is aggregate-only.
 AFFILIATIONS: tuple[str, ...] = ("hospital", "smo", "cro")
 SSO_MARK = "sso"  # pw_hash of an account the hospital identity provider signs in (no console password)
+OIDC_MARK = "oidc"  # pw_hash of an account signed in through the OIDC provider (Authelia; D-192)
 MIN_PASSWORD = 12
 MAX_FAILURES = 5
 LOCKOUT = timedelta(minutes=15)
-IDLE = timedelta(minutes=30)
+IDLE = timedelta(minutes=10)  # D-192: the IT security pack's idle lock for shared clinic PCs
 ABSOLUTE = timedelta(hours=8)
+PENDING_TTL = timedelta(minutes=10)  # between the password and the code (enrolment included; D-192)
+OIDC_STATE_TTL = timedelta(minutes=10)  # between leaving for the identity provider and coming back
 _SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2**14, 8, 1
 _USERNAME_OK = frozenset("abcdefghijklmnopqrstuvwxyz0123456789._-")
 
@@ -68,7 +75,28 @@ CREATE TABLE login_failures (
 );
 CREATE INDEX login_failures_user ON login_failures (username, at)
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1,)
+# D-192: the TOTP secret (sealed, console.totp.SecretBox) and the last accepted step (replay guard); the identity
+# provider's subject an OIDC account is bound to; the half-done sign-ins (password checked, code not yet) and the
+# OIDC round trips in flight. Only hashes of the browser-held tokens are stored.
+SCHEMA_V2 = """
+ALTER TABLE users ADD COLUMN totp_secret TEXT;
+ALTER TABLE users ADD COLUMN totp_step BIGINT;
+ALTER TABLE users ADD COLUMN idp_sub TEXT;
+CREATE TABLE pending_logins (
+  token_sha TEXT PRIMARY KEY,
+  username TEXT NOT NULL,
+  csrf TEXT NOT NULL,
+  created TEXT NOT NULL,
+  enroll_secret TEXT
+);
+CREATE TABLE oidc_pending (
+  state_sha TEXT PRIMARY KEY,
+  nonce TEXT NOT NULL,
+  verifier TEXT NOT NULL,
+  created TEXT NOT NULL
+)
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2)
 _COLS = "username, role, mailbox, affiliation, studies, expires"
 
 
@@ -226,9 +254,17 @@ def scope_values(affiliation: str, studies: str, expires: str | None) -> tuple[s
 class UserStore:
     """Schema ``auth`` of the trial database (D-126). ``url`` defaults to ``TB_DB_URL``."""
 
-    def __init__(self, url: str | None = None, clock: Clock = _utcnow) -> None:
+    def __init__(
+        self,
+        url: str | None = None,
+        clock: Clock = _utcnow,
+        idle: timedelta = IDLE,
+        absolute: timedelta = ABSOLUTE,
+    ) -> None:
         self.db = open_db(url, "auth", MIGRATIONS)
         self.clock = clock
+        self.idle = idle
+        self.absolute = absolute
 
     def close(self) -> None:
         self.db.close()
@@ -320,8 +356,45 @@ class UserStore:
         return user
 
     def is_sso(self, username: str) -> bool:
+        """Signs in through the hospital identity provider (trusted header or OIDC): no console password."""
         stored = self.db.fetchval("SELECT pw_hash FROM users WHERE username = ?", (username,))
-        return bool(stored == SSO_MARK)
+        return stored in (SSO_MARK, OIDC_MARK)
+
+    def is_oidc(self, username: str) -> bool:
+        return bool(self.db.fetchval("SELECT pw_hash FROM users WHERE username = ?", (username,)) == OIDC_MARK)
+
+    def upsert_oidc(self, username: str, subject: str, role: Role, mailbox: str | None) -> User:
+        """The account behind a verified OIDC sign-in (D-192). Created on first sight, bound to the provider's
+        subject; the role (from the configured group map) and mailbox are refreshed on every sign-in. Refused for a
+        name that belongs to a local or header-SSO account (the provider never takes over a local administrator) or
+        to another subject, and for a disabled or expired account."""
+        u = check_username(username)
+        if role not in ROLES:
+            raise AuthError(f"role must be one of {', '.join(ROLES)}")
+        if not subject or len(subject) > 255:
+            raise AuthError("no subject from the identity provider")
+        mb = mailbox.strip().lower() if mailbox else None
+        with self.db.transaction() as tx:
+            row = tx.fetchone("SELECT pw_hash, disabled, idp_sub FROM users WHERE username = ? FOR UPDATE", (u,))
+            if row is None:
+                tx.execute(
+                    "INSERT INTO users (username, role, pw_hash, mailbox, created, idp_sub) VALUES (?,?,?,?,?,?)",
+                    (u, role, OIDC_MARK, mb, self.clock().isoformat(), subject),
+                )
+            elif row[0] != OIDC_MARK:
+                raise AuthError("a local account has this name")
+            elif row[2] != subject:
+                raise AuthError("this name belongs to another directory account")
+            elif row[1]:
+                raise AuthError("account disabled")
+            else:
+                tx.execute("UPDATE users SET role = ?, mailbox = ? WHERE username = ?", (role, mb, u))
+            row = tx.fetchone(f"SELECT {_COLS} FROM users WHERE username = ?", (u,))
+        assert row is not None
+        user = _row_user(row)
+        if self._expired(user):
+            raise AuthError("account expired")
+        return user
 
     def set_password(self, username: str, password: str) -> None:
         check_password_policy(password)
@@ -355,8 +428,24 @@ class UserStore:
             return None
         return datetime.fromisoformat(str(rows[MAX_FAILURES - 1][0])) + LOCKOUT
 
-    def authenticate(self, username: str, password: str) -> User | None:
-        """The user, or None (unknown user, wrong password, disabled or locked). Constant work for unknown users."""
+    def record_failure(self, username: str) -> None:
+        """One failed sign-in step (a wrong password or a wrong or replayed second-factor code)."""
+        u = username.strip().lower()[:64]
+        self.db.execute("INSERT INTO login_failures (username, at) VALUES (?,?)", (u, self.clock().isoformat()))
+
+    def clear_failures(self, username: str) -> int:
+        return self.db.execute("DELETE FROM login_failures WHERE username = ?", (username.strip().lower()[:64],))
+
+    def unlock(self, username: str) -> bool:
+        """An administrator lifts a lock before it runs out (D-192; the caller audits it). True when it was locked."""
+        was = self.locked(username.strip().lower()[:64])
+        self.clear_failures(username)
+        return was
+
+    def authenticate(self, username: str, password: str, clear_failures: bool = True) -> User | None:
+        """The user, or None (unknown user, wrong password, disabled or locked). Constant work for unknown users.
+        With a second factor to come, ``clear_failures=False`` keeps the failure count until the code is right, so
+        a known password does not reset the count of wrong codes (D-192)."""
         u = username.strip().lower()
         row = self.db.fetchone(f"SELECT {_COLS}, pw_hash FROM users WHERE username = ? AND disabled = 0", (u,))
         stored = str(row[6]) if row else hash_password("unknown-user-dummy-password")
@@ -368,7 +457,8 @@ class UserStore:
                 "INSERT INTO login_failures (username, at) VALUES (?,?)", (u[:64], self.clock().isoformat())
             )
             return None
-        self.db.execute("DELETE FROM login_failures WHERE username = ?", (u,))
+        if clear_failures:
+            self.db.execute("DELETE FROM login_failures WHERE username = ?", (u,))
         assert row is not None
         user = _row_user(row[:6])
         return None if self._expired(user) else user
@@ -396,11 +486,104 @@ class UserStore:
             return None
         created, last = datetime.fromisoformat(row[2]), datetime.fromisoformat(row[3])
         user = self.get(str(row[0]))
-        if user is None or now - created > ABSOLUTE or now - last > IDLE:
+        if user is None or now - created > self.absolute or now - last > self.idle:
             self.end_session(token)
             return None
         self.db.execute("UPDATE sessions SET last_seen = ? WHERE token_sha = ?", (now.isoformat(), sha))
         return Session(user, str(row[1]), str(row[4]), sha)
+
+    def end_sessions(self, username: str) -> None:
+        self.db.execute("DELETE FROM sessions WHERE username = ?", (username,))
+
+    # ------------------------------------------------------------------ second factor (D-192)
+    def totp_state(self, username: str) -> tuple[str | None, int | None]:
+        """(sealed secret, last accepted step) of an account; (None, None) when it has no TOTP yet."""
+        row = self.db.fetchone("SELECT totp_secret, totp_step FROM users WHERE username = ?", (username,))
+        if row is None or not row[0]:
+            return None, None
+        return str(row[0]), (int(row[1]) if row[1] is not None else None)
+
+    def set_totp(self, username: str, sealed: str, step: int) -> None:
+        """Store a confirmed TOTP secret (the code that confirmed it used ``step``)."""
+        n = self.db.execute(
+            "UPDATE users SET totp_secret = ?, totp_step = ? WHERE username = ? AND totp_secret IS NULL",
+            (sealed, step, username),
+        )
+        if n != 1:
+            raise AuthError("this account already has an authenticator")
+
+    def use_step(self, username: str, step: int) -> bool:
+        """Record ``step`` as used; False when it (or a later one) was used already: a replayed code."""
+        n = self.db.execute(
+            "UPDATE users SET totp_step = ? WHERE username = ? AND totp_secret IS NOT NULL "
+            "AND (totp_step IS NULL OR totp_step < ?)",
+            (step, username, step),
+        )
+        return n == 1
+
+    def reset_totp(self, username: str) -> None:
+        """An administrator clears an account's authenticator (a lost phone; the caller audits it). The account
+        signs out everywhere and enrols a new authenticator at its next sign-in, after its password."""
+        with self.db.transaction() as tx:
+            n = tx.execute("UPDATE users SET totp_secret = NULL, totp_step = NULL WHERE username = ?", (username,))
+            if n != 1:
+                raise AuthError(f"no user {username}")
+            tx.execute("DELETE FROM sessions WHERE username = ?", (username,))
+            tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))
+
+    def new_pending(self, username: str) -> tuple[str, str]:
+        """A sign-in whose password was right and whose code is still to come: (browser token, form token)."""
+        token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
+        with self.db.transaction() as tx:
+            tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))  # one at a time per account
+            tx.execute(
+                "INSERT INTO pending_logins (token_sha, username, csrf, created) VALUES (?,?,?,?)",
+                (_sha(token), username, csrf, self.clock().isoformat()),
+            )
+        return token, csrf
+
+    def pending(self, token: str | None) -> tuple[str, str, str | None] | None:
+        """(user name, form token, sealed enrolment secret) of a fresh half-done sign-in, or None."""
+        if not token or len(token) > 256:
+            return None
+        row = self.db.fetchone(
+            "SELECT username, csrf, created, enroll_secret FROM pending_logins WHERE token_sha = ?", (_sha(token),)
+        )
+        if row is None:
+            return None
+        if self.clock() - datetime.fromisoformat(str(row[2])) > PENDING_TTL:
+            self.drop_pending(token)
+            return None
+        return str(row[0]), str(row[1]), (str(row[3]) if row[3] else None)
+
+    def set_pending_secret(self, token: str, sealed: str) -> None:
+        self.db.execute("UPDATE pending_logins SET enroll_secret = ? WHERE token_sha = ?", (sealed, _sha(token)))
+
+    def drop_pending(self, token: str) -> None:
+        self.db.execute("DELETE FROM pending_logins WHERE token_sha = ?", (_sha(token),))
+
+    # ------------------------------------------------------------------ OIDC round trips (D-192)
+    def put_oidc_state(self, state: str, nonce: str, verifier: str) -> None:
+        now = self.clock()
+        with self.db.transaction() as tx:
+            tx.execute("DELETE FROM oidc_pending WHERE created < ?", ((now - OIDC_STATE_TTL).isoformat(),))
+            tx.execute(
+                "INSERT INTO oidc_pending (state_sha, nonce, verifier, created) VALUES (?,?,?,?)",
+                (_sha(state), nonce, verifier, now.isoformat()),
+            )
+
+    def take_oidc_state(self, state: str) -> tuple[str, str] | None:
+        """(nonce, PKCE verifier) of a round trip, once: the row is gone after this call. None when unknown or
+        older than ten minutes."""
+        if not state or len(state) > 256:
+            return None
+        with self.db.transaction() as tx:
+            row = tx.fetchone(
+                "DELETE FROM oidc_pending WHERE state_sha = ? RETURNING nonce, verifier, created", (_sha(state),)
+            )
+        if row is None or self.clock() - datetime.fromisoformat(str(row[2])) > OIDC_STATE_TTL:
+            return None
+        return str(row[0]), str(row[1])
 
     def set_lang(self, session: Session, lang: str) -> None:
         self.db.execute("UPDATE sessions SET lang = ? WHERE token_sha = ?", (lang, session.token_sha))
