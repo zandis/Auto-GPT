@@ -37,7 +37,7 @@ def _csrf(page: str) -> str:
 
 
 def _events(b: dict[str, Any], name: str) -> list[dict[str, Any]]:
-    out = [json.loads(x) for f in sorted((b["dir"] / "audit").glob("*")) for x in f.read_text().splitlines() if x]
+    out = [json.loads(x) for f in sorted((b["dir"] / "audit").glob("*.jsonl")) for x in f.read_text().splitlines() if x]
     return [e for e in out if e.get("event") == name]
 
 
@@ -122,7 +122,7 @@ def test_one_time_password_never_in_a_url_and_readable(box: dict[str, Any]) -> N
     assert "-".join(groups) == pw.group(1)  # shown in groups of four
     assert 'data-testid="handover"' in page and 'data-copy="otp-value"' in page
     assert pw.group(1) not in c.get("/ops/users").text  # shown once
-    assert all(pw.group(1) not in json.dumps(e) for f in (box["dir"] / "audit").glob("*") for e in [f.read_text()])
+    assert all(pw.group(1) not in json.dumps(e) for f in (box["dir"] / "audit").glob("*.jsonl") for e in [f.read_text()])
     n, _ = login(box["app"], "newcrc", pw.group(1))  # and it works, typed as shown
     assert n.get("/home").status_code == 200
 

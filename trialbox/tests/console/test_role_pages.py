@@ -241,7 +241,7 @@ def test_weekly_list_marks_and_patient_page_in_three_languages(box: dict[str, An
         f"/studies/GZQO/patients/{'a' * 32}/mark", data={"csrf": _csrf(page), "mark": "approach"}, follow_redirects=True
     )
     assert 'data-testid="mark-aaaaaaaa"' in r.text
-    events = [json.loads(x) for f in sorted((box["dir"] / "audit").glob("*")) for x in f.read_text().splitlines() if x]
+    events = [json.loads(x) for f in sorted((box["dir"] / "audit").glob("*.jsonl")) for x in f.read_text().splitlines() if x]
     assert sum(1 for e in events if e.get("event") == "console.pi_mark") == 2
     p = pi.get(f"/studies/GZQO/patients/{'a' * 32}").text
     assert "two flares this spring" in p and 'data-testid="criteria"' in p
