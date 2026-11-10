@@ -102,6 +102,7 @@ TARGET = {"token_ref": "edc", "key_field": "tb_screening_no", "id_field": "recor
 def start(work: Path, password: str, lang: str) -> dict[str, Any]:
     """The tw-ra site's box (synthetic site and lake cached in ``work``, the box and console fresh) and the three
     accounts signed in."""
+    os.environ["TB_TZ"] = SITE_TW["site"]["tz"]  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
     box, client, repo, summary = fd.build_site(work, PROFILE, SITE_TW)
     clock = ld.Clock(box.today[0])
     app = ld.console(work, box, client, repo, password, clock)

@@ -5018,6 +5018,7 @@ vsf(vs_id, system, prefix) AS (VALUES
   ('VS_BIOLOGIC_DMARD_OR_JAK_INHIBITOR', 'http://www.whocc.no/atc', 'L04AF'),
   ('VS_HEART_FAILURE', 'http://hl7.org/fhir/sid/icd-10-cm', 'I50'),
   ('VS_HERPES_ZOSTER', 'http://hl7.org/fhir/sid/icd-10-cm', 'B02'),
+  ('VS_MALIGNANCY', 'http://hl7.org/fhir/sid/icd-10', 'C97'),
   ('VS_MALIGNANCY', 'http://hl7.org/fhir/sid/icd-10-cm', 'C0'),
   ('VS_MALIGNANCY', 'http://hl7.org/fhir/sid/icd-10-cm', 'C1'),
   ('VS_MALIGNANCY', 'http://hl7.org/fhir/sid/icd-10-cm', 'C2'),

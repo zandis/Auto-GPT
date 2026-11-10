@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
 import shutil
 import sys
 from datetime import date, timedelta
@@ -238,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--work", type=Path, required=True)
     ap.add_argument("--out", type=Path, default=ROOT / "rulesets")
     a = ap.parse_args(argv)
+    os.environ["TB_TZ"] = str(SCENARIOS[a.ruleset]["tz"])  # the synthetic site's site.tz as TB_TZ (D-315)
     a.work.mkdir(parents=True, exist_ok=True)
     build(a.ruleset, a.work, a.out)
     return 0

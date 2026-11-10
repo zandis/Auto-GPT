@@ -55,7 +55,7 @@ models:
   judge_prompt: judge_v4
 review:
   approved_by: crc1@hospa.test
-  approved_at: '2026-11-11T01:14:46.107743+08:00'
+  approved_at: '2026-11-11T01:53:03.999831+08:00'
   approved_via: e-mail
   rounds: 1
   split:
@@ -83,5 +83,10 @@ equivalence:
     RA-JAK-INC-03: 100.0
     RA-JAK-INC-04: 100.0
   failing: []
-  evaluated_at: '2026-11-11T01:14:46.107743+08:00'
+  evaluated_at: '2026-11-11T01:53:03.999831+08:00'
 terminology_release: TR-d7399b879108
+prompt_pins:
+  judge:
+    version: 4
+    sha256: 17db3b50b3f874a2e7253c806942739170f8f7a947d4548aed8e9eafa4cdef6e
+    schema_sha256: 5285acc3d211de370bca9f8b0f8125b31bd41b6a70ce10c0c275f5e0148e21ed
