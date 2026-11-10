@@ -74,12 +74,14 @@ def fetch() -> None:
     CACHE.mkdir(parents=True, exist_ok=True)
     r = httpx.get(URL, timeout=120, follow_redirects=True)
     r.raise_for_status()
+    tmp = CACHE / "Test collection.part"  # renamed once complete: a cut download never looks like the corpus
     with zipfile.ZipFile(io.BytesIO(r.content)) as z:
         for n in z.namelist():
             if n.startswith("Test collection/") and n.endswith(".xml") and "__MACOSX" not in n:
-                out = CACHE / n
+                out = tmp / n.removeprefix("Test collection/")
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(z.read(n))
+    tmp.rename(dest)
 
 
 ART = re.compile(r'<article id="([^"]+)"[^>]*>(.*?)</article>', re.S)

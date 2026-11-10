@@ -1,0 +1,15 @@
+#!/bin/bash
+# Rehearsal shim: `systemctl poweroff` records who powered off, when and why (the console's last TB-WATCHDOG line),
+# marks the VM TERMINATED for the fake gcloud and ends every process of the "VM" (all but the container's PID 1, a
+# plain `sleep`, so the disk stays as a stopped VM's does).
+S=/rehearsal/s
+if [ "$1" = poweroff ]; then
+  sleep 1  # the console line that says why is still on its way through the serial FIFO
+  why=$(grep -a 'TB-WATCHDOG\|TB-NO-KEY\|TB-FRONT-FAILED\|TB-DOOR-FAILED' $S/console.log 2>/dev/null | tail -n 1)
+  echo "$(date -u +%FT%TZ) poweroff by: $(tr '\0' ' ' < /proc/$PPID/cmdline 2>/dev/null | cut -c1-120) | $why" >> $S/POWEROFF
+  echo TERMINATED > $S/status
+  sync
+  kill -TERM -1 2>/dev/null
+  exit 0
+fi
+echo "[systemctl-shim] $* (no-op)" >> $S/shim.log

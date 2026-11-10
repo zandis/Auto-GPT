@@ -13,7 +13,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: fonts jvm-deps venv e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean
+.PHONY: rehearse fonts jvm-deps venv e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean
 
 venv:
 	uv venv --allow-existing --python 3.12 .venv && uv pip install --python .venv/bin/python -e ".[dev]"
@@ -192,6 +192,11 @@ site:
 
 site-preview: site
 	$(PY) -m http.server -d build/site 8000
+
+# the cloud run's local rehearsal (D-150): the real driver and VM script against stand-ins, US$0, about an hour.
+# The gate before any paid GPU launch (docs/RUNBOOK.md §11); CASES="run-a served" runs some cases only.
+rehearse:
+	tests/rehearsal/rehearse.sh $(CASES)
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache build *.egg-info

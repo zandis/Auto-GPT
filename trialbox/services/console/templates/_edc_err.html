@@ -1,0 +1,4 @@
+{# EDC prefill (D-160): an orchestrator refusal in the reader's language; needs err {code, fields, problems}. #}
+{% set k = 'edc.err.' + err.code %}{% set rk = 'rc.err.' + err.code %}
+<div class="error" role="alert" data-testid="edc-error"><p>{% if err.code == 'unavailable' %}{{ t('rc.err.unavailable') }}{% elif t(k) != k %}{{ t(k) }}{% elif err.code.startswith('RC-') and t(rk) != rk %}{{ t(rk, fields=err.fields, msg='') }}{% else %}{{ t('edc.err.other') }}{% endif %}{% if err.code != 'unavailable' %} <span class="hint mono">{{ err.code }}</span>{% endif %}</p>
+{% if err.problems %}<ul class="plain" data-testid="edc-problems">{% for p in err.problems %}<li><span class="mono">{{ p.item or p.field }}</span> · {{ t_or('edc.problem.' + (p.code or ''), p.code or '') }}</li>{% endfor %}</ul>{% endif %}</div>

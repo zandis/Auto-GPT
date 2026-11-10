@@ -89,7 +89,7 @@ services:
     <<: *vllm5090
     command:
       - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
-      - --served-model-name=${JUDGE_MODEL:-gemma-4-26b-a4b-it}
+      - --served-model-name=${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}
       - --max-model-len=${JUDGE_MAX_LEN:-8192}
       - --max-num-seqs=${JUDGE_MAX_SEQS:-4}
       - --enforce-eager
@@ -111,7 +111,7 @@ services:
     <<: *vllm5090
     command:
       - --model=/models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}
-      - --served-model-name=${VERIFIER_MODEL:-qwen3.5-9b}
+      - --served-model-name=${VERIFIER_MODEL:-local/qwen3.5-9b-awq}
       - --max-model-len=${VERIFIER_MAX_LEN:-8192}
       - --max-num-seqs=${VERIFIER_MAX_SEQS:-4}
       - --enforce-eager
