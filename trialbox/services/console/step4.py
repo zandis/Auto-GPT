@@ -14,7 +14,7 @@ from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_contracts import Job, JobCreate
 
-from console import command
+from console import about, command
 from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
@@ -208,6 +208,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.page(
             request, "help.html", sess, slug=help_slug(target.split("?")[0]), back=target, studies=studies_of(sess)
         )
+
+    about.register(app, h)  # T-617a: /about, the third-party notices (NOTICE), beside the help panel
 
     # ------------------------------------------------------------------ S37 Notices received
     @app.get("/notices/received")

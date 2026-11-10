@@ -2070,6 +2070,10 @@ class RulesetManifest(BaseModel):
     cohort: CohortConfig | None = None
     population: PopulationSpec | None = None
     nct_id: str | None = None
+    terminology_release: str | None = Field(None, pattern="^TR-[0-9a-f]{12}$")
+    """
+    the terminology release the ruleset was compiled against (D-301): a run against another release is refused until it is recompiled
+    """
     source_last_update: str | None = None
 
 

@@ -5,6 +5,10 @@
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "identity.mfa.totp": "authenticator app (TOTP)",
+    "identity.mfa.off": "off (build and synthetic data only)",
+    "identity.oidc.on": "on",
+    "identity.oidc.off": "off",
     "login.oidc": "Sign in with the hospital account",
     "login.oidc.failed": "The hospital sign-in did not complete. Try again, or ask the administrator to check your "
     "groups.",
@@ -44,6 +48,10 @@ EN: dict[str, str] = {
     "at their next sign-in. Check who is asking before you do this.",
 }
 JA: dict[str, str] = {
+    "identity.mfa.totp": "認証アプリ（TOTP）",
+    "identity.mfa.off": "なし（開発環境と合成データのみ）",
+    "identity.oidc.on": "使用する",
+    "identity.oidc.off": "使用しない",
     "login.oidc": "病院アカウントでログイン",
     "login.oidc.failed": "病院アカウントでのログインが完了しませんでした。もう一度試すか、管理者にグループの確認を依頼してください。",
     "login.local": "または TrialBox アカウントでログイン",
@@ -80,6 +88,10 @@ JA: dict[str, str] = {
     "依頼者が本人であることを確認してから実行してください。",
 }
 ZH: dict[str, str] = {
+    "identity.mfa.totp": "驗證器 App（TOTP）",
+    "identity.mfa.off": "未啟用（僅限開發環境與合成資料）",
+    "identity.oidc.on": "啟用",
+    "identity.oidc.off": "未啟用",
     "login.oidc": "以醫院帳號登入",
     "login.oidc.failed": "醫院帳號登入未完成。請再試一次，或請管理者確認您的群組。",
     "login.local": "或以 TrialBox 帳號登入",
