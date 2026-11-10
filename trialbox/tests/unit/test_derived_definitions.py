@@ -132,6 +132,46 @@ def test_cdai_sdai_units_scale_and_proposed() -> None:
     assert d.compute("sdai", {**obs(4.0, None), **far}).reason == "derived_missing_input:crp"  # not the same visit
 
 
+@pytest.mark.parametrize("score", ["egfr_ckd_epi", "egfr_jsn", "egfr"])
+def test_egfr_impossible_creatinine_or_age_is_no_value(score: str) -> None:
+    def cr(v: float) -> dict[str, list[d.Obs]]:
+        return {"creatinine": [d.Obs(v, "mg/dL", IDX, "c")]}
+
+    # before: ZeroDivisionError (0 creatinine or JSN age 0), a complex number or TypeError (negative creatinine)
+    assert d.compute(score, cr(0.0), age=50, female=True).reason == "derived_unit:creatinine"
+    assert d.compute(score, cr(-1.2), age=50, female=False).reason == "derived_unit:creatinine"
+    assert d.compute(score, cr(1.1), age=0, female=True).reason == "derived_missing_input:age"
+    assert d.compute(score, cr(1.1), age=-3, female=True).reason == "derived_missing_input:age"
+    assert d.compute(score, cr(float("nan")), age=50, female=True).reason == "derived_unit:creatinine"
+    assert d.compute(score, cr(1.1), age=50, female=True).value is not None
+
+
+def test_joint_counts_crp_and_esr_ranges() -> None:
+    def ra(tjc: float, sjc: float = 3, crp: float = 5.0, esr: float = 20.0) -> dict[str, list[d.Obs]]:
+        return {"tjc28": [d.Obs(tjc, None, IDX, "t")], "sjc28": [d.Obs(sjc, None, IDX, "s")],
+                "ptga": [d.Obs(40, "mm", IDX, "g")], "ptga10": [d.Obs(4, None, IDX, "p")],
+                "evga": [d.Obs(3.5, None, IDX, "e")], "crp": [d.Obs(crp, "mg/L", IDX, "c")],
+                "esr": [d.Obs(esr, "mm/h", IDX, "r")]}  # fmt: skip
+
+    # before: a math domain error (sqrt of a negative count, ln of CRP + 1 <= 0)
+    for score in ("das28", "das28_crp", "das28_esr", "cdai", "sdai"):
+        assert d.compute(score, ra(-1)).reason == "derived_unit:tjc28", score
+        assert d.compute(score, ra(29)).reason == "derived_unit:tjc28", score
+        assert d.compute(score, ra(4, sjc=28.5)).reason == "derived_unit:sjc28", score
+        assert d.compute(score, ra(28, sjc=0)).value is not None, score  # 0 and 28 are in range
+    assert d.compute("das28_crp", ra(4, crp=-1.0)).reason == "derived_unit:crp"
+    assert d.compute("das28_crp", ra(4, crp=-5.0)).reason == "derived_unit:crp"
+    assert d.compute("sdai", ra(4, crp=-0.1)).reason == "derived_unit:crp"
+    assert d.compute("das28_crp", ra(4, crp=0.0)).value is not None  # a CRP of 0 is a value
+    assert d.compute("das28_esr", ra(4, esr=-2.0)).reason == "derived_unit:esr"
+    assert d.compute("das28_esr", ra(4, esr=0.0)).reason == "derived_missing_input:esr"  # the catalogue's zero rule
+    assert d.compute("das28", ra(4, esr=-2.0)).reason == "derived_unit:esr"
+    asdas = {"basdai_q2": [d.Obs(5, None, IDX, "q2")], "basdai_q6": [d.Obs(3, None, IDX, "q6")],
+             "ptga": [d.Obs(40, "mm", IDX, "g")], "basdai_q3": [d.Obs(2, None, IDX, "q3")],
+             "crp": [d.Obs(-1.0, "mg/L", IDX, "c")]}  # fmt: skip
+    assert d.compute("asdas", asdas).reason == "derived_unit:crp"
+
+
 # ------------------------------------------------------------------------------------------------ SQL on a lake
 def _pat(pid: str) -> dict[str, Any]:
     return {"resourceType": "Patient", "id": pid, "birthDate": "1970-01-01", "gender": "female"}

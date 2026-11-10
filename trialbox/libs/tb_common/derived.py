@@ -26,7 +26,17 @@ score: :mod:`tb_common.derived_store` (D-190).
 Inputs that count (D-190). A row counts only when its status is one of :data:`COUNTS` (a feed result is ``final``).
 A proposed fact (a value a model read from a chart, not yet confirmed) never counts as an input, nor does a rejected,
 preliminary or entered-in-error row: the score then has no value and says which input is missing, as for any
-missing input.
+missing input. The status rule works only where the caller knows the row's status. The lake's ``observation`` table
+has no status column yet, so the nightly batch (:func:`tb_common.derived_store.rows_from_lake`) records
+:data:`NOT_RECORDED`, which counts: the lake holds only hospital feed rows and confirmed facts (flatten keeps a
+proposed fact out of ``observation`` by its basis tag), so no proposed fact reaches a stored score that way. But an
+entered-in-error or preliminary feed row is not filtered there until the lake carries ``Observation.status``.
+
+Impossible values. A value outside :data:`DOMAIN` after conversion (a negative CRP or ESR, a joint count outside
+0-28, a creatinine of 0 or less, a value that is not a finite number) gives no value and ``derived_unit:<component>``,
+like a global outside its 0-10 scale; an age of 0 or less gives ``derived_missing_input:age``. No input makes
+:func:`compute` raise. The SQL ``egfr_jsn`` template has the same creatinine and age guard; the SQL and CQL engines
+do not yet carry the other ranges.
 
 Units (dataflow review P0-5, D-149). Every component value is converted to the unit the formula expects with the
 factors of :data:`UNITS` (UCUM codes; ``mg/dL`` CRP x 10 = ``mg/L``, ``umol/L`` creatinine / 88.4 = ``mg/dL``). A row
@@ -165,8 +175,22 @@ for _score in ("cdai", "sdai", "das28_esr", "das28_crp"):
     if SAME_VISIT[_score][0] != COMPONENTS[_score][0] or set(SAME_VISIT[_score][1]) != set(COMPONENTS[_score][1:]):
         raise ValueError(f"the catalogue definition of {_score} does not match its engine inputs")
 
+# the status of a row whose source does not record one (the lake's ``observation`` table, which holds only feed rows
+# and confirmed facts): it counts, and provenance says the status was not recorded rather than inventing "final"
+NOT_RECORDED = "not_recorded"
 # row statuses that count as an input (D-190); anything else, a proposed fact first of all, never does
-COUNTS = frozenset({"final", "amended", "corrected", "confirmed", "signed"})
+COUNTS = frozenset({"final", "amended", "corrected", "confirmed", "signed", NOT_RECORDED})
+
+# the values a component can take after conversion, as (low, high, low allowed): outside is no value with
+# ``derived_unit``. Creatinine must be above 0 (the eGFR equations divide by it or raise it to a negative power); a
+# joint count is 0-28; CRP and ESR are never negative (an ESR of 0 is "no value" by the catalogue's zero rule).
+DOMAIN: dict[str, tuple[float, float, bool]] = {
+    "creatinine": (0.0, math.inf, False),
+    "tjc28": (0.0, 28.0, True),
+    "sjc28": (0.0, 28.0, True),
+    "crp": (0.0, math.inf, True),
+    "esr": (0.0, math.inf, True),
+}
 
 MISSING = "derived_missing_input"
 UNIT = "derived_unit"
@@ -192,6 +216,18 @@ def convert(comp: str, value: float | None, unit: str | None) -> tuple[float | N
         return (v, None) if lo <= v <= hi else (None, f"{UNIT}:{comp}")
     allowed = UNIT_OF_SCORE_ITEM.get(comp, UNITLESS)
     return (value, None) if u in allowed else (None, f"{UNIT}:{comp}")
+
+
+def in_domain(comp: str, value: float) -> bool:
+    """Whether a converted value is possible for the component (:data:`DOMAIN`); any value must be a finite number."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(v):
+        return False
+    lo, hi, lo_allowed = DOMAIN.get(comp, (-math.inf, math.inf, True))
+    return (lo <= v if lo_allowed else lo < v) and v <= hi
 
 
 def unit_sql(comp: str, value: str, unit: str) -> str:
@@ -367,9 +403,11 @@ def compute(
         v, why = convert(c, picked[c].value, picked[c].unit)
         if v is None:
             return Derived(None, why, picked)
+        if not in_domain(c, v):  # an impossible value: no value and the reason, never an error
+            return Derived(None, f"{UNIT}:{c}", picked)
         val[c] = v
     if score.startswith("egfr"):
-        if age is None:
+        if age is None or age <= 0:  # JSN raises the age to a negative power: 0 or less is no usable age
             return Derived(None, f"{MISSING}:age", picked)
         if female is None:
             return Derived(None, f"{MISSING}:sex", picked)

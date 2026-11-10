@@ -205,3 +205,160 @@ def test_the_nightly_batch_reads_the_lake(db_url: str, tmp_path: Path) -> None:
     # DAS28 variants with no patient global (0-100 mm) at the visit: no value, with the reason
     assert by[("das28_crp", "L-1-1")]["reason"] == "derived_missing_input:ptga"
     assert rep.inserted == 6 and run_batch(st, lake, mapping_version=MAP).unchanged == 6
+
+
+# ------------------------------------------------------------------------------------------------ review fixes
+def _lake_obs(pid: str, n: int, comp: str, value: float, unit: str | None, day: str = "2026-10-06",
+              basis: str | None = None) -> dict[str, Any]:  # fmt: skip
+    system, code = d.CODES[comp]
+    q: dict[str, Any] = {"value": value} | ({"unit": unit, "code": unit} if unit else {})
+    r: dict[str, Any] = {"resourceType": "Observation", "id": f"{pid}-{n}", "status": "final",
+                         "subject": {"reference": f"Patient/{pid}"},
+                         "code": {"coding": [{"system": system, "code": code}]},
+                         "effectiveDateTime": f"{day}T09:00:00+09:00", "valueQuantity": q}  # fmt: skip
+    if basis is not None:  # a site fact (D-135): proposed (read from a chart) or confirmed by a person
+        r["meta"] = {"tag": [{"system": "urn:trialbox:basis", "code": basis}]}
+    return r
+
+
+def _make_lake(tmp_path: Path, pids: list[str], feed: list[dict[str, Any]],
+               site: list[dict[str, Any]] | None = None) -> LakeLocal:  # fmt: skip
+    nd = tmp_path / "nd"
+    nd.mkdir()
+    pats = [{"resourceType": "Patient", "id": p, "birthDate": "1971-01-01", "gender": "female"} for p in pids]
+    (nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in pats) + "\n")
+    (nd / "Observation.ndjson").write_text("\n".join(json.dumps(o) for o in feed) + "\n")
+    lk = Lake(tmp_path / "lake", "Asia/Tokyo")
+    if site:
+        lk.put_site({"Observation": site})
+    lk.rebuild("2026-11-09", HashEmbedder(), nd)
+    return LakeLocal(tmp_path / "lake", HashEmbedder(), "Asia/Tokyo")
+
+
+def test_the_batch_goes_on_past_a_bad_patient(db_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    feed = [_lake_obs("B-1", 1, "creatinine", 0.0, "mg/dL"),  # creatinine 0: was a ZeroDivisionError for the night
+            _lake_obs("B-1", 2, "tjc28", -2, None), _lake_obs("B-1", 3, "sjc28", 3, None),  # a negative joint count
+            _lake_obs("B-1", 4, "ptga", 40, "mm"), _lake_obs("B-1", 5, "crp", -3.0, "mg/L"),
+            _lake_obs("B-2", 1, "creatinine", 1.1, "mg/dL"), _lake_obs("B-3", 1, "creatinine", 0.9, "mg/dL")]  # fmt: skip
+    lake = _make_lake(tmp_path, ["B-1", "B-2", "B-3"], feed)
+    st = DerivedStore(db_url)
+    rep = run_batch(st, lake, mapping_version=MAP)
+    assert (rep.failed, rep.failed_pids) == (0, [])
+    bad = _by(st.rows("B-1"))
+    assert (
+        bad[("egfr_jsn", "B-1-1")]["value"] is None
+        and bad[("egfr_jsn", "B-1-1")]["reason"] == "derived_unit:creatinine"
+    )
+    assert bad[("egfr_ckd_epi", "B-1-1")]["reason"] == "derived_unit:creatinine"
+    assert bad[("das28_crp", "B-1-2")]["reason"] == "derived_unit:tjc28"
+    assert st.latest("B-1", "egfr_jsn", date(2026, 10, 6)).value is None  # unknown for a reader, never FALSE
+    # a patient whose recompute raises anyway (a lost connection, a bug) is counted; the next patients still run
+    orig = DerivedStore.recompute
+
+    def flaky(self: DerivedStore, pid: str, *a: Any, **kw: Any) -> Report:
+        if pid == "B-2":
+            raise RuntimeError("boom")
+        return orig(self, pid, *a, **kw)
+
+    monkeypatch.setattr(DerivedStore, "recompute", flaky)
+    st2 = DerivedStore(db_url)
+    rep = run_batch(st2, lake, mapping_version="site-mapping@4")
+    assert (rep.failed, rep.failed_pids) == (1, ["B-2"])
+    assert {r["mapping_version"] for r in st2.rows("B-3")} == {"site-mapping@4"}  # B-3 ran after B-2 failed
+    assert {r["mapping_version"] for r in st2.rows("B-2")} == {MAP}  # B-2's rows stay as they were
+
+
+def test_the_batch_records_the_lake_status_and_never_reads_proposed_facts(db_url: str, tmp_path: Path) -> None:
+    feed = [_lake_obs("S-1", 1, "tjc28", 4, None), _lake_obs("S-1", 2, "sjc28", 3, None),
+            _lake_obs("S-1", 3, "evga", 3.5, None)]  # fmt: skip
+    # the patient global comes only from a chart: proposed (never counts), then a confirmed copy at another visit
+    site = [_lake_obs("S-1", 4, "ptga10", 4.0, None, basis="proposed"),
+            _lake_obs("S-1", 5, "tjc28", 6, None, day="2026-10-20"),
+            _lake_obs("S-1", 6, "sjc28", 2, None, day="2026-10-20"),
+            _lake_obs("S-1", 7, "evga", 2.0, None, day="2026-10-20"),
+            _lake_obs("S-1", 8, "ptga10", 5.0, None, day="2026-10-20", basis="confirmed")]  # fmt: skip
+    lake = _make_lake(tmp_path, ["S-1"], feed, site)
+    got, _birth, _female = rows_from_lake(lake, ["S-1"])["S-1"]
+    assert {o.status for os in got.values() for o in os} == {"not_recorded"}  # the lake has no status: none invented
+    assert "S-1-4" not in {o.oid for o in got.get("ptga10", [])}  # the proposed fact is not in observation
+    st = DerivedStore(db_url)
+    run_batch(st, lake, mapping_version=MAP)
+    rows = _by(st.rows("S-1"))
+    v1 = rows[("cdai", "S-1-1")]
+    assert v1["value"] is None and v1["reason"] == "derived_missing_input:ptga10"
+    assert all(i["id"] != "S-1-4" for r in rows.values() for i in r["inputs"])  # never an input anywhere
+    v2 = rows[("cdai", "S-1-5")]
+    assert v2["value"] == pytest.approx(15.0)  # the confirmed fact counts: 6 + 2 + 5 + 2
+    assert {i["status"] for i in v2["inputs"]} == {"not_recorded"}  # provenance says what the lake knows
+
+
+def _conflicted(st: DerivedStore) -> dict[str, Any]:
+    """CDAI 27 at V2 against a signed 22.0: one open conflict."""
+    doc = [Documented("P-RA1", "cdai", 22.0, V2, "note-2", "signed")]
+    assert st.recompute("P-RA1", _ra_rows(), mapping_version=MAP, only=["cdai"], documented=doc).conflicts == 1
+    (c,) = st.conflicts("P-RA1")
+    return c
+
+
+def test_a_recompute_without_documented_keeps_the_conflict_open(db_url: str) -> None:
+    st = DerivedStore(db_url)
+    c = _conflicted(st)
+    # a new mapping version rewrites the row with the same inputs; the batch is not given the documented scores
+    rep = st.recompute("P-RA1", _ra_rows(), mapping_version="site-mapping@4", only=["cdai"])
+    assert (rep.superseded, rep.carried, rep.reopened) == (2, 1, 0)
+    (now,) = st.conflicts("P-RA1")
+    assert now["carried_from"] == c["id"] and now["row_id"] != c["row_id"] and now["documented_value"] == 22.0
+    held = st.latest("P-RA1", "cdai", V2)
+    assert held.value is None and held.reason == "derived_vs_documented"  # still unknown, not the derived 27
+    # the inputs change but the value still differs from the note: still open
+    rows = _ra_rows()
+    rows["evga"][1] = _o("evga", 6.2, V2, "obs-e2")
+    assert st.recompute("P-RA1", rows, mapping_version="site-mapping@4", only=["cdai"]).carried == 1
+    assert st.latest("P-RA1", "cdai", V2).reason == "derived_vs_documented"
+    # the inputs are corrected so that the value now agrees with the note: nothing left to resolve
+    rows["tjc28"][1] = _o("tjc28", 3, V2, "obs-t2")
+    rows["evga"][1] = _o("evga", 6, V2, "obs-e2")
+    assert st.recompute("P-RA1", rows, mapping_version="site-mapping@4", only=["cdai"]).carried == 0
+    assert st.conflicts("P-RA1") == [] and st.latest("P-RA1", "cdai", V2).value == pytest.approx(22.0)
+
+
+def test_a_resolution_survives_a_recompute_that_keeps_the_value(db_url: str) -> None:
+    st = DerivedStore(db_url)
+    c = _conflicted(st)
+    st.resolve(c["id"], "keep_documented", "pi-1")
+    rep = st.recompute("P-RA1", _ra_rows(), mapping_version="site-mapping@4", only=["cdai"])
+    assert (rep.carried, rep.reopened) == (1, 0)
+    kept = st.latest("P-RA1", "cdai", V2)
+    assert (kept.value, kept.source) == (22.0, "documented")  # the person's decision stands on the new row
+    (now,) = [x for x in st.conflicts("P-RA1", open_only=False) if x["carried_from"] == c["id"]]
+    assert (now["resolution"], now["resolved_by"], now["resolved_value"]) == ("keep_documented", "pi-1",
+                                                                              pytest.approx(27.0))  # fmt: skip
+    # a change within the tolerance (27 -> 27.3) keeps it too
+    rows = _ra_rows()
+    rows["evga"][1] = _o("evga", 6.3, V2, "obs-e2")
+    assert st.recompute("P-RA1", rows, mapping_version="site-mapping@4", only=["cdai"]).reopened == 0
+    assert st.latest("P-RA1", "cdai", V2).source == "documented"
+    # passing the same documented record again changes nothing
+    doc = [Documented("P-RA1", "cdai", 22.0, V2, "note-2", "signed")]
+    assert st.recompute("P-RA1", rows, mapping_version="site-mapping@5", only=["cdai"], documented=doc).conflicts == 0
+    assert st.latest("P-RA1", "cdai", V2).source == "documented" and st.conflicts("P-RA1") == []
+
+
+def test_a_value_change_beyond_tolerance_reopens_a_resolution(db_url: str) -> None:
+    st = DerivedStore(db_url)
+    c = _conflicted(st)
+    st.resolve(c["id"], "keep_documented", "pi-1")
+    rows = _ra_rows()
+    rows["tjc28"][1] = _o("tjc28", 10, V2, "obs-t2")  # CDAI 27 -> 29: the decision was made against 27
+    rep = st.recompute("P-RA1", rows, mapping_version=MAP, only=["cdai"])
+    assert (rep.carried, rep.reopened) == (1, 1)
+    (now,) = st.conflicts("P-RA1")
+    assert now["carried_from"] == c["id"] and now["resolution"] is None and now["derived_value"] == pytest.approx(29)
+    held = st.latest("P-RA1", "cdai", V2)
+    assert held.value is None and held.reason == "derived_vs_documented"  # unknown until a person decides again
+    # a corrected note (a new version of the same record) is checked as new, not carried
+    doc = [Documented("P-RA1", "cdai", 29.2, V2, "note-2", "signed")]
+    rows["evga"][1] = _o("evga", 6.1, V2, "obs-e2")
+    rep = st.recompute("P-RA1", rows, mapping_version=MAP, only=["cdai"], documented=doc)
+    assert (rep.carried, rep.conflicts) == (0, 0) and st.conflicts("P-RA1") == []
+    assert st.latest("P-RA1", "cdai", V2).value == pytest.approx(29.1)

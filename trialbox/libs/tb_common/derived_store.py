@@ -13,7 +13,10 @@ provenance, in schema ``derived`` of the trial database (D-126).
 * ``conflict``: a documented score (written by a physician, or a proposed fact read from a chart) that differs from
   the computed row near its date by more than the score's tolerance (:data:`tb_common.scores.TOLERANCE`) opens a
   ``derived_vs_documented`` conflict. Neither value is overwritten; the score reads as unknown until a person
-  resolves it (``keep_derived``, ``keep_documented`` or ``both_at_dates``).
+  resolves it (``keep_derived``, ``keep_documented`` or ``both_at_dates``). A recomputed row takes over the conflicts
+  of the row it replaces (``carried_from``), checked against the stored documented value even when the caller does
+  not pass the documented scores again; a person's resolution stays unless the new value differs from the value it
+  was made against (``resolved_value``) by more than the tolerance, and then the conflict opens again.
 
 **Recompute only on a change.** Each row carries a fingerprint of its definition version and sha, the mapping
 version and its inputs (ids, values, units, dates, statuses; age and sex for eGFR). :meth:`DerivedStore.recompute`
@@ -30,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -38,6 +42,8 @@ from typing import Any
 
 from tb_common import derived, scores
 from tb_common.db import ENV, Database, Tx
+
+log = logging.getLogger("derived_store")
 
 SCHEMA = "derived"
 # the scores stored as rows: each has a catalogue definition and an engine formula
@@ -64,7 +70,8 @@ CREATE TABLE IF NOT EXISTS conflict (id BIGINT GENERATED ALWAYS AS IDENTITY PRIM
   pid TEXT NOT NULL, score TEXT NOT NULL, row_id BIGINT NOT NULL REFERENCES score_row (id),
   documented_id TEXT NOT NULL, documented_status TEXT NOT NULL, documented_value DOUBLE PRECISION NOT NULL,
   documented_date DATE NOT NULL, derived_value DOUBLE PRECISION NOT NULL, tolerance DOUBLE PRECISION NOT NULL,
-  opened_at TEXT NOT NULL, resolution TEXT, resolved_by TEXT, resolved_at TEXT, UNIQUE (row_id, documented_id))
+  opened_at TEXT NOT NULL, resolution TEXT, resolved_by TEXT, resolved_at TEXT, resolved_value DOUBLE PRECISION,
+  carried_from BIGINT REFERENCES conflict (id), UNIQUE (row_id, documented_id))
 """
 ]
 
@@ -87,17 +94,24 @@ class Documented:
 
 @dataclass
 class Report:
-    """What one recompute did: rows written, rows left as they were, rows superseded or retired, conflicts opened."""
+    """What one recompute did: rows written, rows left as they were, rows superseded or retired, conflicts opened,
+    conflicts (open or resolved) carried to a recomputed row, resolved conflicts reopened; and, for a batch, the
+    patients whose recompute failed (the batch goes on with the next patient)."""
 
     inserted: int = 0
     unchanged: int = 0
     superseded: int = 0
     retired: int = 0
     conflicts: int = 0
+    carried: int = 0
+    reopened: int = 0
+    failed: int = 0
+    failed_pids: list[str] = field(default_factory=list)
 
     def add(self, other: Report) -> None:
-        for k in ("inserted", "unchanged", "superseded", "retired", "conflicts"):
+        for k in ("inserted", "unchanged", "superseded", "retired", "conflicts", "carried", "reopened", "failed"):
             setattr(self, k, getattr(self, k) + getattr(other, k))
+        self.failed_pids.extend(other.failed_pids)
 
 
 @dataclass
@@ -176,9 +190,10 @@ class DerivedStore:
                 d = scores.definition(s)
                 have = tx.fetchval("SELECT sha256 FROM definition WHERE def_version = ?", (d["def_version"],))
                 if have is None:
+                    # two stores opening at once: the second insert does nothing, and the re-read compares its sha
                     tx.execute(
                         "INSERT INTO definition (def_version, score_id, version, sha256, body, loaded_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (def_version) DO NOTHING",
                         (
                             d["def_version"],
                             d["score_id"],
@@ -188,7 +203,8 @@ class DerivedStore:
                             _now(),
                         ),
                     )
-                elif have != d["sha256"]:
+                    have = tx.fetchval("SELECT sha256 FROM definition WHERE def_version = ?", (d["def_version"],))
+                if have != d["sha256"]:
                     raise DerivedError(
                         f"definition {d['def_version']} changed under the same version: bump its version in "
                         f"{d['file']} (stored rows name {have[:12]})"
@@ -228,6 +244,8 @@ class DerivedStore:
                 fresh[(score, _anchor_key(anchor, anchor_comp))] = (anchor, res, prov, fp)
         rep = Report()
         now = _now()
+        mine = [x for x in documented if x.pid == pid and x.score in todo]
+        given = {(x.score, x.did): x for x in mine}
         with self._db.transaction() as tx:
             # one recompute per patient at a time (a night batch and an on-change recompute side by side)
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"{SCHEMA}:{pid}",))
@@ -244,19 +262,82 @@ class DerivedStore:
                 if old is not None and old[1] == fp:
                     rep.unchanged += 1
                     continue
+                held = self._conflicts_of(tx, old[0]) if old is not None else []
                 if old is not None:
                     self._supersede(tx, old[0], now)
                 new_id = self._insert(tx, pid, key, anchor, res, prov, fp, mapping_version, now)
                 if old is not None:
                     tx.execute("UPDATE score_row SET superseded_by = ? WHERE id = ?", (new_id, old[0]))
                     rep.superseded += 1
+                    value = res.value if res.reason is None else None
+                    carried, reopened = self._carry(tx, held, new_id, value, anchor.on, given, now)
+                    rep.carried += carried
+                    rep.reopened += reopened
                 rep.inserted += 1
             for key, (row_id, _fp) in current.items():
                 if key not in fresh:  # the anchor row is gone (deleted at the source, or no longer counts)
                     self._supersede(tx, row_id, now)
                     rep.retired += 1
-            rep.conflicts = self._check(tx, [x for x in documented if x.pid == pid and x.score in todo], now)
+            rep.conflicts = self._check(tx, mine, now)
         return rep
+
+    def _conflicts_of(self, tx: Tx, row_id: int) -> list[dict[str, Any]]:
+        """The open and person-resolved conflicts of a row (not those the engine closed as superseded)."""
+        cols = ("id", "score", "documented_id", "documented_status", "documented_value", "documented_date",
+                "derived_value", "tolerance", "resolution", "resolved_by", "resolved_at", "resolved_value")  # fmt: skip
+        got = tx.fetchall(
+            f"SELECT {', '.join(cols)} FROM conflict WHERE row_id = ? AND (resolution IS NULL OR resolution IN "
+            f"({', '.join('?' for _ in DECISIONS)})) ORDER BY id",
+            (row_id, *DECISIONS),
+        )
+        return [dict(zip(cols, r, strict=True)) for r in got]
+
+    def _carry(
+        self,
+        tx: Tx,
+        held: list[dict[str, Any]],
+        new_id: int,
+        value: float | None,
+        anchor_date: date,
+        given: Mapping[tuple[str, str], Documented],
+        now: str,
+    ) -> tuple[int, int]:
+        """Carry the conflicts of a superseded row to the row that replaced it, checked against the stored documented
+        value (the caller need not pass the documented scores again). A conflict is carried when the same documented
+        record still applies: the caller did not pass a different version of it, its date is still near the anchor,
+        and the new value still differs from it by more than the tolerance (else there is nothing to resolve). A
+        person's resolution is kept unless the new value differs from the value it was made against by more than the
+        tolerance: then the conflict opens again. Returns (carried, reopened)."""
+        carried = reopened = 0
+        for c in held:
+            if value is None:
+                continue  # no value: the row reads as unknown on its own
+            doc = given.get((c["score"], c["documented_id"]))
+            same = (c["documented_value"], c["documented_date"], c["documented_status"])
+            if doc is not None and (doc.value, doc.on, doc.status) != same:
+                continue  # the documented record changed: the caller's version is checked as new (_check)
+            if abs((anchor_date - c["documented_date"]).days) > scores.DOCUMENTED_SPREAD_DAYS:
+                continue
+            tol = float(c["tolerance"])
+            if abs(value - float(c["documented_value"])) <= tol:
+                continue
+            resolution, by, at, against = c["resolution"], c["resolved_by"], c["resolved_at"], c["resolved_value"]
+            if resolution is not None:
+                against = float(against if against is not None else c["derived_value"])
+                if abs(value - against) > tol:  # the value the person decided on has moved: ask again
+                    resolution = by = at = against = None
+                    reopened += 1
+            n = tx.execute(
+                "INSERT INTO conflict (kind, pid, score, row_id, documented_id, documented_status, documented_value, "
+                "documented_date, derived_value, tolerance, opened_at, resolution, resolved_by, resolved_at, "
+                "resolved_value, carried_from) SELECT kind, pid, score, CAST(? AS BIGINT), documented_id, "
+                "documented_status, documented_value, documented_date, CAST(? AS DOUBLE PRECISION), tolerance, "
+                "CAST(? AS TEXT), CAST(? AS TEXT), CAST(? AS TEXT), CAST(? AS TEXT), CAST(? AS DOUBLE PRECISION), id "
+                "FROM conflict WHERE id = ? ON CONFLICT (row_id, documented_id) DO NOTHING",
+                (new_id, value, now, resolution, by, at, against, c["id"]),
+            )
+            carried += n
+        return carried, reopened
 
     def _supersede(self, tx: Tx, row_id: int, now: str) -> None:
         tx.execute("UPDATE score_row SET superseded_at = ? WHERE id = ?", (now, row_id))
@@ -361,7 +442,8 @@ class DerivedStore:
         if not by:
             raise DerivedError("who resolved the conflict is required")
         n = self._db.execute(
-            "UPDATE conflict SET resolution = ?, resolved_by = ?, resolved_at = ? WHERE id = ? AND resolution IS NULL",
+            "UPDATE conflict SET resolution = ?, resolved_by = ?, resolved_at = ?, resolved_value = derived_value "
+            "WHERE id = ? AND resolution IS NULL",
             (decision, by, _now(), conflict_id),
         )
         if n != 1:
@@ -411,7 +493,11 @@ def rows_from_lake(
 ) -> dict[str, tuple[dict[str, list[derived.Obs]], date | None, bool | None]]:
     """Each patient's component rows of the stored scores from a lake snapshot (``observation`` holds only the
     hospital feed and confirmed facts; proposed facts stay in ``site_fact`` and are never read here), with birth date
-    and sex: ``{pid: ({component: [Obs]}, birth, female)}``."""
+    and sex: ``{pid: ({component: [Obs]}, birth, female)}``.
+
+    The lake's ``observation`` table has no status column, so each row's status is recorded as
+    :data:`tb_common.derived.NOT_RECORDED` (it counts), never an invented ``final``. Until the lake carries
+    ``Observation.status``, an entered-in-error or preliminary feed row is not filtered out here."""
     comps = sorted({c for s in STORED for c in derived.COMPONENTS[s]})
     by_code = {derived.CODES[c]: c for c in comps}
     pairs = ", ".join(f"('{sy}', '{co}')" for sy, co in sorted(by_code))  # constants, never user input
@@ -436,7 +522,7 @@ def rows_from_lake(
             continue
         comp = by_code[(r["system"], r["code"])]
         out[r["pid"]][0].setdefault(comp, []).append(
-            derived.Obs(r["value_num"], r["unit"], r["d"], str(r["oid"]), "final")
+            derived.Obs(r["value_num"], r["unit"], r["d"], str(r["oid"]), derived.NOT_RECORDED)
         )
     return out
 
@@ -450,15 +536,22 @@ def run_batch(
     snapshot: str | None = None,
     documented: Iterable[Documented] = (),
 ) -> Report:
-    """The ``derive`` batch: recompute every patient of a lake snapshot (or ``pids``); writes only what changed."""
+    """The ``derive`` batch: recompute every patient of a lake snapshot (or ``pids``); writes only what changed. A
+    patient whose recompute fails is counted in ``failed`` (and ``failed_pids``, pseudonyms) and the batch goes on
+    with the next one: that patient's transaction is rolled back and their stored rows stay as they were."""
     docs: dict[str, list[Documented]] = {}
     for x in documented:
         docs.setdefault(x.pid, []).append(x)
     total = Report()
     for pid, (rows, birth, female) in sorted(rows_from_lake(lake, pids, snapshot).items()):
-        total.add(
-            store.recompute(
+        try:
+            rep = store.recompute(
                 pid, rows, mapping_version=mapping_version, birth=birth, female=female, documented=docs.get(pid, [])
             )
-        )
+        except Exception as e:  # one bad patient never stops the night (the error type only: no values in the log)
+            log.warning("derive: recompute failed for %s (%s)", pid, type(e).__name__)
+            total.failed += 1
+            total.failed_pids.append(pid)
+            continue
+        total.add(rep)
     return total
