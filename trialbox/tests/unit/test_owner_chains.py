@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path
 
 import pytest
 
@@ -61,7 +62,7 @@ def test_late_steps_are_those_past_the_latest_start_with_no_start() -> None:
     assert [r["Chain"] for r in owner_chains.late(TABLE, dt.date(2026, 12, 19))] == ["X", "Z"]
 
 
-def test_main_prints_and_strict_fails(tmp_path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_main_prints_and_strict_fails(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     f = tmp_path / "chains.md"
     f.write_text(TABLE, encoding="utf-8")
     assert owner_chains.main(["--file", str(f), "--today", "2026-11-20"]) == 0
