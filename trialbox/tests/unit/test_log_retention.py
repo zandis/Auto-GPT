@@ -44,7 +44,7 @@ def test_collect_writes_one_compressed_file_per_service_and_prune_keeps_the_wind
             return b"orchestrator\nmail-gateway\n"
         return f"log of {argv[-1]}\n".encode()
 
-    files = tl.collect(tmp_path / "deploy", date(2026, 11, 8), tmp_path / "logs", run)
+    files = tl.collect(tmp_path / "deploy", date(2026, 11, 8), tmp_path / "logs", run, tz="UTC")
     assert sorted(f.name for f in files) == ["mail-gateway.log.gz", "orchestrator.log.gz"]
     assert gzip.decompress(files[1].read_bytes()) == b"log of orchestrator\n"
     assert calls[1][-5:-1] == ["--since", "2026-11-08T00:00:00Z", "--until", "2026-11-09T00:00:00Z"]
@@ -86,7 +86,7 @@ def test_daily_runs_all_three(tmp_path: Path, capsys: pytest.CaptureFixture[str]
     deploy.mkdir()
     _chain(tmp_path / "audit", 2)
     (deploy / ".env").write_text(f"TB_LOG_DIR={tmp_path / 'logs'}\nTB_AUDIT_HOST_DIR={tmp_path / 'audit'}\n"
-                                 f"TB_AUDIT_ARCHIVE_DIR={tmp_path / 'arch'}\nIMAP_PASS=never-printed\n")  # fmt: skip
+                                 f"TB_AUDIT_ARCHIVE_DIR={tmp_path / 'arch'}\nIMAP_PASS=never-printed\nTB_TZ=UTC\n")  # fmt: skip
     (deploy / "settings.yaml").write_text("retention: {logs_days: 30}\n")
     (tmp_path / "logs/services/2026-09-01").mkdir(parents=True)
 
@@ -149,3 +149,24 @@ def test_install_defaults_follow_the_country_and_can_be_changed() -> None:
         defaults_for("us")
     with pytest.raises(ValueError):
         defaults_for("jp", {"logs_days": "0"})
+
+
+def test_the_log_day_is_the_site_day(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """OPS-036 (D-315): a Tokyo box collects 00:00 to 24:00 Tokyo time, as its audit day files; no default zone."""
+    assert tl.site_day_bounds(date(2026, 11, 8), "Asia/Tokyo") == ("2026-11-07T15:00:00Z", "2026-11-08T15:00:00Z")
+    assert tl.site_day_bounds(date(2026, 11, 8), "Asia/Taipei") == ("2026-11-07T16:00:00Z", "2026-11-08T16:00:00Z")
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    (deploy / ".env").write_text(f"TB_LOG_DIR={tmp_path / 'logs'}\n")
+    calls: list[list[str]] = []
+
+    def run(argv: Any) -> bytes:
+        calls.append(list(argv))
+        return b"gateway\n" if "ps" in argv else b"x\n"
+
+    monkeypatch.delenv("TB_TZ", raising=False)
+    assert tl.main_action("collect", deploy, "2026-11-08", run) == 1  # no TB_TZ: refused, nothing collected
+    assert calls == []
+    (deploy / ".env").write_text(f"TB_LOG_DIR={tmp_path / 'logs'}\nTB_TZ=Asia/Tokyo\n")
+    assert tl.main_action("collect", deploy, "2026-11-08", run) == 0
+    assert calls[1][-5:-1] == ["--since", "2026-11-07T15:00:00Z", "--until", "2026-11-08T15:00:00Z"]

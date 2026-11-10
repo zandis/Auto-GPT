@@ -36,10 +36,11 @@ from console.auth import AuthError, UserStore, random_password
 
 def _audit(event: str, **fields: Any) -> None:
     from tb_common.audit import AuditLog
+    from tb_common.config import site_tz
 
     directory = Path(os.environ.get("TB_AUDIT_DIR", "/data/audit"))
     try:
-        AuditLog(directory, os.environ.get("TB_TZ", "Asia/Taipei")).append(event, actor="console-cli", **fields)
+        AuditLog(directory, site_tz()).append(event, actor="console-cli", **fields)
     except OSError as exc:  # no audit volume (developer shell): say so, never fail silently
         print(f"warning: audit not written ({exc})", file=sys.stderr)
 

@@ -159,7 +159,7 @@ def prepare(
     mode: str = "zip",
     smime_certs: dict[str, str] | None = None,
     smime_dir: Path | None = None,
-    tz: str = "Asia/Taipei",
+    tz: str | None = None,
     link_base: str = "",
 ) -> Prepared:
     to = sorted({norm(r) for r in req.to if r})

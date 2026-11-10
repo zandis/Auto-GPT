@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any
 
 from tb_common import encoding
+from tb_common.config import site_tz
 from tb_common.db import ENV, Database, DatabaseError
 
 # code systems: the JP Core 1.1.0 NamingSystems for JLAC10, YJ and HOT9; the MEDIS 病名交換用コード OID (JP Core 1.1.0
@@ -300,7 +301,7 @@ class TermStore:
         if adir is not None:
             from tb_common.audit import AuditLog
 
-            AuditLog(adir, os.environ.get("TB_TZ", "Asia/Tokyo")).append(
+            AuditLog(adir, site_tz()).append(
                 "terminology.load",
                 actor=by,
                 output_sha=sha,

@@ -25,9 +25,8 @@ import hashlib
 import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Literal
-from zoneinfo import ZoneInfo
 
 from tb_contracts.recall import KnownPositiveLineKind, RecallCell, RecallObservation, Stratum
 
@@ -51,7 +50,8 @@ class AuditPlan:
     blinded_per_look: int = 30
     seed: int = 912733
     planted_miss_rate: float = 0.0  # simulation: chance an S4-route label is a planted miss
-    start: datetime = datetime(2025, 10, 31, 12, 0, tzinfo=ZoneInfo("Asia/Taipei"))
+    # a fixed synthetic instant (+08:00), not the site's zone (D-315)
+    start: datetime = datetime(2025, 10, 31, 12, 0, tzinfo=timezone(timedelta(hours=8)))
 
 
 @dataclass

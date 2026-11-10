@@ -39,6 +39,7 @@ from typing import Any
 
 from lake.flatten import DEMOGRAPHIC, NOT_PRESENT, SUSPECTED, Flattener, basis_of, verification_of
 from tb_common import feedguard
+from tb_common.config import site_tz
 from tb_common.db import Database
 
 from omop import vocab
@@ -505,7 +506,7 @@ def load_batch(
     batch: str,
     by_type: Mapping[str, list[Resource]],
     files: Mapping[str, str] | None = None,
-    tz: str = "Asia/Taipei",
+    tz: str | None = None,
     site_name: str = "",
 ) -> LoadReport:
     """Load one complete batch of ``kind``; return what changed. See the module docstring."""
@@ -515,6 +516,7 @@ def load_batch(
     rep = LoadReport(kind, batch)
     stats: dict[str, int] = {}
     files = files or {}
+    tz = site_tz(tz)  # the site's zone; TB_TZ when not given, never a default (D-315)
     b = _Builder(tz, kind, stats)
     responses = {}
     for cr in by_type.get("ClaimResponse", []):  # the flattener's join: the last response to a claim wins

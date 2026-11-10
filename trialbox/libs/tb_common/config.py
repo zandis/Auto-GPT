@@ -24,6 +24,54 @@ class ConfigError(RuntimeError):
     """Raised when the environment or settings.yaml is invalid; services must not start."""
 
 
+# ------------------------------------------------------------------------------------------------ the site's zone
+# D-315 (STD-016, OPS-056): the site's time zone is one setting. settings.yaml ``site.tz`` is the source; install.sh
+# and the settings wizard copy it to ``TB_TZ`` in deploy/.env, which every container reads. No code carries a zone of
+# its own: a box without one stops with this message instead of reading Taiwan's day in Japan. ``trialbox doctor``
+# (check ``site_tz``) fails when site.tz, TB_TZ, the data source mapping's ``tz`` and the host's zone differ.
+NO_SITE_TZ = (
+    "the site's time zone is not set: set site.tz in deploy/settings.yaml and TB_TZ in deploy/.env to the same IANA "
+    "zone (for example Asia/Tokyo)"
+)
+
+
+def _check_zone(what: str, name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ConfigError(f"{what}={name!r} is not a valid IANA time zone") from exc
+
+
+def site_tz(tz: str | None = None, environ: Mapping[str, str] | None = None) -> str:
+    """The site's IANA zone name: ``tz`` when a caller has it (``cfg.env.tz``, a mapping's ``tz``), else ``TB_TZ``.
+
+    There is no default zone (D-315): neither given raises :class:`ConfigError`, as does a name that is not a zone.
+    """
+    name = (tz or (environ if environ is not None else os.environ).get("TB_TZ") or "").strip()
+    if not name:
+        raise ConfigError(NO_SITE_TZ)
+    _check_zone("TB_TZ" if not tz else "tz", name)
+    return name
+
+
+def site_zone(tz: str | None = None, environ: Mapping[str, str] | None = None) -> ZoneInfo:
+    """:func:`site_tz` as a :class:`ZoneInfo`."""
+    return ZoneInfo(site_tz(tz, environ))
+
+
+def adopt_site_tz(settings_path: Path | None = None) -> str:
+    """For a tool that runs a synthetic site in one process (e2e, demo, goldens, drills): when ``TB_TZ`` is unset,
+    set it from that site's ``site.tz`` (default ``deploy/settings.example.yaml``), as install.sh does on a box.
+    The zone still comes from settings, never from code (D-315)."""
+    if os.environ.get("TB_TZ"):
+        return site_tz()
+    path = settings_path or REPO_ROOT / "deploy" / "settings.example.yaml"
+    doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    name = str((doc.get("site") or {}).get("tz") or "")
+    os.environ["TB_TZ"] = site_tz(name or None, {})
+    return os.environ["TB_TZ"]
+
+
 def _read_dotenv(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.exists():
@@ -45,7 +93,7 @@ class Env:
     """Process environment (``.env`` loaded first, real environment wins)."""
 
     site_id: str = "DEV"
-    tz: str = "Asia/Taipei"
+    tz: str = ""  # the site's zone: TB_TZ, then site.tz from settings.yaml in load(); no code default (D-315)
     service_name: str = "trialbox"
     imap_host: str = "localhost"
     imap_port: int = 993
@@ -86,6 +134,8 @@ class Env:
 
     @property
     def zone(self) -> ZoneInfo:
+        if not self.tz:
+            raise ConfigError(NO_SITE_TZ)
         return ZoneInfo(self.tz)
 
     @property
@@ -165,10 +215,8 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
             kwargs[attr] = raw
     kwargs["extra"] = {k: v for k, v in merged.items() if k.startswith("TB_") and k not in _ENV_MAP}
     env = Env(**kwargs)  # type: ignore[arg-type]
-    try:
-        ZoneInfo(env.tz)
-    except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise ConfigError(f"TB_TZ={env.tz!r} is not a valid IANA time zone") from exc
+    if env.tz:  # unset is allowed here: load() takes site.tz from settings.yaml (D-315)
+        _check_zone("TB_TZ", env.tz)
     if env.attach_password_mode not in ("zip", "smime"):
         raise ConfigError("ATTACH_PASSWORD_MODE must be zip or smime")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):
@@ -188,10 +236,9 @@ def load_settings(path: Path) -> Settings:
     if errors:
         raise ConfigError("settings.yaml invalid:\n  " + "\n  ".join(errors))
     settings = Settings.model_validate(data)
-    try:
-        ZoneInfo(settings.site.tz)
-    except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise ConfigError(f"site.tz={settings.site.tz!r} is not a valid IANA time zone") from exc
+    if not settings.site.tz:
+        raise ConfigError(NO_SITE_TZ)
+    _check_zone("site.tz", settings.site.tz)
     for cmd, groups in settings.permissions.items():
         for g in groups:
             if g not in ("senders", "reviewers", "physicians", "alliance_sites") and "@" not in g:

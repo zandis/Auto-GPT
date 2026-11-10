@@ -357,6 +357,9 @@ def write_outputs(report: dict[str, Any], out_dir: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", type=Path, default=DATA_DIR)
     ap.add_argument("--out", type=Path, default=OUT_DIR)
