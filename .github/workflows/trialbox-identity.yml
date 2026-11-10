@@ -96,7 +96,7 @@ jobs:
             -e TB_TLS_MODE=internal -e TB_TLS_HOSTNAME -e TB_AUTH_HOSTNAME=auth.hosp.test \
             -e TB_CONSOLE_SSO_HEADER=X-Site-Sso-User \
             -v "$PWD/deploy/identity/Caddyfile:/etc/caddy/Caddyfile:ro" "$CADDY_IMAGE"
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do  # 30 tries, one per second
             curl -sk --resolve "$TB_TLS_HOSTNAME:443:127.0.0.1" "https://$TB_TLS_HOSTNAME/" -o /dev/null && break
             sleep 1
           done

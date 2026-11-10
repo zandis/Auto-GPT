@@ -2,7 +2,7 @@
 
 Task: T-113 (WS-14.8 start, WS-11.8 code, WS-13.9 tests part). PR: this branch
 (`agent/T-113-shared-quota-platform`). Date: 2026-11-10. Status: proposed (agent-to-agent review; the CGMH platform
-team reads RUNBOOK §14 when a contact exists).
+team reads RUNBOOK §17 when a contact exists).
 Source: `docs/reviews/2026-11-09-assessment-and-tasks.md` card T-113; MR-213; plan WS-14.8, WS-11.8, WS-13.9,
 URS-ADM-20, RSK-36, RSK-37, RSK-43; IT pack §A.3, §A.6.
 

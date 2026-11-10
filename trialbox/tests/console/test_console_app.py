@@ -1331,7 +1331,11 @@ def test_users_page_add_reset_disable(box: dict[str, Any]) -> None:
     n, _ = login(box["app"], "nurse.lin", pw.group(1))  # the one-time password works once handed over
     assert "study coordinator" in n.get("/").text
     # reset signs the person out everywhere and shows a new password once
-    r = c.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": "nurse.lin"}, follow_redirects=False)
+    r = c.post(
+        "/ops/users",
+        data={"csrf": csrf, "action": "reset", "username": "nurse.lin", "confirm": "yes"},  # D-178: confirmed
+        follow_redirects=False,
+    )
     assert r.status_code == 303
     assert n.get("/", follow_redirects=False).status_code == 303  # session gone
     assert "pw=" not in r.headers["location"]

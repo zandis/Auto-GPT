@@ -1,7 +1,7 @@
 # The `shared-quota` profile (WS-11.8, WS-14.8; D-211): CGMH's B200, shared with other work, TrialBox in its own
 # namespace on dedicated MIG instances under a fixed quota. The judge and the verifier each take one MIG instance
 # (nvidia.com/gpu with the device plugin's `single` MIG strategy; for the `mixed` strategy patch the resource name
-# to nvidia.com/mig-<profile>, RUNBOOK §14). The serving values in serving.env are measured on the partition, never
+# to nvidia.com/mig-<profile>, RUNBOOK §17). The serving values in serving.env are measured on the partition, never
 # assumed: until the shared-quota record exists (the cloud B200 qualification, T-114, then CGMH's own partition at
 # IQ) they read `unmeasured`, vLLM refuses to start and `doctor --platform` fails `serving_record`.
 #

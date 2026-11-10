@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PLATFORM = ROOT / "deploy" / "platform"
 OVERLAYS = ("shared-quota", "interim-cloud")
 DIGEST = "sha256:" + "cd" * 32
-# what the platform team creates before the first apply (RUNBOOK §14), never committed
+# what the platform team creates before the first apply (RUNBOOK §17), never committed
 PROVIDED = {
     "Secret": {"trialbox-db", "trialbox-mail", "trialbox-cloud", "trialbox-actor"}
     | {f"trialbox-token-{s}" for s in ("lake", "embed-service", "doc-parser", "criteria-compiler", "adapter")}
@@ -142,7 +142,7 @@ def _rendered(overlay: str) -> str:
 def test_overlay_builds_and_is_consistent(overlay: str) -> None:
     """Structural validation without a cluster: every object has apiVersion/kind/name, names are unique per kind,
     every Service and NetworkPolicy selects a workload that exists, every ConfigMap, Secret and claim a pod uses is
-    defined here or is one the platform team provides (RUNBOOK §14), and every pod is non-privileged."""
+    defined here or is one the platform team provides (RUNBOOK §17), and every pod is non-privileged."""
     objs = build(overlay)
     seen: set[tuple[str, str]] = set()
     for o in objs:
@@ -200,7 +200,7 @@ def test_overlay_builds_and_is_consistent(overlay: str) -> None:
 @pytest.mark.parametrize("overlay", OVERLAYS)
 def test_kustomize_build_validates_with_kubeconform(overlay: str) -> None:
     """Acceptance (1): ``kustomize build deploy/platform/overlays/<overlay> | kubeconform -strict``. Runs where both
-    binaries are installed (TB_KUSTOMIZE / TB_KUBECONFORM or PATH; pinned versions in RUNBOOK §14)."""
+    binaries are installed (TB_KUSTOMIZE / TB_KUBECONFORM or PATH; pinned versions in RUNBOOK §17)."""
     kz = os.environ.get("TB_KUSTOMIZE") or shutil.which("kustomize")
     kc = os.environ.get("TB_KUBECONFORM") or shutil.which("kubeconform")
     if not (kz and kc):
@@ -422,8 +422,10 @@ def test_platform_egress_command_prints_policies(tmp_path: Path, capsys: pytest.
     envf.write_text("EGRESS_EXTRA=adapter=10.1.2.3:1433\n", encoding="utf-8")
     assert cli(["platform-egress", "--env-file", str(envf)]) == 0
     docs = list(yaml.safe_load_all(capsys.readouterr().out))
-    assert [d["metadata"]["name"] for d in docs] == ["trialbox-egress-adapter"]
-    assert docs[0]["spec"]["egress"][0]["to"] == [{"ipBlock": {"cidr": "10.1.2.3/32"}}]
+    # the gateway's policy holds the model endpoints of the shipped routing (master, D-177); the extra is the adapter's
+    by_name = {d["metadata"]["name"]: d for d in docs}
+    assert set(by_name) <= {"trialbox-egress-adapter", "trialbox-egress-gateway"}
+    assert by_name["trialbox-egress-adapter"]["spec"]["egress"][0]["to"] == [{"ipBlock": {"cidr": "10.1.2.3/32"}}]
 
 
 # ------------------------------------------------------------------------------------------------ doctor --platform

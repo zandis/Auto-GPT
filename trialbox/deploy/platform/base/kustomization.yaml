@@ -5,7 +5,7 @@
 #
 #   kustomize build deploy/platform/overlays/shared-quota | kubectl apply -n <namespace> -f -
 #
-# What the platform team provides before the first apply (RUNBOOK §14): the namespace with its ResourceQuota (the
+# What the platform team provides before the first apply (RUNBOOK §17): the namespace with its ResourceQuota (the
 # MIG devices, CPU and memory: `trialbox doctor --platform --manifests` prints the minimum), a storage class that is
 # encrypted (evidenced) and offers ReadWriteMany, the Secrets trialbox-db, trialbox-mail (optional),
 # trialbox-cloud (optional) and trialbox-token-<service>, the ConfigMap trialbox-service-tokens, and the platform's

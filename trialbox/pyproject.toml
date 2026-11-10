@@ -56,6 +56,16 @@ dev = [
   "types-Markdown",
 ]
 
+# The test plugin set (D-201, T-003): exactly these, pinned, and locked in uv.lock with everything else. `make venv`
+# builds .venv with `uv sync --frozen --group test --extra dev`, which also removes anything installed by hand.
+[dependency-groups]
+test = [
+  "pytest==9.2.0",
+  "pytest-timeout==2.4.0",
+  "pytest-cov==7.1.0",
+  "pytest-xdist==3.8.0",
+]
+
 [project.scripts]
 adapter = "adapter.cli:main"
 trialbox-settings = "tools.settings_wizard:main"
@@ -68,6 +78,9 @@ build-backend = "setuptools.build_meta"
 # D-185: uv.lock is the one hashed lock; deploy/requirements.lock is its export (`make lock`, checked by `make
 # lock-check`). Floors for transitive packages with advisories below them (layer-2 review R-19).
 constraint-dependencies = ["pillow>=13"]
+# the editable install of this project is rebuilt only when its metadata changes, so `make venv-check` (uv sync
+# --check) does not report every edited source file as drift
+cache-keys = [{ file = "pyproject.toml" }]
 
 [tool.setuptools.packages.find]
 where = ["libs", "services", "."]
@@ -134,7 +147,11 @@ warn_required_dynamic_aliases = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "libs", "services"]
-addopts = "-ra --strict-markers"
+# -p no:randomly: random order is a nightly job, not a default (D-201, §5.2); no:cacheprovider: no .pytest_cache
+# shared between parallel runs. The basetemp keeps one run, and of it only the failed tests' directories.
+addopts = "-ra --strict-markers -p no:randomly -p no:cacheprovider"
+tmp_path_retention_count = 1
+tmp_path_retention_policy = "failed"
 markers = [
   "integration: needs docker compose services (fhir-store, mail)",
   "e2e: end-to-end through email against the compose test profile",
