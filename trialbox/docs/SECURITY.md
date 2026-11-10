@@ -160,32 +160,48 @@ independent review of standards and security is `docs/reviews/2026-11-08-fable-s
 ## 8. Supply chain
 
 What goes into the images is fixed by hashes, scanned before a release, and listed in an SBOM (D-185, D-186).
-The build side needs the network; the box never runs these tools.
+The build side needs the network; the box never runs these tools. Code: `tools/supply_chain/`; tests
+`tests/unit/test_supply_chain.py` (offline, on fixtures trimmed from real Trivy and Syft output).
 
 - **One hashed lock.** `uv.lock` records a sha256 for every file of every package. `deploy/requirements.lock` is its
   export (`make lock`); every entry carries `--hash=sha256:`, so `pip install -r` in the images runs in pip's
   hash-checking mode and refuses a file whose bytes differ. `make lock-check` fails when `uv.lock` no longer matches
-  `pyproject.toml`, when `deploy/requirements.lock` is not the export of `uv.lock`, or when an entry has no hash;
-  CI runs it on every pull request. Never edit `deploy/requirements.lock` by hand.
-- **pip-audit** checks the lock against PyPI and OSV advisories (`make pip-audit`). Every advisory fails the gate
-  unless the allow-list accepts it; a package pip-audit could not audit fails too. CI runs it on every pull request,
-  weekly and for a release.
-- **Trivy** scans the images with the database loaded beforehand and the scan itself offline
-  (`--skip-db-update --skip-java-db-update --offline-scan`, `make trivy-scan TRIVY_CACHE=<dir>`); the same database,
-  pulled with `oras`, goes on the offline media. A CRITICAL or HIGH finding with a fixed version fails unless
-  allow-listed; findings with no fix yet and lower severities are listed in the report. CI runs it weekly and for a
-  release.
-- **SBOM per release.** Syft writes a CycloneDX JSON SBOM for the Python lock and for each image (`make sbom`, into
-  `dist/sbom/` with an `index.json` of sha256s). The lock's SBOM must name every locked package at its version.
-  The release workflow keeps them with the scan reports.
-- **Licences.** `make licences` reads the SBOMs and flags GPL, LGPL and AGPL. A flagged package fails unless the
-  allow-list accepts that package for that class; a stricter class (LGPL to GPL) fails again. `A OR B` takes the
-  permissive branch (dulwich). Distro packages of the base image are listed, not gated. Today eight LGPL packages
-  are accepted (psycopg, psycopg-binary, docxtpl, py7zr and its four helpers), as the layer-2 review found.
+  `pyproject.toml`, when `deploy/requirements.lock` is not the export of `uv.lock`, or when an entry (or the
+  pip-audit lock) has no hash; CI runs it on every pull request. Never edit `deploy/requirements.lock` by hand.
+- **Pinned tools.** Every GitHub action is pinned to a commit. Syft and Trivy are release archives with a pinned
+  sha256 (`make scanners`); pip-audit is installed from its own hashed lock (`tools/supply_chain/pip-audit.lock`).
+  The base images are pinned by digest (`deploy/docker/python.Dockerfile`, `demo/Dockerfile`).
+- **pip-audit** checks the lock against PyPI and OSV advisories (`make pip-audit`, on Python 3.12 so the lock's
+  markers are judged as on the box). Every advisory fails unless allow-listed; the audited set must equal the lock
+  (a package left out, an extra one or another version fails); a package it could not audit fails.
+- **Trivy** scans every image that ships with its database loaded first (`make trivy-db`; on the media, `oras pull`
+  of `trivy-db:2` and `trivy-java-db:1`) and the scan offline, with no ignore file, no config file and no `TRIVY_*`
+  environment, so only the allow-list can accept a finding. A CRITICAL or HIGH finding with a fixed version fails
+  unless allow-listed; a finding with a missing or odd severity fails; findings with no fix yet and MEDIUM/LOW are
+  listed. A report must show what it scanned (OS packages, the Python packages of the TrialBox images, the jars of the
+  JVM image). The database may be at most 7 days old (its `UpdatedAt`).
+- **Release gates.** `make release-gates` pins each image first (a local image by its image id, a third-party image
+  by its registry digest for the platform), then runs Trivy and Syft on it and checks that both name that image. It
+  covers trialbox-py, trialbox-jvm, trialbox-demo and every third-party image compose pulls. The record
+  (`build/supply-chain/gates.json`) and `dist/sbom/index.json` list per image the reference, platform, image id,
+  digests, and the report and SBOM with their sha256. CI runs it on amd64 and arm64 for pull requests that change
+  what goes into an image, weekly and for a release tag; a release tag also gates both platforms of
+  `make images-multiarch`, by digest. `make release-bundle` makes a bundle only from images in a passing record
+  (`tools/make_bundle.sh --gates`, which refuses any other image id or a record older than 7 days).
+- **SBOM per release.** Syft writes CycloneDX JSON for each image and platform, and for the Python lock: Syft over an
+  environment installed from the lock with hashes (`make lock-sbom`), so each package carries the licence of its
+  installed metadata. The lock's SBOM must name every locked package that installs on the box, at its version.
+- **Licences.** `make licences` reads the SBOMs (nested components, licence ids, names, expressions, URLs and full
+  texts) and flags GPL, LGPL, AGPL, unknown licences, and dual licences. Only a licence on the known permissive list
+  counts as an `OR` choice: `LicenseRef-*`, `NOASSERTION`, `Proprietary` never do. Each flag of a package needs its
+  own allow-list entry, so a stricter licence fails again; a dual entry names the branch taken, an unknown entry the
+  licence a person verified. Distro packages of the base image are listed, not gated. Today: eight LGPL packages
+  (psycopg, psycopg-binary, docxtpl, py7zr and its four helpers), dulwich under Apache-2.0, six Python packages whose
+  licence the SBOM cannot read (verified in the wheels), and the base image's interpreter and pip launchers.
 - **The allow-list** (`deploy/supply-chain-allowlist.yaml`) is the only way to ship with a finding. Each entry needs
-  a reason of at least 20 characters and a `review_by` date at most 180 days ahead; `make allowlist-check` rejects
-  an entry without them, and after `review_by` the gates fail until the entry is reviewed or removed. Entries that
-  match nothing are reported. Changes need the security owner's approval in the pull request.
-- **Code:** `tools/supply_chain/`; tests `tests/unit/test_supply_chain.py` (offline, on small fixtures).
-- **Not done yet** (WS-14.6): `THIRD_PARTY_NOTICES.md`, the SBOMs inside the signed bundle, digest-pinned base
-  images, and the venv installed from the same lock (`make venv` still resolves from `pyproject.toml`).
+  its package, a reason of at least 20 characters and a `review_by` date at most 180 days ahead; `make
+  allowlist-check` rejects an entry without them, a key given twice and a list given as anything else. After
+  `review_by` every gate fails until the entry is reviewed or removed. Changes need the security owner's approval.
+- **Not done yet** (WS-14.6): `THIRD_PARTY_NOTICES.md`; the SBOMs inside the signed bundle; `--gates` made
+  mandatory in `tools/make_bundle.sh` (optional today, with a warning, so the demo VM's update script keeps working);
+  the venv installed from the same lock (`make venv` still resolves from `pyproject.toml`).

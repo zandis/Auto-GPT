@@ -1,22 +1,33 @@
 """The supply-chain allow-list (D-186): ``deploy/supply-chain-allowlist.yaml``.
 
-A finding is accepted only by a written entry: who may ship with it, why, and until when. Two lists:
+A finding is accepted only by a written entry: which package, why, and until when. Two lists:
 
     vulnerabilities:
       - id: GHSA-xxxx-xxxx-xxxx          # or CVE-..., PYSEC-...; matches the finding id or any alias
-        package: pillow                  # optional: the entry then covers this package only
+        package: pillow                  # required: the entry covers this package only
         reason: Not reachable: ...       # required, a sentence a reviewer can check
         review_by: 2027-01-31            # required ISO date, at most 180 days ahead; after it the gate fails
         owner: security owner            # optional
     licences:
       - package: psycopg
-        class: lgpl                      # lgpl, gpl or agpl, as the licence report classes it; a stricter class
-                                         # (LGPL -> GPL) is a new finding and fails again
+        class: lgpl                      # lgpl, gpl, agpl, unknown or dual, as the licence report flags it
         reason: Used unmodified as an installed package; licence text in the notices
         review_by: 2027-05-01
+      - package: dulwich
+        class: dual
+        chosen: Apache-2.0               # dual: the permissive branch taken; it must be one the package offers
+        reason: ...
+        review_by: 2027-05-01
+      - package: matplotlib
+        class: unknown
+        licence: PSF-based matplotlib licence (classifier Python Software Foundation License; LICENSE read)
+        reason: ...                      # unknown: ``licence`` records what a person verified
+        review_by: 2027-05-01
 
-The checker rejects an entry with no reason, a reason shorter than 20 characters, no or a bad ``review_by``, a
-date in the past or more than 180 days ahead, an unknown key, or a duplicate.
+The checker rejects an entry with no reason, a reason shorter than 20 characters, no or a bad ``review_by``, a date
+in the past or more than 180 days ahead, an unknown or duplicate key, a duplicate entry, a vulnerability entry without
+a package, a dual entry without ``chosen``, and an unknown entry without ``licence``. "Today" is the build machine's
+date (``today()``); there is no override on the command line.
 """
 
 from __future__ import annotations
@@ -32,16 +43,21 @@ ROOT = Path(__file__).resolve().parents[2]
 ALLOWLIST = ROOT / "deploy" / "supply-chain-allowlist.yaml"
 MIN_REASON = 20
 MAX_AHEAD_DAYS = 180
+LICENCE_CLASSES = ("lgpl", "gpl", "agpl", "unknown", "dual")
 
 _VULN_KEYS = {"id", "package", "reason", "review_by", "owner"}
-_LIC_KEYS = {"package", "class", "reason", "review_by", "owner"}
-LICENCE_CLASSES = ("lgpl", "gpl", "agpl")
+_LIC_KEYS = {"package", "class", "chosen", "licence", "reason", "review_by", "owner"}
+
+
+def today() -> dt.date:
+    """The date entries are judged against (tests replace this function)."""
+    return dt.date.today()
 
 
 @dataclass(frozen=True)
 class VulnEntry:
     id: str
-    package: str | None
+    package: str
     reason: str
     review_by: dt.date
 
@@ -52,6 +68,8 @@ class LicenceEntry:
     cls: str
     reason: str
     review_by: dt.date
+    chosen: str | None = None
+    licence: str | None = None
 
 
 @dataclass
@@ -63,7 +81,7 @@ class Allowlist:
         """The entry accepting a finding known by any of ``ids`` in ``package``, if one does."""
         wanted = {i.upper() for i in ids}
         for e in self.vulnerabilities:
-            if e.id.upper() in wanted and (e.package is None or e.package == norm(package)):
+            if e.id.upper() in wanted and e.package == norm(package):
                 return e
         return None
 
@@ -79,6 +97,23 @@ def norm(name: str) -> str:
     return name.strip().lower().replace("_", "-").replace(".", "-")
 
 
+class _StrictLoader(yaml.SafeLoader):
+    """SafeLoader that refuses a mapping with the same key twice (the second would silently win)."""
+
+
+def _no_duplicates(loader: _StrictLoader, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+    keys: set[Any] = set()
+    for key_node, _ in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in keys:
+            raise yaml.constructor.ConstructorError(None, None, f"duplicate key {key!r}", key_node.start_mark)
+        keys.add(key)
+    return dict(loader.construct_pairs(node, deep=deep))
+
+
+_StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicates)
+
+
 def _date(value: Any) -> dt.date | None:
     if isinstance(value, dt.datetime):
         return value.date()
@@ -92,8 +127,13 @@ def _date(value: Any) -> dt.date | None:
     return None
 
 
-def _common(where: str, raw: dict[str, Any], keys: set[str], today: dt.date | None) -> tuple[list[str], dt.date | None]:
-    errors = [f"{where}: unknown key {k!r}" for k in sorted(set(raw) - keys)]
+def _text(raw: dict[str, Any], key: str) -> str | None:
+    value = raw.get(key)
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _common(where: str, raw: dict[str, Any], keys: set[str], on: dt.date | None) -> tuple[list[str], dt.date | None]:
+    errors = [f"{where}: unknown key {k!r}" for k in sorted(set(raw) - keys, key=str)]
     reason = raw.get("reason")
     if not isinstance(reason, str) or not reason.strip():
         errors.append(f"{where}: no reason; every entry must say why it is accepted")
@@ -102,71 +142,80 @@ def _common(where: str, raw: dict[str, Any], keys: set[str], today: dt.date | No
     when = _date(raw.get("review_by"))
     if when is None:
         errors.append(f"{where}: review_by must be an ISO date (YYYY-MM-DD), got {raw.get('review_by')!r}")
-    elif today is not None:
-        if when < today:
+    elif on is not None:
+        if when < on:
             errors.append(f"{where}: review_by {when} has passed; review the entry or remove it")
-        elif (when - today).days > MAX_AHEAD_DAYS:
+        elif (when - on).days > MAX_AHEAD_DAYS:
             errors.append(f"{where}: review_by {when} is more than {MAX_AHEAD_DAYS} days ahead")
     return errors, when
 
 
 def parse(data: Any, *, today: dt.date | None) -> tuple[Allowlist, list[str]]:
-    """Validate an allow-list document. ``today=None`` checks structure only (no expiry), for tests of the file."""
+    """Validate an allow-list document. ``today=None`` checks structure only (no dates), for tests of the file."""
     errors: list[str] = []
     out = Allowlist(vulnerabilities=[], licences=[])
     if data is None:
         return out, errors
     if not isinstance(data, dict):
         return out, ["the allow-list must be a mapping with 'vulnerabilities' and 'licences'"]
-    errors += [f"unknown top-level key {k!r}" for k in sorted(set(data) - {"vulnerabilities", "licences"})]
-    vulns = data.get("vulnerabilities") or []
-    lics = data.get("licences") or []
-    if not isinstance(vulns, list) or not isinstance(lics, list):
-        return out, [*errors, "'vulnerabilities' and 'licences' must be lists"]
-    seen: set[tuple[str, str | None]] = set()
-    for i, raw in enumerate(vulns):
+    errors += [f"unknown top-level key {k!r}" for k in sorted(set(data) - {"vulnerabilities", "licences"}, key=str)]
+    lists: dict[str, list[Any]] = {}
+    for list_key in ("vulnerabilities", "licences"):
+        value = data.get(list_key)
+        if value is None:
+            lists[list_key] = []
+        elif isinstance(value, list):
+            lists[list_key] = value
+        else:
+            errors.append(f"'{list_key}' must be a list, got {type(value).__name__}")
+            lists[list_key] = []
+    seen: set[tuple[str, str]] = set()
+    for i, raw in enumerate(lists["vulnerabilities"]):
         if not isinstance(raw, dict):
             errors.append(f"vulnerabilities[{i}]: must be a mapping")
             continue
-        vid = raw.get("id")
-        has_id = isinstance(vid, str) and bool(vid.strip())
-        where = f"vulnerabilities[{i}] ({str(vid).strip()})" if has_id else f"vulnerabilities[{i}]"
+        vid, pkg = _text(raw, "id"), _text(raw, "package")
+        where = f"vulnerabilities[{i}] ({vid})" if vid else f"vulnerabilities[{i}]"
         errs, when = _common(where, raw, _VULN_KEYS, today)
-        if not has_id:
+        if not vid:
             errs.append(f"{where}: no id")
-        pkg = raw.get("package")
-        if pkg is not None and (not isinstance(pkg, str) or not pkg.strip()):
-            errs.append(f"{where}: package must be a name")
-        if isinstance(vid, str) and has_id:
-            key = (vid.strip().upper(), norm(pkg) if isinstance(pkg, str) else None)
+        if not pkg:
+            errs.append(f"{where}: no package; an entry covers one package")
+        if vid and pkg:
+            key = (vid.upper(), norm(pkg))
             if key in seen:
                 errs.append(f"{where}: duplicate entry")
             seen.add(key)
         errors += errs
-        if not errs and when is not None and isinstance(vid, str):
-            out.vulnerabilities.append(
-                VulnEntry(vid.strip(), norm(pkg) if isinstance(pkg, str) else None, str(raw["reason"]).strip(), when)
-            )
+        if not errs and when is not None and vid and pkg:
+            out.vulnerabilities.append(VulnEntry(vid, norm(pkg), str(raw["reason"]).strip(), when))
     seen_l: set[tuple[str, str]] = set()
-    for i, raw in enumerate(lics):
+    for i, raw in enumerate(lists["licences"]):
         if not isinstance(raw, dict):
             errors.append(f"licences[{i}]: must be a mapping")
             continue
-        where = f"licences[{i}] ({raw.get('package')})"
+        pkg, cls = _text(raw, "package"), raw.get("class")
+        where = f"licences[{i}] ({pkg})"
         errs, when = _common(where, raw, _LIC_KEYS, today)
-        pkg, lic = raw.get("package"), raw.get("class")
-        if not isinstance(pkg, str) or not pkg.strip():
+        if not pkg:
             errs.append(f"{where}: no package")
-        if lic not in LICENCE_CLASSES:
-            errs.append(f"{where}: class must be one of {', '.join(LICENCE_CLASSES)}, got {lic!r}")
-        if isinstance(pkg, str) and isinstance(lic, str):
-            key_l = (norm(pkg), lic)
+        if cls not in LICENCE_CLASSES:
+            errs.append(f"{where}: class must be one of {', '.join(LICENCE_CLASSES)}, got {cls!r}")
+        chosen, licence = _text(raw, "chosen"), _text(raw, "licence")
+        if cls == "dual" and not chosen:
+            errs.append(f"{where}: a dual entry must name the chosen permissive branch in 'chosen'")
+        if cls != "dual" and "chosen" in raw:
+            errs.append(f"{where}: 'chosen' belongs to dual entries only")
+        if cls == "unknown" and not licence:
+            errs.append(f"{where}: an unknown entry must record the verified licence in 'licence'")
+        if pkg and isinstance(cls, str):
+            key_l = (norm(pkg), cls)
             if key_l in seen_l:
                 errs.append(f"{where}: duplicate entry")
             seen_l.add(key_l)
         errors += errs
-        if not errs and when is not None and isinstance(pkg, str) and isinstance(lic, str):
-            out.licences.append(LicenceEntry(norm(pkg), lic, str(raw["reason"]).strip(), when))
+        if not errs and when is not None and pkg and isinstance(cls, str):
+            out.licences.append(LicenceEntry(norm(pkg), cls, str(raw["reason"]).strip(), when, chosen, licence))
     return out, errors
 
 
@@ -174,7 +223,7 @@ def load(path: Path = ALLOWLIST, *, today: dt.date | None) -> tuple[Allowlist, l
     if not path.is_file():
         return Allowlist([], []), [f"{path} is missing"]
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_StrictLoader)
     except yaml.YAMLError as exc:
         return Allowlist([], []), [f"{path} is not valid YAML: {exc}"]
     return parse(data, today=today)

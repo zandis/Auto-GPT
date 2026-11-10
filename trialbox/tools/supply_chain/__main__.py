@@ -1,4 +1,7 @@
-"""CLI for the supply-chain gates; see ``tools/supply_chain/__init__.py``. Exit 0 pass, 1 fail, 2 usage/tool error."""
+"""CLI for the supply-chain gates; see ``tools/supply_chain/__init__.py``. Exit 0 pass, 1 fail, 2 usage/tool error.
+
+Dates are the machine's date (``allowlist.today()``); there is no date override.
+"""
 
 from __future__ import annotations
 
@@ -9,15 +12,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.supply_chain import allowlist, licences, lock, sbom, vulns
-
-
-def _today(value: str | None) -> dt.date:
-    return dt.date.fromisoformat(value) if value else dt.date.today()
+from tools.supply_chain import allowlist, licences, lock, release, sbom, scanners, vulns
 
 
 def _allow(args: argparse.Namespace) -> tuple[allowlist.Allowlist, list[str]]:
-    return allowlist.load(Path(args.allowlist), today=_today(args.today))
+    return allowlist.load(Path(args.allowlist), today=allowlist.today())
 
 
 def cmd_lock_export(args: argparse.Namespace) -> int:
@@ -55,50 +54,77 @@ def _finish(result: vulns.GateResult, title: str, allow_errors: list[str]) -> in
 
 def cmd_pip_audit_gate(args: argparse.Namespace) -> int:
     allow, errors = _allow(args)
-    return _finish(vulns.pip_audit_gate(Path(args.report), allow), "pip-audit gate", errors)
+    expected = vulns.lock_targets(Path(args.lock).read_text(encoding="utf-8"))
+    return _finish(vulns.pip_audit_gate(Path(args.report), allow, expected), "pip-audit gate", errors)
+
+
+def _severities(text: str) -> frozenset[str] | None:
+    sev = frozenset(s.strip().upper() for s in text.split(",") if s.strip())
+    return sev if sev and sev <= set(vulns.SEVERITIES) else None
 
 
 def cmd_trivy_gate(args: argparse.Namespace) -> int:
     allow, errors = _allow(args)
-    sev = frozenset(s.strip().upper() for s in args.severity.split(",") if s.strip())
-    unknown = sev - set(vulns.SEVERITIES)
-    if unknown:
-        print(f"trivy-gate: unknown severity {sorted(unknown)}", file=sys.stderr)
+    sev = _severities(args.severity)
+    if sev is None:
+        print(f"trivy-gate: severities must be among {', '.join(vulns.SEVERITIES)}", file=sys.stderr)
         return 2
-    result = vulns.trivy_gate([Path(p) for p in args.reports], allow, severities=sev, fail_unfixed=args.fail_unfixed)
+    db_errors, _ = vulns.db_problems(Path(args.cache_dir), dt.datetime.now(dt.UTC))
+    result = vulns.trivy_gate(
+        [Path(p) for p in args.reports], allow, severities=sev, fail_unfixed=args.fail_unfixed, db_errors=db_errors
+    )
     return _finish(result, "Trivy gate", errors)
 
 
-def cmd_trivy_scan(args: argparse.Namespace) -> int:
-    """Run Trivy offline for each image (DB already in --cache-dir), then the gate on what it wrote."""
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    reports = []
-    for image in args.image:
-        out = out_dir / sbom.file_name(image).replace(".cdx.json", ".trivy.json")
-        cmd = vulns.trivy_offline_command(image, Path(args.cache_dir), out)
-        try:
-            proc = subprocess.run(cmd, check=False)
-        except FileNotFoundError:
-            print("trivy-scan: trivy is not on PATH (https://trivy.dev); nothing was scanned", file=sys.stderr)
-            return 2
-        if proc.returncode != 0:
-            print(f"trivy-scan: trivy failed on {image} (exit {proc.returncode})", file=sys.stderr)
-            return 2
-        reports.append(str(out))
-    args.reports = reports
-    return cmd_trivy_gate(args)
-
-
-def cmd_sbom(args: argparse.Namespace) -> int:
-    try:
-        problems = sbom.run(Path(args.out), lock=Path(args.lock) if args.lock else None, images=args.image)
-    except sbom.SbomError as exc:
-        print(f"sbom: {exc}", file=sys.stderr)
+def cmd_release_gates(args: argparse.Namespace) -> int:
+    allow, errors = _allow(args)
+    sev = _severities(args.severity)
+    if sev is None:
+        print(f"release-gates: severities must be among {', '.join(vulns.SEVERITIES)}", file=sys.stderr)
         return 2
+    targets = [release.parse_target(t) for t in args.image]
+    record = release.run_gates(
+        targets,
+        cache_dir=Path(args.cache_dir),
+        out_dir=Path(args.out),
+        sbom_dir=Path(args.sbom_dir),
+        allow=allow,
+        allow_errors=errors,
+        lock_sbom=Path(args.lock_sbom) if args.lock_sbom else None,
+        insecure=args.insecure,
+        severities=sev,
+        fail_unfixed=args.fail_unfixed,
+    )
+    print(release.render(record))
+    return 0 if record["ok"] else 1
+
+
+def cmd_bundle_check(args: argparse.Namespace) -> int:
+    try:
+        record = json.loads(Path(args.gates).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"bundle-check: cannot read {args.gates}: {exc}", file=sys.stderr)
+        return 1
+    images = {}
+    for ref in args.image:
+        try:
+            images[ref] = release.inspect_local(ref)["image_id"]
+        except vulns.ReportError as exc:
+            print(f"bundle-check: {exc}", file=sys.stderr)
+            return 1
+    problems = release.bundle_problems(record, images)
     for p in problems:
-        print(f"sbom: {p}", file=sys.stderr)
-    print(f"sbom: {'FAIL' if problems else 'PASS'} -> {args.out}")
+        print(f"bundle-check: {p}", file=sys.stderr)
+    print(f"bundle-check: {'FAIL' if problems else 'PASS'} ({len(images)} images)")
+    return 1 if problems else 0
+
+
+def cmd_lock_sbom(args: argparse.Namespace) -> int:
+    env, _ = vulns.scanner_env()
+    problems = sbom.lock_sbom(Path(args.env), Path(args.lock), Path(args.out), sbom.syft_env(env))
+    for p in problems:
+        print(f"lock-sbom: {p}", file=sys.stderr)
+    print(f"lock-sbom: {'FAIL' if problems else 'PASS'} -> {args.out}")
     return 1 if problems else 0
 
 
@@ -127,10 +153,21 @@ def cmd_licences(args: argparse.Namespace) -> int:
     return 1 if errors or any(r.failing for r in rows) else 0
 
 
+def cmd_scanners(args: argparse.Namespace) -> int:
+    dest = Path(args.dest)
+    try:
+        for tool in ("syft", "trivy"):
+            path = scanners.fetch(tool, dest)
+            print(f"scanners: {tool} -> {path}")
+    except (scanners.ScannerError, OSError) as exc:
+        print(f"scanners: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m tools.supply_chain", description=__doc__)
     ap.add_argument("--allowlist", default=str(allowlist.ALLOWLIST), help="allow-list YAML")
-    ap.add_argument("--today", help="ISO date to judge review_by against (default: today)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("lock-export", help="write deploy/requirements.lock from uv.lock").set_defaults(fn=cmd_lock_export)
@@ -139,35 +176,51 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--skip-resolve", action="store_true", help="skip `uv lock --check` (hash and export checks only)")
     p.set_defaults(fn=cmd_lock_check)
     sub.add_parser("allowlist-check", help="validate the allow-list").set_defaults(fn=cmd_allowlist_check)
-    p = sub.add_parser("pip-audit-gate", help="gate a pip-audit JSON report")
+    p = sub.add_parser("pip-audit-gate", help="gate a pip-audit JSON report of the lock")
     p.add_argument("report")
+    p.add_argument("--lock", default=str(lock.REQUIREMENTS_LOCK), help="the lock that was audited")
     p.set_defaults(fn=cmd_pip_audit_gate)
-    for name, fn in (("trivy-gate", cmd_trivy_gate), ("trivy-scan", cmd_trivy_scan)):
-        p = sub.add_parser(name, help="gate Trivy JSON reports" if name == "trivy-gate" else "Trivy offline + gate")
-        if name == "trivy-gate":
-            p.add_argument("reports", nargs="+")
-        else:
-            p.add_argument("--image", action="append", required=True)
-            p.add_argument("--cache-dir", required=True, help="Trivy cache with db/ and java-db/ (from the media)")
-            p.add_argument("--out", default="build/supply-chain")
+
+    def severity_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--severity", default="CRITICAL,HIGH", help="severities that fail (default CRITICAL,HIGH)")
         p.add_argument("--fail-unfixed", action="store_true", help="also fail on findings with no fixed version")
-        p.set_defaults(fn=fn)
-    p = sub.add_parser("sbom", help="Syft CycloneDX SBOM for the lock and each image")
-    p.add_argument("--out", default="dist/sbom")
+
+    p = sub.add_parser("trivy-gate", help="gate Trivy JSON reports (and the DB age in --cache-dir)")
+    p.add_argument("reports", nargs="+")
+    p.add_argument("--cache-dir", required=True, help="the Trivy cache the reports were made with")
+    severity_args(p)
+    p.set_defaults(fn=cmd_trivy_gate)
+    p = sub.add_parser("release-gates", help="Trivy + Syft per image (pinned by id/digest), licences, record")
+    p.add_argument("--image", action="append", required=True, help="REF (local) or registry:REF=os/arch")
+    p.add_argument("--cache-dir", required=True, help="Trivy cache with db/ and java-db/ (from the media)")
+    p.add_argument("--out", default="build/supply-chain")
+    p.add_argument("--sbom-dir", default="dist/sbom")
+    p.add_argument("--lock-sbom", help="the lock's SBOM from make lock-sbom")
+    p.add_argument("--insecure", action="store_true", help="plain-HTTP registry (a CI-local registry only)")
+    severity_args(p)
+    p.set_defaults(fn=cmd_release_gates)
+    p = sub.add_parser("bundle-check", help="are these local images in a passing gate record?")
+    p.add_argument("--gates", required=True)
+    p.add_argument("image", nargs="+")
+    p.set_defaults(fn=cmd_bundle_check)
+    p = sub.add_parser("lock-sbom", help="Syft SBOM of the environment installed from the lock")
+    p.add_argument("--env", default=".cache/lock-env")
     p.add_argument("--lock", default=str(lock.REQUIREMENTS_LOCK))
-    p.add_argument("--image", action="append", default=[])
-    p.set_defaults(fn=cmd_sbom)
+    p.add_argument("--out", default="dist/sbom/requirements.lock.cdx.json")
+    p.set_defaults(fn=cmd_lock_sbom)
     p = sub.add_parser("licences", help="licence report from CycloneDX SBOMs")
     p.add_argument("sboms", nargs="+")
     p.add_argument("--out", help="write the Markdown report here too")
     p.add_argument("--gate-os-packages", action="store_true", help="fail on distro (deb/apk/rpm) packages too")
     p.set_defaults(fn=cmd_licences)
+    p = sub.add_parser("scanners", help="fetch Syft and Trivy with pinned sha256")
+    p.add_argument("--dest", default=".cache/scanners")
+    p.set_defaults(fn=cmd_scanners)
 
     args = ap.parse_args(argv)
     try:
         return int(args.fn(args))
-    except lock.LockError as exc:
+    except (lock.LockError, vulns.ReportError, subprocess.SubprocessError) as exc:
         print(f"{args.cmd}: {exc}", file=sys.stderr)
         return 2
 

@@ -4,7 +4,8 @@
 # Prerequisites in the build context: .cache/fonts (tools/fetch_fonts.py).
 # No OS packages are installed (DECISIONS D-23): git via dulwich, 7z via py7zr, PID 1 via compose `init: true`.
 # Optional build secret "extra_ca" (PEM) is trusted for pip during the build only (corporate TLS proxies).
-ARG PYTHON_IMAGE=python:3.12-slim
+# pinned by index digest (amd64 and arm64); move it in a pull request so the release gates scan the new base (D-186)
+ARG PYTHON_IMAGE=python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 FROM ${PYTHON_IMAGE}
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONPATH=/app/libs:/app/services:/app MPLBACKEND=Agg TB_DATA_DIR=/data MPLCONFIGDIR=/tmp/mpl \

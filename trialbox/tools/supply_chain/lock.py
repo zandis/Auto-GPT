@@ -17,6 +17,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 UV_LOCK = ROOT / "uv.lock"
 REQUIREMENTS_LOCK = ROOT / "deploy" / "requirements.lock"
+# pip-audit itself is installed from this hashed file (``make pip-audit``), never as a bare ``pip-audit==x``
+PIP_AUDIT_LOCK = ROOT / "tools" / "supply_chain" / "pip-audit.lock"
+PIP_AUDIT_VERSION = "2.9.0"
 
 HEADER = (
     "# Generated from uv.lock by `make lock` (python -m tools.supply_chain lock-export, D-185). Do not edit.\n"
@@ -56,6 +59,7 @@ class Requirement:
     name: str | None
     version: str | None
     hashes: tuple[tuple[str, str], ...]
+    marker: str | None = None  # the environment marker after ';', if any
 
 
 def parse_requirements(text: str) -> list[Requirement]:
@@ -83,12 +87,20 @@ def parse_requirements(text: str) -> list[Requirement]:
                 name=m.group(1).lower() if m else None,
                 version=m.group(3) if m else None,
                 hashes=tuple((alg.lower(), digest.lower()) for alg, digest in _HASH_RE.findall(joined)),
+                marker=_marker(joined),
             )
         )
     if buf:  # a trailing backslash with nothing after it
         joined = " ".join(part.strip() for part in buf if part.strip())
         out.append(Requirement(line=start, text=joined, name=None, version=None, hashes=()))
     return out
+
+
+def _marker(joined: str) -> str | None:
+    if ";" not in joined:
+        return None
+    marker = joined.split(";", 1)[1].split(" --hash=", 1)[0].strip()
+    return marker or None
 
 
 def check_requirements_hashes(text: str) -> list[str]:
@@ -202,6 +214,15 @@ def lock_check(root: Path = ROOT, *, offline: bool = False, skip_resolve: bool =
             problems.append(f"uv.lock is stale against pyproject.toml (run `make lock`): {msg}")
     actual = req_lock.read_text(encoding="utf-8")
     problems += [f"deploy/requirements.lock: {p}" for p in check_requirements_hashes(actual)]
+    tool_lock = root / "tools" / "supply_chain" / "pip-audit.lock"
+    if not tool_lock.is_file():
+        problems.append(f"{tool_lock} is missing: run `make lock`")
+    else:
+        tool_text = tool_lock.read_text(encoding="utf-8")
+        problems += [f"tools/supply_chain/pip-audit.lock: {p}" for p in check_requirements_hashes(tool_text)]
+        pinned = {r.name: r.version for r in parse_requirements(tool_text)}
+        if pinned.get("pip-audit") != PIP_AUDIT_VERSION:
+            problems.append(f"tools/supply_chain/pip-audit.lock must pin pip-audit=={PIP_AUDIT_VERSION}")
     expected = export_requirements(root)
     if expected != actual:
         if uv_version() != UV_VERSION:

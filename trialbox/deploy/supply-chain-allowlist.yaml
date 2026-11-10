@@ -3,8 +3,11 @@
 #   - every entry has a reason of at least 20 characters that a reviewer can check;
 #   - every entry has review_by (YYYY-MM-DD), at most 180 days ahead; once it passes, the gates fail until the
 #     entry is reviewed (new date and reason) or removed;
-#   - a vulnerability entry matches its id or any alias (CVE, GHSA, PYSEC), optionally for one package;
-#   - a licence entry matches a package and a class (lgpl, gpl, agpl); a stricter class fails again.
+#   - a vulnerability entry names one package and matches its id or any alias (CVE, GHSA, PYSEC);
+#   - a licence entry matches a package and one flag: lgpl, gpl, agpl, unknown (records the licence a person
+#     verified in `licence`) or dual (names the permissive branch taken in `chosen`); every flag of a package
+#     needs its own entry, so a stricter licence (LGPL to GPL) fails again;
+#   - a key given twice, or a list given as anything else, is refused.
 # Change this file in a pull request the security owner approves.
 
 vulnerabilities: []  # pip-audit on deploy/requirements.lock was clean on 2026-11-09
@@ -44,4 +47,55 @@ licences:
   - package: multivolumefile
     class: lgpl
     reason: LGPL-2.1-or-later; unmodified dependency of py7zr; goes away with py7zr (R-12); notices
+    review_by: 2027-05-01
+
+  # Dual licence: the permissive branch is taken.
+  - package: dulwich
+    class: dual
+    chosen: Apache-2.0
+    reason: Apache-2.0 OR GPL-2.0-or-later; used under Apache-2.0, unmodified; Apache notice in the notices
+    review_by: 2027-05-01
+
+  # No licence the report can read from the SBOM (no field, a hash of the text, or a free name). Each was read in
+  # the installed metadata and licence file of the locked version on 2026-11-09.
+  - package: duckdb
+    class: unknown
+    licence: MIT (classifier "MIT License"; dist-info/licenses/LICENSE is the MIT text)
+    reason: Permissive licence verified in the wheel; the SBOM carries no licence field for it
+    review_by: 2027-05-01
+  - package: jinja2
+    class: unknown
+    licence: BSD-3-Clause (classifier "BSD License"; dist-info/licenses/LICENSE.txt is the 3-clause text)
+    reason: Permissive licence verified in the wheel; the SBOM carries no licence field for it
+    review_by: 2027-05-01
+  - package: kiwisolver
+    class: unknown
+    licence: BSD-3-Clause ("Modified BSD License" in dist-info/licenses/LICENSE; classifier "BSD License")
+    reason: Permissive licence verified in the wheel; the SBOM gives only a hash of the licence text
+    review_by: 2027-05-01
+  - package: matplotlib
+    class: unknown
+    licence: Matplotlib licence, PSF-based (classifier "Python Software Foundation License"); bundled DejaVu and STIX fonts under their own font licences
+    reason: Permissive licence verified in the wheel; the SBOM gives only a hash of the licence text
+    review_by: 2027-05-01
+  - package: pycryptodomex
+    class: unknown
+    licence: BSD-2-Clause and public domain (LICENSE.rst; classifiers "BSD License", "Public Domain")
+    reason: Permissive licence and public-domain parts verified in the wheel; "BSD, Public Domain" is not an SPDX id
+    review_by: 2027-05-01
+  # From the python:3.12-slim base image (Syft scan of the pinned digest, both platforms, 2026-11-09).
+  - package: python
+    class: unknown
+    licence: PSF-2.0 (the CPython interpreter of the official python image, /usr/local/bin/python3.12)
+    reason: The interpreter of the base image, unmodified; Syft finds the binary but no licence field
+    review_by: 2027-05-01
+  - package: Simple Launcher
+    class: unknown
+    licence: PSF-2.0 / distlib (pip/_vendor/distlib/t32.exe etc.; Windows launchers vendored by pip)
+    reason: Windows .exe launchers inside pip in the base image; never run on Linux; licence of distlib
+    review_by: 2027-05-01
+  - package: reportlab
+    class: unknown
+    licence: BSD-3-Clause (dist-info/licenses/LICENSE); bundled DarkGarden font under GPL-2.0 (font data, unmodified)
+    reason: BSD code verified in the wheel; the GPL font file ships unmodified as data and is listed in the notices
     review_by: 2027-05-01

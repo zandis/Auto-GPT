@@ -1,9 +1,9 @@
-# TrialBox supply chain (trialbox/docs/SECURITY.md §8; DECISIONS D-185 hashed lock, D-186 SBOM, scanners, licences).
-#   lock:    every pull request touching trialbox/: the hashed lock is current and complete, the allow-list is valid,
-#            pip-audit on the lock passes the gate, the gate tests pass. No images, a few minutes.
-#   release: a tag trialbox-v*, a manual run, and weekly (new advisories arrive without a code change): build the
-#            images, Syft SBOMs, Trivy with the DB loaded first and the scan itself run offline (as from the media),
-#            the Trivy and licence gates; the SBOMs and reports are kept as the release's artifact.
+# TrialBox supply chain, lock side (trialbox/docs/SECURITY.md §8; DECISIONS D-185, D-186). On every pull request
+# touching trialbox/ and weekly: the hashed lock is current and complete, the allow-list is valid, pip-audit (from a
+# hashed lock) passes the gate, the lock's SBOM (Syft over an environment installed from the lock) passes the
+# licence gate, and the gate tests pass. No images: trialbox-images.yml scans those.
+# Every action is pinned to a commit (tag in the comment); Syft and Trivy come with pinned sha256
+# (trialbox/tools/supply_chain/scanners.py).
 name: TrialBox supply chain
 
 on:
@@ -11,8 +11,6 @@ on:
     paths:
       - "trialbox/**"
       - ".github/workflows/trialbox-supply-chain.yml"
-  push:
-    tags: ["trialbox-v*"]
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
@@ -24,25 +22,19 @@ concurrency:
   group: trialbox-supply-chain-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  UV_VERSION: "0.11.32"
-  SYFT_VERSION: "v1.18.1"
-  TRIVY_VERSION: "v0.58.1"
-
 jobs:
   lock:
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: trialbox
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
         with:
-          version: ${{ env.UV_VERSION }}
+          version: "0.11.32"  # the uv of uv.lock (tools/supply_chain/lock.py UV_VERSION)
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
 
@@ -50,7 +42,7 @@ jobs:
         run: make venv
 
       # fails when uv.lock is stale against pyproject.toml, when deploy/requirements.lock is not the export of
-      # uv.lock, or when any entry has no sha256 (D-185)
+      # uv.lock, or when any entry (or the pip-audit lock) has no sha256 (D-185)
       - name: Hashed lock is current
         run: make lock-check
 
@@ -58,87 +50,20 @@ jobs:
         run: make allowlist-check
 
       - name: pip-audit gate
-        run: make pip-audit SC_DIR=${{ runner.temp }}/supply-chain
+        run: make pip-audit
+
+      - name: Licence gate on the lock's SBOM
+        run: make licences
 
       - name: Gate tests
         run: .venv/bin/python -m pytest -q tests/unit/test_supply_chain.py
 
-      - name: Keep the pip-audit report
+      - name: Keep the reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: pip-audit
-          path: ${{ runner.temp }}/supply-chain/pip-audit.json
-          if-no-files-found: ignore
-
-  release:
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    defaults:
-      run:
-        working-directory: trialbox
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v5
-        with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: true
-          cache-dependency-glob: trialbox/uv.lock
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-          cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
-
-      - uses: anchore/sbom-action/download-syft@v0
-        with:
-          syft-version: ${{ env.SYFT_VERSION }}
-
-      - uses: aquasecurity/setup-trivy@v0.2.2
-        with:
-          version: ${{ env.TRIVY_VERSION }}
-
-      - name: Python environment
-        run: make venv
-
-      - name: Hashed lock is current
-        run: make lock-check
-
-      - name: Images (installed from the hashed lock)
-        run: make images
-
-      # the only online Trivy step: fill the cache as `oras pull` fills it on the offline media
-      - name: Trivy DB into the cache
-        run: |
-          trivy image --download-db-only --cache-dir .cache/trivy
-          trivy image --download-java-db-only --cache-dir .cache/trivy
-
-      - name: Trivy gate (offline scan)
-        run: make trivy-scan TRIVY_CACHE=.cache/trivy
-
-      - name: SBOMs (Syft, CycloneDX)
-        if: always()
-        run: make sbom
-
-      - name: Licence report and gate
-        if: always()
-        run: make licences
-
-      - name: pip-audit gate
-        if: always()
-        run: make pip-audit
-
-      - name: Keep the SBOMs and reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: supply-chain-${{ github.ref_name }}
+          name: supply-chain-lock
           path: |
+            trialbox/build/supply-chain/pip-audit.json
             trialbox/dist/sbom
-            trialbox/build/supply-chain
-          if-no-files-found: warn
-          retention-days: 90
+          if-no-files-found: ignore
