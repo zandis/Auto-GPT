@@ -22,7 +22,7 @@ CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),
 # (tools/pglocal.py branch_slug: a detached HEAD, as in CI or a review worktree, is detached-<sha>)
 BRANCH_SLUG := $(shell PYTHONPATH=libs:services:. $(PY) -c 'import tools.pglocal as p; print(p.branch_slug())' 2>/dev/null)
 TB_SCRATCH ?= /var/tmp/trialbox-$(shell id -u)
-TB_TEST_ROOT ?= $(TB_SCRATCH)/tb-tests-$(or $(BRANCH_SLUG),detached)
+TB_TEST_ROOT ?= $(abspath $(TB_SCRATCH))/tb-tests-$(or $(BRANCH_SLUG),detached)
 export TB_TEST_ROOT
 TB_MIN_FREE_GB ?= 20
 TB_ROOT_BUDGET_GB ?= 10
