@@ -274,7 +274,7 @@ def _extensions_roundtrip(url: str, require: bool) -> tuple[str, bool, str]:
             db.execute("INSERT INTO doc VALUES (1, '肺がん', '[1,0,0]')")
             before = extensions(db)
         src = bk.DbSource("trialbox_wf", sdsn, ())
-        dump = Path(os.environ.get("TMPDIR") or "/tmp") / f"{scratch}.dump"
+        dump = Path(tempfile.gettempdir()) / f"{scratch}.dump"  # TMPDIR, under TB_TEST_ROOT from make
         try:
             bk.dump(src, dump, os.environ)
             bk.restore_db(src, dump, os.environ)
@@ -565,8 +565,12 @@ def main(argv: list[str] | None = None) -> int:
     from tb_common.config import adopt_site_tz
 
     adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DRILL_DIR", "/tmp/tb-backup-drill")))
+    ap.add_argument(
+        "--dir", type=Path, default=Path(os.environ.get("TB_DRILL_DIR") or scratch_root() / "tb-backup-drill")
+    )
     ap.add_argument(
         "--require-extensions",
         action="store_true",

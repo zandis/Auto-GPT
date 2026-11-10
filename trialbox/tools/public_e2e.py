@@ -972,8 +972,10 @@ def main(argv: list[str] | None = None) -> int:
     from tb_common.config import adopt_site_tz
 
     adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_PUBLIC_DIR", "/tmp/tb-public")))
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_PUBLIC_DIR") or scratch_root() / "tb-public"))
     ap.add_argument("--lang", default="en", choices=["ja", "zh-TW", "en"])
     ap.add_argument("--serve", action="store_true")
     ap.add_argument("--judge-url", default="", help="real judge, e.g. http://<vm>/judge/v1 (key in TB_GPU_KEY)")

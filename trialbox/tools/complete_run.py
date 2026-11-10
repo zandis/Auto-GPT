@@ -1380,8 +1380,12 @@ def main(argv: list[str] | None = None) -> int:
     from tools import scenarios
 
     argv = list(sys.argv[1:] if argv is None else argv)
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_COMPLETE_DIR", "/tmp/tb-complete")))
+    ap.add_argument(
+        "--dir", type=Path, default=Path(os.environ.get("TB_COMPLETE_DIR") or scratch_root() / "tb-complete")
+    )
     ap.add_argument("--model", choices=["stub", "pair"], default="stub")
     ap.add_argument("--patients", type=int, default=5000)
     ap.add_argument("--judge-url", default="", help="the pair's judge, e.g. http://<vm>/judge/v1 (key: TB_GPU_KEY)")

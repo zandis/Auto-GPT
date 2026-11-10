@@ -599,8 +599,10 @@ def table(report: dict[str, Any]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path("/tmp/tb-omop-parity"))
+    ap.add_argument("--dir", type=Path, default=scratch_root() / "tb-omop-parity")
     ap.add_argument("--sets", default=",".join(SETS))
     ap.add_argument("--json", type=Path)
     ap.add_argument("--allow-skip", action="store_true", help="a data set whose data is not fetched is not a failure")

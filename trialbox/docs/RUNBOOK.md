@@ -284,11 +284,20 @@ least the last two weeks:
    "--target=2026-11-08 14:05:00+09" --target-action=promote restore`, and start everything again. Then run
    `backup-nightly` so a new full chain starts.
 
-**Restore.** Reinstall (§1), then `trialbox restore <file> --key <private key> --yes [--refdata <folder>]` (hospital
-IT brings the key). Every hash is checked first; replaced folders are moved aside, not deleted. The restore loads the
-vendor reference packs the backup names again from `deploy/refdata/loaded` (where install and update keep them) or
-`--refdata`. If a pack is not there it says so and exits 3: put the pack file (from the update bundle or the vendor)
-in that folder and run the restore again. Rows that do not match the backup fail the restore; a backup made before
+**Restore.** Bring three things: the backup file, the private key (hospital IT) and **the vendor reference data
+pack** the backup names. A backup holds no vendor pack rows (layout 2, above), so a restore onto a fresh box is not
+whole without the pack (DATA-018). To see which pack: `trialbox backup-verify <file> --key <private key>` lists it
+under `refdata_packs` (`pack_id`, e.g. `trialbox-refdata-20261109`; a pack of `origin: site` is the hospital's own
+and comes back with the database). The vendor pack is a `.tar` file (usually `<pack_id>.tar`; the restore reads the
+`pack_id` inside it), in the update bundle that installed it (its `refdata:` items), in `deploy/refdata/loaded` of the
+old box, or from the vendor. Keep a copy of `deploy/refdata/loaded` beside the off-box backups. Then:
+
+1. Reinstall (§1) and put each `<pack_id>.tar` in `deploy/refdata/loaded` (or a folder you give as `--refdata`).
+2. `trialbox restore <file> --key <private key> --yes [--refdata <folder>]`. Every hash is checked first; replaced
+   folders are moved aside, not deleted. The restore loads the packs the backup names from that folder.
+3. If a pack is not there the restore says which (`refdata.missing`, e.g. `['trialbox-refdata-20261109']`) and exits
+   3 (`ok=False`; the database rows themselves are already restored and equal): put that pack file in the folder and
+   run the restore again. Rows that do not match the backup fail the restore; a backup made before
 D-187 or by the update path, counted on a running box, gives a warning instead. Held by `tests/unit/test_backup.py`,
 `tests/unit/test_backup_schedule.py` and `tools/backup_drill.py` (`make backup-drill`: the nightly run, layout,
 status and alert, wipe, restore with the pack loaded again, an old-format restore, the Postgres settings and a
@@ -642,13 +651,19 @@ For developers and agent sessions that run the suite side by side on one machine
   `backup-drill/`. `make test` marks the root (`.tb-test-root`) and holds `flock` on it for the whole run: a second
   run on the same root stops at once and touches nothing. `/`, a top-level directory, `/tmp`, `/var/tmp`, the home
   directory, a system directory or a folder directly in one, and an existing folder of other files (no marker) are
-  refused as a root; links are resolved first.
+  refused as a root; links are resolved first. `make e2e-simple` marks the root too, so it passes on a fresh root;
+  it names a missing CQL translator jar (`quick-*.jar`, FHIRHelpers) before it starts (`make jvm-deps`; exit 2).
+- **Tools run by hand** (`tools.demo`, `tools.e2e_simple`, the drills, `public_e2e`, `complete_run`, `omop_parity`
+  and the other demos) default to a folder under `$TB_SCRATCH` (`/var/tmp/trialbox-<uid>/tb-<tool>`), never a fixed
+  `/tmp/tb-*` path; `--dir` or the tool's `TB_*_DIR` variable still wins.
 - **One venv per branch, exactly the lock.** `make venv` runs `uv sync --frozen --group test --extra dev`: it
   installs `uv.lock` and removes anything installed by hand; the venv has no pip. `make test` first checks that the
   venv still matches the lock (`venv-check`). To change a dependency, edit `pyproject.toml`, run `uv lock`, commit
   both. The test plugins are pinned in `[dependency-groups] test` (pytest, pytest-timeout, pytest-cov,
   pytest-xdist); `addopts` blocks `randomly` and the cache provider, and a guard test fails a run in which
-  `-p randomly` brought it back. Random order is a nightly job, not a default (`TB_TEST_RANDOM=1`).
+  `-p randomly` brought it back. Random order is a nightly job, not a default: `make test-random` (the nightly
+  workflow's `random-order` run) lays `pytest-randomly` over the venv for that run only (`uv run --with`) and sets
+  `TB_TEST_RANDOM=1`; the seed is in the header, and `make test-random RANDOM_SEED=<n>` repeats a failing order.
 - **The suite in parallel.** `make test` runs `pytest -n auto` (`PYTEST_N=0` for serial, `PYTEST_N=4` to cap).
   pytest keeps one basetemp and, of it, only the failed tests' folders; a green run removes it.
 - **Disk.** `make check-disk` first (fails under `TB_MIN_FREE_GB`, default 20 GB; reports the branch root against
