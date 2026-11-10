@@ -3977,11 +3977,11 @@ Source: the owner's follow-up list of 2026-11-09 (task 3), after the cloud-run r
 lived in steps nothing ran off the paid VM (`docs/reviews/2026-11-09-cloud-run-review.md` §5). The same gap existed for
 the box: nothing had run `deploy/install.sh` on a clean host from offline media.
 
-*Decision.* `tools/rehearse_box/rehearse.sh` (`make rehearse-box`, RUNBOOK §14) makes media as the vendor does, removes
+*Decision.* `tools/rehearse_box/rehearse.sh` (`make rehearse-box`, RUNBOOK §15) makes media as the vendor does, removes
 the box images from the Docker host, and runs the real installer (`--tier large`) in a clean Ubuntu 24.04 container
 that uses the host's Docker through its socket. The strict vLLM stand-ins of D-177 take the place of the GPU, given to
 the installer as `TB_COMPOSE_OVERRIDE` (a new, printed hook kept in `COMPOSE_FILE`). The steps and what each proves are
-in RUNBOOK §14: the WSL2 preflight, three media failures, the install, `doctor --live`, the served names, the offline
+in RUNBOOK §15: the WSL2 preflight, three media failures, the install, `doctor --live`, the served names, the offline
 media (images, CQL jars, reference data, no route out), the console, one SCREEN through the gateway, a power loss and
 restart, a wrong served name and a missing key. A FAIL stops the release. It does not replace the site's IQ: a real
 GPU, the egress rules, the host hardening and the mail server are checked there.
@@ -4016,7 +4016,7 @@ GPU, the egress rules, the host hardening and the mail server are checked there.
     rehearsal gives it a plain SMTP sink (`tools/rehearse_box/smtp_sink.py`) as `smtp.hospa.test` and checks that the
     SCREEN mailed something. The real relay is checked at the site's IQ.
 
-*After the independent review* (2026-11-10; RUNBOOK §14):
+*After the independent review* (2026-11-10; RUNBOOK §15):
 12. *Digest pins on the classic image store.* Saved under its tag, a digest-pinned image resolves by its digest again
     only on Docker's containerd image store. The classic `overlay2` store keeps no digests after `docker load`
     (tried: `postgres:16-alpine@sha256:...` is "No such image" after the load), so compose would pull it. The bundle
@@ -4047,7 +4047,7 @@ loads and no pull; the console resolves no outside name). The classic overlay2 s
 with a bundle made on the containerd store: after the load `postgres:16-alpine@sha256:...` is "No such image" and
 `compose up --pull never` fails; after `tools/image_pins.py resolve` the db runs the bundle's image by its id, and
 the daemon's events show two loads and no pull. (A full `make rehearse-box` on an overlay2 daemon needs about 10 GB
-more disk than this machine had free: run it there before a release, RUNBOOK §14.) Unit tests:
+more disk than this machine had free: run it there before a release, RUNBOOK §15.) Unit tests:
 `test_vllm_standin.py`, `test_doctor_serving.py`, `test_model_key.py`, `test_verify_update_stdlib.py`,
 `test_smtp_sink.py`, `test_image_pins.py`, `test_egress_rules.py`.
 
@@ -4101,7 +4101,7 @@ refuses a bad or huge `Content-Length` before reading; an update restarts with `
    must be absolute, three levels deep, not a system folder, and new or the caller's own earlier rehearsal folder.
    The report names the Docker image store.
 
-*Not done.* `trialbox secrets rotate` does not rotate `TB_LLM_API_KEY` yet (RUNBOOK §14 says how to change it by hand).
+*Not done.* `trialbox secrets rotate` does not rotate `TB_LLM_API_KEY` yet (RUNBOOK §15 says how to change it by hand).
 The one-off doctor containers get all of `deploy/.env` and run as root; they should get the `TB_*` values only.
 `llm-stub` (stub mode, where no key is made) still gets `deploy/.env` whole: the secrets overlay lists exactly the
 services with a token. `install.sh` gives `settings.yaml` to gid 10001, which may be a real group on a host.

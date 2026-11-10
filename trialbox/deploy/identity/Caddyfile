@@ -2,7 +2,7 @@
 # Started by deploy/docker-compose.identity.yml; every value comes from deploy/.env (deploy/identity/identity.env.example).
 #
 #   TB_TLS_MODE=internal   Caddy's own CA issues the certificate (the default). Install its root certificate on the
-#                          staff PCs once (RUNBOOK §14). Nothing is fetched from the internet.
+#                          staff PCs once (RUNBOOK §12). Nothing is fetched from the internet.
 #   TB_TLS_MODE=hospital   the hospital's certificate: TB_TLS_CERT_FILE (chain, PEM) and TB_TLS_KEY_FILE (PEM),
 #                          mounted read-only at /etc/caddy/certs. Check them first: python -m console.cli check-tls
 #

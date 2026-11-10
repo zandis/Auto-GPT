@@ -5,7 +5,7 @@
 #       -f deploy/docker-compose.identity.yml [--profile oidc] up -d --wait
 #
 # (or append it to COMPOSE_FILE in deploy/.env). The settings are in deploy/.env; the full list with comments is
-# deploy/identity/identity.env.example, the steps are RUNBOOK §14.
+# deploy/identity/identity.env.example, the steps are RUNBOOK §12.
 #
 # * With this file the console is reachable only through Caddy (https://TB_TLS_HOSTNAME); its own port is no longer
 #   published. Its session cookies are Secure.

@@ -259,7 +259,7 @@ poc-down:
 poc-status:
 	deploy/poc.sh status
 
-# the gate before any site's installation qualification (D-176, docs/RUNBOOK.md §14): offline media -> the real
+# the gate before any site's installation qualification (D-176, docs/RUNBOOK.md §15): offline media -> the real
 # install.sh --tier large in a clean Ubuntu 24.04 container, strict vLLM stand-ins for the GPU (tools/vllm_standin.py)
 rehearse-box:
 	PY=$(PY) tools/rehearse_box/rehearse.sh

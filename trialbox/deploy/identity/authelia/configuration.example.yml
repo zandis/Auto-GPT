@@ -3,7 +3,7 @@
 #
 # Copy to deploy/site/authelia/configuration.yml (not committed) and replace every value marked SITE. Secrets are never
 # written here: they are files in deploy/secrets/authelia/ (0600, root), named by the *_FILE variables in
-# deploy/docker-compose.identity.yml. RUNBOOK §14 has the steps; the client secret's hash is made with
+# deploy/docker-compose.identity.yml. RUNBOOK §12 has the steps; the client secret's hash is made with
 #   docker run --rm authelia/authelia:4.39.28 authelia crypto hash generate pbkdf2 --variant sha512 --random \
 #       --random.length 72 --random.charset rfc3986
 # (the plain value goes to deploy/secrets/authelia/oidc_client_secret.txt for the console, the digest below).
