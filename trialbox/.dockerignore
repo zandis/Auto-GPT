@@ -22,3 +22,9 @@ deploy/site
 .cache/pip-audit-env
 build
 dist
+# T-501 (OPS-009): the review registers (open findings) are not shipped in any image
+docs/reviews
+# T-501: of the CQL translator jars (make jvm-deps) only the one the demo reads FHIRHelpers from enters this context;
+# jvm.Dockerfile has its own ignore file and takes them all
+.cache/jvm/cql-translator/lib/*
+!.cache/jvm/cql-translator/lib/quick-*.jar
