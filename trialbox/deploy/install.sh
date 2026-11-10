@@ -301,7 +301,8 @@ for f in deploy/refdata/pending/*.tar; do  # D-140: the reference data pack of t
   [ -f "$f" ] || continue
   if "${COMPOSE[@]}" cp "$f" criteria-compiler:/tmp/refdata-install.tar \
     && "${COMPOSE[@]}" exec -T criteria-compiler python -m tb_common.refdata load /tmp/refdata-install.tar --by deploy/install.sh; then
-    rm -f "$f"; echo "    reference data loaded: $(basename "$f" .tar)"
+    # D-187: kept, not deleted: backups leave the pack's rows out and a restore loads it again from here
+    mkdir -p deploy/refdata/loaded && mv -f "$f" deploy/refdata/loaded/; echo "    reference data loaded: $(basename "$f" .tar)"
   else
     echo "install: warning: reference data $(basename "$f") not loaded (python -m tb_common.refdata load)" >&2
   fi
