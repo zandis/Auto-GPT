@@ -96,6 +96,7 @@ class Helpers:
     may_approve: Callable[..., bool] | None = None
     team_due: Callable[[str], bool] | None = None
     apply_reveal: Callable[..., tuple[dict[str, Any], str]] | None = None  # set by register(): D-143's reveal
+    chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
 
     def gone(self) -> set[str]:

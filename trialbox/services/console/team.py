@@ -222,12 +222,25 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             "in_directory": member is not None,
         }
 
-    def rate(sess: Session) -> None:
-        """Candidate pages opened per person and hour (the chart number itself is under D-143's cap)."""
+    def rate(sess: Session, rid: str, pid: str, purpose: str) -> None:
+        """Candidate pages opened per person and hour (the chart number itself is under D-143's cap). D-273: the view
+        is recorded and counted in one transaction (``TeamStore.take``), so parallel requests cannot all pass."""
         since = (h.clock() - timedelta(hours=1)).isoformat()
-        if team.count_views(sess.user.username, "view", since) >= per_hour:
+        if not team.take(rid, pid, purpose, "view", sess.user.username, now(), since, per_hour):
             au.append("console.rate_limited", actor=h.actor(sess), detail={"action": "view", "limit": per_hour})
             raise h.problem(429, "candidate.rate_limited", n=per_hour)
+
+    def chart_lookup(sess: Session, purpose: str) -> None:
+        """D-273 (PV-6): one chart number turned into a pseudonym, at the opt-out door or by a pasted chart. The use
+        is taken before the lookup, counted and recorded in one transaction; over the cap it is refused and audited.
+        The caller writes ``console.chart_lookup`` once the lookup is done."""
+        since = (h.clock() - timedelta(hours=1)).isoformat()
+        if not team.take("-", "-", purpose, "chart_lookup", sess.user.username, now(), since, lookups_per_hour):
+            au.append("console.rate_limited", actor=h.actor(sess),
+                      detail={"action": "chart_lookup", "limit": lookups_per_hour})  # fmt: skip
+            raise h.problem(429, "optout.rate_limited", n=lookups_per_hour)
+
+    h.chart_lookup = chart_lookup
 
     def candidate_ctx(sess: Session, rid: str, pid: str) -> dict[str, Any]:
         if not _PID.match(pid) or h.patient_ctx is None:
@@ -262,8 +275,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if purpose not in VIEW_PURPOSES:
             raise h.problem(400, "candidate.purpose")
         ctx = candidate_ctx(sess, rid, pid)
-        rate(sess)
-        team.record_view(rid, pid, purpose, "view", sess.user.username, now())
+        rate(sess, rid, pid, purpose)
         au.append("console.candidate_view", job_id=ctx["job"].job_id, ruleset=rid, actor=h.actor(sess),
                   detail={"pid": pid, "purpose": purpose, "role": sess.user.role,
                           "pi": ctx["standing"].pi})  # fmt: skip
@@ -627,14 +639,9 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise deny(sess, path)
         by_chart = bool(body.chart_no.strip()) and not body.pid.strip()
         if by_chart:
-            since = (h.clock() - timedelta(hours=1)).isoformat()
-            if team.count_views(sess.user.username, "chart_lookup", since) >= lookups_per_hour:
-                au.append("console.rate_limited", actor=h.actor(sess),
-                          detail={"action": "chart_lookup", "limit": lookups_per_hour})  # fmt: skip
-                raise h.problem(429, "optout.rate_limited", n=lookups_per_hour)
+            chart_lookup(sess, "optout")
         pid = to_pid(body.chart_no, body.pid)
         if by_chart:
-            team.record_view("-", pid, "optout", "chart_lookup", sess.user.username, now())
             au.append(
                 "console.chart_lookup",
                 actor=h.actor(sess),

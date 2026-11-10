@@ -234,3 +234,80 @@ def test_a_reveal_for_other_needs_a_written_reason(box: dict[str, Any]) -> None:
     api, hdr = _api(box, "crc1")
     r = api.post(f"/api/v1/studies/GZQO/patients/{A}/reveal", json={"reason": "other"}, headers=hdr)
     assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------------------------- review of #108
+def test_a_pasted_chart_gives_no_pseudonym_back_and_counts_as_a_chart_lookup(
+    box: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def study_api(method: str, path: str, body: dict[str, Any] | None = None, **_: Any) -> Any:
+        calls.append(path)
+        if path == "/setup/main/charts":
+            return {"input": len(calls), "pid": B, "facts": 2}
+        if path == "/setup/pseudonym":
+            return {"pid": B}
+        raise Unavailable("no study store in this test")
+
+    monkeypatch.setattr(box["backend"], "study_api", study_api, raising=False)
+    _user(box, "crc1", "coordinator")
+    api, hdr = _api(box, "crc1")
+    out = api.post("/api/v1/site/charts", json={"chart_no": "SYN-0001", "text": "synthetic note"}, headers=hdr)
+    assert out.status_code == 200 and "pid" not in out.json() and B not in out.text
+    ev = _events(box, "console.chart_lookup")
+    assert len(ev) == 1 and ev[0]["detail"]["for"] == "chart" and ev[0]["actor"] == "console:crc1"
+    # the pasted chart and the opt-out door share one cap (30 an hour)
+    for i in range(2, 31):
+        r = api.post("/api/v1/site/opt-outs", json={"chart_no": f"SYN-{i:04d}"}, headers=hdr)
+        assert r.status_code == 200
+    n = len(calls)
+    r = api.post("/api/v1/site/charts", json={"chart_no": "SYN-0031", "text": "synthetic note"}, headers=hdr)
+    assert r.status_code == 429 and len(calls) == n  # refused before the box is asked
+    assert [e["detail"]["action"] for e in _events(box, "console.rate_limited")] == ["chart_lookup"]
+
+
+def test_the_conflicts_page_follows_the_delegation_log(box: dict[str, Any]) -> None:  # noqa: F811
+    _done_screen(box["backend"], _ulid(986))
+    pi = _user(box, "drsato", "investigator")
+    sub = _user(box, "drkato", "investigator")
+    _log_pi_and_sub(box, pi, ("refer",))  # neither "screen" nor "enter_data"
+    assert sub.get("/studies/GZQO/conflicts").status_code == 403
+    api, hdr = _api(box, "drkato")
+    assert api.get("/api/v1/studies/GZQO/conflicts", headers=hdr).status_code == 403
+    assert any(e["detail"]["action"] == "conflicts GZQO" for e in _events(box, "console.denied"))
+    assert pi.get("/studies/GZQO/conflicts").status_code != 403
+
+
+def test_an_opted_out_patients_chart_number_stays_masked_in_the_job_thread(box: dict[str, Any]) -> None:  # noqa: F811
+    from tests.console.test_console_app import _done_case
+
+    job = _done_case(box["backend"], {"mrn": "70000054", "lang": "en"})
+    box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
+                        detail={"line": "CASE GZQO mrn=••• lang=en", "channel": "web"})  # fmt: skip
+    admin, _ = login(box["app"])
+    assert "mrn=70000054" in admin.get(f"/pilot/jobs/{job.job_id}").text
+    _opt_out(box, _user(box, "crc1", "coordinator"), "ab" * 16)  # the CASE subject's pseudonym
+    page = admin.get(f"/pilot/jobs/{job.job_id}").text
+    assert "70000054" not in page and "mrn=•••" in page
+    assert len([r for r in box["backend"].audit(job.job_id) if r.event == "console.view_id"]) == 1
+
+
+def test_the_lookup_cap_records_before_it_counts(box: dict[str, Any]) -> None:  # noqa: F811
+    team = box["app"].state.helpers.team
+    now, since = "2026-11-10T09:00:00+00:00", "2026-11-10T08:00:00+00:00"
+    assert team.take("-", "-", "chart", "chart_lookup", "crc1", now, since, 2)
+    assert team.take("-", "-", "chart", "chart_lookup", "crc1", now, since, 2)
+    assert not team.take("-", "-", "chart", "chart_lookup", "crc1", now, since, 2)  # the third is over
+    assert team.count_views("crc1", "chart_lookup", since) == 2  # a refused use is not recorded
+    assert team.take("-", "-", "chart", "chart_lookup", "crc2", now, since, 2)  # per person
+
+
+def test_the_job_reveal_has_no_preselected_reason(box: dict[str, Any]) -> None:  # noqa: F811
+    jid = _with_excluded(box)
+    admin, csrf = login(box["app"])
+    page = admin.get(f"/pilot/jobs/{jid}").text
+    assert '<select name="reason" required data-testid="reveal-reason"><option value="">' in page
+    r = admin.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": csrf, "pid": A, "reason": ""})
+    assert r.status_code == 400 and box["backend"].revealed == []

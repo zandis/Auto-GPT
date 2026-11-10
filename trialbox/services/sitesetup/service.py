@@ -225,7 +225,7 @@ class SiteSetup:
             detail={"ws": ws, "input": iid, "pid": pid, "method": ct.method, "proposed": len(ids), "dropped": dropped},
         )
         self.publish(ws, by)
-        return {"input": iid, "pid": pid, **summary}
+        return {"input": iid, **summary}  # D-273 (PV-6): no pseudonym back for a chart number; the audit keeps it
 
     # ------------------------------------------------------------------ decisions
     def decide(self, fid: int, action: str, by: str, changes: dict[str, str] | None = None) -> dict[str, Any]:

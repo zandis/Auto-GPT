@@ -1237,7 +1237,11 @@ def create_app(
             web = next(r for r in audit_recs if r.event == "console.request")
             # the audit holds the line masked (D-272); the chart number comes back from the job's options
             raw_rows.insert(0, (None, unmask_ids(mask_ids(str(web.detail.get("line", ""))), job.options)))
-        thread_rows = [(m, shown_ids(sess, job, text, "thread")) for m, text in raw_rows]
+        case = _case_card(job)
+        # D-273 (PV-4): a patient on the opt-out register is never shown by chart number, here either
+        subj = str(((case or {}).get("subject") or {}).get("pid") or (job.options or {}).get("pid") or "")
+        out = bool(subj) and subj in helpers.gone()
+        thread_rows = [(m, shown_ids(sess, job, text, "thread", opted_out=out)) for m, text in raw_rows]
         return page(
             request,
             "job.html",
@@ -1256,16 +1260,18 @@ def create_app(
             refresh=job.state not in TERMINAL and job.state != "awaiting_approval",
             rulesets=[r for r in bk.rulesets() if r.status == "approved"],
             consent=_consent_card(job),
-            case=_case_card(job),
+            case=case,
             screen=_screen_card(job, sess, revealed),
         )
 
-    def shown_ids(sess: Session, job: Job, text: str, where: str) -> str:
+    def shown_ids(sess: Session, job: Job, text: str, where: str, opted_out: bool = False) -> str:
         """A request line or subject as this reader may see it (P-01, D-143): the chart number in clear for an
         account with identifier authority for the job's study (administrator, coordinator, the study's
         investigator), as one audited view under the reveal cap; masked for everyone else (viewer, CRO)."""
         masked = mask_ids(text)
-        if masked == text or not sess.user.sees_ids(job.ruleset) or not helpers.delegated_ok(sess.user, job.ruleset):
+        if masked == text or opted_out or not sess.user.sees_ids(job.ruleset):
+            return masked
+        if not helpers.delegated_ok(sess.user, job.ruleset):
             return masked
         if not id_views.allow(actor(sess)):
             au.append("console.view_id_refused", job_id=job.job_id, ruleset=job.ruleset, actor=actor(sess),

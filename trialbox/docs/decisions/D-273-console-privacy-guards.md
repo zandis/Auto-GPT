@@ -28,7 +28,8 @@ opt-out was committed before its audit event was written (CR-055).
    participants and trial-values pages and their exports (`screen` or `enter_data`), the registry page and its
    export, the job page's candidate rows and the CASE sheet, and the investigator's N1 mail. `Helpers.gone()` is the
    opt-out register now; the job page's rows, the registry page and the excluded list leave those patients out and
-   show only a count.
+   show only a count. The trial-values conflicts page and its `/api/v1` twin need `screen` or `enter_data` too.
+   The job page's reveal form has no reason chosen in advance; an empty reason is refused.
 3. **The orchestrator checks the signed role and study.** The console's actor assertion now also covers the
    person's studies (`X-TB-Actor-Scope`, `*` for every study), in the same MAC as the name and role. The reveal and
    the registry export refuse a verified assertion whose role is not one with identifier authority (`admin`,
@@ -38,7 +39,12 @@ opt-out was committed before its audit event was written (CR-055).
 4. **The opt-out door is no pseudonym oracle.** The page and `/api/v1` no longer return the pseudonym. A chart
    number typed at the door is a lookup: capped per person and hour (`TB_OPTOUT_LOOKUPS_PER_HOUR`, default 30,
    `console.rate_limited` when hit) and audited as `console.chart_lookup` even when nothing changes. Who may use the
-   door is still the coordinator and the administrator (OD-5, FG D-280).
+   door is still the coordinator and the administrator (OD-5, FG D-280). A pasted chart (`/site/charts` and its
+   `/api/v1` twin) is the same kind of lookup: it no longer returns the pseudonym (the set-up service drops it too),
+   it shares the door's cap and it is audited as `console.chart_lookup` with `for=chart`. Every cap here (the
+   lookups, the candidate pages, the "why" answer) records the use and counts it in one transaction, under an
+   advisory lock per person and kind (`TeamStore.take`), so parallel requests cannot all pass; a refused use is
+   not recorded.
 5. **The assistant's "why" answer** (`/ask?pid=`, `/api/v1/ask`) needs the study in the account's scope and, for an
    investigator, the delegation log's `screen`; it never answers for an opted-out patient; it is capped at 60 per
    person and hour; each answer is one `console.ask_patient` audit event.
@@ -50,9 +56,18 @@ opt-out was committed before its audit event was written (CR-055).
 
 *Not done here.* The administrator keeps patient-level rights until FG D-280 (OD-5, PV-8, ROLE-010). The reveal
 and export rate limits stay in process memory (PV-15). FEAS counts and data-core exports and the opt-out worker are
-FG D-278 and T-206a (FIT-023, CR-026, CR-027). `/ask` stays a GET; a purpose prompt for the "why" answer and a POST
-are left to T-103.
+FG D-278 and T-206a (FIT-023, CR-026, CR-027). `/ask` stays a GET that writes audit and cap rows; a purpose prompt
+for the "why" answer and a POST are left to T-103. The signed scope holds at most 64 studies; an account scoped to
+more is refused by the orchestrator (no such site yet; a digest of the scope is the fix if one comes). The
+`/site/charts` page still lists the first 8 characters of each recent input's pseudonym.
+
+*Known exception.* The CASE job thread (`shown_ids`) still shows the chart number of the request line in clear to
+the study team, as D-143 decided: one `console.view_id` audit event per view, under the per-process reveal cap,
+with no reason asked. D-273 only adds that a patient on the opt-out register (the CASE subject's pseudonym) is
+always masked there, and that the delegation log applies. Masking it always and going through `apply_reveal` is
+left to T-103's single reveal path.
 
 *Tests.* `tests/console/test_d273_privacy_guards.py`, `tests/unit/test_d273_orchestrator_guards.py`, and the
 changed cases in `tests/console/test_console_app.py`, `tests/unit/test_service_auth.py` and
-`tests/unit/test_site_setup.py`.
+`tests/unit/test_site_setup.py`. The review of PR #108 added the pasted-chart, conflicts, CASE-thread, cap and
+reason-select cases.

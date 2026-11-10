@@ -167,12 +167,19 @@ def register(app: FastAPI, h: Helpers) -> None:
     # ------------------------------------------------------------------ actions (one per page and /api/v1)
     def act_chart(sess: Session, ws: str, chart_no: str, text: str, name: str, data: bytes | None) -> dict[str, Any]:
         need_change(sess, "/site/charts")
+        # D-273 (PV-6): a pasted chart turns a chart number into a pseudonym, so it is a chart-number lookup, under
+        # the same per-person cap as the opt-out door, taken before the call and audited after it
+        if h.chart_lookup is not None:
+            h.chart_lookup(sess, "chart")
         body: dict[str, Any] = {"chart_no": chart_no[:40], "lang": lang_of(sess), "by": h.actor(sess)}
         if data:
             body |= {"name": name[:200], "b64": base64.b64encode(data).decode("ascii")}
         else:
             body |= {"text": text[:60_000]}
         out = dict(post(f"/setup/{ws}/charts", body))
+        out.pop("pid", None)  # never the pseudonym back to the caller (the box's own audit event keeps it)
+        au.append("console.chart_lookup", actor=h.actor(sess),
+                  detail={"for": "chart", "ws": ws, "input": out.get("input"), "role": sess.user.role})  # fmt: skip
         au.append(
             "console.site_chart",
             actor=h.actor(sess),
@@ -299,10 +306,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             return None
         if h.team is not None:
             since = (h.clock() - timedelta(hours=1)).isoformat()
-            if h.team.count_views(sess.user.username, "ask", since) >= ASK_PER_HOUR:
+            # D-273: recorded and counted in one transaction, so parallel questions cannot all pass the cap
+            if not h.team.take(rs, pid, "ask", "ask", sess.user.username, h.clock().isoformat(), since, ASK_PER_HOUR):
                 au.append("console.rate_limited", actor=h.actor(sess), detail={"action": "ask", "limit": ASK_PER_HOUR})
                 return None
-            h.team.record_view(rs, pid, "ask", "ask", sess.user.username, h.clock().isoformat())
         au.append("console.ask_patient", ruleset=rs, actor=h.actor(sess), detail={"pid": pid, "role": sess.user.role})
         if h.week_bundle is not None:
             try:
