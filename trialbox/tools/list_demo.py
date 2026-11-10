@@ -19,6 +19,12 @@ What it does, on the 5,000-patient synthetic hospital of ``tools.feas_demo``:
    morning; both are printed from the box's mail sink. Neither carries a chart number or a screening number.
 
 Everything is synthetic; pages and mail are Japanese (``--lang``).
+
+``--trial AD-MAB`` runs the same steps on scenario J1 of the clinician PoC (T-503): the Japanese memory-clinic site
+(``tools.synth_hospital --profile jp-ad``, Asia/Tokyo, notes in Japanese and English), the early Alzheimer's
+disease trial AD-MAB (protocol in Japanese, investigator P90001 of neurology) and the registry NEUR-COH.
+
+    python -m tools.list_demo --dir /tmp/tb-ad --lang ja --trial AD-MAB
 """
 
 from __future__ import annotations
@@ -44,6 +50,27 @@ TRIAL, COHORT = "GZQO", "GOUT-COH"
 PI_PRACTITIONER = "P12345"
 COHORT_CLINICS = "P12345,P23456,P34567,P45678"
 EXTRA_EXCLUSION = "Participation in another interventional drug trial within the last 30 days."
+# the scenarios: trial -> (registry, investigator, registry clinics, added exclusion, "need info" note, site)
+SCENARIOS: dict[str, dict[str, Any]] = {
+    "GZQO": {
+        "cohort": COHORT,
+        "pi": PI_PRACTITIONER,
+        "clinics": COHORT_CLINICS,
+        "extra": EXTRA_EXCLUSION,
+        "need_info": "HbA1c の最新値を確認",
+        "profile": "ci",
+        "settings": None,
+    },
+    "AD-MAB": {  # scenario J1 (T-503)
+        "cohort": "NEUR-COH",
+        "pi": "P90001",
+        "clinics": "P90001,P90002,P90003",
+        "extra": "スクリーニング前30日以内に他の治験に参加した者。",
+        "need_info": "アミロイドPETまたは脳脊髄液検査の結果を確認",
+        "profile": "jp-ad",
+        "settings": fd.SITE_JP,
+    },
+}
 
 
 class Clock:
@@ -59,11 +86,13 @@ class Clock:
         return self.now
 
 
-def criteria_text(ruleset: str) -> str:
+def criteria_text(ruleset: str, trial: str = TRIAL) -> str:
+    sc = SCENARIOS[trial]
     text = fd.pasted_criteria(ruleset)
-    if ruleset == COHORT:  # one criterion reworded
+    if ruleset == sc["cohort"]:  # one criterion reworded
         return text.replace("1. ", "1. 年齢18歳以上で、", 1)
-    return text.rstrip("\n") + f"\n15. {EXTRA_EXCLUSION}\n"  # one exclusion added to the trial
+    n = len(re.findall(r"^\d+\. ", text.split("除外基準", 1)[-1], re.M)) + 1
+    return text.rstrip("\n") + f"\n{n}. {sc['extra']}\n"  # one exclusion added to the trial
 
 
 def console(
@@ -100,7 +129,7 @@ def console(
     return create_app(env, backend=InprocBackend(box, client, repo), audit=AuditLog(box.audit_dir), users=users)
 
 
-def sign_in(app: Any, user: str, password: str, lang: str) -> Any:
+def sign_in(app: Any, user: str, password: str, lang: str, practitioner: str = PI_PRACTITIONER) -> Any:
     from fastapi.testclient import TestClient
 
     c = TestClient(app)
@@ -115,7 +144,7 @@ def sign_in(app: Any, user: str, password: str, lang: str) -> Any:
             "csrf": fd._csrf(c.get("/settings/notices").text),
             "enabled": "1",
             "lang": lang,
-            "practitioner_id": PI_PRACTITIONER if user == "pi" else "",
+            "practitioner_id": practitioner if user == "pi" else "",
             "digest_time": "07:30",
         },
     )
@@ -127,24 +156,30 @@ def ok(r: Any, what: str) -> Any:
     return r
 
 
-def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
+def run(work: Path, password: str, lang: str = "ja", trial: str = TRIAL) -> dict[str, Any]:
     from console import notify
 
-    box, client, repo, summary = fd.build(work)
+    sc = SCENARIOS[trial]
+    cohort_rs, pi_pr = str(sc["cohort"]), str(sc["pi"])
+    if sc["profile"] == "ci" and not sc["settings"]:
+        box, client, repo, summary = fd.build(work)  # the form tools.complete_run wraps
+    else:
+        box, client, repo, summary = fd.build_site(work, sc["profile"], sc["settings"])
     clock = Clock(box.today[0])
     app = console(work, box, client, repo, password, clock)
     h = app.state.helpers
-    crc = sign_in(app, "crc", password, lang)
-    pi = sign_in(app, "pi", password, lang)
+    crc = sign_in(app, "crc", password, lang, pi_pr)
+    pi = sign_in(app, "pi", password, lang, pi_pr)
     out: dict[str, Any] = {"summary": summary, "box": box, "app": app, "approvals": {}}
 
     # 1-2 the coordinator pastes both studies and prepares S20
     jobs = {}
-    for rs in (COHORT, TRIAL):
+    for rs in (cohort_rs, trial):
         form = crc.get("/pilot/protocol")
         r = ok(
             crc.post(
-                "/pilot/protocol", data={"csrf": fd._csrf(form.text), "ruleset": rs, "criteria": criteria_text(rs)}
+                "/pilot/protocol",
+                data={"csrf": fd._csrf(form.text), "ruleset": rs, "criteria": criteria_text(rs, trial)},
             ),
             f"paste {rs}",
         )
@@ -152,14 +187,14 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
         job = box.orch.db.get(job_id)
         assert job is not None and job.state == "awaiting_approval", (rs, job and job.state)
         jobs[rs] = job
-    ok(crc.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval"), "S20 as coordinator")
+    ok(crc.get(f"/pilot/jobs/{jobs[trial].job_id}/approval"), "S20 as coordinator")
     # D-146 (review J-27): the investigator ticks a criterion's codes, as only the investigator approves
-    s20 = ok(pi.get(f"/pilot/jobs/{jobs[TRIAL].job_id}/approval"), "S20 as investigator")
+    s20 = ok(pi.get(f"/pilot/jobs/{jobs[trial].job_id}/approval"), "S20 as investigator")
     first = re.search(r'data-testid="tick-btn-([A-Z0-9-]+)"', s20.text)
     assert first
     ok(
         pi.post(
-            f"/pilot/jobs/{jobs[TRIAL].job_id}/approval/tick", data={"csrf": fd._csrf(s20.text), "crit": first.group(1)}
+            f"/pilot/jobs/{jobs[trial].job_id}/approval/tick", data={"csrf": fd._csrf(s20.text), "crit": first.group(1)}
         ),
         "tick",
     )
@@ -184,7 +219,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     out["versions"] = {rs: infos[rs].version for rs in jobs}
 
     # 4 the lists
-    for rs, pract in ((TRIAL, ""), (COHORT, COHORT_CLINICS)):
+    for rs, pract in ((trial, ""), (cohort_rs, str(sc["clinics"]))):
         form = crc.get(f"/pilot/request?ruleset={rs}")
         r = crc.post(
             "/pilot/request",
@@ -195,53 +230,53 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
         jid = r.headers["location"].rsplit("/", 1)[-1]
         sj = box.orch.db.get(jid)
         assert sj is not None and sj.state == "done", (rs, sj and sj.state, sj and sj.error)
-    cohort = ok(pi.get(f"/studies/{COHORT}/cohort"), "cohort list")
+    cohort = ok(pi.get(f"/studies/{cohort_rs}/cohort"), "cohort list")
     out["cohort_html"] = cohort.text
     out["cohort_new"] = len(re.findall(r'data-testid="member-', cohort.text))
 
     # 5 marks: the PI's first clinic day decides the demo day
-    week = h.week_bundle(None, TRIAL)
+    week = h.week_bundle(None, trial)
     rows = week["rows"]
-    days = sorted(notify.clinic_days(rows, PI_PRACTITIONER))
+    days = sorted(notify.clinic_days(rows, pi_pr))
     assert days, "no listed candidate is booked with the investigator"
     day = days[0] if days[0].weekday() < 5 else next(d for d in days if d.weekday() < 5)
     if day != box.today[0]:  # a later clinic day (another hospital size): sessions end after 8 h, so sign in again
         box.today[0] = day  # the box moves with the console: one site has one date (an EDC acknowledgement or visit
         clock.set(day)  # dated "today" by the console is otherwise "in the future" for the box, finding EDC-16)
-        crc = sign_in(app, "crc", password, lang)
-        pi = sign_in(app, "pi", password, lang)
+        crc = sign_in(app, "crc", password, lang, pi_pr)
+        pi = sign_in(app, "pi", password, lang, pi_pr)
     clock.set(day)
-    mine = [r for r in rows if r.get("practitioner_id") == PI_PRACTITIONER and r.get("visit")]
+    mine = [r for r in rows if r.get("practitioner_id") == pi_pr and r.get("visit")]
     mine.sort(key=lambda r: r["visit"])
     picks = (mine + [r for r in rows if r not in mine])[:3]
     assert len(picks) == 3, "fewer than three patients on the list"
     marks = [
         ("approach", {}),
-        ("need_info", {"note": "HbA1c の最新値を確認"}),
+        ("need_info", {"note": str(sc["need_info"])}),
         ("not_now", {"recheck": (day + timedelta(days=28)).isoformat()}),
     ]
-    lst = ok(pi.get(f"/studies/{TRIAL}/week?list=all"), "list")
+    lst = ok(pi.get(f"/studies/{trial}/week?list=all"), "list")
     out["list_html"] = lst.text
     for row, (mark, extra) in zip(picks, marks, strict=True):
-        page = pi.get(f"/studies/{TRIAL}/week?list=all&pid={row['pid']}")
+        page = pi.get(f"/studies/{trial}/week?list=all&pid={row['pid']}")
         r = pi.post(
-            f"/studies/{TRIAL}/patients/{row['pid']}/mark",
+            f"/studies/{trial}/patients/{row['pid']}/mark",
             data={"csrf": fd._csrf(page.text), "mark": mark, "back": "list:all", **extra},
             follow_redirects=False,
         )
         assert r.status_code == 303, (mark, r.status_code, r.text[-300:])
     approached = picks[0]["pid"]
-    page = crc.get(f"/studies/{TRIAL}/patients/{approached}")
+    page = crc.get(f"/studies/{trial}/patients/{approached}")
     r = crc.post(
-        f"/studies/{TRIAL}/patients/{approached}/outcome",
+        f"/studies/{trial}/patients/{approached}/outcome",
         data={"csrf": fd._csrf(page.text), "outcome": "not_reached", "back": "patient"},
         follow_redirects=False,
     )
     assert r.status_code == 303, (r.status_code, r.text[-300:])
     out["picks"] = picks
     out["day"] = day
-    out["screening_no"] = h.store.screening_no(TRIAL, approached)
-    out["patient_html"] = ok(pi.get(f"/studies/{TRIAL}/patients/{picks[1]['pid']}"), "S5").text
+    out["screening_no"] = h.store.screening_no(trial, approached)
+    out["patient_html"] = ok(pi.get(f"/studies/{trial}/patients/{picks[1]['pid']}"), "S5").text
 
     # 6 the morning mail
     before = len(box.sent)
@@ -250,6 +285,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     out["notices"] = sent
     out["mails"] = mails
     out["crc"], out["pi"] = crc, pi
+    out["trial"], out["cohort"] = trial, cohort_rs
     return out
 
 
@@ -261,18 +297,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     ap.add_argument("--host", default=os.environ.get("TB_DEMO_HOST", "127.0.0.1"))
     ap.add_argument("--fresh", action="store_true", help="delete --dir first")
+    ap.add_argument("--trial", default=TRIAL, choices=sorted(SCENARIOS), help="AD-MAB: scenario J1 (T-503)")
     a = ap.parse_args(argv)
     if a.fresh and a.dir.exists():
         shutil.rmtree(a.dir)
     a.dir.mkdir(parents=True, exist_ok=True)
     password = os.environ.get("TB_DEMO_PASSWORD") or secrets.token_urlsafe(12)
-    res = run(a.dir, password, a.lang)
+    res = run(a.dir, password, a.lang, a.trial)
     for rs, v in res["approvals"].items():
         print(
             f"S20 {rs}: amber {', '.join(v['amber']) or '-'} -> approved v{res['versions'][rs]} "
             f"(feasibility job {v['feas_state']})"
         )
-    print(f"cohort list {COHORT}: {res['cohort_new']} new members")
+    print(f"cohort list {res['cohort']}: {res['cohort_new']} new members")
     print(f"demo day {res['day']} · marks: " + ", ".join(f"{p['short']}" for p in res["picks"]))
     print(f"screening number given on Approach: {res['screening_no']}")
     for m in res["mails"]:

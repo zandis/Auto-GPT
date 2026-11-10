@@ -1,0 +1,14 @@
+{
+ "disagreements": [],
+ "engine": "duckdb sql vs the generator's planted gold (synthetic jp-ad site); CQL (HAPI) not run",
+ "failing": [],
+ "overall_pct": 100.0,
+ "per_criterion": {
+  "AD-MAB-EXC-01": 100.0,
+  "AD-MAB-EXC-03": 100.0,
+  "AD-MAB-EXC-04": 100.0,
+  "AD-MAB-INC-01": 100.0,
+  "AD-MAB-INC-02": 100.0
+ },
+ "sample_size": 1000
+}

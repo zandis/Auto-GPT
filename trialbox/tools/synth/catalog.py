@@ -127,3 +127,53 @@ PRACTITIONERS: list[tuple[str, str, str]] = [
     ("P78901", "示範醫師庚", "ONC"),
     ("P89012", "示範醫師辛", "ORTH"),
 ]
+
+# ------------------------------------------------------------------------------------------------ Alzheimer's (T-503)
+# Codes of the ``ad`` archetype (scenario J1: early Alzheimer's disease trial AD-MAB, registry NEUR-COH). Kept apart
+# from the tables above so the default site draws, and the committed fixtures, do not change. ICD-10-CM codes as the
+# rest of the catalog (the compiler's value sets use ICD-10-CM); a Japanese site maps its 標準病名 / ICD-10 (WHO) codes
+# through its terminology tables. Drug codes follow the same synthetic NHI-format scheme; ATC codes are real.
+AD_DRUGS: dict[str, Drug] = {
+    d.key: d
+    for d in [
+        Drug("warfarin", "AC00090100", "B01AA03", "Warfarin 1mg", 3, "mg"),
+        Drug("apixaban", "BC00091100", "B01AF02", "Apixaban 5mg", 10, "mg"),
+        Drug("rivaroxaban", "BC00092100", "B01AF01", "Rivaroxaban 15mg", 15, "mg"),
+        Drug("edoxaban", "BC00093100", "B01AF03", "Edoxaban 30mg", 30, "mg"),
+        Drug("dabigatran", "BC00094100", "B01AE07", "Dabigatran 110mg", 220, "mg"),
+        Drug("aspirin", "AC00095100", "B01AC06", "Aspirin 100mg", 100, "mg"),
+        Drug("donepezil", "AC00096100", "N06DA02", "Donepezil 5mg", 5, "mg"),
+        Drug("memantine", "BC00097100", "N06DX01", "Memantine 20mg", 20, "mg"),
+    ]
+}
+ANTICOAGULANTS = ("warfarin", "apixaban", "rivaroxaban", "edoxaban", "dabigatran")
+
+AD_DX: dict[str, tuple[str, str]] = {
+    "mci": ("G31.84", "Mild cognitive impairment of uncertain or unknown etiology"),
+    "ad_late": ("G30.1", "Alzheimer's disease with late onset"),
+    "ad_unspecified": ("G30.9", "Alzheimer's disease, unspecified"),
+    "memory_complaint": ("R41.3", "Other amnesia"),
+    "tia": ("G45.9", "Transient cerebral ischemic attack, unspecified"),
+    "stroke": ("I63.9", "Cerebral infarction, unspecified"),
+    "af": ("I48.91", "Unspecified atrial fibrillation"),
+    "dvt": ("I82.409", "Acute embolism and thrombosis of unspecified deep veins of unspecified lower extremity"),
+    "htn": ("I10", "Essential (primary) hypertension"),
+    "hld": ("E78.5", "Hyperlipidemia, unspecified"),
+    "t2dm": ("E11.9", "Type 2 diabetes mellitus without complications"),
+    "ckd3": ("N18.30", "Chronic kidney disease, stage 3 unspecified"),
+}
+
+# report exams of the ``ad`` archetype: local exam code -> (name, modality text used in the report header)
+AD_REPORT_EXAMS: dict[str, tuple[str, str]] = {
+    "MRI-BRAIN": ("MRI brain", "頭部MRI"),
+    "PET-AMY": ("Amyloid PET", "アミロイドPET"),
+    "CSF-AB": ("CSF amyloid beta 42/40", "脳脊髄液検査"),
+}
+
+# the memory clinic: neurology (脳神経内科) and psychiatry (もの忘れ外来). Names are drawn from names_ja on a JP site.
+AD_DEPTS = ("NEUR", "PSY")
+AD_PRACTITIONERS: list[tuple[str, str, str]] = [
+    ("P90001", "合成医師A", "NEUR"),
+    ("P90002", "合成医師B", "NEUR"),
+    ("P90003", "合成医師C", "PSY"),
+]

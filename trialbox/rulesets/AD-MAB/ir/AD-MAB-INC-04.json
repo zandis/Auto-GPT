@@ -1,0 +1,28 @@
+{
+ "action": "CDRを評価",
+ "class": "note",
+ "fallback": "Structured proxy: MCI or Alzheimer's disease coded within 180 days.",
+ "id": "AD-MAB-INC-04",
+ "kind": "inclusion",
+ "label": "CDR 0.5または1",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_MILD_COGNITIVE_IMPAIRMENT_OR_ALZHEIMER_S_DISEASE",
+  "window": {
+   "anchor": "index",
+   "from_days": -180,
+   "to_days": 0
+  }
+ },
+ "note_question": "Do the notes record a Clinical Dementia Rating (CDR) global score of 0.5 or 1 within the 180 days before the index date?",
+ "review": {
+  "at": "2026-11-10T22:18:12.342983+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "AD-MAB",
+ "source_ref": "5.1 選択基準 #4",
+ "text": "スクリーニング前180日以内のCDR全般スコアが0.5または1の者。",
+ "time_sensitive": true
+}

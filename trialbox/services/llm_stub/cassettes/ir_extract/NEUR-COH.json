@@ -1,0 +1,69 @@
+{
+ "criteria": [
+  {
+   "text": "軽度認知障害（MCI）または認知症（アルツハイマー型、血管性、その他）と診断されている者（ICD-10-CM G31.84、G30、F01〜F03）。",
+   "label": "MCI・認知症（病名）",
+   "source_ref": "1 登録対象 #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "cognitive impairment or dementia",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "cognitive impairment or dementia",
+     "synonyms": [
+      "認知症",
+      "軽度認知障害"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "過去12か月以内にもの忘れ外来（脳神経内科または精神科）を1回以上受診した者。",
+   "label": "もの忘れ外来受診（12か月）",
+   "source_ref": "1 登録対象 #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": true,
+   "logic": {
+    "domain": "encounter",
+    "concept": "memory clinic visit",
+    "quantifier": "count>=",
+    "count": 1,
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "encounter",
+     "name": "memory clinic visit",
+     "synonyms": [
+      "もの忘れ外来"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "登録時の年齢が40歳以上の者。",
+   "label": "40歳以上",
+   "source_ref": "1 登録対象 #3",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "age": {
+     "min": 40
+    }
+   },
+   "concept_candidates": []
+  }
+ ]
+}
