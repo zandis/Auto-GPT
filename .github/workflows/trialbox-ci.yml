@@ -100,9 +100,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
       - run: make venv
-      - name: doclint (the eight documents, links, paths)
+      - name: doclint (the eight documents; link and path problems are warnings, D-311)
         run: .venv/bin/python tools/doclint.py
-      - name: decision numbers (one text per number, every file in the registry; T-002, D-306)
+      - name: decision numbers (one number, one text; registry rows are notes only; D-306, D-311)
         run: .venv/bin/python -m tools.decisions_index --check
 
   contracts:
@@ -134,7 +134,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: trialbox/uv.lock
       - run: make venv
-      - name: the traceability CSV is the plan's (tools/gen_traceability.py --check)
+      - name: the traceability CSV (warnings only, never blocks a merge; D-311)
         run: .venv/bin/python tools/gen_traceability.py --check
 
   unit:

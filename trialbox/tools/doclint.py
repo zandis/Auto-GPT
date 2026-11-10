@@ -1,6 +1,7 @@
 """doclint: the repository's documents stay eight, and every link and path in them resolves (TB-PLAN-04 step 9, D-139).
 
-    python tools/doclint.py            # exit 0 = clean; part of `make lint`
+    python tools/doclint.py            # exit 0 unless a set, head or gone problem; part of `make lint`
+    python tools/doclint.py --strict   # link and path problems fail too
 
 Checks, on the eight documents and the handover sheets (``docs/handover/*.md``):
 
@@ -11,9 +12,10 @@ Checks, on the eight documents and the handover sheets (``docs/handover/*.md``):
             one of its headings;
 * **path**  every repository path written in backticks (``tools/x.py``, ``deploy/...``) exists, or is a file git
             ignores (made on the box: ``deploy/.env``, ``deploy/site/...``);
-* **gone**  no file outside the records names a retired document (the 18 → 8 merge of D-139);
-* **gate**  every gate of ``GATES`` has its record ``docs/validation/gates/<gate>.md``, and every record has a
-            register condition and a criteria table whose rows all have an evidence cell (TB-PLAN-06 §2.1, T-661).
+* **gone**  no file outside the records names a retired document (the 18 → 8 merge of D-139).
+
+Link and path problems are printed as warnings and do not fail the run unless ``--strict`` is given (D-311: a broken
+link in a document does not block a code change). The gate-record check of T-661 was removed by D-311.
 
 The records (``docs/reviews``, ``docs/plan``, ``docs/research``, ``spec/``) and ``docs/DECISIONS.md`` (append-only
 history) are not checked for retired names: they say what was true when they were written.
@@ -70,10 +72,8 @@ RECORDS = (
     "tools/doclint.py",
     "tests/unit/test_doclint.py",
 )
-# the gates of TB-PLAN-06 §2.1 that must have a record now; a later gate joins when its card writes the record
-# (the list of later gates is in docs/validation/gates/TEMPLATE.md)
-GATES = ("G0", "GP-0", "GP-1", "GP", "G1")
-GATE_DIR = "docs/validation/gates"
+# problem kinds that only warn unless --strict (D-311)
+WARN_KINDS = (": link: ", ": path: ")
 TOP = ("tools", "docs", "deploy", "services", "libs", "tests", "eval", "spec", "schemas", "rulesets", "models", "site")
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)\)")
 PATH = re.compile(r"`((?:" + "|".join(TOP) + r")/[^`\s]*)`")
@@ -183,51 +183,21 @@ def check_gone() -> list[str]:
     return errs
 
 
-def check_gates() -> list[str]:
-    """A gate without its record is not passed; a criterion without evidence cannot be checked."""
-    folder = ROOT / GATE_DIR
-    errs = [f"{GATE_DIR}/{g}.md: gate: {g} has no record" for g in GATES if not (folder / f"{g}.md").is_file()]
-    for path in sorted(folder.glob("*.md")) if folder.is_dir() else []:
-        rel = f"{GATE_DIR}/{path.name}"
-        lines = path.read_text(encoding="utf-8").splitlines()
-        if "## Register condition" not in lines:
-            errs.append(f"{rel}:1: gate: no '## Register condition' section")
-        start = next((n for n, line in enumerate(lines) if line.strip() == "## Criteria"), None)
-        if start is None:
-            errs.append(f"{rel}:1: gate: no '## Criteria' section")
-            continue
-        col, rows = None, 0
-        for n, line in enumerate(lines[start + 1 :], start + 2):
-            if line.startswith("#"):
-                break
-            if not line.startswith("|"):
-                continue
-            cells = [c.strip() for c in line.strip().strip("|").split("|")]
-            if col is None:
-                low = [c.lower() for c in cells]
-                if "evidence" not in low:
-                    errs.append(f"{rel}:{n}: gate: the criteria table has no Evidence column")
-                    break
-                col = low.index("evidence")
-            elif not all(set(c) <= set("-: ") for c in cells):
-                rows += 1
-                if col >= len(cells) or cells[col] in ("", "-", "—"):
-                    errs.append(f"{rel}:{n}: gate: criterion row has no evidence cell")
-        if col is not None and rows == 0:
-            errs.append(f"{rel}:{start + 1}: gate: the criteria table has no rows")
-    return errs
-
-
 def main(argv: list[str] | None = None) -> int:
+    strict = "--strict" in (sys.argv[1:] if argv is None else argv)
     errs = check_set()
     for rel in DOCS + sorted(str(p.relative_to(ROOT)) for p in (ROOT / "docs" / "handover").glob("*.md")):
         if (ROOT / rel).exists():
             errs += check_doc(rel, history=rel == "docs/DECISIONS.md")
     errs += check_gone()
-    errs += check_gates()
+    warns = [] if strict else [e for e in errs if any(k in e for k in WARN_KINDS)]
+    errs = [e for e in errs if e not in warns]
+    for w in warns:
+        print(f"warning: {w}")
     for e in errs:
         print(e)
-    print(f"doclint: {'clean' if not errs else f'{len(errs)} problem(s)'} ({len(DOCS)} documents)")
+    summary = "clean" if not errs else f"{len(errs)} problem(s)"
+    print(f"doclint: {summary}, {len(warns)} warning(s) ({len(DOCS)} documents)")
     return 1 if errs else 0
 
 

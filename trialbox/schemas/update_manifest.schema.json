@@ -2,18 +2,24 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/update_manifest.schema.json",
   "title": "UpdateManifest",
-  "description": "Offline update bundle manifest (SPEC 10.1), signed with the vendor Ed25519 key. Schema version 1.1.0 (1.1.0: payload kind refdata, the reference data pack of D-140).",
+  "description": "Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.2.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required).",
   "type": "object",
   "required": [
     "bundle_id",
     "created_at",
     "signer",
-    "files"
+    "files",
+    "release_seq",
+    "min_installed_version",
+    "key_id",
+    "not_after",
+    "compat_sha256"
   ],
   "additionalProperties": false,
   "properties": {
     "bundle_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$"
     },
     "created_at": {
       "type": "string",
@@ -33,6 +39,44 @@
       "items": {
         "$ref": "#/$defs/update_file"
       }
+    },
+    "release_seq": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonic release counter: a box refuses a bundle whose release_seq is not above the installed one (unless an audited --allow-downgrade)."
+    },
+    "min_installed_version": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The lowest installed release_seq this bundle applies over (0: also a box never updated under D-210). Never overridable."
+    },
+    "key_id": {
+      "type": "string",
+      "pattern": "^ed25519:[0-9a-f]{16}$",
+      "description": "The signing key: ed25519: + the first 16 hex of the sha256 of its raw 32-byte public key. Must be a key the box trusts and must be the key the signature verifies with."
+    },
+    "not_after": {
+      "type": "string",
+      "format": "date-time",
+      "description": "The bundle is refused after this time."
+    },
+    "compat_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 of the bundle member compat.json (the compatibility table, checked before any file is touched)."
+    },
+    "release_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 of the bundle member release.json (provisional until T-110). Required when the bundle carries images."
+    },
+    "images_lock_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 of the bundle member images.lock (the release's deploy/images.lock)."
+    },
+    "rotation": {
+      "$ref": "#/$defs/key_rotation"
     }
   },
   "$defs": {
@@ -42,12 +86,15 @@
       "required": [
         "path",
         "sha256",
-        "kind"
+        "kind",
+        "size"
       ],
       "additionalProperties": false,
       "properties": {
         "path": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
         },
         "sha256": {
           "type": "string",
@@ -63,7 +110,35 @@
           ]
         },
         "size": {
-          "type": "integer"
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "key_rotation": {
+      "title": "KeyRotation",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "add_key_id",
+        "add_public_key"
+      ],
+      "description": "A rotation bundle: signed by a trusted key, it adds one vendor key and may retire one. Accepted once.",
+      "properties": {
+        "add_key_id": {
+          "type": "string",
+          "pattern": "^ed25519:[0-9a-f]{16}$"
+        },
+        "add_public_key": {
+          "type": "string",
+          "description": "base64 of the raw 32-byte Ed25519 public key"
+        },
+        "retire_key_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^ed25519:[0-9a-f]{16}$"
         }
       }
     }

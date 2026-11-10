@@ -48,6 +48,16 @@ into the eligibility text the criteria are drafted from.
     python -m tb_common.refdata load PACK [--by NAME]  # into TB_DB_URL's schema refdata
     python -m tb_common.refdata status
     python -m tb_common.refdata notice PACK            # print NOTICE.md from the manifest
+    python -m tb_common.refdata withdraw ID --reason R # take one source out of the box (D-317)
+
+**Withdrawing a source** (D-317). A pack replaces only its own sources, so a source a later pack leaves out keeps its
+rows. A pack's manifest may list ``withdrawn: [{"id", "reason"}]``: loading it deletes those sources' rows (a vendor
+pack never deletes the hospital's own site-fetch rows) and records each withdrawal in the table ``withdrawn``;
+``withdraw`` does the same by hand. The status and NOTICE say what was withdrawn, when and why.
+
+**Fetching** (D-317). Only ``tools/refdata_fetch.py fetch`` and the items' licence readers reach the network, all
+through :func:`http_client`; a test replays a :class:`Cassette` (recorded answers, ``tests/fixtures/refdata/
+cassettes``) in its place, so every item's fetch is tested with no network.
 """
 
 from __future__ import annotations
@@ -118,6 +128,12 @@ CREATE TABLE IF NOT EXISTS synonym (term_norm TEXT NOT NULL, term TEXT NOT NULL,
   code TEXT NOT NULL, curated BOOLEAN NOT NULL, extra JSONB NOT NULL, source_id TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS synonym_term ON synonym (term_norm)
 """
+DDL_V3 = """
+CREATE TABLE IF NOT EXISTS withdrawn (source_id TEXT NOT NULL, name TEXT NOT NULL, pack_id TEXT NOT NULL,
+  reason TEXT NOT NULL, records BIGINT NOT NULL, withdrawn_at TEXT NOT NULL, withdrawn_by TEXT NOT NULL,
+  PRIMARY KEY (source_id, withdrawn_at))
+"""
+MIGRATIONS = (DDL, DDL_V2, DDL_V3)  # D-317: version 3, the record of withdrawn sources
 TABLES = ("ctgov_study", "trial", "term", "concept_map", "synonym")
 MAP_COLS = ("source_system", "source_code", "target_system", "target_code", "relation", "source_display",
             "target_display", "extra", "source_id")  # fmt: skip
@@ -203,11 +219,10 @@ def page_licence_reader(page: str, *markers: str) -> LicenceReader:
     words, e.g. NCI's "free of copyright"). None when the page does not answer."""
 
     def read(item: Item) -> LicenceRead | None:
-        import httpx
-
         try:
-            r = httpx.get(page, timeout=60, follow_redirects=True)
-            r.raise_for_status()
+            with http_client() as c:
+                r = c.get(page)
+                r.raise_for_status()
         except Exception:
             return None
         text = r.text
@@ -216,6 +231,131 @@ def page_licence_reader(page: str, *markers: str) -> LicenceReader:
                            len(found) == len(markers))  # fmt: skip
 
     return read
+
+
+# ------------------------------------------------------------------------------------------------ fetching (D-317)
+HTTP_TRANSPORT: Any = None  # None: the network (the vendor's fetch); a test sets a cassette's transport
+
+
+def http_client(timeout: float = 60) -> Any:
+    """The one HTTP client of the vendor's fetch and the licence readers (redirects followed). The box never calls
+    it: it reads the pack. A test replays a :class:`Cassette` through it (``with replay(path):``)."""
+    import httpx
+
+    return httpx.Client(timeout=timeout, follow_redirects=True, transport=HTTP_TRANSPORT)
+
+
+class CassetteMiss(RuntimeError):
+    """A request the cassette did not record: the test would have reached the network."""
+
+
+class Cassette:
+    """Recorded HTTP answers, replayed in place of the network (D-317). A cassette is a JSON file::
+
+        {"note": "...", "interactions": [{"method": "GET", "url": "...", "status": 200, "headers": {...},
+                                          "body": <one of the forms below>, "repeat": false}, ...]}
+
+    Body forms: ``{"text": "..."}``, ``{"json": {...}}``, ``{"file": "<path beside the cassette>"}``,
+    ``{"xlsx_from_csv": "<csv beside the cassette>"}`` (a one-sheet workbook, built at replay time so no binary is
+    committed), ``{"zip": {"<member>": "<file>"}}`` and ``{"tgz": {"<member>": "<file>"}}``. ``"cut_at": n`` sends
+    only the first ``n`` bytes while the ``content-length`` header still names the whole body (a cut-off
+    transfer). Each interaction answers once, in order, unless ``repeat`` is true; a request not recorded raises
+    :class:`CassetteMiss` (kept in ``misses``) and never reaches the network."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        self.interactions: list[dict[str, Any]] = list(doc["interactions"])
+        self.used: list[int] = []
+        self.misses: list[str] = []
+        self._built: dict[int, bytes] = {}
+
+    def body(self, spec: dict[str, Any]) -> bytes:
+        base = self.path.parent
+        if "text" in spec:
+            return str(spec["text"]).encode("utf-8")
+        if "json" in spec:
+            return json.dumps(spec["json"], ensure_ascii=False).encode("utf-8")
+        if "file" in spec:
+            return (base / str(spec["file"])).read_bytes()
+        if "xlsx_from_csv" in spec:
+            import openpyxl
+
+            wb = openpyxl.Workbook()
+            ws = wb.worksheets[0]
+            if spec.get("sheet"):
+                ws.title = str(spec["sheet"])
+            text = (base / spec["xlsx_from_csv"]).read_text(encoding="utf-8")
+            for row in csv.reader(io.StringIO(text)):
+                ws.append([c or None for c in row])
+            buf = io.BytesIO()
+            wb.save(buf)
+            return buf.getvalue()
+        if "zip" in spec:
+            import zipfile
+
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as z:
+                for member, f in sorted(spec["zip"].items()):
+                    z.writestr(member, (base / f).read_bytes())
+            return buf.getvalue()
+        if "tgz" in spec:
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+                for member, f in sorted(spec["tgz"].items()):
+                    data = (base / f).read_bytes()
+                    ti = tarfile.TarInfo(member)
+                    ti.size = len(data)
+                    tf.addfile(ti, io.BytesIO(data))
+            return buf.getvalue()
+        raise ValueError(f"{self.path.name}: unknown body form {sorted(spec)}")
+
+    def handle(self, request: Any) -> Any:
+        import httpx
+
+        url = str(request.url)
+        for i, it in enumerate(self.interactions):
+            if i in self.used and not it.get("repeat"):
+                continue
+            if it.get("method", "GET") == request.method and it["url"] == url:
+                if not it.get("repeat"):
+                    self.used.append(i)
+                data = self.payload_at(i)
+                headers = {"content-length": str(len(data)), **(it.get("headers") or {})}
+                if it.get("cut_at") is not None:
+                    data = data[: int(it["cut_at"])]
+                return httpx.Response(int(it.get("status", 200)), headers=headers, content=data, request=request)
+        self.misses.append(f"{request.method} {url}")
+        raise CassetteMiss(f"{request.method} {url} is not in the cassette {self.path.name}")
+
+    def payload_at(self, i: int) -> bytes:
+        """Interaction ``i``'s whole body, built once per cassette (a workbook or archive built at replay time has
+        the same bytes on every answer, so a test can pin its sha256)."""
+        if i not in self._built:
+            self._built[i] = self.body(self.interactions[i].get("body") or {"text": ""})
+        return self._built[i]
+
+    def payload(self, url: str) -> bytes:
+        """The whole body recorded for the first interaction with ``url``."""
+        return self.payload_at(next(i for i, it in enumerate(self.interactions) if it["url"] == url))
+
+    def unused(self) -> list[str]:
+        return [it["url"] for i, it in enumerate(self.interactions) if i not in self.used and not it.get("repeat")]
+
+
+@contextmanager
+def replay(path: Path) -> Iterator[Cassette]:
+    """Every :func:`http_client` inside the block answers from the cassette at ``path``."""
+    import httpx
+
+    global HTTP_TRANSPORT
+    cas = Cassette(path)
+    before = HTTP_TRANSPORT
+    HTTP_TRANSPORT = httpx.MockTransport(cas.handle)
+    try:
+        yield cas
+    finally:
+        HTTP_TRANSPORT = before
 
 
 def norm_name(text: str) -> str:
@@ -286,15 +426,18 @@ def file_entry(pack: Path, rel: str, records: int) -> dict[str, Any]:
     return {"path": rel, "sha256": sha256_file(p), "bytes": p.stat().st_size, "records": records}
 
 
-def write_manifest(pack: Path, data_as_of: str, sources: list[dict[str, Any]], sample: bool = False) -> dict[str, Any]:
-    m = {
+def write_manifest(pack: Path, data_as_of: str, sources: list[dict[str, Any]], sample: bool = False,
+                   withdrawn: list[dict[str, str]] | None = None) -> dict[str, Any]:  # fmt: skip
+    m: dict[str, Any] = {
         "format": FORMAT,
         "pack_id": pack.name,
         "data_as_of": data_as_of,
-        "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "created_at": datetime.now(UTC).isoformat(timespec="microseconds"),  # D-317: ordered against withdrawals
         "sample": sample,
         "sources": sources,
     }
+    if withdrawn:
+        m["withdrawn"] = withdrawn  # D-317: sources this pack takes out of the box
     check_manifest(m)
     (pack / "manifest.json").write_text(json.dumps(m, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     (pack / "NOTICE.md").write_text(notice(m), encoding="utf-8")
@@ -320,6 +463,10 @@ def notice(m: dict[str, Any]) -> str:
             f"* Attribution: {s['attribution']}",
             "",
         ]
+    if m.get("withdrawn"):
+        out += ["## Withdrawn by this pack", ""]
+        out += [f"* `{w['id']}`: {w['reason']}" for w in m["withdrawn"]]
+        out.append("")
     return "\n".join(out)
 
 
@@ -354,7 +501,15 @@ def check_manifest(m: dict[str, Any]) -> None:
         ids.add(s["id"])
         if sum(int(f["records"]) for f in s["files"]) != int(s["records"]):
             raise PackError(f"source {s['id']}: the files' records do not add up to {s['records']}")
-    if not ids:
+    gone = set()
+    for w in m.get("withdrawn") or []:
+        wid, why = str(w.get("id") or "").strip(), str(w.get("reason") or "").strip()
+        if not wid or not why:
+            raise PackError(f"a withdrawn source needs an id and a reason: {w!r}")
+        if wid in ids or wid in gone:
+            raise PackError(f"source {wid} is both shipped and withdrawn, or withdrawn twice")
+        gone.add(wid)
+    if not ids and not gone:
         raise PackError("the pack has no source")
 
 
@@ -504,7 +659,7 @@ class RefStore:
         from tb_common.db import ENV, Database
 
         self.db = Database.connect(url or os.environ.get(ENV), SCHEMA)
-        self.db.migrate([DDL, DDL_V2])
+        self.db.migrate(list(MIGRATIONS))
 
     def close(self) -> None:
         self.db.close()
@@ -518,11 +673,15 @@ class RefStore:
     def load(self, pack: Path, by: str = "operator", origin: str | None = None) -> LoadResult:
         """Verify, then replace the rows of the pack's sources in one transaction."""
         m = verify(pack)
-        origin = origin or ("site" if all(s["distribution"] == "site-fetch" for s in m["sources"]) else "vendor")
+        site = bool(m["sources"]) and all(s["distribution"] == "site-fetch" for s in m["sources"])
+        origin = origin or ("site" if site else "vendor")  # a pack that only withdraws is the vendor's
         counts: dict[str, int] = {}
         with self.db.transaction() as tx:
             for s in m["sources"]:
                 sid = s["id"]
+                if self._withdrawn_after(tx, sid, str(m.get("created_at") or "")):
+                    log.warning("refdata: %s skipped: withdrawn after pack %s was made", sid, m["pack_id"])
+                    continue  # an older pack loaded again (a restore) never brings a withdrawn source back
                 for table in TABLES:
                     tx.execute(f"DELETE FROM {table} WHERE source_id = ?", (sid,))
                 tx.execute("DELETE FROM source WHERE source_id = ?", (sid,))
@@ -560,6 +719,8 @@ class RefStore:
                      s["licence"], s["attribution"], str(s.get("version") or ""), s["download_sha256"]),
                 )  # fmt: skip
                 counts[sid] = n
+            for w in m.get("withdrawn") or []:
+                self._withdraw(tx, str(w["id"]), str(w["reason"]), by, m["pack_id"], vendor=origin == "vendor")
             tx.execute("DELETE FROM pack WHERE pack_id = ?", (m["pack_id"],))
             tx.execute(
                 "INSERT INTO pack (pack_id, data_as_of, origin, sample, manifest, loaded_at, loaded_by) "
@@ -569,6 +730,50 @@ class RefStore:
             )  # fmt: skip
             tx.execute("DELETE FROM pack WHERE pack_id NOT IN (SELECT DISTINCT pack_id FROM source)")  # replaced
         return LoadResult(m["pack_id"], m["data_as_of"], counts)
+
+    def withdraw(self, source_id: str, reason: str, by: str = "operator") -> int:
+        """Take one loaded source out of the box by hand (D-317): its rows go, the withdrawal is recorded. Returns
+        the rows removed. Refused for a source that is not loaded or without a reason."""
+        if not reason.strip():
+            raise PackError("a withdrawal needs a reason")
+        with self.db.transaction() as tx:
+            n = self._withdraw(tx, source_id.strip(), reason.strip(), by, "manual", vendor=False)
+            tx.execute("DELETE FROM pack WHERE pack_id NOT IN (SELECT DISTINCT pack_id FROM source)")
+        if n is None:
+            raise PackError(f"source {source_id!r} is not loaded")
+        return n
+
+    @staticmethod
+    def _withdrawn_after(tx: Any, sid: str, created_at: str) -> bool:
+        """Whether ``sid`` was withdrawn after a pack made at ``created_at``. Packs made before D-317 carry seconds
+        only; a pack whose time cannot be read is not held back (it loads as before)."""
+        try:
+            made = datetime.fromisoformat(created_at)
+        except ValueError:
+            return False
+        rows = tx.fetchall("SELECT withdrawn_at FROM withdrawn WHERE source_id = ?", (sid,))
+        return any(datetime.fromisoformat(str(at)) > made for (at,) in rows)
+
+    @staticmethod
+    def _withdraw(tx: Any, sid: str, reason: str, by: str, pack_id: str, vendor: bool) -> int | None:
+        """Delete one source's rows and record why. A vendor pack never withdraws the hospital's own (site-fetch)
+        rows; a source that is not loaded is skipped (None): a pack may withdraw what a box never had."""
+        row = tx.fetchone("SELECT name, distribution FROM source WHERE source_id = ?", (sid,))
+        if row is None or (vendor and row[1] == "site-fetch"):
+            return None
+        n = int(sum(tx.execute(f"DELETE FROM {table} WHERE source_id = ?", (sid,)) for table in TABLES))
+        tx.execute("DELETE FROM source WHERE source_id = ?", (sid,))
+        tx.execute(
+            "INSERT INTO withdrawn (source_id, name, pack_id, reason, records, withdrawn_at, withdrawn_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (sid, str(row[0]), pack_id, reason, n, datetime.now(UTC).isoformat(timespec="microseconds"), by),
+        )
+        return n
+
+    def withdrawn(self) -> list[dict[str, Any]]:
+        """Every withdrawal, newest first."""
+        return self.db.fetchdicts("SELECT source_id, name, pack_id, reason, records, withdrawn_at, withdrawn_by "
+                                  "FROM withdrawn ORDER BY withdrawn_at DESC, source_id")  # fmt: skip
 
     # -------------------------------------------------------------------- queries
     def ctgov_study(self, nct_id: str) -> dict[str, Any] | None:
@@ -660,14 +865,19 @@ class RefStore:
             "sample": bool(vendor["sample"]),
             "packs": packs,
             "sources": srcs,
+            "withdrawn": self.withdrawn(),
         }
 
     def notices(self) -> list[dict[str, Any]]:
         """Every loaded source as its manifest states it (licence, terms, attribution): the NOTICE page."""
         out = []
+        live = {(str(r[0]), str(r[1])) for r in self.db.fetchall("SELECT source_id, pack_id FROM source")}
         for (m,) in self.db.fetchall("SELECT manifest FROM pack ORDER BY origin DESC, pack_id"):
             man = _json(m)
             for s in man.get("sources") or []:
+                if (str(s.get("id")), str(man.get("pack_id"))) not in live:
+                    continue  # replaced by a later pack, or withdrawn (D-317): its rows are not in the box
+
                 out.append({k: s.get(k, "") for k in ("id", "name", "kind", "url", "downloaded_at", "records",
                                                       "version", "download_sha256", "licence", "licence_url", "terms",
                                                       "attribution", "distribution")}
@@ -838,8 +1048,17 @@ def main(argv: list[str] | None = None) -> int:
         if name == "load":
             p.add_argument("--by", default="operator")
     sub.add_parser("status")
+    w = sub.add_parser("withdraw", help="delete one loaded source's rows and record why (D-317)")
+    w.add_argument("source_id")
+    w.add_argument("--reason", required=True)
+    w.add_argument("--by", default="operator")
     a = ap.parse_args(argv)
     try:
+        if a.cmd == "withdraw":
+            with RefStore() as store:
+                n = store.withdraw(a.source_id, a.reason, a.by)
+            print(f"withdrew {a.source_id}: {n} rows removed")
+            return 0
         if a.cmd == "status":
             st = status_or_none()
             print(json.dumps(st, ensure_ascii=False, indent=1, default=str) if st else "no reference data loaded")

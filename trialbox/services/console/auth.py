@@ -184,6 +184,14 @@ def _sha(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+API_VIAS = ("api", "api+totp")  # how a bearer session of /api/v1 was opened (T-505a, D-320)
+
+
+def is_api_via(via: str) -> bool:
+    """True for a session opened on ``POST /api/v1/session``: a bearer token, never a cookie (ROLE-001)."""
+    return via in API_VIAS
+
+
 def source_of(host: str | None) -> str:
     """The address a sign-in is counted under (D-279): an IPv4 address as is, an IPv6 address by its /64 (one
     household or one machine holds a whole /64, so counting single IPv6 addresses would not slow anyone). Anything
@@ -584,9 +592,9 @@ class UserStore:
 
     # ------------------------------------------------------------------ sessions
     def new_session(self, user: User, lang: str = "en", via: str = "") -> tuple[str, Session]:
-        """A session; ``via`` says how it was opened (``password``, ``password+totp``, ``oidc``, ``sso``, ``api``;
-        D-279): an ``oidc`` session lives ``oidc_absolute`` at most, so a person removed from the directory loses
-        the console within that time (CR-117)."""
+        """A session; ``via`` says how it was opened (``password``, ``password+totp``, ``oidc``, ``sso``, ``api``,
+        ``api+totp``; D-279, D-320): an ``oidc`` session lives ``oidc_absolute`` at most, so a person removed from the
+        directory loses the console within that time (CR-117)."""
         token = secrets.token_urlsafe(32)
         csrf = secrets.token_urlsafe(32)
         now = self.clock().isoformat()
@@ -596,9 +604,13 @@ class UserStore:
         )
         return token, Session(user, csrf, lang, _sha(token))
 
-    def session(self, token: str | None, touch: bool = True) -> Session | None:
+    def session(self, token: str | None, touch: bool = True, api: bool = False) -> Session | None:
         """The live session of ``token``. ``touch=False`` (a page's own auto-refresh, D-192 review H3) reads the
-        session without counting the request as activity, so an open page that refreshes itself still locks."""
+        session without counting the request as activity, so an open page that refreshes itself still locks.
+
+        A session belongs to one channel (T-505a, D-320, ROLE-001): a token from ``POST /api/v1/session`` (``via``
+        ``api`` or ``api+totp``) is a bearer token only and is no cookie for the pages; a page's session is no bearer
+        token. ``api=True`` asks for a bearer token. The other channel's token reads as no session; it is not ended."""
         if not token or len(token) > 256:
             return None
         sha = _sha(token)
@@ -606,7 +618,7 @@ class UserStore:
         row = self.db.fetchone(
             "SELECT username, csrf, created, last_seen, lang, via FROM sessions WHERE token_sha = ?", (sha,)
         )
-        if row is None:
+        if row is None or is_api_via(str(row[5])) != api:
             return None
         created, last = datetime.fromisoformat(row[2]), datetime.fromisoformat(row[3])
         user = self.get(str(row[0]))

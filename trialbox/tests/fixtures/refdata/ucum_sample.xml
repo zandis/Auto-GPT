@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="ascii"?>
+<!-- SYNTHETIC: the shape of ucum-essence.xml with invented codes, for tests only (T-618, D-317). Not UCUM content. -->
+<root xmlns="http://unitsofmeasure.org/ucum-essence" version="2.2" revision="N/A"
+      revision-date="2024-06-17">
+   <prefix Code="tbxp" CODE="TBXP">
+      <name>testprefix</name>
+      <printSymbol>tp</printSymbol>
+      <value value="1e3">1 &#215; 10<sup>3</sup>
+      </value>
+   </prefix>
+   <base-unit Code="tbxb" CODE="TBXB" dim="Q">
+      <name>testbase</name>
+      <printSymbol>tb</printSymbol>
+      <property>test quantity</property>
+   </base-unit>
+   <unit Code="tbxu" CODE="TBXU" isMetric="yes" class="test">
+      <name>testunit</name>
+      <name>second name</name>
+      <printSymbol>tu</printSymbol>
+      <property>test quantity</property>
+      <value Unit="tbxb" UNIT="TBXB" value="2">2</value>
+   </unit>
+</root>

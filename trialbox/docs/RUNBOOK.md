@@ -188,20 +188,46 @@ A failed job names its step (received, parsing, compiling, running, reporting) a
 
 ## 5. Updates, backup, restore, secrets
 
-**Updates** (D-138): `sudo tools/apply_update.sh trialbox-<version>.tar --dry-run`, then without `--dry-run`.
+**Updates** (D-138, D-210): `sudo tools/apply_update.sh trialbox-<version>.tar --dry-run`, then without `--dry-run`.
 
-1. The bundle is verified (vendor Ed25519 signature, every sha256). A bad bundle changes nothing.
+1. **Checked before anything changes.** The bundle is verified with a vendor key the box trusts (the signature,
+   `key_id`, every sha256 and size), `not_after` (an expired bundle is refused), `release_seq` above the installed one,
+   `min_installed_version`, the compatibility table `compat.json` (schema versions, vocabulary release, model pin,
+   prompt registry), the image digests of `release.json` against `images.lock` (a digest not pinned is refused), and
+   the free space on every disk it writes, with the numbers (`needs 13.5 GB …, free 4.2 GB`). Any refusal: exit 1,
+   nothing changed.
 2. **Backup first** to `TB_BACKUP_TARGETS` with `deploy/secrets/backup.pub`. No key or no target: the update refuses.
 3. **Rollback point:** replaced images tagged `<repo>:rollback-<bundle>`, overwritten models kept, both databases
-   dumped locally (0600, removed after success).
+   dumped locally and encrypted with a key made for this update, the rulesets repository tagged.
 4. **Apply:** images loaded, models copied, `docker compose up -d --wait` (services migrate at start), rulesets
-   (approval and equivalence gates), health check.
-5. `update.applied` in the audit. A failure after step 3 puts images, models and databases back, restarts, checks
-   and writes `update.rolled_back`; exit 1.
+   (approval and equivalence gates), health check, then the reference data pack as its own step (if only that fails,
+   the new release stays and the pack waits in `deploy/refdata/pending`).
+5. `update.applied` in the audit; the rollback point (dumps and key) deleted. A failure in step 4 before the reference
+   data puts images, models, databases and rulesets back, restarts, checks and writes `update.rolled_back`; exit 1. If
+   the backup or the rollback point fails, the stopped services are started again and nothing else changed.
 
-Every step is in `deploy/updates/history.jsonl`. `--no-backup` is for a test box only and is audited. If the rollback
-itself fails, restore from the backup. Driver updates are outside the bundle and need a change request. Held by
-`tests/unit/test_update_path.py` and `tools/update_drill.py`.
+**While an update runs** `deploy/updates/IN_PROGRESS.json` names the bundle and the step. It is removed only when the
+update or its rollback completed; while it exists no other update starts. After a power cut or a killed update:
+
+| Command | What it does |
+| --- | --- |
+| `tools/apply_update.sh status` | the bundle, the step it stopped at, running or interrupted, the installed `release_seq`, the trusted keys |
+| `tools/apply_update.sh rollback <bundle>` | puts the box back as before that update (or only restarts the services, if it stopped before the rollback point), audits it, removes the marker |
+| `tools/apply_update.sh clean` | removes left-over rollback points of finished updates |
+| `python3 -m tools.update_status check` | exit 3 while an update is unfinished (a start guard) |
+
+**Older releases.** A bundle with a `release_seq` not above the installed one is refused. Only on the vendor's written
+instruction: `tools/apply_update.sh <bundle> --allow-downgrade "<ticket and reason>"`; the audit gets
+`update.downgrade`. A bundle that does not know the box's schema version is refused even then.
+
+**Vendor keys.** The box trusts at most two keys (`deploy/updates/trust.json`; before the first update,
+`deploy/keys/vendor_ed25519.pub` and `vendor_ed25519.next.pub`). The vendor changes keys with a rotation bundle, signed
+by a trusted key, applied like any update and accepted once; a retired key is never trusted again.
+
+Every step is in `deploy/updates/history.jsonl`; `deploy/updates/installed.json` records what is installed.
+`--no-backup` is for a test box only and is audited. If the rollback itself fails, the marker stays: restore from the
+backup. Driver updates are outside the bundle and need a change request. Held by `tests/unit/test_update_path.py`,
+`tests/unit/test_update_safety.py` and `tools/update_drill.py`.
 
 **Backup** (D-126, D-187, D-188). Once, with hospital IT: `python -m tools.trialbox backup-keygen --private
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the

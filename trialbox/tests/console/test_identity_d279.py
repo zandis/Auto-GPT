@@ -238,7 +238,9 @@ def test_with_totp_on_a_signature_needs_a_fresh_code(eb: dict[str, Any]) -> None
     secret = totp.new_secret()
     eb["users"].set_totp("crc", ident.box.seal("crc", secret), totp.step_at(clock.unix()) - 5)
     c = TestClient(app)
-    tok = c.post("/api/v1/session", json={"username": "crc", "password": PW}).json()["token"]
+    # T-505a (D-320): the API sign-in takes a code too; the previous step's, so the current one is fresh for signing
+    first = totp.totp(secret, clock.unix() - totp.STEP_SECONDS)
+    tok = c.post("/api/v1/session", json={"username": "crc", "password": PW, "code": first}).json()["token"]
     hd = {"authorization": f"Bearer {tok}"}
     r = c.post("/api/v1/studies/GZQO/edc/drafts", json={"record": NO, "visit_date": k.VISIT_DATE}, headers=hd)
     assert r.status_code == 200, r.text

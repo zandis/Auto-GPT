@@ -41,6 +41,15 @@ EN: dict[str, str] = {
     "data already in TrialBox stays.",
     "confirm.approve_all": "Approve all {n} criteria in one step? Each criterion is recorded as approved with your "
     "name.",
+    # T-507 (D-309): criterion words in the page language, the label step at approval, the test model
+    "crit.original": "As written in the protocol",
+    "model.test": "test model",
+    "model.test.why": "This answer comes from the test model, which gives fixed answers to the demonstration notes. "
+    "It says nothing about how well a real model reads notes.",
+    "s20.labels.missing": "Give a short label in {language} to the {n} criteria marked below before approving; "
+    "the lists show the label with the study's own words.",
+    "s20.label.missing": "No label in {language} yet",
+    "s20.label.shipped": "Label that comes with the study's criteria; save it as is or change it.",
 }
 
 JA: dict[str, str] = {
@@ -81,6 +90,14 @@ JA: dict[str, str] = {
     "confirm.detach": "この試験から REDCap を切り離しますか？TrialBox はプロジェクトの読み取りと書き込みをやめます。"
     "TrialBox にあるデータはそのまま残ります。",
     "confirm.approve_all": "{n} 件の基準をまとめて承認しますか？各基準があなたの氏名で承認として記録されます。",
+    "crit.original": "プロトコルの原文",
+    "model.test": "テスト用モデル",
+    "model.test.why": "この回答は、デモ用の記録に固定の回答を返すテスト用モデルによるものです。"
+    "実際のモデルがカルテ記載をどの程度正しく読めるかは示しません。",
+    "s20.labels.missing": "承認の前に、下の印のある {n} 件の基準に{language}の短い表示名を付けてください。"
+    "一覧では表示名と試験の原文が並べて表示されます。",
+    "s20.label.missing": "{language}の表示名がまだありません",
+    "s20.label.shipped": "試験の基準に付属する表示名です。そのまま保存するか、変更してください。",
 }
 
 ZH: dict[str, str] = {
@@ -117,4 +134,10 @@ ZH: dict[str, str] = {
     "confirm.take": "要採用 {source} 的數值嗎？TrialBox 的數值會被取代，舊數值保留在歷程中。",
     "confirm.detach": "要將 REDCap 從本試驗分離嗎？TrialBox 會停止讀取與寫入該專案。已在 TrialBox 中的資料會保留。",
     "confirm.approve_all": "要一次核准全部 {n} 項條件嗎？每項條件都會以您的姓名記錄為已核准。",
+    "crit.original": "計畫書原文",
+    "model.test": "測試用模型",
+    "model.test.why": "此回答來自測試用模型，它對示範用紀錄回傳固定答案，無法說明實際模型閱讀病歷的能力。",
+    "s20.labels.missing": "核准前，請為下方標示的 {n} 項條件加上{language}簡短標籤；名單會將標籤與試驗原文並列顯示。",
+    "s20.label.missing": "尚無{language}標籤",
+    "s20.label.shipped": "此標籤隨試驗條件提供；可直接儲存或修改。",
 }

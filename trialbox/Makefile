@@ -104,7 +104,7 @@ ci: venv-check
 	$(PY) -m mypy libs services tools tests
 	$(PY) tools/doclint.py
 	$(MAKE) contracts-check
-	$(PY) tools/gen_traceability.py --check
+	$(PY) tools/gen_traceability.py --check  # warnings only (D-311)
 	@mkdir -p "$(TB_TEST_ROOT)"
 	set -o pipefail; $(MAKE) test 2>&1 | tee "$(CI_LOG)"
 	$(PY) -m tools.data_scan --log "$(CI_LOG)"
@@ -129,7 +129,7 @@ e2e-simple:
 # the committed goldens (T-006, D-205): the merge gate for every data-core branch. Profile ci (5,450 synthetic and
 # public patients, fixed site key): both lake sources side by side, about 2.5 minutes; TB_LAKE_SOURCE=omop (or legacy)
 # checks one source only.
-# A deliberate change: make goldens REASON="D-nnn: why the numbers move" in the same pull request.
+# A deliberate change: make goldens REASON="why the numbers move" in the same pull request (any text, D-311).
 goldens-check:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.goldens --check --profile ci
 

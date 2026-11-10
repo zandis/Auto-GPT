@@ -1,0 +1,304 @@
+{
+ "note": "T-618 (D-317): recorded answers for every item TrialBox fetches. Bodies are the committed excerpts and synthetic records under tests/fixtures/refdata (no real patient data); the data.gov.tw records keep only the fields the licence reader reads.",
+ "interactions": [
+  {
+   "method": "GET",
+   "url": "https://clinicaltrials.gov/api/v2/version",
+   "status": 200,
+   "body": {
+    "json": {
+     "apiVersion": "2.0.5",
+     "dataTimestamp": "2026-11-10T10:00:05"
+    }
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://clinicaltrials.gov/api/v2/stats/size",
+   "status": 200,
+   "body": {
+    "json": {
+     "totalStudies": 4
+    }
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://clinicaltrials.gov/api/v2/studies/download?format=json.zip",
+   "status": 200,
+   "body": {
+    "zip": {
+     "NCT99000001.json": "ctgov/NCT99000001.json",
+     "NCT99000002.json": "ctgov/NCT99000002.json",
+     "NCT99000003.json": "ctgov/NCT99000003.json",
+     "NCT99000004.json": "ctgov/NCT99000004.json"
+    }
+   },
+   "headers": {
+    "content-type": "application/zip"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://data.fda.gov.tw/data/opendata/export/205/csv",
+   "status": 200,
+   "body": {
+    "zip": {
+     "205.csv": "../tfda_trials_sample.csv"
+    }
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://data.fda.gov.tw/data/opendata/export/206/csv",
+   "status": 200,
+   "body": {
+    "zip": {
+     "206.csv": "../tfda_indication_sample.csv"
+    }
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://www.mhlw.go.jp/topics/2026/04/tp20260401-01.html",
+   "status": 200,
+   "body": {
+    "text": "<html><body>\n<a href=\"/topics/2026/11/xls/tp20261105-01_01.xlsx\">list 1</a>\n<a href=\"/topics/2026/11/xls/tp20261105-01_02.xlsx\">list 2</a>\n<a href=\"/topics/2026/11/xls/tp20261105-01_03.xlsx\">list 3</a>\n<a href=\"/topics/2026/11/xls/tp20261105-01_04.xlsx\">list 4</a>\n</body></html>\n"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://www.mhlw.go.jp/topics/2026/11/xls/tp20261105-01_01.xlsx",
+   "status": 200,
+   "body": {
+    "xlsx_from_csv": "../mhlw_yakka_sample.csv"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://www.mhlw.go.jp/topics/2026/11/xls/tp20261105-01_02.xlsx",
+   "status": 200,
+   "body": {
+    "xlsx_from_csv": "../mhlw_yakka_sample.csv"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://www.mhlw.go.jp/topics/2026/11/xls/tp20261105-01_03.xlsx",
+   "status": 200,
+   "body": {
+    "xlsx_from_csv": "../mhlw_yakka_sample.csv"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://www.mhlw.go.jp/topics/2026/11/xls/tp20261105-01_04.xlsx",
+   "status": 200,
+   "body": {
+    "xlsx_from_csv": "../mhlw_yakka_sample.csv"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-E41001-001",
+   "status": 200,
+   "body": {
+    "file": "../nhi_drugs_sample.csv"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://data.gov.tw/api/v2/rest/dataset/23715",
+   "status": 200,
+   "body": {
+    "json": {
+     "success": true,
+     "result": {
+      "datasetId": 23715,
+      "modifiedDate": "2026-11-10 06:00:00",
+      "license": "1",
+      "distribution": [
+       {
+        "resourceDownloadUrl": "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-E41001-001"
+       }
+      ]
+     }
+    }
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20021-001",
+   "status": 200,
+   "body": {
+    "file": "../nhi_services_sample.csv"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://data.gov.tw/api/v2/rest/dataset/174450",
+   "status": 200,
+   "body": {
+    "json": {
+     "success": true,
+     "result": {
+      "datasetId": 174450,
+      "modifiedDate": "2026-11-10 07:06:05",
+      "license": "1",
+      "distribution": [
+       {
+        "resourceDownloadUrl": "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20021-001"
+       }
+      ]
+     }
+    }
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20026-007",
+   "status": 200,
+   "body": {
+    "file": "../tw_icd_2014_2023_cm_sample.csv"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20026-008",
+   "status": 200,
+   "body": {
+    "file": "../tw_icd_2014_2023_pcs_sample.csv"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://data.gov.tw/api/v2/rest/dataset/177508",
+   "status": 200,
+   "body": {
+    "json": {
+     "success": true,
+     "result": {
+      "datasetId": 177508,
+      "modifiedDate": "2026-09-30 10:00:00",
+      "license": "1",
+      "distribution": [
+       {
+        "resourceDownloadUrl": "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20026-007"
+       },
+       {
+        "resourceDownloadUrl": "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20026-008"
+       }
+      ]
+     }
+    }
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://packages.fhir.org/tw.gov.mohw.nhi.pas/1.3.0",
+   "status": 200,
+   "body": {
+    "tgz": {
+     "package/package.json": "../nhi_pas_sample/package.json",
+     "package/ConceptMap-nhi-loinc.json": "../nhi_pas_sample/ConceptMap-nhi-loinc.json"
+    }
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://opendata.naer.edu.tw/%E5%AD%B8%E8%A1%93%E5%90%8D%E8%A9%9E/%E5%9C%8B%E5%AE%B6%E6%95%99%E8%82%B2%E7%A0%94%E7%A9%B6%E9%99%A2-%E9%86%AB%E5%AD%B8%E5%AD%B8%E8%A1%93%E5%90%8D%E8%A9%9E.csv",
+   "status": 200,
+   "body": {
+    "file": "../naer_medical_terms_sample.csv"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://data.gov.tw/api/v2/rest/dataset/15460",
+   "status": 200,
+   "body": {
+    "json": {
+     "success": true,
+     "result": {
+      "datasetId": 15460,
+      "modifiedDate": "2026-08-12 09:00:00",
+      "license": "1",
+      "distribution": [
+       {
+        "resourceDownloadUrl": "https://opendata.naer.edu.tw/%E5%AD%B8%E8%A1%93%E5%90%8D%E8%A9%9E/%E5%9C%8B%E5%AE%B6%E6%95%99%E8%82%B2%E7%A0%94%E7%A9%B6%E9%99%A2-%E9%86%AB%E5%AD%B8%E5%AD%B8%E8%A1%93%E5%90%8D%E8%A9%9E.csv"
+       }
+      ]
+     }
+    }
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://ftp.cdc.gov/pub/Health_Statistics/NCHS/Publications/ICD10CM/2027/icd10cm-code-descriptions-2027.zip",
+   "status": 200,
+   "body": {
+    "zip": {
+     "icd10cm-code-descriptions-2027/icd10cm-codes-2027.txt": "../icd10cm_sample.txt"
+    }
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://dctd.cancer.gov/research/ctep-trials/trial-development/ctcae-v5.0.xlsx",
+   "status": 200,
+   "body": {
+    "xlsx_from_csv": "../ctcae_v5_sample.csv",
+    "sheet": "CTCAE v5.0 Clean Copy"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://www.cancer.gov/policies/copyright-reuse",
+   "status": 200,
+   "body": {
+    "text": "<p>Most text on cancer.gov is free of copyright and may be reused without permission.</p>"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://raw.githubusercontent.com/ucum-org/ucum/v2.2/ucum-essence.xml",
+   "status": 200,
+   "body": {
+    "file": "../ucum_sample.xml"
+   },
+   "repeat": true
+  },
+  {
+   "method": "GET",
+   "url": "https://raw.githubusercontent.com/ucum-org/ucum/v2.2/LICENSE.md",
+   "status": 200,
+   "body": {
+    "text": "# UCUM Copyright Notice and License\n(excerpt) Regenstrief Institute ... a worldwide, non-exclusive, no-charge, royalty-free, revocable license to reproduce, publicly display, publicly perform, and distribute the Work ...\n"
+   },
+   "repeat": true
+  }
+ ]
+}

@@ -429,6 +429,8 @@ Rule (PR-06): no site goes live within ten working days before a national holida
 
 ### 4.1 Gates
 
+> D-311 (B28): at CGMH this formal validation ritual (signed plan, independent executor and witness, co-signed residual risks) is dropped. The install check (`doctor`) and the recount test stay as automated tests. It returns only if EDC prefill writes into a sponsor's regulated record (TB-PLAN-06 §0.3 item 2).
+
 | Gate | What must be true | Planned | Decided by |
 | --- | --- | --- | --- |
 | **G0 Plan approved** | TB-PLAN-05 v1.2 approved; the W1 actions started (the Spark, the rental, the contracts on the hospitals' templates, the amendments, the survey, the quote, the MIG request) | W1, 2026-11-13 | Changfu |
@@ -504,6 +506,8 @@ Six chains decide the dates. None is code.
 Plain statement. The build fits the 16 weeks to G3 if agents run in parallel, merge continuously and the human review is concentrated as §3 says. The dates are set by the six chains above, which are hospital, legal and vendor lead times. The plan starts every chain in W1 or W2, puts a hard date on the calendar for each, and keeps two weeks of slack per site. If a chain is later than its hard date, that site's go-live moves by the same amount; the scope does not.
 
 ### 4.5 Readiness checklist for G6
+
+> D-311 (B28): at CGMH this formal validation ritual (signed plan, independent executor and witness, co-signed residual risks) is dropped. The install check (`doctor`) and the recount test stay as automated tests. It returns only if EDC prefill writes into a sponsor's regulated record (TB-PLAN-06 §0.3 item 2).
 
 Items that may **not** be deviated (the VMP §6): the IRB approval with the amendment; the signed DPA; the real-data dry run and the blind re-entry within their thresholds; PQ at 0 fail on the H functions; the pentest letter with no open High on the final digest set; the shared-host isolation tests (CGMH); the backup restore drill; every reveal audited.
 
@@ -716,6 +720,8 @@ Severity S1 negligible, S2 minor, S3 serious (a patient loses a study opportunit
 Residual risks accepted with justification at G6, **co-signed by the site PIs** (independent review §6): RSK-01 (S3 P2; manual screening continues at both sites during the pilot), RSK-08 (S4 P1; the clinician flag off), RSK-19 (S3 P2; the owner chose a warning), RSK-36 (S4 P2; named platform administrators), RSK-42 (S4 P1; the owner's decided design, with the IRB sentence), RSK-45 (S3 P2; the owner chose the full scope and the later date). All others reach P1 after the controls. The risk file is reviewed at G2, G3 and G6, after any incident and at the six-monthly periodic review.
 
 ## 7. Validation plan (GAMP 5)
+
+> D-311 (B28): at CGMH this formal validation ritual (signed plan, independent executor and witness, co-signed residual risks) is dropped. The install check (`doctor`) and the recount test stay as automated tests. It returns only if EDC prefill writes into a sponsor's regulated record (TB-PLAN-06 §0.3 item 2).
 
 ### 7.1 Software categories
 

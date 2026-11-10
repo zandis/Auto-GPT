@@ -148,7 +148,9 @@ vsf(vs_id, system, prefix) AS (VALUES
   ('VS_ANTICOAGULANT', 'http://www.whocc.no/atc', 'B01AA'),
   ('VS_ANTICOAGULANT', 'http://www.whocc.no/atc', 'B01AE'),
   ('VS_ANTICOAGULANT', 'http://www.whocc.no/atc', 'B01AF'),
+  ('VS_MILD_COGNITIVE_IMPAIRMENT_OR_ALZHEIMER_S_DISEASE', 'http://hl7.org/fhir/sid/icd-10', 'F00'),
   ('VS_MILD_COGNITIVE_IMPAIRMENT_OR_ALZHEIMER_S_DISEASE', 'http://hl7.org/fhir/sid/icd-10-cm', 'G30'),
+  ('VS_STROKE', 'http://hl7.org/fhir/sid/icd-10', 'I64'),
   ('VS_STROKE', 'http://hl7.org/fhir/sid/icd-10-cm', 'I63')),
 -- AD-MAB-INC-01 (inclusion): 同意取得時の年齢が50歳以上85歳以下の者。
 c_ad_mab_inc_01 AS (
