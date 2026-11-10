@@ -1,13 +1,13 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "5b31ff48d3df539a42b2d482bc405f74e0d2a3d4",
+  "head": "09b3ba39dacdff846001ad35148e7e4667f28353",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: adds the goldens of the new AD-MAB and NEUR-COH rulesets (T-503); no existing value moves",
+  "reason": "D-275 on master after T-614, AD recompile and D-276: unusable structured data is unknown, never an exclusion",
   "ref_date": "2026-11-01",
   "seed": 42,
-  "written_with_source": "legacy"
+  "written_with_source": "legacy+omop"
  },
  "rulesets": {
   "AD-MAB": {
@@ -1037,7 +1037,7 @@
        "proposed": 20
       },
       "RA-BIO-INC-05": {
-       "coded": 85,
+       "coded": 83,
        "confirmed": 1,
        "proposed": 20
       },
@@ -1180,7 +1180,7 @@
        "proposed": 19
       },
       "RA-COH-INC-03": {
-       "coded": 243,
+       "coded": 238,
        "confirmed": 2,
        "proposed": 19
       },
@@ -1215,7 +1215,7 @@
        "proposed": 19
       },
       "RA-COH-INC-03": {
-       "coded": 330,
+       "coded": 329,
        "confirmed": 2,
        "proposed": 19
       },
