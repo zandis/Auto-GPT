@@ -54,7 +54,7 @@ integrator 2026-11-10). Trace: URS-STW-01, RSK-05, RSK-13; TST-GOLD-01, TST-OPS-
   per-schema advisory lock: (1) applied versions must be exactly `1..n`, and a list must number its scripts `1..n`,
   else `MigrationOrderError`; (2) a row from before D-204 (no checksum) is back-filled, logged, only when the script
   the code passes for it has the store's checksum in the **D-204 baseline** (`libs/tb_common/migration_baseline.py`,
-  frozen, 20 stores; the scratch twins `omop_<hash>` and `orch_rerun_<hex>` share their store's entry); otherwise
+  frozen, 21 stores; the scratch twins `omop_<hash>` and `orch_rerun_<hex>` share their store's entry); otherwise
   `MigrationChanged`, so a box that skips straight to a release with an edited past DDL is refused instead of
   recording the edit; a store without a baseline (a test's schema, the update path's `release`) is back-filled from
   the code, logged; (3) once every row carries a checksum the table is marked (`COMMENT ON TABLE _schema_version`),

@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 
 BASELINE: dict[str, tuple[str, ...]] = {
+    "app": ("5e9714c8055ac691c6cf9c24fec249ce854e1b838a4961700a2a1422ba95aac3",),
     "auth": (
         "e9a25f1f3827e28dda3aa778c3a1fa46b7fc6b5a93ea23a5a3f27b160ada2f3e",
         "d92fa508ca37636a868a7ac4600d4d9dd0525152b15efa90c818a23971ffdee1",

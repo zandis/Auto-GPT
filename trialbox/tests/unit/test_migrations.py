@@ -327,7 +327,7 @@ def store_migrations() -> dict[str, list[str]]:
     from orchestrator import db_pg, studystore
     from orchestrator.recall import ledger
     from sitesetup import store as sitesetup
-    from tb_common import optout, refdata
+    from tb_common import flags, optout, refdata
     from tracestore import store as trace
 
     return {
@@ -351,6 +351,7 @@ def store_migrations() -> dict[str, list[str]]:
         "team": list(teamstore.MIGRATIONS),
         "edc": [edc.SCHEMA],
         "sae": list(saerecord.MIGRATIONS),
+        "app": list(flags.MIGRATIONS),
     }
 
 
@@ -360,7 +361,7 @@ PINNED: dict[str, tuple[str, ...]] = {k: v + ADDED.get(k, ()) for k, v in BASELI
 
 #: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)
 STORE_FILES = {
-    "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
+    "libs/tb_common/flags.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
     "services/adapter/pidmap.py", "services/console/auth.py", "services/console/saerecord.py",
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
     "services/datacore/store.py", "services/dataplat/mpi/__init__.py", "services/edc/store.py",
