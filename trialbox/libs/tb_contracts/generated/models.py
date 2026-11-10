@@ -898,7 +898,7 @@ class Precheck(BaseModel):
 
 class PromptMeta(BaseModel):
     """
-    YAML front matter of services/*/prompts/<id>_v<n>.md (SPEC 7). Schema version 1.0.0.
+    YAML front matter of libs/tb_llm/prompts/<id>_v<n>.md, listed in libs/tb_llm/prompts/registry.yaml (SPEC 7, D-300). Schema version 1.0.0.
     """
 
     model_config = ConfigDict(

@@ -70,6 +70,7 @@ class NativeEngine:
             context_of_use="intake_classify",
             role="classify_intent",
             prompt=f"{self.prompt.meta.id}@{self.prompt.meta.version}",
+            prompt_sha=self.prompt.sha256,
         )
         schema = ClassifiedIntent.model_json_schema()
         try:

@@ -1,7 +1,9 @@
 """The only LLM entry point in TrialBox (SPEC §4.7, §7): ``chat_json(prompt_id, variables, schema)``.
 
-* Prompts are files ``services/*/prompts/<id>_v<n>.md`` with YAML front matter (``PromptMeta``) and ``## system`` /
-  ``## user`` Jinja2 sections; the newest version is used unless pinned (``"judge_v3"``).
+* Prompts are registry objects (D-300, :mod:`tb_llm.prompt_registry`): files ``libs/tb_llm/prompts/<id>_v<n>.md``
+  with YAML front matter (``PromptMeta``) and ``## system`` / ``## user`` Jinja2 sections, each listed in
+  ``registry.yaml`` with its sha256; a file whose bytes differ from the registry is refused. The newest registered
+  version is used unless pinned (``"judge_v3"``).
 * Output is constrained with ``response_format: json_schema`` (vLLM guided decoding), validated with jsonschema,
   retried once with the violations; a second violation raises :class:`LlmSchemaError`.
 * Routing: ``model_class: cloud`` prompts go to ``CLOUD_LLM_BASE_URL`` only when (a) the calling service is
@@ -35,7 +37,6 @@ from tb_common.audit import AuditLog
 from tb_common.crypto import sha256_text
 from tb_common.phi_guard import PhiClearance, variables_text
 
-REPO = Path(__file__).resolve().parents[2]
 _FM = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.S)
 _SECTION = re.compile(r"^##\s+(system|user)\s*$", re.M)
 _env = Environment(undefined=StrictUndefined, autoescape=False, keep_trailing_newline=False)  # noqa: S701
@@ -57,6 +58,7 @@ class Prompt:
     system: str
     user: str
     path: Path
+    sha256: str = ""  # the registry's sha of the file (D-300): sent as X-TB-Prompt-Sha, recorded in the audit
 
 
 @dataclass
@@ -71,33 +73,24 @@ class LlmResult:
     tokens_in: int
     tokens_out: int
     attempts: int
+    prompt_sha: str = ""
     build_sha: str = ""  # through the gateway: the build that answered (weights digest); "" on a direct call (D-276)
-
-
-def prompt_dirs() -> list[Path]:
-    env = os.environ.get("TB_PROMPT_DIRS")
-    if env:
-        return [Path(p) for p in env.split(os.pathsep) if p]
-    return sorted((REPO / "services").glob("*/prompts"))
 
 
 @lru_cache(maxsize=128)
 def load_prompt(prompt_id: str) -> Prompt:
-    """``judge`` -> newest ``judge_v<n>.md``; ``judge_v3`` -> exactly version 3."""
+    """``judge`` -> the newest registered version; ``judge_v3`` -> exactly version 3. Resolved through the prompt
+    registry (D-300): an unregistered id or version, or a file whose sha256 differs from the registry, is refused."""
+    from tb_llm.prompt_registry import PromptRegistryError, default_registry
+
     pinned = re.fullmatch(r"(.+)_v(\d+)", prompt_id)
     base, want = (pinned.group(1), int(pinned.group(2))) if pinned else (prompt_id, None)
-    found: list[tuple[int, Path]] = []
-    for d in prompt_dirs():
-        for p in d.glob(f"{base}_v*.md"):
-            m = re.fullmatch(rf"{re.escape(base)}_v(\d+)\.md", p.name)
-            if m:
-                found.append((int(m.group(1)), p))
-    if want is not None:
-        found = [f for f in found if f[0] == want]
-    if not found:
-        raise LlmError(f"prompt {prompt_id!r} not found in {[str(d) for d in prompt_dirs()]}")
-    _, path = max(found)
-    m = _FM.match(path.read_text(encoding="utf-8"))
+    try:
+        resolved = default_registry().get(base, want)
+    except PromptRegistryError as exc:
+        raise LlmError(f"prompt {prompt_id!r} refused ({exc.reason}): {exc}") from exc
+    path = resolved.path
+    m = _FM.match(resolved.text)
     if not m:
         raise LlmError(f"{path}: missing YAML front matter")
     meta = PromptMeta.model_validate(yaml.safe_load(m.group(1)))
@@ -105,7 +98,7 @@ def load_prompt(prompt_id: str) -> Prompt:
     sections = {parts[i]: parts[i + 1].strip() for i in range(1, len(parts) - 1, 2)}
     if "system" not in sections or "user" not in sections:
         raise LlmError(f"{path}: needs '## system' and '## user' sections")
-    return Prompt(meta, sections["system"], sections["user"], path)
+    return Prompt(meta, sections["system"], sections["user"], path, resolved.sha256)
 
 
 def render(prompt: Prompt, variables: dict[str, Any]) -> list[dict[str, str]]:
@@ -205,7 +198,11 @@ class LlmClient:
         target = "gateway" if self.gateway is not None else self._target(prompt.meta, variables, clearance)
         base, model = (self.cloud_base_url, self.cloud_model) if target == "cloud" else (self.base_url, self.model)
         served = model
-        headers = {"X-TB-Prompt-Id": prompt.meta.id, "X-TB-Prompt-Version": str(prompt.meta.version)}
+        headers = {
+            "X-TB-Prompt-Id": prompt.meta.id,
+            "X-TB-Prompt-Version": str(prompt.meta.version),
+            "X-TB-Prompt-Sha": prompt.sha256,
+        }
         if target == "cloud" and self.cloud_api_key:
             headers["Authorization"] = f"Bearer {self.cloud_api_key}"
         tokens_in = tokens_out = 0
@@ -226,7 +223,7 @@ class LlmClient:
             }
             t0 = time.perf_counter()
             if self.gateway is not None:
-                payload = self._via_gateway(body, prompt.meta, job_id, data_class)
+                payload = self._via_gateway(body, prompt, job_id, data_class)
                 model = served = str(payload.get("model") or model)
                 build_sha = str((payload.get("tb") or {}).get("build_sha") or "")
             else:
@@ -264,6 +261,7 @@ class LlmClient:
                             "tokens_in": tokens_in,
                             "tokens_out": tokens_out,
                             "phi_guard_hit": phi_guard_hit,
+                            "prompt_sha": prompt.sha256,
                             "ms": round((time.perf_counter() - t0) * 1000),
                         },
                     )
@@ -278,6 +276,7 @@ class LlmClient:
                     tokens_in,
                     tokens_out,
                     attempt,
+                    prompt.sha256,
                     build_sha,
                 )
             if truncated:
@@ -308,13 +307,16 @@ class LlmClient:
         raise LlmSchemaError(f"{prompt_id}: output violated schema twice: {errors[:5]}")
 
     def _via_gateway(
-        self, body: dict[str, Any], meta: PromptMeta, job_id: str | None, data_class: str | None
+        self, body: dict[str, Any], prompt: Prompt, job_id: str | None, data_class: str | None
     ) -> dict[str, Any]:
         """Shim path: the gateway picks the build, so ``model`` is dropped; labels go as ``X-TB-*`` headers."""
         from tb_llm import GatewayError, GatewayRefused
         from tb_llm.client import v1_labels
 
-        labels = v1_labels(meta.id, meta.version, phi=bool(meta.phi), study_id=job_id, data_class=data_class)
+        meta = prompt.meta
+        labels = v1_labels(
+            meta.id, meta.version, phi=bool(meta.phi), study_id=job_id, data_class=data_class, prompt_sha=prompt.sha256
+        )
         req = {k: v for k, v in body.items() if k != "model"}
         try:
             payload: dict[str, Any] = self.gateway.complete(req, labels)

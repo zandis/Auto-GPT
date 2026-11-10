@@ -101,7 +101,7 @@ def test_two_answers_from_one_build_are_a_counted_failure(monkeypatch: pytest.Mo
 
         def chat_json(self, prompt_id: str, variables: dict[str, Any], **kw: Any) -> LlmResult:
             d = {"verdict": "fail", "reason": "r", "confidence": 0.95, "quote": "q", "quote_date": "2026-10-01"}
-            return LlmResult(d, prompt_id, 4, self.model, "gateway", "i" * 64, "o" * 64, 1, 1, 1, self.build)
+            return LlmResult(d, prompt_id, 4, self.model, "gateway", "i" * 64, "o" * 64, 1, 1, 1, build_sha=self.build)
 
     nj = NoteJudge(lake=None, llm=Build("j", "sha256:verifier"), verifier=Build("v", "sha256:verifier"))  # type: ignore[arg-type]
     r = nj.judge_excerpts("x", "x?", date(2026, 10, 5), EXCERPTS)
@@ -168,7 +168,7 @@ def test_a_consent_check_answered_by_the_drafting_build_is_no_check() -> None:
 
         def chat_json(self, prompt_id: str, variables: dict[str, Any], schema: str | None = None, **kw: Any) -> Any:
             return LlmResult(replies[prompt_id], prompt_id, 1, self.model, "gateway", "i" * 64, "o" * 64, 5, 5, 1,
-                             self.build)  # fmt: skip
+                             build_sha=self.build)  # fmt: skip
 
     two = consent.Models(Build("j-workhorse", "sha256:j"), Build("v-verifier", "sha256:v"))  # type: ignore[arg-type]
     ok = consent.draft(two, "T", [para], "en", ["en"], "job")

@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 import pytest
+from channels.base import ClassifiedIntent
 from fastapi.testclient import TestClient
 from gateway.app import create_app
 from gateway.core import Gateway, GatewayConfig
@@ -20,7 +21,7 @@ from guard.guard import Guard
 from orchestrator import selftest
 from orchestrator.twophase import DeferredVerifier, MemoClient, two_phase
 from tb_common.audit import AuditLog
-from tb_common.llm import LlmError, LlmResult
+from tb_common.llm import LlmError, LlmResult, load_prompt, render
 from tb_common.policy.classes import Environment
 
 from tests.unit.test_gateway import H, _judge_body, _pinned_registry
@@ -206,8 +207,15 @@ CHAT_H = H(
     Prompt="classify_intent@1",
 )
 CHAT_BODY = {
-    "messages": [{"role": "user", "content": "how many patients for study X?"}],
-    "response_format": {"type": "json_schema", "json_schema": {"name": "x", "schema": {"type": "object"}}},
+    # the registered template of classify_intent rendered, and its schema (D-300: the gateway refuses others)
+    "messages": render(
+        load_prompt("classify_intent_v1"),
+        {"text": "how many patients for study X?", "attachments": [], "today": "2026-11-10", "language": "en"},
+    ),
+    "response_format": {
+        "type": "json_schema",
+        "json_schema": {"name": "x", "schema": ClassifiedIntent.model_json_schema()},
+    },
 }
 
 

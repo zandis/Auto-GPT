@@ -8,7 +8,15 @@ Processing order for ``POST /v1/chat/completions`` (each step passes or refuses;
    on the intake role of a conversation engine whose caller entry sets ``d3_intake_without_step`` (FR-CONV-8: intake
    precedes any study step), or, with no step confirmer wired, a D3 call the box policy allows (``phi_on_box``,
    D-142: topology A, listed callers, perimeter endpoints only, because the data never leaves the box); a
-   schema-constrained ``response_format`` is required except for free-form roles (LLM-22);
+   schema-constrained ``response_format`` is required except for free-form roles (LLM-22); the prompt is resolved
+   by ``(id, version)`` in the prompt registry (D-300, :mod:`tb_llm.prompt_registry`) and the request is bound to
+   it: an unknown version, a registered text or schema whose sha differs from the registry, a version without a
+   qualification record in PRODUCTION, a prompt with no schema on a patient route (D2-D4), messages that are not
+   the registered template rendered (the literal text between its ``{{ }}`` expressions, in order, anchored at both
+   ends of the system and of the user message; what the expressions render to is not checked), a response schema
+   that is not the registered one, and, outside DEV and TEST, a missing ``X-TB-Prompt-Sha`` are refused; an id the
+   registry does not list passes only in DEV and TEST (synthetic data) or on a D0 call (the public evaluation
+   suites); a free-form role (no prompt header) is not resolved;
 3. route lookup: ``(role, class, topology, environment, profile)`` → ordered candidates, each checked with
    ``may_reach`` (§7.2) — no route or no permitted endpoint is refused (``no_route``, ``class_route_mismatch``);
 4. PHI tripwire on D0–D2 calls (LLM-15): a hit blocks the call, it is never relabelled;
@@ -46,6 +54,14 @@ from tb_common.crypto import sha256_text
 from tb_common.policy.classes import Environment, Topology
 from tb_common.ulid import new_ulid
 from tb_contracts.dataclass import ClassLabel, DataClass
+from tb_llm.prompt_registry import (
+    PATIENT_CLASSES,
+    PromptRegistry,
+    PromptRegistryError,
+    default_registry,
+    parse_ref,
+    schema_sha,
+)
 from tracestore.store import TraceStore
 
 from gateway.policy import Candidate, Refusal, RoutingPolicy, _match, parse_label
@@ -93,7 +109,9 @@ class _Call:
     study: str = ""
     step: str = ""
     context_of_use: str = ""
-    prompt: str = ""
+    prompt: str = ""  # id@version
+    prompt_sha: str = ""  # the registry's sha256 of that version (D-300)
+    prompt_registered: bool | None = None
     data_class: str = ""
     rendered_sha: str = ""
     route_id: str = ""
@@ -155,6 +173,7 @@ class Gateway:
         env: Mapping[str, str] | None = None,
         cache_size: int = 1024,
         swap: ModelSwap | None = None,
+        prompts: PromptRegistry | None = None,
     ) -> None:
         self.policy = policy
         self.registry = registry
@@ -170,6 +189,10 @@ class Gateway:
         self.cache: OrderedDict[tuple[str, str, str], dict[str, Any]] = OrderedDict()
         self.cache_size = cache_size
         self._cache_lock = threading.Lock()  # the HTTP app runs calls in a thread pool
+        self.prompts = prompts or default_registry()
+        if self.config.environment == Environment.PRODUCTION:
+            # D-300: a changed prompt file, or a version without a qualification record, stops the start
+            self.prompts.check(Environment.PRODUCTION.value)
 
     # ------------------------------------------------------------------------------------------------ public
     def activate(self, caller: str, endpoint: str, hold: bool = False) -> GatewayResponse:
@@ -276,6 +299,7 @@ class Gateway:
             rf = response_format if isinstance(response_format, dict) else {}
             if rf.get("type") != "json_schema" or not isinstance(rf.get("json_schema"), dict):
                 raise Refusal("schema_required", "a json_schema response_format is required for this role (LLM-22)")
+        self._resolve_prompt(call, h, label, messages, response_format, free_form)
 
         # 3 route
         flags = frozenset(x.strip() for x in h.get("x-tb-flags", "").split(",") if x.strip())
@@ -332,6 +356,46 @@ class Gateway:
         first = registry_refusals[0] if registry_refusals else None
         raise Refusal(first.reason if first else "no_eligible_build", str(first) if first else "no candidate")
 
+    def _resolve_prompt(
+        self, call: _Call, h: dict[str, str], label: ClassLabel, messages: Any, response_format: Any, free_form: bool
+    ) -> None:
+        """D-300: resolve ``X-TB-Prompt`` (``id@version``) in the prompt registry and bind the request to it, or
+        refuse (module docstring). A free-form role sends no prompt and is not checked here (D-300 records it)."""
+        if not call.prompt:
+            return
+        env = self.config.environment
+        sandbox = env in (Environment.DEV, Environment.TEST)
+        pid = call.prompt.partition("@")[0]
+        if pid not in self.prompts.ids:
+            if sandbox or label.data_class == DataClass.D0:
+                call.prompt_registered = False
+                return
+            raise Refusal("prompt_unregistered", f"prompt {pid!r} is not in the prompt registry ({label.tag} call)")
+        call.prompt_registered = True
+        try:
+            pid, ver = parse_ref(call.prompt)
+            if ver is None:
+                raise PromptRegistryError("prompt_unknown", f"prompt {call.prompt!r}: name it as id@version")
+            got = self.prompts.get(pid, ver, environment=env.value, patient=label.data_class.value in PATIENT_CLASSES)
+            call.prompt = got.ref  # canonical (judge@4, never judge@04)
+            self.prompts.check_messages(got, messages)
+        except PromptRegistryError as e:
+            raise Refusal(e.reason, str(e)) from e
+        call.prompt_sha = got.sha256
+        sent = h.get("x-tb-prompt-sha", "")
+        if not sent and not sandbox:
+            raise Refusal("prompt_changed", f"{got.ref}: X-TB-Prompt-Sha is required for a registered prompt")
+        if sent and sent != got.sha256:
+            raise Refusal("prompt_changed", f"{got.ref}: the caller's prompt text is not the registered one")
+        want = got.entry.schema_sha256
+        if want and not free_form:
+            try:
+                sent_schema = response_format["json_schema"]["schema"]
+            except (KeyError, TypeError):
+                sent_schema = None
+            if schema_sha(sent_schema) != want:
+                raise Refusal("prompt_schema_changed", f"{got.ref}: the response schema sent is not {got.entry.schema}")
+
     def _try(
         self,
         call: _Call,
@@ -371,6 +435,8 @@ class Gateway:
             pid, _, ver = call.prompt.partition("@")
             headers["X-TB-Prompt-Id"] = pid
             headers["X-TB-Prompt-Version"] = ver
+            if call.prompt_sha:
+                headers["X-TB-Prompt-Sha"] = call.prompt_sha
         if ep.api_key_env and self.env.get(ep.api_key_env):
             headers["Authorization"] = f"Bearer {self.env[ep.api_key_env]}"
         url = ep.url(dict(self.env))
@@ -486,6 +552,10 @@ class Gateway:
                         "tb.role": call.role,
                         "tb.purpose": call.purpose,
                         "tb.study_id": call.study,
+                        # prompt_id@version (D-300); its sha is in the ledger record (the trace redactor reads
+                        # long digit runs inside a hex digest as identifiers)
+                        "tb.prompt": call.prompt,
+                        "tb.prompt_registered": call.prompt_registered,
                     },
                     "prompt": body.get("messages"),
                     "output": payload["choices"][0]["message"].get("content"),
@@ -508,6 +578,9 @@ class Gateway:
             "step": call.step,
             "step_basis": call.step_basis,
             "context_of_use": call.context_of_use,
+            "prompt_sha": call.prompt_sha,
+            "prompt_registered": call.prompt_registered,
+            "prompt_registry_version": self.prompts.version,
             "route_id": call.route_id,
             "policy_version": self.policy.version,
             "registry_version": self.registry.version,
