@@ -25,7 +25,10 @@ closed). Checks:
   runs the backup and the log jobs in it; ``TB_HOST_TZ`` when doctor runs in a container) must name the same zone.
   FAIL when none is set, one is not a zone, or two differ; the host is not compared when it cannot be read;
 * ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
-  box's first start (T-008, D-207): WARN, naming the flag's value and where to change it.
+  box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
+* ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
+  is the one recorded in the lake (``site_key.json``) and in the pid map. FAIL when it is missing or another key (the
+  ingest then refuses every night); WARN when the folder is not on this host. Prints the fingerprint, never the key.
 
 ``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
 runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
@@ -470,6 +473,53 @@ def check_flags(inp: DoctorInputs) -> Check:
     return Check("flags", "PASS", "every seed variable that is set agrees with its flag")
 
 
+def check_site_key(inp: DoctorInputs) -> Check:
+    """T-612 (DATA-004): the site key is in the secrets folder and is the key the box's data was made with (the
+    fingerprint in ``<lake>/site_key.json`` and in the pid map's ``site_key`` table). Shows the fingerprint, never
+    the key."""
+    from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key
+
+    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    if not sec.is_dir():
+        return Check("site_key", "WARN", f"the secrets folder {sec} is not here (TB_SECRETS_DIR): the key was not read")
+    try:
+        key = load_key(sec / SITE_KEY_FILE)
+    except KeyMissingError as exc:
+        return Check(
+            "site_key",
+            "FAIL",
+            f"{exc}: the ingest refuses every night. Put the site's key back from the backup; only a new box makes "
+            f"one (deploy/install.sh, `python -m adapter.cli keys-init`)",
+        )
+    except PermissionError:
+        return Check("site_key", "WARN", f"{sec / SITE_KEY_FILE} cannot be read by this user: the key was not checked")
+    fp = key_fingerprint(key)
+    lake = Path(inp.env.get("TB_LAKE_DIR") or Path(inp.env.get("TB_DATA_DIR") or "/data") / "lake")
+    seen: list[str] = []
+    record = lake / "site_key.json"  # adapter.pipeline.SITE_KEY_RECORD
+    if record.is_file():
+        stored = str(json.loads(record.read_text(encoding="utf-8")).get("fingerprint"))
+        if stored != fp:
+            return Check("site_key", "FAIL", f"key {fp} is not the lake's {stored}: the ingest refuses every night")
+        seen.append("the lake")
+    site_id = str((inp.settings.get("site") or {}).get("id") or "")
+    url = inp.env.get("TB_DB_URL", "")
+    if url and site_id:
+        try:
+            from tb_common.db import Database
+
+            with Database.connect(url, "pidmap") as db:
+                row = db.fetchone("SELECT fingerprint FROM site_key WHERE site_id = ?", (site_id,))
+        except Exception as e:  # the pid map lives on the box: unreadable from here is worth a look
+            return Check("site_key", "WARN", f"key {fp}; the pid map's record cannot be read ({type(e).__name__})")
+        if row is not None and row[0] != fp:
+            return Check("site_key", "FAIL", f"key {fp} is not the pid map's {row[0]}: the ingest refuses every night")
+        if row is not None:
+            seen.append("the pid map")
+    where = f"; the same as {' and '.join(seen)}" if seen else "; no night has recorded one yet"
+    return Check("site_key", "PASS", f"key {fp}{where}")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -482,6 +532,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_registry_pins,
     check_site_tz,
     check_flags,
+    check_site_key,
 )
 
 

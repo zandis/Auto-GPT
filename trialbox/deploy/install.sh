@@ -320,6 +320,11 @@ if [ "$PULL" = never ]; then
   [ -z "$MISSING" ] || die "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)"
   echo "    every image of the stack is on this box (nothing is pulled)"
 fi
+# T-612 (DATA-004): the site keys are made here and nowhere else. A key already in the secrets volume is kept; the
+# ingest refuses a night whose key is missing or is not the one the box's pseudonyms were made with
+say "site keys (made once, never replaced)"
+"${COMPOSE[@]}" run --rm --no-deps -T adapter python -m adapter.cli keys-init | sed 's/^/    /' \
+  || die "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)"
 "${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then

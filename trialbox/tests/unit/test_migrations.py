@@ -364,6 +364,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "auth": ("44f1f94e5797899b13e8b807b4b20ace62bd584cf226dd4e207cf500b466deb6",),
     # D-301: migration 3, the one-million block and the vocabulary tables
     "omop": ("0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",),
+    # T-612: pidmap version 2, the site key's fingerprint
+    "pidmap": ("b7cf6c229898b30f609be2151ff4422b2a0bc0cd068b0b5150e1d58c07c98ae3",),
 }
 PINNED: dict[str, tuple[str, ...]] = {k: v + ADDED.get(k, ()) for k, v in BASELINE.items()}
 
