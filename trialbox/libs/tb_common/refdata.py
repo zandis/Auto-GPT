@@ -277,7 +277,7 @@ class Cassette:
         if "json" in spec:
             return json.dumps(spec["json"], ensure_ascii=False).encode("utf-8")
         if "file" in spec:
-            return (base / spec["file"]).read_bytes()
+            return (base / str(spec["file"])).read_bytes()
         if "xlsx_from_csv" in spec:
             import openpyxl
 
@@ -761,7 +761,7 @@ class RefStore:
         row = tx.fetchone("SELECT name, distribution FROM source WHERE source_id = ?", (sid,))
         if row is None or (vendor and row[1] == "site-fetch"):
             return None
-        n = sum(tx.execute(f"DELETE FROM {table} WHERE source_id = ?", (sid,)) for table in TABLES)
+        n = int(sum(tx.execute(f"DELETE FROM {table} WHERE source_id = ?", (sid,)) for table in TABLES))
         tx.execute("DELETE FROM source WHERE source_id = ?", (sid,))
         tx.execute(
             "INSERT INTO withdrawn (source_id, name, pack_id, reason, records, withdrawn_at, withdrawn_by) "
