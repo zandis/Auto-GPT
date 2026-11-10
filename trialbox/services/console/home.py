@@ -112,6 +112,7 @@ class ApiLogin(BaseModel):
 
     username: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=400)
+    code: str = Field(default="", max_length=32)  # T-505a (D-320): the authenticator code, with TOTP on
     lang: str = "en"
 
 
@@ -1045,7 +1046,8 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_session(request: Request) -> Session:
         auth = request.headers.get("authorization") or ""
         token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
-        sess: Session | None = h.users.session(token) if token else None
+        # T-505a (D-320, ROLE-001): only a token this route gave; a page's cookie is no bearer token
+        sess: Session | None = h.users.session(token, api=True) if token else None
         if sess is None:
             raise h.problem(401, "login")
         if h.users.must_change(sess.user.username):  # D-279 (SEC-1): the owner replaces the password on the page
@@ -1060,34 +1062,58 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.post("/api/v1/session")
     def api_login(body: ApiLogin, request: Request) -> dict[str, Any]:
         # D-279 (SEC-9, ROLE-006): the same per-address count as the page; a busy address waits (429), no account
-        # is locked by someone else's guesses. The second factor on this route is T-505a's.
+        # is locked by someone else's guesses.
         src = source_of(request.client.host if request.client else None)
         wait = h.users.throttled(src)
         if wait:
             au.append("console.login_failed", actor=f"console:{body.username[:60]}",
                       detail={"via": "api", "reason": "slowed", "source": src})  # fmt: skip
             raise h.problem(429, "login.slowed", n=wait)
-        user = h.users.authenticate(body.username, body.password, source=src)
+        ident = h.identity
+        totp_on = ident is not None and ident.settings.totp_required
+        # D-192: with a code to come, a right password does not reset the count of wrong codes
+        user = h.users.authenticate(body.username, body.password, clear_failures=not totp_on, source=src)
         if user is None:
             au.append("console.login_failed", actor=f"console:{body.username[:60]}",
                       detail={"via": "api", "source": src})  # fmt: skip
-            if h.identity is not None:
-                h.identity.after_failure(body.username, src)
+            if ident is not None:
+                ident.after_failure(body.username, src)
             raise h.problem(401, "login")
+        via = "api"
+        if totp_on and ident.needs_code(user):
+            # T-505a (D-320, ROLE-001): the same two factors as the page, in one call. A password alone opens
+            # nothing; a wrong or replayed code is a failed sign-in from this address, as on /login/totp.
+            if not body.code.strip():
+                au.append("console.login_failed", actor=f"console:{user.username}",
+                          detail={"via": "api", "factor": "totp", "reason": "no_code", "source": src})  # fmt: skip
+                raise h.problem(401, "login.code")
+            reason = ident.step_up(user.username, body.code, src)
+            if reason:
+                au.append("console.login_failed", actor=f"console:{user.username}",
+                          detail={"via": "api", "factor": "totp", "reason": reason, "source": src})  # fmt: skip
+                if reason == "none":  # no authenticator yet: it is enrolled on the sign-in page, never here
+                    raise h.problem(403, "login.enrol")
+                if reason == "key":
+                    raise h.problem(503, "request.refused", reason="the authenticator key file does not match")
+                raise h.problem(401, "login")
+            via = "api+totp"
+        if totp_on:
+            h.users.clear_failures(user.username, src)
         if h.users.must_change(user.username):  # D-279 (SEC-1): no API session on a password someone else set
             au.append("console.login_failed", actor=f"console:{user.username}",
                       detail={"via": "api", "reason": "must_change"})  # fmt: skip
             raise h.problem(403, "account.must_change")
-        token, sess = h.users.new_session(user, body.lang if body.lang in ("ja", "zh-TW", "en") else "en", "api")
-        au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": "api"})
+        token, sess = h.users.new_session(user, body.lang if body.lang in ("ja", "zh-TW", "en") else "en", via)
+        au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": via})
         return {"token": token, "username": user.username, "role": user.role,
                 "expires": getattr(sess, "expires", None)}  # fmt: skip
 
     @app.delete("/api/v1/session")
     def api_logout(request: Request) -> dict[str, bool]:
         auth = request.headers.get("authorization") or ""
-        if auth.lower().startswith("bearer "):
-            h.users.end_session(auth[7:].strip())
+        token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        if h.users.session(token, touch=False, api=True) is not None:  # D-320: a page's session ends on its page
+            h.users.end_session(token)
         return {"ok": True}
 
     @app.get("/api/v1/studies")
