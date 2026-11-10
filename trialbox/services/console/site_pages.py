@@ -819,7 +819,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
 
 def _args(m: dict[str, Any]) -> dict[str, Any]:
-    return {k: m[k] for k in ("n", "rows", "pct", "of") if k in m}
+    return {k: m[k] for k in ("n", "rows", "pct", "of", "tables") if k in m}
 
 
 def t_reason(lang: str, code: str) -> str:

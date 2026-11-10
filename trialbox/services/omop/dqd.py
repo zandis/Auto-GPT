@@ -355,6 +355,32 @@ def run(db: Database, today: date | None = None) -> list[dict[str, Any]]:
     return out
 
 
+def relational_violations(tx: Any) -> dict[str, int]:
+    """T-611: the Relational conformance checks of :func:`run` (``isRequired``, ``isPrimaryKey``, ``isForeignKey``,
+    threshold 0) as ``"<check> <table>.<field>" -> violated rows``, inside the caller's transaction: what a feed load
+    compares before and after its own writes (``omop.load``). A violated row of these is a ``fail`` in :func:`run`."""
+
+    def n(sql: str) -> int:
+        return int(tx.fetchval(sql) or 0)
+
+    out: dict[str, int] = {}
+    for table, cols in required_columns().items():
+        for col in cols:
+            out[f"isRequired {table}.{col}"] = n(f"SELECT count(*) FROM {table} WHERE {col} IS NULL")
+    for table, col in PRIMARY.items():
+        if table == "concept":  # the vocabulary, not the feed's
+            continue
+        out[f"isPrimaryKey {table}.{col}"] = n(
+            f"SELECT coalesce(sum(c - 1), 0) FROM (SELECT count(*) c FROM {table} GROUP BY {col}) x"
+        )
+    for table, col, rtable, rcol in foreign_keys():
+        out[f"isForeignKey {table}.{col}"] = n(
+            f"SELECT count(*) FROM {table} t WHERE t.{col} IS NOT NULL AND NOT EXISTS "
+            f"(SELECT 1 FROM {rtable} r WHERE r.{rcol} = t.{col})"
+        )
+    return out
+
+
 def summary(results: list[dict[str, Any]]) -> dict[str, int]:
     out = {"checks": len(results), "pass": 0, "fail": 0, "known": 0}
     for r in results:
