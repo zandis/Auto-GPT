@@ -136,3 +136,5 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
 | D-308 | reserved | T-501 | held for T-501 |
+| D-309..D-312 | reserved | integrator | given to other wave-1 cards; their pull requests write their rows |
+| D-313 | merged | T-012a | `trialbox eval qualify` and the qualification record (file; given by the integrator, so the D-305 reservation above is no longer needed) |
