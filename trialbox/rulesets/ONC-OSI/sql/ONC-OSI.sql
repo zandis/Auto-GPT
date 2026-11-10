@@ -2,6 +2,7 @@
 -- Deterministic template output; never edited by hand or produced by an LLM.
 -- Parameters: $1 index_dates DATE[] ; $2 pids VARCHAR[] (NULL = all patients alive at index).
 -- Output: one row per (pid, index_date) with "C_<ID>" BOOLEAN/NULL and "E_<ID>" VARCHAR per criterion.
+-- Safety rules: D-275 (units, sex, order dates).
 WITH
 params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids),
 idx AS (SELECT unnest(idx_dates) AS index_date FROM params),
@@ -70,9 +71,10 @@ c_onc_osi_inc_02 AS (
   LEFT JOIN a_onc_osi_inc_02_1_off ON a_onc_osi_inc_02_1_off.pid = b.pid AND a_onc_osi_inc_02_1_off.index_date = b.index_date),
 a_onc_osi_inc_03_1 AS (
   SELECT pid, index_date, (o.value_code IN ('LA9633-4')) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE <= b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_EGFR_MUTATION' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- ONC-OSI-INC-03 (inclusion): 腫瘤組織檢測證實具 EGFR 基因突變（exon 19 deletion 或 L858R）。

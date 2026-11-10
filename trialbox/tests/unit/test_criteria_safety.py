@@ -608,7 +608,7 @@ def test_the_adapter_keeps_an_undated_order() -> None:
 
     from adapter import pipeline
 
-    src = inspect.getsource(pipeline.run_ingest)
+    src = inspect.getsource(pipeline._run_ingest)  # run_ingest wraps _run_ingest (T-615b)
     assert "if not _undated_order(r)" not in src and "kept, read as unknown" in src
     assert pipeline._undated_order(_med("P", 1, ULT, None)) and not pipeline._undated_order(
         _med("P", 2, ULT, "2026-01-01")
@@ -635,9 +635,11 @@ def test_missing_data_never_makes_an_inclusion_false(lake: LakeLocal) -> None:
 
 
 def test_shipped_gzqo_as_approved_no_longer_excludes_on_unreadable_data(tmp_path: Path) -> None:
-    """GZQO's SQL was approved before D-275 and is not recompiled. Run as stored it excludes these patients; the
-    runtime runs it guarded by the current rules and they stay on the list as points to check."""
+    """GZQO's SQL as it was approved before D-275 (kept as a fixture: the shipped ruleset is now recompiled). Run as
+    stored it excludes these patients; the runtime runs it guarded by the current rules and they stay on the list as
+    points to check."""
     rs = Ruleset.load(ROOT / "rulesets" / "GZQO")
+    rs.sql = (ROOT / "tests" / "fixtures" / "pre_d275" / "GZQO.sql").read_text(encoding="utf-8")
     assert MARK not in rs.sql and rs.sql in safe_sql(rs)  # the approved text is embedded unchanged
     pats = {
         "G-IFCC": "female",  # HbA1c 53 mmol/mol (7.0 %) against GZQO-EXC-06 "> 10 %"

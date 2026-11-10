@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "09b3ba39dacdff846001ad35148e7e4667f28353",
+  "head": "f9ac1647cb157cb94f2b92975e13a3ca288e8507",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-275 on master after T-614, AD recompile and D-276: unusable structured data is unknown, never an exclusion",
+  "reason": "D-275 on master after T-613a: shipped rulesets recompiled with the D-275 rules; unusable structured data is unknown",
   "ref_date": "2026-11-01",
   "ruleset": "RA-BIO",
   "ruleset_version": "1.0.0",
@@ -130,7 +130,7 @@
     "RA-BIO-INC-06": 70
    },
    "variants": {
-    "unknown_as_pass": 132
+    "unknown_as_pass": 131
    }
   },
   "synthetic-jp-a-deletes": {

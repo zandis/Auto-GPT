@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "09b3ba39dacdff846001ad35148e7e4667f28353",
+  "head": "f9ac1647cb157cb94f2b92975e13a3ca288e8507",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-275 on master after T-614, AD recompile and D-276: unusable structured data is unknown, never an exclusion",
+  "reason": "D-275 on master after T-613a: shipped rulesets recompiled with the D-275 rules; unusable structured data is unknown",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -835,7 +835,7 @@
       },
       "ONC-OSI-INC-02": {
        "coded": 109,
-       "confirmed": 0,
+       "confirmed": 7,
        "proposed": 20
       },
       "ONC-OSI-INC-03": {
@@ -885,7 +885,7 @@
       },
       "ONC-OSI-INC-02": {
        "coded": 115,
-       "confirmed": 1,
+       "confirmed": 8,
        "proposed": 19
       },
       "ONC-OSI-INC-03": {

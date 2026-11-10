@@ -2,6 +2,7 @@
 -- Deterministic template output; never edited by hand or produced by an LLM.
 -- Parameters: $1 index_dates DATE[] ; $2 pids VARCHAR[] (NULL = all patients alive at index).
 -- Output: one row per (pid, index_date) with "C_<ID>" BOOLEAN/NULL and "E_<ID>" VARCHAR per criterion.
+-- Safety rules: D-275 (units, sex, order dates).
 WITH
 params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids),
 idx AS (SELECT unnest(idx_dates) AS index_date FROM params),
@@ -5017,12 +5018,20 @@ a_ra_bio_inc_03_1 AS (
     SELECT pid, index_date, island, (max(e) - min(s)) + 1 AS len,
            string_agg(mid, ';' ORDER BY s, mid) AS ev FROM a_ra_bio_inc_03_1_i GROUP BY pid, index_date, island)
   GROUP BY pid, index_date),
+a_ra_bio_inc_03_1_o AS (
+  SELECT b.pid, b.index_date, count(*) AS n, string_agg(m.mid, ';' ORDER BY m.mid) AS ev
+  FROM base b JOIN medication m ON m.pid = b.pid
+  WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = m.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_METHOTREXATE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = m.nhi_code))
+    AND (coalesce(m.start, m.authored) IS NULL
+         OR (m."end" IS NULL AND coalesce(m.start, m.authored) <= b.index_date))
+  GROUP BY b.pid, b.index_date),
 -- RA-BIO-INC-03 (inclusion): 曾使用 methotrexate 治療至少六個月（連續使用，中斷不超過三十日）而療效不彰。
 c_ra_bio_inc_03 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_ra_bio_inc_03_1.days, 0) >= 180) AS v,
-         concat_ws(';', a_ra_bio_inc_03_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN coalesce(a_ra_bio_inc_03_1.days, 0) >= 180 THEN TRUE WHEN coalesce(a_ra_bio_inc_03_1_o.n, 0) > 0 THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', (CASE WHEN coalesce(a_ra_bio_inc_03_1.days, 0) >= 180 THEN a_ra_bio_inc_03_1.ev WHEN coalesce(a_ra_bio_inc_03_1_o.n, 0) > 0 THEN 'order_dates_missing;' || a_ra_bio_inc_03_1_o.ev ELSE a_ra_bio_inc_03_1.ev END)) AS ev
   FROM base b
-  LEFT JOIN a_ra_bio_inc_03_1 ON a_ra_bio_inc_03_1.pid = b.pid AND a_ra_bio_inc_03_1.index_date = b.index_date),
+  LEFT JOIN a_ra_bio_inc_03_1 ON a_ra_bio_inc_03_1.pid = b.pid AND a_ra_bio_inc_03_1.index_date = b.index_date
+  LEFT JOIN a_ra_bio_inc_03_1_o ON a_ra_bio_inc_03_1_o.pid = b.pid AND a_ra_bio_inc_03_1_o.index_date = b.index_date),
 a_ra_bio_inc_04_1_p AS (
   SELECT b.pid, b.index_date, m.mid, greatest(coalesce(m.start, m.authored), (b.index_date + -730)) AS s,
          least(coalesce(m."end", m.start, m.authored), b.index_date) AS e
@@ -5040,42 +5049,50 @@ a_ra_bio_inc_04_1 AS (
     SELECT pid, index_date, island, (max(e) - min(s)) + 1 AS len,
            string_agg(mid, ';' ORDER BY s, mid) AS ev FROM a_ra_bio_inc_04_1_i GROUP BY pid, index_date, island)
   GROUP BY pid, index_date),
+a_ra_bio_inc_04_1_o AS (
+  SELECT b.pid, b.index_date, count(*) AS n, string_agg(m.mid, ';' ORDER BY m.mid) AS ev
+  FROM base b JOIN medication m ON m.pid = b.pid
+  WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_CONVENTIONAL_SYNTHETIC_DMARD_OTHER_THAN_METHOTREXATE' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = m.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_CONVENTIONAL_SYNTHETIC_DMARD_OTHER_THAN_METHOTREXATE' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = m.nhi_code))
+    AND (coalesce(m.start, m.authored) IS NULL
+         OR (m."end" IS NULL AND coalesce(m.start, m.authored) <= b.index_date))
+  GROUP BY b.pid, b.index_date),
 -- RA-BIO-INC-04 (inclusion): 曾使用 methotrexate 以外之另一種傳統型疾病修飾抗風濕藥物至少六個月（中斷不超過三十日）而療效不彰。
 c_ra_bio_inc_04 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_ra_bio_inc_04_1.days, 0) >= 180) AS v,
-         concat_ws(';', a_ra_bio_inc_04_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN coalesce(a_ra_bio_inc_04_1.days, 0) >= 180 THEN TRUE WHEN coalesce(a_ra_bio_inc_04_1_o.n, 0) > 0 THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', (CASE WHEN coalesce(a_ra_bio_inc_04_1.days, 0) >= 180 THEN a_ra_bio_inc_04_1.ev WHEN coalesce(a_ra_bio_inc_04_1_o.n, 0) > 0 THEN 'order_dates_missing;' || a_ra_bio_inc_04_1_o.ev ELSE a_ra_bio_inc_04_1.ev END)) AS ev
   FROM base b
-  LEFT JOIN a_ra_bio_inc_04_1 ON a_ra_bio_inc_04_1.pid = b.pid AND a_ra_bio_inc_04_1.index_date = b.index_date),
+  LEFT JOIN a_ra_bio_inc_04_1 ON a_ra_bio_inc_04_1.pid = b.pid AND a_ra_bio_inc_04_1.index_date = b.index_date
+  LEFT JOIN a_ra_bio_inc_04_1_o ON a_ra_bio_inc_04_1_o.pid = b.pid AND a_ra_bio_inc_04_1_o.index_date = b.index_date),
 a_ra_bio_inc_05_1_tjc28 AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'TJC28') WHERE rn = 1),
 a_ra_bio_inc_05_1_sjc28 AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     JOIN a_ra_bio_inc_05_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'SJC28') WHERE rn = 1),
 a_ra_bio_inc_05_1_ptga AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END)) THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     JOIN a_ra_bio_inc_05_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'PTGA') WHERE rn = 1),
 a_ra_bio_inc_05_1_esr AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     JOIN a_ra_bio_inc_05_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
     WHERE o.system = 'http://loinc.org' AND o.code = '4537-7') WHERE rn = 1),
 a_ra_bio_inc_05_1_crp AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     JOIN a_ra_bio_inc_05_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
@@ -5100,34 +5117,34 @@ c_ra_bio_inc_05 AS (
   LEFT JOIN a_ra_bio_inc_05_1 ON a_ra_bio_inc_05_1.pid = b.pid AND a_ra_bio_inc_05_1.index_date = b.index_date),
 a_ra_bio_inc_06_1_tjc28 AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND (b.index_date + -90)
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'TJC28') WHERE rn = 1),
 a_ra_bio_inc_06_1_sjc28 AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND (b.index_date + -90)
     JOIN a_ra_bio_inc_06_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'SJC28') WHERE rn = 1),
 a_ra_bio_inc_06_1_ptga AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END)) THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND (b.index_date + -90)
     JOIN a_ra_bio_inc_06_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'PTGA') WHERE rn = 1),
 a_ra_bio_inc_06_1_esr AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND (b.index_date + -90)
     JOIN a_ra_bio_inc_06_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
     WHERE o.system = 'http://loinc.org' AND o.code = '4537-7') WHERE rn = 1),
 a_ra_bio_inc_06_1_crp AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND (b.index_date + -90)
     JOIN a_ra_bio_inc_06_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
@@ -5175,9 +5192,10 @@ c_ra_bio_exc_01 AS (
   LEFT JOIN a_ra_bio_exc_01_1_off ON a_ra_bio_exc_01_1_off.pid = b.pid AND a_ra_bio_exc_01_1_off.index_date = b.index_date),
 a_ra_bio_exc_02_1 AS (
   SELECT pid, index_date, (o.value_code IN ('LA6576-8')) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_IGRA' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 a_ra_bio_exc_02_2 AS (
@@ -5200,9 +5218,10 @@ c_ra_bio_exc_02 AS (
   LEFT JOIN a_ra_bio_exc_02_2_nd ON a_ra_bio_exc_02_2_nd.pid = b.pid AND a_ra_bio_exc_02_2_nd.index_date = b.index_date),
 a_ra_bio_exc_03_1 AS (
   SELECT pid, index_date, (o.value_code IN ('LA6576-8')) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE <= b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBSAG' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 a_ra_bio_exc_03_2 AS (
@@ -5317,34 +5336,34 @@ c_ra_bio_exc_07 AS (
   LEFT JOIN a_ra_bio_exc_07_1_off ON a_ra_bio_exc_07_1_off.pid = b.pid AND a_ra_bio_exc_07_1_off.index_date = b.index_date),
 a_ra_bio_ren_01_1_tjc28 AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'TJC28') WHERE rn = 1),
 a_ra_bio_ren_01_1_sjc28 AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END)) AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) >= 0.0 AND (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) <= 28.0 THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', '1', '{#}', '{count}', '{joints}', '{score}') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     JOIN a_ra_bio_ren_01_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'SJC28') WHERE rn = 1),
 a_ra_bio_ren_01_1_ptga AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END)) THEN (CASE WHEN lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) IN ('', 'mm') THEN o.value_num ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     JOIN a_ra_bio_ren_01_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 0
     WHERE o.system = 'https://trialbox.local/fhir/CodeSystem/clinical-score' AND o.code = 'PTGA') WHERE rn = 1),
 a_ra_bio_ren_01_1_esr AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mm/(1.h)' THEN o.value_num * 1.0 WHEN 'mm/1h' THEN o.value_num * 1.0 WHEN 'mm/h' THEN o.value_num * 1.0 WHEN 'mm/hr' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     JOIN a_ra_bio_ren_01_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
     WHERE o.system = 'http://loinc.org' AND o.code = '4537-7') WHERE rn = 1),
 a_ra_bio_ren_01_1_crp AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) >= 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 10.0 WHEN 'mg/l' THEN o.value_num * 1.0 WHEN 'ug/ml' THEN o.value_num * 1.0 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
     JOIN a_ra_bio_ren_01_1_tjc28 a ON a.pid = b.pid AND a.index_date = b.index_date AND abs(date_diff('day', a.effective::DATE, o.effective::DATE)) <= 7
