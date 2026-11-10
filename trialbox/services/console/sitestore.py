@@ -418,6 +418,14 @@ class SiteStore:
             tx.execute("UPDATE contact_outcomes SET undone_by = ?, undone_at = ? WHERE id = ?", (by, at, row[0]))
         return Outcome(*row[1:7]), (str(row[7]) if row[7] is not None else None)
 
+    def restore_outcome(self, ruleset: str, o: Outcome, undone_at: str) -> None:
+        """Put back an outcome :meth:`undo_outcome` marked undone at ``undone_at`` (the registry refused the undo)."""
+        self.db.execute(
+            "UPDATE contact_outcomes SET undone_by = NULL, undone_at = NULL WHERE ruleset = ? AND pid = ? AND by = ? "
+            "AND at = ? AND undone_at = ?",
+            (ruleset, o.pid, o.by, o.at, undone_at),
+        )
+
     def outcomes(self, ruleset: str, pid: str | None = None) -> list[Outcome]:
         """The contact outcomes in force (an undone one is left out; it stays in the table and the audit)."""
         q = "SELECT pid, outcome, retry, note, by, at FROM contact_outcomes WHERE ruleset = ? AND undone_at IS NULL"

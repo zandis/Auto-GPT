@@ -395,3 +395,37 @@ def test_on_a_site_box_the_check_and_the_sheet_run_in_a_container(tmp_path: Path
     ]
     assert "trialbox-py:9" in calls[1] and calls[1][-4:] == ["--env", "/app/deploy/.env", "--out", "/out/network-sheet"]
     assert "none" in calls[0] and "none" in calls[1]  # no network
+
+
+def test_the_runner_takes_a_request_id_from_its_file_name_only(tmp_path: Path) -> None:
+    """The console's folder is writable by the container; the runner is root on the host. An ``id`` field written
+    into a request must not choose where the runner writes its result."""
+    ops = tb_ops.OpsDir(tmp_path / "ops")
+    (ops.root / "requests").mkdir(parents=True)
+    stem = "20261110T000000Z-abcdef"
+    req = {"id": "../../escaped", "action": "network_sheet", "by": "x", "at": "2026-11-10T00:00:00+00:00"}
+    (ops.root / "requests" / f"{stem}.json").write_text(json.dumps(req), encoding="utf-8")
+    assert [r["id"] for r in ops.pending()] == [stem]
+    runner = tb_ops.OpsRunner(tb_ops.Box.local(tmp_path / "deploy", {}), ops)
+    runner.run_one(ops.pending()[0])
+    assert not (tmp_path / "escaped.json").exists()
+    assert ops.result(stem) is not None and ops.pending() == []
+    with pytest.raises(tb_ops.OpsFailed):
+        ops.write_result({"id": "../x", "action": "backup"}, True, "", [], "")
+
+
+def test_an_outcome_undo_the_registry_refused_is_put_back() -> None:
+    from console.sitestore import Outcome, SiteStore
+
+    store = SiteStore()
+    try:
+        pid = "pid0undo01"
+        store.add_outcome("UNDO1", Outcome(pid, "reached_declined", None, None, "crc1", "2026-11-10T09:00:00"),
+                          prev_status="contacted")  # fmt: skip
+        assert store.undo_outcome("UNDO1", pid, "crc2", "2026-11-10T09:01:00") is None  # only one's own
+        got = store.undo_outcome("UNDO1", pid, "crc1", "2026-11-10T09:02:00")
+        assert got is not None and got[1] == "contacted" and store.outcomes("UNDO1", pid) == []
+        store.restore_outcome("UNDO1", got[0], "2026-11-10T09:02:00")
+        assert [o.outcome for o in store.outcomes("UNDO1", pid)] == ["reached_declined"]
+    finally:
+        store.close()

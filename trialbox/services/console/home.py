@@ -994,7 +994,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                 bk.registry_update(rid, RegistryUpdate(pid=pid, status=cast(Any, back_to_status),
                                                        reason="contact outcome undone", by=h.actor(sess),
                                                        source="manual", source_job=job_id))  # fmt: skip
-            except Refused as exc:
+            except Refused as exc:  # the outcome stays in force: the registry and the outcomes never disagree
+                store.restore_outcome(rid, undone, now)
                 raise h.problem(409, "request.refused", reason=str(exc)) from exc
         detail = {"pid": pid, "action": "undo", "undo": undone.outcome, "to": back_to_status if status else ""}
         au.append("console.contact_outcome", job_id=job_id, ruleset=rid, actor=h.actor(sess), detail=detail)

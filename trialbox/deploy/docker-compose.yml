@@ -203,7 +203,8 @@ services:
               "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
     environment: {PORT: "8090", TB_SERVICE_NAME: console, TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit,
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
-                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-0}"}
+                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-0}",
+                  TB_OPS_DIR: /data/ops}  # D-178: the mount below; the host's TB_OPS_DIR in .env is the host path
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - console-data:/data/console

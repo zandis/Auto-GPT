@@ -125,8 +125,10 @@ class OpsDir:
     def requests(self) -> list[dict[str, Any]]:
         out = []
         for p in sorted((self.root / "requests").glob("*.json")):
+            # the id is the file's name, never a field the console wrote: the runner (root on the host) writes
+            # ``results/<id>.json``, so an id taken from the content could point outside the folder
             if REQ_ID.match(p.stem) and (r := _read_json(p)) is not None:
-                out.append(r)
+                out.append({**r, "id": p.stem})
         return sorted(out, key=lambda r: (str(r.get("at")), str(r.get("id"))))  # first in, first out
 
     def result(self, rid: str) -> dict[str, Any] | None:
@@ -153,6 +155,8 @@ class OpsDir:
         return _read_json(self.root / "status.json")
 
     def write_result(self, req: Mapping[str, Any], ok: bool, summary: str, lines: Sequence[str], started: str) -> None:
+        if not REQ_ID.match(str(req.get("id"))):
+            raise OpsFailed(f"bad request id {str(req.get('id'))[:40]!r}")
         _write_json(
             self.root / "results" / f"{req['id']}.json",
             {
