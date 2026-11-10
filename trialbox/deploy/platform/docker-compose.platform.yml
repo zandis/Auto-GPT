@@ -1,0 +1,71 @@
+# The platform form of the compose deployment (WS-14.8, D-211): a Docker host the hospital's platform team runs
+# (a VM on its private cloud, a container host beside the B200), with the same images as the appliance and no
+# install.sh host steps. Added last, after the appliance file, the secrets file and a GPU profile:
+#
+#   cd deploy && python -m tools.trialbox platform-images --env >> .env      # the release's image references
+#   docker compose -f docker-compose.yml -f docker-compose.secrets.yml -f docker-compose.shared-quota.yml \
+#       -f platform/docker-compose.platform.yml --profile gpu up -d --wait
+#   docker compose ... config --format json > site/compose.json
+#   docker compose ... --profile doctor run --rm doctor                      # the install checks, IQ evidence
+#
+# What changes from the appliance: every image is the release's (`repository:tag@sha256:...` from release.json,
+# required: compose refuses to start without it) and is never pulled (the platform team loads the signed images);
+# nothing is built; the egress rule is the platform's firewall or network policy for the hosts deploy/egress.py
+# lists (TB_PLATFORM_NETWORK_POLICY_EVIDENCE names it), not the host nftables of deploy/network.sh; the `doctor`
+# service runs `trialbox doctor --platform` against this compose configuration and writes site/iq-evidence.json.
+
+services:
+  lake:
+    image: "${TB_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  embed-service:
+    image: "${TB_EMBED_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  doc-parser:
+    image: "${TB_DOCPARSER_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  criteria-compiler:
+    image: "${TB_JVM_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  adapter:
+    image: "${TB_JVM_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  orchestrator:
+    image: "${TB_JVM_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  mail-gateway:
+    image: "${TB_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  gateway:
+    image: "${TB_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  console:
+    image: "${TB_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  db:
+    image: "${POSTGRES_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  fhir-store:
+    image: "${HAPI_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  llm-service:
+    profiles: [gpu]
+    image: "${VLLM_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  llm-verifier:
+    profiles: [gpu]
+    image: "${VLLM_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+  doctor:
+    profiles: [doctor]
+    image: "${TB_IMAGE:?the release image reference from release.json (platform-images --env)}"
+    pull_policy: never
+    env_file: [.env]
+    command: ["python", "-m", "tools.trialbox", "doctor", "--platform", "--compose-config", "/etc/trialbox/site/compose.json",
+              "--release", "/etc/trialbox/release/release.json", "--evidence", "/etc/trialbox/site/iq-evidence.json"]
+    environment: {TB_SERVICE_NAME: doctor, TB_RELEASE_FILE: /etc/trialbox/release/release.json}
+    networks: [egress-net]   # probes NTP, the directory, the mail relay; mounts no patient data
+    volumes:
+      - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
+      - ./platform/release.json:/etc/trialbox/release/release.json:ro
+      - ${TB_SITE_DIR:-./site}:/etc/trialbox/site
