@@ -9,6 +9,8 @@
   is its own audit event (``console.code_tick``); the page says who may. A coordinator (or administrator) prepares:
   reads the draft and gives each criterion the site's own label.
 * A re-approval shows **Changes since vN**: criteria added, with new text or check class, and removed.
+* **Approval needed** (D-318): the approved version pins its judge prompt and terminology release; when the box has a
+  newer prompt or another release, the page says so and that SCREEN keeps the approved prompt until this approval.
 * **Approve all** sends ``APPROVE <study> version=<v>`` with the review workbook the compiler wrote, exactly what a
   reply to the review mail does; the orchestrator checks the approver's role (D-146).
 """
@@ -24,6 +26,7 @@ from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_contracts import Job
 
+from console import ruleset_labels
 from console import studies as st
 from console.auth import Session
 from console.home import Helpers
@@ -73,6 +76,24 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             raise h.problem(409, "request.refused", reason="this job is not waiting for approval")
         return job, books[-1]
 
+    def label_step(job: Job, rows: list[dict[str, Any]], lang: str) -> dict[str, Any]:
+        """D-309 (T-507): on a Japanese or Chinese page every criterion needs a short label in that language before
+        **Approve all**: the one the site saved (D-120) or, until then, the one the ruleset ships for exactly this
+        text (``console.ruleset_labels``). ``unlabelled`` lists the rows still without one."""
+        if lang == "en":
+            return {"labels": {}, "shipped": set(), "unlabelled": []}
+        rs = job.ruleset or ""
+        mine = store.labels(rs, lang)
+        texts = {str(r["id"]): str(r.get("text") or "") for r in rows}
+        box_dir = getattr(getattr(getattr(bk, "cfg", None), "env", None), "rulesets_path", None)
+        given = ruleset_labels.labels_for(rs, lang, texts, box_dir)
+        labels = {**given, **mine}
+        return {
+            "labels": labels,
+            "shipped": {c for c in given if c not in mine},
+            "unlabelled": [str(r["id"]) for r in rows if not labels.get(str(r["id"]))],
+        }
+
     def context(sess: Session, job: Job, book: Any) -> dict[str, Any]:
         rows = review_rows(bk.get_object(book.minio_key))
         fn = getattr(bk, "criteria", None)
@@ -85,7 +106,9 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         ambers = [str(r["id"]) for r in rows if r["amber"]]
         opened = store.opened_rows(job.job_id, sess.user.username)
         old = {str(a["id"]): a for a in approved}
+        pins = getattr(bk, "approval_state", None)  # D-318: why the approved version needs the investigator again
         return {
+            "pin_state": pins(job.ruleset) if pins else None,
             "job": job,
             "rs": job.ruleset,
             "version": job.ruleset_version,
@@ -97,7 +120,7 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             "opened": opened,
             "missing": [a for a in ambers if a not in opened],
             "ticks": store.code_ticks(job.job_id),
-            "labels": store.labels(job.ruleset or "", sess.lang) if sess.lang != "en" else {},
+            **label_step(job, rows, sess.lang),
             "split": {c: sum(1 for r in rows if r.get("class") == c) for c in ("structured", "note", "mixed", "human")},
             # D-147: a sub-investigator never approves; the study's PI does
             "approver": h.may_approve is None or h.may_approve(sess.user, (job.ruleset or "").upper()),
@@ -202,6 +225,12 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         if ctx["missing"]:
             raise h.problem(
                 409, "request.refused", reason="open every amber row first: " + ", ".join(ctx["missing"][:5])
+            )
+        if ctx["unlabelled"]:  # D-309: the label step comes before approval
+            raise h.problem(
+                409,
+                "request.refused",
+                reason="give every criterion a short label first: " + ", ".join(ctx["unlabelled"][:5]),
             )
         if confirm != "yes" and h.confirm is not None:  # P-10 (D-143): the consequence first
             text = translate(sess.lang, "confirm.approve_all", n=len(ctx["rows"]))

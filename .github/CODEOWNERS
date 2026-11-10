@@ -1,15 +1,13 @@
-# Code owners (T-002, D-306; CR-080). GitHub asks the owners of every path a pull request touches for review; with
-# branch protection's "require review from code owners" on master, their approval is needed to merge.
+# Code owners (T-002, D-306; CR-080). Information only (D-311): it says who owns which path. No human approval is
+# required to merge; a safety-core change merges on green CI and an automated adversarial review.
 # The last matching line wins, so the safety-core lines come after the catch-all.
 
 # Everything: the repository owner.
 *                                                       @zandis
 
-# Safety core (TB-PLAN-06 §6.1 rule 9; TB-ASSESS-01 §3.0 rule 6): matching, the criteria engines, the guard, authz,
-# the prefill path, and the audit, identifier and lab-value code they rest on. A change here needs the human
-# safety-core reviewer, and only one safety-core pull request is in review at a time.
-# That reviewer is not named yet: naming them and adding their login to every line below is owner action OD-9
-# (TB-REG-01 CR-080, PLAN-024). Until then these lines name the owner alone, and the second reader does not exist.
+# Safety core (TB-ASSESS-01 §3.0 rule 6): matching, the criteria engines, the guard, authz, the prefill path, and the
+# audit, identifier and lab-value code they rest on. Their property, mutation and engine-agreement tests (T-650,
+# T-652) are the check on every change; the named human reviewer of OD-9 was dropped by D-311.
 
 # matching and the cascade
 /trialbox/services/matching/                            @zandis

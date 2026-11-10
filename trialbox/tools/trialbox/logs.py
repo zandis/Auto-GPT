@@ -5,9 +5,10 @@
     sudo python3 -m tools.trialbox logs prune
     sudo python3 -m tools.trialbox logs archive-audit
 
-* **collect**: yesterday's log of every compose service (``docker compose logs --timestamps --since --until``, UTC
-  day) into ``TB_LOG_DIR/services/<day>/<service>.log.gz`` (0640). The containers keep their own size-capped JSON
-  logs (50 MB x 5); the collected days are what the hospital's SIEM or an auditor reads (security review §6 q.25).
+* **collect**: yesterday's log of every compose service (``docker compose logs --timestamps --since --until``, the
+  site's day: 00:00 to 24:00 in ``TB_TZ``, the zone the audit day files use; D-315, OPS-036) into
+  ``TB_LOG_DIR/services/<day>/<service>.log.gz`` (0640). The containers keep their own size-capped JSON logs
+  (50 MB x 5); the collected days are what the hospital's SIEM or an auditor reads (security review §6 q.25).
 * **prune**: collected days older than ``settings.yaml`` ``retention.logs_days`` are deleted.
 * **archive-audit**: every closed day file of the audit chain (``TB_AUDIT_HOST_DIR``, default the ``audit-data``
   volume) is copied, gzip-compressed, to ``TB_AUDIT_ARCHIVE_DIR/<year>/<day>.jsonl.gz`` with its sha256 in
@@ -30,8 +31,9 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[2]
 DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -89,13 +91,21 @@ def compose(deploy: Path) -> list[str]:
     return shlex.split(os.environ.get("TB_COMPOSE") or f"docker compose --project-directory {shlex.quote(str(deploy))}")
 
 
-def collect(deploy: Path, day: date, log_dir: Path, runner: Runner = run_cmd) -> list[Path]:
-    """One gzip file per compose service for ``day`` (UTC)."""
+def site_day_bounds(day: date, tz: str) -> tuple[str, str]:
+    """The UTC instants where the site's ``day`` starts and ends (``--since``/``--until`` of docker compose logs)."""
+    zone = ZoneInfo(tz)
+    start = datetime.combine(day, time(0), zone).astimezone(UTC)
+    end = datetime.combine(day + timedelta(days=1), time(0), zone).astimezone(UTC)
+    return start.strftime("%Y-%m-%dT%H:%M:%SZ"), end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def collect(deploy: Path, day: date, log_dir: Path, runner: Runner = run_cmd, *, tz: str) -> list[Path]:
+    """One gzip file per compose service for the site's ``day`` in ``tz`` (D-315)."""
     services = runner([*compose(deploy), "ps", "--all", "--services"]).decode().split()
     out_dir = log_dir / "services" / day.isoformat()
     out_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(out_dir, 0o750)
-    since, until = f"{day.isoformat()}T00:00:00Z", f"{(day + timedelta(days=1)).isoformat()}T00:00:00Z"
+    since, until = site_day_bounds(day, tz)
     written = []
     for svc in sorted(set(services)):
         data = runner([*compose(deploy), "logs", "--no-color", "--timestamps", "--since", since, "--until", until, svc])
@@ -220,13 +230,17 @@ def archive_audit(audit: Path, archive: Path, today: date) -> list[str]:
 
 def main_action(action: str, deploy: Path, day: str | None, runner: Runner = run_cmd, today: date | None = None) -> int:
     env = env_file(deploy)
-    today = today or datetime.now(UTC).date()
+    tz = (env.get("TB_TZ") or os.environ.get("TB_TZ") or "").strip().strip("\"'")
+    if not tz:  # no default zone (D-315): the day boundaries would be another site's
+        print(f"logs {action}: TB_TZ is not set in {deploy / '.env'}: set it to site.tz", file=sys.stderr)
+        return 1
+    today = today or datetime.now(ZoneInfo(tz)).date()  # the site's day, as the audit day files (OPS-036)
     log_dir = Path(env.get("TB_LOG_DIR") or deploy / "logs")
     days = retention_days(deploy / "settings.yaml", "logs_days", DEFAULT_LOGS_DAYS)
     try:
         if action in ("collect", "daily"):
             d = date.fromisoformat(day) if day else today - timedelta(days=1)
-            files = collect(deploy, d, log_dir, runner)
+            files = collect(deploy, d, log_dir, runner, tz=tz)
             print(f"collected {len(files)} service logs of {d} into {log_dir / 'services' / d.isoformat()}")
         if action in ("prune", "daily"):
             gone = prune(log_dir, days, today)

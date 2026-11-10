@@ -17,6 +17,10 @@ class CsvSource:
             raise FileNotFoundError(f"csv source directory not found: {directory}")
         self.directory = directory
 
+    def has_table(self, source_name: str) -> bool:
+        """Whether the export holds the table's file at all (T-611: a missing file is not an empty table)."""
+        return (self.directory / f"{source_name}.csv").is_file()
+
     def rows(self, table: str, source_name: str, delta_column: str | None, since: str | None) -> Iterator[Row]:
         path = self.directory / f"{source_name}.csv"
         if not path.exists():

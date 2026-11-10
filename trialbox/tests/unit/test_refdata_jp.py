@@ -178,28 +178,18 @@ def test_a_pinned_file_needs_no_listed_download_and_build_refuses_an_unchecked_i
         rf.build(tmp_path, tmp_path / "out", "20261110", ids=["ctcae_v5_en"])
 
 
-def test_the_page_reader_needs_every_marker(monkeypatch: pytest.MonkeyPatch) -> None:
-    import httpx
-
-    class R:
-        text = "Unless otherwise indicated, all text ... is free of copyright"
-
-        def raise_for_status(self) -> None:
-            return None
-
-    monkeypatch.setattr(httpx, "get", lambda *a, **k: R())
+def test_the_page_reader_needs_every_marker(tmp_path: Path) -> None:
+    page = {"url": "https://p/", "repeat": True,
+            "body": {"text": "Unless otherwise indicated, all text ... is free of copyright"}}  # fmt: skip
+    (tmp_path / "page.json").write_text(json.dumps({"interactions": [page]}), encoding="utf-8")
     item = rf.BY_ID["ctcae_v5_en"]
-    assert rd.page_licence_reader("https://p", "free of copyright")(item) == rd.LicenceRead(
-        "https://p", "free of copyright", "free of copyright", True
-    )
-    got = rd.page_licence_reader("https://p", "free of copyright", "no fee")(item)
-    assert got is not None and not got.ok
-
-    def boom(*a: object, **k: object) -> None:
-        raise httpx.ConnectError("refused")
-
-    monkeypatch.setattr(httpx, "get", boom)
-    assert rd.page_licence_reader("https://p", "x")(item) is None
+    with rd.replay(tmp_path / "page.json"):  # through the fetch's one HTTP client (D-317)
+        assert rd.page_licence_reader("https://p/", "free of copyright")(item) == rd.LicenceRead(
+            "https://p/", "free of copyright", "free of copyright", True
+        )
+        got = rd.page_licence_reader("https://p/", "free of copyright", "no fee")(item)
+        assert got is not None and not got.ok
+        assert rd.page_licence_reader("https://q/", "x")(item) is None  # no answer (not in the cassette)
 
 
 # ------------------------------------------------------------------------------------------------ the pack

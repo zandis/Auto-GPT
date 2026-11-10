@@ -240,8 +240,9 @@ def test_a_standard_concept_is_used_where_the_vocabulary_has_one(feed_dir: Path,
     )
 
 
-def test_tombstones_restore_and_in_place_updates(feed_dir: Path, db: Any) -> None:
+def test_tombstones_restore_and_in_place_updates(feed_dir: Path, db: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     from omop.export import export_rows
+    from omop.schema import OmopError
 
     feed = _feed(feed_dir)
     _load(db, feed)
@@ -256,7 +257,14 @@ def test_tombstones_restore_and_in_place_updates(feed_dir: Path, db: Any) -> Non
     changed = nxt["Condition"][0]
     old_code = changed["code"]["coding"][0]["code"]
     changed["code"]["coding"][0]["code"] = "Z99.9"
+    # T-611: the removed patient's visits, drugs and notes stay in the feed: their facts would lose their person
+    # (DQD isForeignKey), so the batch is held unless the operator lets this one batch through
+    with pytest.raises(OmopError, match="isForeignKey"):
+        _load(db, nxt, snap="2026-10-05")
+    monkeypatch.setenv("TB_FEED_DROP_OVERRIDE", "2026-10-05: test of the tombstone mechanics")
     rep = _load(db, nxt, snap="2026-10-05")[0]
+    assert "isForeignKey" in rep.override
+    monkeypatch.delenv("TB_FEED_DROP_OVERRIDE")
     assert (rep.tombstoned, rep.updated) == (2, 1)
     assert db.fetchval("SELECT count(*) FROM condition_occurrence WHERE condition_occurrence_id = ?", (cid,)) == 0
     assert (
@@ -620,7 +628,11 @@ def test_a_feed_batch_that_would_tombstone_the_whole_feed_is_refused(feed_dir: P
     assert db.fetchval("SELECT count(*) FROM tb_load WHERE source_kind = 'feed-refused'") == 2
     assert db.fetchval("SELECT max(batch) FROM tb_load WHERE source_kind = 'feed'") == SNAP
     few = copy.deepcopy(feed)
-    few["Patient"] = feed["Patient"][10:]  # 10 of 600 gone: an ordinary night
+    few["Patient"] = feed["Patient"][10:]  # 10 of 600 gone with their records: an ordinary night
+    left = {f'"Patient/{p["id"]}"' for p in feed["Patient"][:10]}  # T-611: facts left behind would be held
+    for t in few:
+        if t != "Patient":
+            few[t] = [r for r in few[t] if not any(x in json.dumps(r) for x in left)]
     assert load_batch(db, "feed", "2026-10-05", few, tz="Asia/Taipei").override == ""
     # an override for another night, or without a night, does nothing (review M3)
     for stale in ("2026-10-05: an old reason", "site closed its oncology ward"):

@@ -8,10 +8,10 @@ reaches the box inside the signed update bundle (offline media).
 
 Licences checked at the source (2026-11-09):
 
-* data.gov.tw datasets 23715 (NHI drug list), 177508 (ICD-10-CM/PCS 2014 <-> 2023 map) and 15460 (NAER medical
-  terms): dataset API field ``license`` = 1, the Open Government Data License version 1.0 (https://data.gov.tw/
-  license): use, reproduction, distribution, adaptation and products of any kind, with no fee, on condition of the
-  provider's attribution statement.
+* data.gov.tw datasets 23715 (NHI drug list), 177508 (ICD-10-CM/PCS 2014 <-> 2023 map), 15460 (NAER medical
+  terms) and 174450 (NHI medical service items, D-317, read 2026-11-10): dataset API field ``license`` = 1, the
+  Open Government Data License version 1.0 (https://data.gov.tw/license): use, reproduction, distribution,
+  adaptation and products of any kind, with no fee, on condition of the provider's attribution statement.
 * The NHIA PAS IG package ``tw.gov.mohw.nhi.pas`` 1.3.0 (``ConceptMap-nhi-loinc``): ``package.json`` licence
   ``CC0-1.0``. The parser refuses a package with another licence.
 * The curated zh-TW synonyms are TrialBox's own work (``tb_common/refdata_src/zh_tw_clinical_synonyms.csv``).
@@ -37,6 +37,9 @@ from tb_common.refdata import (
     LicenceRead,
     csv_rows,
     curated_synonyms,
+    http_client,
+    in_set_via_map,
+    map_targets_or_empty,
     own_file_version,
     require_columns,
 )
@@ -68,11 +71,10 @@ def datagov_meta(meta_url: str) -> dict[str, Any]:
     the dataset API (the vendor's fetch only; the box never calls it); empty when it does not answer. The download
     URLs bind the licence to the file: the NAER terms are fetched from opendata.naer.edu.tw, and the fetch checks
     that this is a URL the OGDL-licensed record 15460 distributes (D-172)."""
-    import httpx
-
     try:
-        r = httpx.get(meta_url, timeout=60)
-        r.raise_for_status()
+        with http_client() as c:
+            r = c.get(meta_url)
+            r.raise_for_status()
         res = r.json()["result"]
         downloads = sorted(unquote(str(d.get("resourceDownloadUrl") or "")) for d in res.get("distribution") or [])
         return {"version": f"data.gov.tw {res['datasetId']} modified {res['modifiedDate']}",
@@ -332,6 +334,84 @@ def synonyms_version(path: Path) -> str:
     return own_file_version("TrialBox zh-TW synonyms", path, sum(1 for _ in parse_zh_tw_synonyms(path)))
 
 
+# ------------------------------------------------------------------------------------------------ D-317 NHI services
+NHI_SERVICE_COLS = ("診療項目代碼", "健保支付點數", "生效起日", "生效迄日", "中文項目名稱")
+
+
+def parse_nhi_services(path: Path) -> Iterator[dict[str, Any]]:
+    """全民健康保險醫療服務給付項目及支付標準 (data.gov.tw 174450): one term per 診療項目代碼 (procedures, dialysis,
+    imaging and the lab order codes), the row with the latest 生效起日 when a code has several. The display is the
+    Chinese name; the English name, points and dates go in ``extra``. Dates are ``YYYYMMDD`` (or 民國) -> ISO."""
+    best: dict[str, dict[str, str]] = {}
+    rows = require_columns(csv_rows(path.read_bytes()), NHI_SERVICE_COLS, "the NHI service list (data.gov.tw 174450)")
+    for r in rows:
+        code = (r.get("診療項目代碼") or "").strip()
+        if not code:
+            continue
+        r["生效起日"], r["生效迄日"] = _ymd(r.get("生效起日", "")), _ymd(r.get("生效迄日", ""))
+        if code not in best or _iso(r["生效起日"]) >= _iso(best[code]["生效起日"]):
+            best[code] = r
+    for code, r in sorted(best.items()):
+        yield {"system": NHI_SERVICE, "code": code, "display": r.get("中文項目名稱", "").strip(),
+               "extra": {"en": r.get("英文項目名稱", "").strip(), "points": r.get("健保支付點數", "").strip(),
+                         "valid_from": r["生效起日"], "valid_to": r["生效迄日"],
+                         "note": r.get("備註", "").strip()}}  # fmt: skip
+
+
+def _ymd(s: str) -> str:
+    s = (s or "").strip()
+    if re.fullmatch(r"\d{8}", s):
+        return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+    return roc(s)
+
+
+# ------------------------------------------------------------------------------------------------ D-317 2014 codes
+ICD_2023_FROM = "2025-01-01"  # NHI claims moved to the 2023 edition on this day (D-171)
+
+
+def tw_icd_edition(recorded_on: str) -> str:
+    """The Taiwan ICD-10-CM/PCS edition a record of that date carries: ``2014`` before 2025-01-01, else ``2023``.
+    A date that cannot be read gives ``""`` (the caller keeps the code as it is and asks)."""
+    d = (recorded_on or "").strip()[:10]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+        return ""
+    return "2014" if d < ICD_2023_FROM else "2023"
+
+
+def tw_icd_at_ingest(code: str, recorded_on: str, pcs: bool = False, url: str | None = None) -> dict[str, Any]:
+    """What ingest keeps for one Taiwan diagnosis (or procedure) code of an old record (D-317, the D-171 map read at
+    ingest). The record's own code is never replaced: ``system`` names its edition, so a 2014 code is not read as a
+    2023 code. ``targets`` are the 2023 rows of the loaded map; ``same_2023`` is the 2023 code only when the map
+    says the meaning is the same (one ``equivalent`` or ``equal`` target), else ``""``. A list is then checked with
+    :func:`tw_code_in_list`, so a split or an inexact row stays unknown and never excludes. No map loaded: no
+    targets, and the code stays a 2014 code."""
+    code = (code or "").strip().upper()
+    ed = tw_icd_edition(recorded_on)
+    src, tgt = (ICD_PCS_2014, ICD_PCS_2023) if pcs else (ICD_CM_2014, ICD_CM_2023)
+    if ed != "2014":
+        return {"code": code, "system": tgt if ed == "2023" else "", "edition": ed, "targets": [], "same_2023": ""}
+    rows = [t for t in map_targets_or_empty(src, code, url) if t.get("relation") != "unmatched"]
+    same = [t["target_code"] for t in rows if t.get("relation") in ("equivalent", "equal")]
+    return {"code": code, "system": src, "edition": ed, "targets": rows,
+            "same_2023": same[0] if len(rows) == 1 and len(same) == 1 else ""}  # fmt: skip
+
+
+def tw_code_in_list(at_ingest: dict[str, Any], wanted: set[tuple[str, str]],
+                    families: Any = ()) -> str:  # fmt: skip
+    """``yes`` / ``no`` / ``unknown`` for a code kept by :func:`tw_icd_at_ingest` against a list of 2023 codes:
+    a 2023 code is looked up as it is (``no`` only when the list speaks its system); a 2014 code is read through the
+    map (:func:`tb_common.refdata.in_set_via_map`); an unknown edition is ``unknown``."""
+    if at_ingest.get("edition") == "2023":
+        sy, c = at_ingest["system"], at_ingest["code"]
+        fams = [(fs, pre) for fs, pre in families if pre]
+        if (sy, c) in wanted or any(sy == fs and c.startswith(pre) for fs, pre in fams):
+            return "yes"
+        return "no" if sy in {s for s, _ in wanted} | {s for s, _ in fams} else "unknown"
+    if at_ingest.get("edition") == "2014":
+        return in_set_via_map(at_ingest.get("targets") or [], wanted, families)
+    return "unknown"
+
+
 # ------------------------------------------------------------------------------------------------ the items
 NHIA = "National Health Insurance Administration (衛生福利部中央健康保險署)"
 ITEMS: tuple[Item, ...] = (
@@ -395,5 +475,16 @@ ITEMS: tuple[Item, ...] = (
         "Colloquial zh-TW words and Taiwanese note abbreviations -> the matcher's names; curated, no review.",
         "zh_tw_clinical_synonyms.csv", country="TW", decision="D-172", parse=parse_zh_tw_synonyms,
         version_of=synonyms_version,
+    ),
+    Item(
+        "nhi_services", "NHI medical service items 醫療服務給付項目及支付標準 (data.gov.tw 174450)", "term", "ship",
+        "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20021-001", OGDL, OGDL_URL, OGDL_TERMS,
+        f"全民健康保險醫療服務給付項目及支付標準, {NHIA}, via data.gov.tw (dataset 174450), Open Government Data "
+        "License 1.0.",
+        "daily at the source; monthly in the pack", "6,175 codes, 1.7 MB CSV (2026-11-10)",
+        "Procedure, imaging, dialysis and lab order codes with their Chinese (and most English) names; the system "
+        "is the TW Core code system of the NHI service items.",
+        "nhi_services.csv", country="TW", decision="D-317", parse=parse_nhi_services,
+        meta_url="https://data.gov.tw/api/v2/rest/dataset/174450", licence_reader=datagov_tw_licence,
     ),
 )  # fmt: skip
