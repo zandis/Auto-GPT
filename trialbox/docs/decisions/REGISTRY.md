@@ -58,7 +58,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | --- | --- | --- | --- |
 | D-208 | reserved | T-108 | Wave-3 operations in code |
 | D-209 | reserved | T-110 | Release identity and supply chain |
-| D-210 | reserved | T-111 | Update safety |
+| D-210 | merged | T-111, PR #83 | update safety (file) |
 | D-211 | reserved | T-113 | The shared-quota profile, doctor --platform and the platform manifests |
 | D-212 | reserved | T-114 | Cloud B200 qualification record |
 | D-213 | reserved | T-115 | EDC prefill follow-ups from TB-REV-EDC-01 (the tracked items) |

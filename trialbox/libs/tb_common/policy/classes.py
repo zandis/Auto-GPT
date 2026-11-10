@@ -181,6 +181,7 @@ _D1 = {
     "QualificationStep",
     "UpdateFile",
     "UpdateManifest",
+    "KeyRotation",
     "Settings",
     "SiteInfo",
     "Allowlist",
