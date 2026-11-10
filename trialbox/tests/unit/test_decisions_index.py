@@ -53,7 +53,8 @@ def test_master_is_clean() -> None:
 def test_master_registry_holds_the_agreed_rows() -> None:
     c = di.load(REPO)
     rows = {(r.first, r.last): r for r in c.rows}
-    assert rows[(271, 289)].state == "reserved"  # the critical-issues fix groups
+    assert rows[(271, 272)].state == "reserved" and rows[(274, 289)].state == "reserved"  # the fix groups
+    assert rows[(273, 273)].state == "merged" and "D-273" in rows[(273, 273)].holder
     assert rows[(152, 159)].state == "unused" and rows[(164, 169)].state == "unused"
     assert rows[(99, 99)].state == "missing"
     for num, card in [(300, "T-101"), (301, "T-105"), (302, "T-102a"), (303, "T-106"), (304, "T-106"),

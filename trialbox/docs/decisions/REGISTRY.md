@@ -116,7 +116,9 @@ master stay); reservations D-208 to D-262 stay valid.
 | Number | State | Holder | Note |
 | --- | --- | --- | --- |
 | D-270 | merged | fix group D-270 (PR #86) | the console's "today" is the site's date; `docs/DECISIONS.md` (its last entry) |
-| D-271..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-271..D-272 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-273 | merged | fix group D-273 | console privacy guards: one reveal path, delegation and opt-out on every patient-level reader, signed role and study (file) |
+| D-274..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-290..D-299 | unused | — | below the new block; never given |
 
 ## New numbers (from D-300)

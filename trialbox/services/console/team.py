@@ -140,6 +140,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     optout = OptOutRegister()  # schema optout, read by the orchestrator too
     h.team, h.optout = team, optout
     per_hour = int(env.get("TB_CANDIDATE_VIEWS_PER_HOUR") or 60)
+    # D-273 (PV-6): chart numbers turned into pseudonyms at the opt-out door, per person and hour
+    lookups_per_hour = int(env.get("TB_OPTOUT_LOOKUPS_PER_HOUR") or 30)
 
     def today() -> date:
         return h.today()  # the site's date, not the UTC date (D-270)
@@ -268,7 +270,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         ctx["purpose"] = purpose
         return rid, ctx
 
-    def reveal_candidate(sess: Session, path: str, rs: str, pid: str, purpose: str, reason: str) -> dict[str, Any]:
+    def reveal_candidate(sess: Session, path: str, rs: str, pid: str, purpose: str, reason: str,
+                         note: str = "") -> dict[str, Any]:  # fmt: skip
         """The chart number of one candidate through D-143's reveal (``h.apply_reveal``): identifier authority for
         the study and, for an investigator, the delegation log's "screen"; the D-143 reason; the audit record on both
         sides and the orchestrator's per-person cap. The candidate page adds only the view's purpose to the record."""
@@ -277,7 +280,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             raise h.problem(400, "candidate.purpose")
         if h.apply_reveal is None:
             raise deny(sess, path)
-        _ctx, mrn = h.apply_reveal(sess, path, rid, pid, reason, via="candidates", purpose=purpose)
+        _ctx, mrn = h.apply_reveal(sess, path, rid, pid, reason, via="candidates", purpose=purpose, note=note)
         team.record_view(rid, pid, purpose, "reveal", sess.user.username, now())
         ctx = candidate_ctx(sess, rid, pid)
         ctx["mrn"] = mrn
@@ -318,9 +321,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = h.need(request)
         form = await request.form()
         need_csrf(sess, form)
-        ctx = reveal_candidate(
-            sess, request.url.path, rs, pid, str(form.get("purpose") or ""), str(form.get("reason") or "")
-        )
+        ctx = reveal_candidate(sess, request.url.path, rs, pid, str(form.get("purpose") or ""),
+                               str(form.get("reason") or ""), str(form.get("note") or "")[:200])  # fmt: skip
         return h.page(request, "team_candidate.html", sess, **ctx)
 
     # ------------------------------------------------------------------ referral
@@ -617,21 +619,41 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return got
 
     def change_optout(sess: Session, path: str, body: ApiOptOut) -> tuple[str, bool]:
+        """One opt-out or lift. D-273 (PV-6): a chart number typed at the door is a lookup of a patient's
+        pseudonym, so it is capped per person and hour and audited as its own event, changed or not, and neither
+        the page nor ``/api/v1`` gives the pseudonym back. D-273 (CR-055): the change's audit event is written inside
+        the register's transaction, so a failed append keeps no opt-out without its event."""
         if not can_keep(sess.user):
             raise deny(sess, path)
+        by_chart = bool(body.chart_no.strip()) and not body.pid.strip()
+        if by_chart:
+            since = (h.clock() - timedelta(hours=1)).isoformat()
+            if team.count_views(sess.user.username, "chart_lookup", since) >= lookups_per_hour:
+                au.append("console.rate_limited", actor=h.actor(sess),
+                          detail={"action": "chart_lookup", "limit": lookups_per_hour})  # fmt: skip
+                raise h.problem(429, "optout.rate_limited", n=lookups_per_hour)
         pid = to_pid(body.chart_no, body.pid)
+        if by_chart:
+            team.record_view("-", pid, "optout", "chart_lookup", sess.user.username, now())
+            au.append(
+                "console.chart_lookup",
+                actor=h.actor(sess),
+                detail={"pid": pid, "for": "lift" if body.lift else "opt_out", "role": sess.user.role},
+            )
+        detail = {"pid": pid, "action": "lift" if body.lift else "opt_out",
+                  "source": "" if body.lift else (body.source if body.source in SOURCES else "other"),
+                  "removed_from": "" if body.lift else "screening, candidate lists, exports"}  # fmt: skip
+
+        def audit() -> None:
+            au.append("console.opt_out", actor=h.actor(sess), detail=detail)
+
         try:
             if body.lift:
-                changed = optout.lift(pid, body.note, sess.user.username, now())
+                changed = optout.lift(pid, body.note, sess.user.username, now(), before_commit=audit)
             else:
-                changed = optout.add(pid, body.source, body.note, sess.user.username, now())
+                changed = optout.add(pid, body.source, body.note, sess.user.username, now(), before_commit=audit)
         except OptOutError as exc:
             raise refused(exc) from exc
-        if changed:
-            au.append("console.opt_out", actor=h.actor(sess),
-                      detail={"pid": pid, "action": "lift" if body.lift else "opt_out",
-                              "source": "" if body.lift else (body.source if body.source in SOURCES else "other"),
-                              "removed_from": "" if body.lift else "screening, candidate lists, exports"})  # fmt: skip
         return pid, changed
 
     @app.get("/site/opt-outs")
@@ -650,9 +672,9 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         body = ApiOptOut(pid=str(form.get("pid") or "")[:64], chart_no=str(form.get("chart_no") or "")[:40],
                          source=str(form.get("source") or "office")[:20], note=str(form.get("note") or "")[:300],
                          lift=form.get("lift") == "1")  # fmt: skip
-        pid, changed = change_optout(sess, request.url.path, body)
+        _pid, changed = change_optout(sess, request.url.path, body)
         done = ("lifted" if body.lift else "added") if changed else "same"
-        return RedirectResponse(f"/site/opt-outs?done={done}&p={pid[:8]}", status_code=303)
+        return RedirectResponse(f"/site/opt-outs?done={done}", status_code=303)  # D-273 (PV-6): no pseudonym back
 
     # ------------------------------------------------------------------ /api/v1 (D-125): the same rules
     def api(request: Request) -> Session:
@@ -775,5 +797,5 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     @app.post("/api/v1/site/opt-outs")
     def api_optout(request: Request, body: ApiOptOut) -> dict[str, Any]:
         sess = api(request)
-        pid, changed = change_optout(sess, request.url.path, body)
-        return {"pid": pid, "opted_out": not body.lift, "changed": changed}
+        _pid, changed = change_optout(sess, request.url.path, body)
+        return {"opted_out": not body.lift, "changed": changed}  # D-273 (PV-6): no pseudonym back

@@ -347,6 +347,8 @@ class SiteSetup:
             if not force and last is not None and last["digest"] == dg and lake.snapshot():
                 return {"snapshot": last["snapshot"], "unchanged": True, "counts": last["counts"]}
             snap = (lake.snapshot() if ws == "main" else None) or self.today().isoformat()
+            # D-273 (CR-055, DI-5): the audit event goes first; if it cannot be written, nothing is published
+            self.audit.append("setup.publish_begin", actor=by, detail={"ws": ws, "snapshot": snap, "digest": dg[:16]})
             lake.put_site(res)
             if ws == "main":  # the hospital's lake: never rebuilt from a missing or empty feed once it had one (D-271)
                 lake.rebuild(snap)

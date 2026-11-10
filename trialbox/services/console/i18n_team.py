@@ -172,9 +172,9 @@ EN: dict[str, str] = {
     "team.optout.count": "{n} patients opted out",
     "team.optout.help": "Patients who opted out of research use of their records. Kept by the research office or the data steward. From the moment it is recorded the patient is left out of screening, every candidate list and later exports. Type the chart number: TrialBox turns it into the pseudonym and does not keep the number.",
     "team.optout.removed": "{n} patients on this run are not shown: they opted out.",
-    "team.optout.done.added": "Recorded: {p} opted out. The patient is removed from screening, lists and later exports.",
-    "team.optout.done.lifted": "Recorded: {p} took the opt-out back.",
-    "team.optout.done.same": "No change: {p} was already in that state.",
+    "team.optout.done.added": "Recorded: the patient opted out. The patient is removed from screening, lists and later exports.",
+    "team.optout.done.lifted": "Recorded: the patient took the opt-out back.",
+    "team.optout.done.same": "No change: the patient was already in that state.",
     "team.optout.add": "Record an opt-out",
     "team.optout.chart": "Chart number",
     "team.optout.pid": "or pseudonym",
@@ -200,6 +200,9 @@ EN: dict[str, str] = {
     "approach.wait_referral": "Not marked: the treating doctor has not agreed yet. Approach waits for the doctor's agreement; the coordinator records it on the referrals page.",
     "candidate.rate_limited": "Too many opened in a short time (limit {n}). Wait a while, or ask the administrator if your work needs more.",
     "candidate.purpose": "Choose why you are opening this candidate first.",
+    "reveal.note": "Why, in your words (needed for “other”)",
+    "reveal.note_needed": "For “other”, write why you need the chart number ({n} characters or more). It is kept in the audit trail.",
+    "optout.rate_limited": "Too many chart numbers looked up in a short time (limit {n}). Wait a while, or ask the data steward.",
 }
 
 JA: dict[str, str] = {
@@ -367,9 +370,9 @@ JA: dict[str, str] = {
     "team.optout.count": "オプトアウト {n} 人",
     "team.optout.help": "診療記録の研究利用を拒否した患者さんです。研究支援部門またはデータ管理責任者が管理します。登録した時点から、その患者さんはスクリーニング、すべての候補者リスト、以後の出力から外れます。カルテ番号を入力すると TrialBox が仮名IDに変えます。番号は保存しません。",
     "team.optout.removed": "この実行の {n} 人は表示していません（オプトアウト）。",
-    "team.optout.done.added": "記録しました：{p} がオプトアウトしました。スクリーニング、リスト、以後の出力から外れます。",
-    "team.optout.done.lifted": "記録しました：{p} がオプトアウトを取り消しました。",
-    "team.optout.done.same": "変更なし：{p} はすでにその状態です。",
+    "team.optout.done.added": "記録しました：患者がオプトアウトしました。スクリーニング、リスト、以後の出力から外れます。",
+    "team.optout.done.lifted": "記録しました：患者がオプトアウトを取り消しました。",
+    "team.optout.done.same": "変更なし：患者はすでにその状態です。",
     "team.optout.add": "オプトアウトを登録",
     "team.optout.chart": "カルテ番号",
     "team.optout.pid": "または仮名ID",
@@ -395,6 +398,9 @@ JA: dict[str, str] = {
     "approach.wait_referral": "付けていません：主治医の了承がまだです。「声をかける」は主治医の了承を待ちます。返事は CRC が紹介依頼のページに記録します。",
     "candidate.rate_limited": "短時間に開きすぎました（上限 {n}）。しばらく待つか、業務でもっと必要なら管理者に相談してください。",
     "candidate.purpose": "先に、この候補者を開く目的を選んでください。",
+    "reveal.note": "理由（「その他」のときは記入が必要です）",
+    "reveal.note_needed": "「その他」のときは、カルテ番号が必要な理由を {n} 文字以上で書いてください。監査記録に残ります。",
+    "optout.rate_limited": "短時間にカルテ番号を照会しすぎました（上限 {n}）。しばらく待つか、データ管理者に相談してください。",
 }
 
 ZH: dict[str, str] = {
@@ -562,9 +568,9 @@ ZH: dict[str, str] = {
     "team.optout.count": "{n} 位病人已退出",
     "team.optout.help": "拒絕病歷用於研究的病人。由研究部門或資料管理人維護。登錄後，該病人即不再出現在篩選、任何候選者名單與之後的匯出中。請輸入病歷號：TrialBox 會將其轉為假名代碼，不保存病歷號。",
     "team.optout.removed": "本次執行有 {n} 位病人未顯示：他們已退出。",
-    "team.optout.done.added": "已記錄：{p} 已退出。該病人已自篩選、名單與之後的匯出中移除。",
-    "team.optout.done.lifted": "已記錄：{p} 撤回退出。",
-    "team.optout.done.same": "沒有變更：{p} 已是該狀態。",
+    "team.optout.done.added": "已記錄：病人已退出。該病人已自篩選、名單與之後的匯出中移除。",
+    "team.optout.done.lifted": "已記錄：病人撤回退出。",
+    "team.optout.done.same": "沒有變更：病人已是該狀態。",
     "team.optout.add": "登錄退出",
     "team.optout.chart": "病歷號",
     "team.optout.pid": "或假名代碼",
@@ -590,4 +596,7 @@ ZH: dict[str, str] = {
     "approach.wait_referral": "未標記：主治醫師尚未同意。「邀請」須等待醫師同意；研究護理師會在轉介請求頁面記錄回覆。",
     "candidate.rate_limited": "短時間內開啟太多次（上限 {n}）。請稍候；若職責需要更多，請洽管理員。",
     "candidate.purpose": "請先選擇開啟這位候選者的目的。",
+    "reveal.note": "原因（選「其他」時必填）",
+    "reveal.note_needed": "選「其他」時，請寫下需要病歷號的原因（至少 {n} 個字）。會保存在稽核紀錄中。",
+    "optout.rate_limited": "短時間內查詢太多病歷號（上限 {n}）。請稍候，或洽資料管理員。",
 }

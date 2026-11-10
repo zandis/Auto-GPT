@@ -217,6 +217,7 @@ def test_a_site_set_up_the_hard_way(svc: SiteSetup, tmp_path: Path) -> None:
         "setup.resolve",
         "setup.fact",
         "setup.publish",
+        "setup.publish_begin",  # D-273 (CR-055): the event before the change
     } <= events
     assert verify(tmp_path / "audit").ok
     trail = (
