@@ -1,0 +1,26 @@
+{# T-510 (D-331, UX-006): the feedback control of every page a signed-in account sees, in the page's language: a
+   flag, a rating and a comment, sent with the page's path (console.feedback). No field asks for a patient example;
+   the line beside the comment says no patient details go there. base.html includes this file once. #}
+{% if user %}<details class="feedback" id="feedback" data-testid="feedback"{% if request is defined and request.query_params.get('feedback') == 'thanks' %} open{% endif %}>
+<summary data-testid="feedback-open">{{ t('feedback.open') }}</summary>
+{% if request is defined and request.query_params.get('feedback') == 'thanks' %}<p class="ok" role="status" data-testid="feedback-thanks">{{ t('feedback.thanks') }}</p>{% endif %}
+<form method="post" action="/feedback" class="formstack" data-testid="feedback-form">
+  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="path" value="{{ path }}">
+  <label for="feedback-flag">{{ t('feedback.flag') }}</label>
+  <select id="feedback-flag" name="flag" data-testid="feedback-flag">
+    <option value="">{{ t('feedback.flag.none') }}</option>
+    {% for f in ('wrong', 'confusing', 'wording', 'missing', 'slow', 'other') %}<option value="{{ f }}">{{ t('feedback.flag.' + f) }}</option>{% endfor %}
+  </select>
+  <label for="feedback-rating">{{ t('feedback.rating') }}</label>
+  <select id="feedback-rating" name="rating" data-testid="feedback-rating">
+    <option value="">{{ t('feedback.rating.none') }}</option>
+    {# every option has words: a bare number between tags reads as a count (the small-cell rule of the result pages) #}
+    {% for n in (1, 2, 3, 4, 5) %}<option value="{{ n }}">{{ t('feedback.rating.' ~ n) }}</option>{% endfor %}
+  </select>
+  <label for="feedback-comment">{{ t('feedback.comment') }}</label>
+  <p class="hint" id="feedback-nopatient" data-testid="feedback-nopatient"><strong>{{ t('feedback.nopatient') }}</strong></p>
+  <textarea id="feedback-comment" name="comment" rows="3" maxlength="1000" aria-describedby="feedback-nopatient" data-testid="feedback-comment"></textarea>
+  <p class="hint">{{ t('feedback.sent_with') }}</p>
+  <button type="submit" class="secondary" data-testid="feedback-send">{{ t('feedback.send') }}</button>
+</form>
+</details>{% endif %}
