@@ -19,7 +19,7 @@ UV_LOCK = ROOT / "uv.lock"
 REQUIREMENTS_LOCK = ROOT / "deploy" / "requirements.lock"
 # pip-audit itself is installed from this hashed file (``make pip-audit``), never as a bare ``pip-audit==x``
 PIP_AUDIT_LOCK = ROOT / "tools" / "supply_chain" / "pip-audit.lock"
-PIP_AUDIT_VERSION = "2.9.0"
+PIP_AUDIT_VERSION = "2.10.1"
 
 HEADER = (
     "# Generated from uv.lock by `make lock` (python -m tools.supply_chain lock-export, D-185). Do not edit.\n"
@@ -38,8 +38,11 @@ EXPORT_ARGS = [
 ]
 
 # the uv that wrote uv.lock and the export; CI pins the same (.github/workflows/trialbox-*.yml). Another uv may
-# format the export differently, so a mismatch is named when the export differs.
-UV_VERSION = "0.11.32"
+# format the export differently, so a mismatch is named when the export differs. At least 0.13.4: uv 0.11.32 to
+# 0.13.3 trust a compromised CA root in their bundled store (GHSA-hq85-5cpj-mr62, DEP-006).
+UV_VERSION = "0.13.7"
+# the oldest uv the lock check accepts at all (the fix of GHSA-hq85-5cpj-mr62); CI runs UV_VERSION
+MIN_UV_VERSION = "0.13.4"
 
 _HASH_RE = re.compile(r"--hash=([A-Za-z0-9]+):([0-9a-fA-F]+)")
 _PIN_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(\[[^\]]*\])?==([^\s;\\]+)")
@@ -181,6 +184,19 @@ def uv_version() -> str:
     return parts[1] if len(parts) > 1 else "?"
 
 
+def _version_tuple(version: str) -> tuple[int, ...]:
+    """``0.13.7`` -> ``(0, 13, 7)``; anything unparsable sorts lowest."""
+    try:
+        return tuple(int(part) for part in version.split("."))
+    except ValueError:
+        return (-1,)
+
+
+def uv_too_old(version: str) -> bool:
+    """True when ``version`` is below MIN_UV_VERSION (a uv that trusts the compromised CA root, DEP-006)."""
+    return _version_tuple(version) < _version_tuple(MIN_UV_VERSION)
+
+
 def uv_lock_is_current(root: Path = ROOT, *, offline: bool = False) -> tuple[bool, str]:
     """``uv lock --check``: does uv.lock still satisfy pyproject.toml? (May query the index unless offline.)"""
     cmd = [_uv(), "lock", "--check"] + (["--offline"] if offline else [])
@@ -209,6 +225,8 @@ def lock_check(root: Path = ROOT, *, offline: bool = False, skip_resolve: bool =
         return [f"{req_lock} is missing: run `make lock`"]
     problems += [f"uv.lock: {p}" for p in check_uv_lock(uv_lock.read_text(encoding="utf-8"))]
     if not skip_resolve:
+        if uv_too_old(found := uv_version()):
+            problems.append(f"uv {found} is older than {MIN_UV_VERSION} (GHSA-hq85-5cpj-mr62): install uv {UV_VERSION}")
         ok, msg = uv_lock_is_current(root, offline=offline)
         if not ok:
             problems.append(f"uv.lock is stale against pyproject.toml (run `make lock`): {msg}")
