@@ -1,0 +1,90 @@
+phenotype_id,ohdsi_cohort_id,icd10cm_include,icd10cm_exclude,note
+ph.ra,457,M05;M06,M06.1;M06.4,M06.1 adult-onset Still disease and M06.4 inflammatory polyarthropathy are left out as in phenotypes.csv
+ph.sle,509,M32,M32.0,M32.0 is drug-induced lupus
+ph.ssc,467,M34,,
+ph.iim,454,M33;M36.0;G72.4,,cohort 454 is dermatomyositis only; the polymyositis and other myopathy codes are the local extension
+ph.aav,683,M31.3;M31.7;M30.1,,"GPA, MPA, EGPA"
+ph.behcet,575,M35.2,,
+ph.gout,596,M10;M1A,,M1A is chronic gout in ICD-10-CM
+ph.axspa,579,M45;M46.8;M46.9,,
+ph.psa,748,L40.5,,"the cohort's entry concepts also hold RA and juvenile arthritis, which its later rules remove; M07 in phenotypes.csv is psoriatic arthropathy only in WHO ICD-10; in ICD-10-CM M07 is enteropathic arthropathy and psoriatic arthritis is L40.5-, so M07 is left out"
+ph.jia,660,M08,,
+ph.dementia,33,F01;F02;F03;G30;G31.0;G31.83,,"F00 in phenotypes.csv is WHO ICD-10 only; ICD-10-CM codes Alzheimer dementia as G30 with F02.8-"
+ph.alzheimer,100,G30,,"F00 in phenotypes.csv is WHO ICD-10 only; ICD-10-CM uses G30 (with F02.8- for the dementia)"
+ph.mci,863,G31.84;R41.81,,
+ph.ms,539,G35,,ICD-10-CM splits G35 by course (G35.A to G35.D)
+ph.stroke_ischemic,75,I63,,the cohort also needs an inpatient visit (not a code); I65/I66 occlusion without infarction are left out
+ph.stroke_hemorrhagic,74,I61;I62,,the cohort's entry concepts include subarachnoid haemorrhage (I60); phenotypes.csv keeps it out
+ph.stroke_any,70,I60;I61;I62;I63,,I64 in phenotypes.csv is WHO ICD-10 only and does not exist in ICD-10-CM
+ph.parkinson,552,G20,,
+ph.epilepsy,549,G40,,
+ph.seizure,543,G40;R56.9,,
+ph.dre,254,G40,,the cohort also needs drug eras (two or more antiseizure drugs); those are not codes
+ph.migraine,524,G43,,
+ph.myasthenia,451,G70.0,,
+ph.cidp,550,G61.81,,
+ph.breast_cancer,636,C50,,
+ph.lung_cancer,1281,C34,,the cohort enters on broader lung findings and confirms later; C34 alone is narrower
+ph.nsclc,1279,C34,,ICD-10-CM has no histology; NSCLC needs onc.morphology_icdo3
+ph.sclc,1280,C34,,ICD-10-CM has no histology; SCLC needs onc.morphology_icdo3 (8041)
+ph.colorectal_cancer,790,C18;C19;C20,,the cohort's entry concepts are ICD-O-3 site-morphology pairs; the C18-C20 range is expanded
+ph.hcc,659,C22.0,,the cohort is any liver malignancy; C22.0 is liver cell carcinoma only
+ph.prostate_cancer,400,C61,,
+ph.renal_cancer,494,C64,,
+ph.thyroid_cancer,638,C73,,the cohort is any thyroid neoplasm (benign too); C73 is malignant only
+ph.aml,476,C92.0;C92.4;C92.5;C92.6;C92.A;C93.0;C94.0,,the C92.4-C92.6 range is expanded; C92.A (AML with multilineage dysplasia) is added
+ph.cll,470,C91.1,,
+ph.myeloma,581,C90.0,,
+ph.nhl,622,C82;C83;C84;C85;C86,,the C82-C86 range is expanded
+ph.follicular,643,C82,,
+ph.mantle_cell,680,C83.1,,
+ph.marginal_zone,682,C88.4;C83.0,,
+ph.aplastic_anemia,720,D61,D61.81;D61.82,D61.81 pancytopenia and D61.82 myelophthisis are not aplastic anaemia
+ph.iron_deficiency_anemia,373,D50,,the cohort enters on anaemia and confirms iron deficiency with labs; D50 is the diagnosis only
+ph.ckd,687,N18,,
+ph.esrd,484,N18.6;Z99.2,,
+ph.aki,269,N17,,cohort 269 is one of the accepted definitions
+ph.t2dm,503,E11,,
+ph.t1dm,499,E10,,
+ph.hypertension,520,I10;I11;I12;I13;I15;I16,,the I10-I15 range is expanded (I14 does not exist); I16 hypertensive crisis is added
+ph.heart_failure,519,I50;I11.0;I13.0;I13.2,,ICD-10-CM codes heart failure with hypertensive heart disease under I11.0 and I13.0/I13.2
+ph.cirrhosis,626,K70.3;K71.7;K74.3;K74.4;K74.5;K74.6,,"K74 in phenotypes.csv also holds hepatic fibrosis and sclerosis (K74.0-K74.2), left out; K71.7 toxic liver disease with cirrhosis added"
+ph.chronic_hbv,666,B18.0;B18.1,,the cohort is any hepatitis B; the chronic codes only
+ph.chronic_hcv,490,B18.2,,the cohort is any hepatitis C; the chronic code only
+ph.aih,230,K75.4,,
+ph.pbc,483,K74.3,,the cohort is any biliary cirrhosis; K74.3 is primary biliary cholangitis/cirrhosis
+ph.ami,71,I21;I22,,I22 subsequent infarction added; the cohort also needs an inpatient visit
+ph.af,405,I48,,
+ph.cad,522,I25,,
+ph.pah,618,I27.0;I27.20;I27.21,,
+ph.copd,506,J44,,J43 emphysema is not added; check against the Maps-to table
+ph.asthma,334,J45;J82.83,,J82.83 eosinophilic asthma added after the name check; the cohort also enters on asthma drugs (not codes)
+ph.ild,1272,J84,,
+ph.lung_nodule,1273,R91.1,,
+ph.crohn,501,K50,,
+ph.uc,458,K51,,
+ph.hypothyroidism,477,E03;E06.3;E89.0,,E89.0 postprocedural hypothyroidism added
+ph.osteoporosis,456,M80;M81,,
+ph.obesity,32,E66,,the cohort also enters on BMI and weight measurements (use vital.bmi)
+ph.hypoparathyroidism,1220,E20;E89.2,,E89.2 postprocedural hypoparathyroidism added
+ph.mdd,199,F32;F33,,
+ph.trd,1009,F32;F33,,the cohort enters on antidepressant and antipsychotic drugs; the codes cover only the depression diagnosis
+ph.bipolar,576,F31,,
+ph.schizophrenia,571,F20;F25,,
+ph.autism,591,F84,,
+ph.adhd,1025,F90,,the cohort also enters on ADHD drugs and procedures; those are not codes
+ph.psoriasis,475,L40,,
+ph.atopic_dermatitis,466,L20,,
+ph.urticaria,340,L50,,the cohort is broad (eruption and erythema); chronic urticaria (6 weeks or more) is a local rule
+ph.hiv,36,B20;Z21,,
+ph.tb,565,A15;A17;A18;A19,,the A15-A19 range is expanded; A16 is WHO ICD-10 only
+ph.sepsis,411,A40;A41;R65.2,,A40 streptococcal sepsis added; organism-specific sepsis codes elsewhere (e.g. A02.1 and A22.7 from the name check) are not included
+ph.covid19,44,U07.1,,
+ph.influenza,72,J09;J10;J11,,the cohort also enters on positive influenza tests; use the LOINC lab items
+ph.pneumonia,507,J12;J13;J14;J15;J16;J17;J18,,the J12-J18 range is expanded
+ph.febrile_seizure,54,R56.0,,
+ph.preterm,677,P07,,"cohort 677 is the maternal event (preterm labour with delivery, O60.1-); P07 is the infant code used by the local infant phenotype"
+ph.glaucoma,583,H40;H42,,H42 glaucoma in diseases classified elsewhere added
+ph.amd,536,H35.30;H35.31;H35.32,,"H35.3 in phenotypes.csv also holds other macular conditions (H35.33-H35.38); the AMD codes only"
+ph.dr,647,E08.3;E09.3;E10.3;E11.3;E13.3,E08.36;E09.36;E10.36;E11.36;E13.36,"the cohort covers any diabetes, so E08 and E09 (diabetes due to another condition or a drug) are added after the name check; E0x.36 and E1x.36 are diabetic cataract, left out"
+ph.uveitis,620,H20;H30;H44.1,,the infectious forms are not removed by code; non-infectious is a local rule

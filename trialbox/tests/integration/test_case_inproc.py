@@ -132,6 +132,26 @@ def test_case_with_chart_number_uses_lake_for_structured(world: dict[str, Any]) 
     assert verify(box.audit_dir).ok
 
 
+def test_no_audit_line_holds_the_chart_number(world: dict[str, Any]) -> None:
+    """D-272 (CR-016): after a CASE request by mail, a refused one and the replies, no line of the audit chain holds
+    the chart number (orchestrator ``job.state`` options and errors, gateway ``mail.received``/``mail.sent``); the
+    chain still verifies against its head anchor. The chart numbers are the synthetic site's."""
+    box: Box = world["box"]
+    mrn = world["mrns"][1]
+    job = _run(box, f"CASE GZQO mrn={mrn} lang=en")
+    assert job.state == "done", job.error
+    assert (job.options or {})["mrn"] == mrn  # the job keeps what it was asked
+    bad = "TEST-not-a-chart-number"
+    failed = _run(box, f"CASE GZQO mrn={bad}")
+    assert failed.state == "failed"
+    lines = [x for f in sorted(box.audit_dir.glob("*.jsonl")) for x in f.read_text(encoding="utf-8").splitlines()]
+    mine = [x for x in lines if job.job_id in x or failed.job_id in x]
+    assert any('"mrn":"•••"' in x for x in mine) and any("mrn=•••" in x for x in mine)
+    assert not [x for x in lines if mrn in x or bad in x]
+    res = verify(box.audit_dir)
+    assert res.ok and res.head is not None, res.errors
+
+
 def test_case_without_chart_number_judges_structured_from_chart(world: dict[str, Any]) -> None:
     box: Box = world["box"]
     job = _run(box, "CASE GZQO lang=en")

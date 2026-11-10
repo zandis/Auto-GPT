@@ -103,4 +103,4 @@ def test_a_fatal_sae_stays_until_the_pi_acknowledges_and_reports_have_a_clock(lb
 def _audit(log: Any) -> list[dict[str, Any]]:
     import json
 
-    return [json.loads(x) for f in sorted(log.directory.glob("*")) for x in f.read_text().splitlines() if x]
+    return [json.loads(x) for f in sorted(log.directory.glob("*.jsonl")) for x in f.read_text().splitlines() if x]
