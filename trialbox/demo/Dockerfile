@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1.7
 # Demo image (D-104, D-111): the whole TrialBox box in one process on the SYNTHETIC hospital, one sign-in per role.
 # For trying the product on a public host (Hugging Face Spaces, Render, Cloud Run, any Docker host). Never real data.
-#   docker build -f demo/Dockerfile -t trialbox-demo .        (context = the trialbox/ folder)
-#   docker run -p 8080:8080 -e TB_DEMO_PASSWORD=... trialbox-demo
-# Accounts: admin, crc, pi, smo, cra, viewer; one shared password from TB_DEMO_PASSWORD (else printed in the log).
+#   docker build -f demo/Dockerfile -t trialbox-demo .        (context = the trialbox/ folder; a fresh clone is enough)
+#   docker run -p 8080:8080 trialbox-demo                     (no -e needed; the password is printed in the log)
+# Accounts: admin, crc, pi, subpi, cra, viewer; one shared password from TB_DEMO_PASSWORD (else printed in the log).
+# Measured (T-501, demo/README.md): peak memory about 2 GB, first answer on /login after about 3 minutes.
 # the same pinned base as deploy/docker/python.Dockerfile (an index digest: amd64 and arm64)
 FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -26,14 +27,35 @@ RUN --mount=type=secret,id=extra_ca,required=false \
     pip install $CERT --only-binary=:all: -r /tmp/requirements.lock; \
     pip install $CERT --only-binary=:all: "pytest==9.2.0"  # tests/inproc_box.py imports test helpers; version of uv.lock
 COPY --chown=tb:tb . /app
+# T-501 (OPS-001, UX-001, LIFE-005): the compiler reads FHIRHelpers-4.0.1.cql from the translator's quick jar, also
+# with the in-process fake translator. `make demo-bundle` runs `make jvm-deps` first, and .dockerignore lets only that
+# jar into the context (the demo has no JRE, so the other translator jars would be dead weight). A build from a fresh
+# clone (Render, Cloud Run, CI) has no jar: it is fetched from Maven Central and checked against its sha256. Either
+# way the FHIRHelpers text must match the pinned sha256, or the build stops here, not at the first compile.
+ARG CQL_QUICK_VERSION=5.4.0
+ARG CQL_QUICK_SHA256=b5b1b076711d7c6ddb700f7f6d7aacc210824dc37a41405fdfd9fab09d6a2ba4
+ARG FHIRHELPERS_SHA256=6748661c16fe66dd07a68f07f77f7fea44e8b933d265dcc3c575964ba8329591
+ENV TB_CQL_TRANSLATOR_LIB=/app/.cache/jvm/cql-translator/lib
 RUN --mount=type=secret,id=extra_ca,required=false \
     set -eux; if [ -f /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
-    python tools/fetch_fonts.py && chown -R tb:tb /app/.cache
+    python tools/fetch_fonts.py; \
+    mkdir -p "$TB_CQL_TRANSLATOR_LIB"; \
+    if ! ls "$TB_CQL_TRANSLATOR_LIB"/quick-*.jar >/dev/null 2>&1; then \
+      jar="$TB_CQL_TRANSLATOR_LIB/quick-$CQL_QUICK_VERSION.jar"; \
+      python -c "import os,ssl,sys,urllib.request as u; c=ssl.create_default_context(cafile=os.environ.get('SSL_CERT_FILE') or None); open(sys.argv[2],'wb').write(u.urlopen(sys.argv[1],timeout=120,context=c).read())" \
+        "https://repo1.maven.org/maven2/org/cqframework/quick/$CQL_QUICK_VERSION/quick-$CQL_QUICK_VERSION.jar" "$jar"; \
+      echo "$CQL_QUICK_SHA256  $jar" | sha256sum -c -; \
+    fi; \
+    PYTHONPATH=services python -c "import sys; from criteria_compiler.compile_cql.translator import fhirhelpers_source as f; open(sys.argv[1],'wb').write(f().encode())" \
+      /app/.cache/jvm/FHIRHelpers-4.0.1.cql; \
+    echo "$FHIRHELPERS_SHA256  /app/.cache/jvm/FHIRHelpers-4.0.1.cql" | sha256sum -c -; \
+    chown -R tb:tb /app/.cache
 USER tb
 EXPOSE 8080
 # Every start rebuilds the synthetic hospital, so a restart resets the demo. Default (step 5, D-111): the whole step
-# 1-4 flow seeded and checked by tools.demo (about 70 s before the console answers). TB_DEMO_TOOL=role_demo gives the
-# older role-only demo (600 patients, ready in about 30 s). TB_DEMO_TOOL=public_e2e serves the public-data site
+# 1-4 flow seeded and checked by tools.demo (measured: about 3 minutes before the console answers, peak about 2 GB;
+# demo/README.md). It seeds over https in process, so the Secure cookie above stays on (T-501). TB_DEMO_TOOL=role_demo
+# gives the older role-only demo (600 patients, ready in about 20 s). TB_DEMO_TOOL=public_e2e serves the public-data site
 # (tools.public_site: 268 real public notes, SIGIR + MedTxt; needs .cache/medtxt in the build context).
 ENV TB_DEMO_TOOL=demo
 CMD ["sh", "-c", "if [ \"$TB_DEMO_TOOL\" = public_e2e ]; then exec python -m tools.public_e2e --dir /tmp/tb-public --serve --host 0.0.0.0 --port $PORT --lang ${TB_DEMO_LANG:-ja}; else exec python -m tools.${TB_DEMO_TOOL} --fresh; fi"]
