@@ -198,7 +198,7 @@ def test_goldens_are_small() -> None:
 # ---------------------------------------------------------------- the write rule
 def test_write_without_a_reason_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert g.main(["--write", "--golden-dir", str(tmp_path)]) == 2
-    assert g.main(["--write", "--reason", "numbers moved", "--golden-dir", str(tmp_path)]) == 2
+    assert g.main(["--write", "--reason", "  ", "--golden-dir", str(tmp_path)]) == 2
     assert "refused" in capsys.readouterr().out
     assert not list(tmp_path.iterdir())
     with pytest.raises(ValueError, match="reason"):
@@ -217,17 +217,14 @@ def test_write_keeps_unchanged_files_and_records_the_reason(tmp_path: Path) -> N
     assert g.compare(gd, now).ok
 
 
-def test_write_needs_both_sources_and_a_decision_that_exists(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_write_needs_both_sources_and_a_reason(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """T-655 (PR #71 review): one set of goldens serves both lake sources, so ``--write`` builds from both and never
-    from one; the reason must name a decision that exists."""
-    assert g.decision_known("D-205: the goldens") and not g.decision_known("D-999: nothing by that number")
+    from one; the reason is any text (D-311 dropped the decision-number rule) but must be there."""
     for src in ("legacy", "omop"):
         assert g.main(["--write", "--source", src, "--reason", "D-205: x", "--golden-dir", str(tmp_path)]) == 2
     assert "builds from both lake sources" in capsys.readouterr().out
-    assert g.main(["--write", "--reason", "D-999: no such decision", "--golden-dir", str(tmp_path)]) == 2
-    assert "names no decision" in capsys.readouterr().out
+    assert g.main(["--write", "--reason", " ", "--golden-dir", str(tmp_path)]) == 2
+    assert "needs --reason" in capsys.readouterr().out
     assert not list(tmp_path.iterdir())
 
 

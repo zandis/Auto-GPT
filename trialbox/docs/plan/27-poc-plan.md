@@ -12,6 +12,8 @@
 | Owner's decisions (2026-11-10) | The testers are Dr Makoto and Dr Wenn themselves and the owner facilitates (Q-01). The trial types are confirmed: early Alzheimer's disease for Japan, rheumatoid arthritis for CGMH (Q-02). The hosting cost is approved (Q-03). The PI may start runs (Q-04). The PoC is product evaluation, not research, and the clinicians sign the acknowledgement only (Q-07). Recorded real-model answers may be shown with a label, and step 2 is wanted (Q-13). TB-PLAN-06 §10.4 has the record. |
 | Rule | Synthetic and public data only. No real patient data, ever, in the PoC, its feedback, its logs or its screenshots. |
 
+> **D-311 (2026-11-10).** GP-0 is the tag `poc-1` with CI green and the demo booted from it, no record or signer; GP-1 is an automated walk of the scripts plus 30 minutes by the owner; GP exit is one triaged findings list (no 80 % rule). No signed native-read notes and no counsel read. See TB-PLAN-06 §0.
+
 ## 1. What the PoC is, and what it is not
 
 **Purpose.** Two site clinicians work the screening flow of their own kind of trial, in their own language, on synthetic patients, and tell us what is wrong, confusing or missing. Their feedback reaches the design freeze (G2, Fri 2027-01-08).
@@ -235,7 +237,7 @@ Not prerequisites, and said to the testers: profiles, the reminder card and outs
 | 2 Confirm each PI's study list and Dr Wenn's field | Fri 11-13 | owner, Makoto, Wenn | a line in the G0 record; T-503 and T-504 adjusted |
 | 3 Invite the testers; book two 60-minute sessions each in 12-08 to 12-11 and the optional first look | by Fri 11-20 | owner | dates in the tracker |
 | 4 Wave P builds and merges (§7) | Mon 11-16 to Fri 11-27 | sessions, integrator | each card's acceptance tests |
-| 5 Native read of the wording, the scripts and the statement | by Wed 11-25 | native readers | a signed note per language in `docs/poc/` |
+| 5 Native read of the wording, the scripts and the statement | by Wed 11-25 | native readers | ~~a signed note per language in `docs/poc/`~~ comments only; wording faults are PoC findings (D-311 B12) |
 | 6 **GP-0 build freeze** | **Fri 11-27** | integrator, owner | tag `poc-1`; the go/no-go list of §8.1 |
 | 7 Deploy; smoke test; issue accounts out of band; send the statement and the guide | Mon 11-30 | owner (or the operations person) | both sites answer over HTTPS behind the front door |
 | 8 **GP-1 dry run**: the owner walks both scripts in three languages | **Tue 12-01** | owner | every task completes or is struck from the script with a note |
@@ -258,7 +260,7 @@ Not prerequisites, and said to the testers: profiles, the reminder card and outs
 7. The feedback control stores an item from every page of the scripts; the export writes it with a tester code and no name.
 8. Each tester's three accounts exist; the sub-investigator sees only the delegated study.
 9. At least two scenarios per site are loaded and each script task has its expected result on the dry run (or is struck with a note).
-10. The statement and acknowledgement are final in Japanese and Traditional Chinese after the native read.
+10. ~~The statement and acknowledgement are final in Japanese and Traditional Chinese after the native read.~~ (struck, D-311 B12)
 11. The purge script has been run once on a planted record, and the incident note names who is called.
 12. The decision "the PoC is product evaluation, not research" is recorded (Q-07).
 
@@ -279,7 +281,7 @@ Every task attempted by both testers. At least 80 % of tasks completed without h
 
 ### 9.1 What the clinicians sign
 
-**One thing: the acknowledgement** of §9.3, in their language. It is shown at the first sign-in and stored with the account, the time and the statement's version; a signed page is kept as well. Nothing else is recommended: no contract, no consent form as a research subject (the PoC is not research: Q-07), no validation signature (the PoC is not qualification). If Aimedics wants a confidentiality agreement beyond the statement's point 10, that is the owner's choice (Q-07).
+**One thing: the acknowledgement** of §9.3, in their language. It is shown at the first sign-in and stored with the account, the time and the statement's version; ~~a signed page is kept as well~~ (no signed paper copy, D-311 S3). Nothing else is recommended: no contract, no consent form as a research subject (the PoC is not research: Q-07), no validation signature (the PoC is not qualification). If Aimedics wants a confidentiality agreement beyond the statement's point 10, that is the owner's choice (Q-07).
 
 At the end each tester is asked, without obligation, to confirm by mail that the facilitator's notes are a fair record.
 
@@ -298,7 +300,7 @@ At the end each tester is asked, without obligation, to confirm by mail that the
 9. **What your feedback is.** Design input for the product. It is not qualification evidence and not research on you. If we later wish to publish findings from the test, we ask you first and ask the ethics committee whether review is needed.
 10. **Confidentiality and interests.** The software and its screens are confidential until release. If you are an investigator at a pilot site or a reader in Study A, your part in this test is recorded in the study's conflict-of-interest file.
 
-The bracketed items of the draft in TB-DR-05b §6.1 (legal name, contact, region) are filled before sending. This is a draft by the plan's authors, not legal advice: counsel reads it once (Q-07).
+The bracketed items of the draft in TB-DR-05b §6.1 (legal name, contact, region) are filled before sending. This is a draft by the plan's authors, not legal advice. ~~counsel reads it once (Q-07)~~ (struck, D-311 B13).
 
 ### 9.3 The acknowledgement
 

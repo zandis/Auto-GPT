@@ -2,8 +2,8 @@
 
     python -m tools.goldens --check                                    # profile ci, both lake sources in parallel
     TB_LAKE_SOURCE=omop python -m tools.goldens --check                # one source (or --source legacy|omop)
-    python -m tools.goldens --write --reason "D-2xx: why the numbers move"     # builds from BOTH sources, in turn
-    python -m tools.goldens --write --profile 50k --from-report <run-5 report.json> --reason "D-2xx: run 5"
+    python -m tools.goldens --write --reason "why the numbers move"     # builds from BOTH sources, in turn
+    python -m tools.goldens --write --profile 50k --from-report <run-5 report.json> --reason "run 5"
     python -m tools.goldens --check --profile 50k --from-report <report.json>   # a later run against the golden
 
 ``tests/golden/`` holds what the data core must keep producing from fixed synthetic inputs:
@@ -34,14 +34,13 @@ A golden is JSON sorted by key; its ``meta`` names the generator and its seed, t
 version, the git HEAD that wrote it and the reason. ``--check`` compares everything but ``meta.head`` and
 ``meta.reason`` and prints, per file, the changed values by path (``synthetic-jp-a.remaining.GOUT-COH-INC-03: 371 ->
 370``) and a unified diff. A deliberate change regenerates the goldens in the same pull request with ``--write
---reason "D-nnn: ..."``; ``--write`` without a reason naming a decision that exists (a file in ``docs/decisions``
-or an entry of ``docs/DECISIONS.md``) is refused, it builds from both lake sources and writes nothing unless they
-agree, and it removes a committed golden that nothing computes any more. Each run builds in a database
-prefix of its own (``private_url``: no seeded ``lake.source`` flag there, so ``TB_LAKE_SOURCE`` set by the run decides,
-and the clean-up drops only that prefix) with the source forced (``lake.source.force``); the check verifies that the
-lakes really came from the source asked for (the OMOP store holds the persons, the deletes set's store holds
-tombstones and the restored set's store none; or no OMOP store exists; and each lake's ``source.jsonl`` names the
-source).
+--reason "..."``; ``--write`` without a reason is refused (any text; D-311 dropped the decision-number rule); it
+builds from both lake sources and writes nothing unless they agree, and it removes a committed golden that nothing
+computes any more. Each run builds in a database prefix of its own (``private_url``: no seeded ``lake.source`` flag
+there, so ``TB_LAKE_SOURCE`` set by the run decides, and the clean-up drops only that prefix) with the source forced
+(``lake.source.force``); the check verifies that the lakes really came from the source asked for (the OMOP store holds
+the persons, the deletes set's store holds tombstones and the restored set's store none; or no OMOP store exists; and
+each lake's ``source.jsonl`` names the source).
 """
 
 from __future__ import annotations
@@ -77,7 +76,7 @@ REF = date(2026, 11, 1)
 SITE_KEY = hashlib.sha256(b"trialbox goldens: synthetic site key, never a real site").digest()
 #: meta fields that say who wrote a golden and why (and, at 50k, which run); every other field is compared
 VOLATILE_META = ("head", "reason", "written_with_source", "run_ids", "git")
-REASON_RE = re.compile(r"\bD-\d{3}\b")
+REASON_RE = re.compile(r"\S")  # any reason text (D-311)
 
 
 # ------------------------------------------------------------------------------------------------ canonical JSON
@@ -447,15 +446,6 @@ def compare(golden_dir: Path, computed: dict[str, dict[str, Any]], profile: str 
     return Result(not lines, lines)
 
 
-def decision_known(reason: str) -> bool:
-    """The reason names a decision that exists: a file ``docs/decisions/D-nnn-*.md`` or an entry of the frozen log
-    ``docs/DECISIONS.md`` (the decisions merged before the one-file-per-decision rule)."""
-    ids = REASON_RE.findall(reason or "")
-    legacy = ROOT / "docs" / "DECISIONS.md"
-    body = legacy.read_text(encoding="utf-8") if legacy.exists() else ""
-    return any(list((ROOT / "docs" / "decisions").glob(f"{i}-*.md")) or re.search(rf"\b{i}\b", body) for i in ids)
-
-
 def _committed(golden_dir: Path, profile: str) -> dict[str, Path]:
     return {
         str(p.relative_to(golden_dir)): p
@@ -471,7 +461,7 @@ def write(
     ``prune`` (a profile), a committed golden of that profile that nothing computes any more (a ruleset removed, an
     old schema version) is deleted, so nobody edits ``tests/golden`` by hand."""
     if not reason or not REASON_RE.search(reason):
-        raise ValueError('--write needs --reason naming the decision that moves the numbers ("D-nnn: why")')
+        raise ValueError("--write needs --reason: why the numbers move")
     head = git_head()
     wrote = []
     for rel, body in sorted(computed.items()):
@@ -658,7 +648,7 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--check", action="store_true", help="compare with tests/golden (exit 0 identical, 1 not)")
     mode.add_argument("--write", action="store_true", help="regenerate the goldens (needs --reason)")
     ap.add_argument("--profile", choices=PROFILES, default="ci")
-    ap.add_argument("--reason", default="", help='"D-nnn: why the numbers move" (required with --write)')
+    ap.add_argument("--reason", default="", help="why the numbers move (required with --write)")
     ap.add_argument("--from-report", type=Path, help="a run's report.json (the only source of the 50k goldens)")
     ap.add_argument("--golden-dir", type=Path, default=GOLDEN_DIR)
     ap.add_argument("--dir", type=Path, help="work directory (default: a new temporary one, removed at the end)")
@@ -682,7 +672,7 @@ def main(argv: list[str] | None = None) -> int:
             ["--check", "--profile", "ci", "--golden-dir", str(a.golden_dir), *(["--keep"] if a.keep else [])]
         )
     if a.write and not REASON_RE.search(a.reason or ""):
-        print('refused: --write needs --reason naming the decision that moves the numbers ("D-nnn: why")')
+        print("refused: --write needs --reason: why the numbers move")
         return 2
     os.environ.setdefault("TB_ENV", "DEV")
     t0 = time.perf_counter()
@@ -702,18 +692,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         computed = from_report(json.loads(a.from_report.read_text(encoding="utf-8")))
         if a.write:
-            if not decision_known(a.reason):
-                print(f"refused: --reason names no decision in docs/decisions or docs/DECISIONS.md: {a.reason!r}")
-                return 2
             print("\n".join(f"wrote {r}" for r in write(a.golden_dir, computed, a.reason, None)) or "unchanged")
             return 0
         res = compare(a.golden_dir, computed, "50k")
         print("\n".join(res.lines) or "50k goldens: identical")
         return 0 if res.ok else 1
     if a.write:
-        if not decision_known(a.reason):
-            print(f"refused: --reason names no decision in docs/decisions or docs/DECISIONS.md: {a.reason!r}")
-            return 2
         if not os.environ.get("TB_DB_URL"):  # the shared throwaway cluster, started before any work directory exists
             from tools import pglocal
 
