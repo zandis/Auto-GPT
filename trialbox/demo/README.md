@@ -41,9 +41,9 @@ PostgreSQL is close to 2 GB), and a 512 MB or 1 GB host cannot run it. The image
 
 ## Public link on Render
 
-The repository root has `render.yaml`. It asks for the `pro` plan (4 GB), which is paid: the owner decides on the
-cost first (question Q-03). The free plan cannot run this demo (512 MB, and it sleeps after 15 minutes, which resets
-the data). In Render: New, Blueprint, pick this repository, type a password for `TB_DEMO_PASSWORD`, Apply. The link
+The repository root has `render.yaml`. It stays on the free plan, which cannot run this demo (512 MB, and it sleeps
+after 15 minutes, which resets the data). A 4 GB plan is paid, and the owner decides on that cost first (question
+Q-03); until then the hosted demo runs on the GCP VM. To use Render, change `plan:` to a 4 GB plan first. In Render: New, Blueprint, pick this repository, type a password for `TB_DEMO_PASSWORD`, Apply. The link
 is `https://trialbox-demo-<id>.onrender.com`.
 
 ## Public link on Google Cloud Run
