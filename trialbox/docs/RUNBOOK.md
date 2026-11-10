@@ -30,7 +30,8 @@ rule is held by `tests/unit/test_install_tiers.py`.
 runs the settings wizard, makes one token per service, starts the stack, creates the first administrator, writes the
 site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital IT), installs the
 nightly log job and runs the host check. `--mode stub` installs a box without a GPU. The vendor builds the bundle with
-`tools/make_bundle.sh`. On Windows the box runs in WSL2: `docs/handover/OFFLINE-MEDIA.md`,
+`tools/make_bundle.sh` (`make release-bundle`: only images that passed the release gates). The image vulnerability
+gate is in report mode for now; the open findings are in `deploy/security/known-image-findings.md` (SECURITY.md §8). On Windows the box runs in WSL2: `docs/handover/OFFLINE-MEDIA.md`,
 `docs/handover/WINDOWS-INSTALL-CHECKLIST.md` and `deploy/windows/preflight.ps1`.
 
 **The same, step by step.**

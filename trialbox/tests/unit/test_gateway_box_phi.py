@@ -19,10 +19,12 @@ from typing import Any
 
 import pytest
 import yaml
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from gateway.app import create_app, from_env
 from gateway.core import Gateway, GatewayConfig
-from gateway.policy import RoutingPolicy
+from gateway.policy import Refusal, RoutingPolicy
 from llm_stub.app import app as stub
 from orchestrator.app import verifier_client
 from registry.registry import Registry
@@ -250,3 +252,90 @@ def test_the_box_policy_cannot_be_widened(box_policy: dict[str, Any]) -> None:
     assert doc["phi_on_box"]["topologies"] == ["A"] and doc["phi_on_box"]["classes"] == ["D3"]
     with pytest.raises(ValueError, match="phi_on_box"):
         RoutingPolicy({**doc, "phi_on_box": box_policy})
+
+
+SERVED = {"llm-service": "local/gemma-4-26b-a4b-nvfp4", "llm-verifier": "local/qwen3.5-9b-awq"}
+
+
+def _strict(seen: list[tuple[str, str, int]]) -> Any:
+    """vLLM as the box serves it (the rehearsal's stand-in, tests/rehearsal/vllm_standin.py): each host answers only
+    its own ``--served-model-name`` (404 otherwise) and only ``/v1/chat/completions``; the content is the stub's."""
+    inner = TestClient(stub)
+    app = FastAPI()
+
+    @app.post("/{path:path}")
+    async def chat(path: str, request: Request) -> JSONResponse:
+        body = await request.json()
+        host = request.headers.get("host", "").split(":")[0]
+        model = str(body.get("model"))
+        if path != "v1/chat/completions" or SERVED.get(host) != model:
+            seen.append((host, model, 404))
+            return JSONResponse({"object": "error", "message": f"The model `{model}` does not exist.",
+                                 "type": "NotFoundError", "code": 404}, status_code=404)  # fmt: skip
+        hdr = {k: v for k, v in request.headers.items() if k.lower().startswith("x-tb-")}
+        r = inner.post("/v1/chat/completions", json=body, headers=hdr)
+        seen.append((host, model, r.status_code))
+        out = r.json()
+        out["model"] = model  # vLLM echoes its served name
+        return JSONResponse(out, status_code=r.status_code)
+
+    return app
+
+
+@pytest.mark.req("LLM-2", "LLM-4")
+def test_installed_box_drafts_edc_notes_through_the_gateway(box: Any) -> None:
+    """EDC prefill (D-160) on an installed box: the note item goes through the gateway (prompt crf_prefill, role
+    abstract_field, purpose data_entry) to the box's own judge build. The rehearsal of 2026-11-10 got a 409 for every
+    draft: the routing policy did not list the purpose data_entry, the gateway refused (purpose_not_allowed), and
+    the orchestrator answered a bare 500 that the console showed as 409 with no code."""
+    from edc.store import EdcError
+
+    from tests import edc_kit as k
+
+    gw, llm, _verifier, tmp_path = box
+    seen: list[tuple[str, str, int]] = []
+    gw.http = TestClient(_strict(seen))
+    svc, _, _ = k.service(tmp_path, llm=llm)
+    k.ready(svc)
+    d = {r["item"]: r for r in svc.build(k.STUDY, k.RECORD, k.PID, "", k.VISIT_DATE, "crc")}
+    assert d["tophus"]["state"] == "drafted" and d["tophus"]["value"] == "1"
+    assert d["tophus"]["citation"]["kind"] == "note" and d["tophus"]["citation"]["quote"] == "Tophus on the right ear."
+    assert d["brthdat"]["value"] == "1960-05-01" and d["urate"]["value"] == "8.4"
+    assert seen and all(s == ("llm-service", SERVED["llm-service"], 200) for s in seen), seen
+    recs = [r for r in _calls(tmp_path) if r["event"] == "llm.gateway.call"]
+    assert recs and all(r["detail"]["role"] == "abstract_field" and r["model"] == "j-workhorse" for r in recs)
+    for r in recs:
+        dt = r["detail"]
+        assert (dt["class"], dt["step_basis"], dt["zone"], dt["route_id"]) == (
+            "D3",
+            "box_policy",
+            "perimeter",
+            "patient",
+        )
+
+    # a refusal is a coded EDC error (never a bare 500), audited, and nothing new is drafted
+    doc = yaml.safe_load((ROOT / "models" / "routing.yaml").read_text(encoding="utf-8"))
+    doc["callers"]["orchestrator"]["purposes"].remove("data_entry")
+    gw.policy = RoutingPolicy(doc)
+    before = svc.store.drafts(k.STUDY, k.RECORD)
+    with pytest.raises(EdcError) as e:
+        svc.build(k.STUDY, k.RECORD, k.PID, "", "2026-11-06", "crc")
+    assert e.value.code == "edc.model" and e.value.status == 502 and "purpose_not_allowed" in e.value.message
+    assert svc.store.drafts(k.STUDY, k.RECORD) == before
+
+
+def test_every_v1_prompt_has_a_caller_the_policy_allows() -> None:
+    """Each prompt the tb_common.llm shim labels (libs/tb_llm/v1_roles.yaml) has a role and a purpose some caller may
+    ask for; crf_prefill's purpose data_entry was on no caller (rehearsal of 2026-11-10)."""
+    policy = RoutingPolicy.load()
+    labels = yaml.safe_load((ROOT / "libs" / "tb_llm" / "v1_roles.yaml").read_text(encoding="utf-8"))
+    for prompt, lab in labels.items():
+        ok = []
+        for caller in policy.callers:
+            try:
+                policy.check_caller(caller, lab["role"], lab["purpose"])
+            except Refusal:  # this caller may not
+                continue
+            ok.append(caller)
+        assert ok, f"{prompt}: no caller may use role {lab['role']} with purpose {lab['purpose']}"
+    policy.check_caller("orchestrator", labels["crf_prefill"]["role"], labels["crf_prefill"]["purpose"])
