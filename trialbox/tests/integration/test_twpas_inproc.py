@@ -5,6 +5,7 @@ POSTs exactly the audited bundle when live (SPEC §8.4, §9.5, §5)."""
 
 from __future__ import annotations
 
+import copy
 import csv
 import hashlib
 import json
@@ -23,7 +24,7 @@ KEY = b"trialbox-test-site-key-0123456789abcdef"
 RUN = date(2026, 10, 5)
 
 
-#: HL7 validator results by input (jar, IGs, bundles): one JVM run per distinct set of bundles, whichever test runs
+#: HL7 validator results by input (jar path, size and mtime, package cache, IGs, bundles): one JVM run per distinct set of bundles, whichever test runs
 #: it first. The NAV bundles of a fresh box are the same bytes in every test, and the validator is a pure function of
 #: its input, so a hit returns exactly what a new run would.
 _VALIDATED: dict[str, Any] = {}
@@ -34,11 +35,16 @@ def _memo_hl7_validator(monkeypatch: pytest.MonkeyPatch) -> None:
     real = Hl7Validator.validate
 
     def validate(self: Hl7Validator, resources: list[dict[str, Any]], extra_args: list[str] | None = None) -> Any:
-        blob = json.dumps([str(self.jar), self.igs, resources, extra_args], sort_keys=True, ensure_ascii=False)
+        jar = Path(self.jar).stat()
+        blob = json.dumps(
+            [str(self.jar), jar.st_size, jar.st_mtime_ns, str(self.cache_home), self.igs, resources, extra_args],
+            sort_keys=True,
+            ensure_ascii=False,
+        )
         key = hashlib.sha256(blob.encode()).hexdigest()
         if key not in _VALIDATED:
             _VALIDATED[key] = real(self, resources, extra_args)
-        return _VALIDATED[key]
+        return copy.deepcopy(_VALIDATED[key])  # a caller that changes its result never changes the next test's
 
     monkeypatch.setattr(Hl7Validator, "validate", validate)
 

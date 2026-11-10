@@ -123,9 +123,10 @@ def test_cohort_site_a(boxes: dict[str, Box], synth_dir: Path) -> None:
 
 
 def _share_and_merge(a: Box, b: Box) -> tuple[Sent, Any, Sent]:
-    """A runs its own COHORT; B runs ``COHORT GOUT-COH lookback=1`` and mails its table to the root A as ``COHORT
-    MERGE``; A merges. Returns B's share mail, A's merge job and A's merged-table reply."""
-    _done(a, "COHORT GOUT-COH lookback=1")  # the root's own table (DEMO-A) is part of every merge
+    """A runs its own four-quarter ``COHORT GOUT-COH``; B runs ``COHORT GOUT-COH lookback=1`` and mails its one-quarter
+    table to the root A as ``COHORT MERGE``; A merges. Returns B's share mail, A's merge job and A's merged-table
+    reply."""
+    _done(a, "COHORT GOUT-COH")  # the root's own table (DEMO-A, four quarters) is part of every merge
     b.mail("COHORT GOUT-COH lookback=1", sender="crc1@hospb.test", auth=AUTH_B)
     b.orch.drain()
     bjob = b.orch.db.find(type_="COHORT")[0]
