@@ -118,12 +118,14 @@ budgets:
   # The jars are the HL7 validator and the CQL translator with their dependencies (tools/fetch_jvm_deps.sh).
   - image: trialbox-jvm
     ecosystem: maven
-    max: 68
+    # 71 since T-672: HL7 FHIR core 6.9.12 brings okhttp-jvm 5.3.2, okio 3.16.4 and okio-jvm 3.16.4 (Apache-2.0 in
+    # their Maven Central poms; Syft reads no licence from the jars)
+    max: 71
     reason: HL7 validator and cql-to-elm jars without licence data in the jar; reviewed list in dist/sbom/licences.md
     review_by: 2027-02-01
   - image: trialbox-demo
     ecosystem: maven
-    max: 64
+    max: 67  # the same three Apache-2.0 jars as trialbox-jvm (T-672)
     reason: The same cql-to-elm jars in the demo image (the validator is left out of its context); reviewed list
     review_by: 2027-02-01
   # Third-party images, redistributed unmodified under their publishers' terms: all their open flags (unknown,
