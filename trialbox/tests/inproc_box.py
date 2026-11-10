@@ -152,7 +152,8 @@ def make_box(
     audit_dir = tmp_path / "audit"
     audit = AuditLog(audit_dir)
     seed = tmp_path / "seed"
-    shutil.copytree(ROOT / "rulesets", seed, ignore=shutil.ignore_patterns("tests"))
+    if not seed.exists():  # a box reopened on its own folder (the demo's --keep, T-505b) keeps its repo and seed
+        shutil.copytree(ROOT / "rulesets", seed, ignore=shutil.ignore_patterns("tests"))
     if extra_profiles is not None:
         for f in sorted(extra_profiles.glob("*.yaml")):
             shutil.copy2(f, seed / "profiles" / f.name)
