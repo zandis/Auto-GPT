@@ -124,7 +124,7 @@ def test_a_broken_file_is_quarantined_and_the_night_goes_on_held(tmp_path: Path)
     lines = (feed / "note.csv").read_text(encoding="utf-8").splitlines(keepends=True)[:40]
     head = "".join(lines[:-1]).encode("big5")
     (feed / "note.csv").write_bytes(
-        head + "N99999999,10000001,E1,2026-05-07 12:00:00,progress,診察の結果、経過良好。\r\n".encode("cp932")
+        head + "N99999999,SYN-0001,E1,2026-05-07 12:00:00,progress,診察の結果、経過良好。\r\n".encode("cp932")
     )
     cfg = _cfg(tmp_path)
     rep = _night(cfg, feed)
@@ -163,7 +163,7 @@ def test_any_ingest_exception_writes_ingest_failed(tmp_path: Path, monkeypatch: 
 
     def boom(self: Any, table: str, rows: Any) -> Any:
         if table == "lab":
-            raise RuntimeError("cell 1.57 for 10000002")  # a message that quotes data never reaches the audit
+            raise RuntimeError("cell 1.57 for SYN-0002")  # a message that quotes data never reaches the audit
         yield from ()
 
     monkeypatch.setattr(engine.Mapper, "map_table", boom)
@@ -172,7 +172,7 @@ def test_any_ingest_exception_writes_ingest_failed(tmp_path: Path, monkeypatch: 
     ev = _audit(tmp_path)[-1]
     assert ev["event"] == "ingest.failed" and ev["snapshot"] == SNAP
     assert ev["detail"] == {"source": "csv", "since": None, "error": "RuntimeError", "step": "read", "table": "lab"}
-    assert "10000002" not in json.dumps(ev)
+    assert "SYN-0002" not in json.dumps(ev)
 
 
 def test_a_missing_export_writes_ingest_failed(tmp_path: Path) -> None:
@@ -184,12 +184,12 @@ def test_a_missing_export_writes_ingest_failed(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------------------------ DATA-008: delta
-PATIENT = [{"mrn": "10000002", "name": "Test Patient", "id_no": "", "birth_date": "1960-01-01", "sex": "F",
+PATIENT = [{"mrn": "SYN-0002", "name": "Test Patient", "id_no": "", "birth_date": "1960-01-01", "sex": "F",
             "death_date": "", "phone": ""}]  # fmt: skip
 
 
 def _lab(no: str, value: str, sample: str, updated: str) -> dict[str, str]:
-    return {"lab_no": no, "mrn": "10000002", "local_code": "CRE", "item_name": "Creatinine", "result_value": value,
+    return {"lab_no": no, "mrn": "SYN-0002", "local_code": "CRE", "item_name": "Creatinine", "result_value": value,
             "unit": "mg/dL", "sample_datetime": sample, "updated_at": updated}  # fmt: skip
 
 
