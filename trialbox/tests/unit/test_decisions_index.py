@@ -65,8 +65,9 @@ def test_master_registry_holds_the_agreed_rows() -> None:
                       (313, "T-012a"), (306, "T-002"), (307, "T-508"), (308, "T-501")]:  # fmt: skip
         assert card in rows[(num, num)].holder
     assert rows[(305, 305)].state == "unused"  # T-012a took D-313
-    for num in (208, 210, 211, 240, 262):
+    for num in (208, 211, 240, 262):
         assert rows[(num, num)].state == "reserved"
+    assert rows[(210, 210)].state == "merged" and "T-111" in rows[(210, 210)].holder  # PR #83, a file
 
 
 def test_index_prints_every_number(capsys: pytest.CaptureFixture[str]) -> None:
