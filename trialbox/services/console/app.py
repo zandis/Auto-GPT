@@ -51,6 +51,7 @@ from tb_common.service_auth import bind_session, scope_of
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
+from console import demo_guard
 from console.auth import (
     AFFILIATIONS,
     ROLES,
@@ -1110,6 +1111,7 @@ def create_app(
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
+    demo_guard.register(app, helpers)  # T-502 (D-328): demo mode's refusals, banner and acknowledgement
 
     from console import ops_pages
 
@@ -1596,6 +1598,7 @@ def create_app(
         protocol: Annotated[UploadFile | None, File()] = None,
     ) -> Response:
         sess = need_requester(request, csrf)
+        demo_guard.guard(request, _Problem)  # T-502: no upload or pasted text in demo mode
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(400, "request.refused", reason="ruleset ids are 1-16 letters, digits, '-' or '_'")
@@ -1645,6 +1648,7 @@ def create_app(
         icf: Annotated[UploadFile | None, File()] = None,
     ) -> Response:
         sess = need_requester(request, csrf)
+        demo_guard.guard(request, _Problem)  # T-502: no upload in demo mode
         code = study.strip().upper()
         sample = _consent_sample()
 
@@ -1692,6 +1696,7 @@ def create_app(
         charts: Annotated[list[UploadFile] | None, File()] = None,
     ) -> Response:
         sess = need_requester(request, csrf)
+        demo_guard.guard(request, _Problem)  # T-502: no chart upload in demo mode
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(400, "request.refused", reason="choose an approved ruleset")
@@ -1991,6 +1996,7 @@ def create_app(
         attachment: Annotated[UploadFile | None, File()] = None,
     ) -> Response:
         sess = need_requester(request, csrf)
+        demo_guard.guard(request, _Problem)  # T-502: no attachment or pasted mail text in demo mode
         if not settings.test_smtp:
             raise _Problem(404, "notfound")
         sender = sess.user.mailbox or settings.admin_email

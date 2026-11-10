@@ -1,0 +1,4 @@
+{# T-502 (D-328, REG-014): with demo mode on (console.demo_guard sets request.state.demo_on) every page carries the
+   banner at its top and the non-device line at its foot; base.html includes this file once in each place #}
+{% if request is defined and request.state.demo_on %}{% if demo_at == 'foot' %}<p class="hint" data-testid="demo-foot">{{ t('demo.foot') }}</p>
+{% else %}<div class="banner" role="alert" data-testid="demo-banner">{{ t('demo.banner') }}</div>{% endif %}{% endif %}
