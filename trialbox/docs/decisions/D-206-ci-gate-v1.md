@@ -58,3 +58,12 @@ exists yet: acceptance (1) green on master, (2) red within five minutes on a lin
 and (5) the required checks are shown by the first runs after merge and by the owner's setting. Not in this card:
 the rehearsal in CI (needs a runner with docker and 4 GB, review §5.4), the nightly random-order run (the sibling
 session's order-independence work), the per-feature registration files of review §5.2 (5).
+
+*Amended 2026-11-10 (first GitHub run, PR #81).* The `unit` job no longer uses a `postgres:16-alpine` service through
+`TB_TEST_DB_URL`: the runner's newer `pg_dump`/`pg_restore` wrote `transaction_timeout`, which a 16 server refuses (the
+backup and update tests), and a service cannot be restarted (the reconnect test) or replaced by a short-socket cluster.
+The tests start throwaway clusters from the runner's own PostgreSQL, as on a developer machine; `TB_DATA_DIR` points at
+the runner's temp (the services' `/data` is not writable there). Two tests stopped assuming root or a preinstalled
+browser: the gateway's external-policy helper writes its audit under the test's folder, and the complete-run resume
+test skips without the preinstalled Node Playwright, as the testbench browser test does.
+

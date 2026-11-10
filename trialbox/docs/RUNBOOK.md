@@ -151,7 +151,7 @@ push to a pull request cancels the older run (pushes to master are never cancell
 | `docs` | `tools/doclint.py` | yes |
 | `contracts` | `make contracts-check` (no hand-edited generated file) | yes |
 | `trace` | `tools/gen_traceability.py --check` | yes |
-| `unit` | `make test PYTEST_N=auto` against a `postgres:16-alpine` service (pinned by digest), as a role with LOGIN CREATEDB only (`TB_TEST_DB_URL`), then the data scan of its log | yes |
+| `unit` | `make test PYTEST_N=auto` on throwaway clusters from the runner's own PostgreSQL (`tools/pglocal.py`, server and client tools one version), `TB_DATA_DIR` in the runner's temp, then the data scan of its log | yes |
 | `e2e-simple` | `make e2e-simple` (D-111) | yes |
 | `goldens` | `make goldens-check` (T-006, D-205) | yes |
 | `data-scan` | `make data-scan` (D-203) | yes |

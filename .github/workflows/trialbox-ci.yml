@@ -139,22 +139,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea  # deploy/docker-compose.yml's
-        env:
-          POSTGRES_USER: trialbox
-          POSTGRES_PASSWORD: trialbox
-          POSTGRES_DB: trialbox_wf
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U trialbox" --health-interval 5s --health-timeout 5s --health-retries 20
-    env:
-      # one server for every xdist worker; each test has its own schemas (tb_prefix). The tests connect as a role
-      # with LOGIN CREATEDB only, as tools/pglocal.py's clusters do, not as the image's superuser.
-      TB_TEST_DB_URL: postgresql://trialbox_app:trialbox_app@localhost:5432/trialbox_app
+    timeout-minutes: 25  # each xdist worker starts its own throwaway cluster
+    # no service container: the tests start throwaway clusters from the runner's own PostgreSQL (tools/pglocal.py),
+    # so pg_dump/pg_restore and the server are one version, as on a developer machine (a postgres:16 service with the
+    # runner's newer client tools failed the backup tests on transaction_timeout)
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
@@ -177,22 +165,11 @@ jobs:
           key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
       - name: JVM dependencies and fonts
         run: make jvm-deps fonts
-      # a few tests start their own throwaway cluster (tools/pglocal.py: reconnects, the gc)
       - name: PostgreSQL server binaries
         run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
-      # as tools/pglocal.py runs its throwaway clusters: room for every worker's pools, no fsync
-      - name: Tune the test server
-        run: |
-          id="${{ job.services.postgres.id }}"
-          docker exec "$id" psql -U trialbox -d trialbox_wf -v ON_ERROR_STOP=1 \
-            -c "ALTER SYSTEM SET max_connections = 300" -c "ALTER SYSTEM SET fsync = off" \
-            -c "ALTER SYSTEM SET synchronous_commit = off" \
-            -c "CREATE ROLE trialbox_app LOGIN CREATEDB PASSWORD 'trialbox_app'" \
-            -c "CREATE DATABASE trialbox_app OWNER trialbox_app"
-          docker restart "$id"
-          for _ in $(seq 1 60); do docker exec "$id" pg_isready -U trialbox -q && exit 0; sleep 1; done
-          echo "the test server did not come back after the restart" >&2; exit 1
       - name: pytest -n auto
+        env:
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data  # the services' default /data is not writable for the runner user
         run: make test PYTEST_N=auto 2>&1 | tee "$RUNNER_TEMP/unit.log"
       # D-203: the test log carries no identifier either
       - name: Data-handling scan of the test log
