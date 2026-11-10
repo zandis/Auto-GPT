@@ -3695,3 +3695,52 @@ is the owner's, to settle by G2 before submission. Intended use v0.2: the clinic
 planned (C2); "consultant's opinion" and "authority's written answer" named apart, and the C6 switch needs the
 authority's answer in both countries. WS-06.7 and WS-16.4 of TB-PLAN-05 now leave their patients out of Study A.
 
+**D-189 Score definitions from the catalogue; CDAI and SDAI in the SQL and CQL engines.**
+Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §0.4, §4.2; D-149 "Not done here"; WS-04.3.
+1. `tools/gen_score_defs.py` generates `libs/tb_common/score_defs.json` from `catalogue/scores/*.yaml`. A
+   definition is `<score_id>@<version>` with the sha256 of its YAML; a YAML changed under the same version is
+   refused (bump the version). `tb_common.scores` reads it; the same-visit windows of CDAI, SDAI, DAS28-ESR and
+   DAS28-CRP come from it, and a test checks that the hand-written eGFR, JSN and DAS28 constants equal the catalogue's
+   coefficients.
+2. CDAI = TJC28 + SJC28 + PtGA + EvGA and SDAI = CDAI + CRP (mg/dL) are in the Python reference, the SQL generator
+   and the CQL `TB_Common` (`CDAI`, `SDAI`). The globals are LOINC 75844-1 / 75846-6 on a 0-10 scale: a 0-100 mm VAS
+   is divided by 10, a 10 cm VAS is 0-10, and a value outside 0-10 gives no value and `derived_unit` in every
+   engine. The criterion IR (schema 1.2.0) and the extract schema accept `cdai` and `sdai` (calculators
+   `cdai@1.0.0`, `sdai@1.0.0`).
+3. Worked examples (catalogue CDAI 27, 1.5, SDAI 31, 1.2; review CDAI 14.5; CKD-EPI 59.3; JSN 63.1) give the same
+   value in Python, in the compiled SQL on a lake and in the CQL helper text; a missing input or a unit that does not
+   fit is the same reason in each, never FALSE.
+4. An impossible value never raises in the Python reference: a creatinine of 0 or less, a joint count outside 0-28, a
+   negative CRP or ESR, or a value that is not a finite number gives no value and `derived_unit:<input>`; an age of 0
+   or less gives `derived_missing_input:age`. The SQL `egfr_jsn` template has the same creatinine and age guard.
+*Evidence.* `tests/unit/test_derived_definitions.py`.
+*Not done.* The SQL and CQL engines do not yet carry the joint-count, CRP and ESR ranges.
+
+**D-190 Stored derived rows with provenance, recompute on change, derived-vs-documented conflicts.**
+Source: the same review §4.2 (storage, recompute triggers, conflicts); WS-04.3.
+1. `tb_common.derived_store`: schema `derived` with `definition`, `score_row` (value or reason; unit; anchor;
+   definition version and sha; site mapping version; every input with its source table, row id, date, value and unit
+   as recorded, status, and the value and unit used), `input_link` (one per input) and `conflict`. Rows are
+   superseded, never updated in place or deleted. Stored scores: CDAI, SDAI, DAS28-ESR, DAS28-CRP, eGFR CKD-EPI
+   2021 and JSN 2009. Two stores opening at once load a definition once (insert or nothing, then re-read its sha).
+2. A row is written only when its fingerprint (definition version and sha, mapping version, inputs; age and sex for
+   eGFR) changes: an input added, corrected, confirmed or deleted, a new mapping or a new definition version. An
+   anchor gone at the source retires its row. `run_batch` reads the lake's `observation` (never `site_fact`). A
+   patient whose recompute fails is counted in the batch report (`failed`, `failed_pids`) and the batch goes on.
+3. Only rows with status final, amended, corrected, confirmed or signed are inputs: a proposed fact never counts.
+   The lake's `observation` has no status column, so the batch records each lake row's status as `not_recorded`,
+   which counts: the lake holds only feed rows and confirmed facts (a proposed fact stays out of `observation` by
+   its basis tag). An entered-in-error or preliminary feed row is not left out until the lake carries
+   `Observation.status`.
+4. A documented score (proposed or signed) within 7 days of a computed row and beyond the tolerance (CDAI and SDAI
+   0.5, DAS28 0.2, eGFR 5) opens a `derived_vs_documented` conflict; neither value is overwritten, the score reads
+   as unknown until a person chooses keep_derived, keep_documented or both_at_dates.
+5. A recomputed row takes over the conflicts of the row it replaces (`carried_from`), checked against the stored
+   documented value even when the batch is not given the documented scores: a conflict that still differs stays
+   open; one that now agrees is closed. A person's decision stays unless the new value differs from the value it was
+   made against (`resolved_value`) by more than the tolerance; then the conflict opens again. A documented record
+   given again with another value or status is checked as new.
+*Evidence.* `tests/unit/test_derived_store.py`.
+*Not done.* Screening reading stored rows; ruleset pinning of definition versions; scheduling the batch; a
+conflicts page; the eGFR under-18 rule; for the lake owner, `Observation.status` in the lake's `observation` table.
+
