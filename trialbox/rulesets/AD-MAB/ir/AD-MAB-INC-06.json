@@ -1,0 +1,22 @@
+{
+ "action": "スタディパートナーの有無を本人と家族に確認",
+ "class": "human",
+ "human_question": "Does the participant have a study partner who spends at least 10 hours a week with them and can come to the study visits?",
+ "id": "AD-MAB-INC-06",
+ "kind": "inclusion",
+ "label": "スタディパートナーあり",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-11-10T22:18:12.342983+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "AD-MAB",
+ "source_ref": "5.1 選択基準 #6",
+ "text": "試験期間を通じて、被験者と週10時間以上接し、来院に付き添うことのできる介護者（スタディパートナー）がいる者。",
+ "time_sensitive": false
+}

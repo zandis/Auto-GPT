@@ -21,7 +21,7 @@ import yaml
 
 from tools.synth import names_en, names_ja
 from tools.synth import notes as N
-from tools.synth.catalog import BIOLOGICS, DRUGS, DX, LABS, PRACTITIONERS, PROCS
+from tools.synth.catalog import AD_DRUGS, AD_DX, AD_PRACTITIONERS, BIOLOGICS, DRUGS, DX, LABS, PRACTITIONERS, PROCS
 from tools.synth.lang import PHI_TEMPLATES, Lang
 from tools.synth.reserved import is_reserved
 
@@ -149,11 +149,13 @@ class Generator:
         counter_base: int = 0,
         plant_needles: bool = True,
         practitioners: bool = True,
+        mix: str = "mix",
     ) -> None:
         """``style``/``lang_mix``/``gold`` default to the original generator (TW records, zh-TW notes, no gold), which
         keeps ``tools/make_fixtures.py`` byte-identical. ``gold=True`` plants PHI spans, alternative date forms and
         safe identifiers and records ``gold_notes`` (TB-DS-21 §5). ``index_offset``/``counter_base`` let
-        ``tools.synth_hospital`` write one site in chunks."""
+        ``tools.synth_hospital`` write one site in chunks. ``mix`` names the patient mix in ``rates.yaml`` ``site``:
+        ``mix`` (the default, unchanged) or ``mix_jp_ad`` (the Japanese memory-clinic site of scenario J1, T-503)."""
         if style not in STYLES:
             raise ValueError(f"unknown record style {style!r}")
         self.rng = random.Random(seed)
@@ -164,6 +166,7 @@ class Generator:
         self.gold = gold
         self.index_offset = index_offset
         self.with_practitioners = practitioners
+        self.mix = mix
         self.lang_mix = dict(lang_mix or {"zh-TW": 1.0})
         self.langs = {code: Lang(code, alt_dates=gold, rng=self.lrng) for code in self.lang_mix}
         self.primary_lang = max(self.lang_mix, key=lambda k: self.lang_mix[k])
@@ -218,12 +221,12 @@ class Generator:
         return enc
 
     def staff_for(self, dept: str) -> str:
-        cands = [p for p, _, dp in PRACTITIONERS if dp == dept]
+        cands = [p for p, _, dp in PRACTITIONERS + AD_PRACTITIONERS if dp == dept]  # AD depts: only the ad mix
         return self.rng.choice(cands) if cands else PRACTITIONERS[0][0]
 
     def dx(self, mrn: str, key: str, d: date, dept: str = "FM", enc: str | None = None, status: str = "A") -> None:
         enc = enc or self.encounter(mrn, d, dept)
-        code, _ = DX[key]
+        code, _ = DX[key] if key in DX else AD_DX[key]
         self.t["diagnosis"].append(
             {
                 "diag_no": self.nid("d"),
@@ -277,7 +280,7 @@ class Generator:
         )
 
     def rx(self, mrn: str, key: str, start: date, end: date, dept: str = "FM", status: str = "active") -> None:
-        drug = DRUGS[key]
+        drug = DRUGS[key] if key in DRUGS else AD_DRUGS[key]
         self.t["medication"].append(
             {
                 "rx_no": self.nid("m"),
@@ -1008,6 +1011,12 @@ class Generator:
         self.note(mrn, self.days_ago(3, 40), "ONC", [Find(self.L.ECOG, "ONC-OSI-INC-04", "yes")])
         self.appointment(mrn, self.rng.randint(0, 20), "ONC")
 
+    def ad_patient(self, i: int) -> None:
+        """Early Alzheimer's disease / MCI at the memory clinic (scenario J1, T-503): see ``tools.synth.ad``."""
+        from tools.synth.ad import ad_patient
+
+        ad_patient(self, i)
+
     def general_patient(self, i: int) -> None:
         sex = self.rng.choice("MF")
         age = self.rng.randint(18, 90) if self.rng.random() > 0.05 else self.rng.randint(5, 17)
@@ -1053,7 +1062,13 @@ class Generator:
                     f"{names_ja.FAMILY[k % len(names_ja.FAMILY)][0]}　{names_ja.GIVEN_M[k % len(names_ja.GIVEN_M)][0]}"
                 )
             self.t["practitioner"].append({"staff_id": pid, "name": name, "dept_code": dept})
-        mix = list(rate("site", "mix").items())
+        mix = list(rate("site", self.mix).items())
+        if self.with_practitioners and any(k == "ad" for k, _ in mix):  # the memory clinic's doctors (T-503)
+            for k, (pid, name, dept) in enumerate(AD_PRACTITIONERS, start=len(PRACTITIONERS)):
+                if self.style == "JP":
+                    fam = names_ja.FAMILY[(3 * k + 1) % len(names_ja.FAMILY)][0]
+                    name = f"{fam}　{names_ja.GIVEN_F[k % len(names_ja.GIVEN_F)][0]}"
+                self.t["practitioner"].append({"staff_id": pid, "name": name, "dept_code": dept})
         kinds = [k for k, w in mix for _ in range(round(w * self.n))]
         while len(kinds) < self.n:
             kinds.append("general")

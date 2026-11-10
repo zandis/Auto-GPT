@@ -1,15 +1,118 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
+  "head": "5b31ff48d3df539a42b2d482bc405f74e0d2a3d4",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
+  "reason": "D-205: adds the goldens of the new AD-MAB and NEUR-COH rulesets (T-503); no existing value moves",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy"
  },
  "rulesets": {
+  "AD-MAB": {
+   "ruleset_version": "1.0.0",
+   "sets": {
+    "public-en": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "synthetic-jp-a": {
+     "basis": {
+      "AD-MAB-EXC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "AD-MAB-EXC-03": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "AD-MAB-EXC-04": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "AD-MAB-INC-01": {
+       "coded": 1368,
+       "confirmed": 8,
+       "proposed": 9
+      },
+      "AD-MAB-INC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-jp-a-deletes": {
+     "basis": {
+      "AD-MAB-EXC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "AD-MAB-EXC-03": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "AD-MAB-EXC-04": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "AD-MAB-INC-01": {
+       "coded": 1363,
+       "confirmed": 11,
+       "proposed": 9
+      },
+      "AD-MAB-INC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-tw-a": {
+     "basis": {
+      "AD-MAB-EXC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "AD-MAB-EXC-03": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "AD-MAB-EXC-04": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "AD-MAB-INC-01": {
+       "coded": 1323,
+       "confirmed": 13,
+       "proposed": 11
+      },
+      "AD-MAB-INC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    }
+   }
+  },
   "EMPULSE": {
    "ruleset_version": "1.0.0",
    "sets": {
@@ -627,6 +730,79 @@
       "GZQO-INC-09": {
        "coded": 77,
        "confirmed": 1,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    }
+   }
+  },
+  "NEUR-COH": {
+   "ruleset_version": "1.0.0",
+   "sets": {
+    "public-en": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "synthetic-jp-a": {
+     "basis": {
+      "NEUR-COH-INC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "NEUR-COH-INC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "NEUR-COH-INC-03": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-jp-a-deletes": {
+     "basis": {
+      "NEUR-COH-INC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "NEUR-COH-INC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "NEUR-COH-INC-03": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      }
+     },
+     "unknown_system": {}
+    },
+    "synthetic-tw-a": {
+     "basis": {
+      "NEUR-COH-INC-01": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "NEUR-COH-INC-02": {
+       "coded": 0,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "NEUR-COH-INC-03": {
+       "coded": 0,
+       "confirmed": 0,
        "proposed": 20
       }
      },

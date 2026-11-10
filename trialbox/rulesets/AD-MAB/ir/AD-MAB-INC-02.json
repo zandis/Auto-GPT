@@ -1,0 +1,21 @@
+{
+ "action": "病名の登録を確認",
+ "class": "structured",
+ "id": "AD-MAB-INC-02",
+ "kind": "inclusion",
+ "label": "MCI または軽度AD（病名）",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_MILD_COGNITIVE_IMPAIRMENT_OR_ALZHEIMER_S_DISEASE"
+ },
+ "review": {
+  "at": "2026-11-10T22:18:12.342983+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "AD-MAB",
+ "source_ref": "5.1 選択基準 #2",
+ "text": "アルツハイマー病による軽度認知障害（MCI）または軽度のアルツハイマー型認知症と診断されている者（ICD-10-CM G31.84 または G30）。",
+ "time_sensitive": false
+}

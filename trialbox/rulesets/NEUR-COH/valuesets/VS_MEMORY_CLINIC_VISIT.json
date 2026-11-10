@@ -1,0 +1,26 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "NEUR",
+      "display": "Neurology"
+     },
+     {
+      "code": "PSY",
+      "display": "Psychiatry"
+     }
+    ],
+    "system": "https://trialbox.local/fhir/CodeSystem/department"
+   }
+  ]
+ },
+ "id": "NEUR-COH-VS-MEMORY-CLINIC-VISIT",
+ "name": "VS_MEMORY_CLINIC_VISIT",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "memory clinic visit",
+ "url": "http://trialbox.local/fhir/ValueSet/NEUR-COH-VS-MEMORY-CLINIC-VISIT",
+ "version": "1.0.0-vd9ae3c6b"
+}

@@ -1,0 +1,23 @@
+{
+ "action": "アミロイドPETまたは脳脊髄液検査の結果を確認",
+ "class": "note",
+ "fallback": "Structured proxy: MCI or Alzheimer's disease coded.",
+ "id": "AD-MAB-INC-05",
+ "kind": "inclusion",
+ "label": "アミロイド陽性（PET/CSF）",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_MILD_COGNITIVE_IMPAIRMENT_OR_ALZHEIMER_S_DISEASE"
+ },
+ "note_question": "Does an amyloid PET or cerebrospinal fluid (CSF) report in the record give a positive amyloid result?",
+ "review": {
+  "at": "2026-11-10T22:18:12.342983+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "AD-MAB",
+ "source_ref": "5.1 選択基準 #5",
+ "text": "アミロイドPETまたは脳脊髄液検査でアミロイド病理が確認されている者（陽性）。",
+ "time_sensitive": false
+}
