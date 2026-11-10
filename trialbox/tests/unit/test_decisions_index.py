@@ -61,8 +61,9 @@ def test_master_registry_holds_the_agreed_rows() -> None:
     assert rows[(152, 159)].state == "unused" and rows[(164, 169)].state == "unused"
     assert rows[(99, 99)].state == "missing"
     for num, card in [(300, "T-101"), (301, "T-105"), (302, "T-102a"), (303, "T-106"), (304, "T-106"),
-                      (305, "T-012a"), (306, "T-002"), (307, "T-508"), (308, "T-501")]:  # fmt: skip
+                      (313, "T-012a"), (306, "T-002"), (307, "T-508"), (308, "T-501")]:  # fmt: skip
         assert card in rows[(num, num)].holder
+    assert rows[(305, 305)].state == "unused"  # T-012a took D-313
     for num in (208, 210, 211, 240, 262):
         assert rows[(num, num)].state == "reserved"
 
