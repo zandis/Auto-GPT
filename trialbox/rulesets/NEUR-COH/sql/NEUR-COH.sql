@@ -119,6 +119,7 @@ vs(vs_id, system, code) AS (VALUES
   ('VS_MEMORY_CLINIC_VISIT', 'https://trialbox.local/fhir/CodeSystem/department', 'NEUR'),
   ('VS_MEMORY_CLINIC_VISIT', 'https://trialbox.local/fhir/CodeSystem/department', 'PSY')),
 vsf(vs_id, system, prefix) AS (VALUES
+  ('VS_COGNITIVE_IMPAIRMENT_OR_DEMENTIA', 'http://hl7.org/fhir/sid/icd-10', 'F00'),
   ('VS_COGNITIVE_IMPAIRMENT_OR_DEMENTIA', 'http://hl7.org/fhir/sid/icd-10-cm', 'F01'),
   ('VS_COGNITIVE_IMPAIRMENT_OR_DEMENTIA', 'http://hl7.org/fhir/sid/icd-10-cm', 'F02'),
   ('VS_COGNITIVE_IMPAIRMENT_OR_DEMENTIA', 'http://hl7.org/fhir/sid/icd-10-cm', 'F03'),
