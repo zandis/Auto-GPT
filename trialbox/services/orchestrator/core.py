@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from lake.client import LakeAPI
-from tb_common.audit import AuditLog
+from tb_common.audit import AuditLog, mask_detail
 from tb_common.authz import allowed, daily_limit, norm, role_allowed
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
@@ -305,7 +305,8 @@ class Orchestrator:
             ruleset=job.ruleset,
             actor=sender,
             input_sha=",".join(f.sha256 for f in job.inputs or []) or None,
-            detail={"from": None, "to": "received", "type": jtype, "options": job.options, **who},
+            # D-272 (CR-016): the options are audited masked; the job keeps them for the run
+            detail={"from": None, "to": "received", "type": jtype, "options": mask_detail(job.options), **who},
         )
         if jtype in FAST_LANE:  # answered at once, never queued behind long jobs
             return self._fast(job)
@@ -334,7 +335,7 @@ class Orchestrator:
             ruleset_version=job.ruleset_version,
             snapshot=job.snapshot_date.isoformat() if job.snapshot_date else None,
             actor=job.requested_by,
-            detail={"from": prev, "to": state, **({"error": job.error.model_dump()} if job.error else {})},
+            detail={"from": prev, "to": state, **({"error": mask_detail(job.error.model_dump())} if job.error else {})},
         )
         return job
 

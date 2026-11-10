@@ -14,7 +14,7 @@ from email.utils import format_datetime, make_msgid
 from pathlib import Path
 from typing import Any
 
-from tb_common.audit import AuditLog
+from tb_common.audit import AuditLog, mask_ids
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError
@@ -134,7 +134,7 @@ class Gateway:
             recipients=p.recipients,
             output_sha=sha256_bytes(p.data),
             detail={
-                "subject": req.subject,
+                "subject": mask_ids(req.subject),  # a reply quotes the request line (D-272, CR-016)
                 "message_id": p.message_id,
                 "tag": req.tag,
                 "attachments": [a.filename for a in req.attachments or []],
@@ -194,7 +194,12 @@ class Gateway:
                 job_id=job_id,
                 actor=m.sender,
                 input_sha=sha256_bytes(m.raw),
-                detail={"subject": m.subject, "auth": m.auth_detail, "attachments": [f.filename for f in inputs]},
+                # D-272 (CR-016): the request line in the subject is audited with its chart number masked
+                detail={
+                    "subject": mask_ids(m.subject),
+                    "auth": m.auth_detail,
+                    "attachments": [f.filename for f in inputs],
+                },
             )
             return "Processed"
         return self._reject(m, ts.isoformat(), d.reason, d.reply, d.detailed_reply)
@@ -205,7 +210,7 @@ class Gateway:
             "mail.rejected",
             actor=m.sender or None,
             input_sha=sha256_bytes(m.raw),
-            detail={"reason": reason, "auth": m.auth_detail},
+            detail={"reason": mask_ids(reason), "auth": m.auth_detail},
         )
         if reply:
             self._reply(m, f"TrialBox could not process your message: {reason.rstrip('.')}." if detailed else GENERIC)
