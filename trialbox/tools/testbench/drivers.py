@@ -233,7 +233,8 @@ def send_test_prompt(
         "X-TB-Study": "TESTBENCH",
         "X-TB-Step": "testbench-1",
         "X-TB-Context-Of-Use": "s3_note_judgement",
-        "X-TB-Prompt": "judge@3",
+        "X-TB-Prompt": f"judge@{p.meta.version}",  # the version whose text is sent (D-300)
+        "X-TB-Prompt-Sha": p.sha256,
     }
     res = gw.chat(headers, body)
     records = [

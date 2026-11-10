@@ -6,14 +6,41 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${1:-$ROOT/.cache/jvm}"
-VALIDATOR_VERSION="${VALIDATOR_VERSION:-6.10.4}"
+# The validator jar is checked against a pinned sha256 (DEP-017): on download and again on every run for a cached
+# copy, so a tampered or swapped jar fails the fetch. The sum is of the release asset of tag 6.10.4 of
+# hapifhir/org.hl7.fhir.core (downloaded 2026-11-10). To move the version, change both lines together in one pull
+# request; another version given in the environment needs its own VALIDATOR_SHA256.
+PINNED_VALIDATOR_VERSION="6.10.4"
+PINNED_VALIDATOR_SHA256="1106b9d58f9e363e47bea7c4fc065841e5fc91fe9d062775c3bfdd212bd653cc"
+VALIDATOR_VERSION="${VALIDATOR_VERSION:-$PINNED_VALIDATOR_VERSION}"
+if [ -z "${VALIDATOR_SHA256:-}" ]; then
+  if [ "$VALIDATOR_VERSION" != "$PINNED_VALIDATOR_VERSION" ]; then
+    echo "fetch_jvm_deps: no pinned sha256 for validator $VALIDATOR_VERSION; set VALIDATOR_SHA256" >&2
+    exit 1
+  fi
+  VALIDATOR_SHA256="$PINNED_VALIDATOR_SHA256"
+fi
 PY="${PY:-$ROOT/.venv/bin/python}"
+
+# check_sha256 FILE EXPECTED: exit 1 with a plain message when the file's sha256 is not the expected one
+check_sha256() {
+  local got
+  got="$(sha256sum "$1" | cut -d' ' -f1)"
+  if [ "$got" != "$2" ]; then
+    echo "fetch_jvm_deps: $(basename "$1"): sha256 $got is not the pinned $2; refusing it" >&2
+    return 1
+  fi
+}
+
 mkdir -p "$OUT/cql-translator/lib" "$OUT/fhir-home/.fhir/packages"
 if [ ! -s "$OUT/validator_cli.jar" ]; then
   curl -fsSL -o "$OUT/validator_cli.jar.tmp" \
     "https://github.com/hapifhir/org.hl7.fhir.core/releases/download/${VALIDATOR_VERSION}/validator_cli.jar"
+  check_sha256 "$OUT/validator_cli.jar.tmp" "$VALIDATOR_SHA256" || { rm -f "$OUT/validator_cli.jar.tmp"; exit 1; }
   mv "$OUT/validator_cli.jar.tmp" "$OUT/validator_cli.jar"
 fi
+# a cached jar is checked too: delete it and run again to fetch a fresh copy
+check_sha256 "$OUT/validator_cli.jar" "$VALIDATOR_SHA256" || exit 1
 sha256sum "$OUT/validator_cli.jar" > "$OUT/validator_cli.jar.sha256"
 if [ -z "$(ls -A "$OUT/cql-translator/lib")" ]; then
   mvn -q -B -f "$ROOT/services/criteria_compiler/compile_cql/translator/pom.xml" \
