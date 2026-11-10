@@ -3727,7 +3727,8 @@ licence report.** Source: the same review, row 2 and §3; WS-14.6; the independe
    (markers evaluated); a package it could not audit fails; an empty or unreadable report fails.
 2. **Trivy** (0.75.0) with the database loaded first (`make trivy-db`; on the media, `oras pull` of `trivy-db:2` and
    `trivy-java-db:1`) and the scan offline, with no ignore file, no config file and every `TRIVY_*` setting removed.
-   CRITICAL or HIGH with a fixed version fails unless allow-listed; a missing or odd severity fails; unfixed findings
+   CRITICAL or HIGH with a fixed version fails unless allow-listed; UNKNOWN (not scored yet) counts as HIGH; a missing or
+   odd severity fails; unfixed findings
    and MEDIUM/LOW are listed. A report must show OS packages and the image's own language packages (Python; jars in
    the JVM image). The database (and the Java one) may be at most 7 days old.
 3. **Release gates** (`make release-gates`): each image is pinned first, a local one by its image id, a third-party

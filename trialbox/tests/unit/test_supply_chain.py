@@ -439,7 +439,20 @@ def test_trivy_gate_allowlist_by_vendor_id_for_its_package() -> None:
     assert not vulns.trivy_gate([FIX / "trivy_image.json"], other).ok
 
 
-@pytest.mark.parametrize("severity", [None, "", "HIGH ", "high", "UNKNOWN", "SEVERE"])
+def test_trivy_unscored_counts_as_high(tmp_path: Path) -> None:
+    """Trivy's UNKNOWN (not scored yet): with a fix it fails like a HIGH; without one it is listed."""
+    data = _json("trivy_image.json")
+    unfixed = data["Results"][0]["Vulnerabilities"][2]
+    unfixed["Severity"] = "UNKNOWN"
+    fixed = dict(unfixed, VulnerabilityID="DSA-0000-1", FixedVersion="9.9", Severity="UNKNOWN")
+    data["Results"][0]["Vulnerabilities"].append(fixed)
+    result = vulns.trivy_gate([_dump(tmp_path, "t.json", data)], _allow({}))
+    assert "DSA-0000-1" in {f.id for f in result.failing}
+    assert unfixed["VulnerabilityID"] in {f.id for f in result.reported}
+    assert release.split_report_mode([_finding("DSA-1", "UNKNOWN")], "postgres", "report")[1]  # report mode too
+
+
+@pytest.mark.parametrize("severity", [None, "", "HIGH ", "high", "unknown", "SEVERE"])
 def test_trivy_gate_fails_on_missing_or_odd_severity(tmp_path: Path, severity: str | None) -> None:
     data = _json("trivy_image.json")
     vuln = data["Results"][0]["Vulnerabilities"][2]  # the LOW one, unfixed

@@ -59,7 +59,7 @@ def split_report_mode(
     blocking: list[vulns.Finding] = []
     deferred: list[vulns.Finding] = []
     for f in failing:
-        fixable_high = f.severity in ("CRITICAL", "HIGH") and bool(f.fixed)
+        fixable_high = f.severity in ("CRITICAL", "HIGH", vulns.UNSCORED) and bool(f.fixed)
         (deferred if fixable_high else blocking).append(f)
     return blocking, deferred
 

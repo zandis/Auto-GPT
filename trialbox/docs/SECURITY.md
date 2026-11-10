@@ -177,7 +177,8 @@ The build side needs the network; the box never runs these tools. Code: `tools/s
 - **Trivy** scans every image that ships with its database loaded first (`make trivy-db`; on the media, `oras pull`
   of `trivy-db:2` and `trivy-java-db:1`) and the scan offline, with no ignore file, no config file and no `TRIVY_*`
   environment, so only the allow-list can accept a finding. A CRITICAL or HIGH finding with a fixed version fails
-  unless allow-listed; a finding with a missing or odd severity fails; findings with no fix yet and MEDIUM/LOW are
+  unless allow-listed (Trivy's UNKNOWN, a CVE not scored yet, counts as HIGH); a finding with a missing or odd
+  severity fails; findings with no fix yet and MEDIUM/LOW are
   listed. A report must show what it scanned (OS packages, the Python packages of the TrialBox images, the jars of the
   JVM image). The database may be at most 7 days old (its `UpdatedAt`).
 - **Release gates.** `make release-gates` pins each image first (a local image by its image id, a third-party image

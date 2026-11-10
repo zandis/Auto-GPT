@@ -5,9 +5,10 @@ Policy:
 * **pip-audit**: every advisory on a locked package fails unless the allow-list accepts it. The audited set must equal
   the lock's entries for the target (CPython 3.12 on Linux): a package left out, an extra one or another version
   fails, and so does a package pip-audit could not audit.
-* **Trivy**: a CRITICAL or HIGH finding with a fixed version fails unless allow-listed; a finding whose severity is
-  missing or not one of CRITICAL, HIGH, MEDIUM, LOW fails too. Findings with no fix yet and MEDIUM/LOW are listed but
-  do not fail (``--fail-unfixed`` / ``--severity`` tighten this).
+* **Trivy**: a CRITICAL or HIGH finding with a fixed version fails unless allow-listed. Trivy's own UNKNOWN (a CVE
+  not scored yet) counts as HIGH. A finding whose severity is missing or anything else (a trailing space, lower case)
+  fails always. Findings with no fix yet and MEDIUM/LOW are listed but do not fail (``--fail-unfixed`` /
+  ``--severity`` tighten this).
 * A Trivy report must show what it scanned: non-empty ``Results`` with OS packages, and the language package types
   expected for the image (Python packages in the TrialBox images, jars in the JVM image). An empty report fails.
 * The Trivy database must be at most ``MAX_DB_AGE_DAYS`` old (its ``UpdatedAt``), Java database included.
@@ -33,7 +34,8 @@ from tools.supply_chain.lock import parse_requirements
 
 SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW")
 DEFAULT_FAIL_SEVERITIES = frozenset({"CRITICAL", "HIGH"})
-INVALID = "INVALID"  # a severity Trivy did not give as one of SEVERITIES: always fails
+INVALID = "INVALID"  # a severity that is neither one of SEVERITIES nor UNSCORED (missing, odd spelling): always fails
+UNSCORED = "UNKNOWN"  # Trivy's own value for a CVE not scored yet: treated as HIGH (fails when a fix exists)
 MAX_DB_AGE_DAYS = 7  # Trivy publishes its DB every 6 hours; a release is scanned with a DB at most a week old
 # the box's interpreter: the environment markers of the lock are judged for it
 TARGET_ENV = {
@@ -228,7 +230,7 @@ def parse_trivy(data: Any, expect_lang: frozenset[str] | None = None) -> TrivyRe
                     version=str(v.get("InstalledVersion", "?")),
                     id=str(v.get("VulnerabilityID", "?")),
                     aliases=tuple(str(a) for a in v.get("VendorIDs", []) or []),
-                    severity=sev if sev in SEVERITIES else f"{INVALID}({sev!r})",
+                    severity=sev if sev in SEVERITIES or sev == UNSCORED else f"{INVALID}({sev!r})",
                     fixed=str(v.get("FixedVersion", "") or ""),
                 )
             )
@@ -285,6 +287,8 @@ def trivy_fails(severities: frozenset[str], fail_unfixed: bool) -> Callable[[Fin
     def fails(f: Finding) -> bool:
         if f.severity.startswith(INVALID):
             return True
+        if f.severity == UNSCORED:  # not scored yet: treated as HIGH, so a fixed one fails
+            return "HIGH" in severities and (bool(f.fixed) or fail_unfixed)
         return f.severity in severities and (bool(f.fixed) or fail_unfixed)
 
     return fails
