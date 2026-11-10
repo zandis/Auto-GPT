@@ -63,15 +63,14 @@ if ! docker info >/dev/null 2>&1; then
     OWN_DOCKERD=1
   fi
 fi
-prune_evidence() {  # D-201: evidence/ holds <case> and <case>.prev only; anything else (older layouts) goes
-  local d name
-  for d in "$REH/evidence"/*; do
+prune_evidence() {  # D-201: the newest two per case, <case> and <case>.prev; older copies <case>.<anything> go
+  local d name c
+  for d in "$REH/evidence"/*.*; do
     [ -e "$d" ] || continue
     name="$(basename "$d")"
-    case "$name" in
-      run-a|run-b|served|no-upload|hang|busy|run-a.prev|run-b.prev|served.prev|no-upload.prev|hang.prev|busy.prev) ;;
-      *) rm -rf "$d" ;;
-    esac
+    for c in "${CASES[@]}" run-a run-b served no-upload hang busy; do
+      if [ "${name%%.*}" = "$c" ] && [ "$name" != "$c.prev" ]; then rm -rf "$d"; break; fi
+    done
   done
 }
 cleanup() {

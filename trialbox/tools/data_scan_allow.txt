@@ -10,6 +10,8 @@ path | * | tests/fixtures/synthetic_patients/* | the synthetic hospital of tools
 path | * | eval/phi_synth/* | the synthetic PHI notes made to measure the recognisers (eval/phi_synth, generated, fictional)
 path | * | tests/fixtures/data_scan/positives/* | the planted positives of TST-SEC-10 (D-203): fictional, each file marked as planted
 path | * | tests/unit/test_data_scan.py | the scan's own tests, which plant the same fictional values inline (the evasion cases)
+path | cjk_name_dob | services/sitesetup/help.py | the site help's sample sheet: fictional placeholder names (石田 次郎, 江藤 四郎) beside sample dates
+path | cjk_name_dob | tests/unit/test_messy.py | the messy-sheet test's fictional placeholder rows (田中 with a wareki date)
 
 # --- textbook placeholders used in tests and documents
 value | tw_id | A123456789 | the textbook example of a valid Taiwan ID format, used by every PHI test and design text
@@ -19,11 +21,17 @@ value | chart_number | 0012345 | the placeholder カルテ番号 of the de-ident
 value | chart_number | 10000001 | the synthetic hospital's first chart number (tools/make_fixtures.py numbers from 10000001)
 value | chart_number | 10000004 | a synthetic hospital chart number used in the site help and the i18n examples
 value | chart_number | 10000005 | a synthetic hospital chart number used in the i18n examples
+value | chart_number | 12345 | the five-digit placeholder chart number of the CASE command examples in the design
+value | chart_number | J00012345 | the synthetic hospital's Japanese chart-number format example in its spec
+value | chart_number | 10000020 | a synthetic hospital chart number in the TW-PAS export test
+value | cjk_name_dob | 佐藤花子 | the Japanese placeholder name (the "Jane Doe" of forms) in the derived-PHI test
 value | chart_number | 70000054 | the public synthetic site's chart number in the CASE command examples and their tests
 value | cjk_name_dob | 山田太郎 | the Japanese placeholder name (the "John Doe" of forms) in sheet-import tests
 value | cjk_name_dob | 林大同 | the fictional patient of tests/unit/test_derived_phi.py
 value | cjk_name_dob | 山田班 | a team name in the synthetic candidate sheet of tools/scenarios.py and the site help
 value | cjk_name_dob | 潘映君 | the author of a published article cited in the TW/JP field research (a citation, not a patient)
+value | cjk_name_dob | 中村健一 | the author of a published presentation cited in the TW/JP field research (a citation, not a patient)
+value | cjk_name_dob | 木村通男 | the author of a published survey cited in the TW/JP field research (a citation, not a patient)
 value | cjk_name_dob | 陳玉夏 | the author of a published article cited in the TW/JP field research (a citation, not a patient)
 value | * | 02-2312-3456 | the hospital switchboard in the synthetic consent form (a public institutional number, no patient)
 value | * | (02-2312-3456 | the same switchboard, as the TW pattern reports it with its parenthesis

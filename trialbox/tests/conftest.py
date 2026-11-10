@@ -51,7 +51,8 @@ def pg_cluster_url() -> Iterator[str]:
             pglocal.scratch_root().mkdir(parents=True, exist_ok=True)
             root = Path(tempfile.mkdtemp(prefix="tb-pgtest-", dir=pglocal.scratch_root()))
         pglocal.claim(root)
-        atexit.register(pglocal.remove, root)
+        me = os.getpid()  # a forked child that exits must not take the session's cluster with it
+        atexit.register(lambda: pglocal.remove(root) if os.getpid() == me else None)
     root.chmod(0o755)
     url = pglocal.ensure(root)
     yield url

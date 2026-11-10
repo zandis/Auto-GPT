@@ -32,6 +32,25 @@ clusters without a client, the drill and e2e folders in `/tmp`, the rehearsal's 
 the two newest `.cache/complete-run` runs), keeping anything a running process holds; the rehearsal keeps the newest
 two evidence folders per case. RUNBOOK §12.
 
+*After the adversarial review* (a fresh Fable session, 2026-11-10, on the diff; three Blockers and two Highs of its
+findings were in this card, all fixed). B1: `remove()` followed a `run` link wherever it pointed, and `clean-tmp`
+fed it any `/tmp/tb-pgtest-*`, so a planted link could delete any folder; now a link is only unlinked, and its
+target deleted only when it is this module's own short socket folder (`tbpg-*`, ours, holding only sockets), and a
+link left in a cluster is replaced, never followed or chowned. B2: `clean-tmp` stopped an idle server without an owner
+(an older checkout's suite between two tests, a demo); now it never stops a running server, and removes only
+stopped cluster folders that are ours, look like clusters and no process names. B3: `stop()` signalled the pid in
+`postmaster.pid`, which after a reboot or a kill can be another process; now it signals only the postmaster whose
+working directory is this data directory. H7: a detached HEAD gave every CI run and review worktree the same root
+(`tb-tests-HEAD`), and a second run on a root destroyed the first one's files before the fixture noticed; the slug
+is now `detached-<sha>` and `make test` holds `flock` on the root for the whole run (a second run stops at once), and
+it stops the branch's shared cluster only when no client uses it. Also from the review: `TB_TEST_ROOT` resolves links
+and refuses system directories, folders directly in them and any existing folder of other files (a `.tb-test-root`
+marker that `make test` writes); `gc` keeps an unreadable owner file and anything that does not look like a cluster;
+the session's `atexit` handler acts only in the process that registered it; a long socket path goes under the
+scratch root before `/tmp`; complete-run tarballs are pruned by time; the rehearsal prunes only older copies of the
+cases it knows. Not changed: `/tmp/pytest-of-*` of other projects owned by this user are cleaned (the card asks for
+it); the `/tmp` defaults of the tools run by hand.
+
 *Evidence.* `tests/unit/test_test_isolation.py`: the cluster under `TB_TEST_ROOT` and owned by the session; worker
 folders that never share a prefix; the fallback under the scratch root, never `/tmp`; `/`, `/tmp`, `/var/tmp`,
 `/var`, a relative path and "" refused; the plugin and retention settings; the lock pins; gc removes a dead owner's

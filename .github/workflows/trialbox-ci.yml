@@ -1,19 +1,15 @@
-# TrialBox CI gate v1 (D-205, T-007, WS-01.4, WS-12.2, WS-13.8): every pull request that touches trialbox/ and every
+# TrialBox CI gate v1 (D-206, T-007, WS-01.4, WS-12.2, WS-13.8): every pull request that touches trialbox/ and every
 # push to master runs these jobs; `make ci` runs the same list locally. Job names are stable: branch protection on
 # master requires unit, lint, contracts, goldens, data-scan and e2e-simple (the owner sets the list; RUNBOOK §3).
 # The nightly drills are in trialbox-e2e.yml. A job marked continue-on-error carries the date and the reason.
 name: TrialBox CI
 
+# No `paths:` filter on the triggers: a required check whose workflow never starts blocks a pull request for ever.
+# The `changes` job decides instead; a job it skips reports "skipped", which satisfies a required check.
 on:
   pull_request:
-    paths:
-      - "trialbox/**"
-      - ".github/workflows/trialbox-*.yml"
   push:
     branches: [master]
-    paths:
-      - "trialbox/**"
-      - ".github/workflows/trialbox-*.yml"
   workflow_dispatch:
 
 permissions:
@@ -21,7 +17,7 @@ permissions:
 
 concurrency:
   group: trialbox-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}  # every push to master keeps its run
 
 defaults:
   run:
@@ -32,8 +28,30 @@ env:
   TB_SCRATCH: ${{ github.workspace }}/../tb-scratch
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      trialbox: ${{ steps.diff.outputs.trialbox }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        working-directory: .
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then echo "trialbox=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
+              | grep -qE '^(trialbox/|\.github/workflows/trialbox-)'; then
+            echo "trialbox=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "trialbox=false" >> "$GITHUB_OUTPUT"
+          fi
+
   lint:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +71,8 @@ jobs:
 
   types:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -66,6 +86,8 @@ jobs:
 
   docs:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -79,6 +101,8 @@ jobs:
 
   contracts:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -92,6 +116,8 @@ jobs:
 
   trace:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -105,6 +131,8 @@ jobs:
 
   unit:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     services:
       postgres:
@@ -118,8 +146,9 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U trialbox" --health-interval 5s --health-timeout 5s --health-retries 20
     env:
-      # one server for every xdist worker; each test has its own schemas (tb_prefix)
-      TB_TEST_DB_URL: postgresql://trialbox:trialbox@localhost:5432/trialbox_wf
+      # one server for every xdist worker; each test has its own schemas (tb_prefix). The tests connect as a role
+      # with LOGIN CREATEDB only, as tools/pglocal.py's clusters do, not as the image's superuser.
+      TB_TEST_DB_URL: postgresql://trialbox_app:trialbox_app@localhost:5432/trialbox_app
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -147,11 +176,15 @@ jobs:
       # as tools/pglocal.py runs its throwaway clusters: room for every worker's pools, no fsync
       - name: Tune the test server
         run: |
-          id=$(docker ps -q --filter ancestor=postgres:16)
-          docker exec "$id" psql -U trialbox -d trialbox_wf -c "ALTER SYSTEM SET max_connections = 300" \
-            -c "ALTER SYSTEM SET fsync = off" -c "ALTER SYSTEM SET synchronous_commit = off"
+          id="${{ job.services.postgres.id }}"
+          docker exec "$id" psql -U trialbox -d trialbox_wf -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET max_connections = 300" -c "ALTER SYSTEM SET fsync = off" \
+            -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "CREATE ROLE trialbox_app LOGIN CREATEDB PASSWORD 'trialbox_app'" \
+            -c "CREATE DATABASE trialbox_app OWNER trialbox_app"
           docker restart "$id"
-          for _ in $(seq 1 30); do docker exec "$id" pg_isready -U trialbox && break; sleep 1; done
+          for _ in $(seq 1 60); do docker exec "$id" pg_isready -U trialbox -q && exit 0; sleep 1; done
+          echo "the test server did not come back after the restart" >&2; exit 1
       - name: pytest -n auto
         run: make test PYTEST_N=auto 2>&1 | tee "$RUNNER_TEMP/unit.log"
       # D-203: the test log carries no identifier either
@@ -160,6 +193,8 @@ jobs:
 
   e2e-simple:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -196,6 +231,8 @@ jobs:
 
   goldens:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -210,13 +247,15 @@ jobs:
           if make -n goldens-check >/dev/null 2>&1; then
             make goldens-check
           else
-            echo "::warning title=goldens::T-006 has not landed: no goldens-check target yet (2026-11-09, D-205)"
+            echo "::warning title=goldens::T-006 has not landed: no goldens-check target yet (2026-11-09, D-206)"
           fi
 
   audit:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
-    # 2026-11-10 (D-205): listed, not gating, until T-110 (supply chain) sets the policy; the review's findings (pypdf,
+    # 2026-11-10 (D-206): listed, not gating, until T-110 (supply chain) sets the policy; the review's findings (pypdf,
     # pillow) were on the shared venv; against uv.lock pip-audit 2.9.0 reports none today
     continue-on-error: true
     steps:
@@ -232,6 +271,8 @@ jobs:
 
   data-scan:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -245,10 +286,12 @@ jobs:
 
   shell:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      # gates on errors; the warnings are listed. 2026-11-09 (D-205): ten warnings in deploy/*.sh are open findings
+      # gates on errors; the warnings are listed. 2026-11-09 (D-206): ten warnings in deploy/*.sh are open findings
       - name: shellcheck
         run: |
           git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
@@ -256,8 +299,10 @@ jobs:
 
   images:
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
-    # 2026-11-09 (D-205): hadolint has not run on these Dockerfiles before; listed, not gating, until its first
+    # 2026-11-09 (D-206): hadolint has not run on these Dockerfiles before; listed, not gating, until its first
     # findings are triaged
     continue-on-error: true
     steps:

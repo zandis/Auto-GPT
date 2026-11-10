@@ -182,13 +182,14 @@ def test_clean_tmp_keeps_what_is_in_use_and_the_two_newest_runs(tmp_path: Path) 
     (busy / ".lock").write_text(str(os.getpid()))
     (tmp / "tb-e2e-simple").mkdir()
     (tmp / "tb-e2e-simple.json").write_text("{}")
-    for run in ("20261101T000000Z-a", "20261102T000000Z-b", "20261103T000000Z-c"):
+    for age, run in enumerate(("20261101T000000Z-a", "20261102T000000Z-b", "20261103T000000Z-c")):
         shard = repo / ".cache" / "complete-run" / run / "shard-1"
         shard.mkdir(parents=True)
         (shard / "results.tgz").write_bytes(b"1")
         (shard.parent / "report").mkdir()
+        os.utime(shard.parent, (1_700_000_000 + age * 3600, 1_700_000_000 + age * 3600))  # newest by time
     (tmp / "reh" / "runs" / "run-a").mkdir(parents=True)
-    done = {p for p, _ in pglocal.clean_tmp(repo, tmp=tmp, rehearsal=tmp / "reh", gc_first=False)}
+    done = {p for p, _ in pglocal.clean_tmp(repo, tmp=tmp, rehearsal=tmp / "reh", gc_first=False, rehearsing=False)}
     assert tmp / "reh" / "runs" in done and (tmp / "reh").exists()
     assert old in done and busy not in done and busy.exists()
     assert not (tmp / "tb-e2e-simple").exists() and not (tmp / "tb-e2e-simple.json").exists()
@@ -209,3 +210,101 @@ def test_no_test_names_a_fixed_tmp_path() -> None:
             if re.search(r"""["']/tmp/tb[-_]""", line):
                 bad.append(f"{path.relative_to(ROOT)}:{n}")
     assert not bad, bad
+
+
+# ------------------------------------------------------------------ the review's Blockers and Highs (D-201)
+def test_remove_never_follows_a_run_link_out_of_the_cluster(tmp_path: Path) -> None:
+    """B1: a ``run`` link to anything that is not this module's short socket folder is unlinked, never deleted."""
+    victim = tmp_path / "victim"
+    (victim / "keep").mkdir(parents=True)
+    cluster = tmp_path / "tmp" / "tb-pgtest-planted"
+    (cluster / "data").mkdir(parents=True)
+    (cluster / "data" / "PG_VERSION").write_text("16\n")
+    (cluster / "run").symlink_to(victim, target_is_directory=True)
+    pglocal.remove(cluster)
+    assert (victim / "keep").is_dir() and not cluster.exists()
+    cluster2 = tmp_path / "tmp" / "tb-pgtest-planted2"
+    (cluster2 / "data").mkdir(parents=True)
+    (cluster2 / "run").symlink_to(victim, target_is_directory=True)
+    pglocal.clean_tmp(tmp_path / "repo", tmp=tmp_path / "tmp", rehearsal=tmp_path / "reh", gc_first=False)
+    assert (victim / "keep").is_dir()
+
+
+def test_a_stale_pid_file_signals_nobody(tmp_path: Path) -> None:
+    """B3: ``postmaster.pid`` naming a live process that is not this data directory's postmaster is left alone."""
+    sleeper = subprocess.Popen(["sleep", "30"])
+    try:
+        (tmp_path / "pg-x" / "data").mkdir(parents=True)
+        (tmp_path / "pg-x" / "data" / "postmaster.pid").write_text(f"{sleeper.pid}\n/elsewhere\n")
+        pglocal.stop(tmp_path / "pg-x")
+        assert sleeper.poll() is None  # still running: not ours, not signalled
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
+def test_clean_tmp_keeps_a_running_cluster_without_an_owner(tmp_path: Path) -> None:
+    """B2: an idle server from an older checkout (no ``.owner``) is never stopped by clean-tmp."""
+    root = tmp_path / "tmp" / "tb-pgtest-legacy"
+    pglocal.ensure(root)
+    try:
+        done = {p for p, _ in pglocal.clean_tmp(tmp_path / "repo", tmp=tmp_path / "tmp", gc_first=False)}
+        assert root not in done and pglocal.running(root)
+    finally:
+        pglocal.remove(root)
+    stopped = tmp_path / "tmp" / "tb-pgtest-stopped"
+    (stopped / "data").mkdir(parents=True)
+    (stopped / "data" / "PG_VERSION").write_text("16\n")
+    done = {p for p, _ in pglocal.clean_tmp(tmp_path / "repo", tmp=tmp_path / "tmp", gc_first=False)}
+    assert stopped in done and not stopped.exists()
+
+
+def test_gc_keeps_what_does_not_look_like_a_cluster(tmp_path: Path) -> None:
+    """M3: an unreadable ``.owner`` is kept; a folder of other files with a dead owner is not a cluster."""
+    garbled = tmp_path / "a" / "pg-gw0"
+    garbled.mkdir(parents=True)
+    (garbled / ".owner").write_text("not a pid\n")
+    other = tmp_path / "b" / "notes"
+    other.mkdir(parents=True)
+    pglocal.claim(other, _dead_pid())
+    (other / "thesis.md").write_text("keep me")
+    pglocal.claim(tmp_path, _dead_pid())  # an owner file in the base itself is never a target
+    assert pglocal.gc([tmp_path]) == []
+    assert garbled.exists() and (other / "thesis.md").exists()
+
+
+def test_an_existing_folder_of_other_files_is_no_test_root(tmp_path: Path) -> None:
+    """M1: a non-empty folder without the marker, a system directory and one directly inside it are refused."""
+    (tmp_path / "work" / "src").mkdir(parents=True)
+    with pytest.raises(ValueError, match="marker"):
+        pglocal.check_test_root(tmp_path / "work")
+    for bad in ("/usr/local", "/etc/ssl", "/var/lib/postgresql", "/home/someone"):
+        with pytest.raises(ValueError, match="refused"):
+            pglocal.check_test_root(Path(bad))
+    fresh = pglocal.mark_test_root(tmp_path / "tb-tests-y")
+    (fresh / "pytest").mkdir()
+    assert pglocal.check_test_root(fresh) == fresh.resolve()
+
+
+def test_a_detached_head_gets_its_own_slug(tmp_path: Path) -> None:
+    """H7: a detached checkout is ``detached-<sha>``, not ``HEAD`` shared by every CI run and review worktree."""
+    repo = tmp_path / "r"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@example.invalid", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit",
+                    "-q", "--allow-empty", "-m", "x"], check=True)  # fmt: skip
+    sha = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout
+    subprocess.run(["git", "-C", str(repo), "checkout", "-q", sha.strip()], check=True)
+    slug = pglocal.branch_slug(repo)
+    assert slug.startswith("detached-") and slug != "detached-" and "HEAD" not in slug
+
+
+def test_a_long_socket_folder_stays_out_of_tmp_when_the_scratch_root_is_short(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M8: the short socket folder goes under a short scratch root, not /tmp."""
+    monkeypatch.setenv("TB_SCRATCH", "/var/tmp/trialbox-sock-test")
+    assert pglocal._short_socket_parent() == Path("/var/tmp/trialbox-sock-test")
+    monkeypatch.setenv("TB_SCRATCH", "/var/tmp/" + "s" * 90)
+    assert pglocal._short_socket_parent() == Path("/tmp")

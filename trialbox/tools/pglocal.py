@@ -123,18 +123,59 @@ def ensure(root: Path) -> str:
     return url_for(root)
 
 
+def _short_socket_parent() -> Path:
+    """Where a short socket directory goes: under the scratch root when that is short enough, else ``/tmp``."""
+    base = scratch_root()
+    return base if len(str(base)) + len("/tbpg-xxxxxxxx/.s.PGSQL.5432") <= SOCK_MAX else Path("/tmp")
+
+
+def _ours_short(target: Path) -> bool:
+    """A short socket directory this module made: ``tbpg-*`` directly under its parent, owned by this user (or, as
+    root, by the cluster's ``postgres`` user), holding nothing but socket files."""
+    try:
+        st = target.lstat()
+        names = [p.name for p in target.iterdir()]
+    except OSError:
+        return False
+    owners = {os.geteuid(), *_postgres_uids()}
+    return (
+        target.name.startswith("tbpg-")
+        and target.parent in {_short_socket_parent(), Path("/tmp")}
+        and not target.is_symlink()
+        and st.st_uid in owners
+        and all(n.startswith(".s.PGSQL.") for n in names)
+    )
+
+
+def _postgres_uids() -> set[int]:
+    if os.geteuid() != 0:
+        return set()
+    import pwd
+
+    out = set()
+    for who in ("postgres", "nobody"):
+        with contextlib.suppress(KeyError):
+            out.add(pwd.getpwnam(who).pw_uid)
+    return out
+
+
 def _socket_dir(root: Path) -> Path:
     """``root/run``; when that path is too long for a Unix socket, a short private directory ``root/run`` links to
-    (removed with the cluster by :func:`remove`)."""
+    (removed with the cluster by :func:`remove`). A ``run`` link to anything else is replaced, never followed."""
     run = root / "run"
-    if run.is_symlink() and not run.resolve().is_dir():
+    if run.is_symlink():
+        target = Path(os.path.realpath(run))
+        if _ours_short(target):
+            return target
         run.unlink()
-    if run.is_symlink() or run.is_dir():
-        return run.resolve()
+    if run.is_dir():
+        return run
     if len(str(run)) + len("/.s.PGSQL.5432") <= SOCK_MAX:
         run.mkdir()
         return run
-    short = Path(tempfile.mkdtemp(prefix="tbpg-", dir="/tmp"))
+    parent = _short_socket_parent()
+    parent.mkdir(parents=True, exist_ok=True)
+    short = Path(tempfile.mkdtemp(prefix="tbpg-", dir=parent))
     short.chmod(0o755)
     run.symlink_to(short, target_is_directory=True)
     return short
@@ -152,35 +193,56 @@ def _grant_traverse(root: Path, owner: str) -> None:
             print(f"pglocal: added o+x (search only) to {parent} so that '{owner}' reaches {root}", file=sys.stderr)
 
 
+def _our_postmaster(pid: int, data: Path) -> bool:
+    """``pid`` is the postmaster of ``data``: alive, and its working directory is that data directory (a postmaster
+    runs in its data directory). A stale ``postmaster.pid`` naming a reused pid fails this."""
+    if not pid or not _alive(pid):
+        return False
+    try:
+        return Path(os.readlink(f"/proc/{pid}/cwd")) == data.resolve()
+    except OSError:
+        return False
+
+
 def stop(root: Path) -> None:
-    """Stop the cluster under ``root``. Idempotent: a missing directory, no cluster or a stopped one is a no-op."""
+    """Stop the cluster under ``root``. Idempotent: a missing directory, no cluster or a stopped one is a no-op. Only
+    a postmaster that runs in this data directory is signalled; a stale pid file is left alone."""
     data = root.resolve() / "data"
     pidfile = data / "postmaster.pid"
     if not pidfile.exists():
         return
     pid = _postmaster_pid(pidfile)
+    if not _our_postmaster(pid, data):
+        return
     _run([*_as_postgres_user(), str(bindir() / "pg_ctl"), "-D", str(data), "-m", "immediate", "-w", "stop"])
-    if pid and _alive(pid) and _comm(pid) in ("postgres", "postmaster"):  # pg_ctl could not (a foreign version)
+    if _our_postmaster(pid, data):  # pg_ctl could not (a foreign version): the same signal pg_ctl sends, harder
         with contextlib.suppress(OSError):
             os.kill(pid, 9)
 
 
-def _comm(pid: int) -> str:
-    try:
-        return Path(f"/proc/{pid}/comm").read_text().strip()
-    except OSError:
-        return ""
-
-
 def remove(root: Path) -> None:
-    """Stop the cluster under ``root`` and delete the directory, with its short socket directory if it has one."""
-    if not root.exists() and not root.is_symlink():
+    """Stop the cluster under ``root`` and delete the directory, and its short socket directory when it is one this
+    module made. Links are never followed."""
+    if root.is_symlink() or not root.exists():
         return
     stop(root)
     run = root / "run"
     if run.is_symlink():
-        shutil.rmtree(run.resolve(), ignore_errors=True)
+        target = Path(os.path.realpath(run))
+        run.unlink()
+        if _ours_short(target):
+            shutil.rmtree(target, ignore_errors=True)
     shutil.rmtree(root, ignore_errors=True)
+
+
+def stop_idle(root: Path) -> bool:
+    """Stop the cluster under ``root`` when no client is connected; True when it is (now) stopped."""
+    if not running(root):
+        return True
+    if _clients(root) != 0:
+        return False
+    stop(root)
+    return not running(root)
 
 
 # ------------------------------------------------------------------ temp roots and owners (D-201)
@@ -192,20 +254,42 @@ def scratch_root() -> Path:
 
 
 def branch_slug(repo: Path | None = None) -> str:
-    """The checkout's branch as one short path segment (``agent/T-003-x`` -> ``agent-T-003-x``)."""
+    """The checkout's branch as one short path segment (``agent/T-003-x`` -> ``agent-T-003-x``); a detached HEAD
+    (CI, a review worktree) is ``detached-<short sha>``, so two detached checkouts do not share a root."""
     where = repo or Path(__file__).resolve().parents[1]
     r = _run(["git", "-C", str(where), "rev-parse", "--abbrev-ref", "HEAD"])
     name = r.stdout.strip() if r.returncode == 0 else ""
-    return (re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-.") or "detached")[:40]
+    if name in ("", "HEAD"):
+        sha = _run(["git", "-C", str(where), "rev-parse", "--short=10", "HEAD"]).stdout.strip()
+        name = f"detached-{sha}" if sha else "detached"
+    return (re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-.") or "detached")[:60]
+
+
+SYSTEM_DIRS = ("/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/opt", "/proc", "/root", "/run", "/sbin", "/srv",
+               "/sys", "/usr", "/var/lib", "/var/log", "/var/cache", "/var/spool", "/home")  # fmt: skip
+MARKER = ".tb-test-root"
 
 
 def check_test_root(path: Path) -> Path:
-    """``TB_TEST_ROOT`` is an absolute directory of the branch's own: never ``/``, a top-level directory, ``/tmp``,
-    ``/var/tmp`` or the home directory (the suite deletes what it made under it)."""
-    p = Path(os.path.normpath(path))
-    if not p.is_absolute() or len(p.parts) < 3 or p in {Path("/tmp"), Path("/var/tmp"), Path.home()}:
+    """``TB_TEST_ROOT`` is an absolute directory of the branch's own (the suite deletes what it made under it):
+    never ``/``, a top-level directory, ``/tmp``, ``/var/tmp``, the home directory, a system directory itself or a
+    directory directly in one, and links are resolved first. An existing, non-empty directory must carry the
+    ``.tb-test-root`` marker that :func:`mark_test_root` writes, so an existing folder of other files is refused."""
+    p = Path(os.path.realpath(os.path.normpath(path))) if Path(path).is_absolute() else Path(".")
+    bad = {Path("/tmp"), Path("/var/tmp"), Path.home(), *(Path(d) for d in SYSTEM_DIRS)}
+    if not p.is_absolute() or len(p.parts) < 3 or p in bad or p.parent in bad - {Path("/tmp"), Path("/var/tmp")}:
         raise ValueError(f"TB_TEST_ROOT={path} is refused: give a directory of this branch's own, such as "
                          f"{scratch_root()}/tb-tests-<branch>")  # fmt: skip
+    if p.is_dir() and any(p.iterdir()) and not (p / MARKER).exists():
+        raise ValueError(f"TB_TEST_ROOT={path} is refused: it holds files and no {MARKER} marker (not a test root)")
+    return p
+
+
+def mark_test_root(path: Path) -> Path:
+    """Check ``path`` as a test root, create it (mode 0700 parents are left as they are) and write its marker."""
+    p = check_test_root(path)
+    p.mkdir(parents=True, exist_ok=True)
+    (p / MARKER).touch()
     return p
 
 
@@ -252,41 +336,68 @@ def claim(root: Path, pid: int | None = None) -> None:
     (root / ".owner").write_text(f"{pid} {_start_time(pid)}\n", encoding="utf-8")
 
 
-def owner_alive(root: Path) -> bool:
-    """True while the ``.owner`` process runs: the same pid with the same start time (a reused pid counts as dead)."""
+def _owner(root: Path) -> tuple[int, str] | None:
+    """The ``.owner`` record, or None when it is missing or unreadable."""
     try:
         pid_s, _, started = (root / ".owner").read_text(encoding="utf-8").strip().partition(" ")
-        pid = int(pid_s)
+        return int(pid_s), started
     except (OSError, ValueError):
-        return False
+        return None
+
+
+def owner_alive(root: Path) -> bool:
+    """True while the ``.owner`` process runs: the same pid with the same start time (a reused pid counts as dead).
+    An unreadable owner file counts as alive: what cannot be read is kept."""
+    rec = _owner(root)
+    if rec is None:
+        return (root / ".owner").exists()
+    pid, started = rec
     if not _alive(pid):
         return False
     now = _start_time(pid)
     return not started or not now or now == started
 
 
+def _is_cluster_dir(root: Path) -> bool:
+    """A folder this module made for a cluster: named ``pg-*``, ``tb-pgtest-*`` or ``pglocal``, and holding a data
+    directory or nothing but its own files."""
+    if root.is_symlink() or not root.is_dir():
+        return False
+    if not (root.name.startswith(("pg-", "tb-pgtest-", "tb-pglocal-")) or root.name == "pglocal"):
+        return False
+    known = {".owner", "data", "run", "server.log"}
+    return (root / "data" / "PG_VERSION").exists() or all(p.name in known for p in root.iterdir())
+
+
 def _owned(bases: Iterable[Path]) -> list[Path]:
-    """Directories holding an ``.owner`` file, at depth 0 to 2 under each base (a test root, the scratch root)."""
+    """Cluster folders holding an ``.owner`` file, at depth 1 or 2 under each base (a test root, the scratch root)."""
     found: set[Path] = set()
     for base in bases:
-        if base.is_dir():
-            for pattern in (".owner", "*/.owner", "*/*/.owner"):
-                found.update(p.parent for p in base.glob(pattern))
+        if base.is_dir() and not base.is_symlink():
+            for pattern in ("*/.owner", "*/*/.owner"):
+                found.update(p.parent for p in base.glob(pattern) if _is_cluster_dir(p.parent))
     return sorted(found)
 
 
 def gc(bases: Iterable[Path] | None = None) -> list[Path]:
-    """Stop and remove every owned cluster whose owner is dead; return what was removed. A cluster without an
-    ``.owner`` file (an older checkout's, or the shared one of :func:`for_work`) is never touched here."""
+    """Stop and remove every owned cluster whose owner is gone; return what was removed. A cluster without an
+    ``.owner`` file (an older checkout's) is never touched here; the shared one of :func:`for_work` directly in a
+    given base or in this run's test root (``<root>/pglocal``) is stopped, not removed, when no client uses it (a
+    killed ``make test`` leaves it running)."""
     if bases is None:
         bases = [scratch_root()]
         if os.environ.get("TB_TEST_ROOT"):
             bases.insert(0, test_root())
+    bases = list(bases)
     removed = []
     for root in _owned(bases):
         if not owner_alive(root):
             remove(root)
             removed.append(root)
+    for base in bases:
+        shared = base / "pglocal"
+        if _is_cluster_dir(shared) and _mine(shared) and running(shared):
+            stop_idle(shared)
     return removed
 
 
@@ -333,16 +444,39 @@ def _in_use(path: Path, busy: set[str]) -> bool:
     return any(s == p or s.startswith(p + "/") or s.startswith(p + "=") or ("=" + p) in s for s in busy if s)
 
 
-def _cluster_in_use(root: Path) -> bool:
-    """An owner that lives, or a running server with a client connected (another agent's run)."""
-    if owner_alive(root):
-        return True
-    if not running(root):
-        return False
+def _clients(root: Path) -> int:
+    """Client connections to the cluster under ``root`` (-1 when the server does not answer the question)."""
     q = "SELECT count(*) FROM pg_stat_activity WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()"
     r = _run([*_as_postgres_user(), str(bindir() / "psql"), "-h", str((root / "run").resolve()), "-U", "postgres",
               "-d", "postgres", "-tAqc", q])  # fmt: skip
-    return r.returncode != 0 or r.stdout.strip() not in ("", "0")
+    try:
+        return int(r.stdout.strip()) if r.returncode == 0 else -1
+    except ValueError:
+        return -1
+
+
+def _locked(root: Path) -> bool:
+    """A ``make test`` holds this test root (``flock`` on ``<root>/.lock``): what is under it is in use."""
+    lock = root / ".lock"
+    if not lock.exists():
+        return False
+    import fcntl
+
+    try:
+        with lock.open("a") as f:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(f, fcntl.LOCK_UN)
+    except OSError:
+        return True
+    return False
+
+
+def _mine(path: Path) -> bool:
+    """Made by this user (or, as root, by the throwaway clusters' ``postgres`` user): another user's files stay."""
+    try:
+        return path.lstat().st_uid in {os.geteuid(), *_postgres_uids()}
+    except OSError:
+        return False
 
 
 def clean_tmp(
@@ -352,20 +486,23 @@ def clean_tmp(
     rehearsal: Path | None = None,
     clusters: Iterable[Path] = (),
     gc_first: bool = True,
+    rehearsing: bool | None = None,
 ) -> list[tuple[Path, int]]:
     """Remove what earlier runs left behind and nobody uses now; return ``(path, bytes)`` for each removal.
 
     The owned clusters of dead owners (:func:`gc`); in ``tmp``: ``pytest-of-*`` run directories, the ``tb-pgtest-*``
     and ``tb-pglocal-*`` clusters, ``tb-backup-drill*``, ``tb-drill``, ``tb-e2e-simple*`` and the rehearsal's ``runs``
     (``rehearsal``, default ``TB_REHEARSAL_DIR`` or ``tmp/tb-rehearsal``); the extra ``clusters`` (the branch's shared
-    one); in ``repo/.cache/complete-run`` the ``src.tgz`` and ``results.tgz`` of every run but the
-    two newest (their reports stay). A path that a running process holds (working directory, open file, command
-    line, environment), a pytest run directory whose ``.lock`` names a live process, a cluster with an owner alive
-    or a client connected, and the rehearsal's ``runs`` while a ``rehearse.sh`` runs are kept."""
+    one); in ``repo/.cache/complete-run`` the ``src.tgz`` and ``results.tgz`` of every run but the two newest by
+    time (their reports stay). Kept: anything another user made, a link, a path that a running process holds
+    (working directory, open file, command line, environment), a pytest run directory whose ``.lock`` names a live
+    process, a cluster that is running (with an owner or without one: a server is stopped only by its owner or by
+    :func:`gc`), a folder that does not look like a cluster, and the rehearsal's ``runs`` while ``rehearse.sh``
+    runs."""
     out: list[tuple[Path, int]] = []
 
     def drop(path: Path, cluster: bool = False) -> None:
-        size = _size(path) if path.is_dir() else (path.stat().st_size if path.exists() else 0)
+        size = _size(path) if path.is_dir() else (path.lstat().st_size if path.exists() else 0)
         if not dry_run:
             if cluster:
                 remove(path)
@@ -379,9 +516,18 @@ def clean_tmp(
         out.extend((p, 0) for p in gc())
     busy = _busy_paths()
     for root in [*sorted([*tmp.glob("tb-pgtest-*"), *tmp.glob("tb-pglocal-*")]), *clusters]:
-        if root.is_dir() and not _cluster_in_use(root):
+        if (
+            _is_cluster_dir(root)
+            and _mine(root)
+            and not owner_alive(root)
+            and not running(root)
+            and not _in_use(root, busy)
+            and not _locked(root.parent)
+        ):
             drop(root, cluster=True)
     for base in sorted(tmp.glob("pytest-of-*")):
+        if base.is_symlink() or not _mine(base):
+            continue
         for run in sorted([*base.glob("pytest-*"), *base.glob("garbage-*")]):
             if run.is_symlink() or not run.is_dir():
                 continue
@@ -394,15 +540,19 @@ def clean_tmp(
             shutil.rmtree(base, ignore_errors=True)
     rehearsal = rehearsal or Path(os.environ.get("TB_REHEARSAL_DIR") or tmp / "tb-rehearsal")
     work = [*tmp.glob("tb-backup-drill*"), tmp / "tb-drill", *tmp.glob("tb-e2e-simple*")]
-    if not any(s.endswith("rehearse.sh") for s in busy):  # between two cases no process names runs/ itself
+    if rehearsing is None:  # between two cases no process names runs/ itself: a running rehearse.sh does
+        rehearsing = any(s.endswith("rehearse.sh") for s in busy)
+    if not rehearsing:
         work.append(rehearsal / "runs")
     for path in sorted(work):
-        if path.exists() and not _in_use(path, busy):
+        if path.exists() and not path.is_symlink() and _mine(path) and not _in_use(path, busy):
             drop(path)
-    runs = sorted(p for p in (repo / ".cache" / "complete-run").glob("*") if p.is_dir())
+    runs = sorted((p for p in (repo / ".cache" / "complete-run").glob("*") if p.is_dir() and not p.is_symlink()),
+                  key=lambda p: p.stat().st_mtime)  # fmt: skip
     for run in runs[:-2]:
         for tgz in sorted([*run.glob("shard-*/results.tgz"), *run.glob("shard-*/src.tgz")]):
-            drop(tgz)
+            if not tgz.is_symlink():
+                drop(tgz)
     return out
 
 
@@ -450,7 +600,7 @@ def _gib(n: int) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("cmd", nargs="?", choices=["start", "stop", "url", "gc", "clean-tmp"])
+    ap.add_argument("cmd", nargs="?", choices=["start", "stop", "stop-idle", "url", "gc", "clean-tmp", "mark"])
     ap.add_argument("root", nargs="?", type=Path)
     ap.add_argument("--gc", nargs="?", const="", metavar="DIR", help="the gc command (DIR: where to look)")
     ap.add_argument("--dry-run", action="store_true", help="clean-tmp: list, remove nothing")
@@ -458,12 +608,21 @@ def main(argv: list[str] | None = None) -> int:
     cmd = "gc" if a.gc is not None else a.cmd
     if a.gc:
         a.root = Path(a.gc)
-    if cmd in ("start", "stop", "url") and a.root is None:
+    if cmd in ("start", "stop", "stop-idle", "url", "mark") and a.root is None:
         ap.error(f"{cmd} needs a directory")
     if cmd == "start":
         print(ensure(a.root))
     elif cmd == "stop":
         stop(a.root)
+    elif cmd == "stop-idle":
+        if not stop_idle(a.root):
+            print(f"pglocal: {a.root} has clients; left running", file=sys.stderr)
+    elif cmd == "mark":
+        try:
+            print(mark_test_root(a.root))
+        except ValueError as e:
+            print(f"pglocal: {e}", file=sys.stderr)
+            return 1
     elif cmd == "url":
         print(url_for(a.root))
     elif cmd == "gc":

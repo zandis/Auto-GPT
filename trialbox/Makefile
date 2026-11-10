@@ -13,12 +13,13 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status test-console test-console-e2e site site-preview clean
+.PHONY: rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status test-console test-console-e2e site site-preview clean
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §12)
 # Every temporary root of a run derives from TB_TEST_ROOT: one per branch, under TB_SCRATCH (an agent's scratchpad;
 # default /var/tmp/trialbox-<uid>), never a fixed /tmp path that every agent on the machine shares.
-BRANCH_SLUG := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null | sed 's/[^A-Za-z0-9._-]\{1,\}/-/g; s/^[-.]*//; s/[-.]*$$//' | cut -c1-40)
+# (tools/pglocal.py branch_slug: a detached HEAD, as in CI or a review worktree, is detached-<sha>)
+BRANCH_SLUG := $(shell PYTHONPATH=libs:services:. $(PY) -c 'import tools.pglocal as p; print(p.branch_slug())' 2>/dev/null)
 TB_SCRATCH ?= /var/tmp/trialbox-$(shell id -u)
 TB_TEST_ROOT ?= $(TB_SCRATCH)/tb-tests-$(or $(BRANCH_SLUG),detached)
 export TB_TEST_ROOT
@@ -34,7 +35,7 @@ venv:
 	$(UV_SYNC)
 
 venv-check:
-	@$(UV_SYNC) --check >/dev/null 2>&1 || { echo "venv-check: .venv differs from uv.lock (a package installed by hand?): run 'make venv'" >&2; exit 1; }
+	@$(UV_SYNC) --check >/dev/null 2>&1 || { echo "venv-check: .venv differs from uv.lock (a dependency or pyproject.toml changed, or a package was installed by hand): run 'make venv'" >&2; exit 1; }
 
 # the leftovers of earlier runs that nobody uses now (tools/pglocal.py clean_tmp): /tmp/pytest-of-*, the tb-pgtest-*
 # and tb-pglocal-* clusters, the drills' and e2e_simple's /tmp folders, the rehearsal's runs/, the tarballs of all but
@@ -71,14 +72,20 @@ $(FONTS):
 
 fonts: $(FONTS)
 
-# TMPDIR too lives under TB_TEST_ROOT, so tempfile.mkdtemp() in a test never lands in the shared /tmp. Afterwards:
-# TMPDIR is emptied, the branch's shared cluster (pglocal.for_work) stopped, and a green run's basetemp removed.
+# TMPDIR too lives under TB_TEST_ROOT, so tempfile.mkdtemp() in a test never lands in the shared /tmp. The root is
+# checked and marked (tools/pglocal.py mark), and held with flock for the whole run: a second run on the same root
+# stops before it touches anything. Afterwards TMPDIR is emptied, the branch's shared cluster (pglocal.for_work)
+# stopped if no client uses it, and a green run's basetemp removed.
 test: venv-check $(FONTS)
-	@PYTHONPATH=libs:services:. $(PY) -c 'import os, pathlib, tools.pglocal as p; p.check_test_root(pathlib.Path(os.environ["TB_TEST_ROOT"]))'
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	@flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-locked; rc=$$?; \
+	if [ $$rc = 75 ]; then echo "test: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
+
+test-locked:
 	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
 	TMPDIR="$(TB_TEST_ROOT)/tmp" $(PY) -m pytest -q -n $(PYTEST_N) --basetemp "$(TB_TEST_ROOT)/pytest" \
 		-m "not integration and not e2e and not llm and not perf"; rc=$$?; \
-	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop "$(TB_TEST_ROOT)/pglocal"; \
+	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
 	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
 
 # the data-handling scan (D-203, WS-13.10, TB-SITE-03): every tracked file, or SCAN="paths", or SCAN="--log f.log";
@@ -86,7 +93,7 @@ test: venv-check $(FONTS)
 data-scan:
 	$(PY) -m tools.data_scan $(SCAN)
 
-# the CI gate's jobs, in the order of .github/workflows/trialbox-ci.yml (D-205): lint, types, docs, contracts, trace,
+# the CI gate's jobs, in the order of .github/workflows/trialbox-ci.yml (D-206): lint, types, docs, contracts, trace,
 # unit (+ the scan of its log), e2e-simple, goldens, audit (listed, not gating), data-scan, shell, images (if hadolint
 # is installed). Stops at the first failing job.
 CI_LOG ?= $(TB_TEST_ROOT)/unit.log

@@ -88,17 +88,96 @@ def test_archives_and_gzip_are_scanned_member_by_member(patterns: list[ds.Patter
         info.size = len(line)
         tf.addfile(info, io.BytesIO(line))
     hits = ds.scan_bytes(buf.getvalue(), "support-bundle.tgz", patterns, NO_ALLOW)
-    assert [h.where for h in hits] == ["support-bundle.tgz!bundle/logs/app.log"]
+    assert [h.where for h in hits] == ["support-bundle.tgz!gunzip!bundle/logs/app.log"]
     zbuf = io.BytesIO()
     with zipfile.ZipFile(zbuf, "w") as zf:
-        zf.writestr("xl/sharedStrings.xml", "<sst><si><t>病歷號 31415926</t></si></sst>")
-    assert {h.pattern for h in ds.scan_bytes(zbuf.getvalue(), "sheet.xlsx", patterns, NO_ALLOW)} == {"chart_number"}
+        zf.writestr("logs/app.log", line)
+    zipped = zbuf.getvalue()
+    assert {h.pattern for h in ds.scan_bytes(zipped, "bundle.zip", patterns, NO_ALLOW)} == {"tw_phone"}
     assert ds.scan_bytes(gzip.compress(line), "x.ndjson.gz", patterns, NO_ALLOW)
+    # by content, not by name: a zip inside a gzip, renamed
+    assert {h.pattern for h in ds.scan_bytes(gzip.compress(zipped), "notes.txt", patterns, NO_ALLOW)} == {"tw_phone"}
+
+
+def test_a_workbook_is_read_row_by_row_with_its_header(patterns: list[ds.Pattern]) -> None:
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.create_sheet("export")
+    ws.append(["病歷號", "姓名", "生日"])
+    ws.append(["31415926", "黃美玲", "1957-04-21"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    found = {h.pattern for h in ds.scan_bytes(buf.getvalue(), "export.xlsx", patterns, NO_ALLOW)}
+    assert {"chart_number", "cjk_name_dob"} <= found
+
+
+def test_a_document_is_read_with_its_tables(patterns: list[ds.Pattern]) -> None:
+    import docx
+
+    d = docx.Document()
+    d.add_paragraph("轉介單")
+    t = d.add_table(rows=2, cols=2)
+    t.cell(0, 0).text, t.cell(0, 1).text = "MRN", "Phone"
+    t.cell(1, 0).text, t.cell(1, 1).text = "31415926", "0987-654-321"
+    buf = io.BytesIO()
+    d.save(buf)
+    found = {h.pattern for h in ds.scan_bytes(buf.getvalue(), "referral.docx", patterns, NO_ALLOW)}
+    assert {"chart_number", "tw_phone"} <= found
+
+
+def test_a_table_column_header_labels_its_values(patterns: list[ds.Pattern]) -> None:
+    data = b"mrn,sex,phone\n31415926,F,0987-654-321\n"
+    assert {"chart_number", "tw_phone"} <= {h.pattern for h in ds.scan_bytes(data, "x.csv", patterns, NO_ALLOW)}
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    buf = io.BytesIO()
+    pq.write_table(pa.table({"chart_no": ["31415926"], "name": ["黃美玲"], "dob": ["1957-04-21"]}), buf)
+    found = {h.pattern for h in ds.scan_bytes(buf.getvalue(), "extract.parquet", patterns, NO_ALLOW)}
+    assert {"chart_number", "cjk_name_dob"} <= found
+
+
+def test_a_name_and_a_date_on_neighbouring_lines(patterns: list[ds.Pattern]) -> None:
+    text = '{\n  "name": "黃美玲",\n  "gender": "female",\n  "birthDate": "1957-04-21"\n}\n'
+    assert "cjk_name_dob" in {h.pattern for h in ds.scan_text(text, "x.json", patterns, NO_ALLOW)}
+
+
+def test_legacy_encodings_and_utf16_are_read(patterns: list[ds.Pattern]) -> None:
+    line = "病歷號 31415926 聯絡電話 0987-654-321\n"
+    for data in (line.encode("big5"), (line + " ").encode("big5"), line.encode("cp932", errors="replace"),
+                 line.encode("utf-16-le"), line.encode("utf-16")):  # fmt: skip
+        found = {h.pattern for h in ds.scan_bytes(data, "x.txt", patterns, NO_ALLOW)}
+        assert "tw_phone" in found, data[:20]
+
+
+def test_an_unknown_binary_is_unscanned_and_a_known_one_is_skipped(patterns: list[ds.Pattern]) -> None:
+    blob = b"\x00\x01\x02 MRN 31415926 \x00" * 50
+    assert [h.pattern for h in ds.scan_bytes(blob, "dump.bin", patterns, NO_ALLOW)] == ["unscanned"]
+    assert ds.scan_bytes(b"\x89PNG\r\n\x1a\n" + blob, "figure.png", patterns, NO_ALLOW) == []
+    bad_zip = b"PK\x03\x04" + b"\x00" * 40
+    assert [h.pattern for h in ds.scan_bytes(bad_zip, "x.zip", patterns, NO_ALLOW)] == ["unscanned"]
 
 
 def test_a_data_file_outside_its_folders_is_refused() -> None:
     hits = ds.run([ROOT / "services" / "planted_by_test.csv", ROOT / "tests" / "fixtures" / "x" / "ok.csv"], ROOT)
-    assert [(h.where, h.pattern) for h in hits] == [("services/planted_by_test.csv", "data_file")]
+    kinds = {(h.where, h.pattern) for h in hits}
+    assert ("services/planted_by_test.csv", "data_file") in kinds
+    assert not any(p == "data_file" and w.startswith("tests/") for w, p in kinds)
+
+
+def test_the_hook_s_root_relative_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The pre-commit hook runs from the repository root and passes trialbox/... names: the data-file rule and the
+    path allowlist still see paths from trialbox/ (review H5)."""
+    monkeypatch.chdir(ROOT.parent)
+    planted = Path(ROOT.name) / "tests" / "fixtures" / "data_scan" / "positives" / "tw_id.txt"
+    assert ds.main([str(planted)]) == 0  # allowlisted by its path from trialbox/
+    csv_in_services = ROOT / "services" / "zz_hook_test.csv"
+    csv_in_services.write_text("code,label\nA1,x\n", encoding="utf-8")
+    try:
+        assert ds.main([str(Path(ROOT.name) / "services" / "zz_hook_test.csv")]) == 2
+    finally:
+        csv_in_services.unlink()
 
 
 def test_the_allowlist_needs_a_reason(tmp_path: Path) -> None:

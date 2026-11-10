@@ -1,4 +1,4 @@
-**D-205 CI gate v1: one workflow of stable jobs on every pull request and push, the drills nightly, `make ci` the
+**D-206 CI gate v1: one workflow of stable jobs on every pull request and push, the drills nightly, `make ci` the
 same list locally.** Task T-007 of TB-ASSESS-01 (`docs/reviews/2026-11-09-assessment-and-tasks.md` §3.1; WS-01.4
 part, WS-12.2, WS-13.8; URS-ADM-06, RSK-14, TST-CI-01, TST-UNIT-01), branch `wave0-ci`, no pull request yet (the
 integrator opens it). 2026-11-09. On top of D-201 (xdist, the lock, `TB_TEST_DB_URL`) and D-203 (the scan).
@@ -32,6 +32,16 @@ until T-006 lands.
 the `unit` job does: ruff clean, mypy clean (621 files), doclint clean, contracts up to date, traceability clean,
 `make test` 1,791 passed and 10 skipped in 11 min 29 s, the data scan of its log clean, `e2e_simple` PASSED in
 128 s, pip-audit no findings, `make data-scan` clean (1,733 files), shellcheck errors none; 14 min 32 s in all.
+
+*After the adversarial review* (Fable, 2026-11-10). H6: with `paths:` filters on the triggers, a pull request that
+does not touch `trialbox/` never starts the workflow and its required checks wait for ever; the triggers now have no
+filter and a first job, `changes`, compares the pull request with its base and lets the others skip (a skipped job
+satisfies a required check). Pushes to master are no longer cancelled by a newer push. The unit job tests as a role
+with LOGIN CREATEDB only, as `pglocal` does, not as the image's superuser (M15), and its server tuning step finds the
+container by `job.services.postgres.id` and fails if the server does not come back. Not changed: the unit job's
+15-minute limit assumes a four-core runner (`ubuntu-latest` has four cores on public repositories, two on private
+ones: if the first runs are slower, the limit or the runner size is raised); actions and images are pinned by tag,
+not by digest (T-110's supply-chain card); the nightly has no failure notification yet.
 
 *Limits.* actionlint and hadolint were not run here (no binaries may be fetched in this session), and no GitHub run
 exists yet: acceptance (1) green on master, (2) red within five minutes on a lint break, (3) red on a stale golden

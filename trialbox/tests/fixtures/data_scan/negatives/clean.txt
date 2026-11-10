@@ -12,3 +12,7 @@ A123456788 has a wrong check digit
 {"id":"052058027f1cbd2390a","encounter":"34ec0770409479bc8d3e629d"}
 version 1.5.5, build 20261109.1
 ICD-10 E11.65, NHI order 09015C
+<path d="M 178.345375 682.56 L 242.575979 81.668366 L 269.860351 20.418516"/>
+release TB-08-2026-0001 built 20261109
+timings 1000 2000 3000 ms
+周三 2024-01-02 紀錄

@@ -120,23 +120,28 @@ NAME|disable NAME|list-users`.
 ### Build gate: the data-handling scan (D-203)
 
 Real patient data never enters the repository, CI, a log or a support bundle (TB-SITE-03). `make data-scan` scans
-every tracked file for chart numbers after their label, Taiwan IDs and マイナンバー with valid check digits, Japanese
-insurer numbers, Taiwanese and Japanese phone numbers and Chinese, Japanese or katakana names beside a date (patterns
-in `tools/data_scan_patterns.yaml`; full-width digits, zero-width characters and split numbers are normalised
-first), and refuses a data file type (`.csv`, `.xlsx`, `.ndjson`, `.parquet`, `.duckdb`, `.hl7` ...) outside
-`tests/fixtures/`, `eval/`, `catalogue/`, `refdata/` and the reference tables `.gitattributes` names. Exit 2 on a
-hit; the output gives the file, the line, the pattern and two characters at each end, never the value. The same
-scan runs on a log (`python -m tools.data_scan --log make-test.log`), on a support bundle or any archive
-(`python -m tools.data_scan bundle.tgz`, member by member), as the pre-commit hook (`pre-commit install --config
+every tracked file (patterns in `tools/data_scan_patterns.yaml`) for chart numbers after their label or in an HL7 PID
+segment, Taiwan IDs and マイナンバー with valid check digits, Japanese insurer numbers, Taiwanese and Japanese phone
+numbers, and Chinese, Japanese or katakana names beside a date (western, compact, ROC or wareki; on the same line or
+up to three lines apart). Full-width characters, invisible characters, other dashes and numbers split by spaces,
+dots or hyphens are normalised first; tables (`.csv`, `.tsv`, `.xlsx`, `.parquet`) are also read with each value
+labelled by its column header; archives and office files are read member by member, by content as well as by name;
+other encodings (UTF-16, Big5, Shift-JIS, EUC-JP, GB18030) are decoded. A binary of an unknown kind is reported as
+`unscanned`. A data file type (`.csv`, `.xlsx`, `.ndjson`, `.parquet`, `.duckdb`, `.hl7` ...) outside
+`tests/fixtures/`, `eval/`, `catalogue/`, `refdata/` and the reference tables `.gitattributes` names is refused. Exit
+2 on a hit; the output gives the file, the line, the pattern and at most two characters at each end, never the value.
+The same scan runs on a log (`python -m tools.data_scan --log make-test.log`), on a support bundle or any archive
+(`python -m tools.data_scan bundle.tgz`), as the pre-commit hook (`pre-commit install --config
 trialbox/.pre-commit-config.yaml`, from the repository root) and as the `data-scan` CI job. A synthetic value that
 looks real goes into `tools/data_scan_allow.txt` with its reason; a real one is an incident (TB-SITE-03 §1.7).
 
-### Build gate: the CI jobs (D-205)
+### Build gate: the CI jobs (D-206)
 
-`.github/workflows/trialbox-ci.yml` runs on every pull request that touches `trialbox/` and on every push to master;
-`make ci` runs the same list locally. Each job has at most 15 minutes; a newer push cancels the older run. The
-required checks on master (set by the owner in GitHub): `unit`, `lint`, `contracts`, `goldens`, `data-scan`,
-`e2e-simple`.
+`.github/workflows/trialbox-ci.yml` runs on every pull request and every push to master; its first job, `changes`,
+skips the others (reported as skipped, which satisfies a required check) when a pull request touches neither
+`trialbox/` nor a TrialBox workflow. `make ci` runs the same list locally. Each job has at most 15 minutes; a newer
+push to a pull request cancels the older run (pushes to master are never cancelled). The required checks on master
+(set by the owner in GitHub): `unit`, `lint`, `contracts`, `goldens`, `data-scan`, `e2e-simple`.
 
 | Job | What it runs | Gates |
 | --- | --- | --- |
@@ -145,7 +150,7 @@ required checks on master (set by the owner in GitHub): `unit`, `lint`, `contrac
 | `docs` | `tools/doclint.py` | yes |
 | `contracts` | `make contracts-check` (no hand-edited generated file) | yes |
 | `trace` | `tools/gen_traceability.py --check` | yes |
-| `unit` | `make test PYTEST_N=auto` against a `postgres:16` service (`TB_TEST_DB_URL`), then the data scan of its log | yes |
+| `unit` | `make test PYTEST_N=auto` against a `postgres:16` service, as a role with LOGIN CREATEDB only (`TB_TEST_DB_URL`), then the data scan of its log | yes |
 | `e2e-simple` | `make e2e-simple` (D-111) | yes |
 | `goldens` | `make goldens-check` once T-006 adds it; a warning until then | yes |
 | `audit` | pip-audit of `uv.lock` | listed only until T-110 (2026-11-10: no findings on the lock) |
@@ -457,26 +462,34 @@ is the last net; it needs billing permissions this project's service account doe
 For developers and agent sessions that run the suite side by side on one machine; not for a box.
 
 - **One temp root per branch.** `make` sets `TB_TEST_ROOT` to `$TB_SCRATCH/tb-tests-<branch>` (`TB_SCRATCH`: your
-  scratchpad, default `/var/tmp/trialbox-<uid>`) and exports it. Under it: pytest's `--basetemp` (`pytest/`), the
-  test `TMPDIR` (`tmp/`, emptied after each run), one PostgreSQL cluster per xdist worker (`pg-gw0` ...), the shared
-  cluster of `e2e_simple` and the drills (`pglocal/`), `e2e-simple/` and `backup-drill/`. Two runs at once need two
-  distinct roots: a second run on a root whose cluster has a live owner stops with a usage error. `/`, a top-level
-  directory, `/tmp`, `/var/tmp` and the home directory are refused as a root.
+  scratchpad, default `/var/tmp/trialbox-<uid>`; a detached checkout is `detached-<sha>`) and exports it. Under it:
+  pytest's `--basetemp` (`pytest/`), the test `TMPDIR` (`tmp/`, emptied after each run), one PostgreSQL cluster per
+  xdist worker (`pg-gw0` ...), the shared cluster of `e2e_simple` and the drills (`pglocal/`), `e2e-simple/` and
+  `backup-drill/`. `make test` marks the root (`.tb-test-root`) and holds `flock` on it for the whole run: a second
+  run on the same root stops at once and touches nothing. `/`, a top-level directory, `/tmp`, `/var/tmp`, the home
+  directory, a system directory or a folder directly in one, and an existing folder of other files (no marker) are
+  refused as a root; links are resolved first.
 - **One venv per branch, exactly the lock.** `make venv` runs `uv sync --frozen --group test --extra dev`: it
   installs `uv.lock` and removes anything installed by hand; the venv has no pip. `make test` first checks that the
   venv still matches the lock (`venv-check`). To change a dependency, edit `pyproject.toml`, run `uv lock`, commit
   both. The test plugins are pinned in `[dependency-groups] test` (pytest, pytest-timeout, pytest-cov,
-  pytest-xdist); `addopts` blocks `randomly` and the cache provider. Random order is a nightly job, not a default.
+  pytest-xdist); `addopts` blocks `randomly` and the cache provider, and a guard test fails a run in which
+  `-p randomly` brought it back. Random order is a nightly job, not a default (`TB_TEST_RANDOM=1`).
 - **The suite in parallel.** `make test` runs `pytest -n auto` (`PYTEST_N=0` for serial, `PYTEST_N=4` to cap).
-  pytest keeps one basetemp and, of it, only the failed tests' folders.
+  pytest keeps one basetemp and, of it, only the failed tests' folders; a green run removes it.
 - **Disk.** `make check-disk` first (fails under `TB_MIN_FREE_GB`, default 20 GB; reports the branch root against
   its 10 GB budget). `make clean-tmp` (`DRY=1` to list only) removes what earlier runs left and nobody uses now:
-  `/tmp/pytest-of-*` run folders without a live `.lock`, the old `/tmp/tb-pgtest-*` and `/tmp/tb-pglocal-*`
-  clusters without a client, `/tmp/tb-backup-drill*`, `/tmp/tb-drill`, `/tmp/tb-e2e-simple*`, the rehearsal's
-  `runs/`, and the `src.tgz`/`results.tgz` of every `.cache/complete-run` run but the two newest (reports stay). A
-  folder that a running process holds is kept. The rehearsal keeps the newest two evidence folders per case.
+  `/tmp/pytest-of-*` run folders without a live `.lock`, stopped `/tmp/tb-pgtest-*` and `/tmp/tb-pglocal-*`
+  clusters, `/tmp/tb-backup-drill*`, `/tmp/tb-drill`, `/tmp/tb-e2e-simple*`, the rehearsal's `runs/` (not while a
+  rehearsal runs), and the `src.tgz`/`results.tgz` of every `.cache/complete-run` run but the two newest by time
+  (reports stay). It never stops a running server, never follows a link, never touches another user's files or a
+  folder a running process names (working directory, open file, command line, environment). The rehearsal keeps the
+  newest two evidence folders per case.
 - **After a crash.** `python -m tools.pglocal --gc` stops and removes every cluster whose `.owner` process is gone (a
-  `kill -9`, a lost session); a cluster without an owner file is never touched by it.
+  `kill -9`, a lost session); a cluster without an owner file, an unreadable owner file or a folder that is not a
+  cluster is never touched by it. A server is signalled only when the pid file names the postmaster running in that
+  data directory, so a stale pid file signals nobody.
 - **As root** the throwaway server runs as `postgres`, which must reach the cluster: `pglocal` adds the search bit
   (`o+x`, never `o+r`) to a parent that lacks it and says so on stderr; a socket path too long for Unix (about 100
-  characters) moves to a short private folder that `<cluster>/run` links to.
+  characters) moves to a short private folder under the scratch root (under `/tmp` only when that root is long
+  too) that `<cluster>/run` links to.
