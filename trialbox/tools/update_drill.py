@@ -135,13 +135,16 @@ def make_bundle(
     return out
 
 
-def _stage(bundle: Path, pub: Path, stage: Path, updates: Path | None = None, downgrade: str | None = None) -> Any:
+def _stage(bundle: Path, pub: Path, stage: Path, updates: Path | None = None, downgrade: str | None = None,
+           trust_only: Path | None = None) -> Any:  # fmt: skip
     from tools.trialbox.update import Plan
     from tools.verify_update import summary, verify
 
     kw: dict[str, Any] = {}
     if updates is not None:
         kw = {"trust_file": updates / "trust.json", "installed_file": updates / "installed.json"}
+    elif trust_only is not None:  # the box's trust but not its installed state
+        kw = {"trust_file": trust_only / "trust.json"}
     m = verify(bundle, pub, stage, allow_downgrade=downgrade, **kw)
     s = summary(m)
     (stage.parent / f"{stage.name}.summary.json").write_text(json.dumps(s), encoding="utf-8")
@@ -404,7 +407,7 @@ def run(base: Path) -> dict[str, Any]:
         compat_v = False
     except Rejected as exc:
         compat_v = "compatibility table" in str(exc) and "newer than this bundle knows" in str(exc)
-    plan_z = _stage(too_new, pub, base / "stage-z2")  # without the installed state: the update's own preflight
+    plan_z = _stage(too_new, pub, base / "stage-z2", trust_only=updates)  # no installed state: the preflight's
     try:
         up.run(plan_z)
         compat_u = False
