@@ -1,0 +1,17 @@
+# The model pair on the platform's GPU (D-95, D-124, D-211): the judge (llm-service) and the verifier
+# (llm-verifier), both resident, each on its own GPU device. In Kubernetes a device (a whole card or one MIG
+# instance) is given to exactly one container, so the pair needs two: the namespace's quota names two MIG instances
+# (shared-quota) or two cards (interim-cloud). Context length and memory fraction come from ConfigMap
+# trialbox-serving (the overlay's serving.env), which is the serving record measured on those devices; until it is
+# measured the values are `unmeasured` and vLLM refuses to start (never assumed).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - llm.yaml
+  - canary.yaml
+configMapGenerator:
+  - name: trialbox-env  # as install.sh sets them for a pair profile (D-142)
+    behavior: merge
+    literals:
+      - TB_LLM_MODE=vllm
+      - TB_GATEWAY_VERIFIER_MODEL=v-verifier
