@@ -1,21 +1,21 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
+  "head": "1b3051cba638bf14f495ce397dccc72e5dd956f4",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
+  "reason": "D-322: the five shipped rulesets recompiled with family expansion (T-613a)",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
   "seed": 42,
-  "written_with_source": "legacy"
+  "written_with_source": "legacy+omop"
  },
  "sets": {
   "public-en": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "7134b63e6ecaf89eb3b4f9783e70a4b2637372e11db7c56951e58ed457eb344b",
+   "outcomes_sha": "5ce4852860f6c008da35041f760b02ebdf822994f71c7d0468b7d4136d4d2142",
    "patients": 53,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -67,7 +67,7 @@
   "ssmix2-jp": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "9a1668206dc234a09f9c66f19c13dabe80a20f4d7bafc4836059e8d7b7fab341",
+   "outcomes_sha": "e5551b0cd7a2b08977f96556c538b20ac224c76e1d36d9bae228e5ed07cf45c1",
    "patients": 400,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -126,7 +126,7 @@
     "d47858b4b25b344806b8fb1efb63cedd"
    ],
    "candidates": 6,
-   "outcomes_sha": "09e917d7b33ab86ffe0617f494aa75affed95392605d4f4ca55e3161b6bbb385",
+   "outcomes_sha": "3b502d656e8d1dbd3bc8d9bdcb6901d347ee5c0dcd97e1e1367c649ef933f22b",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -185,7 +185,7 @@
     "d591edeb5920715e0bd200fdec855805"
    ],
    "candidates": 6,
-   "outcomes_sha": "745962e829ca5cf86ce062577749a833ba7f796eb8bf3ef1dfa51bd8acd5e012",
+   "outcomes_sha": "22c24c73b0d2fd73f5dbc8fdcd5c1e3814e73a5aa18c4b7f44c1392582686315",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -244,7 +244,7 @@
     "bad926ed536872ce7d0d835f3f854fdd"
    ],
    "candidates": 6,
-   "outcomes_sha": "abfe36b6ee4063acbd914b6187e233f62179f85d17435739bbb4534ae9c8b77b",
+   "outcomes_sha": "b1118dd40ba611ff436b47158b166f1162b746be9dbdb067d81048c547638f5b",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",

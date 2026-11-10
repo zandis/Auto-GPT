@@ -1,13 +1,13 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "5b31ff48d3df539a42b2d482bc405f74e0d2a3d4",
+  "head": "1b3051cba638bf14f495ce397dccc72e5dd956f4",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: adds the goldens of the new AD-MAB and NEUR-COH rulesets (T-503); no existing value moves",
+  "reason": "D-322: the five shipped rulesets recompiled with family expansion (T-613a)",
   "ref_date": "2026-11-01",
   "seed": 42,
-  "written_with_source": "legacy"
+  "written_with_source": "legacy+omop"
  },
  "rulesets": {
   "AD-MAB": {
@@ -835,7 +835,7 @@
       },
       "ONC-OSI-INC-02": {
        "coded": 109,
-       "confirmed": 0,
+       "confirmed": 7,
        "proposed": 20
       },
       "ONC-OSI-INC-03": {
@@ -885,7 +885,7 @@
       },
       "ONC-OSI-INC-02": {
        "coded": 115,
-       "confirmed": 1,
+       "confirmed": 8,
        "proposed": 19
       },
       "ONC-OSI-INC-03": {
@@ -1037,7 +1037,7 @@
        "proposed": 20
       },
       "RA-BIO-INC-05": {
-       "coded": 85,
+       "coded": 83,
        "confirmed": 1,
        "proposed": 20
       },
@@ -1180,7 +1180,7 @@
        "proposed": 19
       },
       "RA-COH-INC-03": {
-       "coded": 243,
+       "coded": 238,
        "confirmed": 2,
        "proposed": 19
       },
@@ -1215,7 +1215,7 @@
        "proposed": 19
       },
       "RA-COH-INC-03": {
-       "coded": 330,
+       "coded": 329,
        "confirmed": 2,
        "proposed": 19
       },

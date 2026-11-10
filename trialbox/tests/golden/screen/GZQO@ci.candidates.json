@@ -1,21 +1,21 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
+  "head": "1b3051cba638bf14f495ce397dccc72e5dd956f4",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
+  "reason": "D-322: the five shipped rulesets recompiled with family expansion (T-613a)",
   "ref_date": "2026-11-01",
   "ruleset": "GZQO",
   "ruleset_version": "1.0.0",
   "seed": 42,
-  "written_with_source": "legacy"
+  "written_with_source": "legacy+omop"
  },
  "sets": {
   "public-en": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "18b7589c50bbe31065ad2e73eac7e89eeae4282cce734d2d3b19741a201abd97",
+   "outcomes_sha": "0ea3786583f35fef1e1525d95e2c2eae8ef84d62d1ada6a18b475689c6b820db",
    "patients": 53,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -144,7 +144,7 @@
     "ff6a3704b6b513fb1faefcbb096324c7"
    ],
    "candidates": 10,
-   "outcomes_sha": "e1bfb6a129f3960f7da546bef8c65595a765af3559531be89bb5fd2da0a7edec",
+   "outcomes_sha": "2c1a7bec55b6a77af2ce3d9c165630c73cbdc523fc6137dfeb4db21ac5a741e2",
    "patients": 400,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -262,7 +262,6 @@
   "synthetic-jp-a": {
    "candidate_pids": [
     "0097f5b92ae78f97f008a2d00701511c",
-    "01f8ed9e9af72fa415eaed54e3ac1d8c",
     "02357c34aa18d4082deb3bffddbaa043",
     "034ca5970393eb79513ec5eba57470d2",
     "04ba5725301580861f17d54bb3f5aa04",
@@ -303,8 +302,8 @@
     "f149202e66a1a9f14d6e1b00393bb6bd",
     "ffd49b25f1d323069cb65e0fdab23958"
    ],
-   "candidates": 41,
-   "outcomes_sha": "dce019de1b8221f6df53f695f5ecfb1fe2d4c4f7336923d4e2b145f72141ccc6",
+   "candidates": 40,
+   "outcomes_sha": "270b038f29bfdba5f0c09a1570803fa376e525d5b8db6d5ec4903d55642ef2d5",
    "patients": 2500,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -358,9 +357,9 @@
      "unknown": 1542
     },
     "GZQO-EXC-07": {
-     "met": 165,
-     "not_met": 2335,
-     "unknown": 0
+     "met": 175,
+     "not_met": 2305,
+     "unknown": 20
     },
     "GZQO-EXC-08": {
      "met": 36,
@@ -472,7 +471,7 @@
     "ffd49b25f1d323069cb65e0fdab23958"
    ],
    "candidates": 49,
-   "outcomes_sha": "abfe9daeff5f47355fdaeeb1b2cdae6674739c5718edbe9037c1fbe97036c74e",
+   "outcomes_sha": "c799592ebf99225f7bfba273e07a01521ae02742539363db7d14e78f254dabf3",
    "patients": 2500,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -527,8 +526,8 @@
     },
     "GZQO-EXC-07": {
      "met": 145,
-     "not_met": 2355,
-     "unknown": 0
+     "not_met": 2345,
+     "unknown": 10
     },
     "GZQO-EXC-08": {
      "met": 31,
@@ -647,7 +646,7 @@
     "feffa436d392d52a2910d4f960540432"
    ],
    "candidates": 56,
-   "outcomes_sha": "1e2e8ddfdfa9737cbc13479e2708fcfd9672b73124bab197c9628b2eadd1c88f",
+   "outcomes_sha": "5f52260d520eb9ace3b2f3679408235cc8ec10aa52cd74045c8e181602d24545",
    "patients": 2500,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -701,9 +700,9 @@
      "unknown": 1530
     },
     "GZQO-EXC-07": {
-     "met": 174,
-     "not_met": 2326,
-     "unknown": 0
+     "met": 183,
+     "not_met": 2299,
+     "unknown": 18
     },
     "GZQO-EXC-08": {
      "met": 26,

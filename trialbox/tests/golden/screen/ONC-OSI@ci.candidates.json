@@ -1,15 +1,15 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
+  "head": "1b3051cba638bf14f495ce397dccc72e5dd956f4",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
+  "reason": "D-322: the five shipped rulesets recompiled with family expansion (T-613a)",
   "ref_date": "2026-11-01",
   "ruleset": "ONC-OSI",
   "ruleset_version": "1.0.0",
   "seed": 42,
-  "written_with_source": "legacy"
+  "written_with_source": "legacy+omop"
  },
  "sets": {
   "public-en": {
@@ -109,7 +109,36 @@
   },
   "synthetic-jp-a": {
    "candidate_pids": [
+    "00025487fb712f497c197253b8a5f47c",
+    "006665b26a27526b32464056dacd4c7b",
+    "0077a8df8d91809f80b28fd8b5fc1036",
+    "0097f5b92ae78f97f008a2d00701511c",
+    "00be8f88ea23a7e1059c188926adaf16",
+    "00c81ecaf5f294ca737a44082eacc239",
+    "00f25aef0c42d1c0a5299cefad5c615b",
+    "0130ca913becbe0411e0107c95d24a2f",
+    "0144d4e4f9d6040d5eef837d877d2197",
+    "01457fc1bcbff663927d9b925b7a8dea",
+    "0165c00d8abc4418550705c7c9bc9a33",
+    "016cab1bb76e6ff12130614a71691527",
+    "016ff0b742bdb8155e3372b9f8dc1927",
+    "0198fbe5b46d1a3a05a075a82b758147",
+    "019c97f1056682ea5fb3c51727d415d9",
+    "01b2e67bc16b999d6101a72e240421e0",
+    "01e3105963bc064802ab608b2a5c600d",
+    "01f8ed9e9af72fa415eaed54e3ac1d8c",
+    "020b5c6c37bda7ce9709ffdd1af8fdfd",
     "02144eac6f1251e32c1a4758240bc664",
+    "02357c34aa18d4082deb3bffddbaa043",
+    "02418db6ff90cc2f40ef11650f3c4cd9",
+    "02426fe2bddc44d9acae7aa8b198a93d",
+    "02840259f06776b77af0db6ea22ae6ce",
+    "02bba53653019476be4675c15ca4476a",
+    "02f3faa9d4bf28130ab2b6444ea2a8bc",
+    "03251a822aeb8beeb37e9a536217e2cd",
+    "034ca5970393eb79513ec5eba57470d2",
+    "03599074c6811fe27a86d0013f8f9853",
+    "0359f8e51457c25a1d10afd0afb61065",
     "131cbb1eb741c2053fc3a9917a1ecc1e",
     "13546d74755143ea55d7d670a91ef2fa",
     "136299d1bc9fa2a5b453de28c112c0a4",
@@ -162,8 +191,8 @@
     "fda53a4b15011538ba3edadaf55990aa",
     "ff2d14c2149040c52d6c9654709d8405"
    ],
-   "candidates": 52,
-   "outcomes_sha": "594e439a806e949b278ee81f91faf298468a6f9a2338e8e05b4040a4139d2075",
+   "candidates": 81,
+   "outcomes_sha": "3e78ac9bbf5638bb121036d9d86cdd2a78a773938fed0777d8e21275d9575418",
    "patients": 2500,
    "structured_criteria": [
     "ONC-OSI-INC-01",
@@ -193,9 +222,9 @@
      "unknown": 24
     },
     "ONC-OSI-INC-02": {
-     "met": 110,
-     "not_met": 2390,
-     "unknown": 0
+     "met": 120,
+     "not_met": 2360,
+     "unknown": 20
     },
     "ONC-OSI-INC-03": {
      "met": 71,
@@ -300,6 +329,34 @@
   },
   "synthetic-tw-a": {
    "candidate_pids": [
+    "003c6eb53633c9d7b6e712fbd73674dd",
+    "005b186aa57c9edd14033c6ec35c7bab",
+    "007ac66babce020654a3f9d4736c04ba",
+    "009411d764c11018896cff70cf59c16b",
+    "01079ef2a03106fd159eca5d67ef8631",
+    "01816d5757a6f99c6150354c0f685ca2",
+    "018179fff0931ef22cde8c9c5c43bb68",
+    "01b3474e47d6e14cbbd232704158e556",
+    "01c17634d04edf22df7e3688a0aca49b",
+    "01c37a5e49d4c41550d0ecc70ce6aaa3",
+    "01f17a13012f637d8e45049163b4860d",
+    "020754b17a2ff79e9d5c0f802110ef5a",
+    "021619eab207bfdca9547a2125e8eb8f",
+    "02580ff869783b38b21223c8c50119bb",
+    "025ad27288549f41b8179aa23751842a",
+    "028780d6f3c025adc2ed69e31edcf56f",
+    "02e920fdeb8a8795e236cc45efb17c8d",
+    "02ea79ca8c16ce3ae0f97319b9d64759",
+    "02fcc7b9d1b5df79dd2e234b809ebe35",
+    "030ec7c934b13bef4baf4b858b104769",
+    "030f5a291edfe2c14c0e1c9dbe664242",
+    "031c33dcb959b335a60b6c7f7e6c1cca",
+    "03598f99a7007b75ed8869da14716fdb",
+    "0370bfd5049e051c2ed434989f9465d1",
+    "038f1a20358bcebe4f82ca5738968688",
+    "03c9241b388fac4cc42659dca3bfe4b9",
+    "03ddf8851d1b299b1b5413b581b5aafe",
+    "03ff05f49a7ea2032bed2a64b7b2c697",
     "04727145b2479633c7d4986f6677e5ea",
     "065275361c18da9cf3ddf06cd28685ea",
     "08bf58c2485c45307b139320b831ed44",
@@ -348,8 +405,8 @@
     "fc0fe10dff13326158d67b843594109a",
     "fc821195dcba2817106bfc17b5aa504a"
    ],
-   "candidates": 47,
-   "outcomes_sha": "0c84e1721c6b4ff1d740b5499c9e960dd33658574fc3686c48c5867f648f6848",
+   "candidates": 75,
+   "outcomes_sha": "dde9c0315bf7f6f5a7c1ae88171e469e3b0d27d546dfff9a2aabc2d334f52e32",
    "patients": 2500,
    "structured_criteria": [
     "ONC-OSI-INC-01",
@@ -379,9 +436,9 @@
      "unknown": 24
     },
     "ONC-OSI-INC-02": {
-     "met": 117,
-     "not_met": 2383,
-     "unknown": 0
+     "met": 126,
+     "not_met": 2355,
+     "unknown": 19
     },
     "ONC-OSI-INC-03": {
      "met": 74,
