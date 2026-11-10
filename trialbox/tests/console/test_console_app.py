@@ -1600,9 +1600,10 @@ def test_case_request_row_shows_the_chart_number_to_the_study_team_only(box: dic
 def test_identifier_views_are_rate_limited(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     """D-143: a view of an identifier counts against the reveal cap; over it the line is masked and refused."""
     monkeypatch.setenv("TB_REVEAL_MAX_PER_HOUR", "1")
+    # a row written before D-272: the page masks it the same way
     job = _done_case(box["backend"], {"mrn": "70000054", "lang": "en"})
     box["audit"].append("console.request", job_id=job.job_id, ruleset="GZQO", actor="console:admin",
-                        detail={"line": "CASE GZQO mrn=70000054 lang=en"})  # fmt: skip (a row from before D-272)
+                        detail={"line": "CASE GZQO mrn=70000054 lang=en"})  # fmt: skip
     c, _ = login(box["app"])
     assert "mrn=70000054" in c.get(f"/pilot/jobs/{job.job_id}").text
     assert "mrn=70000054" not in c.get(f"/pilot/jobs/{job.job_id}").text
@@ -1617,7 +1618,7 @@ def test_request_subjects_are_masked() -> None:
     # D-272 (CR-016): the page mask covers every key the job line hides, and the stored ``options`` form
     assert mask_ids("CASE GZQO dob=1900-01-01 patient=TEST-ZZ") == "CASE GZQO dob=••• patient=•••"
     assert mask_ids(str({"mrn": "TEST-0000001", "lang": "ja"})) == "{'mrn': '•••', 'lang': 'ja'}"
-    assert mask_ids('{"chart_no": 99000001}') == "{\"chart_no\": '•••'}"
+    assert mask_ids('{"chart_no": "TEST-0000003"}') == "{\"chart_no\": '•••'}"
 
 
 def test_the_web_request_line_is_audited_masked(box: dict[str, Any]) -> None:
