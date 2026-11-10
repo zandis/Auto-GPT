@@ -170,6 +170,19 @@ def test_notices_received(b4: dict[str, Any]) -> None:
     assert "not for the PI" not in page
 
 
+def test_notices_received_in_site_time(b4: dict[str, Any]) -> None:
+    """T-513 (UX-020): the list showed the stored UTC time ("2026-11-01 22:00" for a 07:00 mail in Tokyo) while its
+    footer says times are site time."""
+    from console.timefmt import local_time, site_zone
+
+    b4["h"].store.log_notice("N1", "pi", "2026-11-02", "2026-11-01T22:00:00+00:00", "GZQO: 2 patients before clinic")
+    c, _ = login(b4["app"], "pi", PW)
+    page = c.get("/notices/received").text
+    shown = local_time("2026-11-01T22:00:00+00:00", site_zone(b4["h"].bk))
+    assert f'data-testid="received-at">{shown}<' in page
+    assert shown != "2026-11-01 22:00" and "2026-11-01 22:00" not in page
+
+
 # ---------------------------------------------------------------------------------------------- S13 / S26 / S24
 def _failed_job(bk: Any) -> Job:
     f = JobFile(
