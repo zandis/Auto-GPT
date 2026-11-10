@@ -65,6 +65,6 @@ All patients, names, doctors and numbers on the site are synthetic. Do not type 
 After session B: the ten-item usability questionnaire and the five open questions ([../forms.md](../forms.md)), then
 the debrief with the facilitator.
 
-Not in this script, and said to the tester: the feedback button on every page (card T-510, not on master yet; use the
-session record meanwhile), the phone layout (try it on your own phone if you wish and tell us), the morning notices,
+Not in this script, and said to the tester: "Feedback on this page" at the foot of every page (card T-510: a flag, a
+rating and a comment; use it at any time, as well as the session record), the phone layout (try it on your own phone if you wish and tell us), the morning notices,
 the consent step on the participant page (on the Japan site), and real model reading (step 2 of the PoC).

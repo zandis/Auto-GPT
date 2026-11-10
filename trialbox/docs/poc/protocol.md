@@ -95,8 +95,9 @@ authority.
 
 ## 7. Feedback and findings
 
-In the session: the session record and the finding forms ([forms.md](forms.md)). In the product: the feedback button
-on every page once card T-510 is merged; until then the forms carry everything. After session B: the ten-item
+In the session: the session record and the finding forms ([forms.md](forms.md)). In the product: "Feedback on this page"
+on every page (T-510, D-331): a flag, a rating and a comment, stored with the page, language, role and time; the
+owner exports them as CSV (`/feedback/export.csv`) for the exit review. After session B: the ten-item
 usability questionnaire and five open questions. Each finding carries the tester's rating and, at the exit review,
 the triage severity and outcome ([severity.md](severity.md)). Findings carry tester codes, never names.
 

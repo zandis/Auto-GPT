@@ -52,6 +52,8 @@ fine and tells us something. Between sessions you may use the demo on your own.
 - A wrong word in Japanese or Chinese is a finding too.
 - Refer to a patient only by the pseudonym on the screen (for example "patient 92ab1972").
 - Your feedback is filed under a code, not your name.
+- At any time, alone or in a session: "Feedback on this page" at the foot of every page (a flag, a rating, a
+  comment). It records the page for you; no patient details in the comment.
 
 ## If something goes wrong
 

@@ -49,7 +49,10 @@ the repository, an issue, a chat or this checklist.
 - [ ] Run the stored-input scan against the baseline:
       `python -m console.demo_guard scan --db <data folders> --baseline <baseline file>`
       Exit 0 is clean. Exit 2 is a new hit (printed masked, with its place): treat it as real data entered (purge,
-      record without the content, tell the tester). Exit 1 means `TB_DB_URL` was not set: set it and run again.
+      record without the content, tell the tester). Exit 1 means `TB_DB_URL` was not set, or a column
+      the scan must read (the feedback comment, T-510) was not reached: fix and run again.
+- [ ] Export the in-product feedback (`/feedback/export.csv` as an admin, or `python -m console.feedback export`)
+      and add each entry to the finding forms.
 - [ ] Fill the finding forms from the session record; one finding per form.
 - [ ] Rate each finding with the tester's rating if the tester gave one ([severity.md](severity.md)).
 - [ ] Anything rated "would cause a wrong patient decision": tell the integrator the same day.
