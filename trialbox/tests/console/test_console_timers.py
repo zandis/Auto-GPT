@@ -46,6 +46,9 @@ class _Helpers:
 
         return datetime(2026, 11, 9, 7, 0)
 
+    def today(self) -> date:
+        return date(2026, 11, 9)  # the site's date (Helpers.today, D-270)
+
 
 def test_jobs_are_the_button_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     from console import notify, rc_read

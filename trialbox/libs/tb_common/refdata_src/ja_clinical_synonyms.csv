@@ -1,0 +1,71 @@
+term,lang,canonical,canonical_lang,domain,review,note
+痛風性関節炎,ja,gouty arthritis,en,condition,,
+関節リウマチ,ja,rheumatoid arthritis,en,condition,,
+慢性関節リウマチ,ja,rheumatoid arthritis,en,condition,,former name
+RA,en,rheumatoid arthritis,en,condition,yes,abbreviation in JP notes; ambiguous: also refractory anaemia
+2型糖尿病,ja,type 2 diabetes mellitus,en,condition,,
+II型糖尿病,ja,type 2 diabetes mellitus,en,condition,,Roman numeral form
+1型糖尿病,ja,type 1 diabetes mellitus,en,condition,,
+I型糖尿病,ja,type 1 diabetes mellitus,en,condition,,Roman numeral form
+膵炎,ja,pancreatitis,en,condition,,
+甲状腺髄様癌,ja,medullary thyroid carcinoma,en,condition,,
+甲状腺髄様がん,ja,medullary thyroid carcinoma,en,condition,,kana form
+多発性内分泌腫瘍症2型,ja,multiple endocrine neoplasia type 2,en,condition,,
+MEN2,en,multiple endocrine neoplasia type 2,en,condition,,abbreviation
+悪性腫瘍,ja,malignancy,en,condition,,
+悪性新生物,ja,malignancy,en,condition,,
+心筋梗塞,ja,myocardial infarction,en,condition,,
+AMI,en,myocardial infarction,en,condition,yes,abbreviation; acute MI only: review
+脳卒中,ja,stroke,en,condition,,
+活動性結核,ja,active tuberculosis,en,condition,,
+重症感染症,ja,serious infection,en,condition,,
+心不全,ja,heart failure,en,condition,,
+B型慢性肝炎,ja,chronic hepatitis b,en,condition,,word order used in Japan
+慢性B型肝炎ウイルス感染症,ja,chronic hepatitis b,en,condition,,
+非小細胞肺がん,ja,non-small cell lung cancer,en,condition,,kana form
+コルヒチン,ja,colchicine,en,medication,,
+アロプリノール,ja,allopurinol,en,medication,,
+フェブキソスタット,ja,febuxostat,en,medication,,
+ベンズブロマロン,ja,benzbromarone,en,medication,,
+尿酸降下薬,ja,urate-lowering therapy,en,medication,,
+尿酸降下療法,ja,urate-lowering therapy,en,medication,,
+メトトレキサート,ja,methotrexate,en,medication,,
+MTX,en,methotrexate,en,medication,yes,abbreviation; short form: review
+メトホルミン,ja,metformin,en,medication,,
+ヒドロキシクロロキン,ja,hydroxychloroquine,en,medication,,
+サラゾスルファピリジン,ja,sulfasalazine,en,medication,,JP name of sulfasalazine
+レフルノミド,ja,leflunomide,en,medication,,
+プレドニゾロン,ja,prednisolone,en,medication,,
+PSL,en,prednisolone,en,medication,yes,JP note abbreviation; short form: review
+アダリムマブ,ja,adalimumab,en,medication,,
+エタネルセプト,ja,etanercept,en,medication,,
+トシリズマブ,ja,tocilizumab,en,medication,,
+イソニアジド,ja,isoniazid,en,medication,,
+INH,en,isoniazid,en,medication,,abbreviation
+エンテカビル,ja,entecavir,en,medication,,
+オシメルチニブ,ja,osimertinib,en,medication,,
+セマグルチド,ja,semaglutide,en,medication,,
+リラグルチド,ja,liraglutide,en,medication,,
+デュラグルチド,ja,dulaglutide,en,medication,,
+チルゼパチド,ja,tirzepatide,en,medication,,
+アムロジピン,ja,amlodipine,en,medication,,
+アトルバスタチン,ja,atorvastatin,en,medication,,
+GLP-1受容体作動薬,ja,glp-1 receptor agonist,en,medication,,
+EGFRチロシンキナーゼ阻害薬,ja,egfr tyrosine kinase inhibitor,en,medication,,
+EGFR-TKI,en,egfr tyrosine kinase inhibitor,en,medication,,abbreviation
+血清尿酸値,ja,serum urate,en,observation,,
+尿酸値,ja,serum urate,en,observation,,same concept as 血清尿酸値
+ヘモグロビンA1c,ja,hba1c,en,observation,,
+GPT,en,alt,en,observation,yes,JP lab usage: GPT = ALT; short form: review
+収縮期血圧,ja,systolic blood pressure,en,observation,,
+妊娠検査,ja,pregnancy test,en,observation,,
+HBs抗原,ja,hbsag,en,observation,,
+HBc抗体,ja,anti-hbc,en,observation,,
+インターフェロンγ遊離試験,ja,igra,en,observation,,
+EGFR遺伝子変異,ja,egfr mutation,en,observation,,
+減量手術,ja,bariatric surgery,en,procedure,,
+肥満外科手術,ja,bariatric surgery,en,procedure,,
+減量・代謝改善手術,ja,bariatric surgery,en,procedure,,
+胸部X線,ja,chest x-ray,en,report,,
+胸部レントゲン,ja,chest x-ray,en,report,,colloquial
+胸部単純X線写真,ja,chest x-ray,en,report,,

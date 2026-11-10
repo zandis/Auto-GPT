@@ -782,6 +782,30 @@ def verify(file: Path, key: Path) -> dict[str, Any]:
             "databases": {k: sum(r[0] for r in v["rows"].values()) for k, v in m["databases"].items()}}  # fmt: skip
 
 
+def check(file: Path) -> dict[str, Any]:
+    """Check a backup without the private key (D-178, the console's "Check"): the header reads, every chunk is whole,
+    the last chunk is marked and nothing follows it. It finds a cut, truncated or half-written file; only the key
+    (``backup-verify``) proves the content. Returns the header's facts, the chunk count, the size and the sha256."""
+    n, last = 0, False
+    with file.open("rb") as fh:
+        header, _ = read_header(fh)
+        while True:
+            head = fh.read(5)
+            if not head:
+                break
+            if len(head) < 5 or last:
+                raise BackupError("backup is damaged (data after the last chunk or a cut chunk header)")
+            size, last = struct.unpack(">I?", head)
+            if size > CHUNK + 64 or len(fh.read(size)) != size:
+                raise BackupError("backup is cut short")
+            n += 1
+    if not last:
+        raise BackupError("backup is cut short (no final chunk)")
+    return {"ok": True, "site": header.get("site", ""), "created_at": header.get("created_at", ""),
+            "recipient": header.get("recipient", ""), "compression": header.get("compression", "gzip"),
+            "chunks": n, "bytes": file.stat().st_size, "sha256": _sha_file(file)}  # fmt: skip
+
+
 def restore(
     file: Path,
     key: Path,

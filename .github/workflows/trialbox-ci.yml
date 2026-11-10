@@ -1,0 +1,284 @@
+# TrialBox CI gate v1 (D-206, T-007, WS-01.4, WS-12.2, WS-13.8): every pull request that touches trialbox/ and every
+# push to master runs these jobs; `make ci` runs the same list locally. Job names are stable: branch protection on
+# master requires unit, lint, contracts, goldens, data-scan and e2e-simple (the owner sets the list; RUNBOOK §3).
+# The nightly drills are in trialbox-e2e.yml; the supply-chain gates (lock-check, allow-list, pip-audit, licences) are
+# trialbox-supply-chain.yml (D-185, D-186) and are not repeated here. A job marked continue-on-error carries the date
+# and the reason.
+name: TrialBox CI
+
+# No `paths:` filter on the triggers: a required check whose workflow never starts blocks a pull request for ever.
+# The `changes` job decides instead; a job it skips reports "skipped", which satisfies a required check.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trialbox-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}  # every push to master keeps its run
+
+defaults:
+  run:
+    shell: bash
+    working-directory: trialbox
+
+env:
+  TB_SCRATCH: ${{ github.workspace }}/../tb-scratch  # pglocal compares resolved paths, so the .. is harmless
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      trialbox: ${{ steps.diff.outputs.trialbox }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: diff
+        working-directory: .
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then echo "trialbox=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
+              | grep -qE '^(trialbox/|\.github/workflows/trialbox-)'; then
+            echo "trialbox=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "trialbox=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  lint:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - name: Python environment (uv.lock, exactly)
+        run: make venv
+      - name: ruff
+        run: .venv/bin/python -m ruff check . && .venv/bin/python -m ruff format --check .
+      - name: actionlint (the workflows themselves)
+        working-directory: .
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color .github/workflows/trialbox-*.yml
+
+  types:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: mypy (strict)
+        run: .venv/bin/python -m mypy libs services tools tests
+
+  docs:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: doclint (the eight documents, links, paths)
+        run: .venv/bin/python tools/doclint.py
+      - name: decision numbers (one text per number, every file in the registry; T-002, D-306)
+        run: .venv/bin/python -m tools.decisions_index --check
+
+  contracts:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: generated contracts are what the schemas generate (no hand edit)
+        run: make contracts-check
+
+  trace:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: the traceability CSV is the plan's (tools/gen_traceability.py --check)
+        run: .venv/bin/python tools/gen_traceability.py --check
+
+  unit:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 25  # each xdist worker starts its own throwaway cluster
+    # no service container: the tests start throwaway clusters from the runner's own PostgreSQL (tools/pglocal.py),
+    # so pg_dump/pg_restore and the server are one version, as on a developer machine (a postgres:16 service with the
+    # runner's newer client tools failed the backup tests on transaction_timeout)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+      - run: make venv
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: JVM dependencies and fonts
+        run: make jvm-deps fonts
+      - name: PostgreSQL server binaries
+        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+      - name: pytest -n auto
+        env:
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data  # the services' default /data is not writable for the runner user
+        run: make test PYTEST_N=auto 2>&1 | tee "$RUNNER_TEMP/unit.log"
+      # D-203: the test log carries no identifier either
+      - name: Data-handling scan of the test log
+        run: make data-scan SCAN="--log $RUNNER_TEMP/unit.log"
+
+  e2e-simple:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+      - run: make venv
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: JVM dependencies and fonts
+        run: make jvm-deps fonts
+      - name: PostgreSQL server binaries
+        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+      - name: e2e_simple (the build gate of D-111)
+        run: make e2e-simple E2E_DIR="$RUNNER_TEMP/e2e"
+      - name: Keep the check list
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: e2e-simple
+          path: ${{ runner.temp }}/e2e.json
+          if-no-files-found: ignore
+
+  goldens:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      # both lake sources write to PostgreSQL; tools/pglocal.py starts a throwaway cluster from the server binaries
+      - name: PostgreSQL server binaries
+        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+      # T-006 (D-205): the committed goldens must not move unless the same pull request rewrites them with
+      # `make goldens REASON="D-nnn: ..."`
+      - name: Goldens identical, or regenerated in the same commit
+        run: make goldens-check
+
+  data-scan:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: Data-handling scan (D-203, WS-13.10, TB-SITE-03)
+        run: make data-scan
+
+  shell:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # gates on errors; the warnings are listed. 2026-11-09 (D-206): ten warnings in deploy/*.sh are open findings
+      - name: shellcheck
+        run: |
+          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
+          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning --format=gcc || true
+
+  images:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 15
+    # D-206: gating since 2026-11-10; the first findings were triaged as inline ignores with a reason in each Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: hadolint
+        run: |
+          rc=0
+          for f in deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile; do
+            echo "== $f"
+            docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$f" || rc=1
+          done
+          exit "$rc"

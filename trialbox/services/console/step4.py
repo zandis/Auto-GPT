@@ -230,7 +230,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def admin_ctx(sess: Session) -> dict[str, Any]:
         users = h.users.users()
-        today = h.clock().date()
+        today = h.today()  # the site's date (D-270)
         soon = [u for u in users if u.expires and u.expires <= (today + timedelta(days=30)).isoformat()]
         jobs = bk.list_jobs(limit=200)
         since = (h.clock() - timedelta(hours=24)).isoformat()
@@ -309,7 +309,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         if tab == "health":
             from tb_common.refdata import status_or_none
 
-            ctx.update(admin_ctx(sess), health=bk.health(), models=bk.models(), refdata=status_or_none())
+            ctx.update(
+                admin_ctx(sess),
+                health=bk.health(),
+                models=bk.models(),
+                refdata=status_or_none(),
+                ops=h.ops_summary() if h.ops_summary is not None else None,
+            )  # D-178: the Operations tile
         elif tab == "jobs":
             jobs = bk.list_jobs(limit=300)
             types = sorted({j.type for j in jobs})

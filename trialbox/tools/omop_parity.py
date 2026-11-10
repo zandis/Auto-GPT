@@ -422,9 +422,25 @@ def omop_summary(url: str, lake_dir: Path) -> dict[str, Any]:
         db.close()
 
 
+def private_url(url: str, work: Path) -> tuple[str, str]:
+    """``(url, prefix)`` for this run's own schemas: the URL's prefix (if any) plus a prefix from ``work``'s path.
+
+    ``TB_DB_URL`` from a box or CI may carry no prefix at all; the run must still never write to, or drop, schemas
+    it did not make (review H2/H4)."""
+    import hashlib
+
+    from tb_common.db import split_url
+
+    dsn, given = split_url(url)
+    prefix = f"{given}par{hashlib.sha1(str(work.resolve()).encode()).hexdigest()[:8]}_"
+    sep = "&" if "?" in dsn else "?"
+    return f"{dsn}{sep}tb_prefix={prefix}", prefix
+
+
 def run(base: Path, sets: tuple[str, ...] = SETS) -> dict[str, Any]:
     from tools import pglocal
 
+    had_url = "TB_DB_URL" in os.environ
     base.mkdir(parents=True, exist_ok=True)
     report: dict[str, Any] = {"rulesets": [d.name for d in RULESETS], "sets": {}}
     builders = {"synthetic": synthetic, "public": public, "mimic": mimic}
@@ -432,13 +448,13 @@ def run(base: Path, sets: tuple[str, ...] = SETS) -> dict[str, Any]:
         work = base / name
         shutil.rmtree(work, ignore_errors=True)
         work.mkdir(parents=True)
-        url = pglocal.for_work(work)
+        url, prefix = private_url(pglocal.for_work(work), work)
         t0 = time.perf_counter()
         dsets = builders[name](work)
         if not dsets:
             report["sets"][name] = {"skipped": "data not fetched"}
         for i, ds in enumerate(dsets):
-            omop_url = f"{url}&tb_prefix=omop{i}_"
+            omop_url = f"{url}omop{i}_"  # url ends in its tb_prefix value: one more private level per data set
             w = work / ds.name
             lakes = build_lakes(ds, w, omop_url)
             entry: dict[str, Any] = {
@@ -448,6 +464,8 @@ def run(base: Path, sets: tuple[str, ...] = SETS) -> dict[str, Any]:
                 "screening": compare_screening(lakes, ds),
                 "omop": omop_summary(omop_url, lakes["omop"]),
             }
+            if not entry["omop"]["rows"]["person"]:  # an empty OMOP store would compare "identical" to nothing
+                raise RuntimeError(f"omop parity: the OMOP store for {ds.name} has no persons")
             entry["identical"] = all(t["identical"] for t in entry["tables"].values()) and all(
                 r["feas_identical"] and r["patients_different"] == 0 for r in entry["screening"].values()
             )
@@ -456,10 +474,9 @@ def run(base: Path, sets: tuple[str, ...] = SETS) -> dict[str, Any]:
         report.setdefault("seconds", {})[name] = round(time.perf_counter() - t0, 1)
         shutil.rmtree(work, ignore_errors=True)
         with contextlib.suppress(Exception):
-            from tb_common.db import split_url
-
-            pglocal.drop_prefix(url, split_url(url)[1])
-            os.environ.pop("TB_DB_URL", None)
+            pglocal.drop_prefix(url, prefix)  # only this run's schemas: prefix is never empty
+        if not had_url:
+            os.environ.pop("TB_DB_URL", None)  # set by for_work for this run; a caller's own URL stays
     report["identical"] = all(v.get("identical", True) for v in report["sets"].values())
     return report
 

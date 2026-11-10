@@ -174,7 +174,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
         if h.team is None:
             return frozenset(), False, None
-        s = standing(h.team, sess.user, rid, h.clock().date())
+        s = standing(h.team, sess.user, rid, h.today())
         return s.tasks, s.pi, s.entry
 
     def deny(sess: Session, path: str) -> Exception:
@@ -213,7 +213,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if body.on:
             _, _, entry = stand(sess, rid)
             logged = h.team is not None and any(
-                e.role == "pi" and e.username == sess.user.username and e.active_on(h.clock().date())
+                e.role == "pi" and e.username == sess.user.username and e.active_on(h.today())
                 for e in h.team.entries(rid))  # fmt: skip
             if entry is None or not entry.name or not logged:
                 raise h.problem(409, "edc.err.edc.no_log_pi")  # only a PI the log names turns it on (E-10)

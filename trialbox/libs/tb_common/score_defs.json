@@ -1,0 +1,2380 @@
+{
+ "definitions": {
+  "card.cha2ds2_vasc": {
+   "def_version": "card.cha2ds2_vasc@1",
+   "edge_cases": [
+    "age tiers are exclusive: a 78-year-old scores 2 for age, not 3",
+    "phenotype inputs use the screening view (coded or confirmed facts only); proposed facts make the score unknown"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "age_points": 2
+     },
+     "inputs": {
+      "age": 78
+     },
+     "note": "the same page's total for its full example is arithmetically wrong (8 instead of 7) and is not used; a guideline worked example is to be added before approval",
+     "source": "CHA2DS2-VASc calculator page worked example of the age rule (best-calculators.com), read 2026-11-09",
+     "source_grade": "calculator"
+    },
+    {
+     "expected": {
+      "weights": "C1 H1 A2(≥75) D1 S2 V1 A1(65-74) Sc1"
+     },
+     "inputs": {
+      "weights_check": true
+     },
+     "source": "Lip GYH et al. Chest 2010;137:263-272 (weights as reproduced on Wikipedia, read 2026-11-09)",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/cha2ds2_vasc.yaml",
+   "formula": "sum of points",
+   "formula_kind": "sum",
+   "inputs": [
+    {
+     "item": "ph.heart_failure or card.lvef ≤ 40",
+     "points": 1,
+     "role": "chf"
+    },
+    {
+     "item": "ph.hypertension",
+     "points": 1,
+     "role": "hypertension"
+    },
+    {
+     "item": "PERSON → age ≥ 75",
+     "points": 2,
+     "role": "age_75_plus"
+    },
+    {
+     "item": "ph.t2dm or ph.t1dm",
+     "points": 1,
+     "role": "diabetes"
+    },
+    {
+     "item": "ph.stroke_ischemic or ph.tia or thromboembolism",
+     "points": 2,
+     "role": "stroke_tia_te"
+    },
+    {
+     "item": "ph.ami or ph.cad (prior MI), PAD, aortic plaque",
+     "points": 1,
+     "role": "vascular_disease"
+    },
+    {
+     "item": "PERSON → age 65-74",
+     "note": "mutually exclusive with age ≥ 75",
+     "points": 1,
+     "role": "age_65_74"
+    },
+    {
+     "item": "PERSON gender = female",
+     "note": "ESC 2024 proposes CHA2DS2-VA without the sex point - a separate version",
+     "points": 1,
+     "role": "sex_female"
+    }
+   ],
+   "interpretation": {
+    "note": "anticoagulation thresholds depend on the guideline edition (ESC 2020: ≥ 1 men / ≥ 2 women; ESC 2024 CHA2DS2-VA ≥ 2); JCS 2020 (Japan) uses CHADS2 ≥ 1 plus other factors - record which the criterion means"
+   },
+   "licence": "formula; free",
+   "name": {
+    "en": "CHA2DS2-VASc",
+    "ja": "CHA2DS2-VASc",
+    "zh_tw": "CHA2DS2-VASc"
+   },
+   "output": {
+    "max": 9,
+    "min": 0,
+    "unit": "{score}"
+   },
+   "rounding": "integer",
+   "score_id": "card.cha2ds2_vasc",
+   "sha256": "d7a6c10397f3b553e4fa0f3ac62dfec33ef6d8708e0b9516ee1a64ac53741bbb",
+   "sources": [
+    "Lip GYH et al. Chest 2010;137:263-272",
+    "Van Gelder IC et al. Eur Heart J 2024 (ESC AF guideline, CHA2DS2-VA)"
+   ],
+   "verified": "partial",
+   "version": 1
+  },
+  "endo.hba1c_ngsp_from_jds": {
+   "coefficients": {
+    "intercept": 0.25,
+    "slope": 1.02
+   },
+   "def_version": "endo.hba1c_ngsp_from_jds@1",
+   "edge_cases": [
+    "applies to Japanese HbA1c values labelled JDS, or unlabelled JP values dated before 2012-04-01 (JDS → NGSP switch in routine care; 特定健診 kept JDS one more year, to 2013-03-31)",
+    "values labelled NGSP or 'A1C' (upper case, JDS 2012 convention) are not converted",
+    "the approximate rule 'NGSP ≈ JDS + 0.4' holds in the 5.0-9.9% range; the box uses the exact formula",
+    "IFCC mmol/mol: NGSP(%) = 0.09148 × IFCC + 2.152 (separate conversion, not verified today)"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "hba1c_ngsp": 6.5,
+      "note": "diabetes threshold JDS 6.1% corresponds to NGSP 6.5% (JDS 2012 diagnostic criteria)"
+     },
+     "inputs": {
+      "hba1c_jds": 6.1
+     },
+     "source": "Japan Diabetes Society 2012 statement as reported in Kashiwagi A et al. J Diabetes Investig 2012 (PMC4014931) and in JDS-based materials read 2026-11-09",
+     "source_grade": "primary"
+    },
+    {
+     "expected": {
+      "relation": "NGSP = 1.02 × JDS + 0.25 agrees with JDS + 0.4 across 5.0-9.9%"
+     },
+     "inputs": {
+      "formula_check": true
+     },
+     "source": "JDS 2011-10 conversion statement quoted in Japanese secondary sources read 2026-11-09",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/hba1c_jds_to_ngsp.yaml",
+   "formula": "NGSP(%) = 1.02 × JDS(%) + 0.25   (inverse: JDS = 0.980 × NGSP − 0.245)",
+   "formula_kind": "linear",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "lab.hba1c_jds",
+     "required": true,
+     "role": "hba1c_jds",
+     "unit": "%"
+    }
+   ],
+   "licence": "formula; free",
+   "name": {
+    "en": "HbA1c JDS to NGSP conversion",
+    "ja": "HbA1c JDS値→NGSP値換算",
+    "zh_tw": "HbA1c JDS 轉 NGSP"
+   },
+   "output": {
+    "max": 20,
+    "min": 3,
+    "unit": "%"
+   },
+   "rounding": "one decimal (clinical reporting)",
+   "score_id": "endo.hba1c_ngsp_from_jds",
+   "sha256": "99d572fa610e9d59b6ea5b46cb7b94fa56d471f14826d2008950f1d518f21688",
+   "sources": [
+    "Kashiwagi A et al. J Diabetes Investig 2012;3:39-40 (International clinical harmonization of HbA1c in Japan)",
+    "日本糖尿病学会 HbA1c国際標準化 運用指針 (2012-01)",
+    "LOINC 62388-4 HbA1c by JDS/JSCC protocol (verified 2026-11-09)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "gi.child_pugh_total": {
+   "also_defines": "gi.child_pugh_class",
+   "def_version": "gi.child_pugh_total@1",
+   "edge_cases": [
+    "ascites or encephalopathy not documented: no row (a stated 'Child-Pugh B' in the note is stored as an entered score, trust proposed until confirmed)",
+    "PBC/PSC variant uses different bilirubin bands (4/4-10/>10) - separate version if needed"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "class": "B",
+      "total": 9
+     },
+     "inputs": {
+      "albumin_g_dL": 3.2,
+      "ascites": "mild",
+      "bilirubin_mg_dL": 2.5,
+      "encephalopathy": "none",
+      "inr": 1.7
+     },
+     "source": "primecalcpro Child-Pugh page (calculator), read 2026-11-09",
+     "source_grade": "calculator"
+    },
+    {
+     "expected": {
+      "class": "B"
+     },
+     "inputs": {
+      "total": 8
+     },
+     "source": "Pugh 1973 class bands (quoted by several calculator pages 2026-11-09)",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/child_pugh.yaml",
+   "formula": "total = sum of the five point values; class A = 5-6, B = 7-9, C = 10-15",
+   "formula_kind": "band_table",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "lab.bilirubin_total",
+     "points": {
+      "2-3": 2,
+      "< 2": 1,
+      "> 3": 3
+     },
+     "required": true,
+     "role": "bilirubin",
+     "unit": "mg/dL"
+    },
+    {
+     "item": "lab.albumin",
+     "points": {
+      "2.8-3.5": 2,
+      "< 2.8": 3,
+      "> 3.5": 1
+     },
+     "required": true,
+     "role": "albumin",
+     "unit": "g/dL",
+     "window_days": 7
+    },
+    {
+     "item": "lab.pt_inr",
+     "note": "PT prolongation in seconds (< 4 / 4-6 / > 6) is the original; INR bands are the common substitute",
+     "points": {
+      "1.7-2.3": 2,
+      "< 1.7": 1,
+      "> 2.3": 3
+     },
+     "required": true,
+     "role": "inr",
+     "unit": "{INR}",
+     "window_days": 7
+    },
+    {
+     "item": "gi.ascites_grade",
+     "points": {
+      "mild/controlled": 2,
+      "moderate-severe/refractory": 3,
+      "none": 1
+     },
+     "required": true,
+     "role": "ascites",
+     "unit": "coded",
+     "window_days": 30
+    },
+    {
+     "item": "gi.encephalopathy_grade",
+     "points": {
+      "0": 1,
+      "1-2": 2,
+      "3-4": 3
+     },
+     "required": true,
+     "role": "encephalopathy",
+     "unit": "coded",
+     "window_days": 30
+    }
+   ],
+   "interpretation": {
+    "A": "5-6",
+    "B": "7-9",
+    "C": "10-15"
+   },
+   "licence": "public domain per CDISC QRS table",
+   "name": {
+    "en": "Child-Pugh score and class",
+    "ja": "Child-Pugh スコア・分類",
+    "zh_tw": "Child-Pugh 分數與分級"
+   },
+   "output": {
+    "max": 15,
+    "min": 5,
+    "unit": "{score}"
+   },
+   "rounding": "integer",
+   "score_id": "gi.child_pugh_total",
+   "sha256": "4c244a239b10c30d22872a8716990e03ce20af9ce62d2c36b810bcc0a9d667ed",
+   "sources": [
+    "Pugh RNH et al. Br J Surg 1973;60:646-649",
+    "LOINC 98152-2 Total score [Child-Pugh]; CDISC CT CPS01TC ('Public Domain') (verified 2026-11-09)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "gi.fib4": {
+   "def_version": "gi.fib4@1",
+   "edge_cases": [
+    "ALT = 0: no row",
+    "platelets in 10^3/µL equal 10^9/L; JP 万/µL × 10 = 10^9/L",
+    "age < 35 or > 65: cut-offs less reliable (age-adjusted lower cut-off 2.0 for ≥ 65 proposed) - flag"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "band": "low",
+      "fib4": 0.92
+     },
+     "inputs": {
+      "age": 40,
+      "alt": 48,
+      "ast": 35,
+      "platelets": 220
+     },
+     "source": "primecalcpro FIB-4 page (calculator; three examples cross-checked by hand in the search of 2026-11-09)",
+     "source_grade": "calculator"
+    },
+    {
+     "expected": {
+      "band": "indeterminate",
+      "fib4": 3.21
+     },
+     "inputs": {
+      "age": 55,
+      "alt": 55,
+      "ast": 65,
+      "platelets": 150
+     },
+     "source": "same",
+     "source_grade": "calculator"
+    },
+    {
+     "expected": {
+      "band": "high",
+      "fib4": 8.31
+     },
+     "inputs": {
+      "age": 62,
+      "alt": 50,
+      "ast": 90,
+      "platelets": 95
+     },
+     "source": "same",
+     "source_grade": "calculator"
+    },
+    {
+     "expected": {
+      "npv_below_1_45": "94.7% for severe fibrosis",
+      "ppv_above_3_25": "82.1%"
+     },
+     "inputs": {
+      "cut_offs": true
+     },
+     "source": "Vallet-Pichard A et al. Hepatology 2007;46:32-36 (PubMed 17567829, read 2026-11-09)",
+     "source_grade": "primary"
+    }
+   ],
+   "file": "catalogue/scores/fib4.yaml",
+   "formula": "FIB-4 = (age × AST) / (platelets × sqrt(ALT))",
+   "formula_kind": "ratio",
+   "inputs": [
+    {
+     "item": "PERSON → age at the AST date",
+     "required": true,
+     "role": "age",
+     "unit": "a"
+    },
+    {
+     "anchor": true,
+     "item": "lab.ast",
+     "required": true,
+     "role": "ast",
+     "unit": "U/L"
+    },
+    {
+     "item": "lab.alt",
+     "required": true,
+     "role": "alt",
+     "unit": "U/L",
+     "window_days": 0
+    },
+    {
+     "item": "lab.platelets",
+     "required": true,
+     "role": "platelets",
+     "unit": "10*9/L",
+     "window_days": 7
+    }
+   ],
+   "interpretation": {
+    "hcv_original": {
+     "high_risk_above": 3.25,
+     "low_risk_below": 1.45
+    },
+    "masld_nafld": {
+     "high_above": 2.67,
+     "low_below": 1.3
+    }
+   },
+   "licence": "formula; free",
+   "name": {
+    "en": "FIB-4 index",
+    "ja": "FIB-4 index",
+    "zh_tw": "FIB-4 指數"
+   },
+   "output": {
+    "max": 50,
+    "min": 0,
+    "unit": "{score}"
+   },
+   "rounding": "two decimals",
+   "score_id": "gi.fib4",
+   "sha256": "968c180e21ab5d58e3c7e496e4b7a077b859ef29372a287a96eda74d6d0c29b7",
+   "sources": [
+    "Sterling RK et al. Hepatology 2006;43:1317-1325",
+    "Vallet-Pichard A et al. Hepatology 2007;46:32-36",
+    "LOINC 98488-0 (verified 2026-11-09)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "gi.meld_3": {
+   "coefficients": {
+    "alb": 1.85,
+    "alb_x_ln_cr": -1.83,
+    "constant": 6,
+    "female": 1.33,
+    "ln_bili": 4.56,
+    "ln_cr": 11.14,
+    "ln_inr": 9.09,
+    "na": 0.82,
+    "na_x_ln_bili": -0.24
+   },
+   "def_version": "gi.meld_3@1",
+   "edge_cases": [
+    "labs must be from the same draw or within 48 h; otherwise no row",
+    "values below 1.0 for bilirubin, INR, creatinine are set to 1.0; sodium outside 125-137 and albumin outside 1.5-3.5 are clamped (OPTN rules)",
+    "MELD(i) and MELD-Na remain separate definitions (gi.meld, gi.meld_na) because older protocols cite them"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "meld3": 25,
+      "meld3_raw": 25.08
+     },
+     "inputs": {
+      "albumin_g_dL": 3.0,
+      "bilirubin_mg_dL": 3.2,
+      "creatinine_mg_dL": 1.6,
+      "dialysis": false,
+      "inr": 1.8,
+      "sex": "male",
+      "sodium_mmol_L": 132
+     },
+     "note": "replace with an OPTN or Kim 2021 worked example before approval if one is published",
+     "source": "MELD 3.0 calculator documentation page (metricgate/other calculator pages), recomputed by hand in the search of 2026-11-09",
+     "source_grade": "calculator"
+    }
+   ],
+   "file": "catalogue/scores/meld_3.yaml",
+   "formula": "MELD3 = 1.33 × (female) + 4.56 × ln(bili) + 0.82 × (137 − Na) − 0.24 × (137 − Na) × ln(bili) + 9.09 × ln(INR) + 11.14 × ln(Cr) + 1.85 × (3.5 − alb) − 1.83 × (3.5 − alb) × ln(Cr) + 6; round to integer; bound 6-40",
+   "formula_kind": "linear",
+   "inputs": [
+    {
+     "anchor": true,
+     "bounds": "min 1.0",
+     "item": "lab.bilirubin_total",
+     "required": true,
+     "role": "bilirubin",
+     "unit": "mg/dL"
+    },
+    {
+     "bounds": "min 1.0, max 3.0; set to 3.0 if ≥ 2 dialysis sessions in 7 days or CRRT",
+     "item": "lab.creatinine",
+     "required": true,
+     "role": "creatinine",
+     "unit": "mg/dL",
+     "window_days": 2
+    },
+    {
+     "bounds": "min 1.0",
+     "item": "lab.pt_inr",
+     "required": true,
+     "role": "inr",
+     "unit": "{INR}",
+     "window_days": 2
+    },
+    {
+     "bounds": "125-137",
+     "item": "lab.sodium",
+     "required": true,
+     "role": "sodium",
+     "unit": "mmol/L",
+     "window_days": 2
+    },
+    {
+     "bounds": "1.5-3.5",
+     "item": "lab.albumin",
+     "required": true,
+     "role": "albumin",
+     "unit": "g/dL",
+     "window_days": 2
+    },
+    {
+     "item": "PERSON gender_concept_id",
+     "required": true,
+     "role": "sex",
+     "unit": "coded"
+    }
+   ],
+   "licence": "formula; free",
+   "name": {
+    "en": "MELD 3.0",
+    "ja": "MELD 3.0",
+    "zh_tw": "MELD 3.0"
+   },
+   "output": {
+    "max": 40,
+    "min": 6,
+    "unit": "{score}"
+   },
+   "rounding": "nearest integer (OPTN)",
+   "score_id": "gi.meld_3",
+   "sha256": "dbd1cc82768387b73328e23dd258fc4f74008dc0f351acf5c22d3a6e372b524e",
+   "sources": [
+    "Kim WR et al. Gastroenterology 2021;161:1887-1895",
+    "OPTN Policy 9 (MELD 3.0 in use since 2023-07-13)"
+   ],
+   "verified": "partial",
+   "version": 1
+  },
+  "lab.ldl_calc": {
+   "def_version": "lab.ldl_calc@1",
+   "edge_cases": [
+    "TG ≥ 400 mg/dL (4.5 mmol/L): not valid, no row",
+    "non-fasting sample or chylomicrons noted: flag",
+    "a laboratory-reported calculated LDL (LOINC 13457-7) takes precedence; the derived row is only for panels without it"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "ldl": 120
+     },
+     "inputs": {
+      "hdl": 50,
+      "tc": 200,
+      "tg": 150
+     },
+     "source": "R package 'cliot' documentation, calculate_ldl example (rdrr.io, read 2026-11-09)",
+     "source_grade": "calculator"
+    }
+   ],
+   "file": "catalogue/scores/friedewald_ldl.yaml",
+   "formula": "LDL = TC − HDL − TG/5  (mg/dL); mmol/L form divides TG by 2.2",
+   "formula_kind": "linear",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "lab.cholesterol_total",
+     "required": true,
+     "role": "tc",
+     "unit": "mg/dL"
+    },
+    {
+     "item": "lab.hdl",
+     "required": true,
+     "role": "hdl",
+     "unit": "mg/dL",
+     "window_days": 0
+    },
+    {
+     "item": "lab.triglyceride",
+     "note": "fasting sample",
+     "required": true,
+     "role": "tg",
+     "unit": "mg/dL",
+     "window_days": 0
+    }
+   ],
+   "licence": "formula; free",
+   "name": {
+    "en": "LDL cholesterol (Friedewald)",
+    "ja": "LDLコレステロール（Friedewald式）",
+    "zh_tw": "低密度脂蛋白膽固醇（Friedewald 公式）"
+   },
+   "output": {
+    "max": 600,
+    "min": 0,
+    "unit": "mg/dL"
+   },
+   "rounding": "integer",
+   "score_id": "lab.ldl_calc",
+   "sha256": "e3c772d57fcb6e326bed40cbc40d1ea585e1ee7f54d9b9b17260d7259d6d6d4f",
+   "sources": [
+    "Friedewald WT, Levy RI, Fredrickson DS. Clin Chem 1972;18:499-502",
+    "LOINC 13457-7 (verified 2026-11-09)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "neph.egfr_ckd_epi_2021": {
+   "coefficients": {
+    "age_base": 0.9938,
+    "alpha_f": -0.241,
+    "alpha_m": -0.302,
+    "constant": 142,
+    "exp_high": -1.2,
+    "female_factor": 1.012,
+    "kappa_f": 0.7,
+    "kappa_m": 0.9
+   },
+   "def_version": "neph.egfr_ckd_epi_2021@1",
+   "edge_cases": [
+    "age < 18: do not compute (use pediatric equations, not defined here)",
+    "sex unknown: no row",
+    "creatinine not IDMS-traceable (older JP/TW assays): flag; the box cannot correct it",
+    "a laboratory-reported eGFR row keeps its own equation label; the derived value never overwrites it"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "egfr": 59.3
+     },
+     "inputs": {
+      "age": 55,
+      "scr_mg_dL": 1.1,
+      "sex": "female"
+     },
+     "note": "a worked example from kidney.org or Inker 2021 was not found today; replace with an NKF example before approval if one exists",
+     "source": "MetricGate CKD-EPI 2021 documentation page (calculator), cross-checked by hand against the NKF formula in the search of 2026-11-09",
+     "source_grade": "calculator"
+    }
+   ],
+   "file": "catalogue/scores/egfr_ckd_epi_2021.yaml",
+   "formula": "142 × min(scr/κ, 1)^α × max(scr/κ, 1)^-1.200 × 0.9938^age × 1.012 [if female]; κ = 0.7 (F) / 0.9 (M); α = -0.241 (F) / -0.302 (M)",
+   "formula_kind": "power_product",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "lab.creatinine",
+     "note": "IDMS-standardised creatinine; µmol/L ÷ 88.4",
+     "required": true,
+     "role": "scr",
+     "unit": "mg/dL"
+    },
+    {
+     "item": "PERSON year_of_birth → age at measurement",
+     "note": "adults ≥ 18",
+     "required": true,
+     "role": "age",
+     "unit": "a"
+    },
+    {
+     "item": "PERSON gender_concept_id",
+     "required": true,
+     "role": "sex",
+     "unit": "coded"
+    }
+   ],
+   "interpretation": "see kdigo_ckd_category.yaml",
+   "licence": "formula; free",
+   "name": {
+    "en": "eGFR CKD-EPI 2021 creatinine",
+    "ja": "eGFR（CKD-EPI 2021）",
+    "zh_tw": "eGFR（CKD-EPI 2021）"
+   },
+   "output": {
+    "max": 200,
+    "min": 1,
+    "unit": "mL/min/{1.73_m2}"
+   },
+   "rounding": "integer for display (NKF calculator shows whole numbers); store one decimal",
+   "score_id": "neph.egfr_ckd_epi_2021",
+   "sha256": "af9b72caa1273745c8a28792cb7088b9c584797cfb4e50b94ff03f646600c669",
+   "sources": [
+    "Inker LA et al. N Engl J Med 2021;385:1737-1749",
+    "kidney.org CKD-EPI Creatinine Equation (2021) page (formula verified 2026-11-09)",
+    "LOINC 98979-8 (verified 2026-11-09)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "neph.egfr_jsn_2009": {
+   "coefficients": {
+    "age_exp": -0.287,
+    "constant": 194,
+    "female_factor": 0.739,
+    "scr_exp": -1.094
+   },
+   "def_version": "neph.egfr_jsn_2009@1",
+   "edge_cases": [
+    "age < 18: no row (pediatric JSN equations exist, not defined here)",
+    "the 5-variable JSN equation (adds albumin and urea nitrogen) is more accurate but not routine; not implemented",
+    "JP laboratory reports usually print this eGFR already; the derived row is computed only when absent and is marked derived"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "egfr": 63.1
+     },
+     "inputs": {
+      "age": 50,
+      "scr_mg_dL": 1.0,
+      "sex": "male"
+     },
+     "source": "eGFR 早見表 reproduced by Okayama City (derived from 日本腎臓学会 CKD診療ガイド2023) and by Kagoshima Prefecture (computed from the formula); both read 2026-11-09",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/egfr_jsn_2009.yaml",
+   "formula": "194 × scr^-1.094 × age^-0.287 × (0.739 if female)",
+   "formula_kind": "power_product",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "lab.creatinine",
+     "note": "enzymatic, IDMS-traceable creatinine as used in Japan",
+     "required": true,
+     "role": "scr",
+     "unit": "mg/dL"
+    },
+    {
+     "item": "PERSON → age at measurement",
+     "note": "adults ≥ 18",
+     "required": true,
+     "role": "age",
+     "unit": "a"
+    },
+    {
+     "item": "PERSON gender_concept_id",
+     "required": true,
+     "role": "sex",
+     "unit": "coded"
+    }
+   ],
+   "interpretation": "CKD診療ガイド: ≥ 90 G1, 60-89 G2, 45-59 G3a, 30-44 G3b, 15-29 G4, < 15 G5 (same as KDIGO)",
+   "licence": "formula; free",
+   "name": {
+    "en": "eGFR Japanese equation (JSN 2009)",
+    "ja": "eGFRcreat（日本腎臓学会 2009）",
+    "zh_tw": "eGFR（日本腎臟學會 2009）"
+   },
+   "output": {
+    "max": 200,
+    "min": 1,
+    "unit": "mL/min/{1.73_m2}"
+   },
+   "rounding": "one decimal (the JSN 早見表 prints one decimal)",
+   "score_id": "neph.egfr_jsn_2009",
+   "sha256": "0e8be97189f1b1a0b6186663ba9b8c55d500bf2a969edbd73d35450c77f91d0d",
+   "sources": [
+    "Matsuo S et al. Am J Kidney Dis 2009;53:982-992 (verified 2026-11-09)",
+    "日本腎臓学会 CKD診療ガイド2023 (早見表)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "neph.kdigo_g": {
+   "also_defines": "neph.kdigo_a",
+   "bands": {
+    "A": {
+     "A1": "< 30 mg/g (< 3 mg/mmol)",
+     "A2": "30-300 mg/g (3-30 mg/mmol)",
+     "A3": "> 300 mg/g (> 30 mg/mmol)"
+    },
+    "G": {
+     "G1": "≥ 90",
+     "G2": "60-89",
+     "G3a": "45-59",
+     "G3b": "30-44",
+     "G4": "15-29",
+     "G5": "< 15"
+    }
+   },
+   "def_version": "neph.kdigo_g@1",
+   "edge_cases": [
+    "CKD requires persistence > 3 months: a single eGFR < 60 gives a category but not the phenotype ph.ckd; the phenotype needs two values ≥ 90 days apart",
+    "G1 and G2 alone are not CKD without a marker of damage (kidney.org note)",
+    "the boundary value 300 mg/g is written as A2 in KDIGO and 'A3 ≥ 300' in some calculators; TrialBox follows KDIGO (A2 includes 300)",
+    "units: mg/mmol × 8.84 = mg/g"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "G": "G3a"
+     },
+     "inputs": {
+      "egfr": 45
+     },
+     "source": "KDIGO 2024 CKD guideline thresholds as summarised by kidney.org 'How to classify CKD' and a KDIGO summary (read 2026-11-09)",
+     "source_grade": "secondary"
+    },
+    {
+     "expected": {
+      "A": "A2"
+     },
+     "inputs": {
+      "uacr_mg_g": 30
+     },
+     "source": "same",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/kdigo_ckd_category.yaml",
+   "formula_kind": "band_table",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "any of neph.egfr_jsn_2009, neph.egfr_ckd_epi_2021, neph.egfr_ckd_epi_2009, neph.egfr_mdrd, neph.egfr_tw_mdrd (the chosen equation is recorded with the category)",
+     "required": true,
+     "role": "egfr",
+     "unit": "mL/min/{1.73_m2}"
+    },
+    {
+     "item": "lab.uacr",
+     "note": "for the A category; UPCR may substitute with a flag",
+     "required": false,
+     "role": "uacr",
+     "unit": "mg/g",
+     "window_days": 90
+    }
+   ],
+   "licence": "guideline thresholds; KDIGO text is CC BY-NC-ND - only the numbers are reproduced",
+   "name": {
+    "en": "KDIGO GFR and albuminuria categories",
+    "ja": "KDIGO GFR区分・アルブミン尿区分",
+    "zh_tw": "KDIGO GFR 與白蛋白尿分期"
+   },
+   "output": {
+    "unit": "coded",
+    "values": "G1..G5 and A1..A3"
+   },
+   "rounding": "none",
+   "score_id": "neph.kdigo_g",
+   "sha256": "df5017ea14abd54944e2df523870e40ddd61ba403c9e2f57a323b8b09d948e5a",
+   "sources": [
+    "KDIGO 2024 Clinical Practice Guideline for the Evaluation and Management of CKD. Kidney Int 2024;105(4S):S117-S314"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "neuro.cdr_global": {
+   "def_version": "neuro.cdr_global@1",
+   "edge_cases": [
+    "a directly entered global CDR takes precedence over the derived one; both are kept, disagreement opens a conflict row",
+    "Knight ADRC warns that 'some unusual box score combinations may result in the algorithm generating an incorrect Global CDR Score' - such rows are flagged for review",
+    "CDR-SB = sum of the six boxes (0-18), a separate definition"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "cdr_global": 2
+     },
+     "inputs": {
+      "memory": 3,
+      "secondaries": [
+       3,
+       2,
+       2,
+       1,
+       1
+      ]
+     },
+     "source": "Knight ADRC CDR Scoring Rules page (tie example: 'M and one other secondary score 3, two secondaries score 2, and two score 1 ... CDR = 2'), read 2026-11-09",
+     "source_grade": "primary"
+    }
+   ],
+   "file": "catalogue/scores/cdr_global.yaml",
+   "formula": "Memory (M) is primary; the other five are secondary.\n1. If at least three secondaries equal M, CDR = M.\n2. If three or more secondaries fall on one side of M (above or below), CDR = the score of the majority of those secondaries.\n3. If three secondaries fall on one side and two on the other, CDR = M.\n4. Ties on one side of M: use the tied score closest to M.\n5. If only one or two secondaries equal M and no more than two fall on either side, CDR = M.\nSpecial cases: M = 0.5 → CDR = 1 if at least three secondaries ≥ 1, else 0.5 (never 0). M = 0 → CDR = 0 unless two or more secondaries ≥ 0.5, then 0.5. M ≥ 1 → CDR never 0; CDR = 0.5 if the majority of secondaries are 0.\n",
+   "formula_kind": "rule_table",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "neuro.cdr_memory",
+     "note": "primary category",
+     "required": true,
+     "role": "memory",
+     "unit": "{score}"
+    },
+    {
+     "item": "neuro.cdr_orientation",
+     "required": true,
+     "role": "orientation",
+     "unit": "{score}"
+    },
+    {
+     "item": "neuro.cdr_judgment",
+     "required": true,
+     "role": "judgment",
+     "unit": "{score}"
+    },
+    {
+     "item": "neuro.cdr_community",
+     "required": true,
+     "role": "community",
+     "unit": "{score}"
+    },
+    {
+     "item": "neuro.cdr_home",
+     "required": true,
+     "role": "home_hobbies",
+     "unit": "{score}"
+    },
+    {
+     "item": "neuro.cdr_personal_care",
+     "note": "0, 1, 2, 3 only (no 0.5)",
+     "required": true,
+     "role": "personal_care",
+     "unit": "{score}"
+    }
+   ],
+   "interpretation": {
+    "0": "none",
+    "0.5": "questionable/very mild",
+    "1": "mild",
+    "2": "moderate",
+    "3": "severe"
+   },
+   "licence": "CDR copyrighted by Washington University; 'requires a license whether its intended use is for-profit or non-profit'; the algorithm code is licensed separately (CDR@wustl.edu). TrialBox may implement the published rules only after the licence is in place (owner question Q1)",
+   "name": {
+    "en": "CDR global score from box scores",
+    "ja": "CDR 全般スコア（各領域スコアから）",
+    "zh_tw": "CDR 整體分數（由各項分數推導）"
+   },
+   "output": {
+    "unit": "{score}",
+    "values": [
+     0,
+     0.5,
+     1,
+     2,
+     3
+    ]
+   },
+   "rounding": "none",
+   "score_id": "neuro.cdr_global",
+   "sha256": "28a5db138897cd861a140b383a75b286e57c94cbf21553387a0990afea657f6b",
+   "sources": [
+    "Morris JC. Neurology 1993;43:2412-2414",
+    "knightadrc.wustl.edu CDR Scoring Rules and Scoring Algorithm pages (verified 2026-11-09)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "neuro.jcs": {
+   "conversion_table": {
+    "3": 13,
+    "30": 9,
+    "note": "fill from Nakajima 2023 (J Epidemiol 33:531) Table; only the two rows below were confirmed from a second source today"
+   },
+   "def_version": "neuro.jcs@1",
+   "edge_cases": [
+    "JCS 0 and JCS 1 both map to GCS 15 in the Nakajima table (a commenter's point acknowledged by the authors): the derived value carries the JCS so screening can tell them apart",
+    "the authors state the method 'is not intended to serve as a blanket recommendation for use in the clinical setting' - the derived GCS is for research pre-screening only and is shown with the original JCS",
+    "a directly recorded GCS always takes precedence"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "gcs": 13
+     },
+     "inputs": {
+      "jcs": 3
+     },
+     "source": "Saiseikai Stroke Database supplementary conversion table, quoted in web search 2026-11-09",
+     "source_grade": "secondary"
+    },
+    {
+     "expected": {
+      "gcs": 9
+     },
+     "inputs": {
+      "jcs": 30
+     },
+     "source": "same",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/jcs_gcs_map.yaml",
+   "formula": "look up the GCS value for the JCS grade in the published conversion table; output is a derived GCS flagged 'converted from JCS'",
+   "formula_kind": "conversion_table",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "neuro.jcs",
+     "required": true,
+     "role": "jcs",
+     "unit": "{grade}"
+    }
+   ],
+   "licence": "public classification; conversion table from an open-access paper",
+   "name": {
+    "en": "Japan Coma Scale to GCS conversion",
+    "ja": "JCS→GCS換算",
+    "zh_tw": "日本昏迷量表轉 GCS"
+   },
+   "output": {
+    "max": 15,
+    "min": 3,
+    "unit": "{score}"
+   },
+   "rounding": "integer",
+   "score_id": "neuro.jcs",
+   "sha256": "846ef8bb7f043cf0e91eb3f57a23f3b2e0bbe6b02a082addc7a3fe05dc772bd6",
+   "sources": [
+    "太田富雄 ほか. 脳神経外科 1974 (3-3-9度方式)",
+    "Nakajima M et al. J Epidemiol 2023;33(10):531-535 (PMC10483104)"
+   ],
+   "verified": "partial",
+   "version": 1
+  },
+  "neuro.ledd": {
+   "conversion_table": {
+    "amantadine": 1.0,
+    "duodopa_intestinal_gel": 1.11,
+    "levodopa_controlled_release": 0.75,
+    "levodopa_immediate_release": 1.0,
+    "levodopa_with_entacapone": "levodopa dose × 1.33",
+    "levodopa_with_tolcapone": "levodopa dose × 1.5",
+    "pramipexole": 100,
+    "rasagiline": 100,
+    "ropinirole": 20,
+    "rotigotine": 30,
+    "selegiline_oral": 10
+   },
+   "def_version": "neuro.ledd@1",
+   "edge_cases": [
+    "opicapone, safinamide, istradefylline (JP), zonisamide (JP low-dose for PD): not in Tomlinson 2010; later proposals exist (Schade 2020) - version 2 when approved",
+    "pramipexole salt form: Tomlinson factor applies to the dihydrochloride dose as prescribed in JP/TW"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "ledd_mg": 100
+     },
+     "inputs": {
+      "pramipexole_mg": 1
+     },
+     "note": "table values from the paper as remembered; not re-read at the source today (verified: no)",
+     "source": "Tomlinson CL et al. Mov Disord 2010;25:2649-2653, conversion table",
+     "source_grade": "primary"
+    },
+    {
+     "expected": {
+      "ledd_mg": 133
+     },
+     "inputs": {
+      "levodopa_mg": 100,
+      "with_entacapone": true
+     },
+     "source": "same table",
+     "source_grade": "primary"
+    }
+   ],
+   "file": "catalogue/scores/ledd.yaml",
+   "formula": "sum of daily_dose_mg × factor per ingredient (Tomlinson 2010); COMT inhibitors multiply the levodopa dose rather than add",
+   "formula_kind": "conversion_table",
+   "inputs": [
+    {
+     "item": "DRUG_EXPOSURE rows with ATC N04B (dopaminergic agents), daily dose in mg",
+     "required": true,
+     "role": "drug_exposures"
+    }
+   ],
+   "licence": "formula; no instrument",
+   "name": {
+    "en": "Levodopa equivalent daily dose",
+    "ja": "レボドパ換算1日量",
+    "zh_tw": "左多巴等效劑量"
+   },
+   "output": {
+    "max": 5000,
+    "min": 0,
+    "unit": "mg/d"
+   },
+   "rounding": "integer",
+   "score_id": "neuro.ledd",
+   "sha256": "3675252dceaa40b00141fdd58e9e07e31427bad58386c261771a8c9bfd6d2a0c",
+   "sources": [
+    "Tomlinson CL et al. Mov Disord 2010;25:2649-2653"
+   ],
+   "verified": false,
+   "version": 1
+  },
+  "neuro.moca_total": {
+   "def_version": "neuro.moca_total@1",
+   "edge_cases": [
+    "education unknown: store raw only, adjusted unknown",
+    "a documented MoCA without a statement about adjustment is stored as reported with flag 'adjustment unknown'",
+    "MoCA-J and MoCA-Taiwan versions keep the same arithmetic; the version is recorded"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "adjusted": 26,
+      "band": "normal"
+     },
+     "inputs": {
+      "education_years": 12,
+      "raw_total": 25
+     },
+     "note": "the expected value follows the rule as published; the specific pair (25, 12) is the rule's own boundary case, not a worked example from the paper",
+     "source": "scoring rule 'one point is added ... if the patient has 12 years of formal education or fewer' (CASRAI MoCA guide; secondary quotes 2026-11-09); the 26 cut-off from Nasreddine 2005 as quoted",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/moca_adjusted.yaml",
+   "formula": "adjusted = min(raw_total + (1 if education_years <= 12 else 0), 30)",
+   "formula_kind": "linear",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "local neuro.moca_raw",
+     "required": true,
+     "role": "raw_total",
+     "unit": "{score}"
+    },
+    {
+     "item": "local social.education_years",
+     "required": true,
+     "role": "education_years",
+     "unit": "a"
+    }
+   ],
+   "interpretation": {
+    "normal": "≥ 26 (Nasreddine 2005); MoCA-J MCI cut-off 25/26 (Fujiwara 2010)"
+   },
+   "licence": "MoCA copyright; training/certification required; store score only",
+   "name": {
+    "en": "MoCA total with education adjustment",
+    "ja": "MoCA 合計点（教育年数補正）",
+    "zh_tw": "MoCA 總分（教育年數校正）"
+   },
+   "output": {
+    "max": 30,
+    "min": 0,
+    "unit": "{score}"
+   },
+   "rounding": "integer",
+   "score_id": "neuro.moca_total",
+   "sha256": "8b82e1f98b3356c3ca0f49d8a5c6e05b181484b288ae46a85bac336360215830",
+   "sources": [
+    "Nasreddine ZS et al. J Am Geriatr Soc 2005;53:695-699",
+    "Fujiwara Y et al. Geriatr Gerontol Int 2010;10:225-232 (MoCA-J, verified 2026-11-09)"
+   ],
+   "verified": "partial",
+   "version": 1
+  },
+  "onc.crcl_cg": {
+   "coefficients": {
+    "age_base": 140,
+    "denominator": 72,
+    "female_factor": 0.85,
+    "umol_constant_f": 1.04,
+    "umol_constant_m": 1.23
+   },
+   "def_version": "onc.crcl_cg@1",
+   "edge_cases": [
+    "no weight within 90 days: no row",
+    "scr below 0.7-0.8 mg/dL: some protocols round up to 0.8; not done by default (flag only)",
+    "ideal body weight (Devine): male 50 + 0.9 × (height_cm − 152), female 45.5 + 0.9 × (height_cm − 152) when the protocol asks"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "crcl_mL_min": 44.93
+     },
+     "inputs": {
+      "age": 75,
+      "scr_umol_L": 105,
+      "sex": "female",
+      "weight_basis": "ideal body weight (height 179 cm)",
+      "weight_kg_used": 69.8
+     },
+     "source": "Pharmaceutical Journal, 'Medication maths: estimations of kidney function' (worked example, read 2026-11-09)",
+     "source_grade": "secondary"
+    },
+    {
+     "expected": {
+      "crcl_mL_min": 55.1
+     },
+     "inputs": {
+      "age": 60,
+      "scr_mg_dL": 1.2,
+      "sex": "female",
+      "weight_kg": 70
+     },
+     "source": "GFR calculation example document (Scribd), quoted in web search 2026-11-09",
+     "source_grade": "calculator"
+    }
+   ],
+   "file": "catalogue/scores/cockcroft_gault.yaml",
+   "formula": "CrCl = (140 − age) × weight / (72 × scr) × (0.85 if female)   [mg/dL form]; with µmol/L: (140 − age) × weight × 1.23 (M) or 1.04 (F) / scr",
+   "formula_kind": "power_product",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "lab.creatinine",
+     "required": true,
+     "role": "scr",
+     "unit": "mg/dL"
+    },
+    {
+     "item": "PERSON → age",
+     "required": true,
+     "role": "age",
+     "unit": "a"
+    },
+    {
+     "item": "vital.weight",
+     "note": "protocols differ: actual, ideal or adjusted body weight - the criterion names it; default actual",
+     "required": true,
+     "role": "weight",
+     "unit": "kg",
+     "window_days": 90
+    },
+    {
+     "item": "PERSON gender_concept_id",
+     "required": true,
+     "role": "sex",
+     "unit": "coded"
+    }
+   ],
+   "licence": "formula; free",
+   "name": {
+    "en": "Creatinine clearance (Cockcroft-Gault)",
+    "ja": "クレアチニンクリアランス（Cockcroft-Gault）",
+    "zh_tw": "肌酸酐清除率（Cockcroft-Gault）"
+   },
+   "output": {
+    "max": 300,
+    "min": 1,
+    "unit": "mL/min"
+   },
+   "rounding": "integer for display; one decimal stored",
+   "score_id": "onc.crcl_cg",
+   "sha256": "d488b087458645af82b81625e81c38184b07df54288fac56d156fa6ec7d7baa6",
+   "sources": [
+    "Cockcroft DW, Gault MH. Nephron 1976;16:31-41",
+    "LOINC 35591-7 Creatinine renal clearance predicted by Cockcroft-Gault formula (verified 2026-11-09)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "onc.kps": {
+   "also_defines": "onc.ecog (derived from KPS when only KPS is documented)",
+   "conversion_table": {
+    "ma_2010_alternative": {
+     "10-30": 4,
+     "100": 0,
+     "40-50": 3,
+     "60-70": 2,
+     "80-90": 1
+    },
+    "oken_1982_as_reproduced_in_protocols": {
+     "0": 5,
+     "10-20": 4,
+     "30-40": 3,
+     "50-60": 2,
+     "70-80": 1,
+     "90-100": 0
+    }
+   },
+   "def_version": "onc.kps@1",
+   "edge_cases": [
+    "the two published mappings disagree at KPS 80 (ECOG 1 in both) and KPS 60-70 and 40-50; TrialBox uses the Oken-derived table reproduced in trial protocols and records the table version",
+    "ECOG 'PS' in JP notes is taken as ECOG, not KPS"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "ecog": 1
+     },
+     "inputs": {
+      "kps": 80
+     },
+     "source": "trial protocol appendix tables attributing the mapping to Oken 1982 (ClinicalTrials.gov NCT04727151 Prot_SAP), read 2026-11-09",
+     "source_grade": "secondary"
+    },
+    {
+     "expected": {
+      "ecog_ma_2010": 2,
+      "ecog_oken_table": 2
+     },
+     "inputs": {
+      "kps": 60
+     },
+     "source": "both tables as quoted 2026-11-09 (Ma C et al. Eur J Cancer 2010;46:3175)",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/ecog_kps_map.yaml",
+   "formula": "look up ECOG for a KPS value; the derived ECOG is flagged 'from KPS' and never replaces a documented ECOG",
+   "formula_kind": "conversion_table",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "onc.kps",
+     "required": true,
+     "role": "kps",
+     "unit": "%"
+    }
+   ],
+   "licence": "public domain (ECOG with credit; KPS public domain per CDISC QRS table)",
+   "name": {
+    "en": "ECOG and Karnofsky mapping",
+    "ja": "ECOG・Karnofsky対応表",
+    "zh_tw": "ECOG 與 Karnofsky 對照"
+   },
+   "output": {
+    "max": 5,
+    "min": 0,
+    "unit": "{grade}"
+   },
+   "rounding": "none",
+   "score_id": "onc.kps",
+   "sha256": "fbcf994121de435c650a6c066db8f6655f89ce0cde1e1f33e55681f6657f0185",
+   "sources": [
+    "Oken MM et al. Am J Clin Oncol 1982;5:649-655",
+    "Karnofsky DA, Burchenal JH. 1949",
+    "Ma C et al. Eur J Cancer 2010;46:3175-3183",
+    "ECOG-ACRIN: scale 'in the public domain' with credit (verified 2026-11-09)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "onc.recist_response": {
+   "def_version": "onc.recist_response@1",
+   "edge_cases": [
+    "PR must be confirmed ≥ 4 weeks later in non-randomised studies",
+    "a 20% increase that is < 5 mm absolute is not PD (e.g. 20 → 24 mm)",
+    "a radiology report that states 'PD' is stored as an entered response (trust proposed); the derived response needs the sums",
+    "iRECIST / irRECIST for immunotherapy are separate definitions"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "week16": "continued PR (increase of 2 mm from nadir 63 is below the 20% and 5 mm thresholds)",
+      "week8": "PR"
+     },
+     "inputs": {
+      "baseline_sum_mm": 165,
+      "week16_sum_mm": 65,
+      "week8_sum_mm": 63
+     },
+     "source": "RECIST guideline example reproduced in a registry manual (CIBMTR FIM manual 'RECIST criteria'), read 2026-11-09",
+     "source_grade": "secondary"
+    },
+    {
+     "expected": {
+      "pd_increase": "≥ 20% and ≥ 5 mm absolute",
+      "pr_decrease": "≥ 30%"
+     },
+     "inputs": {
+      "thresholds": true
+     },
+     "source": "Eisenhauer EA et al. Eur J Cancer 2009;45:228-247 (quoted by recist.eortc.org and trial protocols 2026-11-09)",
+     "source_grade": "primary"
+    }
+   ],
+   "file": "catalogue/scores/recist_response.yaml",
+   "formula": "CR: all target lesions disappear (nodes < 10 mm short axis).\nPR: ≥ 30% decrease in current_sum vs baseline_sum.\nPD: ≥ 20% increase in current_sum vs nadir_sum AND absolute increase ≥ 5 mm, or any new lesion.\nSD: neither PR nor PD, referenced to the nadir.\nOverall response combines target, non-target and new lesions per the RECIST 1.1 table.\n",
+   "formula_kind": "rule_table",
+   "inputs": [
+    {
+     "item": "onc.recist_sum_diameters",
+     "note": "sum of diameters at baseline (≤ 5 target lesions, ≤ 2 per organ)",
+     "required": true,
+     "role": "baseline_sum",
+     "unit": "mm"
+    },
+    {
+     "item": "onc.recist_sum_diameters",
+     "note": "smallest sum on study (may be baseline)",
+     "required": true,
+     "role": "nadir_sum",
+     "unit": "mm"
+    },
+    {
+     "anchor": true,
+     "item": "onc.recist_sum_diameters",
+     "required": true,
+     "role": "current_sum",
+     "unit": "mm"
+    },
+    {
+     "item": "local finding",
+     "required": true,
+     "role": "new_lesions",
+     "unit": "coded"
+    },
+    {
+     "item": "local finding (CR/non-CR non-PD/PD)",
+     "required": false,
+     "role": "non_target",
+     "unit": "coded"
+    }
+   ],
+   "licence": "RECIST 1.1 published by EORTC/RECIST Working Group; free to use",
+   "name": {
+    "en": "RECIST 1.1 target-lesion response",
+    "ja": "RECIST 1.1 標的病変効果判定",
+    "zh_tw": "RECIST 1.1 目標病灶反應"
+   },
+   "output": {
+    "unit": "coded",
+    "values": [
+     "CR",
+     "PR",
+     "SD",
+     "PD",
+     "NE"
+    ]
+   },
+   "rounding": "none",
+   "score_id": "onc.recist_response",
+   "sha256": "cd6c6567f877a1e969fa8ec371cb72877750570adba21ec382a260f1fcfefb39",
+   "sources": [
+    "Eisenhauer EA et al. Eur J Cancer 2009;45:228-247",
+    "recist.eortc.org"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "psy.phq9": {
+   "def_version": "psy.phq9@1",
+   "edge_cases": [
+    "one or two items missing: some sites pro-rate (mean × 9); TrialBox does not impute - the total is missing and the form is flagged incomplete",
+    "item 9 (suicidal ideation) > 0 is surfaced as a safety flag on the steward page regardless of total",
+    "PHQ-2 (items 1-2, LOINC 55758-7) is a separate item"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "bands": "5, 10, 15, 20 = mild, moderate, moderately severe, severe"
+     },
+     "inputs": {
+      "cut_points": true
+     },
+     "source": "Kroenke K, Spitzer RL, Williams JBW. J Gen Intern Med 2001;16:606-613 (quoted 2026-11-09)",
+     "source_grade": "primary"
+    },
+    {
+     "expected": {
+      "band": "moderate",
+      "screening_note": "≥ 10 had 88% sensitivity and 88% specificity for major depression in the validation study"
+     },
+     "inputs": {
+      "total": 10
+     },
+     "source": "same",
+     "source_grade": "primary"
+    }
+   ],
+   "file": "catalogue/scores/phq9_severity.yaml",
+   "formula": "total = sum of the nine items (item 10, functional impairment, is not scored)",
+   "formula_kind": "sum",
+   "inputs": [
+    {
+     "item": "9 local items psy.phq9_q1..q9 (0-3 each)",
+     "required": true,
+     "role": "items_1_9",
+     "unit": "{score}"
+    }
+   ],
+   "interpretation": {
+    "mild": "5-9",
+    "moderate": "10-14",
+    "moderately_severe": "15-19",
+    "none_minimal": "0-4",
+    "severe": "20-27"
+   },
+   "licence": "PHQ-9: 'No permission required to reproduce, translate, display or distribute' (Pfizer; verified 2026-11-09). Items and text may be stored",
+   "name": {
+    "en": "PHQ-9 total and severity band",
+    "ja": "PHQ-9 合計点と重症度",
+    "zh_tw": "PHQ-9 總分與嚴重度"
+   },
+   "output": {
+    "max": 27,
+    "min": 0,
+    "unit": "{score}"
+   },
+   "rounding": "integer",
+   "score_id": "psy.phq9",
+   "sha256": "6cabd40ac538a7490a21b493ab2d629ef1b8449a3364f0a6cb4a9d08583c84d1",
+   "sources": [
+    "Kroenke K et al. J Gen Intern Med 2001;16:606-613",
+    "LOINC 44261-6; CDISC CT PHQ01TC 'Exempt from Copyright' (verified 2026-11-09)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "rheum.asdas_crp": {
+   "coefficients": {
+    "back_pain": 0.12,
+    "crp": 0.58,
+    "morning_stiffness_duration": 0.06,
+    "patient_global": 0.11,
+    "peripheral_pain_swelling": 0.07
+   },
+   "def_version": "rheum.asdas_crp@1",
+   "edge_cases": [
+    "crp < 2 mg/L (or below detection): use 2 mg/L (ASAS convention; DESIR cohort recommendation quoted 2026-11-09)",
+    "ASDAS-ESR is a different formula (sqrt(ESR) term) - separate definition if needed"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "high_from": 2.1,
+      "inactive_below": 1.3,
+      "very_high_above": 3.5
+     },
+     "inputs": {
+      "cut_offs": true
+     },
+     "source": "Machado P et al. Ann Rheum Dis 2011;70:47-53 (quoted in web search 2026-11-09)",
+     "source_grade": "primary"
+    },
+    {
+     "expected": {
+      "crp_used": 2.0
+     },
+     "inputs": {
+      "crp_mg_L": 1.0
+     },
+     "note": "no published worked numeric example found today; owner or rheumatologist to supply before approval",
+     "source": "DESIR cohort recommendation (Machado et al.) quoted 2026-11-09",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/asdas_crp.yaml",
+   "formula": "0.12*back_pain + 0.06*morning_stiffness_duration + 0.11*patient_global + 0.07*peripheral_pain_swelling + 0.58*ln(crp + 1)",
+   "formula_kind": "weighted_sqrt_log",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "local (BASDAI q2)",
+     "required": true,
+     "role": "back_pain",
+     "unit": "{score 0-10}"
+    },
+    {
+     "item": "local (BASDAI q6)",
+     "required": true,
+     "role": "morning_stiffness_duration",
+     "unit": "{score 0-10}"
+    },
+    {
+     "item": "local (0-10)",
+     "required": true,
+     "role": "patient_global",
+     "unit": "{score 0-10}"
+    },
+    {
+     "item": "local (BASDAI q3)",
+     "required": true,
+     "role": "peripheral_pain_swelling",
+     "unit": "{score 0-10}"
+    },
+    {
+     "item": "lab.crp",
+     "required": true,
+     "role": "crp",
+     "unit": "mg/L",
+     "window_days": 7
+    }
+   ],
+   "interpretation": {
+    "high": "2.1 to 3.5",
+    "improvement": "clinically important ≥ 1.1; major ≥ 2.0",
+    "inactive": "< 1.3",
+    "low_formerly_moderate": "1.3 to < 2.1 (ASAS renamed 'moderate' to 'low' in 2018)",
+    "very_high": "> 3.5"
+   },
+   "licence": "published formula (ASAS); free",
+   "name": {
+    "en": "ASDAS-CRP",
+    "ja": "ASDAS-CRP",
+    "zh_tw": "ASDAS-CRP"
+   },
+   "output": {
+    "max": "about 10",
+    "min": 0,
+    "unit": "{score}"
+   },
+   "rounding": "one decimal",
+   "score_id": "rheum.asdas_crp",
+   "sha256": "70f57c35f671bc7e7a8c84a8afb695107f8dc4df4f93a352348eee40556285a1",
+   "sources": [
+    "Lukas C et al. Ann Rheum Dis 2009;68:18-24 (development)",
+    "Machado P et al. Ann Rheum Dis 2011;70:47-53 (cut-offs)",
+    "Machado PM et al. Ann Rheum Dis 2018;77:1539-1540 (nomenclature)"
+   ],
+   "verified": "partial",
+   "version": 1
+  },
+  "rheum.basdai": {
+   "def_version": "rheum.basdai@1",
+   "edge_cases": [
+    "one of q1-q4 missing: divide by 4 instead of 5 (per a published trial SAP); more than one missing: no row",
+    "10 cm VAS answers are read in cm (0-10)"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "divisor": 4,
+      "more_than_one_missing": "score missing"
+     },
+     "inputs": {
+      "missing_rule": "one of Q1-Q4 missing"
+     },
+     "source": "tofacitinib PsA extension SAP (ClinicalTrials.gov NCT01976364 SAP_001), quoted 2026-11-09",
+     "source_grade": "secondary"
+    },
+    {
+     "expected": {
+      "active_at_or_above": 4
+     },
+     "inputs": {
+      "threshold": true
+     },
+     "note": "no published worked numeric example found today (the calculator pages' examples were composed by the page authors or the searcher); owner or rheumatologist to supply before approval",
+     "source": "Garrett 1994; ASAS handbook (secondary quotes 2026-11-09)",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/basdai.yaml",
+   "formula": "((q1 + q2 + q3 + q4) + (q5 + q6)/2) / 5",
+   "formula_kind": "mean_of_categories",
+   "inputs": [
+    {
+     "item": "local",
+     "required": true,
+     "role": "q1_fatigue",
+     "unit": "{score 0-10}"
+    },
+    {
+     "item": "local",
+     "required": true,
+     "role": "q2_spinal_pain",
+     "unit": "{score 0-10}"
+    },
+    {
+     "item": "local",
+     "required": true,
+     "role": "q3_peripheral_pain_swelling",
+     "unit": "{score 0-10}"
+    },
+    {
+     "item": "local",
+     "required": true,
+     "role": "q4_enthesitis_discomfort",
+     "unit": "{score 0-10}"
+    },
+    {
+     "item": "local",
+     "required": true,
+     "role": "q5_morning_stiffness_severity",
+     "unit": "{score 0-10}"
+    },
+    {
+     "item": "local",
+     "required": true,
+     "role": "q6_morning_stiffness_duration",
+     "unit": "{score 0-10 (0 = 0 h, 10 = 2 h or more)}"
+    }
+   ],
+   "interpretation": {
+    "active_disease": "≥ 4"
+   },
+   "licence": "published PRO; copyright status not verified today; store score and item values",
+   "name": {
+    "en": "BASDAI",
+    "ja": "BASDAI",
+    "zh_tw": "BASDAI"
+   },
+   "output": {
+    "max": 10,
+    "min": 0,
+    "unit": "{score}"
+   },
+   "rounding": "one decimal",
+   "score_id": "rheum.basdai",
+   "sha256": "17e13a998ff89b815d2f5f47154da27940fbdf0210c23919e8c4af41d59465b6",
+   "sources": [
+    "Garrett S et al. J Rheumatol 1994;21:2286-2291"
+   ],
+   "verified": "partial",
+   "version": 1
+  },
+  "rheum.cdai": {
+   "def_version": "rheum.cdai@1",
+   "edge_cases": [
+    "any component missing: no row (no imputation)",
+    "global assessments recorded in cm on a 10 cm VAS are already 0-10"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "band": "high",
+      "cdai": 27
+     },
+     "inputs": {
+      "evga": 6,
+      "ptga": 7,
+      "sjc": 6,
+      "tjc": 8
+     },
+     "source": "R package 'cliot' documentation, cdai_rheumatoid_arthritis examples (rdrr.io, read 2026-11-09)",
+     "source_grade": "calculator"
+    },
+    {
+     "expected": {
+      "band": "remission",
+      "cdai": 1.5
+     },
+     "inputs": {
+      "evga": 0.5,
+      "ptga": 1,
+      "sjc": 0,
+      "tjc": 0
+     },
+     "source": "same",
+     "source_grade": "calculator"
+    }
+   ],
+   "file": "catalogue/scores/cdai.yaml",
+   "formula": "tjc + sjc + ptga + evga",
+   "formula_kind": "sum",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "rheum.tjc28",
+     "required": true,
+     "role": "tjc",
+     "unit": "{count}",
+     "window_days": 0
+    },
+    {
+     "item": "rheum.sjc28",
+     "required": true,
+     "role": "sjc",
+     "unit": "{count}",
+     "window_days": 0
+    },
+    {
+     "item": "rheum.ptga_0_10",
+     "note": "0-10 scale, 0.5 steps allowed; a 0-100 mm VAS is divided by 10 and flagged",
+     "required": true,
+     "role": "ptga",
+     "unit": "{score}",
+     "window_days": 0
+    },
+    {
+     "item": "rheum.evga_0_10",
+     "required": true,
+     "role": "evga",
+     "unit": "{score}",
+     "window_days": 0
+    }
+   ],
+   "interpretation": {
+    "high": "> 22",
+    "low": "> 2.8 to ≤ 10",
+    "moderate": "> 10 to ≤ 22",
+    "remission": "≤ 2.8"
+   },
+   "licence": "published index; no licence known; LOINC code under the LOINC licence",
+   "name": {
+    "en": "Clinical Disease Activity Index",
+    "ja": "CDAI",
+    "zh_tw": "臨床疾病活動指數 CDAI"
+   },
+   "output": {
+    "max": 76,
+    "min": 0,
+    "unit": "{score}"
+   },
+   "rounding": "one decimal",
+   "score_id": "rheum.cdai",
+   "sha256": "2099d747f181f0a452ee37bf18bfc59ff3ae82b3552ae5fe43712e332b5c3331",
+   "sources": [
+    "Aletaha D, Smolen JS. Clin Exp Rheumatol 2005;23(S39):S100-S108",
+    "LOINC 75847-4 Total score [CDAI] (verified 2026-11-09)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "rheum.das28_crp": {
+   "coefficients": {
+    "constant": 0.96,
+    "crp": 0.36,
+    "gh": 0.014,
+    "sjc": 0.28,
+    "tjc": 0.56
+   },
+   "def_version": "rheum.das28_crp@1",
+   "edge_cases": [
+    "crp below detection limit: use the reported limit value (e.g. '< 0.3 mg/dL' → 3 mg/L), flag 'at detection limit'",
+    "crp reported in mg/dL and not converted: the unit check refuses the row (B-09 structural rule)",
+    "any required input missing: no row"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "variable_ranges": "t28 0-28, sw28 0-28, CRP 0-300 mg/L, VAS 0-100 mm"
+     },
+     "inputs": {
+      "formula_check": true
+     },
+     "note": "no published worked example with inputs and output was found today; owner or rheumatologist to supply before approval",
+     "source": "CamCOPS DAS28 task documentation (verified 2026-11-09)",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/das28_crp.yaml",
+   "formula": "0.56*sqrt(tjc) + 0.28*sqrt(sjc) + 0.36*ln(crp + 1) + 0.014*gh + 0.96",
+   "formula_kind": "weighted_sqrt_log",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "rheum.tjc28",
+     "required": true,
+     "role": "tjc",
+     "unit": "{count}",
+     "window_days": 0
+    },
+    {
+     "item": "rheum.sjc28",
+     "required": true,
+     "role": "sjc",
+     "unit": "{count}",
+     "window_days": 0
+    },
+    {
+     "item": "lab.crp",
+     "note": "JP laboratories report mg/dL: multiply by 10 before use (unit table does this); range 0-300 mg/L",
+     "required": true,
+     "role": "crp",
+     "unit": "mg/L",
+     "window_days": 7
+    },
+    {
+     "item": "rheum.ptga_vas100",
+     "required": true,
+     "role": "gh",
+     "unit": "mm",
+     "window_days": 0
+    }
+   ],
+   "interpretation": {
+    "high_fleischmann_2017": "> 4.6",
+    "low_fleischmann_2017": "< 2.9",
+    "note": "DAS28-CRP cut-offs differ from DAS28-ESR; Fleischmann 2017 proposes remission < 2.4 and low < 2.9 for the CRP variant; many protocols still apply 2.6/3.2/5.1. Record which set a criterion uses.",
+    "remission_fleischmann_2017": "< 2.4"
+   },
+   "licence": "as das28_esr.yaml",
+   "name": {
+    "en": "DAS28-CRP",
+    "ja": "DAS28-CRP",
+    "zh_tw": "DAS28-CRP"
+   },
+   "output": {
+    "max": 9.4,
+    "min": 0.96,
+    "unit": "{score}"
+   },
+   "rounding": "two decimals for display",
+   "score_id": "rheum.das28_crp",
+   "sha256": "54b3d1a41f9eccb86b04f770ea73f53ad1869610dbe3b5493ea7578aa9dbfe2a",
+   "sources": [
+    "www.das-score.nl (DAS28-CRP formula)",
+    "Fleischmann R et al. RMD Open 2017;3:e000382 (CRP cut-offs)",
+    "CamCOPS DAS28 task page"
+   ],
+   "verified": "partial",
+   "version": 1
+  },
+  "rheum.das28_esr": {
+   "coefficients": {
+    "esr": 0.7,
+    "gh": 0.014,
+    "sjc": 0.28,
+    "tjc": 0.56
+   },
+   "def_version": "rheum.das28_esr@1",
+   "edge_cases": [
+    "esr < 1 mm/h: use 1 (ln(0) undefined); flag",
+    "joint set other than 28: pro-rate to 28 as the protocol states (e.g. 8 of 25 assessed joints becomes 8.96), flag 'prorated'",
+    "ESR and CRP both present: compute both variants; never mix inputs across variants",
+    "any required input missing: no row"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "prorated_tjc28": 8.96
+     },
+     "inputs": {
+      "assessed_joints": 25,
+      "tender_in_assessed": 8
+     },
+     "note": "pro-rating rule example; a full numeric DAS28 example with published output was not found today - the owner or a rheumatologist supplies one (Prevoo 1995 Table or das-score.nl) before approval",
+     "source": "clinical trial protocol text on pro-rating joint counts (ClinicalTrials.gov NCT01623752 Prot_SAP), quoted in web search 2026-11-09",
+     "source_grade": "secondary"
+    },
+    {
+     "expected": {
+      "high_above": 5.1,
+      "low_below": 3.2,
+      "remission_below": 2.6
+     },
+     "inputs": {
+      "thresholds": true
+     },
+     "source": "Fransen & van Riel 2005 Clin Exp Rheumatol 23 (S39):S93; trial protocols quoted 2026-11-09",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/das28_esr.yaml",
+   "formula": "0.56*sqrt(tjc) + 0.28*sqrt(sjc) + 0.70*ln(esr) + 0.014*gh",
+   "formula_kind": "weighted_sqrt_log",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "rheum.tjc28",
+     "required": true,
+     "role": "tjc",
+     "unit": "{count}",
+     "window_days": 0
+    },
+    {
+     "item": "rheum.sjc28",
+     "required": true,
+     "role": "sjc",
+     "unit": "{count}",
+     "window_days": 0
+    },
+    {
+     "item": "lab.esr",
+     "note": "ESR drawn within 7 days of the joint count (same visit preferred); 1-hour Westergren value",
+     "required": true,
+     "role": "esr",
+     "unit": "mm/h",
+     "window_days": 7
+    },
+    {
+     "item": "rheum.ptga_vas100",
+     "note": "patient global health VAS 0-100 mm; a 0-10 NRS is multiplied by 10 and flagged 'converted'",
+     "required": true,
+     "role": "gh",
+     "unit": "mm",
+     "window_days": 0
+    }
+   ],
+   "interpretation": {
+    "eular_response": "good: improvement > 1.2 and present ≤ 3.2; moderate: improvement > 0.6 with limits; none otherwise (van Gestel 1996)",
+    "high": "> 5.1",
+    "low": "2.6 to < 3.2",
+    "moderate": "3.2 to 5.1",
+    "remission": "< 2.6"
+   },
+   "licence": "DAS28 'protected by copyright with all rights reserved to Prof. dr. Piet L.C.M. van Riel'; requests via Mapi ePROVIDE. The formula is published; TrialBox stores the score and its components. Permission terms for use in software: not verified today (owner question Q4)",
+   "name": {
+    "en": "DAS28-ESR",
+    "ja": "DAS28-ESR",
+    "zh_tw": "DAS28-ESR"
+   },
+   "output": {
+    "max": 9.4,
+    "min": 0,
+    "unit": "{score}"
+   },
+   "rounding": "two decimals for display (das-score.nl calculator shows one decimal); store full precision",
+   "score_id": "rheum.das28_esr",
+   "sha256": "5cee23e85cb9a47ea4b9d1869e6f5b8ea748f8145f9254aa27ede93fed865705",
+   "sources": [
+    "Prevoo MLL et al. Arthritis Rheum 1995;38:44-48 (28-joint DAS)",
+    "www.das-score.nl (formula; copyright notice verified 2026-11-09)",
+    "CamCOPS DAS28 task page (formula and variable ranges verified 2026-11-09)"
+   ],
+   "verified": "partial",
+   "version": 1
+  },
+  "rheum.gc_dose_pred_eq": {
+   "conversion_table": {
+    "betamethasone": 6.67,
+    "cortisone": 0.2,
+    "deflazacort": 0.83,
+    "dexamethasone": 6.67,
+    "hydrocortisone": 0.25,
+    "methylprednisolone": 1.25,
+    "prednisolone": 1.0,
+    "prednisone": 1.0,
+    "triamcinolone": 1.25
+   },
+   "def_version": "rheum.gc_dose_pred_eq@1",
+   "edge_cases": [
+    "inhaled, topical, intra-articular and ophthalmic routes are excluded (route from the drug record; if unknown, excluded and flagged)",
+    "pulse therapy (≥ 250 mg/d methylprednisolone) is recorded as a separate flag, not averaged into the daily dose",
+    "alternate-day dosing: average over two days and flag"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "prednisolone_equivalent_mg": 5
+     },
+     "inputs": {
+      "methylprednisolone_mg": 4
+     },
+     "note": "table values from standard references; not re-read at the source today (verified: no)",
+     "source": "standard glucocorticoid equivalence table (prednisone 5 mg = methylprednisolone 4 mg = dexamethasone 0.75 mg = hydrocortisone 20 mg); Meikle AW, Tyler FH. Am J Med 1977;63:200; Buttgereit F et al. Ann Rheum Dis 2002;61:718 (nomenclature)",
+     "source_grade": "secondary"
+    },
+    {
+     "expected": {
+      "prednisolone_equivalent_mg": 5
+     },
+     "inputs": {
+      "dexamethasone_mg": 0.75
+     },
+     "source": "same table",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/prednisolone_equivalent.yaml",
+   "formula": "sum over active systemic glucocorticoids of daily_dose_mg × factor(ingredient), factor = 5 / anti-inflammatory equivalent dose",
+   "formula_kind": "conversion_table",
+   "inputs": [
+    {
+     "item": "DRUG_EXPOSURE rows with ATC H02AB (systemic glucocorticoids), daily dose in mg",
+     "required": true,
+     "role": "drug_exposures",
+     "window_days": 0
+    }
+   ],
+   "interpretation": {
+    "high": "> 30 to ≤ 100",
+    "low_dose": "≤ 7.5 mg/d (EULAR nomenclature)",
+    "medium": "> 7.5 to ≤ 30"
+   },
+   "licence": "formula; no instrument",
+   "name": {
+    "en": "Glucocorticoid dose in prednisolone equivalents",
+    "ja": "プレドニゾロン換算量",
+    "zh_tw": "Prednisolone 當量劑量"
+   },
+   "output": {
+    "max": 2000,
+    "min": 0,
+    "unit": "mg/d"
+   },
+   "rounding": "one decimal",
+   "score_id": "rheum.gc_dose_pred_eq",
+   "sha256": "08292ff6885171831dbd313c470fc7104a862547d5ef615cfbe0aa3114d51da5",
+   "sources": [
+    "Meikle AW, Tyler FH. Am J Med 1977;63:200-207",
+    "Buttgereit F et al. Ann Rheum Dis 2002;61:718-722"
+   ],
+   "verified": false,
+   "version": 1
+  },
+  "rheum.haq_di": {
+   "def_version": "rheum.haq_di@1",
+   "edge_cases": [
+    "fewer than 6 categories answered: no row",
+    "7 categories answered: divide by 7",
+    "Alternative Disability Index (ADI, no aids adjustment) is a different definition: store under a separate version if a protocol asks for it"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "eating_category_score": 2
+     },
+     "inputs": {
+      "eating_category_item_responses": [
+       1,
+       2,
+       0
+      ]
+     },
+     "source": "trial protocol scoring text (ClinicalTrials.gov SAP for NCT02919475 / NCT02792699, quoted in web search 2026-11-09)",
+     "source_grade": "secondary"
+    },
+    {
+     "expected": {
+      "category_score": 2
+     },
+     "inputs": {
+      "rule": "aid used, highest item 1"
+     },
+     "source": "same protocols: 'increasing a zero or a one to a two; a two remains a two, a three remains a three'",
+     "source_grade": "secondary"
+    },
+    {
+     "expected": {
+      "values": "25 possible values 0, 0.125, 0.250 ... 3 with 8 categories"
+     },
+     "inputs": {
+      "possible_values": true
+     },
+     "note": "a full eight-category worked example with a published total was not found today",
+     "source": "HAQ scoring literature quoted 2026-11-09 (sprypt.com HAQ-DI page citing Bruce & Fries)",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/haq_di.yaml",
+   "formula": "category score = highest (worst) item response within the category (0-3);\nif an aid, device or help from another person is used for a category, raise a 0 or 1 to 2 (2 and 3 unchanged);\nHAQ-DI = sum of category scores / number of categories answered; requires at least 6 categories.\n",
+   "formula_kind": "mean_of_categories",
+   "inputs": [
+    {
+     "item": "local items rheum.haq_cat_1..8 (dressing/grooming, arising, eating, walking, hygiene, reach, grip, activities)",
+     "required": "≥ 6 of 8",
+     "role": "category_scores",
+     "unit": "{score}",
+     "window_days": 0
+    },
+    {
+     "item": "local items rheum.haq_aid_*",
+     "required": false,
+     "role": "aids_devices",
+     "unit": "coded",
+     "window_days": 0
+    }
+   ],
+   "interpretation": {
+    "note": "0 = no disability, 3 = severe; MCID about 0.22"
+   },
+   "licence": "Stanford copyright 'so that it will be used unmodified'; permission free of charge; ask before storing item text",
+   "name": {
+    "en": "HAQ Disability Index",
+    "ja": "HAQ-DI",
+    "zh_tw": "健康評估問卷失能指數 HAQ-DI"
+   },
+   "output": {
+    "max": 3,
+    "min": 0,
+    "step": 0.125,
+    "unit": "{score}"
+   },
+   "rounding": "three decimals (values are multiples of 0.125 when 8 categories are answered)",
+   "score_id": "rheum.haq_di",
+   "sha256": "11067f9d9768778c77b673f1dbcc55ac7eef49c96fe076b96016fbcda3dc9064",
+   "sources": [
+    "Fries JF et al. Arthritis Rheum 1980;23:137-145",
+    "Bruce B, Fries JF. J Rheumatol 2003;30:167-178 (scoring)",
+    "Stanford HAQ instructions (NIEHS copy): 'There is no charge for permission' (verified 2026-11-09)",
+    "LOINC 75874-8 Total score [HAQ-DI]; CDISC CT HAQ01TC / HAQ02TC (verified 2026-11-09)"
+   ],
+   "verified": "partial",
+   "version": 1
+  },
+  "rheum.sdai": {
+   "def_version": "rheum.sdai@1",
+   "edge_cases": [
+    "crp below detection: use the detection limit value in mg/dL (one trial SAP uses 0.29 mg/dL), flag",
+    "crp in mg/L not converted: refuse"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "band": "high",
+      "sdai": 31
+     },
+     "inputs": {
+      "crp_mg_dL": 2.0,
+      "evga": 5,
+      "ptga": 6,
+      "sjc": 8,
+      "tjc": 10
+     },
+     "source": "R package 'cliot' documentation, sdai_rheumatoid_arthritis (rdrr.io, read 2026-11-09)",
+     "source_grade": "calculator"
+    },
+    {
+     "expected": {
+      "band": "remission",
+      "sdai": 1.2
+     },
+     "inputs": {
+      "crp_mg_dL": 0.2,
+      "evga": 0.5,
+      "ptga": 0.5,
+      "sjc": 0,
+      "tjc": 0
+     },
+     "source": "same (the page's own band label for this case is wrong; 1.2 is remission by the published cut-offs)",
+     "source_grade": "calculator"
+    }
+   ],
+   "file": "catalogue/scores/sdai.yaml",
+   "formula": "tjc + sjc + ptga + evga + crp_mg_dL",
+   "formula_kind": "sum",
+   "inputs": [
+    {
+     "anchor": true,
+     "item": "rheum.tjc28",
+     "required": true,
+     "role": "tjc",
+     "unit": "{count}",
+     "window_days": 0
+    },
+    {
+     "item": "rheum.sjc28",
+     "required": true,
+     "role": "sjc",
+     "unit": "{count}",
+     "window_days": 0
+    },
+    {
+     "item": "rheum.ptga_0_10",
+     "required": true,
+     "role": "ptga",
+     "unit": "{score}",
+     "window_days": 0
+    },
+    {
+     "item": "rheum.evga_0_10",
+     "required": true,
+     "role": "evga",
+     "unit": "{score}",
+     "window_days": 0
+    },
+    {
+     "item": "lab.crp",
+     "note": "SDAI takes CRP in mg/dL; mg/L ÷ 10. JP charts are already mg/dL",
+     "required": true,
+     "role": "crp",
+     "unit": "mg/dL",
+     "window_days": 7
+    }
+   ],
+   "interpretation": {
+    "high": "> 26",
+    "low": "> 3.3 to ≤ 11",
+    "moderate": "> 11 to ≤ 26",
+    "remission": "≤ 3.3"
+   },
+   "licence": "published index; no licence known",
+   "name": {
+    "en": "Simplified Disease Activity Index",
+    "ja": "SDAI",
+    "zh_tw": "簡化疾病活動指數 SDAI"
+   },
+   "output": {
+    "max": 86,
+    "min": 0,
+    "unit": "{score}"
+   },
+   "rounding": "one decimal",
+   "score_id": "rheum.sdai",
+   "sha256": "475adc9ae9d2e56e0499f0bf92c874343abe0e95f1f482ca9df8c64cfae8018a",
+   "sources": [
+    "Smolen JS et al. Rheumatology 2003;42:244-257",
+    "Aletaha D et al. Arthritis Rheum 2005 (cut-offs)",
+    "LOINC 75845-8 Total score [SDAI] (verified 2026-11-09)"
+   ],
+   "verified": true,
+   "version": 1
+  },
+  "rheum.sledai_2k": {
+   "def_version": "rheum.sledai_2k@1",
+   "edge_cases": [
+    "laboratory descriptors (low complement, anti-dsDNA, proteinuria, hematuria, pyuria, casts, thrombocytopenia, leukopenia) are derived from lab items with the lab's reference range; a missing lab means the descriptor is unknown and the total is marked incomplete",
+    "SLEDAI-2K counts persistent rash, alopecia, mucosal ulcers and proteinuria (differs from original SLEDAI)",
+    "clinical SLEDAI (cSLEDAI) excludes the two serologic descriptors"
+   ],
+   "examples": [
+    {
+     "expected": {
+      "sledai_2k": 7
+     },
+     "inputs": {
+      "present": [
+       "arthritis",
+       "rash",
+       "fever"
+      ]
+     },
+     "source": "R package 'cliot' documentation, sledai_2k_score (rdrr.io, read 2026-11-09)",
+     "source_grade": "calculator"
+    },
+    {
+     "expected": {
+      "sledai_2k": 12
+     },
+     "inputs": {
+      "present": [
+       "vasculitis",
+       "low_complement",
+       "increased_dna_binding"
+      ]
+     },
+     "source": "same",
+     "source_grade": "calculator"
+    },
+    {
+     "expected": {
+      "weights": "4 + 2 + 2"
+     },
+     "inputs": {
+      "weights_check": [
+       "arthritis",
+       "rash",
+       "low_complement"
+      ]
+     },
+     "source": "clinical trial SAP (ClinicalTrials.gov NCT02975336) quoting the SLEDAI-2K weights, read 2026-11-09",
+     "source_grade": "secondary"
+    }
+   ],
+   "file": "catalogue/scores/sledai_2k.yaml",
+   "formula": "sum of the weights of descriptors present",
+   "formula_kind": "sum",
+   "inputs": [
+    {
+     "item": "24 local descriptor items (present/absent within the prior 10 days, or 30 days when a protocol says so)",
+     "required": true,
+     "role": "descriptors",
+     "weights": {
+      "alopecia": 2,
+      "arthritis": 4,
+      "cranial_nerve_disorder": 8,
+      "cva": 8,
+      "fever": 1,
+      "hematuria": 4,
+      "increased_dna_binding": 2,
+      "leukopenia": 1,
+      "low_complement": 2,
+      "lupus_headache": 8,
+      "mucosal_ulcers": 2,
+      "myositis": 4,
+      "organic_brain_syndrome": 8,
+      "pericarditis": 2,
+      "pleurisy": 2,
+      "proteinuria": 4,
+      "psychosis": 8,
+      "pyuria": 4,
+      "rash": 2,
+      "seizure": 8,
+      "thrombocytopenia": 1,
+      "urinary_casts": 4,
+      "vasculitis": 8,
+      "visual_disturbance": 8
+     }
+    }
+   ],
+   "interpretation": {
+    "high": "11-19",
+    "mild": "1-5",
+    "moderate": "6-10",
+    "no_activity": 0,
+    "very_high": "≥ 20"
+   },
+   "licence": "published index; copyright status not verified today; store score and descriptor flags",
+   "name": {
+    "en": "SLEDAI-2K",
+    "ja": "SLEDAI-2K",
+    "zh_tw": "SLEDAI-2K"
+   },
+   "output": {
+    "max": 105,
+    "min": 0,
+    "unit": "{score}"
+   },
+   "rounding": "integer",
+   "score_id": "rheum.sledai_2k",
+   "sha256": "8e2cd188cd1beccb818f7377cbfe317777dd4ee25029b7851544e6fa7bb0beb6",
+   "sources": [
+    "Gladman DD, Ibañez D, Urowitz MB. J Rheumatol 2002;29:288-291"
+   ],
+   "verified": "partial",
+   "version": 1
+  }
+ },
+ "generated_by": "tools/gen_score_defs.py",
+ "source": "catalogue/scores/*.yaml"
+}

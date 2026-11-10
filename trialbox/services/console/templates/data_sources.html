@@ -7,7 +7,9 @@
 <p class="hint">{{ t('dc.sources.help') }}</p>
 {% if not editable %}<p class="hint" data-testid="dc-readonly">{{ t('dc.readonly') }}</p>{% endif %}
 {% if err %}{% include "_data_err.html" %}{% endif %}
-{% if q.get('done') in ('attach', 'detach', 'sync') %}<p class="ok" role="status" data-testid="dc-done">{{ t('dc.done.' + q.get('done')) }}</p>{% endif %}
+{% if q.get('done') in ('attach', 'detach', 'sync', 'undo') %}<div class="toastp" role="status" data-testid="dc-done"><span>{{ t('dc.done.' + q.get('done')) }}</span>
+{% if q.get('done') == 'detach' and can_undo_detach and editable %}<form method="post" action="/studies/{{ rs }}/sources/redcap/undo" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secondary" data-testid="detach-undo">{{ t('mark.undo') }}</button></form>{% endif %}
+</div>{% endif %}
 {% if open_n %}<p class="warn" data-testid="dc-open"><a href="/studies/{{ rs }}/conflicts">{{ t('dc.conflicts.open', n=open_n) }}</a></p>{% endif %}
 
 <section class="card" data-testid="dc-sources">

@@ -1,0 +1,37 @@
+category,note
+B18,chronic viral hepatitis: same scope
+B20,WHO B20 (HIV disease resulting in infectious diseases) is inside CM B20 (HIV disease); WHO B21-B24 have no CM category
+E03,other hypothyroidism: same scope
+E05,thyrotoxicosis: same scope
+E10,type 1 diabetes: same scope (drug-induced and secondary diabetes are outside E10 in both)
+E11,type 2 diabetes: same scope (drug-induced and secondary diabetes are outside E11 in both)
+E66,obesity: same scope
+E78,disorders of lipoprotein metabolism: same scope
+F20,schizophrenia: same scope
+F31,bipolar affective disorder: same scope
+F32,depressive episode: same scope
+G20,Parkinson's disease: same scope (CM split the subcodes in 2024)
+G30,Alzheimer's disease: same scope
+G35,multiple sclerosis: same scope
+G40,epilepsy: CM G40 also holds status epilepticus (WHO G41): WHO G40 is inside CM G40
+I10,essential hypertension: same scope
+I21,acute myocardial infarction: same scope
+I22,subsequent myocardial infarction: same scope
+I25,chronic ischaemic heart disease: same scope
+I26,pulmonary embolism: same scope
+I48,atrial fibrillation and flutter: same scope
+I50,heart failure: same scope
+I63,cerebral infarction: same scope
+J44,other chronic obstructive pulmonary disease: same scope
+J45,asthma: CM J45 also holds status asthmaticus (WHO J46): WHO J45 is inside CM J45
+J84,other interstitial pulmonary diseases: same scope
+K50,Crohn's disease: same scope
+K51,ulcerative colitis: same scope
+K74,fibrosis and cirrhosis of liver: same scope
+L40,psoriasis: same scope
+M05,seropositive rheumatoid arthritis: same scope
+M06,other rheumatoid arthritis: same scope
+M32,systemic lupus erythematosus: same scope
+M45,ankylosing spondylitis: same scope
+N04,nephrotic syndrome: same scope
+N18,chronic kidney disease: same scope

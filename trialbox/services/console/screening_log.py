@@ -327,7 +327,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = h.need(request)
         if not office_allowed(sess):
             raise h.problem(403, "forbidden")
-        y = year or h.clock().year
+        y = year or h.today().year  # the site's year (D-270)
         k = SMALL_CELL
         return h.page(request, "research_office.html", sess, year=y, rows=office_counts(y, k), keys=COUNT_KEYS, small=k)
 
@@ -339,7 +339,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not office_allowed(sess):
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
-        y = year or h.clock().year
+        y = year or h.today().year  # the site's year (D-270)
         k = SMALL_CELL
         wb = Workbook()
         ws: Any = wb.active

@@ -73,6 +73,8 @@ def atom_summary(atom: Atom, valuesets: dict[str, dict[str, Any]]) -> str:
             "das28": "DAS28 (TJC28, SJC28, patient global, ESR or CRP, from one visit)",
             "basdai": "BASDAI",
             "asdas": "ASDAS-CRP",
+            "cdai": "CDAI (TJC28, SJC28, patient and evaluator global 0-10, from one visit)",
+            "sdai": "SDAI (CDAI and CRP in mg/dL, from one visit)",
         }[atom.derived]
         if atom.value and atom.value.op:
             return f"Latest {label} {win} {OP_TEXT[atom.value.op]} {_num(atom)}"
