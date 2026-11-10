@@ -4,24 +4,34 @@
   "loinc": "https://clinicaltables.nlm.nih.gov/api/loinc_items/v3/search",
   "icd10cm": "https://clinicaltables.nlm.nih.gov/api/icd10cm/v3/search",
   "jlac10": "https://www.mhlw.go.jp/content/12400000/001082795.xlsx (linked from https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/xml_30799.html)",
-  "ohdsi": "https://raw.githubusercontent.com/OHDSI/PhenotypeLibrary/v3.37.0/inst/Cohorts.csv and https://raw.githubusercontent.com/OHDSI/PhenotypeLibrary/v3.37.0/inst/cohorts/<id>.json"
+  "ohdsi": "https://raw.githubusercontent.com/OHDSI/PhenotypeLibrary/v3.37.0/inst/Cohorts.csv and https://raw.githubusercontent.com/OHDSI/PhenotypeLibrary/v3.37.0/inst/cohorts/<id>.json",
+  "atc": "https://atcddd.fhi.no/atc_ddd_index/?code=<code>",
+  "cdisc": "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
  },
  "loinc_codes": {
   "100348-2": "Model for end-stage liver disease sodium score",
   "10230-1": "Left ventricular Ejection fraction",
   "10334-1": "Cancer Ag 125 [Units/volume] in Serum or Plasma",
+  "103675-5": "Phosphorylated tau 181 [Mass/volume] in Plasma by Immunoassay",
+  "105302-4": "Immune stain PD-L1 scoring method - Tissue",
   "105303-2": "Tumor cells+Macrophages+Lymphocytes.Programmed cell death ligand 1/Viable tumor cells [Ratio] in Tissue by Immune stain",
   "105304-0": "Tumor cells.Programmed cell death ligand 1/Viable tumor cells in Tissue by Immune stain",
+  "105529-2": "MDA5 Ab [Units/volume] in Serum",
+  "107077-0": "Blasts.CD45/Cells in Bone marrow by Flow cytometry (FC)",
   "107563-9": "MDA5 Ab [Presence] in Serum or Plasma",
   "10839-9": "Troponin I.cardiac [Mass/volume] in Serum or Plasma",
   "11011-4": "Hepatitis C virus RNA [Units/volume] (viral load) in Serum or Plasma by NAA with probe detection",
   "11090-8": "Smith extractable nuclear Ab [Units/volume] in Serum",
   "111765-4": "Procalcitonin [Mass/volume] in Serum, Plasma or Blood by Immunoassay",
+  "11477-7": "Microscopic observation [Identifier] in Sputum by Acid fast stain",
   "11565-9": "Jo-1 extractable nuclear Ab [Units/volume] in Serum",
   "11572-5": "Rheumatoid factor [Units/volume] in Serum or Plasma",
   "13457-7": "Cholesterol in LDL [Mass/volume] in Serum or Plasma by calculation",
   "13945-1": "Erythrocytes [#/area] in Urine sediment by Microscopy high power field",
   "13955-0": "Hepatitis C virus Ab [Presence] in Serum or Plasma by Immunoassay",
+  "14682-9": "Creatinine [Moles/volume] in Serum or Plasma",
+  "14749-6": "Glucose [Moles/volume] in Serum or Plasma",
+  "14959-1": "Microalbumin/Creatinine [Mass Ratio] in Urine",
   "14979-9": "aPTT in Platelet poor plasma by Coagulation assay",
   "1518-0": "Glucose [Mass/volume] in Serum or Plasma --2 hours post 75 g glucose PO",
   "1558-6": "Fasting glucose [Mass/volume] in Serum or Plasma",
@@ -34,6 +44,7 @@
   "1761-6": "Aldolase [Enzymatic activity/volume] in Serum or Plasma",
   "17791-5": "Sjogrens syndrome-B extractable nuclear Ab [Units/volume] in Serum",
   "17792-3": "Sjogrens syndrome-A extractable nuclear Ab [Units/volume] in Serum",
+  "17856-6": "Hemoglobin A1c/Hemoglobin.total in Blood by HPLC",
   "17861-6": "Calcium [Mass/volume] in Serum or Plasma",
   "18185-9": "Gestational age",
   "1834-1": "Alpha-1-Fetoprotein [Mass/volume] in Serum or Plasma",
@@ -50,11 +61,15 @@
   "19872-1": "FVC measured/predicted",
   "1988-5": "C reactive protein [Mass/volume] in Serum or Plasma",
   "1989-3": "25-hydroxyvitamin D3 [Mass/volume] in Serum or Plasma",
+  "19910-9": "Diffusion capacity.carbon monoxide Predicted",
+  "19911-7": "Diffusion capacity.carbon monoxide",
   "19926-5": "FEV1/FVC",
+  "2000-8": "Calcium [Moles/volume] in Serum or Plasma",
   "20150-9": "FEV1",
   "20152-5": "FEV1 measured/predicted",
   "2019-8": "Carbon dioxide [Partial pressure] in Arterial blood",
   "2039-6": "Carcinoembryonic Ag [Mass/volume] in Serum or Plasma",
+  "20416-4": "Hepatitis C virus RNA [#/volume] (viral load) in Serum or Plasma by NAA with probe detection",
   "20447-9": "HIV 1 RNA [#/volume] (viral load) in Serum or Plasma by NAA with probe detection",
   "20454-5": "Protein [Presence] in Urine by Test strip",
   "2075-0": "Chloride [Moles/volume] in Serum or Plasma",
@@ -74,13 +89,19 @@
   "21855-2": "Primary site Cancer",
   "21899-0": "Primary tumor.pathology Cancer",
   "21900-6": "Regional lymph nodes.pathology [Class] Cancer",
+  "21902-2": "Stage group.pathology Cancer",
   "21905-5": "Primary tumor.clinical [Class] Cancer",
   "21906-3": "Regional lymph nodes.clinical [Class] Cancer",
   "21907-1": "Distant metastases.clinical [Class] Cancer",
+  "21908-9": "Stage group.clinical Cancer",
+  "21914-7": "Stage group.other Cancer",
+  "21963-4": "Curative intent of treatment Radiation treatment",
   "2276-4": "Ferritin [Mass/volume] in Serum or Plasma",
   "2284-8": "Folate [Mass/volume] in Serum or Plasma",
   "2324-2": "Gamma glutamyl transferase [Enzymatic activity/volume] in Serum or Plasma",
   "2345-7": "Glucose [Mass/volume] in Serum or Plasma",
+  "23537-4": "Tuberculosis reaction wheal [Diameter] --2 days post dose mammalian tuberculin intradermal",
+  "23539-0": "Tuberculosis reaction wheal [Diameter] --3 days post dose mammalian tuberculin intradermal",
   "24108-3": "Cancer Ag 19-9 [Units/volume] in Serum or Plasma",
   "24467-3": "CD3+CD4+ (T4 helper) cells [#/volume] in Blood",
   "2465-3": "IgG [Mass/volume] in Serum or Plasma",
@@ -108,9 +129,11 @@
   "3024-7": "Thyroxine (T4) free [Mass/volume] in Serum or Plasma",
   "30341-2": "Erythrocyte [Sedimentation Rate] in Blood",
   "3040-3": "Lipase [Enzymatic activity/volume] in Serum or Plasma",
+  "30522-7": "C reactive protein [Mass/volume] in Serum or Plasma by High sensitivity method",
   "3084-1": "Urate [Mass/volume] in Serum or Plasma",
   "3094-0": "Urea nitrogen [Mass/volume] in Serum or Plasma",
   "31150-6": "ERBB2 gene duplication [Presence] in Tissue by FISH",
+  "31205-8": "Histology ICD-O-3 Cancer",
   "3140-1": "Body surface area Derived from formula",
   "31843-6": "Helicobacter pylori Ag [Presence] in Stool",
   "32286-7": "Hepatitis C virus genotype [Identifier] in Serum or Plasma by NAA with probe detection",
@@ -124,7 +147,9 @@
   "33358-3": "Protein.monoclonal [Mass/volume] in Serum or Plasma by Electrophoresis",
   "33762-6": "Natriuretic peptide.B prohormone N-Terminal [Mass/volume] in Serum or Plasma",
   "33863-2": "Cystatin C [Mass/volume] in Serum or Plasma",
+  "33868-1": "Maximum blood flow velocity ICA at maximum stenosis/Maximum blood flow velocity unobstructed CCA by US",
   "33914-3": "Glomerular filtration rate [Volume Rate/Area] in Serum or Plasma by Creatinine-based formula (MDRD)/1.73 sq M",
+  "34444-0": "Acarboxyprothrombin [Mass/volume] in Serum or Plasma",
   "34714-6": "INR in Blood by Coagulation assay",
   "34732-8": "APOE gene allele 2 [Identifier] in Blood or Tissue by Molecular genetics method",
   "35230-2": "Triiodothyronine (T3) Free [Mass or Moles/volume] in Serum or Plasma",
@@ -139,9 +164,12 @@
   "42637-9": "Natriuretic peptide B [Mass/volume] in Blood",
   "43638-6": "Aquaporin 4 water channel IgG Ab [Presence] in Serum or Plasma",
   "44261-6": "Patient Health Questionnaire 9 item (PHQ-9) total score [Reported]",
+  "44648-4": "Histologic grade [Score] in Breast cancer specimen by Nottingham",
   "44760-7": "Model for end-stage liver disease score",
   "4485-9": "Complement C3 [Mass/volume] in Serum or Plasma",
   "4498-2": "Complement C4 [Mass/volume] in Serum or Plasma",
+  "45241-7": "Tuberculosis status",
+  "4537-7": "Erythrocyte [Sedimentation Rate] in Blood by Westergren method",
   "4544-3": "Hematocrit [Volume Fraction] of Blood by Automated count",
   "4548-4": "Hemoglobin A1c/Hemoglobin.total in Blood",
   "48065-7": "Fibrin D-dimer FEU [Mass/volume] in Platelet poor plasma",
@@ -153,14 +181,22 @@
   "5048-4": "Nuclear Ab [Titer] in Serum by Immunofluorescence",
   "5130-0": "DNA double strand Ab [Units/volume] in Serum",
   "5195-3": "Hepatitis B virus surface Ag [Presence] in Serum",
+  "52588-1": "Diabetic foot ulcer(s) #",
   "53027-9": "Cyclic citrullinated peptide Ab [Units/volume] in Serum",
+  "53028-7": "Cyclic citrullinated peptide Ab [Presence] in Serum",
   "53761-3": "JAK2 gene.p.Val617Phe mutant/Normal in Blood or Tissue by Molecular genetics method",
   "53844-7": "BRAF gene targeted mutation analysis in Blood or Tissue by Molecular genetics method",
   "5385-0": "Thyrotropin receptor Ab [Units/volume] in Serum",
   "53982-5": "Centromere protein B Ab [Units/volume] in Serum",
+  "55275-2": "Hepatitis B virus status",
+  "55277-8": "HIV status",
+  "55758-7": "Patient Health Questionnaire 2 item (PHQ-2) total score [Reported]",
   "56056-5": "Birth weight - Reported",
   "56086-2": "Adult Waist Circumference Protocol",
+  "57043-2": "Living arrangements",
+  "57416-0": "Thyrotropin receptor Ab [Units/volume] in Serum by Immunoassay",
   "5902-2": "Prothrombin time (PT)",
+  "59261-8": "Hemoglobin A1c/Hemoglobin.total standardized per IFCC-RMP for CDT in Blood",
   "59408-5": "Oxygen saturation in Arterial blood by Pulse oximetry",
   "59576-9": "Body mass index (BMI) [Percentile] Per age and sex",
   "59847-4": "Histology and Behavior ICD-O-3 Cancer",
@@ -169,20 +205,30 @@
   "62388-4": "Hemoglobin A1c/Hemoglobin.total in Blood by JDS/JSCC protocol",
   "63328-9": "RNA polymerase III Ab [Presence] in Serum by Immunoassay",
   "64098-7": "Six minute walk test",
+  "65704-9": "Posture [UPDRS]",
+  "65893-0": "Visual acuity best corrected Right eye",
+  "65897-1": "Visual acuity best corrected Left eye",
   "6690-2": "Leukocytes [#/volume] in Blood by Automated count",
   "67151-1": "Troponin T.cardiac [Mass/volume] in Serum or Plasma by High sensitivity method",
   "6768-6": "Alkaline phosphatase [Enzymatic activity/volume] in Serum or Plasma",
+  "67888-8": "Vascular access for first outpatient dialysis",
+  "68444-9": "Date chronic dialysis began at current facility",
   "69381-2": "t(9;22)(q34.1;q11)(ABL1,BCR) b2a2 fusion transcript/control transcript (International Scale) in Blood or Tissue by Molecular genetics method",
   "6968-2": "Proteinase 3 Ab [Units/volume] in Serum",
   "6969-0": "Myeloperoxidase Ab [Units/volume] in Serum",
+  "70182-1": "NIH Stroke Scale",
   "70274-6": "Generalized anxiety disorder 7 item (GAD-7) total score [Reported.PHQ]",
+  "71484-0": "Left optic nerve Cup-disc ratio by Ophthalmoscopy",
   "71485-7": "Right optic nerve Cup-disc ratio by Ophthalmoscopy",
+  "71490-7": "Left eye Diabetic retinopathy severity level by Ophthalmoscopy",
+  "71491-5": "Right eye Diabetic retinopathy severity level by Ophthalmoscopy",
   "71773-6": "Mycobacterium tuberculosis stimulated gamma interferon [Interpretation] in Blood Qualitative",
   "718-7": "Hemoglobin [Mass/volume] in Blood",
   "71940-1": "Overall summary score [KCCQ]",
   "72088-8": "Clinical Dementia Rating scale [CDR]",
   "72089-6": "Total score [NIH Stroke Scale]",
   "72106-8": "Total score [MMSE]",
+  "72107-6": "Mini-Mental State Examination [MMSE]",
   "72166-2": "Tobacco smoking status",
   "72172-0": "Total score [MoCA]",
   "72260-3": "Phosphorylated tau 181 [Mass/volume] in Cerebrospinal Fluid by Immunoassay",
@@ -197,6 +243,9 @@
   "75847-4": "Total score [CDAI]",
   "75859-9": "Modified rankin scale",
   "75874-8": "Total score [HAQ-DI]",
+  "75894-6": "Patient global assessment of disease activity - 0-10 (0.5 increments) numeric rating [Reported]",
+  "76634-5": "Q-T interval corrected based on Fridericia formula",
+  "76635-2": "Q-T interval corrected based on Bazett formula",
   "77615-3": "Liver stiffness by US.transient elastography",
   "777-3": "Platelets [#/volume] in Blood by Automated count",
   "77715-1": "Schwab England activities of daily living scale [UPDRS]",
@@ -205,26 +254,38 @@
   "79892-6": "Right eye Intraocular pressure",
   "79893-4": "Left eye Intraocular pressure",
   "8065-5": "Cardiolipin IgG Ab [Units/volume] in Serum or Plasma",
+  "81577-9": "PT Brain for amyloidosis",
   "81695-9": "Microsatellite instability [Interpretation] in Cancer specimen Qualitative",
   "81894-8": "Liver ultrasound attenuation by transient elastography",
   "82674-3": "Asthma Control Test [ACT]",
+  "8280-0": "Waist Circumference at umbilicus by Tape measure",
   "82810-3": "Pregnancy status",
   "8302-2": "Body height",
+  "83156-0": "9-Hole Pegboard Dexterity Test Time Hand - left [NIH Toolbox]",
+  "83157-8": "9-Hole Pegboard Dexterity Test Time Hand - right [NIH Toolbox]",
   "8462-4": "Diastolic blood pressure",
   "8480-6": "Systolic blood pressure",
   "8636-3": "Q-T interval corrected",
   "8664-5": "Cigarettes smoked total (pack per year) - Reported",
+  "86924-8": "Overall summary score [KCCQ-12]",
+  "87907-2": "PET+CT Brain for amyloidosis",
   "88003-9": "TOAST Classification of subtypes of acute ischemic stroke",
   "88020-3": "Functional capacity NYHA",
+  "8806-2": "Left ventricular Ejection fraction by 2D echo",
   "8867-4": "Heart rate",
   "88980-8": "Swollen joint #",
   "88981-6": "Tender joint #",
   "89243-0": "Karnofsky Performance Status score",
   "89247-1": "ECOG Performance Status score",
+  "90028-2": "Routine Assessment of Patient Index Data 3 [RAPID3]",
+  "90038-1": "Weighted score [RAPID3]",
+  "90094-4": "Rheumatoid arthritis disease severity level [RAPID3]",
+  "90264-3": "Fracture Risk Assessment [FRAX]",
   "90265-0": "Major osteoporotic fracture 10-year probability [Likelihood] Fracture Risk Assessment",
   "91544-7": "Myelin oligodendrocyte glycoprotein Ab [Titer] in Serum by Cell binding immunofluorescent assay",
   "9269-2": "Glasgow coma score total",
   "9274-2": "5 minute Apgar Score",
+  "93124-6": "New York Heart Association Functional Classification panel",
   "9318-7": "Albumin/Creatinine [Mass Ratio] in Urine",
   "93245-9": "Columbia - suicide severity rating scale - lifetime recent [C-SSRS]",
   "93369-7": "Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay",
@@ -232,15 +293,21 @@
   "94076-7": "Mutations/Megabase [# Ratio] in Tumor",
   "94500-6": "SARS-CoV-2 (COVID-19) RNA [Presence] in Respiratory system specimen by NAA with probe detection",
   "94699-6": "Glutamate decarboxylase 65 Ab [Moles/volume] in Serum by Immunoassay",
+  "95294-5": "Right eye Spherical equivalent Autorefractor.auto",
+  "95295-2": "Left eye Spherical equivalent Autorefractor.auto",
   "96269-6": "Fractional concentration of exhaled nitric oxide",
   "96761-2": "Total score Barthel Index",
   "96790-1": "SOFA Total Score",
   "96791-9": "Quick SOFA score SOFA.quick",
   "98130-8": "Diffusion capacity.carbon monoxide/Predicted",
   "98152-2": "Total score [Child-Pugh]",
+  "98153-0": "Child-Pugh panel",
+  "98252-0": "Histologic grade in Endometrial cancer specimen Qualitative",
   "9843-4": "Head Occipital-frontal circumference",
   "98488-0": "Liver fibrosis score in Serum Calculated by FIB4",
-  "98979-8": "Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (CKD-EPI 2021)/1.73 sq M"
+  "98497-1": "Visual acuity panel",
+  "98979-8": "Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (CKD-EPI 2021)/1.73 sq M",
+  "99312-1": "Seizure frequency"
  },
  "loinc_searches": {
   "25 foot walk": {
@@ -14588,5 +14655,215 @@
   ],
   "Wandering due to dementia": [],
   "Wheal": []
+ },
+ "atc": {
+  "A10": "DRUGS USED IN DIABETES",
+  "A10BK": "Sodium-glucose co-transporter 2 (SGLT2) inhibitors",
+  "B01AE": "Direct thrombin inhibitors",
+  "B01AF": "Direct factor Xa inhibitors",
+  "C02": "ANTIHYPERTENSIVES",
+  "C03": "DIURETICS",
+  "C07": "BETA BLOCKING AGENTS",
+  "C08": "CALCIUM CHANNEL BLOCKERS",
+  "C09": "AGENTS ACTING ON THE RENIN-ANGIOTENSIN SYSTEM",
+  "H02AB": "Glucocorticoids",
+  "J05AF": "Nucleoside and nucleotide reverse transcriptase inhibitors",
+  "L04AA": "Selective immunosuppressants",
+  "L04AB": "Tumor necrosis factor alpha (TNF-alpha) inhibitors",
+  "L04AC": "Interleukin inhibitors",
+  "M04AA": "Preparations inhibiting uric acid production",
+  "M04AB": "Preparations increasing uric acid excretion",
+  "N03": "ANTIEPILEPTICS",
+  "N04B": "DOPAMINERGIC AGENTS"
+ },
+ "cdisc": {
+  "ADC1TC": {
+   "nci_code": "C213938",
+   "name": "Alzheimer's Disease Assessment Scale-Cognitive 30JUN2015 Functional Test Test Code"
+  },
+  "ADCTC": {
+   "nci_code": "C100132",
+   "name": "Alzheimer's Disease Assessment Scale - Cognitive CDISC Version Functional Test Test Code"
+  },
+  "ADT01TC": {
+   "nci_code": "C119060",
+   "name": "Alcohol Use Disorder Identification Test: Self-Report Version Questionnaire Test Code"
+  },
+  "AJCC1TC": {
+   "nci_code": "C141655",
+   "name": "AJCC TNM Staging System 7th Edition Clinical Classification Test Code"
+  },
+  "AJCCGRD": {
+   "nci_code": "C135012",
+   "name": "AJCC Tumor Grade Response"
+  },
+  "APGR01TC": {
+   "nci_code": "C176047",
+   "name": "Apgar Score V1 Clinical Classification Test Code"
+  },
+  "CDAI01TC": {
+   "nci_code": "C176049",
+   "name": "Crohn's Disease Activity Index Version 1 Questionnaire Test Code"
+  },
+  "CDR01TC": {
+   "nci_code": "C101811",
+   "name": "Clinical Dementia Rating Clinical Classification Test Code"
+  },
+  "CGI02TC": {
+   "nci_code": "C135686",
+   "name": "Clinical Global Impression Generic Modification Version Clinical Classification Test Code"
+  },
+  "CPS01TC": {
+   "nci_code": "C120989",
+   "name": "Child-Pugh Classification Clinical Classification Test Code"
+  },
+  "CSS11TC": {
+   "nci_code": "C117989",
+   "name": "Columbia-Suicide Severity Rating Scale Lifetime/Recent Version Questionnaire Test Code"
+  },
+  "DLQI1TC": {
+   "nci_code": "C119070",
+   "name": "Dermatology Life Quality Index Questionnaire Test Code"
+  },
+  "ECOG1TC": {
+   "nci_code": "C101815",
+   "name": "Eastern Cooperative Oncology Group Performance Status Clinical Classification Test Code"
+  },
+  "EDSS01TC": {
+   "nci_code": "C112439",
+   "name": "Kurtzke Expanded Disability Status Scale Clinical Classification Test Code"
+  },
+  "GAD01TC": {
+   "nci_code": "C103467",
+   "name": "Generalized Anxiety Disorder - 7 Questionnaire Test Code"
+  },
+  "GAD02TC": {
+   "nci_code": "C163389",
+   "name": "Generalized Anxiety Disorder - 7 Version 2 Questionnaire Test Code"
+  },
+  "GCGI01TC": {
+   "nci_code": "C105138",
+   "name": "General Clinical Global Impressions Clinical Classification Test Code"
+  },
+  "GCS01TC": {
+   "nci_code": "C124682",
+   "name": "Glasgow Coma Scale NINDS Version 1.0 Clinical Classification Test Code"
+  },
+  "GDS02TC": {
+   "nci_code": "C106665",
+   "name": "Geriatric Depression Scale Short Form Questionnaire Test Code"
+  },
+  "HAMD1TC": {
+   "nci_code": "C100138",
+   "name": "Hamilton Depression Rating Scale - 17 Item Clinical Classification Test Code"
+  },
+  "HAQ01TC": {
+   "nci_code": "C106667",
+   "name": "Health Assessment Questionnaire Disability Index With Pain Visual Analog Scale Questionnaire Test Code"
+  },
+  "HAQ02TC": {
+   "nci_code": "C132523",
+   "name": "Health Assessment Questionnaire Disability Index Without Pain Visual Analog Scale Questionnaire Test Code"
+  },
+  "HBI01TC": {
+   "nci_code": "C190926",
+   "name": "Harvey-Bradshaw Index Clinical Classification Test Code"
+  },
+  "KDIGO1TC": {
+   "nci_code": "C170529",
+   "name": "Kidney Disease Improving Global Outcomes Staging For Acute Kidney Injury Clinical Classification Test Code"
+  },
+  "KPSS01TC": {
+   "nci_code": "C100170",
+   "name": "Karnofsky Performance Status Scale Clinical Classification Test Code"
+  },
+  "LPPSS1TC": {
+   "nci_code": "C138215",
+   "name": "Lansky Play-Performance Status Scale Questionnaire Test Code"
+  },
+  "MCHR01TC": {
+   "nci_code": "C190928",
+   "name": "Montreal Classification for Crohn's Disease Clinical Classification Test Code"
+  },
+  "MELD01TC": {
+   "nci_code": "C120991",
+   "name": "Model for End Stage Liver Disease Clinical Classification Test Code"
+  },
+  "MELD02TC": {
+   "nci_code": "C213936",
+   "name": "Model for End Stage Liver Disease - Serum Na 2008 Clinical Classification Test Code"
+  },
+  "MMRC01TC": {
+   "nci_code": "C106669",
+   "name": "Modified Medical Research Council Dyspnea Scale Questionnaire Test Code"
+  },
+  "MMS1TC": {
+   "nci_code": "C100142",
+   "name": "Mini-Mental State Examination Functional Test Test Code"
+  },
+  "MRS01TC": {
+   "nci_code": "C111348",
+   "name": "Modified Rankin Scale Clinical Classification Test Code"
+  },
+  "NHPT01TC": {
+   "nci_code": "C115392",
+   "name": "Nine-Hole Peg Test Functional Test Test Code"
+  },
+  "NPI1TC": {
+   "nci_code": "C100144",
+   "name": "Neuropsychiatric Inventory Questionnaire Test Code"
+  },
+  "NYHAC": {
+   "nci_code": "C101839",
+   "name": "New York Heart Association Classification"
+  },
+  "PANSS1TC": {
+   "nci_code": "C124686",
+   "name": "Positive and Negative Syndrome Scale Clinical Classification Test Code"
+  },
+  "PASI02TC": {
+   "nci_code": "C179936",
+   "name": "Psoriasis Area and Severity Index Version Feldman Clinical Classification Test Code"
+  },
+  "PASI05TC": {
+   "nci_code": "C190938",
+   "name": "Psoriasis Area and Severity Index Version Bozek Clinical Classification Test Code"
+  },
+  "PHQ01TC": {
+   "nci_code": "C103481",
+   "name": "Patient Health Questionnaire - 9 Item Questionnaire Test Code"
+  },
+  "PQL01TC": {
+   "nci_code": "C138259",
+   "name": "Pediatric Quality of Life Neuromuscular Module Version 3 Young Adult Questionnaire Test Code"
+  },
+  "SIXMW1TC": {
+   "nci_code": "C115388",
+   "name": "6 Minute Walk Functional Test Test Code"
+  },
+  "SOFA01TC": {
+   "nci_code": "C204224",
+   "name": "Sepsis-related Organ Failure Assessment 1996 Clinical Classification Test Code"
+  },
+  "T25FW1TC": {
+   "nci_code": "C115398",
+   "name": "Timed 25-Foot Walk Test Functional Test Test Code"
+  },
+  "TANN01TC": {
+   "nci_code": "C124664",
+   "name": "Tanner Scale Girl Clinical Classification Test Code"
+  },
+  "TANN02TC": {
+   "nci_code": "C124662",
+   "name": "Tanner Scale Boy Clinical Classification Test Code"
+  },
+  "UPD1TC": {
+   "nci_code": "C100148",
+   "name": "Unified Parkinson's Disease Rating Scale Clinical Classification Test Code"
+  },
+  "UPD2TC": {
+   "nci_code": "C100140",
+   "name": "Movement Disorder Society Unified Parkinson's Disease Rating Scale Questionnaire Test Code"
+  }
  }
 }

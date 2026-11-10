@@ -4,7 +4,9 @@
  "loinc_codes": {
   "1989-3": "25-hydroxyvitamin D3 [Mass/volume] in Serum or Plasma",
   "2160-0": "Creatinine [Mass/volume] in Serum or Plasma",
-  "93369-7": "Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay"
+  "93369-7": "Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay",
+  "3084-1": "Urate [Mass/volume] in Serum or Plasma",
+  "14682-9": "Creatinine [Moles/volume] in Serum or Plasma"
  },
  "loinc_searches": {
   "DAS28": {
@@ -23,6 +25,10 @@
      "Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay"
     ]
    ]
+  },
+  "HAQ-DI": {
+   "total": 0,
+   "hits": []
   }
  },
  "jlac10": {
@@ -135,5 +141,14 @@
    "M06.9",
    "M79.0"
   ]
+ },
+ "atc": {
+  "M04AA": "Preparations inhibiting uric acid production"
+ },
+ "cdisc": {
+  "HAQ01TC": {
+   "nci_code": "C106667",
+   "name": "Health Assessment Questionnaire Disability Index With Pain Visual Analog Scale Questionnaire Test Code"
+  }
  }
 }

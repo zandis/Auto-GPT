@@ -134,7 +134,7 @@ lab.vitd,fit_partial,,,,1989-3 is 25-hydroxyvitamin D3 only; the total (D2+D3) c
 lab.ft3,fit_partial,,,,35230-2 is [Mass or Moles/volume]; a mass-only code was not looked up
 lab.gad_ab,fit_partial,,,,94699-6 is [Moles/volume] by immunoassay; results in U/mL need another code
 lab.hbeag,fit_partial,,,,39007-0 is 'in Specimen'; a serum code was not looked up
-lab.tst,fit_partial,,,,32561-3 is the 1-day reading; the usual 48-72 h reading is 23538-2 (3 days)
+lab.tst,fit_partial,,,,32561-3 is the 1-day reading; the usual readings are 23537-4 (2 days; Japan reads at 48 h) and 23539-0 (3 days)
 neuro.apoe_genotype,fit_partial,,,,34732-8 is APOE allele 2 only; a genotype code was not looked up
 onc.ki67,fit_partial,,,,33055-5 is presence; the percent index was not looked up
 onc.braf_v600,fit_partial,,,,53844-7 is BRAF targeted mutation analysis (any targeted variant)

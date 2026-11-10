@@ -1,0 +1,916 @@
+file,row,field,system,code,use,verified,name_in_source,source,verified_date,may_exclude,note
+items.csv,vital.sbp,loinc,LOINC,8480-6,code,yes,Systolic blood pressure,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,vital.sbp,jlac10,JLAC10,9A751000000000001,code,yes,収縮期血圧(1回目),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,vital.sbp,jlac10,JLAC10,9A752000000000001,code,yes,収縮期血圧(2回目),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,vital.sbp,jlac10,JLAC10,9A755000000000001,code,yes,収縮期血圧(その他),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,vital.dbp,loinc,LOINC,8462-4,code,yes,Diastolic blood pressure,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,vital.dbp,jlac10,JLAC10,9A761000000000001,code,yes,拡張期血圧(1回目),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,vital.dbp,jlac10,JLAC10,9A762000000000001,code,yes,拡張期血圧(2回目),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,vital.dbp,jlac10,JLAC10,9A765000000000001,code,yes,拡張期血圧(その他),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,vital.hr,loinc,LOINC,8867-4,code,yes,Heart rate,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,vital.hr,jlac10,JLAC10,9N121000000000001,code,yes,心拍数,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,vital.weight,loinc,LOINC,29463-7,code,yes,Body weight,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,vital.weight,jlac10,JLAC10,9N006000000000001,code,yes,体重,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,vital.height,loinc,LOINC,8302-2,code,yes,Body height,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,vital.height,jlac10,JLAC10,9N001000000000001,code,yes,身長,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,vital.bmi,loinc,LOINC,39156-5,code,yes,Body mass index (BMI) [Ratio],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,vital.bmi,jlac10,JLAC10,9N011000000000001,code,yes,BMI,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,vital.bsa,loinc,LOINC,3140-1,code,yes,Body surface area Derived from formula,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,vital.waist,loinc,LOINC,56086-2,code,yes,Adult Waist Circumference Protocol,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,vital.waist,jlac10,JLAC10,9N016160100000001,code,yes,腹囲(実測）,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,vital.waist,verified_note,LOINC,8280-0,text,yes,Waist Circumference at umbilicus by Tape measure,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,vital.spo2,loinc,LOINC,59408-5,code,yes,Oxygen saturation in Arterial blood by Pulse oximetry,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,social.smoking,loinc,LOINC,72166-2,code,yes,Tobacco smoking status,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,social.pack_years,loinc,LOINC,8664-5,code,yes,Cigarettes smoked total (pack per year) - Reported,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,social.alcohol_audit,loinc,LOINC,75624-7,code,yes,Total score [AUDIT],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,social.alcohol_audit,cdisc_qrs,CDISC CT,ADT01TC,code,yes,C119060 Alcohol Use Disorder Identification Test: Self-Report Version Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,social.pregnancy,loinc,LOINC,82810-3,code,yes,Pregnancy status,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.creatinine,loinc,LOINC,2160-0,code,yes,Creatinine [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.creatinine,jlac10,JLAC10,3C015000002327101,code,yes,血清クレアチニン,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.creatinine,jlac10,JLAC10,3C015000002399901,code,yes,血清クレアチニン,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.creatinine,source,LOINC,14682-9,text,yes,Creatinine [Moles/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.cystatin_c,loinc,LOINC,33863-2,code,yes,Cystatin C [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.bun,loinc,LOINC,3094-0,code,yes,Urea nitrogen [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.sodium,loinc,LOINC,2951-2,code,yes,Sodium [Moles/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.potassium,loinc,LOINC,2823-3,code,yes,Potassium [Moles/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.chloride,loinc,LOINC,2075-0,code,yes,Chloride [Moles/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.bicarbonate,loinc,LOINC,1963-8,code,yes,Bicarbonate [Moles/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.calcium,loinc,LOINC,17861-6,code,yes,Calcium [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.calcium,source,LOINC,2000-8,text,yes,Calcium [Moles/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.phosphate,loinc,LOINC,2777-1,code,yes,Phosphate [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.magnesium,loinc,LOINC,2601-3,code,yes,Magnesium [Moles/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.glucose,loinc,LOINC,2345-7,code,yes,Glucose [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.glucose,jlac10,JLAC10,3D010129901926101,code,yes,随時血糖,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.glucose,jlac10,JLAC10,3D010129902227101,code,yes,随時血糖,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.glucose,jlac10,JLAC10,3D010129901927201,code,yes,随時血糖,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.glucose,jlac10,JLAC10,3D010129901999901,code,yes,随時血糖,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.glucose,source,LOINC,14749-6,text,yes,Glucose [Moles/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.glucose_fasting,loinc,LOINC,1558-6,code,yes,Fasting glucose [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.glucose_fasting,jlac10,JLAC10,3D010000001926101,code,yes,空腹時血糖,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.glucose_fasting,jlac10,JLAC10,3D010000002227101,code,yes,空腹時血糖,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.glucose_fasting,jlac10,JLAC10,3D010000001927201,code,yes,空腹時血糖,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.glucose_fasting,jlac10,JLAC10,3D010000001999901,code,yes,空腹時血糖,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ogtt_2h,loinc,LOINC,1518-0,code,yes,Glucose [Mass/volume] in Serum or Plasma --2 hours post 75 g glucose PO,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hba1c,loinc,LOINC,4548-4,code,yes,Hemoglobin A1c/Hemoglobin.total in Blood,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hba1c,jlac10,JLAC10,3D046000001906202,code,yes,HbA1c(NGSP値),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.hba1c,jlac10,JLAC10,3D046000001920402,code,yes,HbA1c(NGSP値),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.hba1c,jlac10,JLAC10,3D046000001927102,code,yes,HbA1c(NGSP値),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.hba1c,jlac10,JLAC10,3D046000001999902,code,yes,HbA1c(NGSP値),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.hba1c,source,LOINC,17856-6,text,yes,Hemoglobin A1c/Hemoglobin.total in Blood by HPLC,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.hba1c,source,LOINC,59261-8,text,yes,Hemoglobin A1c/Hemoglobin.total standardized per IFCC-RMP for CDT in Blood,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.hba1c,jp_tw_notes,LOINC,62388-4,text,yes,Hemoglobin A1c/Hemoglobin.total in Blood by JDS/JSCC protocol,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.hba1c_jds,loinc,LOINC,62388-4,code,yes,Hemoglobin A1c/Hemoglobin.total in Blood by JDS/JSCC protocol,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.cholesterol_total,loinc,LOINC,2093-3,code,yes,Cholesterol [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.cholesterol_total,jlac10,JLAC10,3F050000002327101,code,yes,総コレステロール,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.cholesterol_total,jlac10,JLAC10,3F050000002327201,code,yes,総コレステロール,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.cholesterol_total,jlac10,JLAC10,3F050000002399901,code,yes,総コレステロール,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ldl,loinc,LOINC,2089-1,code,yes,Cholesterol in LDL [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ldl,jlac10,JLAC10,3F077000002327101,code,yes,LDLコレステロール,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ldl,jlac10,JLAC10,3F077000002327201,code,yes,LDLコレステロール,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ldl,jlac10,JLAC10,3F077000002399901,code,yes,LDLコレステロール,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ldl,source,LOINC,13457-7,text,yes,Cholesterol in LDL [Mass/volume] in Serum or Plasma by calculation,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.ldl_calc,loinc,LOINC,13457-7,code,yes,Cholesterol in LDL [Mass/volume] in Serum or Plasma by calculation,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ldl_calc,jlac10,JLAC10,3F077000002391901,code,yes,LDLコレステロール,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.hdl,loinc,LOINC,2085-9,code,yes,Cholesterol in HDL [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hdl,jlac10,JLAC10,3F070000002327101,code,yes,HDLコレステロール,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.hdl,jlac10,JLAC10,3F070000002327201,code,yes,HDLコレステロール,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.hdl,jlac10,JLAC10,3F070000002399901,code,yes,HDLコレステロール,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.triglyceride,loinc,LOINC,2571-8,code,yes,Triglyceride [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.triglyceride,jlac10,JLAC10,3F015000002327101,code,yes,空腹時中性脂肪(トリグリセリド),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.triglyceride,jlac10,JLAC10,3F015000002327201,code,yes,空腹時中性脂肪(トリグリセリド),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.triglyceride,jlac10,JLAC10,3F015000002399901,code,yes,空腹時中性脂肪(トリグリセリド),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.triglyceride,jlac10,JLAC10,3F015129902327101,code,yes,随時中性脂肪(トリグリセリド),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.triglyceride,jlac10,JLAC10,3F015129902327201,code,yes,随時中性脂肪(トリグリセリド),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.triglyceride,jlac10,JLAC10,3F015129902399901,code,yes,随時中性脂肪(トリグリセリド),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.urate,loinc,LOINC,3084-1,code,yes,Urate [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.urate,jlac10,JLAC10,3C020000002327101,code,yes,血清尿酸,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.urate,jlac10,JLAC10,3C020000002399901,code,yes,血清尿酸,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.alt,loinc,LOINC,1742-6,code,yes,Alanine aminotransferase [Enzymatic activity/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.alt,jlac10,JLAC10,3B045000002327201,code,yes,ALT(GPT),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.alt,jlac10,JLAC10,3B045000002399901,code,yes,ALT(GPT),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ast,loinc,LOINC,1920-8,code,yes,Aspartate aminotransferase [Enzymatic activity/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ast,jlac10,JLAC10,3B035000002327201,code,yes,AST(GOT),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ast,jlac10,JLAC10,3B035000002399901,code,yes,AST(GOT),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.alp,loinc,LOINC,6768-6,code,yes,Alkaline phosphatase [Enzymatic activity/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.alp,jlac10,JLAC10,3B070000002327101,code,yes,ALP,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.alp,jlac10,JLAC10,3B070000002327501,code,yes,ALP,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.alp,jlac10,JLAC10,3B070000002399901,code,yes,ALP,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ggt,loinc,LOINC,2324-2,code,yes,Gamma glutamyl transferase [Enzymatic activity/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ggt,jlac10,JLAC10,3B090000002327101,code,yes,γ-GT(γ-GTP),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ggt,jlac10,JLAC10,3B090000002399901,code,yes,γ-GT(γ-GTP),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.bilirubin_total,loinc,LOINC,1975-2,code,yes,Bilirubin.total [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.bilirubin_total,jlac10,JLAC10,3J010000002327101,code,yes,総ビリルビン,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.bilirubin_total,jlac10,JLAC10,3J010000002399901,code,yes,総ビリルビン,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.bilirubin_direct,loinc,LOINC,1968-7,code,yes,Bilirubin.direct [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.albumin,loinc,LOINC,1751-7,code,yes,Albumin [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.albumin,jlac10,JLAC10,3A015000002327101,code,yes,アルブミン,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.albumin,jlac10,JLAC10,3A015000002399901,code,yes,アルブミン,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.protein_total,loinc,LOINC,2885-2,code,yes,Protein [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.protein_total,jlac10,JLAC10,3A010000002327101,code,yes,総蛋白,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.protein_total,jlac10,JLAC10,3A010000002399901,code,yes,総蛋白,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ldh,loinc,LOINC,2532-0,code,yes,Lactate dehydrogenase [Enzymatic activity/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ldh,jlac10,JLAC10,3B050000002327201,code,yes,LD,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ldh,jlac10,JLAC10,3B050000002327901,code,yes,LD,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ldh,jlac10,JLAC10,3B050000002399901,code,yes,LD,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ck,loinc,LOINC,2157-6,code,yes,Creatine kinase [Enzymatic activity/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.aldolase,loinc,LOINC,1761-6,code,yes,Aldolase [Enzymatic activity/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ammonia,loinc,LOINC,16362-6,code,yes,Ammonia [Moles/volume] in Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.lipase,loinc,LOINC,3040-3,code,yes,Lipase [Enzymatic activity/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.lactate,loinc,LOINC,32693-4,code,yes,Lactate [Moles/volume] in Blood,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.procalcitonin,loinc,LOINC,111765-4,code,yes,"Procalcitonin [Mass/volume] in Serum, Plasma or Blood by Immunoassay",NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,lab.ferritin,loinc,LOINC,2276-4,code,yes,Ferritin [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ferritin,jlac10,JLAC10,5C095000002302301,code,yes,血清フェリチン,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.ferritin,jlac10,JLAC10,5C095000002399901,code,yes,血清フェリチン,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.iron,loinc,LOINC,2498-4,code,yes,Iron [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.tsat,loinc,LOINC,2502-3,code,yes,Iron saturation [Mass Fraction] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.b12,loinc,LOINC,2132-9,code,yes,Cobalamin (Vitamin B12) [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.folate,loinc,LOINC,2284-8,code,yes,Folate [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.vitd,loinc,LOINC,1989-3,code,yes,25-hydroxyvitamin D3 [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,lab.pth,loinc,LOINC,2731-8,code,yes,Parathyrin.intact [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.tsh,loinc,LOINC,3016-3,code,yes,Thyrotropin [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ft4,loinc,LOINC,3024-7,code,yes,Thyroxine (T4) free [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ft3,loinc,LOINC,35230-2,code,yes,Triiodothyronine (T3) Free [Mass or Moles/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,lab.cortisol,loinc,LOINC,2143-6,code,yes,Cortisol [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.testosterone,loinc,LOINC,2986-8,code,yes,Testosterone [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.c_peptide,loinc,LOINC,1986-9,code,yes,C peptide [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.gad_ab,loinc,LOINC,94699-6,code,yes,Glutamate decarboxylase 65 Ab [Moles/volume] in Serum by Immunoassay,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,lab.crp,loinc,LOINC,1988-5,code,yes,C reactive protein [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.crp,jlac10,JLAC10,5C070000002306201,code,yes,CRP,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.crp,jlac10,JLAC10,5C070000002306301,code,yes,CRP,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.crp,jlac10,JLAC10,5C070000002399901,code,yes,CRP,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.crp,source,LOINC,30522-7,text,yes,C reactive protein [Mass/volume] in Serum or Plasma by High sensitivity method,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.esr,loinc,LOINC,30341-2,code,yes,Erythrocyte [Sedimentation Rate] in Blood,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.esr,source,LOINC,4537-7,text,yes,Erythrocyte [Sedimentation Rate] in Blood by Westergren method,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.rf,loinc,LOINC,11572-5,code,yes,Rheumatoid factor [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_ccp,loinc,LOINC,53027-9,code,yes,Cyclic citrullinated peptide Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_ccp,source,LOINC,53028-7,text,yes,Cyclic citrullinated peptide Ab [Presence] in Serum,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.ana,loinc,LOINC,5048-4,code,yes,Nuclear Ab [Titer] in Serum by Immunofluorescence,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_dsdna,loinc,LOINC,5130-0,code,yes,DNA double strand Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_sm,loinc,LOINC,11090-8,code,yes,Smith extractable nuclear Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_rnp,loinc,LOINC,29374-6,code,yes,Ribonucleoprotein extractable nuclear Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_ssa,loinc,LOINC,17792-3,code,yes,Sjogrens syndrome-A extractable nuclear Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_ssb,loinc,LOINC,17791-5,code,yes,Sjogrens syndrome-B extractable nuclear Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_scl70,loinc,LOINC,27416-7,code,yes,SCL-70 extractable nuclear Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_centromere,loinc,LOINC,53982-5,code,yes,Centromere protein B Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_rnapol3,loinc,LOINC,63328-9,code,yes,RNA polymerase III Ab [Presence] in Serum by Immunoassay,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_jo1,loinc,LOINC,11565-9,code,yes,Jo-1 extractable nuclear Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_mda5,loinc,LOINC,107563-9,code,yes,MDA5 Ab [Presence] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anti_mda5,verified_note,LOINC,105529-2,text,yes,MDA5 Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.c3,loinc,LOINC,4485-9,code,yes,Complement C3 [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.c4,loinc,LOINC,4498-2,code,yes,Complement C4 [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ch50,loinc,LOINC,48071-5,code,yes,Complement total hemolytic CH50 [Titer] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.acl_igg,loinc,LOINC,8065-5,code,yes,Cardiolipin IgG Ab [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.b2gp1_igg,loinc,LOINC,16135-6,code,yes,Beta 2 glycoprotein 1 IgG Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.lupus_anticoag,loinc,LOINC,3281-3,code,yes,Lupus anticoagulant [Interpretation] in Platelet poor plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.mpo_anca,loinc,LOINC,6969-0,code,yes,Myeloperoxidase Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.pr3_anca,loinc,LOINC,6968-2,code,yes,Proteinase 3 Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.anca_pattern,loinc,LOINC,21419-7,code,yes,Neutrophil cytoplasmic Ab pattern [Interpretation] in Serum by Immunofluorescence,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hla_b27,loinc,LOINC,4821-5,code,yes,HLA-B27 [Presence],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.igg,loinc,LOINC,2465-3,code,yes,IgG [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ige,loinc,LOINC,19113-0,code,yes,IgE [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.kl6,loinc,LOINC,93369-7,code,yes,Krebs von den Lungen-6 [Units/volume] in Serum or Plasma by Immunoassay,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.sp_d,loinc,LOINC,74541-4,code,yes,Surfactant pulmonary-associated protein D [Mass/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.wbc,loinc,LOINC,6690-2,code,yes,Leukocytes [#/volume] in Blood by Automated count,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.wbc,jlac10,JLAC10,2A010000001930101,code,yes,白血球数,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.anc,loinc,LOINC,751-8,code,yes,Neutrophils [#/volume] in Blood by Automated count,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.alc,loinc,LOINC,731-0,code,yes,Lymphocytes [#/volume] in Blood by Automated count,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.eos,loinc,LOINC,26449-9,code,yes,Eosinophils [#/volume] in Blood,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hemoglobin,loinc,LOINC,718-7,code,yes,Hemoglobin [Mass/volume] in Blood,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hemoglobin,jlac10,JLAC10,2A030000001930101,code,yes,血色素量(ヘモグロビン値),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.hematocrit,loinc,LOINC,4544-3,code,yes,Hematocrit [Volume Fraction] of Blood by Automated count,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hematocrit,jlac10,JLAC10,2A040000001930102,code,yes,ヘマトクリット値,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.mcv,loinc,LOINC,787-2,code,yes,MCV [Entitic mean volume] in Red Blood Cells by Automated count,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.mcv,jlac10,JLAC10,2A060000001930101,code,yes,MCV,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.platelets,loinc,LOINC,777-3,code,yes,Platelets [#/volume] in Blood by Automated count,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.platelets,jlac10,JLAC10,2A050000001930101,code,yes,血小板数,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.reticulocytes,loinc,LOINC,60474-4,code,yes,Reticulocytes [#/volume] in Blood by Automated count,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.pt_inr,loinc,LOINC,34714-6,code,yes,INR in Blood by Coagulation assay,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.pt,loinc,LOINC,5902-2,code,yes,Prothrombin time (PT),NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.aptt,loinc,LOINC,14979-9,code,yes,aPTT in Platelet poor plasma by Coagulation assay,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.fibrinogen,loinc,LOINC,3255-7,code,yes,Fibrinogen [Mass/volume] in Platelet poor plasma by Coagulation assay,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.d_dimer,loinc,LOINC,48065-7,code,yes,Fibrin D-dimer FEU [Mass/volume] in Platelet poor plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.uacr,loinc,LOINC,9318-7,code,yes,Albumin/Creatinine [Mass Ratio] in Urine,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.uacr,jlac10,JLAC10,3A015000000106128,code,yes,尿中アルブミンクレアチニン補正値／アルブミン指数,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.uacr,jlac10,JLAC10,3A015000000199928,code,yes,尿中アルブミンクレアチニン補正値／アルブミン指数,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.uacr,source,LOINC,14959-1,text,yes,Microalbumin/Creatinine [Mass Ratio] in Urine,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.upcr,loinc,LOINC,2890-2,code,yes,Protein/Creatinine [Mass Ratio] in Urine,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.urine_protein_24h,loinc,LOINC,2889-4,code,yes,Protein [Mass/time] in 24 hour Urine,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.urine_albumin,loinc,LOINC,1754-1,code,yes,Albumin [Mass/volume] in Urine,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.urine_albumin,jlac10,JLAC10,3A015000000106101,code,yes,尿中アルブミン定量,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.urine_albumin,jlac10,JLAC10,3A015000000199901,code,yes,尿中アルブミン定量,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.urine_albumin,jlac10,JLAC10,3A015000000406101,code,yes,尿中アルブミン定量,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.urine_albumin,jlac10,JLAC10,3A015000000499901,code,yes,尿中アルブミン定量,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.urine_creatinine,loinc,LOINC,2161-8,code,yes,Creatinine [Mass/volume] in Urine,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.urine_protein_dipstick,loinc,LOINC,20454-5,code,yes,Protein [Presence] in Urine by Test strip,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.urine_protein_dipstick,jlac10,JLAC10,1A010000000191111,code,yes,尿蛋白,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.urine_protein_dipstick,jlac10,JLAC10,1A010000000190111,code,yes,尿蛋白,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.urine_rbc,loinc,LOINC,13945-1,code,yes,Erythrocytes [#/area] in Urine sediment by Microscopy high power field,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hbsag,loinc,LOINC,5195-3,code,yes,Hepatitis B virus surface Ag [Presence] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hbsag,jlac10,JLAC10,5F016141002399811,code,yes,HBs抗原,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.anti_hbc,loinc,LOINC,16933-4,code,yes,Hepatitis B virus core Ab [Presence] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hbeag,loinc,LOINC,39007-0,code,yes,Hepatitis B virus e Ag [Presence] in Specimen,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,lab.hbv_dna,loinc,LOINC,29615-2,code,yes,Hepatitis B virus DNA [#/volume] (viral load) in Serum or Plasma by NAA with probe detection,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hcv_ab,loinc,LOINC,13955-0,code,yes,Hepatitis C virus Ab [Presence] in Serum or Plasma by Immunoassay,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hcv_ab,jlac10,JLAC10,5F360149502399811,code,yes,HCV抗体,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.hcv_rna,loinc,LOINC,11011-4,code,yes,Hepatitis C virus RNA [Units/volume] (viral load) in Serum or Plasma by NAA with probe detection,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hcv_rna,source,LOINC,20416-4,text,yes,Hepatitis C virus RNA [#/volume] (viral load) in Serum or Plasma by NAA with probe detection,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.hcv_genotype,loinc,LOINC,32286-7,code,yes,Hepatitis C virus genotype [Identifier] in Serum or Plasma by NAA with probe detection,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hiv_rna,loinc,LOINC,20447-9,code,yes,HIV 1 RNA [#/volume] (viral load) in Serum or Plasma by NAA with probe detection,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.cd4,loinc,LOINC,24467-3,code,yes,CD3+CD4+ (T4 helper) cells [#/volume] in Blood,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.igra,loinc,LOINC,71773-6,code,yes,Mycobacterium tuberculosis stimulated gamma interferon [Interpretation] in Blood Qualitative,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.tst,loinc,LOINC,32561-3,code,yes,Tuberculosis reaction wheal [Diameter] --1 day post dose mammalian tuberculin intradermal,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,lab.tst,source,LOINC,23537-4,text,yes,Tuberculosis reaction wheal [Diameter] --2 days post dose mammalian tuberculin intradermal,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.tst,source,LOINC,23539-0,text,yes,Tuberculosis reaction wheal [Diameter] --3 days post dose mammalian tuberculin intradermal,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.afb_smear,verified_note,LOINC,11477-7,text,yes,Microscopic observation [Identifier] in Sputum by Acid fast stain,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.sarscov2_pcr,loinc,LOINC,94500-6,code,yes,SARS-CoV-2 (COVID-19) RNA [Presence] in Respiratory system specimen by NAA with probe detection,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.hpylori_stool,loinc,LOINC,31843-6,code,yes,Helicobacter pylori Ag [Presence] in Stool,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.calprotectin,loinc,LOINC,38445-3,code,yes,Calprotectin [Mass/mass] in Stool,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ntprobnp,loinc,LOINC,33762-6,code,yes,Natriuretic peptide.B prohormone N-Terminal [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.bnp,loinc,LOINC,42637-9,code,yes,Natriuretic peptide B [Mass/volume] in Blood,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.troponin_i,loinc,LOINC,10839-9,code,yes,Troponin I.cardiac [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.troponin_t_hs,loinc,LOINC,67151-1,code,yes,Troponin T.cardiac [Mass/volume] in Serum or Plasma by High sensitivity method,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.pao2,loinc,LOINC,2703-7,code,yes,Oxygen [Partial pressure] in Arterial blood,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.paco2,loinc,LOINC,2019-8,code,yes,Carbon dioxide [Partial pressure] in Arterial blood,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.cea,loinc,LOINC,2039-6,code,yes,Carcinoembryonic Ag [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ca19_9,loinc,LOINC,24108-3,code,yes,Cancer Ag 19-9 [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.ca125,loinc,LOINC,10334-1,code,yes,Cancer Ag 125 [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.afp,loinc,LOINC,1834-1,code,yes,Alpha-1-Fetoprotein [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.pivka2,loinc,LOINC,93768-0,code,yes,Acarboxyprothrombin [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.pivka2,verified_note,LOINC,34444-0,text,yes,Acarboxyprothrombin [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,lab.psa,loinc,LOINC,2857-1,code,yes,Prostate specific Ag [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,lab.psa,jlac10,JLAC10,5D305000002399811,code,yes,PSA(前立腺特異抗原),MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,yes,
+items.csv,lab.hcg,loinc,LOINC,19080-1,code,yes,Choriogonadotropin [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.tjc28,loinc,LOINC,88981-6,code,yes,Tender joint #,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.sjc28,loinc,LOINC,88980-8,code,yes,Swollen joint #,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.tjc68,verified_note,LOINC,88981-6,text,yes,Tender joint #,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,rheum.sjc66,verified_note,LOINC,88980-8,text,yes,Swollen joint #,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,rheum.ptga_0_10,loinc,LOINC,75844-1,code,yes,Patient global assessment of disease activity - 0-10 numeric rating [Reported],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.ptga_vas100,verified_note,LOINC,75844-1,text,yes,Patient global assessment of disease activity - 0-10 numeric rating [Reported],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,rheum.ptga_vas100,verified_note,LOINC,75894-6,text,yes,Patient global assessment of disease activity - 0-10 (0.5 increments) numeric rating [Reported],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,rheum.evga_0_10,loinc,LOINC,75846-6,code,yes,Evaluator global assessment of disease activity - 0-10 (0.5 increments) numeric rating [Observed],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.pain_vas,loinc,LOINC,72514-3,code,yes,Pain severity - 0-10 verbal numeric rating [Score] - Reported,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.cdai,loinc,LOINC,75847-4,code,yes,Total score [CDAI],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.sdai,loinc,LOINC,75845-8,code,yes,Total score [SDAI],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.haq_di,loinc,LOINC,75874-8,code,yes,Total score [HAQ-DI],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.haq_di,cdisc_qrs,CDISC CT,HAQ01TC,code,yes,C106667 Health Assessment Questionnaire Disability Index With Pain Visual Analog Scale Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,rheum.haq_di,cdisc_qrs,CDISC CT,HAQ02TC,code,yes,C132523 Health Assessment Questionnaire Disability Index Without Pain Visual Analog Scale Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,rheum.rapid3,verified_note,LOINC,90028-2,text,yes,Routine Assessment of Patient Index Data 3 [RAPID3],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,rheum.rapid3,verified_note,LOINC,90038-1,text,yes,Weighted score [RAPID3],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,rheum.rapid3,verified_note,LOINC,90094-4,text,yes,Rheumatoid arthritis disease severity level [RAPID3],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,rheum.pasi,cdisc_qrs,CDISC CT,PASI02TC,code,yes,C179936 Psoriasis Area and Severity Index Version Feldman Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,rheum.pasi,cdisc_qrs,CDISC CT,PASI05TC,code,yes,C190938 Psoriasis Area and Severity Index Version Bozek Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,rheum.fvc_pct_pred,loinc,LOINC,19872-1,code,yes,FVC measured/predicted,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.fvc,loinc,LOINC,19870-5,code,yes,Forced vital capacity [Volume] Respiratory system,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.dlco_pct_pred,loinc,LOINC,98130-8,code,yes,Diffusion capacity.carbon monoxide/Predicted,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,rheum.dlco_pct_pred,source,LOINC,19911-7,text,yes,Diffusion capacity.carbon monoxide,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,rheum.dlco_pct_pred,verified_note,LOINC,19911-7,text,yes,Diffusion capacity.carbon monoxide,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,rheum.dlco_pct_pred,verified_note,LOINC,19910-9,text,yes,Diffusion capacity.carbon monoxide Predicted,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,neuro.mmse_total,loinc,LOINC,72106-8,code,yes,Total score [MMSE],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.mmse_total,cdisc_qrs,CDISC CT,MMS1TC,code,yes,C100142 Mini-Mental State Examination Functional Test Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.mmse_total,source,LOINC,72107-6,text,yes,Mini-Mental State Examination [MMSE],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,neuro.moca_total,loinc,LOINC,72172-0,code,yes,Total score [MoCA],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.cdr_global,loinc,LOINC,72088-8,code,yes,Clinical Dementia Rating scale [CDR],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.cdr_global,cdisc_qrs,CDISC CT,CDR01TC,code,yes,C101811 Clinical Dementia Rating Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.adas_cog,cdisc_qrs,CDISC CT,ADCTC,code,yes,C100132 Alzheimer's Disease Assessment Scale - Cognitive CDISC Version Functional Test Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.adas_cog,cdisc_qrs,CDISC CT,ADC1TC,code,yes,C213938 Alzheimer's Disease Assessment Scale-Cognitive 30JUN2015 Functional Test Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.npi_q,cdisc_qrs,CDISC CT,NPI1TC,code,yes,C100144 Neuropsychiatric Inventory Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.barthel,loinc,LOINC,96761-2,code,yes,Total score Barthel Index,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.apoe_genotype,loinc,LOINC,34732-8,code,yes,APOE gene allele 2 [Identifier] in Blood or Tissue by Molecular genetics method,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,neuro.csf_abeta42,loinc,LOINC,33203-1,code,yes,Amyloid beta 42 peptide [Mass/volume] in Cerebrospinal Fluid,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.csf_ptau181,loinc,LOINC,72260-3,code,yes,Phosphorylated tau 181 [Mass/volume] in Cerebrospinal Fluid by Immunoassay,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.csf_ptau181,source,LOINC,103675-5,text,yes,Phosphorylated tau 181 [Mass/volume] in Plasma by Immunoassay,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,neuro.amyloid_pet,verified_note,LOINC,87907-2,text,yes,PET+CT Brain for amyloidosis,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,neuro.amyloid_pet,verified_note,LOINC,81577-9,text,yes,PT Brain for amyloidosis,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,neuro.edss,cdisc_qrs,CDISC CT,EDSS01TC,code,yes,C112439 Kurtzke Expanded Disability Status Scale Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.csf_ocb,loinc,LOINC,32358-4,code,yes,Oligoclonal bands [Presence] in Cerebrospinal Fluid,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.aqp4_ab,loinc,LOINC,43638-6,code,yes,Aquaporin 4 water channel IgG Ab [Presence] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.mog_ab,loinc,LOINC,91544-7,code,yes,Myelin oligodendrocyte glycoprotein Ab [Titer] in Serum by Cell binding immunofluorescent assay,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.t25fw,cdisc_qrs,CDISC CT,T25FW1TC,code,yes,C115398 Timed 25-Foot Walk Test Functional Test Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.nhpt,cdisc_qrs,CDISC CT,NHPT01TC,code,yes,C115392 Nine-Hole Peg Test Functional Test Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.nhpt,verified_note,LOINC,83156-0,text,yes,9-Hole Pegboard Dexterity Test Time Hand - left [NIH Toolbox],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,neuro.nhpt,verified_note,LOINC,83157-8,text,yes,9-Hole Pegboard Dexterity Test Time Hand - right [NIH Toolbox],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,neuro.nihss_total,loinc,LOINC,72089-6,code,yes,Total score [NIH Stroke Scale],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.nihss_total,components,LOINC,70182-1,text,yes,NIH Stroke Scale,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,neuro.mrs,loinc,LOINC,75859-9,code,yes,Modified rankin scale,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.mrs,cdisc_qrs,CDISC CT,MRS01TC,code,yes,C111348 Modified Rankin Scale Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.gcs_total,loinc,LOINC,9269-2,code,yes,Glasgow coma score total,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.gcs_total,cdisc_qrs,CDISC CT,GCS01TC,code,yes,C124682 Glasgow Coma Scale NINDS Version 1.0 Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.stroke_subtype_toast,loinc,LOINC,88003-9,code,yes,TOAST Classification of subtypes of acute ischemic stroke,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.carotid_stenosis_pct,verified_note,LOINC,33868-1,text,yes,Maximum blood flow velocity ICA at maximum stenosis/Maximum blood flow velocity unobstructed CCA by US,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,neuro.mds_updrs_total,cdisc_qrs,CDISC CT,UPD2TC,code,yes,C100140 Movement Disorder Society Unified Parkinson's Disease Rating Scale Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.updrs_total,cdisc_qrs,CDISC CT,UPD1TC,code,yes,C100148 Unified Parkinson's Disease Rating Scale Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neuro.updrs_total,source,LOINC,65704-9,text,yes,Posture [UPDRS],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,neuro.schwab_england,loinc,LOINC,77715-1,code,yes,Schwab England activities of daily living scale [UPDRS],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neuro.seizure_freq_month,verified_note,LOINC,99312-1,text,yes,Seizure frequency,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,onc.ecog,loinc,LOINC,89247-1,code,yes,ECOG Performance Status score,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.ecog,cdisc_qrs,CDISC CT,ECOG1TC,code,yes,C101815 Eastern Cooperative Oncology Group Performance Status Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,onc.kps,loinc,LOINC,89243-0,code,yes,Karnofsky Performance Status score,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.kps,cdisc_qrs,CDISC CT,KPSS01TC,code,yes,C100170 Karnofsky Performance Status Scale Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,onc.lansky,cdisc_qrs,CDISC CT,LPPSS1TC,code,yes,C138215 Lansky Play-Performance Status Scale Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,onc.primary_site_icdo3,loinc,LOINC,21855-2,code,yes,Primary site Cancer,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.morphology_icdo3,loinc,LOINC,59847-4,code,yes,Histology and Behavior ICD-O-3 Cancer,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.morphology_icdo3,verified_note,LOINC,31205-8,text,yes,Histology ICD-O-3 Cancer,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,onc.grade,cdisc_qrs,CDISC CT,AJCCGRD,code,yes,C135012 AJCC Tumor Grade Response,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,onc.grade,verified_note,LOINC,98252-0,text,yes,Histologic grade in Endometrial cancer specimen Qualitative,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,onc.grade,verified_note,LOINC,44648-4,text,yes,Histologic grade [Score] in Breast cancer specimen by Nottingham,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,onc.tnm_ct,loinc,LOINC,21905-5,code,yes,Primary tumor.clinical [Class] Cancer,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.tnm_ct,cdisc_qrs,CDISC CT,AJCC1TC,code,yes,C141655 AJCC TNM Staging System 7th Edition Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,onc.tnm_cn,loinc,LOINC,21906-3,code,yes,Regional lymph nodes.clinical [Class] Cancer,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.tnm_cm,loinc,LOINC,21907-1,code,yes,Distant metastases.clinical [Class] Cancer,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.tnm_pt,loinc,LOINC,21899-0,code,yes,Primary tumor.pathology Cancer,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.tnm_pn,loinc,LOINC,21900-6,code,yes,Regional lymph nodes.pathology [Class] Cancer,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.stage_group,verified_note,LOINC,21908-9,text,yes,Stage group.clinical Cancer,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,onc.stage_group,verified_note,LOINC,21902-2,text,yes,Stage group.pathology Cancer,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,onc.stage_group,verified_note,LOINC,21914-7,text,yes,Stage group.other Cancer,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,onc.dx_date,loinc,LOINC,21854-5,code,yes,Date first Dx Cancer,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.treatment_intent,verified_note,LOINC,21963-4,text,yes,Curative intent of treatment Radiation treatment,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,onc.crcl_cg,loinc,LOINC,35591-7,code,yes,Creatinine renal clearance predicted by Cockcroft-Gault formula,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.er_status,loinc,LOINC,40556-3,code,yes,Estrogen receptor Ag [Presence] in Tissue by Immune stain,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.pr_status,loinc,LOINC,40557-1,code,yes,Progesterone receptor Ag [Presence] in Tissue by Immune stain,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.her2_ihc,loinc,LOINC,18474-7,code,yes,HER2 Ag [Presence] in Tissue by Immune stain,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.her2_ish,loinc,LOINC,31150-6,code,yes,ERBB2 gene duplication [Presence] in Tissue by FISH,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.ki67,loinc,LOINC,33055-5,code,yes,Ki-67 nuclear Ag [Presence] in Tissue by Immune stain,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,onc.pdl1_tps,loinc,LOINC,105304-0,code,yes,Tumor cells.Programmed cell death ligand 1/Viable tumor cells in Tissue by Immune stain,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.pdl1_tps,source,LOINC,105302-4,text,yes,Immune stain PD-L1 scoring method - Tissue,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,onc.pdl1_cps,loinc,LOINC,105303-2,code,yes,Tumor cells+Macrophages+Lymphocytes.Programmed cell death ligand 1/Viable tumor cells [Ratio] in Tissue by Immune stain,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.pdl1_cps,verified_note,LOINC,105304-0,text,yes,Tumor cells.Programmed cell death ligand 1/Viable tumor cells in Tissue by Immune stain,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,onc.egfr_mutation,loinc,LOINC,21665-5,code,yes,EGFR gene mutations found [Identifier] in Blood or Tissue by Targeted gene mutation analysis Nominal,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.alk_rearrangement,loinc,LOINC,78205-2,code,yes,ALK gene rearrangements [Presence] in Blood or Tissue by FISH,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.kras_mutation,loinc,LOINC,21702-6,code,yes,KRAS gene mutations found [Identifier] in Blood or Tissue by Targeted gene mutation analysis Nominal,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.braf_v600,loinc,LOINC,53844-7,code,yes,BRAF gene targeted mutation analysis in Blood or Tissue by Molecular genetics method,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,onc.msi_status,loinc,LOINC,81695-9,code,yes,Microsatellite instability [Interpretation] in Cancer specimen Qualitative,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.tmb,loinc,LOINC,94076-7,code,yes,Mutations/Megabase [# Ratio] in Tumor,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,onc.brca_germline,loinc,LOINC,21636-6,code,yes,BRCA1 gene mutations found [Identifier] in Blood or Tissue by Targeted gene mutation analysis Nominal,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,heme.bm_blast_pct,source,LOINC,107077-0,text,yes,Blasts.CD45/Cells in Bone marrow by Flow cytometry (FC),NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,heme.m_protein,loinc,LOINC,33358-3,code,yes,Protein.monoclonal [Mass/volume] in Serum or Plasma by Electrophoresis,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,heme.flc_ratio,loinc,LOINC,48378-4,code,yes,Kappa light chains.free/Lambda light chains.free [Mass Ratio] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,heme.beta2_microglobulin,loinc,LOINC,1952-1,code,yes,Beta-2-Microglobulin [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,heme.bcr_abl_is,loinc,LOINC,69381-2,code,yes,"t(9;22)(q34.1;q11)(ABL1,BCR) b2a2 fusion transcript/control transcript (International Scale) in Blood or Tissue by Molecular genetics method",NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,heme.jak2_v617f,loinc,LOINC,53761-3,code,yes,JAK2 gene.p.Val617Phe mutant/Normal in Blood or Tissue by Molecular genetics method,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neph.egfr_ckd_epi_2021,loinc,LOINC,98979-8,code,yes,"Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (CKD-EPI 2021)/1.73 sq M",NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neph.egfr_ckd_epi_2009,loinc,LOINC,62238-1,code,yes,"Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (CKD-EPI)/1.73 sq M",NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neph.egfr_mdrd,loinc,LOINC,33914-3,code,yes,Glomerular filtration rate [Volume Rate/Area] in Serum or Plasma by Creatinine-based formula (MDRD)/1.73 sq M,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neph.egfr_jsn_2009,jlac10,JLAC10,8A065000002391901,code,yes,eGFR,MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx),2026-11-10,no,the MHLW item covers only part of the catalogue item
+items.csv,neph.egfr_cys,loinc,LOINC,50210-4,code,yes,"Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Cystatin C-based formula/1.73 sq M",NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,neph.kdigo_aki_stage,cdisc_qrs,CDISC CT,KDIGO1TC,code,yes,C170529 Kidney Disease Improving Global Outcomes Staging For Acute Kidney Injury Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,neph.dialysis_start_date,verified_note,LOINC,68444-9,text,yes,Date chronic dialysis began at current facility,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,neph.rrt_access,verified_note,LOINC,67888-8,text,yes,Vascular access for first outpatient dialysis,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,endo.dr_grade,verified_note,LOINC,71490-7,text,yes,Left eye Diabetic retinopathy severity level by Ophthalmoscopy,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,endo.dr_grade,verified_note,LOINC,71491-5,text,yes,Right eye Diabetic retinopathy severity level by Ophthalmoscopy,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,endo.foot_ulcer,verified_note,LOINC,52588-1,text,yes,Diabetic foot ulcer(s) #,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,card.lvef,loinc,LOINC,10230-1,code,yes,Left ventricular Ejection fraction,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,card.lvef,source,LOINC,8806-2,text,yes,Left ventricular Ejection fraction by 2D echo,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,card.nyha,loinc,LOINC,88020-3,code,yes,Functional capacity NYHA,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,card.nyha,cdisc_qrs,CDISC CT,NYHAC,code,yes,C101839 New York Heart Association Classification,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,card.nyha,source,LOINC,93124-6,text,yes,New York Heart Association Functional Classification panel,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,card.six_mwt,loinc,LOINC,64098-7,code,yes,Six minute walk test,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,card.six_mwt,cdisc_qrs,CDISC CT,SIXMW1TC,code,yes,C115388 6 Minute Walk Functional Test Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,card.kccq,loinc,LOINC,71940-1,code,yes,Overall summary score [KCCQ],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,card.kccq,verified_note,LOINC,86924-8,text,yes,Overall summary score [KCCQ-12],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,gi.child_pugh_total,loinc,LOINC,98152-2,code,yes,Total score [Child-Pugh],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,gi.child_pugh_total,cdisc_qrs,CDISC CT,CPS01TC,code,yes,C120989 Child-Pugh Classification Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,gi.child_pugh_class,verified_note,LOINC,98153-0,text,yes,Child-Pugh panel,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,gi.child_pugh_class,verified_note,LOINC,98152-2,text,yes,Total score [Child-Pugh],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,gi.meld,loinc,LOINC,44760-7,code,yes,Model for end-stage liver disease score,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,gi.meld,cdisc_qrs,CDISC CT,MELD01TC,code,yes,C120991 Model for End Stage Liver Disease Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,gi.meld_na,loinc,LOINC,100348-2,code,yes,Model for end-stage liver disease sodium score,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,gi.meld_na,cdisc_qrs,CDISC CT,MELD02TC,code,yes,C213936 Model for End Stage Liver Disease - Serum Na 2008 Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,gi.fib4,loinc,LOINC,98488-0,code,yes,Liver fibrosis score in Serum Calculated by FIB4,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,gi.liver_stiffness,loinc,LOINC,77615-3,code,yes,Liver stiffness by US.transient elastography,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,gi.cap_steatosis,loinc,LOINC,81894-8,code,yes,Liver ultrasound attenuation by transient elastography,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,card.qtc,loinc,LOINC,8636-3,code,yes,Q-T interval corrected,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,card.qtc,source,LOINC,76634-5,text,yes,Q-T interval corrected based on Fridericia formula,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,card.qtc,source,LOINC,76635-2,text,yes,Q-T interval corrected based on Bazett formula,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,pulm.fev1,loinc,LOINC,20150-9,code,yes,FEV1,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,pulm.fev1_pct_pred,loinc,LOINC,20152-5,code,yes,FEV1 measured/predicted,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,pulm.fev1_fvc,loinc,LOINC,19926-5,code,yes,FEV1/FVC,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,pulm.mmrc,cdisc_qrs,CDISC CT,MMRC01TC,code,yes,C106669 Modified Medical Research Council Dyspnea Scale Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,pulm.act,loinc,LOINC,82674-3,code,yes,Asthma Control Test [ACT],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,pulm.feno,loinc,LOINC,96269-6,code,yes,Fractional concentration of exhaled nitric oxide,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,gi.cdai_crohn,cdisc_qrs,CDISC CT,CDAI01TC,code,yes,C176049 Crohn's Disease Activity Index Version 1 Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,gi.hbi,cdisc_qrs,CDISC CT,HBI01TC,code,yes,C190926 Harvey-Bradshaw Index Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,gi.montreal_crohn,cdisc_qrs,CDISC CT,MCHR01TC,code,yes,C190928 Montreal Classification for Crohn's Disease Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,endo.dxa_tscore_hip,loinc,LOINC,38264-8,code,yes,DXA Hip [T-score] Bone density,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,endo.dxa_tscore_spine,loinc,LOINC,38267-1,code,yes,DXA Lumbar spine [T-score] Bone density,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,endo.frax_mof,loinc,LOINC,90265-0,code,yes,Major osteoporotic fracture 10-year probability [Likelihood] Fracture Risk Assessment,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,endo.frax_mof,source,LOINC,90264-3,text,yes,Fracture Risk Assessment [FRAX],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,endo.trab,loinc,LOINC,5385-0,code,yes,Thyrotropin receptor Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,endo.trab,verified_note,LOINC,57416-0,text,yes,Thyrotropin receptor Ab [Units/volume] in Serum by Immunoassay,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,psy.phq9,loinc,LOINC,44261-6,code,yes,Patient Health Questionnaire 9 item (PHQ-9) total score [Reported],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,psy.phq9,cdisc_qrs,CDISC CT,PHQ01TC,code,yes,C103481 Patient Health Questionnaire - 9 Item Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,psy.gad7,loinc,LOINC,70274-6,code,yes,Generalized anxiety disorder 7 item (GAD-7) total score [Reported.PHQ],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,psy.gad7,cdisc_qrs,CDISC CT,GAD01TC,code,yes,C103467 Generalized Anxiety Disorder - 7 Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,psy.gad7,cdisc_qrs,CDISC CT,GAD02TC,code,yes,C163389 Generalized Anxiety Disorder - 7 Version 2 Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,psy.hamd17,cdisc_qrs,CDISC CT,HAMD1TC,code,yes,C100138 Hamilton Depression Rating Scale - 17 Item Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,psy.panss,cdisc_qrs,CDISC CT,PANSS1TC,code,yes,C124686 Positive and Negative Syndrome Scale Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,psy.cssrs,loinc,LOINC,93245-9,code,yes,Columbia - suicide severity rating scale - lifetime recent [C-SSRS],NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,psy.cssrs,cdisc_qrs,CDISC CT,CSS11TC,code,yes,C117989 Columbia-Suicide Severity Rating Scale Lifetime/Recent Version Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,psy.cgi_s,cdisc_qrs,CDISC CT,GCGI01TC,code,yes,C105138 General Clinical Global Impressions Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,psy.cgi_s,cdisc_qrs,CDISC CT,CGI02TC,code,yes,C135686 Clinical Global Impression Generic Modification Version Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,psy.gds15,loinc,LOINC,48543-3,code,yes,Geriatric depression scale (GDS).short version panel,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,psy.gds15,cdisc_qrs,CDISC CT,GDS02TC,code,yes,C106665 Geriatric Depression Scale Short Form Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,derm.dlqi,cdisc_qrs,CDISC CT,DLQI1TC,code,yes,C119070 Dermatology Life Quality Index Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,id.sofa,loinc,LOINC,96790-1,code,yes,SOFA Total Score,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,id.sofa,cdisc_qrs,CDISC CT,SOFA01TC,code,yes,C204224 Sepsis-related Organ Failure Assessment 1996 Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,id.qsofa,loinc,LOINC,96791-9,code,yes,Quick SOFA score SOFA.quick,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,id.tb_status,verified_note,LOINC,45241-7,text,yes,Tuberculosis status,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,id.hiv_status,verified_note,LOINC,55277-8,text,yes,HIV status,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,id.hbv_status,verified_note,LOINC,55275-2,text,yes,Hepatitis B virus status,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,ped.bmi_percentile,loinc,LOINC,59576-9,code,yes,Body mass index (BMI) [Percentile] Per age and sex,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,ped.head_circumference,loinc,LOINC,9843-4,code,yes,Head Occipital-frontal circumference,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,ped.gestational_age,loinc,LOINC,18185-9,code,yes,Gestational age,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,ped.birth_weight,loinc,LOINC,56056-5,code,yes,Birth weight - Reported,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,ped.apgar_5,loinc,LOINC,9274-2,code,yes,5 minute Apgar Score,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,ped.apgar_5,cdisc_qrs,CDISC CT,APGR01TC,code,yes,C176047 Apgar Score V1 Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,ped.tanner_stage,cdisc_qrs,CDISC CT,TANN01TC,code,yes,C124664 Tanner Scale Girl Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,ped.tanner_stage,cdisc_qrs,CDISC CT,TANN02TC,code,yes,C124662 Tanner Scale Boy Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,ped.pedsql_total,cdisc_qrs,CDISC CT,PQL01TC,code,yes,C138259 Pediatric Quality of Life Neuromuscular Module Version 3 Young Adult Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,yes,
+items.csv,oph.va_logmar,source,LOINC,98497-1,text,yes,Visual acuity panel,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,oph.va_logmar,verified_note,LOINC,65893-0,text,yes,Visual acuity best corrected Right eye,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,oph.va_logmar,verified_note,LOINC,65897-1,text,yes,Visual acuity best corrected Left eye,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,oph.iop_right,loinc,LOINC,79892-6,code,yes,Right eye Intraocular pressure,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,oph.iop_right,source,LOINC,79893-4,text,yes,Left eye Intraocular pressure,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,oph.iop_left,loinc,LOINC,79893-4,code,yes,Left eye Intraocular pressure,NLM Clinical Tables loinc_items,2026-11-10,yes,
+items.csv,oph.dr_etdrs_level,verified_note,LOINC,71491-5,text,yes,Right eye Diabetic retinopathy severity level by Ophthalmoscopy,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,oph.dr_etdrs_level,verified_note,LOINC,71490-7,text,yes,Left eye Diabetic retinopathy severity level by Ophthalmoscopy,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,oph.cup_disc_ratio,loinc,LOINC,71485-7,code,yes,Right optic nerve Cup-disc ratio by Ophthalmoscopy,NLM Clinical Tables loinc_items,2026-11-10,no,the code covers only part of the item
+items.csv,oph.cup_disc_ratio,source,LOINC,71484-0,text,yes,Left optic nerve Cup-disc ratio by Ophthalmoscopy,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,oph.refraction_se,verified_note,LOINC,95294-5,text,yes,Right eye Spherical equivalent Autorefractor.auto,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,oph.refraction_se,verified_note,LOINC,95295-2,text,yes,Left eye Spherical equivalent Autorefractor.auto,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+items.csv,social.living_situation,verified_note,LOINC,57043-2,text,yes,Living arrangements,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+phenotypes.csv,ph.ra,codes,ICD-10-CM,M05,code,yes,"211 codes; first M05.00 Felty's syndrome, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ra,codes,ICD-10-CM,M06,code,yes,"101 codes; first M06.00 Rheumatoid arthritis without rheumatoid factor, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ra,codes,ICD-10-CM,M06.1,code,yes,1 codes; first M06.1 Adult-onset Still's disease,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ra,codes,ICD-10-CM,M06.4,code,yes,1 codes; first M06.4 Inflammatory polyarthropathy,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ra_seropositive,codes,ICD-10-CM,M05,code,yes,"211 codes; first M05.00 Felty's syndrome, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ra_seropositive,codes,LOINC,11572-5,code,yes,Rheumatoid factor [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.ra_seropositive,codes,LOINC,53027-9,code,yes,Cyclic citrullinated peptide Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.ra_ild,codes,ICD-10-CM,M05.1,code,yes,23 codes; first M05.10 Rheumatoid lung disease with rheumatoid arthritis of unspecified site,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ra_ild,codes,ICD-10-CM,J84.1,code,yes,"10 codes; first J84.10 Pulmonary fibrosis, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ra_ild,codes,ICD-10-CM,J84.9,code,yes,"1 codes; first J84.9 Interstitial pulmonary disease, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.sle,codes,ICD-10-CM,M32,code,yes,10 codes; first M32.0 Drug-induced systemic lupus erythematosus,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.sle,codes,ICD-10-CM,M32.0,code,yes,1 codes; first M32.0 Drug-induced systemic lupus erythematosus,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.lupus_nephritis,codes,ICD-10-CM,M32.14,code,yes,1 codes; first M32.14 Glomerular disease in systemic lupus erythematosus,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.lupus_nephritis,codes,ICD-10-CM,N05,code,yes,11 codes; first N05.0 Unspecified nephritic syndrome with minor glomerular abnormality,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ssc,codes,ICD-10-CM,M34,code,yes,8 codes; first M34.0 Progressive systemic sclerosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ssc_ild,codes,ICD-10-CM,M34.81,code,yes,1 codes; first M34.81 Systemic sclerosis with lung involvement,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ssc_ild,codes,ICD-10-CM,J84,code,yes,24 codes; first J84.01 Alveolar proteinosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.iim,codes,ICD-10-CM,M33,code,yes,"19 codes; first M33.00 Juvenile dermatomyositis, organ involvement unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.iim,codes,ICD-10-CM,M36.0,code,yes,1 codes; first M36.0 Dermato(poly)myositis in neoplastic disease,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.iim,codes,ICD-10-CM,G72.4,code,yes,2 codes; first G72.41 Inclusion body myositis [IBM],NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ctd_ild,codes,ICD-10-CM,M05.1,code,yes,23 codes; first M05.10 Rheumatoid lung disease with rheumatoid arthritis of unspecified site,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ctd_ild,codes,ICD-10-CM,M34.81,code,yes,1 codes; first M34.81 Systemic sclerosis with lung involvement,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ctd_ild,codes,ICD-10-CM,M33,code,yes,"19 codes; first M33.00 Juvenile dermatomyositis, organ involvement unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ctd_ild,codes,ICD-10-CM,J84,code,yes,24 codes; first J84.01 Alveolar proteinosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ctd_ild,codes,ICD-10-CM,J84.1,code,yes,"10 codes; first J84.10 Pulmonary fibrosis, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aav,codes,ICD-10-CM,M31.3,code,yes,2 codes; first M31.30 Wegener's granulomatosis without renal involvement,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aav,codes,ICD-10-CM,M31.7,code,yes,1 codes; first M31.7 Microscopic polyangiitis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aav,codes,ICD-10-CM,M30.1,code,yes,1 codes; first M30.1 Polyarteritis with lung involvement [Churg-Strauss],NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.gca,codes,ICD-10-CM,M31.5,code,yes,1 codes; first M31.5 Giant cell arteritis with polymyalgia rheumatica,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.gca,codes,ICD-10-CM,M31.6,code,yes,1 codes; first M31.6 Other giant cell arteritis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.takayasu,codes,ICD-10-CM,M31.4,code,yes,1 codes; first M31.4 Aortic arch syndrome [Takayasu],NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.behcet,codes,ICD-10-CM,M35.2,code,yes,1 codes; first M35.2 Behcet's disease,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.gout,codes,ICD-10-CM,M10,code,yes,"121 codes; first M10.00 Idiopathic gout, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.gout,codes,ICD-10-CM,M1A,code,yes,"242 codes; first M1A.00X0 Idiopathic chronic gout, unspecified site, without tophus (tophi)",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.gout_refractory,codes,ICD-10-CM,M10,code,yes,"121 codes; first M10.00 Idiopathic gout, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.gout_refractory,codes,ATC,M04AA,code,yes,Preparations inhibiting uric acid production,WHOCC ATC/DDD Index,2026-11-10,yes,
+phenotypes.csv,ph.gout_refractory,codes,ATC,M04AB,code,yes,Preparations increasing uric acid excretion,WHOCC ATC/DDD Index,2026-11-10,yes,
+phenotypes.csv,ph.gout_refractory,codes,LOINC,3084-1,code,yes,Urate [Mass/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.axspa,codes,ICD-10-CM,M45,code,yes,20 codes; first M45.0 Ankylosing spondylitis of multiple sites in spine,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.axspa,codes,ICD-10-CM,M46.8,code,yes,"10 codes; first M46.80 Other specified inflammatory spondylopathies, site unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.axspa,codes,ICD-10-CM,M46.9,code,yes,"10 codes; first M46.90 Unspecified inflammatory spondylopathy, site unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.psa,codes,ICD-10-CM,L40.5,code,yes,"6 codes; first L40.50 Arthropathic psoriasis, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.psa,codes,ICD-10-CM,M07,code,yes,"24 codes; first M07.60 Enteropathic arthropathies, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.sjogren,codes,ICD-10-CM,M35.0,code,yes,"13 codes; first M35.00 Sjogren syndrome, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aps,codes,ICD-10-CM,D68.61,code,yes,1 codes; first D68.61 Antiphospholipid syndrome,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aps,codes,LOINC,8065-5,code,yes,Cardiolipin IgG Ab [Units/volume] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.aps,codes,LOINC,16135-6,code,yes,Beta 2 glycoprotein 1 IgG Ab [Units/volume] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.aps,codes,LOINC,3281-3,code,yes,Lupus anticoagulant [Interpretation] in Platelet poor plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.jia,codes,ICD-10-CM,M08,code,yes,125 codes; first M08.00 Unspecified juvenile rheumatoid arthritis of unspecified site,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dementia,codes,ICD-10-CM,F00,code,no,,NLM Clinical Tables icd10cm,2026-11-10,no,"no ICD-10-CM code under it (a WHO ICD-10 code, or none)"
+phenotypes.csv,ph.dementia,codes,ICD-10-CM,F03,code,yes,"24 codes; first F03.90 Unspecified dementia, unspecified severity, without behavioral disturbance, psychotic disturbance, mood disturbance, and anxiety",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dementia,codes,ICD-10-CM,G30,code,yes,4 codes; first G30.0 Alzheimer's disease with early onset,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dementia,codes,ICD-10-CM,G31.0,code,yes,2 codes; first G31.01 Pick's disease,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dementia,codes,ICD-10-CM,G31.83,code,yes,1 codes; first G31.83 Neurocognitive disorder with Lewy bodies,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dementia,codes,ICD-10-CM,F01,code,yes,"24 codes; first F01.50 Vascular dementia, unspecified severity, without behavioral disturbance, psychotic disturbance, mood disturbance, and anxiety",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.alzheimer,codes,ICD-10-CM,G30,code,yes,4 codes; first G30.0 Alzheimer's disease with early onset,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.alzheimer,codes,ICD-10-CM,F00,code,no,,NLM Clinical Tables icd10cm,2026-11-10,no,"no ICD-10-CM code under it (a WHO ICD-10 code, or none)"
+phenotypes.csv,ph.mci,codes,ICD-10-CM,G31.84,code,yes,1 codes; first G31.84 Mild cognitive impairment of uncertain or unknown etiology,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.mci,codes,ICD-10-CM,R41.81,code,yes,1 codes; first R41.81 Age-related cognitive decline,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dlb,codes,ICD-10-CM,G31.83,code,yes,1 codes; first G31.83 Neurocognitive disorder with Lewy bodies,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.vascular_dementia,codes,ICD-10-CM,F01,code,yes,"24 codes; first F01.50 Vascular dementia, unspecified severity, without behavioral disturbance, psychotic disturbance, mood disturbance, and anxiety",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ftd,codes,ICD-10-CM,G31.0,code,yes,2 codes; first G31.01 Pick's disease,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ms,codes,ICD-10-CM,G35,code,yes,8 codes; first G35.A Relapsing-remitting multiple sclerosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.nmosd,codes,ICD-10-CM,G36.0,code,yes,1 codes; first G36.0 Neuromyelitis optica [Devic],NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.nmosd,codes,LOINC,43638-6,code,yes,Aquaporin 4 water channel IgG Ab [Presence] in Serum or Plasma,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.stroke_ischemic,codes,ICD-10-CM,I63,code,yes,91 codes; first I63.00 Cerebral infarction due to thrombosis of unspecified precerebral artery,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.stroke_hemorrhagic,codes,ICD-10-CM,I61,code,yes,"9 codes; first I61.0 Nontraumatic intracerebral hemorrhage in hemisphere, subcortical",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.stroke_hemorrhagic,codes,ICD-10-CM,I62,code,yes,"6 codes; first I62.00 Nontraumatic subdural hemorrhage, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.sah,codes,ICD-10-CM,I60,code,yes,18 codes; first I60.00 Nontraumatic subarachnoid hemorrhage from unspecified carotid siphon and bifurcation,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.tia,codes,ICD-10-CM,G45,code,yes,7 codes; first G45.0 Vertebro-basilar artery syndrome,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.stroke_any,codes,ICD-10-CM,I60,code,yes,18 codes; first I60.00 Nontraumatic subarachnoid hemorrhage from unspecified carotid siphon and bifurcation,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.stroke_any,codes,ICD-10-CM,I64,code,no,,NLM Clinical Tables icd10cm,2026-11-10,no,"no ICD-10-CM code under it (a WHO ICD-10 code, or none)"
+phenotypes.csv,ph.parkinson,codes,ICD-10-CM,G20,code,yes,"5 codes; first G20.A1 Parkinson's disease without dyskinesia, without mention of fluctuations",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.parkinson_advanced,codes,ICD-10-CM,G20,code,yes,"5 codes; first G20.A1 Parkinson's disease without dyskinesia, without mention of fluctuations",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.atypical_parkinsonism,codes,ICD-10-CM,G23.1,code,yes,1 codes; first G23.1 Progressive supranuclear ophthalmoplegia [Steele-Richardson-Olszewski],NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.atypical_parkinsonism,codes,ICD-10-CM,G23.2,code,yes,1 codes; first G23.2 Striatonigral degeneration,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.atypical_parkinsonism,codes,ICD-10-CM,G90.3,code,yes,1 codes; first G90.3 Multi-system degeneration of the autonomic nervous system,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.epilepsy,codes,ICD-10-CM,G40,code,yes,"58 codes; first G40.001 Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with seizures of localized onset, not intractable, with status epilepticus",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.seizure,codes,ICD-10-CM,G40,code,yes,"58 codes; first G40.001 Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with seizures of localized onset, not intractable, with status epilepticus",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.seizure,codes,ICD-10-CM,R56.9,code,yes,1 codes; first R56.9 Unspecified convulsions,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dre,codes,ICD-10-CM,G40,code,yes,"58 codes; first G40.001 Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with seizures of localized onset, not intractable, with status epilepticus",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dre,codes,ATC,N03,code,yes,ANTIEPILEPTICS,WHOCC ATC/DDD Index,2026-11-10,yes,
+phenotypes.csv,ph.focal_epilepsy,codes,ICD-10-CM,G40.0,code,yes,"4 codes; first G40.001 Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with seizures of localized onset, not intractable, with status epilepticus",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.focal_epilepsy,codes,ICD-10-CM,G40.2,code,yes,"4 codes; first G40.201 Localization-related (focal) (partial) symptomatic epilepsy and epileptic syndromes with complex partial seizures, not intractable, with status epilepticus",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.migraine,codes,ICD-10-CM,G43,code,yes,"48 codes; first G43.001 Migraine without aura, not intractable, with status migrainosus",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.myasthenia,codes,ICD-10-CM,G70.0,code,yes,2 codes; first G70.00 Myasthenia gravis without (acute) exacerbation,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.cidp,codes,ICD-10-CM,G61.81,code,yes,1 codes; first G61.81 Chronic inflammatory demyelinating polyneuritis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.als,codes,ICD-10-CM,G12.21,code,yes,1 codes; first G12.21 Amyotrophic lateral sclerosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.breast_cancer,codes,ICD-10-CM,C50,code,yes,"57 codes; first C50.011 Malignant neoplasm of nipple and areola, right female breast",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.breast_cancer,codes,ICD-O-3,C50,code,no,,,,no,no public ICD-O-3 source was read
+phenotypes.csv,ph.lung_cancer,codes,ICD-10-CM,C34,code,yes,16 codes; first C34.00 Malignant neoplasm of unspecified main bronchus,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.nsclc,codes,ICD-10-CM,C34,code,yes,16 codes; first C34.00 Malignant neoplasm of unspecified main bronchus,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.sclc,codes,ICD-10-CM,C34,code,yes,16 codes; first C34.00 Malignant neoplasm of unspecified main bronchus,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.egfr_nsclc,codes,ICD-10-CM,C34,code,yes,16 codes; first C34.00 Malignant neoplasm of unspecified main bronchus,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.egfr_nsclc,codes,LOINC,21665-5,code,yes,EGFR gene mutations found [Identifier] in Blood or Tissue by Targeted gene mutation analysis Nominal,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.colorectal_cancer,codes,ICD-10-CM,C18,code,yes,10 codes; first C18.0 Malignant neoplasm of cecum,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.colorectal_cancer,codes,ICD-10-CM,C20,code,yes,1 codes; first C20 Malignant neoplasm of rectum,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.gastric_cancer,codes,ICD-10-CM,C16,code,yes,9 codes; first C16.0 Malignant neoplasm of cardia,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.esophageal_cancer,codes,ICD-10-CM,C15,code,yes,5 codes; first C15.3 Malignant neoplasm of upper third of esophagus,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hcc,codes,ICD-10-CM,C22.0,code,yes,1 codes; first C22.0 Liver cell carcinoma,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.pancreatic_cancer,codes,ICD-10-CM,C25,code,yes,8 codes; first C25.0 Malignant neoplasm of head of pancreas,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.prostate_cancer,codes,ICD-10-CM,C61,code,yes,1 codes; first C61 Malignant neoplasm of prostate,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.renal_cancer,codes,ICD-10-CM,C64,code,yes,"3 codes; first C64.1 Malignant neoplasm of right kidney, except renal pelvis",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.bladder_cancer,codes,ICD-10-CM,C67,code,yes,10 codes; first C67.0 Malignant neoplasm of trigone of bladder,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.thyroid_cancer,codes,ICD-10-CM,C73,code,yes,1 codes; first C73 Malignant neoplasm of thyroid gland,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.npc,codes,ICD-10-CM,C11,code,yes,6 codes; first C11.0 Malignant neoplasm of superior wall of nasopharynx,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.head_neck_cancer,codes,ICD-10-CM,C00,code,yes,9 codes; first C00.0 Malignant neoplasm of external upper lip,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.head_neck_cancer,codes,ICD-10-CM,C14,code,yes,"3 codes; first C14.0 Malignant neoplasm of pharynx, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.head_neck_cancer,codes,ICD-10-CM,C32,code,yes,6 codes; first C32.0 Malignant neoplasm of glottis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.cervical_cancer,codes,ICD-10-CM,C53,code,yes,4 codes; first C53.0 Malignant neoplasm of endocervix,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ovarian_cancer,codes,ICD-10-CM,C56,code,yes,4 codes; first C56.1 Malignant neoplasm of right ovary,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.metastatic_solid,codes,ICD-10-CM,C77,code,yes,"8 codes; first C77.0 Secondary and unspecified malignant neoplasm of lymph nodes of head, face and neck",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.metastatic_solid,codes,ICD-10-CM,C79,code,yes,25 codes; first C79.00 Secondary malignant neoplasm of unspecified kidney and renal pelvis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.brain_mets,codes,ICD-10-CM,C79.31,code,yes,1 codes; first C79.31 Secondary malignant neoplasm of brain,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aml,codes,ICD-10-CM,C92.0,code,yes,"3 codes; first C92.00 Acute myeloblastic leukemia, not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aml,codes,ICD-10-CM,C92.4,code,yes,"3 codes; first C92.40 Acute promyelocytic leukemia, not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aml,codes,ICD-10-CM,C92.6,code,yes,3 codes; first C92.60 Acute myeloid leukemia with 11q23-abnormality not having achieved remission,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aml,codes,ICD-10-CM,C93.0,code,yes,"3 codes; first C93.00 Acute monoblastic/monocytic leukemia, not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aml,codes,ICD-10-CM,C94.0,code,yes,"3 codes; first C94.00 Acute erythroid leukemia, not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.all,codes,ICD-10-CM,C91.0,code,yes,3 codes; first C91.00 Acute lymphoblastic leukemia not having achieved remission,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.cll,codes,ICD-10-CM,C91.1,code,yes,3 codes; first C91.10 Chronic lymphocytic leukemia of B-cell type not having achieved remission,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.cml,codes,ICD-10-CM,C92.1,code,yes,"3 codes; first C92.10 Chronic myeloid leukemia, BCR/ABL-positive, not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.cml,codes,LOINC,69381-2,code,yes,"t(9;22)(q34.1;q11)(ABL1,BCR) b2a2 fusion transcript/control transcript (International Scale) in Blood or Tissue by Molecular genetics method",NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.mds,codes,ICD-10-CM,D46,code,yes,"11 codes; first D46.0 Refractory anemia without ring sideroblasts, so stated",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.mpn,codes,ICD-10-CM,D45,code,yes,1 codes; first D45 Polycythemia vera,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.mpn,codes,ICD-10-CM,D47.1,code,yes,1 codes; first D47.1 Chronic myeloproliferative disease,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.mpn,codes,ICD-10-CM,D47.3,code,yes,1 codes; first D47.3 Essential (hemorrhagic) thrombocythemia,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.mpn,codes,ICD-10-CM,D47.4,code,yes,1 codes; first D47.4 Osteomyelofibrosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.myeloma,codes,ICD-10-CM,C90.0,code,yes,3 codes; first C90.00 Multiple myeloma not having achieved remission,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.nhl,codes,ICD-10-CM,C82,code,yes,"99 codes; first C82.00 Follicular lymphoma grade I, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.nhl,codes,ICD-10-CM,C86,code,yes,"14 codes; first C86.00 Extranodal NK/T-cell lymphoma, nasal type not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dlbcl,codes,ICD-10-CM,C83.3,code,yes,"12 codes; first C83.30 Diffuse large B-cell lymphoma, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.follicular,codes,ICD-10-CM,C82,code,yes,"99 codes; first C82.00 Follicular lymphoma grade I, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.mantle_cell,codes,ICD-10-CM,C83.1,code,yes,"11 codes; first C83.10 Mantle cell lymphoma, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.marginal_zone,codes,ICD-10-CM,C88.4,code,yes,2 codes; first C88.40 Extranodal marginal zone B-cell lymphoma of mucosa-associated lymphoid tissue [MALT-lymphoma] not having achieved remission,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.marginal_zone,codes,ICD-10-CM,C83.0,code,yes,"11 codes; first C83.00 Small cell B-cell lymphoma, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hodgkin,codes,ICD-10-CM,C81,code,yes,"77 codes; first C81.00 Nodular lymphocyte predominant Hodgkin lymphoma, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.atll,codes,ICD-10-CM,C91.5,code,yes,3 codes; first C91.50 Adult T-cell lymphoma/leukemia (HTLV-1-associated) not having achieved remission,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aplastic_anemia,codes,ICD-10-CM,D61,code,yes,13 codes; first D61.01 Constitutional (pure) red blood cell aplasia,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.itp,codes,ICD-10-CM,D69.3,code,yes,1 codes; first D69.3 Immune thrombocytopenic purpura,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.iron_deficiency_anemia,codes,ICD-10-CM,D50,code,yes,4 codes; first D50.0 Iron deficiency anemia secondary to blood loss (chronic),NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ckd,codes,ICD-10-CM,N18,code,yes,"9 codes; first N18.1 Chronic kidney disease, stage 1",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ckd_g3_g4,codes,LOINC,98979-8,code,yes,"Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (CKD-EPI 2021)/1.73 sq M",NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.ckd_g3_g4,codes,LOINC,62238-1,code,yes,"Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (CKD-EPI)/1.73 sq M",NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.ckd_g3_g4,codes,LOINC,33914-3,code,yes,Glomerular filtration rate [Volume Rate/Area] in Serum or Plasma by Creatinine-based formula (MDRD)/1.73 sq M,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.esrd,codes,ICD-10-CM,N18.6,code,yes,1 codes; first N18.6 End stage renal disease,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.esrd,codes,ICD-10-CM,Z99.2,code,yes,1 codes; first Z99.2 Dependence on renal dialysis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aki,codes,ICD-10-CM,N17,code,yes,5 codes; first N17.0 Acute kidney failure with tubular necrosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dkd,codes,ICD-10-CM,E11.2,code,yes,3 codes; first E11.21 Type 2 diabetes mellitus with diabetic nephropathy,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dkd,codes,ICD-10-CM,N18,code,yes,"9 codes; first N18.1 Chronic kidney disease, stage 1",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dkd,codes,LOINC,9318-7,code,yes,Albumin/Creatinine [Mass Ratio] in Urine,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.igan,codes,ICD-10-CM,N02.8,code,yes,1 codes; first N02.8 Recurrent and persistent hematuria with other morphologic changes,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.nephrotic,codes,ICD-10-CM,N04,code,yes,16 codes; first N04.0 Nephrotic syndrome with minor glomerular abnormality,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.adpkd,codes,ICD-10-CM,Q61.2,code,yes,"1 codes; first Q61.2 Polycystic kidney, adult type",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.kidney_transplant,codes,ICD-10-CM,Z94.0,code,yes,1 codes; first Z94.0 Kidney transplant status,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.t2dm,codes,ICD-10-CM,E11,code,yes,87 codes; first E11.00 Type 2 diabetes mellitus with hyperosmolarity without nonketotic hyperglycemic-hyperosmolar coma (NKHHC),NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.t2dm,codes,ATC,A10,code,yes,DRUGS USED IN DIABETES,WHOCC ATC/DDD Index,2026-11-10,yes,
+phenotypes.csv,ph.t2dm,codes,LOINC,4548-4,code,yes,Hemoglobin A1c/Hemoglobin.total in Blood,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.t1dm,codes,ICD-10-CM,E10,code,yes,87 codes; first E10.10 Type 1 diabetes mellitus with ketoacidosis without coma,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dm_uncontrolled,codes,LOINC,4548-4,code,yes,Hemoglobin A1c/Hemoglobin.total in Blood,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.hypertension,codes,ICD-10-CM,I10,code,yes,1 codes; first I10 Essential (primary) hypertension,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hypertension,codes,ICD-10-CM,I15,code,yes,5 codes; first I15.0 Renovascular hypertension,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hypertension,codes,ATC,C02,code,yes,ANTIHYPERTENSIVES,WHOCC ATC/DDD Index,2026-11-10,yes,
+phenotypes.csv,ph.hypertension,codes,ATC,C03,code,yes,DIURETICS,WHOCC ATC/DDD Index,2026-11-10,yes,
+phenotypes.csv,ph.hypertension,codes,ATC,C07,code,yes,BETA BLOCKING AGENTS,WHOCC ATC/DDD Index,2026-11-10,yes,
+phenotypes.csv,ph.hypertension,codes,ATC,C08,code,yes,CALCIUM CHANNEL BLOCKERS,WHOCC ATC/DDD Index,2026-11-10,yes,
+phenotypes.csv,ph.hypertension,codes,ATC,C09,code,yes,AGENTS ACTING ON THE RENIN-ANGIOTENSIN SYSTEM,WHOCC ATC/DDD Index,2026-11-10,yes,
+phenotypes.csv,ph.heart_failure,codes,ICD-10-CM,I50,code,yes,"23 codes; first I50.1 Left ventricular failure, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hfref,codes,ICD-10-CM,I50.2,code,yes,4 codes; first I50.20 Unspecified systolic (congestive) heart failure,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hfref,codes,LOINC,10230-1,code,yes,Left ventricular Ejection fraction,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.hfpef,codes,ICD-10-CM,I50.3,code,yes,4 codes; first I50.30 Unspecified diastolic (congestive) heart failure,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.cirrhosis,codes,ICD-10-CM,K70.3,code,yes,2 codes; first K70.30 Alcoholic cirrhosis of liver without ascites,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.cirrhosis,codes,ICD-10-CM,K74,code,yes,"11 codes; first K74.00 Hepatic fibrosis, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.chronic_hbv,codes,ICD-10-CM,B18.0,code,yes,1 codes; first B18.0 Chronic viral hepatitis B with delta-agent,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.chronic_hbv,codes,ICD-10-CM,B18.1,code,yes,1 codes; first B18.1 Chronic viral hepatitis B without delta-agent,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.chronic_hbv,codes,LOINC,5195-3,code,yes,Hepatitis B virus surface Ag [Presence] in Serum,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.chronic_hcv,codes,ICD-10-CM,B18.2,code,yes,1 codes; first B18.2 Chronic viral hepatitis C,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.chronic_hcv,codes,LOINC,11011-4,code,yes,Hepatitis C virus RNA [Units/volume] (viral load) in Serum or Plasma by NAA with probe detection,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.masld,codes,ICD-10-CM,K76.0,code,yes,"1 codes; first K76.0 Fatty (change of) liver, not elsewhere classified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.masld,codes,ICD-10-CM,K75.81,code,yes,1 codes; first K75.81 Nonalcoholic steatohepatitis (NASH),NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.aih,codes,ICD-10-CM,K75.4,code,yes,1 codes; first K75.4 Autoimmune hepatitis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.pbc,codes,ICD-10-CM,K74.3,code,yes,1 codes; first K74.3 Primary biliary cirrhosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ami,codes,ICD-10-CM,I21,code,yes,13 codes; first I21.01 ST elevation (STEMI) myocardial infarction involving left main coronary artery,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.af,codes,ICD-10-CM,I48,code,yes,9 codes; first I48.0 Paroxysmal atrial fibrillation,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.cad,codes,ICD-10-CM,I25,code,yes,56 codes; first I25.10 Atherosclerotic heart disease of native coronary artery without angina pectoris,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.pah,codes,ICD-10-CM,I27.0,code,yes,1 codes; first I27.0 Primary pulmonary hypertension,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.pah,codes,ICD-10-CM,I27.20,code,yes,"1 codes; first I27.20 Pulmonary hypertension, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.pah,codes,ICD-10-CM,I27.21,code,yes,1 codes; first I27.21 Secondary pulmonary arterial hypertension,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.copd,codes,ICD-10-CM,J44,code,yes,5 codes; first J44.0 Chronic obstructive pulmonary disease with (acute) lower respiratory infection,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.asthma,codes,ICD-10-CM,J45,code,yes,"18 codes; first J45.20 Mild intermittent asthma, uncomplicated",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ild,codes,ICD-10-CM,J84,code,yes,24 codes; first J84.01 Alveolar proteinosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ipf,codes,ICD-10-CM,J84.112,code,yes,1 codes; first J84.112 Idiopathic pulmonary fibrosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.bronchiectasis,codes,ICD-10-CM,J47,code,yes,3 codes; first J47.0 Bronchiectasis with acute lower respiratory infection,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.osa,codes,ICD-10-CM,G47.33,code,yes,1 codes; first G47.33 Obstructive sleep apnea (adult) (pediatric),NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.lung_nodule,codes,ICD-10-CM,R91.1,code,yes,1 codes; first R91.1 Solitary pulmonary nodule,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.crohn,codes,ICD-10-CM,K50,code,yes,28 codes; first K50.00 Crohn's disease of small intestine without complications,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.uc,codes,ICD-10-CM,K51,code,yes,49 codes; first K51.00 Ulcerative (chronic) pancolitis without complications,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hpylori,codes,ICD-10-CM,B96.81,code,yes,1 codes; first B96.81 Helicobacter pylori [H. pylori] as the cause of diseases classified elsewhere,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hpylori,codes,ICD-10-CM,K29,code,yes,18 codes; first K29.00 Acute gastritis without bleeding,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.gerd,codes,ICD-10-CM,K21,code,yes,"3 codes; first K21.00 Gastro-esophageal reflux disease with esophagitis, without bleeding",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hypothyroidism,codes,ICD-10-CM,E03,code,yes,8 codes; first E03.0 Congenital hypothyroidism with diffuse goiter,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hypothyroidism,codes,ICD-10-CM,E06.3,code,yes,1 codes; first E06.3 Autoimmune thyroiditis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.graves,codes,ICD-10-CM,E05.0,code,yes,2 codes; first E05.00 Thyrotoxicosis with diffuse goiter without thyrotoxic crisis or storm,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.osteoporosis,codes,ICD-10-CM,M80,code,yes,"324 codes; first M80.00XA Age-related osteoporosis with current pathological fracture, unspecified site, initial encounter for fracture",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.osteoporosis,codes,ICD-10-CM,M81,code,yes,3 codes; first M81.0 Age-related osteoporosis without current pathological fracture,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.obesity,codes,ICD-10-CM,E66,code,yes,10 codes; first E66.01 Morbid (severe) obesity due to excess calories,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hypoparathyroidism,codes,ICD-10-CM,E20,code,yes,9 codes; first E20.0 Idiopathic hypoparathyroidism,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.cushing,codes,ICD-10-CM,E24,code,yes,7 codes; first E24.0 Pituitary-dependent Cushing's disease,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.acromegaly,codes,ICD-10-CM,E22.0,code,yes,1 codes; first E22.0 Acromegaly and pituitary gigantism,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.mdd,codes,ICD-10-CM,F32,code,yes,"10 codes; first F32.0 Major depressive disorder, single episode, mild",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.mdd,codes,ICD-10-CM,F33,code,yes,"9 codes; first F33.0 Major depressive disorder, recurrent, mild",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.trd,codes,ICD-10-CM,F32,code,yes,"10 codes; first F32.0 Major depressive disorder, single episode, mild",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.trd,codes,ICD-10-CM,F33,code,yes,"9 codes; first F33.0 Major depressive disorder, recurrent, mild",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.bipolar,codes,ICD-10-CM,F31,code,yes,"28 codes; first F31.0 Bipolar disorder, current episode hypomanic",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.schizophrenia,codes,ICD-10-CM,F20,code,yes,8 codes; first F20.0 Paranoid schizophrenia,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.schizophrenia,codes,ICD-10-CM,F25,code,yes,"4 codes; first F25.0 Schizoaffective disorder, bipolar type",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.anxiety,codes,ICD-10-CM,F40,code,yes,"23 codes; first F40.00 Agoraphobia, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.anxiety,codes,ICD-10-CM,F41,code,yes,5 codes; first F41.0 Panic disorder [episodic paroxysmal anxiety],NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.autism,codes,ICD-10-CM,F84,code,yes,6 codes; first F84.0 Autistic disorder,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.adhd,codes,ICD-10-CM,F90,code,yes,"5 codes; first F90.0 Attention-deficit hyperactivity disorder, predominantly inattentive type",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.insomnia,codes,ICD-10-CM,G47.0,code,yes,"3 codes; first G47.00 Insomnia, unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.insomnia,codes,ICD-10-CM,F51.0,code,yes,6 codes; first F51.01 Primary insomnia,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.psoriasis,codes,ICD-10-CM,L40,code,yes,13 codes; first L40.0 Psoriasis vulgaris,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.atopic_dermatitis,codes,ICD-10-CM,L20,code,yes,7 codes; first L20.0 Besnier's prurigo,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.urticaria,codes,ICD-10-CM,L50,code,yes,9 codes; first L50.0 Allergic urticaria,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hidradenitis,codes,ICD-10-CM,L73.2,code,yes,1 codes; first L73.2 Hidradenitis suppurativa,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.alopecia_areata,codes,ICD-10-CM,L63,code,yes,5 codes; first L63.0 Alopecia (capitis) totalis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.vitiligo,codes,ICD-10-CM,L80,code,yes,1 codes; first L80 Vitiligo,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hiv,codes,ICD-10-CM,B20,code,yes,1 codes; first B20 Human immunodeficiency virus [HIV] disease,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.hiv,codes,ICD-10-CM,Z21,code,yes,1 codes; first Z21 Asymptomatic human immunodeficiency virus [HIV] infection status,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.tb,codes,ICD-10-CM,A15,code,yes,7 codes; first A15.0 Tuberculosis of lung,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.tb,codes,ICD-10-CM,A19,code,yes,5 codes; first A19.0 Acute miliary tuberculosis of a single specified site,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ltbi,codes,ICD-10-CM,R76.11,code,yes,1 codes; first R76.11 Nonspecific reaction to tuberculin skin test without active tuberculosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ltbi,codes,ICD-10-CM,R76.12,code,yes,1 codes; first R76.12 Nonspecific reaction to cell mediated immunity measurement of gamma interferon antigen response without active tuberculosis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ltbi,codes,LOINC,71773-6,code,yes,Mycobacterium tuberculosis stimulated gamma interferon [Interpretation] in Blood Qualitative,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.sepsis,codes,ICD-10-CM,A41,code,yes,15 codes; first A41.01 Sepsis due to Methicillin susceptible Staphylococcus aureus,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.sepsis,codes,ICD-10-CM,R65.2,code,yes,2 codes; first R65.20 Severe sepsis without septic shock,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.covid19,codes,ICD-10-CM,U07.1,code,yes,1 codes; first U07.1 COVID-19,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.covid19,codes,LOINC,94500-6,code,yes,SARS-CoV-2 (COVID-19) RNA [Presence] in Respiratory system specimen by NAA with probe detection,NLM Clinical Tables loinc_items,2026-11-10,yes,
+phenotypes.csv,ph.influenza,codes,ICD-10-CM,J09,code,yes,4 codes; first J09.X1 Influenza due to identified novel influenza A virus with pneumonia,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.influenza,codes,ICD-10-CM,J11,code,yes,8 codes; first J11.00 Influenza due to unidentified influenza virus with unspecified type of pneumonia,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.pneumonia,codes,ICD-10-CM,J12,code,yes,8 codes; first J12.0 Adenoviral pneumonia,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.pneumonia,codes,ICD-10-CM,J18,code,yes,"5 codes; first J18.0 Bronchopneumonia, unspecified organism",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.mrsa,codes,ICD-10-CM,A49.02,code,yes,"1 codes; first A49.02 Methicillin resistant Staphylococcus aureus infection, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.mrsa,codes,ICD-10-CM,Z22.322,code,yes,1 codes; first Z22.322 Carrier or suspected carrier of Methicillin resistant Staphylococcus aureus,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dengue,codes,ICD-10-CM,A90,code,yes,1 codes; first A90 Dengue fever [classical dengue],NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dengue,codes,ICD-10-CM,A91,code,yes,1 codes; first A91 Dengue hemorrhagic fever,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.scrub_typhus,codes,ICD-10-CM,A75.3,code,yes,1 codes; first A75.3 Typhus fever due to Rickettsia tsutsugamushi,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.febrile_seizure,codes,ICD-10-CM,R56.0,code,yes,2 codes; first R56.00 Simple febrile convulsions,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.kawasaki,codes,ICD-10-CM,M30.3,code,yes,1 codes; first M30.3 Mucocutaneous lymph node syndrome [Kawasaki],NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.ped_nephrotic,codes,ICD-10-CM,N04,code,yes,16 codes; first N04.0 Nephrotic syndrome with minor glomerular abnormality,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.congenital_heart,codes,ICD-10-CM,Q20,code,yes,9 codes; first Q20.0 Common arterial trunk,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.congenital_heart,codes,ICD-10-CM,Q26,code,yes,9 codes; first Q26.0 Congenital stenosis of vena cava,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.preterm,codes,ICD-10-CM,P07,code,yes,"27 codes; first P07.00 Extremely low birth weight newborn, unspecified weight",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.glaucoma,codes,ICD-10-CM,H40,code,yes,"252 codes; first H40.001 Preglaucoma, unspecified, right eye",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.amd,codes,ICD-10-CM,H35.3,code,yes,58 codes; first H35.30 Unspecified macular degeneration,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.namd,codes,ICD-10-CM,H35.32,code,yes,"16 codes; first H35.3210 Exudative age-related macular degeneration, right eye, stage unspecified",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dr,codes,ICD-10-CM,E11.3,code,yes,56 codes; first E11.311 Type 2 diabetes mellitus with unspecified diabetic retinopathy with macular edema,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dme,codes,ICD-10-CM,E11.311,code,yes,1 codes; first E11.311 Type 2 diabetes mellitus with unspecified diabetic retinopathy with macular edema,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dme,codes,ICD-10-CM,E11.321,code,yes,"4 codes; first E11.3211 Type 2 diabetes mellitus with mild nonproliferative diabetic retinopathy with macular edema, right eye",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dme,codes,ICD-10-CM,E11.331,code,yes,"4 codes; first E11.3311 Type 2 diabetes mellitus with moderate nonproliferative diabetic retinopathy with macular edema, right eye",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dme,codes,ICD-10-CM,E11.341,code,yes,"4 codes; first E11.3411 Type 2 diabetes mellitus with severe nonproliferative diabetic retinopathy with macular edema, right eye",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dme,codes,ICD-10-CM,E11.351,code,yes,"4 codes; first E11.3511 Type 2 diabetes mellitus with proliferative diabetic retinopathy with macular edema, right eye",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.rvo,codes,ICD-10-CM,H34.8,code,yes,"28 codes; first H34.8110 Central retinal vein occlusion, right eye, with macular edema",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.uveitis,codes,ICD-10-CM,H20,code,yes,38 codes; first H20.00 Unspecified acute and subacute iridocyclitis,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.uveitis,codes,ICD-10-CM,H30,code,yes,"56 codes; first H30.001 Unspecified focal chorioretinal inflammation, right eye",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.uveitis,codes,ICD-10-CM,H44.1,code,yes,"13 codes; first H44.111 Panuveitis, right eye",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.myopia_high,codes,ICD-10-CM,H44.2,code,yes,"24 codes; first H44.20 Degenerative myopia, unspecified eye",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.myopia_high,codes,ICD-10-CM,H52.1,code,yes,"4 codes; first H52.10 Myopia, unspecified eye",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dry_eye,codes,ICD-10-CM,H04.12,code,yes,4 codes; first H04.121 Dry eye syndrome of right lacrimal gland,NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotypes.csv,ph.dry_eye,codes,ICD-10-CM,H16.22,code,yes,"4 codes; first H16.221 Keratoconjunctivitis sicca, not specified as Sjogren's, right eye",NLM Clinical Tables icd10cm,2026-11-10,yes,
+phenotype_icd10cm.csv,ph.ra,icd10cm_include,ICD-10-CM,M05,mapping,yes,"211 codes; first M05.00 Felty's syndrome, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.ra,icd10cm_include,ICD-10-CM,M06,mapping,yes,"101 codes; first M06.00 Rheumatoid arthritis without rheumatoid factor, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.ra,icd10cm_exclude,ICD-10-CM,M06.1,mapping,yes,1 codes; first M06.1 Adult-onset Still's disease,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.ra,icd10cm_exclude,ICD-10-CM,M06.4,mapping,yes,1 codes; first M06.4 Inflammatory polyarthropathy,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.sle,icd10cm_include,ICD-10-CM,M32,mapping,yes,10 codes; first M32.0 Drug-induced systemic lupus erythematosus,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.sle,icd10cm_exclude,ICD-10-CM,M32.0,mapping,yes,1 codes; first M32.0 Drug-induced systemic lupus erythematosus,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.ssc,icd10cm_include,ICD-10-CM,M34,mapping,yes,8 codes; first M34.0 Progressive systemic sclerosis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.iim,icd10cm_include,ICD-10-CM,M33,mapping,yes,"19 codes; first M33.00 Juvenile dermatomyositis, organ involvement unspecified",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.iim,icd10cm_include,ICD-10-CM,M36.0,mapping,yes,1 codes; first M36.0 Dermato(poly)myositis in neoplastic disease,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.iim,icd10cm_include,ICD-10-CM,G72.4,mapping,yes,2 codes; first G72.41 Inclusion body myositis [IBM],NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aav,icd10cm_include,ICD-10-CM,M31.3,mapping,yes,2 codes; first M31.30 Wegener's granulomatosis without renal involvement,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aav,icd10cm_include,ICD-10-CM,M31.7,mapping,yes,1 codes; first M31.7 Microscopic polyangiitis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aav,icd10cm_include,ICD-10-CM,M30.1,mapping,yes,1 codes; first M30.1 Polyarteritis with lung involvement [Churg-Strauss],NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.behcet,icd10cm_include,ICD-10-CM,M35.2,mapping,yes,1 codes; first M35.2 Behcet's disease,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.gout,icd10cm_include,ICD-10-CM,M10,mapping,yes,"121 codes; first M10.00 Idiopathic gout, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.gout,icd10cm_include,ICD-10-CM,M1A,mapping,yes,"242 codes; first M1A.00X0 Idiopathic chronic gout, unspecified site, without tophus (tophi)",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.axspa,icd10cm_include,ICD-10-CM,M45,mapping,yes,20 codes; first M45.0 Ankylosing spondylitis of multiple sites in spine,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.axspa,icd10cm_include,ICD-10-CM,M46.8,mapping,yes,"10 codes; first M46.80 Other specified inflammatory spondylopathies, site unspecified",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.axspa,icd10cm_include,ICD-10-CM,M46.9,mapping,yes,"10 codes; first M46.90 Unspecified inflammatory spondylopathy, site unspecified",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.psa,icd10cm_include,ICD-10-CM,L40.5,mapping,yes,"6 codes; first L40.50 Arthropathic psoriasis, unspecified",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.jia,icd10cm_include,ICD-10-CM,M08,mapping,yes,125 codes; first M08.00 Unspecified juvenile rheumatoid arthritis of unspecified site,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dementia,icd10cm_include,ICD-10-CM,F01,mapping,yes,"24 codes; first F01.50 Vascular dementia, unspecified severity, without behavioral disturbance, psychotic disturbance, mood disturbance, and anxiety",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dementia,icd10cm_include,ICD-10-CM,F02,mapping,yes,"24 codes; first F02.80 Dementia in other diseases classified elsewhere, unspecified severity, without behavioral disturbance, psychotic disturbance, mood disturbance, and anxiety",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dementia,icd10cm_include,ICD-10-CM,F03,mapping,yes,"24 codes; first F03.90 Unspecified dementia, unspecified severity, without behavioral disturbance, psychotic disturbance, mood disturbance, and anxiety",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dementia,icd10cm_include,ICD-10-CM,G30,mapping,yes,4 codes; first G30.0 Alzheimer's disease with early onset,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dementia,icd10cm_include,ICD-10-CM,G31.0,mapping,yes,2 codes; first G31.01 Pick's disease,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dementia,icd10cm_include,ICD-10-CM,G31.83,mapping,yes,1 codes; first G31.83 Neurocognitive disorder with Lewy bodies,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.alzheimer,icd10cm_include,ICD-10-CM,G30,mapping,yes,4 codes; first G30.0 Alzheimer's disease with early onset,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.mci,icd10cm_include,ICD-10-CM,G31.84,mapping,yes,1 codes; first G31.84 Mild cognitive impairment of uncertain or unknown etiology,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.mci,icd10cm_include,ICD-10-CM,R41.81,mapping,yes,1 codes; first R41.81 Age-related cognitive decline,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.ms,icd10cm_include,ICD-10-CM,G35,mapping,yes,8 codes; first G35.A Relapsing-remitting multiple sclerosis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.stroke_ischemic,icd10cm_include,ICD-10-CM,I63,mapping,yes,91 codes; first I63.00 Cerebral infarction due to thrombosis of unspecified precerebral artery,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.stroke_hemorrhagic,icd10cm_include,ICD-10-CM,I61,mapping,yes,"9 codes; first I61.0 Nontraumatic intracerebral hemorrhage in hemisphere, subcortical",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.stroke_hemorrhagic,icd10cm_include,ICD-10-CM,I62,mapping,yes,"6 codes; first I62.00 Nontraumatic subdural hemorrhage, unspecified",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.stroke_any,icd10cm_include,ICD-10-CM,I60,mapping,yes,18 codes; first I60.00 Nontraumatic subarachnoid hemorrhage from unspecified carotid siphon and bifurcation,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.stroke_any,icd10cm_include,ICD-10-CM,I61,mapping,yes,"9 codes; first I61.0 Nontraumatic intracerebral hemorrhage in hemisphere, subcortical",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.stroke_any,icd10cm_include,ICD-10-CM,I62,mapping,yes,"6 codes; first I62.00 Nontraumatic subdural hemorrhage, unspecified",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.stroke_any,icd10cm_include,ICD-10-CM,I63,mapping,yes,91 codes; first I63.00 Cerebral infarction due to thrombosis of unspecified precerebral artery,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.parkinson,icd10cm_include,ICD-10-CM,G20,mapping,yes,"5 codes; first G20.A1 Parkinson's disease without dyskinesia, without mention of fluctuations",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.epilepsy,icd10cm_include,ICD-10-CM,G40,mapping,yes,"58 codes; first G40.001 Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with seizures of localized onset, not intractable, with status epilepticus",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.seizure,icd10cm_include,ICD-10-CM,G40,mapping,yes,"58 codes; first G40.001 Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with seizures of localized onset, not intractable, with status epilepticus",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.seizure,icd10cm_include,ICD-10-CM,R56.9,mapping,yes,1 codes; first R56.9 Unspecified convulsions,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dre,icd10cm_include,ICD-10-CM,G40,mapping,yes,"58 codes; first G40.001 Localization-related (focal) (partial) idiopathic epilepsy and epileptic syndromes with seizures of localized onset, not intractable, with status epilepticus",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.migraine,icd10cm_include,ICD-10-CM,G43,mapping,yes,"48 codes; first G43.001 Migraine without aura, not intractable, with status migrainosus",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.myasthenia,icd10cm_include,ICD-10-CM,G70.0,mapping,yes,2 codes; first G70.00 Myasthenia gravis without (acute) exacerbation,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.cidp,icd10cm_include,ICD-10-CM,G61.81,mapping,yes,1 codes; first G61.81 Chronic inflammatory demyelinating polyneuritis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.breast_cancer,icd10cm_include,ICD-10-CM,C50,mapping,yes,"57 codes; first C50.011 Malignant neoplasm of nipple and areola, right female breast",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.lung_cancer,icd10cm_include,ICD-10-CM,C34,mapping,yes,16 codes; first C34.00 Malignant neoplasm of unspecified main bronchus,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.nsclc,icd10cm_include,ICD-10-CM,C34,mapping,yes,16 codes; first C34.00 Malignant neoplasm of unspecified main bronchus,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.sclc,icd10cm_include,ICD-10-CM,C34,mapping,yes,16 codes; first C34.00 Malignant neoplasm of unspecified main bronchus,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.colorectal_cancer,icd10cm_include,ICD-10-CM,C18,mapping,yes,10 codes; first C18.0 Malignant neoplasm of cecum,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.colorectal_cancer,icd10cm_include,ICD-10-CM,C19,mapping,yes,1 codes; first C19 Malignant neoplasm of rectosigmoid junction,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.colorectal_cancer,icd10cm_include,ICD-10-CM,C20,mapping,yes,1 codes; first C20 Malignant neoplasm of rectum,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hcc,icd10cm_include,ICD-10-CM,C22.0,mapping,yes,1 codes; first C22.0 Liver cell carcinoma,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.prostate_cancer,icd10cm_include,ICD-10-CM,C61,mapping,yes,1 codes; first C61 Malignant neoplasm of prostate,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.renal_cancer,icd10cm_include,ICD-10-CM,C64,mapping,yes,"3 codes; first C64.1 Malignant neoplasm of right kidney, except renal pelvis",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.thyroid_cancer,icd10cm_include,ICD-10-CM,C73,mapping,yes,1 codes; first C73 Malignant neoplasm of thyroid gland,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aml,icd10cm_include,ICD-10-CM,C92.0,mapping,yes,"3 codes; first C92.00 Acute myeloblastic leukemia, not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aml,icd10cm_include,ICD-10-CM,C92.4,mapping,yes,"3 codes; first C92.40 Acute promyelocytic leukemia, not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aml,icd10cm_include,ICD-10-CM,C92.5,mapping,yes,"3 codes; first C92.50 Acute myelomonocytic leukemia, not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aml,icd10cm_include,ICD-10-CM,C92.6,mapping,yes,3 codes; first C92.60 Acute myeloid leukemia with 11q23-abnormality not having achieved remission,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aml,icd10cm_include,ICD-10-CM,C92.A,mapping,yes,"3 codes; first C92.A0 Acute myeloid leukemia with multilineage dysplasia, not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aml,icd10cm_include,ICD-10-CM,C93.0,mapping,yes,"3 codes; first C93.00 Acute monoblastic/monocytic leukemia, not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aml,icd10cm_include,ICD-10-CM,C94.0,mapping,yes,"3 codes; first C94.00 Acute erythroid leukemia, not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.cll,icd10cm_include,ICD-10-CM,C91.1,mapping,yes,3 codes; first C91.10 Chronic lymphocytic leukemia of B-cell type not having achieved remission,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.myeloma,icd10cm_include,ICD-10-CM,C90.0,mapping,yes,3 codes; first C90.00 Multiple myeloma not having achieved remission,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.nhl,icd10cm_include,ICD-10-CM,C82,mapping,yes,"99 codes; first C82.00 Follicular lymphoma grade I, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.nhl,icd10cm_include,ICD-10-CM,C83,mapping,yes,"78 codes; first C83.00 Small cell B-cell lymphoma, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.nhl,icd10cm_include,ICD-10-CM,C84,mapping,yes,"89 codes; first C84.00 Mycosis fungoides, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.nhl,icd10cm_include,ICD-10-CM,C85,mapping,yes,"44 codes; first C85.10 Unspecified B-cell lymphoma, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.nhl,icd10cm_include,ICD-10-CM,C86,mapping,yes,"14 codes; first C86.00 Extranodal NK/T-cell lymphoma, nasal type not having achieved remission",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.follicular,icd10cm_include,ICD-10-CM,C82,mapping,yes,"99 codes; first C82.00 Follicular lymphoma grade I, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.mantle_cell,icd10cm_include,ICD-10-CM,C83.1,mapping,yes,"11 codes; first C83.10 Mantle cell lymphoma, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.marginal_zone,icd10cm_include,ICD-10-CM,C88.4,mapping,yes,2 codes; first C88.40 Extranodal marginal zone B-cell lymphoma of mucosa-associated lymphoid tissue [MALT-lymphoma] not having achieved remission,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.marginal_zone,icd10cm_include,ICD-10-CM,C83.0,mapping,yes,"11 codes; first C83.00 Small cell B-cell lymphoma, unspecified site",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aplastic_anemia,icd10cm_include,ICD-10-CM,D61,mapping,yes,13 codes; first D61.01 Constitutional (pure) red blood cell aplasia,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aplastic_anemia,icd10cm_exclude,ICD-10-CM,D61.81,mapping,yes,3 codes; first D61.810 Antineoplastic chemotherapy induced pancytopenia,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aplastic_anemia,icd10cm_exclude,ICD-10-CM,D61.82,mapping,yes,1 codes; first D61.82 Myelophthisis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.iron_deficiency_anemia,icd10cm_include,ICD-10-CM,D50,mapping,yes,4 codes; first D50.0 Iron deficiency anemia secondary to blood loss (chronic),NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.ckd,icd10cm_include,ICD-10-CM,N18,mapping,yes,"9 codes; first N18.1 Chronic kidney disease, stage 1",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.esrd,icd10cm_include,ICD-10-CM,N18.6,mapping,yes,1 codes; first N18.6 End stage renal disease,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.esrd,icd10cm_include,ICD-10-CM,Z99.2,mapping,yes,1 codes; first Z99.2 Dependence on renal dialysis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aki,icd10cm_include,ICD-10-CM,N17,mapping,yes,5 codes; first N17.0 Acute kidney failure with tubular necrosis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.t2dm,icd10cm_include,ICD-10-CM,E11,mapping,yes,87 codes; first E11.00 Type 2 diabetes mellitus with hyperosmolarity without nonketotic hyperglycemic-hyperosmolar coma (NKHHC),NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.t1dm,icd10cm_include,ICD-10-CM,E10,mapping,yes,87 codes; first E10.10 Type 1 diabetes mellitus with ketoacidosis without coma,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hypertension,icd10cm_include,ICD-10-CM,I10,mapping,yes,1 codes; first I10 Essential (primary) hypertension,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hypertension,icd10cm_include,ICD-10-CM,I11,mapping,yes,2 codes; first I11.0 Hypertensive heart disease with heart failure,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hypertension,icd10cm_include,ICD-10-CM,I12,mapping,yes,2 codes; first I12.0 Hypertensive chronic kidney disease with stage 5 chronic kidney disease or end stage renal disease,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hypertension,icd10cm_include,ICD-10-CM,I13,mapping,yes,"4 codes; first I13.0 Hypertensive heart and chronic kidney disease with heart failure and stage 1 through stage 4 chronic kidney disease, or unspecified chronic kidney disease",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hypertension,icd10cm_include,ICD-10-CM,I15,mapping,yes,5 codes; first I15.0 Renovascular hypertension,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hypertension,icd10cm_include,ICD-10-CM,I16,mapping,yes,3 codes; first I16.0 Hypertensive urgency,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.heart_failure,icd10cm_include,ICD-10-CM,I50,mapping,yes,"23 codes; first I50.1 Left ventricular failure, unspecified",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.heart_failure,icd10cm_include,ICD-10-CM,I11.0,mapping,yes,1 codes; first I11.0 Hypertensive heart disease with heart failure,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.heart_failure,icd10cm_include,ICD-10-CM,I13.0,mapping,yes,"1 codes; first I13.0 Hypertensive heart and chronic kidney disease with heart failure and stage 1 through stage 4 chronic kidney disease, or unspecified chronic kidney disease",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.heart_failure,icd10cm_include,ICD-10-CM,I13.2,mapping,yes,"1 codes; first I13.2 Hypertensive heart and chronic kidney disease with heart failure and with stage 5 chronic kidney disease, or end stage renal disease",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.cirrhosis,icd10cm_include,ICD-10-CM,K70.3,mapping,yes,2 codes; first K70.30 Alcoholic cirrhosis of liver without ascites,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.cirrhosis,icd10cm_include,ICD-10-CM,K71.7,mapping,yes,1 codes; first K71.7 Toxic liver disease with fibrosis and cirrhosis of liver,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.cirrhosis,icd10cm_include,ICD-10-CM,K74.3,mapping,yes,1 codes; first K74.3 Primary biliary cirrhosis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.cirrhosis,icd10cm_include,ICD-10-CM,K74.4,mapping,yes,1 codes; first K74.4 Secondary biliary cirrhosis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.cirrhosis,icd10cm_include,ICD-10-CM,K74.5,mapping,yes,"1 codes; first K74.5 Biliary cirrhosis, unspecified",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.cirrhosis,icd10cm_include,ICD-10-CM,K74.6,mapping,yes,2 codes; first K74.60 Unspecified cirrhosis of liver,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.chronic_hbv,icd10cm_include,ICD-10-CM,B18.0,mapping,yes,1 codes; first B18.0 Chronic viral hepatitis B with delta-agent,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.chronic_hbv,icd10cm_include,ICD-10-CM,B18.1,mapping,yes,1 codes; first B18.1 Chronic viral hepatitis B without delta-agent,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.chronic_hcv,icd10cm_include,ICD-10-CM,B18.2,mapping,yes,1 codes; first B18.2 Chronic viral hepatitis C,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.aih,icd10cm_include,ICD-10-CM,K75.4,mapping,yes,1 codes; first K75.4 Autoimmune hepatitis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.pbc,icd10cm_include,ICD-10-CM,K74.3,mapping,yes,1 codes; first K74.3 Primary biliary cirrhosis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.ami,icd10cm_include,ICD-10-CM,I21,mapping,yes,13 codes; first I21.01 ST elevation (STEMI) myocardial infarction involving left main coronary artery,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.ami,icd10cm_include,ICD-10-CM,I22,mapping,yes,5 codes; first I22.0 Subsequent ST elevation (STEMI) myocardial infarction of anterior wall,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.af,icd10cm_include,ICD-10-CM,I48,mapping,yes,9 codes; first I48.0 Paroxysmal atrial fibrillation,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.cad,icd10cm_include,ICD-10-CM,I25,mapping,yes,56 codes; first I25.10 Atherosclerotic heart disease of native coronary artery without angina pectoris,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.pah,icd10cm_include,ICD-10-CM,I27.0,mapping,yes,1 codes; first I27.0 Primary pulmonary hypertension,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.pah,icd10cm_include,ICD-10-CM,I27.20,mapping,yes,"1 codes; first I27.20 Pulmonary hypertension, unspecified",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.pah,icd10cm_include,ICD-10-CM,I27.21,mapping,yes,1 codes; first I27.21 Secondary pulmonary arterial hypertension,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.copd,icd10cm_include,ICD-10-CM,J44,mapping,yes,5 codes; first J44.0 Chronic obstructive pulmonary disease with (acute) lower respiratory infection,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.asthma,icd10cm_include,ICD-10-CM,J45,mapping,yes,"18 codes; first J45.20 Mild intermittent asthma, uncomplicated",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.asthma,icd10cm_include,ICD-10-CM,J82.83,mapping,yes,1 codes; first J82.83 Eosinophilic asthma,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.ild,icd10cm_include,ICD-10-CM,J84,mapping,yes,24 codes; first J84.01 Alveolar proteinosis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.lung_nodule,icd10cm_include,ICD-10-CM,R91.1,mapping,yes,1 codes; first R91.1 Solitary pulmonary nodule,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.crohn,icd10cm_include,ICD-10-CM,K50,mapping,yes,28 codes; first K50.00 Crohn's disease of small intestine without complications,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.uc,icd10cm_include,ICD-10-CM,K51,mapping,yes,49 codes; first K51.00 Ulcerative (chronic) pancolitis without complications,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hypothyroidism,icd10cm_include,ICD-10-CM,E03,mapping,yes,8 codes; first E03.0 Congenital hypothyroidism with diffuse goiter,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hypothyroidism,icd10cm_include,ICD-10-CM,E06.3,mapping,yes,1 codes; first E06.3 Autoimmune thyroiditis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hypothyroidism,icd10cm_include,ICD-10-CM,E89.0,mapping,yes,1 codes; first E89.0 Postprocedural hypothyroidism,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.osteoporosis,icd10cm_include,ICD-10-CM,M80,mapping,yes,"324 codes; first M80.00XA Age-related osteoporosis with current pathological fracture, unspecified site, initial encounter for fracture",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.osteoporosis,icd10cm_include,ICD-10-CM,M81,mapping,yes,3 codes; first M81.0 Age-related osteoporosis without current pathological fracture,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.obesity,icd10cm_include,ICD-10-CM,E66,mapping,yes,10 codes; first E66.01 Morbid (severe) obesity due to excess calories,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hypoparathyroidism,icd10cm_include,ICD-10-CM,E20,mapping,yes,9 codes; first E20.0 Idiopathic hypoparathyroidism,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hypoparathyroidism,icd10cm_include,ICD-10-CM,E89.2,mapping,yes,1 codes; first E89.2 Postprocedural hypoparathyroidism,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.mdd,icd10cm_include,ICD-10-CM,F32,mapping,yes,"10 codes; first F32.0 Major depressive disorder, single episode, mild",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.mdd,icd10cm_include,ICD-10-CM,F33,mapping,yes,"9 codes; first F33.0 Major depressive disorder, recurrent, mild",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.trd,icd10cm_include,ICD-10-CM,F32,mapping,yes,"10 codes; first F32.0 Major depressive disorder, single episode, mild",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.trd,icd10cm_include,ICD-10-CM,F33,mapping,yes,"9 codes; first F33.0 Major depressive disorder, recurrent, mild",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.bipolar,icd10cm_include,ICD-10-CM,F31,mapping,yes,"28 codes; first F31.0 Bipolar disorder, current episode hypomanic",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.schizophrenia,icd10cm_include,ICD-10-CM,F20,mapping,yes,8 codes; first F20.0 Paranoid schizophrenia,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.schizophrenia,icd10cm_include,ICD-10-CM,F25,mapping,yes,"4 codes; first F25.0 Schizoaffective disorder, bipolar type",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.autism,icd10cm_include,ICD-10-CM,F84,mapping,yes,6 codes; first F84.0 Autistic disorder,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.adhd,icd10cm_include,ICD-10-CM,F90,mapping,yes,"5 codes; first F90.0 Attention-deficit hyperactivity disorder, predominantly inattentive type",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.psoriasis,icd10cm_include,ICD-10-CM,L40,mapping,yes,13 codes; first L40.0 Psoriasis vulgaris,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.atopic_dermatitis,icd10cm_include,ICD-10-CM,L20,mapping,yes,7 codes; first L20.0 Besnier's prurigo,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.urticaria,icd10cm_include,ICD-10-CM,L50,mapping,yes,9 codes; first L50.0 Allergic urticaria,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hiv,icd10cm_include,ICD-10-CM,B20,mapping,yes,1 codes; first B20 Human immunodeficiency virus [HIV] disease,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.hiv,icd10cm_include,ICD-10-CM,Z21,mapping,yes,1 codes; first Z21 Asymptomatic human immunodeficiency virus [HIV] infection status,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.tb,icd10cm_include,ICD-10-CM,A15,mapping,yes,7 codes; first A15.0 Tuberculosis of lung,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.tb,icd10cm_include,ICD-10-CM,A17,mapping,yes,7 codes; first A17.0 Tuberculous meningitis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.tb,icd10cm_include,ICD-10-CM,A18,mapping,yes,32 codes; first A18.01 Tuberculosis of spine,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.tb,icd10cm_include,ICD-10-CM,A19,mapping,yes,5 codes; first A19.0 Acute miliary tuberculosis of a single specified site,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.sepsis,icd10cm_include,ICD-10-CM,A40,mapping,yes,"5 codes; first A40.0 Sepsis due to streptococcus, group A",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.sepsis,icd10cm_include,ICD-10-CM,A41,mapping,yes,15 codes; first A41.01 Sepsis due to Methicillin susceptible Staphylococcus aureus,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.sepsis,icd10cm_include,ICD-10-CM,R65.2,mapping,yes,2 codes; first R65.20 Severe sepsis without septic shock,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.covid19,icd10cm_include,ICD-10-CM,U07.1,mapping,yes,1 codes; first U07.1 COVID-19,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.influenza,icd10cm_include,ICD-10-CM,J09,mapping,yes,4 codes; first J09.X1 Influenza due to identified novel influenza A virus with pneumonia,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.influenza,icd10cm_include,ICD-10-CM,J10,mapping,yes,9 codes; first J10.00 Influenza due to other identified influenza virus with unspecified type of pneumonia,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.influenza,icd10cm_include,ICD-10-CM,J11,mapping,yes,8 codes; first J11.00 Influenza due to unidentified influenza virus with unspecified type of pneumonia,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.pneumonia,icd10cm_include,ICD-10-CM,J12,mapping,yes,8 codes; first J12.0 Adenoviral pneumonia,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.pneumonia,icd10cm_include,ICD-10-CM,J13,mapping,yes,1 codes; first J13 Pneumonia due to Streptococcus pneumoniae,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.pneumonia,icd10cm_include,ICD-10-CM,J14,mapping,yes,1 codes; first J14 Pneumonia due to Hemophilus influenzae,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.pneumonia,icd10cm_include,ICD-10-CM,J15,mapping,yes,14 codes; first J15.0 Pneumonia due to Klebsiella pneumoniae,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.pneumonia,icd10cm_include,ICD-10-CM,J16,mapping,yes,2 codes; first J16.0 Chlamydial pneumonia,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.pneumonia,icd10cm_include,ICD-10-CM,J17,mapping,yes,1 codes; first J17 Pneumonia in diseases classified elsewhere,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.pneumonia,icd10cm_include,ICD-10-CM,J18,mapping,yes,"5 codes; first J18.0 Bronchopneumonia, unspecified organism",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.febrile_seizure,icd10cm_include,ICD-10-CM,R56.0,mapping,yes,2 codes; first R56.00 Simple febrile convulsions,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.preterm,icd10cm_include,ICD-10-CM,P07,mapping,yes,"27 codes; first P07.00 Extremely low birth weight newborn, unspecified weight",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.glaucoma,icd10cm_include,ICD-10-CM,H40,mapping,yes,"252 codes; first H40.001 Preglaucoma, unspecified, right eye",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.glaucoma,icd10cm_include,ICD-10-CM,H42,mapping,yes,1 codes; first H42 Glaucoma in diseases classified elsewhere,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.amd,icd10cm_include,ICD-10-CM,H35.30,mapping,yes,1 codes; first H35.30 Unspecified macular degeneration,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.amd,icd10cm_include,ICD-10-CM,H35.31,mapping,yes,"20 codes; first H35.3110 Nonexudative age-related macular degeneration, right eye, stage unspecified",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.amd,icd10cm_include,ICD-10-CM,H35.32,mapping,yes,"16 codes; first H35.3210 Exudative age-related macular degeneration, right eye, stage unspecified",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dr,icd10cm_include,ICD-10-CM,E08.3,mapping,yes,56 codes; first E08.311 Diabetes mellitus due to underlying condition with unspecified diabetic retinopathy with macular edema,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dr,icd10cm_include,ICD-10-CM,E09.3,mapping,yes,56 codes; first E09.311 Drug or chemical induced diabetes mellitus with unspecified diabetic retinopathy with macular edema,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dr,icd10cm_include,ICD-10-CM,E10.3,mapping,yes,56 codes; first E10.311 Type 1 diabetes mellitus with unspecified diabetic retinopathy with macular edema,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dr,icd10cm_include,ICD-10-CM,E11.3,mapping,yes,56 codes; first E11.311 Type 2 diabetes mellitus with unspecified diabetic retinopathy with macular edema,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dr,icd10cm_include,ICD-10-CM,E13.3,mapping,yes,56 codes; first E13.311 Other specified diabetes mellitus with unspecified diabetic retinopathy with macular edema,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dr,icd10cm_exclude,ICD-10-CM,E08.36,mapping,yes,1 codes; first E08.36 Diabetes mellitus due to underlying condition with diabetic cataract,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dr,icd10cm_exclude,ICD-10-CM,E09.36,mapping,yes,1 codes; first E09.36 Drug or chemical induced diabetes mellitus with diabetic cataract,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dr,icd10cm_exclude,ICD-10-CM,E10.36,mapping,yes,1 codes; first E10.36 Type 1 diabetes mellitus with diabetic cataract,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dr,icd10cm_exclude,ICD-10-CM,E11.36,mapping,yes,1 codes; first E11.36 Type 2 diabetes mellitus with diabetic cataract,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.dr,icd10cm_exclude,ICD-10-CM,E13.36,mapping,yes,1 codes; first E13.36 Other specified diabetes mellitus with diabetic cataract,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.uveitis,icd10cm_include,ICD-10-CM,H20,mapping,yes,38 codes; first H20.00 Unspecified acute and subacute iridocyclitis,NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.uveitis,icd10cm_include,ICD-10-CM,H30,mapping,yes,"56 codes; first H30.001 Unspecified focal chorioretinal inflammation, right eye",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+phenotype_icd10cm.csv,ph.uveitis,icd10cm_include,ICD-10-CM,H44.1,mapping,yes,"13 codes; first H44.111 Panuveitis, right eye",NLM Clinical Tables icd10cm,2026-11-10,no,the code exists; the mapping to the cohort is not verified
+scores/cdai.yaml,line 32,text,LOINC,75847-4,text,yes,Total score [CDAI],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+scores/child_pugh.yaml,line 30,text,LOINC,98152-2,text,yes,Total score [Child-Pugh],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+scores/child_pugh.yaml,line 30,text,CDISC CT,CPS01TC,text,yes,C120989 Child-Pugh Classification Clinical Classification Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,no,named in text only
+scores/cockcroft_gault.yaml,line 29,text,LOINC,35591-7,text,yes,Creatinine renal clearance predicted by Cockcroft-Gault formula,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+scores/egfr_ckd_epi_2021.yaml,line 28,text,LOINC,98979-8,text,yes,"Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (CKD-EPI 2021)/1.73 sq M",NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+scores/fib4.yaml,line 40,text,LOINC,98488-0,text,yes,Liver fibrosis score in Serum Calculated by FIB4,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+scores/friedewald_ldl.yaml,line 15,text,LOINC,13457-7,text,yes,Cholesterol in LDL [Mass/volume] in Serum or Plasma by calculation,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+scores/friedewald_ldl.yaml,line 23,text,LOINC,13457-7,text,yes,Cholesterol in LDL [Mass/volume] in Serum or Plasma by calculation,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+scores/haq_di.yaml,line 38,text,LOINC,75874-8,text,yes,Total score [HAQ-DI],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+scores/haq_di.yaml,line 38,text,CDISC CT,HAQ01TC,text,yes,C106667 Health Assessment Questionnaire Disability Index With Pain Visual Analog Scale Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,no,named in text only
+scores/haq_di.yaml,line 38,text,CDISC CT,HAQ02TC,text,yes,C132523 Health Assessment Questionnaire Disability Index Without Pain Visual Analog Scale Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,no,named in text only
+scores/hba1c_jds_to_ngsp.yaml,line 28,text,LOINC,62388-4,text,yes,Hemoglobin A1c/Hemoglobin.total in Blood by JDS/JSCC protocol,NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+scores/ledd.yaml,line 6,text,ATC,N04B,text,yes,DOPAMINERGIC AGENTS,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
+scores/phq9_severity.yaml,line 13,text,LOINC,55758-7,text,yes,Patient Health Questionnaire 2 item (PHQ-2) total score [Reported],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+scores/phq9_severity.yaml,line 31,text,LOINC,44261-6,text,yes,Patient Health Questionnaire 9 item (PHQ-9) total score [Reported],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+scores/phq9_severity.yaml,line 31,text,CDISC CT,PHQ01TC,text,yes,C103481 Patient Health Questionnaire - 9 Item Questionnaire Test Code,NCI EVS CDISC SDTM Terminology,2026-11-10,no,named in text only
+scores/prednisolone_equivalent.yaml,line 6,text,ATC,H02AB,text,yes,Glucocorticoids,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
+scores/sdai.yaml,line 34,text,LOINC,75845-8,text,yes,Total score [SDAI],NLM Clinical Tables loinc_items,2026-11-10,no,named in text only
+specialties.csv,RHEU,text,ATC,L04AB,text,yes,Tumor necrosis factor alpha (TNF-alpha) inhibitors,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
+specialties.csv,RHEU,text,ATC,L04AC,text,yes,Interleukin inhibitors,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
+specialties.csv,RHEU,text,ATC,L04AA,text,yes,Selective immunosuppressants,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
+specialties.csv,NEUR,text,ATC,B01AE,text,yes,Direct thrombin inhibitors,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
+specialties.csv,NEUR,text,ATC,B01AF,text,yes,Direct factor Xa inhibitors,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
+specialties.csv,ONC,text,ATC,J05AF,text,yes,Nucleoside and nucleotide reverse transcriptase inhibitors,WHOCC ATC/DDD Index,2026-11-10,no,named in text only
+specialties.csv,NEPH,text,ATC,A10BK,text,yes,Sodium-glucose co-transporter 2 (SGLT2) inhibitors,WHOCC ATC/DDD Index,2026-11-10,no,named in text only

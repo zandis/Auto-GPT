@@ -20,8 +20,10 @@ search hits, the MHLW JLAC10 rows, the OHDSI cohorts' entry concepts, the ICD-10
 ICD-10-CM title hits for every entry concept name.
 
 Outputs: ``items.csv`` and ``phenotypes.csv`` (verification columns rewritten in place, other columns kept except
-for adopted LOINC codes) and ``phenotype_icd10cm.csv`` (new). Never invents a code: a code reaches a CSV only when
-the evidence holds it.
+for adopted LOINC codes), ``phenotype_icd10cm.csv`` and ``codes_checked.csv``: every code the catalogue names
+anywhere (a code column, a phenotype's ``codes``, a note, a score file), the source that holds it and whether it may
+drive an exclusion. Never invents a code: a code is ``verified = yes`` only when the evidence holds it. A code that
+is not verified has ``may_exclude = no``: unknown never excludes.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import html
 import io
 import json
 import re
@@ -48,6 +51,8 @@ NLM_LOINC = "https://clinicaltables.nlm.nih.gov/api/loinc_items/v3/search"
 NLM_ICD10CM = "https://clinicaltables.nlm.nih.gov/api/icd10cm/v3/search"
 MHLW_PAGE = "https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/xml_30799.html"
 MHLW_XLSX = "https://www.mhlw.go.jp/content/12400000/001082795.xlsx"
+NCI_CDISC_SDTM = "https://evs.nci.nih.gov/ftp1/CDISC/SDTM/SDTM%20Terminology.txt"
+WHOCC_ATC = "https://atcddd.fhi.no/atc_ddd_index/"
 OHDSI_TAG = "v3.37.0"
 OHDSI_RAW = f"https://raw.githubusercontent.com/OHDSI/PhenotypeLibrary/{OHDSI_TAG}/inst"
 
@@ -58,9 +63,33 @@ SRC_LOINC = "NLM Clinical Tables loinc_items"
 SRC_MHLW = "MHLW 特定健診 XML 付属2 Ver.4 (001082795.xlsx)"
 SRC_ICD = "NLM Clinical Tables icd10cm"
 SRC_OHDSI = f"OHDSI PhenotypeLibrary {OHDSI_TAG}"
+SRC_CDISC = "NCI EVS CDISC SDTM Terminology"
+SRC_ATC = "WHOCC ATC/DDD Index"
 
-ITEM_EXTRA = ["code_fit", "verified_source", "verified_date", "verified_note", "jlac10", "jlac10_source"]
-PHENO_EXTRA = ["verified", "verified_source", "verified_date", "verified_note"]
+ITEM_EXTRA = [
+    "code_fit",
+    "verified_source",
+    "verified_date",
+    "verified_note",
+    "jlac10",
+    "jlac10_source",
+    "may_exclude",
+]
+PHENO_EXTRA = ["verified", "verified_source", "verified_date", "verified_note", "may_exclude"]
+CODES_COLUMNS = [
+    "file",
+    "row",
+    "field",
+    "system",
+    "code",
+    "use",
+    "verified",
+    "name_in_source",
+    "source",
+    "verified_date",
+    "may_exclude",
+    "note",
+]
 PH_OUT_COLUMNS = [
     "phenotype_id",
     "ohdsi_cohort_id",
@@ -77,6 +106,7 @@ PH_OUT_COLUMNS = [
     "mapping_verified",
     "verified_source",
     "verified_date",
+    "may_exclude",
     "note",
 ]
 ACTIONS = {"adopt", "keep_local", "fit_partial"}
@@ -117,6 +147,49 @@ def icd_tokens(codes: str) -> list[str]:
     return out
 
 
+LOINC_TOKEN = re.compile(r"(?<![\w.-])(\d{3,7}-\d)(?![\w.-])")
+ATC_AFTER = re.compile(r"\bATC\s+([A-Z0-9/ ,]+)")
+ATC_TOKEN = re.compile(r"\b([A-V]\d{2}(?:[A-Z]{1,2}(?:\d{2})?)?)\b")
+CDISC_CELL_TOKEN = re.compile(r"\b([A-Z][A-Z0-9]{3,})\b")
+CDISC_TEXT_TOKEN = re.compile(r"\b([A-Z][A-Z0-9]*\d[A-Z0-9]*TC)\b")
+CDISC_WORDS = {"CDISC", "RECIST", "RSCAT"}  # words in the `cdisc_qrs` cell that are not codelist names
+ICDO_TOKEN = re.compile(r"\b(C\d{2}(?:\.\d)?)\b")
+
+
+def loinc_check_digit_ok(code: str) -> bool:
+    """LOINC's mod-10 check digit (the Luhn scheme over the digits before the hyphen)."""
+    body, _, check = code.partition("-")
+    if not body.isdigit() or not check.isdigit() or len(check) != 1:
+        return False
+    total = 0
+    for pos, ch in enumerate(reversed(body)):
+        d = int(ch) * (2 if pos % 2 == 0 else 1)
+        total += d // 10 + d % 10
+    return (10 - total % 10) % 10 == int(check)
+
+
+def loinc_tokens(text: str) -> list[str]:
+    """LOINC-shaped codes in a cell that mentions LOINC (``98979-8/62238-1`` gives both)."""
+    if "LOINC" not in text:
+        return []
+    return list(dict.fromkeys(LOINC_TOKEN.findall(text)))
+
+
+def atc_tokens(text: str) -> list[str]:
+    """ATC codes written after the word ATC (``ATC C02/C03`` gives both)."""
+    out: list[str] = []
+    for group in ATC_AFTER.findall(text):
+        for tok in ATC_TOKEN.findall(group):
+            if tok not in out:
+                out.append(tok)
+    return out
+
+
+def cdisc_tokens(cell: str) -> list[str]:
+    """CDISC CT codelist submission values named in an item's `cdisc_qrs` cell."""
+    return [t for t in dict.fromkeys(CDISC_CELL_TOKEN.findall(cell)) if t not in CDISC_WORDS]
+
+
 def split_list(cell: str) -> list[str]:
     return [p.strip() for p in cell.split(";") if p.strip()]
 
@@ -151,6 +224,8 @@ class Evidence:
     cohorts: dict[str, dict[str, Any]] = field(default_factory=dict)  # id -> {name, status, entry_concepts}
     icd10cm_prefixes: dict[str, dict[str, Any]] = field(default_factory=dict)  # prefix -> {n, sample}
     icd10cm_names: dict[str, list[str]] = field(default_factory=dict)  # concept name -> ICD-10-CM codes by title
+    atc: dict[str, str] = field(default_factory=dict)  # ATC code -> WHOCC name
+    cdisc: dict[str, dict[str, str]] = field(default_factory=dict)  # submission value -> {nci_code, name}
     sources: dict[str, str] = field(default_factory=dict)
 
     @classmethod
@@ -164,6 +239,8 @@ class Evidence:
             cohorts=data["cohorts"],
             icd10cm_prefixes=data["icd10cm_prefixes"],
             icd10cm_names=data["icd10cm_names"],
+            atc=data.get("atc", {}),
+            cdisc=data.get("cdisc", {}),
             sources=data.get("sources", {}),
         )
 
@@ -177,6 +254,8 @@ class Evidence:
             "cohorts": dict(sorted(self.cohorts.items(), key=lambda kv: int(kv[0]))),
             "icd10cm_prefixes": dict(sorted(self.icd10cm_prefixes.items())),
             "icd10cm_names": dict(sorted(self.icd10cm_names.items())),
+            "atc": dict(sorted(self.atc.items())),
+            "cdisc": dict(sorted(self.cdisc.items())),
         }
         return json.dumps(data, ensure_ascii=False, indent=1) + "\n"
 
@@ -208,6 +287,181 @@ class Curated:
             jlac10=keyed("jlac10_map.csv", "item_id"),
             phenotypes=keyed("phenotype_icd10cm_map.csv", "phenotype_id"),
         )
+
+
+# ---------------------------------------------------------------- every code the catalogue names
+
+
+@dataclass(frozen=True)
+class CodeRef:
+    """One code named somewhere in the catalogue. `use` says what the code is for:
+
+    ``code``     a code column or a phenotype's `codes` cell: a rule may use it
+    ``mapping``  a hand-made ICD-10-CM set in phenotype_icd10cm.csv (mapping_verified = no)
+    ``text``     named in a note, a source cell or a score file: never read by a rule
+    """
+
+    file: str
+    row: str
+    fld: str
+    system: str
+    code: str
+    use: str
+
+
+ITEM_CODE_FIELDS = {"id", "loinc", "omop_concept_id", "cdisc_qrs", "jlac10", "verified", *ITEM_EXTRA} - {
+    "verified_note"
+}
+
+
+def phenotype_code_refs(row: dict[str, str]) -> list[CodeRef]:
+    """The codes of a phenotype's `codes` cell, by vocabulary. MEDIS names, `local items` and `procedure codes HD/PD`
+    are names, not codes, and are left out."""
+    refs: list[CodeRef] = []
+
+    def add(system: str, code: str) -> None:
+        refs.append(CodeRef("phenotypes.csv", row["id"], "codes", system, code, "code"))
+
+    for segment in row.get("codes", "").split(";"):
+        seg = segment.strip()
+        if seg.startswith("LOINC"):
+            for code in LOINC_TOKEN.findall(seg):
+                add("LOINC", code)
+        elif seg.startswith("ATC"):
+            for code in atc_tokens(seg):
+                add("ATC", code)
+        elif seg.startswith("ICD-O"):
+            for code in ICDO_TOKEN.findall(seg):
+                add("ICD-O-3", code)
+        elif seg and not seg.startswith(NON_ICD_PREFIXES) and not seg.startswith("MEDIS"):
+            for code in icd_tokens(seg):
+                add("ICD-10-CM", code)
+    for fld in ("definition", "notes"):
+        for code in loinc_tokens(row.get(fld, "")):
+            refs.append(CodeRef("phenotypes.csv", row["id"], fld, "LOINC", code, "text"))
+    return refs
+
+
+def scan_refs(
+    items: list[dict[str, str]],
+    phenos: list[dict[str, str]],
+    icd_rows: list[dict[str, str]],
+    texts: dict[str, list[tuple[str, str]]],
+) -> list[CodeRef]:
+    """Every code the catalogue names. `texts` maps a file name to (row, line) pairs (score files, specialties)."""
+    refs: list[CodeRef] = []
+    for r in items:
+        rid = r["id"]
+        primary = r.get("loinc", "")
+        if primary and primary != "local":
+            refs.append(CodeRef("items.csv", rid, "loinc", "LOINC", primary, "code"))
+        for code in split_list(r.get("jlac10", "")):
+            refs.append(CodeRef("items.csv", rid, "jlac10", "JLAC10", code, "code"))
+        for code in cdisc_tokens(r.get("cdisc_qrs", "")):
+            refs.append(CodeRef("items.csv", rid, "cdisc_qrs", "CDISC CT", code, "code"))
+        for fld, cell in r.items():
+            if fld in ITEM_CODE_FIELDS or not cell:
+                continue
+            for code in loinc_tokens(cell):
+                if code != primary:
+                    refs.append(CodeRef("items.csv", rid, fld, "LOINC", code, "text"))
+    for r in phenos:
+        refs.extend(phenotype_code_refs(r))
+    for r in icd_rows:
+        for fld in ("icd10cm_include", "icd10cm_exclude"):
+            for code in split_list(r.get(fld, "")):
+                refs.append(CodeRef("phenotype_icd10cm.csv", r["phenotype_id"], fld, "ICD-10-CM", code, "mapping"))
+    for name, lines in texts.items():
+        for row, line in lines:
+            for code in loinc_tokens(line):
+                refs.append(CodeRef(name, row, "text", "LOINC", code, "text"))
+            for code in atc_tokens(line):
+                refs.append(CodeRef(name, row, "text", "ATC", code, "text"))
+            for code in dict.fromkeys(CDISC_TEXT_TOKEN.findall(line)):
+                refs.append(CodeRef(name, row, "text", "CDISC CT", code, "text"))
+    return list(dict.fromkeys(refs))
+
+
+def text_sources(catalogue: Path) -> dict[str, list[tuple[str, str]]]:
+    """The free-text files that may name codes: the score files (by line) and specialties.csv (by cell)."""
+    out: dict[str, list[tuple[str, str]]] = {}
+    for path in sorted((catalogue / "scores").glob("*.yaml")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        out[f"scores/{path.name}"] = [(f"line {n}", line) for n, line in enumerate(lines, 1)]
+    spec = catalogue / "specialties.csv"
+    if spec.exists():
+        cells = [(r["specialty_id"], v) for r in read_csv(spec)[1] for v in r.values() if v]
+        out["specialties.csv"] = cells
+    return out
+
+
+def check_ref(ref: CodeRef, ev: Evidence) -> tuple[bool, str, str, str]:
+    """(verified, the name the source gives, the source, a note) for one code."""
+    if ref.system == "LOINC":
+        if not loinc_check_digit_ok(ref.code):
+            return False, "", "", "the LOINC check digit is wrong"
+        name = ev.loinc_codes.get(ref.code)
+        if name is None:
+            return False, "", SRC_LOINC, "not found in the source"
+        return True, name, SRC_LOINC, ""
+    if ref.system == "ICD-10-CM":
+        hit = ev.icd10cm_prefixes.get(ref.code)
+        if hit is None:
+            return False, "", SRC_ICD, "not looked up; run fetch"
+        if not ev.icd_exists(ref.code):
+            return False, "", SRC_ICD, "no ICD-10-CM code under it (a WHO ICD-10 code, or none)"
+        sample = hit.get("sample") or []
+        first = f"{sample[0][0]} {sample[0][1]}" if sample else ""
+        return True, f"{hit['n']} codes{'; first ' + first if first else ''}", SRC_ICD, ""
+    if ref.system == "JLAC10":
+        row = ev.jlac10.get(ref.code)
+        return (True, row["name"], SRC_MHLW, "") if row else (False, "", SRC_MHLW, "not in the MHLW table")
+    if ref.system == "ATC":
+        name = ev.atc.get(ref.code)
+        return (True, name, SRC_ATC, "") if name else (False, "", SRC_ATC, "not found in the source")
+    if ref.system == "CDISC CT":
+        hit = ev.cdisc.get(ref.code)
+        if not hit:
+            return False, "", SRC_CDISC, "not found in the source"
+        return True, f"{hit['nci_code']} {hit['name']}", SRC_CDISC, ""
+    return False, "", "", f"no public {ref.system} source was read"
+
+
+def build_codes(refs: list[CodeRef], ev: Evidence, items: list[dict[str, str]], cur: Curated) -> list[dict[str, str]]:
+    """codes_checked.csv: one row per code and place. `may_exclude` is yes only for a verified code in a code column
+    whose meaning fits the item exactly; text mentions and the hand-made ICD-10-CM sets never exclude."""
+    by_item = {r["id"]: r for r in items}
+    out = []
+    for ref in refs:
+        ok, name, source, note = check_ref(ref, ev)
+        may = ok and ref.use == "code"
+        if may and ref.file == "items.csv" and ref.fld == "loinc":
+            may = by_item[ref.row].get("code_fit") == "exact"
+            if not may:
+                note = "the code covers only part of the item"
+        if may and ref.fld == "jlac10" and cur.jlac10.get(ref.row, {}).get("fit") == "partial":
+            may, note = False, "the MHLW item covers only part of the catalogue item"
+        if ok and ref.use == "mapping":
+            note = "the code exists; the mapping to the cohort is not verified"
+        if ok and ref.use == "text":
+            note = "named in text only"
+        out.append(
+            {
+                "file": ref.file,
+                "row": ref.row,
+                "field": ref.fld,
+                "system": ref.system,
+                "code": ref.code,
+                "use": ref.use,
+                "verified": "yes" if ok else "no",
+                "name_in_source": name,
+                "source": source,
+                "verified_date": ev.date if source else "",
+                "may_exclude": "yes" if may else "no",
+                "note": note,
+            }
+        )
+    return out
 
 
 # ---------------------------------------------------------------- build: items
@@ -277,6 +531,7 @@ def build_items(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> list[
             row.update(verified="no", code_fit="none", verified_source=SRC_LOINC, verified_date=ev.date)
             row["verified_note"] = "; ".join(p for p in (f"{_searches_note(all_terms, ev)}: {verdict}", note) if p)
         _fill_jlac10(row, cur, ev)
+        row["may_exclude"] = "yes" if row["verified"] == "yes" and row["code_fit"] == "exact" else "no"
         out.append(row)
     return out
 
@@ -325,9 +580,19 @@ def build_phenotypes(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> 
         missing = [t for t in tokens if not ev.icd_exists(t)]
         if missing:
             problems.append("not ICD-10-CM codes: " + ", ".join(missing))
-        if not tokens:
-            problems.append("no ICD-10-CM code in `codes`")
+        others = [ref for ref in phenotype_code_refs(row) if ref.use == "code" and ref.system != "ICD-10-CM"]
+        unchecked = []
+        for ref in others:
+            ok, _name, _src, why = check_ref(ref, ev)
+            if not ok:
+                unchecked.append(f"{ref.system} {ref.code} ({why})")
+        if unchecked:
+            problems.append("not verified: " + ", ".join(unchecked))
+        if not tokens and not others:
+            problems.append("no code in `codes`")
         parts = [f"{len(tokens) - len(missing)} of {len(tokens)} ICD-10-CM codes exist"]
+        if others:
+            parts.append(f"{len(others) - len(unchecked)} of {len(others)} other codes found in their sources")
         if status:
             parts.append("library status " + ", ".join(status))
         parts += problems
@@ -335,7 +600,10 @@ def build_phenotypes(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> 
         if tr:
             parts.append("ICD-10-CM translation in phenotype_icd10cm.csv" + (f" ({tr['note']})" if tr["note"] else ""))
         row["verified"] = "no" if problems else "yes"
-        row["verified_source"] = "; ".join([SRC_ICD] + ([SRC_OHDSI] if ids else []))
+        row["may_exclude"] = row["verified"]
+        systems = {ref.system for ref in others}
+        extra_src = [src for system, src in (("LOINC", SRC_LOINC), ("ATC", SRC_ATC)) if system in systems]
+        row["verified_source"] = "; ".join([SRC_ICD] + extra_src + ([SRC_OHDSI] if ids else []))
         row["verified_date"] = ev.date
         row["verified_note"] = "; ".join(parts)
         out.append(row)
@@ -381,7 +649,7 @@ def build_icd10cm(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> lis
             else:
                 outside.extend(f"{h} ({name})" for h in hits[:2])
         total = int(co.get("entry_concept_count", len(concepts)))
-        shown = "; ".join(f"{c['name']} [{c['vocabulary']} {c['concept_id']}]" for c in concepts[:6])
+        shown = "; ".join(f"{c['name']} [{c['vocabulary']}, OMOP concept {c['concept_id']}]" for c in concepts[:6])
         if total > 6:
             shown += f"; +{total - 6} more"
         out.append(
@@ -403,6 +671,7 @@ def build_icd10cm(rows: list[dict[str, str]], cur: Curated, ev: Evidence) -> lis
                 "mapping_verified": "no",
                 "verified_source": f"{SRC_OHDSI} cohort {cid}; {SRC_ICD}",
                 "verified_date": ev.date,
+                "may_exclude": "no",
                 "note": "; ".join(p for p in (("unknown codes: " + ", ".join(bad)) if bad else "", m["note"]) if p),
             }
         )
@@ -437,10 +706,15 @@ def build(paths: Paths) -> dict[Path, str]:
     ph_cols, phenos = read_csv(paths.catalogue / "phenotypes.csv")
     item_cols = item_cols + [c for c in ITEM_EXTRA if c not in item_cols]
     ph_cols = ph_cols + [c for c in PHENO_EXTRA if c not in ph_cols]
+    built_items = build_items(items, cur, ev)
+    built_phenos = build_phenotypes(phenos, cur, ev)
+    icd_rows = build_icd10cm(phenos, cur, ev)
+    refs = scan_refs(built_items, built_phenos, icd_rows, text_sources(paths.catalogue))
     return {
-        paths.catalogue / "items.csv": render_csv(item_cols, build_items(items, cur, ev)),
-        paths.catalogue / "phenotypes.csv": render_csv(ph_cols, build_phenotypes(phenos, cur, ev)),
-        paths.catalogue / "phenotype_icd10cm.csv": render_csv(PH_OUT_COLUMNS, build_icd10cm(phenos, cur, ev)),
+        paths.catalogue / "items.csv": render_csv(item_cols, built_items),
+        paths.catalogue / "phenotypes.csv": render_csv(ph_cols, built_phenos),
+        paths.catalogue / "phenotype_icd10cm.csv": render_csv(PH_OUT_COLUMNS, icd_rows),
+        paths.catalogue / "codes_checked.csv": render_csv(CODES_COLUMNS, build_codes(refs, ev, built_items, cur)),
     }
 
 
@@ -520,6 +794,27 @@ def fetch_mhlw(get: Getter) -> dict[str, dict[str, str]]:
     return parse_mhlw_rows(rows)
 
 
+def fetch_atc(get: Getter, code: str) -> str | None:
+    """The WHOCC name of an ATC code, from its index page; None when the page does not list the code."""
+    page = get(f"{WHOCC_ATC}?code={urllib.parse.quote(code)}&showdescription=no").decode("utf-8", "replace")
+    c = re.escape(code)
+    pattern = rf'(?<![A-Z0-9]){c} <b><a href="\./\?code={c}&showdescription=\w+">([^<]+)</a>'
+    m = re.search(pattern, page)
+    return html.unescape(m.group(1)).strip() if m else None
+
+
+def parse_cdisc(text: str, wanted: set[str]) -> dict[str, dict[str, str]]:
+    """Codelist rows of the NCI EVS SDTM Terminology file (tab separated): code, codelist code (blank on a codelist
+    row), extensible, codelist name, submission value."""
+    out: dict[str, dict[str, str]] = {}
+    for line in text.splitlines()[1:]:
+        cols = line.split("\t")
+        if len(cols) < 5 or cols[1] or cols[4] not in wanted:
+            continue
+        out[cols[4]] = {"nci_code": cols[0], "name": cols[3]}
+    return out
+
+
 def entry_concepts(cohort: dict[str, Any]) -> list[dict[str, Any]]:
     """The concepts of the concept sets that a Circe cohort's primary criteria name (its entry events)."""
     ids: list[int] = []
@@ -559,10 +854,17 @@ def fetch(paths: Paths, date: str, get: Getter = http_get, log: Callable[[str], 
             "icd10cm": NLM_ICD10CM,
             "jlac10": f"{MHLW_XLSX} (linked from {MHLW_PAGE})",
             "ohdsi": f"{OHDSI_RAW}/Cohorts.csv and {OHDSI_RAW}/cohorts/<id>.json",
+            "atc": f"{WHOCC_ATC}?code=<code>",
+            "cdisc": NCI_CDISC_SDTM,
         },
     )
+    maps = [dict(m, phenotype_id=pid) for pid, m in cur.phenotypes.items()]
+    refs = scan_refs(items, phenos, maps, text_sources(paths.catalogue))
     codes = {r["loinc"] for r in items if r["loinc"] not in ("", "local")}
     codes |= {d["loinc"] for d in cur.loinc.values() if d["loinc"]}
+    codes |= {r.code for r in refs if r.system == "LOINC" and loinc_check_digit_ok(r.code)}
+    for d in cur.loinc.values():  # the notes reach items.csv `verified_note` at build
+        codes |= {c for c in LOINC_TOKEN.findall(d.get("note", "")) if loinc_check_digit_ok(c)}
     for code in sorted(codes):
         name = fetch_loinc_code(get, code)
         if name is not None:
@@ -592,6 +894,7 @@ def fetch(paths: Paths, date: str, get: Getter = http_get, log: Callable[[str], 
     prefixes = {t for r in phenos for t in icd_tokens(r["codes"])}
     for m in cur.phenotypes.values():
         prefixes |= set(split_list(m["icd10cm_include"])) | set(split_list(m["icd10cm_exclude"]))
+    prefixes |= {r.code for r in refs if r.system == "ICD-10-CM"}
     for p in sorted(prefixes):
         ev.icd10cm_prefixes[p] = fetch_icd_prefix(get, p)
     names = set()
@@ -602,6 +905,14 @@ def fetch(paths: Paths, date: str, get: Getter = http_get, log: Callable[[str], 
     for name in sorted(names):
         ev.icd10cm_names[name] = fetch_icd_name(get, name)
     log(f"icd10cm: {len(ev.icd10cm_prefixes)} code families, {len(ev.icd10cm_names)} concept names")
+    for code in sorted({r.code for r in refs if r.system == "ATC"}):
+        atc_name = fetch_atc(get, code)
+        if atc_name is not None:
+            ev.atc[code] = atc_name
+    wanted_cdisc = {r.code for r in refs if r.system == "CDISC CT"}
+    if wanted_cdisc:
+        ev.cdisc = parse_cdisc(get(NCI_CDISC_SDTM).decode("utf-8-sig"), wanted_cdisc)
+    log(f"atc: {len(ev.atc)} codes; cdisc: {len(ev.cdisc)} of {len(wanted_cdisc)} codelists")
     return ev
 
 

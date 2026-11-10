@@ -10,6 +10,7 @@ where one exists. Data only; no runtime code reads it yet. Design and findings:
 | `scores/*.yaml` | one file per derived score: inputs, formula, rounding, windows, edge cases, worked examples from published sources (see `scores/README.md`) |
 | `phenotypes.csv` | the initial phenotype list per specialty, linked to OHDSI Phenotype Library cohort ids (3.37.0) or marked local; verification columns as in `items.csv` |
 | `phenotype_icd10cm.csv` | for each OHDSI-linked phenotype, the ICD-10-CM concept set that stands in for the cohort's SNOMED entry concepts, and how it was derived |
+| `codes_checked.csv` | every code the catalogue names anywhere (code columns, a phenotype's `codes`, notes, score files, `specialties.csv`): system, code, the name the public source gives, the source, the date, and `may_exclude` |
 | `verification/` | the curated inputs (`loinc_decisions.csv`, `jlac10_map.csv`, `phenotype_icd10cm_map.csv`) and `evidence.json`, what the public sources said on the date checked |
 | `specialties.csv` | each specialty template: core scores, labs and findings, social items, phenotypes, finder-rule examples, patient-vector features, and what the first pass left out |
 
@@ -25,7 +26,8 @@ Rules:
 
 ## Verification (D-180)
 
-`tools/catalogue_verify.py` writes the verification columns, the adopted LOINC codes and `phenotype_icd10cm.csv`.
+`tools/catalogue_verify.py` writes the verification columns, the adopted LOINC codes, `phenotype_icd10cm.csv` and
+`codes_checked.csv`.
 Edit the files in `verification/`, never the generated columns by hand.
 
     python -m tools.catalogue_verify fetch --date YYYY-MM-DD   # network: rereads the sources into evidence.json
@@ -48,3 +50,23 @@ What the columns mean:
   code in `codes` exists in ICD-10-CM (NLM Clinical Tables). It does not say the definition is clinically right.
   `phenotype_icd10cm.csv` has `codes_verified` (all codes exist) and `mapping_verified = no` throughout: the sets
   were made by hand from the cohorts' entry concept names, not from the OMOP Maps-to table (Athena refused).
+- Other codes: ATC codes are checked against the WHOCC ATC/DDD Index, CDISC CT codelists (`cdisc_qrs`) against the
+  NCI EVS SDTM Terminology file, and every LOINC code in a note or a score file against NLM (with its check digit).
+  `codes_checked.csv` lists each one with the name the source gives, so a reader can see what the code really is.
+  ICD-O-3 is not checked (no public machine-readable source was read); MEDIS names and `local items` are names, not
+  codes. OMOP concept ids are kept for the cohorts' entry concepts; SNOMED CT concept codes are not stored here
+  (the SNOMED CT licence question is open, D-161).
+
+`may_exclude` (items, phenotypes, `phenotype_icd10cm.csv`, `codes_checked.csv`): **unknown never excludes**. It is
+`yes` only for a code that was found in its public source, sits in a code column (not a note) and fits the item
+exactly (`code_fit = exact`; a JLAC10 row marked `fit = partial` in `jlac10_map.csv` is `no`). A phenotype is `yes`
+only when every code in its `codes` was found. The hand-made ICD-10-CM sets are `no` throughout
+(`mapping_verified = no`). A loader (T-107) may let a `may_exclude = no` code or phenotype raise a candidate or show
+evidence, never remove a patient: such a criterion is "unknown" when nothing else decides it. `may_exclude = yes`
+says only that the code is real and means the item; the screening rules still need a coded or confirmed fact, and
+proposed facts never count. Tests: `test_unknown_never_excludes`, `test_the_shipped_catalogue_obeys_unknown_never_excludes`.
+
+How this relates to the reference-data loaders (D-170 to D-175): the `jlac10` column says which MHLW 特定健診 rows
+name the same thing as a catalogue item, by a person's reading of the names. It is not a JLAC10 to LOINC map and
+must not be loaded as one; a site's own JLAC10 to LOINC file (D-174) is the only map. The WHO-only codes flagged
+here (F00, I64) are the same kind of difference that the WHO ICD-10 to ICD-10-CM bridge of D-173 handles.

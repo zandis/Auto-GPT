@@ -3704,8 +3704,14 @@ on 2026-11-10 (the evidence date); nothing was copied from memory.
 `catalogue/verification/evidence.json`. `tools/catalogue_verify.py fetch` reads the sources (network);
 `tools/catalogue_verify.py build` writes the CSVs offline from the evidence and three curated files in
 `catalogue/verification/` (`loinc_decisions.csv`, `jlac10_map.csv`, `phenotype_icd10cm_map.csv`). Each item and
-phenotype row now says `verified` yes or no, with the source and the date checked. Unknown stays unknown: a local item
-that no search could match stays local and `verified = no`, with the searches and hit counts in `verified_note`.
+phenotype row now says `verified` yes or no, with the source and the date checked, and `catalogue/codes_checked.csv`
+lists every code the catalogue names anywhere (915 on 2026-11-10) with the name its source gives. Unknown stays
+unknown: a local item that no search could match stays local and `verified = no`, with the searches and hit counts
+in `verified_note`. **Unknown never excludes:** a new column `may_exclude` is `yes` only for a code found in its
+source, in a code column, that fits the item exactly; a phenotype only when every code in its `codes` was found; the
+hand-made ICD-10-CM sets, codes named in notes, partial fits and anything not found are `no`. A loader may let a
+`may_exclude = no` code raise a candidate or show evidence, never remove a patient; proposed facts never count either
+way. Two tests hold the rule over the fixtures and over the shipped catalogue.
 
 *What changed.*
 1. LOINC. All 213 coded items were looked up by code in the NLM Clinical Tables LOINC service and their long names
@@ -3723,17 +3729,31 @@ that no search could match stays local and `verified = no`, with the searches an
    ICD-10-CM include and exclude set, made by hand from the cohort's entry concepts (PhenotypeLibrary v3.37.0) and the
    ICD-10-CM list; every code family exists in ICD-10-CM (NLM). `mapping_verified = no` throughout: the OMOP Maps-to
    table was not used (Athena refused, HTTP 403). The check found WHO-only codes in `phenotypes.csv` (F00, I64, and
-   A16 inside the A15-A19 range) and a meaning change (M07 is enteropathic arthropathy in ICD-10-CM; psoriatic arthritis is L40.5); the sets use the
-   ICD-10-CM codes and say why. Six phenotype rows are `verified = no` (three with WHO-only codes, three with no
-   diagnosis code at all).
+   A16 inside the A15-A19 range) and a meaning change (M07 is enteropathic arthropathy in ICD-10-CM; psoriatic
+   arthritis is L40.5); the sets use the ICD-10-CM codes and say why. The cohorts' entry concepts are kept as OMOP
+   concept ids and names; SNOMED CT concept codes are not stored (the SNOMED CT licence question is open, D-161).
+4. Every other code. LOINC codes in notes, sources and the score files (87, each with its check digit), the
+   phenotypes' LOINC and ATC codes, the ATC codes of the score files and `specialties.csv` (WHOCC ATC/DDD Index) and
+   the 47 CDISC CT codelists of `cdisc_qrs` (NCI EVS SDTM Terminology) were all found. Reading the names against the
+   text found one wrong code: `lab.tst` named 23538-2 as the 3-day tuberculin reading; it is the avian tuberculin
+   code, and the readings are 23537-4 (2 days) and 23539-0 (3 days). Five phenotype rows are `verified = no`:
+   three with WHO-only codes (F00, I64), breast cancer (ICD-O-3 C50: no public ICD-O-3 source was read) and
+   resistant hypertension (no code at all). The lab-defined CKD G3-G4 and uncontrolled diabetes are now checked by
+   their LOINC codes.
+5. Relation to the reference-data loaders (D-170 to D-175): the catalogue's `jlac10` column pairs an item with MHLW
+   rows by name; it is not a JLAC10 to LOINC map and is not loaded as one (D-174's site file is the map). No
+   reference-data file is changed here.
 
 *Evidence.* `tests/unit/test_catalogue_verify.py` (small fixtures, no network): adopted codes must be in the
 evidence, a local item with search hits needs a reviewed decision, retired ids are not reused, JLAC10 codes must be
-in the MHLW rows, every linked phenotype has a translation whose codes exist, the fetch step with a fake network, and
-the shipped catalogue is up to date with its evidence (`build --check`).
+in the MHLW rows, every linked phenotype has a translation whose codes exist, phenotype ATC and LOINC codes must be
+found, every code is registered with its source (a LOINC typo fails its check digit), `may_exclude` is never `yes`
+for an unverified, partial, text-only or mapped code, the fetch step with a fake network, and the shipped catalogue
+is up to date with its evidence (`build --check`).
 
 *Not done here.* OMOP concept ids (needs the Athena bundle), a check of the ICD-10-CM sets against the Maps-to table,
-JLAC10 codes outside the 特定健診 table (needs the JSLM or JLAC Center files), and the licence questions of §2 (WS-15.3).
+JLAC10 codes outside the 特定健診 table (needs the JSLM or JLAC Center files), ICD-O-3, the code that reads
+`may_exclude` (T-107 loads the catalogue), and the licence questions of §2 (WS-15.3).
 
 **D-187 Backups, layout 2: one snapshot, stream hashes, what a backup leaves out, sidecars.**
 Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §6.3 and §7.1 to §7.3 (R-45, R-60) and WS-08.6, finishing the backup row D-149 left open.
