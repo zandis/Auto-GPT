@@ -1,0 +1,222 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "e2623e916df0513123e43a41f4239be5a4ee97ea",
+  "lake_schema_version": 2,
+  "profile": "ci",
+  "reason": "D-205: first committed goldens, widened after the review (chunk table, corrections, restored night)",
+  "ref_date": "2026-11-01",
+  "ruleset": "RA-BIO",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy+omop"
+ },
+ "sets": {
+  "public-en": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "RA-BIO-EXC-01": 0,
+    "RA-BIO-EXC-02": 0,
+    "RA-BIO-EXC-03": 0,
+    "RA-BIO-EXC-04": 0,
+    "RA-BIO-EXC-05": 0,
+    "RA-BIO-EXC-06": 0,
+    "RA-BIO-EXC-07": 0,
+    "RA-BIO-INC-01": 43,
+    "RA-BIO-INC-02": 0,
+    "RA-BIO-INC-03": 0,
+    "RA-BIO-INC-04": 0,
+    "RA-BIO-INC-05": 0,
+    "RA-BIO-INC-06": 0
+   },
+   "start": 53,
+   "unknown": {
+    "RA-BIO-EXC-01": 0,
+    "RA-BIO-EXC-02": 0,
+    "RA-BIO-EXC-03": 0,
+    "RA-BIO-EXC-04": 0,
+    "RA-BIO-EXC-05": 0,
+    "RA-BIO-EXC-06": 0,
+    "RA-BIO-EXC-07": 0,
+    "RA-BIO-INC-01": 1,
+    "RA-BIO-INC-02": 0,
+    "RA-BIO-INC-03": 0,
+    "RA-BIO-INC-04": 0,
+    "RA-BIO-INC-05": 0,
+    "RA-BIO-INC-06": 0
+   },
+   "variants": {
+    "unknown_as_pass": 0
+   }
+  },
+  "ssmix2-jp": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "RA-BIO-EXC-01": 2,
+    "RA-BIO-EXC-02": 1,
+    "RA-BIO-EXC-03": 1,
+    "RA-BIO-EXC-04": 1,
+    "RA-BIO-EXC-05": 1,
+    "RA-BIO-EXC-06": 0,
+    "RA-BIO-EXC-07": 0,
+    "RA-BIO-INC-01": 381,
+    "RA-BIO-INC-02": 80,
+    "RA-BIO-INC-03": 31,
+    "RA-BIO-INC-04": 20,
+    "RA-BIO-INC-05": 14,
+    "RA-BIO-INC-06": 3
+   },
+   "start": 400,
+   "unknown": {
+    "RA-BIO-EXC-01": 0,
+    "RA-BIO-EXC-02": 1,
+    "RA-BIO-EXC-03": 0,
+    "RA-BIO-EXC-04": 0,
+    "RA-BIO-EXC-05": 0,
+    "RA-BIO-EXC-06": 0,
+    "RA-BIO-EXC-07": 0,
+    "RA-BIO-INC-01": 0,
+    "RA-BIO-INC-02": 0,
+    "RA-BIO-INC-03": 0,
+    "RA-BIO-INC-04": 0,
+    "RA-BIO-INC-05": 3,
+    "RA-BIO-INC-06": 10
+   },
+   "variants": {
+    "unknown_as_pass": 16
+   }
+  },
+  "synthetic-jp-a": {
+   "first_eligible": {
+    "2026-08": 4,
+    "2026-09": 8,
+    "2026-10": 7
+   },
+   "prevalent": 17,
+   "prevalent_pids_sha": "91df7c83de0c7d76ab46589b17c8e2d8795f1dc0f34fe4b91bd33ff14245f763",
+   "remaining": {
+    "RA-BIO-EXC-01": 31,
+    "RA-BIO-EXC-02": 29,
+    "RA-BIO-EXC-03": 27,
+    "RA-BIO-EXC-04": 26,
+    "RA-BIO-EXC-05": 24,
+    "RA-BIO-EXC-06": 21,
+    "RA-BIO-EXC-07": 19,
+    "RA-BIO-INC-01": 2413,
+    "RA-BIO-INC-02": 517,
+    "RA-BIO-INC-03": 300,
+    "RA-BIO-INC-04": 167,
+    "RA-BIO-INC-05": 121,
+    "RA-BIO-INC-06": 35
+   },
+   "start": 2500,
+   "unknown": {
+    "RA-BIO-EXC-01": 0,
+    "RA-BIO-EXC-02": 8,
+    "RA-BIO-EXC-03": 2,
+    "RA-BIO-EXC-04": 0,
+    "RA-BIO-EXC-05": 0,
+    "RA-BIO-EXC-06": 0,
+    "RA-BIO-EXC-07": 0,
+    "RA-BIO-INC-01": 8,
+    "RA-BIO-INC-02": 0,
+    "RA-BIO-INC-03": 0,
+    "RA-BIO-INC-04": 0,
+    "RA-BIO-INC-05": 12,
+    "RA-BIO-INC-06": 70
+   },
+   "variants": {
+    "unknown_as_pass": 132
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "first_eligible": {
+    "2026-08": 2,
+    "2026-09": 4
+   },
+   "prevalent": 4,
+   "prevalent_pids_sha": "aebcb9462b169b68a304fd42a0a9c0a020a83279377df0c68c19706e623bbd83",
+   "remaining": {
+    "RA-BIO-EXC-01": 12,
+    "RA-BIO-EXC-02": 11,
+    "RA-BIO-EXC-03": 10,
+    "RA-BIO-EXC-04": 9,
+    "RA-BIO-EXC-05": 8,
+    "RA-BIO-EXC-06": 7,
+    "RA-BIO-EXC-07": 6,
+    "RA-BIO-INC-01": 2411,
+    "RA-BIO-INC-02": 505,
+    "RA-BIO-INC-03": 288,
+    "RA-BIO-INC-04": 152,
+    "RA-BIO-INC-05": 86,
+    "RA-BIO-INC-06": 15
+   },
+   "start": 2493,
+   "unknown": {
+    "RA-BIO-EXC-01": 0,
+    "RA-BIO-EXC-02": 6,
+    "RA-BIO-EXC-03": 2,
+    "RA-BIO-EXC-04": 0,
+    "RA-BIO-EXC-05": 0,
+    "RA-BIO-EXC-06": 0,
+    "RA-BIO-EXC-07": 0,
+    "RA-BIO-INC-01": 4,
+    "RA-BIO-INC-02": 0,
+    "RA-BIO-INC-03": 0,
+    "RA-BIO-INC-04": 0,
+    "RA-BIO-INC-05": 28,
+    "RA-BIO-INC-06": 62
+   },
+   "variants": {
+    "unknown_as_pass": 120
+   }
+  },
+  "synthetic-tw-a": {
+   "first_eligible": {
+    "2026-08": 1,
+    "2026-09": 8,
+    "2026-10": 4
+   },
+   "prevalent": 11,
+   "prevalent_pids_sha": "f3d8eea8147263f4682f5b8bf7f7fcb5bc61041cd38cf4470600d80086999559",
+   "remaining": {
+    "RA-BIO-EXC-01": 25,
+    "RA-BIO-EXC-02": 19,
+    "RA-BIO-EXC-03": 16,
+    "RA-BIO-EXC-04": 14,
+    "RA-BIO-EXC-05": 14,
+    "RA-BIO-EXC-06": 14,
+    "RA-BIO-EXC-07": 13,
+    "RA-BIO-INC-01": 2400,
+    "RA-BIO-INC-02": 512,
+    "RA-BIO-INC-03": 273,
+    "RA-BIO-INC-04": 153,
+    "RA-BIO-INC-05": 108,
+    "RA-BIO-INC-06": 26
+   },
+   "start": 2500,
+   "unknown": {
+    "RA-BIO-EXC-01": 0,
+    "RA-BIO-EXC-02": 7,
+    "RA-BIO-EXC-03": 2,
+    "RA-BIO-EXC-04": 0,
+    "RA-BIO-EXC-05": 0,
+    "RA-BIO-EXC-06": 0,
+    "RA-BIO-EXC-07": 0,
+    "RA-BIO-INC-01": 8,
+    "RA-BIO-INC-02": 0,
+    "RA-BIO-INC-03": 0,
+    "RA-BIO-INC-04": 0,
+    "RA-BIO-INC-05": 3,
+    "RA-BIO-INC-06": 63
+   },
+   "variants": {
+    "unknown_as_pass": 109
+   }
+  }
+ }
+}

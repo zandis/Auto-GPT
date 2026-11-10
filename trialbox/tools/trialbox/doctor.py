@@ -20,7 +20,9 @@ closed). Checks:
   ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
   (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``;
 * ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
-  box's first start (T-008, D-207): WARN, naming the flag's value and where to change it.
+  box's first start (T-008, D-207): WARN, naming the flag's value and where to change it. Also WARN when the
+  variable is set and its flag was never seeded in this database (the variable still decides there, unaudited).
+  The check only reads: it creates nothing in the database.
 """
 
 from __future__ import annotations
@@ -246,7 +248,8 @@ def check_note_block(inp: DoctorInputs) -> Check:
 
 def check_flags(inp: DoctorInputs) -> Check:
     """T-008 (D-207): a seed variable (``TB_LAKE_SOURCE``) seeds its flag at the first start only; one that now says
-    something else than the flag is ignored, which an operator must know: WARN."""
+    something else than the flag is ignored, and one whose flag was never seeded still decides: an operator must
+    know either: WARN."""
     url = inp.env.get("TB_DB_URL", "")
     if not url:
         return Check("flags", "PASS", "no trial database configured here (TB_DB_URL): the flags were not read")
@@ -258,7 +261,7 @@ def check_flags(inp: DoctorInputs) -> Check:
         return Check("flags", "WARN", f"cannot read the feature flags ({type(e).__name__})")
     if drift:
         return Check("flags", "WARN", "; ".join(drift))
-    return Check("flags", "PASS", "every seed variable that is set agrees with its flag")
+    return Check("flags", "PASS", "every seed variable that is set agrees with its seeded flag")
 
 
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (

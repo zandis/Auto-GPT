@@ -222,3 +222,158 @@ def test_the_rebuild_follows_the_flag(tmp_path: Path, monkeypatch: Any) -> None:
     omop = lake_rows(feed, {}, tz="Asia/Taipei", snapshot="2026-10-31", lake_dir=lake)
     assert persons() == 1
     assert omop == legacy  # the same rows from either source (D-151)
+
+
+# ---------------------------------------------------------------- the review of 2026-11-09 (D-207, second part)
+def test_the_strict_read_tells_no_row_from_unreadable(tmp_path: Path, monkeypatch: Any) -> None:
+    f = fl.Flags(audit=_audit(tmp_path))
+    assert f.value("lake.source") is None  # the store answers, the flag was never seeded
+    with pytest.raises(fl.FlagUnreadable, match="unreadable"):
+        fl.Flags(url="postgresql://nobody@/nowhere?host=/nonexistent").value("lake.source")
+    f.seed({})
+    Database.connect(f._url, fl.SCHEMA).execute("UPDATE flag SET value = 'fhir'")
+    fl.clear_cache()
+    with pytest.raises(fl.FlagUnreadable, match="not one of"):
+        f.value("lake.source")
+    assert f.get("lake.source", "legacy") == "legacy"  # get still never raises
+    monkeypatch.delenv("TB_DB_URL")
+    with pytest.raises(LookupError):
+        fl.Flags().value("lake.source")
+
+
+def test_a_read_creates_nothing_in_the_database(db_url: str) -> None:
+    """``row`` / ``get`` / doctor's ``env_drift`` only read: no schema ``app`` appears because somebody looked."""
+    from tb_common.db import split_url
+
+    assert fl.Flags().row("lake.source") is None and fl.read("lake.source") is None
+    assert fl.env_drift({"TB_LAKE_SOURCE": "omop", "TB_DB_URL": db_url}) == [
+        "the flag lake.source was never seeded in this database: TB_LAKE_SOURCE=omop still decides "
+        "(start the console once; it seeds the flag)"
+    ]
+    dsn, prefix = split_url(db_url)
+    import psycopg
+
+    with psycopg.connect(dsn, autocommit=True) as con:
+        got = con.execute("SELECT count(*) FROM pg_namespace WHERE nspname = %s", (prefix + fl.SCHEMA,)).fetchone()
+    assert got is not None and got[0] == 0
+
+
+def test_an_unreadable_flag_stops_the_rebuild_and_the_variable_is_not_used(tmp_path: Path, monkeypatch: Any) -> None:
+    """Review H1: with the flag at omop, a database that does not answer must not build the lake from
+    ``TB_LAKE_SOURCE``."""
+    from lake import source as src
+
+    monkeypatch.setattr(src, "READ_PAUSE_S", 0.0)
+    f = fl.Flags(audit=_audit(tmp_path))
+    f.seed({"TB_LAKE_SOURCE": "omop"})
+    monkeypatch.setenv("TB_LAKE_SOURCE", "legacy")
+    assert src.rebuild_source() == ("omop", "flag lake.source")
+    fl.clear_cache()
+    calls = []
+    real_row = fl.Flags.row
+
+    def down(self: Any, name: str) -> str | None:
+        calls.append(name)
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(fl.Flags, "row", down)
+    with pytest.raises(RuntimeError, match="rebuild is refused.*TB_LAKE_SOURCE is not used"):
+        src.rebuild_source()
+    assert len(calls) == src.READ_ATTEMPTS
+    with pytest.raises(RuntimeError, match="refused"):
+        src.lake_rows({}, {}, tz="Asia/Taipei", snapshot="2026-10-31", lake_dir=tmp_path / "lake")
+    assert not (tmp_path / "lake" / "source.jsonl").exists()  # nothing was built
+    monkeypatch.setattr(fl.Flags, "row", real_row)
+    monkeypatch.delenv("TB_DB_URL")  # no trial database at all: the variable decides, as before
+    monkeypatch.setenv("TB_LAKE_SOURCE", "omop")
+    assert src.rebuild_source()[0] == "omop"
+
+
+def test_a_tool_forces_its_source_whatever_the_flag_says(tmp_path: Path, monkeypatch: Any) -> None:
+    """Review H2: ``tools/omop_parity.py`` and ``tools/goldens.py`` build both lakes in a database whose flag may be
+    seeded; ``force`` wins over the flag and the variable, and ends with its block."""
+    from lake import source as src
+
+    fl.Flags(audit=_audit(tmp_path)).seed({"TB_LAKE_SOURCE": "legacy"})
+    monkeypatch.setenv("TB_LAKE_SOURCE", "legacy")
+    with src.force("omop"):
+        assert src.rebuild_source() == ("omop", "forced by the caller (a tool)")
+        with src.force("legacy"):
+            assert src.rebuild_source()[0] == "legacy"
+        assert src.rebuild_source()[0] == "omop"
+    assert src.rebuild_source() == ("legacy", "flag lake.source")
+    with pytest.raises(ValueError, match="use one of"), src.force("fhir"):
+        pass
+
+
+def test_the_parity_tool_forces_each_source() -> None:
+    text = (ROOT / "tools" / "omop_parity.py").read_text(encoding="utf-8")
+    assert "force(source)" in text and '["rows"]["person"] > 0' in text
+
+
+def test_the_rebuild_records_its_source(tmp_path: Path, monkeypatch: Any) -> None:
+    """Review M2: what built a snapshot is kept (``source.jsonl`` in the lake, an audit event where the audit log is
+    mounted), not only logged."""
+    from lake.source import lake_rows
+
+    monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path / "audit"))
+    monkeypatch.delenv("TB_LAKE_SOURCE", raising=False)
+    fl.Flags(audit=_audit(tmp_path)).seed({})
+    lake = tmp_path / "lake"
+    lake_rows({}, {}, tz="Asia/Taipei", snapshot="2026-10-31", lake_dir=lake)
+    (line,) = [json.loads(x) for x in (lake / "source.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert {k: line[k] for k in ("snapshot", "source", "origin")} == {
+        "snapshot": "2026-10-31", "source": "legacy", "origin": "flag lake.source"}  # fmt: skip
+    (ev,) = _events(tmp_path, "lake.rebuild.source")
+    assert ev["actor"] == "lake" and ev["detail"]["source"] == "legacy" and ev["detail"]["snapshot"] == "2026-10-31"
+    assert verify(tmp_path / "audit").ok
+
+
+def test_a_seed_must_be_audited() -> None:
+    with pytest.raises(ValueError, match="seed must be audited"):
+        fl.Flags().seed({})
+    assert fl.Flags().row("lake.source") is None
+
+
+def test_set_refuses_a_stale_confirmation_and_a_long_reason(tmp_path: Path) -> None:
+    f = fl.Flags(audit=_audit(tmp_path))
+    f.seed({})
+    with pytest.raises(ValueError, match="is now legacy, no longer omop"):
+        f.set("lake.source", "omop", actor="console:admin", reason="x", expect_old="omop")
+    with pytest.raises(ValueError, match="is now legacy, no longer not set"):
+        f.set("lake.source", "omop", actor="console:admin", reason="x", expect_old=None)
+    with pytest.raises(ValueError, match="at most 500"):
+        f.set("lake.source", "omop", actor="console:admin", reason="r" * 501)
+    assert [e["kind"] for e in f.events()] == ["seed"] and not _events(tmp_path, "flag.set")
+    out = f.set("lake.source", "omop", actor="console:admin", reason="r" * 500, expect_old="legacy")
+    assert out["reason"] == "r" * 500 and f.row("lake.source") == "omop"
+
+
+def test_a_commit_that_fails_after_the_audit_event_is_named_in_the_audit(tmp_path: Path) -> None:
+    """Review M5: the audit event is written inside the transaction; when the commit then fails, the trail must not
+    say the flag changed without also saying it did not."""
+    from contextlib import contextmanager
+
+    real = Database.connect(fl.Flags()._url, fl.SCHEMA)
+
+    class LostCommit:
+        url = real.url
+
+        def migrate(self, versions: Any) -> int:
+            return real.migrate(versions)
+
+        @contextmanager
+        def transaction(self) -> Any:
+            with real.transaction() as tx:
+                yield tx
+                raise ConnectionError("server closed the connection at COMMIT")
+
+    f = fl.Flags(LostCommit(), audit=_audit(tmp_path))  # type: ignore[arg-type]
+    with pytest.raises(ConnectionError):
+        f.set("lake.source", "omop", actor="console:admin", reason="flip")
+    assert fl.Flags().row("lake.source") is None and fl.Flags().events() == []
+    (said,) = _events(tmp_path, "flag.set")
+    (failed,) = _events(tmp_path, "flag.set.failed")
+    assert failed["actor"] == "console:admin"
+    assert failed["detail"] == {**said["detail"], "error": "ConnectionError"}
+    assert verify(tmp_path / "audit").ok

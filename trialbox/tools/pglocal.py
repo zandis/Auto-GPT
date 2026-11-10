@@ -148,6 +148,8 @@ def drop_prefix(url: str, prefix: str) -> None:
     import psycopg
     from tb_common.db import split_url
 
+    if not prefix:  # every schema starts with "": that would be the whole database, never a run's own schemas
+        raise ValueError("drop_prefix needs a non-empty prefix: refusing to drop every schema of the database")
     dsn, _ = split_url(url)
     with psycopg.connect(dsn, autocommit=True) as con:
         names = [

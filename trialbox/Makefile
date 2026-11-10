@@ -53,13 +53,16 @@ e2e-simple:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.e2e_simple --dir $(E2E_DIR) --json $(E2E_DIR).json
 
 # the committed goldens (T-006, D-205): the merge gate for every data-core branch. Profile ci (5,450 synthetic and
-# public patients, fixed site key), about 2 minutes; TB_LAKE_SOURCE=omop checks the same goldens from the OMOP lake.
+# public patients, fixed site key), built and compared from BOTH lake sources (legacy and omop), so a branch that
+# breaks only the OMOP loader or export cannot pass. One source: make goldens-check GOLDENS_SOURCE=legacy|omop.
+# TZ=UTC: the result must not depend on the machine's time zone.
 # A deliberate change: make goldens REASON="D-nnn: why the numbers move" in the same pull request.
+GOLDENS_SOURCE ?= both
 goldens-check:
-	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.goldens --check --profile ci
+	TZ=UTC TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.goldens --check --profile ci --source $(GOLDENS_SOURCE)
 
 goldens:
-	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.goldens --write --profile ci --reason "$(REASON)"
+	TZ=UTC TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.goldens --write --profile ci --source both --reason "$(REASON)"
 
 # TB-PLAN-04 step 2 (D-126): the box runs the path, is backed up, wiped and restored, and must be the same box
 DRILL_DIR ?= /tmp/tb-backup-drill

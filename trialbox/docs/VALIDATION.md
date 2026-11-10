@@ -28,13 +28,15 @@ validator and mail. `make test-e2e` runs every mail scenario against the stack. 
 **The committed goldens** (`tests/golden/`, `make goldens-check`, T-006, D-205) are the merge gate for every
 data-core branch: the FEAS funnel and the SCREEN candidate set (after the coded filters) of every committed ruleset,
 the FEAS basis table, a per-column hash of every lake table and the lake schema, computed from fixed inputs (the
-synthetic hospital of profile `ci` with planted site inputs, its next night with a tenth of the records deleted, an
-SS-MIX2 storage and the SIGIR public notes; Asia/Tokyo and Asia/Taipei; a fixed synthetic site key) and compared with the committed JSON;
-any difference fails with the changed values by path and a unified diff. The same goldens hold for both lake sources
-(`TB_LAKE_SOURCE=omop make goldens-check`), so they also pin the OMOP parity, tombstones included. A deliberate
+synthetic hospital of profile `ci` with planted site inputs, its next night with a tenth of the records deleted and
+others corrected, the night after with everything restored, an SS-MIX2 storage and the SIGIR public notes; the chunk
+table too; Asia/Tokyo and Asia/Taipei; a fixed synthetic site key) and compared with the committed JSON;
+any difference fails with the changed values by path and a unified diff. `make goldens-check` builds every lake from
+both sources (flattened and from the OMOP store, each forced, in database schemas of its own) and compares both with
+the same files, so the gate also pins the OMOP parity, tombstones included, and cannot pass on one source alone. A deliberate
 change regenerates them in the same pull request (`make goldens REASON="D-nnn: ..."`); the 50k funnels are written
-only from the report of a paid run (`--from-report`). Last result: identical from either source, 17 goldens, about
-100 s (D-205). `tests/unit/test_goldens.py` keeps the schema golden and the one-golden-per-ruleset rule in every
+only from the report of a paid run (`--from-report`). Last result: identical from both sources, 17 goldens, about
+300 s for the two together (D-205). `tests/unit/test_goldens.py` keeps the schema golden and the one-golden-per-ruleset rule in every
 `make test`.
 
 ## 2. What `e2e_simple` proves

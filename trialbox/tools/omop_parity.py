@@ -278,6 +278,7 @@ def mimic(work: Path) -> list[DataSet]:
 # ------------------------------------------------------------------------------------------------ the comparison
 def build_lakes(ds: DataSet, work: Path, omop_url: str) -> dict[str, Path]:
     from embed_service.embedder import HashEmbedder
+    from lake.source import force
     from lake.store import Lake
 
     lakes = {}
@@ -287,7 +288,8 @@ def build_lakes(ds: DataSet, work: Path, omop_url: str) -> dict[str, Path]:
         lake = Lake(d, ds.tz)
         if ds.site:
             lake.put_site(ds.site)
-        with _env(TB_LAKE_SOURCE=source, TB_OMOP_DB_URL=omop_url if source == "omop" else None):
+        # D-207: force the source, so a lake.source flag seeded in this database cannot build both lakes from one
+        with _env(TB_LAKE_SOURCE=source, TB_OMOP_DB_URL=omop_url if source == "omop" else None), force(source):
             lake.rebuild(ds.snapshot, HashEmbedder(), ds.ndjson)
         lakes[source] = d
     return lakes
@@ -448,8 +450,10 @@ def run(base: Path, sets: tuple[str, ...] = SETS) -> dict[str, Any]:
                 "screening": compare_screening(lakes, ds),
                 "omop": omop_summary(omop_url, lakes["omop"]),
             }
-            entry["identical"] = all(t["identical"] for t in entry["tables"].values()) and all(
-                r["feas_identical"] and r["patients_different"] == 0 for r in entry["screening"].values()
+            entry["identical"] = (
+                all(t["identical"] for t in entry["tables"].values())
+                and all(r["feas_identical"] and r["patients_different"] == 0 for r in entry["screening"].values())
+                and entry["omop"]["rows"]["person"] > 0  # the omop lake really came from a loaded OMOP store
             )
             report["sets"][ds.name] = entry
             shutil.rmtree(w, ignore_errors=True)

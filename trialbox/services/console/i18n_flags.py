@@ -63,6 +63,6 @@ ZH: dict[str, str] = {
     "flags.history.none": "尚無變更。",
     "flags.kind.seed": "初始值",
     "flags.kind.set": "已變更",
-    "flags.confirm": "要將 {flag} 從 {old} 改為 {new} 嗎？各服務會從下一項工作開始使用新值（資料湖：從下一次重建開始）。理由：{reason}",
+    "flags.confirm": "要將 {flag} 從 {old} 改為 {new} 嗎？各服務會從下一次處理開始使用新值（資料湖：從下一次重建開始）。理由：{reason}",
     "flags.desc.lake.source": "下一次重建時篩選用資料湖的資料來源：legacy（展開醫院的快照）或 omop（從 OMOP 記錄庫匯出）。",
 }

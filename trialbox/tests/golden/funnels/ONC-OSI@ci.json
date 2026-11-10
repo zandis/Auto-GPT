@@ -1,0 +1,168 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "e2623e916df0513123e43a41f4239be5a4ee97ea",
+  "lake_schema_version": 2,
+  "profile": "ci",
+  "reason": "D-205: first committed goldens, widened after the review (chunk table, corrections, restored night)",
+  "ref_date": "2026-11-01",
+  "ruleset": "ONC-OSI",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy+omop"
+ },
+ "sets": {
+  "public-en": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "ONC-OSI-EXC-01": 0,
+    "ONC-OSI-INC-01": 43,
+    "ONC-OSI-INC-02": 0,
+    "ONC-OSI-INC-03": 0
+   },
+   "start": 53,
+   "unknown": {
+    "ONC-OSI-EXC-01": 0,
+    "ONC-OSI-INC-01": 1,
+    "ONC-OSI-INC-02": 0,
+    "ONC-OSI-INC-03": 0
+   },
+   "variants": {
+    "unknown_as_pass": 0
+   }
+  },
+  "ssmix2-jp": {
+   "first_eligible": {
+    "2025-11": 1,
+    "2026-02": 1,
+    "2026-03": 1,
+    "2026-05": 1,
+    "2026-07": 1,
+    "2026-10": 1
+   },
+   "prevalent": 4,
+   "prevalent_pids_sha": "8e0d8742acc48485b94971680b793d7e9c693e95eb98f653d043a4f800da68ac",
+   "remaining": {
+    "ONC-OSI-EXC-01": 6,
+    "ONC-OSI-INC-01": 381,
+    "ONC-OSI-INC-02": 18,
+    "ONC-OSI-INC-03": 11
+   },
+   "start": 400,
+   "unknown": {
+    "ONC-OSI-EXC-01": 0,
+    "ONC-OSI-INC-01": 0,
+    "ONC-OSI-INC-02": 0,
+    "ONC-OSI-INC-03": 2
+   },
+   "variants": {
+    "unknown_as_pass": 12
+   }
+  },
+  "synthetic-jp-a": {
+   "first_eligible": {
+    "2025-11": 2,
+    "2025-12": 1,
+    "2026-01": 3,
+    "2026-02": 3,
+    "2026-03": 3,
+    "2026-04": 9,
+    "2026-05": 6,
+    "2026-06": 9,
+    "2026-07": 7,
+    "2026-08": 8,
+    "2026-09": 3,
+    "2026-10": 1
+   },
+   "prevalent": 41,
+   "prevalent_pids_sha": "2de5e0138aa6a964d975952935f752edc829f05ad725431279028bdca05b8ece",
+   "remaining": {
+    "ONC-OSI-EXC-01": 55,
+    "ONC-OSI-INC-01": 2413,
+    "ONC-OSI-INC-02": 109,
+    "ONC-OSI-INC-03": 70
+   },
+   "start": 2500,
+   "unknown": {
+    "ONC-OSI-EXC-01": 0,
+    "ONC-OSI-INC-01": 8,
+    "ONC-OSI-INC-02": 0,
+    "ONC-OSI-INC-03": 10
+   },
+   "variants": {
+    "unknown_as_pass": 84
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "first_eligible": {
+    "2025-11": 1,
+    "2025-12": 1,
+    "2026-01": 4,
+    "2026-02": 2,
+    "2026-03": 1,
+    "2026-04": 8,
+    "2026-05": 5,
+    "2026-06": 6,
+    "2026-07": 6,
+    "2026-08": 6,
+    "2026-09": 2,
+    "2026-10": 1
+   },
+   "prevalent": 33,
+   "prevalent_pids_sha": "85297a02f58315c42d9a87d3d9125e1ef5d4a432e7a069bc955d8e529a71a1de",
+   "remaining": {
+    "ONC-OSI-EXC-01": 43,
+    "ONC-OSI-INC-01": 2411,
+    "ONC-OSI-INC-02": 93,
+    "ONC-OSI-INC-03": 54
+   },
+   "start": 2493,
+   "unknown": {
+    "ONC-OSI-EXC-01": 0,
+    "ONC-OSI-INC-01": 4,
+    "ONC-OSI-INC-02": 0,
+    "ONC-OSI-INC-03": 19
+   },
+   "variants": {
+    "unknown_as_pass": 72
+   }
+  },
+  "synthetic-tw-a": {
+   "first_eligible": {
+    "2025-10": 3,
+    "2025-11": 1,
+    "2025-12": 3,
+    "2026-01": 7,
+    "2026-02": 5,
+    "2026-03": 5,
+    "2026-04": 5,
+    "2026-05": 3,
+    "2026-06": 6,
+    "2026-07": 8,
+    "2026-08": 5,
+    "2026-09": 4,
+    "2026-10": 1
+   },
+   "prevalent": 31,
+   "prevalent_pids_sha": "54a470f2da73dcb912b34c387a8958d8d9d3d99d47b7ff9629a4de8b7b4fe3f5",
+   "remaining": {
+    "ONC-OSI-EXC-01": 56,
+    "ONC-OSI-INC-01": 2400,
+    "ONC-OSI-INC-02": 116,
+    "ONC-OSI-INC-03": 74
+   },
+   "start": 2500,
+   "unknown": {
+    "ONC-OSI-EXC-01": 0,
+    "ONC-OSI-INC-01": 8,
+    "ONC-OSI-INC-02": 0,
+    "ONC-OSI-INC-03": 16
+   },
+   "variants": {
+    "unknown_as_pass": 90
+   }
+  }
+ }
+}

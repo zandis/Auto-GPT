@@ -176,3 +176,25 @@ def test_a_check_that_cannot_run_fails(tmp_path: Path) -> None:
 def test_check_host_runs_doctor() -> None:
     text = (ROOT / "deploy" / "check_host.sh").read_text(encoding="utf-8")
     assert "tools.trialbox doctor" in text
+
+
+def test_flags_check_warns_on_drift_and_on_a_flag_never_seeded(tmp_path: Path, db_url: str) -> None:
+    """T-008 (D-207): PASS without a trial database or without the variable; WARN when ``TB_LAKE_SOURCE`` is set and
+    the flag was never seeded (the variable still decides) or says something else (the variable is ignored)."""
+    from tb_common import flags as fl
+    from tb_common.audit import AuditLog
+
+    from tools.trialbox.doctor import DoctorInputs, check_flags
+
+    fl.clear_cache()
+    assert check_flags(DoctorInputs(env={})).status == "PASS"
+    assert check_flags(DoctorInputs(env={"TB_DB_URL": db_url})).status == "PASS"
+    c = check_flags(DoctorInputs(env={"TB_DB_URL": db_url, "TB_LAKE_SOURCE": "omop"}))
+    assert c.status == "WARN" and "never seeded" in c.detail
+    fl.Flags(audit=AuditLog(tmp_path / "audit")).seed({})
+    c = check_flags(DoctorInputs(env={"TB_DB_URL": db_url, "TB_LAKE_SOURCE": "omop"}))
+    assert c.status == "WARN" and "is ignored: the flag lake.source is legacy" in c.detail
+    assert check_flags(DoctorInputs(env={"TB_DB_URL": db_url, "TB_LAKE_SOURCE": "legacy"})).status == "PASS"
+    bad = check_flags(DoctorInputs(env={"TB_DB_URL": "postgresql://nobody@/nowhere?host=/nonexistent",
+                                        "TB_LAKE_SOURCE": "omop"}))  # fmt: skip
+    assert bad.status == "WARN" and "cannot read" in bad.detail

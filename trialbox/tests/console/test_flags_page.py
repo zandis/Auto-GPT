@@ -118,3 +118,33 @@ def test_the_page_in_three_languages() -> None:
     for lang in ("en", "ja", "zh-TW"):
         assert set(i18n_flags.EN) <= set(CATALOGUES[lang]), lang
     assert all(f"flags.desc.{n}" in i18n_flags.EN for n in fl.DECLARED)
+
+
+def test_yes_on_a_stale_sheet_is_refused_and_a_long_reason_is_not_cut(box: dict[str, Any]) -> None:
+    """The sheet carries the value it showed; when the flag changed in between, Yes changes nothing. A reason over
+    500 characters is refused (never cut: the audit holds what the person confirmed)."""
+    import re
+
+    c, _ = login(box["app"])
+    csrf = _csrf(c.get("/ops/flags").text)
+    form = {"csrf": csrf, "name": "lake.source", "value": "omop", "reason": "D-207 test: stale sheet"}
+    sheet = c.post("/ops/flags", data=form, follow_redirects=False).text
+    assert re.search(r'name="old" value="legacy"', sheet)
+    fl.Flags(audit=box["app"].state.helpers.au).set("lake.source", "omop", actor="console:other", reason="first")
+    r = c.post("/ops/flags", data={**form, "value": "legacy", "old": "legacy", "confirm": "yes"},
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 400 and fl.Flags().row("lake.source") == "omop"
+    assert len(_events(box, "flag.set")) == 1
+    r = c.post("/ops/flags", data={**form, "value": "legacy", "reason": "r" * 501}, follow_redirects=False)
+    assert r.status_code == 400
+
+
+def test_a_flag_store_that_does_not_answer_is_a_503_page(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    c, _ = login(box["app"])
+    csrf = _csrf(c.get("/ops/flags").text)
+    monkeypatch.setenv("TB_DB_URL", "postgresql://nobody@/nowhere?host=/nonexistent")
+    fl.clear_cache()
+    assert c.get("/ops/flags").status_code == 503
+    r = c.post("/ops/flags", data={"csrf": csrf, "name": "lake.source", "value": "omop", "reason": "r"},
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 503

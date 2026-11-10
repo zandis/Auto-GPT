@@ -203,7 +203,9 @@ services:
               "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
     environment: {PORT: "8090", TB_SERVICE_NAME: console, TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit,
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
-                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-0}"}
+                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-0}",
+                  # D-207: the console seeds the lake.source flag, so it must see the same value as the lake service
+                  TB_LAKE_SOURCE: "${TB_LAKE_SOURCE:-legacy}"}
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - console-data:/data/console

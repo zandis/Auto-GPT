@@ -25,12 +25,18 @@ there is no row, and the caller's default applies.
 not installed, and on any error (logged). Values are cached for :data:`CACHE_SECONDS` per process, so a change made
 on ``/ops/flags`` reaches every service within five seconds, without a restart. A reader that must not change its
 behaviour mid-work reads the flag once when the work starts and keeps the value (the lake rebuild does).
+
+**A reader that must not guess reads strictly.** :meth:`Flags.value` is the same cached read, but it tells "no row"
+(None) from "cannot be read" (:class:`FlagUnreadable`) and from "no store configured" (``LookupError``). The lake
+rebuild uses it: a flag that cannot be read stops the rebuild, it never falls back to the seed variable. Reading
+creates nothing in the database (no schema, no table): a read-only role can read a flag.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -38,7 +44,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from tb_common.db import ENV as DB_URL_ENV
-from tb_common.db import Database
+from tb_common.db import Database, DatabaseError, split_url
 
 log = logging.getLogger("tb.flags")
 
@@ -46,6 +52,13 @@ SCHEMA = "app"
 CACHE_SECONDS = 5.0
 SEED_ACTOR = "install:seed"
 MAX_REASON = 500
+_ANY: Any = object()  # ``set(expect_old=...)`` not given: any stored value may be replaced
+_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")  # a schema name, as tb_common.db accepts it
+
+
+class FlagUnreadable(RuntimeError):
+    """The flag store is configured but could not be read (or holds a value that is not declared)."""
+
 
 #: ``migrate`` versions of schema ``app`` (append-only)
 MIGRATIONS = (
@@ -163,50 +176,77 @@ class Flags:
 
     # ------------------------------------------------------------------ read
     def row(self, name: str) -> str | None:
-        """The stored value, None when the flag has no row (or the store is not installed). Raises on errors."""
+        """The stored value, None when the flag has no row (or the store is not installed). Raises on errors
+        (``LookupError`` when no store is configured). Reads only: it creates no schema and no table."""
         declared(name)
-        db, close = self._open()
-        try:
-            with db.transaction() as tx:
+        if self._db is not None:
+            with self._db.transaction() as tx:
                 if tx.fetchval("SELECT to_regclass('flag')") is None:
                     return None
                 v = tx.fetchval("SELECT value FROM flag WHERE name = ?", (name,))
-        finally:
-            if close:
-                db.close()
-        return None if v is None else str(v)
+            return None if v is None else str(v)
+        if not self._url:
+            raise LookupError(f"{DB_URL_ENV} is not set: no flag store")
+        import psycopg
 
-    def get(self, name: str, default: str | None = None) -> str | None:
-        """The flag's value; ``default`` when it has no row, when the store is unreachable or on any error (logged).
-        Never raises for a declared name; an undeclared one is a ``ValueError``."""
+        dsn, prefix = split_url(self._url)
+        schema = prefix + SCHEMA
+        if not _NAME_RE.match(schema):
+            raise DatabaseError(f"bad schema name {schema!r}")
+        table = f'"{schema}".flag'
+        with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
+            reg = con.execute("SELECT to_regclass(%s)", (table,)).fetchone()
+            if not reg or reg[0] is None:
+                return None
+            r = con.execute(f"SELECT value FROM {table} WHERE name = %s", (name,)).fetchone()
+        return None if r is None or r[0] is None else str(r[0])
+
+    def value(self, name: str) -> str | None:
+        """The strict read, through the cache: the stored value, or None when the flag has no row. ``LookupError``
+        when no store is configured; :class:`FlagUnreadable` when the store cannot be read or holds a value that is
+        not declared. For a reader that must not fall back to a default on an error (the lake rebuild)."""
         d = declared(name)
         key = self._key(name)
         now = self.clock()
         with _CACHE_LOCK:
             hit = _CACHE.get(key)
         if hit is not None and now - hit[1] < CACHE_SECONDS:
-            return hit[0] if hit[0] is not None else default
+            return hit[0]
         try:
             value = self.row(name)
-        except Exception as e:  # never raise: the default, logged (the store is down, not installed, no URL)
-            if isinstance(e, LookupError):
-                log.debug("flag %s: %s; using the default %r", name, e, default)
-            else:
-                log.warning("flag %s unreadable (%s: %s); using the default %r", name, type(e).__name__, e, default)
-            return default
+        except LookupError:
+            raise
+        except Exception as e:
+            raise FlagUnreadable(f"flag {name} unreadable ({type(e).__name__}: {e})") from e
         if value is not None and value not in d.values:
-            log.error("flag %s holds %r, not one of %s; using the default %r", name, value, d.values, default)
-            return default
+            raise FlagUnreadable(f"flag {name} unreadable: it holds {value!r}, not one of {', '.join(d.values)}")
         with _CACHE_LOCK:
             _CACHE[key] = (value, now)
+        return value
+
+    def get(self, name: str, default: str | None = None) -> str | None:
+        """The flag's value; ``default`` when it has no row, when the store is unreachable or on any error (logged).
+        Never raises for a declared name; an undeclared one is a ``ValueError``."""
+        declared(name)
+        try:
+            value = self.value(name)
+        except LookupError as e:  # no store configured here
+            log.debug("flag %s: %s; using the default %r", name, e, default)
+            return default
+        except Exception as e:  # never raise: the default, logged (the store is down, a bad stored value)
+            log.warning("%s; using the default %r", e, default)
+            return default
         return value if value is not None else default
 
     def all(self) -> list[dict[str, Any]]:
         """Every declared flag with its stored value (None when never seeded) and when, by whom and why it changed."""
         db, close = self._open()
         try:
-            self.install(db)
-            rows = {r["name"]: r for r in db.fetchdicts("SELECT name, value, changed_at, changed_by, reason FROM flag")}
+            rows: dict[str, dict[str, Any]] = {}
+            with db.transaction() as tx:
+                if tx.fetchval("SELECT to_regclass('flag')") is not None:
+                    found = tx.fetchdicts("SELECT name, value, changed_at, changed_by, reason FROM flag")
+                    rows = {r["name"]: r for r in found}
         finally:
             if close:
                 db.close()
@@ -221,13 +261,15 @@ class Flags:
     def events(self, name: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         db, close = self._open()
         try:
-            self.install(db)
             where, params = ("WHERE name = ?", [name]) if name else ("", [])
-            return db.fetchdicts(
-                "SELECT id, at, name, kind, old_value, new_value, actor, reason FROM flag_event "
-                f"{where} ORDER BY id DESC LIMIT ?",
-                (*params, int(limit)),
-            )
+            with db.transaction() as tx:
+                if tx.fetchval("SELECT to_regclass('flag_event')") is None:
+                    return []
+                return tx.fetchdicts(
+                    "SELECT id, at, name, kind, old_value, new_value, actor, reason FROM flag_event "
+                    f"{where} ORDER BY id DESC LIMIT ?",
+                    (*params, int(limit)),
+                )
         finally:
             if close:
                 db.close()
@@ -236,7 +278,10 @@ class Flags:
     def seed(self, env: dict[str, str] | None = None) -> list[dict[str, Any]]:
         """The first start: every declared flag without a row gets its seed value (one ``seed`` event and one audit
         event each). A flag that has a row keeps it; a seed variable that now says otherwise is logged (doctor
-        reports it too). Returns what was seeded."""
+        reports it too). Returns what was seeded. Like a change, a seed must be audited: without an audit log it is
+        refused, so no tool can pin a flag silently."""
+        if self.audit is None:
+            raise ValueError("a flag seed must be audited: give Flags an audit log")
         environ = env if env is not None else dict(os.environ)
         db, close = self._open()
         seeded: list[dict[str, Any]] = []
@@ -258,9 +303,8 @@ class Flags:
                             "VALUES (?, 'seed', NULL, ?, ?, ?)",
                             (name, value, SEED_ACTOR, reason),
                         )
-                        if self.audit is not None:
-                            self.audit.append("flag.seed", actor=SEED_ACTOR,
-                                              detail={"flag": name, "value": value, "reason": reason})  # fmt: skip
+                        self.audit.append("flag.seed", actor=SEED_ACTOR,
+                                          detail={"flag": name, "value": value, "reason": reason})  # fmt: skip
                         seeded.append({"name": name, "value": value, "origin": origin})
                     else:
                         have = tx.fetchval("SELECT value FROM flag WHERE name = ?", (name,))
@@ -275,23 +319,36 @@ class Flags:
                 _CACHE.pop(self._key(s["name"]), None)
         return seeded
 
-    def set(self, name: str, value: str, actor: str, reason: str) -> dict[str, Any]:
+    def set(self, name: str, value: str, actor: str, reason: str, *, expect_old: Any = _ANY) -> dict[str, Any]:
         """Change a flag: one ``flag_event`` row and one audit event with the actor and the reason, or nothing. A
-        reason and an actor are required; the value must be one of the declared ones and differ from the stored."""
+        reason (at most :data:`MAX_REASON` characters, never cut) and an actor are required; the value must be one of
+        the declared ones and differ from the stored. With ``expect_old`` (the value the person saw when confirming;
+        None for "not set") the change is refused when the stored value is no longer that one.
+
+        The audit event is written inside the transaction, so a failed audit write (a full disk) rolls the change
+        back. The other way round, a commit that fails after the audit event was written, leaves an event for a
+        change that did not happen: a ``flag.set.failed`` event naming it is appended, and the error is raised."""
         v = check_value(name, value)
-        why = " ".join((reason or "").split())[:MAX_REASON]
+        why = " ".join((reason or "").split())
         if not why:
             raise ValueError("a flag change needs a reason")
+        if len(why) > MAX_REASON:
+            raise ValueError(f"the reason is {len(why)} characters; at most {MAX_REASON}")
         if not (actor or "").strip():
             raise ValueError("a flag change needs an actor")
         if self.audit is None:
             raise ValueError("a flag change must be audited: give Flags an audit log")
         db, close = self._open()
+        detail: dict[str, Any] | None = None  # set once the audit event is written
         try:
             self.install(db)
             with db.transaction() as tx:
                 tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"flag:{name}",))
                 old = tx.fetchval("SELECT value FROM flag WHERE name = ?", (name,))
+                if expect_old is not _ANY and old != expect_old:
+                    raise ValueError(
+                        f"{name} is now {old or 'not set'}, no longer {expect_old or 'not set'}: look again"
+                    )
                 if old == v:
                     raise ValueError(f"{name} is already {v}")
                 tx.execute(
@@ -306,8 +363,17 @@ class Flags:
                     (name, old, v, actor, why),
                 )
                 # inside the transaction: an audit write that fails (a full disk) rolls the change back
-                detail = {"flag": name, "old": old, "new": v, "reason": why, "event": event_id}
-                self.audit.append("flag.set", actor=actor, detail=detail)
+                event = {"flag": name, "old": old, "new": v, "reason": why, "event": event_id}
+                self.audit.append("flag.set", actor=actor, detail=event)
+                detail = event
+        except BaseException as e:
+            if detail is not None:  # the audit event is written, the commit failed: say so in the audit trail
+                try:
+                    self.audit.append("flag.set.failed", actor=actor,
+                                      detail={**detail, "error": type(e).__name__})  # fmt: skip
+                except Exception:
+                    log.exception("flag %s: the change was not committed and flag.set.failed was not written", name)
+            raise
         finally:
             if close:
                 db.close()
@@ -323,13 +389,18 @@ def read(name: str, url: str | None = None) -> str | None:
 
 
 def env_drift(env: dict[str, str], url: str | None = None) -> list[str]:
-    """The seed variables set in ``env`` that disagree with their flag (they are ignored after the first start)."""
+    """What an operator must know about the seed variables set in ``env``: one that disagrees with its flag (it is
+    ignored after the first start), and one whose flag was never seeded in this database (the variable still decides
+    there, unaudited, until a console start seeds it)."""
     out = []
     for name, d in sorted(DECLARED.items()):
         raw = (env.get(d.seed_env) or "").strip() if d.seed_env else ""
         if not raw:
             continue
         have = Flags(url=url or env.get(DB_URL_ENV)).row(name)
-        if have is not None and have != raw.lower():
+        if have is None:
+            out.append(f"the flag {name} was never seeded in this database: {d.seed_env}={raw} still decides "
+                       "(start the console once; it seeds the flag)")  # fmt: skip
+        elif have != raw.lower():
             out.append(f"{d.seed_env}={raw} is ignored: the flag {name} is {have} (change it on /ops/flags)")
     return out

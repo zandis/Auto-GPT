@@ -26,6 +26,8 @@ def committed() -> dict[str, dict[str, Any]]:
 
 
 def test_check_passes_on_identical() -> None:
+    """The comparator on identical input (the committed files against themselves). That the code still produces
+    them is ``make goldens-check``, which builds the lakes; this only proves ``compare`` raises no false alarm."""
     res = g.compare(GOLDEN, committed())
     assert res.ok, res.lines
 
@@ -33,7 +35,7 @@ def test_check_passes_on_identical() -> None:
 def test_head_and_reason_do_not_count() -> None:
     now = committed()
     for body in now.values():
-        body["meta"] = {**body["meta"], "head": "f" * 40, "reason": "D-999: another branch"}
+        body["meta"] = {**body["meta"], "head": "f" * 40, "reason": "D-205: another branch"}
     assert g.compare(GOLDEN, now).ok
 
 
@@ -126,6 +128,9 @@ def test_every_ruleset_has_its_goldens() -> None:
                 "ssmix2-jp",
                 "public-en",
             }
+    tables = json.loads((GOLDEN / "lake/tables@ci.json").read_text(encoding="utf-8"))["sets"]
+    assert set(tables) == {"synthetic-jp-a", "synthetic-jp-a-deletes", "synthetic-jp-a-restored", "synthetic-tw-a",
+                           "ssmix2-jp", "public-en"}  # fmt: skip
 
 
 def test_goldens_carry_their_provenance_and_cover_the_kinds() -> None:
@@ -140,7 +145,8 @@ def test_goldens_carry_their_provenance_and_cover_the_kinds() -> None:
     kinds = {v["kind"] for v in sets.values()}
     assert {
         "csv feed + site inputs",
-        "deletes (tombstones)",
+        "deletes (tombstones) + corrections",
+        "restored (tombstones lifted)",
         "notes only (public text)",
         "SS-MIX2 storage (HL7 v2)",
     } <= kinds
@@ -148,6 +154,18 @@ def test_goldens_carry_their_provenance_and_cover_the_kinds() -> None:
     dele, base = sets["synthetic-jp-a-deletes"]["tables"], sets["synthetic-jp-a"]["tables"]
     assert dele["condition"]["rows"] < base["condition"]["rows"] and dele["patient"]["rows"] == base["patient"]["rows"]
     assert dele["site_fact"]["rows"] < base["site_fact"]["rows"]
+    # corrections: a table that lost no row still changed (the Observation values)
+    assert dele["observation"]["columns"] != base["observation"]["columns"]
+    # the night after, everything is back: the same rows as the first night, table by table
+    back = sets["synthetic-jp-a-restored"]["tables"]
+    for name in ("condition", "observation", "medication", "site_fact", "document_chunk"):
+        assert back[name]["rows"] == base[name]["rows"], name
+    assert back["condition"]["columns"]["code"] == base["condition"]["columns"]["code"]
+    # the chunk table and the schema each snapshot declares are pinned too
+    for name, v in sets.items():
+        assert v["tables"]["document_chunk"]["columns"].keys() >= {"text", "tok", "sha"}, name
+        assert v["tables"]["lake_meta"]["schema_version"] == 2, name
+    assert sets["public-en"]["tables"]["document_chunk"]["rows"] > 0
 
 
 def test_goldens_are_small() -> None:
@@ -169,11 +187,11 @@ def test_write_keeps_unchanged_files_and_records_the_reason(tmp_path: Path) -> N
     gd = tmp_path / "golden"
     shutil.copytree(GOLDEN, gd)
     now = committed()
-    assert g.write(gd, now, "D-999: nothing moved", "legacy") == []
+    assert g.write(gd, now, "D-205: nothing moved", "legacy") == []
     now["funnels/GZQO@ci.json"]["sets"]["public-en"]["start"] += 1
-    assert g.write(gd, now, "D-999: one more patient", "omop") == ["funnels/GZQO@ci.json"]
+    assert g.write(gd, now, "D-205: one more patient", "omop") == ["funnels/GZQO@ci.json"]
     meta = json.loads((gd / "funnels/GZQO@ci.json").read_text(encoding="utf-8"))["meta"]
-    assert meta["reason"] == "D-999: one more patient" and meta["written_with_source"] == "omop"
+    assert meta["reason"] == "D-205: one more patient" and meta["written_with_source"] == "omop"
     assert g.compare(gd, now).ok
 
 
@@ -198,7 +216,7 @@ def test_50k_from_a_run_report(tmp_path: Path) -> None:
     (rel, body), *_ = out.items()
     assert rel.endswith("@50k.json") and body["meta"]["run_ids"] == ["run-5"]
     assert body["parts"] == {"hospital-ja": {"screen_funnel": {"S0": 9, "S1": 5}, "tiers": {"high": 2}, "listed": 2}}
-    assert g.write(tmp_path, out, "D-999: run 5", None) == [rel]
+    assert g.write(tmp_path, out, "D-205: run 5", None) == [rel]
     later = g.from_report(_report(run_ids=["run-6"], git={"head": "def"}))
     assert g.compare(tmp_path, later, "50k").ok  # another run with the same numbers
     later[rel]["parts"]["hospital-ja"]["screen_funnel"]["S1"] = 4
@@ -217,16 +235,72 @@ def test_50k_refuses_anything_but_a_50k_run(kw: dict[str, Any], why: str) -> Non
 
 
 def test_50k_is_never_generated_locally(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert g.main(["--write", "--profile", "50k", "--reason", "D-999: x", "--golden-dir", str(tmp_path)]) == 2
+    assert g.main(["--write", "--profile", "50k", "--reason", "D-205: x", "--golden-dir", str(tmp_path)]) == 2
     assert "only from a run's report" in capsys.readouterr().out
     assert g.main(["--check", "--profile", "50k", "--golden-dir", str(tmp_path)]) == 0
 
 
-def test_the_next_night_drops_records_but_never_a_patient(tmp_path: Path) -> None:
+def test_the_next_night_drops_and_corrects_records_but_never_a_patient(tmp_path: Path) -> None:
     src = tmp_path / "a"
     src.mkdir()
-    for t in ("Patient", "Condition"):
-        (src / f"{t}.ndjson").write_text("".join(json.dumps({"id": f"{t}{i}"}) + "\n" for i in range(20)))
-    g.next_night(src, tmp_path / "b")
-    read = {t: (tmp_path / "b" / f"{t}.ndjson").read_text().splitlines() for t in ("Patient", "Condition")}
-    assert len(read["Patient"]) == 20 and len(read["Condition"]) == 18
+    rows: dict[str, list[dict[str, Any]]] = {
+        "Patient": [{"resourceType": "Patient", "id": f"p{i}"} for i in range(20)],
+        "Condition": [{"resourceType": "Condition", "id": f"c{i}", "recordedDate": "2026-01-02"} for i in range(20)],
+        "Observation": [{"resourceType": "Observation", "id": f"o{i}", "valueQuantity": {"value": 1.5}}
+                        for i in range(20)],
+    }  # fmt: skip
+    for t, rr in rows.items():
+        (src / f"{t}.ndjson").write_text("".join(json.dumps(r) + "\n" for r in rr))
+    n = g.next_night(src, tmp_path / "b")
+    read = {t: [json.loads(x) for x in (tmp_path / "b" / f"{t}.ndjson").read_text().splitlines()] for t in rows}
+    assert len(read["Patient"]) == 20 and len(read["Condition"]) == 18 and len(read["Observation"]) == 18
+    assert read["Patient"] == rows["Patient"]
+    assert n == {"deleted": 4, "modified": 6}
+    assert sum(1 for r in read["Condition"] if r["recordedDate"] == "2026-01-01") == 3
+    assert sum(1 for r in read["Observation"] if r["valueQuantity"]["value"] == 2.5) == 3
+    assert {r["id"] for r in read["Condition"]} < {r["id"] for r in rows["Condition"]}  # same ids, none invented
+
+
+def test_write_needs_a_decision_that_exists(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert g.decision_known("D-205: goldens") and g.decision_known("D-151: the OMOP store")
+    assert not g.decision_known("D-999: no such decision")
+    assert g.main(["--write", "--reason", "D-999: x", "--golden-dir", str(tmp_path)]) == 2
+    assert "no decision that exists" in capsys.readouterr().out
+    with pytest.raises(ValueError, match="no decision that exists"):
+        g.write(tmp_path, committed(), "D-999: x", "legacy")
+    assert not list(tmp_path.iterdir())
+
+
+def test_write_removes_a_golden_nothing_computes_any_more(tmp_path: Path) -> None:
+    gd = tmp_path / "golden"
+    shutil.copytree(GOLDEN, gd)
+    now = committed()
+    del now["funnels/RA-BIO@ci.json"]
+    assert g.write(gd, now, "D-205: RA-BIO retired", "legacy+omop", prune="ci") == [
+        "funnels/RA-BIO@ci.json (removed: nothing computes it now)"
+    ]
+    assert not (gd / "funnels/RA-BIO@ci.json").exists() and g.compare(gd, now).ok
+
+
+def test_both_sources_by_default_and_one_when_named(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TB_LAKE_SOURCE", raising=False)
+    assert g.sources_for(None) == ("legacy", "omop") == g.sources_for("both")
+    assert g.sources_for("omop") == ("omop",)
+    monkeypatch.setenv("TB_LAKE_SOURCE", "omop")
+    assert g.sources_for(None) == ("omop",) and g.sources_for("legacy") == ("legacy",)
+
+
+def test_the_run_gets_its_own_schemas_inside_any_database(tmp_path: Path) -> None:
+    """A ``TB_DB_URL`` that is already set (a box, CI) is never used as it is: the run adds its own prefix, so it
+    reads nobody's flags and can drop nothing but its own schemas; and no prefix at all is never dropped."""
+    from tb_common.db import split_url
+
+    from tools import pglocal
+
+    for preset in ("postgresql://u@h/db", "postgresql://u@h/db?tb_prefix=box_&sslmode=require"):
+        url, prefix = g.private_url(preset, tmp_path)
+        dsn, got = split_url(url)
+        assert got == prefix and prefix.startswith(split_url(preset)[1] + "g") and len(prefix) > 10
+        assert dsn == split_url(preset)[0]
+    with pytest.raises(ValueError, match="non-empty prefix"):
+        pglocal.drop_prefix("postgresql://u@h/db", "")
