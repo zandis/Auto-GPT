@@ -1,0 +1,77 @@
+# `trialbox doctor --platform` as a job in the namespace (WS-14.8, TST-IQ-03; D-211): reads the namespace's objects
+# with a read-only service account (Secrets: names and data keys only, never a value), probes NTP, the directory,
+# the mail relay and the backup target, and writes /evidence/iq-evidence.json; the job fails when a check fails. Its
+# egress is only what the site declares (trialbox-egress-doctor, rendered by `platform-egress`; networkpolicy.yaml).
+#
+#   kubectl -n <ns> delete job trialbox-doctor --ignore-not-found && kustomize build ... | kubectl apply -f -
+#   kubectl -n <ns> logs job/trialbox-doctor
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: trialbox-doctor, labels: {app.kubernetes.io/component: doctor}}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: trialbox-doctor, labels: {app.kubernetes.io/component: doctor}}
+rules:
+  - apiGroups: [""]
+    resources: [pods, configmaps, resourcequotas, persistentvolumeclaims]
+    verbs: [get, list]
+  # list only, never get or watch: kek_custody must see every Secret of the namespace (a KEK under any name is the
+  # finding, so named Secrets would not do); the job keeps names, labels, annotations and data keys and drops each
+  # value as it reads the list (platform.KubeApi). Nothing reads one Secret by name.
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [list]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [get, list]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: trialbox-doctor, labels: {app.kubernetes.io/component: doctor}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: trialbox-doctor}
+subjects: [{kind: ServiceAccount, name: trialbox-doctor}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: trialbox-doctor, labels: {app.kubernetes.io/component: doctor, trialbox.io/tier: ops}}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {app.kubernetes.io/component: doctor, trialbox.io/tier: ops}}
+    spec:
+      serviceAccountName: trialbox-doctor
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: doctor
+          image: trialbox-py
+          command: ["python", "-m", "tools.trialbox", "doctor", "--platform", "--evidence", "/evidence/iq-evidence.json"]
+          envFrom:
+            - configMapRef: {name: trialbox-env}
+            - configMapRef: {name: trialbox-platform}
+            - configMapRef: {name: trialbox-serving, optional: true}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 1Gi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+            - {name: release, mountPath: /etc/trialbox/release, readOnly: true}
+            - {name: serving-record, mountPath: /etc/trialbox/serving, readOnly: true}
+            - {name: evidence, mountPath: /evidence}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
+        - {name: release, configMap: {name: trialbox-release}}
+        # the shared-quota serving record (T-114): absent until it is measured; doctor then says so (never assumed)
+        - {name: serving-record, configMap: {name: trialbox-serving-record, optional: true}}
+        - {name: evidence, persistentVolumeClaim: {claimName: iq-evidence}}
+        - {name: tmp, emptyDir: {}}
