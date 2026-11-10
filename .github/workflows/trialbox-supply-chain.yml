@@ -1,0 +1,69 @@
+# TrialBox supply chain, lock side (trialbox/docs/SECURITY.md §8; DECISIONS D-185, D-186). On every pull request
+# touching trialbox/ and weekly: the hashed lock is current and complete, the allow-list is valid, pip-audit (from a
+# hashed lock) passes the gate, the lock's SBOM (Syft over an environment installed from the lock) passes the
+# licence gate, and the gate tests pass. No images: trialbox-images.yml scans those.
+# Every action is pinned to a commit (tag in the comment); Syft and Trivy come with pinned sha256
+# (trialbox/tools/supply_chain/scanners.py).
+name: TrialBox supply chain
+
+on:
+  pull_request:
+    paths:
+      - "trialbox/**"
+      - ".github/workflows/trialbox-supply-chain.yml"
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trialbox-supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: trialbox
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.11.32"  # the uv of uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+
+      - name: Python environment
+        run: make venv
+
+      # fails when uv.lock is stale against pyproject.toml, when deploy/requirements.lock is not the export of
+      # uv.lock, or when any entry (or the pip-audit lock) has no sha256 (D-185)
+      - name: Hashed lock is current
+        run: make lock-check
+
+      - name: Allow-list entries have a reason and a live review date
+        run: make allowlist-check
+
+      - name: pip-audit gate
+        run: make pip-audit
+
+      - name: Licence gate on the lock's SBOM
+        run: make licences
+
+      - name: Gate tests
+        run: .venv/bin/python -m pytest -q tests/unit/test_supply_chain.py
+
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: supply-chain-lock
+          path: |
+            trialbox/build/supply-chain/pip-audit.json
+            trialbox/dist/sbom
+          if-no-files-found: ignore

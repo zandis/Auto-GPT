@@ -408,7 +408,9 @@ class Gateway:
             return None
         call.latency_ms = round((time.perf_counter() - t0) * 1000, 2)
         if resp.status_code >= 400:
-            errors.append(f"{ep.name}: HTTP {resp.status_code}")
+            # vLLM answers 404 to a model name it does not serve: name the one sent (the pin's served name)
+            hint = f" (model {res.served_name!r} not served there?)" if resp.status_code == 404 else ""
+            errors.append(f"{ep.name}: HTTP {resp.status_code}{hint}")
             return None
         try:
             payload = resp.json()

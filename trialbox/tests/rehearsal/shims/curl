@@ -1,0 +1,13 @@
+#!/bin/bash
+# Rehearsal shim for curl on the "VM": the GCE metadata server (http://metadata.google.internal/computeMetadata/v1/
+# instance/attributes/<key>) answers from /rehearsal/s/metadata/<key>; a missing key is 404 (curl -f exit 22), as on
+# GCE. Every other URL goes to the real curl.
+for a in "$@"; do
+  case "$a" in
+    http://metadata.google.internal/computeMetadata/v1/instance/attributes/*)
+      f=/rehearsal/s/metadata/${a##*/attributes/}
+      [ -f "$f" ] || exit 22
+      cat "$f"; exit 0 ;;
+  esac
+done
+exec /usr/bin/curl "$@"

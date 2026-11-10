@@ -35,6 +35,14 @@ ALLOWED: dict[str, str] = {
     "tools/bench_profile.py": "D-148 cost bench on fictional patients (Z-DEV); calls the judge directly only when the "
     "gateway refuses, and records that it did; not shipped",
     "tests/unit/test_gpu_prep.py": "drives bench_profile against an in-process stub (no network)",
+    "tests/unit/test_served_names.py": "a fake vLLM behind an httpx.MockTransport, strict about the served name "
+    "(no network)",
+    "tests/unit/test_gateway_box_phi.py": "an in-process strict vLLM stand-in (served name only) behind the installed "
+    "box's gateway, answering from the stub (no network)",
+    "deploy/gcp/complete-run-vm.sh": "D-150 runs on the GPU VM: one smoke prompt (no patient data) to each of its own "
+    "servers before READY, to prove the served names and the key",
+    "tests/rehearsal/": "D-150 the rehearsal's vLLM stand-in serves the API (the repository stub behind it); "
+    "it calls nothing",
 }
 
 

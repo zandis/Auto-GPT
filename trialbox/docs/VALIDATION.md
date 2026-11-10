@@ -18,11 +18,25 @@ Run in `trialbox/` with the venv (`make venv`). All use synthetic or public data
 | the walk | `node tools/public_walk.js` against `public_e2e --serve` | 5 roles × 3 languages × desktop and phone: status, language, no English on ja/zh-TW pages, axe-core, 44 px targets, tap counts | 780 checks over 768 pages, 0 failures; axe 0 serious or critical (D-139) |
 | backup | `make backup-drill` (`tools/backup_drill.py`) | backed up, wiped, restored: every table, file, mark, participant, site set-up and code list the same | PASSED, 11 checks in 112 s (D-139) |
 | update | `python -m tools.update_drill` | a signed update applied; a tampered bundle refused; a bad migration and an unhealthy release rolled back | PASSED, 12 checks in 247 s (D-139) |
+| OMOP parity | `python -m tools.omop_parity --json eval/omop_parity/report.json` | the lake exported from OMOP equals the flattened lake row for row; FEAS and every patient's verdicts equal for all 7 committed rulesets on the synthetic hospital, the public site and the MIMIC demo; DQD-style checks on the store | identical on all 4 data sets (0 patients different); DQD 0 failures but 1 on MIMIC (visit classes without a concept) (D-151) |
 | documents | `python tools/doclint.py` | the eight documents, links, headings, paths, no retired name | clean (D-139) |
 | complete run | `python -m tools.complete_run` | every part above in ja and zh-TW and the scenario matrix, with a screenshot per stage | PASSED, 662/662 checks, 84/84 screenshots in 34 min, stub, 5,000 patients, 12 known findings reported (`eval/complete_run/2026-11-09-matrix-stub-5000/report.md`, D-141) |
 
 `tests/integration` (with `TB_INTEGRATION=1` and the compose test stack) adds HAPI CQL, the equivalence gate, the HL7
 validator and mail. `make test-e2e` runs every mail scenario against the stack. `tests/llm` needs a real model.
+
+**The committed goldens** (`tests/golden/`, `make goldens-check`, T-006, D-205) are the merge gate for every
+data-core branch: the FEAS funnel and the SCREEN candidate set (after the coded filters) of every committed ruleset,
+the FEAS basis table, a per-column hash of every lake table and the lake schema, computed from fixed inputs (the
+synthetic hospital of profile `ci` with planted site inputs, its next night with a tenth of the records deleted, an
+SS-MIX2 storage and the SIGIR public notes; Asia/Tokyo and Asia/Taipei; a fixed synthetic site key) and compared with the committed JSON;
+any difference fails with the changed values by path and a unified diff. The same goldens hold for both lake sources,
+and `make goldens-check` checks both side by side (`TB_LAKE_SOURCE=omop` checks one), so they also pin the OMOP
+parity, tombstones and in-place updates included. A deliberate
+change regenerates them in the same pull request (`make goldens REASON="D-nnn: ..."`); the 50k funnels are written
+only from the report of a paid run (`--from-report`). Last result: identical from both sources, 17 goldens, 139 s
+(D-205). `tests/unit/test_goldens.py` keeps the schema golden and the one-golden-per-ruleset rule in every
+`make test`.
 
 ## 2. What `e2e_simple` proves
 

@@ -1,0 +1,90 @@
+# The data-handling scan's patterns (D-203, WS-13.10, TB-SITE-03 §2; tools/data_scan.py). Patterns are data: each
+# has a planted positive in tests/fixtures/data_scan/positives/<id>.txt and a test that it is found.
+#
+# Every line of every file is first normalised: NFKC (full-width digits and letters, half-width katakana), format
+# characters and variation selectors removed, dash variants between digits made a hyphen. A pattern is then
+#   regex:      a Python regular expression; placeholders {roc_surname}, {jp_surname}, {honorific}, {patient_word},
+#               {cjk}, {kana}, {katakana}, {date} and {sep} are filled in by the scanner (the surname lists, the
+#               honorifics and the patient words are tb_common.phi_guard's, imported, not copied)
+#   phi_guard:  the name of a compiled pattern in tb_common.phi_guard, used as it is
+#   group:      the group whose text is checked and reported (default: the first group that matched, else the match)
+#   check:      a check digit the reported digits must pass (tw_id, my_number, luhn); without one any match is a hit
+#   digits:     [min, max] digits the reported text must have, separators removed
+#   alone:      the match may not be part of a longer token (a letter, digit, underscore, decimal point or hyphen
+#               beside it; a phone label such as "tel" or "phone_" before it is fine)
+#   needs:      a cheap regular expression a line must contain before the pattern is tried (speed only)
+#   near, window: the pattern counts only within `window` characters of a match of `near` (a name beside a date);
+#               a name and a date on up to three neighbouring lines count as well
+#   not:        words that look like the pattern and are not identifiers (compared after normalisation)
+#
+# The sites' own code systems (local lab codes, local diagnosis codes) are added here once the survey names them
+# (TB-SITE-01 questions 24 to 26); a CGMH chart number is anchored on its label until the site states its format.
+# Tables (csv, tsv, xlsx, parquet) are also scanned with each value labelled by its column's header, so the labels
+# below match a column named "mrn", "chart_no" or "病歷號" as well.
+
+patterns:
+  - id: chart_number
+    what: a chart number after its label (病歷號, カルテ番号, MRN, chart no, patient id), 5 to 12 digits, separators allowed
+    regex: '(?i)(?:病歷號碼|病歷號|病歷編號|病例號|病歴番号|病历号|カルテ番号|カルテNo\.?|診察券番号|患者ID|患者番号|(?<![A-Za-z])(?:mrn|chart[\s_-]*(?:no|number|num|id|#)|medical[\s_-]*record[\s_-]*(?:no|number|num|id)?|patient[\s_-]*id|pt[\s_-]*id)(?![A-Za-z]))\.?["''\s_]*(?:為|は)?["''\s]*[:：#=]?["''\s_]*([A-Z]{0,3}\d(?:{sep}?\d){4,11})(?!\d)'
+    digits: [5, 12]
+    needs: '(?i)病歷|病例|病歴|病历|カルテ|診察券|患者|mrn|chart|medical|patient|pt'
+
+  - id: hl7_pid
+    what: the patient identifier field (PID-3) of an HL7 v2 PID segment
+    regex: '^PID\|[^|]*\|[^|]*\|([^|^]*\d{5,}[^|^]*)'
+    needs: '^PID\|'
+
+  - id: tw_id
+    what: a Taiwan national ID or resident certificate number with a valid check digit (a letter, 1/2/8/9, 8 digits)
+    regex: '(?i)(?<![A-Z0-9])([A-Z]{sep_id}?[1289](?:{sep_id}?\d){8})(?![A-Z0-9])'
+    check: tw_id
+    needs: '[A-Za-z]'
+
+  - id: my_number
+    what: a マイナンバー (individual number) with a valid check digit, after its label, or alone in a field (4-4-4 in any field, 12 plain digits in a delimited cell)
+    regex: '(?i)(?:マイナンバー|個人番号|my\s*number)[^\d\n]{0,12}(\d{4}[ \-]?\d{4}[ \-]?\d{4})(?!\d)|(?:^|(?<=[,\t|:"''=]))[ ]*(\d{4}[ \-]\d{4}[ \-]\d{4})[ ]*(?=$|[,\t|"''])|(?:^|(?<=[,\t|]))[ ]*(\d{12})[ ]*(?=$|[,\t|])'
+    check: my_number
+    digits: [12, 12]
+    needs: '\d{4}'
+
+  - id: jp_insurer
+    what: a Japanese insurer number (保険者番号) of 6 or 8 digits with a valid check digit, after its label
+    regex: '(?i)(?:保険者番号|保険者No\.?|保険者|insurer[\s_-]*(?:no\.?|number|id)?)\s*[:：#=]?\s*(\d(?:{sep}?\d){5}(?:(?:{sep}?\d){2})?)(?!\d)'
+    check: luhn
+    digits: [6, 8]
+    needs: '(?i)保険者|insurer'
+
+  - id: tw_phone
+    what: a Taiwanese mobile or landline number (tb_common.phi_guard's PHONE, as it is)
+    phi_guard: PHONE
+    alone: true
+    needs: '0\d|886'
+
+  - id: tw_phone_intl
+    what: a Taiwanese mobile number with the country code, with or without "+" and separators
+    regex: '(?<![\d+])\+?886[ \-]?\(?0?\)?9\d{2}[ \-]?\d{3}[ \-]?\d{3}(?!\d)'
+    alone: true
+    needs: '886'
+
+  - id: jp_phone
+    what: a Japanese mobile (070/080/090), IP (050), toll-free or landline number with separators, or +81
+    regex: '(?<![\d\-])(?:\+81{sep}?[1-9]\d{0,3}|0\d{1,4})[\-(（ ]\d{1,4}[\-)） ]\d{4}(?![\d\-])|(?<![\d\-])0[5789]0\d{8}(?!\d)|(?<![\d\-])\+?81[5789]0\d{8}(?!\d)'
+    digits: [10, 12]
+    alone: true
+    needs: '0\d|81'
+
+  - id: cjk_name_dob
+    what: a Chinese or Japanese name (a surname of tb_common.phi_guard's lists and one to three characters) beside a date
+    regex: '(?:(?<=姓名)|(?<=氏名)|(?<=名前)|(?<=患者)|(?<=病人)|(?<=病患)|(?<=個案)|(?<=案主)|(?<=受試者)|(?<![{cjk}{kana}A-Za-z0-9]))(?:{roc_surname}[{cjk}]{1,2}|{jp_surname}[{cjk}]{1,3})(?={honorific}|[男女]|[^{cjk}{kana}]|$)'
+    near: '{date}'
+    window: 24
+    needs: '{date}'
+    not: [高血壓, 高血脂, 高血糖, 白內障, 白血病, 黃疸, 黃斑部, 林口, 高雄, 高雄市, 石牌, 周邊, 周期, 方案, 方法, 方式, 江戶, 金額, 金屬, 古典, 馬偕, 葉酸, 程序, 程度, 康復, 森林, 余額, 何時, 高齡, 高度, 藍色, 白色, 黃色, 金色, 方向, 安全, 史上, 嚴重, 高血圧, 周三, 周四, 周五, 周六, 周日, 周一, 周二, 紀錄, 程式, 丁目, 山口県, 石川県, 福田町, 中村区, 和田町]
+
+  - id: kana_name_dob
+    what: a name in katakana (family and given name apart, or after フリガナ/カナ/氏名) beside a date
+    regex: '(?<![{kana}{cjk}])[{katakana}]{2,8}[ ・,\t、][{katakana}]{1,8}(?![{kana}{cjk}])|(?:(?<=カナ)|(?<=フリガナ)|(?<=氏名))[:\s]*([{katakana}]{3,16})(?![{kana}{cjk}])'
+    near: '{date}'
+    window: 24
+    needs: '{date}'
+    not: [デジタル・ガバナンス, データ ベース, クリニカル・トライアル]

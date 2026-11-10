@@ -87,6 +87,16 @@ FHIR R4 NDJSON snapshot ──► fhir-store (delta load: only new or changed re
   carries JP Core profiles, validated on a sample at ingest (D-122, D-137).
 - Taiwan: CSV or CGRD SQL views with TW Core profiles.
 - Lake queries are SELECT only (sqlglot guard), read-only, memory-capped and pinned to a snapshot.
+- OMOP CDM v5.4 (`services/omop`, schema `omop` of `trialbox_wf`) is the store of record for clinical facts (D-144).
+  With `TB_LAKE_SOURCE=omop` the rebuild loads the snapshot and the site's inputs into it (status, provenance,
+  tombstones, conflicts in `tb_*` tables) and exports the lake from it, same tables and rows; the default is still
+  `legacy` (D-151).
+- Feature flags (`tb_common.flags`, MR-090, D-207) are rows of `app.flag` in `trialbox_wf`, each change also a row of
+  `app.flag_event` and a `flag.set` audit event with the actor and the reason, made by an administrator on
+  `/ops/flags`. Every service reads them through a five-second cache, so a change applies without a restart; only
+  declared names exist. An environment variable seeds a flag at the box's first start and is ignored after it
+  (`trialbox doctor` warns when it disagrees). The first flag is `lake.source` (seeded by `TB_LAKE_SOURCE`), read
+  once when a lake rebuild starts, so a flip applies from the next rebuild and never half-way through one.
 
 Sources, mapping and the data core: [Data and integration](DATA.md).
 
