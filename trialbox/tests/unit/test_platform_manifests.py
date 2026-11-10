@@ -877,10 +877,10 @@ def test_network_policy_refuses_open_rules_and_drift() -> None:
     env = {"SMTP_HOST": "smtp.hospa.test"}
     pols, _ = eg.render_networkpolicy(eg.allowlist({**env, "TB_ENV": "TEST"}), _dns)
     good = _cluster([*build("shared-quota"), *pols], quota=ENOUGH)
-    assert pf.check_network_policy(_inputs(good, **env)).status == "PASS"
+    assert pf.check_network_policy(_inputs(good, False, **env)).status == "PASS"
     moved = copy.deepcopy(pols)
     moved[0]["spec"]["egress"][0]["to"] = [{"ipBlock": {"cidr": "192.0.2.99/32"}}]
-    c = pf.check_network_policy(_inputs(_cluster([*build("shared-quota"), *moved], quota=ENOUGH), **env))
+    c = pf.check_network_policy(_inputs(_cluster([*build("shared-quota"), *moved], quota=ENOUGH), False, **env))
     assert c.status == "FAIL" and "192.0.2.99/32" in c.detail
 
 
@@ -932,10 +932,12 @@ def test_doctor_egress_is_rendered_from_the_site_and_fails_closed(
     eg = doctor._egress()
     allow_pols, _ = eg.render_networkpolicy(eg.allowlist({**env, "TB_ENV": "TEST"}), _dns)
     st = _cluster([*build("shared-quota"), *allow_pols, pol], quota=ENOUGH)
-    assert pf.check_network_policy(_inputs(st, **env)).status == "PASS"
+    assert pf.check_network_policy(_inputs(st, False, **env)).status == "PASS"
     wider = copy.deepcopy(pol)
     wider["spec"]["egress"][0]["to"].append({"ipBlock": {"cidr": "10.0.0.0/8"}})
-    c = pf.check_network_policy(_inputs(_cluster([*build("shared-quota"), *allow_pols, wider], quota=ENOUGH), **env))
+    c = pf.check_network_policy(
+        _inputs(_cluster([*build("shared-quota"), *allow_pols, wider], quota=ENOUGH), False, **env)
+    )
     assert c.status == "FAIL" and "10.0.0.0/8" in c.detail
     st = _cluster([*build("shared-quota"), pol], quota=ENOUGH)
     c = pf.check_network_policy(_inputs(st))  # the site declares nothing, yet the doctor may reach hosts
@@ -995,7 +997,7 @@ def test_gpu_serving_enforces_one_judge_and_one_verifier_one_device_each() -> No
         )
     assert pf.check_gpu_serving(_inputs(running)).status == "PASS"
 
-    def variant(fn: Any, quota: dict[str, str] | None = ENOUGH) -> pf.Check:
+    def variant(fn: Any, quota: dict[str, str] | None = ENOUGH) -> doctor.Check:
         objs = copy.deepcopy(build("shared-quota"))
         fn(objs)
         return pf.check_gpu_serving(_inputs(declared(objs, quota)))
@@ -1083,9 +1085,9 @@ def test_storage_class_is_required_in_validation_and_production() -> None:
     """Review fix 7: without TB_PLATFORM_STORAGE_CLASS no claim is checked, so VALIDATION and PRODUCTION require it."""
     st = _cluster(quota=ENOUGH)
     declared = {"TB_PLATFORM_STORAGE_ENCRYPTED": "yes", "TB_PLATFORM_STORAGE_EVIDENCE": "SC-1"}
-    assert pf.check_storage_encryption(_inputs(st, **declared)).status == "PASS"  # TEST
+    assert pf.check_storage_encryption(_inputs(st, False, **declared)).status == "PASS"  # TEST
     for env in ("VALIDATION", "PRODUCTION"):
-        c = pf.check_storage_encryption(_inputs(st, TB_ENV=env, **declared))
+        c = pf.check_storage_encryption(_inputs(st, False, TB_ENV=env, **declared))
         assert c.status == "FAIL" and "TB_PLATFORM_STORAGE_CLASS" in c.detail
     objs = copy.deepcopy(build("shared-quota"))
     for o in objs:
@@ -1093,5 +1095,5 @@ def test_storage_class_is_required_in_validation_and_production() -> None:
             o["spec"]["storageClassName"] = "enc-rwx"
         for t in (o.get("spec") or {}).get("volumeClaimTemplates") or [] if o["kind"] == "StatefulSet" else []:
             t["spec"]["storageClassName"] = "enc-rwx"
-    ok = _inputs(_cluster(objs), TB_ENV="PRODUCTION", TB_PLATFORM_STORAGE_CLASS="enc-rwx", **declared)
+    ok = _inputs(_cluster(objs), False, TB_ENV="PRODUCTION", TB_PLATFORM_STORAGE_CLASS="enc-rwx", **declared)
     assert pf.check_storage_encryption(ok).status == "PASS"

@@ -835,14 +835,14 @@ def check_network_policy(inp: PlatformInputs) -> Check:
     if doc_pols:
         exp_doc, _ = render_doctor_policy(inp.env, res)
         for act in doc_pols:
-            name = (act.get("metadata") or {}).get("name")
+            pol_name = (act.get("metadata") or {}).get("name")
             if exp_doc is None:
-                differ.append(f"{name}: the site declares no doctor destination")
+                differ.append(f"{pol_name}: the site declares no doctor destination")
             elif _canon((act.get("spec") or {}).get("podSelector")) != _canon(exp_doc["spec"]["podSelector"]):
-                differ.append(f"{name}: selects other pods than the doctor")
+                differ.append(f"{pol_name}: selects other pods than the doctor")
             elif _blocks(act) != _blocks(exp_doc):
                 differ.append(
-                    f"{name}: ipBlocks {sorted(_blocks(act) - _blocks(exp_doc)) or '-'} not declared, "
+                    f"{pol_name}: ipBlocks {sorted(_blocks(act) - _blocks(exp_doc)) or '-'} not declared, "
                     f"{sorted(_blocks(exp_doc) - _blocks(act)) or '-'} missing"
                 )
         doc_note = "doctor egress as declared"
