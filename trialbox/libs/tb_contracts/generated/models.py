@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import date as date_aliased
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
 
 class AgeRange(BaseModel):
@@ -1384,6 +1384,258 @@ class Simulation(BaseModel):
     source: Literal["calibrated", "default"] = "default"
     iterations: int = 1000
     monthly_eligible_mean: float | None = None
+
+
+class SiteCode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    code: str = Field(..., min_length=1)
+    name: str | None = None
+
+
+class SiteDiagnosisCode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    code: str = Field(..., min_length=1)
+    name: str | None = None
+    icd10: str | None = None
+
+
+class SiteDrugCode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    code: str = Field(..., min_length=1)
+    name: str | None = None
+    atc: str | None = None
+
+
+class SiteLabItem(BaseModel):
+    """
+    one row of the site's lab table: its code, name and unit, and the range a synthetic result is drawn from
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    code: str = Field(..., min_length=1)
+    name: str | None = None
+    unit: str
+    range: list[float] | None = Field(None, max_length=2, min_length=2)
+
+
+class Feed(BaseModel):
+    """
+    questions 24, 28 and 29: the input, its character set, its date format and its delimiter
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    layout: Literal["csv", "sql", "ssmix2"]
+    encoding: Literal["utf-8", "shift_jis", "cp932", "big5", "cp950", "iso-2022-jp"]
+    date_format: Literal["iso", "roc7", "yyyymmdd", "slash"]
+    delimiter: Literal[",", "\t", "|"] | None = None
+    extension: str | None = Field(None, pattern="^\\.[a-z]{2,4}$")
+
+
+class ChartNumber(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    letters: int | None = Field(None, ge=0, le=3)
+    digits: int = Field(..., ge=5, le=12)
+    check: Literal["none", "luhn"] | None = None
+
+
+class Identifiers(BaseModel):
+    """
+    the form of the site's chart number (not a number): what the data scan can anchor a bare chart number on
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    chart_number: ChartNumber | None = None
+
+
+class Columns(RootModel[str]):
+    root: str = Field(..., pattern="^[a-z_][a-z0-9_]*$")
+
+
+class Tables(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    source: str = Field(..., pattern="^[A-Za-z_][A-Za-z0-9_]*$")
+    columns: dict[str, Columns] = Field(..., min_length=1)
+
+
+class Sex(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    M: str
+    F: str
+
+
+class EncounterType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    OPD: str | None = None
+    IPD: str | None = None
+    ER: str | None = None
+
+
+class CodeLists(BaseModel):
+    """
+    questions 28 and 29: the site's code lists (codes and names, not patient data)
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    sex: Sex | None = None
+    encounter_type: EncounterType | None = None
+    department: list[SiteCode] | None = Field(None, min_length=1)
+    lab: list[SiteLabItem] = Field(..., min_length=1)
+    diagnosis: list[SiteDiagnosisCode] | None = None
+    drug: list[SiteDrugCode] | None = None
+
+
+class Provider(BaseModel):
+    """
+    question 33: the physician per encounter, and a staff directory
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    in_encounter: bool | None = None
+    directory: bool | None = None
+
+
+class Notes(BaseModel):
+    """
+    question 35: the note types the feed carries (absent: no notes)
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    types: list[Literal["progress", "admission", "discharge", "consult", "nursing"]] = (
+        Field(..., min_length=1)
+    )
+
+
+class UnitMismatchItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    code: str = Field(..., min_length=1)
+    unit: str = Field(..., min_length=1)
+    factor: float = Field(..., gt=0.0)
+
+
+class Plants(BaseModel):
+    """
+    what the synthetic site plants for the mapping to find: lab codes the mapping does not know and results in a unit the lookup does not expect
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    share: float | None = Field(None, gt=0.0, le=0.5)
+    unmapped_lab: list[SiteLabItem] | None = None
+    unit_mismatch: list[UnitMismatchItem] | None = None
+
+
+class SiteSchema(BaseModel):
+    """
+    site-schema.yaml (T-011): a site's feed described from its survey answers (TB-SITE-01 questions 24 to 35), structure and code lists only, never a patient value. tools/synth_site_from_schema.py builds a synthetic site from it. Schema version 1.0.0.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    schema_version: Literal[1]
+    site: str = Field(..., pattern="^[a-z0-9][a-z0-9-]{1,40}$")
+    """
+    a short site label
+    """
+    fictional: bool | None = None
+    """
+    true for a sample schema that describes no real site
+    """
+    country: Literal["JP", "TW"]
+    tz: str = Field(..., min_length=3)
+    survey: str | None = None
+    """
+    the survey copy the schema was written from (document id and version)
+    """
+    feed: Feed
+    """
+    questions 24, 28 and 29: the input, its character set, its date format and its delimiter
+    """
+    identifiers: Identifiers | None = None
+    """
+    the form of the site's chart number (not a number): what the data scan can anchor a bare chart number on
+    """
+    tables: dict[
+        Literal[
+            "patient",
+            "practitioner",
+            "encounter",
+            "appointment",
+            "diagnosis",
+            "lab",
+            "medication",
+            "note",
+        ],
+        Tables,
+    ]
+    """
+    question 29: per canonical table (templates/CANONICAL.md), the site's table or file name and its header row as local header -> canonical column. For ssmix2 only the extended tables (practitioner, appointment, note)
+    """
+    code_lists: CodeLists
+    """
+    questions 28 and 29: the site's code lists (codes and names, not patient data)
+    """
+    provider: Provider | None = None
+    """
+    question 33: the physician per encounter, and a staff directory
+    """
+    appointments: bool | None = None
+    """
+    question 34: the feed carries future bookings
+    """
+    notes: Notes | None = None
+    """
+    question 35: the note types the feed carries (absent: no notes)
+    """
+    plants: Plants | None = None
+    """
+    what the synthetic site plants for the mapping to find: lab codes the mapping does not know and results in a unit the lookup does not expect
+    """
 
 
 class TierSummary(BaseModel):

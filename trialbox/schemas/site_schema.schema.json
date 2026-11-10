@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/site_schema.schema.json",
+  "title": "SiteSchema",
+  "description": "site-schema.yaml (T-011): a site's feed described from its survey answers (TB-SITE-01 questions 24 to 35), structure and code lists only, never a patient value. tools/synth_site_from_schema.py builds a synthetic site from it. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["schema_version", "site", "country", "tz", "feed", "tables", "code_lists"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "site": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,40}$", "description": "a short site label"},
+    "fictional": {"type": "boolean", "description": "true for a sample schema that describes no real site"},
+    "country": {"enum": ["JP", "TW"]},
+    "tz": {"type": "string", "minLength": 3},
+    "survey": {"type": "string", "description": "the survey copy the schema was written from (document id and version)"},
+    "feed": {
+      "type": "object",
+      "description": "questions 24, 28 and 29: the input, its character set, its date format and its delimiter",
+      "required": ["layout", "encoding", "date_format"],
+      "additionalProperties": false,
+      "properties": {
+        "layout": {"enum": ["csv", "sql", "ssmix2"]},
+        "encoding": {"enum": ["utf-8", "shift_jis", "cp932", "big5", "cp950", "iso-2022-jp"]},
+        "date_format": {"enum": ["iso", "roc7", "yyyymmdd", "slash"]},
+        "delimiter": {"enum": [",", "\t", "|"]},
+        "extension": {"type": "string", "pattern": "^\\.[a-z]{2,4}$"}
+      }
+    },
+    "identifiers": {
+      "type": "object",
+      "description": "the form of the site's chart number (not a number): what the data scan can anchor a bare chart number on",
+      "additionalProperties": false,
+      "properties": {
+        "chart_number": {
+          "type": "object",
+          "required": ["digits"],
+          "additionalProperties": false,
+          "properties": {
+            "letters": {"type": "integer", "minimum": 0, "maximum": 3},
+            "digits": {"type": "integer", "minimum": 5, "maximum": 12},
+            "check": {"enum": ["none", "luhn"]}
+          }
+        }
+      }
+    },
+    "tables": {
+      "type": "object",
+      "description": "question 29: per canonical table (templates/CANONICAL.md), the site's table or file name and its header row as local header -> canonical column. For ssmix2 only the extended tables (practitioner, appointment, note)",
+      "propertyNames": {"enum": ["patient", "practitioner", "encounter", "appointment", "diagnosis", "lab", "medication", "note"]},
+      "additionalProperties": {
+        "type": "object",
+        "required": ["source", "columns"],
+        "additionalProperties": false,
+        "properties": {
+          "source": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+          "columns": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {"type": "string", "pattern": "^[a-z_][a-z0-9_]*$"}
+          }
+        }
+      }
+    },
+    "code_lists": {
+      "type": "object",
+      "description": "questions 28 and 29: the site's code lists (codes and names, not patient data)",
+      "required": ["lab"],
+      "additionalProperties": false,
+      "properties": {
+        "sex": {
+          "type": "object",
+          "required": ["M", "F"],
+          "additionalProperties": false,
+          "properties": {"M": {"type": "string"}, "F": {"type": "string"}}
+        },
+        "encounter_type": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {"OPD": {"type": "string"}, "IPD": {"type": "string"}, "ER": {"type": "string"}}
+        },
+        "department": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/code"}},
+        "lab": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/lab"}},
+        "diagnosis": {"type": "array", "items": {"$ref": "#/$defs/diagnosis"}},
+        "drug": {"type": "array", "items": {"$ref": "#/$defs/drug"}}
+      }
+    },
+    "provider": {
+      "type": "object",
+      "description": "question 33: the physician per encounter, and a staff directory",
+      "additionalProperties": false,
+      "properties": {"in_encounter": {"type": "boolean"}, "directory": {"type": "boolean"}}
+    },
+    "appointments": {"type": "boolean", "description": "question 34: the feed carries future bookings"},
+    "notes": {
+      "type": "object",
+      "description": "question 35: the note types the feed carries (absent: no notes)",
+      "required": ["types"],
+      "additionalProperties": false,
+      "properties": {
+        "types": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"enum": ["progress", "admission", "discharge", "consult", "nursing"]}
+        }
+      }
+    },
+    "plants": {
+      "type": "object",
+      "description": "what the synthetic site plants for the mapping to find: lab codes the mapping does not know and results in a unit the lookup does not expect",
+      "additionalProperties": false,
+      "properties": {
+        "share": {"type": "number", "exclusiveMinimum": 0, "maximum": 0.5},
+        "unmapped_lab": {"type": "array", "items": {"$ref": "#/$defs/lab"}},
+        "unit_mismatch": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "unit", "factor"],
+            "additionalProperties": false,
+            "properties": {
+              "code": {"type": "string", "minLength": 1},
+              "unit": {"type": "string", "minLength": 1},
+              "factor": {"type": "number", "exclusiveMinimum": 0}
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "code": {
+      "title": "SiteCode",
+      "type": "object",
+      "required": ["code"],
+      "additionalProperties": false,
+      "properties": {"code": {"type": "string", "minLength": 1}, "name": {"type": "string"}}
+    },
+    "lab": {
+      "title": "SiteLabItem",
+      "description": "one row of the site's lab table: its code, name and unit, and the range a synthetic result is drawn from",
+      "type": "object",
+      "required": ["code", "unit"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "name": {"type": "string"},
+        "unit": {"type": "string"},
+        "range": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
+      }
+    },
+    "diagnosis": {
+      "title": "SiteDiagnosisCode",
+      "type": "object",
+      "required": ["code"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "name": {"type": "string"},
+        "icd10": {"type": "string"}
+      }
+    },
+    "drug": {
+      "title": "SiteDrugCode",
+      "type": "object",
+      "required": ["code"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "name": {"type": "string"},
+        "atc": {"type": "string"}
+      }
+    }
+  }
+}
