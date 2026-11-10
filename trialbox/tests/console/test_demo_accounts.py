@@ -186,7 +186,8 @@ def test_testers_land_in_their_own_language(box: dict[str, Any]) -> None:  # noq
 
 
 def test_keep_reuses_a_finished_seed_and_fresh_rebuilds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("TB_PG_DIR", raising=False)
+    monkeypatch.setenv("TB_PG_DIR", "")  # registers the undo: prepare_dir sets it, and it must not leak to other tests
+    monkeypatch.delenv("TB_PG_DIR")
     work = tmp_path / "demo"
     work.mkdir()
     (work / "marks").write_text("kept")
