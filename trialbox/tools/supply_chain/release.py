@@ -26,14 +26,13 @@ from typing import Any
 from tools.supply_chain import licences, sbom, vulns
 from tools.supply_chain.allowlist import Allowlist
 
-# The image vulnerability gate is in REPORT mode for these images until the follow-up lands (owner decision of
-# 2026-11-10, D-186; tracked with owner and target date in deploy/security/known-image-findings.md). With
+# The image vulnerability gate is in REPORT mode for these third-party images until plan v6 §9 batch 1 lands (owner
+# decision of 2026-11-10, D-186; tracked with owner and target date in deploy/security/known-image-findings.md). With
 # `--vuln-mode report`, a fixable CRITICAL/HIGH finding in one of them is shown in the CI summary instead of failing.
-# trialbox-py is never here: its vulnerability gate always blocks. A bundle never carries a report-mode finding.
+# Our own images are never here: trialbox-py always blocked, and trialbox-jvm and trialbox-demo block since T-672
+# (translator jars without findings, Temurin 21). A bundle never carries a report-mode finding.
 VULN_REPORT_ONLY = frozenset(
     {
-        "trialbox-jvm",
-        "trialbox-demo",
         "mailhog/mailhog",
         "vllm/vllm-openai",
         "postgres",

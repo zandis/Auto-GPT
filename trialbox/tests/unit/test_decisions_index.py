@@ -59,7 +59,9 @@ def test_master_registry_holds_the_agreed_rows() -> None:
     rows = {(r.first, r.last): r for r in c.rows}
     assert rows[(271, 271)].state == "merged"  # fix group D-271 (PR #97), a file since the log froze
     assert rows[(272, 272)].state == "merged"  # fix group D-272 (audit integrity), a file
-    assert rows[(273, 289)].state == "reserved"  # the rest of the critical-issues fix groups
+    assert rows[(273, 278)].state == "reserved"  # the rest of the critical-issues fix groups
+    assert rows[(279, 279)].state == "merged"  # fix group D-279, a file
+    assert rows[(280, 289)].state == "reserved"
     assert rows[(152, 159)].state == "unused" and rows[(164, 169)].state == "unused"
     assert rows[(99, 99)].state == "missing"
     for num, card in [(300, "T-101"), (301, "T-105"), (302, "T-102a"), (303, "T-106"), (304, "T-106"),
