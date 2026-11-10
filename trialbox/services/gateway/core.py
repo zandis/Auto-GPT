@@ -293,6 +293,10 @@ class Gateway:
             candidates = [c for c in candidates if c.alias == wanted]
             if not candidates:
                 raise Refusal("class_route_mismatch", f"model {wanted!r} is not on route {route.id} for {label.tag}")
+        if self.policy.no_fallback(route, call.role):
+            # D-276 (review LLM-002): a judge whose server failed was answered by the next build of the route, the
+            # verifier, which then confirmed its own answer. For these roles a failed build is the call's error
+            candidates = [c for c in candidates if c.alias == candidates[0].alias]
 
         # 4 tripwire
         if label.data_class.rank <= 2:

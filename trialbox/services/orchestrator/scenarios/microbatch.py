@@ -16,7 +16,7 @@ from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.reports import screen_summary_pdf
 from orchestrator.reports.candidate_xlsx import Change
-from orchestrator.scenarios.evaluate import row, sort_key, tier
+from orchestrator.scenarios.evaluate import effective_note_block, row, sort_key, tier
 from orchestrator.scenarios.review import recipients, require_approved
 from orchestrator.scenarios.screen import (
     Scoped,
@@ -88,6 +88,9 @@ def run(ctx: Ctx) -> Outcome:
     ctx.metrics(patients_scoped=len(scoped))
     fresh = evaluate_scope(ctx, rs, run_date, snapshot, scoped, only=ts, all_candidates=True) if ts and scoped else {}
     t = threshold(ctx, rs)
+    # the same note-block decision as SCREEN: no verifier, one model twice or a shut canary gate never exclude
+    # on a note answer (D-276, review F-01; before, the re-tier below used the configured policy alone)
+    may_block = effective_note_block(judge_for(ctx, rs))[0]
     rows: list[CandidateRow] = []
     changes: list[Change] = []
     stamp = job_stamp(ctx)  # evaluation time = the job's receipt: same inputs → same bytes (D-82)
@@ -112,7 +115,7 @@ def run(ctx: Ctx) -> Outcome:
                 )
             new[v.id] = v
         ordered = [new[c.id] for c in rs.active() if c.id in new]
-        tr, acts, n_unk = tier(rs, ordered, t)
+        tr, acts, n_unk = tier(rs, ordered, t, note_block=may_block)
         from orchestrator.scenarios.evaluate import PatientVerdicts
 
         rows.append(

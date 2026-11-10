@@ -42,6 +42,8 @@ ALLOWED: dict[str, str] = {
     "tests/unit/test_gpu_prep.py": "drives bench_profile against an in-process stub (no network)",
     "tests/unit/test_served_names.py": "a fake vLLM behind an httpx.MockTransport, strict about the served name "
     "(no network)",
+    "tests/unit/test_llm_stub_served_names.py": "D-276 drives the stub app in-process: the 404 for a name it does not "
+    "serve (no network)",
     "tests/unit/test_gateway_box_phi.py": "an in-process strict vLLM stand-in (served name only) behind the installed "
     "box's gateway, answering from the stub (no network)",
     "deploy/gcp/complete-run-vm.sh": "D-150 runs on the GPU VM: one smoke prompt (no patient data) to each of its own "

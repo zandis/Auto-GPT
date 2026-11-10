@@ -71,6 +71,7 @@ class LlmResult:
     tokens_in: int
     tokens_out: int
     attempts: int
+    build_sha: str = ""  # through the gateway: the build that answered (weights digest); "" on a direct call (D-276)
 
 
 def prompt_dirs() -> list[Path]:
@@ -203,10 +204,12 @@ class LlmClient:
         input_sha = sha256_text(input_text)
         target = "gateway" if self.gateway is not None else self._target(prompt.meta, variables, clearance)
         base, model = (self.cloud_base_url, self.cloud_model) if target == "cloud" else (self.base_url, self.model)
+        served = model
         headers = {"X-TB-Prompt-Id": prompt.meta.id, "X-TB-Prompt-Version": str(prompt.meta.version)}
         if target == "cloud" and self.cloud_api_key:
             headers["Authorization"] = f"Bearer {self.cloud_api_key}"
         tokens_in = tokens_out = 0
+        build_sha = ""
         errors: list[str] = []
         convo = list(messages)
         max_tokens = prompt.meta.max_tokens
@@ -224,7 +227,8 @@ class LlmClient:
             t0 = time.perf_counter()
             if self.gateway is not None:
                 payload = self._via_gateway(body, prompt.meta, job_id, data_class)
-                model = str(payload.get("model") or model)
+                model = served = str(payload.get("model") or model)
+                build_sha = str((payload.get("tb") or {}).get("build_sha") or "")
             else:
                 try:
                     resp = self.http.post(f"{base}/chat/completions", json=body, headers=headers)
@@ -233,6 +237,7 @@ class LlmClient:
                 if resp.status_code >= 400:
                     raise LlmError(f"LLM endpoint error {resp.status_code}: {resp.text[:500]}")
                 payload = resp.json()
+                served = str(payload.get("model") or model)  # the name the server answered under (D-276)
             usage = payload.get("usage") or {}
             tokens_in += int(usage.get("prompt_tokens", 0))
             tokens_out += int(usage.get("completion_tokens", 0))
@@ -249,7 +254,7 @@ class LlmClient:
                     self.audit.append(
                         "llm.call",
                         job_id=job_id,
-                        model=model,
+                        model=served,
                         prompt_version=f"{prompt.meta.id}_v{prompt.meta.version}",
                         input_sha=input_sha,
                         output_sha=output_sha,
@@ -266,13 +271,14 @@ class LlmClient:
                     data,
                     prompt.meta.id,
                     prompt.meta.version,
-                    model,
+                    served,
                     target,
                     input_sha,
                     output_sha,
                     tokens_in,
                     tokens_out,
                     attempt,
+                    build_sha,
                 )
             if truncated:
                 # a reasoning model (gpt-oss, nemotron) spends max_tokens on reasoning before the JSON: the answer was
@@ -294,7 +300,7 @@ class LlmClient:
             self.audit.append(
                 "llm.schema_violation",
                 job_id=job_id,
-                model=model,
+                model=served,
                 input_sha=input_sha,
                 prompt_version=f"{prompt.meta.id}_v{prompt.meta.version}",
                 detail={"errors": errors[:5]},

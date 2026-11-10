@@ -408,6 +408,7 @@ def test_memo_replays_judge_errors_without_a_second_call() -> None:
 class CanaryModel:
     def __init__(self, model: str, flip: int = 0, down: bool = False) -> None:
         self.model = model
+        self.served_root = model  # its own weights (tb_common.pair.served_root, D-276)
         self.flip = flip
         self.down = down
 

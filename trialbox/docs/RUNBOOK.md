@@ -177,6 +177,8 @@ supply-chain gates (lock current, allow-list, pip-audit, licences) are the `lock
 | Containers lost egress after a restart | `deploy/network.sh status` | `deploy/network.sh apply` |
 | `CERTIFICATE_VERIFY_FAILED` | hospital TLS inspection | put the hospital CA on the host, set `TB_EXTRA_CA=/abs/path/ca.pem` in `deploy/.env`, `docker compose up -d` |
 | Notes never exclude | `selftest.failed` in the audit, the admin health tile | the pair canary failed: check the models (§8, §10) |
+| Notes never exclude; the run says "the verifier is not a second model" | `llm.pair.same_model` in the audit, `trialbox doctor` (`note_block` FAIL) | the verifier is the judge again (the same model name, alias, build or weights), or its endpoint does not say which weights it serves (`/models`). A note answer needs two different models (D-276): name a different verifier (`TB_GATEWAY_VERIFIER_MODEL`, or `LLM_VERIFIER_BASE_URL` with its own `LLM_VERIFIER_MODEL`), or set `TB_NOTE_BLOCK=never` on purpose |
+| A screening run fails "the model did not answer"; rows say "not checked (system busy)" | the gateway log (`upstream_failed` on a judge call), `llm.gateway.call` with `fallbacks` | the judge's server is down or erroring. A judge call is never answered by the verifier build instead (D-276, LLM-002): bring the judge back, then send the request again |
 | A tool imports the wrong code | the venv has another checkout installed | set `PYTHONPATH=libs:services:.` (the Makefile does) |
 | Test ports taken | | `TB_HOST_<NAME>_PORT` in `deploy/.env` |
 

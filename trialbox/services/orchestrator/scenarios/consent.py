@@ -451,7 +451,15 @@ def lang_label(langs: list[str]) -> str:
 def models(ctx: Ctx) -> Models:
     if ctx.services.llm is None:
         raise StepFailed("received", "No language model is configured on this box (LLM_BASE_URL / TB_GATEWAY_URL).")
-    return Models(ctx.services.llm, ctx.services.verifier)
+    verifier = ctx.services.verifier
+    if verifier is not None:
+        from tb_common.pair import same_model
+
+        one = same_model(ctx.services.llm, verifier)
+        if one:  # D-276 (review F-04): the judge checking itself is no second-model check: statements unverified
+            ctx.orch.audit.append("llm.pair.same_model", job_id=ctx.job.job_id, detail={"step": "consent", "why": one})
+            verifier = None
+    return Models(ctx.services.llm, verifier)
 
 
 def run(ctx: Ctx) -> Outcome:

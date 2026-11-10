@@ -27,8 +27,13 @@ QUOTE = "Known HIV infection on ART since 2019."
 
 
 class Model:
+    made = 0
+
     def __init__(self, verdict: str, conf: float = 0.9, quote: str | None = QUOTE, error: str | None = None) -> None:
-        self.model, self.verdict, self.conf, self.quote, self.error = f"m-{verdict}", verdict, conf, quote, error
+        # each fake is its own model: two answers under one model name are one model's answer (D-276)
+        Model.made += 1
+        self.model = f"m-{Model.made}-{verdict}"
+        self.verdict, self.conf, self.quote, self.error = verdict, conf, quote, error
         self.calls = 0
 
     def chat_json(self, prompt_id: str, variables: dict[str, Any], schema: str | None = None, **kw: Any) -> LlmResult:

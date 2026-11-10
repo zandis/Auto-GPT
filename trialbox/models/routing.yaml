@@ -192,12 +192,14 @@ routes:
     builds: [j-workhorse@serving, x-external@external_x]
   - id: patient
     roles: ["@patient"]
+    fallback: none # a failed judge is an error, never the verifier's answer (D-276, LLM-002)
     classes: [D3]
     topologies: [A, B, C]
     environments: [PRODUCTION]
     builds: [j-workhorse@serving, v-verifier@verifier] # never external
   - id: patient-validation
     roles: ["@patient"]
+    fallback: none # a failed judge is an error, never the verifier's answer (D-276, LLM-002)
     classes: [D2-L]
     topologies: [A, B, C]
     environments: [VALIDATION, PRODUCTION]
@@ -252,4 +254,6 @@ routes:
     environments: [DEV, TEST]
     # the stub first; the on-box build only when the caller names it (model: j-workhorse, TB_GATEWAY_MODEL) or the
     # stub is down, and only once a site has pinned it (tools/pin_model.py): synthetic and open D0 data on the box
-    builds: [trialbox-stub@stub, f-frontdesk@stub, g-guard@stub, j-workhorse@serving, v-verifier@verifier]
+    # stub-verifier: the stub under its second served name, a stub box's verifier (D-276); only when named
+    builds: [trialbox-stub@stub, f-frontdesk@stub, g-guard@stub, j-workhorse@serving, v-verifier@verifier,
+             stub-verifier@stub]

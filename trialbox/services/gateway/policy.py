@@ -107,6 +107,9 @@ class Route:
     profiles: tuple[str, ...]
     builds: tuple[tuple[str, str], ...]  # (alias, endpoint name)
     external_requires: tuple[str, ...] = ()
+    # D-276 (review LLM-002): "none" = a failed build is an error, never another alias's answer. The default for a
+    # route that serves the ``patient`` group, and always so for those roles (:meth:`RoutingPolicy.no_fallback`)
+    fallback: str = "any"
 
 
 @dataclass(frozen=True)
@@ -204,18 +207,31 @@ class RoutingPolicy:
                 if ep not in self.endpoints:
                     raise ValueError(f"routing: route {raw.get('id')} names unknown endpoint {ep!r}")
                 builds.append((alias, ep))
+            roles = tuple(self._expand(raw.get("roles") or ()))
+            patient = set(self.groups.get("patient", []))
+            fallback = str(raw.get("fallback") or ("none" if roles and set(roles) <= patient else "any"))
+            if fallback not in ("none", "any"):
+                raise ValueError(f"routing: route {raw.get('id')} fallback must be none or any, not {fallback!r}")
+            if fallback == "any" and roles and set(roles) <= patient:
+                raise ValueError(f"routing: route {raw.get('id')} serves the patient group: fallback must be none")
             self.routes.append(
                 Route(
                     id=str(raw["id"]),
-                    roles=tuple(self._expand(raw.get("roles") or ())),
+                    roles=roles,
                     classes=tuple(raw.get("classes") or ()),
                     topologies=tuple(raw.get("topologies") or ()),
                     environments=tuple(raw.get("environments") or ()),
                     profiles=tuple(raw.get("profiles") or ()),
                     builds=tuple(builds),
                     external_requires=tuple(raw.get("external_requires") or ()),
+                    fallback=fallback,
                 )
             )
+
+    def no_fallback(self, route: Route, role: str) -> bool:
+        """Whether a failed build of this call is final (no other alias answers instead): the route says so, or the
+        role is in the ``patient`` group, whose answers decide about patients (D-276, review LLM-002)."""
+        return route.fallback == "none" or role in self.groups.get("patient", [])
 
     def _expand(self, roles: Any) -> list[str]:
         out: list[str] = []
