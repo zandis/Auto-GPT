@@ -135,4 +135,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
 | D-308 | reserved | T-501 | held for T-501 |
 | D-309..D-316 | reserved | — | given by the integrator to other wave cards of TB-PLAN-06; the holders write their rows |
-| D-317 | reserved | T-618 | reference data remainder (file) |
+| D-317 | merged | T-618 | reference data remainder (file) |
