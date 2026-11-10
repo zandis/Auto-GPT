@@ -28,12 +28,14 @@ process's database URL and ``TB_BACKUP_DIRS``. Updates and log collection need t
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import io
 import json
 import os
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -95,11 +97,27 @@ def _write_json(path: Path, data: Mapping[str, Any]) -> None:
     tmp.replace(path)
 
 
+MAX_JSON = 64 * 1024  # a request, a result or the status is a few kilobytes
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
+    """A small JSON object from a regular file. The runner reads ``requests/`` as root and the console's user can
+    write there, so a link (to a file it may not read), a pipe (the timer would wait for ever) or a huge file is
+    skipped, never followed."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_JSON:
+            return None
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            data = json.loads(f.read(MAX_JSON + 1).decode("utf-8"))
     except (OSError, ValueError):
         return None
+    finally:
+        os.close(fd)
     return data if isinstance(data, dict) else None
 
 
@@ -219,10 +237,20 @@ class OpsRunner:
         self.ops = ops
 
     def run_pending(self) -> list[dict[str, Any]]:
-        done = []
-        for req in self.ops.pending():
-            done.append(self.run_one(req))
-        self.write_status()
+        """Every pending request, in order, then the status. One runner at a time: a request is pending until its
+        result is written, so a second runner (the timer while ``ops run --watch`` or a hand-run ``ops run`` is busy)
+        would run the same backup or update again; it finds the lock taken and leaves the requests to the first."""
+        self.ops.root.mkdir(parents=True, exist_ok=True)
+        with open(self.ops.root / ".runner.lock", "a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return []
+            try:
+                done = [self.run_one(req) for req in self.ops.pending()]
+                self.write_status()
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
         return done
 
     def run_one(self, req: Mapping[str, Any]) -> dict[str, Any]:

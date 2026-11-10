@@ -414,6 +414,27 @@ def test_the_runner_takes_a_request_id_from_its_file_name_only(tmp_path: Path) -
         ops.write_result({"id": "../x", "action": "backup"}, True, "", [], "")
 
 
+def test_one_runner_at_a_time_and_no_link_or_pipe_is_read(tmp_path: Path) -> None:
+    """A second runner (the timer while a hand-run ``ops run`` is busy) must not run the same request again; the
+    runner is root and the console's user writes ``requests/``, so a link or a pipe there is skipped, never read."""
+    import fcntl
+
+    ops = tb_ops.OpsDir(tmp_path / "ops")
+    rid = ops.submit("network_sheet", "console:admin")
+    secret = tmp_path / "secret.txt"
+    secret.write_text(json.dumps({"action": "network_sheet", "by": "x", "at": "2026"}), encoding="utf-8")
+    (ops.root / "requests" / "20261110T000000Z-aaaaaa.json").symlink_to(secret)
+    os.mkfifo(ops.root / "requests" / "20261110T000000Z-bbbbbb.json")
+    assert [r["id"] for r in ops.pending()] == [rid]
+    runner = tb_ops.OpsRunner(tb_ops.Box.local(tmp_path / "deploy", {}), ops)
+    with open(ops.root / ".runner.lock", "a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        assert runner.run_pending() == [] and ops.result(rid) is None  # the other runner has it
+        fcntl.flock(held, fcntl.LOCK_UN)
+    assert [r["id"] for r in runner.run_pending()] == [rid]
+    assert not (ops.root / "results" / "20261110T000000Z-aaaaaa.json").exists()
+
+
 def test_an_outcome_undo_the_registry_refused_is_put_back() -> None:
     from console.sitestore import Outcome, SiteStore
 

@@ -3703,7 +3703,8 @@ age only, and the network sheet. Its actions (back up, check backups, verify or 
 the network sheet) wrap the existing commands (`trialbox backup`, the new `trialbox backup-check`,
 `tools/apply_update.sh`, `trialbox logs`, `tools/network_sheet.py`); none is written again. The console container
 has no docker, so it leaves a request in an operations folder and a host runner (`python3 -m tools.trialbox ops run`,
-every minute) runs it and writes the result back; tests and the demo run the same runner in process. Who may is a
+every minute) runs it and writes the result back, one runner at a time (a lock; a link or a pipe left in the
+requests folder is skipped, never read); tests and the demo run the same runner in process. Who may is a
 table in `tb_common.authz` (administrator only); a refusal is a `console.denied` audit event, each action a
 `console.ops` event. Confirmations: account reset (no undo, said so), disable (undo: enable again, also from a
 Disabled accounts list), rejecting a fact (undo puts it back to proposed with its old values; confirming and
