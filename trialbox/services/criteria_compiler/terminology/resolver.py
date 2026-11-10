@@ -15,7 +15,9 @@ grouper.
   ICD-10 codes of the same prefix (:func:`family_systems`). A WHO-coded record inside the family whose code is not one
   of the ValueSet's ICD-10-CM codes (a WHO-only code such as ``M10.97``) makes the criterion unknown, never a silent
   false; a WHO code that is also a listed ICD-10-CM code is left to the D-130 runtime check, as before; outside every
-  family the record still fails closed through D-130 (``unknown_code_system``).
+  family the record still fails closed through D-130 (``unknown_code_system``). **Not wired yet:** the SQL and CQL
+  generators must read :func:`family_systems` (and leave listed ICD-10-CM codes to D-130); they belong to the
+  critical-issues fix groups, so the tests in ``tests/unit/test_valueset_family.py`` are strict xfail until then.
 """
 
 from __future__ import annotations

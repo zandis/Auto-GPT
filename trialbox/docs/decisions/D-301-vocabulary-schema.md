@@ -51,19 +51,24 @@ Status: proposed (in review). Trace: URS-STW-03, RSK-06; TST-UNIT-04.
   number written the site's way and keeps one row per pseudonym. Under the default rule a chart number already
   written the hospital's way hashes and is stored exactly as before (test against the D-09 formula).
 * **WHO-only ICD-10** (baseline correction 3). A grouper's ICD-10-CM family (D-113) also covers the WHO ICD-10 codes of
-  its prefix: `ValueSets.families` returns each ICD-10-CM family together with its WHO ICD-10 twin
-  (`resolver.family_systems`), so both engines read it without a change to the SQL or CQL generator. A WHO-coded
-  record inside the family that is not one of the ValueSet's codes (the ValueSet lists ICD-10-CM codes only, so every
-  WHO-coded record: `M10.97`, and also `M10.9`) makes the criterion unknown, never a silent false; outside every family
-  the record still fails closed through D-130 (`unknown_code_system`). A ValueSet without a family (a plain list) is
-  unchanged. The JP masters link a MEDIS code's WHO target to the ICD-10-CM code when it is one (D-137), else to its
-  ICD-10-CM category (`TB in CM family`), else to nothing.
+  its prefix (`resolver.family_systems`): a WHO-coded record inside the family that is not one of the ValueSet's
+  ICD-10-CM codes (`M10.97`) makes the criterion unknown in both engines; a WHO code that is also a listed ICD-10-CM
+  code is left to D-130, so the D-113 / D-130 equivalence oracle (`tests/fixtures/equivalence/offlist`) is unchanged;
+  outside every family the record still fails closed through D-130 (`unknown_code_system`). **The engine half is not
+  in this PR** (see below). The JP masters link a MEDIS code's WHO target to the ICD-10-CM code when it is one
+  (D-137), else to its ICD-10-CM category (`TB in CM family`), else to nothing; that half is done.
 * **NHIA 2014 to 2023 map.** `vocab_load.edition_code` gives a record dated before 2025-01-01 the map's single 2023
   target with a provenance tag (`map:<name>@<version>:<relation>:<2014 code>`); a split, a candidate (`relatedto`) or
   no row gives none (the record stays as coded; never a guess). Tested on synthetic rows in the parser's shape.
 
 ## Not done here, and why
 
+* **The WHO family clause in the SQL and CQL generators** (acceptance 4, engine half). The draft carried it as a
+  dozen lines in `compile_sql/generator.py` and `compile_cql/generator.py`; those files belong to the critical-issues
+  fix groups, so it is held back. Putting the WHO twin into `ValueSets.families` instead (no generator edit) was tried
+  and refused: it changes the D-130 oracle (a WHO `C50.9` patient's "no malignancy" goes from true to unknown and the
+  reason from `unknown_code_system` to `code_outside_list`). That true is itself a fail-open worth a decision: D-130
+  turns only false inclusions into unknown. The tests are in `tests/unit/test_valueset_family.py`, strict xfail.
 * The sibling's TW refdata (PR #65, D-170 to D-172) is on master: its parser's rows (`refdata_tw.icd_map_rows`) load
   through `vocab_load.load_concept_map` unchanged (test). `edition_code` is not yet called by the adapter for TW
   records before 2025 (the adapter's pipeline is not this card's; T-105b).

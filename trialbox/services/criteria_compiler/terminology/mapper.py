@@ -370,18 +370,13 @@ class ValueSets:
         return [(inc["system"], c["code"]) for inc in vs["compose"]["include"] for c in inc.get("concept", [])]
 
     def families(self, name: str) -> list[tuple[str, str]]:
-        """(system, prefix) of the code families a grouper ValueSet stands for (D-113); empty for plain lists. An
-        ICD-10-CM family also stands for the WHO ICD-10 codes of its prefix (baseline correction 3, D-301,
-        ``resolver.family_systems``): a WHO-coded record inside it that the list does not hold is unknown in both
-        engines, never a silent false."""
-        from criteria_compiler.terminology.resolver import family_systems
-
+        """(system, prefix) of the code families a grouper ValueSet stands for (D-113); empty for plain lists."""
         vs = self.by_name.get(name) or {}
         out = []
         for ext in vs.get("extension") or []:
             if ext.get("url") == FAMILY_EXT and "|" in str(ext.get("valueString", "")):
                 sy, pre = str(ext["valueString"]).rsplit("|", 1)
-                out += [(s, pre) for s in family_systems(sy) if (s, pre) not in out]
+                out.append((sy, pre))
         return out
 
     def is_component_set(self, name: str) -> bool:
