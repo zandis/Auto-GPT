@@ -47,7 +47,7 @@ from console.sitestore import (
     StudySettings,
 )
 from console.studies import known_study
-from console.timefmt import local_date, site_zone
+from console.timefmt import local_date, local_today, site_zone
 
 # D-178 (review J-14): the contact outcomes that end the contact; each names its consequence before it is recorded
 CLOSING_OUTCOMES = frozenset({"reached_declined", "not_approached", "lost_contact"})
@@ -96,6 +96,14 @@ class Helpers:
     team_due: Callable[[str], bool] | None = None
     apply_reveal: Callable[..., tuple[dict[str, Any], str]] | None = None  # set by register(): D-143's reveal
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
+
+    def today(self) -> date:
+        """The site's calendar date now (site.tz), the one "today" of every console rule (D-270).
+
+        ``clock()`` is a UTC instant and stays right for timestamps; its ``.date()`` is the UTC date, which in Japan
+        is yesterday until 09:00. Delegation and IRB dates, visit days and the morning notices are site
+        days, so they all ask here."""
+        return local_today(self.clock(), site_zone(self.bk))
 
 
 class ApiLogin(BaseModel):
@@ -238,7 +246,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             seen,
             job.job_id,
             names,
-            today=h.clock().date(),
+            today=h.today(),
         )
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
                 "removed": removed}  # fmt: skip
@@ -270,7 +278,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             nxt = ("contact", f"/studies/{rs}/week")
         else:
             nxt = ("week", f"/studies/{rs}/week")
-        today = h.clock().date()
+        today = h.today()
         reg = registry_map(rs)
         rows = week["rows"] if week else []
         tasks: list[dict[str, Any]] = []
@@ -361,7 +369,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def admin_home(request: Request, sess: Session) -> Response:
         users = h.users.users()
-        today = h.clock().date()
+        today = h.today()
         soon = [u for u in users if u.expires and u.expires <= (today + timedelta(days=30)).isoformat()]
         jobs = bk.list_jobs(limit=200)
         waiting = [j for j in jobs if j.state == "awaiting_approval"]
@@ -443,7 +451,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rep = feas_bundle(sess, rid, sponsor)
         site = store.profile(rid)
         wk = week_bundle(sess, rid) if rep and sess.user.can_view_phi and not sponsor else None
-        bridge = st.list_bridge(rep, wk["rows"] if wk else None, h.clock().date()) if rep else None
+        bridge = st.list_bridge(rep, wk["rows"] if wk else None, h.today()) if rep else None
         ad = bool(rep and rep["summary"].get("screen_fail_ref"))
         keys = CAPABILITIES_AD if ad else CAPABILITIES_GENERAL
         return h.page(
@@ -537,7 +545,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if settings_of(rid).study_type == "registry":
             return RedirectResponse(f"/studies/{rid}/cohort", status_code=303)
         wk = week_bundle(sess, rid)
-        today = h.clock().date()
+        today = h.today()
         counts = st.worklist_counts(wk["rows"], today) if wk else {}
         lst = request.query_params.get("list", "")
         if lst not in st.WORKLISTS:  # open on the first list with work in it
@@ -644,10 +652,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             "screening_no": store.screening_no(rid, pid),
             "outcomes": store.outcomes(rid, pid),
             "outcome_keys": tuple(OUTCOMES),
-            "today": h.clock().date(),
+            "today": h.today(),
             "mrn": None,
             # D-147: the IRB/consent-form warning before Approach, who may mark Approach, a referral still waiting
-            "irb_warn": h.team.irb(rid).warnings(h.clock().date()) if h.team is not None else [],
+            "irb_warn": h.team.irb(rid).warnings(h.today()) if h.team is not None else [],
             "may_approach": sess.user.can_mark and (h.may is None or h.may(sess.user, rid, "approach")),
             "ref_wait": referral_wait(rid, pid),
         }
@@ -838,7 +846,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         wk = week_bundle(sess, rid)
         if wk is None or not any(str(r.get("pid")) == pid for r in (wk["cl"] or {}).get("rows") or []):
             raise h.problem(404, "notfound")
-        today = h.clock().date()
+        today = h.today()
         prev = store.latest_marks(rid).get(pid)
         stored_reason: str | None = None
         stored_note = note.strip()[:300] or None
@@ -938,7 +946,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             au.append("console.refused", ruleset=rid, actor=h.actor(sess),
                       detail={"pid": pid, "action": outcome, "reason": "no approach mark"})  # fmt: skip
             raise h.problem(409, "outcome.wait_pi")
-        today = h.clock().date()
+        today = h.today()
         retry_on: str | None = None
         if outcome == "not_reached":
             try:

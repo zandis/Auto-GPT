@@ -357,7 +357,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.is_admin:
             h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
-        sent = send_all(h, h.clock().date(), by=h.actor(sess))
+        sent = send_all(h, h.today(), by=h.actor(sess))
         p = store.notify_person(sess.user.username)
         return h.page(request, "notices.html", sess, person=p, saved=False, sent=sent)
 
@@ -376,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
     h = getattr(app.state, "helpers", None)
     if h is None:
         raise SystemExit("the console pilot workspace is off (TB_CONSOLE_PILOT=1)")
-    day = date.fromisoformat(args.day) if args.day else h.clock().date()
+    day = date.fromisoformat(args.day) if args.day else h.today()
     kinds = tuple(args.kind or ("N1", "N2"))
     notices = collect(h, day, kinds) if args.dry_run else send_all(h, day, kinds)
     for n in notices:
