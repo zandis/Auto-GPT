@@ -6,9 +6,42 @@ from __future__ import annotations
 
 import csv
 import re
+from datetime import timedelta
 from pathlib import Path
 
+import pytest
+
+from tools import feas_demo as fd
 from tools import list_demo
+
+
+def test_a_later_clinic_day_moves_the_box_with_the_console(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Finding EDC-16 (complete run, 500 patients): when the PI's first clinic day is after the box's day, the demo
+    moved the console's clock but not the box's. The console then dated the sponsor's acknowledgement "today" and the
+    EDC service, days behind, refused it as a future date (edc.ack_date): e2e stage 16 could not switch prefill on."""
+    from console import notify
+    from console.timefmt import local_today, site_zone
+
+    later = fd.REF + timedelta(days=3)  # the box's day is REF + 1 (Monday); the PI's clinic is on Wednesday
+    monkeypatch.setattr(notify, "clinic_days", lambda rows, practitioner: {later})
+    password = "pw-" + "x" * 16
+    res = list_demo.run(tmp_path, password, "ja")
+    box, h, pi = res["box"], res["app"].state.helpers, res["pi"]
+    assert res["day"] == later
+    assert local_today(h.clock(), site_zone(h.bk)) == box.orch.today() == later  # one site, one date
+    # as e2e stage 16: the PI names themselves on the log and switches prefill on, acknowledged on the console's date
+    today = h.clock().date().isoformat()
+    log = pi.post("/studies/GZQO/team", data={"csrf": fd._csrf(pi.get("/home").text), "username": "pi", "role": "pi",
+                                             "start": today}, follow_redirects=False)  # fmt: skip
+    assert log.status_code == 303
+    sw = {"csrf": fd._csrf(pi.get("/studies/GZQO/edc").text), "on": "1", "kind": "sponsor_letter",
+          "reference": "SPN-GZQO-001", "ack_date": today, "reentry_pages": "30", "reentry_accuracy": "98.6"}  # fmt: skip
+    r = pi.post("/studies/GZQO/edc/switch", data=sw, follow_redirects=False)
+    assert r.status_code == 303, sorted(set(re.findall(r"edc\.[a-z_]+", r.text)))
+    # E-10 still holds: a CRC, not on the log as PI, cannot
+    crc = res["crc"]
+    r = crc.post("/studies/GZQO/edc/switch", data={**sw, "csrf": fd._csrf(crc.get("/studies/GZQO/edc").text)})
+    assert r.status_code == 403
 
 
 def test_approve_list_mark_and_mail(tmp_path: Path) -> None:

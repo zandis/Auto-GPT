@@ -3712,6 +3712,21 @@ Source: WS-08.6 and WS-08.5 (the admin tile turns red 36 h after the last backup
 *Evidence.* `tests/unit/test_backup_schedule.py`; `tools/backup_drill.py`.
 *Not done here.* The docker-side runs; `doctor` failing on a local-only target; `install.sh` installing the cron file; the admin tile (WS-08.5); review items M2, M7, the repo-path half of M8, and the open Lows.
 
+**D-191 The SAE register: one record per serious AE on the one reporting clock (independent plan review PR-17).** The review found that the SAE clock had no system of record and no failure mode in the risk file. TrialBox now keeps an SAE register, schema `sae` of the trial database (`services/console/saerecord.py`), with a worklist at `/sae` and a case page at `/studies/{rs}/sae/{record}/{event}` (`services/console/sae_pages.py`).
+
+* **One place per fact.** Onset, the day learned, seriousness and outcome, and the day each first report was sent stay on the AE form (D-134, D-143). "Record the report sent" writes only that field through the data core's form save. A second "sent" is refused; corrections are made on the AE form. For a case no longer serious, a late "sent" or "closed" is kept in the register.
+* **One clock.** Deadlines are `datacore.lifecycle.report_clock` with `TB_SAE_RULES` / `TB_SAE_REPORT_DAYS` (D-143), on the site's local date. The rule's follow-up is due on day 0 + the first report's days + the follow-up days. A fatal or life-threatening case to the regulator is due on day 15 (ICH E2A 7 + 8; Taiwan 15-day report). `TB_SAE_FOLLOWUP_DAYS` overrides it. Receivers' requested follow-ups have their own due day.
+* **States.** Due, overdue, sent, sent late (counted, alerted) and a sent date to check (not counted, alerted).
+* **Trail.** Every create and change goes to `sae_trail` and the audit log (`console.sae`), dates and parties only. Changes read from the AE form are recorded as `system:sync` with the form's author and time; a person's own entries are recorded as that person.
+* **Date checks, never silently fixed:** no start day; the day learned before the onset; an onset or day learned in the future; late awareness. Each is flagged on the page.
+* **Downgrades.** A case no longer serious keeps its last clock. While it has open reports it stays in the alert, and they can be sent or closed.
+* **Worklist.** Overdue and late reports first, under an alert, in ja / zh-TW / en, linked from the header menu. The page names who confirmed the site rule (`TB_SAE_RULES_CONFIRMED`) and says the trial office's SAE log and SOP still govern. It shows no AE term, chart number or name.
+* **Access, deny by default** (`tb_common.authz.ROLE_SAE_ACTIONS`): the coordinator views and records (with `enter_data`); the investigator (with `screen` once a PI is named) and the administrator view; viewer and CRO get 403; another study gives 404; refusals are audited.
+* **Risk.** RSK-50: the register and the office log disagree, or a register date is wrong; traced from WS-06.13.
+
+*Evidence.* `tests/console/test_sae_record.py` (15 cases); PR #60 (review: 0 Blocker, 4 High fixed).
+*Open.* The office's SAE log stays the inspected record; compare monthly. Not built yet: the write-path sync from the orchestrator, the copy to the office mailbox, the OQ wrong-clock test, follow-ups on home pages and in mail, the `/api/v1` route, void and correct for receipts and requested follow-ups, and review items M5, M7 and M8.
+
 **D-192 Identity for the console: TOTP for local accounts by default, an optional OIDC sign-in through Authelia,
 the administrator's audited recovery, and hardened sessions.** Component review 2026-11-09 layer 1 rows 30 and 36
 and layer 2 item 1 (Authelia, Authlib, pyotp; corrections: the OIDC provider is beta, sign-out goes through
