@@ -1094,7 +1094,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                 if reason == "none":  # no authenticator yet: it is enrolled on the sign-in page, never here
                     raise h.problem(403, "login.enrol")
                 if reason == "key":
-                    raise h.problem(503, "request.refused", reason="the authenticator key file does not match")
+                    key_refused = "the authenticator key file does not match; ask an administrator"  # refusals.py
+                    raise h.problem(503, "request.refused", reason=key_refused)
                 raise h.problem(401, "login")
             via = "api+totp"
         if totp_on:
