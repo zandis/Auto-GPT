@@ -521,15 +521,22 @@ class Orchestrator:
             except Exception:  # never let a worker die
                 log.exception("worker error on %s", jid)
 
-    def drain(self, timeout: float = 600) -> None:
-        """Run queued jobs synchronously until the queue is empty (tests / CLI)."""
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+    def drain(self, timeout: float = 600, total: float | None = None) -> None:
+        """Run queued jobs synchronously until the queue is empty (tests / CLI).
+
+        ``timeout`` is a stall window, not a budget for the whole queue: it restarts after every finished job, so a
+        long queue that keeps moving (5,000 patients on the real model pair, the complete run of 2026-11-10) drains,
+        and a queue where no job finishes within the window fails. ``total`` optionally caps the whole drain."""
+        start = last = time.monotonic()
+        while True:
             jid = self.db.claim()
             if jid is None:
                 return
             self.run(jid)
-        raise TimeoutError("queue not drained")
+            now = time.monotonic()
+            if now - last > timeout or (total is not None and now - start > total):
+                raise TimeoutError("queue not drained")
+            last = now  # progress: the window starts again
 
 
 def job_language(ctx: Ctx) -> str:
