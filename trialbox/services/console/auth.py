@@ -42,6 +42,7 @@ IDLE = timedelta(minutes=10)  # D-192: the IT security pack's idle lock for shar
 ABSOLUTE = timedelta(hours=8)
 PENDING_TTL = timedelta(minutes=10)  # between the password and the code (enrolment included; D-192)
 OIDC_STATE_TTL = timedelta(minutes=10)  # between leaving for the identity provider and coming back
+ENROL_TTL = timedelta(hours=24)  # an administrator's enrolment code for a new authenticator (D-192, review H2)
 _SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2**14, 8, 1
 _USERNAME_OK = frozenset("abcdefghijklmnopqrstuvwxyz0123456789._-")
 
@@ -82,6 +83,9 @@ SCHEMA_V2 = """
 ALTER TABLE users ADD COLUMN totp_secret TEXT;
 ALTER TABLE users ADD COLUMN totp_step BIGINT;
 ALTER TABLE users ADD COLUMN idp_sub TEXT;
+ALTER TABLE users ADD COLUMN enrol_code_sha TEXT;
+ALTER TABLE users ADD COLUMN enrol_expires TEXT;
+ALTER TABLE users ADD COLUMN enrol_reason TEXT;
 CREATE TABLE pending_logins (
   token_sha TEXT PRIMARY KEY,
   username TEXT NOT NULL,
@@ -327,8 +331,9 @@ class UserStore:
 
     def upsert_sso(self, username: str, role: Role, mailbox: str | None) -> User:
         """The account behind a trusted identity header (D-93): created on first sight with no console password,
-        role and mailbox refreshed on every sign-in so a change in the directory applies at once. Never touches an
-        account that has a password (a local administrator keeps their rights)."""
+        role and mailbox refreshed on every sign-in so a change in the directory applies at once. Never signs in
+        an account that has a console password or comes from OIDC: a header naming a local administrator is refused
+        (D-192, review H1), so the header can never skip the password and the second factor."""
         u = check_username(username)
         if role not in ROLES:
             raise AuthError(f"role must be one of {', '.join(ROLES)}")
@@ -344,10 +349,8 @@ class UserStore:
                 raise AuthError("account disabled")
             elif row[0] == SSO_MARK:
                 tx.execute("UPDATE users SET role = ?, mailbox = ? WHERE username = ?", (role, mb, u))
-            else:  # a local account: the header never changes its role or mailbox
-                row = tx.fetchone(f"SELECT {_COLS} FROM users WHERE username = ?", (u,))
-                assert row is not None
-                return _row_user(row)
+            else:  # a local (or OIDC) account: never through the header
+                raise AuthError("a local account has this name")
             row = tx.fetchone(f"SELECT {_COLS} FROM users WHERE username = ?", (u,))
         assert row is not None
         user = _row_user(row)
@@ -404,11 +407,13 @@ class UserStore:
                 raise AuthError(f"no user {username}")
             tx.execute("DELETE FROM sessions WHERE username = ?", (username,))  # sign out everywhere
             tx.execute("DELETE FROM login_failures WHERE username = ?", (username,))
+            tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))  # a half-done sign-in too
 
     def disable(self, username: str) -> None:
         with self.db.transaction() as tx:
             tx.execute("UPDATE users SET disabled = 1 WHERE username = ?", (username,))
             tx.execute("DELETE FROM sessions WHERE username = ?", (username,))
+            tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))
 
     # ------------------------------------------------------------------ login
     def locked(self, username: str) -> bool:
@@ -474,7 +479,9 @@ class UserStore:
         )
         return token, Session(user, csrf, lang, _sha(token))
 
-    def session(self, token: str | None) -> Session | None:
+    def session(self, token: str | None, touch: bool = True) -> Session | None:
+        """The live session of ``token``. ``touch=False`` (a page's own auto-refresh, D-192 review H3) reads the
+        session without counting the request as activity, so an open page that refreshes itself still locks."""
         if not token or len(token) > 256:
             return None
         sha = _sha(token)
@@ -489,7 +496,8 @@ class UserStore:
         if user is None or now - created > self.absolute or now - last > self.idle:
             self.end_session(token)
             return None
-        self.db.execute("UPDATE sessions SET last_seen = ? WHERE token_sha = ?", (now.isoformat(), sha))
+        if touch:
+            self.db.execute("UPDATE sessions SET last_seen = ? WHERE token_sha = ?", (now.isoformat(), sha))
         return Session(user, str(row[1]), str(row[4]), sha)
 
     def end_sessions(self, username: str) -> None:
@@ -504,9 +512,10 @@ class UserStore:
         return str(row[0]), (int(row[1]) if row[1] is not None else None)
 
     def set_totp(self, username: str, sealed: str, step: int) -> None:
-        """Store a confirmed TOTP secret (the code that confirmed it used ``step``)."""
+        """Store a confirmed TOTP secret (the code that confirmed it used ``step``); the enrolment code is used up."""
         n = self.db.execute(
-            "UPDATE users SET totp_secret = ?, totp_step = ? WHERE username = ? AND totp_secret IS NULL",
+            "UPDATE users SET totp_secret = ?, totp_step = ?, enrol_code_sha = NULL, enrol_expires = NULL, "
+            "enrol_reason = NULL WHERE username = ? AND totp_secret IS NULL",
             (sealed, step, username),
         )
         if n != 1:
@@ -521,15 +530,53 @@ class UserStore:
         )
         return n == 1
 
-    def reset_totp(self, username: str) -> None:
+    def reset_totp(self, username: str) -> str:
         """An administrator clears an account's authenticator (a lost phone; the caller audits it). The account
-        signs out everywhere and enrols a new authenticator at its next sign-in, after its password."""
+        signs out everywhere; the returned enrolment code (shown to the administrator once) is needed, with the
+        password, to set up the new authenticator within ``ENROL_TTL`` (D-192, review H2)."""
+        code = random_password(4)
         with self.db.transaction() as tx:
-            n = tx.execute("UPDATE users SET totp_secret = NULL, totp_step = NULL WHERE username = ?", (username,))
+            n = tx.execute(
+                "UPDATE users SET totp_secret = NULL, totp_step = NULL, enrol_code_sha = ?, enrol_expires = ?, "
+                "enrol_reason = 'reset' WHERE username = ?",
+                (_sha(code), (self.clock() + ENROL_TTL).isoformat(), username),
+            )
             if n != 1:
                 raise AuthError(f"no user {username}")
             tx.execute("DELETE FROM sessions WHERE username = ?", (username,))
             tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))
+        return code
+
+    def issue_enrol_code(self, username: str) -> str:
+        """A one-time enrolment code for an account without an authenticator (its first one, e.g. every account
+        after the upgrade): shown to the administrator once, valid for ``ENROL_TTL``, only its hash stored."""
+        code = random_password(4)
+        n = self.db.execute(
+            "UPDATE users SET enrol_code_sha = ?, enrol_expires = ?, "
+            "enrol_reason = COALESCE(enrol_reason, 'first') WHERE username = ? AND totp_secret IS NULL "
+            "AND disabled = 0",
+            (_sha(code), (self.clock() + ENROL_TTL).isoformat(), username),
+        )
+        if n != 1:
+            raise AuthError("no account without an authenticator has this name")
+        return code
+
+    def enrol_state(self, username: str) -> tuple[bool, str]:
+        """(a live enrolment code exists, why: 'first' or 'reset')."""
+        row = self.db.fetchone("SELECT enrol_code_sha, enrol_expires, enrol_reason FROM users WHERE username = ?",
+                               (username,))  # fmt: skip
+        if row is None or not row[0] or not row[1]:
+            return False, "first"
+        live = self.clock() <= datetime.fromisoformat(str(row[1]))
+        return live, str(row[2] or "first")
+
+    def check_enrol_code(self, username: str, code: str) -> bool:
+        """True when ``code`` is the account's live enrolment code (not used up, not expired)."""
+        row = self.db.fetchone("SELECT enrol_code_sha, enrol_expires FROM users WHERE username = ?", (username,))
+        if row is None or not row[0] or not row[1] or self.clock() > datetime.fromisoformat(str(row[1])):
+            return False
+        typed = "-".join(p for p in re.split(r"[\s-]+", (code or "").strip().lower()) if p)
+        return hmac.compare_digest(str(row[0]).encode(), _sha(typed).encode())
 
     def new_pending(self, username: str) -> tuple[str, str]:
         """A sign-in whose password was right and whose code is still to come: (browser token, form token)."""

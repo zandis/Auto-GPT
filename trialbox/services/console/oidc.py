@@ -114,8 +114,8 @@ class OidcSettings:
             raise OidcConfigError("TB_OIDC_CLIENT_SECRET_FILE is not set")
         if not _https(self.redirect_url) or not self.redirect_url.endswith("/auth/oidc/callback"):
             raise OidcConfigError("TB_OIDC_REDIRECT_URL must be https://<console host>/auth/oidc/callback")
-        if self.logout_url and not _https(self.logout_url):
-            raise OidcConfigError("TB_OIDC_LOGOUT_URL must be an https:// address")
+        if not _https(self.logout_url):  # review M6: sign-out must end the provider session too
+            raise OidcConfigError("TB_OIDC_LOGOUT_URL must be the provider's https:// logout address")
         if not self.group_roles:
             raise OidcConfigError("TB_OIDC_GROUP_ROLES maps no group to a role (group:role,group:role)")
         for group, role in self.group_roles:
@@ -320,7 +320,8 @@ class OidcClient:
             raise OidcError("id_token expired")
         if not isinstance(iat, int | float) or iat > now + SKEW:
             raise OidcError("id_token issued in the future")
-        if not isinstance(claims.get("nonce"), str) or not secrets.compare_digest(str(claims["nonce"]), nonce):
+        got_nonce = claims.get("nonce")
+        if not isinstance(got_nonce, str) or not secrets.compare_digest(got_nonce.encode(), nonce.encode()):
             raise OidcError("id_token nonce")
         if not isinstance(claims.get("sub"), str) or not claims["sub"]:
             raise OidcError("id_token subject")

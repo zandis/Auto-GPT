@@ -364,6 +364,7 @@ def login_totp(app: Any, user: str = "admin", pw: str = ADMIN_PW) -> tuple[TestC
     whose key gives the first code."""
     from console import totp
 
+    enrol = app.state.identity.users.issue_enrol_code(user)  # an administrator's enrolment code (D-192 review H2)
     c = TestClient(app, base_url="https://testserver")
     token = re.search(r'name="login_csrf" value="([^"]+)"', c.get("/login").text)
     assert token
@@ -374,7 +375,8 @@ def login_totp(app: Any, user: str = "admin", pw: str = ADMIN_PW) -> tuple[TestC
     mfa = re.search(r'name="mfa_csrf" value="([^"]+)"', page)
     assert key and mfa
     code = totp.totp(key.group(1).replace(" ", ""), datetime.now(UTC).timestamp())
-    r = c.post("/login/totp", data={"code": code, "mfa_csrf": mfa.group(1)}, follow_redirects=False)
+    form = {"code": code, "mfa_csrf": mfa.group(1), "enrol_code": enrol}
+    r = c.post("/login/totp", data=form, follow_redirects=False)
     assert r.status_code == 303, r.text
     csrf = re.search(r'name="csrf" value="([^"]+)"', c.get("/").text)
     assert csrf
@@ -1395,7 +1397,7 @@ def test_sso_header_signs_in_from_a_trusted_proxy_only(tmp_path: Path) -> None:
     adm_c, csrf = login(app)
     assert adm_c.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": "nurse.lin"}).status_code == 400
     spoof = TestClient(app, headers={"X-Forwarded-User": "admin", "X-Forwarded-Groups": "nothing"})
-    assert "administrator" in spoof.get("/").text  # the local admin keeps their role (header cannot demote)
+    assert spoof.get("/", follow_redirects=False).status_code == 303  # D-192 review H1: never a local account
     events = [e.event for e in read_audit(tmp_path / "audit")]
     assert events.count("console.login") >= 4
 

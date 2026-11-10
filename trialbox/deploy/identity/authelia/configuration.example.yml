@@ -56,7 +56,7 @@ access_control:
 
 session:
   cookies:
-    - domain: hospital.example                                    # SITE: the parent of both host names
+    - domain: auth.trialbox.hospital.example                      # SITE: TB_AUTH_HOSTNAME only (no wider cookie)
       authelia_url: https://auth.trialbox.hospital.example        # SITE: TB_AUTH_HOSTNAME
       default_redirection_url: https://trialbox.hospital.example  # SITE: TB_TLS_HOSTNAME
   inactivity: 10m

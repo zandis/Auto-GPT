@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -197,6 +198,13 @@ class ConsoleSettings:
             raise PilotRefused("TB_CONSOLE_SSO_HEADER needs TB_CONSOLE_SSO_TRUSTED_PROXIES (the proxy addresses)")
         if obj.sso_default_role not in ROLES:
             raise PilotRefused(f"TB_CONSOLE_SSO_DEFAULT_ROLE must be one of {', '.join(ROLES)}")
+        if obj.sso_header and (obj.identity.totp_required or obj.identity.oidc.enabled):
+            # D-192 review H1: a trusted header skips the password and the second factor. It is allowed only where
+            # TOTP is off (DEV and TEST); a hospital uses the OIDC sign-in through Authelia instead.
+            raise PilotRefused(
+                "TB_CONSOLE_SSO_HEADER works only with TB_CONSOLE_MFA=off (DEV or TEST) and OIDC off; "
+                "use TB_OIDC_ENABLED (Authelia) for the hospital account"
+            )
         return obj
 
 
@@ -495,7 +503,8 @@ def create_app(
             return None
 
     def session_of(request: Request) -> Session | None:
-        return us.session(request.cookies.get(COOKIE))
+        # D-192 review H3: a page's own auto-refresh (?auto=1, base.html) is not activity: the idle lock still runs
+        return us.session(request.cookies.get(COOKIE), touch=request.query_params.get("auto") != "1")
 
     def need(request: Request) -> Session:
         sess = session_of(request)
@@ -634,6 +643,10 @@ def create_app(
             "given": given,
             "num": _num,
             "console_js": CONSOLE_JS,
+            # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
+            "refresh_url": request.url.path
+            + "?"
+            + urlencode([*((k, v) for k, v in request.query_params.multi_items() if k != "auto"), ("auto", "1")]),
         }
         return templates.TemplateResponse(request, name, {**base, **ctx}, status_code=status)
 

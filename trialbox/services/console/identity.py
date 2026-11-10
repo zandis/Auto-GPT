@@ -26,6 +26,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
+from cryptography.exceptions import InvalidTag
 from fastapi import FastAPI, Form, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_common.audit import AuditLog
@@ -77,8 +79,8 @@ class IdentitySettings:
         mfa = (env.get("TB_CONSOLE_MFA") or ("off" if dev else "totp")).strip().lower()
         if mfa not in MFA_MODES:
             raise IdentityConfigError(f"TB_CONSOLE_MFA must be one of {', '.join(MFA_MODES)}")
-        if mfa == "off" and environment.upper() == "PRODUCTION":
-            raise IdentityConfigError("TB_CONSOLE_MFA=off is refused in PRODUCTION: local accounts need TOTP")
+        if mfa == "off" and not dev:  # review M2: only the build and the synthetic hospital go without TOTP
+            raise IdentityConfigError(f"TB_CONSOLE_MFA=off is refused in {environment}: local accounts need TOTP")
         key = (env.get("TB_CONSOLE_TOTP_KEY_FILE") or "").strip()
         try:
             oidc = OidcSettings.from_env(env)
@@ -95,11 +97,17 @@ class IdentitySettings:
 
 
 def secure_cookie_default(env: Mapping[str, str], environment: str) -> bool:
-    """``TB_CONSOLE_SECURE_COOKIE`` when set (1/true or 0/false), else on in PRODUCTION (D-192)."""
+    """``TB_CONSOLE_SECURE_COOKIE`` when set (1/true or 0/false), else on in PRODUCTION (D-192). An explicit off is
+    refused in PRODUCTION (review M1): there the console is reached only by https (or on the box's own loopback,
+    which browsers treat as a secure origin)."""
     raw = (env.get("TB_CONSOLE_SECURE_COOKIE") or "").strip().lower()
+    prod = environment.upper() == "PRODUCTION"
     if raw:
-        return raw in ("1", "true", "on", "yes")
-    return environment.upper() == "PRODUCTION"
+        on = raw in ("1", "true", "on", "yes")
+        if prod and not on:
+            raise IdentityConfigError("TB_CONSOLE_SECURE_COOKIE=0 is refused in PRODUCTION")
+        return on
+    return prod
 
 
 # ---------------------------------------------------------------------------------------------- TLS (D-193)
@@ -265,10 +273,21 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
         _clear(resp, MFA_COOKIE)
         return resp
 
+    def _open(username: str, sealed: str) -> str:
+        """The TOTP secret, or a clear refusal when the key file is not the one that sealed it (a restored database
+        with another console volume): an administrator resets the authenticator (L1)."""
+        try:
+            return ident.box.open(username, sealed)
+        except (InvalidTag, ValueError) as exc:
+            au.append("console.login_failed", actor=f"console:{username}", detail={"factor": "totp", "reason": "key"})
+            raise h.problem(
+                503, "request.refused", reason="the authenticator key file does not match; ask an administrator"
+            ) from exc
+
     def _code_form(request: Request, username: str, csrf: str, sealed_enrol: str | None, **ctx: Any) -> Response:
         enrol = None
         if sealed_enrol is not None:
-            secret = ident.box.open(username, sealed_enrol)
+            secret = _open(username, sealed_enrol)
             enrol = {"key": totp.grouped(secret), "uri": totp.otpauth_uri(secret, username, st.totp_issuer)}
         status = int(ctx.pop("status", 200))
         return _totp_page(h, request, status, mfa_csrf=csrf, enrol=enrol, account=username, **ctx)
@@ -281,19 +300,28 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             return RedirectResponse("/login", status_code=303)
         username, csrf, sealed_enrol = pending
         sealed, _ = us.totp_state(username)
-        if sealed is None and sealed_enrol is None:  # first sign-in, or after a reset: a new key for this attempt
-            sealed_enrol = ident.box.seal(username, totp.new_secret())
-            us.set_pending_secret(token, sealed_enrol)
+        if sealed is None:
+            live, _why = us.enrol_state(username)
+            if not live:  # D-192 review H2: no authenticator and no administrator's enrolment code: no way in
+                us.drop_pending(token)
+                resp = _totp_page(h, request, 403, no_enrol_code=True, mfa_csrf="", enrol=None, account=username)
+                _clear(resp, MFA_COOKIE)
+                return resp
+            if sealed_enrol is None:  # a new key for this attempt
+                sealed_enrol = ident.box.seal(username, totp.new_secret())
+                us.set_pending_secret(token, sealed_enrol)
         return _code_form(request, username, csrf, sealed_enrol if sealed is None else None)
 
     @app.post("/login/totp")
-    def totp_submit(request: Request, code: str = Form(""), mfa_csrf: str = Form("")) -> Response:
+    def totp_submit(
+        request: Request, code: str = Form(""), mfa_csrf: str = Form(""), enrol_code: str = Form("")
+    ) -> Response:
         token = request.cookies.get(MFA_COOKIE)
         pending = us.pending(token)
         if pending is None or token is None:
             return RedirectResponse("/login", status_code=303)
         username, csrf, sealed_enrol = pending
-        if not mfa_csrf or not secrets.compare_digest(csrf, mfa_csrf):
+        if not mfa_csrf or not secrets.compare_digest(csrf.encode(), mfa_csrf.encode()):
             raise h.problem(400, "csrf")
         if us.locked(username):
             us.drop_pending(token)
@@ -302,21 +330,29 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
         enrolling = sealed is None
         if enrolling and sealed_enrol is None:
             return RedirectResponse("/login/totp", status_code=303)
-        secret = ident.box.open(username, sealed_enrol if enrolling else sealed)  # type: ignore[arg-type]
+        secret = _open(username, sealed_enrol if enrolling else sealed)  # type: ignore[arg-type]
         now = ident.now()
-        step = totp.verify(secret, code[:32], now, None if enrolling else last)
         reason = ""
-        if step is None:
-            reason = "replay" if not enrolling and totp.verify(secret, code[:32], now, None) is not None else "wrong"
-        elif enrolling:
-            try:
-                us.set_totp(username, sealed_enrol, step)  # type: ignore[arg-type]
-            except AuthError:
-                reason = "wrong"
-            else:
-                au.append("console.totp_enrolled", actor=f"console:{username}")
-        elif not us.use_step(username, step):
-            reason = "replay"  # the same code in two tabs at once: one wins
+        step: int | None = None
+        why = "first"
+        if enrolling:
+            _live, why = us.enrol_state(username)
+            if not us.check_enrol_code(username, enrol_code[:64]):
+                reason = "enrol_code"  # the administrator's code is wrong, used or expired
+        if not reason:
+            step = totp.verify(secret, code[:32], now, None if enrolling else last)
+            if step is None:
+                replay = not enrolling and totp.verify(secret, code[:32], now, None) is not None
+                reason = "replay" if replay else "wrong"
+            elif enrolling:
+                try:
+                    us.set_totp(username, sealed_enrol, step)  # type: ignore[arg-type]
+                except AuthError:
+                    reason = "wrong"
+                else:
+                    au.append("console.totp_enrolled", actor=f"console:{username}", detail={"kind": why})
+            elif not us.use_step(username, step):
+                reason = "replay"  # the same code in two tabs at once: one wins
         if reason:
             us.record_failure(username)
             au.append("console.login_failed", actor=f"console:{username}", detail={"factor": "totp", "reason": reason})
@@ -345,8 +381,9 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             raise h.problem(404, "notfound")
         try:
             start = ident.oidc_client.start()
-        except (OidcError, OSError, ValueError) as exc:  # the provider is down or misconfigured
-            au.append("console.login_failed", actor="console:-", detail={"via": "oidc", "reason": str(exc)[:80]})
+        except (OidcError, OSError, ValueError, httpx.HTTPError) as exc:  # the provider is down or misconfigured
+            reason = str(exc)[:80] if isinstance(exc, OidcError) else f"provider unreachable ({type(exc).__name__})"
+            au.append("console.login_failed", actor="console:-", detail={"via": "oidc", "reason": reason})
             return h.login_page(request, 502, failed=True, uninitialised=False, oidc_failed=True)
         us.put_oidc_state(start.state, start.nonce, start.verifier)
         resp = RedirectResponse(start.url, status_code=303)
@@ -367,14 +404,16 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             raise h.problem(404, "notfound")
         cookie = request.cookies.get(OIDC_COOKIE, "")
         reason = ""
-        flow = us.take_oidc_state(state) if state else None
+        flow = None
         if error:
             code_word = "".join(ch for ch in error.lower() if ch in "abcdefghijklmnopqrstuvwxyz_")[:40]
             reason = f"provider: {code_word or 'error'}"  # an RFC 6749 error code, never the provider's free text
-        elif not cookie or not state or not secrets.compare_digest(cookie, state):
-            reason = "state does not match this browser"
-        elif flow is None:
-            reason = "unknown or expired state"
+        elif not cookie or not state or not secrets.compare_digest(cookie.encode(), state.encode()):
+            reason = "state does not match this browser"  # checked first: another browser cannot burn the state
+        else:
+            flow = us.take_oidc_state(state)
+            if flow is None:
+                reason = "unknown or expired state"
         user: User | None = None
         who = "-"
         if not reason and flow is not None:
@@ -384,7 +423,7 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
                 user = us.upsert_oidc(found.username, found.subject, found.role, found.mailbox)  # type: ignore[arg-type]
             except (OidcError, AuthError) as exc:
                 reason = str(exc)[:80]
-            except (OSError, ValueError) as exc:  # network or a malformed answer
+            except (OSError, ValueError, httpx.HTTPError) as exc:  # network or a malformed answer
                 reason = f"provider unreachable or malformed ({type(exc).__name__})"
         if user is None:
             au.append("console.login_failed", actor=f"console:{who}", detail={"via": "oidc", "reason": reason})
@@ -405,32 +444,41 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
         for u in us.users():
             sealed, _ = us.totp_state(u.username)
             until = us.locked_until(u.username)
+            idp = us.is_sso(u.username)
+            live, _why = us.enrol_state(u.username)
             rows.append(
                 {
                     "user": u,
-                    "idp": us.is_sso(u.username),
+                    "idp": idp,
                     "totp": sealed is not None,
+                    "enrol_live": live,
                     "locked_until": until.isoformat() if until else "",
                 }
             )
         return rows
+
+    def _admin_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> Response:
+        rows = _rows()
+        return h.page(
+            request,
+            "identity_admin.html",
+            sess,
+            status,
+            rows=rows,
+            unenrolled=[r for r in rows if not r["idp"] and not r["totp"]],
+            mfa=st.mfa,
+            oidc=ident.oidc_enabled,
+            idle_minutes=int(st.idle.total_seconds() // 60),
+            session_hours=int(st.absolute.total_seconds() // 3600),
+            **ctx,
+        )
 
     @app.get("/ops/identity")
     def identity_view(request: Request, done: str = "") -> Response:
         sess = h.need(request)
         if not sess.user.is_admin:
             raise h.problem(403, "forbidden")
-        return h.page(
-            request,
-            "identity_admin.html",
-            sess,
-            rows=_rows(),
-            mfa=st.mfa,
-            oidc=ident.oidc_enabled,
-            idle_minutes=int(st.idle.total_seconds() // 60),
-            session_hours=int(st.absolute.total_seconds() // 3600),
-            done=done if done in ("unlock", "reset_totp") else "",
-        )
+        return _admin_page(request, sess, done=done if done in ("unlock",) else "")
 
     @app.post("/ops/identity")
     def identity_edit(
@@ -454,19 +502,27 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             was = us.unlock(name)
             au.append("console.unlock", actor=actor, detail={"user": name, "was_locked": was})
             return RedirectResponse("/ops/identity?done=unlock", status_code=303)
-        if action == "reset_totp":
-            if name == sess.user.username:
-                raise h.problem(400, "request.refused", reason="another administrator resets your authenticator")
-            if us.is_sso(name):
-                raise h.problem(400, "request.refused", reason="this account signs in through the identity provider")
-            if confirm != "yes":
-                text = h.translate(h.lang_of(request, sess), "identity.confirm.reset", user=name)
-                return h.confirm(request, sess, text, "/ops/identity", {"action": "reset_totp", "username": name},
-                                 "/ops/identity")  # fmt: skip
-            us.reset_totp(name)
-            au.append("console.totp_reset", actor=actor, detail={"user": name})
-            return RedirectResponse("/ops/identity?done=reset_totp", status_code=303)
-        raise h.problem(400, "request.refused", reason="unknown action")
+        if action not in ("reset_totp", "enrol_code"):
+            raise h.problem(400, "request.refused", reason="unknown action")
+        if name == sess.user.username:
+            raise h.problem(400, "request.refused", reason="another administrator does this for your account")
+        if us.is_sso(name):
+            raise h.problem(400, "request.refused", reason="this account signs in through the identity provider")
+        if action == "enrol_code":
+            try:
+                code = us.issue_enrol_code(name)
+            except AuthError as exc:
+                raise h.problem(400, "request.refused", reason=str(exc)) from exc
+            au.append("console.enrol_code", actor=actor, detail={"user": name})
+            # shown once, on this answer only: never in a URL, a log or the audit (as the one-time password, D-133)
+            return _admin_page(request, sess, done="enrol_code", code_for=name, code=code)
+        if confirm != "yes":
+            text = h.translate(h.lang_of(request, sess), "identity.confirm.reset", user=name)
+            return h.confirm(request, sess, text, "/ops/identity", {"action": "reset_totp", "username": name},
+                             "/ops/identity")  # fmt: skip
+        code = us.reset_totp(name)
+        au.append("console.totp_reset", actor=actor, detail={"user": name})
+        return _admin_page(request, sess, done="reset_totp", code_for=name, code=code)
 
 
 # D-192 strings: joined into the console catalogues once, when this module is imported

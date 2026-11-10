@@ -113,3 +113,56 @@ ZH: dict[str, str] = {
     "identity.done.reset_totp": "驗證器已重設。下次登入時將設定新的驗證器。",
     "identity.confirm.reset": "要重設 {user} 的驗證器嗎？該帳號將被登出，並於下次登入時設定新的驗證器。執行前請確認提出要求的人。",
 }
+
+# review H2 (D-192): a new authenticator needs the administrator's one-time enrolment code
+EN.update(
+    {
+        "totp.enrol.help": "This account has no authenticator yet. In an authenticator app (on your phone or a hospital device), add an account by key and type the key below, or open the link on the phone. Then enter the enrolment code your administrator gave you and the code the app shows.",
+        "totp.enrol.code": "Enrolment code from your administrator",
+        "totp.enrol.none": "This account has no authenticator and no valid enrolment code. Ask an administrator for an enrolment code (it is valid for 24 hours), then sign in again.",
+        "totp.failed.enrol_code": "The enrolment code is not right, was used, or has expired. Ask your administrator for a new one.",
+        "identity.help": "Lift a lock after failed sign-ins, give an enrolment code to an account that has no authenticator, or reset an authenticator when a phone is lost. Every action is recorded in the audit trail; a reset signs the account out.",
+        "identity.done.reset_totp": "The authenticator is reset and the account is signed out. Give the person the enrolment code below.",
+        "identity.code.title": "Enrolment code for {user}",
+        "identity.code.label": "Enrolment code (valid 24 hours, works once)",
+        "identity.code.once": "This code is shown only now. Hand it over in person or read it out on a call-back to the person's extension.",
+        "identity.code.live": "enrolment code issued",
+        "identity.code.issue": "Enrolment code",
+        "identity.unenrolled.title": "{n} accounts cannot sign in yet: no authenticator",
+        "identity.unenrolled.help": "Each needs an enrolment code from an administrator to set up an authenticator.",
+    }
+)
+JA.update(
+    {
+        "totp.enrol.help": "このアカウントにはまだ認証アプリが登録されていません。認証アプリ（スマートフォンまたは病院の認証機器）でキーを使ってアカウントを追加し、下のキーを入力するか、スマートフォンでリンクを開いてください。その後、管理者から受け取った登録コードと、アプリに表示されたコードを入力してください。",
+        "totp.enrol.code": "管理者から受け取った登録コード",
+        "totp.enrol.none": "このアカウントには認証アプリも有効な登録コードもありません。管理者に登録コード（24 時間有効）を依頼し、もう一度ログインしてください。",
+        "totp.failed.enrol_code": "登録コードが正しくないか、使用済みか、期限切れです。管理者に新しいコードを依頼してください。",
+        "identity.help": "ログイン失敗によるロックの解除、認証アプリのないアカウントへの登録コードの発行、スマートフォン紛失時の認証アプリのリセットを行います。すべて監査記録に残り、リセットするとそのアカウントはログアウトされます。",
+        "identity.done.reset_totp": "認証アプリをリセットし、アカウントをログアウトしました。下の登録コードを本人に渡してください。",
+        "identity.code.title": "{user} の登録コード",
+        "identity.code.label": "登録コード（24 時間有効、1 回のみ）",
+        "identity.code.once": "このコードは今だけ表示されます。直接手渡すか、本人の内線にかけ直して読み上げてください。",
+        "identity.code.live": "登録コード発行済み",
+        "identity.code.issue": "登録コード",
+        "identity.unenrolled.title": "{n} 件のアカウントはまだログインできません：認証アプリ未登録",
+        "identity.unenrolled.help": "認証アプリを設定するには、それぞれ管理者からの登録コードが必要です。",
+    }
+)
+ZH.update(
+    {
+        "totp.enrol.help": "此帳號尚未設定驗證器。請在驗證器 App（手機或醫院發放的驗證裝置）以金鑰新增帳號並輸入下方金鑰，或在手機上開啟連結。然後輸入管理者給您的註冊碼與 App 顯示的代碼。",
+        "totp.enrol.code": "管理者提供的註冊碼",
+        "totp.enrol.none": "此帳號沒有驗證器，也沒有有效的註冊碼。請向管理者索取註冊碼（24 小時內有效），然後再次登入。",
+        "totp.failed.enrol_code": "註冊碼不正確、已使用或已過期。請向管理者索取新的註冊碼。",
+        "identity.help": "解除登入失敗造成的鎖定、為沒有驗證器的帳號發放註冊碼，或在手機遺失時重設驗證器。每個動作都記錄於稽核紀錄；重設會使該帳號登出。",
+        "identity.done.reset_totp": "驗證器已重設，帳號已登出。請將下方註冊碼交給本人。",
+        "identity.code.title": "{user} 的註冊碼",
+        "identity.code.label": "註冊碼（24 小時內有效，僅能使用一次）",
+        "identity.code.once": "此代碼只在此時顯示。請當面交付，或回撥本人分機唸出。",
+        "identity.code.live": "已發放註冊碼",
+        "identity.code.issue": "註冊碼",
+        "identity.unenrolled.title": "{n} 個帳號尚無法登入：未設定驗證器",
+        "identity.unenrolled.help": "每個帳號都需要管理者發放的註冊碼才能設定驗證器。",
+    }
+)

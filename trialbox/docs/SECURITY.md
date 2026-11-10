@@ -71,13 +71,17 @@ HSTS, and Secure session cookies. Authelia, when used, reaches the hospital AD b
   ([Runbook §1](RUNBOOK.md#1-install-a-new-site-about-one-day)).
 - **Identity** (D-192; `services/console/identity.py`, `totp.py`, `oidc.py`; tests `tests/console/test_identity.py`).
   Local accounts sign in with a password and a TOTP code (RFC 6238: SHA-1, 6 digits, 30 s, one step of drift, a code
-  works once). It is the default outside DEV and TEST and cannot be turned off in PRODUCTION (Japan's MHLW guideline
-  v7.0 asks for two factors from FY2027). The TOTP secret is AES-GCM encrypted with a key file on the console volume,
-  not in the database. A wrong or replayed code counts as a failed sign-in, and a right password does not reset the
-  count; the lock is audited (`console.lockout`). An administrator lifts a lock or resets another person's
-  authenticator on `/ops/identity` (audited `console.unlock`, `console.totp_reset`; the account is signed out).
-  Sessions end after 10 minutes idle (`TB_CONSOLE_IDLE_MINUTES`, 1 to 60) or 8 hours (`TB_CONSOLE_SESSION_HOURS`,
-  1 to 12); session cookies are HttpOnly and SameSite=Strict, and Secure by default in PRODUCTION.
+  works once). It is the default and can be off only in DEV and TEST (Japan's MHLW guideline v7.0 asks for two
+  factors from FY2027). A device is registered only with a one-time enrolment code an administrator issues (24 hours;
+  also after a reset), so a password alone never registers one. The TOTP secret is AES-GCM encrypted with a key file
+  on the console volume, not in the database. A wrong or replayed code counts as a failed sign-in, and a right
+  password does not reset the count; the lock is audited (`console.lockout`). An administrator lifts a lock, issues an
+  enrolment code or resets another person's authenticator on `/ops/identity` (audited `console.unlock`,
+  `console.enrol_code`, `console.totp_reset`; a reset signs the account out). Sessions end after 10 minutes idle
+  (`TB_CONSOLE_IDLE_MINUTES`, 1 to 60; a page's own auto-refresh is not activity) or 8 hours
+  (`TB_CONSOLE_SESSION_HOURS`, 1 to 12); session cookies are HttpOnly and SameSite=Strict, and Secure by default in
+  PRODUCTION, where an explicit off is refused. The trusted-header SSO runs only with TOTP and OIDC off (DEV, TEST),
+  never signs in a local account, and Caddy strips identity headers.
   Optional sign-in with the hospital account through Authelia (OIDC code flow with PKCE, off unless
   `TB_OIDC_ENABLED=1`): the ID token's signature (RS256 or ES256 only), issuer, audience, expiry and nonce are
   checked, a second factor must be reported (`amr`), and the role comes only from `TB_OIDC_GROUP_ROLES`; a person in

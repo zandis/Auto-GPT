@@ -496,22 +496,34 @@ bind account, the AD groups to map (below) and LDAPS (636) from the box to a dom
    holds the CA's private keys.
 4. Open `https://<TB_TLS_HOSTNAME>/login` from a clinic PC: no certificate warning.
 
-**Local accounts (TOTP, the default).** `TB_CONSOLE_MFA=totp` is the default outside DEV and TEST and cannot be
-turned off in PRODUCTION. At the first sign-in, after the password, the console shows a key; the person adds it to
-an authenticator app (or a hospital token) and types the code. Every later sign-in asks for the current code; a code
-works once. A wrong or reused code counts as a failed sign-in: five failures in 15 minutes lock the account for 15
-minutes, and the lock is in the audit trail (`console.lockout`).
+**Local accounts (TOTP, the default).** `TB_CONSOLE_MFA=totp` is the default and can be turned off only in DEV and
+TEST. An account sets up its authenticator only with a one-time **enrolment code** from an administrator (valid 24
+hours, works once): after the password the console shows a key, the person adds it to an authenticator app (or a
+hospital device) and types the enrolment code and the app's code. Without a valid enrolment code an account with no
+authenticator cannot sign in at all, so knowing a password is never enough to register a device. Every later sign-in
+asks for the current code; a code works once. A wrong or reused code, or a wrong enrolment code, counts as a failed
+sign-in: five failures in 15 minutes lock the account for 15 minutes, and the lock is in the audit trail
+(`console.lockout`).
 
-- **Lost phone**: an administrator opens **Sign-in and recovery** (`/ops/identity`) and chooses **Reset
-  authenticator** for that person, after checking who is asking (in person, or a call back to the extension in the
-  staff directory). The account is signed out everywhere and sets up a new authenticator at its next sign-in. An
-  administrator's own authenticator is reset by another administrator, or on the box with
-  `python -m console.cli reset-totp NAME` in the console container.
+- **After the upgrade, and for every new account**: **Sign-in and recovery** (`/ops/identity`) lists the accounts
+  without an authenticator at the top. For each, check who it is and choose **Enrolment code**; hand the code over in
+  person or read it out on a call back to the extension in the staff directory. The code is shown once and never
+  written to a log or the audit (`console.enrol_code` records who issued one for whom).
+- **The first administrator** (no other administrator can issue a code): on the box,
+  `python -m console.cli enrol-code admin` in the console container prints the code. This shell step is the
+  supervised path; record it in the install checklist.
+- **Lost phone**: on the same page choose **Reset authenticator** for that person, after the same identity check. The
+  account is signed out everywhere and the page shows the enrolment code for the new device. An administrator's own
+  authenticator is reset by another administrator, or with `console.cli reset-totp NAME` (prints the code).
 - **Locked out**: wait 15 minutes, or an administrator chooses **Unlock** on the same page (`console.cli unlock
-  NAME`). Both actions are audited (`console.totp_reset`, `console.unlock`).
+  NAME`). All actions are audited (`console.totp_reset`, `console.enrol_code`, `console.unlock`;
+  `console.totp_enrolled` says whether it was a first device or one after a reset).
 - **Sessions** end after `TB_CONSOLE_IDLE_MINUTES` without activity (default 10; set the hospital's policy for shared
-  clinic PCs, at most 60) and after `TB_CONSOLE_SESSION_HOURS` in all (default 8). Cookies are Secure, HttpOnly and
-  SameSite=Strict.
+  clinic PCs, at most 60) and after `TB_CONSOLE_SESSION_HOURS` in all (default 8). A page that refreshes itself (a
+  running job) does not count as activity. Cookies are Secure, HttpOnly and SameSite=Strict; an explicit
+  `TB_CONSOLE_SECURE_COOKIE=0` is refused in PRODUCTION.
+- The trusted-header SSO (`TB_CONSOLE_SSO_HEADER`, D-93) runs only with TOTP off (DEV, TEST) and OIDC off, never signs
+  in a local account, and Caddy strips identity headers from every request: a hospital uses the OIDC sign-in below.
 - The TOTP secrets are stored encrypted, with the key `totp.key` on the `console-data` volume, not in the database.
   Back up both; with the database but without the key, every person sets up a new authenticator (an administrator
   resets them all).
@@ -540,5 +552,7 @@ the provider did not report as two-factor. A hospital account never takes over a
 Sign-out also signs out of Authelia. Add the `authelia-data` volume to the backup (the authenticators registered by
 directory users). Authelia's OIDC provider is certified but still called beta by its makers (D-192).
 
-The overlay was written and checked as files only; it has not been started on a box yet (no Docker on the build
-machine). Run the four TLS steps and one sign-in of each kind at IQ.
+The overlay is checked in CI (`.github/workflows/trialbox-identity.yml`: `caddy validate` in both TLS modes,
+`docker compose config` of the merged files, and Caddy run in front of a stand-in console: HSTS on 443, identity
+headers stripped, 80 and 8090 closed, no query strings in its log). The whole stack with Authelia has not been started
+on a box yet. Run the four TLS steps and one sign-in of each kind at IQ.

@@ -23,6 +23,10 @@ services:
       TB_TLS_MODE: "${TB_TLS_MODE:-internal}"
       TB_TLS_HOSTNAME: "${TB_TLS_HOSTNAME:?set TB_TLS_HOSTNAME in deploy/.env (the console's DNS name)}"
       TB_AUTH_HOSTNAME: "${TB_AUTH_HOSTNAME:-auth.invalid}"
+      # the site's own SSO header names too, so Caddy strips them from every request (review H1)
+      TB_CONSOLE_SSO_HEADER: "${TB_CONSOLE_SSO_HEADER:-X-TB-No-Sso-Header}"
+      TB_CONSOLE_SSO_ROLE_HEADER: "${TB_CONSOLE_SSO_ROLE_HEADER:-X-TB-No-Sso-Role}"
+      TB_CONSOLE_SSO_MAILBOX_HEADER: "${TB_CONSOLE_SSO_MAILBOX_HEADER:-X-TB-No-Sso-Mailbox}"
     volumes:
       - ./identity/Caddyfile:/etc/caddy/Caddyfile:ro
       - ${TB_TLS_CERT_FILE:-/dev/null}:/etc/caddy/certs/site.crt:ro
@@ -64,6 +68,7 @@ services:
     ports: !reset []
     environment:
       TB_CONSOLE_SECURE_COOKIE: "1"
+      TB_CONSOLE_SSO_HEADER: ""   # never behind Caddy: the hospital account comes through OIDC (review H1)
       TB_CONSOLE_MFA: "${TB_CONSOLE_MFA:-totp}"
       TB_CONSOLE_IDLE_MINUTES: "${TB_CONSOLE_IDLE_MINUTES:-10}"
       TB_CONSOLE_SESSION_HOURS: "${TB_CONSOLE_SESSION_HOURS:-8}"

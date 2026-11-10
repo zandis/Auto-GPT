@@ -9,7 +9,9 @@ action is also a command, with the same audit).
     disable NAME
     list-users
     unlock NAME                 lift a sign-in lock before it runs out (audited; D-192)
-    reset-totp NAME             clear an account's authenticator (lost phone); it enrols a new one at the next sign-in
+    reset-totp NAME             clear an account's authenticator (lost phone); prints the enrolment code for the new one
+    enrol-code NAME             a one-time enrolment code (24 h) for an account without an authenticator (D-192); the
+                                supervised path for the first administrator after bootstrap-admin
     check-tls                   check TB_TLS_* (the hospital certificate, its key and host name) before Caddy uses it
     ingest                      load the configured source (synthetic site A in the POC) through the adapter
     poc-settings --in FILE --out FILE --admin-email ADDR [--rate-limit N]
@@ -130,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("disable")
     d.add_argument("name")
     sub.add_parser("list-users")
-    for name in ("unlock", "reset-totp"):
+    for name in ("unlock", "reset-totp", "enrol-code"):
         sub.add_parser(name).add_argument("name")
     sub.add_parser("check-tls")
     sub.add_parser("ingest")
@@ -225,9 +227,16 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "reset-totp":
             if store.is_sso(args.name):
                 raise AuthError("this account signs in through the identity provider")
-            store.reset_totp(args.name)
+            code = store.reset_totp(args.name)
             _audit("console.totp_reset", detail={"user": args.name})
-            print(f"console: authenticator of '{args.name}' reset; all sessions ended; it enrols at the next sign-in")
+            print(f"console: authenticator of '{args.name}' reset; all sessions ended")
+            print(f"console: enrolment code (shown once, valid 24 hours): {code}")
+        elif args.cmd == "enrol-code":
+            if store.is_sso(args.name):
+                raise AuthError("this account signs in through the identity provider")
+            code = store.issue_enrol_code(args.name)
+            _audit("console.enrol_code", detail={"user": args.name})
+            print(f"console: enrolment code for '{args.name}' (shown once, valid 24 hours): {code}")
     except AuthError as exc:
         print(f"console: {exc}", file=sys.stderr)
         return 2

@@ -3755,7 +3755,8 @@ no Docker.
   (S-09, D-143), the trusted-header SSO (D-93).
 
 *Evidence.* `tests/console/test_identity.py` (35 tests: the RFC 6238 vectors; window, replay and input cleaning; the
-sealed secret; the defaults and bounds; enrolment with no session before the code; a half-done sign-in expiring after ten minutes; wrong and replayed codes; lock-out
+sealed secret; the defaults and bounds; enrolment with no session before the code; a half-done sign-in expiring
+after ten minutes; wrong and replayed codes; lock-out
 by codes with the password not resetting the count; password lock-out and the audited unlock; the audited reset and
 who may do it; one-step sign-in in TEST; idle and absolute expiry; Secure, HttpOnly and Strict cookies in PRODUCTION;
 OIDC off by default; OIDC settings refused when unsafe; a mapped group's sign-in, the token request with PKCE, the
@@ -3765,11 +3766,27 @@ the browser and expiring; no take-over of a local account; forged, `none`, HS256
 deploy files). `tests/console/test_console_app.py`: the PRODUCTION control-plane test signs in with the TOTP step
 over https.
 
+*After the independent review (2026-11-10, four High findings).* (H1) The trusted-header SSO (D-93) is refused at
+start unless TOTP and OIDC are both off (so only in DEV and TEST), a header never signs in a local or OIDC account,
+and Caddy strips the common identity headers and the site's configured ones from every request. (H2) A password no
+longer registers a device: an account without an authenticator (every account after the upgrade, and after a reset)
+needs a one-time enrolment code an administrator issues on `/ops/identity` or with `console.cli enrol-code|reset-totp`
+(24 hours, once, only its hash stored, never in the audit); without one it cannot sign in; the page lists the
+accounts without an authenticator first; `console.totp_enrolled` says `first` or `reset`. The first administrator's
+code comes from the shell on the box (the supervised path in RUNBOOK §12). (H3) A page's own 5-second refresh asks
+with `auto=1` and does not move the idle clock. (H4) CI job `trialbox-identity` runs `caddy validate` in both modes,
+`docker compose config` of the merged files (pytest asserts that only Caddy publishes, only 443) and Caddy in front of
+a stand-in console (HSTS, headers stripped, 80 and 8090 closed, no query strings in the log). Also: an explicit
+`TB_CONSOLE_SECURE_COOKIE=0` is refused in PRODUCTION and the base compose file leaves it unset; TOTP off only in DEV
+and TEST; `TB_OIDC_LOGOUT_URL` required with OIDC; the Authelia cookie scoped to its own host; HTTP errors from the
+provider caught; the OIDC state checked against the browser before it is used up; half-done sign-ins cleared on a
+password change and on disable.
+
 *Open.* WebAuthn in the console (Authelia offers it for directory users), step-up re-authentication before a reveal,
 an export or a signature, the breached-password list, password history and the forced first change, `doctor`
-failing without MFA, removing the trusted-header SSO (a forged header from a listed proxy can still sign in as a local
-account without TOTP), the `steward` role (the role table stays as it is here). The overlay has not been started on a
-box (no Docker on the build machine); the Caddyfile was not run through `caddy validate`.
+failing without MFA (and `doctor` still reads an unset `TB_CONSOLE_SECURE_COOKIE` as off), removing the trusted-header
+SSO altogether, the `steward` role (the role table stays as it is here). The full stack with Authelia has not been
+started on a box (no Docker daemon on the build machine).
 
 **D-193 TLS on the console through Caddy: its internal CA by default, the hospital's certificate by a setting.**
 Component review layer 1 row 36 and layer 2 item 1; IT security pack §A.3 (only 443 from the clinic PCs) and §B "In
