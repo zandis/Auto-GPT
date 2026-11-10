@@ -3725,7 +3725,7 @@ the licence read, the shared store).
    `fetch` reads the dataset API, keeps its answer (`licence_check`) in `fetch.json` as evidence, and stops when
    the `license` field is not 1 (OGDL 1.0) or the API does not answer (`--no-licence-check` skips the read and
    records that in `fetch.json`). The reader and the expected licence belong to the item (`Item.read_meta`,
-   `Item.licence_id`), so a `meta_url` without a reader is refused and another portal brings its own reader; the
+   `Item.licence_id`; since the merge with D-173, the item's `licence_reader`), so a `meta_url` without a reader is refused and another portal brings its own reader; the
    record must also list the URL fetched (D-172, second-review note, item 1).
 4. *Store.* Schema `refdata` version 2 (`DDL_V2`): `source` gains `version` and `download_sha256`; new tables
    `concept_map` (indexed both ways) and `synonym` (indexed on the matcher's normal form, NFKC and lower case).
@@ -3830,7 +3830,8 @@ replaces only its own sources); withdrawing a source needs a manual delete for n
 *Second independent review (2026-11-10), further fixes* (beyond the revisions noted in D-170 and D-171 above):
 
 1. *Licence evidence binds the file and belongs to the item* (M4, L5): each item with a dataset record names its
-   reader and licence (`Item.read_meta`, `Item.licence_id`; `refdata_tw.datagov_meta` for data.gov.tw), so the
+   reader and licence (first as `Item.read_meta` and `Item.licence_id`; merged with D-173's reader into one
+   mechanism, `Item.licence_reader`, see D-173 item 2; `refdata_tw.datagov_meta` reads data.gov.tw), so the
    generic fetch knows no portal and a Japan module brings its own. The fetch also stops when the record does not
    list the URL fetched: 15460 lists the opendata.naer.edu.tw CSV the NAER item downloads, 23715 and 177508 the
    info.nhi.gov.tw files (checked 2026-11-10). `fetch.json` keeps every item's check (`licence_checks`, the derived
@@ -3845,6 +3846,132 @@ replaces only its own sources); withdrawing a source needs a manual delete for n
    (dictionary-method answers are reviewed, so `_by_name` still ignores them).
 4. *NHI drug -> ATC* (L3): the ATC code of the newest validity period that states one, when the newest left it
    empty.
+**D-173 Japan diagnoses: the WHO ICD-10 <-> ICD-10-CM bridge, the MEDIS 病名 loader, and the licence reader on each
+item.** WS-08.8, builds on D-170; 2026-11-10. Licences read at the source on the same day.
+
+1. *Japan module.* `tb_common/refdata_jp.py` holds the Japan items, parsers and constants and is added to the one
+   registry (`SOURCES = (..., *tw.ITEMS, *jp.ITEMS)`), as D-170 set out. Every item records its source, licence,
+   terms, attribution, version and sha256; the shipped ones are on `/admin/notice` and in `NOTICE.md`, and so is a
+   site-fetch item once the hospital loads it. Only `tools/refdata_fetch.py fetch` touches the network.
+2. *Licence reader on `Item`* (D-170 review M4). `Item.licence_reader` reads the item's licence at the source when
+   the vendor fetches it and returns `LicenceRead` (where, what was read, what was expected, ok, and a version
+   when the same answer gives one). `fetch` keeps it in `fetch.json` (`licence_check`, or `licence_checks` for a
+   derived item) and stops when the source does not answer or the licence no longer reads as expected;
+   `--no-licence-check` skips the read and records that. The data.gov.tw reader moved to
+   `refdata_tw.datagov_tw_licence` (set on the three data.gov.tw items); `refdata.page_licence_reader(url, words)`
+   reads a licence stated on a page (used for NCI, D-174). `fetch()` no longer knows any one site.
+   *One mechanism for Taiwan and Japan* (merge with the second review of D-170, M3, M4, L5): the D-170 review's
+   `read_meta` / `licence_id` pair became this reader. It fails closed: no answer, another licence, or a dataset
+   URL without a reader stops the fetch. `LicenceRead.downloads` carries the download URLs the licensed record lists
+   (data.gov.tw: the dataset's `distribution`), and fetch stops when a URL fetched is not among them; a record that
+   lists none (a licence page such as NCI's) binds nothing, so the file must then be pinned by `Item.sha256` (CTCAE
+   is), else the fetch stops. `fetch.json` keeps every item's check (`licence_checks`, derived items too), and a
+   vendor build refuses an item with a reader whose `fetch.json` holds neither a passed check nor a recorded
+   `--no-licence-check` skip.
+3. *WHO ICD-10 <-> ICD-10-CM bridge* (`icd10_who_cm_bridge`, kind map, ship; TrialBox's own work). No official map
+   exists. Built from the ICD-10-CM code list (`derived_from` the `icd10cm` download, U.S. public domain): one row
+   per ICD-10-CM category, WHO category -> the ICD-10-CM category of the same three characters. **The relation is
+   `inexact` (a candidate that never decides) unless the category was checked**; a checked category is `wider`
+   (the ICD-10-CM category holds all of the WHO category's meaning). ICD-10-CM narrowed or moved parts of many
+   categories, so the default cannot be `wider`: WHO A09 holds diarrhoea of unspecified origin (A09.9) but CM A09 is
+   infectious only (unspecified goes to K52.9), so a WHO A09.9 record would have answered "yes" against a CM A09
+   exclusion (review finding of PR #76); likewise WHO M10 holds chronic gout (CM M1A), WHO C categories hold
+   carcinoid tumours (CM C7A, C7B, D3A), WHO E13 holds what CM puts under E08 and E09.
+   *Audit method* (`refdata_src/icd10_who_cm_checked.csv`, one line per category with its reason): a category is
+   listed only when (a) ICD-10-CM's tabular list for it was read and nothing WHO puts in the category is sent
+   elsewhere by a CM "Excludes1" or by a CM category created by splitting it, and (b) it is not in a chapter or
+   block CM restructured (all C and D neoplasm categories, O, U, V to Y, Z) and not a category with a known
+   difference (A09, E13, M10). Where CM is wider by design (CM J45 also holds status asthmaticus, WHO J46; CM G40
+   holds status epilepticus, WHO G41; CM B20 holds all HIV disease, WHO B20 to B24) the WHO category is inside the
+   CM one and is listed. 36 categories are checked today (diabetes types 1 and 2, hypertension, ischaemic heart
+   disease, heart failure, atrial fibrillation, stroke, COPD, asthma, CKD, nephrotic syndrome, RA, SLE, ankylosing
+   spondylitis, psoriasis, IBD, cirrhosis, chronic viral hepatitis, HIV, thyroid, lipids, obesity, MS, epilepsy,
+   Parkinson's, Alzheimer's, schizophrenia, bipolar and depressive disorders); a test refuses the known
+   differences. A category is added only by the same method, with its reason. FY2027: 1,919 rows (36 wider, 1,883
+   inexact). A WHO category ICD-10-CM does not have (E14, B21) has no row. Code strings only, no WHO text (WHO's
+   ICD-10 text needs a WHO licence). `who_icd10_in_list` reads a WHO code by its category against an ICD-10-CM
+   list: `yes` only for a checked category inside the list's prefix family, otherwise `unknown`; the bridge never
+   gives `no` (no row is equivalent or narrower), so a WHO-only code never excludes. Not wired into ingest yet (the
+   SS-MIX2 reader keeps D-137's rule).
+4. *MEDIS 標準病名マスター -> ICD-10* (`medis_byomei_icd10`, kind map, **site-fetch, nothing shipped**). MEDIS-DC's
+   terms page: anyone may download and use the master, but use outside a medical institution or for distribution
+   needs MEDIS-DC's permission (使用許諾申請書); 病名 and HOT are on that list; a modified copy must name MEDIS.
+   TrialBox is a vendor, so the item has a loader only: the hospital downloads its release and runs
+   `tools/refdata_fetch.py site-load medis_byomei_icd10 --file ... [--columns ...] [--version Ver.x]`. A release
+   without a header row takes `--columns` (kept beside the file as `columns.txt`, the file unchanged). Rows:
+   病名交換用コード -> the WHO ICD-10 code the master gives, relation `wider`; a row without an ICD-10-shaped code
+   gives none. The D-137 terminology loader stays for the SS-MIX2 reader and the JP Core check.
+
+5. *A vendor build never packs a site-fetch item* (review finding of PR #76). `site-load` leaves the hospital's file
+   and its `fetch.json` under `<out>/raw`; `build` now builds `ship` items only, leaves site-fetch items out of its
+   default list and refuses one named in `--ids` (MEDIS, JLAC10, JCOG, UMIN-CTR). Only `site_load` builds a
+   site-fetch item, into the hospital's own part (`site=True`). An item with a dataset API URL but no licence
+   reader is refused at fetch (the D-170 guard, kept after the move).
+
+*Evidence.* `tests/unit/test_refdata_jp.py` (bridge relations, the checked list and the known differences, MEDIS
+headerless Shift_JIS file, site-load beside the vendor's pack, a vendor build over a raw directory holding the
+hospital's MEDIS and UMIN files, the licence reader), `tests/unit/test_refdata_tw.py` (the data.gov.tw reader
+through the item), `e2e_simple` stage 14.
+
+**D-174 Japan drugs, labs and adverse events: YJ -> ATC, the JLAC10 -> LOINC loader, CTCAE v5.0 in English and the
+JCOG Japanese loader.** WS-08.8; 2026-11-10.
+
+1. *YJ code -> ATC* (`jp_yj_atc`, kind map, ship; TrialBox's own table). No free public YJ -> ATC table exists (KEGG
+   is paid; CAPS publishes YJ codes without ATC). `refdata_src/jp_yj_atc.csv`: 56 seven-character YJ stems (薬効分類
+   4 + ingredient and route 3: every YJ and 薬価基準 code of that ingredient and route starts with it), each read
+   from MHLW's 薬価基準収載品目リスト of 2026-11 (PDL 1.0, credited as the licence asks) and checked to hold one
+   ingredient, -> its ATC code (diabetes, anticoagulants and antiplatelets, statins, gout, RA and immunosuppressants,
+   platinum, taxanes, antibodies, common analgesics). Where the route or use changes the ATC code the stems are
+   apart (methotrexate 3999016 RA L04AX03 and 4222001 oncology L01BA01; aspirin 3399007 B01AC06 and 1143001
+   N02BA01). Relation `wider`. ATC codes are identifiers only: the WHOCC site forbids commercial copying of the
+   index, and no WHOCC text is shipped (as D-140). Site set-up suggests the ATC code of a YJ code by its stem
+   (`refdata`, 0.90) when the code has the YJ shape (seven digits, then the 剤形 letter: an all-digit hospital code
+   is not read as YJ). A stem not in the table gives nothing (unknown).
+2. *JLAC10 -> LOINC* (`jlac10_loinc`, kind map, **site-fetch, nothing shipped**). No public map was found (MHLW,
+   JSLM, JLAC Center); JSLM's code page states no redistribution terms we could read, and the repository's JP-Core
+   sample rows stay marked `verify`. So TrialBox ships no JLAC10 -> LOINC rows; the hospital loads its own map file
+   (CSV, TSV or XLSX with a JLAC10 column, hyphenated or not, or its five part columns, and a LOINC column) with
+   `site-load`; rows without a JLAC10- or LOINC-shaped code are left out and their count is logged. The file's
+   own R4 equivalence is kept when it has one, else `relatedto`. Site set-up suggests the LOINC code when a JLAC10
+   code has one target (0.90); several, none.
+3. *CTCAE v5.0, English* (`ctcae_v5_en`, kind term, ship). NCI's workbook
+   (`dctd.cancer.gov/.../ctcae-v5.0.xlsx`), pinned to sha256 `2036d4933ee2b768a8d9955ea939439b8a4b9dd432053b244d7529f9826ea047`.
+   Licence: cancer.gov says NCI text is free of copyright and may be reused, crediting NCI (read by the item's
+   licence reader at each fetch); JCOG's page also calls CTCAE v5.0 a public-domain document. 837 terms: system
+   `urn:trialbox:ctcae:5.0`, code and display the English term, `extra` the SOC, the five grade texts ("-" becomes
+   empty), the definition and the navigational note. The MedDRA code column is **not** shipped (MedDRA is
+   licensed by subscription for industry). Grading stays with a person (D-129). Not wired into the AE form yet.
+4. *CTCAE v5.0 日本語訳JCOG版* (`ctcae_v5_ja_jcog`, kind synonym, **site-fetch, nothing shipped**). JCOG's page: JCOG
+   holds the translation's copyright; non-commercial trials may download and use it without permission, citing
+   it; commercial use needs a contract. TrialBox therefore ships only the loader: the hospital downloads the
+   body-only workbook (2025-09-01 edition, MedDRA/J v28.1) and loads it; rows are the Japanese term -> the English
+   term (domain `adverse_event`, system CTCAE, code the English term) with the Japanese SOC, grades and definition.
+   Checked today: all 837 English terms and MedDRA codes of the JCOG edition match NCI's v5.0 workbook, so every
+   Japanese row joins an English term. A zh-TW translation stays ours to write (baseline review).
+
+**D-175 Japanese clinical synonyms for the name matcher.** WS-08.8; 2026-11-10.
+
+1. *One synonym item* (`ja_synonyms`, kind synonym, ship): TrialBox's own list `refdata_src/ja_clinical_synonyms.csv`,
+   70 rows, same columns and rules as the zh-TW list (D-172; the reader is now one shared function,
+   `refdata.curated_synonyms`): Japanese disease, drug, test, procedure and report names (関節リウマチ, 2型糖尿病,
+   脳卒中, メトトレキサート, HbA1c as ヘモグロビンA1c, HBs抗原, 胸部X線) and note abbreviations (INH, MEN2, EGFR-TKI) ->
+   the name the matcher knows, per domain (血清尿酸値 and 尿酸値 both -> serum urate). Every canonical name
+   resolves in its domain and every trusted term maps to the same codes as its canonical name (tests). Ambiguous short forms (RA, AMI, MTX, PSL, GPT) carry
+   `review = yes`: method `dictionary`, always reviewed. Strings that are the same in zh-TW and ja (妊娠, 非小細胞肺癌)
+   are not repeated.
+2. *Public ja dictionaries not added.* Hyakuyaku and MANBYO (NAIST, CC BY 4.0) map surface forms to Japanese
+   generic or 標準病名 names, which the matcher does not know, and MANBYO's ICD-10 and 標準病名 columns derive from
+   the MEDIS master (D-173: not shippable). JMED-DICT mini's code links need NAIST's answer. Left for later.
+
+*Licence summary for D-173 to D-175.* Shipped: the bridge, YJ -> ATC and the ja synonyms (own work; ICD-10-CM U.S.
+public domain; YJ stems from MHLW lists under PDL 1.0; ATC codes as identifiers), CTCAE v5.0 English (NCI, free of
+copyright; no MedDRA codes). Not shipped, loader only: MEDIS 病名 (distribution needs MEDIS-DC's permission),
+JLAC10 -> LOINC (no public map; JSLM terms unknown), the JCOG translation (commercial use needs a contract).
+
+*Not done.* The bridge and the MEDIS map are not read at ingest (the SS-MIX2 reader and the lake keep D-137 and
+D-130); the CTCAE terms are not in the AE form; the MEDIS and JCOG permissions are not requested here (the owner's
+step, baseline review §1 actions 1 and 6); MHLW 一般名処方マスタ and the 薬効分類 -> drug-class table are open.
+
 **D-178 Operations screens for hospital IT; every destructive action asks first and can be undone where it can.**
 Review J-09 asked for the box's operations on the console, not only on the command line; J-14 asked for a
 confirmation on each destructive action and an undo where one is possible. The administrator's `/admin/ops` page shows

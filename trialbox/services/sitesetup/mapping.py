@@ -201,7 +201,8 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
     licensed MEDIS / JLAC10 / YJ release, its standard code or the name it gives; ``lookup``: the shipped table for
     this code; ``same``: the code already is a standard code; ``term``: a known diagnosis name; ``title``: an ICD-10
     title; ``name``: found by its name; ``refdata``: a map of the reference data pack, D-170 / D-171: NHI drug ->
-    ATC, NHI lab -> LOINC, and at Taiwan sites a 2014 ICD-10-CM code -> its 2023 code) with its ``confidence``
+    ATC, NHI lab -> LOINC, and at Taiwan sites a 2014 ICD-10-CM code -> its 2023 code; D-174: a YJ code -> ATC by
+    its stem, a JLAC10 code -> LOINC from the hospital's own map) with its ``confidence``
     (0..1), or ``{}`` when TrialBox is not sure."""
     kind = system.rsplit(":", 1)[-1]
     up = code.strip().upper()
@@ -238,6 +239,9 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
         nhi = _nhi_lab(up)
         if nhi:
             return nhi
+        jlac = _jlac10_loinc(up)
+        if jlac:
+            return jlac
     if kind == "drug-code":
         if up in lk["drug"]:
             atc, name = lk["drug"][up]
@@ -247,6 +251,9 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
         nhi = _nhi_drug(up)
         if nhi:
             return nhi
+        yj = _yj_atc(up)
+        if yj:
+            return yj
     return _by_name(domain, display or code)
 
 
@@ -312,6 +319,33 @@ def _tw_2014(code: str) -> dict[str, str] | None:
         return {"system": ICD10CM, "code": targets[0], "display": rows[0]["target_display"], "method": "refdata",
                 "confidence": "0.90"}  # fmt: skip
     return {}
+
+
+# ------------------------------------------------------------- the Japan maps of the reference data (D-174)
+def _yj_atc(code: str) -> dict[str, str]:
+    """A YJ (or 薬価基準) code -> the ATC code of its 7-character stem in TrialBox's YJ -> ATC table (``refdata``,
+    0.90: the class is wider than the product)."""
+    from tb_common import refdata_jp as jp
+
+    rows = jp.yj_atc_targets(code)
+    atc = {t["target_code"] for t in rows if _ATC.match(t["target_code"])}
+    if len(atc) != 1:
+        return {}
+    name = next((str(t.get("extra", {}).get("name_en") or "") for t in rows), "")
+    return {"system": ATC, "code": atc.pop(), "display": name, "method": "refdata", "confidence": "0.90"}
+
+
+def _jlac10_loinc(code: str) -> dict[str, str]:
+    """A JLAC10 code -> LOINC from the hospital's own map (site-loaded, D-174): one target is a suggestion (0.90;
+    the hospital's file, a person confirms); several, none."""
+    from tb_common import refdata_jp as jp
+
+    rows = jp.jlac10_loinc_targets(code)
+    loinc = sorted({t["target_code"] for t in rows if _LOINC.match(t["target_code"])})
+    if len(loinc) != 1:
+        return {}
+    disp = next((t["source_display"] for t in rows), "")
+    return {"system": LOINC, "code": loinc[0], "display": disp, "method": "refdata", "confidence": "0.90"}
 
 
 def valid_target(domain: str, system: str, code: str) -> bool:
