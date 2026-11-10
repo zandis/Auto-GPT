@@ -159,7 +159,8 @@ def test_the_stub_profile_run_measures_and_extrapolates(synth: Path) -> None:
     assert m["by_lang"] == {"ja": 20, "zh-TW": 20} and m["batch"]["patients"] == 40 - bp.SEQUENTIAL
     assert m["tokens_in"]["mean"] > m["tokens_out"]["mean"] > 0
     eff = m["batch"]["seconds_per_patient"]
-    assert abs(x["nightly_all"]["gpu_hours"] - 50000 * eff / 3600) < 0.01
+    # seconds_per_patient is rounded to 0.001 s and gpu_hours to 0.01 h: together up to 0.012 h apart
+    assert abs(x["nightly_all"]["gpu_hours"] - 50000 * eff / 3600) < 0.02
     assert x["nightly_note_stage"]["patients"] == round(50000 * bp.S3_SHARE)
     assert 0 < x["nightly_study_archetypes"]["share"] < 1
     assert set(bp.summary(res)) == {"path", "gateway_refused", "measured", "extrapolation", "errors"}
