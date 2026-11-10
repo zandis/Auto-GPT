@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -66,8 +68,29 @@ def test_nothing_from_medis_jlac_or_jcog_is_committed_as_data() -> None:
     """The repository holds no MEDIS 病名, JLAC10 or JCOG translation file: only the loaders and synthetic tests."""
     src = ROOT / "libs" / "tb_common" / "refdata_src"
     assert sorted(p.name for p in src.iterdir()) == sorted(
-        ["zh_tw_clinical_synonyms.csv", "jp_yj_atc.csv", "icd10_who_cm_exceptions.csv", "ja_clinical_synonyms.csv"]
+        ["zh_tw_clinical_synonyms.csv", "jp_yj_atc.csv", "icd10_who_cm_checked.csv", "ja_clinical_synonyms.csv"]
     )
+
+
+def test_a_vendor_build_never_packs_the_hospitals_own_download(tmp_path: Path) -> None:
+    """site-load leaves the hospital's MEDIS file and fetch.json under <out>/raw; a later vendor build over the same
+    raw directory must leave it out, and naming it is refused (review High of PR #76)."""
+    f = _write(tmp_path / "dl" / "byomei.csv", [["病名交換用コード", "病名表記", "ICD10-2013"], ["ZZ01", "x", "E11.9"]])
+    rf.site_load("medis_byomei_icd10", f, tmp_path / "cache", load=False)
+    rf.site_load("umin_ctr", SAMPLES / "umin_sample.csv", tmp_path / "cache", load=False)
+    raw = tmp_path / "cache" / "raw"
+    assert (raw / "medis_byomei_icd10" / "fetch.json").is_file() and (raw / "umin_ctr" / "fetch.json").is_file()
+    shutil.copytree(rf.sample_raw(tmp_path / "s" / "raw"), raw, dirs_exist_ok=True)
+    tar = rf.build(raw, tmp_path / "vendor", "20261110", sample=True)
+    with rd.opened(tar) as pack:
+        ids = {s["id"] for s in rd.verify(pack)["sources"]}
+        assert not any(p.name.startswith(("medis", "umin")) for p in pack.iterdir())
+    assert "medis_byomei_icd10" not in ids and "umin_ctr" not in ids and "jp_yj_atc" in ids
+    for sid in ("medis_byomei_icd10", "umin_ctr"):
+        with pytest.raises(SystemExit, match="never packs a site-fetch"):
+            rf.build(raw, tmp_path / "v2", "20261110", ids=[sid], sample=True)
+    with pytest.raises(SystemExit, match="site-fetch items only"):
+        rf.build(raw, tmp_path / "v3", "20261110", ids=["jp_yj_atc"], site=True)
 
 
 # ------------------------------------------------------------------------------------------------ the licence reader
@@ -104,6 +127,9 @@ def test_the_licence_reader_lives_on_the_item_and_fetch_keeps_its_evidence(monke
     # an item without a reader (our own tables) reads nothing; the Taiwan items read data.gov.tw through theirs
     assert rf.read_licence(rf.BY_ID["jp_yj_atc"]) is None
     assert rf.BY_ID["naer_medical_terms"].licence_reader is tw.datagov_tw_licence
+    naer = rf.BY_ID["naer_medical_terms"]  # a dataset API URL without a reader is refused, never skipped
+    with pytest.raises(SystemExit, match="no licence reader"):
+        rf.read_licence(rd.Item(**{**naer.__dict__, "licence_reader": None}))
 
 
 def test_the_page_reader_needs_every_marker(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -147,7 +173,7 @@ def test_the_pack_records_version_and_sha256_for_each_japan_item(sample_tar: Pat
 
 
 # ------------------------------------------------------------------------------------------------ D-173 bridge
-def test_the_bridge_maps_categories_and_marks_differing_scope_inexact(tmp_path: Path) -> None:
+def test_the_bridge_says_wider_only_for_checked_categories(tmp_path: Path) -> None:
     import zipfile
 
     z = tmp_path / "icd10cm-code-descriptions-2027.zip"
@@ -155,14 +181,33 @@ def test_the_bridge_maps_categories_and_marks_differing_scope_inexact(tmp_path: 
         zf.writestr("x/icd10cm-codes-2027.txt",
                     "E119    Type 2 diabetes mellitus without complications\nE1165   T2DM with hyperglycemia\n"
                     "E139    Other specified diabetes mellitus without complications\nO24410  GDM\n"
-                    "Z87891  Personal history of nicotine dependence\nI10     Essential hypertension\n")  # fmt: skip
+                    "Z87891  Personal history of nicotine dependence\nI10     Essential hypertension\n"
+                    "A099    Infectious gastroenteritis and colitis, unspecified\nM1000   Idiopathic gout\n"
+                    "C7A010  Malignant carcinoid tumor of the duodenum\nC170    Malignant neoplasm of duodenum\n")  # fmt: skip
     rows = {r["source_code"]: r for r in jp.parse_icd10_who_cm_bridge(z)}
-    assert sorted(rows) == ["E11", "E13", "I10", "O24", "Z87"]
-    assert rows["E11"]["relation"] == "wider" and rows["E11"]["target_code"] == "E11"
+    assert sorted(rows) == ["A09", "C17", "C7A", "E11", "E13", "I10", "M10", "O24", "Z87"]
+    assert (
+        rows["E11"]["relation"] == "wider" and rows["E11"]["target_code"] == "E11" and rows["E11"]["extra"]["checked"]
+    )
     assert rows["E11"]["source_system"] == jp.ICD10_WHO and rows["E11"]["target_system"] == jp.ICD10CM
-    assert {rows[c]["relation"] for c in ("E13", "O24", "Z87")} == {"inexact"}  # the exception list
+    assert {c for c, r in rows.items() if r["relation"] == "wider"} == {"E11", "I10"}
+    # scope differs: WHO A09 holds unspecified diarrhoea (CM: K52.9); WHO M10 holds chronic gout (CM: M1A); WHO C17
+    # holds carcinoid of the small intestine (CM: C7A); WHO E13 holds what CM puts under E08 / E09
+    for c in ("A09", "M10", "C17", "E13", "O24", "Z87"):
+        assert rows[c]["relation"] == "inexact", c
     assert all(r["source_display"] == "" and r["target_display"] == "" for r in rows.values())  # code strings only
-    assert jp.bridge_version(z).startswith("ICD-10-CM FY2027 categories; TrialBox exceptions sha256 ")
+    assert jp.bridge_version(z).startswith("ICD-10-CM FY2027 categories; TrialBox checked list sha256 ")
+
+
+def test_the_checked_list_holds_no_category_known_to_differ(tmp_path: Path) -> None:
+    checked = jp.bridge_checked()
+    assert len(checked) == 36 and all(note for note in checked.values())
+    assert not {"A09", "M10", "E13", "E14", "J46", "G41"} & set(checked)
+    assert not any(c[0] in "CDOUVWXYZ" for c in checked)  # neoplasms (C7A, D3A) and restructured chapters
+    bad = tmp_path / "checked.csv"
+    bad.write_text("category,note\nE11.9,x\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="3-character"):
+        jp.bridge_checked(bad)
 
 
 def test_a_who_code_is_in_its_family_or_unknown_never_no(loaded: str) -> None:
@@ -173,6 +218,8 @@ def test_a_who_code_is_in_its_family_or_unknown_never_no(loaded: str) -> None:
     assert jp.who_icd10_in_list("I10", {(jp.ICD10CM, "M10.9")}, [(jp.ICD10CM, "M10")], loaded) == "unknown"
     assert jp.who_icd10_in_list("E14.9", set(), [(jp.ICD10CM, "E1")], loaded) == "unknown"  # WHO-only category
     assert jp.who_icd10_targets("not a code", loaded) == []
+    # a category not checked (M10: WHO M10 also holds chronic gout, CM M1A): inexact, never yes, never no
+    assert jp.who_icd10_in_list("M10.9", set(), [(jp.ICD10CM, "M10")], loaded) == "unknown"
 
 
 # ------------------------------------------------------------------------------------------------ D-173 MEDIS
@@ -229,10 +276,14 @@ def test_site_setup_suggests_atc_for_a_yj_code(loaded: str) -> None:
     assert got == {"system": sm.ATC, "code": "B01AF02", "display": "apixaban", "method": "refdata",
                    "confidence": "0.90"}  # fmt: skip
     assert sm.suggest("medication", sm.local_system("drug-code"), "9999999F1020") == {}  # stem not in the table
+    assert jp.yj_atc_targets("333900412345") == []  # all digits: a hospital's own code, not a YJ code
+    assert sm.suggest("medication", sm.local_system("drug-code"), "333900412345").get("method") != "refdata"
 
 
 # ------------------------------------------------------------------------------------------------ D-174 JLAC10
-def test_jlac10_loader_reads_codes_or_parts_and_keeps_only_valid_rows(tmp_path: Path) -> None:
+def test_jlac10_loader_reads_codes_or_parts_and_keeps_only_valid_rows(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     f = _write(tmp_path / "a.csv", [["JLAC10", "LOINC", "項目名"], ["3C015000002327101", "2160-0", "クレアチニン"],
                                     ["3C0150000023271", "2160-0", "15 characters"], ["bad", "2160-0", ""],
                                     ["3C015000002327101", "not-loinc", ""]])  # fmt: skip
@@ -244,6 +295,10 @@ def test_jlac10_loader_reads_codes_or_parts_and_keeps_only_valid_rows(tmp_path: 
                                                                   "equivalent"]])  # fmt: skip
     assert [(r["source_code"], r["relation"]) for r in jp.parse_jlac10_loinc(g)] == [
         ("3C015000002327101", "equivalent")]  # fmt: skip
+    k = _write(tmp_path / "d.csv", [["JLAC10", "LOINC"], ["3C015-0000-023-271-01", "2160-0"], ["x", "y"], ["z", "1-1"]])
+    with caplog.at_level(logging.WARNING, logger="tb_common.refdata_jp"):
+        assert [r["source_code"] for r in jp.parse_jlac10_loinc(k)] == ["3C015000002327101"]  # hyphens as printed
+    assert "2 rows left out" in caplog.text
     h = _write(tmp_path / "c.csv", [["JLAC10", "LOINC", "relation"], ["3C015000002327101", "2160-0", "same"]])
     with pytest.raises(ValueError, match="R4 equivalence"):
         list(jp.parse_jlac10_loinc(h))

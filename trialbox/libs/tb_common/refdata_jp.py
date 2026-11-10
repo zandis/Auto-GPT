@@ -24,7 +24,7 @@ Licences read at the source on 2026-11-10:
 * **CTCAE v5.0 日本語訳 JCOG版** (https://jcog.jp/doctor/tool/ctcaev5/): free for non-commercial trials; commercial
   use needs a contract; JCOG holds the translation's copyright. Not shipped: site-fetch loader.
 * **WHO ICD-10 <-> ICD-10-CM bridge**: TrialBox's own work from code strings only (the ICD-10-CM categories, US public
-  domain, and our list of categories whose scope differs); no WHO text.
+  domain, and our list of categories checked to have the same scope); no WHO text.
 * **Japanese clinical synonyms**: TrialBox's own list.
 """
 
@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import re
 import unicodedata
 from collections.abc import Iterable, Iterator
@@ -51,6 +52,8 @@ from tb_common.refdata import (
     sha256_file,
 )
 
+log = logging.getLogger(__name__)
+
 ICD10_WHO = "http://hl7.org/fhir/sid/icd-10"
 ICD10CM = "http://hl7.org/fhir/sid/icd-10-cm"
 MEDIS_BYOMEI = "urn:oid:1.2.392.200119.4.101.6"  # as adapter.licensed (D-137)
@@ -62,11 +65,11 @@ CTCAE5 = "urn:trialbox:ctcae:5.0"  # code = the CTCAE v5.0 English term (MedDRA 
 
 SRC = Path(__file__).resolve().parent / "refdata_src"
 REPO_YJ_ATC = SRC / "jp_yj_atc.csv"
-REPO_BRIDGE_EXCEPTIONS = SRC / "icd10_who_cm_exceptions.csv"
+REPO_BRIDGE_CHECKED = SRC / "icd10_who_cm_checked.csv"
 REPO_SYNONYMS = SRC / "ja_clinical_synonyms.csv"
 
 _ATC5 = re.compile(r"^[A-Z]\d{2}[A-Z]{2}\d{2}$")
-_YJ = re.compile(r"^\d{7}[A-Z0-9][0-9A-Z]{4}$")  # 12 characters: the first 7 are digits
+_YJ = re.compile(r"^\d{7}[A-Z][0-9A-Z]{4}$")  # 12 characters: 7 digits, the 剤形 letter, 4 more
 _JLAC10 = re.compile(r"^[0-9A-Z]{15}([0-9A-Z]{2})?$")
 _LOINC = re.compile(r"^\d{1,6}-\d$")
 _CATEGORY = re.compile(r"^[A-Z]\d[0-9A-Z]$")
@@ -186,34 +189,38 @@ def icd10cm_categories(path: Path) -> list[str]:
     return sorted(cats)
 
 
-def bridge_exceptions(path: Path = REPO_BRIDGE_EXCEPTIONS) -> dict[str, tuple[str, str]]:
-    """TrialBox's list of categories (or chapter letters) whose scope differs between WHO ICD-10 and ICD-10-CM:
-    ``prefix -> (relation, note)``."""
-    out: dict[str, tuple[str, str]] = {}
-    for r in require_columns(csv_rows(path.read_bytes()), ("prefix", "relation", "note"), "the bridge exceptions"):
-        if r["relation"] not in RELATIONS:
-            raise ValueError(f"bridge exception {r['prefix']}: relation {r['relation']!r}")
-        out[r["prefix"].upper()] = (r["relation"], r["note"])
+def bridge_checked(path: Path | None = None) -> dict[str, str]:
+    """TrialBox's list of WHO categories checked to sit wholly inside the ICD-10-CM category of the same code:
+    ``category -> note``."""
+    out: dict[str, str] = {}
+    rows = csv_rows((path or REPO_BRIDGE_CHECKED).read_bytes())
+    for r in require_columns(rows, ("category", "note"), "the checked bridge categories"):
+        cat = r["category"].upper()
+        if not _CATEGORY.match(cat):
+            raise ValueError(f"the checked bridge categories: {cat!r} is not a 3-character category")
+        out[cat] = r["note"]
     return out
 
 
 def parse_icd10_who_cm_bridge(path: Path) -> Iterator[dict[str, Any]]:
     """WHO ICD-10 category -> the ICD-10-CM category of the same three characters (a family, D-113 style), for every
-    category ICD-10-CM has. ``wider`` (the ICD-10-CM category holds all of the WHO category's meaning), except where
-    TrialBox's exception list says the scope differs (``inexact``: never decides). A WHO category that ICD-10-CM
-    does not have (E14, B21) has no row: it stays unknown. Code strings only, no WHO text."""
-    exc = bridge_exceptions()
+    category ICD-10-CM has. ``wider`` (the ICD-10-CM category holds all of the WHO category's meaning) only for the
+    categories TrialBox checked (``refdata_src/icd10_who_cm_checked.csv``); every other row is ``inexact`` (a
+    candidate that never decides): ICD-10-CM narrowed or moved parts of many categories (A09 unspecified -> K52.9,
+    chronic gout M10 -> M1A, neuroendocrine tumours of C categories -> C7A, E13 -> E08 / E09). A WHO category that
+    ICD-10-CM does not have (E14, B21) has no row: it stays unknown. Code strings only, no WHO text."""
+    checked = bridge_checked()
     for cat in icd10cm_categories(path):
-        hit = exc.get(cat) or exc.get(cat[0]) or ("wider", "")
+        ok = cat in checked
         yield {"source_system": ICD10_WHO, "source_code": cat, "source_display": "", "target_system": ICD10CM,
-               "target_code": cat, "target_display": "", "relation": hit[0],
-               "extra": {"level": "category", "note": hit[1]}}  # fmt: skip
+               "target_code": cat, "target_display": "", "relation": "wider" if ok else "inexact",
+               "extra": {"level": "category", "checked": ok, "note": checked.get(cat, "")}}  # fmt: skip
 
 
 def bridge_version(path: Path) -> str:
     year = re.search(r"(20\d{2})", path.name)
-    return (f"ICD-10-CM {'FY' + year.group(1) if year else path.name} categories; TrialBox exceptions sha256 "
-            f"{sha256_file(REPO_BRIDGE_EXCEPTIONS)[:12]}")  # fmt: skip
+    return (f"ICD-10-CM {'FY' + year.group(1) if year else path.name} categories; TrialBox checked list sha256 "
+            f"{sha256_file(REPO_BRIDGE_CHECKED)[:12]}")  # fmt: skip
 
 
 def who_icd10_targets(code: str, url: str | None = None) -> list[dict[str, Any]]:
@@ -285,10 +292,17 @@ def parse_jlac10_loinc(path: Path) -> Iterator[dict[str, Any]]:
     except ValueError:
         head, idx = find_header(rows, JLAC_COLS, ("loinc", *_JLAC_PARTS), "a JLAC10 -> LOINC file")
     seen: set[tuple[str, str]] = set()
+    skipped = 0
     for r in rows[head + 1 :]:
+        if not any(c.strip() for c in r):
+            continue
         code = _cell(r, idx, "code") if "code" in idx else "".join(_cell(r, idx, p) for p in _JLAC_PARTS)
-        code, loinc = code.upper().replace(" ", ""), _cell(r, idx, "loinc").replace(" ", "")
-        if not _JLAC10.match(code) or not _LOINC.match(loinc) or (code, loinc) in seen:
+        code = re.sub(r"[\s\-‐－]", "", code.upper())  # 3C015-0000-023-271-01 as printed in many masters
+        loinc = _cell(r, idx, "loinc").replace(" ", "")
+        if (code, loinc) in seen:
+            continue
+        if not _JLAC10.match(code) or not _LOINC.match(loinc):
+            skipped += 1
             continue
         seen.add((code, loinc))
         rel = _cell(r, idx, "relation").lower() or "relatedto"
@@ -297,6 +311,8 @@ def parse_jlac10_loinc(path: Path) -> Iterator[dict[str, Any]]:
         yield {"source_system": JLAC10, "source_code": code, "source_display": _cell(r, idx, "name"),
                "target_system": LOINC, "target_code": loinc, "target_display": "", "relation": rel,
                "extra": {}}  # fmt: skip
+    if skipped:
+        log.warning("%s: %d rows left out (not a JLAC10 or LOINC code)", path.name, skipped)
 
 
 def jlac10_loinc_targets(code: str, url: str | None = None) -> list[dict[str, Any]]:
@@ -424,11 +440,11 @@ ITEMS: tuple[Item, ...] = (
         "https://ftp.cdc.gov/pub/Health_Statistics/NCHS/Publications/ICD10CM/2027/icd10cm-code-descriptions-2027.zip",
         OWN, "",
         "TrialBox's own work from code strings only: the ICD-10-CM categories (U.S. public domain, CDC NCHS) and "
-        "TrialBox's list of categories whose scope differs. No WHO ICD-10 text is shipped.",
+        "TrialBox's list of categories checked to have the same scope. No WHO ICD-10 text is shipped.",
         "TrialBox WHO ICD-10 <-> ICD-10-CM bridge, Aimedics; ICD-10-CM category codes from the National Center for "
         "Health Statistics, CDC. ICD-10 is a classification of the World Health Organization.",
         "with each ICD-10-CM release", "about 1,900 category rows",
-        "A WHO-only code (from MEDIS or SS-MIX2) falls in its ICD-10-CM family: yes or unknown, never no.",
+        "A WHO code in a checked category falls in its ICD-10-CM family (yes); any other is unknown; never no.",
         country="JP", decision="D-173", derived_from="icd10cm", parse=parse_icd10_who_cm_bridge,
         version_of=bridge_version,
     ),

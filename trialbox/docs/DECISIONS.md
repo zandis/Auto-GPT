@@ -3841,15 +3841,29 @@ item.** WS-08.8, builds on D-170; 2026-11-10. Licences read at the source on the
    reads a licence stated on a page (used for NCI, D-174). `fetch()` no longer knows any one site.
 3. *WHO ICD-10 <-> ICD-10-CM bridge* (`icd10_who_cm_bridge`, kind map, ship; TrialBox's own work). No official map
    exists. Built from the ICD-10-CM code list (`derived_from` the `icd10cm` download, U.S. public domain): one row
-   per ICD-10-CM category, WHO category -> the ICD-10-CM category of the same three characters, relation `wider`
-   (the ICD-10-CM category holds the WHO category's meaning). Our list
-   `refdata_src/icd10_who_cm_exceptions.csv` marks categories whose scope differs as `inexact`: E13 (WHO's "other
-   specified diabetes" also holds what ICD-10-CM puts under E08 and E09) and the chapters O, U, V to Y and Z.
-   FY2027: 1,919 rows (1,481 wider, 438 inexact). A WHO category ICD-10-CM does not have (E14, B21) has no row.
-   Code strings only, no WHO text (WHO's ICD-10 text needs a WHO licence). `who_icd10_in_list` reads a WHO code by
-   its category against an ICD-10-CM list: `yes` when the list's prefix family holds the category, otherwise
-   `unknown`; the bridge never gives `no` (no row is equivalent or narrower), so a WHO-only code never excludes.
-   Not wired into ingest yet (the SS-MIX2 reader keeps D-137's rule).
+   per ICD-10-CM category, WHO category -> the ICD-10-CM category of the same three characters. **The relation is
+   `inexact` (a candidate that never decides) unless the category was checked**; a checked category is `wider`
+   (the ICD-10-CM category holds all of the WHO category's meaning). ICD-10-CM narrowed or moved parts of many
+   categories, so the default cannot be `wider`: WHO A09 holds diarrhoea of unspecified origin (A09.9) but CM A09 is
+   infectious only (unspecified goes to K52.9), so a WHO A09.9 record would have answered "yes" against a CM A09
+   exclusion (review finding of PR #76); likewise WHO M10 holds chronic gout (CM M1A), WHO C categories hold
+   carcinoid tumours (CM C7A, C7B, D3A), WHO E13 holds what CM puts under E08 and E09.
+   *Audit method* (`refdata_src/icd10_who_cm_checked.csv`, one line per category with its reason): a category is
+   listed only when (a) ICD-10-CM's tabular list for it was read and nothing WHO puts in the category is sent
+   elsewhere by a CM "Excludes1" or by a CM category created by splitting it, and (b) it is not in a chapter or
+   block CM restructured (all C and D neoplasm categories, O, U, V to Y, Z) and not a category with a known
+   difference (A09, E13, M10). Where CM is wider by design (CM J45 also holds status asthmaticus, WHO J46; CM G40
+   holds status epilepticus, WHO G41; CM B20 holds all HIV disease, WHO B20 to B24) the WHO category is inside the
+   CM one and is listed. 36 categories are checked today (diabetes types 1 and 2, hypertension, ischaemic heart
+   disease, heart failure, atrial fibrillation, stroke, COPD, asthma, CKD, nephrotic syndrome, RA, SLE, ankylosing
+   spondylitis, psoriasis, IBD, cirrhosis, chronic viral hepatitis, HIV, thyroid, lipids, obesity, MS, epilepsy,
+   Parkinson's, Alzheimer's, schizophrenia, bipolar and depressive disorders); a test refuses the known
+   differences. A category is added only by the same method, with its reason. FY2027: 1,919 rows (36 wider, 1,883
+   inexact). A WHO category ICD-10-CM does not have (E14, B21) has no row. Code strings only, no WHO text (WHO's
+   ICD-10 text needs a WHO licence). `who_icd10_in_list` reads a WHO code by its category against an ICD-10-CM
+   list: `yes` only for a checked category inside the list's prefix family, otherwise `unknown`; the bridge never
+   gives `no` (no row is equivalent or narrower), so a WHO-only code never excludes. Not wired into ingest yet (the
+   SS-MIX2 reader keeps D-137's rule).
 4. *MEDIS 標準病名マスター -> ICD-10* (`medis_byomei_icd10`, kind map, **site-fetch, nothing shipped**). MEDIS-DC's
    terms page: anyone may download and use the master, but use outside a medical institution or for distribution
    needs MEDIS-DC's permission (使用許諾申請書); 病名 and HOT are on that list; a modified copy must name MEDIS.
@@ -3859,8 +3873,15 @@ item.** WS-08.8, builds on D-170; 2026-11-10. Licences read at the source on the
    病名交換用コード -> the WHO ICD-10 code the master gives, relation `wider`; a row without an ICD-10-shaped code
    gives none. The D-137 terminology loader stays for the SS-MIX2 reader and the JP Core check.
 
-*Evidence.* `tests/unit/test_refdata_jp.py` (bridge relations and families, MEDIS headerless Shift_JIS file,
-site-load beside the vendor's pack, the licence reader), `tests/unit/test_refdata_tw.py` (the data.gov.tw reader
+5. *A vendor build never packs a site-fetch item* (review finding of PR #76). `site-load` leaves the hospital's file
+   and its `fetch.json` under `<out>/raw`; `build` now builds `ship` items only, leaves site-fetch items out of its
+   default list and refuses one named in `--ids` (MEDIS, JLAC10, JCOG, UMIN-CTR). Only `site_load` builds a
+   site-fetch item, into the hospital's own part (`site=True`). An item with a dataset API URL but no licence
+   reader is refused at fetch (the D-170 guard, kept after the move).
+
+*Evidence.* `tests/unit/test_refdata_jp.py` (bridge relations, the checked list and the known differences, MEDIS
+headerless Shift_JIS file, site-load beside the vendor's pack, a vendor build over a raw directory holding the
+hospital's MEDIS and UMIN files, the licence reader), `tests/unit/test_refdata_tw.py` (the data.gov.tw reader
 through the item), `e2e_simple` stage 14.
 
 **D-174 Japan drugs, labs and adverse events: YJ -> ATC, the JLAC10 -> LOINC loader, CTCAE v5.0 in English and the
@@ -3875,11 +3896,13 @@ JCOG Japanese loader.** WS-08.8; 2026-11-10.
    apart (methotrexate 3999016 RA L04AX03 and 4222001 oncology L01BA01; aspirin 3399007 B01AC06 and 1143001
    N02BA01). Relation `wider`. ATC codes are identifiers only: the WHOCC site forbids commercial copying of the
    index, and no WHOCC text is shipped (as D-140). Site set-up suggests the ATC code of a YJ code by its stem
-   (`refdata`, 0.90). A stem not in the table gives nothing (unknown).
+   (`refdata`, 0.90) when the code has the YJ shape (seven digits, then the 剤形 letter: an all-digit hospital code
+   is not read as YJ). A stem not in the table gives nothing (unknown).
 2. *JLAC10 -> LOINC* (`jlac10_loinc`, kind map, **site-fetch, nothing shipped**). No public map was found (MHLW,
    JSLM, JLAC Center); JSLM's code page states no redistribution terms we could read, and the repository's JP-Core
    sample rows stay marked `verify`. So TrialBox ships no JLAC10 -> LOINC rows; the hospital loads its own map file
-   (CSV, TSV or XLSX with a JLAC10 column or its five part columns, and a LOINC column) with `site-load`. The file's
+   (CSV, TSV or XLSX with a JLAC10 column, hyphenated or not, or its five part columns, and a LOINC column) with
+   `site-load`; rows without a JLAC10- or LOINC-shaped code are left out and their count is logged. The file's
    own R4 equivalence is kept when it has one, else `relatedto`. Site set-up suggests the LOINC code when a JLAC10
    code has one target (0.90); several, none.
 3. *CTCAE v5.0, English* (`ctcae_v5_en`, kind term, ship). NCI's workbook
@@ -3903,8 +3926,8 @@ JCOG Japanese loader.** WS-08.8; 2026-11-10.
    70 rows, same columns and rules as the zh-TW list (D-172; the reader is now one shared function,
    `refdata.curated_synonyms`): Japanese disease, drug, test, procedure and report names (関節リウマチ, 2型糖尿病,
    脳卒中, メトトレキサート, HbA1c as ヘモグロビンA1c, HBs抗原, 胸部X線) and note abbreviations (INH, MEN2, EGFR-TKI) ->
-   the name the matcher knows, per domain. Every canonical name resolves in its domain and every trusted term maps
-   to the same codes as its canonical name (tests). Ambiguous short forms (RA, AMI, MTX, PSL, GPT) carry
+   the name the matcher knows, per domain (血清尿酸値 and 尿酸値 both -> serum urate). Every canonical name
+   resolves in its domain and every trusted term maps to the same codes as its canonical name (tests). Ambiguous short forms (RA, AMI, MTX, PSL, GPT) carry
    `review = yes`: method `dictionary`, always reviewed. Strings that are the same in zh-TW and ja (妊娠, 非小細胞肺癌)
    are not repeated.
 2. *Public ja dictionaries not added.* Hyakuyaku and MANBYO (NAIST, CC BY 4.0) map surface forms to Japanese

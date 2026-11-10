@@ -370,6 +370,10 @@ def read_licence(item: Source, licence_check: bool = True) -> dict[str, Any] | N
     ``fetch.json``, or None for an item without one. Stops when the source does not answer or the licence no longer
     reads as expected; ``licence_check=False`` (``--no-licence-check``) skips the read and records that."""
     if item.licence_reader is None:
+        if item.meta_url:
+            raise SystemExit(
+                f"{item.id}: has a dataset API URL ({item.meta_url}) but no licence reader: add one before fetching"
+            )
         return None
     if not licence_check:
         return {"skipped": "--no-licence-check"}
@@ -652,13 +656,29 @@ Writer = Callable[[str, Iterable[dict[str, Any]]], dict[str, Any]]
 
 
 def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = None, sample: bool = False,
-          suffix: str = "") -> Path:  # fmt: skip
-    """Parse every fetched source under ``raw`` into ``out/trialbox-refdata-<day>[-suffix]/`` and its ``.tar``."""
+          suffix: str = "", site: bool = False) -> Path:  # fmt: skip
+    """Parse every fetched source under ``raw`` into ``out/trialbox-refdata-<day>[-suffix]/`` and its ``.tar``.
+
+    A vendor build (the default) builds ``ship`` items only: a site-fetch item's file (the hospital's MEDIS or
+    UMIN download, left under ``raw`` by ``site-load``) is never put into a pack that ships; naming one in ``ids``
+    is refused. ``site=True`` (``site_load`` only) builds the hospital's own part from site-fetch items only."""
+    want = "site-fetch" if site else "ship"
+    if ids:
+        wrong = [i for i in ids if BY_ID[i].distribution != want]
+        if wrong:
+            raise SystemExit(
+                f"{', '.join(wrong)}: not {want} items; a "
+                + (
+                    "site build takes site-fetch items only"
+                    if site
+                    else "vendor build never packs a site-fetch or unusable item (the hospital runs site-load)"
+                )
+            )
+    ids = ids or [s.id for s in SOURCES if s.distribution == want
+                  and (raw / (s.derived_from or s.id) / "fetch.json").is_file()]  # fmt: skip
     day = day or date.today().strftime("%Y%m%d")
     pack = out / (f"trialbox-refdata-{day}" + (f"-{suffix}" if suffix else ""))
     pack.mkdir(parents=True, exist_ok=True)
-    ids = ids or [s.id for s in SOURCES if s.distribution != "not usable"
-                  and (raw / (s.derived_from or s.id) / "fetch.json").is_file()]  # fmt: skip
     entries = []
 
     def write(rel: str, recs: Iterable[dict[str, Any]]) -> dict[str, Any]:
@@ -802,7 +822,7 @@ def site_load(sid: str, file: Path, out: Path, load: bool = True, db_url: str | 
     if version.strip():
         meta["version"] = version.strip()
     (raw / sid / "fetch.json").write_text(json.dumps({**meta, "path": file.name}), encoding="utf-8")
-    tar = build(raw, out, ids=[sid], suffix=f"site-{sid.replace('_', '-')}")
+    tar = build(raw, out, ids=[sid], suffix=f"site-{sid.replace('_', '-')}", site=True)
     if load:
         with rd.opened(tar) as pack, rd.RefStore(db_url) as st:
             st.load(pack, by=f"site-load:{sid}", origin="site")

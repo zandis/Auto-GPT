@@ -54,7 +54,7 @@ GLP-1受容体作動薬,ja,glp-1 receptor agonist,en,medication,,
 EGFRチロシンキナーゼ阻害薬,ja,egfr tyrosine kinase inhibitor,en,medication,,
 EGFR-TKI,en,egfr tyrosine kinase inhibitor,en,medication,,abbreviation
 血清尿酸値,ja,serum urate,en,observation,,
-尿酸値,ja,uric acid,en,observation,,
+尿酸値,ja,serum urate,en,observation,,same concept as 血清尿酸値
 ヘモグロビンA1c,ja,hba1c,en,observation,,
 GPT,en,alt,en,observation,yes,JP lab usage: GPT = ALT; short form: review
 収縮期血圧,ja,systolic blood pressure,en,observation,,
