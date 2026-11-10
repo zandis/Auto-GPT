@@ -61,6 +61,11 @@ datasets:
     data_class: D0
     kind: open
     licence: TREC Clinical Trials 2021/2022 topics and qrels (NIST, synthetic patient descriptions); trial texts from the NCBI TrialGPT corpus (ClinicalTrials.gov public records)
+  qualification:
+    path: eval/qualification (qualification records of `trialbox eval qualify` and the schema probes, D-313; hashes, counts and codes only)
+    data_class: D0
+    kind: synthetic
+    licence: written for TrialBox (synthetic probes, no patient data)
   canary_local:
     path: eval/canary_local (answers of 4-bit GGUF builds on CPU to the orchestrator canary, services/orchestrator/canary; 2026-11-08)
     data_class: D0

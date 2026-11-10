@@ -129,8 +129,8 @@ class Backend(Protocol):
     def registry_rows(self, ruleset: str) -> list[RegistryEntry]: ...
     def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry: ...
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
-    def registry_export(self, ruleset: str, by: str) -> bytes: ...
-    def reveal(self, job_id: str, pid: str, by: str) -> str | None: ...
+    def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes: ...
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None: ...
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str: ...
 
 
@@ -385,15 +385,18 @@ class HttpBackend:
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
         return int(self._registry_call("POST", f"/registry/{ruleset}/promote", req)["added"])
 
-    def reveal(self, job_id: str, pid: str, by: str) -> str | None:
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None:
         """The chart number of one listed pseudonym (D-99): the orchestrator resolves and audits it; None when the
-        box has no pid map for it."""
+        box has no pid map for it. D-273: the person's role and studies travel signed, and the orchestrator checks
+        them; its refusal (403: role, study, opted out, not listed) is a refusal here."""
         try:
-            data = self.orch.post_raw(f"/jobs/{job_id}/reveal", {"pid": pid}, actor_header(by)).json()
+            data = self.orch.post_raw(
+                f"/jobs/{job_id}/reveal", {"pid": pid}, actor_header(by, role=role, scope=scope)
+            ).json()
         except ServiceError as exc:
             if exc.status == 404:
                 return None
-            if exc.status in (400, 409, 422):
+            if exc.status in (400, 403, 409, 422):
                 raise Refused(exc.detail) from exc
             raise Unavailable(str(exc)) from exc
         mrn = data.get("mrn") if isinstance(data, dict) else None
@@ -422,11 +425,12 @@ class HttpBackend:
         except ServiceError as exc:
             raise problem_of(exc.status, exc.detail) from exc
 
-    def registry_export(self, ruleset: str, by: str) -> bytes:
-        """The screening log with chart numbers; the orchestrator verifies the signed actor, audits and rate-limits
-        it (S-09)."""
+    def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes:
+        """The screening log with chart numbers; the orchestrator verifies the signed actor, its role and its studies
+        (D-273), audits and rate-limits it (S-09)."""
         try:
-            return self.orch._request("GET", f"/registry/{ruleset}/export.xlsx", headers=actor_header(by)).content
+            hdr = actor_header(by, role=role, scope=scope)
+            return self.orch._request("GET", f"/registry/{ruleset}/export.xlsx", headers=hdr).content
         except ServiceError as exc:
             if exc.status in (403, 429):
                 raise Refused(exc.detail) from exc

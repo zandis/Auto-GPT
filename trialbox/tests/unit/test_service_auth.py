@@ -108,14 +108,14 @@ def test_reveal_only_for_a_patient_on_the_jobs_list_and_at_a_bounded_rate(
     events: list[dict[str, Any]] = []
     monkeypatch.setattr(oapp, "orch", lambda: _fake_box(events))
     monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
-    h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("crc1")}
+    h = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("crc1", role="coordinator", scope="*")}
     r = client.post("/jobs/J1/reveal", json={"pid": "PID-99999999"}, headers=h)
     assert r.status_code == 403 and events[-1]["kind"] == "screen.reveal_refused"
     assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=h).status_code == 200
     assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=h).status_code == 200
     r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=h)
     assert r.status_code == 429 and events[-1]["detail"]["reason"] == "rate limit"
-    other = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("crc2")}
+    other = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("crc2", role="coordinator", scope="*")}
     assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=other).status_code == 200
 
 
@@ -129,7 +129,7 @@ def test_reveal_audits_the_header_actor_not_the_body(client: TestClient, monkeyp
     fake = _fake_box(events)
     monkeypatch.setattr(oapp, "orch", lambda: fake)
     monkeypatch.setattr(screen, "resolve_mrns", lambda _d, pids, _url=None: {p: "MRN-1" for p in pids})
-    ok = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("山田 花子")}
+    ok = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("山田 花子", role="investigator", scope="RS")}
     r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001", "by": "someone-else"}, headers=ok)
     assert r.status_code == 200 and r.json()["mrn"] == "MRN-1"
     assert events[-1]["actor"] == "山田 花子"  # from the authenticated header, the body's "by" is ignored
@@ -177,10 +177,11 @@ def test_a_token_holder_cannot_name_a_user_or_reset_the_cap_and_exports_are_audi
     unsigned = {sa.TOKEN_HEADER: TOKEN, sa.ACTOR_HEADER: "dr_tanaka"}
     r = client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=unsigned)
     assert r.status_code == 403 and events[-1]["kind"] == "actor.refused"
-    signed = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("dr_tanaka", "s1")}
+    signed = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("dr_tanaka", "s1", role="investigator", scope="GZQO,RS")}
     assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000001"}, headers=signed).status_code == 200
     assert events[-1]["detail"]["session"] == "s1" and events[-1]["detail"]["verified"] is True
-    again = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("dr_tanaka", "s2")}  # a new session is the same person
+    # a new session is the same person
+    again = {sa.TOKEN_HEADER: TOKEN, **sa.actor_header("dr_tanaka", "s2", role="investigator", scope="GZQO,RS")}
     assert client.post("/jobs/J1/reveal", json={"pid": "PID-00000002"}, headers=again).status_code == 429
     monkeypatch.setattr(oapp, "registry_of", lambda _o: SimpleNamespace(export_xlsx=lambda _rs, _site: b"PK-xlsx"))
     fake.cfg = SimpleNamespace(settings=SimpleNamespace(site=SimpleNamespace(id="S1")), env=fake.cfg.env)

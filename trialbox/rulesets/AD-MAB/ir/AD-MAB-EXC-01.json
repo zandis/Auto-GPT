@@ -1,0 +1,25 @@
+{
+ "class": "structured",
+ "id": "AD-MAB-EXC-01",
+ "kind": "exclusion",
+ "label": "抗凝固薬（90日以内）",
+ "logic": {
+  "domain": "medication",
+  "quantifier": "any",
+  "valueset": "VS_ANTICOAGULANT",
+  "window": {
+   "anchor": "index",
+   "from_days": -90,
+   "to_days": 0
+  }
+ },
+ "review": {
+  "at": "2026-11-10T22:18:12.342983+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "AD-MAB",
+ "source_ref": "5.2 除外基準 #1",
+ "text": "スクリーニング前90日以内に抗凝固薬（ワルファリン、直接経口抗凝固薬）を使用した者。",
+ "time_sensitive": true
+}

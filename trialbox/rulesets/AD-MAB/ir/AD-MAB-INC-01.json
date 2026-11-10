@@ -1,0 +1,24 @@
+{
+ "class": "structured",
+ "id": "AD-MAB-INC-01",
+ "kind": "inclusion",
+ "label": "年齢 50〜85歳",
+ "logic": {
+  "age": {
+   "max": 85.0,
+   "min": 50.0
+  },
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-11-10T22:18:12.342983+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "AD-MAB",
+ "source_ref": "5.1 選択基準 #1",
+ "text": "同意取得時の年齢が50歳以上85歳以下の者。",
+ "time_sensitive": false
+}

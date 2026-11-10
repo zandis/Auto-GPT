@@ -9,7 +9,7 @@ patient check), the SCREEN cascade at S1, and the feasibility counts.
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,7 @@ from lake.client import LakeLocal
 from lake.flatten import BASIS, DEMOGRAPHIC
 from lake.store import Lake
 from matching.cascade.engine import CascadeConfig, run_cascade
-from matching.proposed import PROPOSED_FACT, Proposed, signed_atoms, site_basis
+from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, FactRow, Proposed, signed_atoms, site_basis
 from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict
 from orchestrator.scenarios.feas_compute import FeasParams, compute
 from tb_common.reasons import LABELS, Reason, code_of
@@ -284,3 +284,69 @@ def test_a_lake_built_before_step_5b_has_no_proposed_facts() -> None:
 
     with pytest.raises(RuntimeError):  # any other failure stops the run (D-127): the rule is never dropped silently
         Proposed.load(Broken(), None, None)
+
+
+# ---------------------------------------------------------------------------------------- T-650 (TB-DR-04 §3.3)
+# One test per mutant that survived every safety-core test (ENG-019): the facts are given directly, no lake.
+BY = {c.id: c for c in CRITERIA}
+EGFR = _crit(
+    "RULE-INC-05",
+    "inclusion",
+    "eGFR >= 60 in the last year",
+    {"domain": "observation", "derived": "egfr_ckd_epi", "quantifier": "latest", "valueset": "VS_EGFR",
+     "value": {"op": ">=", "num": 60}, "window": {"anchor": "index", "from_days": -365, "to_days": 0}},
+)  # fmt: skip
+
+
+def _facts(*rows: FactRow) -> Proposed:
+    return Proposed({"P": list(rows)})
+
+
+def test_an_undated_proposed_fact_always_counts() -> None:
+    """P05: a proposed fact with no date could be in any window: it makes a decided answer it could flip unknown."""
+    gout = _facts(FactRow("f-gout", "condition", "M10.9", ICD, None))
+    assert gout.refs(BY["RULE-INC-02"], "P", INDEX, False) == ["f-gout"]
+    urate = _facts(FactRow("f-urate", "observation", "3084-1", LOINC, None))
+    assert urate.refs(BY["RULE-INC-03"], "P", INDEX, True) == ["f-urate"]
+    malignancy = _facts(FactRow("f-mal", "condition", "C50.911", ICD, None))
+    assert malignancy.refs(BY["RULE-EXC-01"], "P", INDEX, False) == ["f-mal"]
+    assert malignancy.refs(BY["RULE-INC-04"], "P", INDEX, True) == ["f-mal"]
+
+
+@pytest.mark.parametrize(
+    ("offset", "counts"),
+    [(0, True), (-1, True), (-365, True), (-366, False), (1, False)],
+)
+def test_a_proposed_fact_on_a_window_bound_counts(offset: int, counts: bool) -> None:
+    """P06: the window is closed at both ends: a fact on the index date or on the first day of the window counts;
+    one day outside either end does not."""
+    day = INDEX + timedelta(days=offset)
+    p = _facts(FactRow("f-urate", "observation", "3084-1", LOINC, day))
+    want = [f"f-urate|{day.isoformat()}"] if counts else []
+    assert p.refs(BY["RULE-INC-03"], "P", INDEX, True) == want
+    assert p.refs(BY["RULE-INC-03"], "P", INDEX, False) == want
+
+
+@pytest.mark.parametrize("what", ["birth_date", "sex"])
+def test_a_proposed_birth_date_or_sex_matters_to_a_derived_value(what: str) -> None:
+    """P07: eGFR is computed from the age and the sex, so a proposed birth date or sex makes a decided eGFR answer
+    unknown, either way; it does not touch a lab value that does not use them."""
+    p = _facts(FactRow("f-demo", "demographic", what, "", None))
+    assert p.refs(EGFR, "P", INDEX, True) == ["f-demo"] and p.refs(EGFR, "P", INDEX, False) == ["f-demo"]
+    assert p.refs(BY["RULE-INC-03"], "P", INDEX, True) == []
+    assert p.refs(EGFR, "P", INDEX, None) == []  # an unknown answer stays unknown, with no fact attached
+
+
+def test_mixed_bases_are_reported_as_proposed_facts() -> None:
+    """P12: ``suspected_diagnosis`` only when every fact behind the answer is a suspected diagnosis; a mix with a
+    proposed fact is ``proposed_fact``."""
+    day = date(2026, 5, 1)
+    p = _facts(
+        FactRow("f-sus", "condition", "C50.911", ICD, day, "suspected"),
+        FactRow("f-pro", "condition", "C50.911", ICD, day, "proposed"),
+    )
+    refs = p.refs(BY["RULE-EXC-01"], "P", INDEX, False)
+    assert refs == ["f-sus|2026-05-01", "f-pro|2026-05-01"]
+    assert p.reason("P", refs) == PROPOSED_FACT
+    assert p.reason("P", refs[:1]) == SUSPECTED_DIAGNOSIS
+    assert p.reason("P", refs[1:]) == PROPOSED_FACT

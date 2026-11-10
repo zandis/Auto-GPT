@@ -950,7 +950,7 @@ def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, m
                                               "?purpose=eligibility", f"/studies/{TRIAL}/referrals")]  # fmt: skip
         s.check(f"the {who} account stays masked (403)", set(got) == {403}, got)
     # opt-out by chart number: the box turns it into the pseudonym; the number is never stored
-    mrn_y = h.bk.reveal(week["job"].job_id, y, "console:crc")
+    mrn_y = h.bk.reveal(week["job"].job_id, y, "console:crc", role="coordinator", scope="*")  # signed (D-273)
     op = crc.get("/site/opt-outs").text
     r = crc.post("/site/opt-outs", data={"csrf": fd._csrf(op), "chart_no": mrn_y or "", "source": "paper"},
                  follow_redirects=False)  # fmt: skip

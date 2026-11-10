@@ -1,0 +1,38 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "G45.0",
+      "display": "Vertebro-basilar artery syndrome"
+     },
+     {
+      "code": "G45.1",
+      "display": "Carotid artery syndrome (hemispheric)"
+     },
+     {
+      "code": "G45.2",
+      "display": "Multiple and bilateral precerebral artery syndromes"
+     },
+     {
+      "code": "G45.8",
+      "display": "Other transient cerebral ischemic attacks and related syndromes"
+     },
+     {
+      "code": "G45.9",
+      "display": "Transient cerebral ischemic attack unspecified"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "id": "AD-MAB-VS-TRANSIENT-ISCHEMIC-ATTACK",
+ "name": "VS_TRANSIENT_ISCHEMIC_ATTACK",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "transient ischemic attack",
+ "url": "http://trialbox.local/fhir/ValueSet/AD-MAB-VS-TRANSIENT-ISCHEMIC-ATTACK",
+ "version": "1.0.0-v03d3ae41"
+}

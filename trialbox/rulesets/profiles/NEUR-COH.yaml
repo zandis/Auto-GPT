@@ -1,0 +1,18 @@
+# Site profile for ruleset NEUR-COH (merged into manifest.yaml at compile time; not generated).
+# Scenario J2 of the clinician PoC (T-503): a fictional MCI and dementia registry, observational, opt-out.
+kind: cohort
+title: "もの忘れ外来 MCI・認知症レジストリ（合成）"
+trial_alias: "NEUR-COH"
+sponsor: "脳神経内科 研究グループ（合成）"
+protocol_version: "v1"
+index_date_rule: month_end   # quarter ends (COHORT)
+routing:
+  aggregate_to: ["pi@hospa.test", "crc1@hospa.test"]
+thresholds: {small_cell: 5}
+cohort:
+  disease: dementia
+  disease_label: "軽度認知障害・認知症"
+  population_criterion: NEUR-COH-INC-01
+  combinations: [["NEUR-COH-INC-02", "NEUR-COH-INC-03"]]
+  ctgov_condition: "Alzheimer Disease"
+  top_n_trials: 3

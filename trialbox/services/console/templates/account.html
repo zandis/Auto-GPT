@@ -4,6 +4,8 @@
 <h1>{{ t('account.title') }}</h1>
 {% if saved %}<p class="ok" role="status" data-testid="account-saved">{{ t('account.saved') }}</p>{% endif %}
 {% if error %}<p class="error" role="alert" data-testid="account-error">{{ t(error) }}</p>{% endif %}
+{# D-279 (SEC-1): a password someone else set is replaced before anything else #}
+{% if must_change %}<p class="warn" role="alert" data-testid="account-must-change">{{ t('account.must_change') }}</p>{% endif %}
 <section class="card" data-testid="account-facts">
 <dl class="facts">
   <dt>{{ t('account.name') }}</dt><dd class="mono">{{ me.username }}</dd>

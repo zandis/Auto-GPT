@@ -8,6 +8,7 @@ PHI spans and finding offsets in ``gold/notes.jsonl``; chunked, streaming output
     python -m tools.synth_hospital --profile ci --out /tmp/synth                 # 5,000 patients, 1 JP + 1 TW site
     python -m tools.synth_hospital --profile full --out /var/tmp/synth           # 500,000 patients (not run in CI)
     python -m tools.synth_hospital --sites jp-a:JP:5000 --lang-mix JP=ja:1.0 --out /tmp/jp
+    python -m tools.synth_hospital --profile jp-ad --out /tmp/jp-ad                # the Japanese memory clinic (T-503)
 
 Every patient is fictional. Synthea is optional and off: this build has no Synthea mapping (TB-DS-21 §4); the
 ``--synthea`` flag only reports that.
@@ -37,6 +38,13 @@ COUNTER_STRIDE = 10_000_000  # per-chunk id counter base: ids stay unique while 
 PROFILES: dict[str, dict[str, Any]] = {
     "ci": {"sites": "jp-a:JP:2500,tw-a:TW:2500", "tolerance": 0.05},
     "full": {"sites": "jp-head:JP:300000,tw-a:TW:200000", "tolerance": 0.02},
+    # scenario J1 (T-503): one Japanese site with a memory clinic (``ad`` patients), notes in Japanese and English
+    # only, for the trial AD-MAB and the registry NEUR-COH. ``site:style:patients:mix`` names the rates.yaml mix.
+    "jp-ad": {
+        "sites": "jp-ad:JP:2500:mix_jp_ad",
+        "tolerance": 0.05,
+        "studies": ["AD-MAB", "NEUR-COH", "GZQO", "RA-BIO"],
+    },
 }
 DEFAULT_LANG_MIX = {"JP": {"ja": 0.9, "en": 0.1}, "TW": {"zh-TW": 0.9, "en": 0.1}}
 DEFAULT_STUDIES = ["GOUT-COH", "GZQO", "ONC-OSI", "RA-BIO", "RA-COH"]
@@ -49,6 +57,14 @@ SLOTS: dict[str, list[str]] = {
     "RA-BIO-REN-02": ["biologic_response"],
     "ONC-OSI-INC-04": ["ecog"],
 }
+# the ``ad`` archetype's slots (T-503); required only on a site whose mix holds ``ad``
+AD_SLOTS: dict[str, list[str]] = {
+    "AD-MAB-INC-03": ["mmse"],
+    "AD-MAB-INC-04": ["cdr"],
+    "AD-MAB-INC-05": ["amyloid_pet", "amyloid_csf"],
+    "AD-MAB-EXC-02": ["mri_microbleeds"],
+}
+SLOTS.update(AD_SLOTS)
 
 
 @dataclass
@@ -59,6 +75,11 @@ class SiteSpec:
     prefix: str
     seed: int
     lang_mix: dict[str, float]
+    mix: str = "mix"  # the patient mix in rates.yaml ``site`` (``mix_jp_ad``: the memory-clinic site, T-503)
+
+    @property
+    def has_ad(self) -> bool:
+        return "ad" in RATES["site"][self.mix]
 
 
 @dataclass
@@ -81,11 +102,17 @@ class SiteResult:
 def parse_sites(text: str, seed: int, lang_mix: dict[str, dict[str, float]]) -> list[SiteSpec]:
     out = []
     for k, part in enumerate(p for p in text.split(",") if p.strip()):
-        site_id, style, n = part.strip().split(":")
+        site_id, style, n, *rest = part.strip().split(":")
         style = style.upper()
         if style not in DEFAULT_LANG_MIX:
             raise SystemExit(f"--sites: style must be JP or TW, got {style!r}")
-        out.append(SiteSpec(site_id.upper(), style, int(n), str(k + 2), seed + 1000 * k, lang_mix.get(style, {})))
+        mix = rest[0] if rest else "mix"
+        if mix not in RATES["site"]:
+            raise SystemExit(f"--sites: unknown patient mix {mix!r} (rates.yaml site: {', '.join(RATES['site'])})")
+        spec = SiteSpec(site_id.upper(), style, int(n), str(k + 2), seed + 1000 * k, lang_mix.get(style, {}), mix)
+        if spec.has_ad and "zh-TW" in spec.lang_mix:
+            raise SystemExit(f"--sites: {site_id} has Alzheimer's patients, whose notes are Japanese or English only")
+        out.append(spec)
     return out
 
 
@@ -191,6 +218,7 @@ def generate_site(spec: SiteSpec, ref_date: date, out: Path, chunk: int = CHUNK)
             counter_base=k * COUNTER_STRIDE,
             plant_needles=(k == 0),
             practitioners=(k == 0),
+            mix=spec.mix,
         )
         data = g.run()
         collect(res, g, data)
@@ -223,6 +251,7 @@ def generate_site(spec: SiteSpec, ref_date: date, out: Path, chunk: int = CHUNK)
         "lang_mix": spec.lang_mix,
         "ref_date": ref_date.isoformat(),
         "seed": spec.seed,
+        "mix": spec.mix,
         "chunks": k,
         "generator": "tools.synth_hospital (TB-DS-21)",
     }
@@ -370,7 +399,7 @@ def run(
 ) -> RunResult:
     prof = PROFILES[profile]
     specs = parse_sites(sites or prof["sites"], seed, lang_mix or DEFAULT_LANG_MIX)
-    studies = studies or DEFAULT_STUDIES
+    studies = studies or prof.get("studies") or DEFAULT_STUDIES
     t0 = time.monotonic()
     results = [generate_site(s, ref_date, out / s.site_id.lower(), chunk) for s in specs]
     rates, failures = rate_check(results, prof["tolerance"])
@@ -381,7 +410,7 @@ def run(
         if r.human_counts and not {"willing", "unwilling", "no_info"} <= set(r.human_counts):
             failures.append(f"{r.spec.site_id}: GZQO-INC-07 lacks a willing/unwilling/no_info case")
         for crit in SLOTS:
-            if crit == "ONC-OSI-INC-04":
+            if crit == "ONC-OSI-INC-04" or (crit in AD_SLOTS and not r.spec.has_ad):
                 continue
             if not any(k.startswith(crit + "=") for k in r.findings):
                 failures.append(f"{r.spec.site_id}: no planted finding for {crit}")

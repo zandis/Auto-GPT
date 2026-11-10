@@ -1,0 +1,70 @@
+id: NEUR-COH
+kind: cohort
+title: もの忘れ外来 MCI・認知症レジストリ（合成）
+trial_alias: NEUR-COH
+sponsor: 脳神経内科 研究グループ（合成）
+version: 1.0.0
+status: approved
+source_documents:
+- NEUR-COH_登録計画書_v1.docx
+protocol_version: v1
+language: ja
+index_date_rule: month_end
+library: TB_NEUR_COH_v1_0
+criteria:
+- NEUR-COH-INC-01
+- NEUR-COH-INC-02
+- NEUR-COH-INC-03
+scopes:
+  feas:
+    population: hospital
+    lookback_months: 36
+  screen:
+    practitioners: []
+    appointment_window_days: 180
+    recent_encounter_months: 12
+    microbatch_window_days: 14
+  nav:
+    departments: []
+    appointment_window_days: 14
+    renewal_lead_days: 42
+    application_lookback_days: 90
+routing:
+  aggregate_to:
+  - pi@hospa.test
+  - crc1@hospa.test
+thresholds:
+  tier_high_confidence: 0.75
+  small_cell: 5
+models:
+  judge: qwen3.5-35b-a3b-q4
+  judge_prompt: judge_v4
+review:
+  approved_by: crc1@hospa.test
+  approved_at: '2026-11-10T22:19:28.826951+09:00'
+  approved_via: e-mail
+  rounds: 1
+  split:
+    structured: 3
+    mixed: 0
+    note: 0
+    human: 0
+  routing_confirmed: true
+equivalence:
+  overall_pct: 100.0
+  sample_size: 1000
+  per_criterion:
+    NEUR-COH-INC-01: 100.0
+    NEUR-COH-INC-02: 100.0
+    NEUR-COH-INC-03: 100.0
+  failing: []
+  evaluated_at: '2026-11-10T22:19:28.826951+09:00'
+cohort:
+  disease: dementia
+  disease_label: 軽度認知障害・認知症
+  population_criterion: NEUR-COH-INC-01
+  combinations:
+  - - NEUR-COH-INC-02
+    - NEUR-COH-INC-03
+  ctgov_condition: Alzheimer Disease
+  top_n_trials: 3

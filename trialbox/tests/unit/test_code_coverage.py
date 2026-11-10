@@ -15,13 +15,14 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import duckdb
 import pytest
 from criteria_compiler.compile_cql.generator import CqlGenerator, render_common
 from criteria_compiler.compile_sql.generator import SqlGenerator
 from embed_service.embedder import HashEmbedder
 from lake.client import LakeLocal
 from matching.cascade.engine import CascadeConfig, run_cascade
-from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage, known_systems, positive_atoms
+from matching.coverage import ICD10CM, UNKNOWN_CODE_SYSTEM, Coverage, GapRow, known_systems, positive_atoms
 from orchestrator.scenarios.evaluate import SqlEngine, structured_verdict
 from tb_common.reasons import LABELS, Reason
 from tb_common.ruleset import Ruleset
@@ -146,3 +147,39 @@ def test_scoped_coverage_is_empty_without_patients(tmp_path: Path) -> None:
             raise AssertionError("no query for an empty scope")
 
     assert Coverage.load(NoLake(), [], None).rows == {}
+
+
+# ---------------------------------------------------------------------------------------- T-650 (TB-DR-04 §3.3)
+def _inclusion(window: dict[str, Any] | None) -> CriterionIR:
+    logic: dict[str, Any] = {"domain": "condition", "quantifier": "any", "valueset": "VS_X"}
+    if window:
+        logic["window"] = window
+    return CriterionIR.model_validate({"id": "X-INC-01", "ruleset": "X", "kind": "inclusion", "class": "structured",
+                                       "text": "x", "logic": logic})  # fmt: skip
+
+
+@pytest.mark.parametrize("window", [None, {"anchor": "index", "from_days": -365, "to_days": 0}])
+def test_an_undated_unreadable_row_always_counts(window: dict[str, Any] | None) -> None:
+    """U09: a row in an unknown system with no date could be in any window: the FALSE becomes unknown."""
+    cov = Coverage({"P": [GapRow("condition", "c-undated", None, "urn:who-icd10")]})
+    assert cov.refs(_inclusion(window), "P", date(2026, 10, 5)) == ["c-undated"]
+
+
+def test_a_diagnosis_with_an_empty_code_is_unreadable() -> None:
+    """U10: a diagnosis whose code is empty (an SS-MIX2 病名 with no ICD-10 alternate) cannot answer anything, even in
+    a known system; it is listed like a row in an unknown system, and a coded row in the same system is not."""
+    con = duckdb.connect()
+    con.execute("CREATE TABLE condition (pid VARCHAR, cid VARCHAR, code VARCHAR, system VARCHAR, onset DATE, "
+                "recorded DATE)")  # fmt: skip
+    con.execute("CREATE TABLE medication (pid VARCHAR, mid VARCHAR, atc VARCHAR, authored DATE)")
+    con.execute("INSERT INTO condition VALUES ('EMPTY', 'c-empty', '', ?, DATE '2026-03-01', NULL), "
+                "('NULL', 'c-null', NULL, ?, DATE '2026-03-01', NULL), "
+                "('CODED', 'c-coded', 'M10.9', ?, DATE '2026-03-01', NULL)", [ICD10CM, ICD10CM, ICD10CM])  # fmt: skip
+
+    class Duck:
+        def query(self, sql: str, params: list[Any] | None = None, snapshot: str | None = None) -> Any:
+            return con.execute(sql, params or []).to_arrow_table()
+
+    cov = Coverage.load(Duck(), None, None, [ICD10CM])
+    assert cov.patients("condition") == {"EMPTY", "NULL"}
+    assert cov.refs(_inclusion(None), "EMPTY", date(2026, 10, 5)) == ["c-empty|2026-03-01"]

@@ -1,0 +1,23 @@
+{
+ "class": "structured",
+ "id": "NEUR-COH-INC-03",
+ "kind": "inclusion",
+ "label": "40歳以上",
+ "logic": {
+  "age": {
+   "min": 40.0
+  },
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "review": {
+  "at": "2026-11-10T22:19:28.826951+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "NEUR-COH",
+ "source_ref": "2.1 選択基準 #3",
+ "text": "登録時の年齢が40歳以上の者。",
+ "time_sensitive": false
+}
