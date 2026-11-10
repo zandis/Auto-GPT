@@ -133,9 +133,11 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-302 | reserved | T-102a | permission matrix |
 | D-303 | reserved | T-106 | OMOP schema name |
 | D-304 | reserved | T-106 | dual write |
-| D-305 | reserved | T-012a | `trialbox eval qualify` |
+| D-305 | unused | — | was reserved for T-012a, which took D-313 |
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
 | D-308 | reserved | T-501 | held for T-501 |
-| D-309..D-318 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-309..D-312 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-313 | merged | T-012a | `trialbox eval qualify` and the qualification record (file) |
+| D-314..D-318 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
 | D-319 | merged | T-655 | the review fixes of PR #71: what changes from D-205 and D-207 (file) |

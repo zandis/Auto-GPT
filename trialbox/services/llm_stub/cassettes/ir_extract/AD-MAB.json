@@ -1,0 +1,255 @@
+{
+ "criteria": [
+  {
+   "text": "同意取得時の年齢が50歳以上85歳以下の者。",
+   "label": "年齢 50〜85歳",
+   "source_ref": "5.1 選択基準 #1",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic",
+    "age": {
+     "min": 50,
+     "max": 85
+    }
+   },
+   "concept_candidates": []
+  },
+  {
+   "text": "アルツハイマー病による軽度認知障害（MCI）または軽度のアルツハイマー型認知症と診断されている者（ICD-10-CM G31.84 または G30）。",
+   "label": "MCI または軽度AD（病名）",
+   "source_ref": "5.1 選択基準 #2",
+   "kind": "inclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "mild cognitive impairment or alzheimer's disease",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "mild cognitive impairment or alzheimer's disease",
+     "synonyms": [
+      "軽度認知障害",
+      "アルツハイマー病"
+     ]
+    }
+   ],
+   "action": "病名の登録を確認"
+  },
+  {
+   "text": "スクリーニング前180日以内のMMSEが22点以上30点以下の者（HDS-Rでの代用は不可）。",
+   "label": "MMSE 22〜30点",
+   "source_ref": "5.1 選択基準 #3",
+   "kind": "inclusion",
+   "class": "note",
+   "time_sensitive": true,
+   "logic": {
+    "domain": "condition",
+    "concept": "mild cognitive impairment or alzheimer's disease",
+    "quantifier": "any",
+    "window": {
+     "from_days": -180,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "mild cognitive impairment or alzheimer's disease",
+     "synonyms": [
+      "軽度認知障害",
+      "アルツハイマー病"
+     ]
+    }
+   ],
+   "note_question": "Do the notes record a Mini-Mental State Examination (MMSE) total score from 22 to 30 within the 180 days before the index date? An HDS-R score alone does not answer this.",
+   "fallback": "Structured proxy: MCI or Alzheimer's disease coded within 180 days.",
+   "action": "MMSEを実施または記録を確認"
+  },
+  {
+   "text": "スクリーニング前180日以内のCDR全般スコアが0.5または1の者。",
+   "label": "CDR 0.5または1",
+   "source_ref": "5.1 選択基準 #4",
+   "kind": "inclusion",
+   "class": "note",
+   "time_sensitive": true,
+   "logic": {
+    "domain": "condition",
+    "concept": "mild cognitive impairment or alzheimer's disease",
+    "quantifier": "any",
+    "window": {
+     "from_days": -180,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "mild cognitive impairment or alzheimer's disease",
+     "synonyms": [
+      "軽度認知障害",
+      "アルツハイマー病"
+     ]
+    }
+   ],
+   "note_question": "Do the notes record a Clinical Dementia Rating (CDR) global score of 0.5 or 1 within the 180 days before the index date?",
+   "fallback": "Structured proxy: MCI or Alzheimer's disease coded within 180 days.",
+   "action": "CDRを評価"
+  },
+  {
+   "text": "アミロイドPETまたは脳脊髄液検査でアミロイド病理が確認されている者（陽性）。",
+   "label": "アミロイド陽性（PET/CSF）",
+   "source_ref": "5.1 選択基準 #5",
+   "kind": "inclusion",
+   "class": "note",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "condition",
+    "concept": "mild cognitive impairment or alzheimer's disease",
+    "quantifier": "any"
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "mild cognitive impairment or alzheimer's disease",
+     "synonyms": [
+      "軽度認知障害",
+      "アルツハイマー病"
+     ]
+    }
+   ],
+   "note_question": "Does an amyloid PET or cerebrospinal fluid (CSF) report in the record give a positive amyloid result?",
+   "fallback": "Structured proxy: MCI or Alzheimer's disease coded.",
+   "action": "アミロイドPETまたは脳脊髄液検査の結果を確認"
+  },
+  {
+   "text": "試験期間を通じて、被験者と週10時間以上接し、来院に付き添うことのできる介護者（スタディパートナー）がいる者。",
+   "label": "スタディパートナーあり",
+   "source_ref": "5.1 選択基準 #6",
+   "kind": "inclusion",
+   "class": "human",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic"
+   },
+   "concept_candidates": [],
+   "human_question": "Does the participant have a study partner who spends at least 10 hours a week with them and can come to the study visits?",
+   "action": "スタディパートナーの有無を本人と家族に確認"
+  },
+  {
+   "text": "スクリーニング前90日以内に抗凝固薬（ワルファリン、直接経口抗凝固薬）を使用した者。",
+   "label": "抗凝固薬（90日以内）",
+   "source_ref": "5.2 除外基準 #1",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": true,
+   "logic": {
+    "domain": "medication",
+    "concept": "anticoagulant",
+    "quantifier": "any",
+    "window": {
+     "from_days": -90,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [
+    {
+     "domain": "medication",
+     "name": "anticoagulant",
+     "synonyms": [
+      "抗凝固薬"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "頭部MRIで5か所以上の脳微小出血、または脳表ヘモジデリン沈着症を認める者。",
+   "label": "MRI 微小出血5か所以上・脳表ヘモジデリン",
+   "source_ref": "5.2 除外基準 #2",
+   "kind": "exclusion",
+   "class": "note",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "demographic"
+   },
+   "concept_candidates": [],
+   "note_question": "Does a brain MRI report show five or more cerebral microbleeds, or any superficial siderosis?",
+   "action": "頭部MRIの読影レポートを確認（未施行なら撮像）"
+  },
+  {
+   "text": "スクリーニング前12か月以内に脳卒中または一過性脳虚血発作（TIA）の既往がある者。",
+   "label": "脳卒中・TIA（12か月以内）",
+   "source_ref": "5.2 除外基準 #3",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": true,
+   "logic": {
+    "op": "or",
+    "args": [
+     {
+      "domain": "condition",
+      "concept": "stroke",
+      "quantifier": "any",
+      "window": {
+       "from_days": -365,
+       "to_days": 0
+      }
+     },
+     {
+      "domain": "condition",
+      "concept": "transient ischemic attack",
+      "quantifier": "any",
+      "window": {
+       "from_days": -365,
+       "to_days": 0
+      }
+     }
+    ]
+   },
+   "concept_candidates": [
+    {
+     "domain": "condition",
+     "name": "stroke",
+     "synonyms": [
+      "脳卒中"
+     ]
+    },
+    {
+     "domain": "condition",
+     "name": "transient ischemic attack",
+     "synonyms": [
+      "一過性脳虚血発作"
+     ]
+    }
+   ]
+  },
+  {
+   "text": "eGFRが30 mL/min/1.73m²未満の者（日本腎臓学会の推算式による）。",
+   "label": "eGFR 30未満",
+   "source_ref": "5.2 除外基準 #4",
+   "kind": "exclusion",
+   "class": "structured",
+   "time_sensitive": false,
+   "logic": {
+    "domain": "observation",
+    "derived": "egfr_jsn",
+    "quantifier": "latest",
+    "value": {
+     "op": "<",
+     "num": 30,
+     "unit": "mL/min/{1.73_m2}"
+    },
+    "window": {
+     "from_days": -365,
+     "to_days": 0
+    }
+   },
+   "concept_candidates": [],
+   "action": "クレアチニンを測定"
+  }
+ ]
+}

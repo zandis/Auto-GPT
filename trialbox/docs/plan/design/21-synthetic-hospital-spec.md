@@ -105,7 +105,7 @@ No list is downloaded at run time, so the generator runs offline.
 ```
 
 - **Offsets** (`start`, `end`) are Unicode code points (Python `str` indices) into the note text as written, end exclusive; not bytes. This matters for Japanese and Chinese text.
-- The early-Alzheimer study in the build is the existing `GZQO` ruleset; no new AD ruleset is needed for step 1.
+- The early-Alzheimer study in the build is `AD-MAB` (synthetic, scenario J1, T-503), screened on the `jp-ad` site with its `NEUR-COH` memory-clinic registry. `GZQO` is the gout study, not an Alzheimer's study.
 - The PHI gold feeds the N-07 leak check; the findings gold feeds the SCREEN recall check.
 
 ### 5.1 Finding-slot catalogue

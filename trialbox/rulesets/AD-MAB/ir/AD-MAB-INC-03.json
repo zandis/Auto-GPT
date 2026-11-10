@@ -1,0 +1,28 @@
+{
+ "action": "MMSEを実施または記録を確認",
+ "class": "note",
+ "fallback": "Structured proxy: MCI or Alzheimer's disease coded within 180 days.",
+ "id": "AD-MAB-INC-03",
+ "kind": "inclusion",
+ "label": "MMSE 22〜30点",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_MILD_COGNITIVE_IMPAIRMENT_OR_ALZHEIMER_S_DISEASE",
+  "window": {
+   "anchor": "index",
+   "from_days": -180,
+   "to_days": 0
+  }
+ },
+ "note_question": "Do the notes record a Mini-Mental State Examination (MMSE) total score from 22 to 30 within the 180 days before the index date? An HDS-R score alone does not answer this.",
+ "review": {
+  "at": "2026-11-10T22:18:12.342983+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "AD-MAB",
+ "source_ref": "5.1 選択基準 #3",
+ "text": "スクリーニング前180日以内のMMSEが22点以上30点以下の者（HDS-Rでの代用は不可）。",
+ "time_sensitive": true
+}

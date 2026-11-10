@@ -17,6 +17,12 @@ Tasks come from ``tools/mlbench_tasks/``; weights, per-language floors and the c
 
 No result is recorded before a live run (§20.8 S1-14).
 
+What it cannot do (LLM-030): it compares hosted provider versions of a model, not the quantised weights a box runs, so
+its results cannot choose a box model. A box pair is chosen and qualified with ``trialbox eval qualify``
+(:mod:`tools.qualify`, D-313), which runs PR #64's judge gate (:mod:`tools.judge_bakeoff`) in pair mode through the
+gateway. The dry run's cost check fails (``within_cap: False``, ``prices_missing``) when a candidate's endpoint has
+no prices, instead of reporting US$0.00 as within the cap.
+
 The live run (:mod:`tools.bakeoff_live`) is a client of a running gateway: the endpoint key lives in the gateway's
 environment only, and the build under test is pinned in the gateway's site override (``tools/pin_provider.py``). It
 first checks, against that gateway, that a D1 payload on ``bakeoff`` is refused and that the named build is pinned
@@ -148,6 +154,7 @@ def plan(
             }
         )
     cap = float(weights.get("cost_cap_usd", 0.0))
+    missing = sorted({c["build_id"] for r in roles for c in r["candidates"] if not c["prices_set"]})
     return {
         "weights_version": weights.get("version"),
         "routing_version": policy.version,
@@ -155,7 +162,8 @@ def plan(
         "roles": roles,
         "cost_estimate_usd": round(total_cost, 4),
         "cost_cap_usd": cap,
-        "within_cap": total_cost <= cap,
+        "prices_missing": missing,
+        "within_cap": not missing and total_cost <= cap,  # LLM-030: an unpriced estimate is not within any cap
     }
 
 

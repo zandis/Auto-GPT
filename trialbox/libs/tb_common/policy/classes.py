@@ -174,6 +174,11 @@ _D1 = {
     "PromptMeta",
     "ModelEntry",
     "ModelManifest",
+    # the qualification record (D-313): build ids, hashes, counts and codes, no note text
+    "QualificationRecord",
+    "QualificationBuilds",
+    "QualifiedBuild",
+    "QualificationStep",
     "UpdateFile",
     "UpdateManifest",
     "KeyRotation",
