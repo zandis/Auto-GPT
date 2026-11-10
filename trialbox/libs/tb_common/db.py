@@ -2,7 +2,7 @@
 ``trialbox_wf``, one schema per store.
 
     db = Database.connect(os.environ["TB_DB_URL"], "site")      # schema "site" (search_path), created if missing
-    db.migrate([V1_DDL, V2_DDL])                               # versioned, idempotent, recorded in _schema_version
+    db.migrate([V1_DDL, V2_DDL])                               # versioned, checksummed, recorded in _schema_version
     with db.transaction() as tx:
         tx.execute("INSERT INTO marks (pid, mark) VALUES (?, ?)", (pid, "approach"))
         row = tx.fetchone("SELECT mark FROM marks WHERE pid = ?", (pid,))
@@ -21,16 +21,40 @@ the stores rely on one serialised connection, and psycopg_pool would be a new de
 ``TB_DB_URL`` is a ``postgresql://`` DSN. A ``tb_prefix`` query parameter (``...?tb_prefix=t1234_``) is removed
 before connecting and put in front of every schema name: the test suite gives each test its own schemas in one
 throwaway cluster (``tools/pglocal.py``), the demo and ``e2e_simple`` their own run.
+
+**Migrations are checksummed** (D-204). A store's schema versions are whole scripts, append-only: ``versions[0]`` is
+version 1. Each store keeps its own ``_schema_version`` table in its own schema (so two stores that both reach
+version 3 never collide), one row per applied version: ``version``, ``applied_at``, ``sha256`` (hex SHA-256 of the
+script's UTF-8 text, exactly as passed, see :func:`script_sha256`), ``script_name`` and ``backfilled``. On every
+:meth:`Database.migrate`, under a per-schema advisory lock and in one transaction:
+
+1. rows written before D-204 (no ``sha256``) are back-filled once from the scripts the code passes now, marked
+   ``backfilled = true``; that first run never fails on a checksum (it is the one point where the code is trusted);
+2. every applied version the caller passes is compared with its record: a different script raises
+   :class:`MigrationChanged` naming the store (schema) and the version, and nothing is applied;
+3. applied versions must be exactly ``1..n`` (a gap means a script ran out of order) and a caller's list must number
+   its scripts ``1..n`` with no gap or duplicate; otherwise :class:`MigrationOrderError`;
+4. the versions not yet applied run in order, each recorded with its checksum and name.
+
+A caller that passes fewer versions than are applied (an older release, ``migrate([])`` to read the version) is not
+refused here: downgrades are the update path's decision (T-111), which reads :meth:`Database.applied`.
+:meth:`Database.migrate_dir` reads a directory of ``NNN_<name>.sql`` files (``001_init.sql``, ``002_...``) as the
+version list. The PostgreSQL extensions ``vector`` and ``pgroonga`` exist only on the box's ``db`` image (created by
+``deploy/docker/db-init/``, never by a store); :func:`extensions` lists the ones installed.
 """
 
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib
 import re
 import threading
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -41,6 +65,106 @@ _SCHEMA_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 
 class DatabaseError(RuntimeError):
     """The trial database is not configured or not reachable."""
+
+
+class MigrationError(DatabaseError):
+    """A store's migrations cannot be applied as given (D-204); the store must not start."""
+
+    def __init__(self, store: str, message: str) -> None:
+        super().__init__(f"store {store!r}: {message}")
+        self.store = store
+
+
+class MigrationChanged(MigrationError):
+    """An applied schema version's script differs from the one recorded when it ran (D-204)."""
+
+    def __init__(self, store: str, version: int, script_name: str | None, recorded: str, current: str) -> None:
+        super().__init__(
+            store,
+            f"schema version {version} ({script_name or 'unnamed'}) was applied with sha256 {recorded[:12]}... but "
+            f"the code now carries sha256 {current[:12]}...: an applied migration was changed; add a new version "
+            "instead (D-204)",
+        )
+        self.version = version
+        self.script_name = script_name
+        self.recorded = recorded
+        self.current = current
+
+
+class MigrationOrderError(MigrationError):
+    """Versions out of order: a gap or a duplicate in the scripts, or a gap in what is applied (D-204)."""
+
+
+#: the PostgreSQL extensions the box's ``db`` image provides (D-204; ``deploy/docker/db-init/``)
+IMAGE_EXTENSIONS = ("vector", "pgroonga")
+_MIGRATION_FILE = re.compile(r"^(\d{3})_[A-Za-z0-9][A-Za-z0-9_.-]*\.sql$")
+
+
+def script_sha256(script: str) -> str:
+    """Hex SHA-256 of a migration script's UTF-8 text, exactly as passed (no whitespace or newline normalisation)."""
+    return hashlib.sha256(script.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class Migration:
+    """One schema version: its number (1-based), its whole script and a name (a file name, or ``v001``)."""
+
+    version: int
+    script: str
+    name: str
+
+    @property
+    def sha256(self) -> str:
+        return script_sha256(self.script)
+
+
+@dataclass(frozen=True)
+class AppliedVersion:
+    """One row of a store's ``_schema_version`` (``sha256`` and ``script_name`` are None only before back-fill)."""
+
+    store: str
+    version: int
+    applied_at: datetime
+    sha256: str | None
+    script_name: str | None
+    backfilled: bool
+
+
+def as_migrations(versions: Sequence[str | Migration], store: str = "?") -> list[Migration]:
+    """Number a version list ``1..n``: a plain string is version ``i`` named ``v00i``; a :class:`Migration` must
+    carry its own position (else :class:`MigrationOrderError`)."""
+    out: list[Migration] = []
+    for n, v in enumerate(versions, start=1):
+        if isinstance(v, Migration):
+            if v.version != n:
+                raise MigrationOrderError(store, f"script {v.name} is version {v.version} but stands at position {n}")
+            out.append(v)
+        else:
+            out.append(Migration(n, v, f"v{n:03d}"))
+    return out
+
+
+def read_migration_dir(path: Path | str, store: str = "?") -> list[Migration]:
+    """The ``NNN_<name>.sql`` files of ``path`` as versions ``1..n`` (read as UTF-8, byte for byte). Any other
+    ``.sql`` file, a duplicate number or a gap (``001``, ``003``) is refused with :class:`MigrationOrderError`."""
+    d = Path(path)
+    if not d.is_dir():
+        raise MigrationError(store, f"migration directory {d} does not exist")
+    found: dict[int, Path] = {}
+    for p in sorted(d.iterdir()):
+        if not p.is_file() or p.suffix != ".sql":
+            continue
+        m = _MIGRATION_FILE.match(p.name)
+        if not m:
+            raise MigrationOrderError(store, f"{p.name}: migration files are named NNN_<name>.sql")
+        n = int(m.group(1))
+        if n in found:
+            raise MigrationOrderError(store, f"two scripts for version {n}: {found[n].name} and {p.name}")
+        found[n] = p
+    for want, n in enumerate(sorted(found), start=1):
+        if n != want:
+            raise MigrationOrderError(store, f"version {want} is missing before {found[n].name}")
+    return [Migration(n, found[n].read_bytes().decode("utf-8"), found[n].name) for n in sorted(found)]
 
 
 def _lost_errors() -> tuple[type[BaseException], ...]:
@@ -218,27 +342,81 @@ class Database:
         with self.transaction() as tx:
             return tx.fetchdicts(text, params)
 
-    def migrate(self, versions: Sequence[str]) -> int:
-        """Apply the DDL versions not yet applied (each a ``;``-separated script); return the schema version.
+    def migrate(self, versions: Sequence[str | Migration]) -> int:
+        """Apply the schema versions not yet applied (each a whole ``;``-separated script); return ``len(versions)``.
 
-        Versions are append-only: ``versions[0]`` is version 1. A version runs in one transaction with its record.
+        Versions are append-only: ``versions[0]`` is version 1. The whole call is one transaction under a per-schema
+        lock: pre-D-204 rows are back-filled with checksums, applied versions are checked (:class:`MigrationChanged`),
+        the order is checked (:class:`MigrationOrderError`), then each new version runs and is recorded with its
+        ``sha256`` and ``script_name``. Any failure leaves the store as it was.
         """
+        migs = as_migrations(versions, self.schema)
         with self.transaction() as tx:
+            # one migrator at a time per schema (two services starting together)
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (self.schema,))
             tx.execute(
                 "CREATE TABLE IF NOT EXISTS _schema_version (version BIGINT PRIMARY KEY, applied_at TIMESTAMPTZ "
                 "NOT NULL DEFAULT now())"
             )
-            # one migrator at a time per schema (two services starting together)
-            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (self.schema,))
-            have = int(tx.fetchval("SELECT COALESCE(MAX(version), 0) FROM _schema_version", default=0))
-            for n, script in enumerate(versions, start=1):
-                if n <= have:
-                    continue
-                for stmt in (s.strip() for s in script.split(";")):
+            cols = {
+                str(r[0])
+                for r in tx.fetchall(
+                    "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() "
+                    "AND table_name = '_schema_version'"
+                )
+            }
+            if not {"sha256", "script_name", "backfilled"} <= cols:  # the D-204 columns, once per store
+                tx.execute(
+                    "ALTER TABLE _schema_version ADD COLUMN IF NOT EXISTS sha256 TEXT, "
+                    "ADD COLUMN IF NOT EXISTS script_name TEXT, "
+                    "ADD COLUMN IF NOT EXISTS backfilled BOOLEAN NOT NULL DEFAULT false"
+                )
+            rows = tx.fetchall("SELECT version, sha256, script_name FROM _schema_version ORDER BY version")
+            applied = [int(r[0]) for r in rows]
+            if applied != list(range(1, len(applied) + 1)):
+                gap = next(n for n, v in enumerate(applied, start=1) if v != n)
+                raise MigrationOrderError(
+                    self.schema, f"applied versions {applied} skip version {gap}: a script was applied out of order"
+                )
+            for (n, recorded, name), mig in zip(rows, migs, strict=False):
+                if recorded is None:  # applied before D-204: back-fill once from the code as it is now
+                    tx.execute(
+                        "UPDATE _schema_version SET sha256 = ?, script_name = ?, backfilled = true WHERE version = ?",
+                        (mig.sha256, mig.name, n),
+                    )
+                elif recorded != mig.sha256:
+                    raise MigrationChanged(self.schema, int(n), name, str(recorded), mig.sha256)
+            for mig in migs[len(applied) :]:
+                for stmt in (s.strip() for s in mig.script.split(";")):
                     if stmt:
                         tx.execute(stmt)
-                tx.execute("INSERT INTO _schema_version (version) VALUES (?)", (n,))
-            return len(versions)
+                tx.execute(
+                    "INSERT INTO _schema_version (version, sha256, script_name) VALUES (?, ?, ?)",
+                    (mig.version, mig.sha256, mig.name),
+                )
+            return len(migs)
+
+    def migrate_dir(self, path: Path | str) -> int:
+        """:meth:`migrate` with the ``NNN_<name>.sql`` scripts of ``path`` (:func:`read_migration_dir`)."""
+        return self.migrate(read_migration_dir(path, self.schema))
+
+    def applied(self) -> list[AppliedVersion]:
+        """This store's ``_schema_version`` rows in version order (empty when nothing was ever migrated)."""
+        with self.transaction() as tx:
+            have = tx.fetchall(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() "
+                "AND table_name = '_schema_version'"
+            )
+            cols = {str(r[0]) for r in have}
+            if not cols:
+                return []
+            if "sha256" not in cols:  # not yet migrated under D-204
+                rows = tx.fetchall("SELECT version, applied_at, NULL, NULL, false FROM _schema_version ORDER BY 1")
+            else:
+                rows = tx.fetchall(
+                    "SELECT version, applied_at, sha256, script_name, backfilled FROM _schema_version ORDER BY 1"
+                )
+        return [AppliedVersion(self.schema, int(v), at, sha, name, bool(bf)) for v, at, sha, name, bf in rows]
 
     def close(self) -> None:
         with self._lock:
@@ -249,3 +427,12 @@ class Database:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+
+def extensions(db: Database, names: Sequence[str] = IMAGE_EXTENSIONS) -> dict[str, str | None]:
+    """``{name: installed version or None}`` of the PostgreSQL extensions ``names`` in ``db``'s database."""
+    rows: dict[str, str] = {
+        str(n): str(v)
+        for n, v in db.fetchall("SELECT extname, extversion FROM pg_extension WHERE extname = ANY(?)", (list(names),))
+    }
+    return {n: rows.get(n) for n in names}

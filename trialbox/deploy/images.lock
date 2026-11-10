@@ -1,0 +1,32 @@
+{
+  "format": "trialbox-images-lock/1",
+  "decision": "D-204",
+  "about": "The container images the box runs, pinned. One entry per image the box builds or pulls (only db so far; the others move here with T-110). For a built image: the base it is built FROM (reference and multi-arch index digest), the exact OS packages it adds, the signing keys it trusts, and `digest`: the built image's digest, written by the release build (T-110 release.json carries the same value) and null until a release pins it. tests/unit/test_db_image.py keeps this file equal to the Dockerfile's ARG defaults and the compose `db` image line. The update path refuses a bundle whose image digest differs from `digest` (T-111).",
+  "images": {
+    "db": {
+      "image": "trialbox-postgres:16-1",
+      "dockerfile": "deploy/docker/db.Dockerfile",
+      "context": "deploy/docker",
+      "base": {
+        "ref": "postgres:16-trixie",
+        "digest": "sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657",
+        "platforms": ["linux/amd64", "linux/arm64"]
+      },
+      "packages": {
+        "postgresql-16-pgvector": "0.8.7-1.pgdg13+1",
+        "postgresql-16-pgdg-pgroonga": "4.1.0-1"
+      },
+      "keys": {
+        "groonga": {
+          "file": "deploy/docker/db.groonga-archive-keyring.asc",
+          "fingerprint": "2701F317CFCCCB975CADE9C2624CF77434839225"
+        }
+      },
+      "extensions": {
+        "vector": "0.8.7",
+        "pgroonga": "4.1.0"
+      },
+      "digest": null
+    }
+  }
+}
