@@ -115,7 +115,9 @@ def test_cli_refuses_a_bad_schema(tmp_path: Path, capsys: pytest.CaptureFixture[
 def test_jp_ssmix2_of_500_patients_ingests_with_no_error(jp_site: Path, tmp_path: Path) -> None:
     """Acceptance (1): SS-MIX2 storage of 500 synthetic patients, the shipped JP mapping, 0 errors."""
     from adapter.pipeline import AdapterConfig, run_ingest
+    from tb_common.crypto import create_key
 
+    create_key(tmp_path / "secrets" / "site_hmac.key")  # the install ceremony's key step (T-612)
     cfg = AdapterConfig(
         lake_dir=tmp_path / "lake", secrets_dir=tmp_path / "secrets", mapping_path=JP_MAP, site_id="JP-SAMPLE",
         tz="Asia/Tokyo",

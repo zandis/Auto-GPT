@@ -49,6 +49,7 @@ def test_default_install_passes() -> None:
         "registry_pins",
         "site_tz",
         "flags",
+        "site_key",
     }
 
 
