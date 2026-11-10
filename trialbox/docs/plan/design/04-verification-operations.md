@@ -1419,7 +1419,7 @@ The phase each site is in is shown on the admin home and in every pilot report. 
 
 | Site | Study | Ruleset | Data | Duration |
 | --- | --- | --- | --- | --- |
-| Japan head hospital | Early Alzheimer's disease study (GZQO-style: MCI or mild dementia due to AD, MMSE range, amyloid status, exclusions on other neurodegenerative disease, recent stroke, anticoagulants) | GZQO (judge v4) or the site's actual protocol compiled at SAT | SS-MIX2 + notes export (SSI or Fujitsu), memory-clinic registry | Phase 1 from about 2027-02-08 (TB-DS-00 §2); 6 + 6 weeks of endpoint collection from ethics approval |
+| Japan head hospital | Early Alzheimer's disease study (AD-MAB-style: MCI or mild dementia due to AD, MMSE range, amyloid status, exclusions on other neurodegenerative disease, recent stroke, anticoagulants) | AD-MAB (synthetic, T-503; GZQO is the gout study) or the site's actual protocol compiled at SAT | SS-MIX2 + notes export (SSI or Fujitsu), memory-clinic registry | Phase 1 from about 2027-02-08 (TB-DS-00 §2); 6 + 6 weeks of endpoint collection from ethics approval |
 | CGMH | Rheumatology: an RA biologic study and (optional) a gout cohort | RA-BIO, GOUT-COH (judge v4) or the site's actual protocol | CGMH HIS / data warehouse; CGRD for pre-approval feasibility | Phase 1 from about 2027-02-22 (after Lunar New Year, §12); 6 + 6 weeks of endpoint collection from IRB approval |
 
 Prerequisites: each site's ethics committee approval of the pilot protocol, including the opt-out notice for feasibility on existing data and the basis for identified recruitment lists (TB-DS-03 §11.2: consent or IRB-approved basis in Taiwan; not PDPA Art. 6(1)(4)) (SRS AS-03); data-use and confidentiality agreements; SAT passed. The submission pack is WBS A1 (§12).

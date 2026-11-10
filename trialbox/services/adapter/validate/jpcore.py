@@ -14,7 +14,9 @@ derived at build time from the pinned JP Core 1.1.0 package by ``tools/jpcore_ru
    element's cardinality per parent instance, fixed and pattern values, slices with ``value`` / ``pattern``
    discriminators (their own cardinality and the elements inside them), and ``required`` bindings whose ValueSet
    the package enumerates.
-4. **The code systems we hold.** ICD-10-CM codes must be in the full ICD-10-CM list (D-122); LOINC codes must pass
+4. **The code systems we hold.** ICD-10-CM codes must be in the full ICD-10-CM list (D-122); a WHO ICD-10 code (the
+   system Japan codes in, D-314) not written as a WHO code (``E14.9``, ``M10.97``) is a warning: a code with an
+   ICD-10-CM-only shape (``C50.911``, ``M1A.9XX0``) under the WHO URI is listed, never failed; LOINC codes must pass
    the check digit; JLAC10, YJ, HOT9, ATC and MEDIS 病名交換用コード codes must have their shape; when the site's
    licensed release is loaded (``adapter.licensed``), a code missing from it is a warning (a newer code), never an
    error.
@@ -51,6 +53,8 @@ PROFILED = (
 )
 DEFAULT_PER_TYPE = 50
 ICD10CM = "http://hl7.org/fhir/sid/icd-10-cm"
+ICD10_WHO = "http://hl7.org/fhir/sid/icd-10"
+_WHO_SHAPE = re.compile(r"^[A-Z][0-9]{2}(\.[0-9]{1,2})?$")
 LOINC = "http://loinc.org"
 ATC = "http://www.whocc.no/atc"
 _SHAPES = {
@@ -329,7 +333,8 @@ class JpCoreValidator:
 
     def _codes(self, res: Resource, rtype: str, out: Outcome) -> None:
         """Every coding of a code system we hold: in the list (ICD-10-CM), a valid check digit (LOINC), the shape
-        of the code (JLAC10, YJ, HOT, MEDIS, ATC), and, when the site's release is loaded, in the release."""
+        of the code (WHO ICD-10 as a warning, JLAC10, YJ, HOT, MEDIS, ATC), and, when the site's release is loaded,
+        in the release."""
 
         def walk(node: Any, path: str) -> Iterable[tuple[str, dict[str, Any]]]:
             if isinstance(node, dict):
@@ -347,6 +352,9 @@ class JpCoreValidator:
                 cm = _icd10cm()
                 if cm and code not in cm:
                     out.issues.append(Issue("error", path, f"{code} is not an ICD-10-CM code"))
+            elif system == ICD10_WHO:
+                if not _WHO_SHAPE.match(code):
+                    out.issues.append(Issue("warning", path, f"{code} is not written as a WHO ICD-10 code"))
             elif system == LOINC and path.endswith(".coding"):
                 if re.fullmatch(r"L[AGP]\d+-\d", code):  # answer, group and part codes: their own numbering
                     continue

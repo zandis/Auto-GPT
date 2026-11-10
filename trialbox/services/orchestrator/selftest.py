@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from tb_common.llm import LlmClient, LlmError
+from tb_common.pair import same_model, served_keys
 
 from orchestrator.scenarios.evaluate import postprocess
 
@@ -57,6 +58,7 @@ class ModelReport:
     errors: list[str] = field(default_factory=list)
     wrong: list[dict[str, str]] = field(default_factory=list)
     answers: dict[str, str] = field(default_factory=dict)  # case id -> predicate (not reported, used for the pair)
+    served: list[str] = field(default_factory=list)  # the model names the answers came back under (D-276)
 
     @property
     def ok(self) -> bool:
@@ -98,6 +100,9 @@ def check_model(role: str, client: LlmClient, cases: list[dict[str, Any]], promp
             rep.errors.append(f"{c['id']}: {str(exc)[:120]}")
             continue
         rep.answered += 1
+        for name in served_keys(getattr(res, "model", ""), getattr(res, "build_sha", "")):
+            if name not in rep.served:
+                rep.served.append(name)
         got = postprocess(res.data, c["excerpts"]).predicate
         rep.answers[c["id"]] = got
         want = c["expected"]
@@ -152,6 +157,12 @@ def run_selftest(
     pair = None
     if "judge" in by_role and "verifier" in by_role:
         pair = pair_report(by_role["judge"], by_role["verifier"], cs)
+        # D-276 (review S-2): a "pair" that is one model agrees with itself on every case and would pass
+        shared = sorted(set(by_role["judge"].served) & set(by_role["verifier"].served))
+        one = same_model(llm, verifier) or (f"both answered as the same model ({shared[0]})" if shared else None)
+        if one:
+            pair["same_model"] = one
+            problems.append(f"the verifier is not a second model ({one}): a note answer needs two different models")
         if pair["decided_wrong"] > MAX_PAIR_WRONG:
             problems.append(
                 f"the pair agreed on a wrong decided answer in {pair['decided_wrong']} cases (at most {MAX_PAIR_WRONG})"

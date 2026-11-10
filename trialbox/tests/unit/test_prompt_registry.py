@@ -411,6 +411,9 @@ def _body() -> dict[str, Any]:
         "messages": render(load_prompt("judge_v4"), JUDGE_VARS),
         "response_format": json_schema_format("judge", inline_schema("llm_judge_output")),
         "max_tokens": 512,
+        # the build by name, as an installed box asks for it (D-276): this test registry has no stub build, and a
+        # judge call no longer falls through to the next build of its route
+        "model": "j-workhorse",
     }
 
 
@@ -519,7 +522,7 @@ def test_v1_shim_sends_the_registered_sha(tmp_path: Path, monkeypatch: pytest.Mo
         def complete(self, body: dict[str, Any], labels: Any) -> dict[str, Any]:
             h = labels.headers("orchestrator")
             sent.append(h)
-            res = gw.chat({**h, "X-TB-Step": "s"}, body)
+            res = gw.chat({**h, "X-TB-Step": "s"}, {**body, "model": "j-workhorse"})  # the build by name (D-276)
             assert res.status == 200, res.body
             return res.body
 

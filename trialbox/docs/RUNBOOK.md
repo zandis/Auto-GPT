@@ -31,7 +31,8 @@ runs the settings wizard, makes one token per service, starts the stack, creates
 site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital IT), installs the
 nightly log job and runs the host check. `--mode stub` installs a box without a GPU. The vendor builds the bundle with
 `tools/make_bundle.sh` (`make release-bundle`: only images that passed the release gates). The image vulnerability
-gate is in report mode for now; the open findings are in `deploy/security/known-image-findings.md` (SECURITY.md §8). On Windows the box runs in WSL2: `docs/handover/OFFLINE-MEDIA.md`,
+gate blocks for our images and is in report mode for the third-party ones for now; their open findings are in
+`deploy/security/known-image-findings.md` (SECURITY.md §8). On Windows the box runs in WSL2: `docs/handover/OFFLINE-MEDIA.md`,
 `docs/handover/WINDOWS-INSTALL-CHECKLIST.md` and `deploy/windows/preflight.ps1`.
 
 **The same, step by step.**
@@ -180,6 +181,8 @@ supply-chain gates (lock current, allow-list, pip-audit, licences) are the `lock
 | Many orders or results read as unknown after an ingest | `mapping_check.py` lists status codes outside the map; the lake's `medication.status` = `unknown` | the HIS sends a status code the site mapping does not know: add it to the `status` / `result_status` map (an unknown code never counts as given or as final; D-275) |
 | Many patients "need information" with "a medicine order has no end date" | the feed's order rows: no end date, or no date at all | map the order's end (or days of supply) in the site mapping (D-275) |
 | Notes never exclude | `selftest.failed` in the audit, the admin health tile | the pair canary failed: check the models (§8, §10) |
+| Notes never exclude; the run says "the verifier is not a second model" | `llm.pair.same_model` in the audit, `trialbox doctor` (`note_block` FAIL) | the verifier is the judge again (the same model name, alias, build or weights), or its endpoint does not say which weights it serves (`/models`). A note answer needs two different models (D-276): name a different verifier (`TB_GATEWAY_VERIFIER_MODEL`, or `LLM_VERIFIER_BASE_URL` with its own `LLM_VERIFIER_MODEL`), or set `TB_NOTE_BLOCK=never` on purpose |
+| A screening run fails "the model did not answer"; rows say "not checked (system busy)" | the gateway log (`upstream_failed` on a judge call), `llm.gateway.call` with `fallbacks` | the judge's server is down or erroring. A judge call is never answered by the verifier build instead (D-276, LLM-002): bring the judge back, then send the request again |
 | A tool imports the wrong code | the venv has another checkout installed | set `PYTHONPATH=libs:services:.` (the Makefile does) |
 | Test ports taken | | `TB_HOST_<NAME>_PORT` in `deploy/.env` |
 
@@ -188,22 +191,48 @@ A failed job names its step (received, parsing, compiling, running, reporting) a
 
 ## 5. Updates, backup, restore, secrets
 
-**Updates** (D-138): `sudo tools/apply_update.sh trialbox-<version>.tar --dry-run`, then without `--dry-run`.
+**Updates** (D-138, D-210): `sudo tools/apply_update.sh trialbox-<version>.tar --dry-run`, then without `--dry-run`.
 
-1. The bundle is verified (vendor Ed25519 signature, every sha256). A bad bundle changes nothing.
+1. **Checked before anything changes.** The bundle is verified with a vendor key the box trusts (the signature,
+   `key_id`, every sha256 and size), `not_after` (an expired bundle is refused), `release_seq` above the installed one,
+   `min_installed_version`, the compatibility table `compat.json` (schema versions, vocabulary release, model pin,
+   prompt registry), the image digests of `release.json` against `images.lock` (a digest not pinned is refused), and
+   the free space on every disk it writes, with the numbers (`needs 13.5 GB …, free 4.2 GB`). Any refusal: exit 1,
+   nothing changed.
 2. **Backup first** to `TB_BACKUP_TARGETS` with `deploy/secrets/backup.pub`. No key or no target: the update refuses.
 3. **Rollback point:** replaced images tagged `<repo>:rollback-<bundle>`, overwritten models kept, both databases
-   dumped locally (0600, removed after success).
+   dumped locally and encrypted with a key made for this update, the rulesets repository tagged.
 4. **Apply:** images loaded, models copied, `docker compose up -d --wait` (services migrate at start), rulesets
-   (approval and equivalence gates), health check.
-5. `update.applied` in the audit. A failure after step 3 puts images, models and databases back, restarts, checks
-   and writes `update.rolled_back`; exit 1.
+   (approval and equivalence gates), health check, then the reference data pack as its own step (if only that fails,
+   the new release stays and the pack waits in `deploy/refdata/pending`).
+5. `update.applied` in the audit; the rollback point (dumps and key) deleted. A failure in step 4 before the reference
+   data puts images, models, databases and rulesets back, restarts, checks and writes `update.rolled_back`; exit 1. If
+   the backup or the rollback point fails, the stopped services are started again and nothing else changed.
 
 **After the update that brings D-275, run one ingest** (the nightly one is enough). Until then the lake still holds records the new rule leaves out (a result entered in error, a cancelled order, a sex of `other` / `unknown` as text), and orders with no date that the old ingest dropped are only read again when the source sends them. Approved rulesets need no new approval: their SQL runs guarded by the current rules (`criteria_compiler/compile_sql/overlay.py`) until they are next compiled.
 
-Every step is in `deploy/updates/history.jsonl`. `--no-backup` is for a test box only and is audited. If the rollback
-itself fails, restore from the backup. Driver updates are outside the bundle and need a change request. Held by
-`tests/unit/test_update_path.py` and `tools/update_drill.py`.
+**While an update runs** `deploy/updates/IN_PROGRESS.json` names the bundle and the step. It is removed only when the
+update or its rollback completed; while it exists no other update starts. After a power cut or a killed update:
+
+| Command | What it does |
+| --- | --- |
+| `tools/apply_update.sh status` | the bundle, the step it stopped at, running or interrupted, the installed `release_seq`, the trusted keys |
+| `tools/apply_update.sh rollback <bundle>` | puts the box back as before that update (or only restarts the services, if it stopped before the rollback point), audits it, removes the marker |
+| `tools/apply_update.sh clean` | removes left-over rollback points of finished updates |
+| `python3 -m tools.update_status check` | exit 3 while an update is unfinished (a start guard) |
+
+**Older releases.** A bundle with a `release_seq` not above the installed one is refused. Only on the vendor's written
+instruction: `tools/apply_update.sh <bundle> --allow-downgrade "<ticket and reason>"`; the audit gets
+`update.downgrade`. A bundle that does not know the box's schema version is refused even then.
+
+**Vendor keys.** The box trusts at most two keys (`deploy/updates/trust.json`; before the first update,
+`deploy/keys/vendor_ed25519.pub` and `vendor_ed25519.next.pub`). The vendor changes keys with a rotation bundle, signed
+by a trusted key, applied like any update and accepted once; a retired key is never trusted again.
+
+Every step is in `deploy/updates/history.jsonl`; `deploy/updates/installed.json` records what is installed.
+`--no-backup` is for a test box only and is audited. If the rollback itself fails, the marker stays: restore from the
+backup. Driver updates are outside the bundle and need a change request. Held by `tests/unit/test_update_path.py`,
+`tests/unit/test_update_safety.py` and `tools/update_drill.py`.
 
 **Backup** (D-126, D-187, D-188). Once, with hospital IT: `python -m tools.trialbox backup-keygen --private
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the
@@ -401,6 +430,8 @@ The pair needs about 35 GiB side by side, so `docker-compose.rtx5090.yml` runs o
 - After a host reboot run `docker compose ... up -d --wait` again: the start-order helpers run only under compose.
 
 ## 11. Cloud runs (owner's OK first)
+
+Qualifying a model pair on a card (G1b runs through it): [the qualify section](runbook/11-qualify.md) (D-313).
 
 GCP project `trialbox-demo`. Always use a private `CLOUDSDK_CONFIG` (and unset `CLOUDSDK_AUTH_ACCESS_TOKEN`), stop
 every VM after use and check that it shows `TERMINATED`.
@@ -829,3 +860,115 @@ answers without the key in PRODUCTION. An update (`trialbox update`) makes the k
 the same check after the restart; a FAIL rolls the update back. To change the key: set a new value in
 `deploy/.env`, then `docker compose --project-directory deploy up -d gateway model-guard llm-service llm-verifier`
 (`trialbox secrets rotate` does not rotate it yet).
+
+## 17. On a hospital platform
+
+For a hospital that runs TrialBox on its own shared GPU platform (CGMH's B200) or, in the interim, on its private
+cloud with GPU (D-211). The same images as the appliance; no `install.sh`. The platform team applies the manifests in
+TrialBox's own namespace; Aimedics runs the install checks there; the hospital witnesses (IT pack §A.6).
+
+**What the platform team gives TrialBox** (before the first apply; survey questions 49 to 53):
+
+| Item | What | Checked by |
+| --- | --- | --- |
+| Namespace | TrialBox's own; nothing else runs in it | the isolation probe |
+| Quota | a ResourceQuota with two GPU devices (two MIG instances on the shared card: the judge and the verifier each hold one; `nvidia.com/gpu` with the `single` MIG strategy or `nvidia.com/mig-<profile>` with `mixed`), and CPU and memory at least the minimum `doctor --platform` prints | `quota` |
+| Storage | an encrypted storage class with ReadWriteMany; its specification and encryption setting as evidence | `storage_encryption` (evidence reference) |
+| Network | a CNI that enforces NetworkPolicy; the console's TLS proxy or ingress controller in a namespace labelled `trialbox.io/console-ingress=true` | `network_policy`, the isolation probe |
+| Services | NTP, the directory (LDAP or OIDC), the SMTP relay, the backup share | `ntp`, `directory`, `mail_relay`, `backup_target` |
+| Secrets | `trialbox-db` (`POSTGRES_PASSWORD`, `POSTGRES_WF_PASSWORD`, `TB_DB_URL`), `trialbox-mail` (optional), `trialbox-cloud` (optional), `trialbox-actor`, `trialbox-token-<service>` (key `token`) and the ConfigMap `trialbox-service-tokens`, made with `python3 -m tools.trialbox secrets init` on an admin workstation and created with `kubectl create secret`; **never** the key-encryption key, the `pid_map.key` or the `site_hmac.key` (WS-13.11: a hospital KMS or the steward's unseal; T-210) | `kek_custody` |
+| Weights | the model folders in the `models-data` claim (read-only to the servers) | `gpu_serving`, `canary` |
+
+**Apply.** A site overlay sits on top of `deploy/platform/overlays/shared-quota` (or `interim-cloud`): it sets the
+namespace and the storage class, replaces `trialbox-settings` with the site's `settings.yaml`, merges the site's
+values into `trialbox-env` (as `deploy/.env` on a box: `SMTP_HOST`, `TB_SITE_ID` ...) and `trialbox-platform`
+(the platform's declarations: `TB_PLATFORM_STORAGE_CLASS` (required in VALIDATION and PRODUCTION),
+`TB_PLATFORM_STORAGE_ENCRYPTED=yes`, `TB_PLATFORM_STORAGE_EVIDENCE`, `TB_BACKUP_TARGETS`,
+`TB_PLATFORM_BACKUP_EVIDENCE`, `TB_PLATFORM_BACKUP_HOST`, `TB_NTP_SERVER`, `TB_DIRECTORY_URL`,
+`TB_PLATFORM_API_SERVER` (the API server's endpoint addresses, `kubectl -n default get endpoints kubernetes`),
+`TB_MIG_PROFILE`), and adds the egress policies:
+
+1. `python -m tools.trialbox platform-egress --env-file <site.env> > egress.yaml` renders the egress allowlist of
+   `deploy/egress.py` as NetworkPolicies (the same hosts as the appliance's nftables table; resolved now, so re-run
+   it when an address changes) and the install-check job's own policy `trialbox-egress-doctor` (only the declared
+   API server, NTP, directory, mail relay and backup hosts; an undeclared one gets no rule). Add `egress.yaml` to
+   the site overlay's resources.
+2. `kustomize build <site overlay> | kubeconform -strict -summary` (pinned: kustomize v5.4.3, kubeconform v0.6.7),
+   then `python -m tools.trialbox doctor --platform --manifests <build output>` before anything is applied: it
+   prints the quota minimum and refuses a `latest` tag.
+3. `kustomize build <site overlay> | kubectl apply -f -`. The judge and the verifier do not start while
+   `serving.env` reads `unmeasured`: that is on purpose (below).
+
+**The `shared-quota` serving record.** The pair's context, sequences and memory fraction on a MIG instance are
+measured, never assumed: from the cloud B200 qualification (T-114, WS-02.7), then on CGMH's own partition at IQ with
+`tools/serving_config.py`. The record goes into the ConfigMap `trialbox-serving-record` (key `serving_config.json`),
+its values into the overlay's `serving.env`; the record must name the MIG profile in `card.mig_profile`. A partition
+change is a CC6 change: measure again, re-run the checks and the canary. The Docker form of the same profile is
+`deploy/docker-compose.shared-quota.yml` (the MIG instance UUIDs and every serving value required, none defaulted).
+
+**The install checks (IQ).** `kubectl -n <ns> delete job trialbox-doctor trialbox-canary --ignore-not-found`, apply
+again, then `kubectl -n <ns> logs job/trialbox-doctor`. The doctor job writes `iq-evidence.json` to the
+`iq-evidence` claim; the IQ protocol attaches it (TST-IQ-03). Every check is PASS, WARN, FAIL or SKIP; the job fails
+on any FAIL. Re-run both jobs after every platform change (host OS, runtime, GPU driver, quota: RSK-37). Then the
+isolation probe from a second namespace: `TB_INTEGRATION=1 TB_PLATFORM_NAMESPACE=<ns> pytest -m integration
+tests/platform` (every TrialBox port refused, no volume mountable; `TB_PROBE_IMAGE` names an image the platform holds).
+
+**The compose platform form** (a Docker host the platform team runs): `python -m tools.trialbox platform-images
+--env >> deploy/.env`, then the appliance files with `deploy/docker-compose.shared-quota.yml` and
+`deploy/platform/docker-compose.platform.yml` last; `docker compose ... config --format json >
+deploy/site/compose.json`; `docker compose ... --profile doctor run --rm doctor` writes
+`deploy/site/iq-evidence.json`. There the egress rule is the platform's firewall (`TB_PLATFORM_NETWORK_POLICY_EVIDENCE`
+names it) and the quota its declaration (`TB_PLATFORM_QUOTA`, e.g. `gpu=2,cpu=16,memory=96Gi`).
+
+**A release.** `release.json` names every image and its digest; `python -m tools.trialbox platform-images` writes the
+component that pins them (`--check` in review). Until T-110's `release.json` lands, `deploy/platform/release.json` is
+the provisional one, with no digest for the images not yet released: the doctor then fails `image_digests` in
+VALIDATION and PRODUCTION.
+
+**On a test cluster (no GPU).** `make images`, then `deploy/platform/kind-check.sh`: a kind cluster, the release's
+images loaded, throw-away Secrets and a ResourceQuota, the overlay applied with `TB_ENV=TEST` and
+`TB_PLATFORM_NO_GPU=1` (refused in VALIDATION and PRODUCTION) and the doctor's egress to the API server, every
+non-GPU workload rolled out, the doctor job's report read (every check present, the GPU ones `skipped: no device`),
+the isolation probe, the cluster deleted. It is what the CI job is to run; the job itself is not wired yet (the
+workflow file is owned elsewhere).
+
+## 18. Developing a site mapping without the site's data
+
+The steward's procedure (T-011; TB-SITE-03). No row of the site's data leaves the hospital, and none is needed to
+write the mapping. (The card named this §13; §13 was already taken by D-201.)
+
+1. **Write the schema from the survey.** Copy `tests/fixtures/site_schema/tw-sample.yaml` (a CSV or SQL export) or
+   `tests/fixtures/site_schema/jp-sample.yaml` (SS-MIX2) and fill it from the signed survey (TB-SITE-01, questions
+   24 to 38; the field names are listed in `docs/plan/sites/site-survey.md` §2.3): the input, character set, date
+   format and delimiter, the header row of each table, the code lists (departments, the lab table with units,
+   diagnoses, drugs), the provider field, the appointment source and the note types. Structure and codes only: a
+   key that would hold a value (`sample`, `rows`, `value`, `examples`, ...) is refused with "no values in a schema
+   file", and so is a code-list name the site's character set cannot hold.
+   `python -m tools.synth_site_from_schema validate <schema.yaml>` checks it against
+   `schemas/site_schema.schema.json`.
+2. **Build the synthetic site.** `python -m tools.synth_site_from_schema build <schema.yaml> --out <dir>` writes 500
+   synthetic patients in the site's layout (CSV files, an SQLite database with its SQL dump, or SS-MIX2 storage),
+   in its encoding and date format, with the planted faults of `plants`: lab codes no lookup knows and results in a
+   unit the lookup does not expect. Chart numbers are `SYNT-0001` and so on and patients have no names, so a real
+   chart number or name in the folder is something the data scan finds.
+3. **Write the mapping against it.** Start from `services/adapter/mapping/templates/csv_site.yaml` (or
+   `services/adapter/mapping/templates/cgrd_sql_site.yaml`, or `services/adapter/mapping/jp_core/ssmix2_site.yaml`),
+   then run `python -m tools.synth_site_from_schema check <schema.yaml> --out <dir> --mapping <mapping.yaml>` until
+   it passes and the unmapped codes it lists are the planted ones only. A unit-mismatch line means those results get
+   no value (unknown, never a wrong number): fix the lookup's `source_unit` or `factor`, never the result.
+4. **Scan the folder.** `python -m tools.data_scan <dir>` must be clean.
+5. **On the hospital's hardware**, after the data-processing agreement, the steward runs the same `check` on the
+   10-patient sample (question 41) with the finished mapping, then `adapter run`. Only the report leaves: per table
+   the rows read, the resources, the missing columns, the unmapped codes and the unit-mismatch counts, and a parse
+   error with its value cut out. Never a row, a value or a chart number.
+
+The adapter reads UTF-8 comma-separated CSV with ISO dates (or `YYYY/MM/DD`, `YYYYMMDD`) and SS-MIX2 storage. A
+site whose export is Big5 or Shift_JIS, tab-separated, or has ROC 7-digit dates is read by `check` through a staging
+copy (UTF-8, ISO dates, the same headers) until the adapter's sources read those forms themselves; the nightly feed
+needs the same conversion until then.
+
+**The data scan and the site's chart number.** When the signed survey states the chart number's form (question 26),
+put it in the schema's `identifiers.chart_number` and run `python -m tools.synth_site_from_schema scan-pattern
+<schema.yaml>`. A form with letters or a check digit gives a pattern for a bare chart number (no label), to add to
+`tools/data_scan_patterns.yaml` with its planted positive (D-203). A form of digits only, with no check digit, gives
+none: such a pattern would hit every date and count, and the labelled `chart_number` pattern stays the control.

@@ -20,6 +20,10 @@ closed). Checks:
 * ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
   ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
   (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``;
+* ``site_tz`` (D-315; STD-016, OPS-056): the site's time zone is one setting. ``site.tz`` (settings.yaml), ``TB_TZ``
+  (the containers' zone), the ``tz`` of the data source mapping (``data_source.mapping``) and the host's zone (cron
+  runs the backup and the log jobs in it; ``TB_HOST_TZ`` when doctor runs in a container) must name the same zone.
+  FAIL when none is set, one is not a zone, or two differ; the host is not compared when it cannot be read;
 * ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
   box's first start (T-008, D-207): WARN, naming the flag's value and where to change it.
 
@@ -51,7 +55,7 @@ from typing import Any, Literal
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-Status = Literal["PASS", "WARN", "FAIL"]
+Status = Literal["PASS", "WARN", "FAIL", "SKIP"]  # SKIP: doctor --platform --no-gpu (D-211)
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,8 @@ class DoctorInputs:
     routing_path: Path = ROOT / "models" / "routing.yaml"
     datasets_path: Path = ROOT / "eval" / "DATASETS.yaml"
     dataplat_workdir: Path | None = None
+    host_tz: str | None = None  # the host's zone; None: TB_HOST_TZ, else read from /etc (check site_tz)
+    platform: bool = False  # doctor --platform: pods on a cluster, no host cron, so no host zone to compare
 
 
 def _egress() -> ModuleType:
@@ -240,6 +246,46 @@ def check_registry_pins(inp: DoctorInputs) -> Check:
     return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}")
 
 
+def verifier_is_the_judge(env: Mapping[str, str]) -> str | None:
+    """Why the configured verifier is the judge's own model, read from the settings alone (the running box checks
+    the served models too: ``tb_common.pair.same_model`` and ``combine``); None when the names differ.
+
+    The orchestrator builds the judge from ``TB_GATEWAY_URL`` / ``TB_GATEWAY_MODEL`` (else ``LLM_BASE_URL`` /
+    ``LLM_MODEL``) and the verifier from ``TB_GATEWAY_VERIFIER_MODEL`` (else ``LLM_VERIFIER_BASE_URL`` /
+    ``LLM_VERIFIER_MODEL``, which falls back to ``LLM_MODEL``)."""
+
+    def key(v: str | None) -> str:
+        return " ".join((v or "").split()).casefold()
+
+    def url(v: str | None) -> str:
+        return (v or "").strip().rstrip("/").casefold()
+
+    from tb_common.pair import gateway_default_alias
+
+    judge_gw = url(env.get("TB_GATEWAY_URL"))
+    v_alias = key(env.get("TB_GATEWAY_VERIFIER_MODEL"))
+    v_gw = url(env.get("TB_GATEWAY_VERIFIER_URL")) or judge_gw
+    if v_alias and v_gw:
+        if not judge_gw:  # the judge goes straight to an endpoint: the two cannot be told apart (D-276, F-02)
+            return "the verifier goes through the gateway and the judge does not, so they cannot be told apart"
+        if judge_gw != v_gw:
+            return None
+        default = gateway_default_alias(env.get("TB_ENV", "DEV"))
+        j_alias = key(env.get("TB_GATEWAY_MODEL")) or default
+        if j_alias == v_alias:
+            return f"TB_GATEWAY_VERIFIER_MODEL={v_alias} is the build the judge gets (TB_GATEWAY_MODEL, or the default)"
+        return None
+    if env.get("LLM_VERIFIER_BASE_URL"):
+        if judge_gw:
+            return "the judge goes through the gateway and the verifier (LLM_VERIFIER_BASE_URL) does not"
+        v_model = key(env.get("LLM_VERIFIER_MODEL"))
+        if not v_model:
+            return "LLM_VERIFIER_MODEL is not set, so the verifier asks for the judge's model (LLM_MODEL)"
+        if v_model == key(env.get("LLM_MODEL")):
+            return f"LLM_VERIFIER_MODEL={v_model} is the judge's model (LLM_MODEL)"
+    return None
+
+
 def check_note_block(inp: DoctorInputs) -> Check:
     policy = (inp.env.get("TB_NOTE_BLOCK") or "both_agree").strip().lower()
     if policy == "never":
@@ -253,6 +299,23 @@ def check_note_block(inp: DoctorInputs) -> Check:
     direct = bool(inp.env.get("LLM_VERIFIER_BASE_URL"))
     if mode != "single" and (gw or direct):
         via = "gateway verifier build" if gw else "LLM_VERIFIER_BASE_URL"
+        one = verifier_is_the_judge(inp.env)
+        if one:  # D-276 (review S-2): a verifier that is the judge again agrees with it every time
+            return Check(
+                "note_block",
+                "FAIL",
+                f"TB_NOTE_BLOCK=both_agree but the verifier is not a second model: {one}. The box treats this as "
+                f"one model and never excludes on a note answer; name a different verifier model",
+            )
+        env = inp.env.get("TB_ENV", "DEV")
+        if not gw and env in ("VALIDATION", "PRODUCTION"):  # D-276 (review F-02): fail closed on the direct path
+            return Check(
+                "note_block",
+                "FAIL",
+                "TB_NOTE_BLOCK=both_agree with a direct verifier (LLM_VERIFIER_BASE_URL): which weights each endpoint "
+                "serves is known only from its /models at start, so this check cannot confirm two models. Use the "
+                "gateway verifier build (TB_GATEWAY_VERIFIER_MODEL), whose build hash is compared on every answer",
+            )
         return Check("note_block", "PASS", f"both_agree with a verifier ({via}): two models must agree to exclude")
     why = "TB_SCREEN_JUDGE=single" if mode == "single" else "no verifier configured"
     env = inp.env.get("TB_ENV", "DEV")
@@ -368,6 +431,85 @@ def check_serving(inp: DoctorInputs) -> Check:
     return Check("serving", "PASS", "; ".join(good) + "; key required")
 
 
+MAPPING_ROOT = ROOT / "services" / "adapter"
+ETC = Path("/etc")
+
+
+def _host_zone(inp: DoctorInputs) -> str | None:
+    """The host's zone name: given, ``TB_HOST_TZ``, else /etc/timezone or the /etc/localtime link. None inside a
+    container (its /etc is the image's, not the host's) or when it cannot be read."""
+    given = inp.host_tz or inp.env.get("TB_HOST_TZ")
+    if given:
+        return given.strip()
+    if inp.platform or Path("/.dockerenv").exists() or os.environ.get("KUBERNETES_SERVICE_HOST"):
+        return None
+    try:
+        name = (ETC / "timezone").read_text(encoding="utf-8").strip()
+        if name:
+            return name
+    except OSError:
+        pass
+    try:
+        link = str((ETC / "localtime").readlink())
+    except (OSError, ValueError):
+        return None
+    return link.split("zoneinfo/", 1)[1] if "zoneinfo/" in link else None
+
+
+def _mapping_zone(settings: Mapping[str, Any]) -> tuple[str | None, str]:
+    ds = settings.get("data_source") or {}
+    raw = ds.get("mapping") if isinstance(ds, Mapping) else None
+    if not raw:
+        return None, ""
+    path = Path(str(raw))
+    path = path if path.is_absolute() else MAPPING_ROOT / path
+    doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return (str(doc["tz"]) if doc.get("tz") else None), path.name
+
+
+def _same_zone(a: str, b: str) -> bool:
+    """Two names are the same zone when they agree on the UTC offset every day for a year (Japan == Asia/Tokyo)."""
+    from datetime import UTC, datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    if a == b:
+        return True
+    za, zb = ZoneInfo(a), ZoneInfo(b)
+    t = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
+    days = [t + timedelta(days=d) for d in range(366)]
+    return all(d.astimezone(za).utcoffset() == d.astimezone(zb).utcoffset() for d in days)
+
+
+def check_site_tz(inp: DoctorInputs) -> Check:
+    """D-315: site.tz, TB_TZ, the mapping's tz and the host's zone name one zone; there is no default zone."""
+    from zoneinfo import ZoneInfo
+
+    site = inp.settings.get("site")
+    mapped, mapping_name = _mapping_zone(inp.settings)
+    sources: dict[str, str | None] = {
+        "site.tz": str((site if isinstance(site, Mapping) else {}).get("tz") or "").strip() or None,
+        "TB_TZ": (inp.env.get("TB_TZ") or "").strip() or None,
+        f"mapping tz ({mapping_name})": mapped,
+    }
+    if not sources["site.tz"] and not sources["TB_TZ"]:
+        return Check("site_tz", "FAIL", "no site time zone: set site.tz in settings.yaml and TB_TZ in deploy/.env")
+    host = _host_zone(inp)
+    if host:
+        sources["host zone"] = host
+    given = {k: v for k, v in sources.items() if v}
+    for k, v in given.items():
+        try:
+            ZoneInfo(v)
+        except Exception:
+            return Check("site_tz", "FAIL", f"{k}={v!r} is not an IANA time zone")
+    first = next(iter(given.values()))
+    if any(not _same_zone(first, v) for v in given.values()):
+        names = ", ".join(f"{k} {v}" for k, v in given.items())
+        return Check("site_tz", "FAIL", f"the site's time zone differs: {names}; records near midnight move a day")
+    unread = "" if host else ("; no host on a platform" if inp.platform else "; host zone not read (set TB_HOST_TZ)")
+    return Check("site_tz", "PASS", f"{first} ({', '.join(given)}){unread}")
+
+
 def check_flags(inp: DoctorInputs) -> Check:
     """T-008 (D-207): a seed variable (``TB_LAKE_SOURCE``) seeds its flag at the first start only; one that now says
     something else than the flag is ignored, which an operator must know: WARN."""
@@ -395,6 +537,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_publish_gate,
     check_note_block,
     check_registry_pins,
+    check_site_tz,
     check_flags,
 )
 

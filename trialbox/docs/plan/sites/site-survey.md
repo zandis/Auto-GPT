@@ -78,6 +78,24 @@ Deadline marks: **①** by 2026-11-20 (the clock); **②** by the survey sign-of
 | 41 ① | The 10-patient mapping sample and a **different** 10 to 20 patient OQ sample: read on the hospital's hardware by the steward after the DPA (date), under (agreement); only the adapter's report leaves (TB-SITE-03) | 10 名分の対応付け用サンプルと、**別の** 10〜20 名分の OQ 用サンプル：データ処理契約の締結後（日付）、（契約）のもとで院内機器上でスチュワードが読み込み、アダプタの報告書のみ院外へ（TB-SITE-03） | 10 位病人的對應樣本與**另一組** 10 至 20 位的 OQ 樣本：於資料處理契約簽署後（日期）、依據（契約），由資料管理人在院方硬體上讀取；只有轉接層報告離開（TB-SITE-03） | |
 | 42 | Known data quality issues (missing codes, department master gaps, date gaps, wording drift) | 既知のデータ品質の問題（コード欠落、部門マスタの不備、日付の欠落、表記の揺れ） | 已知的資料品質問題（代碼缺漏、科別主檔不全、日期缺漏、用語漂移） | |
 
+The steward writes the answers to questions 24 to 38 into the site's `site-schema.yaml` (T-011; schema
+`schemas/site_schema.schema.json`, procedure in RUNBOOK §18), from which a synthetic site is built to develop the
+mapping. Field names, beside the questions:
+
+| # | `site-schema.yaml` field |
+| --- | --- |
+| 24 | `feed.layout` (`csv`, `sql`, `ssmix2`) |
+| 26 | `identifiers.chart_number` (`letters`, `digits`, `check`): the form only, never a number |
+| 28 | `feed.layout: ssmix2`, `feed.encoding` (MSH-18); the extended tables under `tables` |
+| 29 | `tables.<table>.source` and `tables.<table>.columns` (header to canonical column), `feed.date_format` (`iso`, `roc7`, `yyyymmdd`, `slash`), `feed.encoding`, `feed.delimiter`, `feed.extension` |
+| 33 | `provider.in_encounter`, `provider.directory` |
+| 34 | `appointments` |
+| 35 | `notes.types` |
+| 36 | `code_lists.lab` (code, name, unit, and the range synthetic results are drawn from) |
+| 37 | `code_lists.diagnosis` (code, name, and `icd10` beside a 標準病名 code) |
+| 38 | `code_lists.drug` (code, name, `atc`) |
+| codes on the sheets | `code_lists.sex`, `code_lists.encounter_type`, `code_lists.department` |
+
 ### 2.4 Trial systems · 治験システム · 試驗系統
 
 | # | English | 日本語 | 繁體中文 | Answer |

@@ -15,6 +15,17 @@ EN: dict[str, str] = {
     "s20.help": "Each line is one criterion as the box will check it; the codes are folded under it. Open every amber line, then approve all at once. Your approval is the study team's check, not a regulated e-signature.",
     "s20.changes": "Changes since v{v}",
     "s20.changes.none": "No criterion changed since the approved version.",
+    "s20.pins.title": "Approval needed",
+    "s20.pins.prompt.newer": "The model's instructions changed: the approved version uses {pinned}, the box now has "
+    "{active}.",
+    "s20.pins.prompt.changed": "The approved instructions {pinned} are no longer on the box as approved. Screening "
+    "stops until you approve again.",
+    "s20.pins.prompt.unknown": "The approved instructions {pinned} are not on this box. Screening stops until you "
+    "approve again.",
+    "s20.pins.terminology.newer": "The code lists changed: the approved version was built on {pinned}, the box now "
+    "has {active}. Screening stops until the criteria are rebuilt and approved again.",
+    "s20.pins.help": "Until you approve this version, screening keeps the instructions you approved before. Approving "
+    "this version moves it to the box's current instructions and code lists.",
     "s20.chg.added": "new criterion",
     "s20.chg.text": "new wording",
     "s20.chg.class": "checked differently: {a} → {b}",
@@ -177,6 +188,13 @@ JA: dict[str, str] = {
     "s20.help": "1 行が 1 つの基準で、TrialBox が確認する内容です。コードは行の下に折りたたまれています。黄色の行をすべて開いてから「すべて承認」を押してください。承認は試験チームの確認であり、規制対象の電子署名ではありません。",
     "s20.changes": "v{v} からの変更点",
     "s20.changes.none": "承認済みの版から変更された基準はありません。",
+    "s20.pins.title": "再承認が必要です",
+    "s20.pins.prompt.newer": "モデルへの指示が変わりました。承認済みの版は {pinned} を使い、現在のボックスには {active} があります。",
+    "s20.pins.prompt.changed": "承認済みの指示 {pinned} が承認時のままボックスにありません。再承認までスクリーニングは止まります。",
+    "s20.pins.prompt.unknown": "承認済みの指示 {pinned} がこのボックスにありません。再承認までスクリーニングは止まります。",
+    "s20.pins.terminology.newer": "コード表が変わりました。承認済みの版は {pinned} で作られ、現在のボックスには {active} があります。"
+    "基準を作り直して再承認するまでスクリーニングは止まります。",
+    "s20.pins.help": "この版を承認するまで、スクリーニングは以前に承認した指示を使い続けます。承認すると現在の指示とコード表に移ります。",
     "s20.chg.added": "新しい基準",
     "s20.chg.text": "文言の変更",
     "s20.chg.class": "確認方法の変更：{a} → {b}",
@@ -332,6 +350,12 @@ ZH: dict[str, str] = {
     "s20.help": "每一列是一條條件，也就是系統會如何確認；代碼收合在列下方。請先打開所有黃色列，再一次「全部核准」。核准是研究團隊的確認，不是受法規管理的電子簽章。",
     "s20.changes": "自 v{v} 以來的變更",
     "s20.changes.none": "與已核准版本相比沒有條件變更。",
+    "s20.pins.title": "需要重新核准",
+    "s20.pins.prompt.newer": "模型的指示已變更：已核准版本使用 {pinned}，本機現有 {active}。",
+    "s20.pins.prompt.changed": "已核准的指示 {pinned} 已不是核准時的內容。重新核准前篩選暫停。",
+    "s20.pins.prompt.unknown": "本機沒有已核准的指示 {pinned}。重新核准前篩選暫停。",
+    "s20.pins.terminology.newer": "代碼表已變更：已核准版本依據 {pinned} 建立，本機現有 {active}。條件重建並重新核准前篩選暫停。",
+    "s20.pins.help": "核准此版本之前，篩選繼續使用先前核准的指示。核准後改用本機目前的指示與代碼表。",
     "s20.chg.added": "新條件",
     "s20.chg.text": "文字變更",
     "s20.chg.class": "確認方式變更：{a} → {b}",

@@ -1,0 +1,52 @@
+{
+ "compose": {
+  "include": [
+   {
+    "concept": [
+     {
+      "code": "G30",
+      "display": "Alzheimer's disease"
+     },
+     {
+      "code": "G30.0",
+      "display": "Alzheimer's disease with early onset"
+     },
+     {
+      "code": "G30.1",
+      "display": "Alzheimer's disease with late onset"
+     },
+     {
+      "code": "G30.8",
+      "display": "Other Alzheimer's disease"
+     },
+     {
+      "code": "G30.9",
+      "display": "Alzheimer's disease unspecified"
+     },
+     {
+      "code": "G31.84",
+      "display": "Mild cognitive impairment of uncertain or unknown etiology"
+     }
+    ],
+    "system": "http://hl7.org/fhir/sid/icd-10-cm"
+   }
+  ]
+ },
+ "extension": [
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10|F00"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|G30"
+  }
+ ],
+ "id": "AD-MAB-VS-MILD-COGNITIVE-IMPAIRMENT-OR-ALZHEIMER-S-DISEASE",
+ "name": "VS_MILD_COGNITIVE_IMPAIRMENT_OR_ALZHEIMER_S_DISEASE",
+ "resourceType": "ValueSet",
+ "status": "active",
+ "title": "mild cognitive impairment or alzheimer's disease",
+ "url": "http://trialbox.local/fhir/ValueSet/AD-MAB-VS-MILD-COGNITIVE-IMPAIRMENT-OR-ALZHEIMER-S-DISEASE",
+ "version": "1.0.0-v6996d431"
+}

@@ -147,6 +147,37 @@
         }
       }
     },
+    "feed_completeness": {
+      "title": "FeedCompleteness",
+      "description": "The completeness gate of the nightly ingest (T-611): a night that fails it is held, never published",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_table_drop_pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 10,
+          "description": "a full night whose source table has this share fewer rows than the last good night is held"
+        },
+        "required_tables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "mapping tables that must be present with rows on every night, the first one too"
+        },
+        "optional_tables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "mapping tables that may be absent or empty on a night although the last good night had rows"
+        }
+      }
+    },
     "mrn_regex": {
       "type": "string",
       "default": "^\\d{8}$"

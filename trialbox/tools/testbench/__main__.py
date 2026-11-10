@@ -10,6 +10,9 @@ from tools.testbench.safety import check_bind_host, startup_checks
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
     ap = argparse.ArgumentParser(prog="tools.testbench", description=__doc__)
     ap.add_argument("--host", default=os.environ.get("TB_TESTBENCH_HOST", "127.0.0.1"))
     ap.add_argument("--port", type=int, default=int(os.environ.get("TB_TESTBENCH_PORT", "8765")))

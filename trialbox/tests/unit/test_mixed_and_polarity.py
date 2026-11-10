@@ -194,10 +194,9 @@ def test_mixed_verdict_from_the_notes_follows_the_note_rules(monkeypatch: pytest
     ]
     from_notes = CriterionVerdict(id="GZQO-EXC-11", verdict="fail", evidence=Evidence(resource_refs=[], confidence=0.6))
     from_codes = CriterionVerdict(id="GZQO-EXC-11", verdict="fail", evidence=Evidence(resource_refs=["Condition/1"]))
-    monkeypatch.setenv("TB_NOTE_BLOCK", "never")
-    assert tier(rs, [*base, from_notes], 0.75)[0] == "review"  # weak, and notes never block on this box
-    assert tier(rs, [*base, from_codes], 0.75)[0] == "excluded"  # coded evidence is deterministic
-    monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")
+    # notes never block on this box (the run's decision, D-276: the tier no longer reads the policy itself)
+    assert tier(rs, [*base, from_notes], 0.75, note_block=False)[0] == "review"  # weak, and notes never block
+    assert tier(rs, [*base, from_codes], 0.75, note_block=False)[0] == "excluded"  # coded evidence is deterministic
     strong = CriterionVerdict(id="GZQO-EXC-11", verdict="fail", evidence=Evidence(resource_refs=[], confidence=0.95))
     assert tier(rs, [*base, strong], 0.75, note_block=True)[0] == "excluded"
     assert tier(rs, [*base, strong], 0.75, note_block=False)[0] == "review"
@@ -212,3 +211,25 @@ def test_check_split_counts_mixed_criteria() -> None:
     )
     line = check_split(html)
     assert "4 criteria" in line and "**1** by the filter first" in line and "**1** by the model" in line
+
+
+def test_a_null_structured_inclusion_keeps_the_patient_as_a_candidate() -> None:
+    """ENG-018 (TB-DR-04 mutant U02): one structured inclusion NULL, everything else eligible: the v1 filter keeps the
+    patient, the tier is review and the criterion is ``unknown``; never ``excluded`` with no verdict to explain it.
+    The same patient with that inclusion FALSE is excluded."""
+    rs = GZQO
+    eligible: dict[str, bool | None] = {
+        c.id: c.kind == "inclusion" for c in rs.active() if c.class_ in ("structured", "mixed")
+    }
+    target = next(c.id for c in rs.active() if c.class_ == "structured" and c.kind == "inclusion")
+    answers: dict[str, dict[str, bool | None]] = {
+        "null": {**eligible, target: None},
+        "false": {**eligible, target: False},
+    }
+    for pid, vals in answers.items():
+        ev = PatientEvaluation(pid=pid, index_date=INDEX, engine="sql", results=vals)
+        assert structured_candidate(rs, ev) is (pid == "null")
+    res = evaluate_patients(rs, ["null", "false"], INDEX, _Engine(answers), None, 0.75, workers=1)
+    assert res["null"].tier == "review" and res["false"].tier == "excluded"
+    v = next(v for v in res["null"].verdicts if v.id == target)
+    assert v.verdict == "unknown" and v.evidence is not None and v.evidence.reason == "data_gap"

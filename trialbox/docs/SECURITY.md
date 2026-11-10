@@ -128,7 +128,8 @@ ever printed, logged or put in the audit; `secrets status` shows names, modes an
 - **Routing.** Patient-level files go only to the study's internal list, as 7z AES-256 with the password in a second
   mail; aggregate files may go to `aggregate_to`. Checked before every send (`tb_common/routing.py`).
 - **Models.** Every call goes through the gateway, which routes by data class; local models only for patient data.
-  A note excludes a patient only when two models agree on a verified quote (D-115, D-117).
+  A note excludes a patient only when two different models agree on a verified quote, and every note holding the
+  evidence was shown to them (D-115, D-117, D-276).
 - **One-way hospital systems.** TrialBox never writes to an EMR, SS-MIX2 or CGRD (owner decision 2).
 
 ## 6. Audit, retention, updates
@@ -212,10 +213,10 @@ The build side needs the network; the box never runs these tools. Code: `tools/s
   what goes into an image, weekly and for a release tag; a release tag also gates both platforms of
   `make images-multiarch`, by digest. `make release-bundle` makes a bundle only from images in a passing record
   (`tools/make_bundle.sh --gates`, which refuses any other image id or a record older than 7 days).
-- **Report mode, for now.** Until the follow-up lands (owner decision of 2026-11-10), CI runs the image gates with
-  `--vuln-mode report`: fixable CRITICAL/HIGH findings in trialbox-jvm, trialbox-demo and the third-party images are
-  listed in the CI job summary and do not fail a pull request. Everything else still blocks: trialbox-py's
-  vulnerability gate, the licence gate, `make lock-check`, `make allowlist-check`, `make pip-audit`, and any build,
+- **Report mode for third-party images, for now.** Until plan v6 §9 batch 1 lands (owner decision of 2026-11-10),
+  CI runs the image gates with `--vuln-mode report`: fixable CRITICAL/HIGH findings in the third-party images are
+  listed in the CI job summary and do not fail a pull request. Everything else still blocks: the vulnerability gate
+  of our own images (trialbox-py; trialbox-jvm and trialbox-demo since T-672), the licence gate, `make lock-check`, `make allowlist-check`, `make pip-audit`, and any build,
   scan or report error. A bundle never carries an image that passed only in report mode. The open findings, with
   owner, target date (2026-12-10) and planned fix, are in `deploy/security/known-image-findings.md`. MailHog has no
   arm64 image; it is left out of the arm64 gates by name (`SC_AMD64_ONLY`).

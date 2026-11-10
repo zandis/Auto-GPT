@@ -23,7 +23,7 @@ from adapter.load_fhir import sync_snapshot
 from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
 from adapter.pidmap import PidMap
-from adapter.sources.base import Source
+from adapter.sources.base import Source, has_table
 from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required, sample
 
 log = logging.getLogger("adapter")
@@ -49,6 +49,10 @@ class AdapterConfig:
     keep_month_end_months: int = 36  # settings.retention.month_end_snapshots_months
     db_url: str | None = None  # the trial database of the pid map (TB_DB_URL when None)
     profile_sample_per_type: int = 50  # D-137: resources per type checked against the mapping's profiles (JP Core)
+    # T-611 (settings.feed_completeness): the completeness gate per source table
+    table_max_drop_pct: float = 10.0
+    required_tables: tuple[str, ...] = ()
+    optional_tables: tuple[str, ...] = ()
 
     def site_key(self) -> bytes:
         return load_or_create_key(self.secrets_dir / "site_hmac.key")
@@ -190,6 +194,7 @@ def run_ingest(
     fhir_profiles = ""
     source: Source | None = None
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
+    tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
     if source_kind == "fhir_bulk":
         from adapter.sources.fhir_bulk.source import FhirBulkSource
 
@@ -218,6 +223,13 @@ def run_ingest(
                     src = make_source("cgrd_sql", where)
             delta = mapping.source_column(table, tspec.get("delta"))
             rows = [mapping.normalize(table, r) for r in src.rows(table, src_name, delta, since)]
+            kcol = tspec.get("key")
+            keys = [str(r.get(kcol)) for r in rows] if kcol else []
+            tables[table] = {  # T-611 (DATA-017: a duplicate source key is counted; the last row wins)
+                "present": has_table(src, src_name),
+                "rows": len(rows),
+                "duplicate_keys": len(keys) - len(set(keys)),
+            }
             # a row marked deleted (``deleted`` column, or the table's ``deleted:`` column) is a tombstone, never a
             # record; a source that keeps deletes apart (SS-MIX2 flag 0) gives them through ``deleted_rows``
             dcol = str(tspec.get("deleted") or "deleted")
@@ -277,7 +289,24 @@ def run_ingest(
         errors.append("delta night: no earlier snapshot passed validation to merge over; run a full load")
     full_counts = write_snapshot(out_dir, by_type, base, tombstones)
     tombstoned = tombstone_count(out_dir)
-    drop_override = ""
+    overrides: list[str] = []
+    # T-611: the completeness gate. A missing or emptied table, a table that shrank past the band, or a patient who
+    # left the feed while their records stayed holds the night; D-271's override for this night lets it through
+    gaps, completeness = completeness_check(cfg, tables, out_dir, last_good, full=not since)
+    (out_dir / COMPLETENESS).write_text(
+        json.dumps(completeness, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    if gaps:
+        what = f"incomplete feed (against snapshot {last_good or 'none'}): {'; '.join(gaps)}"
+        reason = feedguard.override_for(snap)
+        if reason:
+            log.warning("%s: loaded under %s: %s", what, feedguard.OVERRIDE_ENV, reason)
+            overrides.append(f"{what}; override: {reason}")
+        else:
+            errors.append(
+                f"{what}. A missing or broken extract? To load it anyway set "
+                f"{feedguard.OVERRIDE_ENV}='{snap}: <reason>' (this night only; the reason is audited)"
+            )
     if last_good is not None:  # D-271: a night may not remove (nearly) all records of a kind
         try:
             pct = feedguard.max_drop_pct()
@@ -290,7 +319,7 @@ def run_ingest(
             what = f"this night removes {'; '.join(bad)} records of snapshot {last_good} (limit {pct:g} %)"
             if drop_override:
                 log.warning("%s: loaded under %s: %s", what, feedguard.OVERRIDE_ENV, drop_override)
-                drop_override = f"{what}; override: {drop_override}"
+                overrides.append(f"{what}; override: {drop_override}")
             else:
                 errors.append(
                     f"{what}: a missing or broken extract? To load it anyway set "
@@ -388,6 +417,10 @@ def run_ingest(
     )
     body = json.dumps(dump(report), ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8")
     (out_dir / "ingest_report.json").write_bytes(body)
+    if held:  # T-611: the folder says so itself, for the steward and for any later publish
+        (out_dir / HELD).write_text(json.dumps({"snapshot": snap, "errors": errors}) + "\n", encoding="utf-8")
+    else:
+        (out_dir / HELD).unlink(missing_ok=True)
     pruned = prune_snapshots(cfg, date.fromisoformat(snap)) if passed and rebuild_lake else []
     if cfg.audit_dir:
         AuditLog(cfg.audit_dir, cfg.tz).append(
@@ -404,7 +437,11 @@ def run_ingest(
                 "tombstoned": tombstoned,
                 "held": held,
                 "unit_defaults_applied": defaulted,
-                "drop_override": drop_override or None,
+                "drop_override": "; ".join(overrides) or None,
+                # T-611: what the readiness page shows for a held night (tables only, never a row)
+                "incomplete": completeness["problems"] or None,
+                "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
+                "orphans": completeness["orphans"] or None,
             },
         )
     log.info("ingest finished", extra={"snapshot": snap, "passed": passed, "resources": sum(counts.values())})
@@ -434,6 +471,97 @@ def jp_core_check(cfg: AdapterConfig, by_type: dict[str, list[Resource]], out_di
 
 
 PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night passed (D-271)
+HELD = "held.json"  # written in a snapshot's NDJSON folder when its night was held, with why (T-611)
+COMPLETENESS = "completeness.json"  # per source table: present, rows, duplicate keys; the gate's findings (T-611)
+_PATIENT_REF = re.compile(rb'"Patient/([^"]+)"')
+
+
+def _patient_ids(directory: Path) -> set[str]:
+    out: set[str] = set()
+    path = directory / "Patient.ndjson"
+    if path.is_file():
+        with path.open("rb") as fh:
+            for line in fh:
+                if line.strip():
+                    out.add(str(json.loads(line)["id"]))
+    return out
+
+
+def _referenced_patients(directory: Path) -> Counter[str]:
+    """Records per referenced patient id, over every type but Patient (a regex on the raw line: no JSON parse)."""
+    refs: Counter[str] = Counter()
+    for f in directory.glob("*.ndjson"):
+        if f.stem == "Patient":
+            continue
+        with f.open("rb") as fh:
+            for line in fh:
+                for pid in set(_PATIENT_REF.findall(line)):
+                    refs[pid.decode("utf-8", "replace")] += 1
+    return refs
+
+
+def completeness_check(
+    cfg: AdapterConfig, tables: dict[str, dict[str, Any]], out_dir: Path, last_good: str | None, *, full: bool
+) -> tuple[list[str], dict[str, Any]]:
+    """T-611 (DATA-001, DATA-009, DATA-017): the night's source tables against the last good night's.
+
+    Holds (returned as problems): a required table missing or empty; a table the last good night had rows of that is
+    missing now, or (full night) has no rows; a full night's table with more than ``table_max_drop_pct`` % fewer rows
+    than the last good night (above ``feedguard.FLOOR`` rows); a patient of the last good night who left the feed
+    while records of theirs stayed (orphans: the legacy lake would keep them with no patient row). Counted only:
+    duplicate source keys per table, and records that point at a patient the snapshot does not hold."""
+    base: dict[str, Any] = {}
+    if last_good is not None:
+        try:
+            base = json.loads((snapshot_dir(cfg.lake_dir, last_good) / COMPLETENESS).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            base = {}  # a folder from before the gate: only the resource-type guard (D-271) compares it
+    # rows per table of the last full night (a delta night carries its base's forward: its own rows are a delta)
+    before: dict[str, int] = {str(k): int(v) for k, v in (base.get("reference") or {}).items()}
+    problems: list[str] = []
+    optional = set(cfg.optional_tables)
+    for t in sorted(set(tables) | set(cfg.required_tables)):
+        now = tables.get(t)
+        rows = int(now["rows"]) if now else 0
+        present = now["present"] if now else None
+        if t in cfg.required_tables and (present is False or (full and rows == 0) or now is None):
+            problems.append(f"{t}: required table {'missing' if present is False or now is None else 'empty'}")
+            continue
+        old = before.get(t, 0)
+        if not old or t in optional:
+            continue
+        if present is False:
+            problems.append(f"{t}: table missing (last good night {old} rows)")
+        elif full and rows == 0:
+            problems.append(f"{t}: table empty (last good night {old} rows)")
+        elif full and old - rows > feedguard.FLOOR and (old - rows) * 100 > cfg.table_max_drop_pct * old:
+            problems.append(
+                f"{t}: {rows} rows, {round(100 * (old - rows) / old, 1):g} % fewer than the last good night's {old} "
+                f"(limit {cfg.table_max_drop_pct:g} %)"
+            )
+    now_ids = _patient_ids(out_dir)
+    refs = _referenced_patients(out_dir)
+    vanished = (_patient_ids(snapshot_dir(cfg.lake_dir, last_good)) - now_ids) if last_good else set()
+    orphans = sum(n for pid, n in refs.items() if pid not in now_ids)
+    of_vanished = sum(refs.get(pid, 0) for pid in vanished)
+    if of_vanished:
+        problems.append(
+            f"Patient: {len(vanished)} patients of the last good night left the feed while {of_vanished} of their "
+            "records stayed (orphans)"
+        )
+    report = {
+        "full": full,
+        "tables": {t: {**v, "rows_before": before.get(t)} for t, v in sorted(tables.items())},
+        "reference": {t: int(v["rows"]) for t, v in tables.items()} if full else before,
+        "baseline": last_good if before else None,
+        "problems": problems,
+        "patients_vanished": len(vanished),
+        "orphans": orphans,
+        "orphans_of_vanished": of_vanished,
+    }
+    return problems, report
+
+
 RERUN_DIR = "ndjson-rerun"  # a re-run of a promoted night until it passes (D-271)
 # exceptions by which the lake refuses a snapshot (lake.store.RebuildError, omop.schema.OmopError, the HTTP 409)
 REFUSALS = ("RebuildError", "OmopError", "RebuildRefused")
@@ -478,7 +606,11 @@ def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
 
     current = (cfg.lake_dir / "CURRENT").read_text().strip() if (cfg.lake_dir / "CURRENT").exists() else None
     snaps = set(list_snapshots(cfg.lake_dir)) | {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb")}
-    keep = snapshots_to_keep(snaps, today, cfg.keep_nightly, cfg.keep_month_end_months) | {current or ""}
+    # T-611: only nights that passed count towards the N kept (a held night has no passed.json and no DuckDB; a
+    # folder from before the marker that was promoted has its DuckDB)
+    good = {s for s in snaps if (snapshot_dir(cfg.lake_dir, s) / PASSED).exists()}
+    good |= {p.stem for p in (cfg.lake_dir / "db").glob("*.duckdb")} | ({current} if current else set())
+    keep = snapshots_to_keep(snaps, today, cfg.keep_nightly, cfg.keep_month_end_months, good) | {current or ""}
     gone = sorted(s for s in snaps if s not in keep)
     for s in gone:
         shutil.rmtree(cfg.lake_dir / "ndjson" / s, ignore_errors=True)

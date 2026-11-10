@@ -240,8 +240,9 @@ def test_a_standard_concept_is_used_where_the_vocabulary_has_one(feed_dir: Path,
     )
 
 
-def test_tombstones_restore_and_in_place_updates(feed_dir: Path, db: Any) -> None:
+def test_tombstones_restore_and_in_place_updates(feed_dir: Path, db: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     from omop.export import export_rows
+    from omop.schema import OmopError
 
     feed = _feed(feed_dir)
     _load(db, feed)
@@ -256,7 +257,14 @@ def test_tombstones_restore_and_in_place_updates(feed_dir: Path, db: Any) -> Non
     changed = nxt["Condition"][0]
     old_code = changed["code"]["coding"][0]["code"]
     changed["code"]["coding"][0]["code"] = "Z99.9"
+    # T-611: the removed patient's visits, drugs and notes stay in the feed: their facts would lose their person
+    # (DQD isForeignKey), so the batch is held unless the operator lets this one batch through
+    with pytest.raises(OmopError, match="isForeignKey"):
+        _load(db, nxt, snap="2026-10-05")
+    monkeypatch.setenv("TB_FEED_DROP_OVERRIDE", "2026-10-05: test of the tombstone mechanics")
     rep = _load(db, nxt, snap="2026-10-05")[0]
+    assert "isForeignKey" in rep.override
+    monkeypatch.delenv("TB_FEED_DROP_OVERRIDE")
     assert (rep.tombstoned, rep.updated) == (2, 1)
     assert db.fetchval("SELECT count(*) FROM condition_occurrence WHERE condition_occurrence_id = ?", (cid,)) == 0
     assert (
@@ -437,7 +445,7 @@ def test_dqd_passes_on_the_loaded_site_and_catches_a_broken_reference(feed_dir: 
 def test_every_committed_ruleset_screens_the_same_on_both_lakes(feed_dir: Path, db_url: str, tmp_path: Path) -> None:
     from tools import omop_parity as op
 
-    assert len(op.RULESETS) == 7
+    assert len(op.RULESETS) == 9  # T-503 added AD-MAB and NEUR-COH
     ds = op.DataSet("site-a", feed_dir, _site(feed_dir), SNAP, date(2026, 10, 5), "Asia/Taipei")
     lakes = op.build_lakes(ds, tmp_path, db_url)
     tables = op.compare_tables(lakes, SNAP)
@@ -450,7 +458,17 @@ def test_every_committed_ruleset_screens_the_same_on_both_lakes(feed_dir: Path, 
         got = [duck[s].query(f"SELECT * FROM {t}").to_pylist() for s in ("legacy", "omop")]
         assert got[0] == got[1] and got[0], t
     res = op.compare_screening(lakes, ds)
-    assert set(res) == {"GOUT-COH", "GZQO", "ONC-OSI", "RA-BIO", "RA-COH", "EMPULSE", "STARRT-AKI"}
+    assert set(res) == {
+        "GOUT-COH",
+        "GZQO",
+        "ONC-OSI",
+        "RA-BIO",
+        "RA-COH",
+        "EMPULSE",
+        "STARRT-AKI",
+        "AD-MAB",
+        "NEUR-COH",
+    }
     for rid, r in res.items():
         assert r["feas_identical"] and r["patients_different"] == 0, (rid, r)
         assert r["patients_evaluated"] == r["patients"] == 600
@@ -609,7 +627,11 @@ def test_a_feed_batch_that_would_tombstone_the_whole_feed_is_refused(feed_dir: P
     assert db.fetchval("SELECT count(*) FROM tb_load WHERE source_kind = 'feed-refused'") == 2
     assert db.fetchval("SELECT max(batch) FROM tb_load WHERE source_kind = 'feed'") == SNAP
     few = copy.deepcopy(feed)
-    few["Patient"] = feed["Patient"][10:]  # 10 of 600 gone: an ordinary night
+    few["Patient"] = feed["Patient"][10:]  # 10 of 600 gone with their records: an ordinary night
+    left = {f'"Patient/{p["id"]}"' for p in feed["Patient"][:10]}  # T-611: facts left behind would be held
+    for t in few:
+        if t != "Patient":
+            few[t] = [r for r in few[t] if not any(x in json.dumps(r) for x in left)]
     assert load_batch(db, "feed", "2026-10-05", few, tz="Asia/Taipei").override == ""
     # an override for another night, or without a night, does nothing (review M3)
     for stale in ("2026-10-05: an old reason", "site closed its oncology ward"):

@@ -26,7 +26,8 @@ def status(checks: list[doctor.Check], name: str) -> doctor.Check:
 
 
 def inputs(**kw: Any) -> doctor.DoctorInputs:
-    env = kw.pop("env", {"TB_ENV": "DEV", "TB_TOPOLOGY": "A"})
+    env = kw.pop("env", {"TB_ENV": "DEV", "TB_TOPOLOGY": "A", "TB_TZ": "Asia/Taipei"})
+    kw.setdefault("host_tz", "Asia/Taipei")  # never the test machine's own zone
     return doctor.DoctorInputs(env=env, **kw)
 
 
@@ -46,6 +47,7 @@ def test_default_install_passes() -> None:
         "publish_gate",
         "note_block",
         "registry_pins",
+        "site_tz",
         "flags",
     }
 
@@ -202,3 +204,46 @@ def test_a_check_that_cannot_run_fails(tmp_path: Path) -> None:
 def test_check_host_runs_doctor() -> None:
     text = (ROOT / "deploy" / "check_host.sh").read_text(encoding="utf-8")
     assert "tools.trialbox doctor" in text
+
+
+# ------------------------------------------------------------------------------------------------ site_tz (D-315)
+JP_MAPPING = {"mapping": "mapping/jp_core/ssmix2_site.yaml"}
+JP_SETTINGS = {"site": {"id": "JP-A", "tz": "Asia/Tokyo"}, "data_source": JP_MAPPING}
+
+
+@pytest.mark.req("OPS-02")
+def test_site_tz_passes_when_settings_env_mapping_and_host_agree() -> None:
+    env = {"TB_ENV": "DEV", "TB_TOPOLOGY": "A", "TB_TZ": "Asia/Tokyo"}
+    c = status(doctor.run(inputs(env=env, settings=JP_SETTINGS, host_tz="Japan")), "site_tz")
+    assert c.status == "PASS" and c.detail.startswith("Asia/Tokyo"), c.detail  # Japan is Asia/Tokyo's alias
+
+
+@pytest.mark.req("OPS-02")
+@pytest.mark.parametrize(
+    ("tb_tz", "host", "settings"),
+    [
+        ("Asia/Taipei", "Asia/Tokyo", JP_SETTINGS),  # TB_TZ left at Taiwan's on a Japan box
+        ("Asia/Tokyo", "UTC", JP_SETTINGS),  # a host left on UTC runs the 04:45 backup at 13:45
+        ("Asia/Tokyo", "Asia/Tokyo", {**JP_SETTINGS, "site": {"id": "JP-A", "tz": "Asia/Taipei"}}),
+        ("Asia/Taipei", "Asia/Taipei", {"site": {"id": "X", "tz": "Asia/Taipei"}, "data_source": JP_MAPPING}),
+    ],
+)
+def test_site_tz_fails_when_any_zone_differs(tb_tz: str, host: str, settings: dict[str, Any]) -> None:
+    env = {"TB_ENV": "DEV", "TB_TOPOLOGY": "A", "TB_TZ": tb_tz}
+    checks = doctor.run(inputs(env=env, settings=settings, host_tz=host))
+    c = status(checks, "site_tz")
+    assert c.status == "FAIL" and "differs" in c.detail and not doctor.ok(checks), c.detail
+
+
+@pytest.mark.req("OPS-02")
+def test_site_tz_fails_without_any_zone_or_with_a_wrong_name() -> None:
+    none = status(doctor.run(inputs(env={"TB_ENV": "DEV", "TB_TOPOLOGY": "A"})), "site_tz")
+    assert none.status == "FAIL" and "no site time zone" in none.detail
+    bad = status(doctor.run(inputs(env={"TB_ENV": "DEV", "TB_TOPOLOGY": "A", "TB_TZ": "Asia/Nowhere"})), "site_tz")
+    assert bad.status == "FAIL" and "not an IANA time zone" in bad.detail
+
+
+def test_site_tz_reads_the_host_zone_from_tb_host_tz_inside_a_container() -> None:
+    env = {"TB_ENV": "DEV", "TB_TOPOLOGY": "A", "TB_TZ": "Asia/Tokyo", "TB_HOST_TZ": "UTC"}
+    c = status(doctor.run(doctor.DoctorInputs(env=env)), "site_tz")
+    assert c.status == "FAIL" and "host zone UTC" in c.detail

@@ -22,6 +22,7 @@ class Oracle:
 
     def __init__(self, model: str, wrong: set[str] | None = None, down: bool = False) -> None:
         self.model = model
+        self.served_root = model  # its own weights (tb_common.pair.served_root, D-276)
         self.wrong = wrong or set()
         self.down = down
 
@@ -51,7 +52,10 @@ def gate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Gate:
 
 
 def _judge() -> Any:
-    return SimpleNamespace(verifier=object())
+    # two named models: a verifier with no name of its own is not a second model (D-276)
+    return SimpleNamespace(
+        llm=SimpleNamespace(model="J", served_root="j"), verifier=SimpleNamespace(model="V", served_root="v")
+    )
 
 
 def _orch(tmp_path: Path, llm: Any, verifier: Any) -> Any:

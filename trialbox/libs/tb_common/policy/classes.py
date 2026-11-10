@@ -104,6 +104,25 @@ def lower(label: ClassLabel, transform: str, certificate: str) -> ClassLabel:
 
 # ------------------------------------------------------------------------------------------------ v1 contracts
 _D0 = {"CtgovSearchRequest", "CtgovSearchResult", "CtgovStudy", "TrialSimResult", "TrialSimRow", "TrialSimStep"}
+# T-011: a site schema is structure and code lists from the survey, refused when it carries a value: no patient data
+_D0 |= {
+    "SiteSchema",
+    "SiteFeed",
+    "SiteChartNumber",
+    "SiteIdentifiers",
+    "SiteTable",
+    "SiteSexCodes",
+    "SiteEncounterTypeCodes",
+    "SiteCodeLists",
+    "SiteCode",
+    "SiteLabItem",
+    "SiteDiagnosisCode",
+    "SiteDrugCode",
+    "SiteProvider",
+    "SiteNotes",
+    "SitePlants",
+    "SiteUnitMismatch",
+}
 _D1 = {
     # configuration, rule content, protocol-derived structures, job plumbing without patient data
     "AgeRange",
@@ -153,10 +172,17 @@ _D1 = {
     "DocTable",
     "IEBlock",
     "PromptMeta",
+    "PromptPin",
     "ModelEntry",
     "ModelManifest",
+    # the qualification record (D-313): build ids, hashes, counts and codes, no note text
+    "QualificationRecord",
+    "QualificationBuilds",
+    "QualifiedBuild",
+    "QualificationStep",
     "UpdateFile",
     "UpdateManifest",
+    "KeyRotation",
     "Settings",
     "SiteInfo",
     "Allowlist",
@@ -167,6 +193,7 @@ _D1 = {
     "Schedule",
     "RegistrySource",
     "Retention",
+    "FeedCompleteness",  # T-611
     "CalibrationDefaults",
     "TwpasSettings",
     "CohortSettings",

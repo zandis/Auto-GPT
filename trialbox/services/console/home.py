@@ -25,12 +25,12 @@ from typing import Any, cast
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from tb_common.service_auth import bind_session
+from tb_common.service_auth import bind_session, scope_of
 from tb_contracts import Job
 
 from console import s28
 from console import studies as st
-from console.auth import REVEAL_REASONS, Session, reveal_reason
+from console.auth import REVEAL_REASONS, Session, reveal_reason, source_of
 from console.backend import Refused
 from console.i18n import translate
 from console.sitestore import (
@@ -53,6 +53,7 @@ from console.timefmt import local_date, local_today, site_zone
 CLOSING_OUTCOMES = frozenset({"reached_declined", "not_approached", "lost_contact"})
 
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+REVEAL_NOTE_MIN = 10  # D-273 (ROLE-016): the written "why" a reveal for "other" needs, in characters
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 SCREEN_TYPES = ("MICROBATCH", "SCREEN")
 
@@ -95,7 +96,28 @@ class Helpers:
     may_approve: Callable[..., bool] | None = None
     team_due: Callable[[str], bool] | None = None
     apply_reveal: Callable[..., tuple[dict[str, Any], str]] | None = None  # set by register(): D-143's reveal
+    chart_lookup: Callable[[Session, str], None] | None = None  # set by console.team: the lookup cap (D-273)
     ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
+    identity: Any = None  # console.identity.Identity (D-279): the second factor at signing; None in bare test apps
+
+    def gone(self) -> set[str]:
+        """D-273 (PV-4): the pseudonyms on the opt-out register now. Every patient-level reader (lists, the excluded
+        list, the job page, the registry) leaves them out; who opted out is itself private, so callers show counts."""
+        return set(self.optout.active()) if self.optout is not None else set()
+
+    def delegated(self, sess: Session, rid: str, path: str, tasks: tuple[str, ...] = ("screen",)) -> None:
+        """D-273 (PV-3): D-147's delegation rule on every page that shows one study's patients, not only the week,
+        patient, candidate and SAE pages. Once the study's delegation log names a PI, an investigator sees them only
+        as the PI or as a sub-investigator ticked for one of ``tasks``; a refusal is audited."""
+        if not self.delegated_ok(sess.user, rid, tasks):
+            self.au.append("console.denied", actor=self.actor(sess), detail={"action": path[:80]})
+            raise self.problem(403, "forbidden")
+
+    def delegated_ok(self, user: Any, rid: str | None, tasks: tuple[str, ...] = ("screen",)) -> bool:
+        """The rule of :meth:`delegated` as a yes or no, for a page that hides a part instead of refusing."""
+        if user.role != "investigator" or self.may is None:
+            return True
+        return bool(rid) and any(self.may(user, rid, t) for t in tasks)
 
     def today(self) -> date:
         """The site's calendar date now (site.tz), the one "today" of every console rule (D-270).
@@ -111,6 +133,7 @@ class ApiLogin(BaseModel):
 
     username: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=1, max_length=400)
+    code: str = Field(default="", max_length=32)  # T-505a (D-320): the authenticator code, with TOTP on
     lang: str = "en"
 
 
@@ -131,6 +154,7 @@ class ApiReveal(BaseModel):
     """``POST /api/v1/studies/{rs}/patients/{pid}/reveal`` (D-143): the reason is required, as on the page."""
 
     reason: str = Field(default="", max_length=40)
+    note: str = Field(default="", max_length=200)  # D-273 (ROLE-016): required with "other"
 
 
 def register(app: FastAPI, h: Helpers) -> None:
@@ -171,19 +195,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         fn = getattr(bk, "criteria", None)
         rows = fn(rs) if fn else []
         mine = store.labels(rs, lang) if lang != "en" else {}
-        out = {}
-        for r in rows:
-            written = r.get("label") or r["id"]
-            local = mine.get(r["id"], "")
-            out[r["id"]] = st.CriterionMeta(
-                r["id"],
-                r["kind"],
-                r.get("class", "structured"),
-                local or written,
-                r.get("text", ""),
-                written if local else "",
-            )
-        return out
+        # T-507 (D-309): the label, text and to-do the ruleset ships in ``lang`` fill in where the site gave none
+        return {r["id"]: st.criterion_meta(r, lang, mine.get(r["id"], "")) for r in rows}
 
     def load(job: Job | None, prefix: str, suffix: str = ".json", tag: str | None = None) -> dict[str, Any] | None:
         out = st.output(job, prefix, suffix, tag)
@@ -341,10 +354,8 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def screen_or_403(sess: Session, rid: str, path: str) -> None:
         """D-147: once a study's delegation log names a PI, an investigator sees its patients only as the PI or a
-        sub-investigator the PI ticked "screen" for."""
-        if sess.user.role == "investigator" and h.may is not None and not h.may(sess.user, rid, "screen"):
-            au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
-            raise h.problem(403, "forbidden")
+        sub-investigator the PI ticked "screen" for (the one rule, ``Helpers.delegated``, D-273)."""
+        h.delegated(sess, rid, path)
 
     # ------------------------------------------------------------------ homes
     @app.get("/home")
@@ -669,7 +680,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         for job in sorted(jobs, key=lambda j: j.updated_at or j.received_at, reverse=True):
             doc = load(job, "excluded_", ".json")
             if doc is not None:
-                return job, doc
+                gone = h.gone()  # D-273 (PV-4): an opted-out patient is on no list, the excluded list too
+                return job, {**doc, "rows": [r for r in doc.get("rows") or [] if str(r.get("pid")) not in gone]}
         return None, None
 
     def excluded_rows(rid: str, doc: dict[str, Any], lang: str) -> list[dict[str, Any]]:
@@ -695,6 +707,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_view_phi:  # the PI and the CRC (and the administrator); never viewer or CRO
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
+        h.delegated(sess, rid, path)  # D-273 (PV-3): the same delegation rule as the week page
         return rid
 
     @app.get("/studies/{rs}/excluded")
@@ -758,14 +771,23 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.page(request, "patient.html", sess, **patient_ctx(sess, rid, pid))
 
     def apply_reveal(
-        sess: Session, path: str, rs: str, pid: str, reason: str, via: str = "patient", purpose: str = ""
+        sess: Session,
+        path: str,
+        rs: str,
+        pid: str,
+        reason: str,
+        via: str = "patient",
+        purpose: str = "",
+        note: str = "",
     ) -> tuple[dict[str, Any], str]:
         """One chart number for the page and ``/api/v1`` alike (D-99): identifier authority for the study
         (administrator, coordinator, and the study's investigator since the owner's decision of 2026-11-09, D-143),
         a reason, one audit record on each side and the orchestrator's per-person rate limit. Viewer and CRO
         accounts get 403. D-147: once the study's delegation log names a PI, an investigator reveals only as that PI
         or as a sub-investigator ticked "screen"; the candidate page (``via="candidates"``, with the view's purpose)
-        uses this same path, reason and cap."""
+        uses this same path, reason and cap. D-273: the job page (``via="job"``) too, so this is the console's one
+        reveal path (PV-2); the reason "other" needs a written note of 10 characters or more, kept in the audit
+        record (ROLE-016)."""
         rid = study_or_404(sess, rs)
         delegated = sess.user.role != "investigator" or h.may is None or h.may(sess.user, rid, "screen")
         if not sess.user.sees_ids(rid) or not delegated:
@@ -773,6 +795,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         if reason not in REVEAL_REASONS:
             raise h.problem(400, "request.refused", reason="choose why you need the chart number")
+        note = " ".join((note or "").split())[:200]
+        if reason == "other" and len(note) < REVEAL_NOTE_MIN:
+            raise h.problem(400, "reveal.note_needed", n=REVEAL_NOTE_MIN)
         ctx = patient_ctx(sess, rid, pid)
         job = ctx["job"]
         au.append(
@@ -787,10 +812,11 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "reason": reveal_reason(reason),
                 "via": via,
                 **({"purpose": purpose} if purpose else {}),
+                **({"note": note} if note else {}),
             },
         )
-        try:
-            mrn = bk.reveal(job.job_id, pid, h.actor(sess))
+        try:  # D-273 (PV-15): the role and the studies travel signed; the orchestrator checks them and the opt-out
+            mrn = bk.reveal(job.job_id, pid, h.actor(sess), role=sess.user.role, scope=scope_of(sess.user.studies))
         except Refused as exc:
             raise h.problem(409, "request.refused", reason=str(exc)) from exc
         return ctx, mrn or ""
@@ -798,13 +824,14 @@ def register(app: FastAPI, h: Helpers) -> None:
     h.apply_reveal = apply_reveal  # console.team's candidate page reveals through it (D-147)
 
     @app.post("/studies/{rs}/patients/{pid}/reveal")
-    def patient_reveal(request: Request, rs: str, pid: str, csrf: str = Form(""), reason: str = Form("")) -> Response:
+    def patient_reveal(request: Request, rs: str, pid: str, csrf: str = Form(""), reason: str = Form(""),
+                       note: str = Form("")) -> Response:  # fmt: skip
         """One chart number, shown once, audited on both sides (D-99, D-143)."""
         sess = h.need(request)
         study_or_404(sess, rs)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
-        ctx, mrn = apply_reveal(sess, request.url.path, rs, pid, reason)
+        ctx, mrn = apply_reveal(sess, request.url.path, rs, pid, reason, note=note)
         ctx["mrn"] = mrn
         return h.page(request, "patient.html", sess, **ctx)
 
@@ -886,21 +913,28 @@ def register(app: FastAPI, h: Helpers) -> None:
             warned = h.team.irb(rid).warnings(today) if h.team is not None else []
         now = h.clock().isoformat()
         value = WITHDRAWN if mark == "withdraw" else mark
-        store.mark(rid, Mark(pid, value, stored_reason, stored_note, sess.user.username, now,
-                             wk["job"].job_id))  # fmt: skip
         detail: dict[str, Any] = {"pid": pid, "action": value, "reason": stored_reason or ""}
         if undone is not None:
             detail["undo"] = undone
         if prev is not None:
             detail["from"] = prev.mark  # a replaced or withdrawn mark stays visible in the trail
-        if mark == "approach":  # FR-STUDY-08: the screening number is given when the PI approves contact
-            detail["to"] = store.assign_screening_no(rid, pid, conf, now)
         if warned:  # D-147: a warning, not a gate; each override is its own record and audit event
             detail["irb_override"] = ",".join(warned)
+
+        def audit(no: str | None) -> None:
+            """D-273 (CR-055, DI-5): the audit events are written inside the store's transaction, before it commits:
+            a failed append rolls the mark and the screening number back, so no change is kept without its event."""
+            if no is not None:  # FR-STUDY-08: the screening number is given when the PI approves contact
+                detail["to"] = no
+            if warned:
+                au.append("console.approach_override", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess),
+                          detail={"pid": pid, "action": "approach", "reason": ",".join(warned)})  # fmt: skip
+            au.append("console.pi_mark", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess), detail=detail)
+
+        store.mark(rid, Mark(pid, value, stored_reason, stored_note, sess.user.username, now, wk["job"].job_id),
+                   number=conf if mark == "approach" else None, before_commit=audit)  # fmt: skip
+        if warned:  # the override record follows its audit event (an event without the record, never the reverse)
             h.team.add_override(rid, pid, warned, sess.user.username, now)
-            au.append("console.approach_override", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess),
-                      detail={"pid": pid, "action": "approach", "reason": ",".join(warned)})  # fmt: skip
-        au.append("console.pi_mark", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess), detail=detail)
         return rid, value, detail
 
     @app.post("/studies/{rs}/patients/{pid}/mark")
@@ -1044,9 +1078,12 @@ def register(app: FastAPI, h: Helpers) -> None:
     def api_session(request: Request) -> Session:
         auth = request.headers.get("authorization") or ""
         token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
-        sess: Session | None = h.users.session(token) if token else None
+        # T-505a (D-320, ROLE-001): only a token this route gave; a page's cookie is no bearer token
+        sess: Session | None = h.users.session(token, api=True) if token else None
         if sess is None:
             raise h.problem(401, "login")
+        if h.users.must_change(sess.user.username):  # D-279 (SEC-1): the owner replaces the password on the page
+            raise h.problem(403, "account.must_change")
         if h.scope_check is not None:  # D-146 (J-03): the API refuses what the page refuses, in one place
             h.scope_check(request, sess)
         bind_session(sess.token_sha[:16])  # S-09: the actor sent to the orchestrator is signed with this session
@@ -1055,21 +1092,61 @@ def register(app: FastAPI, h: Helpers) -> None:
     h.api_session = api_session  # the other /api/v1 routes (console.data_pages) sign in the same way
 
     @app.post("/api/v1/session")
-    def api_login(body: ApiLogin) -> dict[str, Any]:
-        user = h.users.authenticate(body.username, body.password)
+    def api_login(body: ApiLogin, request: Request) -> dict[str, Any]:
+        # D-279 (SEC-9, ROLE-006): the same per-address count as the page; a busy address waits (429), no account
+        # is locked by someone else's guesses.
+        src = source_of(request.client.host if request.client else None)
+        wait = h.users.throttled(src)
+        if wait:
+            au.append("console.login_failed", actor=f"console:{body.username[:60]}",
+                      detail={"via": "api", "reason": "slowed", "source": src})  # fmt: skip
+            raise h.problem(429, "login.slowed", n=wait)
+        ident = h.identity
+        totp_on = ident is not None and ident.settings.totp_required
+        # D-192: with a code to come, a right password does not reset the count of wrong codes
+        user = h.users.authenticate(body.username, body.password, clear_failures=not totp_on, source=src)
         if user is None:
-            au.append("console.login_failed", actor=f"console:{body.username[:60]}", detail={"via": "api"})
+            au.append("console.login_failed", actor=f"console:{body.username[:60]}",
+                      detail={"via": "api", "source": src})  # fmt: skip
+            if ident is not None:
+                ident.after_failure(body.username, src)
             raise h.problem(401, "login")
-        token, sess = h.users.new_session(user, body.lang if body.lang in ("ja", "zh-TW", "en") else "en")
-        au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": "api"})
+        via = "api"
+        if totp_on and ident.needs_code(user):
+            # T-505a (D-320, ROLE-001): the same two factors as the page, in one call. A password alone opens
+            # nothing; a wrong or replayed code is a failed sign-in from this address, as on /login/totp.
+            if not body.code.strip():
+                au.append("console.login_failed", actor=f"console:{user.username}",
+                          detail={"via": "api", "factor": "totp", "reason": "no_code", "source": src})  # fmt: skip
+                raise h.problem(401, "login.code")
+            reason = ident.step_up(user.username, body.code, src)
+            if reason:
+                au.append("console.login_failed", actor=f"console:{user.username}",
+                          detail={"via": "api", "factor": "totp", "reason": reason, "source": src})  # fmt: skip
+                if reason == "none":  # no authenticator yet: it is enrolled on the sign-in page, never here
+                    raise h.problem(403, "login.enrol")
+                if reason == "key":
+                    key_refused = "the authenticator key file does not match; ask an administrator"  # refusals.py
+                    raise h.problem(503, "request.refused", reason=key_refused)
+                raise h.problem(401, "login")
+            via = "api+totp"
+        if totp_on:
+            h.users.clear_failures(user.username, src)
+        if h.users.must_change(user.username):  # D-279 (SEC-1): no API session on a password someone else set
+            au.append("console.login_failed", actor=f"console:{user.username}",
+                      detail={"via": "api", "reason": "must_change"})  # fmt: skip
+            raise h.problem(403, "account.must_change")
+        token, sess = h.users.new_session(user, body.lang if body.lang in ("ja", "zh-TW", "en") else "en", via)
+        au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role, "via": via})
         return {"token": token, "username": user.username, "role": user.role,
                 "expires": getattr(sess, "expires", None)}  # fmt: skip
 
     @app.delete("/api/v1/session")
     def api_logout(request: Request) -> dict[str, bool]:
         auth = request.headers.get("authorization") or ""
-        if auth.lower().startswith("bearer "):
-            h.users.end_session(auth[7:].strip())
+        token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        if h.users.session(token, touch=False, api=True) is not None:  # D-320: a page's session ends on its page
+            h.users.end_session(token)
         return {"ok": True}
 
     @app.get("/api/v1/studies")
@@ -1083,6 +1160,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_view_phi:
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
+        h.delegated(sess, rid, path)  # D-273 (PV-3): the page's delegation rule on /api/v1 too
         return rid
 
     @app.get("/api/v1/studies/{rs}/patients")
@@ -1128,7 +1206,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         """The chart number of one listed patient for an account with identifier authority (D-143), audited and
         rate-limited exactly as on the patient page."""
         sess = api_session(request)
-        _ctx, mrn = apply_reveal(sess, request.url.path, rs, pid, body.reason)
+        _ctx, mrn = apply_reveal(sess, request.url.path, rs, pid, body.reason, note=body.note)
         return {"study": rs.strip().upper(), "pid": pid, "mrn": mrn or None}
 
     @app.get("/api/v1/studies/{rs}/screening-log")

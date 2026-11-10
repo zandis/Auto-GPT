@@ -272,7 +272,9 @@ def test_production_refuses_unpinned_and_non_champion_builds(tmp_path: Path) -> 
         tmp_path / "b", env=Environment.PRODUCTION, registry=_pinned_registry(sha=None), http=_mock("echo"), confirm=ok
     )
     r = unpinned.chat(H(Data_Class="D3", Step="s"), _judge_body())
-    assert r.status == 200 and r.body["tb"]["alias"] == "v-verifier"  # falls to the next pinned champion
+    # D-276 (review LLM-002): a judge call never falls to the next build of the patient route (it used to be answered
+    # by the verifier build, which then confirmed itself); an unpinned judge build is the call's error
+    assert (r.status, r.body["error"]["code"]) == (403, "build_unpinned")
     assert _records(tmp_path / "b")[0]["detail"]["fallbacks"] == 1
 
 

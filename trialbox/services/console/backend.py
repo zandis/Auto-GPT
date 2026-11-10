@@ -28,6 +28,8 @@ from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved
 from tb_common.service_auth import actor_header
 from tb_contracts import Job, JobCreate, JobFile, RegistryEntry, RegistryPromote, RegistrySummary, RegistryUpdate
 
+from console import ruleset_labels
+
 
 class Refused(RuntimeError):
     """The orchestrator refused the request (permission, rate limit, invalid request)."""
@@ -129,23 +131,53 @@ class Backend(Protocol):
     def registry_rows(self, ruleset: str) -> list[RegistryEntry]: ...
     def registry_update(self, ruleset: str, upd: RegistryUpdate) -> RegistryEntry: ...
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int: ...
-    def registry_export(self, ruleset: str, by: str) -> bytes: ...
-    def reveal(self, job_id: str, pid: str, by: str) -> str | None: ...
+    def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes: ...
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None: ...
     def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str: ...
 
 
-def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, str]]:
+def criteria_of(rulesets_dir: Path, ruleset: str) -> list[dict[str, Any]]:
     """Inclusion and exclusion criteria of the approved ruleset, in protocol order (id, kind, class, label, text):
-    what the role pages (D-104) print next to a verdict. Empty when there is no approved version."""
+    what the role pages (D-104) print next to a verdict. Empty when there is no approved version. T-507 (D-309):
+    ``action`` is the criterion's to-do and ``i18n`` the label, text and to-do the ruleset ships per language for
+    exactly this text (``console.ruleset_labels``)."""
     try:
         rs = load_approved(rulesets_dir, ruleset)
     except (RulesetNotApproved, FileNotFoundError, ValueError):
         return []
+    shipped = ruleset_labels.shipped(ruleset, rulesets_dir)
     return [
-        {"id": c.id, "kind": c.kind, "class": c.class_, "label": c.label or c.text[:60], "text": c.text}
+        {
+            "id": c.id,
+            "kind": c.kind,
+            "class": c.class_,
+            "label": c.label or c.text[:60],
+            "text": c.text,
+            "action": c.action or "",
+            "i18n": ruleset_labels.words(shipped.get(c.id), c.text, c.action or ""),
+        }
         for c in rs.active()
         if c.kind in ("inclusion", "exclusion")
     ]
+
+
+def approval_state_of(rulesets_dir: Path, ruleset: str) -> dict[str, Any] | None:
+    """Whether the approved version still stands as the investigator approved it (D-318): ``approval_needed`` with
+    the reasons (a newer prompt, a changed pinned prompt, another terminology release); None when nothing is
+    approved. The page shows the state only; the run itself enforces the pins."""
+    from tb_common.ruleset import approval_state
+
+    try:
+        rs = load_approved(rulesets_dir, ruleset)
+    except (RulesetNotApproved, FileNotFoundError, ValueError):
+        return None
+    try:
+        from criteria_compiler.terminology import resolver
+
+        release: str | None = resolver.current_release()
+    except Exception:  # the console may not read the vocabulary: no terminology reason (the run still refuses)
+        release = None
+    return approval_state(rs.manifest, terminology_release=release)
 
 
 # ---------------------------------------------------------------------------------------------- audit reading
@@ -300,6 +332,9 @@ class HttpBackend:
     def criteria(self, ruleset: str) -> list[dict[str, str]]:
         return criteria_of(self.cfg.env.rulesets_path, ruleset)
 
+    def approval_state(self, ruleset: str) -> dict[str, Any] | None:
+        return approval_state_of(self.cfg.env.rulesets_path, ruleset)
+
     def models(self) -> dict[str, Any] | None:
         """The orchestrator's ``GET /models`` (judge, verifier, note-block policy in force); None when it is down."""
         try:
@@ -385,15 +420,18 @@ class HttpBackend:
     def registry_promote(self, ruleset: str, req: RegistryPromote) -> int:
         return int(self._registry_call("POST", f"/registry/{ruleset}/promote", req)["added"])
 
-    def reveal(self, job_id: str, pid: str, by: str) -> str | None:
+    def reveal(self, job_id: str, pid: str, by: str, role: str = "", scope: str = "") -> str | None:
         """The chart number of one listed pseudonym (D-99): the orchestrator resolves and audits it; None when the
-        box has no pid map for it."""
+        box has no pid map for it. D-273: the person's role and studies travel signed, and the orchestrator checks
+        them; its refusal (403: role, study, opted out, not listed) is a refusal here."""
         try:
-            data = self.orch.post_raw(f"/jobs/{job_id}/reveal", {"pid": pid}, actor_header(by)).json()
+            data = self.orch.post_raw(
+                f"/jobs/{job_id}/reveal", {"pid": pid}, actor_header(by, role=role, scope=scope)
+            ).json()
         except ServiceError as exc:
             if exc.status == 404:
                 return None
-            if exc.status in (400, 409, 422):
+            if exc.status in (400, 403, 409, 422):
                 raise Refused(exc.detail) from exc
             raise Unavailable(str(exc)) from exc
         mrn = data.get("mrn") if isinstance(data, dict) else None
@@ -422,11 +460,12 @@ class HttpBackend:
         except ServiceError as exc:
             raise problem_of(exc.status, exc.detail) from exc
 
-    def registry_export(self, ruleset: str, by: str) -> bytes:
-        """The screening log with chart numbers; the orchestrator verifies the signed actor, audits and rate-limits
-        it (S-09)."""
+    def registry_export(self, ruleset: str, by: str, role: str = "", scope: str = "") -> bytes:
+        """The screening log with chart numbers; the orchestrator verifies the signed actor, its role and its studies
+        (D-273), audits and rate-limits it (S-09)."""
         try:
-            return self.orch._request("GET", f"/registry/{ruleset}/export.xlsx", headers=actor_header(by)).content
+            hdr = actor_header(by, role=role, scope=scope)
+            return self.orch._request("GET", f"/registry/{ruleset}/export.xlsx", headers=hdr).content
         except ServiceError as exc:
             if exc.status in (403, 429):
                 raise Refused(exc.detail) from exc

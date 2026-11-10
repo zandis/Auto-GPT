@@ -1,7 +1,7 @@
 """decisions_index: one decision number, one text, one owner (T-002, D-306, CR-077).
 
     python -m tools.decisions_index            # print the index of every decision number (Markdown, to stdout)
-    python -m tools.decisions_index --check    # exit 1 on any problem below; CI job `docs`
+    python -m tools.decisions_index --check    # exit 1 on a number used twice; CI job `docs`
 
 A decision's text lives in one of two places: the frozen log ``docs/DECISIONS.md`` (entries D-01 to D-270, each a
 paragraph that starts ``**D-nnn``) or one file ``docs/decisions/D-nnn-<slug>.md``. Who may use a number is written in
@@ -13,11 +13,11 @@ paragraph that starts ``**D-nnn``) or one file ``docs/decisions/D-nnn-<slug>.md`
 * ``unused``    never to be used (a gap, or a reservation that was voided);
 * ``missing``   cited on master, never written: the text is owed.
 
-``--check`` fails on: a number written twice (in the log, in two files, or in the log and a file); a decision file
-whose name and first line disagree; a decision file with no registry row; a log entry whose row is not ``merged``
-(the log is frozen: a new decision is a file); a ``merged`` row with no text, an ``unused`` or ``missing`` row with
-text; a number between D-01 and the registry's highest that no row covers (a gap must be marked); a number that two
-rows cover; a file under a row that names cards (``T-nnn``) when the file's opening names none of them.
+``--check`` fails only when one number has two texts (D-311, gates review S6): a number written twice (in the log, in
+two files, or in the log and a file), or a decision file whose name and first line disagree (so the number is
+ambiguous). Everything about the registry is printed as a note and never fails: a decision file with no registry row;
+a log entry whose row is not ``merged``; a ``merged`` row with no text, an ``unused`` or ``missing`` row with text; a
+gap no row covers; a number that two rows cover; a file under a row that names cards when its opening names none.
 
 The index is printed, never committed: a committed index would be one more file that every decision branch edits.
 """
@@ -117,6 +117,7 @@ def load(root: Path = ROOT) -> Corpus:
 
 
 def check(c: Corpus) -> list[str]:
+    """The blocking problems: one number with two texts, or a file whose number is ambiguous."""
     errs = list(c.errors)
     for num, hits in sorted(c.log.items()):
         if len(hits) > 1:
@@ -126,6 +127,12 @@ def check(c: Corpus) -> list[str]:
             errs.append(f"D-{num}: two files: {', '.join(p.name for p in paths)}")
         if num in c.log:
             errs.append(f"D-{num}: in DECISIONS.md (line {c.log[num][0][0]}) and in {paths[0].name}")
+    return errs
+
+
+def notes(c: Corpus) -> list[str]:
+    """Registry bookkeeping: printed by --check, never a failure (D-311)."""
+    errs: list[str] = []
     owner: dict[int, Row] = {}
     for r in c.rows:
         for num in range(r.first, r.last + 1):
@@ -200,7 +207,7 @@ def index(c: Corpus) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--check", action="store_true", help="exit 1 on a duplicate, a gap or a file with no row")
+    ap.add_argument("--check", action="store_true", help="exit 1 on a number used twice")
     ap.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
     c = load(args.root)
@@ -208,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(index(c))
         return 0
     errs = check(c)
+    for n in notes(c):
+        print(f"note: {n}")
     for e in errs:
         print(e)
     written = len(set(c.log) | set(c.files))

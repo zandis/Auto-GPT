@@ -499,6 +499,23 @@ class Judging(BaseModel):
     failures: int | None = None
 
 
+class KeyRotation(BaseModel):
+    """
+    A rotation bundle: signed by a trusted key, it adds one vendor key and may retire one. Accepted once.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    add_key_id: str = Field(..., pattern="^ed25519:[0-9a-f]{16}$")
+    add_public_key: str
+    """
+    base64 of the raw 32-byte Ed25519 public key
+    """
+    retire_key_id: str | None = Field(None, pattern="^ed25519:[0-9a-f]{16}$")
+
+
 class LakeQuery(BaseModel):
     """
     lake POST /query: parameterized SELECT only; response is an Arrow IPC stream. Schema version 1.0.0.
@@ -914,6 +931,48 @@ class PromptMeta(BaseModel):
     phi: bool = False
 
 
+class PromptPin(BaseModel):
+    """
+    One prompt as the investigator approved it (D-318): the registry's version, text sha256 and output schema sha256.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    version: int = Field(..., ge=1)
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    schema_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
+
+
+class QualificationStep(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    status: Literal["passed", "failed"]
+    reason: str
+    seconds: float = Field(..., ge=0.0)
+    detail: dict[str, Any]
+
+
+class QualifiedBuild(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    build_id: str = Field(..., min_length=1)
+    alias: str
+    served_name: str
+    weights_sha256: str = Field(..., pattern="^([0-9a-f]{64}|synthetic|)$")
+    """
+    The weight manifest sha256 pinned in models/registry.yaml, 'synthetic' for the stub, '' when none is pinned.
+    """
+    revision: str | None
+    context_length: int | None
+    registry_status: str
+
+
 class RebuildRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1174,6 +1233,29 @@ class DataSource(BaseModel):
     lab_local_to_loinc: str | None = None
 
 
+class FeedCompleteness(BaseModel):
+    """
+    The completeness gate of the nightly ingest (T-611): a night that fails it is held, never published
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    max_table_drop_pct: float = Field(10, ge=0.0, le=100.0)
+    """
+    a full night whose source table has this share fewer rows than the last good night is held
+    """
+    required_tables: list[str] = []
+    """
+    mapping tables that must be present with rows on every night, the first one too
+    """
+    optional_tables: list[str] = []
+    """
+    mapping tables that may be absent or empty on a night although the last good night had rows
+    """
+
+
 class Profiles(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1337,6 +1419,10 @@ class Settings(BaseModel):
     Per job type daily limit per sender, overriding rate_limit_per_sender_per_day; 0 = no limit (D-146)
     """
     data_source: DataSource = Field(..., title="DataSource")
+    feed_completeness: FeedCompleteness | None = Field(None, title="FeedCompleteness")
+    """
+    The completeness gate of the nightly ingest (T-611): a night that fails it is held, never published
+    """
     mrn_regex: str = "^\\d{8}$"
     profiles: Profiles | None = Field(None, title="Profiles")
     models: SiteModels | None = Field(None, title="SiteModels")
@@ -1384,6 +1470,259 @@ class Simulation(BaseModel):
     source: Literal["calibrated", "default"] = "default"
     iterations: int = 1000
     monthly_eligible_mean: float | None = None
+
+
+class SiteCode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    code: str = Field(..., min_length=1)
+    name: str | None = None
+
+
+class SiteDiagnosisCode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    code: str = Field(..., min_length=1)
+    name: str | None = None
+    icd10: str | None = None
+
+
+class SiteDrugCode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    code: str = Field(..., min_length=1)
+    name: str | None = None
+    atc: str | None = None
+
+
+class SiteLabItem(BaseModel):
+    """
+    one row of the site's lab table: its code, name and unit, and the range a synthetic result is drawn from
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    code: str = Field(..., min_length=1)
+    name: str | None = None
+    unit: str
+    range: list[float] | None = Field(None, max_length=2, min_length=2)
+
+
+class SiteFeed(BaseModel):
+    """
+    questions 24, 28 and 29: the input, its character set, its date format and its delimiter
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    layout: Literal["csv", "sql", "ssmix2"]
+    encoding: Literal["utf-8", "shift_jis", "cp932", "big5", "cp950", "iso-2022-jp"]
+    date_format: Literal["iso", "roc7", "yyyymmdd", "slash"]
+    delimiter: Literal[",", "\t", "|"] | None = None
+    extension: str | None = Field(None, pattern="^\\.[a-z]{2,4}$")
+
+
+class SiteChartNumber(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    letters: int | None = Field(None, ge=0, le=3)
+    digits: int = Field(..., ge=5, le=12)
+    check: Literal["none", "luhn"] | None = None
+
+
+class SiteIdentifiers(BaseModel):
+    """
+    the form of the site's chart number (not a number): what the data scan can anchor a bare chart number on
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    chart_number: SiteChartNumber | None = Field(None, title="SiteChartNumber")
+
+
+class SiteTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    source: str = Field(..., pattern="^[A-Za-z_][A-Za-z0-9_]*$")
+    columns: dict[str, str] = Field(..., min_length=1)
+    """
+    local header -> canonical column (a lower-case name of templates/CANONICAL.md; the tool checks its form)
+    """
+
+
+class SiteSexCodes(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    M: str
+    F: str
+
+
+class SiteEncounterTypeCodes(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    OPD: str | None = None
+    IPD: str | None = None
+    ER: str | None = None
+
+
+class SiteCodeLists(BaseModel):
+    """
+    questions 28 and 29: the site's code lists (codes and names, not patient data)
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    sex: SiteSexCodes | None = Field(None, title="SiteSexCodes")
+    encounter_type: SiteEncounterTypeCodes | None = Field(
+        None, title="SiteEncounterTypeCodes"
+    )
+    department: list[SiteCode] | None = Field(None, min_length=1)
+    lab: list[SiteLabItem] = Field(..., min_length=1)
+    diagnosis: list[SiteDiagnosisCode] | None = None
+    drug: list[SiteDrugCode] | None = None
+
+
+class SiteProvider(BaseModel):
+    """
+    question 33: the physician per encounter, and a staff directory
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    in_encounter: bool | None = None
+    directory: bool | None = None
+
+
+class SiteNotes(BaseModel):
+    """
+    question 35: the note types the feed carries (absent: no notes)
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    types: list[Literal["progress", "admission", "discharge", "consult", "nursing"]] = (
+        Field(..., min_length=1)
+    )
+
+
+class SiteUnitMismatch(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    code: str = Field(..., min_length=1)
+    unit: str = Field(..., min_length=1)
+    factor: float = Field(..., gt=0.0)
+
+
+class SitePlants(BaseModel):
+    """
+    what the synthetic site plants for the mapping to find: lab codes the mapping does not know and results in a unit the lookup does not expect
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    share: float | None = Field(None, gt=0.0, le=0.5)
+    unmapped_lab: list[SiteLabItem] | None = None
+    unit_mismatch: list[SiteUnitMismatch] | None = None
+
+
+class SiteSchema(BaseModel):
+    """
+    site-schema.yaml (T-011): a site's feed described from its survey answers (TB-SITE-01 questions 24 to 35), structure and code lists only, never a patient value. tools/synth_site_from_schema.py builds a synthetic site from it. Schema version 1.0.0.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    schema_version: Literal[1]
+    site: str = Field(..., pattern="^[a-z0-9][a-z0-9-]{1,40}$")
+    """
+    a short site label
+    """
+    fictional: bool | None = None
+    """
+    true for a sample schema that describes no real site
+    """
+    country: Literal["JP", "TW"]
+    tz: str = Field(..., min_length=3)
+    survey: str | None = None
+    """
+    the survey copy the schema was written from (document id and version)
+    """
+    feed: SiteFeed = Field(..., title="SiteFeed")
+    """
+    questions 24, 28 and 29: the input, its character set, its date format and its delimiter
+    """
+    identifiers: SiteIdentifiers | None = Field(None, title="SiteIdentifiers")
+    """
+    the form of the site's chart number (not a number): what the data scan can anchor a bare chart number on
+    """
+    tables: dict[
+        Literal[
+            "patient",
+            "practitioner",
+            "encounter",
+            "appointment",
+            "diagnosis",
+            "lab",
+            "medication",
+            "note",
+        ],
+        SiteTable,
+    ]
+    """
+    question 29: per canonical table (templates/CANONICAL.md), the site's table or file name and its header row as local header -> canonical column. For ssmix2 only the extended tables (practitioner, appointment, note)
+    """
+    code_lists: SiteCodeLists = Field(..., title="SiteCodeLists")
+    """
+    questions 28 and 29: the site's code lists (codes and names, not patient data)
+    """
+    provider: SiteProvider | None = Field(None, title="SiteProvider")
+    """
+    question 33: the physician per encounter, and a staff directory
+    """
+    appointments: bool | None = None
+    """
+    question 34: the feed carries future bookings
+    """
+    notes: SiteNotes | None = Field(None, title="SiteNotes")
+    """
+    question 35: the note types the feed carries (absent: no notes)
+    """
+    plants: SitePlants | None = Field(None, title="SitePlants")
+    """
+    what the synthetic site plants for the mapping to find: lab codes the mapping does not know and results in a unit the lookup does not expect
+    """
 
 
 class TierSummary(BaseModel):
@@ -1468,26 +1807,55 @@ class UpdateFile(BaseModel):
         extra="forbid",
         populate_by_name=True,
     )
-    path: str
+    path: str = Field(..., max_length=400, min_length=1)
     sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
     kind: Literal["model", "ruleset", "image", "refdata", "other"]
-    size: int | None = None
+    size: int = Field(..., ge=0)
 
 
 class UpdateManifest(BaseModel):
     """
-    Offline update bundle manifest (SPEC 10.1), signed with the vendor Ed25519 key. Schema version 1.1.0 (1.1.0: payload kind refdata, the reference data pack of D-140).
+    Offline update bundle manifest (SPEC 10.1), signed with a trusted vendor Ed25519 key. Schema version 1.2.0 (1.1.0: payload kind refdata, the reference data pack of D-140; 1.2.0, D-210: release_seq, min_installed_version, key_id, not_after, the compatibility table compat.json and the optional release.json / images.lock members bound by their sha256, a key rotation, size required).
     """
 
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
     )
-    bundle_id: str
+    bundle_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
     created_at: AwareDatetime
     signer: str
     description: str | None = None
     files: list[UpdateFile]
+    release_seq: int = Field(..., ge=1)
+    """
+    Monotonic release counter: a box refuses a bundle whose release_seq is not above the installed one (unless an audited --allow-downgrade).
+    """
+    min_installed_version: int = Field(..., ge=0)
+    """
+    The lowest installed release_seq this bundle applies over (0: also a box never updated under D-210). Never overridable.
+    """
+    key_id: str = Field(..., pattern="^ed25519:[0-9a-f]{16}$")
+    """
+    The signing key: ed25519: + the first 16 hex of the sha256 of its raw 32-byte public key. Must be a key the box trusts and must be the key the signature verifies with.
+    """
+    not_after: AwareDatetime
+    """
+    The bundle is refused after this time.
+    """
+    compat_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member compat.json (the compatibility table, checked before any file is touched).
+    """
+    release_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member release.json (provisional until T-110). Required when the bundle carries images.
+    """
+    images_lock_sha256: str | None = Field(None, pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the bundle member images.lock (the release's deploy/images.lock).
+    """
+    rotation: KeyRotation | None = None
 
 
 class ValidationSummary(BaseModel):
@@ -1851,6 +2219,43 @@ class NavRow(BaseModel):
     precheck: Precheck | None = None
 
 
+class QualificationBuilds(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    judge: QualifiedBuild
+    verifier: QualifiedBuild
+
+
+class QualificationRecord(BaseModel):
+    """
+    The record `trialbox eval qualify` writes (tools/qualify.py, D-313): one model pair on one hardware profile. Every step of tools.qualify.STEPS must be present and passed, else the status is failed. Hashes, counts and codes only: no note text, prompt or answer. Schema version 1.0.0 (format qualification-record/1).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    format: Literal["qualification-record/1"]
+    record_id: str = Field(..., min_length=1)
+    profile: Literal["ci", "rtxpro6000", "gb10", "rtx5090", "shared-quota"]
+    stub: bool
+    gateway: str
+    builds: QualificationBuilds = Field(..., title="QualificationBuilds")
+    git_head: str
+    driver: str
+    cuda: str
+    operator: str
+    started: AwareDatetime
+    finished: AwareDatetime
+    steps: dict[str, QualificationStep]
+    status: Literal["passed", "failed"]
+    failed_steps: list[str]
+    qualifies_production: bool
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+
+
 class RegistryEntry(BaseModel):
     """
     One row of a candidate registry: a pseudonymous patient and where the study team is with them for one ruleset (the ICH E6 screening and enrolment log, pseudonymous). Schema version 1.0.0. Chart numbers are never stored; the box resolves them from the pid map for the site's export.
@@ -2073,6 +2478,10 @@ class RulesetManifest(BaseModel):
     terminology_release: str | None = Field(None, pattern="^TR-[0-9a-f]{12}$")
     """
     the terminology release the ruleset was compiled against (D-301): a run against another release is refused until it is recompiled
+    """
+    prompt_pins: dict[str, PromptPin] | None = None
+    """
+    the prompts the approved ruleset runs with, by prompt id (D-318): SCREEN runs the pinned version and text until the investigator re-approves; a newer registered version puts the study in approval needed
     """
     source_last_update: str | None = None
 

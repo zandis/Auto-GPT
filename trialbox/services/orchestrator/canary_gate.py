@@ -226,10 +226,32 @@ def run_canary(orch: Any) -> dict[str, Any] | None:
     return GATE.report
 
 
+def check_pair(orch: Any) -> str | None:
+    """At start, on every box (gate on or off): is the configured verifier a second model? When it is the judge
+    again, say so in the log and the audit (``llm.pair.same_model``); every run then falls back to never-exclude
+    (``effective_note_block``, D-276). Returns why the pair is one model, or None."""
+    from tb_common.pair import same_model
+
+    from orchestrator.selftest import model_name
+
+    llm, verifier = orch.services.llm, getattr(orch.services, "verifier", None)
+    if llm is None or verifier is None:
+        return None
+    why = same_model(llm, verifier)
+    if why:
+        log.error("FAIL: the verifier is not a second model (%s): note answers will never exclude", why)
+        orch.audit.append(
+            "llm.pair.same_model",
+            detail={"judge": model_name(llm), "verifier": model_name(verifier), "why": why, "note_block": "never"},
+        )
+    return why
+
+
 def startup(orch: Any) -> threading.Thread | None:
     """At orchestrator start: read the last report, and with the gate on run the canary in the background (a
     run started meanwhile simply cannot exclude on a note answer until it passes)."""
     GATE.configure(orch.data_dir)
+    check_pair(orch)
     if not gate_on() or orch.services.llm is None or (os.environ.get("TB_CANARY_AT_START") or "1") == "0":
         return None
     t = threading.Thread(target=run_canary, args=(orch,), name="canary-at-start", daemon=True)

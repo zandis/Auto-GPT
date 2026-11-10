@@ -30,10 +30,13 @@ The message types read, and the canonical tables (``mapping/templates/CANONICAL.
   specimen comes from the JLAC10 material code.
 
 ICD-10 comes from PRB-3's alternate coding; when a vendor sends only the 標準病名 code it is looked up in the site's
-licensed MEDIS release (``adapter.licensed``; only to a code in the ICD-10-CM list) and then in
-``byomei_to_icd10.csv`` (``code,icd10``). ATC works the same way from ``yj_to_atc.csv`` (``yj_code,atc``) and a
-licensed YJ release that carries ATC. Codes that resolve nowhere are counted in :attr:`Ssmix2Source.missed` and reach
-the mapping without a standard code (D-130 keeps them unknown).
+licensed MEDIS release (``adapter.licensed``) and then in ``byomei_to_icd10.csv`` (``code,icd10``). Japan codes in
+WHO ICD-10 (2013), not ICD-10-CM (D-314): ``icd10`` is the WHO code as the site wrote it (written ``E14.9``: upper
+case, the dot after the category, a dagger or asterisk mark dropped), kept even when ICD-10-CM has no such code
+(``E14``, ``I64``, ``F00``); ``icd10cm`` is the same code only when it is also an ICD-10-CM code (D-137's rule), so the
+JP mapping carries the WHO coding always and the ICD-10-CM one only where they are the same code. ATC works the same
+way from ``yj_to_atc.csv`` (``yj_code,atc``) and a licensed YJ release that carries ATC. Codes that resolve nowhere
+are counted in :attr:`Ssmix2Source.missed` and reach the mapping without a standard code (D-130 keeps them unknown).
 
 Extended storage (拡張ストレージ, D-137): documents (reports, discharge summaries, PDFs, text) under
 ``<root>/extended_storage/`` (or ``extended_storage=``), in the same patient folders:
@@ -171,13 +174,25 @@ def drug_codes(seg: hl7.Segment, n: int) -> dict[str, str]:
 
 
 def _icd10cm() -> set[str]:
-    """Every ICD-10-CM code (D-122's full list), so a licensed WHO ICD-10 code is used only where it is one."""
+    """Every ICD-10-CM code (D-122's full list): a WHO ICD-10 code is also given as ICD-10-CM only where it is one."""
     import pyarrow.parquet as pq
 
     path = Path(__file__).resolve().parents[3] / "criteria_compiler" / "terminology" / "icd10cm_full.parquet"
     if not path.exists():
         return set()
     return {str(c) for c in pq.read_table(path, columns=["code"]).column("code").to_pylist()}
+
+
+_WHO_SHAPE = re.compile(r"^[A-Z][0-9]{2}(\.[0-9]{1,2})?$")
+
+
+def who_icd10(code: str) -> str:
+    """A WHO ICD-10 code written one way (D-314): upper case, no blanks, the dagger / asterisk / plus mark dropped, the
+    dot after the three-character category (``e149`` -> ``E14.9``). Anything else is returned as written, stripped."""
+    c = re.sub(r"\s+", "", code or "").upper().rstrip("*+\u2020")
+    if re.fullmatch(r"[A-Z][0-9]{3,4}", c):
+        c = f"{c[:3]}.{c[3:]}"
+    return c
 
 
 def document_text(name: str, data: bytes) -> tuple[str, str]:
@@ -328,18 +343,27 @@ class Ssmix2Source:
 
     # ------------------------------------------------------------------ code lookups
     def _icd(self, byomei: str) -> str:
-        """標準病名 -> ICD-10 through the licensed MEDIS release (only a code in the ICD-10-CM list), then the site's
-        lookup file."""
+        """標準病名 -> WHO ICD-10 through the licensed MEDIS release, then the site's lookup file. The MEDIS target
+        is kept even when ICD-10-CM has no such code (D-314: Japan's ICD-10 is WHO's)."""
         hit = self.licensed.get("medis", {}).get(byomei.upper()) if byomei else None
         if hit and hit.get("target_code"):
-            if self._cm is None:
-                self._cm = _icd10cm()
-            code = hit["target_code"]
-            if code in self._cm:
-                self.stats["diagnosis:licensed"] += 1
-                return code
-            self.stats["diagnosis:licensed code not in ICD-10-CM"] += 1
-        return self.byomei.get(byomei, "")
+            code = who_icd10(hit["target_code"])
+            self.stats["diagnosis:licensed"] += 1
+            if not self._in_cm(code):
+                self.stats["diagnosis:licensed WHO-only code"] += 1
+            return code
+        return who_icd10(self.byomei.get(byomei, ""))
+
+    def _in_cm(self, code: str) -> bool:
+        if self._cm is None:
+            self._cm = _icd10cm()
+        return bool(code) and code in self._cm
+
+    def _icd_columns(self, code: str) -> dict[str, str]:
+        """``icd10`` (WHO, always) and ``icd10cm`` (the same code when ICD-10-CM has it, else empty), D-314."""
+        if code and not _WHO_SHAPE.match(code):
+            self.stats["diagnosis:not a WHO ICD-10 shape"] += 1
+        return {"icd10": code, "icd10cm": code if self._in_cm(code) else ""}
 
     def _atc(self, yj: str) -> str:
         hit = self.licensed.get("yj", {}).get(yj.upper()) if yj else None
@@ -425,14 +449,14 @@ class Ssmix2Source:
         enc = pv1.comp(19, 1) if pv1 else ""
         for prb in msg.all("PRB"):
             code = prb.comp(3, 1)
-            icd = _alt(prb, 3, ("I10", "ICD10")) or self._icd(code)
+            icd = who_icd10(_alt(prb, 3, ("I10", "ICD10"))) or self._icd(code)
             if not icd:
                 self.missed[f"diagnosis:{code}"] += 1
             yield {
                 "diag_no": prb.comp(4, 1),
                 "enc_no": enc,
                 "mrn": sf.patient,
-                "icd10": icd,
+                **self._icd_columns(icd),
                 "byomei_code": code if prb.comp(3, 3) not in ("I10", "ICD10") else "",
                 "byomei_name": prb.comp(3, 2),
                 "diag_date": hl7.ts(prb.field(16)) or "",

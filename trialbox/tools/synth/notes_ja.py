@@ -80,3 +80,65 @@ NEEDLES: list[tuple[str, str]] = [
     ("マラソン大会の後に横紋筋融解症を起こしたことがある", "マラソン 横紋筋融解症"),
     ("サルファ剤で皮疹が出たことがある", "サルファ剤 皮疹"),
 ]
+
+
+# ------------------------------------------------------------------------------------------------ Alzheimer's (T-503)
+# Memory-clinic notes and reports of the ``ad`` archetype (scenario J1, trial AD-MAB). Each function returns one
+# sentence (or one report) that answers one AD-MAB criterion; the date is passed in already written. To be read by a
+# native clinician before the PoC (T-503 PR).
+AD_FILLER = [
+    "本人は物忘れの自覚に乏しく、家族が日付や約束を忘れることを心配して受診。",
+    "神経学的所見：脳神経に異常なし、明らかな運動麻痺や感覚障害なし、歩行は安定。",
+    "日常生活動作は自立しているが、金銭管理と服薬管理は家族が一部援助している。",
+    "抑うつ気分や幻視の訴えはなく、睡眠は保たれている。",
+    "前回受診時と比べ、会話の内容や応答に大きな変化はない。",
+    "家族より、同じ話を繰り返すことが増えたとの情報あり。",
+    "血液検査でビタミンB12、葉酸、甲状腺機能に異常なし。",
+    "運動と社会参加を続けるよう本人と家族に説明した。",
+    "車の運転は家族と相談のうえ控えているとのこと。",
+    "次回、認知機能検査の再評価を予定する。",
+]
+
+
+def mmse_sentence(date_text: str, mmse: int, hdsr: int | None) -> str:
+    if hdsr is None:
+        return f"{date_text}の認知機能検査でMMSE {mmse}点（30点満点）であった。"
+    return f"{date_text}の認知機能検査でMMSE {mmse}点（30点満点）、HDS-R {hdsr}点であった。"
+
+
+def hdsr_only_sentence(date_text: str, hdsr: int) -> str:
+    return f"{date_text}にHDS-R {hdsr}点（30点満点）。MMSEは本日未施行。"
+
+
+def cdr_sentence(cdr: str) -> str:
+    return f"CDR（Clinical Dementia Rating）の全般スコアは{cdr}と評価した。"
+
+
+def amyloid_pet_report(date_text: str, positive: bool) -> str:
+    if positive:
+        return f"【アミロイドPET】{date_text}施行。大脳皮質にびまん性のアミロイド集積を認め、視覚読影で陽性と判定する。"
+    return f"【アミロイドPET】{date_text}施行。大脳皮質へのアミロイド集積は認めず、視覚読影で陰性と判定する。"
+
+
+def csf_report(date_text: str) -> str:
+    return (
+        f"【脳脊髄液検査】{date_text}採取。Aβ42/40比は低下、リン酸化タウ（p-tau181）は高値であり、"
+        "アミロイド病理を示唆する所見（陽性）。"
+    )
+
+
+def amyloid_not_done_sentence() -> str:
+    return "アミロイドPETおよび脳脊髄液検査は未実施である。"
+
+
+def mri_report(date_text: str, microbleeds: int, siderosis: bool) -> str:
+    head = f"【頭部MRI】{date_text}施行。両側海馬に軽度の萎縮を認める。"
+    mb = f"T2*強調像で脳微小出血を{microbleeds}か所に認める。" if microbleeds else "T2*強調像で脳微小出血は認めない。"
+    ss = "左頭頂葉の脳表にヘモジデリン沈着を認める。" if siderosis else "脳表ヘモジデリン沈着は認めない。"
+    return head + mb + ss
+
+
+def partner_sentence(has_partner: bool) -> str:
+    if has_partner:
+        return "長女と同居しており、受診には毎回長女が付き添っている。"
+    return "独居で近隣に親族はおらず、受診はいつも一人で来院している。"

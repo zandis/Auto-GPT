@@ -1,0 +1,131 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "5b31ff48d3df539a42b2d482bc405f74e0d2a3d4",
+  "lake_schema_version": 2,
+  "profile": "ci",
+  "reason": "D-205: adds the goldens of the new AD-MAB and NEUR-COH rulesets (T-503); no existing value moves",
+  "ref_date": "2026-11-01",
+  "ruleset": "AD-MAB",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy"
+ },
+ "sets": {
+  "public-en": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 19,
+    "AD-MAB-INC-02": 0
+   },
+   "start": 53,
+   "unknown": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 1,
+    "AD-MAB-INC-02": 0
+   },
+   "variants": {
+    "unknown_as_pass": 0
+   }
+  },
+  "ssmix2-jp": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 217,
+    "AD-MAB-INC-02": 0
+   },
+   "start": 400,
+   "unknown": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 0,
+    "AD-MAB-INC-02": 0
+   },
+   "variants": {
+    "unknown_as_pass": 0
+   }
+  },
+  "synthetic-jp-a": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 1376,
+    "AD-MAB-INC-02": 0
+   },
+   "start": 2500,
+   "unknown": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 8,
+    "AD-MAB-INC-02": 0
+   },
+   "variants": {
+    "unknown_as_pass": 0
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 1374,
+    "AD-MAB-INC-02": 0
+   },
+   "start": 2493,
+   "unknown": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 4,
+    "AD-MAB-INC-02": 0
+   },
+   "variants": {
+    "unknown_as_pass": 0
+   }
+  },
+  "synthetic-tw-a": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 1336,
+    "AD-MAB-INC-02": 0
+   },
+   "start": 2500,
+   "unknown": {
+    "AD-MAB-EXC-01": 0,
+    "AD-MAB-EXC-03": 0,
+    "AD-MAB-EXC-04": 0,
+    "AD-MAB-INC-01": 8,
+    "AD-MAB-INC-02": 0
+   },
+   "variants": {
+    "unknown_as_pass": 0
+   }
+  }
+ }
+}

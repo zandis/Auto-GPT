@@ -1,0 +1,20 @@
+{
+ "class": "structured",
+ "id": "NEUR-COH-INC-01",
+ "kind": "inclusion",
+ "label": "MCI・認知症（病名）",
+ "logic": {
+  "domain": "condition",
+  "quantifier": "any",
+  "valueset": "VS_COGNITIVE_IMPAIRMENT_OR_DEMENTIA"
+ },
+ "review": {
+  "at": "2026-11-10T22:19:28.826951+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "NEUR-COH",
+ "source_ref": "2.1 選択基準 #1",
+ "text": "軽度認知障害（MCI）または認知症（アルツハイマー型、血管性、その他）と診断されている者（ICD-10-CM G31.84、G30、F01〜F03）。",
+ "time_sensitive": false
+}

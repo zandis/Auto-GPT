@@ -8,7 +8,9 @@ box are tested against a fake runner (no Docker here); the in-process box runs f
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -158,6 +160,12 @@ class FakeRun:
         return ""
 
 
+@pytest.fixture(autouse=True)
+def _no_real_docker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`docker volume ls` through TB_DOCKER: `true` answers "no volumes" without the host's Docker."""
+    monkeypatch.setenv("TB_DOCKER", "true")
+
+
 @pytest.fixture()
 def deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     d = tmp_path / "deploy"
@@ -209,9 +217,9 @@ def test_compose_box_rolls_back_images_models_and_database(tmp_path: Path, deplo
 def test_compose_box_refuses_without_a_backup_key_or_target(tmp_path: Path, deploy: Path) -> None:
     (deploy / "secrets/backup.pub").unlink()
     run = FakeRun()
-    with pytest.raises(up.UpdateFailed, match="backup failed, nothing was changed"):
+    with pytest.raises(up.UpdateRefused, match="backup not possible, nothing was changed"):
         up.Updater(up.ComposeBox(deploy, run=run), deploy / "updates", say=lambda _m: None).run(_plan(tmp_path))
-    assert run.calls == []
+    assert run.calls == []  # D-210: refused in the preflight, before any command
 
 
 def test_demo_box_swaps_the_container_and_runs_e2e_simple(tmp_path: Path, deploy: Path,
@@ -236,12 +244,19 @@ def test_first_install_only_loads_and_defers_the_audit(
     stage = tmp_path / "stage"
     (stage / "model/judge").mkdir(parents=True)
     (stage / "model/judge/config.json").write_text("new")
-    summary = tmp_path / "s.json"
-    summary.write_text(json.dumps({"bundle_id": "B0", "manifest_sha256": "a" * 64, "signer": "v", "files": []}))
+    (stage / "manifest.json").write_bytes(b"{}")
+    summary = stage / "summary.json"  # D-210: in the stage folder, bound to the staged manifest
+    compat = {"format": "trialbox-update-compat/1", "bundle_id": "B0", "rows": [{}]}
+    summary.write_text(json.dumps({"bundle_id": "B0", "manifest_sha256": hashlib.sha256(b"{}").hexdigest(),
+                                   "signer": "v", "files": [], "release_seq": 1, "compat": compat,
+                                   "trust_sha256": None}))  # fmt: skip
+    (deploy / ".env").unlink()  # a first install: install.sh writes the settings after the load
+    shutil.rmtree(deploy / "secrets")
     monkeypatch.setenv("TB_SKIP_AUDIT", "1")
     assert up.main_apply(stage, summary, "compose", deploy) == 0
     assert (deploy / "updates/pending_audit/B0.json").is_file()
     assert (tmp_path / "models/judge/config.json").read_text() == "new"
+    assert json.loads((deploy / "updates/installed.json").read_text())["release_seq"] == 1  # D-210
 
 
 def test_in_process_box_migrates_and_rolls_back_the_database(tmp_path: Path, db_url: str) -> None:
@@ -250,12 +265,12 @@ def test_in_process_box_migrates_and_rolls_back_the_database(tmp_path: Path, db_
     (work / "box/file.txt").write_text("data")
     box = up.InProcessBox(work, db_url, tmp_path / "backups")
     upd = up.Updater(box, tmp_path / "updates", say=lambda _m: None)
-    good = _plan(tmp_path, {"image": {"py.tar": b"x"}, "other": {"migrations/001.sql": b"CREATE TABLE note (id INT)"}},
+    good = _plan(tmp_path, {"image": {"py.tar": b"x"}, "other": {"migrations/001_note.sql": b"CREATE TABLE note (id INT)"}},
                  bundle_id="G")  # fmt: skip
     assert upd.run(good)["ok"] and box.schema_version() == 1
     assert len(list((tmp_path / "backups/nas").glob("*.tbbak"))) == 1
     bad = _plan(tmp_path, {"image": {"py.tar": b"y"}, "other": {
-        "migrations/001.sql": b"CREATE TABLE note (id INT)", "migrations/002.sql": b"CREATE TABLE extra (id INT)",
+        "migrations/001_note.sql": b"CREATE TABLE note (id INT)", "migrations/002_extra.sql": b"CREATE TABLE extra (id INT)",
         "FAIL_CHECK": b"x"}}, bundle_id="H")  # fmt: skip
     with pytest.raises(up.UpdateFailed, match="rolled back"):
         upd.run(bad)

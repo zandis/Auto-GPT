@@ -8,6 +8,13 @@ site:
     ra: 0.26
     onc: 0.04
     general: 0.4
+  # the Japanese memory-clinic site of scenario J1 (T-503, ``Generator(mix="mix_jp_ad")``): early AD / MCI patients
+  # beside the usual gout, RA and general patients. ``mix`` above stays the default (same seed -> same fixtures).
+  mix_jp_ad:
+    ad: 0.4
+    gout: 0.1
+    ra: 0.1
+    general: 0.4
 gout:
   injection:
     willing: 0.5
@@ -170,6 +177,59 @@ onc:
   egfr_mut:
     pos: 0.75
     neg: 0.25
+# Early Alzheimer's disease / MCI at the memory clinic (T-503, scenario J1: trial AD-MAB, registry NEUR-COH;
+# ``tools.synth.ad``). Each attribute decides one AD-MAB criterion; ``amyloid`` is unknown for most patients, as at a
+# real memory clinic (no PET or CSF test yet), so the list must keep them under "needs information".
+ad:
+  age_band:
+    in: 0.86
+    young: 0.07
+    old: 0.07
+  ad_dx:
+    mci: 0.4
+    ad: 0.4
+    uncoded: 0.2
+  mmse:
+    in_range: 0.45
+    low: 0.2
+    hdsr_only: 0.1
+    absent: 0.25
+  cdr:
+    half: 0.3
+    one: 0.2
+    two: 0.1
+    absent: 0.4
+  amyloid:
+    pet_pos: 0.12
+    pet_neg: 0.06
+    csf_pos: 0.06
+    not_done: 0.1
+    absent: 0.66
+  microbleeds:
+    few: 0.35
+    many: 0.08
+    siderosis: 0.04
+    no_mri: 0.53
+  anticoag:
+    current: 0.15
+    past: 0.07
+    none: 0.78
+  stroke:
+    recent: 0.06
+    old: 0.08
+    none: 0.86
+  creatinine:
+    normal: 0.8
+    low: 0.08
+    missing: 0.12
+  partner:
+    'yes': 0.6
+    'no': 0.15
+    no_info: 0.25
+  appointment:
+    soon: 0.6
+    later: 0.25
+    none: 0.15
 # PHI planted in notes in gold mode only (tools.synth_hospital; TB-DS-21 §3.1, rates proposed there): the share of
 # notes that carry PHI, then the chance of each span type in such a note (3.0 spans per PHI-bearing note on average).
 phi:

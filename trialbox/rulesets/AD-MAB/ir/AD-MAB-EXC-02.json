@@ -1,0 +1,22 @@
+{
+ "action": "頭部MRIの読影レポートを確認（未施行なら撮像）",
+ "class": "note",
+ "id": "AD-MAB-EXC-02",
+ "kind": "exclusion",
+ "label": "MRI 微小出血5か所以上・脳表ヘモジデリン",
+ "logic": {
+  "domain": "demographic",
+  "quantifier": "any",
+  "valueset": "NONE"
+ },
+ "note_question": "Does a brain MRI report show five or more cerebral microbleeds, or any superficial siderosis?",
+ "review": {
+  "at": "2026-11-10T22:18:12.342983+09:00",
+  "by": "crc1@hospa.test",
+  "status": "approved"
+ },
+ "ruleset": "AD-MAB",
+ "source_ref": "5.2 除外基準 #2",
+ "text": "頭部MRIで5か所以上の脳微小出血、または脳表ヘモジデリン沈着症を認める者。",
+ "time_sensitive": false
+}
