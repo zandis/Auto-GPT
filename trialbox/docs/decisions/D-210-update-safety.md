@@ -115,6 +115,13 @@ rows D-11 to D-14, D-16 to D-18; D-15 in part, see "Not done").
   (a test holds it). (5) Ctrl-C (KeyboardInterrupt) during apply to check rolls back like any failure; SIGTERM,
   SIGHUP and `kill -9` leave the marker for `tools/apply_update.sh rollback`.
 
+* **Follow-up T-111b (2026-11-10).** (1) The volume evidence is `docker volume ls -q --filter
+  label=com.docker.compose.project=<project>` (`COMPOSE_PROJECT_NAME`, else `trialbox`): no compose file is read. It
+  fails closed: when Docker cannot answer, the box counts as holding data, unless it has no `docker-compose.yml` at
+  all. (2) A malformed `installed.json` is a plain `update REFUSED` line, never a traceback. (3) With a
+  `release.json`, every tag of an image tar must be pinned (a tar that would move an unpinned tag is refused before
+  `docker load`): the tar's signed sha256 proves what is loaded, not which tags it moves.
+
 ## Why
 
 The update path is the one moment the hospital's box is changed by the vendor; its failure modes (half-applied
