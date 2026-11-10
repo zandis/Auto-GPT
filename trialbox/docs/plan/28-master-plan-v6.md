@@ -211,7 +211,7 @@ One table, `docs/plan/owner-chains.md` (card T-663), holds each chain's steps wi
 | GPU: the owner's B200 | 1 machine; operator = the owner (assumed) | G1b on two MIG layouts; the 50k functional runs; the acceptance drills; GP-2 | fits if a second operator exists (Q-12) |
 | The shared build machine and CI | 4 cores, 15 GB | the full suite per merge | measured in TB-DR-04; print the wall time in the status file |
 | Wave P (to the freeze, 12 working days) | 36 to 48 verified merges | 25 cards, 13 queued PRs and up to 11 fix groups: 49 merges | **over.** Before the freeze merge only what the PoC path needs (the clean PRs, T-002, six fix groups, the 25 cards: 36 merges); drain the rest in the week of 11-30 (§6.6) |
-| Findings | this review adds 419 rows of all severities (before the engineering file) to the register's 115 | the fix rate so far is about 20 rows a day | inflow is above outflow this week. Rule: after G0, a new review wave opens only at a gate; between gates the register only shrinks |
+| Findings | this review adds 455 rows of all severities to the register's 115 | the fix rate so far is about 20 rows a day | inflow is above outflow this week. Rule: after G0, a new review wave opens only at a gate; between gates the register only shrinks |
 
 ## 5. Risks
 
@@ -259,7 +259,7 @@ TB-PLAN-05 §6 stays the risk file. The rows below are added or changed (ISO 149
 
 This section replaces the card list of TB-ASSESS-01 §4 as the working backlog. A card of TB-ASSESS-01 that is still open keeps its id and its contract: the words "as TB-ASSESS-01" mean "read that card in `docs/reviews/2026-11-09-assessment-and-tasks.md`; nothing changes in this field". Only the changes are written here. New cards take the numbers T-501 upward. The backbone is the verified inventory TB-DR-11 (`docs/reviews/2026-11-10-deep-review/11-task-inventory.md`).
 
-State on 2026-11-10: `04-engineering-quality.md` (TB-DR-04) was not in the review folder when this section was written. Its findings (prefix ENG) are not in the tables. The numbers **T-650 to T-654 are reserved** for its cards (§6.2, wave 1 note).
+State on 2026-11-10: TB-DR-04 (engineering quality) arrived after the tables below were generated. Its cards are T-650 to T-654 and the additions listed at the head of wave 1 (§6.2.4); its Blocker, Critical and High rows are in the short table there, not in the generated coverage table of §6.3.
 
 ### 6.1 Rules for cards and sessions
 
@@ -353,7 +353,17 @@ The list matches `27-poc-plan.md` §7. T-505 is one card there; here it is two P
 
 Safety fixes first: T-601 must be in the commit of the G1 run. T-601, T-641 and T-012a start in wave P's weeks (§2.3) and are counted here.
 
-**Reserved: T-650 to T-654, cards from TB-DR-04 (engineering and test quality).** The file did not exist on 2026-11-10. When it arrives: its Blocker, Critical and High findings get cards in this block (wave 1 or 2 by the rules of this section), its Mediums go to one card "engineering Mediums" (wave 3), and §6.3 gets its rows. Until then the coverage check does not include prefix ENG.
+**Cards from TB-DR-04 (engineering and test quality).** The file has no Blocker and no Critical; none is a PoC prerequisite (the code passes every case its surviving mutants describe; the gaps are in the tests).
+
+| Id | Goal | Files it touches | Acceptance tests | Depends on | Size | Wave | Closes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **T-650** | Close the safety-core test gaps: property tests for the invariants of §7.4; unit tests that kill all 28 mutants of TB-DR-04 §3.3 (5 survive every gate today; 2 are caught only by the goldens); unit tests for the cascade's exclusion paths | `tests/unit/test_safety_properties.py` (new), `tests/unit/test_one_rule.py`, `test_code_coverage.py`, `test_mixed_and_polarity.py`, `pyproject.toml` (hypothesis in the test group; lock regenerated) | the 28 mutants are killed by unit tests; the properties pass at 200 examples in the PR job and 5,000 nightly | none | M | 1 | ENG-018, ENG-019, ENG-020, ENG-021 |
+| **T-652** | A CQL/SQL equivalence gate that cannot pass empty: a criterion with 0 patients compared fails; a minimum sample size; a disagreement that changes direction blocks at any rate; one decision table for structured verdicts shared by the engines | `services/criteria_compiler/equivalence/gate.py`, `service.py`, `services/matching/verdict.py` (new), new unit tests | an empty CQL result fails approval; `gate.py` ≥ 95 % covered; the parity property is green | T-650; CR-115's fix | M | 1 | ENG-016, ENG-022 |
+| **T-651** | Mutation testing nightly on the safety-core files and a coverage ratchet in the unit job | CI nightly job, a mutation tool config, `pyproject.toml` (`[tool.coverage]`) | nightly mutation score ≥ 90 % on the safety core; CI fails on a package drop of more than 0.5 point; safety-core files ≥ 95 % line and 90 % branch | T-650 | S | 2 | ENG-029 and the mutation gate |
+| **T-653** | Test hygiene and the missing jobs: `make test` green from a clean clone (the jars are a prerequisite of the target); pure tests run without PostgreSQL; random order and no network nightly; the compose tests (HAPI CQL, mail, e2e, the walk) run in a nightly job; a performance regression gate on the stub at 5k | `Makefile`, `tests/conftest.py`, `pyproject.toml`, `.github/workflows/trialbox-e2e.yml`, `tools/bench.py` baseline | clean-clone `make test` green (today 21 fail, 20 of them for the missing jars); 20 consecutive green runs; one green compose run a night; a regression of more than 20 % fails the nightly | T-672 (jars) | M | 2 | ENG-017, ENG-026, ENG-027, ENG-028, ENG-030, ENG-031 and the Mediums of TB-DR-04 §2.3 |
+| **T-654** | Lifecycle records: the software safety classification (the screening core as internal Class B), the SOUP list, the development plan, a problem-resolution log (Issues enabled, or `docs/validation/problems.csv`), a pull-request template; secret scanning and a static security scan in CI | `docs/validation/` (new files), `.github/PULL_REQUEST_TEMPLATE.md`, CI jobs, `pyproject.toml` (ruff rules) | signed by the owner and the safety-core engineer; a planted fake key fails CI; every register row has a tracked entry | T-002 | M | 2 | ENG-001, ENG-003, ENG-004, ENG-008, ENG-010, ENG-011 |
+
+Additions to existing cards from TB-DR-04: **T-007** takes ENG-005 and ENG-006 (master is not protected today: the API shows no required checks; the owner sets branch protection and the supply-chain jobs report on every PR). **T-666** takes ENG-002 (no test names a TST or URS id; the 370 SRS ids are not linked to the 92 URS). **T-110b** takes ENG-007, ENG-013, ENG-014, ENG-015 and ENG-024 (image gates in report mode; build downloads unverified; two Java versions). **T-104** takes ENG-032 (downgrade and checksum mismatch refused). **T-102** takes ENG-012 (no function over 200 lines in the console). The remaining Mediums and Lows of TB-DR-04 go to T-653 or the wave-3 polish card of their area.
 
 | Id | Goal | Files it touches | Acceptance tests | Depends on | Size | Closes (finding and CR ids) |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1393,7 +1403,22 @@ Synthetic and public only. The generators are versioned and seeded; each archety
 
 ### 7.8 Where the suite stands today
 
-Taken from the runs of this review. `make e2e-simple` passes (19 stages). `make backup-drill` passes and its backup restores into a fresh cluster (520,745 rows equal). `make data-scan` is clean. The targeted suites the reviewers ran passed (for example 166 adapter and OMOP tests, 141 gateway and model tests). The register's mutation run (64 single-rule mutants against 244 database-free tests) is the only mutation evidence so far. No property-based test exists for the safety core as far as the reviewers found. The full-suite counts, the coverage per service, the mutation experiment of this review and the CI assessment are in TB-DR-04; where that file's measured numbers differ from this section, the file is right and the thresholds of §7.3 are applied to its numbers.
+Measured on 2026-11-10 at `ca8f287` (TB-DR-04 §3 and §8; 4 cores, 3 workers).
+
+| Measure | Today | Target (§7.3) |
+| --- | --- | --- |
+| `make test` from a clean clone | 2,236 passed, 21 failed, 12 skipped in 16.5 minutes. 20 failures are the CQL translator jars missing from the git-ignored cache; with the jars present all 2,261 pass | green from a clean clone (T-653) |
+| Coverage of the product code | 90.8 % line, 81.3 % branch | safety core ≥ 95 % / 90 %; ratchet elsewhere |
+| `make lint`, `make e2e-simple` (128.6 s, 19 stages), goldens, `lock-check`, `allowlist-check`, the backup drill | pass | stay green |
+| Mutation experiment on the safety core (28 hand-made mutants of the two invariants and their neighbours) | 21 killed by the unit tests, 2 only by the goldens, **5 survive every gate** (undated or index-date proposed facts; unreadable rows with no date or no code) | all killed by unit tests (T-650); ≥ 90 % nightly |
+| Property-based tests | none | every invariant of §7.4 |
+| The CQL/SQL equivalence gate | passes with 0 patients compared; allows 2 % of disagreements that flip eligibility; 22 % unit coverage; HAPI runs in no CI job | T-652; the compose job nightly |
+| Traceability | 273 of 273 rows "planned"; no test names a TST or URS id | status from evidence (T-666) |
+| Branch protection on master | none: no required checks, no required review | §7.5 (T-007; the owner) |
+| Problem-resolution log | GitHub Issues are disabled | T-654 |
+| Software safety classification, SOUP list | none | T-654 |
+
+The targeted suites the other reviewers ran passed (166 adapter and OMOP tests, 141 gateway and model tests, the console tests). `make data-scan` is clean on this branch. The details, per-service coverage and the full command table are in TB-DR-04.
 
 ### 7.9 Order of work
 
@@ -1755,6 +1780,7 @@ Only decisions that are truly the owner's. Each has a recommended answer; if the
 | Q-18 | Which ingest stack is the product: the one that runs on the box (`adapter`) or the governed one that only tests use (`dataplat`)? | One stack. Move the contracts, the publish gate and the patient index of `dataplat` into the box's path before real data; do not ship two that make different pseudonyms. |
 | Q-19 | The verifier weights come from a personal account, quantised by a third party; the verifier and the embedder are of PRC origin. Is that acceptable to both hospitals? | Make the quantised build yourselves from the official weights with a recorded recipe and hash; name the origin in the IT pack; ask both hospitals now; keep a second verifier candidate measured. |
 | Q-20 | Break-glass for the admin: a second person before access, or a steward review after? Which time limit? | No second person; 60 minutes; the steward and the PI are told at once; steward review within 7 days. A second person only for a non-admin reveal outside the user's own lists. |
+| Q-21 | The repository is public, master is not protected, and GitHub Issues are disabled. Do you protect master now, enable a problem log, and move TrialBox to its own private repository before site material and the PoC feedback arrive? | Protect master this week with the required checks of §7.5. Enable Issues, or keep `docs/validation/problems.csv`. Yes to a private repository of its own; until then nothing that names a tester, a host or a hospital contact is committed. |
 
 ## 11. Assumptions this plan makes where the request was silent
 
@@ -1776,7 +1802,7 @@ The owner's request left these unsaid. Each is filled as stated; any of them can
 | A-12 | Card numbering | Existing cards keep their ids. New cards are T-501 onward (wave P) and T-601 onward. New decisions take numbers from D-300 through a registry; D-270 to D-289 stay with the fix groups. |
 | A-13 | The severity scale | Blocker: patient safety, privacy breach, data loss, or it stops the PoC or go-live. Critical: a wrong result or a serious compliance gap with no workaround. High: fix before go-live. Medium: should fix. Low: polish. |
 | A-14 | Lead times of hospital offices | Estimates from how such offices usually work in Taiwan and Japan. No office was asked. |
-| A-15 | The repository's visibility | Treated as public: no tester names, addresses, host names or session recordings enter it. |
+| A-15 | The repository's visibility | Public today (TB-DR-04 checked the API): no tester names, addresses, host names or session recordings enter it. |
 | A-16 | The owner's B200 | A machine he controls, outside CGMH's network, that can run MIG. If it is inside CGMH's network, its use is part of the IT chain. |
 | A-17 | Legal and regulatory statements in the review | The reviewers' reading, partly from secondary sources and marked where not confirmed online. Not legal advice: counsel and the regulatory consultants confirm (Q-15). |
 

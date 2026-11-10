@@ -20,7 +20,7 @@ Counts are findings by severity as each file's tables give them. A finding that 
 | `02a-ux-clinical-journeys.md` | UI/UX and the clinic pipeline: PI, sub-investigator, CRC, in ja, zh-TW, en | UX | **run** (616 page loads, 183 timed tasks) | 41 | 3 | 0 | 7 | 17 | 14 |
 | `02b-role-journeys-authz.md` | Non-clinical roles; role × route matrix (228 routes × 7 identities) | ROLE | **run** | 28 | 2 | 1 | 9 | 9 | 7 |
 | `03-llm-serving-stack.md` | The LLM serving stack | LLM | **run** (stub, gateway; no GPU) | 46 | 1 | 3 | 15 | 23 | 4 |
-| `04-engineering-quality.md` | Software engineering quality; the full suite | ENG | **run** | pending: the full run is still going | | | | | |
+| `04-engineering-quality.md` | Software engineering quality; the full suite | ENG | **run** | 36 | 0 | 0 | 7 | 22 | 7 |
 | `05a-data-standards.md` | Data and interoperability standards | STD | **run** (checkers) | 35 | 1 | 0 | 9 | 18 | 7 |
 | `05b-regulatory-standards.md` | Regulatory, GxP, privacy, quality system | REG | read | 32 | 0 | 3 | 13 | 14 | 2 |
 | `06-data-flow-governance.md` | Data schema and governance; the data-flow trace | DATA | **run** | 25 | 0 | 2 | 9 | 11 | 3 |
@@ -29,11 +29,11 @@ Counts are findings by severity as each file's tables give them. A finding that 
 | `09-operations.md` | Operations and hosting | OPS | read, small runs | 77 | 3 | 0 | 26 | 40 | 8 |
 | `10-plan-realism.md` | The plan itself | PLAN | read | 51 | 5 | 5 | 20 | 17 | 4 |
 | `11-task-inventory.md` | Inventory of 67 cards, 115 register rows, 14 open PRs | — | read, git | — | | | | | |
-| **All** | | | | **419 without ENG** | **16** | **16** | **146** | **181** | **60** |
+| **All** | | | | **455** | **16** | **16** | **153** | **203** | **67** |
 
 ## 2. The reading in ten lines
 
-1. The screening engine works end to end on synthetic data: `make e2e-simple` passes, the backup restores, the data-handling scan is clean, and no patient identifier was found in any log, mail or export the reviewers produced.
+1. The screening engine works end to end on synthetic data: the unit suite passes (2,261 tests with the jars present; 90.8 % line coverage), `make e2e-simple` passes, the backup restores, the data-handling scan is clean, and no patient identifier was found in any log, mail or export the reviewers produced.
 2. It is not yet a product a clinician can be handed. Of 92 user requirements, 13 are done, 43 partial, 33 missing, 3 contradicted (TB-DR-01).
 3. Three defects can give a wrong screening answer with no sign: the lab unit (STD-001), the judge answered by the verifier's model (LLM-002), a partial feed published as a good night (DATA-001).
 4. Identity has a hole: a password alone opens a session through the API route even with the second factor on (ROLE-001).
