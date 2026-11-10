@@ -16,6 +16,7 @@ inside the signed update bundle, payload kind ``refdata``)::
         term:   {"system", "code", "display", "extra": {}}
         map:    {"source_system", "source_code", "source_display", "target_system", "target_code", "target_display",
                  "relation" (FHIR R4 ConceptMap equivalence, see RELATIONS), "extra": {}}       (D-170)
+                 an ``unmatched`` row may have an empty target_code (a source code with no target at all)
         synonym: {"term", "lang", "canonical", "canonical_lang", "domain", "system", "code", "curated", "extra": {}}
                  one surface form (zh-TW, an abbreviation) -> the name the matcher knows (D-172)
 
@@ -136,9 +137,11 @@ class Item:
     the download needs the hospital's account: the hospital loads its own copy) or not usable. ``parse`` reads the
     fetched file into the pack's records (built-in parsers of ``tools/refdata_fetch.py`` when None). ``extra_files``
     are further ``(file name, URL)`` downloads of the same item; ``derived_from`` names the item whose download this
-    one reads (no second download). ``meta_url`` is a data.gov.tw dataset API URL read at fetch time for the
-    dataset's modified date (the version); ``version`` is a fixed version when the source states one in the file
-    (``version_of`` reads it from the file)."""
+    one reads (no second download). ``meta_url`` is the source's own dataset record (e.g. a data.gov.tw dataset API
+    URL), read at fetch time by the item's ``read_meta`` for the dataset's version and its licence field; the fetch
+    stops when the record cannot be read or its licence is not ``licence_id`` (each country module brings its own
+    reader: the generic fetch knows no portal). ``version`` is a fixed version when the source states one in the
+    file (``version_of`` reads it from the file)."""
 
     id: str
     name: str
@@ -160,6 +163,8 @@ class Item:
     extra_files: tuple[tuple[str, str], ...] = ()
     derived_from: str = ""
     meta_url: str = ""
+    read_meta: Callable[[str], dict[str, Any]] | None = None  # meta_url -> {version, license, downloads}; {}: none
+    licence_id: str = ""  # the licence field read_meta must return (the licence read at the source)
     version: str = ""
     version_of: Callable[[Path], str] | None = None
     sha256: str = ""  # the expected sha256 of a version-pinned URL: fetch and build refuse another file
@@ -401,7 +406,7 @@ def map_row(rec: dict[str, Any], source_id: str) -> tuple[Any, ...]:
     if rel not in RELATIONS:
         raise PackError(f"{source_id}: relation {rel!r} is not one of {', '.join(RELATIONS)}")
     vals = [str(rec.get(k) or "").strip() for k in ("source_system", "source_code", "target_system", "target_code")]
-    if not all(vals):
+    if not all(vals[:3]) or not (vals[3] or rel == "unmatched"):  # an unmatched row may have no target (D-171)
         raise PackError(f"{source_id}: a map row needs source and target system and code: {rec!r}")
     return (*vals, rel, str(rec.get("source_display") or ""), str(rec.get("target_display") or ""),
             json.dumps(rec.get("extra") or {}, ensure_ascii=False), source_id)  # fmt: skip
@@ -614,13 +619,17 @@ _SHARED: dict[str, RefStore] = {}  # at most one: the database the process uses
 _FAILED: dict[str, float] = {}
 
 
+def _url(url: str | None) -> str | None:
+    from tb_common.db import ENV
+
+    return url or os.environ.get(ENV)
+
+
 def shared(url: str | None = None) -> RefStore | None:
     """One open store for lookups made often (the name matcher, site set-up suggestions); None when no database is
     configured or it cannot be reached. Another URL closes the previous store (one connection per process). Never
     touches the network beyond the trial database."""
-    from tb_common.db import ENV
-
-    url = url or os.environ.get(ENV)
+    url = _url(url)
     if not url:
         return None
     st = _SHARED.get(url)
@@ -696,6 +705,8 @@ def in_set_via_map(
     """Whether a code read through a map (e.g. a TW 2014 ICD-10-CM code from an old record) is in a code list of
     exact ``(system, code)`` pairs (a prefix family is not expanded here). Unknown never excludes:
 
+    * ``unknown`` when the list holds no code or family of a target's system (an HL7 ICD-10-CM list against the TW
+      2023 system, say): the map cannot speak about a list it does not share a system with;
     * ``yes`` only when a target that holds the whole meaning (equivalent, equal, wider, subsumes) is in the list,
       or every target of a split (narrower, specializes) is;
     * ``no`` only when every target is equivalent, equal, narrower or specializes (together they cover the source)

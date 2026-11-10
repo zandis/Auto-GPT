@@ -44,6 +44,7 @@ from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 for _p in (ROOT / "libs", ROOT / "services"):
@@ -294,28 +295,6 @@ def _joined(url: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
             "parts": [{k: p[k] for k in ("path", "url", "sha256", "bytes")} for p in parts]}  # fmt: skip
 
 
-OGDL_LICENSE_ID = "1"  # data.gov.tw dataset API: license 1 = Open Government Data License 1.0
-
-
-def dataset_meta(meta_url: str) -> dict[str, str]:
-    """A data.gov.tw dataset's modified date (its version) and its licence field, from the dataset API; empty when
-    it does not answer. The licence field is kept in fetch.json as evidence of the licence read at fetch time."""
-    import httpx
-
-    try:
-        r = httpx.get(meta_url, timeout=60)
-        r.raise_for_status()
-        res = r.json()["result"]
-        return {"version": f"data.gov.tw {res['datasetId']} modified {res['modifiedDate']}",
-                "license": str(res.get("license", "")), "meta_url": meta_url}  # fmt: skip
-    except Exception:
-        return {}
-
-
-def dataset_version(meta_url: str) -> str:
-    return dataset_meta(meta_url).get("version", "")
-
-
 def fetch_parts(s: Source, dest: Path, file: Path | None) -> dict[str, Any]:
     """An item of several files (``extra_files``): the main file, then each further file beside it. The download's
     sha256 is over the files' sha256s in order (as for the MHLW workbooks)."""
@@ -326,11 +305,43 @@ def fetch_parts(s: Source, dest: Path, file: Path | None) -> dict[str, Any]:
     return _joined(s.url, parts)
 
 
+def check_licence(item: Source, urls: Iterable[str] = ()) -> dict[str, Any]:
+    """The item's dataset record read at fetch time ({} for an item without one). Fails closed: a record that
+    cannot be read (timeout, changed API), that names another licence, or that lists download URLs not including
+    the ones fetched (``urls``: the licence must cover the file actually downloaded) stops the fetch, so nothing
+    ships without the licence evidence (D-170)."""
+    if not item.meta_url:
+        return {}
+    if item.read_meta is None:
+        raise SystemExit(f"{item.id}: meta_url {item.meta_url} has no reader (read_meta)")
+    dm = item.read_meta(item.meta_url)
+    if not dm:
+        raise SystemExit(
+            f"{item.id}: the dataset record {item.meta_url} did not answer: the licence was not checked; "
+            "fetch again later"
+        )
+    if item.licence_id and dm.get("license") != item.licence_id:
+        raise SystemExit(
+            f"{item.id}: the dataset record now gives licence {dm.get('license')!r}, not {item.licence_id!r} "
+            f"({item.licence}): read the terms before shipping"
+        )
+    listed = {unquote(u) for u in dm.get("downloads") or []}
+    stray = sorted(u for u in (unquote(u) for u in urls) if listed and u not in listed)
+    if stray:
+        raise SystemExit(
+            f"{item.id}: {', '.join(stray)} is not a download of the dataset record {item.meta_url} "
+            f"(it lists {', '.join(sorted(listed))}): the licence read there may not cover it"
+        )
+    return dm
+
+
 def fetch(
     ids: list[str], raw: Path, file: Path | None = None, slice_n: int = 0, licence_check: bool = True
 ) -> list[str]:
     """Download each item into ``raw/<id>/`` with ``fetch.json`` (URL, date, sha256, bytes, version). The only
-    place that reaches the network: the box reads the built pack from the update bundle."""
+    place that reaches the network: the box reads the built pack from the update bundle. ``licence_check=False``
+    (``--no-licence-check``, after reading the terms by hand) skips reading the dataset records; the skip is
+    recorded in fetch.json."""
     done = []
     for sid in dict.fromkeys(BY_ID[i].derived_from or i for i in ids):  # a derived item reads its parent's file
         s = BY_ID[sid]
@@ -360,22 +371,15 @@ def fetch(
                 f"{sid}: {s.url} is pinned to sha256 {s.sha256}, the download is "
                 f"{meta['parts'][0]['sha256']}: the published file changed, check it before shipping"
             )
+        fetched = [] if s.url.startswith("repo:") else [s.url, *(u for _, u in s.extra_files)]
         for item in (s, *(c for c in SOURCES if c.derived_from == sid)):
-            if not item.meta_url:
-                continue
-            if not item.meta_url.startswith("https://data.gov.tw/"):
-                raise SystemExit(f"{item.id}: no reader for the dataset API {item.meta_url}: add one before fetching")
-            dm = dataset_meta(item.meta_url) if licence_check else {"skipped": "--no-licence-check"}
+            if licence_check:
+                dm = check_licence(item, fetched)
+            else:
+                dm = {"skipped": "--no-licence-check"} if item.meta_url else {}
             if not dm:
-                raise SystemExit(
-                    f"{item.id}: the data.gov.tw dataset API did not answer, so its licence could not be read; "
-                    "retry, or pass --no-licence-check after reading the terms by hand"
-                )
-            if licence_check and dm.get("license") != OGDL_LICENSE_ID:
-                raise SystemExit(
-                    f"{item.id}: data.gov.tw now gives licence {dm.get('license')!r}, not "
-                    f"{OGDL_LICENSE_ID} (OGDL 1.0): read the terms before shipping"
-                )
+                continue
+            meta.setdefault("licence_checks", {})[item.id] = dm
             if item is s:
                 meta.update({"version": dm.get("version", ""), "licence_check": dm})
             else:
@@ -588,7 +592,8 @@ def _meta(raw: Path, sid: str) -> tuple[dict[str, Any], Path]:
     f = raw / src / "fetch.json"
     meta = json.loads(f.read_text(encoding="utf-8"))
     if src != sid:
-        meta = {**meta, "version": (meta.get("versions") or {}).get(sid) or meta.get("version", "")}
+        meta = {**meta, "version": (meta.get("versions") or {}).get(sid) or meta.get("version", ""),
+                "licence_check": (meta.get("licence_checks") or {}).get(sid) or {}}  # fmt: skip
     return meta, raw / src / meta["path"]
 
 
@@ -668,6 +673,10 @@ def build(raw: Path, out: Path, day: str | None = None, ids: list[str] | None = 
         s = BY_ID[sid]
         meta, path = _meta(raw, sid)
         parts = check_raw(raw, sid, meta, pinned=not sample)
+        lc = meta.get("licence_check") or {}
+        if s.meta_url and not sample and not (lc.get("license") or lc.get("skipped")):
+            raise SystemExit(f"{sid}: fetch.json has no licence check of {s.meta_url}: fetch {s.derived_from or sid} "
+                             "again")  # fmt: skip
         if sid == "ctgov":
             files = [write("ctgov/studies.jsonl.gz", parse_ctgov(path))]
         elif sid == "tfda_indication":
@@ -801,7 +810,7 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument(
         "--no-licence-check",
         action="store_true",
-        help="data.gov.tw items: do not read the dataset API (recorded in fetch.json as skipped)",
+        help="items with a dataset record: do not read it (recorded in fetch.json as skipped)",
     )
     b = sub.add_parser("build")
     b.add_argument("--raw", type=Path, default=ROOT / ".cache" / "refdata" / "raw")

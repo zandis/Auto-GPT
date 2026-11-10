@@ -29,6 +29,7 @@ from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from tb_common.refdata import RELATIONS, Item, csv_rows, require_columns
 
@@ -50,6 +51,33 @@ _ATC_LEVEL = {1: 1, 3: 2, 4: 3, 5: 4, 7: 5}  # code length -> ATC level
 REPO_SYNONYMS = Path(__file__).resolve().parent / "refdata_src" / "zh_tw_clinical_synonyms.csv"
 
 
+DATAGOV_OGDL = "1"  # data.gov.tw dataset API: license 1 = Open Government Data License 1.0
+
+
+def datagov_meta(meta_url: str) -> dict[str, Any]:
+    """A data.gov.tw dataset's modified date (its version), its licence field and the download URLs it lists, from
+    the dataset API (the vendor's fetch only; the box never calls it); empty when it does not answer. Kept in
+    fetch.json as evidence of the licence read at fetch time. The download URLs bind the licence to the file: the
+    NAER terms are fetched from opendata.naer.edu.tw, and the fetch checks that this is the URL the OGDL-licensed
+    record 15460 distributes (D-172)."""
+    import httpx
+
+    try:
+        r = httpx.get(meta_url, timeout=60)
+        r.raise_for_status()
+        res = r.json()["result"]
+        downloads = sorted(unquote(str(d.get("resourceDownloadUrl") or "")) for d in res.get("distribution") or [])
+        return {"version": f"data.gov.tw {res['datasetId']} modified {res['modifiedDate']}",
+                "license": str(res.get("license", "")), "meta_url": meta_url,
+                "downloads": [d for d in downloads if d]}  # fmt: skip
+    except Exception:
+        return {}
+
+
+def _datagov(meta_url: str) -> dict[str, Any]:
+    return datagov_meta(meta_url)  # looked up at call time (tests replace datagov_meta)
+
+
 def roc(s: str) -> str:
     """A 民國 date ``YYYMMDD`` (``1001201``, `` 960901``) or ``YYY.MM.DD`` -> ISO; anything else unchanged."""
     s = (s or "").strip()
@@ -66,13 +94,15 @@ def roc(s: str) -> str:
 NHI_DRUG_COLS = ("藥品代號", "藥品中文名稱", "有效起日", "有效迄日", "ATC代碼")
 
 
-def latest_nhi_rows(path: Path) -> dict[str, dict[str, str]]:
-    """One row per 藥品代號: the row with the latest 有效起日 (the list has one row per validity period)."""
+def latest_nhi_rows(path: Path, having: str = "") -> dict[str, dict[str, str]]:
+    """One row per 藥品代號: the row with the latest 有效起日 (the list has one row per validity period). With
+    ``having``, only rows where that column has a value count (the newest row that states an ATC code, when the
+    newest period left it empty)."""
     best: dict[str, dict[str, str]] = {}
     rows = require_columns(csv_rows(path.read_bytes()), NHI_DRUG_COLS, "the NHI drug list (data.gov.tw 23715)")
     for r in rows:
         code = r.get("藥品代號", "")
-        if not code:
+        if not code or (having and not r.get(having, "").strip()):
             continue
         r["有效起日"], r["有效迄日"] = roc(r.get("有效起日", "")), roc(r.get("有效迄日", ""))
         if code not in best or _iso(r["有效起日"]) >= _iso(best[code]["有效起日"]):
@@ -87,9 +117,10 @@ def _iso(d: str) -> str:
 
 def parse_nhi_drug_atc(path: Path) -> Iterator[dict[str, Any]]:
     """NHI 藥品代號 -> the ``ATC代碼`` the NHIA list gives (kept as given, D-140: no WHO ATC/DDD text). The product is
-    narrower than its ATC class, so the target is ``wider``. Codes without an ATC, or with a value that is not
-    ATC-shaped, give no row (unknown, never a guess)."""
-    for code, r in sorted(latest_nhi_rows(path).items()):
+    narrower than its ATC class, so the target is ``wider``. The ATC code is the one of the newest validity period
+    that states one. Codes without an ATC, or with a value that is not ATC-shaped, give no row (unknown, never a
+    guess)."""
+    for code, r in sorted(latest_nhi_rows(path, having="ATC代碼").items()):
         atc = r.get("ATC代碼", "").strip().upper()
         if not atc or not _ATC_SHAPE.match(atc) or len(atc) not in _ATC_LEVEL:
             continue
@@ -111,11 +142,19 @@ ICD_COLS = ("2014年版ICD-10-CM/PCS", "2014年版ICD-10-CM/PCS_英文名稱", "
 
 def icd_map_rows(data: bytes, pcs: bool) -> Iterator[dict[str, Any]]:
     """One NHIA 2014 <-> 2023 file (CM or PCS; same columns). The relation says how the 2023 code's meaning relates
-    to the 2014 code's: the same code with one target and one source is ``equivalent``; a 2014 code split into
-    several 2023 codes gives ``narrower`` targets; several 2014 codes merged into one 2023 code give a ``wider``
-    target; both at once, or a one-to-one change of code, ``inexact``. A mapping NHIA added later for a deleted
-    code (修訂日期 "增列對應", e.g. 2014 Z22.51 carrier -> 2023 B18.1 chronic hepatitis B) is ``relatedto``: a
-    candidate, not the same meaning; it does not count as a merge for the other rows."""
+    to the 2014 code's:
+
+    * the same code with one target and one source: ``equivalent``;
+    * a 2014 code split into several 2023 codes: ``narrower`` targets;
+    * several 2014 codes merged into one 2023 code: a ``wider`` target;
+    * both at once, or a one-to-one change of code: ``inexact``;
+    * a mapping NHIA added later for a deleted code (修訂日期 "增列對應", e.g. 2014 Z22.51 carrier -> 2023 B18.1
+      chronic hepatitis B) is ``relatedto``: a candidate, not the same meaning; it does not count as a merge for the
+      other rows;
+    * a 2014 code with no 2023 code at all (deleted): one ``unmatched`` row without a target, so site set-up never
+      offers the obsolete code as a standard code.
+
+    Cardinality is counted over the file's distinct pairs."""
     rows = require_columns(csv_rows(data), ICD_COLS[:8], "an NHIA 2014/2023 ICD-10 map")
     c14, c23 = ICD_COLS[0], ICD_COLS[3]
     pairs = [(r[c14], r[c23], r) for r in rows if r.get(c14) and r.get(c23)]
@@ -124,6 +163,12 @@ def icd_map_rows(data: bytes, pcs: bool) -> Iterator[dict[str, Any]]:
     n_targets, n_sources = Counter(a for a, _ in uniq), Counter(b for _, b in uniq)
     seen: set[tuple[str, str]] = set()
     src, tgt = (ICD_PCS_2014, ICD_PCS_2023) if pcs else (ICD_CM_2014, ICD_CM_2023)
+
+    def extra(r: dict[str, str]) -> dict[str, str]:
+        return {"source_zh": r.get(ICD_COLS[2], ""), "target_zh": r.get(ICD_COLS[5], ""),
+                "status_2014": r.get(ICD_COLS[6], ""), "status_2023": r.get(ICD_COLS[7], ""),
+                "revised": r.get(ICD_COLS[8], "")}  # fmt: skip
+
     for a, b, r in pairs:
         if (a, b) in seen:
             continue
@@ -142,10 +187,18 @@ def icd_map_rows(data: bytes, pcs: bool) -> Iterator[dict[str, Any]]:
         yield {
             "source_system": src, "source_code": a, "source_display": r.get(ICD_COLS[1], ""),
             "target_system": tgt, "target_code": b, "target_display": r.get(ICD_COLS[4], ""), "relation": rel,
-            "extra": {"source_zh": r.get(ICD_COLS[2], ""), "target_zh": r.get(ICD_COLS[5], ""),
-                      "status_2014": r.get(ICD_COLS[6], ""), "status_2023": r.get(ICD_COLS[7], ""),
-                      "revised": r.get(ICD_COLS[8], "")},
+            "extra": extra(r),
         }  # fmt: skip
+    mapped = {a for a, _, _ in pairs}
+    for r in rows:
+        a = r.get(c14, "")
+        if a and not r.get(c23) and a not in mapped:
+            mapped.add(a)
+            yield {
+                "source_system": src, "source_code": a, "source_display": r.get(ICD_COLS[1], ""),
+                "target_system": tgt, "target_code": "", "target_display": "", "relation": "unmatched",
+                "extra": extra(r),
+            }  # fmt: skip
 
 
 def parse_tw_icd_2014_2023(path: Path) -> Iterator[dict[str, Any]]:
@@ -187,7 +240,7 @@ def parse_nhi_lab_loinc(path: Path) -> Iterator[dict[str, Any]]:
     pkg, cm = _pas_package(path)
     if str(pkg.get("license", "")).upper() != "CC0-1.0":
         raise ValueError(f"the NHI PAS package's licence is {pkg.get('license')!r}, not CC0-1.0: do not ship")
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     groups = [
         g for g in cm.get("group") or [] if g.get("target") == LOINC and (g.get("source") or NHI_SERVICE) == NHI_SERVICE
     ]
@@ -206,13 +259,13 @@ def parse_nhi_lab_loinc(path: Path) -> Iterator[dict[str, Any]]:
                     raise ValueError(f"{path.name}: {e['code']}: a target without a code: {t!r}")
                 if rel not in RELATIONS:
                     raise ValueError(f"{path.name}: {e['code']} -> {t['code']}: unknown relation {t!r}")
-                key = (str(e["code"]), str(t["code"]))
+                key = (str(system), str(e["code"]), str(t["code"]))
                 if key in seen:
                     continue
                 seen.add(key)
                 yield {
-                    "source_system": system, "source_code": key[0], "source_display": e.get("display", ""),
-                    "target_system": LOINC, "target_code": key[1], "target_display": "", "relation": rel,
+                    "source_system": system, "source_code": key[1], "source_display": e.get("display", ""),
+                    "target_system": LOINC, "target_code": key[2], "target_display": "", "relation": rel,
                     "extra": {"conceptmap": cm.get("url", ""), "conceptmap_version": cm.get("version", ""),
                               "loinc_version": g.get("targetVersion", "")},
                 }  # fmt: skip
@@ -281,6 +334,7 @@ ITEMS: tuple[Item, ...] = (
         "monthly", "one map row per drug code with an ATC code (the list had 45,224 codes in the D-140 fetch)",
         "Read from the nhi_drugs download (no second download); non-ATC-shaped values are left out.",
         country="TW", decision="D-170", derived_from="nhi_drugs", parse=parse_nhi_drug_atc,
+        read_meta=_datagov, licence_id=DATAGOV_OGDL,
         meta_url="https://data.gov.tw/api/v2/rest/dataset/23715",
     ),
     Item(
@@ -294,6 +348,7 @@ ITEMS: tuple[Item, ...] = (
         "tw_icd_2014_2023_cm.csv", country="TW", decision="D-171", parse=parse_tw_icd_2014_2023,
         extra_files=(("tw_icd_2014_2023_pcs.csv",
                       "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20026-008"),),
+        read_meta=_datagov, licence_id=DATAGOV_OGDL,
         meta_url="https://data.gov.tw/api/v2/rest/dataset/177508",
     ),
     Item(
@@ -321,6 +376,7 @@ ITEMS: tuple[Item, ...] = (
         "rarely (dataset modified 2026-08-12)", "30,797 terms, 2.1 MB CSV",
         "Academic translations: an English term lists several zh-TW names and senses, so matches are reviewed.",
         "naer_medical_terms.csv", country="TW", decision="D-172", parse=parse_naer_terms,
+        read_meta=_datagov, licence_id=DATAGOV_OGDL,
         meta_url="https://data.gov.tw/api/v2/rest/dataset/15460",
     ),
     Item(

@@ -826,12 +826,12 @@ def _stage14(work: Path, box: Any) -> Stage:
 
     with _no_network():
         drug = sm.suggest("medication", sm.local_system("drug-code"), "B004858100")
-        lab = sm.suggest("observation", sm.local_system("lab-code"), "09015C")
+        lab = sm.suggest("observation", sm.local_system("lab-code"), "12198C")
         dx = sm.suggest("condition", sm.local_system("dx-code"), "P83.8")
         ra = Terminology(name_synonyms=rd.synonym_lookup()).map("condition", "類風濕關節炎")
     dx_want = "P83.88" if sm.site_country() == "TW" else "P83.8"  # the 2014 -> 2023 step runs at Taiwan sites only
     s.check("D-170/171: NHI drug -> ATC, NHI lab -> LOINC and (Taiwan) TW 2014 -> 2023 ICD suggested offline",
-            (drug.get("code"), lab.get("code"), dx.get("code")) == ("N05AF01", "2160-0", dx_want),
+            (drug.get("code"), lab.get("code"), dx.get("code")) == ("N05AF01", "83113-1", dx_want),
             (drug, lab, dx))  # fmt: skip
     s.check("D-172: 類風濕關節炎 maps to rheumatoid arthritis through the curated synonym dictionary, no review",
             ra.method == "synonym" and not ra.needs_review and bool(ra.concepts)

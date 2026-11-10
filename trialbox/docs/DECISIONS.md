@@ -3724,7 +3724,9 @@ the licence read, the shared store).
    no rows or misses a required column raises; `build` refuses an item with 0 records. For a data.gov.tw item,
    `fetch` reads the dataset API, keeps its answer (`licence_check`) in `fetch.json` as evidence, and stops when
    the `license` field is not 1 (OGDL 1.0) or the API does not answer (`--no-licence-check` skips the read and
-   records that in `fetch.json`). A `meta_url` outside data.gov.tw is refused until a reader for it is added.
+   records that in `fetch.json`). The reader and the expected licence belong to the item (`Item.read_meta`,
+   `Item.licence_id`), so a `meta_url` without a reader is refused and another portal brings its own reader; the
+   record must also list the URL fetched (D-172, second-review note, item 1).
 4. *Store.* Schema `refdata` version 2 (`DDL_V2`): `source` gains `version` and `download_sha256`; new tables
    `concept_map` (indexed both ways) and `synonym` (indexed on the matcher's normal form, NFKC and lower case).
    Queries: `map_targets`, `map_sources`, `synonyms`. A box at version 1 migrates in place; its old rows keep an
@@ -3788,10 +3790,10 @@ after the independent review (H3, M4, L2, L3).
    (`tw.gov.mohw.nhi.pas 1.3.0, ConceptMap nhi-loinc 1.3.0, LOINC 2.77`). An R5 `relationship` is turned into the R4
    equivalence; an unknown relation or an element without a code refuses the package; a no-match
    target (`unmatched`, `disjoint`) is skipped; only groups from the NHI service code system are read, and a package
-   without one is refused. Site set-up suggests a LOINC
-   code when the NHI code has one target (0.90), or, at 0.80, when exactly one of several targets is in TrialBox's
-   curated lab table (09015C -> 2160-0; that reflects what TrialBox knows, not the hospital's specimen or method, and
-   a person confirms); otherwise none.
+   without one is refused. Site set-up suggests a LOINC code only when the NHI code has exactly one target (0.90, no
+   display: the NHI order's name is not the LOINC name); several candidates (09015C) give none, the coordinator
+   picks (the earlier 0.80 pick of the one candidate in TrialBox's lab table said nothing about the hospital's
+   specimen or method).
 
 **D-172 zh-TW clinical synonyms for the name matcher.** WS-08.8; 2026-11-09. Revised after the independent review
 (H1, M1, M2, M5).
@@ -3824,3 +3826,22 @@ nhi_drugs` and `build` as for D-140. The mapping of a 2014 code in an old record
 wired: `in_set_via_map` is ready for it. The NHI 醫療服務給付項目 list itself (codes and names beyond the 53 lab
 codes) is still open (D-140). A source dropped from a later vendor pack keeps its rows (D-140 behaviour: a pack
 replaces only its own sources); withdrawing a source needs a manual delete for now, left for WS-08.8.
+
+*Second independent review (2026-11-10), further fixes* (beyond the revisions noted in D-170 and D-171 above):
+
+1. *Licence evidence binds the file and belongs to the item* (M4, L5): each item with a dataset record names its
+   reader and licence (`Item.read_meta`, `Item.licence_id`; `refdata_tw.datagov_meta` for data.gov.tw), so the
+   generic fetch knows no portal and a Japan module brings its own. The fetch also stops when the record does not
+   list the URL fetched: 15460 lists the opendata.naer.edu.tw CSV the NAER item downloads, 23715 and 177508 the
+   info.nhi.gov.tw files (checked 2026-11-10). `fetch.json` keeps every item's check (`licence_checks`, the derived
+   `nhi_drug_atc` too), and a vendor build refuses an item with a record but neither a check nor a recorded
+   `--no-licence-check` skip.
+2. *Deleted ICD codes* (M6): a 2014 code with no 2023 code gives one `unmatched` row without a target (the pack
+   allows an empty target for `unmatched` only), and site set-up then makes no suggestion instead of offering the
+   obsolete code as `same`. One-to-one code changes stay `inexact` (unknown in `in_set_via_map`; site set-up still
+   suggests them).
+3. *Site set-up* (M7, L1, L2, L4): see D-171 item 3 (no pick among several LOINC candidates, no NHI name as the
+   LOINC display, no cached LOINC table); site set-up's name matcher reads the synonym dictionary too
+   (dictionary-method answers are reviewed, so `_by_name` still ignores them).
+4. *NHI drug -> ATC* (L3): the ATC code of the newest validity period that states one, when the newest left it
+   empty.
