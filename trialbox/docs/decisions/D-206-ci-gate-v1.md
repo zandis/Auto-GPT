@@ -20,8 +20,9 @@ through `TB_TEST_DB_URL`, its server tuned as `pglocal`'s are, then the data sca
 
 *Not gating yet, with the date (2026-11-10).* `audit` is `continue-on-error` until T-110 (supply chain) sets the
 policy: the card expected pypdf and pillow findings (seen on the shared venv), but against `uv.lock` pip-audit 2.9.0
-reports none today. `images` is `continue-on-error`: hadolint has never run on these Dockerfiles; its first findings
-are triaged before it gates. `shell` gates on shellcheck errors (none today) and lists the warnings: ten, all in
+reports none today. `images` gates from 2026-11-10: hadolint's first run (CI, PR #81) found DL3006 on the ARG-pinned bases,
+SC2086 on the deliberately split `$CERT`, and DL3008/DL3013 in the demo image (postgresql from the pinned Debian base;
+every pip package pinned); each is an inline `hadolint ignore` with its reason in the Dockerfile. `shell` gates on shellcheck errors (none today) and lists the warnings: ten, all in
 `deploy/` scripts (`deploy/gcp/*` is out of this card's reach), open as findings. `goldens` passes with a warning
 until T-006 lands.
 

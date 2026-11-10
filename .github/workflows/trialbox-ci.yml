@@ -292,9 +292,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'
     timeout-minutes: 15
-    # 2026-11-09 (D-206): hadolint has not run on these Dockerfiles before; listed, not gating, until its first
-    # findings are triaged
-    continue-on-error: true
+    # D-206: gating since 2026-11-10; the first findings were triaged as inline ignores with a reason in each Dockerfile
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       - name: hadolint

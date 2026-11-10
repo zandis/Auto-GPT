@@ -4,7 +4,10 @@
 # Prerequisite: tools/fetch_jvm_deps.sh (fills .cache/jvm in the build context). Multi-arch (amd64/arm64).
 ARG BASE_IMAGE=trialbox-py:1.0.0
 ARG JRE_IMAGE=eclipse-temurin:17-jre@sha256:207ecae0b2b104dfc6dfa763d1e9cd2041cb344800a180e24cb1a28ed533ff90
+# both bases are pinned through their ARG (a digest, or the locally built trialbox-py tag): DL3006 cannot see it
+# hadolint ignore=DL3006
 FROM ${JRE_IMAGE} AS jre
+# hadolint ignore=DL3006
 FROM ${BASE_IMAGE}
 USER root
 COPY --from=jre /opt/java/openjdk /opt/java/openjdk
