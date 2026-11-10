@@ -19,6 +19,7 @@ from tb_common.derived import (
     EGFR,
     EGFR_JSN,
     LOINC,
+    RANGE,
     SAME_VISIT,
     SCORE,
     UNIT_OF_SCORE_ITEM,
@@ -40,8 +41,7 @@ from criteria_compiler.semantics import (
     kind,
     window,
 )
-from criteria_compiler.terminology.mapper import SYSTEMS, ValueSets
-from criteria_compiler.terminology.resolver import ICD10_WHO
+from criteria_compiler.terminology.mapper import ValueSets
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 _env = Environment(
@@ -66,7 +66,14 @@ def _cql_dec(x: float) -> str:
 
 def render_common() -> str:
     units = [
-        (comp, (target, [(u, _cql_dec(f)) for u, f in sorted(factors.items())]))
+        (
+            comp,
+            (
+                target,
+                [(u, _cql_dec(f)) for u, f in sorted(factors.items())],
+                tuple(_cql_dec(x) for x in RANGE[comp]) if comp in RANGE else None,
+            ),
+        )
         for comp, (target, factors) in sorted(UNITS.items())
     ]
     unitless = [
@@ -175,19 +182,9 @@ class CqlGenerator:
         if atom.domain not in FAMILY_CODINGS:
             raise CompileError(f"code families are not supported on {atom.domain} atoms")
         on = q("O_" + p)
-        cm = SYSTEMS["icd10cm"]
         in_family = " or ".join(
             f"(Cd.system.value = '{sy}' and StartsWith(Cd.code.value, '{pre}'))" for sy, pre in sorted(set(fams))
         )
-        # an ICD-10-CM family also holds the WHO ICD-10 codes of its prefix that are not listed ICD-10-CM codes
-        # (baseline correction 3, D-205), as the SQL says
-        who = [pre for sy, pre in sorted(set(fams)) if sy == cm]
-        if who:
-            in_family += " or " + " or ".join(
-                f"(Cd.system.value = '{ICD10_WHO}' and StartsWith(Cd.code.value, '{pre}') "
-                f"and not (Code {{ code: Cd.code.value, system: '{cm}' }} in {vs}))"
-                for pre in who
-            )
         for name, when in ((on, f"{date} in {win}"), (q("UO_" + p), f"{date} is null")):
             defs.append(
                 f"define {name}:\n  [{FAMILY_CODINGS[atom.domain][0]}] X where ({when})\n"
@@ -298,6 +295,13 @@ class CqlGenerator:
                 has_esr = f"{q(f'L_{p}_esr')} is not null"
                 value = (
                     f"TB.DAS28({latest['tjc28']}, {latest['sjc28']}, {latest['ptga']}, {has_esr}, {latest['esr']}, "
+                    f"{latest['crp']})"
+                )
+            case "cdai":  # D-189
+                value = f"TB.CDAI({latest['tjc28']}, {latest['sjc28']}, {latest['ptga10']}, {latest['evga']})"
+            case "sdai":  # D-189: the CRP in mg/L from Conv_crp; TB.SDAI takes it to mg/dL
+                value = (
+                    f"TB.SDAI({latest['tjc28']}, {latest['sjc28']}, {latest['ptga10']}, {latest['evga']}, "
                     f"{latest['crp']})"
                 )
             case "basdai":

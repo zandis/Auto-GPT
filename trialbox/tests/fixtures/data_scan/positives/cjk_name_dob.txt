@@ -1,0 +1,9 @@
+# PLANTED TEST POSITIVE (D-203, TST-SEC-10): fictional names beside a date of birth; every other line is a hit.
+黃美玲,F,1957-04-21
+生年月日 1962年8月15日 佐藤花江
+病人 歐陽志遠 1949/11/03 出生
+10000099,蔡雅婷,K231415908,1988-02-29,F
+姓名黃美玲 1957/04/21
+患者黃美玲女 民國46年4月21日生
+佐藤健太郎 昭和32年4月21日
+黃美玲 19570421

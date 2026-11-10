@@ -31,6 +31,8 @@
 // (target 3 taps: the chart number, the text, Read).
 // Review 2026-11-09 P-04 (D-143): "Excluded patients and why" for the investigator and the coordinator (403 for viewer
 // and CRA).
+// D-178 (review J-09): the operations screens (overview, backups, update and rollback, logs, secrets, network sheet)
+// for the administrator, 403 for every other role.
 "use strict";
 
 const { chromium } = require("playwright");
@@ -61,6 +63,8 @@ const LIFE = [`/studies/${T}/subjects`, `/studies/${T}/subjects/${LR}`, `/studie
 // Review 2026-11-09 J-03 to J-05 (D-146): viewer and CRA open no CASE job page, registry, audit trail, runs list, study
 // set-up or sources page and no REDCap connection page (403); the viewer still opens a feasibility run's page
 const AGG_ONLY_FORBIDDEN = [`/pilot/jobs/${W.case_job}`, `/pilot/registry/${C}`, "/audit", "/jobs", `/studies/${T}/setup`, `/studies/${T}/sources`, "/admin/redcap"];
+// D-178 (review J-09): the administrator's operations screens; every other role gets 403
+const OPS = ["/admin/ops", "/admin/ops?tab=backups", "/admin/ops?tab=update", "/admin/ops?tab=logs", "/admin/ops?tab=secrets", "/admin/ops?tab=network"];
 const PAGES = {
   common: ["/home", "/help", "/account", "/notices/received", "/settings/notices", "/no-such-page", `/ask?q=next&${SQ}`],
   pi: [
@@ -79,6 +83,7 @@ const PAGES = {
     ...SITE,
     ...TEAM,
     "/reports",
+    "/admin/ops",
   ],
   crc: [
     `/studies/${T}/week?list=all`,
@@ -110,17 +115,18 @@ const PAGES = {
     "/reports",
     "/reports/research-office",
     "/jobs",
+    "/admin/ops",
   ],
-  admin: ["/admin?tab=health", "/admin/notice", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/codes?${SQ}`, `/site/help?${SQ}`],
-  viewer: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, `/pilot/jobs/${W.feas_job}`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
-  cra: ["/reports", "/reports/research-office", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
+  admin: [...OPS, "/admin?tab=health", "/admin/notice", "/admin?tab=jobs", "/admin?tab=sources", "/admin/redcap", "/ops/users", "/audit", "/jobs", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/codes?${SQ}`, `/site/help?${SQ}`],
+  viewer: ["/reports", "/reports/research-office", "/admin/ops", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, `/pilot/jobs/${W.feas_job}`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
+  cra: ["/reports", "/reports/research-office", "/admin/ops", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
 };
 // pages a role must not open: a 403 page (in the chosen language), never a 500
 const FORBIDDEN = {
-  pi: ["/admin?tab=health", "/site/opt-outs"],
-  crc: ["/admin?tab=health", "/admin/notice"],
-  viewer: [`/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
-  cra: [`/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
+  pi: ["/admin?tab=health", "/site/opt-outs", "/admin/ops"],
+  crc: ["/admin?tab=health", "/admin/notice", "/admin/ops"],
+  viewer: ["/admin/ops", `/studies/${T}/week?list=all`, "/admin?tab=health", `/studies/${T}/subjects`, `/studies/${T}/visits`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
+  cra: ["/admin/ops", `/studies/${T}/week?list=all`, "/admin?tab=health", "/notices/received", "/settings/notices", "/reports/research-office", `/studies/${T}/subjects`, `/studies/${T}/enrolment`, `/site?${SQ}`, `/site/facts?${SQ}`, `/studies/${T}/excluded`, ...AGG_ONLY_FORBIDDEN, `/studies/${T}/candidates`, `/studies/${T}/referrals`],
 };
 const ROLES = ["admin", "crc", "pi", "viewer", "cra"];
 const LANGS = [

@@ -50,10 +50,11 @@ x-vllm-5090: &vllm5090
   environment:
     HF_HUB_OFFLINE: "1"
     VLLM_NO_USAGE_STATS: "1"
-    VLLM_SERVER_DEV_MODE: "1"   # exposes /sleep, /wake_up, /is_sleeping (model-net only; the gateway drives them)
+    VLLM_SERVER_DEV_MODE: "1"   # /sleep, /wake_up, /is_sleeping (and /collective_rpc ...): model-guard passes only
+                                # the first three, with the key (TB_GUARD_ADMIN=1 below), D-177
+    VLLM_API_KEY: "${TB_LLM_API_KEY:-}"   # D-177: vLLM checks it on /v1 only; model-guard checks every call
   volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
   ipc: host
-  networks: [model-net]
   restart: unless-stopped
   deploy:
     resources:
@@ -86,6 +87,7 @@ x-sleep: &sleep
 services:
   llm-service:
     <<: *vllm5090
+    networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
     command:
       - --model=/models/${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}
       - --served-model-name=${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}
@@ -100,14 +102,15 @@ services:
     profiles: [gpu]
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
     entrypoint: *sleep
-    command: ["http://llm-service:8000", "/sleep?level=1"]
-    networks: [model-net]
+    command: ["http://llm-service-vllm:8000", "/sleep?level=1"]
+    networks: [model-backend-net]
     restart: "no"
     depends_on:
       llm-service: {condition: service_healthy}
 
   llm-verifier:
     <<: *vllm5090
+    networks: {model-backend-net: {aliases: [llm-verifier-vllm]}}   # behind model-guard (D-177)
     command:
       - --model=/models/${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}
       - --served-model-name=${VERIFIER_MODEL:-local/qwen3.5-9b-awq}
@@ -126,8 +129,8 @@ services:
     profiles: [gpu]
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
     entrypoint: *sleep
-    command: ["http://llm-verifier:8000", "/sleep?level=1"]
-    networks: [model-net]
+    command: ["http://llm-verifier-vllm:8000", "/sleep?level=1"]
+    networks: [model-backend-net]
     restart: "no"
     depends_on:
       llm-verifier: {condition: service_healthy}
@@ -136,8 +139,8 @@ services:
     profiles: [gpu]
     image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.32.0}
     entrypoint: *sleep
-    command: ["http://llm-service:8000", "/wake_up"]
-    networks: [model-net]
+    command: ["http://llm-service-vllm:8000", "/wake_up"]
+    networks: [model-backend-net]
     restart: "no"
     depends_on:
       model-swap-init: {condition: service_completed_successfully}
@@ -145,6 +148,10 @@ services:
   gateway:
     environment:
       TB_MODEL_SWAP: "${TB_MODEL_SWAP:-sleep}"
+
+  model-guard:
+    environment:
+      TB_GUARD_ADMIN: "1"   # the gateway's sleep swap: /sleep, /wake_up, /is_sleeping, with the key
 
   orchestrator:
     environment:

@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-from console.timefmt import local_date, local_time, site_zone
+import pytest
+from console.timefmt import SiteZoneError, local_date, local_time, site_zone
 from fastapi.templating import Jinja2Templates
 
 TOKYO = ZoneInfo("Asia/Tokyo")
@@ -27,11 +28,14 @@ def test_dates_and_odd_values_pass_through() -> None:
     assert local_time("not a time at all", TOKYO, 10) == "not a time"
 
 
-def test_site_zone_comes_from_the_backend_config() -> None:
+def test_site_zone_comes_from_the_backend_config(monkeypatch: pytest.MonkeyPatch) -> None:
     bk = SimpleNamespace(cfg=SimpleNamespace(env=SimpleNamespace(tz="Asia/Tokyo")))
     assert site_zone(bk) == TOKYO
     bad = SimpleNamespace(cfg=SimpleNamespace(env=SimpleNamespace(tz="Mars/Olympus")))
-    assert site_zone(bad) == ZoneInfo("UTC")
+    with pytest.raises(SiteZoneError):  # D-270: a wrong zone is a configuration error, no longer a silent UTC
+        site_zone(bad)
+    monkeypatch.delenv("TB_TZ", raising=False)
+    assert site_zone(SimpleNamespace()) == ZoneInfo("UTC")  # only a test double with no configuration at all
     both = SimpleNamespace(
         cfg=SimpleNamespace(
             env=SimpleNamespace(tz="Asia/Taipei"), settings=SimpleNamespace(site=SimpleNamespace(tz="Asia/Tokyo"))

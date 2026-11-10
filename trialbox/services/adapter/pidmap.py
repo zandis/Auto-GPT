@@ -8,7 +8,7 @@ secrets directory, so one per site): rows carry ``key_id``, a one-way fingerprin
 keys never mix and every service that mounts the same secrets reads the same map.
 
 Chart numbers are written the site's way before they are hashed or stored (:func:`pseudonym`, ``tb_common.chartno``,
-R-48, D-205): a sheet's ``123456`` and the feed's ``00123456`` are one patient under a ``digits:8`` rule. Under the
+R-48, D-301): a sheet's ``123456`` and the feed's ``00123456`` are one patient under a ``digits:8`` rule. Under the
 default rule a chart number already written the hospital's way is stored and hashed exactly as before.
 """
 

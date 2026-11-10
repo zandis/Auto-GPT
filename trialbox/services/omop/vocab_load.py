@@ -1,4 +1,4 @@
-"""The vocabulary's loaders (WS-03.3, D-205): the OMOP vocabulary tables of schema ``omop`` are the one home of the
+"""The vocabulary's loaders (WS-03.3, D-301): the OMOP vocabulary tables of schema ``omop`` are the one home of the
 codes TrialBox reads (no second schema).
 
 What goes in, and where:
@@ -26,7 +26,7 @@ What goes in, and where:
 
 **Ids.** Reference codes (public or licensed lists loaded without the Athena bundle) take box-local ids from
 ``tb_ref_concept_seq`` (2,010,000,000 to 2,099,999,999); the site's local codes take the site block
-(``TB_OMOP_CONCEPT_BLOCK``, one million ids, D-205). Every id >= 2,000,000,000 is never ``standard_concept = 'S'``
+(``TB_OMOP_CONCEPT_BLOCK``, one million ids, D-301). Every id >= 2,000,000,000 is never ``standard_concept = 'S'``
 (the OHDSI rule for custom concepts); each load checks it and refuses otherwise.
 
 **Releases.** Every load is a ``tb_vocab_release`` row (name, sha256 of its content, version, source). Loading the
@@ -191,7 +191,7 @@ def _release(tx: Any, name: str, sha: str, vid: str, version: str, source: str, 
 def _check_never_standard(tx: Any) -> None:
     n = int(tx.fetchval("SELECT count(*) FROM concept WHERE concept_id >= ? AND standard_concept = 'S'", (LOCAL_MIN,)))
     if n:
-        raise OmopError(f"{n} concepts >= {LOCAL_MIN:,} are standard: a custom concept is never standard (D-205)")
+        raise OmopError(f"{n} concepts >= {LOCAL_MIN:,} are standard: a custom concept is never standard (D-301)")
 
 
 def release_digest(active: Iterable[tuple[str, str]]) -> str:

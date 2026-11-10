@@ -1,0 +1,16 @@
+# TrialBox's pre-commit hooks (D-203, WS-13.10, TB-SITE-03 §2). The repository root's .pre-commit-config.yaml is
+# Auto-GPT's; install this one for trialbox/ from the repository root, once per clone:
+#   pre-commit install --config trialbox/.pre-commit-config.yaml
+# (or run it by hand: `make -C trialbox data-scan`). The hook refuses a commit that stages a data file outside its
+# folders (.gitattributes `tb-data`) or a file in which the scan finds a chart number, an ID, a phone number or a
+# name beside a date of birth; it prints the place and the pattern, never the value.
+repos:
+  - repo: local
+    hooks:
+      - id: trialbox-data-scan
+        name: TrialBox data-handling scan (no real patient data, D-203)
+        entry: trialbox/.venv/bin/python trialbox/tools/data_scan.py
+        language: system
+        files: ^trialbox/
+        pass_filenames: true
+        require_serial: true

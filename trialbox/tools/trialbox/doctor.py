@@ -9,7 +9,8 @@ closed). Checks:
 * ``routing_perimeter``: ``models/routing.yaml`` has no row, and no lookup, that sends D3/D4 outside the perimeter;
 * ``gateway_only_model_reach``: the egress allowlist (``deploy/egress.py``) gives a model host to the gateway only;
 * ``channel_engine``: ``channels.engine`` is valid (native is the only engine, D-121);
-* ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``). FAIL in
+* ``secure_cookie``: the console session cookie is marked Secure (``TB_CONSOLE_SECURE_COOKIE=1``, or unset or empty in
+  PRODUCTION, the console's default since D-192). FAIL in
   PRODUCTION and VALIDATION, WARN elsewhere (a DEV/TEST box may serve plain http on localhost; D-121);
 * ``publish_gate``: the data platform has a current signed snapshot and the last gate decision is known;
 * ``note_block``: ``TB_NOTE_BLOCK=both_agree`` (the default, D-95) needs a verifier build (``TB_GATEWAY_VERIFIER_MODEL``
@@ -18,7 +19,19 @@ closed). Checks:
   DEV/TEST, FAIL in VALIDATION/PRODUCTION, since the site then believes two models agree when one did;
 * ``registry_pins``: the committed registry with the site override (``TB_REGISTRY_OVERRIDE``, default
   ``deploy/site/registry.site.yaml``) loads; lists the site-pinned builds. WARN when no model build is pinned
-  (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``.
+  (production routes nothing) or, in VALIDATION/PRODUCTION, when no pinned build is ``champion``;
+* ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
+  box's first start (T-008, D-207): WARN, naming the flag's value and where to change it.
+
+``--live`` adds one check that talks to the model servers, so it runs where the gateway's network is (install.sh
+runs it in a one-off container on ``trialbox-model-net``; ``--serving`` runs it alone):
+
+* ``serving`` (D-177): for each on-box endpoint (``models/routing.yaml``, zone ``perimeter``) that a pinned build is
+  served on, ``GET <url>/models`` with the endpoint's key (``api_key_env``, ``TB_LLM_API_KEY``) must answer 200 and list
+  every pinned served name, and the same call without the key must be refused. FAIL when a server is down, refuses
+  the key (401/403) or does not serve a pinned name (vLLM would answer every call 404); a server that runs without a
+  key, or a box with no key, is a FAIL in VALIDATION and PRODUCTION and a WARN elsewhere. WARN when nothing local is
+  pinned (nothing to check).
 """
 
 from __future__ import annotations
@@ -27,6 +40,8 @@ import importlib.util
 import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -169,10 +184,14 @@ def check_channel_engine(inp: DoctorInputs) -> Check:
 
 
 def check_secure_cookie(inp: DoctorInputs) -> Check:
-    on = inp.env.get("TB_CONSOLE_SECURE_COOKIE", "0").lower() in ("1", "true")
-    if on:
-        return Check("secure_cookie", "PASS", "console session cookie is Secure (https only)")
+    """The console's own rule (``console.identity.secure_cookie_default``, D-192): an explicit value wins; unset or
+    empty means Secure in PRODUCTION (the base compose file passes it empty) and off elsewhere."""
     env = inp.env.get("TB_ENV", "DEV")
+    raw = (inp.env.get("TB_CONSOLE_SECURE_COOKIE") or "").strip().lower()
+    on = raw in ("1", "true", "on", "yes") if raw else env.strip().upper() == "PRODUCTION"
+    if on:
+        why = "console session cookie is Secure (https only)" + ("" if raw else ", the PRODUCTION default")
+        return Check("secure_cookie", "PASS", why)
     status: Status = "FAIL" if env in ("VALIDATION", "PRODUCTION") else "WARN"
     why = f"TB_CONSOLE_SECURE_COOKIE is off in {env}: the session cookie can travel on http"
     return Check("secure_cookie", status, why)
@@ -197,11 +216,15 @@ def check_publish_gate(inp: DoctorInputs) -> Check:
     return Check("publish_gate", "PASS", f"snapshot {cur.get('snapshot_id')} current; last gate {last.get('outcome')}")
 
 
+def _override(inp: DoctorInputs) -> Path:
+    raw = inp.env.get("TB_REGISTRY_OVERRIDE")
+    return Path(raw) if raw else ROOT / "deploy" / "site" / "registry.site.yaml"
+
+
 def check_registry_pins(inp: DoctorInputs) -> Check:
     from registry.registry import DEFAULT_PATH, Registry, Status
 
-    raw = inp.env.get("TB_REGISTRY_OVERRIDE")
-    override = Path(raw) if raw else ROOT / "deploy" / "site" / "registry.site.yaml"
+    override = _override(inp)
     try:
         reg = Registry.load(DEFAULT_PATH, override)
     except (ValueError, OSError, yaml.YAMLError) as e:
@@ -242,6 +265,126 @@ def check_note_block(inp: DoctorInputs) -> Check:
     )
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is an answer, never followed: the model key must not travel to another host."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+def _get_models(url: str, key: str, timeout: float = 10.0) -> tuple[int | None, Any]:
+    """(HTTP status, JSON body or error text); status None when the server cannot be reached."""
+    req = urllib.request.Request(f"{url.rstrip('/')}/models", headers={"Authorization": f"Bearer {key}"} if key else {})
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        return e.code, e.reason
+    except (OSError, ValueError) as e:
+        return None, f"{type(e).__name__}: {e}"
+
+
+# vLLM routes outside /v1 that answer without the key (vLLM checks it on /v1, /v2, /inference, /cohere only)
+UNKEYED_PROBES = ("/invocations", "/tokenize")
+
+
+def _post_open(url: str, timeout: float = 10.0) -> int | None:
+    """HTTP status of an empty-keyed POST (a tiny chat body), None when unreachable. Redirects are answers."""
+    body = json.dumps({"messages": [{"role": "user", "content": "doctor probe"}], "prompt": "doctor probe"}).encode()
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
+            return int(r.status)
+    except urllib.error.HTTPError as e:
+        return int(e.code)
+    except (OSError, ValueError):
+        return None
+
+
+def check_serving(inp: DoctorInputs) -> Check:
+    from gateway.policy import RoutingPolicy
+    from registry.registry import DEFAULT_PATH, Registry
+
+    env = dict(inp.env)
+    strict = env.get("TB_ENV", "DEV") in ("VALIDATION", "PRODUCTION")
+    reg = Registry.load(DEFAULT_PATH, _override(inp))
+    policy = RoutingPolicy.load(inp.routing_path)
+    want: dict[str, list[tuple[str, str]]] = {}
+    for b in reg.builds:
+        if not b.pinned or b.serving in ("stub", "hosted"):
+            continue
+        for ep_name, name in sorted(b.served.items()):
+            ep = policy.endpoints.get(ep_name)
+            if name and ep is not None and ep.zone == "perimeter":
+                want.setdefault(ep_name, []).append((b.build_id, name))
+    if not want:
+        return Check("serving", "WARN", "no pinned on-box build: no model server to check")
+    fails: list[str] = []
+    warns: list[str] = []
+    good: list[str] = []
+    for ep_name, builds in sorted(want.items()):
+        ep = policy.endpoints[ep_name]
+        url = ep.url(env)
+        key_var = ep.api_key_env or "api_key_env (not set in routing.yaml)"
+        key = env.get(ep.api_key_env, "") if ep.api_key_env else ""
+        if not key:
+            (fails if strict else warns).append(
+                f"{ep_name}: no key, {key_var} is empty: anyone on model-net may call it"
+            )
+        status, doc = _get_models(url, key)
+        if status is None:
+            fails.append(f"{ep_name} ({url}) not reachable: {doc}")
+            continue
+        if status in (401, 403):
+            why = f"{key_var} is missing or is not the server's key (deploy/.env; restart the gateway and the server)"
+            fails.append(f"{ep_name}: the model server refused the key (HTTP {status}): {why}")
+            continue
+        if status != 200 or not isinstance(doc, dict):
+            fails.append(f"{ep_name}: GET {url}/models answered HTTP {status}")
+            continue
+        served = [str(m.get("id")) for m in doc.get("data") or [] if isinstance(m, dict)]
+        for build, name in builds:
+            if name not in served:
+                fix = "restore JUDGE_MODEL / VERIFIER_MODEL in deploy/.env or re-pin (tools/pin_model.py, RUNBOOK §8)"
+                fails.append(
+                    f"{ep_name}: {build} is pinned to the served name {name!r} but the server serves {served}, "
+                    f"so every call would be refused 404: {fix}"
+                )
+        if key and _get_models(url, "")[0] == 200:
+            (fails if strict else warns).append(f"{ep_name}: the server answers without the key (VLLM_API_KEY unset)")
+        root = url.rstrip("/").removesuffix("/v1")
+        for path in UNKEYED_PROBES:  # vLLM answers these with no key at all: only model-guard keeps them away
+            st = _post_open(root + path)
+            if st is not None and st not in (401, 403, 404, 405, 501):
+                (fails if strict else warns).append(
+                    f"{ep_name}: POST {path} without the key answered HTTP {st}: the model is reachable without "
+                    "the key (model-guard missing in front of the server? docker-compose.yml model-guard, D-177)"
+                )
+        good.append(f"{ep_name} serves {', '.join(repr(n) for _, n in builds)}")
+    if fails:
+        return Check("serving", "FAIL", "; ".join(fails))
+    if warns:
+        return Check("serving", "WARN", "; ".join(warns))
+    return Check("serving", "PASS", "; ".join(good) + "; key required")
+
+
+def check_flags(inp: DoctorInputs) -> Check:
+    """T-008 (D-207): a seed variable (``TB_LAKE_SOURCE``) seeds its flag at the first start only; one that now says
+    something else than the flag is ignored, which an operator must know: WARN."""
+    url = inp.env.get("TB_DB_URL", "")
+    if not url:
+        return Check("flags", "PASS", "no trial database configured here (TB_DB_URL): the flags were not read")
+    try:
+        from tb_common.flags import env_drift
+
+        drift = env_drift(dict(inp.env), url)
+    except Exception as e:  # the flags live on the box: unreadable from here is worth a look, not a failure
+        return Check("flags", "WARN", f"cannot read the feature flags ({type(e).__name__})")
+    if drift:
+        return Check("flags", "WARN", "; ".join(drift))
+    return Check("flags", "PASS", "every seed variable that is set agrees with its flag")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -252,12 +395,16 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_publish_gate,
     check_note_block,
     check_registry_pins,
+    check_flags,
 )
 
 
-def run(inp: DoctorInputs) -> list[Check]:
+LIVE: tuple[Callable[[DoctorInputs], Check], ...] = (check_serving,)
+
+
+def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:
     out: list[Check] = []
-    for fn in CHECKS:
+    for fn in checks:
         name = fn.__name__.removeprefix("check_")
         try:
             out.append(fn(inp))
@@ -280,9 +427,12 @@ def inputs_from(
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 env[k.strip()] = v.strip().strip('"').strip("'")
-    env.update(
-        {k: v for k, v in os.environ.items() if k.startswith("TB_") or k in ("CLOUD_LLM_BASE_URL", "EGRESS_EXTRA")}
-    )
+    keep = ("CLOUD_LLM_BASE_URL", "EGRESS_EXTRA", "COMPOSE_FILE")
+    env.update({k: v for k, v in os.environ.items() if k.startswith("TB_") or k in keep})
+    if env.get("COMPOSE_FILE") and not env.get("TB_GATEWAY_URL"):
+        # an installed box's deploy/.env (install.sh writes COMPOSE_FILE): compose itself gives the orchestrator this
+        # gateway address, so note_block judges the box as it runs (found by the box rehearsal, D-176)
+        env["TB_GATEWAY_URL"] = "http://gateway:8020/v1"
     doc: dict[str, Any] = {}
     if settings is not None:
         doc = yaml.safe_load(settings.read_text(encoding="utf-8")) or {}

@@ -29,7 +29,7 @@ class RulesetNotApproved(RuntimeError):
 
 
 class RecompileNeeded(RulesetNotApproved):
-    """The ruleset was compiled against another terminology release (D-205)."""
+    """The ruleset was compiled against another terminology release (D-301)."""
 
 
 @dataclass
@@ -107,7 +107,7 @@ def load_approved(
     terminology: Callable[[RulesetManifest], None] | None = None,
 ) -> Ruleset:
     """Approved ruleset from the materialized repo copy; refuses drafts and version mismatches (SPEC §5 step 4).
-    ``terminology`` (``criteria_compiler.terminology.resolver.guard()``, D-205) refuses a ruleset compiled against
+    ``terminology`` (``criteria_compiler.terminology.resolver.guard()``, D-301) refuses a ruleset compiled against
     another terminology release than the box's until it is recompiled; its refusal is :class:`RulesetNotApproved`."""
     directory = rulesets_dir / ruleset_id
     if not (directory / "manifest.yaml").exists():
@@ -125,7 +125,7 @@ def load_approved(
             terminology(rs.manifest)
         except RulesetNotApproved:
             raise
-        except RuntimeError as exc:  # TerminologyMismatch: recompile needed (D-205)
+        except RuntimeError as exc:  # TerminologyMismatch: recompile needed (D-301)
             raise RecompileNeeded(str(exc)) from exc
     return rs
 

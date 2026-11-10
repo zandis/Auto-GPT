@@ -2,8 +2,8 @@
 
 python -m omop load --lake /data/lake [--snapshot 2026-10-31] [--tz Asia/Taipei]   # a snapshot + the site inputs
 python -m omop status                                                              # rows per table, conflicts
-python -m omop dqd [--json out.json]                                               # exit 1 when a check fails
-python -m omop vocab terminology [--rulesets DIR]        # the compiler's Parquet into the vocabulary (D-205)
+python -m omop dqd [--json out.json] [--tz Asia/Tokyo]                             # exit 1 when a check fails
+python -m omop vocab terminology [--rulesets DIR]        # the compiler's Parquet into the vocabulary (D-301)
 python -m omop vocab code-list --system URI --version FY2027 --file F [--rulesets DIR]   # e.g. ICD-10-CM FY2027
 python -m omop vocab licensed | refdata | local --ws main                     # JP masters, refdata terms, local maps
 python -m omop vocab status                                                   # releases, release id, recompile list
@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from omop import dqd, schema
 from omop.load import load_batch
@@ -29,6 +32,13 @@ def _read(directory: Path) -> dict[str, list[dict[str, Any]]]:
     return out
 
 
+def _site_today(tz: str, now: datetime | None = None) -> date | None:
+    """The site's calendar date in ``tz`` (D-270); None (the container's date) when no zone is given."""
+    if not tz:
+        return None
+    return (now.astimezone(ZoneInfo(tz)) if now else datetime.now(ZoneInfo(tz))).date()
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m omop")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -39,6 +49,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status")
     dq = sub.add_parser("dqd")
     dq.add_argument("--json", type=Path)
+    # the site's zone for "today" in the plausibility checks (D-270); without it, the container's own date
+    dq.add_argument("--tz", default=os.environ.get("TB_TZ") or "")
     vo = sub.add_parser("vocab")
     vo.add_argument("what", choices=["terminology", "code-list", "licensed", "refdata", "local", "status"])
     vo.add_argument("--rulesets", type=Path)
@@ -69,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
             counts["conflicts_open"] = int(db.fetchval("SELECT count(*) FROM tb_conflict WHERE state = 'open'"))
             print(json.dumps(counts, indent=1))
             return 0
-        res = dqd.run(db)
+        res = dqd.run(db, today=_site_today(a.tz))
         if a.json:
             a.json.write_text(json.dumps(res, indent=1, default=str), encoding="utf-8")
         print(json.dumps(dqd.summary(res)))

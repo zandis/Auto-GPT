@@ -1,4 +1,4 @@
-"""Where the compiler's ValueSets resolve (WS-03.3, D-205): the one module that says which terminology the compiler
+"""Where the compiler's ValueSets resolve (WS-03.3, D-301): the one module that says which terminology the compiler
 reads, which release that is, whether a ruleset may run against it, and how a WHO-only ICD-10 code meets an ICD-10-CM
 grouper.
 
@@ -10,8 +10,8 @@ grouper.
 * **Release** (:func:`current_release`): ``TR-`` and 12 hex over the releases the compiler resolves through. A
   compiled ruleset pins it in its manifest (``terminology_release``); :func:`guard` refuses to run a ruleset pinned to
   another release (or one the vocabulary listed as ``recompile_needed``) until it is recompiled. A manifest without a
-  pin (the rulesets compiled before D-205) is checked only against the vocabulary's list.
-* **WHO-only ICD-10** (baseline correction 3, D-205): a grouper's ICD-10-CM family (D-113) also stands for the WHO
+  pin (the rulesets compiled before D-301) is checked only against the vocabulary's list.
+* **WHO-only ICD-10** (baseline correction 3, D-301): a grouper's ICD-10-CM family (D-113) also stands for the WHO
   ICD-10 codes of the same prefix (:func:`family_systems`). A WHO-coded record inside the family whose code is not one
   of the ValueSet's ICD-10-CM codes (a WHO-only code such as ``M10.97``) makes the criterion unknown, never a silent
   false; a WHO code that is also a listed ICD-10-CM code is left to the D-130 runtime check, as before; outside every
@@ -121,10 +121,11 @@ def tables_dir(tables: dict[str, list[dict[str, Any]]], release: str) -> Path:
     return out
 
 
-def terminology() -> Terminology:
-    """The compiler's :class:`Terminology` from the configured source, with its ``release``."""
+def terminology(name_synonyms: Any = None) -> Terminology:
+    """The compiler's :class:`Terminology` from the configured source, with its ``release`` (``name_synonyms``: the
+    loaded zh-TW synonym dictionary, D-172)."""
     if source() != "vocab":
-        return Terminology()
+        return Terminology(name_synonyms=name_synonyms)
     from omop import vocab_load
 
     db = _vocab_db()
@@ -135,7 +136,7 @@ def terminology() -> Terminology:
         db.close()
     if not tables:
         raise TerminologyMismatch("TB_TERMINOLOGY_SOURCE=vocab but the vocabulary holds no terminology: load it")
-    term = Terminology(tables_dir(tables, release))
+    term = Terminology(tables_dir(tables, release), name_synonyms=name_synonyms)
     term.pin(release)
     return term
 
@@ -165,12 +166,12 @@ def check(ruleset_id: str, version: str, pinned: str | None, release: str, liste
     if pinned and pinned != release:
         raise TerminologyMismatch(
             f"ruleset {ruleset_id} v{version} was compiled against terminology {pinned}; the box now has {release}: "
-            "recompile it before it runs (D-205)"
+            "recompile it before it runs (D-301)"
         )
     if listed:
         raise TerminologyMismatch(
             f"ruleset {ruleset_id} v{version} is listed as recompile needed for terminology {release or 'none'} "
-            "(D-205): recompile it before it runs"
+            "(D-301): recompile it before it runs"
         )
 
 

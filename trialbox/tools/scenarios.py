@@ -1093,7 +1093,7 @@ def sheets(feed: Path, n: int, seed: int = 7) -> tuple[list[tuple[str, bytes]], 
 def sc_excel(a: Any, work: Path) -> Result:
     from tb_common import chartno
 
-    # the site's chart-number rule (R-48, D-205): digits, leading zeros not significant, so a zero-padded number in
+    # the site's chart-number rule (R-48, D-301): digits, leading zeros not significant, so a zero-padded number in
     # a PI's list joins the feed's unpadded one
     before = os.environ.get(chartno.ENV)
     os.environ[chartno.ENV] = "digits"

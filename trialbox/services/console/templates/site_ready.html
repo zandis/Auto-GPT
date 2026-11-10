@@ -12,7 +12,8 @@
 {% if rd %}
 <section class="card attention" data-testid="site-overall" data-state="{{ rd.overall }}">
 <p class="big">{{ state_pill(rd.overall) }} <span class="hint">{{ t('site.overall.' + rd.overall) }}</span></p>
-{% if rd.overall != 'green' %}<p><a class="button" href="/site/start?{{ qs }}" data-testid="site-start">{{ t('site.start.go') }}</a></p>{% endif %}
+{% if site_wide is defined and not site_wide %}<p class="hint" data-testid="site-scoped">{{ t('site.scoped') }}</p>{% endif %}
+{% if rd.overall != 'green' and (site_wide is not defined or site_wide) %}<p><a class="button" href="/site/start?{{ qs }}" data-testid="site-start">{{ t('site.start.go') }}</a></p>{% endif %}
 </section>
 <div class="grid">
 {% for name in ('trial', 'patients', 'records') %}{% set qd = rd.questions[name] %}

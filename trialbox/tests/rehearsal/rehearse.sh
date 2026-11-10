@@ -63,6 +63,16 @@ if ! docker info >/dev/null 2>&1; then
     OWN_DOCKERD=1
   fi
 fi
+prune_evidence() {  # D-201: the newest two per case, <case> and <case>.prev; older copies <case>.<anything> go
+  local d name c
+  for d in "$REH/evidence"/*.*; do
+    [ -e "$d" ] || continue
+    name="$(basename "$d")"
+    for c in "${CASES[@]}" run-a run-b served no-upload hang busy; do
+      if [ "${name%%.*}" = "$c" ] && [ "$name" != "$c.prev" ]; then rm -rf "$d"; break; fi
+    done
+  done
+}
 cleanup() {
   [ "${TB_REHEARSAL_KEEP:-0}" = 1 ] && { log "kept: container $C, DOCKER_HOST=${DOCKER_HOST:-default}"; return; }
   docker exec "$C" sh -c 'ip addr del 172.17.0.1/32 dev lo 2>/dev/null; ip link del docker0 2>/dev/null; kill -TERM -1' \
@@ -78,7 +88,8 @@ cleanup() {
     rm -rf "$REH/docker" "$SOCK"
   fi
   rm -rf "$S" "$REH/runs" "$REH/base.tgz"
-  log "cleaned up (evidence kept in $REH/evidence)"
+  prune_evidence
+  log "cleaned up (evidence kept in $REH/evidence: the newest two per case)"
 }
 trap cleanup EXIT
 
@@ -129,7 +140,9 @@ wait_terminated() {  # $1 minutes
 }
 knob() { mkdir -p "$S/knobs/metadata"; printf '%s' "$2" > "$S/knobs/metadata/$1"; }
 start_case() {  # $1 case: its evidence folder; the console, power-off and stand-in logs from here on are this case's
-  E="$REH/evidence/$1"; rm -rf "$E"; mkdir -p "$E"
+  E="$REH/evidence/$1"
+  if [ -d "$E" ]; then rm -rf "$E.prev"; mv "$E" "$E.prev"; fi   # the newest two per case (D-201): this and .prev
+  mkdir -p "$E"
   : > "$S/console.log"; : > "$S/POWEROFF"; : > "$S/gcloud.log"
   for n in judge verifier; do : > "$S/units/$n.log"; done
   rm -rf "$S/knobs"; mkdir -p "$S/knobs/metadata"

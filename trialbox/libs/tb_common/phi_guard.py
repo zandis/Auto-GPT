@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from tb_common import dates
 from tb_common.crypto import sha256_text
 
 # ~100 most frequent ROC surnames (covers > 95 % of the population) + common compound surnames
@@ -88,7 +89,7 @@ TW_ID = re.compile(r"(?<![A-Za-z0-9])[A-Z][12]\d{8}(?![0-9])")
 PHONE = re.compile(
     r"(?<!\d)(?:\+886[-\s]?9\d{2}|09\d{2})[-\s]?\d{3}[-\s]?\d{3}(?!\d)|(?<!\d)\(?0[2-8]\)?[-\s]?\d{3,4}[-\s]?\d{4}(?!\d)"
 )
-DATE = re.compile(r"(?:19|20)\d{2}[/\-.年]\s?\d{1,2}[/\-.月]\s?\d{1,2}日?|民國\s?\d{2,3}年\s?\d{1,2}月\s?\d{1,2}日")
+DATE = dates.PHI_SPAN  # Gregorian and 民國 written out (D-215: the pattern lives in tb_common.dates, unchanged)
 EN_NAME = re.compile(
     r"\b(?:Mr|Mrs|Ms|Miss|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?|\bPatient(?: name)?:\s*[A-Z][a-z]+\s+[A-Z][a-z]+"
 )

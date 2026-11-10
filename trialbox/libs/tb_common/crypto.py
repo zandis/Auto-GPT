@@ -37,7 +37,7 @@ def sha256_file(path: Path, chunk: int = 1 << 20) -> str:
 
 def pid_for_mrn(site_key: bytes, mrn: str) -> str:
     """Stable pseudonymous patient id: ``hex(HMAC-SHA256(site_key, MRN))[:32]`` (SPEC §4.6, D-09). The chart number
-    is written the site's way first (``tb_common.chartno``, R-48, D-205): with the default rule a chart number that is
+    is written the site's way first (``tb_common.chartno``, R-48, D-301): with the default rule a chart number that is
     already written that way hashes exactly as before."""
     if len(site_key) < 16:
         raise ValueError("site HMAC key must be at least 16 bytes")

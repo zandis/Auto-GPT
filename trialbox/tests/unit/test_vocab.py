@@ -1,4 +1,4 @@
-"""The vocabulary schema (WS-03.3, D-205): OMOP's vocabulary tables as the one home of the codes, the release pin
+"""The vocabulary schema (WS-03.3, D-301): OMOP's vocabulary tables as the one home of the codes, the release pin
 and the recompile flag, the one-million site block, the chart-number normaliser (R-48), the NHIA edition map and the
 JP masters' WHO-only codes. Synthetic and public data only."""
 
@@ -65,7 +65,7 @@ IDS = ["10000001", "00012345", "A0001", "ab12f", "P-77", "２００１", " 123 "
 
 
 def test_default_rule_keeps_every_pseudonym_the_box_has_made(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The pid of an already-normalised chart number is the HMAC of D-09 exactly as before D-205."""
+    """The pid of an already-normalised chart number is the HMAC of D-09 exactly as before D-301."""
     monkeypatch.delenv(chartno.ENV, raising=False)
 
     def old(mrn: str) -> str:
@@ -74,7 +74,7 @@ def test_default_rule_keeps_every_pseudonym_the_box_has_made(monkeypatch: pytest
     for mrn in IDS:
         if mrn.isascii():
             assert pid_for_mrn(KEY, mrn) == old(mrn), mrn
-    # site set-up half-widthed before D-205 too: its pseudonym of a full-width number is unchanged
+    # site set-up half-widthed before D-301 too: its pseudonym of a full-width number is unchanged
     assert pid_for_mrn(KEY, "２００１") == old("2001")
 
 
@@ -371,3 +371,29 @@ def test_nhia_map_gives_a_2016_record_the_2023_code_with_provenance(omop: Any) -
     assert ed("Z22.51", date(2016, 5, 1)) is None  # a candidate (relatedto) only
     assert ed("A00.0", date(2016, 5, 1)) is None  # not in the map
     assert not vocab_load.load_concept_map(omop, "tw_icd_2014_2023", spec["rows"], version=spec["version"]).new
+
+
+def test_nhia_map_rows_from_the_refdata_parser_load_and_apply(omop: Any) -> None:
+    """The seam with PR #65 (D-171): rows ``refdata_tw.icd_map_rows`` yields from a file in the NHIA columns load as
+    the edition map unchanged. Synthetic CSV, not the NHIA file."""
+    from omop import vocab_load
+    from tb_common import refdata_tw as tw
+
+    head = ",".join(tw.ICD_COLS)
+    csv = "\n".join([
+        head,
+        "M10.9,Gout,痛風,M10.9,Gout,痛風,有效,有效,",
+        "E78.0,Pure hypercholesterolemia,高膽固醇血症,E78.00,Pure hypercholesterolemia unspecified,高膽固醇血症,有效,有效,",
+        "K21.0,GERD with esophagitis,胃食道逆流,K21.00,GERD without bleeding,胃食道逆流,有效,有效,",
+        "K21.0,GERD with esophagitis,胃食道逆流,K21.01,GERD with bleeding,胃食道逆流,有效,有效,",
+    ]) + "\n"  # fmt: skip
+    rows = list(tw.icd_map_rows(csv.encode("utf-8"), pcs=False))
+    assert {r["relation"] for r in rows} == {"equivalent", "inexact", "narrower"}
+    vocab_load.load_concept_map(omop, "tw_icd_2014_2023", rows, version="synthetic-parser")
+    got = vocab_load.edition_code(omop, tw.ICD_CM_2014, "E78.0", date(2016, 5, 1), target_system=tw.ICD_CM_2023,
+                                  name="tw_icd_2014_2023")  # fmt: skip
+    assert got == vocab_load.EditionCode(
+        tw.ICD_CM_2023, "E78.00", "map:tw_icd_2014_2023@synthetic-parser:inexact:E78.0"
+    )
+    assert vocab_load.edition_code(omop, tw.ICD_CM_2014, "K21.0", date(2016, 5, 1), target_system=tw.ICD_CM_2023,
+                                   name="tw_icd_2014_2023") is None  # fmt: skip

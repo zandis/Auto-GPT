@@ -28,10 +28,11 @@ import time
 import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, File, Form, Query, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -40,6 +41,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import AuditLog
+from tb_common.authz import admin_allowed
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
@@ -64,10 +66,12 @@ from console.auth import (
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
 from console.i18n import CATALOGUES, LANGS, pick_language, translate
+from console.identity import Hooks, Identity, IdentitySettings, secure_cookie_default
+from console.identity import register as register_identity
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
 from console.refusals import localize as localize_refusal
 from console.registry_view import STATUSES, status_options
-from console.timefmt import local_time, site_zone
+from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
 COOKIE = "tb_console"
@@ -138,6 +142,8 @@ class ConsoleSettings:
     # D-120: the studies this site runs (TB_CONSOLE_STUDIES); the request menu lists only these. Empty: every
     # approved study
     studies: tuple[str, ...] = ()
+    # D-192: the second factor, session timeouts and the optional OIDC sign-in (console.identity)
+    identity: IdentitySettings = field(default_factory=IdentitySettings)
 
     @property
     def sso(self) -> bool:
@@ -162,7 +168,7 @@ class ConsoleSettings:
             data_dir=Path(env.get("TB_CONSOLE_DIR") or "/data/console"),
             admin_email=(env.get("TB_CONSOLE_ADMIN_EMAIL") or "").strip().lower(),
             admin_password_file=Path(pw) if pw else None,
-            secure_cookie=env.get("TB_CONSOLE_SECURE_COOKIE", "0") in ("1", "true"),
+            secure_cookie=secure_cookie_default(env, environment),  # D-192: on by default in PRODUCTION
             test_smtp=env.get("TB_CONSOLE_TEST_SMTP", "").strip(),
             webmail_url=env.get("TB_CONSOLE_WEBMAIL_URL", "").strip(),
             intake_addr=(env.get("MAIL_INTAKE_ADDR") or "trialbox@hospa.test").strip().lower(),
@@ -187,11 +193,19 @@ class ConsoleSettings:
                 "public" if (env.get("TB_CONSOLE_DATA_SOURCE") or "").strip().lower() == "public" else "synthetic"
             ),
             studies=tuple(x.strip().upper() for x in (env.get("TB_CONSOLE_STUDIES") or "").split(",") if x.strip()),
+            identity=IdentitySettings.from_env(env, environment, Path(env.get("TB_CONSOLE_DIR") or "/data/console")),
         )
         if obj.sso_header and not obj.sso_trusted:
             raise PilotRefused("TB_CONSOLE_SSO_HEADER needs TB_CONSOLE_SSO_TRUSTED_PROXIES (the proxy addresses)")
         if obj.sso_default_role not in ROLES:
             raise PilotRefused(f"TB_CONSOLE_SSO_DEFAULT_ROLE must be one of {', '.join(ROLES)}")
+        if obj.sso_header and (obj.identity.totp_required or obj.identity.oidc.enabled):
+            # D-192 review H1: a trusted header skips the password and the second factor. It is allowed only where
+            # TOTP is off (DEV and TEST); a hospital uses the OIDC sign-in through Authelia instead.
+            raise PilotRefused(
+                "TB_CONSOLE_SSO_HEADER works only with TB_CONSOLE_MFA=off (DEV or TEST) and OIDC off; "
+                "use TB_OIDC_ENABLED (Authelia) for the hospital account"
+            )
         return obj
 
 
@@ -381,6 +395,8 @@ def create_app(
     if backend is None or audit is None:
         backend, audit = _default_backend(settings)
     users = users or UserStore()  # schema auth of the trial database (TB_DB_URL, D-126)
+    users.idle, users.absolute = settings.identity.idle, settings.identity.absolute  # D-192
+    ident = Identity(settings.identity, users, audit, settings.secure_cookie)
     if settings.admin_password_file is not None:
         made = users.bootstrap_from_file(settings.admin_password_file, mailbox=settings.admin_email or None)
         if made is not None:
@@ -388,7 +404,10 @@ def create_app(
     if settings.pilot and classify is None and settings.gateway_url:
         from console.proposals import gateway_classifier
 
-        classify = gateway_classifier(settings.gateway_url, settings.gateway_model, "D0", date.today)
+        zone = site_zone(backend)  # the site's date, not the container's (D-270)
+        classify = gateway_classifier(
+            settings.gateway_url, settings.gateway_model, "D0", lambda: local_today(datetime.now(UTC), zone)
+        )
     if settings.pilot and cascades is None:
         cascades = CascadeRuns(settings.data_dir / "cascade", settings.source_dir)
     pending: dict[str, _Pending] = {}
@@ -403,6 +422,7 @@ def create_app(
     bk: Backend = backend
     au: AuditLog = audit
     us: UserStore = users
+    us.zone = site_tz  # an account's end date is a site day (D-270)
     id_views = IdViews()
 
     boot: list[Callable[[], Any]] = []  # started with the app (the box's own timers, D-121)
@@ -420,6 +440,7 @@ def create_app(
     app = FastAPI(title="trialbox-console", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     app.state.settings = settings
+    app.state.identity = ident
 
     # ------------------------------------------------------------------ plumbing
     @app.middleware("http")
@@ -487,7 +508,8 @@ def create_app(
             return None
 
     def session_of(request: Request) -> Session | None:
-        return us.session(request.cookies.get(COOKIE))
+        # D-192 review H3: a page's own auto-refresh (?auto=1, base.html) is not activity: the idle lock still runs
+        return us.session(request.cookies.get(COOKIE), touch=request.query_params.get("auto") != "1")
 
     def need(request: Request) -> Session:
         sess = session_of(request)
@@ -626,6 +648,10 @@ def create_app(
             "given": given,
             "num": _num,
             "console_js": CONSOLE_JS,
+            # the 5-second refresh of a running job's page asks with auto=1, so it does not keep the session awake
+            "refresh_url": request.url.path
+            + "?"
+            + urlencode([*((k, v) for k, v in request.query_params.multi_items() if k != "auto"), ("auto", "1")]),
         }
         return templates.TemplateResponse(request, name, {**base, **ctx}, status_code=status)
 
@@ -737,6 +763,7 @@ def create_app(
             failed=failed,
             admin_mail=settings.admin_email,
             sso=settings.sso,
+            oidc=ident.oidc_enabled,
             **ctx,
         )
         resp.set_cookie(
@@ -762,14 +789,18 @@ def create_app(
         cookie = request.cookies.get(LOGIN_COOKIE, "")
         if not cookie or not secrets.compare_digest(cookie, login_csrf):
             raise _Problem(400, "csrf")
-        user = us.authenticate(username[:64], password[:256])
+        # D-192: with a TOTP step to come, a right password does not clear the failure count; the code does
+        user = us.authenticate(username[:64], password[:256], clear_failures=not settings.identity.totp_required)
         if user is None:
             au.append("console.login_failed", actor=f"console:{username.strip().lower()[:32] or '-'}")
+            ident.after_failure(username)
             until = us.locked_until(username[:64])
             left = max(1, -(-int((until - us.clock()).total_seconds()) // 60)) if until else 0
             return login_page(
                 request, 401, failed=True, uninitialised=False, until=until.isoformat() if until else "", left=left
             )
+        if ident.needs_code(user):  # D-192: local accounts give a TOTP code before a session exists
+            return ident.second_step(user)
         token, _ = us.new_session(user, lang_of(request, None))
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
         done = RedirectResponse("/home" if settings.pilot else "/", status_code=303)  # S1: land on the work list
@@ -785,9 +816,27 @@ def create_app(
             raise _Problem(400, "csrf")
         us.end_session(request.cookies.get(COOKIE, ""))
         au.append("console.logout", actor=actor(sess))
-        resp = RedirectResponse("/login", status_code=303)
+        resp = RedirectResponse(ident.logout_target(sess.user.username), status_code=303)  # D-192: OIDC logout
         resp.delete_cookie(COOKIE)
         return resp
+
+    register_identity(  # D-192: the TOTP step, the OIDC sign-in, /ops/identity (unlock, reset authenticator)
+        app,
+        ident,
+        Hooks(
+            need=need,
+            page=page,
+            login_page=login_page,
+            confirm=confirm_step,
+            lang_of=lang_of,
+            translate=translate,
+            csrf_ok=csrf_ok,
+            problem=_Problem,
+            secure=settings.secure_cookie,
+            session_cookie=COOKIE,
+            home="/home" if settings.pilot else "/",
+        ),
+    )
 
     @app.post("/lang")
     def set_lang(request: Request, lang: str = Form("en"), csrf: str = Form(""), back: str = Form("/")) -> Response:
@@ -859,17 +908,21 @@ def create_app(
         one_time[sess.token_sha] = (username, password, now)
 
     @app.get("/ops/users", response_class=HTMLResponse)
-    def users_view(request: Request) -> Response:
+    def users_view(request: Request, undo: str = "", done: str = "") -> Response:
         sess = need(request)
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
         made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
+        off = us.disabled_users()
         return page(
             request,
             "users.html",
             sess,
             users=rows,
+            disabled=off,
+            undo=undo if undo in {u.username for u in off} else "",  # D-178: the toast's Undo after Disable
+            done=done if done in ("enabled",) else "",
             roles=ROLES,
             affiliations=AFFILIATIONS,
             made=made,
@@ -895,6 +948,10 @@ def create_app(
         confirmation, P-10). Same as the console.cli commands; every change is an audit event."""
         sess = need_admin(request, csrf)
         name = username.strip().lower()[:32]
+        perm = {"reset": "account.reset", "disable": "account.disable", "enable": "account.enable"}.get(action)
+        if perm and not admin_allowed(sess.user.role, perm):  # D-178: the one role table (tb_common.authz)
+            au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users {action}"})
+            raise _Problem(403, "forbidden")
         try:
             if action == "add":
                 if role not in ROLES:
@@ -920,6 +977,10 @@ def create_app(
             if action == "reset":
                 if us.is_sso(name):
                     raise AuthError("this account signs in through the hospital identity provider")
+                if confirm != "yes":  # D-178 (review J-14): the consequence first; a reset cannot be undone
+                    text = translate(lang_of(request, sess), "confirm.reset", user=name)
+                    return confirm_step(request, sess, text, "/ops/users", {"action": "reset", "username": name},
+                                        "/ops/users")  # fmt: skip
                 password = random_password()
                 us.set_password(name, password)
                 au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
@@ -948,7 +1009,12 @@ def create_app(
                                         "/ops/users")  # fmt: skip
                 us.disable(name)
                 au.append("console.user", actor=actor(sess), detail={"action": "disable", "user": name})
-                return RedirectResponse("/ops/users", status_code=303)
+                return RedirectResponse(f"/ops/users?undo={name}#undo", status_code=303)
+            if action == "enable":  # D-178 (review J-14): the undo of Disable, from the toast or the disabled list
+                us.enable(name)
+                au.append("console.user", actor=actor(sess),
+                          detail={"action": "enable", "user": name, "undo": confirm == "undo"})  # fmt: skip
+                return RedirectResponse("/ops/users?done=enabled", status_code=303)
         except AuthError as exc:
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
         raise _Problem(400, "request.refused", reason="unknown action")
@@ -958,6 +1024,7 @@ def create_app(
         return app
 
     from console import (
+        admin_flags,
         approval,
         data_pages,
         edc_pages,
@@ -1002,7 +1069,12 @@ def create_app(
     step4.register(app, helpers)  # header command field, S22, S29, S37, S13 tabs with S24 and S26 (D-110)
     raw_env = _env_map(env)
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
+    admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
+
+    from console import ops_pages
+
+    ops_pages.register(app, helpers, raw_env)  # D-178: backups, update and rollback, logs, secrets, network sheet
     from console import sae_pages
 
     sae_pages.register(app, helpers)  # the SAE register and its worklist (D-191)

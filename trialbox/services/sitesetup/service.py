@@ -26,7 +26,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from tb_common import chartno
+from tb_common import chartno, dates
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn, sha256_bytes
 
@@ -229,12 +229,19 @@ class SiteSetup:
 
     # ------------------------------------------------------------------ decisions
     def decide(self, fid: int, action: str, by: str, changes: dict[str, str] | None = None) -> dict[str, Any]:
-        """Confirm, correct or reject one proposed fact (one tap on the review list); audited."""
+        """Confirm, correct or reject one proposed fact (one tap on the review list), or undo the decision; audited."""
         f = self.store.fact(fid)
         if f is None:
             raise SetupError("SETUP-FACT", "no such fact")
         if f["status"] == "coded":
             raise SetupError("SETUP-FACT", "a coded fact from the hospital or a sheet is used as is")
+        if action == "undo":  # D-178 (review J-14): the toast's Undo; the fact is proposed again
+            out = self.store.undecide(fid)
+            self.audit.append("setup.fact", actor=by, detail={"ws": f["ws"], "fact": fid, "action": "undo",
+                                                               "domain": f["domain"], "pid": f["pid"],
+                                                               "from": f["status"]})  # fmt: skip
+            self.publish(f["ws"], by)
+            return out
         if action == "correct" and changes:
             if f["domain"] == "observation" and "value" in changes:
                 num, _ = messy.parse_number(changes["value"])
@@ -365,11 +372,7 @@ class SiteSetup:
 
 def _first_date(text: str) -> str | None:
     for line in text.splitlines():
-        for tok in re.findall(
-            r"(?:令和|平成|昭和|R|H|S)\s?\d{1,2}[./年]\s?\d{1,2}[./月]\s?\d{1,2}日?|民國\s?\d{2,3}[./年]"
-            r"\s?\d{1,2}[./月]\s?\d{1,2}日?|(?:19|20)\d{2}[-/.年]\s?\d{1,2}[-/.月]\s?\d{1,2}日?",
-            line,
-        ):
+        for tok in dates.CHART_SPAN.findall(line):  # 和暦, 民國 or Gregorian (D-215)
             if "生年月日" in line or "出生" in line or "birth" in line.lower():
                 break
             return str(tok)

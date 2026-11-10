@@ -19,12 +19,12 @@ _BODY = re.compile(r"<body[^>]*>(.*)</body>", re.S | re.I)
 
 def approved_or_none(ctx: Ctx, ruleset: str, version: str | None = None, run: bool = True) -> Ruleset | None:
     """The approved ruleset, or None. ``run``: it is about to run, so one compiled against another terminology
-    release than the box's is refused (:class:`RecompileNeeded`, D-205)."""
+    release than the box's is refused (:class:`RecompileNeeded`, D-301)."""
     from criteria_compiler.terminology import resolver
 
     try:
         return load_approved(ctx.rulesets_dir, ruleset, version, terminology=resolver.guard() if run else None)
-    except RecompileNeeded:  # approved, but compiled against another terminology release (D-205): never "none"
+    except RecompileNeeded:  # approved, but compiled against another terminology release (D-301): never "none"
         raise
     except RulesetNotApproved:
         if version:  # a specific version was requested and is not the approved one

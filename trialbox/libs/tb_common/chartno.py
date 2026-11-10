@@ -1,4 +1,4 @@
-"""The one chart-number normaliser (R-48, D-205): the site's MRN rule, applied wherever a chart number becomes a
+"""The one chart-number normaliser (R-48, D-301): the site's MRN rule, applied wherever a chart number becomes a
 pseudonym.
 
 A chart number is hashed into the pseudonym (``tb_common.crypto.pid_for_mrn``); two spellings of one chart number

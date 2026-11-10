@@ -47,6 +47,7 @@ also come from ``<root>/extended/<table>.csv`` (or ``extended=``), read like the
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
 import re
@@ -55,6 +56,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from tb_common import encoding
 
 from adapter.sources.base import Row, after
 from adapter.sources.csv.source import CsvSource
@@ -171,13 +174,9 @@ def document_text(name: str, data: bytes) -> tuple[str, str]:
                 text = data.decode("iso2022_jp")
             except UnicodeDecodeError:
                 text = ""
-        if not text:
-            for enc in ("utf-8-sig", "cp932", "euc_jp"):
-                try:
-                    text = data.decode(enc)
-                    break
-                except UnicodeDecodeError:
-                    continue
+        if not text:  # D-215: the shared detector (UTF-8, Shift_JIS, EUC-JP); a file it cannot tell has no text
+            with contextlib.suppress(encoding.EncodingRefused):
+                text = encoding.decode(data, ("cp932", "euc_jp"))[0]
         if not text:
             return "", "unreadable text"
         if ext in _MARKUP_EXT:

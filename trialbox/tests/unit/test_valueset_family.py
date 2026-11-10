@@ -72,7 +72,11 @@ def test_grouper_keeps_its_families_on_the_valueset() -> None:
     assert {"C50.912", "C7A.01", "C96.9"} <= codes and "C44.91" not in codes
     vs = _vs(term)
     assert any(e["url"] == FAMILY_EXT and e["valueString"] == f"{ICD}|C5" for e in vs["VS_MALIGNANCY"]["extension"])
-    assert ValueSets("FAM", vs).families("VS_MALIGNANCY") == res.families
+    # an ICD-10-CM family also stands for the WHO ICD-10 codes of its prefix (D-301): each CM family, then its WHO twin
+    who = "http://hl7.org/fhir/sid/icd-10"
+    assert ValueSets("FAM", vs).families("VS_MALIGNANCY") == [
+        x for sy, pre in res.families for x in ((sy, pre), (who, pre))
+    ]
     # a plain list (exact synonyms, no prefix) carries no family and renders the same SQL as before
     plain = term.map("condition", "medullary thyroid carcinoma")
     assert plain.families == [] and "extension" not in valueset("FAM", "VS_MTC", "mtc", plain.concepts, "1.0.0")
@@ -147,14 +151,14 @@ def _crit_vs(vs_name: str) -> CriterionIR:
 
 WHO_PATIENTS = {
     "who_only": [(WHO, "M10.97")],  # WHO-only (gout, ankle and foot): no such ICD-10-CM code
-    "who_listed": [(WHO, "M10.9")],  # a WHO code that is also a listed ICD-10-CM code: D-130 reads it at runtime
+    "who_listed": [(WHO, "M10.9")],  # a WHO code that is also a listed ICD-10-CM code: not a CM record, unknown
     "cm_listed": [(ICD, "M10.9")],
     "who_other": [(WHO, "J45.97")],  # WHO-only, outside the gout family
 }
 
 
 def test_who_only_code_resolves_to_its_icd10cm_family_and_fails_closed_outside_it() -> None:
-    """Baseline correction 3 (D-205): a WHO-only ``M10`` code is inside the ICD-10-CM gout family, so the grouper is
+    """Baseline correction 3 (D-301): a WHO-coded ``M10`` record is inside the ICD-10-CM gout family, so the grouper is
     unknown (never a silent false); outside the family the compiled SQL says false and the D-130 runtime check still
     turns it unknown (WHO ICD-10 is not a system any ValueSet reads)."""
     from matching.coverage import Coverage, GapRow, known_systems
@@ -163,7 +167,7 @@ def test_who_only_code_resolves_to_its_icd10cm_family_and_fails_closed_outside_i
     gout = _grouper(term, "gout", "VS_GOUT")
     assert (ICD, "M10") in gout.families("VS_GOUT")
     got = _run_coded(SqlGenerator("FAM", "1.0.0", gout).render([_crit_vs("VS_GOUT")]), WHO_PATIENTS)
-    assert got == {"who_only": None, "who_listed": False, "cm_listed": True, "who_other": False}
+    assert got == {"who_only": None, "who_listed": None, "cm_listed": True, "who_other": False}
     malig = _grouper(term, "malignancy", "VS_MALIGNANCY")
     got = _run_coded(SqlGenerator("FAM", "1.0.0", malig).render([_crit_vs("VS_MALIGNANCY")]), WHO_PATIENTS)
     assert got == {"who_only": False, "who_listed": False, "cm_listed": False, "who_other": False}
@@ -183,4 +187,4 @@ def test_who_family_twin_in_cql_too() -> None:
     gout = _grouper(Terminology(), "gout", "VS_GOUT")
     cql = CqlGenerator("FAM", "1.0.0", gout).render([_crit_vs("VS_GOUT")])
     assert f"Cd.system.value = '{WHO}' and StartsWith(Cd.code.value, 'M10')" in cql
-    assert f"Code {{ code: Cd.code.value, system: '{ICD}' }} in \"VS_GOUT\"" in cql
+    assert f"Cd.system.value = '{ICD}' and StartsWith(Cd.code.value, 'M10')" in cql

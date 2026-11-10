@@ -36,6 +36,8 @@ class Reason(StrEnum):
     CHECK_DATES = "check_dates"  # deceased or not yet born at the screening date by the records (D-142)
     DERIVED_MISSING_INPUT = "derived_missing_input"  # a score lacks an input at the visit (D-149)
     DERIVED_UNIT = "derived_unit"  # a score's input has a unit the formula cannot use (D-149)
+    UNIT_MISMATCH = "unit_mismatch"  # a lab row's own unit is not the lookup's (R-31, D-215): no value, never converted
+    UNKNOWN_VALUE = "unknown_value"  # a lab result that is not a readable number ("see note", 陰性; D-142, D-215)
 
 
 CODES = frozenset(r.value for r in Reason)
@@ -61,6 +63,8 @@ _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
     (("proposed_fact", "proposed fact"), Reason.PROPOSED_FACT),
     (("derived_unit",), Reason.DERIVED_UNIT),
     (("derived_missing_input",), Reason.DERIVED_MISSING_INPUT),
+    (("unit_mismatch", "unit mismatch"), Reason.UNIT_MISMATCH),
+    (("unknown_value", "unreadable value"), Reason.UNKNOWN_VALUE),
     (("no value", "no record", "not compiled", "index_absent", "data_gap", "index condition absent"), Reason.DATA_GAP),
     (("matching record", "failing value", "index rescued"), Reason.CODED),
 )
@@ -146,6 +150,16 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "the score cannot be computed: an input has a unit that cannot be used, please check",
         "ja": "スコアを計算できない：入力値の単位が使用できないため確認してください",
         "zh-TW": "無法計算分數：輸入值的單位無法使用，請確認",
+    },
+    "unit_mismatch": {
+        "en": "the result's unit differs from the unit set for this test: not used, please check",
+        "ja": "結果の単位がこの検査に設定された単位と異なる：使用せず、確認してください",
+        "zh-TW": "結果的單位與此檢驗設定的單位不同：未使用，請確認",
+    },
+    "unknown_value": {
+        "en": "a result that is not a number: not used, please check",
+        "ja": "数値として読めない結果あり：使用せず、確認してください",
+        "zh-TW": "有無法讀成數值的結果：未使用，請確認",
     },
 }
 

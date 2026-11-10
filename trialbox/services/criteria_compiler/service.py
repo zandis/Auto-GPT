@@ -370,7 +370,7 @@ class Compiler:
             },
         )
         m.setdefault("models", {"judge": self.d.judge_model, "judge_prompt": "judge_v4"})
-        # the terminology release the ValueSets resolve through (D-205): a run against another one is refused
+        # the terminology release the ValueSets resolve through (D-301): a run against another one is refused
         release = getattr(self.d.term, "release", "") if self.d.term is not None else ""
         if release:
             m["terminology_release"] = release

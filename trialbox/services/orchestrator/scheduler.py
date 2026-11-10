@@ -62,11 +62,12 @@ def night_gate(orch: Orchestrator, today: str | None = None) -> bool:
     """The night's model self-test (:mod:`orchestrator.selftest`), run before the first LLM job of the day; the LLM
     jobs start only when it passed. Its result is kept for the day, so a failed canary holds every LLM job that
     night and a passed one runs once."""
-    from datetime import date
+    from tb_common.timeutil import today as site_today
 
     from orchestrator.selftest import preflight
 
-    day = today or date.today().isoformat()
+    # the site's night, not the container's UTC date (D-270); not orch.today(), which a test stack may pin
+    day = today or site_today(orch.cfg.env.tz).isoformat()
     if day not in _gate:
         try:
             _gate[day] = preflight(orch)

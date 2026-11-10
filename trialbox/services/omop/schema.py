@@ -27,10 +27,10 @@ plain CDM tables:
 
 Local concepts are minted from ``tb_local_concept_seq`` in the site's block (``TB_OMOP_CONCEPT_BLOCK``, default
 2,100,000,000; never below 2,000,000,000, which is TrialBox's shared range, D-144). A site block is one million ids
-(D-205, the D-151 overflow fix: 47 sites fit below the integer maximum, where ten million fitted four); a block that
+(D-301, the D-151 overflow fix: 47 sites fit below the integer maximum, where ten million fitted four); a block that
 would end above 2,147,483,647 is refused. Migration 2 keeps the text it was applied with (ten million, D-204: an
 applied migration never changes); migration 3 narrows the sequence to the one-million block and adds the vocabulary
-tables of D-205 (``omop.vocab_load``).
+tables of D-301 (``omop.vocab_load``).
 """
 
 from __future__ import annotations
@@ -96,9 +96,9 @@ TRANSITIONS: dict[str, frozenset[str]] = {
 LOCAL_MIN = 2_000_000_000  # D-144: local concepts are >= 2e9; TB-SHARED is 2,000,000,000-2,099,999,999
 INT4_MAX = 2_147_483_647  # OMOP ids are ``integer``: a site block ends here at the latest
 DEFAULT_BLOCK = 2_100_000_000  # the first site block (design §2.4)
-BLOCK_SIZE = 1_000_000  # D-205: one million ids per site (the D-151 overflow fix)
+BLOCK_SIZE = 1_000_000  # D-301: one million ids per site (the D-151 overflow fix)
 V2_BLOCK_SIZE = 10_000_000  # the block size migration 2 was applied with; its text never changes (D-204)
-# reference concepts (D-205): the public and licensed code lists loaded without the Athena bundle (ICD-10-CM, LOINC,
+# reference concepts (D-301): the public and licensed code lists loaded without the Athena bundle (ICD-10-CM, LOINC,
 # ATC, the NHI lists, MEDIS, JLAC10, YJ, ...) get box-local ids in TrialBox's range, above the shared concepts and
 # the catalogue (2,000,001,001 and up, WS-04.1); like every id >= 2e9 they are never standard
 REF_MIN, REF_MAX = 2_010_000_000, 2_099_999_999
@@ -175,14 +175,14 @@ def _block_first() -> int:
 
 def concept_block() -> tuple[int, int]:
     """``(first, last)`` id of this site's local concepts: ``TB_OMOP_CONCEPT_BLOCK`` (its first id) and one million
-    ids (D-205). Refused below 2,000,000,000 (D-144) and when the block would end above the integer maximum
+    ids (D-301). Refused below 2,000,000,000 (D-144) and when the block would end above the integer maximum
     (2,147,483,647: OMOP's ``concept_id`` is an ``integer``), never cut short."""
     first = _block_first()
     last = first + BLOCK_SIZE - 1
     if last > INT4_MAX:
         raise OmopError(
             f"TB_OMOP_CONCEPT_BLOCK={first:,}: the block would end at {last:,}, above the integer maximum "
-            f"{INT4_MAX:,} (D-205); the last block starts at {INT4_MAX - BLOCK_SIZE + 1:,}"
+            f"{INT4_MAX:,} (D-301); the last block starts at {INT4_MAX - BLOCK_SIZE + 1:,}"
         )
     return first, last
 
@@ -301,7 +301,7 @@ CREATE SEQUENCE tb_row_seq MAXVALUE {INT4_MAX} NO CYCLE
 
 
 def vocab_ddl() -> str:
-    """Migration 3 (D-205): the one-million site block, the reference-concept sequence and the vocabulary's
+    """Migration 3 (D-301): the one-million site block, the reference-concept sequence and the vocabulary's
     TrialBox tables (``omop.vocab_load``): releases, the attributes a concept row has no column for, the compiler's
     groupers, the relation of a map row and the rulesets' release pins."""
     first, last = concept_block()
