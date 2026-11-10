@@ -23,11 +23,12 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from tb_common.crypto import sha256_bytes
 from tb_common.llm import LlmClient, LlmError
+from tb_common.pair import served_keys
 from tb_common.subject import job_subject
 from tb_contracts import JobOutput, ParseRequest
 
@@ -250,6 +251,9 @@ class Models:
     calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
+    # D-276 (review R2-01): who answered, by served name and gateway build ("draft": drafts and translations,
+    # "verify": the checks), so a check answered by the drafting model is seen, whatever the clients were configured as
+    served: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def draft(self) -> LlmClient:
@@ -260,7 +264,16 @@ class Models:
         self.calls += 1
         self.tokens_in += res.tokens_in
         self.tokens_out += res.tokens_out
+        side = "verify" if prompt == "consent_verify" else "draft"
+        seen = self.served.setdefault(side, [])
+        for k in served_keys(getattr(res, "model", ""), getattr(res, "build_sha", "")):
+            if k not in seen:
+                seen.append(k)
         return dict(res.data)
+
+    def one_model(self) -> list[str]:
+        """The served names or builds that answered both a draft and a check (empty: two models)."""
+        return sorted(set(self.served.get("draft", [])) & set(self.served.get("verify", [])))
 
 
 def draft(
@@ -327,6 +340,11 @@ def draft(
                 checks = _verify(m, m.verifier, items, questions, lang, job_id)
             except (LlmError, KeyError, ValueError) as exc:
                 issues.append(f"{lang}: second-model check failed ({type(exc).__name__}); statements unverified")
+            if checks and m.one_model():  # the drafting model checked itself (review R2-01): no check at all
+                checks = {}
+                issues.append(
+                    f"{lang}: the second-model check was answered by the drafting model; statements unverified"
+                )
         for rec in (*items, *questions):
             t = rec["texts"].get(lang)
             if t is None:
@@ -356,7 +374,8 @@ def draft(
         "languages": done_langs,
         "missing_sections": [s for s in REQUIRED if s not in present],
         "issues": issues,
-        "verified": verified,
+        "verified": verified and not m.one_model(),
+        "same_model": m.one_model(),
     }
 
 
@@ -487,10 +506,24 @@ def run(ctx: Ctx) -> Outcome:
         "requested_by": job.requested_by,
         "icf": {"filename": filename, "sha256": icf_sha, "language": source, "paragraphs": len(paras)},
         "source_language": source,
-        "models": {"draft": m.llm.model, "verifier": m.verifier.model if m.verifier else None},
+        "models": {
+            "draft": m.llm.model,
+            "verifier": m.verifier.model if m.verifier else None,
+            "served": {k: list(v) for k, v in m.served.items()},  # what answered: served name and build (D-276)
+        },
         **body,
         "release": None,
     }
+    if body.get("same_model"):  # D-276 (review R2-01): the check was answered by the drafting model
+        ctx.orch.audit.append(
+            "llm.pair.same_model",
+            job_id=job.job_id,
+            detail={
+                "step": "consent",
+                "why": "the check was answered by the drafting model",
+                "served": body["same_model"],
+            },
+        )
     rec["counts"] = counts(rec)
     ctx.state("reporting")
     to = [job.requested_by]

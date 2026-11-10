@@ -157,6 +157,9 @@ class RoutingPolicy:
         self.groups: dict[str, list[str]] = {}
         for role, spec in self.roles.items():
             self.groups.setdefault(str(spec.get("group", "")), []).append(role)
+        # D-276 (review R2-01): calls whose answers check one another (the consent explainer's draft, translation and
+        # second-model check) never fall back either: a failed draft build answered by the checker checks itself
+        self.no_fallback_contexts = frozenset(str(x) for x in doc.get("no_fallback_contexts") or ())
         self.endpoints: dict[str, Endpoint] = {}
         for name, raw in (doc.get("endpoints") or {}).items():
             zone = str(raw.get("zone"))
@@ -212,7 +215,9 @@ class RoutingPolicy:
             fallback = str(raw.get("fallback") or ("none" if roles and set(roles) <= patient else "any"))
             if fallback not in ("none", "any"):
                 raise ValueError(f"routing: route {raw.get('id')} fallback must be none or any, not {fallback!r}")
-            if fallback == "any" and roles and set(roles) <= patient:
+            # review R2-03: a route that serves any patient role may not say "any" (its patient roles never fall back
+            # whatever it says: :meth:`no_fallback`); a mixed route left unset keeps "any" for its other roles only
+            if raw.get("fallback") == "any" and set(roles) & patient:
                 raise ValueError(f"routing: route {raw.get('id')} serves the patient group: fallback must be none")
             self.routes.append(
                 Route(
@@ -228,10 +233,15 @@ class RoutingPolicy:
                 )
             )
 
-    def no_fallback(self, route: Route, role: str) -> bool:
-        """Whether a failed build of this call is final (no other alias answers instead): the route says so, or the
-        role is in the ``patient`` group, whose answers decide about patients (D-276, review LLM-002)."""
-        return route.fallback == "none" or role in self.groups.get("patient", [])
+    def no_fallback(self, route: Route, role: str, context_of_use: str = "") -> bool:
+        """Whether a failed build of this call is final (no other alias answers instead): the route says so, the
+        role is in the ``patient`` group, whose answers decide about patients (D-276, review LLM-002), or the call's
+        context of use is one whose answer a second model checks (``no_fallback_contexts``, review R2-01)."""
+        return (
+            route.fallback == "none"
+            or role in self.groups.get("patient", [])
+            or context_of_use in self.no_fallback_contexts
+        )
 
     def _expand(self, roles: Any) -> list[str]:
         out: list[str] = []

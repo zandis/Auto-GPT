@@ -17,6 +17,10 @@ profiles: [P-PRO6000, P-GB10, P-5090, P-Scale, P-Mac]
 topologies: [A, B, C]
 environments: [DEV, TEST, VALIDATION, PRODUCTION]
 
+# D-276 (review R2-01): contexts whose answers a second model checks never fall back to another build: the consent
+# explainer's draft, answered by the verifier build when the judge failed, was then checked by that same build
+no_fallback_contexts: [consent_explainer_draft, consent_explainer_translation, consent_explainer_verification]
+
 endpoints:
   stub:
     zone: perimeter

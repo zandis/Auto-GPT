@@ -115,3 +115,77 @@ def test_install_names_the_judge_build_on_the_pair_profiles() -> None:
     pair = text[text.index('case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)') :]
     pair = pair[: pair.index("esac")]
     assert "TB_GATEWAY_VERIFIER_MODEL=v-verifier" in pair and "TB_GATEWAY_MODEL=j-workhorse" in pair
+
+
+# ------------------------------------------------------------------------------------------------ consent (review 2)
+def _consent_body(prompt_id: str) -> dict[str, Any]:
+    from tb_common.llm import load_prompt, render
+    from tb_contracts import inline_schema
+    from tb_llm import json_schema_format
+
+    p = load_prompt(prompt_id)
+    v = {"study": "S", "language": "en", "language_name": "English", "paragraphs": [{"id": "p1", "text": "x"}]}
+    return {
+        "messages": render(p, v),
+        "response_format": json_schema_format(prompt_id, inline_schema(p.meta.output_schema)),
+    }
+
+
+def test_the_consent_draft_never_falls_back_to_the_checking_build(tmp_path: Path) -> None:
+    """Review R2-01: the consent draft (role ``draft_document``, route ``protocol``) fell through to the verifier build
+    when the judge failed, and that build then checked its own draft. Its contexts no longer fall back."""
+    from tests.unit.test_gateway import H
+
+    gw = _gw(tmp_path, JudgeDown(), None)
+    hdr = H(Role="draft_document", Data_Class="D1", Purpose="documents", Prompt="consent_explain@1",
+            Context_Of_Use="consent_explainer_draft")  # fmt: skip
+    res = gw.chat(hdr, _consent_body("consent_explain"))
+    assert res.status == 502 and res.body["error"]["code"] == "upstream_failed", res.body
+    other = gw.chat({**hdr, "X-TB-Context-Of-Use": "protocol_drafting"}, _consent_body("consent_explain"))
+    assert other.status == 200 and other.body["tb"]["alias"] == "v-verifier"  # control: other drafts still fall back
+
+
+def test_a_consent_check_answered_by_the_drafting_build_is_no_check() -> None:
+    """Review R2-01: whatever the gateway does, a check answered by the build (or served name) that drafted is not a
+    second-model check: the statements stay unverified and the run is audited."""
+    from orchestrator.scenarios import consent
+    from tb_common.llm import LlmResult
+
+    para = {"id": "P1", "heading": "Purpose", "text": "You will take one tablet a day for 12 weeks."}
+    replies = {
+        "consent_explain": {
+            "items": [
+                {"section": "purpose", "text": "One tablet a day, 12 weeks.", "quote": para["text"], "para": "P1"}
+            ],
+            "questions": [],
+        },
+        "consent_verify": {"checks": [{"id": "I01", "verdict": "supported"}]},
+    }
+
+    class Build:
+        def __init__(self, model: str, build: str) -> None:
+            self.model, self.build = model, build
+
+        def chat_json(self, prompt_id: str, variables: dict[str, Any], schema: str | None = None, **kw: Any) -> Any:
+            return LlmResult(replies[prompt_id], prompt_id, 1, self.model, "gateway", "i" * 64, "o" * 64, 5, 5, 1,
+                             self.build)  # fmt: skip
+
+    two = consent.Models(Build("j-workhorse", "sha256:j"), Build("v-verifier", "sha256:v"))  # type: ignore[arg-type]
+    ok = consent.draft(two, "T", [para], "en", ["en"], "job")
+    assert ok["items"][0]["texts"]["en"]["status"] == "ok" and ok["verified"] and not ok["same_model"]  # control
+    one = consent.Models(Build("j-workhorse", "sha256:v"), Build("v-verifier", "sha256:v"))  # type: ignore[arg-type]
+    out = consent.draft(one, "T", [para], "en", ["en"], "job")
+    assert out["items"][0]["texts"]["en"]["status"] == "unverified" and not out["verified"]
+    assert out["same_model"] == ["build:sha256:v"] and any("drafting model" in x for x in out["issues"])
+
+
+def test_patient_roles_on_a_mixed_route_may_not_be_marked_any() -> None:
+    """Review R2-03: a route that serves any patient role (even with others) may not say ``fallback: any``."""
+    import yaml
+
+    doc = yaml.safe_load((ROOT / "models" / "routing.yaml").read_text(encoding="utf-8"))
+    for raw in doc["routes"]:
+        if raw["id"] == "dev-public":  # @protocol ... @patient ...: mixed
+            raw["fallback"] = "any"
+    with pytest.raises(ValueError, match="patient"):
+        RoutingPolicy(doc)
