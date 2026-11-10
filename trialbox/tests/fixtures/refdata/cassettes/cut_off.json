@@ -1,0 +1,22 @@
+{
+ "note": "T-618 (D-317): the NHI drug list cut off once, then whole (info.nhi.gov.tw ignores Range).",
+ "interactions": [
+  {
+   "method": "GET",
+   "url": "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-E41001-001",
+   "status": 200,
+   "body": {
+    "file": "../nhi_drugs_sample.csv"
+   },
+   "cut_at": 100
+  },
+  {
+   "method": "GET",
+   "url": "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-E41001-001",
+   "status": 200,
+   "body": {
+    "file": "../nhi_drugs_sample.csv"
+   }
+  }
+ ]
+}

@@ -1,0 +1,57 @@
+{
+ "protocolSection": {
+  "identificationModule": {
+   "nctId": "NCT99000002",
+   "briefTitle": "[SYNTHETIC] Interleukin-1 Beta Antibody for Flare Prophylaxis When Starting Urate-Lowering Therapy"
+  },
+  "statusModule": {
+   "overallStatus": "RECRUITING",
+   "lastUpdatePostDateStruct": {
+    "date": "2026-07-01",
+    "type": "ACTUAL"
+   }
+  },
+  "sponsorCollaboratorsModule": {
+   "leadSponsor": {
+    "name": "Synthetic Biologics (fictional)",
+    "class": "INDUSTRY"
+   }
+  },
+  "conditionsModule": {
+   "conditions": [
+    "Gout"
+   ]
+  },
+  "designModule": {
+   "studyType": "INTERVENTIONAL",
+   "phases": [
+    "PHASE2"
+   ],
+   "enrollmentInfo": {
+    "count": 120,
+    "type": "ESTIMATED"
+   }
+  },
+  "eligibilityModule": {
+   "eligibilityCriteria": "Inclusion Criteria:\n\n* Adults 18 years of age or older.\n* Documented diagnosis of gout.\n* Serum urate of 6.8 mg/dL or higher.\n* At least one gout flare in the past 6 months.\n\nExclusion Criteria:\n\n* Active tuberculosis.\n* Chronic hepatitis B infection.\n* Serious infection within 30 days before randomization.\n* Estimated GFR below 30 mL/min/1.73 m2.\n* History of heart failure.",
+   "healthyVolunteers": false,
+   "sex": "ALL",
+   "minimumAge": "18 Years",
+   "stdAges": [
+    "ADULT",
+    "OLDER_ADULT"
+   ]
+  },
+  "contactsLocationsModule": {
+   "locations": [
+    {
+     "facility": "Synthetic University Hospital",
+     "status": "RECRUITING",
+     "city": "Taichung",
+     "country": "Taiwan"
+    }
+   ]
+  }
+ },
+ "hasResults": false
+}
