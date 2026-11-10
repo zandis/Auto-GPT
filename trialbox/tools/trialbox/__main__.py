@@ -4,7 +4,8 @@
 (per-service tokens, D-128 / D-138, ``svc_secrets.py``), ``logs`` (retention, ``logs.py``) and ``update`` (the update
 path behind ``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``platform-images`` and
 ``platform-egress`` for a hospital platform (D-211, ``platform.py``); ``exports`` lists the export ledger (D-149,
-``tb_common.flowledger``); ``ops`` runs the console's operations requests and writes their status (D-178, ``ops.py``).
+``tb_common.flowledger``); ``ops`` runs the console's operations requests and writes their status (D-178, ``ops.py``);
+``eval qualify`` qualifies a model pair for a hardware profile and writes the record (D-313, ``tools/qualify.py``).
 ``secrets``, ``logs``, ``update`` and ``ops`` need only the standard library, so they run with the host's ``python3``
 from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
 
@@ -19,6 +20,11 @@ from pathlib import Path
 
 
 def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    if args[:2] == ["eval", "qualify"]:  # its own options (tools/qualify.py), not a suite of eval/suites/
+        from tools import qualify
+
+        return qualify.main(args[2:])
     ap = argparse.ArgumentParser(prog="trialbox")
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor", help="v4 deployment checks; exit 1 on any FAIL")
@@ -46,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         help="the egress allowlist and the doctor job's egress as NetworkPolicy YAML (deploy/egress.py, D-211)",
     )
     pe.add_argument("--env-file", type=Path, default=None)
-    e = sub.add_parser("eval", help="run a public evaluation suite and archive the result")
+    e = sub.add_parser("eval", help="run a public evaluation suite and archive the result; 'eval qualify': D-313")
     e.add_argument("suite")
     e.add_argument("--archive", type=Path, default=None)
     k = sub.add_parser("backup-keygen", help="make the backup key pair: private for hospital IT, public for the box")

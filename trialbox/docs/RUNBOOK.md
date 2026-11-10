@@ -397,6 +397,8 @@ The pair needs about 35 GiB side by side, so `docker-compose.rtx5090.yml` runs o
 
 ## 11. Cloud runs (owner's OK first)
 
+Qualifying a model pair on a card (G1b runs through it): [the qualify section](runbook/11-qualify.md) (D-313).
+
 GCP project `trialbox-demo`. Always use a private `CLOUDSDK_CONFIG` (and unset `CLOUDSDK_AUTH_ACCESS_TOKEN`), stop
 every VM after use and check that it shows `TERMINATED`.
 

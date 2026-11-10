@@ -914,6 +914,34 @@ class PromptMeta(BaseModel):
     phi: bool = False
 
 
+class QualificationStep(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    status: Literal["passed", "failed"]
+    reason: str
+    seconds: float = Field(..., ge=0.0)
+    detail: dict[str, Any]
+
+
+class QualifiedBuild(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    build_id: str = Field(..., min_length=1)
+    alias: str
+    served_name: str
+    weights_sha256: str = Field(..., pattern="^([0-9a-f]{64}|synthetic|)$")
+    """
+    The weight manifest sha256 pinned in models/registry.yaml, 'synthetic' for the stub, '' when none is pinned.
+    """
+    revision: str | None
+    context_length: int | None
+    registry_status: str
+
+
 class RebuildRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1849,6 +1877,43 @@ class NavRow(BaseModel):
     draft_doc_key: str | None = None
     twpas_bundle_key: str | None = None
     precheck: Precheck | None = None
+
+
+class QualificationBuilds(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    judge: QualifiedBuild
+    verifier: QualifiedBuild
+
+
+class QualificationRecord(BaseModel):
+    """
+    The record `trialbox eval qualify` writes (tools/qualify.py, D-313): one model pair on one hardware profile. Every step of tools.qualify.STEPS must be present and passed, else the status is failed. Hashes, counts and codes only: no note text, prompt or answer. Schema version 1.0.0 (format qualification-record/1).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    format: Literal["qualification-record/1"]
+    record_id: str = Field(..., min_length=1)
+    profile: Literal["ci", "rtxpro6000", "gb10", "rtx5090", "shared-quota"]
+    stub: bool
+    gateway: str
+    builds: QualificationBuilds = Field(..., title="QualificationBuilds")
+    git_head: str
+    driver: str
+    cuda: str
+    operator: str
+    started: AwareDatetime
+    finished: AwareDatetime
+    steps: dict[str, QualificationStep]
+    status: Literal["passed", "failed"]
+    failed_steps: list[str]
+    qualifies_production: bool
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
 
 
 class RegistryEntry(BaseModel):
