@@ -84,11 +84,60 @@ plain-http address add `-e TB_CONSOLE_SECURE_COOKIE=0`, and never share a plain-
 Plan the host for 4 GB of memory and give it up to 10 minutes to start. A 2 GB host is too tight (the peak plus
 PostgreSQL is close to 2 GB), and a 512 MB or 1 GB host cannot run it. The image is about 410 MB to pull.
 
+## The PoC host on Google Cloud (T-509, D-330)
+
+The clinician PoC runs on one VM (`e2-standard-4`, `asia-east1`) with two sites, `jp` (ja, Asia/Tokyo) and `tw`
+(zh-TW, Asia/Taipei), at `https://jp.<domain>` and `https://tw.<domain>`. Everything is one script,
+`deploy/gcp/poc-host.sh`; the VM's boot script is `deploy/gcp/hosted-demo-startup.sh`. Each paid step needs the
+owner's yes (Q-03): a command without `--yes` only prints what it would run, and `--dry-run` does the same for any
+command. `poc-host.sh cost` prints the estimate (about US$120 a month, US$0.17 an hour; prices from memory, check at
+order).
+
+* **Front door.** Cloudflare Access lets in only the addresses in `TB_POC_DOOR_EMAILS` (a one-time PIN by mail; no
+  account needed). The VM has no open web port: a Cloudflare Tunnel (`cloudflared`) connects out, checks the Access
+  token, and passes the request to Caddy, which refuses anything without the token. Without a front-door session
+  the URL shows Cloudflare's sign-in page, never `/login`. The console's own sign-in, TOTP and per-tester accounts
+  (above) stay behind it. SSH only through Google's IAP.
+* **TLS.** The browser gets the public certificate of the real host name at Cloudflare's edge; the tunnel reaches
+  Caddy over TLS (Caddy's own CA, checked by `cloudflared`). Secure cookies are on.
+* **Image by digest.** `poc-host.sh image --yes` builds the image once, here, from a clean export of tag `poc-1`, and
+  pushes it to Artifact Registry. The VM pulls that digest and never builds or clones. Caddy and `cloudflared` are
+  pinned by digest too.
+* **Kept data.** Each site keeps its folder (`TB_DEMO_KEEP=1`) on a separate persistent disk, so a restart, a stop
+  or a rebuild of the VM keeps accounts, marks and feedback. A snapshot schedule copies the disk daily at 01:00
+  Taipei and keeps 70 days.
+
+The owner's steps, once:
+
+    export TB_POC_PROJECT=<project> TB_POC_DOMAIN=<domain on Cloudflare> TB_POC_ACCESS_TEAM=<Zero Trust team>
+    export CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_ZONE_ID=... CLOUDFLARE_API_TOKEN=... TB_POC_DOOR_EMAILS=a@...,b@...
+    gcloud secrets create tb-poc-accounts-jp --data-file=<the jp accounts file>    # format: section above
+    gcloud secrets create tb-poc-accounts-tw --data-file=<the tw accounts file>
+    printf %s "$OWNER_PASSWORD" | gcloud secrets create tb-poc-owner-password --data-file=-   # optional
+    deploy/gcp/poc-host.sh image --yes     # once, from tag poc-1
+    deploy/gcp/poc-host.sh door --yes      # tunnel, DNS names, Access; the tunnel token goes to Secret Manager
+    deploy/gcp/poc-host.sh create --yes    # network, disk, snapshot schedule, VM
+
+The first start seeds each site (3 to 6 minutes). The issued passwords and enrolment codes are on the VM in
+`/srv/trialbox/<site>/demo/issued-credentials.txt`: read them with `gcloud compute ssh tb-poc --tunnel-through-iap`,
+hand them out, then delete the file. Later:
+
+| Need | Command |
+| --- | --- |
+| Destroy and rebuild the VM from the tag (the data disk stays; a snapshot first) | `poc-host.sh rebuild --yes` |
+| Reset one site (it seeds afresh) | `poc-host.sh reset jp --yes` |
+| What runs, the disk, the snapshots | `poc-host.sh status` |
+| Pause the cost (disks and snapshots stay, about US$5 a month) | `gcloud compute instances stop tb-poc --zone asia-east1-b` |
+| End of life: delete the VM, the disk, every snapshot, the image, the secrets and the Cloudflare entries, check nothing is left, write a record | `poc-host.sh purge --yes` |
+
+Export the feedback before the purge (it is kept without names). The record names what was deleted and holds no
+name or secret.
+
 ## Public link on Render
 
 The repository root has `render.yaml`. It stays on the free plan, which cannot run this demo (512 MB, and it sleeps
 after 15 minutes, which resets the data). A 4 GB plan is paid, and the owner decides on that cost first (question
-Q-03); until then the hosted demo runs on the GCP VM. To use Render, change `plan:` to a 4 GB plan first. In Render: New, Blueprint, pick this repository, type a password for `TB_DEMO_PASSWORD`, Apply. The link
+Q-03); the hosted demo runs on the GCP VM (above). To use Render, change `plan:` to a 4 GB plan first. In Render: New, Blueprint, pick this repository, type a password for `TB_DEMO_PASSWORD`, Apply. The link
 is `https://trialbox-demo-<id>.onrender.com`.
 
 ## Public link on Google Cloud Run

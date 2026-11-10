@@ -267,6 +267,16 @@ jobs:
         run: |
           git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
           git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning --format=gcc || true
+      # T-509 (D-330): the PoC host's scripts at warning level, and its Caddyfile through caddy itself (the image the VM
+      # runs, by digest)
+      - name: PoC host scripts and Caddyfile
+        run: |
+          shellcheck --severity=warning deploy/gcp/poc-host.sh deploy/gcp/hosted-demo-startup.sh
+          TB_MD_TB_DOMAIN=poc.example.org TB_MD_TB_IMAGE=r.example.org/demo@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            bash deploy/gcp/hosted-demo-startup.sh --print-caddyfile > "$RUNNER_TEMP/Caddyfile"
+          pin=$(sed -n 's/^CADDY_IMAGE_PIN="\(.*\)"$/\1/p' deploy/gcp/hosted-demo-startup.sh)
+          docker run --rm -v "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" "$pin" \
+            caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
 
   images:
     runs-on: ubuntu-latest
