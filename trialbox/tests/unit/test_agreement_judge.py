@@ -15,13 +15,17 @@ from tools import bakeoff_live
 
 
 class Fixed:
-    def __init__(self, verdict: str, refused: str | None = None) -> None:
+    made = 0
+
+    def __init__(self, verdict: str, refused: str | None = None, build: str = "") -> None:
         self.verdict, self.refused = verdict, refused
+        Fixed.made += 1  # each fake is its own build: one build asked twice is not a pair (D-276)
+        self.build = build or f"sha-{Fixed.made}"
         self.roles: list[str] = []
 
     def judge(self, *, role: str, **_: Any) -> JudgeReply:
         self.roles.append(role)
-        return JudgeReply(self.verdict, 0.9, "q", None, "r", call_id="c", build_sha="s", refused=self.refused)
+        return JudgeReply(self.verdict, 0.9, "q", None, "r", call_id="c", build_sha=self.build, refused=self.refused)
 
 
 KW: dict[str, Any] = {"criterion_text": "x", "note_question": "x?", "excerpts": []}
@@ -31,6 +35,8 @@ KW: dict[str, Any] = {"criterion_text": "x", "note_question": "x?", "excerpts": 
 def test_agreement_judge_blocks_only_on_agreement() -> None:
     a, b = Fixed("fail"), Fixed("fail")
     assert AgreementJudge(a, b).judge(role="judge", **KW).verdict == "fail" and b.roles == ["judge"]
+    same = AgreementJudge(Fixed("fail", build="s"), Fixed("fail", build="S")).judge(role="judge", **KW)
+    assert same.verdict == "unknown" and same.reason == "model_down"  # the judge's build again is no agreement
     j = AgreementJudge(Fixed("fail"), Fixed("pass"))
     out = j.judge(role="judge", **KW)
     assert out.verdict == "unknown" and "disagree" in out.reason and j.disagreements == 1

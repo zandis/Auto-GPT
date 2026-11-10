@@ -249,6 +249,46 @@ def check_registry_pins(inp: DoctorInputs) -> Check:
     return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}")
 
 
+def verifier_is_the_judge(env: Mapping[str, str]) -> str | None:
+    """Why the configured verifier is the judge's own model, read from the settings alone (the running box checks
+    the served models too: ``tb_common.pair.same_model`` and ``combine``); None when the names differ.
+
+    The orchestrator builds the judge from ``TB_GATEWAY_URL`` / ``TB_GATEWAY_MODEL`` (else ``LLM_BASE_URL`` /
+    ``LLM_MODEL``) and the verifier from ``TB_GATEWAY_VERIFIER_MODEL`` (else ``LLM_VERIFIER_BASE_URL`` /
+    ``LLM_VERIFIER_MODEL``, which falls back to ``LLM_MODEL``)."""
+
+    def key(v: str | None) -> str:
+        return " ".join((v or "").split()).casefold()
+
+    def url(v: str | None) -> str:
+        return (v or "").strip().rstrip("/").casefold()
+
+    from tb_common.pair import gateway_default_alias
+
+    judge_gw = url(env.get("TB_GATEWAY_URL"))
+    v_alias = key(env.get("TB_GATEWAY_VERIFIER_MODEL"))
+    v_gw = url(env.get("TB_GATEWAY_VERIFIER_URL")) or judge_gw
+    if v_alias and v_gw:
+        if not judge_gw:  # the judge goes straight to an endpoint: the two cannot be told apart (D-276, F-02)
+            return "the verifier goes through the gateway and the judge does not, so they cannot be told apart"
+        if judge_gw != v_gw:
+            return None
+        default = gateway_default_alias(env.get("TB_ENV", "DEV"))
+        j_alias = key(env.get("TB_GATEWAY_MODEL")) or default
+        if j_alias == v_alias:
+            return f"TB_GATEWAY_VERIFIER_MODEL={v_alias} is the build the judge gets (TB_GATEWAY_MODEL, or the default)"
+        return None
+    if env.get("LLM_VERIFIER_BASE_URL"):
+        if judge_gw:
+            return "the judge goes through the gateway and the verifier (LLM_VERIFIER_BASE_URL) does not"
+        v_model = key(env.get("LLM_VERIFIER_MODEL"))
+        if not v_model:
+            return "LLM_VERIFIER_MODEL is not set, so the verifier asks for the judge's model (LLM_MODEL)"
+        if v_model == key(env.get("LLM_MODEL")):
+            return f"LLM_VERIFIER_MODEL={v_model} is the judge's model (LLM_MODEL)"
+    return None
+
+
 def check_note_block(inp: DoctorInputs) -> Check:
     policy = (inp.env.get("TB_NOTE_BLOCK") or "both_agree").strip().lower()
     if policy == "never":
@@ -262,6 +302,23 @@ def check_note_block(inp: DoctorInputs) -> Check:
     direct = bool(inp.env.get("LLM_VERIFIER_BASE_URL"))
     if mode != "single" and (gw or direct):
         via = "gateway verifier build" if gw else "LLM_VERIFIER_BASE_URL"
+        one = verifier_is_the_judge(inp.env)
+        if one:  # D-276 (review S-2): a verifier that is the judge again agrees with it every time
+            return Check(
+                "note_block",
+                "FAIL",
+                f"TB_NOTE_BLOCK=both_agree but the verifier is not a second model: {one}. The box treats this as "
+                f"one model and never excludes on a note answer; name a different verifier model",
+            )
+        env = inp.env.get("TB_ENV", "DEV")
+        if not gw and env in ("VALIDATION", "PRODUCTION"):  # D-276 (review F-02): fail closed on the direct path
+            return Check(
+                "note_block",
+                "FAIL",
+                "TB_NOTE_BLOCK=both_agree with a direct verifier (LLM_VERIFIER_BASE_URL): which weights each endpoint "
+                "serves is known only from its /models at start, so this check cannot confirm two models. Use the "
+                "gateway verifier build (TB_GATEWAY_VERIFIER_MODEL), whose build hash is compared on every answer",
+            )
         return Check("note_block", "PASS", f"both_agree with a verifier ({via}): two models must agree to exclude")
     why = "TB_SCREEN_JUDGE=single" if mode == "single" else "no verifier configured"
     env = inp.env.get("TB_ENV", "DEV")

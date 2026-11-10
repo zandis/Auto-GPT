@@ -60,7 +60,8 @@ def test_master_registry_holds_the_agreed_rows() -> None:
     assert rows[(271, 271)].state == "merged"  # fix group D-271 (PR #97), a file since the log froze
     assert rows[(272, 272)].state == "merged"  # fix group D-272 (audit integrity), a file
     assert rows[(273, 273)].state == "merged" and "D-273" in rows[(273, 273)].holder  # fix group D-273, a file
-    assert rows[(274, 278)].state == "reserved"  # the rest of the critical-issues fix groups
+    assert rows[(274, 275)].state == "reserved" and rows[(277, 278)].state == "reserved"  # the rest of the fix groups
+    assert rows[(276, 276)].state == "merged" and "PR #101" in rows[(276, 276)].holder  # D-276, the two-model check
     assert rows[(279, 279)].state == "merged"  # fix group D-279, a file
     assert rows[(280, 289)].state == "reserved"
     assert rows[(152, 159)].state == "unused" and rows[(164, 169)].state == "unused"

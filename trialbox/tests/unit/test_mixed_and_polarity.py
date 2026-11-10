@@ -194,10 +194,9 @@ def test_mixed_verdict_from_the_notes_follows_the_note_rules(monkeypatch: pytest
     ]
     from_notes = CriterionVerdict(id="GZQO-EXC-11", verdict="fail", evidence=Evidence(resource_refs=[], confidence=0.6))
     from_codes = CriterionVerdict(id="GZQO-EXC-11", verdict="fail", evidence=Evidence(resource_refs=["Condition/1"]))
-    monkeypatch.setenv("TB_NOTE_BLOCK", "never")
-    assert tier(rs, [*base, from_notes], 0.75)[0] == "review"  # weak, and notes never block on this box
-    assert tier(rs, [*base, from_codes], 0.75)[0] == "excluded"  # coded evidence is deterministic
-    monkeypatch.setenv("TB_NOTE_BLOCK", "both_agree")
+    # notes never block on this box (the run's decision, D-276: the tier no longer reads the policy itself)
+    assert tier(rs, [*base, from_notes], 0.75, note_block=False)[0] == "review"  # weak, and notes never block
+    assert tier(rs, [*base, from_codes], 0.75, note_block=False)[0] == "excluded"  # coded evidence is deterministic
     strong = CriterionVerdict(id="GZQO-EXC-11", verdict="fail", evidence=Evidence(resource_refs=[], confidence=0.95))
     assert tier(rs, [*base, strong], 0.75, note_block=True)[0] == "excluded"
     assert tier(rs, [*base, strong], 0.75, note_block=False)[0] == "review"
