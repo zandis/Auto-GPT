@@ -4,14 +4,15 @@
 from __future__ import annotations
 
 EN: dict[str, str] = {
-    "ex.title": "Excluded patients and why",
-    "ex.help": "Every patient the latest screening run left out, with the criterion that excluded them, where the "
-    "answer came from and its evidence. Look through some of them each week; if one looks wrong, send it to review.",
-    "ex.none": "The latest screening run excluded nobody.",
-    "ex.no_run": "No screening run with an excluded list yet. Run screening again to see the excluded patients.",
-    "ex.run": "Run of {day} (records of {snapshot}): {n} patients excluded.",
+    "ex.title": "Criteria not matched",
+    "ex.help": "Every patient whose records did not match a criterion on the latest screening run, with the criterion, "
+    "where the answer came from and its evidence. The investigator decides; this list is an input to that decision. "
+    "Look through some of them each week; if one looks wrong, send it to review.",
+    "ex.none": "On the latest screening run no patient's records failed to match a criterion.",
+    "ex.no_run": "No screening run with a criteria-not-matched list yet. Run screening again to see it.",
+    "ex.run": "Run of {day} (records of {snapshot}): criteria not matched for {n} patients.",
     "ex.col.patient": "Patient",
-    "ex.col.criterion": "Criterion that excluded them",
+    "ex.col.criterion": "Criterion not matched",
     "ex.col.source": "Where the answer came from",
     "ex.col.evidence": "Evidence",
     "ex.src.coded": "the coded records",
@@ -28,7 +29,7 @@ EN: dict[str, str] = {
     "ex.sent": "Sent to review by {who} at {at}",
     "ex.sent.done": "Sent to review. It is recorded with your name; the study team sees it at the top of this page.",
     "ex.sent.title": "Sent to review: {n}",
-    "ex.link": "Excluded patients and why",
+    "ex.link": "Criteria not matched",
     "confirm.title": "Please confirm",
     "confirm.yes": "Yes, do it",
     "confirm.no": "No, go back",
@@ -43,22 +44,24 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
-    "ex.title": "除外された患者と理由",
-    "ex.help": "最新のスクリーニングで除外されたすべての患者を、除外の理由となった基準、判断の出どころ、根拠とともに"
-    "表示します。毎週いくつか確認し、誤りと思われるものは確認に回してください。",
-    "ex.none": "最新のスクリーニングで除外された患者はいません。",
-    "ex.no_run": "除外一覧のあるスクリーニングはまだありません。もう一度スクリーニングを行うと表示されます。",
-    "ex.run": "{day} の処理（{snapshot} 時点の記録）：除外 {n} 名。",
+    "ex.title": "基準に合致しない患者",
+    "ex.help": "最新のスクリーニングで記録が基準に合致しなかったすべての患者を、合致しなかった基準、"
+    "判断の出どころ、根拠とともに表示します。判断するのは研究責任者で、この一覧はその材料です。"
+    "毎週いくつか確認し、誤りと思われるものは確認に回してください。",
+    "ex.none": "最新のスクリーニングで基準に合致しなかった患者はいません。",
+    "ex.no_run": "基準に合致しない患者の一覧があるスクリーニングはまだありません。"
+    "もう一度スクリーニングを行うと表示されます。",
+    "ex.run": "{day} の処理（{snapshot} 時点の記録）：基準に合致しない患者 {n} 名。",
     "ex.col.patient": "患者",
-    "ex.col.criterion": "除外の理由となった基準",
+    "ex.col.criterion": "合致しなかった基準",
     "ex.col.source": "判断の出どころ",
     "ex.col.evidence": "根拠",
-    "ex.src.coded": "コード化された記録",
+    "ex.src.coded": "コード化データ（病名・検査・処方）",
     "ex.src.fact": "確認済みの情報",
-    "ex.src.notes": "記録の文章（2 つのモデルが一致）",
+    "ex.src.notes": "カルテ記載（2 つのモデルが一致）",
     "ex.src.rule": "処理の規則",
     "ex.rule.consent": "研究への連絡の同意なし（一覧に載せない）",
-    "ex.rule.scope": "処理の対象外（外来、医師、来院の期間）",
+    "ex.rule.scope": "処理の範囲外（外来、医師、来院の期間）",
     "ex.filter": "表示：",
     "ex.filter.all": "すべて",
     "ex.records": "記録 {n} 件",
@@ -67,7 +70,7 @@ JA: dict[str, str] = {
     "ex.sent": "{who} が {at} に確認に回しました",
     "ex.sent.done": "確認に回しました。氏名とともに記録され、試験チームにはこのページの上部に表示されます。",
     "ex.sent.title": "確認に回した患者：{n} 名",
-    "ex.link": "除外された患者と理由",
+    "ex.link": "基準に合致しない患者",
     "confirm.title": "確認してください",
     "confirm.yes": "はい、実行します",
     "confirm.no": "いいえ、戻ります",
@@ -81,14 +84,14 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
-    "ex.title": "被排除的病人與原因",
-    "ex.help": "列出最近一次篩選排除的所有病人，以及排除他們的條件、判斷的來源與依據。請每週抽看幾位；"
-    "若有看起來不對的，請送回審閱。",
-    "ex.none": "最近一次篩選沒有排除任何病人。",
-    "ex.no_run": "尚無附排除清單的篩選。請重新執行篩選以查看被排除的病人。",
-    "ex.run": "{day} 的作業（{snapshot} 的紀錄）：排除 {n} 位病人。",
+    "ex.title": "未符合條件之病人",
+    "ex.help": "列出最近一次篩選中紀錄未符合某條件的所有病人，以及未符合的條件、判斷的來源與依據。"
+    "由試驗主持人判斷，本清單是判斷的參考。請每週抽看幾位；若有看起來不對的，請送回審閱。",
+    "ex.none": "最近一次篩選沒有未符合條件的病人。",
+    "ex.no_run": "尚無附未符合條件清單的篩選。請重新執行篩選以查看。",
+    "ex.run": "{day} 的作業（{snapshot} 的紀錄）：{n} 位病人未符合條件。",
     "ex.col.patient": "病人",
-    "ex.col.criterion": "排除他們的條件",
+    "ex.col.criterion": "未符合的條件",
     "ex.col.source": "判斷的來源",
     "ex.col.evidence": "依據",
     "ex.src.coded": "編碼病歷",
@@ -105,7 +108,7 @@ ZH: dict[str, str] = {
     "ex.sent": "{who} 已於 {at} 送回審閱",
     "ex.sent.done": "已送回審閱，並連同您的姓名記錄；試驗團隊會在本頁上方看到。",
     "ex.sent.title": "已送回審閱：{n} 位",
-    "ex.link": "被排除的病人與原因",
+    "ex.link": "未符合條件之病人",
     "confirm.title": "請確認",
     "confirm.yes": "是，執行",
     "confirm.no": "否，返回",
