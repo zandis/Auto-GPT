@@ -239,6 +239,20 @@ def test_quota_too_small_for_the_vms_is_named() -> None:
                       _q("PREEMPTIBLE_CPUS", 96)]}  # fmt: skip
     assert cr.quota_problems({"quotas": [_q("GPUS_ALL_REGIONS", 4)]}, {"asia-east1": pre}, ["asia-east1-a"]) == []
     assert any("not readable" in b for b in cr.quota_problems({}, {}, ["asia-east1-a"]))
+    # the real asia-east1 list (2026-11-10): other GPUs and CPUs, no RTX PRO 6000 metric; GPUS_ALL_REGIONS bounds it
+    no_metric = {"quotas": [_q("NVIDIA_L4_GPUS", 1), _q("CPUS", 96), _q("PREEMPTIBLE_CPUS", 0)]}
+    one = {"quotas": [_q("GPUS_ALL_REGIONS", 1)]}
+    assert cr.quota_problems(one, {"asia-east1": no_metric}, ["asia-east1-a"]) == []
+    two = cr.quota_problems(one, {"asia-east1": no_metric, "us-central1": no_metric}, ["asia-east1-a", "us-central1-b"])
+    assert len(two) == 1 and "GPUS_ALL_REGIONS" in two[0]  # the project bound still refuses
+    # the CPUs must still be readable, and an unreadable project quota still refuses
+    assert any(
+        "CPUs quota not readable" in b
+        for b in cr.quota_problems(one, {"asia-east1": {"quotas": [_q("NVIDIA_L4_GPUS", 1)]}}, ["asia-east1-a"])
+    )
+    assert any(
+        "GPUS_ALL_REGIONS not readable" in b for b in cr.quota_problems({}, {"asia-east1": no_metric}, ["asia-east1-a"])
+    )
 
 
 def test_the_driver_refuses_to_start_or_provision_without_quota(tmp_path: Path) -> None:
