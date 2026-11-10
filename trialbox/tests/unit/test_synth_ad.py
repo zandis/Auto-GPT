@@ -203,7 +203,7 @@ def test_committed_ruleset_is_the_current_compilers_output(tmp_path: Path, rid: 
 
 
 def test_japanese_protocol_documents_are_reproducible(tmp_path: Path) -> None:
-    """The DOCX (and, when the fonts are fetched, the PDF) regenerate byte for byte from the cassettes."""
+    """The DOCX regenerates byte for byte from the cassettes; the PDF (when the fonts are fetched) to the same text."""
     from tools import make_protocol_docs as mpd
 
     have = ROOT / "tests" / "fixtures" / "protocols"
@@ -215,7 +215,16 @@ def test_japanese_protocol_documents_are_reproducible(tmp_path: Path) -> None:
         if (mpd.FONT_DIR / "NotoSansJP-Regular.ttf").exists():
             pdf = tmp_path / f"{spec['file']}.pdf"
             mpd.write_pdf_ja(pdf, spec, inc, exc)
-            assert pdf.read_bytes() == (have / pdf.name).read_bytes(), pdf.name
+            # the text, not the bytes: the embedded font subset depends on the font build the machine fetched
+            assert _pdf_text(pdf.read_bytes(), pdf.name) == _pdf_text((have / pdf.name).read_bytes(), pdf.name)
+
+
+def _pdf_text(data: bytes, name: str) -> list[str]:
+    from doc_parser.parser import parse
+
+    parsed = parse(data, name)
+    assert parsed.language == "ja"
+    return ["".join(x.split()) for x in parsed.ie_block.inclusion + parsed.ie_block.exclusion]
 
 
 def test_docx_parses_to_the_cassette_text() -> None:
