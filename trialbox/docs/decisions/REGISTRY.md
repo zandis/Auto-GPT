@@ -154,3 +154,4 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-320 | merged | T-505a | the API sign-in asks for the second factor; one channel per session (file) |
 | D-321 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
 | D-322 | merged | T-613a | the shipped rulesets recompiled offline from their cassettes, and the CI drift check (file) |
+| D-329 | merged | T-513 | one demo clock: the demo day is the real day in the site's time zone; dates moved, one clock (file) |

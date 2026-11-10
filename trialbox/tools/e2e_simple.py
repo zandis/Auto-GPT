@@ -141,17 +141,19 @@ def _stage10(res: dict[str, Any], api: Any, crc: Any, lang: str, mrns: set[str],
         data = {"csrf": csrf, "record": no, "event": event, "form": form, **{f"f_{k}": v for k, v in values.items()}}
         return crc.post(f"/studies/{rs}/entry", data=data)
 
-    r = save("tb_consent", {"ic_date": "2026-11-02", "ic_copy": "1"})
+    h = res["app"].state.helpers
+    day = h.today().isoformat()  # T-513 (UX-003): the demo day, so the participant page shows no date after today
+    r = save("tb_consent", {"ic_date": day, "ic_copy": "1"})
     s.check("a required field missing is refused, in the page's language",
             'data-testid="why-ic_version"' in r.text and cat["dc.why.required"].split("{label}")[-1] in r.text
             and not any(k.startswith("ic_") for k in api("GET", f"/studies/{rs}/data")["records"].get(no, {})),
             r.status_code)  # fmt: skip
-    consent = {"ic_date": "2026-11-02", "ic_version": "v2.1", "ic_copy": "1", "ic_by": "KT"}
+    consent = {"ic_date": day, "ic_version": "v2.1", "ic_copy": "1", "ic_by": "KT"}
     r = save("tb_consent", consent)
     s.check("the consent is saved; the history page follows", 'data-testid="entry-saved"' in r.text, r.url)
     visit = {
         "vs_status": "1",
-        "vs_date": "2026-11-09",
+        "vs_date": day,
         "vs_window": "0",
         "vs_window_note": "二日遅れ",
         "vs_weight": "999",
@@ -1046,6 +1048,12 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     # the box refuses an acknowledgement or a visit dated after its own day: the console's site day must be the box's
     site_day = local_today(h.clock(), site_zone(h.bk))
     s.check("the console and the box keep one site date", site_day == box.orch.today(), (site_day, box.orch.today()))
+    # T-513 (UX-003): the visit date the participant page shows (stage 10's v1) is the date EDC drafts below
+    sub = crc.get(f"/studies/{TRIAL}/subjects/{res['screening_no']}").text
+    shown = re.search(r'data-testid="sv-v1"[^>]*>.*?<span class="nowrap">(\d{4}-\d{2}-\d{2})</span>', sub, re.S)
+    s.check("the participant page's visit date is the date EDC drafts, not after the box's day",
+            shown is not None and shown.group(1) == visit.isoformat() and visit <= box.orch.today(),
+            (shown and shown.group(1), visit, box.orch.today()))  # fmt: skip
     sim = SimClient(res["sim"])
     made = sim.post("/sim/projects", json={"title": "GZQO CRF", "metadata": edc_kit.CRF}).json()
     rc = RedcapClient(rc_demo.SIM_URL, made["token"])
@@ -1290,12 +1298,20 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     s.check("PDF, XLSX and JSON report", all(any(n.endswith(x) for n in names_out) for x in (".pdf", ".xlsx", ".json")))
     rep = _json_output(box, fj, "feasibility_")
     raw = json.loads(box.store.get(next(o.minio_key for o in fj.outputs or [] if o.filename.endswith(".raw.json"))))
-    ref = date.fromisoformat(rep["snapshot"])
-    adults = {p["mrn"] for p in patients if _age(p["birth_date"], ref) >= 18}
+    # the funnel counts on month ends (feas_compute): the population is everyone with a visit from one month before the
+    # first month end to the last month end of the 36; T-513 moves the data to the demo day, so that is not always
+    # every patient (a patient seen only in the days after the last month end comes in next month)
+    from tb_common.timeutil import add_months, month_ends
+
+    ends = month_ends(fj.run_date or box.orch.today(), 36)
+    lo, ref = add_months(ends[0], -1).isoformat(), ends[-1]
+    with (hosp / "encounter.csv").open(encoding="utf-8") as fh:
+        seen = {r["mrn"] for r in csv.DictReader(fh) if lo <= r["visit_datetime"][:10] <= ref.isoformat()}
+    adults = {p["mrn"] for p in patients if p["mrn"] in seen and _age(p["birth_date"], ref) >= 18}
     gout = {
         r["mrn"] for r in csv.DictReader((hosp / "diagnosis.csv").open(encoding="utf-8")) if r["icd10"].startswith(GOUT)
     }
-    s.check("start = every patient seen in 36 months", raw["start_n"] == len(patients), raw["start_n"])
+    s.check("start = every patient seen in 36 months", raw["start_n"] == len(seen), (raw["start_n"], len(seen)))
     s.check(
         "INC-01 age >= 18 = recount from patient.csv",
         raw["remaining"]["GZQO-INC-01"] == len(adults),
@@ -1431,6 +1447,16 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
         n_rows = len(re.findall(r'data-testid="row-[0-9a-f]{8}"', page))
         s.check(f"{k}: at most {st.PAGE_SIZE} rows a page", n_rows <= st.PAGE_SIZE, n_rows)
     s.check("rail counts = the split", rail == {"ready": len(ready), "needs": len(needs)}, rail)
+    # T-513 (UX-003): one run, one date: the list and the not-matched page name the same run day, not after today
+    run_days = {
+        k: re.findall(r"\d{4}-\d{2}-\d{2}", m.group(1))[:1]
+        for k, path, tid in (("week", f"/studies/{TRIAL}/week?list=all", "week-run"),
+                             ("not matched", f"/studies/{TRIAL}/excluded", "ex-run"))
+        if (m := re.search(rf'data-testid="{tid}">(.*?)</p>', pi.get(path).text, re.S))
+    }  # fmt: skip
+    s.check("the week page and the not-matched page show the same run date, not after today",
+            len(run_days) == 2 and run_days["week"] == run_days["not matched"] != []
+            and run_days["week"][0] <= today.isoformat(), (run_days, today))  # fmt: skip
     feas = pi.get(f"/studies/{TRIAL}/feasibility").text
     m = re.search(r'data-testid="bridge-list">([^<]*)<', feas)
     nums = [int(x) for x in re.findall(r"\d+", m.group(1))] if m else []
