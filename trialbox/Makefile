@@ -146,7 +146,8 @@ demo:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.demo
 
 # the same as one image file for the demo VM (docs/RUNBOOK.md §11): dist/trialbox-demo.tar.gz
-demo-bundle:
+# T-501: the jar the compiler reads FHIRHelpers from comes from jvm-deps (the Dockerfile fetches it on a fresh clone)
+demo-bundle: jvm-deps
 	docker build $(CA_SECRET) -f demo/Dockerfile -t trialbox-demo:step5 .
 	mkdir -p dist && docker save trialbox-demo:step5 | gzip > dist/trialbox-demo.tar.gz
 	@ls -l dist/trialbox-demo.tar.gz
