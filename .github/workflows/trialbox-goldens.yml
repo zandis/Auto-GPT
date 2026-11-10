@@ -1,0 +1,43 @@
+# TrialBox goldens gate (T-006/T-007, trialbox/docs/DECISIONS.md D-205): the committed golden numbers (profile ci,
+# synthetic only) must not move unless the same pull request rewrites them with `make goldens REASON="D-nnn: ..."`.
+name: TrialBox goldens
+
+on:
+  pull_request:
+    paths:
+      - "trialbox/**"
+      - ".github/workflows/trialbox-goldens.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trialbox-goldens-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  goldens-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: trialbox
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+        with:
+          version: "0.11.32"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/pyproject.toml
+
+      - name: Python environment
+        run: make venv
+
+      # both lake sources write to PostgreSQL; tools/pglocal.py starts a throwaway cluster from the server binaries
+      - name: PostgreSQL server binaries
+        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+
+      - name: goldens-check
+        run: make goldens-check
