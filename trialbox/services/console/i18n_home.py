@@ -1197,6 +1197,15 @@ EN.update(_TEAM_EN)
 JA.update(_TEAM_JA)
 ZH.update(_TEAM_ZH)
 
+# D-160: EDC prefill (switch, item map, review, electronic signature, send, ODM); new keys
+from console.i18n_edc import EN as _EDC_EN  # noqa: E402
+from console.i18n_edc import JA as _EDC_JA  # noqa: E402
+from console.i18n_edc import ZH as _EDC_ZH  # noqa: E402
+
+EN.update(_EDC_EN)
+JA.update(_EDC_JA)
+ZH.update(_EDC_ZH)
+
 # D-178 / D-179: the operations screens, the confirmations and undos (J-09, J-14), the study-scoped site pages (J-06)
 from console.i18n_ops import EN as _OPS_EN  # noqa: E402
 from console.i18n_ops import JA as _OPS_JA  # noqa: E402

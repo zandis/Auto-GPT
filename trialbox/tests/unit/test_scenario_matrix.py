@@ -236,7 +236,7 @@ def test_vm_script_stops_itself_and_never_traces_the_key() -> None:
     vm = (GCP / "complete-run-vm.sh").read_text(encoding="utf-8")
     assert "set -x" not in vm.replace("no `set -x`", "")
     assert "systemd-run --unit tb-hard-cap" in vm and "systemd-run --unit tb-watchdog" in vm
-    assert vm.index("tb-watchdog") < vm.index("KEY=$(md tb-key)")  # the nets are up before anything else
+    assert vm.index("tb-watchdog") < vm.index("KEY=$(md tb-key")  # the nets are up before anything else
     assert "--resume" in vm and "--ocr tesseract" in vm and "tesseract-ocr-jpn tesseract-ocr-chi-tra" in vm
     for name in ("gpu-sim-startup.sh", "gpu-fit-test.sh", "gpu-pro6000-run.sh", "gpu-swap-run.sh"):  # review A-12
         text = (GCP / name).read_text(encoding="utf-8")

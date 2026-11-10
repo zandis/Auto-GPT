@@ -22,8 +22,8 @@
 # TB_IMAGE / TB_JVM_IMAGE), TB_SPARK_STRICT_HOST=1 (every host-check FAIL is fatal), TB_SPARK_UP_TIMEOUT (s, 1800),
 # TB_SPARK_DOWN=1 (stop the stack at the end), TB_SPARK_REPRO (1 in stub mode, 0 in gpu mode), TB_EVAL_LIMIT (judge
 # pairs through the model, gpu default 300, 0 = all 1015), TB_MODELS_DIR (deploy/models), JUDGE_MODEL_DIR and
-# JUDGE_MODEL (gemma-4-26b-a4b-it), TB_PIN_BUILD (gemma-4-26b-a4b-it-spark), VERIFIER_MODEL_DIR and VERIFIER_MODEL
-# (qwen3.5-9b), TB_PIN_VERIFIER_BUILD (qwen3.5-9b-spark), TB_SPARK_VERIFIER (1), TB_SPARK_TRIAL (GZQO),
+# JUDGE_MODEL (local/gemma-4-26b-a4b-nvfp4), TB_PIN_BUILD (gemma-4-26b-a4b-it-spark), VERIFIER_MODEL_DIR and VERIFIER_MODEL
+# (local/qwen3.5-9b-awq), TB_PIN_VERIFIER_BUILD (qwen3.5-9b-spark), TB_SPARK_VERIFIER (1), TB_SPARK_TRIAL (GZQO),
 # PY (.venv/bin/python).
 set -uo pipefail
 
@@ -49,8 +49,8 @@ GATEWAY_URL="http://127.0.0.1:$GW_PORT/v1"
 TRIAL="${TB_SPARK_TRIAL:-GZQO}"
 MODELS_DIR="${TB_MODELS_DIR:-$ROOT/deploy/models}"
 # exported: deploy/docker-compose.gb10.yml reads the same names
-export JUDGE_MODEL_DIR="${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}" JUDGE_MODEL="${JUDGE_MODEL:-gemma-4-26b-a4b-it}"
-export VERIFIER_MODEL_DIR="${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}" VERIFIER_MODEL="${VERIFIER_MODEL:-qwen3.5-9b}"
+export JUDGE_MODEL_DIR="${JUDGE_MODEL_DIR:-gemma-4-26b-a4b-it-4bit}" JUDGE_MODEL="${JUDGE_MODEL:-local/gemma-4-26b-a4b-nvfp4}"
+export VERIFIER_MODEL_DIR="${VERIFIER_MODEL_DIR:-qwen3.5-9b-4bit}" VERIFIER_MODEL="${VERIFIER_MODEL:-local/qwen3.5-9b-awq}"
 BUILD="${TB_PIN_BUILD:-gemma-4-26b-a4b-it-spark}"
 VBUILD="${TB_PIN_VERIFIER_BUILD:-qwen3.5-9b-spark}"
 VERIFIER="${TB_SPARK_VERIFIER:-1}"
