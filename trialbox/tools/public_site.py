@@ -363,8 +363,10 @@ def provenance_md(s: dict[str, Any]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--out", type=Path, default=Path("/tmp/tb-public/hospital"))
+    ap.add_argument("--out", type=Path, default=scratch_root() / "tb-public" / "hospital")
     ap.add_argument("--sites", default="en,ja")
     a = ap.parse_args(argv)
     res = build(a.out, sites=tuple(a.sites.split(",")))

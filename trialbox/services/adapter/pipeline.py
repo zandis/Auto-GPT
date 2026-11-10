@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 from collections import Counter
@@ -16,7 +17,8 @@ from zoneinfo import ZoneInfo
 
 from tb_common import feedguard
 from tb_common.audit import AuditLog
-from tb_common.crypto import load_or_create_key, pid_for_mrn, sha256_bytes
+from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
+from tb_common.db import ENV as DB_URL_ENV
 from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
 
 from adapter.load_fhir import sync_snapshot
@@ -55,10 +57,66 @@ class AdapterConfig:
     optional_tables: tuple[str, ...] = ()
 
     def site_key(self) -> bytes:
-        return load_or_create_key(self.secrets_dir / "site_hmac.key")
+        """The site's pseudonymisation key. Never made here (T-612): :class:`SiteKeyError` when it is missing."""
+        path = self.secrets_dir / SITE_KEY_FILE
+        try:
+            return load_key(path)
+        except KeyMissingError:
+            raise SiteKeyError(
+                f"the site key {path} is missing. It is made only by the install ceremony (deploy/install.sh runs "
+                f"`python -m adapter.cli keys-init`); on a box that has run before, put the site's own key back from "
+                f"the backup: a new key would give every patient a new pseudonym and lose their opt-outs"
+            ) from None
 
     def pidmap(self) -> PidMap:
         return PidMap(self.secrets_dir / "pid_map.key", self.db_url)
+
+
+class SiteKeyError(RuntimeError):
+    """T-612 (DATA-004): the night is refused before anything is read or written, because the site key is missing or
+    is not the key the box's pseudonyms were made with."""
+
+
+SITE_KEY_RECORD = "site_key.json"  # in the lake folder: the fingerprint of the key its snapshots were written under
+
+
+def check_site_key(cfg: AdapterConfig, key: bytes) -> str:
+    """T-612: refuse a site key other than the one this box's data was made with; record it the first time.
+
+    Compared with the fingerprint in ``<lake>/site_key.json`` and, when a trial database is configured, with the pid
+    map's stored fingerprint and its rows (:meth:`PidMap.site_key_problem`). Returns the fingerprint."""
+    fp = key_fingerprint(key)
+    record = cfg.lake_dir / SITE_KEY_RECORD
+    problems: list[str] = []
+    seen: str | None = None
+    try:
+        seen = str(json.loads(record.read_text(encoding="utf-8"))["fingerprint"])
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        problems.append(f"{record} cannot be read ({type(exc).__name__})")
+    if seen is not None and seen != fp:
+        problems.append(f"the lake's snapshots were written under key {seen}")
+    if cfg.db_url or os.environ.get(DB_URL_ENV):
+        pm = cfg.pidmap()
+        try:
+            why = pm.site_key_problem(cfg.site_id, key)
+            if why:
+                problems.append(f"the pid map: {why}")
+            elif not problems:
+                pm.record_site_key(cfg.site_id, key)
+        finally:
+            pm.close()
+    if problems:
+        raise SiteKeyError(
+            f"the site key {cfg.secrets_dir / SITE_KEY_FILE} (fingerprint {fp}) is not the key this box's pseudonyms "
+            f"were made with: {'; '.join(problems)}. Put the site's own key back from the backup; a new key would "
+            f"give every patient a new pseudonym and lose their opt-outs"
+        )
+    if seen is None:
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(json.dumps({"fingerprint": fp, "site_id": cfg.site_id}) + "\n", encoding="utf-8")
+    return fp
 
 
 def make_source(kind: str, path: str, db_url: str | None = None) -> Source:
@@ -186,7 +244,19 @@ def run_ingest(
     zone = ZoneInfo(cfg.tz)
     started = datetime.now(zone)
     snap = snapshot or started.date().isoformat()
-    key = cfg.site_key()
+    try:  # T-612: before anything is read or written
+        key = cfg.site_key()
+        check_site_key(cfg, key)
+    except SiteKeyError as exc:
+        log.error("night refused: %s", exc)
+        if cfg.audit_dir:
+            AuditLog(cfg.audit_dir, cfg.tz).append(
+                "ingest.failed",
+                snapshot=snap,
+                actor="adapter",
+                detail={"source": source_kind, "refused": "site_key", "reason": str(exc)},
+            )
+        raise
     errors: list[str] = []
     by_type: dict[str, list[Resource]] = {}
     patient_pairs: list[tuple[str, str]] = []

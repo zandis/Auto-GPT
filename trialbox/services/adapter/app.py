@@ -25,7 +25,7 @@ from tb_common.http import make_app
 from tb_contracts import IngestReport, IngestRequest
 
 from adapter.cli import build_config
-from adapter.pipeline import run_ingest
+from adapter.pipeline import SiteKeyError, run_ingest
 
 app = make_app("adapter")
 _running = threading.Lock()
@@ -50,6 +50,8 @@ def run(req: IngestRequest) -> IngestReport:
             rebuild_lake=req.rebuild_lake,
             validate=req.validate_,
         )
+    except SiteKeyError as exc:  # T-612: refused before anything was read or written
+        raise HTTPException(status_code=409, detail=f"night refused: {exc}") from None
     finally:
         _running.release()
 
