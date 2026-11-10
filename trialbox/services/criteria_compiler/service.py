@@ -61,6 +61,20 @@ class CompileFailed(RuntimeError):
         self.step = step
 
 
+def approval_pins(manifest: RulesetManifest) -> dict[str, Any]:
+    """The prompts an approval pins (D-318): the registry's current version of the judge prompt with its text and
+    schema shas, and ``models.judge_prompt`` naming that version, so SCREEN runs what the investigator approved."""
+    from tb_llm.prompt_registry import PromptRegistryError, default_registry
+
+    models = dump(manifest.models) if manifest.models else {}
+    pid = str(models.get("judge_prompt") or "judge").rsplit("_v", 1)[0]
+    try:
+        pins = default_registry().pins({pid: None})
+    except PromptRegistryError as exc:
+        raise CompileFailed("approve", f"the judge prompt cannot be pinned ({exc.reason}): {exc}") from exc
+    return {"models": {**models, "judge_prompt": f"{pid}_v{pins[pid]['version']}"}, "prompt_pins": pins}
+
+
 def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text)).strip().lower()
 
@@ -385,6 +399,7 @@ class Compiler:
             m.pop("terminology_release", None)
         m.pop("review", None)
         m.pop("equivalence", None)
+        m.pop("prompt_pins", None)  # pinned again at approval (D-318)
         return RulesetManifest.model_validate(m)
 
     def _package(
@@ -752,6 +767,7 @@ class Compiler:
         manifest = RulesetManifest.model_validate(
             {
                 **dump(manifest),
+                **approval_pins(manifest),
                 "status": "approved",
                 "review": {
                     "approved_by": req.by,

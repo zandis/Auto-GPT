@@ -180,10 +180,22 @@ def judge_for(ctx: Ctx, rs: Ruleset) -> NoteJudge | None:
     single judge with ``TB_SCREEN_JUDGE=single``."""
     if ctx.services.llm is None:
         return None
-    prompt = rs.manifest.models.judge_prompt if rs.manifest.models and rs.manifest.models.judge_prompt else None
+    prompt = pinned_judge(rs)
     mode = os.environ.get("TB_SCREEN_JUDGE", "agreement").strip().lower()
     verifier = ctx.services.verifier if mode != "single" else None
     return NoteJudge(ctx.services.lake, ctx.services.llm, prompt or "judge", job_id=ctx.job.job_id, verifier=verifier)
+
+
+def pinned_judge(rs: Ruleset) -> str:
+    """The judge prompt the approved ruleset pins (D-318): its version, held to the approved text and schema, so a
+    newer registered version waits for the investigator's re-approval; a pinned text that changed is refused."""
+    from tb_llm.prompt_registry import PromptRegistryError, pinned_name
+
+    named = rs.manifest.models.judge_prompt if rs.manifest.models and rs.manifest.models.judge_prompt else "judge"
+    try:
+        return pinned_name(rs.manifest, named.rsplit("_v", 1)[0], named)
+    except PromptRegistryError as exc:
+        raise StepFailed("running", f"Ruleset {rs.id} v{rs.version}: {exc}") from exc
 
 
 def structured_engine(ctx: Ctx, snapshot: str) -> StructuredEngine:
@@ -228,7 +240,7 @@ def provenance(ctx: Ctx, rs: Ruleset, meta: ReportMeta, judging: dict[str, Any] 
     ran = models_used(judging) != NO_MODEL
     prompts: list[str] = []
     if ran:
-        pid = rs.manifest.models.judge_prompt if rs.manifest.models and rs.manifest.models.judge_prompt else "judge"
+        pid = pinned_judge(rs)
         try:
             from tb_common.llm import load_prompt
 

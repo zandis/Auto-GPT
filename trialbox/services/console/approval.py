@@ -9,6 +9,8 @@
   is its own audit event (``console.code_tick``); the page says who may. A coordinator (or administrator) prepares:
   reads the draft and gives each criterion the site's own label.
 * A re-approval shows **Changes since vN**: criteria added, with new text or check class, and removed.
+* **Approval needed** (D-318): the approved version pins its judge prompt and terminology release; when the box has a
+  newer prompt or another release, the page says so and that SCREEN keeps the approved prompt until this approval.
 * **Approve all** sends ``APPROVE <study> version=<v>`` with the review workbook the compiler wrote, exactly what a
   reply to the review mail does; the orchestrator checks the approver's role (D-146).
 """
@@ -104,7 +106,9 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         ambers = [str(r["id"]) for r in rows if r["amber"]]
         opened = store.opened_rows(job.job_id, sess.user.username)
         old = {str(a["id"]): a for a in approved}
+        pins = getattr(bk, "approval_state", None)  # D-318: why the approved version needs the investigator again
         return {
+            "pin_state": pins(job.ruleset) if pins else None,
             "job": job,
             "rs": job.ruleset,
             "version": job.ruleset_version,

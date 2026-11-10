@@ -6,6 +6,13 @@
 {% if done == 'tick' %}<p class="ok" role="status">{{ t('s20.ticked') }}</p>{% endif %}{% if done == 'label' %}<p class="ok" role="status">{{ t('wb.done.label') }}</p>{% endif %}
 <p>{{ t('s20.help') }}</p>
 <p class="hint" data-testid="s20-who">{{ t('s20.who') }}</p>
+{% if pin_state and pin_state.state == 'approval_needed' %}
+<section class="card attention" data-testid="pins-needed">
+<h2>{{ t('s20.pins.title') }}</h2>
+<ul>{% for r in pin_state.reasons %}<li data-testid="pin-{{ r.kind }}-{{ r.state }}">{{ t('s20.pins.' + r.kind + '.' + r.state, pinned=r.pinned, active=r.active or '') }}</li>{% endfor %}</ul>
+<p class="hint">{{ t('s20.pins.help') }}</p>
+</section>
+{% endif %}
 {% if prev %}
 <section class="card attention" data-testid="changes">
 <h2>{{ t('s20.changes', v=prev) }}</h2>
