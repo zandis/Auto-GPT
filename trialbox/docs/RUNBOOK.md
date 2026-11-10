@@ -176,6 +176,9 @@ supply-chain gates (lock current, allow-list, pip-audit, licences) are the `lock
 | A job fails with `LAKE-LIMIT` | the job's error; `df -h /data` | the query hit its spill cap (`TB_LAKE_MAX_TEMP`, default a quarter of the free disk, at most 50 GB; `TB_LAKE_TEMP_DIR` moves the spill) and was stopped before it filled the disk. Usually a join that multiplies rows: report it; raise the cap only for data that really is that large |
 | Containers lost egress after a restart | `deploy/network.sh status` | `deploy/network.sh apply` |
 | `CERTIFICATE_VERIFY_FAILED` | hospital TLS inspection | put the hospital CA on the host, set `TB_EXTRA_CA=/abs/path/ca.pem` in `deploy/.env`, `docker compose up -d` |
+| Many patients "need information" with "a result is in a unit that cannot be compared" | the lab's unit in the feed against the criterion's unit (`mapping_check.py`; `unit_defaults` in the site mapping) | declare the site's unit for that analyte, or ask the vendor for a tested factor (D-275); the patients are never excluded for it |
+| Many orders or results read as unknown after an ingest | `mapping_check.py` lists status codes outside the map; the lake's `medication.status` = `unknown` | the HIS sends a status code the site mapping does not know: add it to the `status` / `result_status` map (an unknown code never counts as given or as final; D-275) |
+| Many patients "need information" with "a medicine order has no end date" | the feed's order rows: no end date, or no date at all | map the order's end (or days of supply) in the site mapping (D-275) |
 | Notes never exclude | `selftest.failed` in the audit, the admin health tile | the pair canary failed: check the models (§8, §10) |
 | A tool imports the wrong code | the venv has another checkout installed | set `PYTHONPATH=libs:services:.` (the Makefile does) |
 | Test ports taken | | `TB_HOST_<NAME>_PORT` in `deploy/.env` |
@@ -195,6 +198,8 @@ A failed job names its step (received, parsing, compiling, running, reporting) a
    (approval and equivalence gates), health check.
 5. `update.applied` in the audit. A failure after step 3 puts images, models and databases back, restarts, checks
    and writes `update.rolled_back`; exit 1.
+
+**After the update that brings D-275, run one ingest** (the nightly one is enough). Until then the lake still holds records the new rule leaves out (a result entered in error, a cancelled order, a sex of `other` / `unknown` as text), and orders with no date that the old ingest dropped are only read again when the source sends them. Approved rulesets need no new approval: their SQL runs guarded by the current rules (`criteria_compiler/compile_sql/overlay.py`) until they are next compiled.
 
 Every step is in `deploy/updates/history.jsonl`. `--no-backup` is for a test box only and is audited. If the rollback
 itself fails, restore from the backup. Driver updates are outside the bundle and need a change request. Held by

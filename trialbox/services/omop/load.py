@@ -37,7 +37,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from lake.flatten import DEMOGRAPHIC, NOT_PRESENT, SUSPECTED, Flattener, basis_of, verification_of
+from lake.flatten import DEMOGRAPHIC, NOT_PRESENT, SUSPECTED, Flattener, basis_of, verification_of, void
 from tb_common import feedguard
 from tb_common.db import Database
 
@@ -211,6 +211,8 @@ class _Builder:
     def build(self, rtype: str, r: Resource, line: int, responses: Mapping[str, Resource]) -> list[Rec]:
         basis = basis_of(r)
         status = status_for(basis)
+        if void(rtype, r):  # D-275 (review S-4): entered in error, cancelled, never done: kept, never a fact
+            status = "rejected"
 
         def rec(table: str | None, pid: str | None, part: int = 0, srcid: str | None = None) -> Rec:
             return Rec(rtype, srcid or str(r["id"]), part, table, pid, basis, status, line)

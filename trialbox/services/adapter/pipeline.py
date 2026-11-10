@@ -244,13 +244,14 @@ def run_ingest(
                 errors.append(f"{table}: {exc}")
     unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
     defaulted = apply_unit_defaults(by_type.get("Observation", []), unit_defaults)
+    # D-275 (review S-9): an order with no authoredOn and no validity start is kept. It was dropped here, so a
+    # patient whose only order had no date failed "on the drug" with no trace; the compiled SQL and CQL place an
+    # undated order in no window and leave the criterion unknown (a person checks)
     undated = [r for r in by_type.get("MedicationRequest", []) if _undated_order(r)]
-    if undated:  # no authoredOn and no validity start: CQL Max/Min and SQL greatest/least would treat it as exposure
-        by_type["MedicationRequest"] = [r for r in by_type["MedicationRequest"] if not _undated_order(r)]
     counts = {t: len(v) for t, v in sorted(by_type.items())}
     missing: Counter[str] = Counter()
     if undated:
-        missing["MedicationRequest.authoredOn (no date at all: dropped)"] = len(undated)
+        missing["MedicationRequest.authoredOn (no date at all: kept, read as unknown)"] = len(undated)
     for rtype, items in by_type.items():
         for r in items:
             for p in missing_required(r):

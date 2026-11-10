@@ -35,8 +35,7 @@ entered-in-error or preliminary feed row is not filtered there until the lake ca
 Impossible values. A value outside :data:`DOMAIN` after conversion (a negative CRP or ESR, a joint count outside
 0-28, a creatinine of 0 or less, a value that is not a finite number) gives no value and ``derived_unit:<component>``,
 like a global outside its 0-10 scale; an age of 0 or less gives ``derived_missing_input:age``. No input makes
-:func:`compute` raise. The SQL ``egfr_jsn`` template has the same creatinine and age guard; the SQL and CQL engines
-do not yet carry the other ranges.
+:func:`compute` raise. The SQL and CQL engines apply :data:`DOMAIN` to every converted input the same way (D-275).
 
 Units (dataflow review P0-5, D-149). Every component value is converted to the unit the formula expects with the
 factors of :data:`UNITS` (UCUM codes; ``mg/dL`` CRP x 10 = ``mg/L``, ``umol/L`` creatinine / 88.4 = ``mg/dL``). A row

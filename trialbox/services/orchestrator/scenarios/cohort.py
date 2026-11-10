@@ -26,6 +26,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from criteria_compiler.compile_sql.overlay import safe_sql
 from tb_common.authz import norm
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
@@ -99,7 +100,7 @@ def population_id(rs: Ruleset) -> str:
 
 
 def items_at(ctx: Ctx, rs: Ruleset, index: date) -> list[Item]:
-    rows = ctx.services.lake.query(rs.sql, [[index.isoformat()], None]).to_pylist()
+    rows = ctx.services.lake.query(safe_sql(rs), [[index.isoformat()], None]).to_pylist()
     pop = population_id(rs)
     p_rows = [r for r in rows if r.get(f"C_{pop}") is True]
     out = [Item(pop, _label(rs, pop), {r["pid"] for r in p_rows})]

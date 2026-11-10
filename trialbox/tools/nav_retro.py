@@ -55,6 +55,7 @@ def _coded_exclusions(lake: Any, rs: Any, pid: str, index: date) -> list[str]:
 
 
 def retro(lake: Any, rs: Any, until: date, months: int = 12) -> dict[str, Any]:
+    from criteria_compiler.compile_sql.overlay import safe_sql
     from tb_common.timeutil import add_months
 
     since = add_months(until, -months)
@@ -73,7 +74,7 @@ def retro(lake: Any, rs: Any, until: date, months: int = 12) -> dict[str, Any]:
     undecidable = [c.id for c in rs.active() if c.kind in ("inclusion", "exclusion") and c.class_ != "structured"]
     rows = []
     for d, cl in sorted(by_date.items()):
-        res = {r["pid"]: r for r in lake.query(rs.sql, [[d.isoformat()], [c["pid"] for c in cl]]).to_pylist()}
+        res = {r["pid"]: r for r in lake.query(safe_sql(rs), [[d.isoformat()], [c["pid"] for c in cl]]).to_pylist()}
         for c in cl:
             r = res.get(c["pid"], {})
             inc_v = [r.get(f"C_{i}") for i in inc]

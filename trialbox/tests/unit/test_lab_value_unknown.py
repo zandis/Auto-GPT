@@ -4,6 +4,10 @@
 of the bound gives the same answer; "検出せず" (not detected) and other text are no number: unknown, never a failed
 test. Both runtime engines read the compiled SQL: the SQL engine of NAV / MICROBATCH / CASE and the SCREEN cascade.
 The patients and criterion follow the review's repro (``scratch-02/repro_lake.py`` part A).
+
+D-275: a text result (``valueString``) carries no unit, and a row with no unit is not compared with a criterion that
+names one (``tests/unit/test_criteria_safety.py``). So this file's criterion and its Quantity rows have no unit: what
+is tested here is the reading of the text, as before.
 """
 
 from __future__ import annotations
@@ -72,7 +76,7 @@ def test_parser_reads_flags_and_censoring_and_nothing_else() -> None:
         assert labvalue.parse(text) is None, text
 
 
-def _obs(pid: str, value: Any) -> dict[str, Any]:
+def _obs(pid: str, value: Any, unit: str | None = None) -> dict[str, Any]:
     o: dict[str, Any] = {
         "resourceType": "Observation",
         "id": f"o-{pid}",
@@ -81,15 +85,17 @@ def _obs(pid: str, value: Any) -> dict[str, Any]:
         "effectiveDateTime": "2026-09-01T09:00:00+09:00",
     }
     if isinstance(value, dict):
-        o["valueQuantity"] = {**value, "unit": "mL/min/1.73m2"}
+        o["valueQuantity"] = dict(value)
     elif isinstance(value, int | float):
-        o["valueQuantity"] = {"value": value, "unit": "mL/min/1.73m2"}
-    else:
+        o["valueQuantity"] = {"value": value}
+    if "valueQuantity" in o and unit is not None:
+        o["valueQuantity"]["unit"] = unit
+    if "valueQuantity" not in o:
         o["valueString"] = value
     return o
 
 
-def _ruleset(quantifier: str, kind: str = "inclusion") -> tuple[Ruleset, CriterionIR]:
+def _ruleset(quantifier: str, kind: str = "inclusion", unit: str | None = None) -> tuple[Ruleset, CriterionIR]:
     extra = {"count": 1} if quantifier == "count>=" else {}
     crit = CriterionIR.model_validate(
         {
@@ -103,7 +109,7 @@ def _ruleset(quantifier: str, kind: str = "inclusion") -> tuple[Ruleset, Criteri
                 "quantifier": quantifier,
                 **extra,
                 "valueset": "VS_EGFR",
-                "value": {"op": ">=", "num": 60, "unit": "mL/min/1.73m2"},
+                "value": {"op": ">=", "num": 60, **({"unit": unit} if unit else {})},
                 "window": {"anchor": "index", "from_days": -365, "to_days": 0},
             },
         }
@@ -179,3 +185,32 @@ def test_cascade_keeps_the_text_result_patient(lake: LakeLocal) -> None:
     for pid in ("P-NOTDET", "P-CENS-MID"):
         o = res.traces[pid].outcomes[crit.id]
         assert o.status == "unknown" and not o.hard
+
+
+# review F11 (D-275): the realistic case, a criterion with a unit. A Quantity in that unit (spelled either way) is
+# decided as above; a text result carries no unit, so it is unknown, never a failed test
+TEXT = {"P-TEXT", "P-FW", "P-CENS-LO", "P-CENS-HI", "P-CENS-MID", "P-JA-MIBAN", "P-NOTDET"}
+
+
+@pytest.fixture(scope="module")
+def lake_units(tmp_path_factory: pytest.TempPathFactory) -> LakeLocal:
+    tmp = tmp_path_factory.mktemp("labunits")
+    nd = tmp / "ndjson"
+    nd.mkdir()
+    pats = [{"resourceType": "Patient", "id": p, "birthDate": "1960-01-01", "gender": "female"} for p in RESULTS]
+    obs = [_obs(p, v, "mL/min/{1.73_m2}") for p, v in RESULTS.items() if v is not None]
+    (nd / "Patient.ndjson").write_text("\n".join(json.dumps(p) for p in pats) + "\n", encoding="utf-8")
+    (nd / "Observation.ndjson").write_text(
+        "\n".join(json.dumps(o, ensure_ascii=False) for o in obs) + "\n", encoding="utf-8"
+    )
+    (nd / "Condition.ndjson").write_text("", encoding="utf-8")
+    Lake(tmp / "lake").rebuild("2026-10-05", HashEmbedder(), nd)
+    return LakeLocal(tmp / "lake", HashEmbedder())
+
+
+def test_with_a_unit_quantities_are_decided_and_text_is_unknown(lake_units: LakeLocal) -> None:
+    rs, _crit = _ruleset("latest", unit="mL/min/1.73m2")
+    rows = lake_units.query(rs.sql, [[IDX.isoformat()], list(RESULTS)]).to_pylist()
+    got = {r["pid"]: r["C_REPRO-INC-01"] for r in rows}
+    assert got == {p: (None if p in TEXT else v) for p, v in EXPECTED.items()}
+    assert got["P-NUM"] is True and got["P-LOW"] is False and got["P-QCOMP"] is True
