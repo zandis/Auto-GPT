@@ -51,6 +51,7 @@ BASELINE: dict[str, tuple[str, ...]] = {
     "site": (
         "61b88958f98cc442a6fc3ffd35fe1d4b561b1630ef045b6afe06c16391c4bbb5",
         "462f84721c6f0cc396262d232f3b8b32b3cb48fc09ef6ea8fceb84da47b1f99a",
+        "f5849bbca5358983e72c228d88514b2285061f683065fd47827aaa7907362f78",
     ),
     "sitesetup": (
         "a5869c5da66e3335d50e18aaf520637d760ca8dd59a1216d1a2557872c896a3f",
