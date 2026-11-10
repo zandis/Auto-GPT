@@ -51,7 +51,7 @@ from tb_common.service_auth import bind_session, scope_of
 from tb_common.ulid import new_ulid
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import demo_guard
+from console import demo_guard, feedback
 from console.auth import (
     AFFILIATIONS,
     ROLES,
@@ -1112,6 +1112,7 @@ def create_app(
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
     demo_guard.register(app, helpers)  # T-502 (D-328): demo mode's refusals, banner and acknowledgement
+    feedback.register(app, helpers)  # T-510 (D-331): the feedback control of every page and its CSV export
 
     from console import ops_pages
 
