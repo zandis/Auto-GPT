@@ -239,7 +239,14 @@ class Compiler:
         elm: dict[str, str] = {}
         warnings: list[str] = []
         if self.d.translator is not None:
-            cql["FHIRHelpers"] = fhirhelpers_source()
+            try:  # T-501 (LIFE-005): a checkout or image without the translator jars fails by name, not a traceback
+                cql["FHIRHelpers"] = fhirhelpers_source()
+            except (OSError, KeyError) as exc:
+                raise CompileFailed(
+                    "cql_translate",
+                    "the CQL translator is not installed (FHIRHelpers-4.0.1.cql not found in its jars): "
+                    "run `make jvm-deps` or set TB_CQL_TRANSLATOR_LIB",
+                ) from exc
             try:
                 tr = self.d.translator.translate(cql)
             except TranslationError as exc:

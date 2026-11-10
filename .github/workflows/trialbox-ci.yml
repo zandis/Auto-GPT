@@ -282,3 +282,85 @@ jobs:
             docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$f" || rc=1
           done
           exit "$rc"
+
+  # T-501 (OPS-001, ROLE-002, ROLE-003, UX-001): the demo image from a fresh checkout (no .cache, no make jvm-deps),
+  # started with no -e flag: /login answers and every seeded account signs in (over plain http here: the Secure cookie
+  # is only a header to the server), within the memory and start-time budget of trialbox/demo/README.md
+  demo-boot:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.trialbox == 'true'
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: Build demo/Dockerfile from the fresh checkout
+        run: |
+          test ! -e .cache/jvm
+          DOCKER_BUILDKIT=1 docker build -f demo/Dockerfile -t trialbox-demo:ci .
+      - name: Start it with no -e flag and wait for /login (budget 600 s)
+        run: |
+          docker run -d --name tb-demo -p 8080:8080 trialbox-demo:ci
+          start=$(date +%s)
+          until curl -fsS -o /dev/null http://127.0.0.1:8080/login; do
+            if [ "$(docker inspect -f '{{.State.Running}}' tb-demo)" != true ]; then
+              echo "the container stopped"; docker logs tb-demo 2>&1 | grep -v '^password' | tail -60; exit 1
+            fi
+            if [ $(( $(date +%s) - start )) -gt 600 ]; then echo "no answer on /login within 600 s"; exit 1; fi
+            sleep 5
+          done
+          echo "first answer on /login after $(( $(date +%s) - start )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Peak memory of the demo process (budget 2.5 GB)
+        run: |
+          peak=$(docker exec tb-demo awk '/^VmHWM/ {print $2}' /proc/1/status)
+          echo "peak RSS of the demo process: $(( peak / 1024 )) MB" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$peak" -le 2621440
+      - name: Each seeded account signs in
+        run: |
+          pw=$(docker logs tb-demo 2>&1 | sed -n 's/^password (all accounts): //p')
+          test -n "$pw"
+          echo "::add-mask::$pw"
+          DEMO_PW="$pw" python3 - admin crc pi subpi cra viewer <<'PY'
+          import http.client, os, re, sys, urllib.parse
+
+          def req(method, path, body=None, cookies=None):
+              c = http.client.HTTPConnection("127.0.0.1", 8080, timeout=30)
+              h = {"Cookie": "; ".join(f"{k}={v}" for k, v in (cookies or {}).items())}
+              if body is not None:
+                  h["Content-Type"] = "application/x-www-form-urlencoded"
+              c.request(method, path, body=body, headers=h)
+              r = c.getresponse()
+              text = r.read().decode("utf-8", "replace")
+              jar = {}
+              for k, v in r.getheaders():
+                  if k.lower() == "set-cookie":
+                      name, _, rest = v.partition("=")
+                      jar[name] = rest.split(";", 1)[0]
+              return r.status, {k.lower(): v for k, v in r.getheaders()}, jar, text
+
+          bad = []
+          for user in sys.argv[1:]:
+              st, _, jar, html = req("GET", "/login")
+              tok = re.search(r'name="login_csrf" value="([^"]+)"', html)
+              if st != 200 or not tok:
+                  bad.append((user, "/login", st))
+                  continue
+              form = urllib.parse.urlencode({"username": user, "password": os.environ["DEMO_PW"], "login_csrf": tok.group(1)})
+              st, hdr, jar2, _ = req("POST", "/login", form, jar)
+              session = {k: v for k, v in jar2.items() if v and k not in jar}
+              if st != 303 or not session:
+                  bad.append((user, "sign-in", st))
+                  continue
+              path = hdr.get("location", "/home")
+              for _ in range(4):  # a role's home may redirect (pi to the study week, cra to /reports)
+                  st, h3, _, _ = req("GET", path, cookies=session)
+                  if st not in (302, 303) or h3.get("location", "").startswith("/login"):
+                      break
+                  path = h3["location"]
+              print(f"{user}: signed in, {path} answers {st}")
+              if st != 200:
+                  bad.append((user, path, st))
+          sys.exit(f"sign-in failed: {bad}" if bad else 0)
+          PY
+      - name: The container log (password line left out)
+        if: always()
+        run: docker logs tb-demo 2>&1 | grep -v '^password' | tail -80 || true
