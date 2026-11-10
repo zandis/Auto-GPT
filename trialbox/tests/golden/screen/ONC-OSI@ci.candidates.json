@@ -1,0 +1,394 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
+  "lake_schema_version": 2,
+  "profile": "ci",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
+  "ref_date": "2026-11-01",
+  "ruleset": "ONC-OSI",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy"
+ },
+ "sets": {
+  "public-en": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "89504122e427fc5d61aa02ae373fcb65e81d6d0259f135a327656a7db45d0e1d",
+   "patients": 53,
+   "structured_criteria": [
+    "ONC-OSI-INC-01",
+    "ONC-OSI-INC-02",
+    "ONC-OSI-INC-03",
+    "ONC-OSI-EXC-01"
+   ],
+   "verdicts": {
+    "ONC-OSI-DOC-01": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "ONC-OSI-DOC-02": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "ONC-OSI-EXC-01": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "ONC-OSI-INC-01": {
+     "met": 43,
+     "not_met": 9,
+     "unknown": 1
+    },
+    "ONC-OSI-INC-02": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "ONC-OSI-INC-03": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    }
+   }
+  },
+  "ssmix2-jp": {
+   "candidate_pids": [
+    "036b2a10cec547b9e45a3ec821b56e96",
+    "4517caf6bf9aec8d17643a297f14ca9c",
+    "6d8818daa27950f796a24308643cb553",
+    "86de93012bc9fbcdc1b16a468ba3adf3",
+    "da2f8ffac4a9a5a0f764393fec55c84e",
+    "da3286e03fa0b252046f6c1f08052ff5"
+   ],
+   "candidates": 6,
+   "outcomes_sha": "0611fd65d200e27d92e24287cc0d1716d41df3503377cb87def9dea47bf5bef7",
+   "patients": 400,
+   "structured_criteria": [
+    "ONC-OSI-INC-01",
+    "ONC-OSI-INC-02",
+    "ONC-OSI-INC-03",
+    "ONC-OSI-EXC-01"
+   ],
+   "verdicts": {
+    "ONC-OSI-DOC-01": {
+     "met": 24,
+     "not_met": 376,
+     "unknown": 0
+    },
+    "ONC-OSI-DOC-02": {
+     "met": 15,
+     "not_met": 385,
+     "unknown": 0
+    },
+    "ONC-OSI-EXC-01": {
+     "met": 11,
+     "not_met": 389,
+     "unknown": 0
+    },
+    "ONC-OSI-INC-01": {
+     "met": 381,
+     "not_met": 19,
+     "unknown": 0
+    },
+    "ONC-OSI-INC-02": {
+     "met": 18,
+     "not_met": 382,
+     "unknown": 0
+    },
+    "ONC-OSI-INC-03": {
+     "met": 11,
+     "not_met": 5,
+     "unknown": 384
+    }
+   }
+  },
+  "synthetic-jp-a": {
+   "candidate_pids": [
+    "02144eac6f1251e32c1a4758240bc664",
+    "131cbb1eb741c2053fc3a9917a1ecc1e",
+    "13546d74755143ea55d7d670a91ef2fa",
+    "136299d1bc9fa2a5b453de28c112c0a4",
+    "158d1ab4f8270430efa327f0665a057a",
+    "175aa88f676de07490213c44fcd346d1",
+    "1ba02ed6656f7ac1f3432c61a5090795",
+    "2658cc5067f8017324e826cfe8ff5372",
+    "2858b8b2e995956dc7065e7493ce6907",
+    "3038241edd7154e25e4336067300123c",
+    "3631d21f25ebd2be08d486f4c955fc4d",
+    "36db27470ea23a7722130c126e6e0557",
+    "3b76af8274f8dda2cb208742b1ffcc1c",
+    "3bfac5545f71d20fd5f85a89f563e490",
+    "3d0978c88e800246c9fe0c16eab4dfa8",
+    "3e4fb3197126255bd8161f7dafd32378",
+    "3ff8ba8e337dd2e1c004e18f41087f43",
+    "4f017bfe3dec47710d3808d137e780cf",
+    "52bbe63042c0b54795588e454302627f",
+    "57810e7602aeb54161d213c1c89451f8",
+    "58caed389ad0bd82336b480a8d703fa6",
+    "5ad686448f6b4f712adfad9306c8bf63",
+    "5ad80dbc38a014419da248d17cbd6e68",
+    "5df28d174bc0205b5839c44cba65e700",
+    "62f11a41181634755459b6e39ec377d1",
+    "6c9a7db872862ec205fabe32a1aeb4c6",
+    "71f359bf630263403421477ca9630f61",
+    "73295246f8b8b20c2fcbf2aae7900acc",
+    "7abb8bec761c22fa5ef4fad601b5a037",
+    "8996fa4118a1f0afc90ba86801fa4548",
+    "950ddc827687476df7969105f0851d43",
+    "9566091b4fe5c8e8607c16bf6c7263ad",
+    "a366fb4fbe6c1af3a7e78749a8323524",
+    "a679c193942160ffa0f167b110f77fd4",
+    "aa06ee685fa343cff11f90c2fd964d52",
+    "b33c4031974a24c69e3ad18e98c4cc64",
+    "b73e082b3233ebfc5365f271f89fd1f1",
+    "b97e2e8afc971cb69e9c6f1688e4b943",
+    "b9ed86e10426f54453904e0a62827faf",
+    "be100bbb047fb36b931d465a2ce79aed",
+    "bf363beaae77f69533dd6e93ec544f01",
+    "c329fa7e7e924817315766ca41443d24",
+    "cceca609d980c9c773e1d11d15816eb7",
+    "d979a9de2b66248673e8655d09daf612",
+    "e1072fa718cabd3f5df6ad86e806caaa",
+    "e5fdba75fbcf2a254fe31350c63735e3",
+    "ebfca0a8c2ec8ca26fe22b14af4e06d4",
+    "f537a438c22cef43b4bb5b2eaeb22c64",
+    "fc41f1ab855c28366ea8941fa66a8411",
+    "fd8f7a3d9351c4490520b36c6f06afba",
+    "fda53a4b15011538ba3edadaf55990aa",
+    "ff2d14c2149040c52d6c9654709d8405"
+   ],
+   "candidates": 52,
+   "outcomes_sha": "594e439a806e949b278ee81f91faf298468a6f9a2338e8e05b4040a4139d2075",
+   "patients": 2500,
+   "structured_criteria": [
+    "ONC-OSI-INC-01",
+    "ONC-OSI-INC-02",
+    "ONC-OSI-INC-03",
+    "ONC-OSI-EXC-01"
+   ],
+   "verdicts": {
+    "ONC-OSI-DOC-01": {
+     "met": 161,
+     "not_met": 2339,
+     "unknown": 0
+    },
+    "ONC-OSI-DOC-02": {
+     "met": 97,
+     "not_met": 2403,
+     "unknown": 0
+    },
+    "ONC-OSI-EXC-01": {
+     "met": 43,
+     "not_met": 2457,
+     "unknown": 0
+    },
+    "ONC-OSI-INC-01": {
+     "met": 2398,
+     "not_met": 78,
+     "unknown": 24
+    },
+    "ONC-OSI-INC-02": {
+     "met": 110,
+     "not_met": 2390,
+     "unknown": 0
+    },
+    "ONC-OSI-INC-03": {
+     "met": 71,
+     "not_met": 29,
+     "unknown": 2400
+    }
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "candidate_pids": [
+    "02144eac6f1251e32c1a4758240bc664",
+    "131cbb1eb741c2053fc3a9917a1ecc1e",
+    "13546d74755143ea55d7d670a91ef2fa",
+    "136299d1bc9fa2a5b453de28c112c0a4",
+    "158d1ab4f8270430efa327f0665a057a",
+    "175aa88f676de07490213c44fcd346d1",
+    "1ba02ed6656f7ac1f3432c61a5090795",
+    "2658cc5067f8017324e826cfe8ff5372",
+    "2858b8b2e995956dc7065e7493ce6907",
+    "3038241edd7154e25e4336067300123c",
+    "3631d21f25ebd2be08d486f4c955fc4d",
+    "36db27470ea23a7722130c126e6e0557",
+    "3b76af8274f8dda2cb208742b1ffcc1c",
+    "3bfac5545f71d20fd5f85a89f563e490",
+    "3ff8ba8e337dd2e1c004e18f41087f43",
+    "4f017bfe3dec47710d3808d137e780cf",
+    "52bbe63042c0b54795588e454302627f",
+    "57810e7602aeb54161d213c1c89451f8",
+    "58caed389ad0bd82336b480a8d703fa6",
+    "5ad686448f6b4f712adfad9306c8bf63",
+    "5ad80dbc38a014419da248d17cbd6e68",
+    "5df28d174bc0205b5839c44cba65e700",
+    "62f11a41181634755459b6e39ec377d1",
+    "6c9a7db872862ec205fabe32a1aeb4c6",
+    "71f359bf630263403421477ca9630f61",
+    "73295246f8b8b20c2fcbf2aae7900acc",
+    "7abb8bec761c22fa5ef4fad601b5a037",
+    "8996fa4118a1f0afc90ba86801fa4548",
+    "950ddc827687476df7969105f0851d43",
+    "9566091b4fe5c8e8607c16bf6c7263ad",
+    "a366fb4fbe6c1af3a7e78749a8323524",
+    "a5326ae2227fd6a82f6949a42c82cbe7",
+    "a679c193942160ffa0f167b110f77fd4",
+    "aa06ee685fa343cff11f90c2fd964d52",
+    "b73e082b3233ebfc5365f271f89fd1f1",
+    "b97e2e8afc971cb69e9c6f1688e4b943",
+    "b9ed86e10426f54453904e0a62827faf",
+    "be100bbb047fb36b931d465a2ce79aed",
+    "c329fa7e7e924817315766ca41443d24",
+    "cceca609d980c9c773e1d11d15816eb7",
+    "d979a9de2b66248673e8655d09daf612",
+    "e1072fa718cabd3f5df6ad86e806caaa",
+    "e5fdba75fbcf2a254fe31350c63735e3",
+    "ebfca0a8c2ec8ca26fe22b14af4e06d4",
+    "f537a438c22cef43b4bb5b2eaeb22c64",
+    "fc41f1ab855c28366ea8941fa66a8411",
+    "fd8f7a3d9351c4490520b36c6f06afba",
+    "fda53a4b15011538ba3edadaf55990aa",
+    "ff2d14c2149040c52d6c9654709d8405"
+   ],
+   "candidates": 49,
+   "outcomes_sha": "ef40149ee09a52ab24d68caad91ea74032cb2897de0dc136b68b86c5ed8b90c5",
+   "patients": 2500,
+   "structured_criteria": [
+    "ONC-OSI-INC-01",
+    "ONC-OSI-INC-02",
+    "ONC-OSI-INC-03",
+    "ONC-OSI-EXC-01"
+   ],
+   "verdicts": {
+    "ONC-OSI-DOC-01": {
+     "met": 143,
+     "not_met": 2357,
+     "unknown": 0
+    },
+    "ONC-OSI-DOC-02": {
+     "met": 86,
+     "not_met": 2414,
+     "unknown": 0
+    },
+    "ONC-OSI-EXC-01": {
+     "met": 43,
+     "not_met": 2457,
+     "unknown": 0
+    },
+    "ONC-OSI-INC-01": {
+     "met": 2417,
+     "not_met": 79,
+     "unknown": 4
+    },
+    "ONC-OSI-INC-02": {
+     "met": 95,
+     "not_met": 2405,
+     "unknown": 0
+    },
+    "ONC-OSI-INC-03": {
+     "met": 62,
+     "not_met": 26,
+     "unknown": 2412
+    }
+   }
+  },
+  "synthetic-tw-a": {
+   "candidate_pids": [
+    "04727145b2479633c7d4986f6677e5ea",
+    "065275361c18da9cf3ddf06cd28685ea",
+    "08bf58c2485c45307b139320b831ed44",
+    "1495f520829856494792f488eea1cf64",
+    "22f4011e417710329b639b52e4ec4575",
+    "381eb6d846f39a5377860afebf6cf62c",
+    "428dc973de30f567afef2b40ec8843d3",
+    "456598e5dbef5edf8c8e93ffccc6bf39",
+    "45ba32a39f75ead467e5a6f90773b358",
+    "4750eab8eb4d5291365e0c9aa8bbe83e",
+    "4ea729fb936b5b38a6df1c5c483bb63a",
+    "522ff7b5cde578754620edcf09990d32",
+    "535d1ce4cf37163da65e50bdf25f1015",
+    "54a23ef2c44d0923556ff4b61aad9fc4",
+    "5db6668e044de720c15fc184f524c20f",
+    "6b730cd706182837994080c8b7b21898",
+    "71439e4cffc154a5c1e1013011675914",
+    "774284f034045aa664d62741dd10afa9",
+    "77707793068ec3d56d2bc93ee7d05578",
+    "7a520c55733b9dab2ba7bf81831aab8b",
+    "7ff283e787f737063488df702cee302f",
+    "8846e9d3983379905f721057f5d4bd3e",
+    "8a7994053755362bfa252097b1006e0e",
+    "8add9f221d1587371e1678c03d8c92ad",
+    "91c86d4a4e3676e34be68612a6c73911",
+    "92b2d8be4f0091627eea1619795d85dd",
+    "97430524ce5eb931563c5084b8383d2b",
+    "9e7e674ae1fb569c9dd0b4a01749e0f8",
+    "a291d1995dee72d1e25f9029abcca92e",
+    "a46d89d03381bcc359d9aee8779b02bc",
+    "a795bb70307bde2be4caca5b1d150487",
+    "ae1afbf11f0677f504326b537527276b",
+    "b122e78f2dea1ac4397753dd2483f5ba",
+    "bad926ed536872ce7d0d835f3f854fdd",
+    "bee5d7c0bb0dbb11149352f3df91970d",
+    "c133a398c502e36502f1a71e038528ff",
+    "d0b18c152e0d92aea5c605f7f09faf16",
+    "d33bd9f1006b5ed6169eaa87c61b6963",
+    "d6a3a41d9996b623d131a4e1262b9a19",
+    "d6e839d0d670819b94e59dbc4299de9c",
+    "e1a5cb002cb705ea0ada03f3c3ea49b1",
+    "ece857d151db4f3dd02998bfb1e48958",
+    "edd04cca4fafa0165772b3a18d20db08",
+    "f0e751c31d9b7563012a89a4dec8f418",
+    "f37f17873bc820d9315ac6411f18c736",
+    "fc0fe10dff13326158d67b843594109a",
+    "fc821195dcba2817106bfc17b5aa504a"
+   ],
+   "candidates": 47,
+   "outcomes_sha": "0c84e1721c6b4ff1d740b5499c9e960dd33658574fc3686c48c5867f648f6848",
+   "patients": 2500,
+   "structured_criteria": [
+    "ONC-OSI-INC-01",
+    "ONC-OSI-INC-02",
+    "ONC-OSI-INC-03",
+    "ONC-OSI-EXC-01"
+   ],
+   "verdicts": {
+    "ONC-OSI-DOC-01": {
+     "met": 157,
+     "not_met": 2343,
+     "unknown": 0
+    },
+    "ONC-OSI-DOC-02": {
+     "met": 94,
+     "not_met": 2406,
+     "unknown": 0
+    },
+    "ONC-OSI-EXC-01": {
+     "met": 54,
+     "not_met": 2446,
+     "unknown": 0
+    },
+    "ONC-OSI-INC-01": {
+     "met": 2385,
+     "not_met": 91,
+     "unknown": 24
+    },
+    "ONC-OSI-INC-02": {
+     "met": 117,
+     "not_met": 2383,
+     "unknown": 0
+    },
+    "ONC-OSI-INC-03": {
+     "met": 74,
+     "not_met": 26,
+     "unknown": 2400
+    }
+   }
+  }
+ }
+}

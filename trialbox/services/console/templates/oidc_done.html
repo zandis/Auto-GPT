@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{# D-192: after the identity provider's redirect. A same-origin page that moves on by itself, so the next request is
+   same-site and carries the SameSite=Strict session cookie set by this response. #}
+{% block head %}<meta http-equiv="refresh" content="0;url={{ target }}">{% endblock %}
+{% block title %}{{ t('oidc.done') }}{% endblock %}
+{% block content %}
+<section class="card narrow" data-testid="oidc-done">
+<p>{{ t('oidc.done') }}</p>
+<p><a class="button" href="{{ target }}">{{ t('oidc.continue') }}</a></p>
+</section>
+{% endblock %}

@@ -359,6 +359,30 @@ def login(app: Any, user: str = "admin", pw: str = ADMIN_PW) -> tuple[TestClient
     return c, csrf.group(1)
 
 
+def login_totp(app: Any, user: str = "admin", pw: str = ADMIN_PW) -> tuple[TestClient, str]:
+    """Sign in where TOTP is on (PRODUCTION, D-192) over https (Secure cookies): the password, then the enrolment page
+    whose key gives the first code."""
+    from console import totp
+
+    enrol = app.state.identity.users.issue_enrol_code(user)  # an administrator's enrolment code (D-192 review H2)
+    c = TestClient(app, base_url="https://testserver")
+    token = re.search(r'name="login_csrf" value="([^"]+)"', c.get("/login").text)
+    assert token
+    r = c.post("/login", data={"username": user, "password": pw, "login_csrf": token.group(1)}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/login/totp", r.text
+    page = c.get("/login/totp").text
+    key = re.search(r'id="totp-key"[^>]*value="([A-Z2-7 ]+)"', page)
+    mfa = re.search(r'name="mfa_csrf" value="([^"]+)"', page)
+    assert key and mfa
+    code = totp.totp(key.group(1).replace(" ", ""), datetime.now(UTC).timestamp())
+    form = {"code": code, "mfa_csrf": mfa.group(1), "enrol_code": enrol}
+    r = c.post("/login/totp", data=form, follow_redirects=False)
+    assert r.status_code == 303, r.text
+    csrf = re.search(r'name="csrf" value="([^"]+)"', c.get("/").text)
+    assert csrf
+    return c, csrf.group(1)
+
+
 # ---------------------------------------------------------------------------------------------- accounts
 def test_password_hash_roundtrip_and_policy(tmp_path: Path) -> None:
     h = hash_password("a-very-long-secret")
@@ -1377,7 +1401,7 @@ def test_sso_header_signs_in_from_a_trusted_proxy_only(tmp_path: Path) -> None:
     adm_c, csrf = login(app)
     assert adm_c.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": "nurse.lin"}).status_code == 400
     spoof = TestClient(app, headers={"X-Forwarded-User": "admin", "X-Forwarded-Groups": "nothing"})
-    assert "administrator" in spoof.get("/").text  # the local admin keeps their role (header cannot demote)
+    assert spoof.get("/", follow_redirects=False).status_code == 303  # D-192 review H1: never a local account
     events = [e.event for e in read_audit(tmp_path / "audit")]
     assert events.count("console.login") >= 4
 
@@ -1431,7 +1455,7 @@ def test_workspace_off_leaves_only_control_plane_routes(tmp_path: Path) -> None:
     paths = {getattr(r, "path", "") for r in app.routes}
     assert not any(p.startswith("/pilot") for p in paths)
     assert paths >= {"/", "/login", "/logout", "/jobs", "/audit", "/healthz", "/ops/ingest"}
-    c, _ = login(app)
+    c, _ = login_totp(app)  # PRODUCTION: Secure cookies and the TOTP step (D-192)
     jobs = c.get("/jobs").text
     assert "/pilot/" not in jobs and "GZQO-INC-01" not in jobs  # metadata only: no study content
     assert c.get(f"/pilot/jobs/{next(iter(backend.jobs))}").status_code == 404
