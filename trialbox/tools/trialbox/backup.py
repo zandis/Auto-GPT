@@ -530,8 +530,8 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
 
     Only the lake has rules; every other directory is taken whole. The lake: no ``tmp/`` (DuckDB spill), no
     ``.building`` file (a snapshot being built), and the NDJSON only of ``CURRENT`` and of the two newest snapshots:
-    the next delta night merges over the newest one older than itself (a held night's NDJSON is newer than
-    ``CURRENT``; a night run again on the same date merges over the one before); an older snapshot keeps its reports
+    the next delta night merges over the newest older one that passed (``CURRENT`` or newer; never a held night's
+    NDJSON, D-271; a held night's folder is kept for the steward to look at); an older snapshot keeps its reports
     (``reader.json``, ``tombstones.json``). Every Parquet and DuckDB file, the vector store (``embed_cache.duckdb``)
     and the site inputs are kept. A lake without ``CURRENT`` keeps all NDJSON.
     """
@@ -780,6 +780,30 @@ def verify(file: Path, key: Path) -> dict[str, Any]:
             "files": len(m["files"]), "sha256": m["_sha256"], "excluded": m.get("excluded", {}),
             "refdata_packs": m.get("refdata_packs", []),
             "databases": {k: sum(r[0] for r in v["rows"].values()) for k, v in m["databases"].items()}}  # fmt: skip
+
+
+def check(file: Path) -> dict[str, Any]:
+    """Check a backup without the private key (D-178, the console's "Check"): the header reads, every chunk is whole,
+    the last chunk is marked and nothing follows it. It finds a cut, truncated or half-written file; only the key
+    (``backup-verify``) proves the content. Returns the header's facts, the chunk count, the size and the sha256."""
+    n, last = 0, False
+    with file.open("rb") as fh:
+        header, _ = read_header(fh)
+        while True:
+            head = fh.read(5)
+            if not head:
+                break
+            if len(head) < 5 or last:
+                raise BackupError("backup is damaged (data after the last chunk or a cut chunk header)")
+            size, last = struct.unpack(">I?", head)
+            if size > CHUNK + 64 or len(fh.read(size)) != size:
+                raise BackupError("backup is cut short")
+            n += 1
+    if not last:
+        raise BackupError("backup is cut short (no final chunk)")
+    return {"ok": True, "site": header.get("site", ""), "created_at": header.get("created_at", ""),
+            "recipient": header.get("recipient", ""), "compression": header.get("compression", "gzip"),
+            "chunks": n, "bytes": file.stat().st_size, "sha256": _sha_file(file)}  # fmt: skip
 
 
 def restore(

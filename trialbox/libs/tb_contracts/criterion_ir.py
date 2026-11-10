@@ -442,6 +442,8 @@ V1_DERIVED_CALC: dict[str, str] = {
     "das28": "das28@1.0.0",  # v1: DAS28-ESR when an ESR exists in the window, else DAS28-CRP
     "basdai": "basdai@1.0.0",
     "asdas": "asdas_crp@1.0.0",
+    "cdai": "cdai@1.0.0",  # D-189: catalogue rheum.cdai@1
+    "sdai": "sdai@1.0.0",  # D-189: catalogue rheum.sdai@1
 }
 _CALC_V1 = {v: k for k, v in V1_DERIVED_CALC.items()}
 _V1_ATOM_KEYS = ("domain", "valueset", "quantifier", "count", "value", "window", "duration", "age", "sex")

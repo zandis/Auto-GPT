@@ -3,7 +3,8 @@
 **D-210 An update is refused before it changes anything unless its compatibility table, release sequence, keys,
 expiry, image digests and free space all check out; once it starts, a marker on disk names the bundle and the step
 until a completed apply or a completed rollback removes it, and an interrupted update is rolled back by one command.**
-Task T-111 (WS-14.2). PR: this branch (`agent/T-111-update-safety`, stacked on T-104). Date 2026-11-10.
+Task T-111 (WS-14.2). PR #83 (`agent/T-111-update-safety`), on master after T-104 (PR #89, D-204). D-210 is the
+number TB-ASSESS-01 reserved for T-111 (`docs/decisions/REGISTRY.md`). Date 2026-11-10.
 Status: proposed (in review). Trace: URS-ADM-15, RSK-32; TST-OPS-04. Closes MR-058, MR-064 to MR-067 (review part 05
 rows D-11 to D-14, D-16 to D-18; D-15 in part, see "Not done").
 

@@ -97,6 +97,11 @@ T: dict[str, dict[str, str]] = {
         "zh-TW": "adapter、orchestrator、criteria-compiler（僅網路隔離，尚無權杖）",
     },
     "model": {"en": "gateway only (model-net)", "ja": "gateway のみ（model-net）", "zh-TW": "僅 gateway（model-net）"},
+    "model_backend": {
+        "en": "model-guard only (model-backend-net; the key on every call, D-177)",
+        "ja": "model-guard のみ（model-backend-net。すべての呼び出しに鍵、D-177）",
+        "zh-TW": "僅 model-guard（model-backend-net；每次呼叫皆需金鑰，D-177）",
+    },
     "nets_h": {"en": "Networks", "ja": "ネットワーク", "zh-TW": "網路"},
     "net_internal": {
         "en": "internal: no route out of the box",
@@ -107,6 +112,13 @@ T: dict[str, dict[str, str]] = {
         "en": "out of the box only to the hosts below (nftables, deploy/network.sh)",
         "ja": "外部へは下表の宛先のみ（nftables、deploy/network.sh）",
         "zh-TW": "對外僅限下表目的地（nftables，deploy/network.sh）",
+    },
+    "net_console": {
+        "en": "the console's published port only: no NAT out, no outside names; nftables drop the rest "
+        "(deploy/network.sh)",
+        "ja": "コンソールの公開ポート専用: 外部への NAT なし、外部の名前解決なし、"
+        "それ以外は nftables で遮断（deploy/network.sh）",
+        "zh-TW": "僅供主控台的公開埠: 不做對外 NAT、不解析外部名稱，其餘由 nftables 阻擋（deploy/network.sh）",
     },
     "out_h": {"en": "Outbound", "ja": "外部への通信", "zh-TW": "對外連線"},
     "dest": {"en": "Destination", "ja": "宛先", "zh-TW": "目的地"},
@@ -272,8 +284,10 @@ def who(s: Service, lang: str) -> str:
         return T["db"][lang]
     if s.name == "fhir-store":
         return T["fhir"][lang]
-    if s.name in ("llm-service", "llm-verifier", "llm-stub"):
+    if s.name in ("model-guard", "llm-stub"):
         return T["model"][lang]
+    if s.name in ("llm-service", "llm-verifier"):
+        return T["model_backend"][lang]
     if s.name in NO_LISTEN:
         return "-"
     if s.name in CALLERS:
@@ -384,7 +398,8 @@ def tables(files: list[str], env: dict[str, str] | None, lang: str, root: Path =
     nets = []
     for n, spec in sorted((data.get("networks") or {}).items()):
         name = (spec or {}).get("name", n)
-        nets.append((name, T["net_internal"][lang] if (spec or {}).get("internal") else T["net_egress"][lang]))
+        kind = "net_internal" if (spec or {}).get("internal") else "net_console" if n == "console-net" else "net_egress"
+        nets.append((name, T[kind][lang]))
     return {"services": svcs, "ports": ports, "nets": nets, "out": outbound(env), "secrets": secrets_rows(svcs, lang)}
 
 

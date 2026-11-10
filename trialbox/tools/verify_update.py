@@ -38,6 +38,7 @@ import argparse
 import base64
 import hashlib
 import json
+import re
 import shutil
 import sys
 import tarfile
@@ -248,9 +249,7 @@ def verify(
             manifest = json.loads(manifest_bytes)
         except ValueError as exc:
             raise Rejected("manifest.json is not JSON") from exc
-        from tb_contracts import schema_errors
-
-        errs = schema_errors("update_manifest", manifest)
+        errs = _schema_errors(manifest)
         if errs:
             raise Rejected("manifest violates update_manifest schema: " + "; ".join(errs[:5]))
         if manifest["key_id"] != signed_by:
@@ -354,6 +353,100 @@ def verify(
     manifest.update(manifest_sha256=manifest_sha, compat=meta[COMPAT], release=release, trust_after=trust_after,
                     downgrade=downgrade, compat_notes=notes)  # fmt: skip
     return dict(manifest)
+
+
+def _schema_errors(manifest: Any) -> list[str]:
+    """``schemas/update_manifest.schema.json`` through tb_contracts (jsonschema) when the host has it, else the same
+    rules in the standard library. A clean site host (Ubuntu 24.04 with python3-cryptography) has no jsonschema, and
+    on a first install the trialbox-py image that has it is inside the bundle being verified (found by the box
+    rehearsal, D-176). The signature is checked before either."""
+    try:
+        from tb_contracts import schema_errors
+    except ImportError:
+        return _stdlib_schema_errors(manifest)
+    return list(schema_errors("update_manifest", manifest))
+
+
+KINDS = ("model", "ruleset", "image", "refdata", "other")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+KEY_ID = re.compile(r"^ed25519:[0-9a-f]{16}$")
+BUNDLE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+REQUIRED = ("bundle_id", "created_at", "signer", "files", "release_seq", "min_installed_version", "key_id",
+            "not_after", "compat_sha256")  # fmt: skip
+OPTIONAL = ("description", "release_sha256", "images_lock_sha256", "rotation")
+
+
+def _is_int(v: Any) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _is_time(v: Any) -> bool:
+    try:
+        datetime.fromisoformat(v.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return True
+
+
+def _stdlib_schema_errors(m: Any) -> list[str]:
+    """The rules of schemas/update_manifest.schema.json 1.2.0 (D-210) in the standard library;
+    tests/unit/test_verify_update_stdlib.py holds the two in step."""
+    if not isinstance(m, dict):
+        return ["manifest is not an object"]
+    errs = [f"missing {k}" for k in REQUIRED if k not in m]
+    errs += [f"unexpected {k}" for k in m if k not in REQUIRED + OPTIONAL]
+    strings = ("bundle_id", "created_at", "signer", "not_after")
+    errs += [f"{k} is not a string" for k in strings if k in m and not isinstance(m[k], str)]
+    if isinstance(m.get("bundle_id"), str) and not BUNDLE_ID.match(m["bundle_id"]):
+        errs.append("bundle_id has characters outside A-Z a-z 0-9 . _ - (or is too long)")
+    if m.get("description") is not None and not isinstance(m["description"], str):
+        errs.append("description is not a string")
+    for k in ("created_at", "not_after"):
+        if isinstance(m.get(k), str) and not _is_time(m[k]):
+            errs.append(f"{k} is not a date-time")
+    for k, low in (("release_seq", 1), ("min_installed_version", 0)):
+        if k in m and not (_is_int(m[k]) and m[k] >= low):
+            errs.append(f"{k} is not an integer >= {low}")
+    if "key_id" in m and not (isinstance(m["key_id"], str) and KEY_ID.match(m["key_id"])):
+        errs.append("key_id is not ed25519:<16 hex>")
+    for k in ("compat_sha256", "release_sha256", "images_lock_sha256"):
+        if k in m and not (isinstance(m[k], str) and SHA256.match(m[k])):
+            errs.append(f"{k} is not 64 lowercase hex digits")
+    if "rotation" in m:
+        errs += _rotation_errors(m["rotation"])
+    files = m.get("files")
+    if "files" in m and not isinstance(files, list):
+        return [*errs, "files is not an array"]
+    for i, f in enumerate(files or []):
+        if not isinstance(f, dict):
+            errs.append(f"files[{i}] is not an object")
+            continue
+        errs += [f"files[{i}]: missing {k}" for k in ("path", "sha256", "kind", "size") if k not in f]
+        errs += [f"files[{i}]: unexpected {k}" for k in f if k not in ("path", "sha256", "kind", "size")]
+        if "path" in f and not (isinstance(f["path"], str) and 1 <= len(f["path"]) <= 400):
+            errs.append(f"files[{i}]: path is not a string of 1 to 400 characters")
+        if "sha256" in f and not (isinstance(f["sha256"], str) and SHA256.match(f["sha256"])):
+            errs.append(f"files[{i}]: sha256 is not 64 lowercase hex digits")
+        if "kind" in f and f["kind"] not in KINDS:
+            errs.append(f"files[{i}]: kind {f['kind']!r} is not one of {', '.join(KINDS)}")
+        if "size" in f and not (_is_int(f["size"]) and f["size"] >= 0):
+            errs.append(f"files[{i}]: size is not an integer >= 0")
+    return errs
+
+
+def _rotation_errors(r: Any) -> list[str]:
+    if not isinstance(r, dict):
+        return ["rotation is not an object"]
+    errs = [f"rotation: missing {k}" for k in ("add_key_id", "add_public_key") if k not in r]
+    errs += [f"rotation: unexpected {k}" for k in r if k not in ("add_key_id", "add_public_key", "retire_key_id")]
+    if "add_key_id" in r and not (isinstance(r["add_key_id"], str) and KEY_ID.match(r["add_key_id"])):
+        errs.append("rotation: add_key_id is not ed25519:<16 hex>")
+    if "add_public_key" in r and not isinstance(r["add_public_key"], str):
+        errs.append("rotation: add_public_key is not a string")
+    retire = r.get("retire_key_id")
+    if retire is not None and not (isinstance(retire, str) and KEY_ID.match(retire)):
+        errs.append("rotation: retire_key_id is not ed25519:<16 hex>")
+    return errs
 
 
 def _free_bytes(path: Path) -> int:

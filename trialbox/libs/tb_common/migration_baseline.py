@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 
 BASELINE: dict[str, tuple[str, ...]] = {
+    "app": ("5e9714c8055ac691c6cf9c24fec249ce854e1b838a4961700a2a1422ba95aac3",),
     "auth": (
         "e9a25f1f3827e28dda3aa778c3a1fa46b7fc6b5a93ea23a5a3f27b160ada2f3e",
         "d92fa508ca37636a868a7ac4600d4d9dd0525152b15efa90c818a23971ffdee1",
@@ -23,6 +24,7 @@ BASELINE: dict[str, tuple[str, ...]] = {
         "0e3a813b0aea05c327f1443e830e0379bd8c13e623aaf4005baed29bec0f494b",
         "758a9577e1643839cf7ece62ae10bed88404a46b69c6a0252029e062bcd917a3",
     ),
+    "derived": ("358bd2f475a1b1302e935e21e870d36e3c6eec342690c6e349eb4ab55d6b5f72",),
     "edc": ("4adb60686c2312912b6d2991b58d3fe2f901b4d59b539c418090f79bec9b7260",),
     "library": ("564fff938db5977ada9d769d6a285708f839f937e9bcbdafd24f72a19b9a58e3",),
     "mail": (
@@ -38,7 +40,10 @@ BASELINE: dict[str, tuple[str, ...]] = {
     "orch": ("9edc901b745b7b7e2aa1f2c87e0ad1f3d7860c6825e0e638be9cfb8320c40578",),
     "pidmap": ("0e1b2d77c92fecd822baf15acb7cfdb57db4137867869f1d48f079e89821363e",),
     "recall": ("d9ea5b8161e5241298321b3c464d503bc6801d22e0707c117a79821131474e6e",),
-    "refdata": ("abce30a55cd0af022855d67d6dfb60abd2ac6b76b63f4fcf871b48795cc823aa",),
+    "refdata": (
+        "abce30a55cd0af022855d67d6dfb60abd2ac6b76b63f4fcf871b48795cc823aa",
+        "fffa253180b60c2b8bed2891dc3ba30df157902ead4c9e40c7067e42d70dfc93",
+    ),
     "sae": (
         "bb78cfbe26204336feb5c26172c27f07ce5acbcdd8a49feaf8bf3bdc1098de32",
         "2ecd64f9564158876a0ebe4c543a3672f5a4f5494c929181bc7e8a654fb47b15",
@@ -46,6 +51,7 @@ BASELINE: dict[str, tuple[str, ...]] = {
     "site": (
         "61b88958f98cc442a6fc3ffd35fe1d4b561b1630ef045b6afe06c16391c4bbb5",
         "462f84721c6f0cc396262d232f3b8b32b3cb48fc09ef6ea8fceb84da47b1f99a",
+        "f5849bbca5358983e72c228d88514b2285061f683065fd47827aaa7907362f78",
     ),
     "sitesetup": (
         "a5869c5da66e3335d50e18aaf520637d760ca8dd59a1216d1a2557872c896a3f",

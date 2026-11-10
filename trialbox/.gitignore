@@ -27,5 +27,7 @@ deploy/.objects/
 deploy/updates/
 deploy/refdata/
 deploy/logs/
+# the console's operations requests, results and status (tools/trialbox/ops.py, D-178)
+deploy/ops/
 # the complete run (tools/complete_run.py, D-139): screenshots and work folders are never committed
 eval/complete_run/**/shots/

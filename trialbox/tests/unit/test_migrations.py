@@ -327,11 +327,11 @@ def store_migrations() -> dict[str, list[str]]:
     from orchestrator import db_pg, studystore
     from orchestrator.recall import ledger
     from sitesetup import store as sitesetup
-    from tb_common import optout, refdata
+    from tb_common import derived_store, flags, optout, refdata
     from tracestore import store as trace
 
     return {
-        "refdata": [refdata.DDL],
+        "refdata": [refdata.DDL, refdata.DDL_V2],
         "optout": list(optout.MIGRATIONS),
         "wf": list(db_pg.MIGRATIONS),
         "recall": list(ledger.MIGRATIONS),
@@ -351,16 +351,21 @@ def store_migrations() -> dict[str, list[str]]:
         "team": list(teamstore.MIGRATIONS),
         "edc": [edc.SCHEMA],
         "sae": list(saerecord.MIGRATIONS),
+        "app": list(flags.MIGRATIONS),
+        "derived": list(derived_store.MIGRATIONS),
     }
 
 
 #: checksums of versions added after the D-204 baseline, per store (append here; never edit the baseline)
-ADDED: dict[str, tuple[str, ...]] = {}
+ADDED: dict[str, tuple[str, ...]] = {
+    # D-301: migration 3, the one-million block and the vocabulary tables
+    "omop": ("0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",),
+}
 PINNED: dict[str, tuple[str, ...]] = {k: v + ADDED.get(k, ()) for k, v in BASELINE.items()}
 
 #: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)
 STORE_FILES = {
-    "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
+    "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
     "services/adapter/pidmap.py", "services/console/auth.py", "services/console/saerecord.py",
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
     "services/datacore/store.py", "services/dataplat/mpi/__init__.py", "services/edc/store.py",

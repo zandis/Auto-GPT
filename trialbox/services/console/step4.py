@@ -14,7 +14,7 @@ from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_contracts import Job, JobCreate
 
-from console import command
+from console import about, command
 from console.auth import AuthError, Session
 from console.backend import Refused, Unavailable
 from console.home import Helpers
@@ -204,6 +204,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             request, "help.html", sess, slug=help_slug(target.split("?")[0]), back=target, studies=studies_of(sess)
         )
 
+    about.register(app, h)  # T-617a: /about, the third-party notices (NOTICE), beside the help panel
+
     # ------------------------------------------------------------------ S37 Notices received
     @app.get("/notices/received")
     def notices_received(request: Request) -> Response:
@@ -230,7 +232,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def admin_ctx(sess: Session) -> dict[str, Any]:
         users = h.users.users()
-        today = h.clock().date()
+        today = h.today()  # the site's date (D-270)
         soon = [u for u in users if u.expires and u.expires <= (today + timedelta(days=30)).isoformat()]
         jobs = bk.list_jobs(limit=200)
         since = (h.clock() - timedelta(hours=24)).isoformat()
@@ -309,7 +311,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         if tab == "health":
             from tb_common.refdata import status_or_none
 
-            ctx.update(admin_ctx(sess), health=bk.health(), models=bk.models(), refdata=status_or_none())
+            ctx.update(
+                admin_ctx(sess),
+                health=bk.health(),
+                models=bk.models(),
+                refdata=status_or_none(),
+                ops=h.ops_summary() if h.ops_summary is not None else None,
+            )  # D-178: the Operations tile
         elif tab == "jobs":
             jobs = bk.list_jobs(limit=300)
             types = sorted({j.type for j in jobs})

@@ -1,0 +1,617 @@
+"""``trialbox ops`` (D-178, review J-09): the host side of the console's operations screens.
+
+The console runs in a container without Docker, the backup key's tools or the install folder, so it never runs an
+operation itself. It writes a request (``requests/<id>.json``) into the operations folder it shares with the host
+(``TB_OPS_DIR``; on a box ``deploy/ops``, mounted in the console at ``/data/ops``). This runner, started by a host
+timer every minute (``sudo python3 -m tools.trialbox ops run``, RUNBOOK "Operations screens"), takes each request,
+runs the command the runbook already names for it and writes the result (``results/<id>.json``). After each round it
+writes ``status.json``, which is what the console's screens show. No operation is re-implemented here:
+
+==================  ==========================================================================================
+``backup``          ``trialbox backup`` (on a box: the update path's one-off backup container, ``ComposeBox``)
+``backup_check``    ``trialbox backup-check`` of the newest backup in every target (no key) and the copies compared
+``update_check``    ``tools/apply_update.sh <bundle> --dry-run``: signature and hashes verified, nothing changes
+``update_apply``    ``tools/apply_update.sh <bundle>``: backup first, rollback point, automatic rollback
+``logs_collect``    ``trialbox logs collect`` (yesterday's service logs)
+``network_sheet``   ``tools/network_sheet.py`` into ``<ops>/network/`` (en, ja, zh-TW)
+==================  ==========================================================================================
+
+The status and the results never hold a secret: secrets are listed by name, presence and age
+(``svc_secrets.status``), backups by file name, size and time, logs by day. Standard library at import; the backup,
+log, update and network-sheet modules are imported when an action needs them.
+
+A *local* box (``--local``; the console's ``TB_OPS_RUNNER=inline``: the in-process box of e2e_simple, the demo and
+the tests) runs the same actions in the console's process at once: the backup through ``backup.backup`` with the
+process's database URL and ``TB_BACKUP_DIRS``. Updates and log collection need the compose box and are refused there.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import fcntl
+import io
+import json
+import os
+import re
+import secrets
+import shutil
+import stat
+import subprocess
+import tempfile
+import time
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, cast
+
+ROOT = Path(__file__).resolve().parents[2]
+ACTIONS: tuple[str, ...] = (
+    "backup",
+    "backup_check",
+    "update_check",
+    "update_apply",
+    "logs_collect",
+    "network_sheet",
+)
+COMPOSE_ONLY = frozenset({"update_apply", "logs_collect"})
+REQ_ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
+BUNDLE = re.compile(r"^[A-Za-z0-9][\w.\-]{0,120}\.tar$")
+BACKUP_FILE = re.compile(r"^trialbox-[\w\-]+-(\d{8}T\d{6}Z)\.tbbak$")
+SERVICE_UID = 10001  # the ``tb`` user of the trialbox-py image (svc_secrets.SERVICE_UID)
+STALE_HOURS = 36  # WS-08.5: the backup tile turns red 36 hours after the last backup
+MAX_AGE_MIN = 60  # a request older than this when the runner reaches it is not run: the person asks again
+Runner = Callable[[Sequence[str], int], str]  # (argv, timeout seconds) -> combined output; raises OpsFailed
+
+
+class OpsFailed(RuntimeError):
+    pass
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def run_cmd(argv: Sequence[str], timeout: int) -> str:
+    """Run a command from the install folder; its output (stdout and stderr) is the result's text."""
+    r = subprocess.run(list(argv), cwd=ROOT, capture_output=True, text=True, check=False, timeout=timeout)
+    out = (r.stdout or "") + (r.stderr or "")
+    if r.returncode != 0:
+        raise OpsFailed(f"exit {r.returncode}: {out.strip()[-600:]}")
+    return out
+
+
+def _env_file(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, _, v = line.partition("=")
+                out[k.strip()] = v.strip()
+    return out
+
+
+def _write_json(path: Path, data: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.part")
+    tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+    tmp.replace(path)
+
+
+MAX_JSON = 64 * 1024  # a request, a result or the status is a few kilobytes
+
+
+def _read_json(path: Path) -> dict[str, Any] | None:
+    """A small JSON object from a regular file. The runner reads ``requests/`` as root and the console's user can
+    write there, so a link (to a file it may not read), a pipe (the timer would wait for ever) or a huge file is
+    skipped, never followed."""
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_JSON:
+            return None
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            data = json.loads(f.read(MAX_JSON + 1).decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+    finally:
+        os.close(fd)
+    return data if isinstance(data, dict) else None
+
+
+# ------------------------------------------------------------------------------------------------ the shared folder
+class OpsDir:
+    """The folder the console and the host share: requests, results, the status and the network sheet."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = Path(root)
+
+    @property
+    def network(self) -> Path:
+        return self.root / "network"
+
+    def submit(self, action: str, by: str, args: Mapping[str, str] | None = None) -> str:
+        if action not in ACTIONS:
+            raise OpsFailed(f"unknown action {action!r}")
+        rid = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(3)}"
+        req = {"id": rid, "action": action, "by": by, "at": datetime.now(UTC).isoformat(), "args": dict(args or {})}
+        _write_json(self.root / "requests" / f"{rid}.json", req)
+        return rid
+
+    def requests(self) -> list[dict[str, Any]]:
+        out = []
+        for p in sorted((self.root / "requests").glob("*.json")):
+            # the id is the file's name, never a field the console wrote: the runner (root on the host) writes
+            # ``results/<id>.json``, so an id taken from the content could point outside the folder
+            if REQ_ID.match(p.stem) and (r := _read_json(p)) is not None:
+                with contextlib.suppress(OSError):  # the file's own time, not a field: how long it has waited
+                    out.append({**r, "id": p.stem, "queued": p.lstat().st_mtime})
+        return sorted(out, key=lambda r: (str(r.get("at")), str(r.get("id"))))  # first in, first out
+
+    def result(self, rid: str) -> dict[str, Any] | None:
+        return _read_json(self.root / "results" / f"{rid}.json") if REQ_ID.match(rid) else None
+
+    def pending(self) -> list[dict[str, Any]]:
+        return [r for r in self.requests() if self.result(str(r.get("id"))) is None]
+
+    def marker(self, rid: str) -> Path:
+        """``running/<id>.json``: written just before a request runs. A request with a marker and no result was cut
+        off (a reboot, an OOM kill, ``systemctl stop``) and is never run again."""
+        if not REQ_ID.match(rid):
+            raise OpsFailed(f"bad request id {rid[:40]!r}")
+        return self.root / "running" / f"{rid}.json"
+
+    def running(self) -> list[dict[str, Any]]:
+        """The pending requests that have started (one, while the runner works on it)."""
+        return [r for r in self.pending() if self.marker(str(r.get("id"))).is_file()]
+
+    def history(self, limit: int = 30) -> list[dict[str, Any]]:
+        """Requests, newest first, each with its result when there is one."""
+        rows = []
+        for r in reversed(self.requests()[-limit:]):
+            rows.append({**r, "result": self.result(str(r.get("id")))})
+        return rows
+
+    def last(self, action: str) -> dict[str, Any] | None:
+        """The newest finished result of ``action``."""
+        for r in reversed(self.requests()):
+            if r.get("action") == action and (res := self.result(str(r.get("id")))) is not None:
+                return res
+        return None
+
+    def status(self) -> dict[str, Any] | None:
+        return _read_json(self.root / "status.json")
+
+    def write_result(
+        self, req: Mapping[str, Any], ok: bool, summary: str, lines: Sequence[str], started: str, state: str = ""
+    ) -> None:
+        """``state``: ``done``, ``failed``, ``interrupted`` (it started and was cut off) or ``expired`` (it waited
+        longer than :data:`MAX_AGE_MIN`); the last two never ran to the end and are not run again."""
+        if not REQ_ID.match(str(req.get("id"))):
+            raise OpsFailed(f"bad request id {str(req.get('id'))[:40]!r}")
+        _write_json(
+            self.root / "results" / f"{req['id']}.json",
+            {
+                "id": req["id"],
+                "action": req["action"],
+                "by": req.get("by", ""),
+                "ok": ok,
+                "state": state or ("done" if ok else "failed"),
+                "summary": summary[:300],
+                "lines": [str(x)[:300] for x in list(lines)[-40:]],
+                "started": started,
+                "finished": _now(),
+            },
+        )
+
+
+# ------------------------------------------------------------------------------------------------ the box
+@dataclass
+class Box:
+    """Where the runner works: ``compose`` (a site box, as root on the host) or ``local`` (in one process)."""
+
+    kind: str
+    deploy: Path
+    env: dict[str, str] = field(default_factory=dict)
+    run: Runner = run_cmd
+
+    @classmethod
+    def compose(cls, deploy: Path) -> Box:
+        return cls("compose", deploy, {**_env_file(deploy / ".env"), **_env_only(os.environ)})
+
+    @classmethod
+    def local(cls, deploy: Path, env: Mapping[str, str]) -> Box:
+        return cls("local", deploy, dict(env))
+
+    def targets(self) -> list[Path]:
+        raw = self.env.get("TB_BACKUP_TARGETS") or ""
+        return [Path(t) for t in raw.replace(",", " ").split() if t]
+
+    def public_key(self) -> Path:
+        return Path(self.env.get("TB_BACKUP_PUBKEY") or self.deploy / "secrets" / "backup.pub")
+
+    def incoming(self) -> Path:
+        return Path(self.env.get("TB_UPDATE_INCOMING") or self.deploy / "updates" / "incoming")
+
+    def log_dir(self) -> Path:
+        return Path(self.env.get("TB_LOG_DIR") or self.deploy / "logs")
+
+
+def _env_only(env: Mapping[str, str]) -> dict[str, str]:
+    """The few variables an operator may set for the runner (never a password)."""
+    keep = ("TB_BACKUP_TARGETS", "TB_BACKUP_PUBKEY", "TB_UPDATE_INCOMING", "TB_LOG_DIR", "TB_OPS_DIR")
+    return {k: v for k, v in env.items() if k in keep and v}
+
+
+# ------------------------------------------------------------------------------------------------ the runner
+class OpsRunner:
+    """Takes the requests of an :class:`OpsDir` one by one and runs the command behind each."""
+
+    def __init__(self, box: Box, ops: OpsDir) -> None:
+        self.box = box
+        self.ops = ops
+
+    def run_pending(self) -> list[dict[str, Any]]:
+        """Every pending request, in order, then the status. One runner at a time: a request is pending until its
+        result is written, so a second runner (the timer while ``ops run --watch`` or a hand-run ``ops run`` is busy)
+        would run the same backup or update again; it finds the lock taken and leaves the requests to the first."""
+        self.ops.root.mkdir(parents=True, exist_ok=True)
+        with open(self.ops.root / ".runner.lock", "a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return []
+            try:
+                done = []
+                for req in self.ops.pending():
+                    res = self.close_stale(req) or self.run_one(req)
+                    self.audit(res)
+                    done.append(res)
+                self.write_status()
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+        return done
+
+    def close_stale(self, req: Mapping[str, Any]) -> dict[str, Any] | None:
+        """A request that started and was cut off, or that waited too long, gets a result without running: an
+        update or a backup is never started again without the person asking again (and confirming again)."""
+        rid = str(req.get("id"))
+        if self.ops.marker(rid).is_file():
+            begun = (_read_json(self.ops.marker(rid)) or {}).get("started") or ""
+            msg = "interrupted: the runner stopped while this ran (a restart or a stop); it is not run again"
+            self.ops.write_result(req, False, msg, [], str(begun), state="interrupted")
+        else:
+            queued = req.get("queued")
+            if not isinstance(queued, int | float) or time.time() - queued <= MAX_AGE_MIN * 60:
+                return None
+            msg = f"not run: asked more than {MAX_AGE_MIN} minutes before the runner reached it; ask again"
+            self.ops.write_result(req, False, msg, [], _now(), state="expired")
+        out = self.ops.result(rid)
+        assert out is not None
+        return out
+
+    def audit(self, res: Mapping[str, Any]) -> None:
+        """On a site box, each finished request is a ``console.ops`` event in the box's audit chain, written inside
+        the orchestrator as ``update.py`` does (the console writes the request's event; inline, also the result's).
+        Best effort: the result file stays either way."""
+        if self.box.kind != "compose":
+            return
+        from tools.trialbox.update import ComposeBox
+
+        detail = {"action": f"{res.get('action')}.done", "request": res.get("id"), "ok": bool(res.get("ok")),
+                  "state": res.get("state"), "by": res.get("by")}  # fmt: skip
+        code = (
+            "import json, sys\nfrom tb_common.audit import AuditLog\n"
+            "AuditLog('/data/audit').append('console.ops', actor='trialbox-ops', detail=json.loads(sys.argv[1]))\n"
+        )
+        argv = [*ComposeBox(self.box.deploy).compose, "exec", "-T", "orchestrator", "python", "-c", code,
+                json.dumps(detail)]  # fmt: skip
+        with contextlib.suppress(Exception):
+            self.box.run(argv, 120)
+
+    def run_one(self, req: Mapping[str, Any]) -> dict[str, Any]:
+        started = _now()
+        action = str(req.get("action"))
+        _write_json(self.ops.marker(str(req.get("id"))), {"id": req.get("id"), "action": action, "started": started})
+        try:
+            if action not in ACTIONS:
+                raise OpsFailed(f"unknown action {action!r}")
+            if action in COMPOSE_ONLY and self.box.kind != "compose":
+                raise OpsFailed("this runs on a site box only (the host's docker compose)")
+            fn = cast(Callable[[Mapping[str, str]], tuple[str, list[str]]], getattr(self, f"do_{action}"))
+            summary, lines = fn(dict(req.get("args") or {}))
+            ok = True
+        except Exception as exc:  # every failure is a result the console shows, never a crash of the timer
+            summary, lines, ok = f"{type(exc).__name__}: {exc}"[:300], [], False
+        self.ops.write_result(req, ok, summary, lines, started)
+        with contextlib.suppress(OSError):
+            self.ops.marker(str(req["id"])).unlink()
+        out = self.ops.result(str(req["id"]))
+        assert out is not None
+        return out
+
+    # -------------------------------------------------------------------------------------------- actions
+    def do_backup(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        targets = self.box.targets()
+        if not targets:
+            raise OpsFailed("no TB_BACKUP_TARGETS (the NAS share, a USB disk ...): RUNBOOK §5")
+        pub = self.box.public_key()
+        if not pub.is_file():
+            raise OpsFailed("no backup key yet: trialbox backup-keygen with hospital IT (RUNBOOK §5)")
+        if self.box.kind == "compose":
+            from tools.trialbox.update import ComposeBox
+
+            work = self.box.deploy / "updates"
+            work.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix="ops-backup-", dir=work) as tmp:
+                os.chmod(tmp, 0o700)
+                where = ComposeBox(self.box.deploy).backup(cast(Any, None), Path(tmp))
+            files = [newest.name for t in targets if (newest := _newest_backup(t)) is not None]
+            return f"backup written to {where}", files
+        from tools.trialbox import backup as bkp
+
+        keep = int(self.box.env.get("TB_BACKUP_KEEP") or 14)
+        written = bkp.backup(targets, pub, env=self.box.env, dirs=bkp.layout(self.box.env), keep=keep)
+        return f"backup written: {written[0].name} to {len(written)} targets", [str(p) for p in written]
+
+    def _image(self) -> str:
+        return self.box.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
+
+    def _check(self, f: Path) -> dict[str, Any]:
+        """``backup.check`` of one file: in this process on a local box; on a site box in a one-off trialbox-py
+        container without network (the host's python3 has no zstandard or cryptography), the file read-only."""
+        if self.box.kind != "compose":
+            from tools.trialbox import backup as bkp
+
+            try:
+                return bkp.check(f)
+            except bkp.BackupError as exc:
+                raise OpsFailed(str(exc)) from exc
+        argv = ["docker", "run", "--rm", "--network", "none", "-v", f"{f.parent}:/b:ro", self._image(),
+                "python", "-m", "tools.trialbox", "backup-check", f"/b/{f.name}"]  # fmt: skip
+        out = self.box.run(argv, 3600)
+        try:
+            return dict(json.loads(out[out.index("{") :]))
+        except ValueError as exc:
+            raise OpsFailed(out.strip()[-300:]) from exc
+
+    def do_backup_check(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        lines: list[str] = []
+        bad: list[str] = []
+        shas: set[tuple[str, str]] = set()
+        newest_name = ""
+        targets = self.box.targets()
+        if not targets:
+            raise OpsFailed("no TB_BACKUP_TARGETS (the NAS share, a USB disk ...): RUNBOOK §5")
+        for t in targets:
+            f = _newest_backup(t)
+            if f is None:
+                bad.append(f"{t}: no backup")
+                continue
+            newest_name = max(newest_name, f.name)
+            try:
+                c = self._check(f)
+            except (OSError, OpsFailed) as exc:
+                bad.append(f"{t.name}/{f.name}: {exc}")
+                continue
+            shas.add((f.name, c["sha256"]))
+            lines.append(f"{t}: {f.name}: complete, {c['chunks']} chunks, {c['bytes']} bytes, made {c['created_at']}")
+        names = {n for n, _ in shas}
+        if len(names) == 1 and len(shas) > 1:
+            bad.append("the copies of the newest backup differ between targets")
+        elif len(names) > 1:  # a target that missed the newest backup is stale: the check fails
+            bad.append("the targets' newest backups are not the same file (one target missed a backup)")
+        if bad:
+            raise OpsFailed("; ".join(bad))
+        return f"newest backup {newest_name} complete in every target (content needs the key: backup-verify)", lines
+
+    def _bundle(self, args: Mapping[str, str]) -> Path:
+        name = str(args.get("bundle") or "")
+        p = self.box.incoming() / name
+        if not BUNDLE.match(name) or not p.is_file():
+            raise OpsFailed(f"no staged bundle {name!r} in {self.box.incoming()}")
+        return p
+
+    def do_update_check(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        p = self._bundle(args)
+        out = self.box.run(["sh", str(ROOT / "tools" / "apply_update.sh"), str(p), "--dry-run"], 1800)
+        return f"{p.name}: signature and every file verified; nothing was changed", out.strip().splitlines()
+
+    def do_update_apply(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        p = self._bundle(args)
+        out = self.box.run(["sh", str(ROOT / "tools" / "apply_update.sh"), str(p)], 3 * 3600)
+        return f"{p.name}: applied", out.strip().splitlines()
+
+    def do_logs_collect(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        from tools.trialbox import logs as tb_logs
+
+        buf, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            code = tb_logs.main_action("collect", self.box.deploy, None)
+        lines = (buf.getvalue() + err.getvalue()).strip().splitlines()
+        if code != 0:
+            raise OpsFailed("; ".join(lines)[-300:] or f"exit {code}")
+        return lines[-1] if lines else "collected", lines
+
+    def do_network_sheet(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        if self.box.kind == "compose":  # the sheet's tool needs PyYAML: the trialbox-py image, no network
+            out_dir = self.ops.network
+            out_dir.mkdir(parents=True, exist_ok=True)
+            argv = ["docker", "run", "--rm", "--network", "none", "--user", "0", "-v",
+                    f"{self.box.deploy}:/app/deploy:ro", "-v", f"{out_dir}:/out", self._image(), "python", "-m",
+                    "tools.network_sheet", "--env", "/app/deploy/.env", "--out", "/out/network-sheet"]  # fmt: skip
+            lines = self.box.run(argv, 600).strip().splitlines()
+            return "network sheet written in 3 languages", lines
+        from tools import network_sheet as ns
+
+        env_path = self.box.deploy / ".env"
+        env = ns.read_env(env_path) if env_path.is_file() else None
+        written = ns.write(self.ops.network / "network-sheet", list(ns.FILES), env, root=ROOT)
+        return f"network sheet written in {len(ns.LANGS)} languages", [p.name for p in written]
+
+    # -------------------------------------------------------------------------------------------- status
+    def write_status(self) -> dict[str, Any]:
+        st = snapshot(self.box)
+        _write_json(self.ops.root / "status.json", st)
+        return st
+
+
+def _newest_backup(target: Path) -> Path | None:
+    files = sorted((p for p in target.glob("trialbox-*.tbbak") if BACKUP_FILE.match(p.name)),
+                   key=lambda p: BACKUP_FILE.match(p.name).group(1))  # type: ignore[union-attr]  # fmt: skip
+    return files[-1] if files else None
+
+
+def _stamp_iso(name: str) -> str:
+    m = BACKUP_FILE.match(name)
+    if not m:
+        return ""
+    return datetime.strptime(m.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC).isoformat(timespec="seconds")
+
+
+def _version() -> str:
+    m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return m.group(1) if m else "-"
+
+
+def _history(updates: Path) -> list[dict[str, Any]]:
+    f = updates / "history.jsonl"
+    rows: list[dict[str, Any]] = []
+    if f.is_file():
+        for line in f.read_text(encoding="utf-8").splitlines()[-400:]:
+            with contextlib.suppress(ValueError):
+                d = json.loads(line)
+                if isinstance(d, dict):
+                    rows.append(d)
+    return rows
+
+
+def _mtime(p: Path) -> str:
+    return datetime.fromtimestamp(p.stat().st_mtime, UTC).isoformat(timespec="seconds")
+
+
+def _disk(path: Path) -> dict[str, Any] | None:
+    try:
+        u = shutil.disk_usage(path)
+    except OSError:
+        return None
+    return {"path": str(path), "total": u.total, "used": u.used, "free": u.free}
+
+
+def snapshot(box: Box) -> dict[str, Any]:
+    """What the console's operations screens show; no value of any secret."""
+    updates = box.deploy / "updates"
+    hist = _history(updates)
+    applied = [h for h in hist if h.get("step") == "audited update.applied" and h.get("ok")]
+    bundles: dict[str, dict[str, Any]] = {}
+    for h in hist:  # one line per bundle: its last step and whether the update ended applied or rolled back
+        b = str(h.get("bundle") or "")
+        row = bundles.setdefault(b, {"bundle": b, "first": h.get("at"), "steps": 0})
+        row.update(last=h.get("at"), step=h.get("step"), ok=bool(h.get("ok")))
+        row["detail"] = str(h.get("detail") or "")[:200]
+        row["steps"] += 1
+        if h.get("step") == "audited update.applied":
+            row["outcome"] = "applied"
+        elif h.get("step") == "rollback":
+            row["outcome"] = "rolled_back" if h.get("ok") else "rollback_failed"
+        elif not h.get("ok") and row.get("outcome") is None:  # a step failed and no rollback line followed
+            row["outcome"] = "failed"
+        elif h.get("ok") and row.get("outcome") == "failed":  # the bundle was tried again
+            row.pop("outcome")
+    points = []
+    for pj in sorted(updates.glob("*/rollback/point.json")):
+        d = _read_json(pj) or {}
+        dumps = d.get("dumps") or {}
+        points.append(
+            {
+                "bundle": pj.parent.parent.name,
+                "images": len(d.get("images") or {}),
+                "dumps_kept": sum(1 for v in dumps.values() if Path(str(v)).is_file()),
+                "at": _mtime(pj),
+            }
+        )
+    incoming = []
+    inc = box.incoming()
+    if inc.is_dir():
+        for p in sorted(inc.glob("*.tar")):
+            if BUNDLE.match(p.name):
+                incoming.append({"name": p.name, "bytes": p.stat().st_size, "at": _mtime(p)})
+    targets = []
+    newest = ""
+    for t in box.targets():
+        files = []
+        if t.is_dir():
+            for p in sorted(t.glob("trialbox-*.tbbak"), key=lambda p: p.name, reverse=True)[:30]:
+                if BACKUP_FILE.match(p.name):
+                    files.append({"name": p.name, "bytes": p.stat().st_size, "at": _stamp_iso(p.name)})
+                    newest = max(newest, _stamp_iso(p.name))
+        disk = _disk(t) if t.is_dir() else None
+        targets.append({"path": str(t), "files": files, "reachable": t.is_dir(), "disk": disk})
+    try:
+        from tools.trialbox import svc_secrets
+
+        secret_rows = [{k: v for k, v in r.items() if k in ("name", "present", "age_days", "registered", "mode")}
+                       for r in svc_secrets.status(box.deploy)]  # fmt: skip
+    except Exception:  # a box without the secrets folder yet
+        secret_rows = []
+    log_days = []
+    base = box.log_dir() / "services"
+    if base.is_dir():
+        for day in sorted(base.iterdir(), reverse=True)[:14]:
+            if day.is_dir() and re.match(r"^\d{4}-\d{2}-\d{2}$", day.name):
+                fs = [f for f in day.iterdir() if f.is_file()]
+                log_days.append({"day": day.name, "files": len(fs), "bytes": sum(f.stat().st_size for f in fs)})
+    disks = [x for x in (_disk(box.deploy), _disk(Path("/var/lib/docker"))) if x is not None]
+    return {
+        "at": _now(),
+        "box": box.kind,
+        "version": {
+            "trialbox": _version(),
+            "bundle": applied[-1].get("bundle") if applied else "",
+            "applied_at": applied[-1].get("at") if applied else "",
+        },
+        "updates": sorted(bundles.values(), key=lambda r: str(r.get("last")), reverse=True)[:10],
+        "rollback_points": points[-10:],
+        "incoming": incoming,
+        "backups": {
+            "targets": targets,
+            "newest": newest,
+            "key": box.public_key().is_file(),
+            "stale_hours": STALE_HOURS,
+        },
+        "secrets": secret_rows,
+        "logs": {"days": log_days},
+        "disk": disks,
+    }
+
+
+def prepare(ops: OpsDir, uid: int | None = SERVICE_UID) -> None:
+    """The folders; ``requests/`` is writable by the console's user (uid 10001 in the image), the rest only by root.
+    As a non-root user (a test, the in-process box) the folders are only made."""
+    for sub, mode in (("requests", 0o770), ("results", 0o755), ("running", 0o755), ("network", 0o755)):
+        d = ops.root / sub
+        d.mkdir(parents=True, exist_ok=True)
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            os.chmod(d, mode)
+            if sub == "requests" and uid is not None:
+                os.chown(d, uid, uid)
+
+
+def main(action: str, deploy: Path, ops_dir: Path | None, local: bool, watch: int) -> int:
+    """``trialbox ops run``: the pending requests, then the status (``--watch N``: again every N seconds)."""
+    box = Box.local(deploy, os.environ) if local else Box.compose(deploy)
+    ops = OpsDir(ops_dir or Path(box.env.get("TB_OPS_DIR") or deploy / "ops"))
+    prepare(ops)
+    runner = OpsRunner(box, ops)
+    if action == "status":
+        print(json.dumps(runner.write_status(), indent=1, ensure_ascii=False))
+        return 0
+    while True:
+        for res in runner.run_pending():
+            print(f"{res['id']} {res['action']}: {'ok' if res['ok'] else 'FAILED'}: {res['summary']}")
+        if watch <= 0:
+            return 0
+        time.sleep(watch)

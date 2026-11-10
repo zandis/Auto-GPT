@@ -1,0 +1,35 @@
+# Box-install rehearsal (D-176): the settings wizard's answers for the synthetic hospital A of the fixtures
+# (tests/fixtures/synthetic_patients/site-a, mounted by compose at /data/source/site-a). Synthetic only.
+site_id: REHEARSAL-A
+site_name: 示範醫院A (synthetic, box rehearsal)
+tz: Asia/Taipei
+locale: zh-TW
+contact: it-ops@hospa.test
+internal_domains: [hospa.test]
+intake_address: trialbox@hospa.test
+senders: [crc1@hospa.test, pi@hospa.test]
+physicians: [pi@hospa.test]
+reviewers: [crc1@hospa.test, pi@hospa.test]
+alliance_sites: []
+data_source_type: csv
+data_source_path: /data/source/site-a
+mapping: mapping/tw_core/demo_his.yaml
+mrn_regex: '^\d{8}$'
+registry_type: none
+departments: {RHEU: 風濕免疫科, META: 新陳代謝科, ONC: 腫瘤科}
+practitioners:
+  P10001: {name: Dr. A1 (synthetic), department: RHEU, email: pi@hospa.test, capacity_per_month: 3}
+llm_mode: gpu
+cloud_enabled: no
+attachment_encryption: zip
+twpas_enabled: no
+alliance_root: no
+alliance_root_address: ""
+cohort_rulesets: []
+smtp_host: smtp.hospa.test
+smtp_port: "587"
+imap_host: imap.hospa.test
+imap_port: "993"
+imap_user: trialbox
+mta_authserv_id: mx.hospa.test
+ctgov_mode: offline

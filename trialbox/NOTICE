@@ -1,0 +1,400 @@
+TrialBox: third-party notices
+=============================
+
+This file lists the third-party material that the TrialBox demo image (demo/Dockerfile) ships, with the
+version, the licence and what the licence asks of us (attribution text, notice, conditions). The console shows
+it at /about. The demo image copies this folder (trialbox/) minus .dockerignore, installs the Python packages of
+deploy/requirements.lock, fetches two fonts (tools/fetch_fonts.py) and, when tools/fetch_jvm_deps.sh has run
+before the build, carries the CQL translator jars in .cache/jvm/cql-translator/lib.
+
+Every patient in the demo is synthetic. The code lists below are demo subsets, not complete releases.
+
+Scope: this is the PoC part of the licence register (card T-617a, finding STD-044). The register as data
+(docs/licences/register.csv), the build check over it and the removal of the SNOMED CT remnants are card T-617b.
+Open items are listed in section 9. tests/unit/test_notice.py fails when a vocabulary folder the image ships
+is not named in section 8.
+
+Sections: 1 code systems and vocabularies; 2 FHIR and data-model material; 3 clinical scores and catalogue
+sources; 4 public data sets; 5 Java libraries (CQL translator); 6 fonts and JavaScript; 7 Python packages and
+the base image; 8 shipped vocabulary folders; 9 open items.
+
+
+===============================================================================================================
+1. CODE SYSTEMS AND VOCABULARIES
+===============================================================================================================
+
+LOINC (Logical Observation Identifiers Names and Codes)
+  Version: no release is pinned in the shipped files; the codes and names were checked against the release
+    current on 2026-11-09 (LOINC 2.82). The NHI lab map sample states LOINC 2.77. A pinned version is open
+    item 9.1.
+  Where: services/criteria_compiler/terminology/src/loinc_tw.csv, catalogue/items.csv, rulesets/*/valuesets,
+    services/adapter/mapping/tw_core/lab_local_to_loinc.csv, services/adapter/mapping/jp_core/jlac10_to_loinc.csv,
+    services/adapter/mapping/mimic/tables/labitem_to_loinc.csv, tests/fixtures.
+  Licence: LOINC licence, Regenstrief Institute, https://loinc.org/license/
+  Obligation: keep the notice below and state the LOINC version; codes and names unchanged.
+  Attribution: This material contains content from LOINC (http://loinc.org). LOINC is copyright (c) 1995-2026,
+    Regenstrief Institute, Inc. and the Logical Observation Identifiers Names and Codes (LOINC) Committee and is
+    available at no cost under the license at http://loinc.org/license. LOINC(R) is a registered United States
+    trademark of Regenstrief Institute, Inc.
+
+UCUM (Unified Code for Units of Measure)
+  Version: unit codes in libs/tb_common/labvalue.py, catalogue/items.csv (unit_ucum) and the lab maps follow
+    UCUM as published at https://ucum.org; the ucum-1.0.8 jar (section 5) embeds ucum-essence.xml version 1.9.
+  Licence: UCUM licence, Regenstrief Institute and The UCUM Organization, https://ucum.org/license
+  Obligation: keep the notice below.
+  Attribution: This product includes all or a portion of the UCUM table, UCUM codes, and UCUM definitions or is
+    derived from it, subject to a license from Regenstrief Institute, Inc. and The UCUM Organization. Your use of
+    the UCUM table, UCUM codes, UCUM definitions also is subject to this license, a copy of which is available at
+    https://ucum.org. The current complete UCUM table, UCUM Specification are available for download at
+    https://ucum.org. The UCUM table and UCUM codes are copyright (c) 1995-2013, Regenstrief Institute, Inc. and
+    the Unified Codes for Units of Measures (UCUM) Organization. All rights reserved. THE UCUM TABLE (IN ALL
+    FORMATS), UCUM DEFINITIONS, AND SPECIFICATION ARE PROVIDED "AS IS." ANY EXPRESS OR IMPLIED WARRANTIES ARE
+    DISCLAIMED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+    PARTICULAR PURPOSE.
+
+ICD-10-CM (U.S. clinical modification of ICD-10)
+  Version: FY2026 code and title list (services/criteria_compiler/terminology/src/icd10cm_2026.csv.gz and
+    icd10cm_full.parquet); the curated demo rows of icd10cm_tw.csv; value sets in rulesets/*/valuesets.
+  Licence: U.S. public domain (National Center for Health Statistics, CDC; CMS),
+    https://www.cdc.gov/nchs/icd/icd-10-cm/
+  Obligation: none; source credited.
+  Attribution: ICD-10-CM, National Center for Health Statistics, Centers for Disease Control and Prevention.
+    ICD-10 is a classification of the World Health Organization.
+  ICD-9-CM to ICD-10-CM rows of services/adapter/mapping/mimic/tables/icd9_to_icd10cm.csv follow the CMS General
+    Equivalence Mappings (U.S. public domain).
+
+ICD-10-CM/PCS Chinese edition (Taiwan) and the 2014 to 2023 map
+  Version: 2023 Chinese edition; Chinese names in icd10cm_tw.csv (demo rows) and the samples
+    tests/fixtures/refdata/tw_icd_2014_2023_*_sample.csv.
+  Licence: Open Government Data License, version 1.0 (Taiwan), https://data.gov.tw/license
+  Obligation: attribution as below.
+  Attribution: 2023年中文版ICD-10-CM/PCS and 2014年版與2023年版ICD-10-CM/PCS對應檔, 衛生福利部中央健康保險署
+    (National Health Insurance Administration), via data.gov.tw (dataset 177508), Open Government Data License
+    1.0. ICD-10-CM/PCS is based on the WHO ICD-10 (copyright World Health Organization); ICD-10-CM and ICD-10-PCS
+    are by NCHS and CMS (U.S.).
+
+WHO ICD-10 to ICD-10-CM category bridge (TrialBox)
+  Version: the file's own version (libs/tb_common/refdata_src/icd10_who_cm_checked.csv).
+  Licence: TrialBox's own work from code strings only; no WHO ICD-10 text is shipped.
+  Attribution: ICD-10-CM category codes from the National Center for Health Statistics, CDC. ICD-10 is a
+    classification of the World Health Organization.
+
+ATC (Anatomical Therapeutic Chemical classification)
+  Version: not recorded (open item 9.2).
+  Where: services/criteria_compiler/terminology/src/atc.csv (codes and English names), nhi_drug.csv,
+    rulesets/*/valuesets, catalogue, services/adapter/mapping/mimic/tables/drug_to_atc.csv,
+    services/adapter/mapping/jp_core/yj_to_atc.csv, libs/tb_common/refdata_src/jp_yj_atc.csv.
+  Licence: WHO Collaborating Centre for Drug Statistics Methodology (WHOCC) copyright,
+    https://atcddd.fhi.no/copyright_disclaimer/
+  Obligation: credit the WHOCC; WHOCC terms restrict copying and distribution of the ATC/DDD index in a
+    commercial product. Written permission has not been asked (open item 9.2). No DDD values are shipped.
+  Attribution: ATC codes: WHO Collaborating Centre for Drug Statistics Methodology, Oslo, Norway.
+
+YJ code stems to ATC (TrialBox)
+  Version: the file's own version (libs/tb_common/refdata_src/jp_yj_atc.csv, 56 stems) and the demo map
+    services/adapter/mapping/jp_core/yj_to_atc.csv.
+  Licence: TrialBox's own table; YJ stems read from MHLW's list under the Public Data License 1.0 (PDL 1.0),
+    https://www.digital.go.jp/resources/open_data/public_data_license_v1.0
+  Attribution: 出典：厚生労働省「薬価基準収載品目リスト」(加工して作成). ATC codes: WHO Collaborating Centre for Drug
+    Statistics Methodology.
+
+MHLW drug price list (薬価基準収載品目リスト) sample
+  Version: sample rows in tests/fixtures/refdata/mhlw_yakka_sample.csv.
+  Licence: Public Data License 1.0 (PDL 1.0), MHLW website terms,
+    https://www.digital.go.jp/resources/open_data/public_data_license_v1.0
+  Attribution: 出典：厚生労働省「薬価基準収載品目リスト及び後発医薬品に関する情報について」(加工して作成)
+
+Taiwan NHI drug codes, NHI order codes, department codes
+  Version: the NHI drug and order rows of services/criteria_compiler/terminology/src are synthetic demo rows
+    (column synthetic = yes); tests/fixtures/refdata/nhi_drugs_sample.csv holds a few rows of the public list.
+  Licence: Open Government Data License, version 1.0 (Taiwan), https://data.gov.tw/license
+  Attribution: 健保用藥品項查詢項目檔, National Health Insurance Administration (衛生福利部中央健康保險署), via
+    data.gov.tw (dataset 23715), Open Government Data License 1.0.
+
+Taiwan NHI lab item to LOINC map (ConceptMap nhi-loinc, PAS IG)
+  Version: tw.gov.mohw.nhi.pas 1.3.0, ConceptMap nhi-loinc 1.3.0, LOINC 2.77 (sample in
+    tests/fixtures/refdata/nhi_pas_sample).
+  Licence: CC0 1.0, https://creativecommons.org/publicdomain/zero/1.0/ ; the LOINC content in it under the LOINC
+    licence (above).
+  Attribution: 臺灣健保署醫療服務給付項目對應LOINC (ConceptMap nhi-loinc), National Health Insurance Administration
+    (衛生福利部中央健康保險署), 臺灣健保事前審查實作指引 (PAS IG). This material contains content from LOINC
+    (http://loinc.org).
+
+Taiwan FDA clinical trial and indication data sets, NAER medical terms (samples)
+  Version: sample rows in tests/fixtures/refdata (tfda_trials_sample.csv, tfda_indication_sample.csv,
+    naer_medical_terms_sample.csv); trial rows marked [合成資料] are synthetic.
+  Licence: Open Government Data License, version 1.0 (Taiwan), https://data.gov.tw/license
+  Attribution: 台灣藥品臨床試驗現況資料集 and 宣稱適應症 (ICD9編號) 資料集, Taiwan Food and Drug Administration, via
+    data.gov.tw (datasets 177198, 177212); 國家教育研究院 醫學學術名詞 (National Academy for Educational Research),
+    via data.gov.tw (dataset 15460); Open Government Data License 1.0.
+
+CTCAE v5.0 (English)
+  Version: v5.0 (sample rows in tests/fixtures/refdata/ctcae_v5_sample.csv).
+  Licence: U.S. public domain (National Cancer Institute), https://www.cancer.gov/policies/copyright-reuse
+  Obligation: credit NCI. MedDRA codes are not shipped.
+  Attribution: Common Terminology Criteria for Adverse Events (CTCAE) v5.0, U.S. National Cancer Institute,
+    Cancer Therapy Evaluation Program. Source: National Cancer Institute.
+
+MEDIS standard disease names (標準病名), YJ/HOT master, JLAC10 (licensed masters)
+  The image ships none of these masters. A hospital loads its own release (site-fetch). The files in
+  tests/fixtures/licensed are invented sample rows in the masters' column layout (codes 9000xxxx and 99xxxxx),
+  not master content. services/adapter/mapping/jp_core/byomei_to_icd10.csv and jlac10_to_loinc.csv are demo maps
+  written for TrialBox (ZBxx codes are invented; rows marked verify).
+
+TrialBox clinical synonyms (ja, zh-TW), diagnosis names, departments
+  libs/tb_common/refdata_src/*_clinical_synonyms.csv, services/criteria_compiler/terminology/src/synonyms.csv,
+  department.csv, services/sitesetup/dx_names.csv: TrialBox's own work. The ICD-10 codes they point to are
+  covered above.
+
+SNOMED CT
+  TrialBox v1 ships without SNOMED CT. A few SNOMED CT identifiers and descriptions remain in the image; they are
+  listed in open item 9.3 and are removed or licensed by card T-617b.
+
+
+===============================================================================================================
+2. FHIR AND DATA-MODEL MATERIAL
+===============================================================================================================
+
+HL7 FHIR R4 (4.0.1) and HL7 terminology
+  Where: FHIR resource shapes throughout; definitions inside the org.hl7.fhir and HAPI jars (section 5).
+  Licence: Creative Commons CC0 1.0 (HL7 FHIR specification), https://hl7.org/fhir/R4/license.html
+  Obligation: none for the content; trademark use as below.
+  Attribution: HL7(R), FHIR(R) and the FHIR [FLAME DESIGN](R) are the registered trademarks of Health Level
+    Seven International and their use does not constitute endorsement by HL7.
+
+JP Core FHIR implementation guide (jp-core.r4)
+  Version: 1.1.0 (sha256 60567c583943150c26275f156d63c181e5608efcdf0616289a7fe5c032457da1); profile rules derived
+    into services/adapter/validate/jp_core_rules.json by tools/jpcore_rules.py.
+  Licence: not stated in the package (open item 9.4). Source: https://packages.simplifier.net/jp-core.r4/1.1.0
+  Attribution: JP Core, 日本医療情報学会 (JAMI) NeXEHRS 課題研究会.
+
+TW Core IG (tw.gov.mohw.twcore) and TWPAS IG (tw.gov.mohw.nhi.pas)
+  Profile URLs in the mappings; the TWPAS package sample of tests/fixtures/refdata/nhi_pas_sample (1.3.0).
+  Licence: CC0 1.0, https://creativecommons.org/publicdomain/zero/1.0/
+  Attribution: 衛生福利部 (Ministry of Health and Welfare) and 衛生福利部中央健康保險署, Taiwan.
+
+OMOP Common Data Model DDL
+  Version: v5.4.2 (services/omop/ddl, four files copied unchanged; sha256 in services/omop/ddl/pin.json).
+  Licence: Apache License 2.0, https://github.com/OHDSI/CommonDataModel/blob/main/LICENSE
+  Obligation: keep the licence and copyright notice; state changes (none).
+  Attribution: OMOP Common Data Model, Observational Health Data Sciences and Informatics (OHDSI).
+
+OHDSI Phenotype Library cohort references
+  Version: 3.37.0 (cohort ids only, catalogue/phenotypes.csv).
+  Licence: Apache License 2.0, https://github.com/OHDSI/PhenotypeLibrary
+  Attribution: OHDSI Phenotype Library, Observational Health Data Sciences and Informatics.
+
+CDISC QRS and Controlled Terminology codes
+  Where: codes only, catalogue/items.csv (cdisc_qrs).
+  Licence: CDISC terms of use (free to implement), https://www.cdisc.org/terms-use
+  Attribution: CDISC Controlled Terminology, Clinical Data Interchange Standards Consortium, maintained with the
+    NCI Enterprise Vocabulary Services.
+
+
+===============================================================================================================
+3. CLINICAL SCORES AND CATALOGUE SOURCES
+===============================================================================================================
+
+catalogue/scores/*.yaml hold scoring formulas with the published source cited in each file (source and licence
+fields). No licensed questionnaire text is shipped (catalogue/README.md). Two instruments carry conditions:
+  MoCA: copyright of MoCA Test Inc.; administering it needs training and certification; TrialBox stores the
+    score only (catalogue/scores/moca_adjusted.yaml), https://mocacognition.com
+  PHQ-9: developed by Drs. Robert L. Spitzer, Janet B.W. Williams, Kurt Kroenke and colleagues, with an
+    educational grant from Pfizer Inc. No permission required to reproduce, translate, display or distribute.
+
+
+===============================================================================================================
+4. PUBLIC DATA SETS
+===============================================================================================================
+
+eval/DATASETS.yaml names the source and licence of every data set under eval/. Those in the image:
+
+ClinicalTrials.gov records
+  Where: services/criteria_compiler/cassettes/ctgov, tests/fixtures/open_data, trial texts used by eval/.
+  Licence: NLM terms and conditions, https://clinicaltrials.gov/about-site/terms-conditions
+  Attribution: Data from ClinicalTrials.gov, U.S. National Library of Medicine. The information is provided by
+    study sponsors and investigators, who are responsible for its accuracy. NLM does not endorse TrialBox.
+
+NCBI TrialGPT data (SIGIR 2016 cohort, TREC CT trial corpus)
+  Where: eval/criterion_ml (with its LICENSE.NCBI), eval/match_registry, eval/suites/judge_public.
+  Licence: U.S. Government work, public domain notice kept (eval/criterion_ml/LICENSE.NCBI),
+    https://github.com/ncbi-nlp/TrialGPT
+  Attribution: TrialGPT, National Center for Biotechnology Information, U.S. National Library of Medicine.
+
+TREC Clinical Trials 2021, 2022, 2023 topics and relevance judgements
+  Where: model answers and scores only (eval/trec_ct, eval/open_cohorts, eval/ad); the topics stay in .cache.
+  Source: NIST, https://www.trec-cds.org/
+  Attribution: TREC Clinical Trials Track, National Institute of Standards and Technology.
+
+MedTxt-CR and MedTxt-RR (NTCIR-16 Real-MedNLP)
+  Where: model answers and scores (eval/medtxt, eval/public_site); the corpus itself only in .cache/medtxt when
+    an image is built for TB_DEMO_TOOL=public_e2e.
+  Licence: CC BY 4.0, https://creativecommons.org/licenses/by/4.0/
+  Attribution: MedTxt-CR and MedTxt-RR, NTCIR-16 Real-MedNLP test collection, Social Computing Laboratory, Nara
+    Institute of Science and Technology (Sociocom NAIST), CC BY 4.0. Derived fields are TrialBox's own.
+
+Chia corpus
+  Where: route shares only (eval/chia); no corpus text.
+  Licence: CC BY 4.0, https://creativecommons.org/licenses/by/4.0/
+  Attribution: Kury F. et al., Chia, a large annotated corpus of clinical trial eligibility criteria. Sci Data
+    7, 281 (2020). figshare doi:10.6084/m9.figshare.11855817.
+
+MIMIC-IV Clinical Database Demo on FHIR
+  Version: 2.1.0. Not in the image: fetched at run time. services/adapter/mapping/mimic/tables and
+    services/dataplat/contracts/mimic_fhir carry MIMIC item ids and labels used to map it.
+  Licence: Open Data Commons Open Database License v1.0, https://opendatacommons.org/licenses/odbl/1-0/
+  Attribution: Johnson A., Bulgarelli L., Pollard T., et al. MIMIC-IV Clinical Database Demo on FHIR, PhysioNet.
+
+Synthea
+  Where: cohort counts only (eval/synthea).
+  Licence: Apache License 2.0, https://github.com/synthetichealth/synthea
+  Attribution: Synthea, The MITRE Corporation.
+
+
+===============================================================================================================
+5. JAVA LIBRARIES (CQL TRANSLATOR)
+===============================================================================================================
+
+The direct dependency is cql-to-elm-cli 5.4.0 (services/criteria_compiler/compile_cql/translator/pom.xml);
+tools/fetch_jvm_deps.sh copies it and its transitive jars to .cache/jvm/cql-translator/lib, which the demo
+image carries when the folder exists at build time. The FHIR validator jar and the FHIR package cache are not in
+the image (.dockerignore). Each jar keeps its own licence and notice files inside it (META-INF). Licences as
+declared in each jar's POM or manifest; the unmodified jars are redistributed.
+
+Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0); keep the licence and any NOTICE file:
+  cql-to-elm-cli-5.4.0 cql-to-elm-jvm-5.4.0 cql-jvm-5.4.0 elm-jvm-5.4.0 cqf-fhir-5.4.0 cqf-fhir-npm-5.4.0
+  qdm-5.4.0 quick-5.4.0 shared-jvm-5.4.0 ucum-5.4.0 (cqframework, HL7)
+  hapi-fhir-base-8.10.0 hapi-fhir-caching-api-8.10.0 hapi-fhir-converter-8.10.0
+  hapi-fhir-structures-dstu2-8.10.0 hapi-fhir-structures-dstu3-8.10.0 hapi-fhir-structures-hl7org-dstu2-8.10.0
+  hapi-fhir-structures-r4-8.10.0 hapi-fhir-structures-r5-8.10.0 (HAPI FHIR, University Health Network)
+  org.hl7.fhir.convertors-6.9.4.1 org.hl7.fhir.dstu2-6.9.4.1 org.hl7.fhir.dstu2016may-6.9.4.1
+  org.hl7.fhir.dstu3-6.9.4.1 org.hl7.fhir.dstu3.support-6.9.4.1 org.hl7.fhir.model-6.9.4.1 org.hl7.fhir.r4-6.9.4.1
+  org.hl7.fhir.r4b-6.9.4.1 org.hl7.fhir.r5-6.9.4.1 org.hl7.fhir.support-6.9.4.1 org.hl7.fhir.utilities-6.9.4.1
+  commons-beanutils-1.9.3 commons-codec-1.15 commons-collections-3.2.2 commons-compress-1.24.0 commons-io-2.17.0
+  commons-lang3-3.18.0 commons-text-1.10.0 httpclient5-5.1.3 httpcore5-5.1.3 httpcore5-h2-5.1.3
+  jakarta-regexp-1.4 (Apache Software Foundation)
+  guava-33.2.1-jre failureaccess-1.0.2 listenablefuture-9999.0-empty-to-avoid-conflict-with-guava
+  error_prone_annotations-2.26.1 j2objc-annotations-3.0.0 gson-2.9.1 (Google)
+  jackson-annotations-2.21 jackson-core-2.21.1 jackson-databind-2.21.1 jackson-datatype-jsr310-2.21.1 (FasterXML)
+  kotlin-stdlib-2.3.10 kotlin-stdlib-common-2.0.0 kotlin-stdlib-jdk7-2.0.0 kotlin-stdlib-jdk8-2.0.0
+  kotlinx-io-bytestring-jvm-0.8.0 kotlinx-io-core-jvm-0.8.0 kotlinx-serialization-core-jvm-1.9.0
+  kotlinx-serialization-json-io-jvm-1.9.0 kotlinx-serialization-json-jvm-1.9.0 annotations-13.0 (JetBrains)
+  kotlin-logging-jvm-8.0.01 bignum-jvm-0.3.10 JavaEWAH-1.2.3 jsr305-3.0.2 jaxb2-fluent-api-3.0.0
+  nimbus-jose-jwt-10.0.2 opentelemetry-api-1.60.1 opentelemetry-common-1.60.1 opentelemetry-context-1.60.1
+  opentelemetry-instrumentation-annotations-2.26.1 sqlite-jdbc-3.50.3.0 xmlresolver-5.2.1 xmlresolver-5.2.1-data
+  jcl-over-slf4j-2.0.16 xpp3-1.1.6
+Apache License 2.0 or BSD 3-Clause (https://opensource.org/license/bsd-3-clause):
+  antlr-kotlin-runtime-jvm-1.0.12 (Strumenta)
+BSD 3-Clause; keep the copyright notice:
+  ucum-1.0.8 (org.fhir, Health Intersections; embeds the UCUM essence table, see section 1)
+BSD 2-Clause (https://opensource.org/license/bsd-2-clause):
+  jaxb2-basics-3.0.0 jaxb2-basics-runtime-3.0.0 jaxb2-basics-tools-3.0.0
+Eclipse Distribution License 1.0 (BSD 3-Clause, https://www.eclipse.org/org/documents/edl-v10.php):
+  jakarta.activation-api-2.1.2 jakarta.xml.bind-api-4.0.1 angus-activation-2.0.1 jaxb-core-4.0.5
+  jaxb-runtime-4.0.5 txw2-4.0.5 istack-commons-runtime-4.1.2 org.eclipse.jgit-7.4.0.202509020913-r
+Eclipse Public License 2.0 or GPL-2.0 with Classpath Exception (https://www.eclipse.org/legal/epl-2.0/); the
+EPL-2.0 branch is taken; source at the Eclipse projects:
+  jakarta.annotation-api-2.1.1 jakarta.mail-api-2.1.2 angus-mail-2.0.2
+Eclipse Public License 2.0 or Eclipse Distribution License 1.0; the EDL branch is taken:
+  org.eclipse.persistence.asm-9.5.0 org.eclipse.persistence.core-4.0.2 org.eclipse.persistence.moxy-4.0.2
+Mozilla Public License 2.0 (https://www.mozilla.org/MPL/2.0/); file-level copyleft, unmodified; source at
+https://github.com/Saxonica/Saxon-HE:
+  Saxon-HE-11.6 (Saxonica)
+MIT (https://opensource.org/license/mit):
+  slf4j-api-2.0.13 slf4j-simple-2.0.13 checker-qual-3.42.0 jopt-simple-4.7 plantuml-mit-1.2026.1
+Unicode License v3 (https://www.unicode.org/license.txt):
+  icu4j-78.1 (Unicode, Inc.)
+Common Public License 1.0 (https://opensource.org/license/cpl1-0-txt); on the runtime classpath by the
+translator's POM, unmodified (card T-672 takes it off the classpath):
+  junit-4.7
+GNU Lesser General Public License 3.0 (https://www.gnu.org/licenses/lgpl-3.0.html), as stated by the upstream
+project (the POM names no licence); unmodified and replaceable, source at https://github.com/javaparser:
+  javaparser-1.0.11
+
+
+===============================================================================================================
+6. FONTS AND JAVASCRIPT
+===============================================================================================================
+
+Noto Sans TC and Noto Sans JP (report fonts, tools/fetch_fonts.py)
+  Version: the variable fonts of github.com/google/fonts branch main at build time, instantiated to Regular and
+    Bold; the build log prints the sha256 of each file (pinning is open item 9.5).
+  Licence: SIL Open Font License 1.1, https://openfontlicense.org ; OFL.txt is fetched beside the fonts
+    (.cache/fonts/OFL.txt in the image).
+  Obligation: ship the licence with the fonts; subsets embedded in reports are allowed; the fonts are not sold
+    on their own.
+  Attribution: Noto is a trademark of Google LLC. Copyright 2014-2021 Adobe (http://www.adobe.com/), with
+    Reserved Font Name 'Source'.
+
+axe-core (tools/vendor/axe.min.js)
+  Version: 4.10.2. Test-only (accessibility walk); in the image because tools/ is copied.
+  Licence: Mozilla Public License 2.0, https://www.mozilla.org/MPL/2.0/ ; unmodified; source at
+    https://github.com/dequelabs/axe-core
+  Attribution: axe-core, Copyright (c) Deque Systems, Inc.
+
+The console's own script and styles (services/console/static) and site/assets are TrialBox's own work. The
+testbench's htmx copy (tools/testbench) is not in the image.
+
+
+===============================================================================================================
+7. PYTHON PACKAGES AND THE BASE IMAGE
+===============================================================================================================
+
+Python packages
+  Version: every package of deploy/requirements.lock (pinned with sha256 hashes, generated from uv.lock), plus
+    pytest 9.2.0 (MIT) installed for tests/inproc_box.py.
+  Licences: the licence report is generated, not kept in the repository: `make licences` writes
+    dist/sbom/licences.md from the lock's CycloneDX SBOM (tools/supply_chain/licences.py); the release bundle
+    carries it (tools/supply_chain/release.py). Every LGPL, dual or unrecognised licence is reviewed in
+    deploy/supply-chain-allowlist.yaml: psycopg and psycopg-binary (LGPL-3.0), docxtpl (LGPL-2.1), py7zr, pybcj,
+    pyppmd, inflate64, multivolumefile (LGPL-2.1+), all used unmodified and replaceable; dulwich (Apache-2.0
+    branch of its dual licence). MPL-2.0 packages (certifi, tqdm, pathspec) are unmodified. No GPL or AGPL
+    package is in the image. matplotlib bundles the DejaVu and STIX fonts under their own font licences.
+  Obligation: each installed package keeps its licence file in its dist-info folder inside the image
+    (/usr/local/lib/python3.12/site-packages/*.dist-info).
+
+Base image and operating-system packages
+  python:3.12-slim pinned by digest in demo/Dockerfile (Debian; CPython under the PSF License 2.0,
+  https://docs.python.org/3/license.html) and the Debian postgresql packages (PostgreSQL Licence,
+  https://www.postgresql.org/about/licence/). The copyright file of every Debian package is in the image under
+  /usr/share/doc/<package>/copyright.
+
+
+===============================================================================================================
+8. SHIPPED VOCABULARY FOLDERS
+===============================================================================================================
+
+Every folder of the image that holds code lists, code maps or value sets, and the sections that cover it
+(tests/unit/test_notice.py; a * stands for one folder name):
+
+  services/criteria_compiler/terminology/       ICD-10-CM, ATC, LOINC, NHI tables as Parquet (section 1)
+  services/criteria_compiler/terminology/src/   their CSV sources (section 1)
+  rulesets/*/valuesets/                         ICD-10-CM, LOINC, ATC value sets of the shipped rulesets
+  catalogue/                                    LOINC, UCUM, CDISC, ATC, OHDSI references (sections 1 to 3)
+  libs/tb_common/refdata_src/                   ICD-10 bridge, YJ to ATC, synonyms (section 1)
+  services/adapter/mapping/jp_core/             demo maps to ICD-10, LOINC, ATC (section 1)
+  services/adapter/mapping/tw_core/             local lab to LOINC (section 1)
+  services/adapter/mapping/mimic/tables/        MIMIC items to LOINC, ATC, ICD-10-CM, SNOMED CT (9.3)
+  services/sitesetup/                           diagnosis names to ICD-10 (section 1)
+  tests/fixtures/refdata/                       samples of the public lists (section 1)
+  tests/fixtures/refdata/nhi_pas_sample/        TWPAS package and ConceptMap nhi-loinc (section 1)
+  tests/fixtures/licensed/                      invented rows in licensed masters' layout (section 1)
+  tests/fixtures/open_data/rulesets/*/valuesets/  value sets of ClinicalTrials.gov test protocols (9.3)
+
+
+===============================================================================================================
+9. OPEN ITEMS
+===============================================================================================================
+
+9.1 LOINC version: the shipped files state no LOINC release. A version pin (PR #82) and the register row
+    (T-617b) close it.
+9.2 ATC: WHOCC's written permission to ship ATC names in a commercial product is not yet asked (owner). The
+    fallback is codes only, names from the open NHI and site lists. The ATC version is not recorded.
+9.3 SNOMED CT remnants (no affiliate licence for Japan or Taiwan): services/adapter/mapping/mimic/tables/
+    icu_item_to_snomed.csv (codes and descriptions), the operator concepts in services/omop/vocab.py, the route
+    code in services/orchestrator/reports/twpas_bundle.py, and SNOMED codes in the value sets of
+    tests/fixtures/open_data/rulesets (EMPULSE, STARRT-AKI). Removed or licensed by card T-617b.
+9.4 JP Core: the package states no licence; JAMI's terms are to be confirmed before go-live in Japan.
+9.5 Fonts: fetched from an unpinned branch; the font hash pin is in dependency batch 2.
+9.6 The licence of each item above was read from the source's own statement or the component's metadata;
+    the third-party images of the full product (not the demo image) are covered by T-110 and T-617b.

@@ -20,6 +20,8 @@ x-py: &py
   init: true
   restart: unless-stopped
   networks: [trialbox-net]
+  depends_on:   # services open the trial database at start; a gateway that raced the db exited (box rehearsal, D-176)
+    db: {condition: service_healthy}
   volumes: &settings_vol
     - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
   healthcheck: &pyhealth
@@ -225,14 +227,26 @@ services:
               "--proxy-headers", "--forwarded-allow-ips", "${TB_CONSOLE_FORWARDED_ALLOW_IPS:-127.0.0.1}"]
     environment: {PORT: "8090", TB_SERVICE_NAME: console, TB_CONSOLE_DIR: /data/console, TB_AUDIT_DIR: /data/audit,
                   TB_RULESETS_DIR: /data/rulesets, TB_GATEWAY_URL: "http://gateway:8020/v1",
-                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-}"}
+                  TB_GATEWAY_MODEL: "${TB_GATEWAY_MODEL:-}", TB_CONSOLE_SECURE_COOKIE: "${TB_CONSOLE_SECURE_COOKIE:-}",
+                  TB_OPS_DIR: /data/ops}  # D-178: the mount below; the host's TB_OPS_DIR in .env is the host path
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - console-data:/data/console
       - audit-data:/data/audit
       - rulesets-data:/data/rulesets:ro
       - objects-data:/data/objects
+      # D-178: the operations folder shared with the host's runner (python3 -m tools.trialbox ops run): requests in,
+      # results and the status out; never a secret
+      - ${TB_OPS_DIR:-./ops}:/data/ops
     ports: ["${TB_CONSOLE_BIND:-127.0.0.1}:${TB_HOST_CONSOLE_PORT:-8090}:8090"]
+    # Docker publishes no port of a container that is only on internal networks: on trialbox-net alone the console
+    # was unreachable from the host (found by the box rehearsal, D-176). console-net carries the published port only.
+    networks: [trialbox-net, console-net]
+    # console-net is not internal, so Docker's resolver would forward outside names for the console. Send them to an
+    # address that is never assigned (TEST-NET-1, RFC 5737), reached from the console's own namespace (Docker 26+
+    # forwards to a loopback resolver from the host's namespace, so not 127.0.0.1) and, with no NAT on console-net,
+    # never answered. The box's own names still resolve. deploy/network.sh drops the query too (D-176).
+    dns: [192.0.2.53]
     depends_on:
       db: {condition: service_healthy}
       orchestrator: {condition: service_healthy}
@@ -264,9 +278,10 @@ services:
     environment:
       HF_HUB_OFFLINE: "1"
       VLLM_NO_USAGE_STATS: "1"
+      VLLM_API_KEY: "${TB_LLM_API_KEY:-}"   # D-177: vLLM checks it on /v1 only; model-guard checks every call
     volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
     ipc: host
-    networks: [model-net]
+    networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
     restart: unless-stopped
     deploy:
       resources:
@@ -279,15 +294,61 @@ services:
       retries: 40
       start_period: 300s
 
+  model-guard:
+    # D-177: the only way to the model servers. vLLM checks its key on /v1 only (/invocations, /tokenize, /metrics
+    # and, in dev mode, /collective_rpc answer without it), so vLLM sits on model-backend-net and this guard answers
+    # to its names on model-net: the key on every call, and only /v1/models, /v1/chat/completions, /v1/completions
+    # (/sleep, /wake_up, /is_sleeping with TB_GUARD_ADMIN=1) and /health. Everything else is 404 (services/model_guard).
+    profiles: [gpu]
+    logging: *logging
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    command: ["python", "-m", "model_guard"]
+    expose: ["8000"]
+    user: "10001:10001"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    environment:
+      PORT: "8000"
+      TB_LLM_API_KEY: "${TB_LLM_API_KEY:-}"
+      TB_GUARD_ROUTES: "llm-service=llm-service-vllm:8000,llm-verifier=llm-verifier-vllm:8000"
+      TB_GUARD_ADMIN: "${TB_GUARD_ADMIN:-0}"
+    networks:
+      model-net:
+        aliases: [llm-service, llm-verifier]   # the names the gateway calls (models/routing.yaml)
+      model-backend-net: {}
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
 networks:
   trialbox-net:
     name: trialbox-net
     internal: true        # no default route: deny-by-default egress at the compose level
   model-net:
     name: trialbox-model-net
-    internal: true        # gateway <-> llm-service / llm-stub only; no other service joins it
+    internal: true        # gateway <-> model-guard (llm-service, llm-verifier) / llm-stub only
+  model-backend-net:
+    name: trialbox-model-backend
+    internal: true        # model-guard <-> the vLLM servers only (D-177)
   egress-net:
     name: trialbox-egress  # host-level nftables (network.sh) restricts destinations per container
+  console-net:
+    # The console's published port only (D-176). Not internal (Docker publishes no port there), so it is closed by
+    # hand: no NAT out (no reply ever comes back from outside), published ports bind to 127.0.0.1 unless
+    # TB_CONSOLE_BIND says otherwise, no IPv6, no traffic between its members (the console is the only one).
+    # deploy/network.sh drops everything from it that is not a reply, and every connection into it that is not to
+    # the published port.
+    name: trialbox-console
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
+      com.docker.network.bridge.enable_icc: "false"
 
 volumes:
   console-data:

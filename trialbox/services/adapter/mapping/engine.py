@@ -52,6 +52,7 @@ from tb_common.crypto import pid_for_mrn
 Row = dict[str, Any]
 Resource = dict[str, Any]
 
+DATA_ABSENT = "http://terminology.hl7.org/CodeSystem/data-absent-reason"
 _PATH_RE = re.compile(r"([A-Za-z_$][A-Za-z0-9_$]*)(?:\[(\d+)\])?")
 _TOKEN_RE = re.compile(r"\{([^{}]+)\}")
 
@@ -374,11 +375,29 @@ class Mapper:
 
     # ------------------------------------------------------------------ builders
     def _b_lab_value(self, rs: ResourceSpec, row: Row, args: dict[str, Any]) -> Any:
-        """``value[x]`` from a lab result using the lookup's ucum/factor/value_type/answers columns."""
+        """``value[x]`` from a lab result using the lookup's ucum/factor/value_type/answers columns. With
+        ``unit_column`` the row's own unit is checked against the unit the lookup says the source reports (its
+        ``source_unit`` column, else ``ucum`` when ``factor`` is 1): a row in another unit, or in a unit nobody can
+        check, has no value (R-31, D-215, :func:`tb_common.labvalue.read`)."""
         lk = self.m.lookups[args["lookup"]].rows.get(str(row.get(args["key"], "")))
         raw = row.get(args["column"])
         if lk is None or raw is None or str(raw).strip() == "":
             return None
+        checked: labvalue.Reading | None = None
+        if args.get("unit_column") and lk.get("value_type") != "coded":
+            column = args["unit_column"]
+            if column not in row:  # a declared unit column the source does not have: stop, never skip the check
+                raise MappingError(f"{rs.type} from {rs.table}: unit_column {column!r} is not a column of the source")
+            source_unit = lk.get("source_unit") or (lk.get("ucum") if Decimal(lk.get("factor") or "1") == 1 else None)
+            checked = labvalue.read(raw, row[column], source_unit)
+            if checked.reason == labvalue.UNIT_MISMATCH:  # no value[x]: the engines read no value as unknown (D-130)
+                return {
+                    "dataAbsentReason": {
+                        "coding": [{"system": DATA_ABSENT, "code": "error"}],
+                        "text": labvalue.UNIT_MISMATCH,
+                    },
+                    "note": [{"text": f"{str(raw).strip()} {str(row[column] or '').strip()}"}],
+                }
         if lk.get("value_type") == "coded":
             answers = dict(a.split(":", 1) for a in (lk.get("answers") or "").split(";") if ":" in a)
             code = answers.get(str(raw).strip().upper())
@@ -392,15 +411,22 @@ class Mapper:
                 }
             }
         comparator: str | None = None
-        try:
-            num = Decimal(str(raw).strip())
-        except InvalidOperation:
-            # D-142 (review B-01): "75 H" is 75 with a flag, "<0.3" / "0.3未満" is censored (Quantity.comparator);
-            # anything else stays text, which the screening engine reads as unknown, never as a failed test
-            got = labvalue.parse(raw)
-            if got is None:
+        if checked is not None:  # D-215: the unit-checked reading is labvalue's alone (no 1.5E1, no NaN)
+            if checked.value is None:
                 return {"valueString": str(raw)}
-            num, comparator = Decimal(repr(got[0])), got[1]
+            num, comparator = Decimal(repr(checked.value)), checked.comparator
+        else:
+            try:
+                num = Decimal(str(raw).strip())
+            except InvalidOperation:
+                # D-142 (review B-01): "75 H" is 75 with a flag, "<0.3" / "0.3未満" is censored (Quantity.comparator);
+                # anything else stays text, which the screening engine reads as unknown, never as a failed test
+                got = labvalue.parse(raw)
+                if got is None:
+                    return {"valueString": str(raw)}
+                num, comparator = Decimal(repr(got[0])), got[1]
+            if not num.is_finite():  # "NaN", "Infinity": not a result (D-215)
+                return {"valueString": str(raw)}
         factor = Decimal(lk.get("factor") or "1")
         val = num * factor
         unit = lk.get("ucum") or ""

@@ -39,15 +39,19 @@ define function "UnitOf"(O FHIR.Observation):
   Lower(ReplaceMatches(ReplaceMatches(ReplaceMatches(Coalesce((O.value as FHIR.Quantity).code.value,
     (O.value as FHIR.Quantity).unit.value, ''), ' ', ''), 'µ', 'u'), 'μ', 'u'))
 
+/* x when it is inside the item's scale, else null (D-189: a 0-10 global holding 40 is not a 40) */
+define function "InScale"(x System.Decimal, lo System.Decimal, hi System.Decimal):
+  if x is null then null else if x >= lo and x <= hi then x else null
+
 /* a component in the unit its formula expects; null when the recorded unit is not allowed (D-149) */
-{%- for comp, (target, factors) in units %}
+{%- for comp, (target, factors, rng) in units %}
 define function "Conv_{{ comp }}"(O FHIR.Observation):
   if O is null then null
-  else case "UnitOf"(O)
+  else {% if rng %}"InScale"({% endif %}case "UnitOf"(O)
 {%- for u, f in factors %}
     when '{{ u }}' then "ObsValue"(O) * {{ f }}
 {%- endfor %}
-    else null end
+    else null end{% if rng %}, {{ rng[0] }}, {{ rng[1] }}){% endif %}
 {%- endfor %}
 {%- for comp, allowed in unitless %}
 define function "Conv_{{ comp }}"(O FHIR.Observation):
@@ -90,3 +94,11 @@ define function "BASDAI"(q1 System.Decimal, q2 System.Decimal, q3 System.Decimal
 
 define function "ASDAS"(back System.Decimal, stiff System.Decimal, ptga System.Decimal, periph System.Decimal, crp System.Decimal):
   {{ asdas.back }} * back + {{ asdas.stiff }} * stiff + {{ asdas.ptga }} * (ptga / 10.0) + {{ asdas.periph }} * periph + {{ asdas.crp_ln }} * Ln(crp + 1.0)
+
+/* CDAI = TJC28 + SJC28 + PtGA (0-10) + EvGA (0-10) (D-189; catalogue cdai.yaml) */
+define function "CDAI"(tjc System.Decimal, sjc System.Decimal, ptga System.Decimal, evga System.Decimal):
+  tjc + sjc + ptga + evga
+
+/* SDAI = CDAI + CRP in mg/dL; crp arrives in mg/L from Conv_crp (D-189; catalogue sdai.yaml) */
+define function "SDAI"(tjc System.Decimal, sjc System.Decimal, ptga System.Decimal, evga System.Decimal, crp System.Decimal):
+  tjc + sjc + ptga + evga + crp / 10.0

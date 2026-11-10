@@ -19,6 +19,7 @@ from tb_common.derived import (
     EGFR,
     EGFR_JSN,
     LOINC,
+    RANGE,
     SAME_VISIT,
     SCORE,
     UNIT_OF_SCORE_ITEM,
@@ -65,7 +66,14 @@ def _cql_dec(x: float) -> str:
 
 def render_common() -> str:
     units = [
-        (comp, (target, [(u, _cql_dec(f)) for u, f in sorted(factors.items())]))
+        (
+            comp,
+            (
+                target,
+                [(u, _cql_dec(f)) for u, f in sorted(factors.items())],
+                tuple(_cql_dec(x) for x in RANGE[comp]) if comp in RANGE else None,
+            ),
+        )
         for comp, (target, factors) in sorted(UNITS.items())
     ]
     unitless = [
@@ -287,6 +295,13 @@ class CqlGenerator:
                 has_esr = f"{q(f'L_{p}_esr')} is not null"
                 value = (
                     f"TB.DAS28({latest['tjc28']}, {latest['sjc28']}, {latest['ptga']}, {has_esr}, {latest['esr']}, "
+                    f"{latest['crp']})"
+                )
+            case "cdai":  # D-189
+                value = f"TB.CDAI({latest['tjc28']}, {latest['sjc28']}, {latest['ptga10']}, {latest['evga']})"
+            case "sdai":  # D-189: the CRP in mg/L from Conv_crp; TB.SDAI takes it to mg/dL
+                value = (
+                    f"TB.SDAI({latest['tjc28']}, {latest['sjc28']}, {latest['ptga10']}, {latest['evga']}, "
                     f"{latest['crp']})"
                 )
             case "basdai":

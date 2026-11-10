@@ -391,11 +391,17 @@ def pitr_drill(root: Path) -> tuple[bool, str]:
     b = pglocal.bindir()
     pre = pglocal._as_postgres_user()
     shutil.rmtree(root, ignore_errors=True)
-    data, arch, sock, base_bk, restored = (root / n for n in ("data", "wal-archive", "run", "base", "restored"))
-    for d in (root, arch, sock):
+    data, arch, base_bk, restored = (root / n for n in ("data", "wal-archive", "base", "restored"))
+    for d in (root, arch):
         d.mkdir(parents=True, exist_ok=True)
         if pre:
             shutil.chown(d, pre[2])
+    # as pglocal.ensure does: a short socket folder when root/run is too long for a Unix socket (a scratch root under
+    # TB_TEST_ROOT, D-201), and as root the search bit on a private parent so that the server's owner reaches root
+    sock = pglocal._socket_dir(root)
+    if pre:
+        pglocal._grant_traverse(root, pre[2])
+        shutil.chown(sock, pre[2])
 
     def run(*cmd: str) -> str:
         r = pglocal._run([*pre, *cmd])
@@ -445,6 +451,8 @@ def pitr_drill(root: Path) -> tuple[bool, str]:
     except (RuntimeError, OSError) as e:
         return False, str(e)[-300:]
     finally:
+        if sock != root / "run":
+            shutil.rmtree(sock, ignore_errors=True)
         shutil.rmtree(root, ignore_errors=True)
     ok = ids == "1,2" and toast == "lz4" and walc == "zstd"
     return ok, f"rows {ids} after recovery to the target time; TOAST {toast}; WAL {walc}"

@@ -77,7 +77,9 @@ if [ ! -f "$UPDATES/trust.json" ]; then
 fi
 [ -n "$DOWNGRADE" ] && set -- "$@" --allow-downgrade "$DOWNGRADE"
 
-if [ -z "${TB_VERIFY_IN_DOCKER:-}" ] && PYTHONPATH="$ROOT/libs:$ROOT" python3 -c "import cryptography, tb_contracts" 2>/dev/null; then
+# host python3 with cryptography (a clean site host has it from the media's debs; tools/verify_update.py checks the
+# manifest schema without jsonschema there, D-176): on a first install the trialbox-py image is still inside the bundle
+if [ -z "${TB_VERIFY_IN_DOCKER:-}" ] && python3 -c "import cryptography" 2>/dev/null; then
   SUMMARY=$(PYTHONPATH="$ROOT/libs:$ROOT" python3 "$ROOT/tools/verify_update.py" "$@") \
     || { echo "update REJECTED: $BUNDLE" >&2; exit 1; }
 else
