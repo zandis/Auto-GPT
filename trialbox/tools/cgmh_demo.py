@@ -104,7 +104,7 @@ def start(work: Path, password: str, lang: str) -> dict[str, Any]:
     accounts signed in."""
     os.environ["TB_TZ"] = SITE_TW["site"]["tz"]  # a synthetic site in one process: its site.tz as TB_TZ (D-315)
     box, client, repo, summary = fd.build_site(work, PROFILE, SITE_TW)
-    clock = ld.Clock(box.today[0])
+    clock = ld.Clock(box.today[0], ld.site_tz_of(box))
     app = ld.console(work, box, client, repo, password, clock)
     out = {"box": box, "app": app, "h": app.state.helpers, "summary": summary, "clock": clock, "work": work}
     for who in ("crc", "pi", "admin"):
