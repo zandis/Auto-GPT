@@ -2,6 +2,11 @@
 
 Each entry: decision, reason, consequence. Entries are appended per phase; nothing is silently dropped.
 
+**This log is frozen at D-270 (T-002, D-306).** A new decision is a file `docs/decisions/D-<nnn>-<slug>.md`, its
+number taken from `docs/decisions/REGISTRY.md` (new numbers from D-300). `python -m tools.decisions_index` prints the
+index of both; `--check` (CI job `docs`) fails on a new entry here, a number used twice, or a file with no registry
+row.
+
 ## Phase 0
 
 **D-01 Repository location.** TrialBox lives in `trialbox/` inside this repository (the host repo's existing content is

@@ -1,0 +1,46 @@
+# Code owners (T-002, D-306; CR-080). GitHub asks the owners of every path a pull request touches for review; with
+# branch protection's "require review from code owners" on master, their approval is needed to merge.
+# The last matching line wins, so the safety-core lines come after the catch-all.
+
+# Everything: the repository owner.
+*                                                       @zandis
+
+# Safety core (TB-PLAN-06 §6.1 rule 9; TB-ASSESS-01 §3.0 rule 6): matching, the criteria engines, the guard, authz,
+# the prefill path, and the audit, identifier and lab-value code they rest on. A change here needs the human
+# safety-core reviewer, and only one safety-core pull request is in review at a time.
+# That reviewer is not named yet: naming them and adding their login to every line below is owner action OD-9
+# (TB-REG-01 CR-080, PLAN-024). Until then these lines name the owner alone, and the second reader does not exist.
+
+# matching and the cascade
+/trialbox/services/matching/                            @zandis
+/trialbox/services/orchestrator/scenarios/screen.py     @zandis
+/trialbox/services/orchestrator/scenarios/screen_cascade.py @zandis
+/trialbox/services/orchestrator/scenarios/evaluate.py   @zandis
+/trialbox/libs/tb_common/reasons.py                     @zandis
+
+# the criteria engines (IR, SQL and CQL generators)
+/trialbox/services/criteria_compiler/                   @zandis
+/trialbox/schemas/criterion_ir.schema.json              @zandis
+
+# the guard
+/trialbox/services/guard/                               @zandis
+/trialbox/services/model_guard/                         @zandis
+/trialbox/libs/tb_common/phi_guard.py                   @zandis
+/trialbox/services/lake/sqlguard.py                     @zandis
+
+# authz and sign-in
+/trialbox/libs/tb_common/authz.py                       @zandis
+/trialbox/services/console/auth.py                      @zandis
+
+# the prefill path (EDC drafts, review and signature)
+/trialbox/services/edc/                                 @zandis
+/trialbox/services/console/edc_pages.py                 @zandis
+
+# what the core rests on: the audit trail, the pseudonym map, lab values
+/trialbox/libs/tb_common/audit.py                       @zandis
+/trialbox/services/adapter/pidmap.py                    @zandis
+/trialbox/libs/tb_common/labvalue.py                    @zandis
+
+# this file and the CI gate
+/.github/CODEOWNERS                                     @zandis
+/.github/workflows/                                     @zandis
