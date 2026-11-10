@@ -530,8 +530,8 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
 
     Only the lake has rules; every other directory is taken whole. The lake: no ``tmp/`` (DuckDB spill), no
     ``.building`` file (a snapshot being built), and the NDJSON only of ``CURRENT`` and of the two newest snapshots:
-    the next delta night merges over the newest older one that passed (``CURRENT`` or newer; never a held night's
-    NDJSON, D-271; a held night's folder is kept for the steward to look at); an older snapshot keeps its reports
+    the next delta night merges over the newest one older than itself (a held night's NDJSON is newer than
+    ``CURRENT``; a night run again on the same date merges over the one before); an older snapshot keeps its reports
     (``reader.json``, ``tombstones.json``). Every Parquet and DuckDB file, the vector store (``embed_cache.duckdb``)
     and the site inputs are kept. A lake without ``CURRENT`` keeps all NDJSON.
     """

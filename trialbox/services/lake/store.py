@@ -6,11 +6,8 @@ Layout under ``<lake_dir>``::
     parquet/snapshot=<snapshot>/<table>.parquet  (+ <table>.parquet.sha256)
     db/<snapshot>.duckdb                     tables + document_chunk(text, tokens, sha) + FTS index + lake_meta
     db/<snapshot>.duckdb.sha256              sidecar hash of the finished file (``Lake.verify``)
-    db/<snapshot>.duckdb.source              the NDJSON folder it was built from, when not ndjson/<snapshot> (D-271)
     embed_cache.duckdb                       sha256(chunk text) -> embedding: the one vector store of the lake
     CURRENT                                  snapshot served by default
-    FEED                                     the lake has held a hospital feed: an empty rebuild is refused (D-271)
-    db/<snapshot>.duckdb.siteonly            the snapshot was built from the site's own inputs only (D-271)
 
 Dataflow review P0 (D-149): the embeddings live only in ``embed_cache.duckdb`` and are read by chunk sha at query
 time; a snapshot file holds the chunk text, its tokens for BM25 and its sha. Before, every snapshot carried its own
@@ -39,7 +36,6 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 from embed_service.embedder import Embedder
-from tb_common import feedguard
 from tb_common.crypto import sha256_text
 
 from lake.flatten import SCHEMAS
@@ -88,12 +84,6 @@ def schema_sha() -> str:
 
 class LakeSchemaError(RuntimeError):
     """The snapshot was built with a lake layout this reader does not serve."""
-
-
-class RebuildError(RuntimeError):
-    """A rebuild refused before anything was written (D-271): its NDJSON folder is missing or holds no record. An
-    empty lake made ``CURRENT`` would screen every patient out (and with ``TB_LAKE_SOURCE=omop`` tombstone the whole
-    feed in the store of record); the previous ``CURRENT`` stays."""
 
 
 def schema_version(con: duckdb.DuckDBPyConnection) -> int | None:
@@ -299,86 +289,17 @@ class Lake:
         return {k: len(v) for k, v in resources.items()}
 
     # ------------------------------------------------------------------ rebuild
-    def _source(self, snapshot: str) -> Path:
-        """The NDJSON folder of ``snapshot``: ``ndjson/<snapshot>``, else the folder the snapshot was last built from
-        (``db/<snapshot>.duckdb.source``; a lake built from ``dataplat`` snapshots has no ``ndjson/<snapshot>``)."""
-        own = self.dir / "ndjson" / snapshot
-        rec = self.dir / "db" / f"{snapshot}.duckdb.source"
-        if not own.is_dir() and rec.exists():
-            return Path(rec.read_text(encoding="utf-8").strip())
-        return own
-
-    def fed(self) -> bool:
-        """Whether this lake has ever held a hospital feed (D-271): a ``FEED`` marker (written by a rebuild that read
-        patient or clinical records), an NDJSON snapshot folder, a recorded source folder, or a snapshot not marked
-        as built from the site's inputs alone (a lake built before the marker existed counts as fed)."""
-        db = self.dir / "db"
-        return (
-            (self.dir / "FEED").exists()
-            or any(p.is_dir() for p in (self.dir / "ndjson").glob("*"))
-            or any(db.glob("*.duckdb.source"))
-            or any(not p.with_name(p.name + ".siteonly").exists() for p in db.glob("*.duckdb"))
-        )
-
-    def _check_drop(self, snapshot: str, have: dict[str, int]) -> None:
-        """D-271: a snapshot that would replace ``CURRENT`` with (nearly) none of a kind of its records is refused,
-        unless ``TB_FEED_DROP_OVERRIDE`` names this snapshot."""
-        cur = self.current()
-        if not cur or cur == snapshot:
-            return
-        src = self._source(cur)
-        before = {}
-        for f in src.glob("*.ndjson") if src.is_dir() else ():
-            with f.open("rb") as fh:
-                before[f.stem] = sum(1 for line in fh if line.strip())
-        try:
-            pct = feedguard.max_drop_pct()
-        except feedguard.FeedGuardError as e:
-            raise RebuildError(f"lake snapshot {snapshot}: {e}") from None
-        bad = feedguard.drops(before, {t: n - have.get(t, 0) for t, n in before.items()}, pct)
-        if bad and not feedguard.override_for(snapshot):
-            raise RebuildError(
-                f"lake snapshot {snapshot} would drop {'; '.join(bad)} records of CURRENT {cur} (limit {pct:g} %); "
-                f"nothing built, CURRENT unchanged. To build it anyway set "
-                f"{feedguard.OVERRIDE_ENV}='{snapshot}: <reason>'"
-            )
-
     def rebuild(
-        self,
-        snapshot: str,
-        embedder: Embedder,
-        ndjson_dir: Path | None = None,
-        promote: bool = True,
-        allow_empty: bool = False,
+        self, snapshot: str, embedder: Embedder, ndjson_dir: Path | None = None, promote: bool = True
     ) -> RebuildStats:
         """Build ``db/<snapshot>.duckdb`` (into ``.building``, renamed when complete, with ``.sha256`` sidecars) and,
-        with ``promote``, make it ``CURRENT``. The adapter calls this only for a night that passed validation.
-
-        Once the lake has held a hospital feed (``fed``), a missing NDJSON folder, or one without a single record, is
-        refused (``RebuildError``) before anything is written, unless ``allow_empty``. A lake that never had a feed
-        (the practice site, a box before its first night) is built from the site's own inputs alone."""
+        with ``promote``, make it ``CURRENT``. The adapter calls this only for a night that passed validation."""
         t0 = time.perf_counter()
-        src = ndjson_dir or self._source(snapshot)
-        allow_empty = allow_empty or not self.fed()
-        if not src.is_dir() and not allow_empty:
-            raise RebuildError(f"lake snapshot {snapshot}: no NDJSON folder {src}; nothing built, CURRENT unchanged")
+        src = ndjson_dir or self.dir / "ndjson" / snapshot
         by_type: dict[str, list[dict[str, Any]]] = {}
         for f in sorted(src.glob("*.ndjson")):
             with f.open(encoding="utf-8") as fh:
                 by_type[f.stem] = [json.loads(line) for line in fh if line.strip()]
-        have = {t: len(v) for t, v in by_type.items() if v and t not in feedguard.STATIC_TYPES}
-        if not have and not allow_empty:
-            raise RebuildError(
-                f"lake snapshot {snapshot}: {src} holds no patient or clinical record; nothing built, CURRENT unchanged"
-            )
-        if promote and not allow_empty:  # only a snapshot that replaces CURRENT is compared with it
-            self._check_drop(snapshot, have)
-        siteonly = self.dir / "db" / f"{snapshot}.duckdb.siteonly"
-        if have:
-            (self.dir / "FEED").write_text(snapshot + "\n", encoding="utf-8")
-            siteonly.unlink(missing_ok=True)
-        else:
-            siteonly.write_text("built from the site's own inputs only\n", encoding="utf-8")
         # D-135: the site's own inputs (sheets, dumps, charts; ``put_site``) join every snapshot built here
         site: dict[str, list[dict[str, Any]]] = {}
         for f in sorted((self.dir / "site").glob("*.ndjson")):
@@ -461,11 +382,6 @@ class Lake:
         tmp.replace(db_path)
         if write_sidecar(db_path) != digest:  # the rename is atomic; this guards a disk that lies
             raise RuntimeError(f"lake snapshot {snapshot}: the file changed while it was being written")
-        rec = self.dir / "db" / f"{snapshot}.duckdb.source"  # pruned with the snapshot (``<snap>.duckdb*``)
-        if src.is_dir() and src.resolve() != (self.dir / "ndjson" / snapshot).resolve():
-            rec.write_text(str(src.resolve()) + "\n", encoding="utf-8")
-        else:
-            rec.unlink(missing_ok=True)
         if promote:
             self.promote(snapshot)
         return RebuildStats(snapshot, counts, len(chunk_rows), new, round(time.perf_counter() - t0, 2))

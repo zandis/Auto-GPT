@@ -77,12 +77,7 @@ FHIR R4 NDJSON snapshot ──► fhir-store (delta load: only new or changed re
 - The nightly ingest (02:00) checks a 1 % HL7 validator sample and fails above 0.5 % errors. The check runs before
   fhir-store and the lake are loaded: a failed night is *held* and `CURRENT` keeps the previous snapshot (D-149).
 - A delta night (`--since`) drops what the source deleted (SS-MIX2 flag 0, FHIR bulk `deleted`, a `deleted` column):
-  `tombstones.json` beside the snapshot lists them (D-149). It merges over the newest earlier snapshot that passed
-  (`passed.json`, else `CURRENT`), never over a held night; with none, the delta night is held. A re-run of a
-  promoted night is written to `ndjson-rerun/` and moved in only when it passes (D-271).
-- A night that removes all records of a kind, or more than 20 % of them, is held (adapter), refused by the lake
-  (an empty or missing folder too, `CURRENT` stays) and by the OMOP loader (every CDM table), unless
-  `TB_FEED_DROP_OVERRIDE='<snapshot>: <reason>'` names that night (D-271).
+  `tombstones.json` beside the snapshot lists them (D-149).
 - Each snapshot file records its lake schema version in `lake_meta` and has `.sha256` sidecars; a reader refuses a
   version it does not know. Note vectors live once, in `embed_cache.duckdb`, read by chunk sha (D-149).
 - Snapshots kept: 3 nightly and 36 month-ends.

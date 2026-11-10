@@ -67,16 +67,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         resp = httpx.post(
             f"{cfg.env.lake_url.rstrip('/')}/rebuild", json={"snapshot": snapshot}, timeout=7200, headers=auth_headers()
         )
-        if resp.status_code >= 400:  # D-271: the lake's reason reaches the ingest report, not only its log
-            try:
-                detail = str(resp.json().get("detail"))
-            except ValueError:
-                detail = resp.text[:500]
-            if resp.status_code == 409:
-                from adapter.pipeline import RebuildRefused
-
-                raise RebuildRefused(f"the lake refused snapshot {snapshot}: {detail}")
-            raise RuntimeError(f"lake service answered {resp.status_code}: {detail}")
+        resp.raise_for_status()
         return RebuildResult.model_validate(resp.json())
 
     ret = cfg.settings.retention

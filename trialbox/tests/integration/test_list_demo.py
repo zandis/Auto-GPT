@@ -72,9 +72,9 @@ def test_approve_list_mark_and_mail(tmp_path: Path) -> None:
     # found by the public-data e2e: an exclusion the patient does not have was labelled "該当" (met), which reads
     # as "the patient has it"; exclusion rows now say whether the condition is present
     exc = re.findall(r'data-testid="verdict-GZQO-EXC-\d+">([^<]+)<', s5)
-    assert exc and "該当" not in exc and set(exc) <= {"該当なし", "該当（除外）", "不明", "人の確認"}, exc
+    assert exc and "該当" not in exc and set(exc) <= {"該当なし", "該当あり", "不明（記録なし）", "要確認（担当者）"}, exc
     inc = re.findall(r'data-testid="verdict-GZQO-INC-\d+">([^<]+)<', s5)
-    assert "該当" in inc, inc
+    assert "満たす" in inc, inc  # T-506 (UX-017): inclusion verdicts say 満たす / 満たさない
     # the approached patient has a screening number; the set-aside one left the list until its date
     assert res["screening_no"] == "GZQO-0001"
     marks = h.store.latest_marks("GZQO")

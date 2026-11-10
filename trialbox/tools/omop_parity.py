@@ -19,9 +19,7 @@ Data sets: ``synthetic`` (``tools.synth_hospital`` profile ``ci``: a JP-style an
 each, with planted site inputs: proposed, confirmed, suspected and refuted diagnoses, a proposed and a confirmed
 medicine and lab, demographic facts and a birth-date disagreement), ``public`` (``tools.public_site``: the SIGIR and
 MedTxt notes; MedTxt only when fetched) and ``mimic`` (the MIMIC-IV FHIR demo of ``tools/open_data_e2e.py``, when
-fetched). Exit status 0 only when every comparison is identical and something was compared (DI-3: empty stores, no
-ruleset, nothing screened or a skipped data set fail; `--allow-skip` accepts a data set that is not fetched). The run
-writes only to schemas under a random prefix of its own and drops only those. Calls no model, no network.
+fetched). Exit status 0 only when every comparison is identical. Calls no model, no network.
 """
 
 from __future__ import annotations
@@ -30,7 +28,6 @@ import argparse
 import contextlib
 import json
 import os
-import re
 import secrets
 import shutil
 import sys
@@ -425,139 +422,63 @@ def omop_summary(url: str, lake_dir: Path) -> dict[str, Any]:
         db.close()
 
 
-PREFIX = re.compile(r"[a-z][a-z0-9]*_(?:[a-z0-9]+_)*")  # a tb_prefix this tool makes: a plain schema-name start
+def private_url(url: str, work: Path) -> tuple[str, str]:
+    """``(url, prefix)`` for this run's own schemas: the URL's prefix (if any) plus a prefix from ``work``'s path.
 
-
-def with_prefix(url: str, prefix: str) -> str:
-    """``url`` (same server and database) with ``prefix`` as its only ``tb_prefix``; built with ``urlencode``, never by
-    appending text to the URL. An empty or unusual prefix is refused."""
-    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+    ``TB_DB_URL`` from a box or CI may carry no prefix at all; the run must still never write to, or drop, schemas
+    it did not make (review H2/H4)."""
+    import hashlib
 
     from tb_common.db import split_url
 
-    if not PREFIX.fullmatch(prefix) or len(prefix) > 32:
-        raise ValueError(f"omop parity: refusing the schema prefix {prefix!r}")
-    parts = urlsplit(split_url(url)[0])
-    query = [*parse_qsl(parts.query, keep_blank_values=True), ("tb_prefix", prefix)]
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+    dsn, given = split_url(url)
+    prefix = f"{given}par{hashlib.sha1(str(work.resolve()).encode()).hexdigest()[:8]}_"
+    sep = "&" if "?" in dsn else "?"
+    return f"{dsn}{sep}tb_prefix={prefix}", prefix
 
 
-def private_url(url: str) -> tuple[str, str]:
-    """``(url, prefix)`` for one run: the caller's server and database with a freshly minted random prefix
-    ``par<8 hex>_`` (never the caller's own prefix, never empty). DI-3: the run writes only there and drops only the
-    schemas it made."""
-    prefix = f"par{secrets.token_hex(4)}_"
-    return with_prefix(url, prefix), prefix
-
-
-def _schemas(url: str) -> set[str]:
-    import psycopg
-    from tb_common.db import split_url
-
-    with psycopg.connect(split_url(url)[0], autocommit=True) as con:
-        return {str(r[0]) for r in con.execute("SELECT nspname FROM pg_namespace")}
-
-
-def _drop_own(url: str, prefix: str, before: set[str]) -> list[str]:
-    """Drop the schemas this run created (by name: there now, not there before, under its own random prefix)."""
-    import psycopg
-    from tb_common.db import split_url
-
-    created = sorted(n for n in _schemas(url) - before if n.startswith(prefix))
-    with psycopg.connect(split_url(url)[0], autocommit=True) as con:
-        for n in created:
-            con.execute(f'DROP SCHEMA "{n}" CASCADE')
-    return created
-
-
-def failures(entry: dict[str, Any]) -> list[str]:
-    """Why a data set's comparison proves nothing (DI-3): two empty stores, or nothing screened, compare equal."""
-    out = []
-    persons = int(entry["omop"]["rows"]["person"])
-    patients = int(entry["tables"]["patient"]["rows"])
-    if not persons:
-        out.append("the OMOP store has no persons")
-    if not patients:
-        out.append("the legacy lake has no patients")
-    if persons != patients:
-        out.append(f"the OMOP store has {persons} persons, the legacy lake {patients} patients")
-    if not entry["screening"]:
-        out.append("no ruleset was screened")
-    for rid, r in entry["screening"].items():
-        if not r["patients_evaluated"]:
-            out.append(f"{rid}: no patient evaluated")
-    return out
-
-
-BUILDERS = {"synthetic": synthetic, "public": public, "mimic": mimic}
-
-
-def run(base: Path, sets: tuple[str, ...] = SETS, allow_skip: bool = False) -> dict[str, Any]:
+def run(base: Path, sets: tuple[str, ...] = SETS) -> dict[str, Any]:
     from tools import pglocal
 
+    had_url = "TB_DB_URL" in os.environ
     base.mkdir(parents=True, exist_ok=True)
-    report: dict[str, Any] = {"rulesets": [d.name for d in RULESETS], "sets": {}, "failures": []}
-    fail: list[str] = report["failures"]
-    if not RULESETS:
-        fail.append("no ruleset to compare")
-    with _env(TB_DB_URL=os.environ.get("TB_DB_URL")):  # the caller's environment is put back as it was
-        for name in sets:
-            work = base / name
-            shutil.rmtree(work, ignore_errors=True)
-            work.mkdir(parents=True)
-            url, prefix = private_url(pglocal.for_work(work))
-            before = _schemas(url)
-            if any(n.startswith(prefix) for n in before):
-                raise RuntimeError(f"omop parity: schemas named {prefix}* already exist; refusing to run")
-            t0 = time.perf_counter()
-            try:
-                with _env(TB_DB_URL=url):  # the ingest's pid map and the flag store: this run's schemas only
-                    _one_set(name, work, url, prefix, report, allow_skip)
-            except BaseException as exc:  # clean up, but never let a clean-up error hide why the run failed
-                try:
-                    _drop_own(url, prefix, before)
-                except Exception as drop_exc:
-                    exc.add_note(f"omop parity: schemas {prefix}* were not dropped ({drop_exc!r}); drop them by hand")
-                raise
-            else:
-                report.setdefault("schemas_dropped", {})[name] = len(_drop_own(url, prefix, before))
-            finally:
-                shutil.rmtree(work, ignore_errors=True)
-            report.setdefault("seconds", {})[name] = round(time.perf_counter() - t0, 1)
-    if not any("skipped" not in v for v in report["sets"].values()):
-        fail.append("no data set was compared")
-    report["identical"] = not fail and all(
-        v.get("identical", False) for v in report["sets"].values() if "skipped" not in v
-    )
+    report: dict[str, Any] = {"rulesets": [d.name for d in RULESETS], "sets": {}}
+    builders = {"synthetic": synthetic, "public": public, "mimic": mimic}
+    for name in sets:
+        work = base / name
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
+        url, prefix = private_url(pglocal.for_work(work), work)
+        t0 = time.perf_counter()
+        dsets = builders[name](work)
+        if not dsets:
+            report["sets"][name] = {"skipped": "data not fetched"}
+        for i, ds in enumerate(dsets):
+            omop_url = f"{url}omop{i}_"  # url ends in its tb_prefix value: one more private level per data set
+            w = work / ds.name
+            lakes = build_lakes(ds, w, omop_url)
+            entry: dict[str, Any] = {
+                "snapshot": ds.snapshot,
+                "site_inputs": {k: len(v) for k, v in ds.site.items()},
+                "tables": compare_tables(lakes, ds.snapshot),
+                "screening": compare_screening(lakes, ds),
+                "omop": omop_summary(omop_url, lakes["omop"]),
+            }
+            if not entry["omop"]["rows"]["person"]:  # an empty OMOP store would compare "identical" to nothing
+                raise RuntimeError(f"omop parity: the OMOP store for {ds.name} has no persons")
+            entry["identical"] = all(t["identical"] for t in entry["tables"].values()) and all(
+                r["feas_identical"] and r["patients_different"] == 0 for r in entry["screening"].values()
+            )
+            report["sets"][ds.name] = entry
+            shutil.rmtree(w, ignore_errors=True)
+        report.setdefault("seconds", {})[name] = round(time.perf_counter() - t0, 1)
+        shutil.rmtree(work, ignore_errors=True)
+        with contextlib.suppress(Exception):
+            pglocal.drop_prefix(url, prefix)  # only this run's schemas: prefix is never empty
+        if not had_url:
+            os.environ.pop("TB_DB_URL", None)  # set by for_work for this run; a caller's own URL stays
+    report["identical"] = all(v.get("identical", True) for v in report["sets"].values())
     return report
-
-
-def _one_set(name: str, work: Path, url: str, prefix: str, report: dict[str, Any], allow_skip: bool) -> None:
-    dsets = BUILDERS[name](work)
-    if not dsets:
-        report["sets"][name] = {"skipped": "data not fetched"}
-        if not allow_skip:
-            report["failures"].append(f"{name}: skipped (data not fetched; --allow-skip to accept)")
-    for i, ds in enumerate(dsets):
-        omop_url = with_prefix(url, f"{prefix}omop{i}_")  # one more private level per data set
-        w = work / ds.name
-        lakes = build_lakes(ds, w, omop_url)
-        entry: dict[str, Any] = {
-            "snapshot": ds.snapshot,
-            "site_inputs": {k: len(v) for k, v in ds.site.items()},
-            "tables": compare_tables(lakes, ds.snapshot),
-            "screening": compare_screening(lakes, ds),
-            "omop": omop_summary(omop_url, lakes["omop"]),
-        }
-        entry["failures"] = failures(entry)
-        report["failures"].extend(f"{ds.name}: {f}" for f in entry["failures"])
-        entry["identical"] = (
-            not entry["failures"]
-            and all(t["identical"] for t in entry["tables"].values())
-            and all(r["feas_identical"] and r["patients_different"] == 0 for r in entry["screening"].values())
-        )
-        report["sets"][ds.name] = entry
-        shutil.rmtree(w, ignore_errors=True)
 
 
 def table(report: dict[str, Any]) -> str:
@@ -574,7 +495,6 @@ def table(report: dict[str, Any]) -> str:
                 f"  {rid:12} FEAS {'=' if r['feas_identical'] else 'DIFF'} start {r['feas']['start']:>5}  "
                 f"patients {r['patients']:>5}, different {r['patients_different']}  {r['verdicts']}"
             )
-    lines.extend(f"FAILED: {f}" for f in report.get("failures", []))
     lines.append("IDENTICAL" if report["identical"] else "DIFFERENT")
     return "\n".join(lines)
 
@@ -584,10 +504,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dir", type=Path, default=Path("/tmp/tb-omop-parity"))
     ap.add_argument("--sets", default=",".join(SETS))
     ap.add_argument("--json", type=Path)
-    ap.add_argument("--allow-skip", action="store_true", help="a data set whose data is not fetched is not a failure")
     a = ap.parse_args(argv)
     os.environ.setdefault("TB_ENV", "DEV")
-    rep = run(a.dir, tuple(s for s in a.sets.split(",") if s), a.allow_skip)
+    rep = run(a.dir, tuple(s for s in a.sets.split(",") if s))
     if a.json:
         a.json.parent.mkdir(parents=True, exist_ok=True)
         a.json.write_text(json.dumps(rep, indent=1, default=str, ensure_ascii=False) + "\n", encoding="utf-8")

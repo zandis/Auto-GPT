@@ -89,6 +89,6 @@ class LakeLocal:
     def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
         return self.lake.put_site(resources)
 
-    def rebuild(self, snapshot: str, allow_empty: bool = False) -> dict[str, Any]:
-        st = self.lake.rebuild(snapshot, self.embedder, allow_empty=allow_empty)
+    def rebuild(self, snapshot: str) -> dict[str, Any]:
+        st = self.lake.rebuild(snapshot, self.embedder)
         return {"snapshot": st.snapshot, "tables": st.tables, "chunks": st.chunks, "seconds": st.seconds}

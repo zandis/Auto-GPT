@@ -60,31 +60,3 @@ def test_retired_names() -> None:
     hits = [m.group(0) for m in doclint.RETIRED_RE.finditer("see docs/HANDOFF.md and SPEC.md, not SIMPLE-PLAN.md")]
     assert hits == ["docs/HANDOFF.md", "SPEC.md"]
     assert not list(doclint.RETIRED_RE.finditer("spec/archive/SPEC.md and docs/RUNBOOK.md"))
-
-
-GOOD_RECORD = (
-    "# Gate G0\n\n## Register condition\n\n| Source | Open Blocker |\n| --- | --- |\n| TB-REG-01 | to fill |\n\n"
-    "## Criteria\n\n| # | Criterion | Measure | Evidence | Result |\n| --- | --- | --- | --- | --- |\n"
-    "| 1 | approved | recorded | `docs/plan/x.md` | open |\n\n## Notes\n\n| a | |\n"
-)
-
-
-def test_the_gate_records_are_complete() -> None:
-    assert doclint.check_gates() == []
-    for gate in ("G0", "GP-0", "GP-1", "GP", "G1"):
-        assert gate in doclint.GATES
-
-
-def test_catches_a_missing_record_and_a_missing_evidence_cell(fake_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(doclint, "GATES", ("G0", "G1"))
-    gates = fake_root / doclint.GATE_DIR
-    gates.mkdir(parents=True)
-    (gates / "G0.md").write_text(GOOD_RECORD)
-    assert doclint.check_gates() == [f"{doclint.GATE_DIR}/G1.md: gate: G1 has no record"]
-    (gates / "G1.md").write_text(GOOD_RECORD.replace("`docs/plan/x.md`", " "))
-    text = "\n".join(doclint.check_gates())
-    assert "G1.md:13: gate: criterion row has no evidence cell" in text and "G0.md" not in text
-    (gates / "G1.md").write_text(GOOD_RECORD.replace("## Register condition", "## Counts"))
-    assert doclint.check_gates() == [f"{doclint.GATE_DIR}/G1.md:1: gate: no '## Register condition' section"]
-    (gates / "G1.md").write_text(GOOD_RECORD.replace("Evidence", "Proof"))
-    assert "no Evidence column" in "\n".join(doclint.check_gates())

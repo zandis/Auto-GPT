@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "flags.reason.seed_default": "first value at the first start, from the default",
+    "flags.reason.seed_env": "first value at the first start, from {env}",
     "flags.title": "Feature flags",
     "flags.help": "Switches that change how the box works, for every service, without a restart (within five seconds). Each change needs a reason and is kept in the audit trail with your name. An environment variable can only set a flag's first value, when the box first starts.",
     "flags.name": "Flag",
@@ -33,6 +35,8 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "flags.reason.seed_default": "初回起動時の初期値（既定値から）",
+    "flags.reason.seed_env": "初回起動時の初期値（{env} から）",
     "flags.title": "機能フラグ",
     "flags.help": "ボックス全体の動作を切り替える設定です。再起動なしで、5秒以内にすべてのサービスに反映されます。変更には理由が必要で、あなたの名前とともに監査記録に残ります。環境変数で決められるのは、ボックスを最初に起動したときの初期値だけです。",
     "flags.name": "フラグ",
@@ -61,6 +65,8 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    "flags.reason.seed_default": "首次啟動時的初始值（取自預設值）",
+    "flags.reason.seed_env": "首次啟動時的初始值（取自 {env}）",
     "flags.title": "功能旗標",
     "flags.help": "切換整台系統運作方式的設定，不需重新啟動，五秒內所有服務都會套用。每次變更都須填寫理由，並以您的名字記入稽核紀錄。環境變數只能決定系統第一次啟動時的初始值。",
     "flags.name": "旗標",
