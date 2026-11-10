@@ -41,6 +41,7 @@ from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import AuditLog
+from tb_common.authz import admin_allowed
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
@@ -903,17 +904,21 @@ def create_app(
         one_time[sess.token_sha] = (username, password, now)
 
     @app.get("/ops/users", response_class=HTMLResponse)
-    def users_view(request: Request) -> Response:
+    def users_view(request: Request, undo: str = "", done: str = "") -> Response:
         sess = need(request)
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
         made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
+        off = us.disabled_users()
         return page(
             request,
             "users.html",
             sess,
             users=rows,
+            disabled=off,
+            undo=undo if undo in {u.username for u in off} else "",  # D-178: the toast's Undo after Disable
+            done=done if done in ("enabled",) else "",
             roles=ROLES,
             affiliations=AFFILIATIONS,
             made=made,
@@ -939,6 +944,10 @@ def create_app(
         confirmation, P-10). Same as the console.cli commands; every change is an audit event."""
         sess = need_admin(request, csrf)
         name = username.strip().lower()[:32]
+        perm = {"reset": "account.reset", "disable": "account.disable", "enable": "account.enable"}.get(action)
+        if perm and not admin_allowed(sess.user.role, perm):  # D-178: the one role table (tb_common.authz)
+            au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users {action}"})
+            raise _Problem(403, "forbidden")
         try:
             if action == "add":
                 if role not in ROLES:
@@ -964,6 +973,10 @@ def create_app(
             if action == "reset":
                 if us.is_sso(name):
                     raise AuthError("this account signs in through the hospital identity provider")
+                if confirm != "yes":  # D-178 (review J-14): the consequence first; a reset cannot be undone
+                    text = translate(lang_of(request, sess), "confirm.reset", user=name)
+                    return confirm_step(request, sess, text, "/ops/users", {"action": "reset", "username": name},
+                                        "/ops/users")  # fmt: skip
                 password = random_password()
                 us.set_password(name, password)
                 au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
@@ -992,7 +1005,12 @@ def create_app(
                                         "/ops/users")  # fmt: skip
                 us.disable(name)
                 au.append("console.user", actor=actor(sess), detail={"action": "disable", "user": name})
-                return RedirectResponse("/ops/users", status_code=303)
+                return RedirectResponse(f"/ops/users?undo={name}#undo", status_code=303)
+            if action == "enable":  # D-178 (review J-14): the undo of Disable, from the toast or the disabled list
+                us.enable(name)
+                au.append("console.user", actor=actor(sess),
+                          detail={"action": "enable", "user": name, "undo": confirm == "undo"})  # fmt: skip
+                return RedirectResponse("/ops/users?done=enabled", status_code=303)
         except AuthError as exc:
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
         raise _Problem(400, "request.refused", reason="unknown action")
@@ -1049,6 +1067,10 @@ def create_app(
     team.register(app, helpers, raw_env)  # delegation log, candidates, referral, IRB warning, opt-outs (D-147)
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
+
+    from console import ops_pages
+
+    ops_pages.register(app, helpers, raw_env)  # D-178: backups, update and rollback, logs, secrets, network sheet
     from console import sae_pages
 
     sae_pages.register(app, helpers)  # the SAE register and its worklist (D-191)

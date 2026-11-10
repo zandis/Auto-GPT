@@ -27,8 +27,10 @@ vendor never ships it and the hospital loads its own download (``tools/refdata_f
 
 **Items** (D-170). Every source is one :class:`Item` in one registry (``tools/refdata_fetch.py`` ``SOURCES``):
 where it comes from, its licence and terms, its attribution, how to read its version, and its own parser (its
-loader). Country modules add their items (``tb_common.refdata_tw``: the Taiwan maps and synonyms); the box itself
-never downloads anything: it reads the pack from the signed update bundle (offline media).
+loader). Country modules add their items (``tb_common.refdata_tw``: the Taiwan maps and synonyms;
+``tb_common.refdata_jp``: the Japan maps, CTCAE v5.0 and synonyms, D-173 to D-175); the box itself never downloads
+anything: it reads the pack from the signed update bundle (offline media). An item's ``licence_reader`` reads its
+licence at the source when the vendor fetches it (D-173).
 
 :func:`verify` checks every file's size, sha256 and record count against the manifest. The update bundle's Ed25519
 signature covers the tar, so the manifest itself is authentic when it arrives through ``apply_update``.
@@ -140,10 +142,13 @@ class Item:
     fetched file into the pack's records (built-in parsers of ``tools/refdata_fetch.py`` when None). ``extra_files``
     are further ``(file name, URL)`` downloads of the same item; ``derived_from`` names the item whose download this
     one reads (no second download). ``meta_url`` is the source's own dataset record (e.g. a data.gov.tw dataset API
-    URL), read at fetch time by the item's ``read_meta`` for the dataset's version and its licence field; the fetch
-    stops when the record cannot be read or its licence is not ``licence_id`` (each country module brings its own
-    reader: the generic fetch knows no portal). ``version`` is a fixed version when the source states one in the
-    file (``version_of`` reads it from the file)."""
+    URL); ``version`` is a fixed version when the source states one in the file (``version_of`` reads it from the
+    file). ``licence_reader`` (D-173) is the item's own licence check, run at fetch time only (``tools/refdata_fetch.py
+    fetch``; the generic fetch knows no portal, each country module brings its reader): it returns
+    :class:`LicenceRead` evidence, or None when the source did not answer. The check fails closed: fetch stops when
+    the source does not answer, the licence no longer reads as expected, or the file fetched is not shown to be a
+    download of the licensed record (listed by it, or else pinned by ``sha256``); an item with a ``meta_url`` and no
+    reader is refused, and a vendor build refuses an item with a reader whose ``fetch.json`` holds no check."""
 
     id: str
     name: str
@@ -165,11 +170,52 @@ class Item:
     extra_files: tuple[tuple[str, str], ...] = ()
     derived_from: str = ""
     meta_url: str = ""
-    read_meta: Callable[[str], dict[str, Any]] | None = None  # meta_url -> {version, license, downloads}; {}: none
-    licence_id: str = ""  # the licence field read_meta must return (the licence read at the source)
     version: str = ""
     version_of: Callable[[Path], str] | None = None
     sha256: str = ""  # the expected sha256 of a version-pinned URL: fetch and build refuse another file
+    licence_reader: LicenceReader | None = None  # D-173: reads the licence at the source when fetching
+
+
+@dataclass(frozen=True)
+class LicenceRead:
+    """What a licence reader found at the source (kept in ``fetch.json`` as evidence): where it read, what it read,
+    what it expected, whether that matches, the source's version when the same answer gives it, and the download
+    URLs the licensed record lists (empty when the source lists none: the fetched file must then be pinned by
+    ``Item.sha256``)."""
+
+    url: str
+    read: str
+    expected: str
+    ok: bool
+    version: str = ""
+    downloads: tuple[str, ...] = ()
+
+    def evidence(self) -> dict[str, Any]:
+        return {"url": self.url, "read": self.read, "expected": self.expected, "ok": self.ok,
+                "version": self.version, "downloads": list(self.downloads)}  # fmt: skip
+
+
+LicenceReader = Callable[[Item], LicenceRead | None]
+
+
+def page_licence_reader(page: str, *markers: str) -> LicenceReader:
+    """A reader for a licence stated as text on a web page: the page must contain every marker (the licence's own
+    words, e.g. NCI's "free of copyright"). None when the page does not answer."""
+
+    def read(item: Item) -> LicenceRead | None:
+        import httpx
+
+        try:
+            r = httpx.get(page, timeout=60, follow_redirects=True)
+            r.raise_for_status()
+        except Exception:
+            return None
+        text = r.text
+        found = [m for m in markers if m in text]
+        return LicenceRead(page, "; ".join(found) or "(none of the expected words)", "; ".join(markers),
+                           len(found) == len(markers))  # fmt: skip
+
+    return read
 
 
 def norm_name(text: str) -> str:
@@ -192,6 +238,27 @@ def csv_rows(data: bytes) -> list[dict[str, str]]:
     """A UTF-8 CSV (BOM or not) as stripped dicts."""
     text = data.decode("utf-8-sig")
     return [{(k or "").strip(): (v or "").strip() for k, v in r.items()} for r in csv.DictReader(io.StringIO(text))]
+
+
+CURATED_COLS = ("term", "lang", "canonical", "domain", "review")
+
+
+def curated_synonyms(path: Path, lang: str, what: str) -> Iterator[dict[str, Any]]:
+    """TrialBox's own curated synonym list (``refdata_src/*_clinical_synonyms.csv``, D-172, D-175): one surface form
+    -> the name the matcher knows, per domain. A row is trusted (``curated``) unless its ``review`` column says yes
+    (an abbreviation with another meaning in some specialty)."""
+    for r in require_columns(csv_rows(path.read_bytes()), CURATED_COLS, what):
+        if r.get("term") and r.get("canonical"):
+            review = r.get("review", "").lower() in ("yes", "y", "true", "1")
+            yield {"term": r["term"], "lang": r.get("lang") or lang, "canonical": r["canonical"],
+                   "canonical_lang": r.get("canonical_lang") or "en", "domain": r.get("domain", ""), "system": "",
+                   "code": "", "curated": not review,
+                   "extra": {"note": r.get("note", ""), "review": review}}  # fmt: skip
+
+
+def own_file_version(label: str, path: Path, count: int) -> str:
+    """The version of a file TrialBox writes itself: its name, its size in entries and its sha256 (first 12)."""
+    return f"{label}, {count} entries, sha256 {sha256_file(path)[:12]}"
 
 
 # ------------------------------------------------------------------------------------------------ writing a pack

@@ -75,6 +75,8 @@ class ModelSwap:
             {k: endpoint_urls.get(k, "") for k in SWAPPABLE},
             wake_timeout_s=float(e.get("TB_SWAP_WAKE_TIMEOUT_S") or 300),
             hold_s=float(e.get("TB_SWAP_HOLD_S") or 3600),
+            # D-177: the admin endpoints sit behind model-guard, which wants the model-server key on every call
+            headers={"Authorization": f"Bearer {e['TB_LLM_API_KEY']}"} if e.get("TB_LLM_API_KEY") else None,
         )
 
     def awake(self, endpoint: str) -> bool:

@@ -39,6 +39,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tb_common import encoding
 from tb_common.db import ENV, Database, DatabaseError
 
 # code systems: the JP Core 1.1.0 NamingSystems for JLAC10, YJ and HOT9; the MEDIS 病名交換用コード OID (JP Core 1.1.0
@@ -146,19 +147,12 @@ def _key(text: str) -> str:
 
 
 def detect_encoding(data: bytes) -> str:
-    """``utf-8-sig``, ``utf-8`` or ``cp932`` (Shift_JIS with the Windows extensions the vendors' files use)."""
-    if data.startswith(b"\xef\xbb\xbf"):
-        return "utf-8-sig"
+    """``utf-8-sig``, ``utf-8`` or ``cp932`` (Shift_JIS with the Windows extensions the vendors' files use), by the
+    shared detector (D-215): a file it cannot tell is refused, never guessed."""
     try:
-        data.decode("utf-8")
-        return "utf-8"
-    except UnicodeDecodeError:
-        pass
-    try:
-        data.decode("cp932")
-        return "cp932"
-    except UnicodeDecodeError as exc:
-        raise LicensedError("LIC-ENCODING", "the file is neither UTF-8 nor Shift_JIS text") from exc
+        return encoding.detect(data, ("cp932",))[0]
+    except encoding.EncodingRefused as exc:
+        raise LicensedError("LIC-ENCODING", str(exc)) from exc
 
 
 def _sniff(first: str) -> str:

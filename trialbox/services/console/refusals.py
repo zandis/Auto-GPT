@@ -63,6 +63,7 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "病院全体か、一部の医師の患者かを選んでください",
         "請選擇全院或部分醫師的病人",
     ),
+    "choose a staged bundle": ("取り込み済みの更新ファイルを選んでください", "請選擇已放入的更新檔"),  # D-178
     "choose an approved ruleset": ("承認済みの基準を選んでください", "請選擇已核准的條件"),
     "choose en, ja or zh-TW": ("英語・日本語・中国語（繁体字）から選んでください", "請選擇英文、日文或繁體中文"),
     "choose one of the contact outcomes": ("連絡結果を一つ選んでください", "請選擇一項聯絡結果"),

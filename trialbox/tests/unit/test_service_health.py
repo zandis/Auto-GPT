@@ -26,6 +26,9 @@ def test_healthz(svc: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("TB_OBJECT_STORE", f"fs:{tmp_path / 'objects'}")
     monkeypatch.setenv("TB_LAKE_DIR", str(tmp_path / "lake"))
     monkeypatch.setenv("TB_AUDIT_DIR", str(tmp_path / "audit"))
+    # the compiler's ruleset repository defaults to the committed rulesets/ folder, which it would re-materialise in
+    # place (rmtree + rename) while parallel tests copy it: give it the test's own folder
+    monkeypatch.setenv("TB_RULESETS_DIR", str(tmp_path / "rulesets"))
     mod = importlib.import_module(f"{svc}.app")
     with TestClient(mod.app) as client:
         resp = client.get("/healthz")

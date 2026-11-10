@@ -1,6 +1,6 @@
 {# TB-PLAN-04 step 5b (D-131, D-132, D-135): the site set-up pages' shared pieces. #}
 {% macro site_nav(ws, rs, qs) %}<p class="hint chartlinks" data-testid="site-nav">
-{% for slug, key in (('', 'site.nav.ready'), ('/start', 'site.nav.start'), ('/charts', 'site.nav.charts'), ('/facts', 'site.nav.facts'), ('/codes', 'site.nav.codes'), ('/checks', 'site.nav.checks'), ('/sheets', 'site.nav.sheets'), ('/people', 'site.nav.people'), ('/patients', 'site.nav.patients'), ('/help', 'site.nav.help')) %}
+{% for slug, key in (('', 'site.nav.ready'), ('/start', 'site.nav.start'), ('/charts', 'site.nav.charts'), ('/facts', 'site.nav.facts'), ('/codes', 'site.nav.codes'), ('/checks', 'site.nav.checks'), ('/sheets', 'site.nav.sheets'), ('/people', 'site.nav.people'), ('/patients', 'site.nav.patients'), ('/help', 'site.nav.help')) if site_wide is not defined or site_wide or slug in ('', '/help') %}
 <a href="/site{{ slug }}?{{ qs }}" data-testid="site-to{{ slug|replace('/', '-') or '-ready' }}"{% if path == '/site' + slug %} aria-current="page"{% endif %}>{{ t(key) }}</a>
 {% endfor %}</p>{% endmacro %}
 
