@@ -42,7 +42,7 @@ services:
     # (TB_PGBACKREST_REPO) and the cipher file in deploy/secrets/pgbackrest (RUNBOOK §5). Never set archive_mode=on
     # without a working archive_command: Postgres would keep every WAL file until the disk is full.
     logging: *logging
-    image: ${POSTGRES_IMAGE:-postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea}
+    image: ${POSTGRES_IMAGE:-trialbox-postgres:16-1}  # deploy/docker/db.Dockerfile, pinned in deploy/images.lock (D-204)
     command:
       - postgres
       - -c
