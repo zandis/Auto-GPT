@@ -3,9 +3,15 @@
     adapter run --source {cgrd_sql|csv|fhir_bulk|ssmix2} [--path DIR | --dsn DSN] [--since DATE] [--snapshot DATE]
                 [--no-fhir] [--no-lake] [--no-validate]
     adapter validate [--snapshot DATE] [--per-type 50] [--file RESOURCES.json|.ndjson] [--lake DIR]   # JP Core (D-137)
+    adapter keys-init [--secrets DIR]          # the install ceremony's key step (T-612)
 
 Configuration comes from the environment/settings (``TB_LAKE_DIR``, ``TB_SECRETS_DIR``, ``FHIR_BASE_URL``, mapping
-from ``settings.data_source.mapping``). Exit status 0 = report passed, 1 = failed.
+from ``settings.data_source.mapping``). Exit status 0 = report passed, 1 = failed, 2 = refused before the night
+started (configuration, or the site key missing or changed: T-612).
+
+``keys-init`` makes ``site_hmac.key`` and ``pid_map.key`` in the secrets folder (``TB_SECRETS_DIR``) when absent and
+never replaces one; it prints each key's fingerprint, never a key. It is the only place a site key is made: the
+ingest refuses a night without one (T-612, DATA-004).
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ from tb_common.config import ConfigError, load
 from tb_common.logging import setup_logging
 from tb_contracts import RebuildResult, dump
 
-from adapter.pipeline import AdapterConfig, run_ingest
+from adapter.pipeline import AdapterConfig, SiteKeyError, run_ingest
 
 MAPPING_ROOT = Path(__file__).resolve().parent
 
@@ -99,6 +105,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         table_max_drop_pct=float(fc.max_table_drop_pct) if fc else 10.0,
         required_tables=tuple(fc.required_tables) if fc else (),
         optional_tables=tuple(fc.optional_tables) if fc else (),
+        source_encoding=ds.encoding,  # T-615b
     )
     default_path = ds.path or (os.environ.get(ds.dsn_env, "") if ds.dsn_env else "")
     return ac, ds.type, default_path
@@ -123,10 +130,14 @@ def main(argv: list[str] | None = None) -> int:
     val.add_argument("--per-type", type=int, default=50, help="resources of each type to check (default 50)")
     val.add_argument("--file", type=Path, help="a resource, a Bundle, a JSON list or NDJSON to check instead")
     val.add_argument("--lake", type=Path, help="the lake folder (default: TB_LAKE_DIR or the settings)")
+    keys = sub.add_parser("keys-init", help="make the site keys when absent (the install ceremony, T-612)")
+    keys.add_argument("--secrets", type=Path, help="the secrets folder (default: TB_SECRETS_DIR or the settings)")
     args = ap.parse_args(argv)
     setup_logging("adapter")
     if args.cmd == "validate":
         return validate_cmd(args)
+    if args.cmd == "keys-init":
+        return keys_init(args.secrets)
     try:
         ac, default_kind, default_path = build_config()
     except ConfigError as exc:
@@ -134,18 +145,47 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     kind = args.source or default_kind
     path = args.dsn or args.path or default_path
-    report = run_ingest(
-        ac,
-        kind,
-        path,
-        since=args.since,
-        snapshot=args.snapshot,
-        load_fhir=not args.no_fhir,
-        rebuild_lake=not args.no_lake,
-        validate=not args.no_validate,
-    )
+    try:
+        report = run_ingest(
+            ac,
+            kind,
+            path,
+            since=args.since,
+            snapshot=args.snapshot,
+            load_fhir=not args.no_fhir,
+            rebuild_lake=not args.no_lake,
+            validate=not args.no_validate,
+        )
+    except SiteKeyError as exc:
+        print(f"night refused, nothing was read or written: {exc}", file=sys.stderr)
+        return 2
     print(json.dumps(dump(report), ensure_ascii=False, indent=1))
     return 0 if report.passed else 1
+
+
+def keys_init(secrets: Path | None = None) -> int:
+    """T-612: the install ceremony's key step. Makes each missing key, keeps each present one, prints fingerprints."""
+    from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, create_key, key_fingerprint, load_key
+
+    if secrets is None:
+        raw = os.environ.get("TB_SECRETS_DIR")
+        if not raw:
+            try:
+                raw = load().env.secrets_dir
+            except ConfigError as exc:
+                print(f"configuration error: {exc}", file=sys.stderr)
+                return 2
+        secrets = Path(raw)
+    for name in (SITE_KEY_FILE, "pid_map.key"):
+        path = secrets / name
+        made = create_key(path)
+        try:
+            fp = key_fingerprint(load_key(path))
+        except KeyMissingError as exc:  # an empty file is never overwritten: it may be a restore gone wrong
+            print(f"{name}: {exc}; put the site's key back from the backup", file=sys.stderr)
+            return 1
+        print(f"{name}: {'made' if made else 'kept'} (fingerprint {fp})")
+    return 0
 
 
 def read_resources(data: bytes) -> list[dict[str, Any]]:

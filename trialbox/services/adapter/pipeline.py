@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 from collections import Counter
@@ -16,14 +17,15 @@ from zoneinfo import ZoneInfo
 
 from tb_common import feedguard
 from tb_common.audit import AuditLog
-from tb_common.crypto import load_or_create_key, pid_for_mrn, sha256_bytes
+from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
+from tb_common.db import ENV as DB_URL_ENV
 from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
 
 from adapter.load_fhir import sync_snapshot
 from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
 from adapter.pidmap import PidMap
-from adapter.sources.base import Source, has_table
+from adapter.sources.base import CHANGE_COLUMNS, Source, has_table, quarantine_reason
 from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required, sample
 
 log = logging.getLogger("adapter")
@@ -53,19 +55,76 @@ class AdapterConfig:
     table_max_drop_pct: float = 10.0
     required_tables: tuple[str, ...] = ()
     optional_tables: tuple[str, ...] = ()
+    source_encoding: str | None = None  # T-615b: settings.data_source.encoding, the csv reader's first candidate
 
     def site_key(self) -> bytes:
-        return load_or_create_key(self.secrets_dir / "site_hmac.key")
+        """The site's pseudonymisation key. Never made here (T-612): :class:`SiteKeyError` when it is missing."""
+        path = self.secrets_dir / SITE_KEY_FILE
+        try:
+            return load_key(path)
+        except KeyMissingError:
+            raise SiteKeyError(
+                f"the site key {path} is missing. It is made only by the install ceremony (deploy/install.sh runs "
+                f"`python -m adapter.cli keys-init`); on a box that has run before, put the site's own key back from "
+                f"the backup: a new key would give every patient a new pseudonym and lose their opt-outs"
+            ) from None
 
     def pidmap(self) -> PidMap:
         return PidMap(self.secrets_dir / "pid_map.key", self.db_url)
 
 
-def make_source(kind: str, path: str, db_url: str | None = None) -> Source:
+class SiteKeyError(RuntimeError):
+    """T-612 (DATA-004): the night is refused before anything is read or written, because the site key is missing or
+    is not the key the box's pseudonyms were made with."""
+
+
+SITE_KEY_RECORD = "site_key.json"  # in the lake folder: the fingerprint of the key its snapshots were written under
+
+
+def check_site_key(cfg: AdapterConfig, key: bytes) -> str:
+    """T-612: refuse a site key other than the one this box's data was made with; record it the first time.
+
+    Compared with the fingerprint in ``<lake>/site_key.json`` and, when a trial database is configured, with the pid
+    map's stored fingerprint and its rows (:meth:`PidMap.site_key_problem`). Returns the fingerprint."""
+    fp = key_fingerprint(key)
+    record = cfg.lake_dir / SITE_KEY_RECORD
+    problems: list[str] = []
+    seen: str | None = None
+    try:
+        seen = str(json.loads(record.read_text(encoding="utf-8"))["fingerprint"])
+    except FileNotFoundError:
+        pass
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        problems.append(f"{record} cannot be read ({type(exc).__name__})")
+    if seen is not None and seen != fp:
+        problems.append(f"the lake's snapshots were written under key {seen}")
+    if cfg.db_url or os.environ.get(DB_URL_ENV):
+        pm = cfg.pidmap()
+        try:
+            why = pm.site_key_problem(cfg.site_id, key)
+            if why:
+                problems.append(f"the pid map: {why}")
+            elif not problems:
+                pm.record_site_key(cfg.site_id, key)
+        finally:
+            pm.close()
+    if problems:
+        raise SiteKeyError(
+            f"the site key {cfg.secrets_dir / SITE_KEY_FILE} (fingerprint {fp}) is not the key this box's pseudonyms "
+            f"were made with: {'; '.join(problems)}. Put the site's own key back from the backup; a new key would "
+            f"give every patient a new pseudonym and lose their opt-outs"
+        )
+    if seen is None:
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(json.dumps({"fingerprint": fp, "site_id": cfg.site_id}) + "\n", encoding="utf-8")
+    return fp
+
+
+def make_source(kind: str, path: str, db_url: str | None = None, encoding: str | None = None) -> Source:
     if kind == "csv":
         from adapter.sources.csv.source import CsvSource
 
-        return CsvSource(Path(path))
+        return CsvSource(Path(path), encoding)
     if kind == "cgrd_sql":
         from adapter.sources.cgrd_sql.source import SqlSource
 
@@ -171,6 +230,21 @@ def _undated_order(r: dict[str, Any]) -> bool:
     return not r.get("authoredOn") and not period.get("start")
 
 
+def check_delta(mapping: Mapping, source_kind: str) -> None:
+    """T-615b (DATA-008): on a csv or cgrd_sql delta night every ``delta:`` must name a change-time column
+    (:data:`CHANGE_COLUMNS`), never a clinical date. Raises :class:`ValueError` naming the table."""
+    if source_kind not in ("csv", "cgrd_sql"):
+        return  # SS-MIX2 versions its files itself; a FHIR bulk export carries its own _since
+    for table, tspec in mapping.tables.items():
+        col = tspec.get("delta")
+        if col and col not in CHANGE_COLUMNS:
+            raise ValueError(
+                f"delta night refused: table {table}'s delta column {col!r} is not a change time "
+                f"({', '.join(CHANGE_COLUMNS)}); a corrected or late-entered record keeps its old clinical date and "
+                "would be missed. Map the source's change-time column to updated_at, or run a full night"
+            )
+
+
 def run_ingest(
     cfg: AdapterConfig,
     source_kind: str,
@@ -183,10 +257,75 @@ def run_ingest(
     validate: bool = True,
     validator: Hl7Validator | StructuralValidator | None = None,
 ) -> IngestReport:
+    """One night's ingest. Any exception on the way (an unreadable source, a mapping error, a full disk) writes one
+    ``ingest.failed`` audit event with the error's type, the step and the table, then propagates (T-615b, DATA-003).
+    The event holds no message text: a parser's message can quote a cell."""
+    at: dict[str, str | None] = {"step": "start", "table": None}
+    try:
+        return _run_ingest(
+            cfg,
+            source_kind,
+            source_path,
+            at,
+            since=since,
+            snapshot=snapshot,
+            load_fhir=load_fhir,
+            rebuild_lake=rebuild_lake,
+            validate=validate,
+            validator=validator,
+        )
+    except SiteKeyError:  # T-612 audits its own refusal (with the reason); one event per night
+        raise
+    except Exception as exc:
+        if cfg.audit_dir:
+            try:
+                AuditLog(cfg.audit_dir, cfg.tz).append(
+                    "ingest.failed",
+                    snapshot=snapshot or datetime.now(ZoneInfo(cfg.tz)).date().isoformat(),
+                    actor="adapter",
+                    detail={
+                        "source": source_kind,
+                        "since": since,
+                        "error": type(exc).__name__,
+                        "step": at["step"],
+                        "table": at["table"],
+                    },
+                )
+            except Exception:  # the audit's own failure must not hide the ingest's
+                log.exception("ingest.failed could not be audited")
+        log.error("ingest failed", extra={"error": type(exc).__name__, "step": at["step"], "table": at["table"]})
+        raise
+
+
+def _run_ingest(
+    cfg: AdapterConfig,
+    source_kind: str,
+    source_path: str,
+    at: dict[str, str | None],
+    *,
+    since: str | None,
+    snapshot: str | None,
+    load_fhir: bool,
+    rebuild_lake: bool,
+    validate: bool,
+    validator: Hl7Validator | StructuralValidator | None,
+) -> IngestReport:
     zone = ZoneInfo(cfg.tz)
     started = datetime.now(zone)
     snap = snapshot or started.date().isoformat()
-    key = cfg.site_key()
+    try:  # T-612: before anything is read or written
+        key = cfg.site_key()
+        check_site_key(cfg, key)
+    except SiteKeyError as exc:
+        log.error("night refused: %s", exc)
+        if cfg.audit_dir:
+            AuditLog(cfg.audit_dir, cfg.tz).append(
+                "ingest.failed",
+                snapshot=snap,
+                actor="adapter",
+                detail={"source": source_kind, "refused": "site_key", "reason": str(exc)},
+            )
+        raise
     errors: list[str] = []
     by_type: dict[str, list[Resource]] = {}
     patient_pairs: list[tuple[str, str]] = []
@@ -195,6 +334,8 @@ def run_ingest(
     source: Source | None = None
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
+    quarantined: dict[str, str] = {}  # T-615b: table -> why its file was quarantined
+    at["step"] = "read"
     if source_kind == "fhir_bulk":
         from adapter.sources.fhir_bulk.source import FhirBulkSource
 
@@ -206,23 +347,33 @@ def run_ingest(
                 tombstones.setdefault(rtype, set()).add(bulk_id(key, rtype, rid))
     else:
         mapping = Mapping.load(cfg.mapping_path)
+        if since:
+            at["step"] = "delta check"
+            check_delta(mapping, source_kind)
+            at["step"] = "read"
         mapper = Mapper(mapping, key, cfg.site_id)
         fhir_profiles = mapping.fhir_profiles
-        source = make_source(source_kind, source_path, cfg.db_url)
+        source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
         for res in mapper.static_resources():
             by_type.setdefault(res["resourceType"], []).append(res)
         for table, tspec in mapping.tables.items():
+            at["table"] = table
             src, src_name = source, tspec["source"]
             if table == "registry" and cfg.registry is not None:
                 kind, where = cfg.registry
                 if kind == "none" or not where:
                     continue
                 if kind == "csv":
-                    src, src_name = make_source("csv", str(Path(where).parent)), Path(where).stem
+                    src = make_source("csv", str(Path(where).parent), encoding=cfg.source_encoding)
+                    src_name = Path(where).stem
                 else:
                     src = make_source("cgrd_sql", where)
             delta = mapping.source_column(table, tspec.get("delta"))
             rows = [mapping.normalize(table, r) for r in src.rows(table, src_name, delta, since)]
+            why = quarantine_reason(src, src_name)
+            if why:  # T-615b: the file is set aside, the night goes on with the other tables and is held
+                quarantined[table] = why
+                errors.append(f"{table}: {why}")
             kcol = tspec.get("key")
             keys = [str(r.get(kcol)) for r in rows] if kcol else []
             tables[table] = {  # T-611 (DATA-017: a duplicate source key is counted; the last row wins)
@@ -254,6 +405,7 @@ def run_ingest(
                     by_type.setdefault(res["resourceType"], []).append(res)
             except ValueError as exc:
                 errors.append(f"{table}: {exc}")
+    at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
     defaulted = apply_unit_defaults(by_type.get("Observation", []), unit_defaults)
     # D-275 (review S-9): an order with no authoredOn and no validity start is kept. It was dropped here, so a
@@ -328,6 +480,7 @@ def run_ingest(
     # dataflow review P0-2 (WS-08.1): validate first. fhir-store and the lake are loaded, and CURRENT moves, only for
     # a night that passed; a failed night is *held*: its NDJSON stays for the steward to look at, the box keeps
     # serving the previous snapshot
+    at["step"] = "validate"
     vsum = ValidationSummary(sampled=0, errors=0, error_pct=0.0, validator="skipped", messages=[])
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
@@ -374,6 +527,7 @@ def run_ingest(
         out_dir.rename(final_dir)
         shutil.rmtree(old, ignore_errors=True)
         out_dir = final_dir
+    at["step"] = "load"
     fhir_loaded = fhir_deleted = 0
     if not held and load_fhir and cfg.fhir_base_url:
         try:
@@ -394,6 +548,7 @@ def run_ingest(
             if type(exc).__name__ in REFUSALS:  # D-271: the lake or the OMOP store refused the data: a held night
                 held = True
                 errors.append("night held: the lake refused the snapshot; CURRENT still names the previous snapshot")
+    at["step"] = "report"
     passed = not errors
     if passed:  # D-271: the only NDJSON a later delta night may merge over
         (out_dir / PASSED).write_text(json.dumps({"snapshot": snap}) + "\n", encoding="utf-8")
@@ -442,6 +597,8 @@ def run_ingest(
                 "incomplete": completeness["problems"] or None,
                 "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
                 "orphans": completeness["orphans"] or None,
+                # T-615b: the tables whose file was set aside (character set or CSV form; no cell text)
+                "quarantined": quarantined or None,
             },
         )
     log.info("ingest finished", extra={"snapshot": snap, "passed": passed, "resources": sum(counts.values())})

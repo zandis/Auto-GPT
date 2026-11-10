@@ -13,7 +13,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked test-random test-random-locked e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -82,6 +82,24 @@ test: venv-check $(FONTS)
 	@flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-locked; rc=$$?; \
 	if [ $$rc = 75 ]; then echo "test: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
 
+# the nightly random-order run (D-201, review §5.2 (3); .github/workflows/trialbox-e2e.yml): the unit suite with
+# pytest-randomly, which is not in uv.lock on purpose. `uv run --with` lays it over .venv for this run only, so the
+# venv stays the lock's. The seed is printed in the header; RANDOM_SEED=<n> repeats a failing order.
+RANDOMLY ?= pytest-randomly==3.16.0
+RANDOM_SEED ?=
+test-random: venv-check $(FONTS)
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	@flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-random-locked; rc=$$?; \
+	if [ $$rc = 75 ]; then echo "test-random: $(TB_TEST_ROOT) is in use by another run: give this run its own TB_TEST_ROOT" >&2; fi; exit $$rc
+
+test-random-locked:
+	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
+	TB_TEST_RANDOM=1 TMPDIR="$(TB_TEST_ROOT)/tmp" uv run --frozen --no-sync --with "$(RANDOMLY)" \
+		python -m pytest -p randomly $(if $(RANDOM_SEED),--randomly-seed=$(RANDOM_SEED),) \
+		-n $(PYTEST_N) --basetemp "$(TB_TEST_ROOT)/pytest" -m "not integration and not e2e and not llm and not perf"; rc=$$?; \
+	rm -rf "$(TB_TEST_ROOT)/tmp"; PYTHONPATH=libs:services:. $(PY) -m tools.pglocal stop-idle "$(TB_TEST_ROOT)/pglocal"; \
+	if [ $$rc = 0 ]; then rm -rf "$(TB_TEST_ROOT)/pytest"; fi; exit $$rc
+
 test-locked:
 	@rm -rf "$(TB_TEST_ROOT)/tmp" && mkdir -p "$(TB_TEST_ROOT)/tmp"
 	TMPDIR="$(TB_TEST_ROOT)/tmp" $(PY) -m pytest -q -n $(PYTEST_N) --basetemp "$(TB_TEST_ROOT)/pytest" \
@@ -122,8 +140,11 @@ test-integration:
 
 # the build gate (FR-OPS-11, D-111): one synthetic hospital, criteria -> report -> list -> mail -> REDCap -> log.
 # Stub model, no network, no secrets; about 75 s on one laptop core.
+# The root is marked first (a fresh TB_TEST_ROOT holding only e2e-simple/ and no marker is refused by pglocal), and the
+# tool names a missing CQL translator jar (FHIRHelpers) at once (`make jvm-deps`) instead of failing late (DATA-019).
 E2E_DIR ?= $(TB_TEST_ROOT)/e2e-simple
 e2e-simple:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.e2e_simple --dir $(E2E_DIR) --json $(E2E_DIR).json
 
 # the committed goldens (T-006, D-205): the merge gate for every data-core branch. Profile ci (5,450 synthetic and

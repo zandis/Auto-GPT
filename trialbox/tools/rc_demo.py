@@ -103,8 +103,10 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from tools.pglocal import scratch_root  # D-201: never a fixed /tmp path
+
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR", "/tmp/tb-rc-demo")))
+    ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DEMO_DIR") or scratch_root() / "tb-rc-demo"))
     ap.add_argument("--lang", default="ja", choices=["ja", "zh-TW", "en"])
     ap.add_argument("--serve", action="store_true", help="keep the console up after the run")
     ap.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))

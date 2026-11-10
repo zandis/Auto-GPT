@@ -30,16 +30,16 @@ systems:
 tables:
   patient: {source: patient, key: mrn, identity: {name: name, national_id: id_no}}  # identity: pid map only
   practitioner: {source: practitioner, key: staff_id}
-  encounter: {source: encounter, key: enc_no, delta: visit_datetime}
+  encounter: {source: encounter, key: enc_no, delta: updated_at}
   appointment: {source: appointment, key: appt_no}
-  diagnosis: {source: diagnosis, key: diag_no, delta: recorded_date}
-  lab: {source: lab, key: lab_no, delta: sample_datetime}
-  vital: {source: vital, key: vital_no, delta: measure_datetime}
-  medication: {source: medication, key: rx_no, delta: order_date}
-  procedure: {source: procedure, key: proc_no, delta: proc_date}
-  report: {source: report, key: rpt_no, delta: exam_date}
-  note: {source: note, key: note_no, delta: note_datetime}
-  claim: {source: claim, key: claim_no, delta: created_date}
+  diagnosis: {source: diagnosis, key: diag_no, delta: updated_at}
+  lab: {source: lab, key: lab_no, delta: updated_at}
+  vital: {source: vital, key: vital_no, delta: updated_at}
+  medication: {source: medication, key: rx_no, delta: updated_at}
+  procedure: {source: procedure, key: proc_no, delta: updated_at}
+  report: {source: report, key: rpt_no, delta: updated_at}
+  note: {source: note, key: note_no, delta: updated_at}
+  claim: {source: claim, key: claim_no, delta: updated_at}
   registry: {source: registry, key: mrn}  # research-contact consent; settings.registry_source may point elsewhere
 lookups:
   lab: {file: lab_local_to_loinc.csv, key: local_code}
