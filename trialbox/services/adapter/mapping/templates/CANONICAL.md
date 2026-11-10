@@ -12,9 +12,9 @@ are `YYYY-MM-DD`, date-times `YYYY-MM-DD HH:MM[:SS]` in the site time zone.
 | encounter | enc_no | enc_no, mrn, visit_datetime, dept_code, staff_id, enc_type | enc_type: `OPD`, `IPD`, `ER` |
 | appointment | appt_no | appt_no, mrn, appt_datetime, duration_min, staff_id, dept_code, status | status: `B` booked, `A` arrived, `C` cancelled, `N` no-show |
 | diagnosis | diag_no | diag_no, enc_no, mrn, icd10, diag_date, recorded_date, status, suspected† | status: `A` active, `R` resolved; suspected: `Y` a suspected diagnosis (疑い, 疑似診斷), FHIR `verificationStatus` provisional: never excludes (D-142) |
-| lab | lab_no | lab_no, mrn, local_code, item_name, result_value, unit, sample_datetime | local codes via the `lab` lookup CSV (local_code → LOINC) |
+| lab | lab_no | lab_no, mrn, local_code, item_name, result_value, unit, sample_datetime, result_status† | local codes via the `lab` lookup CSV (local_code → LOINC); result_status: `final`, `amended`, `corrected`, `preliminary`, `registered`, `cancelled`, `entered-in-error` (empty: not recorded, counts; any other code: unknown, never counted as a result; D-275) |
 | vital | vital_no | vital_no, mrn, measure_datetime, height_cm†, weight_kg†, sbp†, dbp† | — |
-| medication | rx_no | rx_no, mrn, nhi_drug_code, atc, drug_name, order_date, start_date, end_date, daily_dose, dose_unit, status, dept_code† | status: `active`, `completed`, `stopped` |
+| medication | rx_no | rx_no, mrn, nhi_drug_code, atc, drug_name, order_date, start_date, end_date, daily_dose, dose_unit, status, dept_code† | status: `active`, `completed`, `stopped`, `on-hold`, `cancelled`, `entered-in-error`, `draft` (cancelled, entered-in-error and draft never count; empty: not recorded, counts; any other code: unknown, the order is kept undated; D-275) |
 | procedure | proc_no | proc_no, mrn, order_code, proc_name, proc_date | — |
 | report | rpt_no | rpt_no, mrn, exam_code, exam_name, exam_date, conclusion | exam_code `RAD-CXR` = chest X-ray |
 | note | note_no | note_no, mrn, enc_no, note_datetime, note_type, text | note_type: `progress`, `admission`, `discharge`, `consult`, `nursing` |

@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "1b3051cba638bf14f495ce397dccc72e5dd956f4",
+  "head": "09b3ba39dacdff846001ad35148e7e4667f28353",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-322: the five shipped rulesets recompiled with family expansion (T-613a)",
+  "reason": "D-275 on master after T-614, AD recompile and D-276: unusable structured data is unknown, never an exclusion",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
@@ -126,7 +126,7 @@
     "d47858b4b25b344806b8fb1efb63cedd"
    ],
    "candidates": 6,
-   "outcomes_sha": "3b502d656e8d1dbd3bc8d9bdcb6901d347ee5c0dcd97e1e1367c649ef933f22b",
+   "outcomes_sha": "e9f2780ded6b7770d7771197d255beeea4431ba39c6bbca4d0dc57ef3d30f5f0",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -145,8 +145,8 @@
     },
     "GOUT-COH-INC-02": {
      "met": 542,
-     "not_met": 160,
-     "unknown": 1798
+     "not_met": 154,
+     "unknown": 1804
     },
     "GOUT-COH-INC-03": {
      "met": 521,
@@ -185,7 +185,7 @@
     "d591edeb5920715e0bd200fdec855805"
    ],
    "candidates": 6,
-   "outcomes_sha": "22c24c73b0d2fd73f5dbc8fdcd5c1e3814e73a5aa18c4b7f44c1392582686315",
+   "outcomes_sha": "d70b0226fca99463db58f89e39e11d1e50d2cd712a21e82b01be786f1e59493b",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -204,8 +204,8 @@
     },
     "GOUT-COH-INC-02": {
      "met": 509,
-     "not_met": 143,
-     "unknown": 1848
+     "not_met": 137,
+     "unknown": 1854
     },
     "GOUT-COH-INC-03": {
      "met": 521,
@@ -244,7 +244,7 @@
     "bad926ed536872ce7d0d835f3f854fdd"
    ],
    "candidates": 6,
-   "outcomes_sha": "b1118dd40ba611ff436b47158b166f1162b746be9dbdb067d81048c547638f5b",
+   "outcomes_sha": "46ea03676430c7bb54f89e5298384583d5aea884af4b0210c13f3f512f7ead3f",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -263,8 +263,8 @@
     },
     "GOUT-COH-INC-02": {
      "met": 501,
-     "not_met": 185,
-     "unknown": 1814
+     "not_met": 179,
+     "unknown": 1820
     },
     "GOUT-COH-INC-03": {
      "met": 540,

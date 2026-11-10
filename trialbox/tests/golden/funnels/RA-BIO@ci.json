@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "1b3051cba638bf14f495ce397dccc72e5dd956f4",
+  "head": "f9ac1647cb157cb94f2b92975e13a3ca288e8507",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-322: the five shipped rulesets recompiled with family expansion (T-613a)",
+  "reason": "D-275 on master after T-613a: shipped rulesets recompiled with the D-275 rules; unusable structured data is unknown",
   "ref_date": "2026-11-01",
   "ruleset": "RA-BIO",
   "ruleset_version": "1.0.0",

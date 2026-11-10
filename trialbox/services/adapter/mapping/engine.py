@@ -333,7 +333,12 @@ class Mapper:
             raw = row.get(expr["column"])
             if "map" in expr:
                 key = "" if raw is None else str(raw)
-                raw = expr["map"].get(key, expr.get("default"))
+                if key.strip() and key not in expr["map"] and "unmapped" in expr:
+                    # D-275: a code the map does not know is not the empty default (a cancelled order must never
+                    # become "active" because the map lacks the word)
+                    raw = expr["unmapped"]
+                else:
+                    raw = expr["map"].get(key, expr.get("default"))
             elif (raw is None or str(raw).strip() == "") and "default" in expr:
                 raw = expr["default"]
             if "add_minutes" in expr and raw not in (None, ""):

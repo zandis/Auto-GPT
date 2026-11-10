@@ -20,11 +20,12 @@ from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from typing import Any, Literal, Protocol, cast
 
+from criteria_compiler.compile_sql.overlay import safe_sql
 from lake.client import LakeAPI
 from matching.coverage import Coverage
 from matching.proposed import Proposed
-from tb_common.derived import reason_of as derived_reason
 from tb_common.fhir import FhirEvaluator
+from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import LlmClient, LlmError
 from tb_common.pair import DECIDED, Vote, combine, needs_verifier, same_model, served_keys
 from tb_common.quotes import quote_in
@@ -94,7 +95,7 @@ class SqlEngine:
     def evaluate(self, rs: Ruleset, pids: list[str], index_date: date, ids: list[str]) -> dict[str, PatientEvaluation]:
         if not pids:
             return {}
-        t = self.lake.query(rs.sql, [[index_date.isoformat()], list(pids)], self.snapshot).to_pylist()
+        t = self.lake.query(safe_sql(rs), [[index_date.isoformat()], list(pids)], self.snapshot).to_pylist()
         crit = [c for c in rs.active() if c.id in set(ids)]
         cov = Coverage.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)
         prop = Proposed.for_criteria(self.lake, crit, pids, self.snapshot, rs.valuesets)

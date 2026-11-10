@@ -36,8 +36,12 @@ class Reason(StrEnum):
     CHECK_DATES = "check_dates"  # deceased or not yet born at the screening date by the records (D-142)
     DERIVED_MISSING_INPUT = "derived_missing_input"  # a score lacks an input at the visit (D-149)
     DERIVED_UNIT = "derived_unit"  # a score's input has a unit the formula cannot use (D-149)
-    UNIT_MISMATCH = "unit_mismatch"  # a lab row's own unit is not the lookup's (R-31, D-215): no value, never converted
+    # a lab row's unit cannot be used: not the lookup's at ingest (R-31, D-215), or not the criterion's and no tested
+    # conversion (D-275): no value, unknown
+    UNIT_MISMATCH = "unit_mismatch"
     UNKNOWN_VALUE = "unknown_value"  # a lab result that is not a readable number ("see note", 陰性; D-142, D-215)
+    ORDER_DATES_MISSING = "order_dates_missing"  # a medicine order with no end date, or no date at all (D-275)
+    RULES_CHANGED = "rules_changed"  # an approved answer the current safety rules do not confirm (D-275)
 
 
 CODES = frozenset(r.value for r in Reason)
@@ -62,6 +66,8 @@ _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
     (("unknown code system", "unknown_code_system"), Reason.UNKNOWN_CODE_SYSTEM),
     (("proposed_fact", "proposed fact"), Reason.PROPOSED_FACT),
     (("derived_unit",), Reason.DERIVED_UNIT),
+    (("order_dates_missing",), Reason.ORDER_DATES_MISSING),
+    (("rules_changed",), Reason.RULES_CHANGED),
     (("derived_missing_input",), Reason.DERIVED_MISSING_INPUT),
     (("unit_mismatch", "unit mismatch"), Reason.UNIT_MISMATCH),
     (("unknown_value", "unreadable value"), Reason.UNKNOWN_VALUE),
@@ -152,14 +158,24 @@ LABELS: dict[str, dict[str, str]] = {
         "zh-TW": "無法計算分數：輸入值的單位無法使用，請確認",
     },
     "unit_mismatch": {
-        "en": "the result's unit differs from the unit set for this test: not used, please check",
-        "ja": "結果の単位がこの検査に設定された単位と異なる：使用せず、確認してください",
-        "zh-TW": "結果的單位與此檢驗設定的單位不同：未使用，請確認",
+        "en": "a result's unit does not fit the test or the criterion: not used, please check",
+        "ja": "検査結果の単位がこの判定に使えない（検査または基準の単位と異なる）：使用せず、確認してください",
+        "zh-TW": "檢驗結果的單位無法用於此判定（與檢驗或條件的單位不同）：未使用，請確認",
     },
     "unknown_value": {
         "en": "a result that is not a number: not used, please check",
         "ja": "数値として読めない結果あり：使用せず、確認してください",
         "zh-TW": "有無法讀成數值的結果：未使用，請確認",
+    },
+    "order_dates_missing": {
+        "en": "a medicine order has no end date or no date: the duration is not known, please check",
+        "ja": "処方に終了日または日付の記録なし：投与期間が不明のため確認してください",
+        "zh-TW": "處方沒有結束日期或沒有日期：用藥期間不明，請確認",
+    },
+    "rules_changed": {
+        "en": "the approved check and the current safety rules give different answers: please check",
+        "ja": "承認済みの判定と現在の安全ルールの結果が異なる：確認してください",
+        "zh-TW": "已核准的判定與目前的安全規則結果不同：請確認",
     },
 }
 

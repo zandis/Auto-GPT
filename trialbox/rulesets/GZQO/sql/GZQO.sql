@@ -2,6 +2,7 @@
 -- Deterministic template output; never edited by hand or produced by an LLM.
 -- Parameters: $1 index_dates DATE[] ; $2 pids VARCHAR[] (NULL = all patients alive at index).
 -- Output: one row per (pid, index_date) with "C_<ID>" BOOLEAN/NULL and "E_<ID>" VARCHAR per criterion.
+-- Safety rules: D-275 (units, sex, order dates).
 WITH
 params AS (SELECT CAST($1 AS DATE[]) AS idx_dates, CAST($2 AS VARCHAR[]) AS pids),
 idx AS (SELECT unnest(idx_dates) AS index_date FROM params),
@@ -5320,13 +5321,13 @@ c_gzqo_inc_02 AS (
   LEFT JOIN a_gzqo_inc_02_1_off ON a_gzqo_inc_02_1_off.pid = b.pid AND a_gzqo_inc_02_1_off.index_date = b.index_date),
 a_gzqo_inc_03_1_weight AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[lb_av]' THEN o.value_num * 0.45359237 WHEN 'g' THEN o.value_num * 0.001 WHEN 'kg' THEN o.value_num * 1.0 WHEN 'lb' THEN o.value_num * 0.45359237 ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[lb_av]' THEN o.value_num * 0.45359237 WHEN 'g' THEN o.value_num * 0.001 WHEN 'kg' THEN o.value_num * 1.0 WHEN 'lb' THEN o.value_num * 0.45359237 ELSE NULL END)) THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[lb_av]' THEN o.value_num * 0.45359237 WHEN 'g' THEN o.value_num * 0.001 WHEN 'kg' THEN o.value_num * 1.0 WHEN 'lb' THEN o.value_num * 0.45359237 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
     WHERE o.system = 'http://loinc.org' AND o.code = '29463-7') WHERE rn = 1),
 a_gzqo_inc_03_1_height AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[in_i]' THEN o.value_num * 2.54 WHEN 'cm' THEN o.value_num * 1.0 WHEN 'in' THEN o.value_num * 2.54 WHEN 'm' THEN o.value_num * 100.0 WHEN 'mm' THEN o.value_num * 0.1 ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[in_i]' THEN o.value_num * 2.54 WHEN 'cm' THEN o.value_num * 1.0 WHEN 'in' THEN o.value_num * 2.54 WHEN 'm' THEN o.value_num * 100.0 WHEN 'mm' THEN o.value_num * 0.1 ELSE NULL END)) THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN '[in_i]' THEN o.value_num * 2.54 WHEN 'cm' THEN o.value_num * 1.0 WHEN 'in' THEN o.value_num * 2.54 WHEN 'm' THEN o.value_num * 100.0 WHEN 'mm' THEN o.value_num * 0.1 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
     WHERE o.system = 'http://loinc.org' AND o.code = '8302-2') WHERE rn = 1),
@@ -5347,9 +5348,10 @@ c_gzqo_inc_03 AS (
   LEFT JOIN a_gzqo_inc_03_1 ON a_gzqo_inc_03_1.pid = b.pid AND a_gzqo_inc_03_1.index_date = b.index_date),
 a_gzqo_inc_04_1 AS (
   SELECT pid, index_date, (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6.8) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6.8 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6.8 THEN TRUE END) END) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'mg/dl' THEN o.value_num WHEN o.system = 'http://loinc.org' AND o.code = '1988-5' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'mg/l' THEN round(o.value_num / 10.0, 6) WHEN o.system = 'http://loinc.org' AND o.code = '1988-5' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'ug/ml' THEN round(o.value_num / 10.0, 6) WHEN o.system = 'http://loinc.org' AND o.code = '2160-0' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'umol/l' THEN round(o.value_num / 88.4, 6) END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'mg/dl' THEN o.value_num WHEN o.system = 'http://loinc.org' AND o.code = '1988-5' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'mg/l' THEN round(o.value_num / 10.0, 6) WHEN o.system = 'http://loinc.org' AND o.code = '1988-5' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'ug/ml' THEN round(o.value_num / 10.0, 6) WHEN o.system = 'http://loinc.org' AND o.code = '2160-0' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'umol/l' THEN round(o.value_num / 88.4, 6) END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 a_gzqo_inc_04_2 AS (
@@ -5369,9 +5371,10 @@ a_gzqo_inc_04_2_off AS (
   GROUP BY b.pid, b.index_date),
 a_gzqo_inc_04_3 AS (
   SELECT pid, index_date, (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 6) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 6 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 6 THEN TRUE END) END) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'mg/dl' THEN o.value_num WHEN o.system = 'http://loinc.org' AND o.code = '1988-5' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'mg/l' THEN round(o.value_num / 10.0, 6) WHEN o.system = 'http://loinc.org' AND o.code = '1988-5' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'ug/ml' THEN round(o.value_num / 10.0, 6) WHEN o.system = 'http://loinc.org' AND o.code = '2160-0' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'umol/l' THEN round(o.value_num / 88.4, 6) END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'mg/dl' THEN o.value_num WHEN o.system = 'http://loinc.org' AND o.code = '1988-5' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'mg/l' THEN round(o.value_num / 10.0, 6) WHEN o.system = 'http://loinc.org' AND o.code = '1988-5' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'ug/ml' THEN round(o.value_num / 10.0, 6) WHEN o.system = 'http://loinc.org' AND o.code = '2160-0' AND replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'umol/l' THEN round(o.value_num / 88.4, 6) END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SERUM_URATE' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- GZQO-INC-04 (inclusion): Serum urate ≥6.8 mg/dL at screening, or ≥6.0 mg/dL if receiving urate-lowering therapy.
@@ -5401,21 +5404,29 @@ a_gzqo_inc_06_1 AS (
     SELECT pid, index_date, island, (max(e) - min(s)) + 1 AS len,
            string_agg(mid, ';' ORDER BY s, mid) AS ev FROM a_gzqo_inc_06_1_i GROUP BY pid, index_date, island)
   GROUP BY pid, index_date),
+a_gzqo_inc_06_1_o AS (
+  SELECT b.pid, b.index_date, count(*) AS n, string_agg(m.mid, ';' ORDER BY m.mid) AS ev
+  FROM base b JOIN medication m ON m.pid = b.pid
+  WHERE (EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'http://www.whocc.no/atc' AND vs.code = m.atc) OR EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_URATE_LOWERING_THERAPY' AND vs.system = 'https://trialbox.local/fhir/CodeSystem/nhi-drug' AND vs.code = m.nhi_code))
+    AND (coalesce(m.start, m.authored) IS NULL
+         OR (m."end" IS NULL AND coalesce(m.start, m.authored) <= b.index_date))
+  GROUP BY b.pid, b.index_date),
 -- GZQO-INC-06 (inclusion): Receiving stable urate-lowering therapy for at least 3 months (continuous within the past 6 months, gaps ≤30 days).
 c_gzqo_inc_06 AS (
-  SELECT b.pid, b.index_date, (coalesce(a_gzqo_inc_06_1.days, 0) >= 90) AS v,
-         concat_ws(';', a_gzqo_inc_06_1.ev) AS ev
+  SELECT b.pid, b.index_date, (CASE WHEN coalesce(a_gzqo_inc_06_1.days, 0) >= 90 THEN TRUE WHEN coalesce(a_gzqo_inc_06_1_o.n, 0) > 0 THEN NULL ELSE FALSE END) AS v,
+         concat_ws(';', (CASE WHEN coalesce(a_gzqo_inc_06_1.days, 0) >= 90 THEN a_gzqo_inc_06_1.ev WHEN coalesce(a_gzqo_inc_06_1_o.n, 0) > 0 THEN 'order_dates_missing;' || a_gzqo_inc_06_1_o.ev ELSE a_gzqo_inc_06_1.ev END)) AS ev
   FROM base b
-  LEFT JOIN a_gzqo_inc_06_1 ON a_gzqo_inc_06_1.pid = b.pid AND a_gzqo_inc_06_1.index_date = b.index_date),
+  LEFT JOIN a_gzqo_inc_06_1 ON a_gzqo_inc_06_1.pid = b.pid AND a_gzqo_inc_06_1.index_date = b.index_date
+  LEFT JOIN a_gzqo_inc_06_1_o ON a_gzqo_inc_06_1_o.pid = b.pid AND a_gzqo_inc_06_1_o.index_date = b.index_date),
 a_gzqo_inc_08_1_creatinine AS (
   SELECT pid, index_date, value_num, conv, oid, effective FROM (
-    SELECT b.pid, b.index_date, o.value_num, (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END) AS conv, o.oid, o.effective,
+    SELECT b.pid, b.index_date, o.value_num, (CASE WHEN isfinite((CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END)) AND (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END) > 0.0 THEN (CASE lower(replace(replace(replace(coalesce(o.unit, ''), ' ', ''), 'µ', 'u'), 'μ', 'u')) WHEN 'mg/dl' THEN o.value_num * 1.0 WHEN 'umol/l' THEN o.value_num * 0.011312217194570135 ELSE NULL END) END) AS conv, o.oid, o.effective,
            row_number() OVER (PARTITION BY b.pid, b.index_date ORDER BY o.effective DESC, o.oid DESC) AS rn
     FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -365) AND b.index_date
     WHERE o.system = 'http://loinc.org' AND o.code = '2160-0') WHERE rn = 1),
 a_gzqo_inc_08_1_v AS (
-  SELECT b.pid, b.index_date, (CASE WHEN creatinine.conv IS NULL OR date_sub('year', b.birth_date, b.index_date) IS NULL OR (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) IS NULL THEN NULL ELSE 142.0 * pow(least(creatinine.conv / (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 0.7 ELSE 0.9 END), 1.0), (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN -0.241 ELSE -0.302 END)) * pow(greatest(creatinine.conv / (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 0.7 ELSE 0.9 END), 1.0), -1.2) * pow(0.9938, date_sub('year', b.birth_date, b.index_date)) * (CASE WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) THEN 1.012 ELSE 1.0 END) END) AS val, concat_ws(';', creatinine.oid || '|' || strftime(creatinine.effective, '%Y-%m-%d')) AS refs,
-         (CASE WHEN creatinine.oid IS NULL OR creatinine.value_num IS NULL THEN 'derived_missing_input:creatinine' WHEN creatinine.conv IS NULL THEN 'derived_unit:creatinine' WHEN date_sub('year', b.birth_date, b.index_date) IS NULL THEN 'derived_missing_input:age' WHEN (CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END) IS NULL THEN 'derived_missing_input:sex' ELSE 'derived_missing_input' END) AS why
+  SELECT b.pid, b.index_date, (CASE WHEN creatinine.conv IS NULL OR date_sub('year', b.birth_date, b.index_date) IS NULL OR (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) IS NULL THEN NULL ELSE 142.0 * pow(least(creatinine.conv / (CASE WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) THEN 0.7 ELSE 0.9 END), 1.0), (CASE WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) THEN -0.241 ELSE -0.302 END)) * pow(greatest(creatinine.conv / (CASE WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) THEN 0.7 ELSE 0.9 END), 1.0), -1.2) * pow(0.9938, date_sub('year', b.birth_date, b.index_date)) * (CASE WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) THEN 1.012 ELSE 1.0 END) END) AS val, concat_ws(';', creatinine.oid || '|' || strftime(creatinine.effective, '%Y-%m-%d')) AS refs,
+         (CASE WHEN creatinine.oid IS NULL OR creatinine.value_num IS NULL THEN 'derived_missing_input:creatinine' WHEN creatinine.conv IS NULL THEN 'derived_unit:creatinine' WHEN date_sub('year', b.birth_date, b.index_date) IS NULL THEN 'derived_missing_input:age' WHEN (CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END) IS NULL THEN 'derived_missing_input:sex' ELSE 'derived_missing_input' END) AS why
   FROM base b
   LEFT JOIN a_gzqo_inc_08_1_creatinine creatinine ON creatinine.pid = b.pid AND creatinine.index_date = b.index_date),
 a_gzqo_inc_08_1 AS (
@@ -5561,9 +5572,10 @@ c_gzqo_exc_05 AS (
   LEFT JOIN a_gzqo_exc_05_1_nd ON a_gzqo_exc_05_1_nd.pid = b.pid AND a_gzqo_exc_05_1_nd.index_date = b.index_date),
 a_gzqo_exc_06_1 AS (
   SELECT pid, index_date, (CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 10) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 10 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 10 THEN TRUE END) END) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = '%' THEN o.value_num END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = '%' THEN o.value_num END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_HBA1C' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- GZQO-EXC-06 (exclusion): HbA1c >10% at screening.
@@ -5612,14 +5624,15 @@ a_gzqo_exc_08_1_off AS (
   GROUP BY b.pid, b.index_date),
 a_gzqo_exc_08_3 AS (
   SELECT pid, index_date, (o.value_code IN ('LA6576-8')) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num AS value_num, o.value_cmp, o.value_code,
+         FALSE AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -30) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_PREGNANCY_TEST' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- GZQO-EXC-08 (exclusion): Pregnant or breastfeeding, or positive pregnancy test.
 c_gzqo_exc_08 AS (
-  SELECT b.pid, b.index_date, ((CASE WHEN (coalesce(a_gzqo_exc_08_1.n, 0) > 0) THEN TRUE WHEN coalesce(a_gzqo_exc_08_1_off.n, 0) > 0 THEN NULL WHEN (coalesce(a_gzqo_exc_08_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) OR (((CASE WHEN b.sex IS NULL THEN NULL ELSE b.sex = 'female' END)) AND a_gzqo_exc_08_3.v)) AS v,
+  SELECT b.pid, b.index_date, ((CASE WHEN (coalesce(a_gzqo_exc_08_1.n, 0) > 0) THEN TRUE WHEN coalesce(a_gzqo_exc_08_1_off.n, 0) > 0 THEN NULL WHEN (coalesce(a_gzqo_exc_08_1_nd.n, 0) > 0) THEN NULL ELSE FALSE END) OR (((CASE WHEN b.sex IN ('male', 'female') THEN b.sex = 'female' ELSE NULL END)) AND a_gzqo_exc_08_3.v)) AS v,
          concat_ws(';', coalesce(a_gzqo_exc_08_1.ev, a_gzqo_exc_08_1_off.ev, a_gzqo_exc_08_1_nd.ev), NULL, a_gzqo_exc_08_3.ev) AS ev
   FROM base b
   LEFT JOIN a_gzqo_exc_08_1 ON a_gzqo_exc_08_1.pid = b.pid AND a_gzqo_exc_08_1.index_date = b.index_date
@@ -5628,9 +5641,10 @@ c_gzqo_exc_08 AS (
   LEFT JOIN a_gzqo_exc_08_3 ON a_gzqo_exc_08_3.pid = b.pid AND a_gzqo_exc_08_3.index_date = b.index_date),
 a_gzqo_exc_09_1 AS (
   SELECT pid, index_date, (CASE WHEN o.value_cmp IS NULL THEN (o.value_num >= 160) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num < 160 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num >= 160 THEN TRUE END) END) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'mmhg' THEN o.value_num END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'mmhg' THEN o.value_num END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -90) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_SYSTOLIC_BLOOD_PRESSURE' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- GZQO-EXC-09 (exclusion): Uncontrolled hypertension (systolic blood pressure ≥160 mmHg) at screening.
@@ -5682,9 +5696,10 @@ c_gzqo_exc_10 AS (
   LEFT JOIN a_gzqo_exc_10_2_off ON a_gzqo_exc_10_2_off.pid = b.pid AND a_gzqo_exc_10_2_off.index_date = b.index_date),
 a_gzqo_exc_13_1 AS (
   SELECT pid, index_date, (CASE WHEN o.value_cmp IS NULL THEN (o.value_num > 120) WHEN o.value_cmp IN ('<', '<=') THEN (CASE WHEN o.value_num <= 120 THEN FALSE END) WHEN o.value_cmp IN ('>', '>=') THEN (CASE WHEN o.value_num > 120 THEN TRUE END) END) AS v,
-         o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
+         CASE WHEN o.unit_bad THEN 'unit_mismatch;' ELSE '' END || o.oid || '|' || strftime(o.effective, '%Y-%m-%d') AS ev
   FROM (SELECT *, row_number() OVER (PARTITION BY pid, index_date ORDER BY effective DESC, oid DESC) AS rn
-        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, o.value_num, o.value_cmp, o.value_code
+        FROM (SELECT b.pid, b.index_date, o.oid, o.effective, (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'u/l' THEN o.value_num END) AS value_num, o.value_cmp, o.value_code,
+         (o.value_num IS NOT NULL AND (CASE WHEN replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(o.unit, '')), ' ', ''), 'µ', 'u'), 'μ', 'u'), '^', '*'), '{', ''), '}', ''), '[', ''), ']', ''), '_', '') = 'u/l' THEN o.value_num END) IS NULL) AS unit_bad
   FROM base b JOIN observation o ON o.pid = b.pid AND o.effective::DATE BETWEEN (b.index_date + -180) AND b.index_date
   WHERE EXISTS (SELECT 1 FROM vs WHERE vs.vs_id = 'VS_ALT' AND vs.system = o.system AND vs.code = o.code))) o WHERE rn = 1),
 -- GZQO-EXC-13 (exclusion): ALT >3× upper limit of normal (>120 U/L) at screening.

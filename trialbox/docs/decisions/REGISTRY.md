@@ -118,7 +118,8 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-271 | merged | fix group D-271 (PR #97) | the data pipeline never promotes nothing; `docs/decisions/D-271-data-pipeline-integrity.md` |
 | D-272 | merged | fix group D-272 (FG-C) | audit integrity: no chart number in the audit chain, a head anchor, an archive that never overwrites (file) |
 | D-273 | merged | fix group D-273 | console privacy guards: one reveal path, delegation and opt-out on every patient-level reader, signed role and study (file) |
-| D-274..D-275 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-274 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-275 | merged | fix group FG-F (PR #115) | structured criteria: unusable data is unknown, never an exclusion; `docs/decisions/D-275-criteria-unusable-data-unknown.md` |
 | D-276 | merged | fix group FG-G (PR #101) | the two-model check needs two different models; `docs/decisions/D-276-two-model-check.md` |
 | D-277..D-278 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-279 | merged | fix group D-279 | identity follow-ups: forced first password change, sign-in lock per account and address, OIDC session lifetime, second factor at signing; `docs/decisions/D-279-identity-follow-ups.md` (file) |

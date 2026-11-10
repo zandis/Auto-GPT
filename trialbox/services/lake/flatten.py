@@ -139,6 +139,57 @@ SUSPECTED = frozenset({"provisional", "differential", "unconfirmed"})
 NOT_PRESENT = frozenset({"refuted", "entered-in-error"})
 
 
+# D-275 (review S-4): a record in one of these states is not a fact. It was written in error, called off, never
+# carried out or not yet real, so it reaches no lake table (and no ``site_fact``): it can neither meet a criterion
+# nor exclude a patient. A stopped or completed order, a preliminary or amended result still count. The list for
+# orders is the one the eCRF pre-fill uses (``edc.prefill.VOID_STATUS``, D-162).
+VOID: dict[str, frozenset[str]] = {
+    "Observation": frozenset({"entered-in-error", "cancelled", "registered"}),
+    "MedicationRequest": frozenset({"entered-in-error", "cancelled", "draft", "not-taken"}),
+    "Procedure": frozenset({"entered-in-error", "not-done", "preparation"}),
+    "DiagnosticReport": frozenset({"entered-in-error", "cancelled"}),
+    "DocumentReference": frozenset({"entered-in-error"}),
+    "Encounter": frozenset({"entered-in-error", "cancelled"}),
+}
+# D-275 (review F1, F3): a status that is a fact of unknown standing. A result not yet final (``preliminary``) or of
+# a status nobody can read (``unknown``), an order of an unknown status: the record is kept, but it decides nothing.
+# A result keeps no usable value (unknown, as a text result, D-142); an order keeps no date (it cannot be placed in
+# a window: unknown, as an undated order). A source that records no status at all is not this: its mapping tags the
+# resource ``not-recorded`` and the record counts as it always did.
+UNCERTAIN: dict[str, frozenset[str]] = {
+    "Observation": frozenset({"preliminary", "unknown"}),
+    "MedicationRequest": frozenset({"unknown"}),
+}
+STATUS_SOURCE = "urn:trialbox:status-source"
+NOT_RECORDED = "not-recorded"
+# D-275 (review S-5): the two values a sex criterion and a sex-dependent formula can use. ``other`` and ``unknown``
+# (FHIR administrative gender) are kept as no value: unknown, never "not female"
+SEXES = ("male", "female")
+
+
+def void(rtype: str, r: Resource) -> bool:
+    """The record's own status says it is not a fact (:data:`VOID`)."""
+    states = VOID.get(rtype)
+    if not states:
+        return False
+    if str(r.get("status") or "").strip().lower() in states:
+        return True
+    return rtype == "DocumentReference" and str(r.get("docStatus") or "").strip().lower() in states
+
+
+def uncertain(rtype: str, r: Resource) -> bool:
+    """The record's status says neither "a fact" nor "not a fact" (:data:`UNCERTAIN`), and the source did record one."""
+    if str(r.get("status") or "").strip().lower() not in UNCERTAIN.get(rtype, frozenset()):
+        return False
+    tags = (r.get("meta") or {}).get("tag") or []
+    return not any(t.get("system") == STATUS_SOURCE and t.get("code") == NOT_RECORDED for t in tags)
+
+
+def sex_of(value: Any) -> str | None:
+    s = str(value or "").strip().lower()
+    return s if s in SEXES else None
+
+
 def verification_of(r: Resource) -> str:
     for c in (r.get("verificationStatus") or {}).get("coding") or []:
         if c.get("code"):
@@ -214,7 +265,7 @@ class Flattener:
         return {
             "pid": r["id"],
             "birth_date": self.d(r.get("birthDate")),
-            "sex": r.get("gender"),
+            "sex": sex_of(r.get("gender")),
             "deceased_date": self.d(dec) if dec else None,
         }
 
@@ -284,13 +335,16 @@ class Flattener:
         cat, _ = self.coding((r.get("category") or [{}])[0])
         q = r.get("valueQuantity") or {}
         vcode, _ = self.coding(r.get("valueCodeableConcept"))
+        value = _value(q, r.get("valueString"))
+        if uncertain("Observation", r):  # D-275: kept, but no usable value (unknown, never a decided answer)
+            value, vcode = {"value_num": None, "value_cmp": None}, None
         return {
             "oid": r["id"],
             "pid": _ref_id(r.get("subject")),
             "code": primary.get("code"),
             "system": primary.get("system"),
             "effective": self.ts(r.get("effectiveDateTime")),
-            **_value(q, r.get("valueString")),
+            **value,
             "unit": q.get("code") or q.get("unit"),
             "value_code": vcode,
             "category": cat,
@@ -306,14 +360,15 @@ class Flattener:
             elif nhi is None:
                 nhi = c.get("code")
         period = (r.get("dispenseRequest") or {}).get("validityPeriod") or {}
+        placed = not uncertain("MedicationRequest", r)  # D-275: an order of unknown status is kept undated
         return {
             "mid": r["id"],
             "pid": _ref_id(r.get("subject")),
             "nhi_code": nhi,
             "atc": atc,
-            "authored": self.d(r.get("authoredOn")),
-            "start": self.d(period.get("start") or r.get("authoredOn")),
-            "end": self.d(period.get("end")),
+            "authored": self.d(r.get("authoredOn")) if placed else None,
+            "start": self.d(period.get("start") or r.get("authoredOn")) if placed else None,
+            "end": self.d(period.get("end")) if placed else None,
             "status": r.get("status"),
             "name": cc.get("text"),
             "dose": ((r.get("dosageInstruction") or [{}])[0] or {}).get("text"),
@@ -388,6 +443,7 @@ class Flattener:
             "DocumentReference": ("document", self.document),
             "Consent": ("consent", self.consent),
         }
+        by_type = {t: [r for r in rs if not void(t, r)] for t, rs in by_type.items()}  # D-275 (S-4)
         out: dict[str, list[Row]] = {name: [] for name in SCHEMAS}
         facts: list[Row] = []
         coded: dict[str, list[Resource]] = {}
@@ -446,13 +502,16 @@ class Flattener:
             code, system = self.coding(comp.get("code"), prefer=LOINC)
             q = comp.get("valueQuantity") or {}
             vcode, _ = self.coding(comp.get("valueCodeableConcept"))
+            value = _value(q, comp.get("valueString"))
+            if uncertain("Observation", r):  # the panel's status holds for its components (D-275)
+                value, vcode = {"value_num": None, "value_cmp": None}, None
             rows.append(
                 {
                     **rows[0],
                     "oid": f"{r['id']}.{code}",
                     "code": code,
                     "system": system,
-                    **_value(q, comp.get("valueString")),
+                    **value,
                     "unit": q.get("code") or q.get("unit"),
                     "value_code": vcode,
                     "local_code": None,

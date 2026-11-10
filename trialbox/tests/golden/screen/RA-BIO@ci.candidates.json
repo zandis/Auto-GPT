@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "1b3051cba638bf14f495ce397dccc72e5dd956f4",
+  "head": "f9ac1647cb157cb94f2b92975e13a3ca288e8507",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-322: the five shipped rulesets recompiled with family expansion (T-613a)",
+  "reason": "D-275 on master after T-613a: shipped rulesets recompiled with the D-275 rules; unusable structured data is unknown",
   "ref_date": "2026-11-01",
   "ruleset": "RA-BIO",
   "ruleset_version": "1.0.0",
@@ -295,7 +295,7 @@
     "f98d30f6a9ffe6bfb42a2bc7e5707416"
    ],
    "candidates": 47,
-   "outcomes_sha": "dda8b03c73d7e5320dc0ebc150e9018c0758228517e8a96b1713dfbaab052545",
+   "outcomes_sha": "175a0935d0379373afce0c29d1835e99cfe4ad2b6402b9278f85a926e44fed2c",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -380,8 +380,8 @@
     },
     "RA-BIO-INC-03": {
      "met": 374,
-     "not_met": 2126,
-     "unknown": 0
+     "not_met": 2110,
+     "unknown": 16
     },
     "RA-BIO-INC-04": {
      "met": 342,
@@ -620,7 +620,7 @@
     "f51b5bd2b6061ad7e76f11be17c61fd7"
    ],
    "candidates": 31,
-   "outcomes_sha": "33de24140d5367f9a6bb8f3b468b92319765361bd5cd0d68948ea5a5ce79d2f5",
+   "outcomes_sha": "11101fc4031a016de2e38febf33111152b43442621e530664e4e8809990596e3",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -705,8 +705,8 @@
     },
     "RA-BIO-INC-03": {
      "met": 353,
-     "not_met": 2147,
-     "unknown": 0
+     "not_met": 2128,
+     "unknown": 19
     },
     "RA-BIO-INC-04": {
      "met": 359,

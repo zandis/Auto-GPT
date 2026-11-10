@@ -16,6 +16,7 @@ from tb_common.derived import (
     CODES,
     COMPONENTS,
     DAS28,
+    DOMAIN,
     EGFR,
     EGFR_JSN,
     LOINC,
@@ -27,6 +28,7 @@ from tb_common.derived import (
     UNITS,
 )
 from tb_common.fhir import library_name
+from tb_common.labunit import ANALYTES, DIGITS, UNITLESS_KEYS, conversion, key
 from tb_contracts import Atom, BoolExpr, CriterionIR
 
 from criteria_compiler.semantics import (
@@ -86,6 +88,20 @@ def render_common() -> str:
     )
 
 
+def domain_expr(comp: str, conv: str) -> str:
+    """D-275, the CQL twin of the SQL ``domain_sql``: the converted value when ``tb_common.derived.DOMAIN`` allows it,
+    else null (a null value fails every comparison, so it stays null; CQL decimals are always finite)."""
+    lo, hi, lo_allowed = DOMAIN.get(comp, (float("-inf"), float("inf"), True))
+    conds = []
+    if lo != float("-inf"):
+        conds.append(f"{conv} {'>=' if lo_allowed else '>'} {_cql_dec(lo)}")
+    if hi != float("inf"):
+        conds.append(f"{conv} <= {_cql_dec(hi)}")
+    if not conds:
+        return conv
+    return f"if {' and '.join(conds)} then {conv} else null"
+
+
 def q(name: str) -> str:
     return '"' + name.replace('"', '\\"') + '"'
 
@@ -99,6 +115,31 @@ def date_expr(days: int) -> str:
 def win_expr(w: Window) -> str:
     lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days)
     return f"Interval[{lo}, {date_expr(w.to_days)}]"
+
+
+def unit_function(name: str, want: str | None) -> str:
+    """D-275 (review S-1), the CQL twin of ``tb_common.labunit.value_sql``: a function giving a Quantity's number
+    in the criterion's unit, or null when its unit is another one that cannot be converted (or is missing).
+    ``Cd`` is the coding list of the observation (or component) the Quantity belongs to."""
+    need = key(want)
+    have = "TB.UnitKey(Q)"
+    if need in UNITLESS_KEYS:
+        allowed = ", ".join("'" + k + "'" for k in sorted(UNITLESS_KEYS))
+        arms = [f"when {have} in {{ {allowed} }} then Q.value.value"]
+    else:
+        esc = need.replace("\\", "\\\\").replace("'", "\\'")
+        arms = [f"when {have} = '{esc}' then Q.value.value"]
+        for (sy, cd), table in sorted(ANALYTES.items()):
+            for u in sorted(table):
+                conv = conversion(u, need, sy, cd)
+                if conv is not None:  # the factor as an exact decimal, the value rounded as in SQL (review F2, F4)
+                    op, k = conv
+                    arms.append(
+                        f"when exists (Cd C where C.system.value = '{sy}' and C.code.value = '{cd}') "
+                        f"and {have} = '{u}' then Round(Q.value.value {op} {_cql_dec(k)}, {DIGITS})"
+                    )
+    body = "\n    ".join(arms)
+    return f"define function {q(name)}(Q FHIR.Quantity, Cd List<FHIR.Coding>):\n  case\n    {body}\n    else null end"
 
 
 def cmp_expr(atom: Atom, value: str, code: str | None = None) -> str:
@@ -204,13 +245,16 @@ class CqlGenerator:
         vsname = q(atom.valueset)
         win = win_expr(w)
         comp = self.vs.is_component_set(atom.valueset)
+        numeric = atom.value is not None and atom.value.op != "in"
+        nf = q("N_" + p)  # the value in the criterion's unit (D-275)
         if comp:
             retrieve = (
                 f"[Observation] X where TB.ObsDate(X) in {win} and exists (X.component C where C.code in {vsname})"
             )
 
             def val(o: str) -> str:
-                return f"TB.CompValue(First({o}.component C where C.code in {vsname}))"
+                c1 = f"First({o}.component C where C.code in {vsname})"
+                return f"{nf}({c1}.value as FHIR.Quantity, {c1}.code.coding)"
 
             def code(o: str) -> str:
                 return f"First(({o}.component C where C.code in {vsname}).value as FHIR.CodeableConcept).coding"
@@ -218,7 +262,7 @@ class CqlGenerator:
             retrieve = f"[Observation: {vsname}] X where TB.ObsDate(X) in {win}"
 
             def val(o: str) -> str:
-                return f"TB.ObsValue({o})"
+                return f"{nf}({o}.value as FHIR.Quantity, {o}.code.coding)"
 
             def code(o: str) -> str:
                 return f"TB.ObsCode({o})"
@@ -226,6 +270,9 @@ class CqlGenerator:
         if comp and atom.value is not None and atom.value.op == "in":
             raise CompileError("coded comparisons on panel components are not supported")
         defs = [f"define {q('Q_' + p)}:\n  {retrieve}"]
+        if numeric:
+            assert atom.value is not None
+            defs.insert(0, unit_function("N_" + p, atom.value.unit))
         quant = atom.quantifier or "any"
         qn = q("Q_" + p)
         if quant == "latest":
@@ -283,7 +330,10 @@ class CqlGenerator:
                 near = f" and TB.SameVisit(X, {q(f'L_{p}_{rule[0]}')}, {int(rule[1][comp])})"
             defs.append(f"define {q(qname)}:\n  [Observation: {q(cn)}] X where TB.ObsDate(X) in {win}{near}")
             defs.append(f"define {q(f'L_{p}_{comp}')}:\n  TB.LatestObs({q(qname)})")
-            latest[comp] = f"TB.{q('Conv_' + comp)}({q(f'L_{p}_{comp}')})"  # in the formula's unit (D-149)
+            # in the formula's unit (D-149), and only a value possible for the component (D-275)
+            conv = f"TB.{q('Conv_' + comp)}({q(f'L_{p}_{comp}')})"
+            defs.append(f"define {q(f'K_{p}_{comp}')}:\n  {domain_expr(comp, conv)}")
+            latest[comp] = q(f"K_{p}_{comp}")
         match atom.derived:
             case "bmi":
                 value = f"TB.BMI({latest['weight']}, {latest['height']})"
@@ -333,7 +383,8 @@ class CqlGenerator:
         gap = 30 if atom.duration.gap_days is None else atom.duration.gap_days
         lo = f"@{UNBOUNDED_PAST}" if w.from_days is None else date_expr(w.from_days)
         hi = date_expr(w.to_days)
-        qn, pn, dn = q("Q_" + p), q("P_" + p), q("D_" + p)
+        qn, pn, dn, on = q("Q_" + p), q("P_" + p), q("D_" + p), q("O_" + p)
+        start = "Coalesce(date from X.dispenseRequest.validityPeriod.start, date from X.authoredOn)"
         defs = [
             f"define {qn}:\n  [MedicationRequest: {q(atom.valueset)}] X",
             (
@@ -348,8 +399,14 @@ class CqlGenerator:
                 f"define {dn}:\n  Coalesce(Max((collapse ({pn} I return Interval[start of I, end of I + {gap} days]) "
                 f"per day) J\n    return (days between start of J and (end of J - {gap} days)) + 1), 0)"
             ),
+            # D-275 (review S-9), as the SQL: an order with no end date ran for an unknown time and one with no
+            # date cannot be placed; where the dated periods do not reach min_days the answer is null (unknown)
+            (
+                f"define {on}:\n  {qn} X\n    where {start} is null\n"
+                f"      or (X.dispenseRequest.validityPeriod.end is null and {start} <= {hi})"
+            ),
         ]
-        a = f"{dn} >= {atom.duration.min_days}"
+        a = f"if {dn} >= {atom.duration.min_days} then true else if exists ({on}) then null as Boolean else false"
         ev = f"{qn} X return X.id + '|' + ToString(date from X.authoredOn)"
         return defs, a, ev
 
@@ -361,7 +418,11 @@ class CqlGenerator:
             if atom.age.max is not None:
                 conds.append(f"AgeInYearsAt(IndexDate) <= {fmt_num(atom.age.max)}")
         if atom.sex is not None:
-            conds.append(f"(if Patient.gender is null then null else Patient.gender.value = '{atom.sex}')")
+            # D-275 (review S-5), as the SQL: other / unknown is null, not "not female"
+            conds.append(
+                f"(if Patient.gender.value in {{ 'male', 'female' }} then Patient.gender.value = '{atom.sex}' "
+                f"else null)"
+            )
         return [], "(" + " and ".join(conds) + ")", "List<String>{}"
 
     # ------------------------------------------------------------------ criteria

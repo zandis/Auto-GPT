@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "1b3051cba638bf14f495ce397dccc72e5dd956f4",
+  "head": "09b3ba39dacdff846001ad35148e7e4667f28353",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-322: the five shipped rulesets recompiled with family expansion (T-613a)",
+  "reason": "D-275 on master after T-614, AD recompile and D-276: unusable structured data is unknown, never an exclusion",
   "ref_date": "2026-11-01",
   "ruleset": "RA-COH",
   "ruleset_version": "1.0.0",

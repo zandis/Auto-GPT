@@ -177,6 +177,9 @@ supply-chain gates (lock current, allow-list, pip-audit, licences) are the `lock
 | A job fails with `LAKE-LIMIT` | the job's error; `df -h /data` | the query hit its spill cap (`TB_LAKE_MAX_TEMP`, default a quarter of the free disk, at most 50 GB; `TB_LAKE_TEMP_DIR` moves the spill) and was stopped before it filled the disk. Usually a join that multiplies rows: report it; raise the cap only for data that really is that large |
 | Containers lost egress after a restart | `deploy/network.sh status` | `deploy/network.sh apply` |
 | `CERTIFICATE_VERIFY_FAILED` | hospital TLS inspection | put the hospital CA on the host, set `TB_EXTRA_CA=/abs/path/ca.pem` in `deploy/.env`, `docker compose up -d` |
+| Many patients "need information" with "a result is in a unit that cannot be compared" | the lab's unit in the feed against the criterion's unit (`mapping_check.py`; `unit_defaults` in the site mapping) | declare the site's unit for that analyte, or ask the vendor for a tested factor (D-275); the patients are never excluded for it |
+| Many orders or results read as unknown after an ingest | `mapping_check.py` lists status codes outside the map; the lake's `medication.status` = `unknown` | the HIS sends a status code the site mapping does not know: add it to the `status` / `result_status` map (an unknown code never counts as given or as final; D-275) |
+| Many patients "need information" with "a medicine order has no end date" | the feed's order rows: no end date, or no date at all | map the order's end (or days of supply) in the site mapping (D-275) |
 | Notes never exclude | `selftest.failed` in the audit, the admin health tile | the pair canary failed: check the models (§8, §10) |
 | Notes never exclude; the run says "the verifier is not a second model" | `llm.pair.same_model` in the audit, `trialbox doctor` (`note_block` FAIL) | the verifier is the judge again (the same model name, alias, build or weights), or its endpoint does not say which weights it serves (`/models`). A note answer needs two different models (D-276): name a different verifier (`TB_GATEWAY_VERIFIER_MODEL`, or `LLM_VERIFIER_BASE_URL` with its own `LLM_VERIFIER_MODEL`), or set `TB_NOTE_BLOCK=never` on purpose |
 | A screening run fails "the model did not answer"; rows say "not checked (system busy)" | the gateway log (`upstream_failed` on a judge call), `llm.gateway.call` with `fallbacks` | the judge's server is down or erroring. A judge call is never answered by the verifier build instead (D-276, LLM-002): bring the judge back, then send the request again |
@@ -205,6 +208,8 @@ A failed job names its step (received, parsing, compiling, running, reporting) a
 5. `update.applied` in the audit; the rollback point (dumps and key) deleted. A failure in step 4 before the reference
    data puts images, models, databases and rulesets back, restarts, checks and writes `update.rolled_back`; exit 1. If
    the backup or the rollback point fails, the stopped services are started again and nothing else changed.
+
+**After the update that brings D-275, run one ingest** (the nightly one is enough). Until then the lake still holds records the new rule leaves out (a result entered in error, a cancelled order, a sex of `other` / `unknown` as text), and orders with no date that the old ingest dropped are only read again when the source sends them. Approved rulesets need no new approval: their SQL runs guarded by the current rules (`criteria_compiler/compile_sql/overlay.py`) until they are next compiled.
 
 **While an update runs** `deploy/updates/IN_PROGRESS.json` names the bundle and the step. It is removed only when the
 update or its rollback completed; while it exists no other update starts. After a power cut or a killed update:

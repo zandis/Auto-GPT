@@ -29,7 +29,7 @@ define function "LatestValue"(obs List<FHIR.Observation>):
   "ObsValue"("LatestObs"(obs))
 
 define function "IsFemale"(P FHIR.Patient):
-  if P.gender is null then null else P.gender.value = 'female'
+  if P.gender.value in { 'male', 'female' } then P.gender.value = 'female' else null
 
 define function "BMI"(weightKg System.Decimal, heightCm System.Decimal):
   weightKg / Power(heightCm / 100.0, 2.0)
@@ -42,6 +42,12 @@ define function "UnitOf"(O FHIR.Observation):
 /* x when it is inside the item's scale, else null (D-189: a 0-10 global holding 40 is not a 40) */
 define function "InScale"(x System.Decimal, lo System.Decimal, hi System.Decimal):
   if x is null then null else if x >= lo and x <= hi then x else null
+
+/* the unit of a Quantity as two spellings of it compare equal (tb_common.labunit.key, D-275) */
+define function "UnitKey"(Q FHIR.Quantity):
+  ReplaceMatches(ReplaceMatches(ReplaceMatches(Lower(Coalesce(
+    if Q.code.value = '' then null else Q.code.value, Q.unit.value, '')),
+    '[\\[\\]{}_ ]', ''), '[µμ]', 'u'), '\\^', '*')
 
 /* a component in the unit its formula expects; null when the recorded unit is not allowed (D-149) */
 define function "Conv_creatinine"(O FHIR.Observation):

@@ -20,6 +20,7 @@ from datetime import date
 from typing import Any
 
 import numpy as np
+from criteria_compiler.compile_sql.overlay import safe_sql
 from lake.client import LakeAPI
 from matching.coverage import DOMAINS, Coverage, known_systems
 from matching.proposed import site_basis
@@ -267,7 +268,7 @@ def funnel_query(rs: Ruleset, st: list[Step], variants: list[Variant], departmen
         vcte = f"v AS (SELECT * FROM (\n{vsql}\n)),\n"
     return (
         "-- FEAS funnel (orchestrator/scenarios/feas_compute.py): template SQL only; $3/$4 lookback, $5 departments\n"
-        f"WITH\nr AS (SELECT * FROM (\n{rs.sql}\n)),\n{vcte}"
+        f"WITH\nr AS (SELECT * FROM (\n{safe_sql(rs)}\n)),\n{vcte}"
         "pop AS (SELECT DISTINCT e.pid FROM encounter e\n"
         f"  WHERE CAST(e.start AS DATE) BETWEEN CAST($3 AS DATE) AND CAST($4 AS DATE){dept}),\n"
         f"x AS (SELECT r.*{vcols} FROM r JOIN pop ON pop.pid = r.pid{vjoin}),\n"
