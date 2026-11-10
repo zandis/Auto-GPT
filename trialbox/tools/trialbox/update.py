@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -45,7 +46,7 @@ import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
 from tools import image_pins
@@ -182,6 +183,32 @@ def image_tags(tar: Path) -> list[str]:
     except (tarfile.TarError, KeyError, OSError, ValueError):
         return []
     return [t for entry in data for t in (entry.get("RepoTags") or [])]
+
+
+def tar_images(tar: Path) -> tuple[dict[str, str], set[str]]:
+    """A ``docker save`` archive's ``{tag: config digest}`` (manifest.json ``Config``: ``<hex>.json`` or
+    ``blobs/sha256/<hex>``) and the manifest digests of its index.json (an OCI layout, Docker 25 and later). The
+    archive's sha256 is verified with the bundle, so these name exactly what ``docker load`` will load."""
+    configs: dict[str, str] = {}
+    manifests: set[str] = set()
+    try:
+        with tarfile.open(tar, "r:*") as tf:
+            m = tf.extractfile("manifest.json")
+            for entry in json.loads(m.read()) if m else []:
+                name = PurePosixPath(str(entry.get("Config") or "")).name.removesuffix(".json")
+                digest = f"sha256:{name}" if re.fullmatch(r"[0-9a-f]{64}", name) else ""
+                for t in entry.get("RepoTags") or []:
+                    configs[t] = digest
+            try:
+                ix = tf.extractfile("index.json")
+            except KeyError:
+                ix = None
+            for d in (json.loads(ix.read()) if ix else {}).get("manifests") or []:
+                if isinstance(d, dict) and isinstance(d.get("digest"), str):
+                    manifests.add(d["digest"])
+    except (tarfile.TarError, KeyError, OSError, ValueError, AttributeError):
+        return {}, set()
+    return configs, manifests
 
 
 def rollback_tag(tag: str, bundle_id: str) -> str:
@@ -866,37 +893,34 @@ class _DockerImages:
         pins = _image_pins(plan)
         checked: set[str] = set()
         for tar in sorted(p for p in img.rglob("*") if p.is_file()) if img.is_dir() else []:
-            tags = image_tags(tar)
+            configs, manifests = tar_images(tar)
+            tags = sorted(configs)
             if plan.release is not None and not (set(tags) & set(pins)):
                 raise UpdateFailed(f"image {tar.name}: its tags {tags} are not pinned by release.json")
+            for tag in tags:  # before loading: the archive's config digest is the pin (D-210)
+                if tag in pins and configs[tag] != pins[tag]:
+                    raise UpdateFailed(f"image {tar.name}: {tag} has config {configs[tag] or '(none)'}, "
+                                       f"release.json pins {pins[tag]}; nothing loaded")  # fmt: skip
             self.run(["docker", "load", "-i", str(tar)], timeout=3600)
             done.append(f"image {tar.name}")
             for tag in tags:
-                self.check_loaded(plan, tag)
+                self.check_loaded(plan, tag, {configs[tag], *manifests} - {""})
                 checked.add(tag)
         if done and plan.release is not None and set(pins) - checked:
             raise UpdateFailed(f"release.json pins images this bundle did not load: {sorted(set(pins) - checked)}")
         return done
 
-    def check_loaded(self, plan: Plan, tag: str) -> None:
-        """The loaded image is the one release.json pins for that reference (verified against images.lock before
-        extraction), on either Docker image store (as ``tools/image_pins.py``): the classic store's ``{{.Id}}`` is
-        the config digest; the containerd store's is the manifest or index digest, and the pin then resolves to
-        the same image when inspected by itself. A mismatch fails the apply, which rolls back."""
-        pins = _image_pins(plan)
-        if tag not in pins:
+    def check_loaded(self, plan: Plan, tag: str, accepted: set[str]) -> None:
+        """After ``docker load``, the tag names what the archive held: its ``{{.Id}}`` is the archive's config digest
+        (the classic store; checked equal to the pin before loading) or one of its index.json manifest digests (the
+        containerd store). Anything else (the tag already pointed elsewhere and the load did not move it) fails the
+        apply, which rolls back."""
+        if tag not in _image_pins(plan):
             return
-        pin = str(pins[tag])
         have = self.run(["docker", "image", "inspect", "-f", "{{.Id}}", tag]).strip()
-        if have == pin:
-            return
-        try:
-            by_pin = self.run(["docker", "image", "inspect", "-f", "{{.Id}}", pin]).strip()
-        except UpdateFailed:
-            by_pin = ""
-        if have and by_pin == have:
-            return
-        raise UpdateFailed(f"image {tag}: loaded ID {have or '(none)'} is not the pinned digest {pin}")
+        if have not in accepted:
+            raise UpdateFailed(f"image {tag}: loaded ID {have or '(none)'} is not the bundle's image "
+                               f"({', '.join(sorted(accepted)) or 'none'})")  # fmt: skip
 
     def restore_images(self, point: Point) -> None:
         for tag, rt in point.images.items():
@@ -928,6 +952,14 @@ class ComposeBox(_DockerImages):
             return "orchestrator" in self.run(self._c("ps", "--status", "running", "--services")).split()
         except (UpdateFailed, OSError):  # no compose here: not running
             return False
+
+    def data_volumes(self) -> list[str]:
+        """The compose project's volumes (``compose volumes -q``): a box that has run has them. [] when compose
+        cannot tell."""
+        try:
+            return self.run(self._c("volumes", "-q")).split()
+        except (UpdateFailed, OSError):
+            return []
 
     def _dump(self, db: str, user: str, out: Path) -> None:
         self.run(self._c("exec", "-T", "db", "pg_dump", "-Fc", "--no-owner", "-U", user, "-d", db), stdout_file=out)
@@ -1489,14 +1521,16 @@ class InProcessBox:
         _append_audit(self.work / "box" / "audit", event, plan, detail)
 
 
-def box_in_service(deploy: Path) -> str:
-    """What shows this box has been installed and holds data ("" for none): its settings, its update records. A box
-    in the field before D-210 has no installed.json but has these; only a box with none of them is a first install."""
-    for rel in ("updates/installed.json", "updates/history.jsonl", "updates/trust.json", ".env", "settings.yaml",
-                "secrets"):  # fmt: skip
+def box_in_service(deploy: Path, box: Any = None) -> str:
+    """What shows this box holds data ("" for none): its update records, or the compose project's volumes (a box
+    in the field before D-210 that has run has them). install.sh's settings (``.env``, ``settings.yaml``,
+    ``secrets/``) are not evidence: a first install stopped after writing them must be able to run again."""
+    for rel in ("updates/installed.json", "updates/history.jsonl", "updates/trust.json"):
         if (deploy / rel).exists():
             return f"deploy/{rel}"
-    return ""
+    volumes = getattr(box, "data_volumes", None)
+    found = volumes() if volumes is not None else []
+    return f"volumes {', '.join(found[:3])}" if found else ""
 
 
 def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backup: bool = True) -> int:
@@ -1522,7 +1556,11 @@ def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backu
     plan = Plan.load(stage, summary)
     updates = deploy / "updates"
     box: ComposeBox | DemoBox = DemoBox(deploy) if target == "demo" else ComposeBox(deploy)
-    in_service = box_in_service(deploy)
+    inst = us.installed(updates)
+    if inst.get("manifest_sha256") == plan.manifest_sha256 and us.marker(updates) is None:
+        print(f"update {plan.bundle_id}: already installed (same manifest); nothing to do")
+        return 0
+    in_service = box_in_service(deploy, box)
     if not box.running():
         if in_service:
             print(f"update REFUSED: the box is installed ({in_service}) but not running (crashed, restarting, or its "

@@ -701,18 +701,6 @@ def test_a_crash_after_finish_leaves_no_key_or_dump_and_rollback_only_cleans_up(
     assert us.installed(updates)["release_seq"] == 2  # the completed update stays
 
 
-def test_a_loaded_image_must_have_the_pinned_id(tmp_path: Path) -> None:
-    ids = {"trialbox-py:1.0.0": DIGEST}
-    box = up.ComposeBox(tmp_path, run=lambda argv, *a, **kw: ids.get(argv[-1], "") + "\n")
-    plan = _plan(tmp_path)
-    plan.release = {"images": {"py": {"image": "trialbox-py:1.0.0", "digest": DIGEST}}}
-    box.check_loaded(plan, "trialbox-py:1.0.0")
-    box.check_loaded(plan, "other:1")  # not pinned by this release: not compared
-    ids["trialbox-py:1.0.0"] = "sha256:" + "b" * 64
-    with pytest.raises(up.UpdateFailed, match="is not the pinned digest"):
-        box.check_loaded(plan, "trialbox-py:1.0.0")
-
-
 def test_the_shell_entry_refuses_a_path_with_a_space(tmp_path: Path) -> None:
     d = tmp_path / "a b"
     d.mkdir()
@@ -726,7 +714,7 @@ def test_the_shell_entry_refuses_a_path_with_a_space(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ re-review fixes
-@pytest.mark.parametrize("evidence", ["updates/history.jsonl", ".env", "settings.yaml", "secrets"])
+@pytest.mark.parametrize("evidence", ["updates/history.jsonl", "updates/trust.json"])
 @pytest.mark.parametrize("skip_audit", [False, True])
 def test_a_box_in_service_before_d210_that_is_not_running_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, evidence: str, skip_audit: bool
@@ -749,7 +737,7 @@ def test_a_box_in_service_before_d210_that_is_not_running_is_refused(
     stage, summary = _main_apply_stage(tmp_path)
     assert up.main_apply(stage, summary, "compose", deploy) == 1
     assert (tmp_path / "models/judge/config.json").read_text() == "old"
-    assert not (deploy / "updates" / us.INSTALLED).exists() and not (deploy / "updates" / us.TRUST).exists()
+    assert not (deploy / "updates" / us.INSTALLED).exists()
 
 
 def test_a_stopped_box_without_data_loads_only_when_install_sh_asks(
@@ -773,7 +761,7 @@ def test_the_load_only_path_refuses_a_trust_change_since_verify(
 ) -> None:
     deploy = tmp_path / "deploy"
     us.write_atomic(deploy / "updates" / us.TRUST, {"format": us.TRUST_FORMAT, "keys": {"k": {}}})
-    monkeypatch.setattr(up, "box_in_service", lambda _d: "")  # the trust appeared after the in-service check
+    monkeypatch.setattr(up, "box_in_service", lambda _d, _b=None: "")  # the trust appeared after the in-service check
     monkeypatch.setenv("TB_MODELS_DIR", str(tmp_path / "models"))
     monkeypatch.setenv("TB_COMPOSE", "false")
     monkeypatch.setenv("TB_SKIP_AUDIT", "1")
@@ -782,38 +770,68 @@ def test_the_load_only_path_refuses_a_trust_change_since_verify(
     assert not (tmp_path / "models/judge/config.json").exists()
 
 
-def test_the_pinned_image_is_accepted_on_the_containerd_store(tmp_path: Path) -> None:
-    index = "sha256:" + "c" * 64  # containerd store: {{.Id}} is the manifest or index digest
-    ids = {"trialbox-py:1.0.0": index, DIGEST: index}
-    box = up.ComposeBox(tmp_path, run=lambda argv, *a, **kw: ids.get(argv[-1], "") + "\n")
-    plan = _plan(tmp_path)
-    plan.release = {"images": {"py": {"image": "trialbox-py:1.0.0", "digest": DIGEST}}}
-    box.check_loaded(plan, "trialbox-py:1.0.0")  # the pin resolves to the same image
-    ids[DIGEST] = "sha256:" + "d" * 64
-    with pytest.raises(up.UpdateFailed, match="is not the pinned digest"):
-        box.check_loaded(plan, "trialbox-py:1.0.0")
+CONFIG = "sha256:" + "a" * 64  # the image's config digest: the pin (D-210), {{.Id}} on the classic store
+INDEX = "sha256:" + "c" * 64  # the manifest digest of the archive's index.json: {{.Id}} on the containerd store
 
 
-def _tar(path: Path, tag: str) -> None:
-    body = json.dumps([{"RepoTags": [tag]}]).encode()
+def _tar(path: Path, tag: str, config: str = CONFIG, oci: bool = True) -> None:
+    """A docker save archive: Docker 25+ (OCI layout: Config blobs/sha256/<hex>, index.json) or older (<hex>.json)."""
+    hexd = config.removeprefix("sha256:")
+    files = {"manifest.json": json.dumps([{"Config": f"blobs/sha256/{hexd}" if oci else f"{hexd}.json",
+                                           "RepoTags": [tag], "Layers": []}]).encode()}  # fmt: skip
+    if oci:
+        files["index.json"] = json.dumps({"schemaVersion": 2, "manifests": [{"digest": INDEX}]}).encode()
     with tarfile.open(path, "w") as tf:
-        info = tarfile.TarInfo("manifest.json")
-        info.size = len(body)
-        tf.addfile(info, io.BytesIO(body))
+        for name, body in files.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            tf.addfile(info, io.BytesIO(body))
 
 
-def test_every_loaded_image_is_pinned_and_every_pinned_image_loaded(tmp_path: Path) -> None:
+def _image_box(tmp_path: Path, loaded_id: str) -> tuple[Any, list[str]]:
     calls: list[str] = []
 
     def run(argv: list[str], *a: Any, **kw: Any) -> str:
         calls.append(" ".join(argv))
-        return DIGEST + "\n"
+        return loaded_id + "\n" if argv[:3] == ["docker", "image", "inspect"] else ""
 
-    box = up.ComposeBox(tmp_path, run=run)
+    return up.ComposeBox(tmp_path, run=run), calls
+
+
+def _image_plan(tmp_path: Path, oci: bool, config: str = CONFIG) -> up.Plan:
     plan = _plan(tmp_path)
-    (plan.stage / "image").mkdir()
-    _tar(plan.stage / "image/py.tar", "trialbox-py:1.0.0")
-    plan.release = {"images": {"py": {"image": "trialbox-py:1.0.0", "digest": DIGEST}}}
+    (plan.stage / "image").mkdir(exist_ok=True)
+    _tar(plan.stage / "image/py.tar", "trialbox-py:1.0.0", config, oci)
+    plan.release = {"images": {"py": {"image": "trialbox-py:1.0.0", "digest": CONFIG}}}
+    return plan
+
+
+@pytest.mark.parametrize(("oci", "loaded_id"), [(False, CONFIG), (True, CONFIG), (True, INDEX)])
+def test_a_pinned_image_loads_on_either_image_store(tmp_path: Path, oci: bool, loaded_id: str) -> None:
+    """Classic store: {{.Id}} is the config digest. Containerd store (checked on Docker 29): {{.Id}} is the archive's
+    index.json manifest digest, and the config digest is not an image name there."""
+    assert up.tar_images(_image_plan(tmp_path, oci).stage / "image/py.tar")[0] == {"trialbox-py:1.0.0": CONFIG}
+    box, calls = _image_box(tmp_path, loaded_id)
+    assert box.load_images(_image_plan(tmp_path, oci)) == ["image py.tar"]
+    assert sum("image inspect" in c for c in calls) == 1  # the tag only; never the pin as an image name
+
+
+def test_an_archive_whose_config_is_not_the_pin_is_refused_before_loading(tmp_path: Path) -> None:
+    box, calls = _image_box(tmp_path, CONFIG)
+    with pytest.raises(up.UpdateFailed, match="release.json pins .*nothing loaded"):
+        box.load_images(_image_plan(tmp_path, True, config="sha256:" + "e" * 64))
+    assert not any("docker load" in c for c in calls)
+
+
+def test_a_tag_left_on_another_image_after_the_load_fails(tmp_path: Path) -> None:
+    box, _calls = _image_box(tmp_path, "sha256:" + "d" * 64)
+    with pytest.raises(up.UpdateFailed, match="is not the bundle's image"):
+        box.load_images(_image_plan(tmp_path, True))
+
+
+def test_every_loaded_image_is_pinned_and_every_pinned_image_loaded(tmp_path: Path) -> None:
+    box, calls = _image_box(tmp_path, CONFIG)
+    plan = _image_plan(tmp_path, True)
     assert box.load_images(plan) == ["image py.tar"]
     _tar(plan.stage / "image/other.tar", "elsewhere:1")  # tagged differently: would load unchecked
     calls.clear()
@@ -821,9 +839,66 @@ def test_every_loaded_image_is_pinned_and_every_pinned_image_loaded(tmp_path: Pa
         box.load_images(plan)
     assert not any("load -i" in c and "other.tar" in c for c in calls)  # refused before docker load
     (plan.stage / "image/other.tar").unlink()
-    plan.release["images"]["db"] = {"image": "trialbox-postgres:16-1", "digest": DIGEST}
+    assert plan.release is not None
+    plan.release["images"]["db"] = {"image": "trialbox-postgres:16-1", "digest": CONFIG}
     with pytest.raises(up.UpdateFailed, match="did not load"):
         box.load_images(plan)
+
+
+def _first_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: list[str]) -> tuple[Path, Path, Path]:
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    for f in files:
+        (deploy / f).parent.mkdir(parents=True, exist_ok=True)
+        (deploy / f).write_text("x")
+    (tmp_path / "models/judge").mkdir(parents=True)
+    (tmp_path / "models/judge/config.json").write_text("old")
+    monkeypatch.setenv("TB_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("TB_COMPOSE", "false")  # not running; compose cannot list volumes either
+    stage, summary = _main_apply_stage(tmp_path)
+    return deploy, stage, summary
+
+
+def test_install_sh_runs_again_after_writing_its_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A first install stopped after step 3 (no to "Start the stack now?", or the GPU stop) has .env, settings.yaml
+    and secrets/ but no data: install.sh runs again."""
+    deploy, stage, summary = _first_install(tmp_path, monkeypatch, [".env", "settings.yaml", "secrets/x"])
+    monkeypatch.setenv("TB_SKIP_AUDIT", "1")
+    assert up.main_apply(stage, summary, "compose", deploy) == 0
+    assert (tmp_path / "models/judge/config.json").read_text() == "new"
+    assert up.main_apply(stage, summary, "compose", deploy) == 0  # and again: the same bundle is a no-op
+    assert us.installed(deploy / "updates")["release_seq"] == 2
+
+
+def test_the_installed_bundle_again_is_a_no_op_even_on_a_running_box(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """install.sh run again with the same bundle (its --ctgov live advice) on a box that runs: nothing to do."""
+    deploy, stage, summary = _first_install(tmp_path, monkeypatch, [])
+    s = json.loads(summary.read_text())
+    us.write_atomic(deploy / "updates" / us.INSTALLED, {"format": us.INSTALLED_FORMAT, "release_seq": 2,
+                                                        "manifest_sha256": s["manifest_sha256"], "state": {}})  # fmt: skip
+    monkeypatch.setenv("TB_SKIP_AUDIT", "1")
+    assert up.main_apply(stage, summary, "compose", deploy) == 0
+    assert (tmp_path / "models/judge/config.json").read_text() == "old"  # nothing loaded
+
+
+def test_compose_volumes_are_evidence_of_data(tmp_path: Path) -> None:
+    out = {"volumes": "trialbox_pgdata\ntrialbox_lake\n"}
+
+    def run(argv: list[str], *a: Any, **kw: Any) -> str:
+        if "volumes" in argv:
+            return out["volumes"]
+        raise up.UpdateFailed("down")
+
+    deploy = tmp_path / "deploy"
+    box = up.ComposeBox(deploy, run=run)
+    assert up.box_in_service(deploy, box).startswith("volumes trialbox_pgdata")
+    out["volumes"] = ""
+    assert up.box_in_service(deploy, box) == ""
+    (deploy / "updates").mkdir(parents=True)
+    (deploy / "updates/history.jsonl").write_text("")
+    assert up.box_in_service(deploy, box) == "deploy/updates/history.jsonl"
 
 
 def test_ctrl_c_during_apply_rolls_back(tmp_path: Path) -> None:

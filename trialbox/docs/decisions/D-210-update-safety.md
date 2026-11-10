@@ -97,21 +97,23 @@ rows D-11 to D-14, D-16 to D-18; D-15 in part, see "Not done").
   `manifest_sha256` is not the staged `manifest.json`'s. (5) A completed apply or rollback sets the marker's step to
   `finished`, deletes the dumps and their key, then removes the marker; `rollback` of a `finished` marker only
   cleans up. (6) `apply_update.sh` refuses paths with whitespace or glob characters (the docker fallback's mount
-  arguments). (7) After `docker load`, an image that `release.json` pins must have that ID
-  (`docker image inspect {{.Id}}`), else the apply fails and rolls back; this reads `digest` as the image ID, which
-  T-110b must keep.
+  arguments). (7) An image that `release.json` pins is checked at `docker load`
+  (the re-review's item 2 below): `digest` is the image's config digest, which T-110b must keep.
 
-* **Re-review fixes (2026-11-10).** (1) "Installed" is decided from what shows the box holds data
-  (`deploy/updates/installed.json`, `history.jsonl` or `trust.json`, `deploy/.env`, `deploy/settings.yaml`,
-  `deploy/secrets/`), not from `installed.json` alone, which no box has before its first D-210 update. A box that
-  is not running is refused when it has any of these; with none, it is loaded only when install.sh asks
-  (`TB_SKIP_AUDIT`). The load-only path checks `trust_sha256` too. The Docker volumes are not read (the update path
-  runs no docker command before this decision). (2) The image check accepts either image store, as
-  `tools/image_pins.py` does: the tag's `{{.Id}}` equals the pin, or the pin inspected by itself is the same image.
-  (3) With a `release.json`, every image tar must carry a pinned tag (checked before `docker load`) and every pinned
-  image must be loaded. (4) install.sh runs under `set -euo pipefail`, so a failed load stops it (a test holds it).
-  (5) Ctrl-C (KeyboardInterrupt) during apply to check rolls back like any failure; SIGTERM, SIGHUP and `kill -9`
-  leave the marker for `tools/apply_update.sh rollback`.
+* **Re-review fixes (2026-11-10).** (1) "Installed" is decided from evidence that the box holds data:
+  `deploy/updates/installed.json`, `history.jsonl` or `trust.json`, or the compose project's volumes
+  (`compose volumes -q`), not from `installed.json` alone, which no box has before its first D-210 update. install.sh's
+  settings (`.env`, `settings.yaml`, `secrets/`) are not evidence, so a first install stopped after writing them runs
+  again. A box that is not running is refused when it has data; with none, it is loaded only when install.sh asks
+  (`TB_SKIP_AUDIT`). The load-only path checks `trust_sha256` too. A bundle whose `manifest_sha256` is the installed
+  one is a no-op success (install.sh run again with the same bundle). (2) Images: before `docker load`, the
+  archive's `manifest.json` `Config` (its config digest; the archive's sha256 is verified) must equal the
+  `release.json` pin; after it, the tag's `{{.Id}}` must be that config digest (the classic store) or one of the
+  archive's `index.json` manifest digests (the containerd store, checked on Docker 29, where the config digest is
+  no image name). (3) With a `release.json`, every image tar must carry a pinned tag (checked before `docker load`)
+  and every pinned image must be loaded. (4) install.sh runs under `set -euo pipefail`, so a failed load stops it
+  (a test holds it). (5) Ctrl-C (KeyboardInterrupt) during apply to check rolls back like any failure; SIGTERM,
+  SIGHUP and `kill -9` leave the marker for `tools/apply_update.sh rollback`.
 
 ## Why
 
