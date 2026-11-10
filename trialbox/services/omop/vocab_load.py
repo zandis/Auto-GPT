@@ -793,3 +793,205 @@ def edition_code(
         return None
     tcode, rel, ver = usable[0]
     return EditionCode(target_system, tcode, f"{rel_name}@{ver}:{rel}:{code}")
+
+
+# ------------------------------------------------------------------------------------------------ Athena bundle
+# The vocabularies an Athena bundle may bring onto the box (STD-034): free to use, no affiliate or UMLS licence.
+# SNOMED, CPT4, MedDRA and the rest are refused: ask for them in a decision with their licence first.
+ATHENA_ALLOW = frozenset({
+    "LOINC", "UCUM", "RxNorm", "RxNorm Extension", "ATC", "Gender", "Race", "Ethnicity", "Visit", "Type Concept",
+    "None", "Domain", "Vocabulary", "Concept Class", "Relationship", "Metadata", "Note Encoding", "Language",
+    "Condition Status", "Meas Type", "Cost", "Cost Type", "Episode", "Episode Type", "OMOP Extension",
+})  # fmt: skip
+ATHENA = "ATHENA"
+ATHENA_FILES = ("VOCABULARY", "CONCEPT", "CONCEPT_RELATIONSHIP", "CONCEPT_SYNONYM", "CONCEPT_ANCESTOR", "DOMAIN",
+                "CONCEPT_CLASS", "RELATIONSHIP")  # fmt: skip
+_CONCEPT_COLS = ("concept_id", "concept_name", "domain_id", "vocabulary_id", "concept_class_id", "standard_concept",
+                 "concept_code", "valid_start_date", "valid_end_date", "invalid_reason")  # fmt: skip
+_REL_COLS = ("concept_id_1", "concept_id_2", "relationship_id", "valid_start_date", "valid_end_date", "invalid_reason")
+
+
+def _athena_file(directory: Path, name: str) -> Path | None:
+    for f in (directory / f"{name}.csv", directory / f"{name.lower()}.csv"):
+        if f.is_file():
+            return f
+    return None
+
+
+def read_athena(directory: Path) -> dict[str, list[dict[str, str]]]:
+    """The tables of an Athena download as written (tab-separated, a header row, dates ``YYYYMMDD``, no quoting).
+    ``VOCABULARY`` and ``CONCEPT`` are required; the others are read when present."""
+    out: dict[str, list[dict[str, str]]] = {}
+    for name in ATHENA_FILES:
+        f = _athena_file(directory, name)
+        if f is None:
+            if name in ("VOCABULARY", "CONCEPT"):
+                raise OmopError(f"Athena bundle {directory}: {name}.csv is missing")
+            continue
+        with f.open(encoding="utf-8", newline="") as fh:
+            rows = list(csv.DictReader(fh, delimiter="\t", quoting=csv.QUOTE_NONE))
+        out[name] = [{k.strip().lower(): (v or "") for k, v in r.items() if k} for r in rows]
+    return out
+
+
+def athena_sha(directory: Path) -> str:
+    h = hashlib.sha256()
+    for name in ATHENA_FILES:
+        f = _athena_file(directory, name)
+        if f is not None:
+            h.update(name.encode() + b"\0" + hashlib.sha256(f.read_bytes()).digest())
+    return h.hexdigest()
+
+
+def _day(value: str) -> date:
+    v = value.strip().replace("-", "")
+    try:
+        return date(int(v[:4]), int(v[4:6]), int(v[6:8]))
+    except ValueError as exc:
+        raise OmopError(f"Athena date {value!r} is not YYYYMMDD") from exc
+
+
+def _concept_row(r: Mapping[str, str]) -> tuple[Any, ...]:
+    return (int(r["concept_id"]), r["concept_name"][:255], r["domain_id"], r["vocabulary_id"],
+            r["concept_class_id"], r.get("standard_concept") or None, r["concept_code"][:50],
+            _day(r["valid_start_date"]), _day(r["valid_end_date"]), r.get("invalid_reason") or None)  # fmt: skip
+
+
+def athena_version(tables: Mapping[str, list[dict[str, str]]]) -> str:
+    """The bundle's version: the ``None`` vocabulary's (OMOP's convention for ``cdm_source.vocabulary_version``),
+    else the versions of its vocabularies."""
+    vocabs = {r["vocabulary_id"]: r.get("vocabulary_version") or "" for r in tables.get("VOCABULARY", [])}
+    if vocabs.get("None"):
+        return vocabs["None"]
+    return "; ".join(f"{k} {v}" for k, v in sorted(vocabs.items()) if v) or "unversioned"
+
+
+def load_athena(
+    db: Database,
+    directory: Path,
+    *,
+    allow: frozenset[str] = ATHENA_ALLOW,
+    by: str = "loader",
+    source: str | None = None,
+) -> LoadResult:
+    """An Athena bundle the site downloaded (or a vendor built) into the vocabulary tables (STD-030, STD-034).
+
+    Refused whole when it holds a vocabulary not on ``allow`` or a concept id of the TrialBox range (>= 2e9). The
+    bundle's concepts replace the rows of the same id (the seeded OHDSI concepts among them), its vocabulary,
+    domain, class and relationship rows replace theirs, and its relationships, synonyms and ancestors replace those
+    of an earlier bundle (rows between two concepts below 2e9). A release row ``ATHENA`` records the content's
+    sha256 and :func:`athena_version`; the same content again changes nothing. Afterwards a source concept reaches
+    its standard concept through ``Maps to`` (an ATC class its RxNorm ingredient, :class:`omop.vocab.Concepts`)."""
+    sha = athena_sha(directory)
+    tables = read_athena(directory)
+    found = {r["vocabulary_id"] for r in tables["VOCABULARY"]} | {r["vocabulary_id"] for r in tables["CONCEPT"]}
+    refused = sorted(found - allow)
+    if refused:
+        raise OmopError(f"Athena bundle refused: vocabularies not on the allow-list: {', '.join(refused)} "
+                        "(STD-034; download the bundle without them)")  # fmt: skip
+    concepts = [_concept_row(r) for r in tables["CONCEPT"]]
+    high = [c[0] for c in concepts if c[0] >= LOCAL_MIN or c[0] < 0]
+    if high:
+        raise OmopError(f"Athena bundle refused: concept ids outside the OHDSI range (e.g. {high[0]}); "
+                        f"ids >= {LOCAL_MIN:,} are TrialBox's own (D-144)")  # fmt: skip
+    version = athena_version(tables)
+    res = LoadResult(ATHENA, sha, False)
+    with db.transaction() as tx:
+        _prepare(tx)
+        if not _release(tx, ATHENA, sha, "None", version, source or directory.name, len(concepts), by):
+            return res
+        res.new = True
+        ids = sorted({c[0] for c in concepts})
+        tx.execute("CREATE TEMP TABLE tb_athena_concept (LIKE concept) ON COMMIT DROP")
+        tx.copy_rows("tb_athena_concept", _CONCEPT_COLS, concepts)
+        res.changed = int(tx.fetchval(
+            "SELECT count(*) FROM tb_athena_concept a LEFT JOIN concept c ON c.concept_id = a.concept_id WHERE "
+            "c.concept_id IS NULL OR (c.concept_name, c.domain_id, c.vocabulary_id, c.concept_class_id, "
+            "coalesce(c.standard_concept, ''), c.concept_code, c.valid_start_date, c.valid_end_date, "
+            "coalesce(c.invalid_reason, '')) IS DISTINCT FROM (a.concept_name, a.domain_id, a.vocabulary_id, "
+            "a.concept_class_id, coalesce(a.standard_concept, ''), a.concept_code, a.valid_start_date, "
+            "a.valid_end_date, coalesce(a.invalid_reason, ''))"
+        ))  # fmt: skip
+        tx.execute("DELETE FROM concept WHERE concept_id IN (SELECT concept_id FROM tb_athena_concept)")
+        tx.execute(f"INSERT INTO concept ({', '.join(_CONCEPT_COLS)}) SELECT {', '.join(_CONCEPT_COLS)} "
+                   "FROM tb_athena_concept")  # fmt: skip
+        for r in tables["VOCABULARY"]:
+            vid = r["vocabulary_id"]
+            tx.execute("DELETE FROM vocabulary WHERE vocabulary_id = ?", (vid,))
+            tx.execute(
+                "INSERT INTO vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, "
+                "vocabulary_concept_id) VALUES (?, ?, ?, ?, ?)",
+                (vid, r["vocabulary_name"][:255], (r.get("vocabulary_reference") or None),
+                 (r.get("vocabulary_version") or None), int(r.get("vocabulary_concept_id") or 0)),
+            )  # fmt: skip
+        _athena_small(tx, tables, concepts)
+        rels = [(int(r["concept_id_1"]), int(r["concept_id_2"]), r["relationship_id"], _day(r["valid_start_date"]),
+                 _day(r["valid_end_date"]), r.get("invalid_reason") or None)
+                for r in tables.get("CONCEPT_RELATIONSHIP", [])]  # fmt: skip
+        tx.execute("DELETE FROM concept_relationship WHERE concept_id_1 < ? AND concept_id_2 < ?",
+                   (LOCAL_MIN, LOCAL_MIN))  # fmt: skip
+        tx.copy_rows("concept_relationship", _REL_COLS, rels)
+        if "CONCEPT_SYNONYM" in tables:
+            tx.execute("DELETE FROM concept_synonym WHERE concept_id = ANY(?)", (ids,))
+            tx.copy_rows("concept_synonym", ["concept_id", "concept_synonym_name", "language_concept_id"],
+                         [(int(r["concept_id"]), r["concept_synonym_name"][:1000], int(r["language_concept_id"]))
+                          for r in tables["CONCEPT_SYNONYM"]])  # fmt: skip
+        if "CONCEPT_ANCESTOR" in tables:
+            tx.execute("DELETE FROM concept_ancestor WHERE ancestor_concept_id < ? AND descendant_concept_id < ?",
+                       (LOCAL_MIN, LOCAL_MIN))  # fmt: skip
+            tx.copy_rows("concept_ancestor", ["ancestor_concept_id", "descendant_concept_id",
+                                              "min_levels_of_separation", "max_levels_of_separation"],
+                         [(int(r["ancestor_concept_id"]), int(r["descendant_concept_id"]),
+                           int(r["min_levels_of_separation"]), int(r["max_levels_of_separation"]))
+                          for r in tables["CONCEPT_ANCESTOR"]])  # fmt: skip
+        res.concepts = len(concepts)
+        _check_never_standard(tx)
+    return res
+
+
+def _athena_small(tx: Any, tables: Mapping[str, list[dict[str, str]]], concepts: list[tuple[Any, ...]]) -> None:
+    """Domain, concept-class and relationship rows: the bundle's replace theirs; one the bundle names without its
+    row gets a stand-in (concept 0), as :func:`omop.vocab.seed` does."""
+    for r in tables.get("DOMAIN", []):
+        tx.execute("DELETE FROM domain WHERE domain_id = ?", (r["domain_id"],))
+        tx.execute("INSERT INTO domain (domain_id, domain_name, domain_concept_id) VALUES (?, ?, ?)",
+                   (r["domain_id"], r["domain_name"][:255], int(r.get("domain_concept_id") or 0)))  # fmt: skip
+    for r in tables.get("CONCEPT_CLASS", []):
+        tx.execute("DELETE FROM concept_class WHERE concept_class_id = ?", (r["concept_class_id"],))
+        tx.execute(
+            "INSERT INTO concept_class (concept_class_id, concept_class_name, concept_class_concept_id) "
+            "VALUES (?, ?, ?)",
+            (r["concept_class_id"], r["concept_class_name"][:255], int(r.get("concept_class_concept_id") or 0)),
+        )
+    for r in tables.get("RELATIONSHIP", []):
+        tx.execute("DELETE FROM relationship WHERE relationship_id = ?", (r["relationship_id"],))
+        tx.execute(
+            "INSERT INTO relationship (relationship_id, relationship_name, is_hierarchical, defines_ancestry, "
+            "reverse_relationship_id, relationship_concept_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (r["relationship_id"], r["relationship_name"][:255], r.get("is_hierarchical") or "0",
+             r.get("defines_ancestry") or "0", r.get("reverse_relationship_id") or r["relationship_id"],
+             int(r.get("relationship_concept_id") or 0)),
+        )  # fmt: skip
+    for d in sorted({c[2] for c in concepts}):
+        tx.execute("INSERT INTO domain (domain_id, domain_name, domain_concept_id) SELECT ?, ?, 0 WHERE NOT EXISTS "
+                   "(SELECT 1 FROM domain WHERE domain_id = ?)", (d, d, d))  # fmt: skip
+    for k in sorted({c[4] for c in concepts}):
+        tx.execute("INSERT INTO concept_class (concept_class_id, concept_class_name, concept_class_concept_id) "
+                   "SELECT ?, ?, 0 WHERE NOT EXISTS (SELECT 1 FROM concept_class WHERE concept_class_id = ?)",
+                   (k, k, k))  # fmt: skip
+    for rid in sorted({r["relationship_id"] for r in tables.get("CONCEPT_RELATIONSHIP", [])}):
+        tx.execute(
+            "INSERT INTO relationship (relationship_id, relationship_name, is_hierarchical, defines_ancestry, "
+            "reverse_relationship_id, relationship_concept_id) SELECT ?, ?, '0', '0', ?, 0 "
+            "WHERE NOT EXISTS (SELECT 1 FROM relationship WHERE relationship_id = ?)",
+            (rid, rid, rid, rid),
+        )
+
+
+def athena_loaded(db: Any) -> dict[str, str]:
+    """``vocabulary_id -> version`` of the active Athena bundle's vocabularies (empty when none is loaded)."""
+    if db.fetchone("SELECT 1 FROM tb_vocab_release WHERE release_name = ? AND active", (ATHENA,)) is None:
+        return {}
+    return {str(v): str(ver or "") for v, ver in db.fetchall(
+        "SELECT DISTINCT v.vocabulary_id, v.vocabulary_version FROM vocabulary v JOIN concept c ON "
+        "c.vocabulary_id = v.vocabulary_id WHERE c.concept_id < ? AND c.concept_id > 0", (LOCAL_MIN,))}  # fmt: skip
