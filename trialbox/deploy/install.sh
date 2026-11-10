@@ -21,7 +21,8 @@
 #   3. settings:  deploy/settings.yaml + deploy/.env from the settings wizard (questions, or --answers), random
 #                 service passwords; .env 0600, settings.yaml 0640 for group tb; an existing settings.yaml is kept
 #                 and re-validated
-#   4. start:     docker compose up --wait with the chosen model profile; egress rules (deploy/network.sh apply)
+#   4. start:     docker compose up --wait --pull never with the chosen model profile (every image from the bundle,
+#                 digest pins kept on either Docker image store: tools/image_pins.py); egress rules (deploy/network.sh)
 #   5. accounts:  first console administrator (password printed once); users page for the rest
 #   6. check:     deploy/check_host.sh; the console URL and the intake address
 # In GPU mode step 3 also makes the key of the on-box model servers (TB_LLM_API_KEY, D-177) and step 4 checks that
@@ -47,7 +48,7 @@ while [ $# -gt 0 ]; do
     --ctgov) CTGOV="$2"; shift ;;
     --ctgov-check) CTGOV_CHECK=1 ;;
     --check) CHECK=1 ;;
-    -h|--help) sed -n 2,33p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,34p "$0"; exit 0 ;;
     -*) echo "install: unknown option $1" >&2; exit 2 ;;
     *) BUNDLE="$1" ;;
   esac
@@ -297,7 +298,25 @@ if [ "$YES" != 1 ] && [ -t 0 ]; then
 fi
 say "starting the stack (profile $MODE)"
 "${COMPOSE[@]}" config -q
-"${COMPOSE[@]}" up -d "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
+# D-176: every image the stack runs comes from the bundle, none from a registry. A digest-pinned image is found by its
+# digest (Docker's containerd image store) or by the bundle's image id (the classic overlay2 store keeps no digests;
+# tools/image_pins.py sets its compose variable in deploy/.env). TB_INSTALL_PULL=missing only on a site that mirrors
+# the third-party images itself (make_bundle.sh --no-third-party).
+PULL="${TB_INSTALL_PULL:-never}"
+case "$PULL" in never|missing) ;; *) die "TB_INSTALL_PULL must be never or missing" ;; esac
+if command -v python3 >/dev/null; then
+  python3 -m tools.image_pins resolve --deploy deploy --files "$FILES" 2>&1 | sed 's/^/    /' \
+    || die "a pinned image is not on this box (MISSING above): the bundle must carry it (make_bundle.sh without --no-third-party)"
+fi
+if [ "$PULL" = never ]; then
+  MISSING=""
+  while IFS= read -r img; do
+    docker image inspect "$img" >/dev/null 2>&1 || MISSING="$MISSING $img"
+  done < <("${COMPOSE[@]}" config --images | sort -u)
+  [ -z "$MISSING" ] || die "images not on this box:$MISSING. They come only from the bundle; nothing is pulled (TB_INSTALL_PULL=missing on a site with its own mirror)"
+  echo "    every image of the stack is on this box (nothing is pulled)"
+fi
+"${COMPOSE[@]}" up -d --pull "$PULL" "${UP_EXTRA[@]}" --wait --wait-timeout "${TB_INSTALL_UP_TIMEOUT:-900}" \
   || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (docker compose logs)"; }
 if [ "$MODE" = gpu ]; then
   # D-177: the model servers must serve the names the site pinned and refuse calls without the key; otherwise the

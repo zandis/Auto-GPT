@@ -92,14 +92,36 @@ def test_unknown_prompt_and_bad_body_are_400(base: str) -> None:
     assert _call(f"{base}/v1/chat/completions", body, **{"X-TB-Prompt-Id": "judge"})[0] == 400
 
 
-def test_stats_count_every_answer(base: str) -> None:
+def test_stats_count_model_calls_only(base: str) -> None:
     _call(f"{base}/v1/models", key=None)
+    _call(f"{base}/v1/models")
+    _call(f"{base}/v1/chat/completions", _chat(NAME), key=None, **{"X-TB-Prompt-Id": "judge"})
     _call(f"{base}/v1/chat/completions", _chat("other"), **{"X-TB-Prompt-Id": "judge"})
     _call(f"{base}/v1/chat/completions", _chat(NAME), **{"X-TB-Prompt-Id": "judge"})
+    # the container health check polls /health; neither it, unknown paths nor the stats themselves are model calls
+    for _ in range(5):
+        assert _call(f"{base}/health", key=None)[0] == 200
+    assert _call(f"{base}/nope", key=None)[0] == 404
     assert _call(f"{base}/standin/stats", key=None)[0] == 401
+    _call(f"{base}/standin/stats")
     status, doc = _call(f"{base}/standin/stats")
     assert status == 200 and doc["served"] == [NAME]
-    assert doc["counts"]["401"] == 2 and doc["counts"]["404"] == 1 and doc["counts"]["200"] == 1
+    assert doc["counts"] == {"200": 1, "401": 1, "404": 1}
+    assert doc["listings"] == {"200": 1, "401": 1}
+
+
+def test_health_during_loading_is_not_counted() -> None:
+    s, _, _ = vs.build([f"--served-model-name={NAME}", "--api-key", KEY, "--load-delay", "60"], {})
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), vs.make_handler(s))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        for _ in range(3):
+            assert _call(f"{url}/health", key=None)[0] == 503
+        assert _call(f"{url}/v1/chat/completions", _chat(NAME), **{"X-TB-Prompt-Id": "judge"})[0] == 503
+        assert s.stats()["counts"] == {"503": 1}
+    finally:
+        srv.shutdown()
 
 
 def test_refuses_to_start_without_a_key(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:

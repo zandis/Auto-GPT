@@ -9,8 +9,11 @@ unchanged, and it is stricter than vLLM where a box goes wrong:
   ``/v1`` call without ``Authorization: Bearer <key>`` gets 401. ``/health`` is open, as in vLLM.
 * **Answers.** The deterministic answers of ``services/llm_stub`` (by the ``X-TB-Prompt-Id`` header the gateway
   forwards); the response's ``model`` is the served name, so the gateway's served-model echo check runs for real.
-* **Counts.** ``GET /standin/stats`` (with the key) returns the count of answers by status (200, 400, 401, 404), so a
-  rehearsal can assert "no 401 and no 404" on a good box.
+* **Counts.** ``GET /standin/stats`` (with the key) returns the count of model calls by status (200, 400, 401, 404,
+  503), so a rehearsal can assert "no 401 and no 404" on a good box. A model call is a ``POST`` to
+  ``/v1/chat/completions`` or ``/v1/completions``; ``/health``, ``/v1/models``, ``/standin/stats`` and unknown paths
+  are not counted there (the container health check polls ``/health`` every few seconds). ``/v1/models`` answers are
+  counted apart, under ``listings``.
 
 Other vLLM flags (``--max-model-len``, ``--gpu-memory-utilization`` ...) are accepted and ignored.
 
@@ -49,12 +52,21 @@ class Standin:
         self.served = list(dict.fromkeys(served))
         self.key = key
         self.ready_at = time.monotonic() + max(0.0, load_delay)
-        self.counts: Counter[int] = Counter()
+        self.counts: Counter[int] = Counter()  # model calls (POST /v1/chat/completions, /v1/completions) by status
+        self.listings: Counter[int] = Counter()  # GET /v1/models by status
         self.lock = threading.Lock()
 
-    def count(self, status: int) -> None:
+    def count(self, status: int, kind: str = "call") -> None:
         with self.lock:
-            self.counts[status] += 1
+            (self.counts if kind == "call" else self.listings)[status] += 1
+
+    def stats(self) -> dict[str, Any]:
+        with self.lock:
+            return {
+                "served": self.served,
+                "counts": {str(k): v for k, v in sorted(self.counts.items())},
+                "listings": {str(k): v for k, v in sorted(self.listings.items())},
+            }
 
     def authorised(self, header: str | None) -> bool:
         scheme, _, token = (header or "").partition(" ")
@@ -113,8 +125,10 @@ def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
         def log_message(self, format: str, *args: Any) -> None:  # one line per call on stderr, never the key
             sys.stderr.write("standin %s\n" % (format % args))
 
-        def _send(self, status: int, payload: dict[str, Any] | None) -> None:
-            s.count(status)
+        def _send(self, status: int, payload: dict[str, Any] | None, kind: str = "") -> None:
+            """Send one answer; ``kind`` "call" (a model call) or "listing" (``/v1/models``) counts it, "" does not."""
+            if kind:
+                s.count(status, kind)
             data = json.dumps(payload or {}).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
@@ -122,13 +136,13 @@ def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             self.wfile.write(data)
 
-        def _gate(self) -> bool:
+        def _gate(self, kind: str = "") -> bool:
             """True when the call may go on; else the 503 (loading) or 401 (key) answer is sent."""
             if time.monotonic() < s.ready_at:
-                self._send(503, _error("the model is loading", "ServiceUnavailableError", 503))
+                self._send(503, _error("the model is loading", "ServiceUnavailableError", 503), kind)
                 return False
             if not s.authorised(self.headers.get("Authorization")):
-                self._send(401, {"error": "Unauthorized"})
+                self._send(401, {"error": "Unauthorized"}, kind)
                 return False
             return True
 
@@ -137,14 +151,12 @@ def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
             if path == "/health":
                 ok = time.monotonic() >= s.ready_at
                 self._send(200 if ok else 503, {} if ok else _error("loading", "ServiceUnavailableError", 503))
-            elif path in ("/v1/models", "/standin/stats"):
+            elif path == "/v1/models":
+                if self._gate("listing"):
+                    self._send(200, s.models(), "listing")
+            elif path == "/standin/stats":
                 if self._gate():
-                    if path == "/v1/models":
-                        self._send(200, s.models())
-                    else:
-                        with s.lock:
-                            counts = {str(k): v for k, v in sorted(s.counts.items())}
-                        self._send(200, {"served": s.served, "counts": counts})
+                    self._send(200, s.stats())
             else:
                 self._send(404, {"detail": "Not Found"})
 
@@ -155,23 +167,25 @@ def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
             if path not in ("/v1/chat/completions", "/v1/completions"):
                 self._send(404, {"detail": "Not Found"})
                 return
-            if not self._gate():
+            if not self._gate("call"):
                 return
             try:
                 body = json.loads(raw or b"{}")
                 if not isinstance(body, dict):
                     raise ValueError("body is not an object")
             except ValueError as exc:
-                self._send(400, _error(f"bad JSON: {exc}", "BadRequestError", 400))
+                self._send(400, _error(f"bad JSON: {exc}", "BadRequestError", 400), "call")
                 return
             if path == "/v1/completions":  # the box never calls it; served-name and key rules still apply
                 if body.get("model") not in s.served:
-                    self._send(404, _error(f"The model `{body.get('model')}` does not exist.", "NotFoundError", 404))
+                    msg = f"The model `{body.get('model')}` does not exist."
+                    self._send(404, _error(msg, "NotFoundError", 404), "call")
                 else:
-                    self._send(400, _error("the stand-in answers chat completions only", "BadRequestError", 400))
+                    msg = "the stand-in answers chat completions only"
+                    self._send(400, _error(msg, "BadRequestError", 400), "call")
                 return
             status, payload = s.complete(body, self.headers.get("X-TB-Prompt-Id", ""))
-            self._send(status, payload)
+            self._send(status, payload, "call")
 
     return Handler
 

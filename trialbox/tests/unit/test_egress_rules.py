@@ -79,8 +79,10 @@ def test_render_default_deny_and_rules() -> None:
     assert rules[0].startswith("ip saddr { 172.18.0.0/16, 172.19.0.0/16 } ip daddr { 172.18.0.0/16, 172.19.0.0/16 }")
     assert rules[1].startswith("ip saddr { 172.18.0.5, 172.19.0.5 } ip daddr { 203.0.113.10 } tcp dport 443 accept")
     assert rules[2].startswith("ip saddr { 172.19.0.7 } ip daddr { 10.0.0.25 } tcp dport 587 accept")
+    assert rules[-3] == 'ip daddr { 172.18.0.0/16, 172.19.0.0/16 } ct status dnat accept comment "published ports"'
+    assert rules[-2] == 'ip daddr { 172.18.0.0/16, 172.19.0.0/16 } counter drop comment "trialbox no direct access"'
     assert rules[-1] == 'ip saddr { 172.18.0.0/16, 172.19.0.0/16 } counter drop comment "trialbox default deny"'
-    assert len(rules) == 4  # no rule for the stopped compiler, the unresolvable host, or IPv6 without a v6 source
+    assert len(rules) == 6  # no rule for the stopped compiler, the unresolvable host, or IPv6 without a v6 source
     assert any("criteria-compiler: no running container" in w for w in warnings)
     assert any("nowhere.invalid: does not resolve" in w for w in warnings)
 

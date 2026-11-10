@@ -12,15 +12,18 @@
 #   install         install.sh exits 0: bundle verified and loaded, settings, key, pins, stack healthy, serving check
 #   doctor          trialbox doctor --live passes (with the site's TLS proxy assumed: TB_CONSOLE_SECURE_COOKIE=1)
 #   served          the pinned served names are exactly what the stand-ins serve
-#   offline         images = the bundle's, the CQL jars = the vendor's and they translate, the reference data pack
-#                   of the media is loaded, ClinicalTrials.gov offline, no route out of the box
-#   console         the console answers /healthz and its sign-in page
+#   offline         every running container's image is one the bundle loaded (third-party ones too: postgres, hapi),
+#                   no image was pulled, the CQL jars = the vendor's and they translate, the reference data pack of
+#                   the media is loaded, ClinicalTrials.gov offline, no route out of the box
+#   console         the console answers /healthz and its sign-in page; it resolves no outside name and reaches nothing
+#                   outside (console-net, D-176)
 #   screen          SCREEN GZQO on synthetic hospital A ends done, through the gateway to both pinned builds
 #   restart         every box process killed (a power loss), then the host container restarted: the box comes back
 #                   healthy with its data, the doctor passes, the console answers, a second SCREEN runs
 #   wrong-name      a served name that is not the pinned one: the doctor (the installer's check) FAILs naming both,
 #                   the gateway refuses the call
 #   missing-key     the gateway without the key: the doctor FAILs "refused the key (HTTP 401)", calls are refused
+#   no-registry-pull  the Docker daemon's image events from the clearing of the images to the end: loads, no pull
 #
 # Writes $TB_REHEARSE_DIR/report.md and report.json; exit 0 only when every step passes.
 #
@@ -28,6 +31,8 @@
 # docker), TB_REHEARSE_SKIP_BUILD=1 (use the trialbox-py and trialbox-jvm images already built), TB_REHEARSE_KEEP=1
 # (leave the box running and the work dir for inspection), TB_EXTRA_CA (a PEM for apt and pip behind a TLS proxy).
 # Needs: Docker with compose, no other TrialBox stack running on it, port 8090 free, python3 with the repo's venv.
+# Either Docker image store: the containerd store keeps digests, the classic overlay2 store does not (tools/
+# image_pins.py); DOCKER_HOST=unix:///path/docker.sock rehearses on another daemon (its socket goes into the box).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT" || exit 2
@@ -41,6 +46,9 @@ BOX="$W/box"
 HOST_IMG="trialbox-rehearsal-host:24.04"
 HOST_CT="tb-rehearse-host"
 LOGS="$W/logs"
+SOCK=/var/run/docker.sock
+case "${DOCKER_HOST:-}" in unix://*) SOCK="${DOCKER_HOST#unix://}" ;; "") ;; *) echo "rehearse: DOCKER_HOST must be a unix socket" >&2; exit 2 ;; esac
+EVENTS_PID=""
 export PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT"
 
 # ------------------------------------------------------------------------------------------------ bookkeeping
@@ -133,13 +141,28 @@ host_image() {
   echo "ok: clean Ubuntu 24.04 host image $HOST_IMG (docker CLI + compose, python3, nftables, cron)"
 }
 
-clear_images() {  # only the media may bring them back
+clear_images() {  # only the media may bring them back: by id, so every tag and digest of the image goes
   local ref id
   while read -r ref id; do
-    docker image rm "$ref" >/dev/null 2>&1 || true
+    docker image rm -f "$id" >/dev/null 2>&1 || docker image rm -f "$ref" >/dev/null 2>&1 || true
     docker image inspect "$ref" >/dev/null 2>&1 && { echo "could not remove $ref"; return 1; }
+    docker image inspect "$id" >/dev/null 2>&1 && { echo "could not remove $ref ($id)"; return 1; }
   done < "$W/vendor/bundle-images.txt"
-  echo "ok: $(wc -l < "$W/vendor/bundle-images.txt") box images removed from the Docker host; only the media has them"
+  # from now on every image event of the daemon is kept: the offline and no-registry-pull steps read it
+  docker events --filter type=image --format '{{.Action}} {{.Actor.ID}} {{index .Actor.Attributes "name"}}' \
+    > "$LOGS/image-events.log" 2>&1 &
+  EVENTS_PID=$!
+  echo "ok: $(wc -l < "$W/vendor/bundle-images.txt") box images removed from the Docker host ($(docker info --format '{{.Driver}}') store); only the media has them"
+}
+
+no_registry_pull() {
+  [ -n "$EVENTS_PID" ] || { echo "no image event log"; return 1; }
+  sleep 1; kill "$EVENTS_PID" 2>/dev/null; wait "$EVENTS_PID" 2>/dev/null; EVENTS_PID=""
+  cat "$LOGS/image-events.log"
+  if grep -q '^pull ' "$LOGS/image-events.log"; then echo "an image was pulled from a registry:"; grep '^pull ' "$LOGS/image-events.log"; return 1; fi
+  local loads; loads="$(grep -c '^load ' "$LOGS/image-events.log")"
+  [ "$loads" -ge "$(wc -l < "$W/vendor/bundle-images.txt")" ] || { echo "only $loads image loads (the bundle has $(wc -l < "$W/vendor/bundle-images.txt"))"; return 1; }
+  echo "ok: $loads image loads from the media and no pull from the clearing of the images to the end of the run"
 }
 
 host_up() {
@@ -147,7 +170,7 @@ host_up() {
   # --network host: the console's published 127.0.0.1 port is the host's; no NET_ADMIN, so the installer's nftables
   # step (deploy/network.sh apply) cannot touch the Docker host's firewall and reports that it was not applied
   docker run -d --name "$HOST_CT" --hostname trialbox-rehearsal --network host --restart no \
-    -v /var/run/docker.sock:/var/run/docker.sock -v "$W:$W" "$HOST_IMG" sleep infinity || return 1
+    -v "$SOCK:/var/run/docker.sock" -v "$W:$W" "$HOST_IMG" sleep infinity || return 1
   docker exec "$HOST_CT" sh -c '. /etc/os-release; echo "ok: box host $PRETTY_NAME, $(docker compose version)"'
 }
 
@@ -182,6 +205,7 @@ restore_images() {  # a run that stopped before the install loaded them must not
 }
 
 teardown() {
+  [ -z "$EVENTS_PID" ] || kill "$EVENTS_PID" 2>/dev/null
   if [ "${TB_REHEARSE_KEEP:-0}" = 1 ]; then echo "TB_REHEARSE_KEEP=1: box left running, work dir $W"; return 0; fi
   docker exec "$HOST_CT" sh -c "cd '$BOX' && docker compose --project-directory deploy down -v --remove-orphans" \
     >>"$LOGS/teardown.log" 2>&1 || true
@@ -218,6 +242,7 @@ step console-after-restart 0 in_box console
 step screen-after-restart 0 in_box screen second
 step wrong-name 0 in_box wrong-name
 step missing-key 0 in_box missing-key
+step no-registry-pull 0 no_registry_pull
 collect
 teardown
 

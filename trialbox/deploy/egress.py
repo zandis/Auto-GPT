@@ -17,6 +17,7 @@ Allowed (only when the variable is set):
 Container addresses come from ``docker inspect`` of the compose project; host names are resolved when the rules are
 applied (re-run after an address change or a container restart: ``deploy/network.sh apply``). Traffic between the
 box's own containers, replies to inbound connections (published ports) and the Docker embedded DNS are unaffected.
+Inbound, only a published port opens a connection into a box network; a direct route to a container address is dropped.
 
     deploy/network.sh print   # render the ruleset (no root needed)
     deploy/network.sh apply   # nft -f (root)
@@ -241,7 +242,13 @@ def render(box: Box, allows: list[Allow], resolver: object = resolve) -> tuple[s
                 )
     for fam, nets in (("ip", v4), ("ip6", v6)):
         if nets:
-            lines.append(f'    {fam} saddr {{ {", ".join(nets)} }} counter drop comment "trialbox default deny"')
+            # inbound: only a published port (Docker's DNAT) may open a connection into a box network from outside;
+            # a neighbour that routes to a container address directly (the console's non-internal console-net,
+            # D-176, on a Docker before 28) is dropped
+            joined = ", ".join(nets)
+            lines.append(f'    {fam} daddr {{ {joined} }} ct status dnat accept comment "published ports"')
+            lines.append(f'    {fam} daddr {{ {joined} }} counter drop comment "trialbox no direct access"')
+            lines.append(f'    {fam} saddr {{ {joined} }} counter drop comment "trialbox default deny"')
     lines += ["  }", "}"]
     if not box.subnets:
         warnings.append("no TrialBox networks found (is the stack up?); nothing is filtered")

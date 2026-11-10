@@ -47,6 +47,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from tools import image_pins
+
 ROOT = Path(__file__).resolve().parents[2]
 PY_SERVICES = (
     "lake",
@@ -435,10 +437,24 @@ class ComposeBox(_DockerImages):
         done = self.load_images(plan)
         done += copy_models(plan.kind("model"), self.models, rb, point)
         done += copy_other(plan.kind("other"), self.deploy / "updates" / plan.bundle_id / "files")
+        pins = plan.kind("other") / image_pins.PINS
+        if pins.is_file():  # D-176: the bundle's digest pins, for an image store that keeps no digests (overlay2)
+            done.append(f"image pins: {image_pins.merge(pins, self.deploy)}")
         return done
+
+    def resolve_pins(self) -> None:
+        """Point compose at the bundle's images where the image store lost their digests (tools/image_pins.py)."""
+        files = [f for f in (self.env.get("COMPOSE_FILE") or "").split(":") if f]
+        if not files:
+            return
+        changes, _, missing = image_pins.resolve(self.deploy, [Path(f) for f in files])
+        if missing:
+            raise UpdateFailed("pinned images neither on the box nor in the bundle: " + "; ".join(missing))
+        image_pins.write_env(self.deploy / ".env", changes)
 
     def restart(self, plan: Plan) -> None:
         # new images: the containers are recreated and every service runs its migrations at start (tb_common.db)
+        self.resolve_pins()
         t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
         self.run(self._c("up", "-d", "--wait", "--wait-timeout", t), timeout=int(t) + 120)
 

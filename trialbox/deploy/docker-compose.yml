@@ -216,6 +216,10 @@ services:
     # Docker publishes no port of a container that is only on internal networks: on trialbox-net alone the console
     # was unreachable from the host (found by the box rehearsal, D-176). console-net carries the published port only.
     networks: [trialbox-net, console-net]
+    # console-net is not internal, so Docker's resolver would forward outside names for the console: send them to a
+    # resolver that is not there (the box's own names still resolve). Together with console-net's options below the
+    # console has no way out, even where deploy/network.sh is not applied (D-176).
+    dns: [127.0.0.1]
     depends_on:
       db: {condition: service_healthy}
       orchestrator: {condition: service_healthy}
@@ -273,7 +277,17 @@ networks:
   egress-net:
     name: trialbox-egress  # host-level nftables (network.sh) restricts destinations per container
   console-net:
-    name: trialbox-console  # the console's published port (not internal); network.sh allows it no destination
+    # The console's published port only (D-176). Not internal (Docker publishes no port there), so it is closed by
+    # hand: no NAT out (no reply ever comes back from outside), published ports bind to 127.0.0.1 unless
+    # TB_CONSOLE_BIND says otherwise, no IPv6, no traffic between its members (the console is the only one).
+    # deploy/network.sh drops everything from it that is not a reply, and every connection into it that is not to
+    # the published port.
+    name: trialbox-console
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
+      com.docker.network.bridge.enable_icc: "false"
 
 volumes:
   console-data:

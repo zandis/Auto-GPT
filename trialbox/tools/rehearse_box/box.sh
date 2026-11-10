@@ -186,15 +186,30 @@ EOF
 
 # ------------------------------------------------------------------------------------------------ offline media
 offline)
-  # 1. images: the ones running are the ones the bundle carried (rehearse.sh removed them before the install)
-  python3 - "$W/vendor/bundle-images.txt" <<'EOF' || fail "an image differs from the bundle's"
-import subprocess, sys
-for line in open(sys.argv[1]):
-    ref, want = line.split()
-    got = subprocess.run(["docker", "image", "inspect", "--format", "{{.Id}}", ref], capture_output=True, text=True).stdout.strip()
-    assert got == want, f"{ref}: running {got or 'missing'}, bundle {want}"
-    print(f"ok: {ref} = bundle image {want[:19]}")
+  # 1. images: every running box container runs an image the bundle loaded (rehearse.sh removed them all before the
+  #    install, by id), the third-party ones too, and the daemon pulled nothing
+  python3 - "$W/vendor/bundle-images.txt" "$W/logs/image-events.log" <<'EOF' || fail "an image is not the bundle's"
+import json, subprocess, sys
+def sh(*a):
+    return subprocess.run(a, capture_output=True, text=True, check=True).stdout
+bundle = dict(line.split() for line in open(sys.argv[1]))  # vendor reference -> image id
+ids = set(bundle.values())
+cts = sh("docker", "ps", "-q", "--filter", "label=com.docker.compose.project=trialbox").split()
+used = {}
+for c in json.loads(sh("docker", "inspect", *cts)):
+    svc = c["Config"]["Labels"]["com.docker.compose.service"]
+    assert c["Image"] in ids, f"{svc}: runs {c['Config']['Image']} = {c['Image']}, not an image of the bundle"
+    used.setdefault(c["Image"], []).append(svc)
+for ref, iid in sorted(bundle.items()):
+    assert iid in used, f"{ref}: in the bundle, but no box container runs it"
+    kind = "TrialBox" if ref.startswith("trialbox-") else "third-party"
+    print(f"ok: {kind} {ref} = bundle image {iid[:19]}, run by {', '.join(sorted(used[iid]))}")
+pulls = [ln for ln in open(sys.argv[2]) if ln.startswith("pull ")]
+assert not pulls, f"the daemon pulled: {pulls}"
+print(f"ok: {len(cts)} containers, every image from the media; no pull since the images were removed")
 EOF
+  # on a store without digests (overlay2) the digest pins point at the bundle's image ids (tools/image_pins.py)
+  grep -E '^(POSTGRES|HAPI)_IMAGE=' "$BOX/deploy/.env" | sed 's/^/ok: pinned by image id: /' || ok "digest references resolved by the image store itself"
   # 2. CQL translator jars: what the criteria-compiler runs is byte for byte the vendor's set, and it translates
   dc exec -T criteria-compiler sh -c 'cd "$TB_CQL_TRANSLATOR_LIB" && sha256sum *.jar' | sort -k2 > "$W/box-cql-jars.sha256"
   diff "$W/vendor/cql-jars.sha256" "$W/box-cql-jars.sha256" || fail "the CQL jars in the box differ from the media's"
@@ -235,6 +250,29 @@ console)
   code="$(curl -s -o "$W/login.html" -w '%{http_code}' -m 10 "http://127.0.0.1:$port/login")"
   [ "$code" = 200 ] && grep -qi "password" "$W/login.html" || fail "console sign-in page: HTTP $code"
   ok "console up on 127.0.0.1:$port: /healthz and the sign-in page"
+  # console-net (D-176) carries the published port only: no outside name resolves, nothing outside answers, the box's
+  # own names still do. The rehearsal host has no NET_ADMIN, so deploy/network.sh is not applied: the compose file
+  # alone must hold.
+  net="$(docker network inspect trialbox-console --format '{{json .Options}} ipv6={{.EnableIPv6}}')"; echo "console-net: $net"
+  echo "$net" | grep -q '"com.docker.network.bridge.enable_ip_masquerade":"false"' && echo "$net" | grep -q 'ipv6=false' \
+    || fail "console-net is not closed (no NAT out, no IPv6)"
+  in_svc console <<'EOF' || fail "the console can reach outside the box"
+import socket
+socket.getaddrinfo("orchestrator", 8010)
+print("ok: console resolves the box's own names (orchestrator)")
+for host in ("example.com", "pypi.org"):
+    try:
+        socket.getaddrinfo(host, 443)
+        raise SystemExit(f"{host} resolves inside the console")
+    except socket.gaierror as e:
+        print(f"ok: {host} does not resolve in the console ({e.strerror})")
+for ip in ("1.1.1.1", "8.8.8.8"):
+    try:
+        socket.create_connection((ip, 443), timeout=5).close()
+        raise SystemExit(f"{ip}:443 reachable from the console")
+    except OSError as e:
+        print(f"ok: {ip}:443 not reachable from the console ({type(e).__name__})")
+EOF
   ;;
 
 # ------------------------------------------------------------------------------------------------ SCREEN

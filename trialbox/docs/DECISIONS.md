@@ -3716,8 +3716,7 @@ GPU, the egress rules, the host hardening and the mail server are checked there.
 2. `tools/make_bundle.sh` bundled no third-party image on a vendor machine without `deploy/.env` (compose rendered
    nothing and the error was hidden): it now renders with an empty env file of its own and stops if it finds none.
    A digest-pinned image (`postgres`, `hapi`) saved by its digest loaded back without a name, so compose tried to
-   pull it offline: it is now saved under its tag, and the digest reference resolves to it. `--refdata` adds a
-   reference data pack to the bundle.
+   pull it offline: it is now saved under its tag. `--refdata` adds a reference data pack to the bundle.
 3. A first install could not verify its bundle: `tools/apply_update.sh` needed `tb_contracts` (jsonschema, pydantic)
    on the host, else the `trialbox-py` image, which is still inside the bundle. `tools/verify_update.py` now checks
    the manifest schema with the standard library when jsonschema is missing (after the signature, which needs only
@@ -3739,6 +3738,25 @@ GPU, the egress rules, the host hardening and the mail server are checked there.
 11. A SCREEN fails at its mail step when the site's SMTP relay cannot be reached (`mail-gateway` answers 500). The
     rehearsal gives it a plain SMTP sink (`tools/rehearse_box/smtp_sink.py`) as `smtp.hospa.test` and checks that the
     SCREEN mailed something. The real relay is checked at the site's IQ.
+
+*After the independent review* (2026-11-10; RUNBOOK §12):
+12. *Digest pins on the classic image store.* Saved under its tag, a digest-pinned image resolves by its digest again
+    only on Docker's containerd image store. The classic `overlay2` store keeps no digests after `docker load`
+    (tried: `postgres:16-alpine@sha256:...` is "No such image" after the load), so compose would pull it. The bundle
+    now carries `image-pins.json` (signed with the rest): each digest reference and the image id `docker save` wrote.
+    `tools/image_pins.py` points the compose variable (`POSTGRES_IMAGE`, `HAPI_IMAGE`) at that id where the digest
+    does not resolve; an image id is its content, so this is the bundle's image. `install.sh` runs it before the
+    start, and an update before its restart.
+13. *No registry pull, proved for every image.* `install.sh` starts the stack with `--pull never` after checking
+    that every image is on the box (`TB_INSTALL_PULL=missing` for a site with its own mirror). The rehearsal removes
+    the bundle's images by id (every tag and digest), records the daemon's image events from then on, and checks that
+    every running container runs an image of the bundle, the third-party ones included, and that nothing was pulled
+    (`offline`, and a new last step, `no-registry-pull`).
+14. *`console-net` closed.* It is not internal, so the console had a route and a name resolver to the outside where
+    `network.sh` is not applied. Now: no NAT out, no IPv6, no traffic between members, published ports on 127.0.0.1
+    by default, and `dns: 127.0.0.1` for the console (outside names do not resolve; the box's own names do).
+    `network.sh` drops every connection into a box network that is not to a published port. The rehearsal's
+    `console` step checks the options and that nothing outside resolves or answers from inside the console.
 
 *Evidence.* `make rehearse-box` on 2026-11-09 (Docker 29.9.2, no GPU): all 21 steps PASS in about 9 minutes with
 the build (install 138 s, each SCREEN about 85 s; 362 patients in scope, 19 model calls, 7 mails to the sink; no 401
@@ -3764,7 +3782,10 @@ model call refused 404 because the pinned served name was not the one served).
    FAIL, with what to fix (the served names in `deploy/.env`, the key, or a new pin).
 3. *The strict stand-in.* `tools/vllm_standin.py` (standard library and the stub's deterministic answers) takes
    vLLM's own command line, answers only the exact `--served-model-name` (vLLM's 404 `NotFoundError` otherwise),
-   refuses every `/v1` call without the key (401), never starts without a key, and counts its answers by status
-   (`/standin/stats`, with the key) so a rehearsal can assert no 401 and no 404. It never stands in for a model.
+   refuses every `/v1` call without the key (401), never starts without a key, and counts its model calls by status
+   (`/standin/stats`, with the key) so a rehearsal can assert no 401 and no 404. Only a `POST` to
+   `/v1/chat/completions` or `/v1/completions` is a model call: the container health check's `/health`, the stats
+   and unknown paths are not counted, and `/v1/models` is counted apart (independent review, 2026-11-10). It never
+   stands in for a model.
 
 *Not done.* `trialbox secrets rotate` does not rotate `TB_LLM_API_KEY` yet (RUNBOOK §12 says how to change it by hand).

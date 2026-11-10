@@ -439,17 +439,21 @@ without the key (401). It never starts without a key (D-177).
 | `install` | the installer exits 0: bundle verified and loaded, settings, the model key, the pins, the stack healthy, the serving check |
 | `doctor` | `trialbox doctor --live` passes, with the `serving` check (below) |
 | `served` | the pinned served names in `deploy/site/registry.site.yaml` are exactly what the two servers serve |
-| `offline` | the running images are the bundle's; the CQL translator jars in `criteria-compiler` are byte for byte the vendor's and translate; the media's reference data pack is loaded; ClinicalTrials.gov is offline; the box has no route out |
-| `console` | the console answers `/healthz` and its sign-in page |
+| `offline` | every running container runs an image the bundle loaded, the third-party ones (`postgres`, `hapi`) too, and the Docker daemon pulled nothing; the CQL translator jars in `criteria-compiler` are byte for byte the vendor's and translate; the media's reference data pack is loaded; ClinicalTrials.gov is offline; the box has no route out |
+| `console` | the console answers `/healthz` and its sign-in page; inside it no outside name resolves and no outside address answers, while the box's own names do (`console-net`, below) |
 | `screen` | SCREEN GZQO on synthetic hospital A ends `done`, its model calls go through the gateway to both pinned builds, with no 401 and no 404, and it mails its results to the site's relay (a plain SMTP sink, `tools/rehearse_box/smtp_sink.py`, stands in for it) |
 | `power-cycle`, `after-restart` | every box process killed (as in a power loss), the host restarted: the box comes back healthy with its data, the doctor passes, the console answers, a second SCREEN runs |
 | `wrong-name` | a server that serves another name than the pin: the doctor (the installer's check) FAILs and names both, and the gateway refuses the call |
 | `missing-key` | the gateway without the key: the doctor FAILs with "refused the key (HTTP 401)", and both calls are refused |
+| `no-registry-pull` | the Docker daemon's image events, from the moment the images were removed to the end of the run: every bundle image loaded, no pull |
 
 **Knobs.** `TB_REHEARSE_DIR` (default `/tmp/tb-rehearse-box`; the report and logs stay there),
 `TB_REHEARSE_SKIP_BUILD=1` (use the images already built), `TB_REHEARSE_KEEP=1` (leave the box running for a look),
 `TB_EXTRA_CA` (a PEM for apt and pip behind a TLS proxy). It needs a Docker host with no other TrialBox stack and port
 8090 free. The box container uses the host's Docker through its socket, so the work folder has the same path inside.
+`DOCKER_HOST=unix:///path/docker.sock` rehearses on another daemon. Run it on both Docker image stores before a
+release: the containerd store (the default of new Docker installs) and the classic `overlay2` store (older hosts,
+and hosts upgraded from them). The classic store keeps no image digests (below).
 At the end it removes the box, its volumes and the media, and loads the images back from the media if a failed run
 left them removed.
 
@@ -457,6 +461,22 @@ left them removed.
 record, §8); the egress rules (`deploy/network.sh apply` needs `NET_ADMIN`, which the rehearsal does not give: the
 rehearsal makes the outbound network internal instead); LUKS, TPM, swap and the other host hardening lines of
 `deploy/check_host.sh`; the bge-m3 embedder (the hash embedder runs instead); the hospital's mail server (a sink without TLS stands in).
+
+**Images come only from the bundle** (D-176). `install.sh` starts the stack with `--pull never` and first checks
+that every image of the stack is on the box: a missing one stops the install with its name, and nothing is pulled.
+The compose files pin `postgres` and `hapi` by digest. Docker's containerd image store keeps that digest when the
+bundle is loaded; the classic `overlay2` store does not, so `tools/image_pins.py` points the image's compose variable
+(`POSTGRES_IMAGE`, `HAPI_IMAGE`) in `deploy/.env` at the image id the signed bundle names (`image-pins.json`; an
+image id is its content). Updates do the same before they restart the box. A site that mirrors the third-party
+images itself (`make_bundle.sh --no-third-party`) sets `TB_INSTALL_PULL=missing`, and a variable it set to its own
+mirror is left alone.
+
+**`console-net`** (D-176). Docker publishes no port of a container that is only on internal networks, so the
+console is also on `trialbox-console`, which is not internal. It is closed by hand: no NAT out (no reply ever comes
+back from outside), no IPv6, published ports on 127.0.0.1 unless `TB_CONSOLE_BIND` says otherwise, and the console
+sends outside names to a resolver that is not there (`dns: 127.0.0.1`; the box's own names still resolve).
+`deploy/network.sh apply` also drops every connection into a box network that is not to a published port (a
+neighbour on the hospital LAN that routes to a container address directly, possible on Docker before 28).
 
 **The model key** (D-177). In GPU mode `install.sh` writes `TB_LLM_API_KEY` to `deploy/.env` once. Compose gives it to
 vLLM as `VLLM_API_KEY`, and only the gateway sends it (`models/routing.yaml`, endpoints `serving` and `verifier`). The
