@@ -1,5 +1,6 @@
 """``python -m tools.trialbox <command>`` (spec v4 §18). Commands: ``doctor``, ``eval``, ``backup-keygen``,
-``backup``, ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``); ``secrets`` (per-service tokens,
+``backup``, ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``); ``backup-nightly`` and
+``backup-status`` (the schedule and the age alert, D-187, ``backup_schedule.py``); ``secrets`` (per-service tokens,
 D-128 / D-138, ``svc_secrets.py``), ``logs`` (retention, ``logs.py``) and ``update`` (the update path behind
 ``tools/apply_update.sh``, ``update.py``); ``exports`` lists the export ledger (D-149, ``tb_common.flowledger``).
 ``secrets``, ``logs`` and ``update`` need only the standard library, so they run with the host's ``python3`` from
@@ -45,7 +46,16 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--key", type=Path, required=True)
     r.add_argument("--dir", action="append", default=[])
     r.add_argument("--yes", action="store_true", help="replace the current data (moved aside, not deleted)")
+    kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
+    r.add_argument("--refdata", type=Path, default=Path(os.environ.get("TB_REFDATA_DIR") or kept),
+                   help="the kept reference packs (default: TB_REFDATA_DIR or deploy/refdata/loaded)")  # fmt: skip
     deploy = Path(__file__).resolve().parents[2] / "deploy"
+    bn = sub.add_parser("backup-nightly", help="the scheduled backup to TB_BACKUP_TARGETS, then pgBackRest (D-187)")
+    bn.add_argument("--deploy", type=Path, default=deploy)
+    bs = sub.add_parser("backup-status", help="age of the newest good off-box backup; exit 1 and alert when too old")
+    bs.add_argument("--deploy", type=Path, default=deploy)
+    bs.add_argument("--json", action="store_true")
+    bs.add_argument("--quiet", action="store_true", help="print nothing when all is well (cron)")
     s = sub.add_parser("secrets", help="per-service tokens: init, status, rotate (never prints a value)")
     s.add_argument("action", choices=["init", "status", "rotate"])
     s.add_argument("--service", action="append", default=[], help="rotate only these (a service, operator or db)")
@@ -78,6 +88,12 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import update as tb_update
 
         return tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup)
+    if a.cmd in ("backup-nightly", "backup-status"):
+        from tools.trialbox import backup_schedule as bsch
+
+        if a.cmd == "backup-nightly":
+            return bsch.main_nightly(a.deploy)
+        return bsch.main_status(a.deploy, a.json, a.quiet)
     if a.cmd in ("backup-keygen", "backup", "backup-verify", "restore"):
         return _backup_cmd(a)
     if a.cmd == "doctor":
@@ -173,7 +189,15 @@ def _backup_cmd(a: argparse.Namespace) -> int:
         if not a.yes:
             print("restore replaces the box's databases and data folders (the old folders are kept aside): add --yes")
             return 2
-        print(json.dumps(bk.restore(a.file, a.key, dirs=bk.layout(os.environ, a.dir)), indent=1, ensure_ascii=False))
+        out = bk.restore(a.file, a.key, dirs=bk.layout(os.environ, a.dir), refdata_dir=a.refdata)
+        print(json.dumps(out, indent=1, ensure_ascii=False))
+        for w in out["warnings"]:
+            print(f"restore: warning: {w}", file=sys.stderr)
+        if out["refdata"]["missing"]:  # D-187: a backup holds no vendor pack rows; the box is not whole without them
+            print(f"restore: the reference data is NOT loaded: put {', '.join(out['refdata']['missing'])}.tar in "
+                  f"{a.refdata} (the update bundle or the vendor) and run this restore again, or load it with "
+                  "python -m tb_common.refdata load <pack> (RUNBOOK §5)", file=sys.stderr)  # fmt: skip
+            return 3
         return 0
     except bk.BackupError as exc:
         print(f"{a.cmd}: {exc}", file=sys.stderr)
