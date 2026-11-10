@@ -4,23 +4,93 @@
    {
     "concept": [
      {
+      "code": "I21",
+      "display": "Acute myocardial infarction"
+     },
+     {
+      "code": "I21.0",
+      "display": "ST elevation (STEMI) myocardial infarction of anterior wall"
+     },
+     {
+      "code": "I21.01",
+      "display": "ST elevation (STEMI) myocardial infarction involving left main coronary artery"
+     },
+     {
+      "code": "I21.02",
+      "display": "ST elevation (STEMI) myocardial infarction involving left anterior descending coronary artery"
+     },
+     {
+      "code": "I21.09",
+      "display": "ST elevation (STEMI) myocardial infarction involving other coronary artery of anterior wall"
+     },
+     {
+      "code": "I21.1",
+      "display": "ST elevation (STEMI) myocardial infarction of inferior wall"
+     },
+     {
+      "code": "I21.11",
+      "display": "ST elevation (STEMI) myocardial infarction involving right coronary artery"
+     },
+     {
+      "code": "I21.19",
+      "display": "ST elevation (STEMI) myocardial infarction involving other coronary artery of inferior wall"
+     },
+     {
+      "code": "I21.2",
+      "display": "ST elevation (STEMI) myocardial infarction of other sites"
+     },
+     {
+      "code": "I21.21",
+      "display": "ST elevation (STEMI) myocardial infarction involving left circumflex coronary artery"
+     },
+     {
+      "code": "I21.29",
+      "display": "ST elevation (STEMI) myocardial infarction involving other sites"
+     },
+     {
+      "code": "I21.3",
+      "display": "ST elevation (STEMI) myocardial infarction of unspecified site"
+     },
+     {
       "code": "I21.4",
       "display": "Non-ST elevation myocardial infarction"
      },
      {
       "code": "I21.9",
       "display": "Acute myocardial infarction unspecified"
+     },
+     {
+      "code": "I21.A",
+      "display": "Other type of myocardial infarction"
+     },
+     {
+      "code": "I21.A1",
+      "display": "Myocardial infarction type 2"
+     },
+     {
+      "code": "I21.A9",
+      "display": "Other myocardial infarction type"
+     },
+     {
+      "code": "I21.B",
+      "display": "Myocardial infarction with coronary microvascular dysfunction"
      }
     ],
     "system": "http://hl7.org/fhir/sid/icd-10-cm"
    }
   ]
  },
+ "extension": [
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|I21"
+  }
+ ],
  "id": "GZQO-VS-MYOCARDIAL-INFARCTION",
  "name": "VS_MYOCARDIAL_INFARCTION",
  "resourceType": "ValueSet",
  "status": "active",
  "title": "myocardial infarction",
  "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-MYOCARDIAL-INFARCTION",
- "version": "1.0.0-vbf6fa844"
+ "version": "1.0.0-v6a6cb052"
 }

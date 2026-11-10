@@ -20,6 +20,16 @@
    }
   ]
  },
+ "extension": [
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M04AA"
+  },
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|M04AB"
+  }
+ ],
  "id": "GOUT-COH-VS-URATE-LOWERING-THERAPY",
  "name": "VS_URATE_LOWERING_THERAPY",
  "resourceType": "ValueSet",

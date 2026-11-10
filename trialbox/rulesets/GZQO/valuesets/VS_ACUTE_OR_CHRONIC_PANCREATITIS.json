@@ -4,12 +4,104 @@
    {
     "concept": [
      {
+      "code": "K85",
+      "display": "Acute pancreatitis"
+     },
+     {
+      "code": "K85.0",
+      "display": "Idiopathic acute pancreatitis"
+     },
+     {
+      "code": "K85.00",
+      "display": "Idiopathic acute pancreatitis without necrosis or infection"
+     },
+     {
+      "code": "K85.01",
+      "display": "Idiopathic acute pancreatitis with uninfected necrosis"
+     },
+     {
+      "code": "K85.02",
+      "display": "Idiopathic acute pancreatitis with infected necrosis"
+     },
+     {
+      "code": "K85.1",
+      "display": "Biliary acute pancreatitis"
+     },
+     {
+      "code": "K85.10",
+      "display": "Biliary acute pancreatitis without necrosis or infection"
+     },
+     {
+      "code": "K85.11",
+      "display": "Biliary acute pancreatitis with uninfected necrosis"
+     },
+     {
+      "code": "K85.12",
+      "display": "Biliary acute pancreatitis with infected necrosis"
+     },
+     {
+      "code": "K85.2",
+      "display": "Alcohol induced acute pancreatitis"
+     },
+     {
       "code": "K85.20",
       "display": "Alcohol induced acute pancreatitis without necrosis or infection"
      },
      {
+      "code": "K85.21",
+      "display": "Alcohol induced acute pancreatitis with uninfected necrosis"
+     },
+     {
+      "code": "K85.22",
+      "display": "Alcohol induced acute pancreatitis with infected necrosis"
+     },
+     {
+      "code": "K85.3",
+      "display": "Drug induced acute pancreatitis"
+     },
+     {
+      "code": "K85.30",
+      "display": "Drug induced acute pancreatitis without necrosis or infection"
+     },
+     {
+      "code": "K85.31",
+      "display": "Drug induced acute pancreatitis with uninfected necrosis"
+     },
+     {
+      "code": "K85.32",
+      "display": "Drug induced acute pancreatitis with infected necrosis"
+     },
+     {
+      "code": "K85.8",
+      "display": "Other acute pancreatitis"
+     },
+     {
+      "code": "K85.80",
+      "display": "Other acute pancreatitis without necrosis or infection"
+     },
+     {
+      "code": "K85.81",
+      "display": "Other acute pancreatitis with uninfected necrosis"
+     },
+     {
+      "code": "K85.82",
+      "display": "Other acute pancreatitis with infected necrosis"
+     },
+     {
+      "code": "K85.9",
+      "display": "Acute pancreatitis, unspecified"
+     },
+     {
       "code": "K85.90",
       "display": "Acute pancreatitis without necrosis or infection unspecified"
+     },
+     {
+      "code": "K85.91",
+      "display": "Acute pancreatitis with uninfected necrosis, unspecified"
+     },
+     {
+      "code": "K85.92",
+      "display": "Acute pancreatitis with infected necrosis, unspecified"
      },
      {
       "code": "K86.0",
@@ -24,11 +116,17 @@
    }
   ]
  },
+ "extension": [
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://hl7.org/fhir/sid/icd-10-cm|K85"
+  }
+ ],
  "id": "GZQO-VS-ACUTE-OR-CHRONIC-PANCREATITIS",
  "name": "VS_ACUTE_OR_CHRONIC_PANCREATITIS",
  "resourceType": "ValueSet",
  "status": "active",
  "title": "acute or chronic pancreatitis",
  "url": "http://trialbox.local/fhir/ValueSet/GZQO-VS-ACUTE-OR-CHRONIC-PANCREATITIS",
- "version": "1.0.0-v6d81dc5d"
+ "version": "1.0.0-v446e21d9"
 }

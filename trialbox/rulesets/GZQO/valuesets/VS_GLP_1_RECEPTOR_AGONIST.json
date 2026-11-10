@@ -24,6 +24,12 @@
    }
   ]
  },
+ "extension": [
+  {
+   "url": "https://trialbox.local/fhir/StructureDefinition/code-family",
+   "valueString": "http://www.whocc.no/atc|A10BJ"
+  }
+ ],
  "id": "GZQO-VS-GLP-1-RECEPTOR-AGONIST",
  "name": "VS_GLP_1_RECEPTOR_AGONIST",
  "resourceType": "ValueSet",
