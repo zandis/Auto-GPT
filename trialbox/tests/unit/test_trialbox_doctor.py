@@ -46,6 +46,7 @@ def test_default_install_passes() -> None:
         "publish_gate",
         "note_block",
         "registry_pins",
+        "flags",
     }
 
 
@@ -79,10 +80,36 @@ def test_fails_closed_on_d3_d4_route_outside_the_perimeter(tmp_path: Path, cls: 
     ("env", "want"), [("DEV", "WARN"), ("TEST", "WARN"), ("VALIDATION", "FAIL"), ("PRODUCTION", "FAIL")]
 )
 def test_secure_cookie_is_required_in_production(env: str, want: str) -> None:
-    off = doctor.run(inputs(env={"TB_ENV": env, "TB_TOPOLOGY": "A"}))
+    off = doctor.run(inputs(env={"TB_ENV": env, "TB_TOPOLOGY": "A", "TB_CONSOLE_SECURE_COOKIE": "0"}))
     assert status(off, "secure_cookie").status == want
     on = doctor.run(inputs(env={"TB_ENV": env, "TB_TOPOLOGY": "A", "TB_CONSOLE_SECURE_COOKIE": "1"}))
     assert status(on, "secure_cookie").status == "PASS"
+
+
+@pytest.mark.req("S1-16")
+@pytest.mark.parametrize(
+    ("env", "value", "want"),
+    [
+        ("PRODUCTION", None, "PASS"),  # unset: the console makes the cookie Secure in PRODUCTION (D-192)
+        ("PRODUCTION", "", "PASS"),  # the base compose file passes it empty
+        ("PRODUCTION", "0", "FAIL"),  # an explicit off stays a FAIL (and the console refuses to start)
+        ("PRODUCTION", "1", "PASS"),
+        ("VALIDATION", None, "FAIL"),  # the console's default is Secure only in PRODUCTION
+        ("VALIDATION", "", "FAIL"),
+        ("TEST", "", "WARN"),
+        ("DEV", None, "WARN"),
+    ],
+)
+def test_secure_cookie_follows_the_console_default(env: str, value: str | None, want: str) -> None:
+    from console.identity import IdentityConfigError, secure_cookie_default
+
+    e = {"TB_ENV": env, "TB_TOPOLOGY": "A", **({} if value is None else {"TB_CONSOLE_SECURE_COOKIE": value})}
+    assert status(doctor.run(inputs(env=e)), "secure_cookie").status == want
+    try:  # the doctor and the console agree on what the console will do
+        console_secure = secure_cookie_default(e, env)
+    except IdentityConfigError:
+        console_secure = False
+    assert console_secure == (want == "PASS")
 
 
 @pytest.mark.req("S1-16")

@@ -455,3 +455,22 @@ def test_every_committed_ruleset_screens_the_same_on_both_lakes(feed_dir: Path, 
         assert r["feas_identical"] and r["patients_different"] == 0, (rid, r)
         assert r["patients_evaluated"] == r["patients"] == 600
     assert sum(r["verdicts"].get("met", 0) for r in res.values()) > 0
+
+
+def test_the_parity_tool_only_touches_its_own_schemas(tmp_path: Path) -> None:
+    """Review H2/H4: a TB_DB_URL with no prefix (a box, CI) must not let the parity run write to, or drop, every
+    schema; the run's prefix is private to its work directory and never empty."""
+    from tb_common.db import split_url
+
+    from tools import omop_parity as op
+    from tools import pglocal
+
+    bare = "postgresql://u@localhost/tb"
+    url, prefix = op.private_url(bare, tmp_path / "a")
+    assert prefix.startswith("par") and split_url(url) == ("postgresql://u@localhost/tb", prefix)
+    url2, prefix2 = op.private_url("postgresql://u@h/tb?sslmode=disable&tb_prefix=w1_", tmp_path / "a")
+    assert prefix2 == "w1_" + prefix and split_url(url2)[1] == prefix2 and "sslmode=disable" in url2
+    assert op.private_url(bare, tmp_path / "b")[1] != prefix
+    assert split_url(f"{url}omop0_")[1] == prefix + "omop0_"
+    with pytest.raises(ValueError, match="empty prefix"):
+        pglocal.drop_prefix(bare, "")
