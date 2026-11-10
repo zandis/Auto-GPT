@@ -2,9 +2,12 @@
 # GPU profile from the machine and the card name (D-95, D-124), shared by install.sh and its tests.
 #
 #   sh deploy/gpu_profile.sh                      # this machine: uname -m and nvidia-smi's first card
-#   sh deploy/gpu_profile.sh <arch> "<card name>" # for a given machine (tests)
+#   sh deploy/gpu_profile.sh <arch> "<card name>" [<MIG mode>]  # for a given machine (tests)
 #
 # Prints one word:
+#   shared-quota  a card with MIG enabled (CGMH's shared B200, the rented cloud B200): the judge and the verifier each
+#               on a MIG instance, serving values from the record measured on the partition (D-211). install.sh
+#               refuses it: a shared host runs deploy/platform (Kubernetes) or docker-compose.shared-quota.yml
 #   rtxpro6000  RTX PRO 6000 (96 GB): judge and verifier both resident, 32k context, no swap
 #   gb10        DGX Spark class (aarch64, 128 GB unified): the same pair resident, 16k context
 #   rtx5090     one 32 GB card (RTX 5090, RTX PRO 4500): the same pair with the sleep swap, 8k context
@@ -13,11 +16,15 @@
 # The RTX PRO 6000 is matched before the 32 GB cards: its name also contains "RTX PRO".
 set -eu
 if [ $# -ge 2 ]; then
-  arch="$1"; name="$2"
+  arch="$1"; name="$2"; mig="${3:-}"
 else
   arch="$(uname -m)"
   name="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true)"
+  mig="$(nvidia-smi --query-gpu=mig.mode.current --format=csv,noheader 2>/dev/null | head -1 || true)"
 fi
+case "$mig" in
+  Enabled|enabled) echo shared-quota; exit 0 ;;
+esac
 case "$arch:$name" in
   aarch64:*|arm64:*)        echo gb10 ;;
   *"RTX PRO 6000"*)         echo rtxpro6000 ;;

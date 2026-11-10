@@ -1,0 +1,6 @@
+id,name_en,loinc,omop_concept_id,cdisc_qrs,source,licence_notes,verified,unit_ucum
+lab.creatinine,"Creatinine, serum",2160-0,,,LOINC 2160-0 (µmol/L: 14682-9),LOINC notice,yes,mg/dL
+lab.kl6,KL-6,local,2000001002,,Japanese ILD marker,local concept,no,
+lab.vitd,25-hydroxyvitamin D,1989-3,,,LOINC 1989-3 (D3),LOINC notice,partial,
+rheum.das28_esr,DAS28-ESR,local,2000001009,,Prevoo 1995,local concept,yes,
+rheum.haq_di,HAQ-DI,local,2000001010,HAQ01TC / HAQ99TC (QS),Fries 1980; LOINC 1234-5 is a typo,local concept,,

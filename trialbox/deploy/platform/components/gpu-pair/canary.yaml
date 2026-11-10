@@ -1,0 +1,35 @@
+# The pair canary on the partition (54 cases, EN/JA/zh-TW; tools/canary.py, D-117) through tb-gateway, as a job:
+# its result is /evidence/canary.json, which doctor --platform reads (check `canary`). Re-run after every platform
+# change (RSK-37): delete the job and apply again.
+apiVersion: batch/v1
+kind: Job
+metadata: {name: trialbox-canary, labels: {app.kubernetes.io/component: canary, trialbox.io/tier: app}}
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {app.kubernetes.io/component: canary, trialbox.io/tier: app}}
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: canary
+          image: trialbox-jvm
+          command: ["python", "-m", "tools.canary", "--out", "/evidence/canary.json"]
+          envFrom: [{configMapRef: {name: trialbox-env}}, {configMapRef: {name: trialbox-serving}}]
+          env:
+            - {name: TB_SERVICE_NAME, value: orchestrator}
+            - {name: TB_AUDIT_DIR, value: /tmp/audit}
+          resources: {requests: {cpu: 100m, memory: 512Mi}, limits: {memory: 2Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+            - {name: token, mountPath: /run/secrets/tb_service_token, subPath: token, readOnly: true}
+            - {name: evidence, mountPath: /evidence}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
+        - {name: token, secret: {secretName: trialbox-token-orchestrator, defaultMode: 0440}}
+        - {name: evidence, persistentVolumeClaim: {claimName: iq-evidence}}
+        - {name: tmp, emptyDir: {}}
