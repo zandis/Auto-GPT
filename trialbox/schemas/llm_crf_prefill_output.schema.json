@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/llm_crf_prefill_output.schema.json",
+  "title": "LlmCrfPrefillOutput",
+  "description": "Output of prompt crf_prefill (D-160): one eCRF item's value read from the patient's notes, with the verbatim quote and the note it came from. A value is only a draft until a coordinator confirms and signs it. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["found", "value", "note", "date", "quote"],
+  "additionalProperties": false,
+  "properties": {
+    "found": {"type": "boolean"},
+    "value": {"type": "string", "maxLength": 200},
+    "note": {"type": "string", "maxLength": 64},
+    "date": {"type": "string", "maxLength": 30},
+    "quote": {"type": "string", "maxLength": 300}
+  }
+}

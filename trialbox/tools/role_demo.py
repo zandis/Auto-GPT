@@ -196,10 +196,12 @@ class InprocBackend:
             raise Refused(r.text[:200])
         return str(r.json().get("mrn") or "") or None
 
-    def study_api(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+    def study_api(self, method: str, path: str, body: dict[str, Any] | None = None,
+                  headers: dict[str, str] | None = None) -> Any:  # fmt: skip
         from console.backend import problem_of
 
-        r = self.c.request(method, path, json=body) if body is not None else self.c.request(method, path)
+        kw: dict[str, Any] = {"headers": headers} if headers else {}
+        r = self.c.request(method, path, json=body, **kw) if body is not None else self.c.request(method, path, **kw)
         if r.status_code >= 400:
             raise problem_of(r.status_code, r.text)
         return r.json()

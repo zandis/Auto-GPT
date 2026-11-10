@@ -1,0 +1,57 @@
+#!/bin/bash
+# The rehearsal's gcloud, for the REAL driver (deploy/gcp/complete-run.sh, unchanged): the VM is the container
+# $TB_REH_CONTAINER and its state lives in $TB_REH_STATE (status, metadata/, knobs/). Every call is logged.
+#   instances describe     status (RUNNING until the VM's poweroff shim writes TERMINATED), natIP 127.0.0.1, the cap
+#   instances set-scheduling  recorded (the cloud cap is not enforced here: the VM's own nets are what is rehearsed)
+#   instances add-metadata    files under metadata/; then the knobs/metadata/* overrides of the case (e.g. a 2-minute
+#                             idle limit, a 1-minute grace)
+#   instances start / stop    a boot of the container (vm/boot.sh), or a power-off
+#   project-info / regions describe --format=json   quota JSON: $TB_REH_GPU_LIMIT GPUs (default 1), 96 CPUs
+#   auth print-access-token   a fake token (the driver's probe)
+S=${TB_REH_STATE:?}
+C=${TB_REH_CONTAINER:-tb-rehearsal-vm}
+echo "$(date -u +%T) gcloud $*" >> "$S/gcloud.log"
+fmt=""; mfiles=""; mvals=""; cap=""
+for a in "$@"; do
+  case "$a" in --format=*) fmt=${a#--format=} ;; --max-run-duration=*) cap=${a#--max-run-duration=} ;; esac
+done
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[$i]}" in
+    --metadata-from-file) mfiles=${args[$((i + 1))]} ;;
+    --metadata) mvals=${args[$((i + 1))]} ;;
+  esac
+done
+quota() { printf '{"metric": "%s", "limit": %s, "usage": 0.0}' "$1" "$2"; }
+case "$1 $2 $3" in
+  "auth print-access-token"*) echo "rehearsal-token" ;;
+  "compute instances describe")
+    case "$fmt" in
+      *status*) cat "$S/status" 2>/dev/null || echo TERMINATED ;;
+      *natIP*) echo 127.0.0.1 ;;
+      *maxRunDuration*) echo "$(cat "$S/cap" 2>/dev/null) STOP" ;;
+      *) echo "{}" ;;
+    esac ;;
+  "compute instances set-scheduling") echo "$cap" > "$S/cap" ;;
+  "compute instances add-metadata")
+    mkdir -p "$S/metadata"
+    IFS=, read -r -a kv <<< "$mfiles"
+    for x in "${kv[@]}"; do [ -n "$x" ] && cp "${x#*=}" "$S/metadata/${x%%=*}"; done
+    IFS=, read -r -a kv <<< "$mvals"
+    for x in "${kv[@]}"; do [ -n "$x" ] && printf '%s' "${x#*=}" > "$S/metadata/${x%%=*}"; done
+    for f in "$S"/knobs/metadata/*; do [ -f "$f" ] && cp "$f" "$S/metadata/$(basename "$f")"; done
+    true ;;
+  "compute instances start")
+    [ "$(cat "$S/status" 2>/dev/null || echo TERMINATED)" = TERMINATED ] || { echo "ERROR: the VM is not TERMINATED" >&2; exit 1; }
+    echo RUNNING > "$S/status"
+    docker exec -d "$C" /rehearsal/h/vm/boot.sh ;;
+  "compute instances stop")
+    docker exec "$C" /rehearsal/h/shims/systemctl poweroff >/dev/null 2>&1 || true
+    echo TERMINATED > "$S/status" ;;
+  "compute project-info describe")
+    printf '{"quotas": [%s, %s]}\n' "$(quota GPUS_ALL_REGIONS "${TB_REH_GPU_LIMIT:-1}")" "$(quota CPUS_ALL_REGIONS 200)" ;;
+  "compute regions describe")
+    printf '{"name": "%s", "quotas": [%s, %s, %s, %s]}\n' "$4" "$(quota NVIDIA_RTX_PRO_6000_GPUS "${TB_REH_GPU_LIMIT:-1}")" \
+      "$(quota PREEMPTIBLE_NVIDIA_RTX_PRO_6000_GPUS 0)" "$(quota CPUS 96)" "$(quota PREEMPTIBLE_CPUS 0)" ;;
+  *) echo "rehearsal gcloud: not rehearsed: $*" >&2; exit 1 ;;
+esac

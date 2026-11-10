@@ -961,6 +961,221 @@ def _stage15(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, m
     return s
 
 
+def _edc_expected(lake: Any, pid: str, visit: date) -> dict[str, str]:
+    """What the hospital record says, read straight from the lake (not through the prefill code)."""
+    out: dict[str, str] = {}
+    rows = lake.query("SELECT birth_date, sex FROM patient WHERE pid = $1", [pid]).to_pylist()
+    if rows and rows[0]["birth_date"] is not None:
+        out["brthdat"] = str(rows[0]["birth_date"])[:10]
+    obs = lake.query("SELECT CAST(effective AS DATE) AS d, value_num, unit, coalesce(value_cmp, '') AS cmp "
+                     "FROM observation WHERE pid = $1 AND code = '3084-1' "
+                     "AND CAST(effective AS DATE) <= CAST($2 AS DATE)",
+                     [pid, visit.isoformat()]).to_pylist()  # fmt: skip
+    if obs:
+        last = max(o["d"] for o in obs)
+        same = [o for o in obs if o["d"] == last]
+        if len({o["value_num"] for o in same}) == 1 and all(not o["cmp"] for o in same) and all(
+                str(o["unit"] or "").replace(" ", "").lower() == "mg/dl" for o in same):  # fmt: skip
+            v = float(same[0]["value_num"])
+            out["urate"] = str(int(v)) if v.is_integer() else f"{v:.6f}".rstrip("0").rstrip(".")
+    return out
+
+
+def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, box: Any) -> Stage:
+    """D-160: EDC prefill. The PI's switch is refused without the sponsor's acknowledgement, then turned on; the CRC
+    reads the CRF's data dictionary from REDCap, saves the item map (CDASH tags), drafts a subject's visit from the
+    hospital record (each value equal to the record, each with its citation), gets the refusals (no citation, no
+    reason, send before signing, a wrong password), confirms, signs with the password and the meaning, and sends:
+    a value someone entered in REDCap is not overwritten; every sent value reads back equal; the ODM file re-imports
+    into a fresh project equal; viewer and CRA see nothing; off stops sending; the audit chain holds."""
+    from fastapi.testclient import TestClient as SimClient
+    from rc_bridge.client import RedcapClient
+    from tb_common.audit import verify
+
+    from tests import edc_kit
+
+    s = Stage("16 EDC prefill")
+    t = time.perf_counter()
+    app = res["app"]
+    h = app.state.helpers
+    lake = box.orch.services.lake
+
+    def csrf(c: Any, path: str = "/home") -> str:
+        return fd._csrf(c.get(path).text) or ""
+
+    on_list = h.optout.active() if h.optout is not None else set()
+    nos = {p: n for p, n in h.store.screening_nos(TRIAL).items() if p not in on_list}
+    with_urate = {str(r["pid"]) for r in lake.query("SELECT DISTINCT pid FROM observation WHERE code = '3084-1'"
+                                                     ).to_pylist()}  # fmt: skip
+    pid = next((p for p in sorted(nos) if p in with_urate), sorted(nos)[0] if nos else "")
+    no = nos.get(pid, "")
+    s.check("a GZQO subject with a screening number to prefill", bool(no), len(nos))
+    if not no:
+        s.seconds = time.perf_counter() - t
+        return s
+    visit = h.clock().date()
+    sim = SimClient(res["sim"])
+    made = sim.post("/sim/projects", json={"title": "GZQO CRF", "metadata": edc_kit.CRF}).json()
+    rc = RedcapClient(rc_demo.SIM_URL, made["token"])
+    rc.import_records([{"record_id": "1", "tb_screening_no": no}])
+    admin = res["admin"]
+    page = admin.get("/admin/redcap")
+    admin.post("/admin/redcap", data={"csrf": fd._csrf(page.text), "token_ref": "edc", "url": rc_demo.SIM_URL,
+                                      "token": made["token"]})  # fmt: skip
+    # the CRC signs under their own delegation-log entry (D-162): the PI adds it
+    lg = pi.post(f"/studies/{TRIAL}/team", data={"csrf": csrf(pi), "username": "crc", "role": "crc",
+                                                 "start": visit.isoformat(), "training_day": visit.isoformat()},
+                 follow_redirects=False)  # fmt: skip
+    s.check("the PI adds the CRC to the delegation log", lg.status_code == 303, lg.status_code)
+    # off by default: nothing is drafted
+    home = crc.get(f"/studies/{TRIAL}/edc")
+    r = crc.post(f"/studies/{TRIAL}/edc/drafts", data={"csrf": fd._csrf(home.text), "record": no,
+                                                       "visit_date": visit.isoformat()})  # fmt: skip
+    s.check(
+        "prefill is off by default; a draft is refused",
+        home.status_code == 200
+        and 'data-testid="edc-state"' in home.text
+        and r.status_code == 409
+        and "edc.off" in r.text,
+        (home.status_code, r.status_code),
+    )
+    # the PI: refused without the acknowledgement, then on
+    sw = {
+        "csrf": csrf(pi, f"/studies/{TRIAL}/edc"),
+        "on": "1",
+        "kind": "sponsor_letter",
+        "reference": "",
+        "ack_date": visit.isoformat(),
+        "reentry_pages": "30",
+        "reentry_accuracy": "98.6",
+    }
+    r1 = pi.post(f"/studies/{TRIAL}/edc/switch", data=sw)
+    r2 = pi.post(f"/studies/{TRIAL}/edc/switch", data={**sw, "reference": "SPN-GZQO-001"}, follow_redirects=False)
+    r3 = crc.post(f"/studies/{TRIAL}/edc/switch", data={**sw, "csrf": fd._csrf(home.text), "reference": "x"})
+    s.check("the PI switches prefill on only with the sponsor's acknowledgement; a CRC cannot (403)",
+            r1.status_code == 409 and r2.status_code == 303 and r3.status_code == 403,
+            (r1.status_code, r2.status_code, r3.status_code))  # fmt: skip
+    # dictionary from REDCap, then the map through /api/v1
+    mp = crc.get(f"/studies/{TRIAL}/edc/map")
+    r = crc.post(
+        f"/studies/{TRIAL}/edc/dictionary",
+        data={"csrf": fd._csrf(mp.text), "token_ref": "edc", "record_field": "record_id"},
+        follow_redirects=False,
+    )
+    sug = crc.get(f"/studies/{TRIAL}/edc/map?suggest=1").text
+    s.check(
+        "the CRF's data dictionary is read from REDCap (the identifier field dropped) and a map suggested",
+        r.status_code == 303 and 'data-testid="map-weight"' in sug and "pt_initials" not in sug,
+        r.status_code,
+    )
+    api = SimClient(app)
+    tok = api.post("/api/v1/session", json={"username": "crc", "password": password}).json()["token"]
+    hd = {"authorization": f"Bearer {tok}"}
+    items = [dict(m) for m in edc_kit.MAP]
+    for m in items:
+        if m["item"] == "urate":
+            m["window_days"] = 3650
+        if m["item"] == "mh_gout":
+            m["codes"] = list(GOUT)
+    r = api.put(f"/api/v1/studies/{TRIAL}/edc/map", json={"items": items, "target": edc_kit.TARGET}, headers=hd)
+    s.check("the item map with CDASH tags is saved through /api/v1", r.status_code == 200, r.text[:200])
+    # draft the visit
+    home = crc.get(f"/studies/{TRIAL}/edc").text
+    r = crc.post(
+        f"/studies/{TRIAL}/edc/drafts",
+        data={"csrf": fd._csrf(home), "record": no, "visit_date": visit.isoformat()},
+        follow_redirects=False,
+    )
+    st = h.bk.study_api("GET", f"/studies/{TRIAL}/edc/drafts?record={no}")
+    d = {x["item"]: x for x in st}
+    want = _edc_expected(lake, pid, visit)
+    drafted = {k: v["value"] for k, v in d.items() if v["state"] == "drafted"}
+    s.check("the subject's visit is drafted; every value carries a citation, every unknown a reason",
+            r.status_code == 303 and d and all(bool(v["citation"]) == (v["state"] == "drafted") for v in d.values())
+            and all(v["why"] for v in d.values() if v["state"] == "unknown"), sorted(drafted))  # fmt: skip
+    s.check("the drafted values equal the hospital record (birth date, uric acid)",
+            all(drafted.get(k) == v for k, v in want.items()) and all(
+                k in want for k in drafted if k in ("brthdat", "urate")), (want, drafted))  # fmt: skip
+    s.check(
+        "an absent diagnosis or medicine is unknown, never 'No'",
+        all(v["value"] != "0" for v in d.values()),
+        {k: v["value"] for k, v in d.items()},
+    )
+    rev = crc.get(f"/studies/{TRIAL}/edc/review/{no}")
+    c = fd._csrf(rev.text)
+    r_cite = crc.post(f"/studies/{TRIAL}/edc/decide/{d['comments']['id']}", data={"csrf": c, "action": "confirm",
+                                                                                  "record": no})  # fmt: skip
+    first = next(iter(drafted))
+    r_reason = crc.post(
+        f"/studies/{TRIAL}/edc/decide/{d[first]['id']}",
+        data={"csrf": c, "action": "edit", "value": drafted[first], "record": no},
+    )
+    s.check("the review screen refuses a value without a citation and a change without a reason",
+            rev.status_code == 200 and r_cite.status_code == 409 and r_reason.status_code == 409,
+            (rev.status_code, r_cite.status_code, r_reason.status_code))  # fmt: skip
+    for k in drafted:
+        crc.post(f"/studies/{TRIAL}/edc/decide/{d[k]['id']}", data={"csrf": c, "action": "confirm", "record": no})
+    crc.post(f"/studies/{TRIAL}/edc/send", data={"csrf": c, "record": no})
+    before = rc.records()[0]
+    s.check("nothing reaches REDCap before the signature", all(before.get(k, "") == "" for k in drafted), before)
+    shown = crc.get(f"/studies/{TRIAL}/edc/review/{no}").text
+    m_seen = re.search(r'name="seen" value="([^"]*)"', shown)
+    seen = m_seen.group(1) if m_seen else ""
+    bad = crc.post(f"/studies/{TRIAL}/edc/sign", data={"csrf": c, "record": no, "password": "wrong-" + password,
+                                                       "meaning_ack": "1", "seen": seen})  # fmt: skip
+    stale = crc.post(f"/studies/{TRIAL}/edc/sign", data={"csrf": c, "record": no, "password": password,
+                                                         "meaning_ack": "1", "seen": seen.split(",")[0]})  # fmt: skip
+    s.check(
+        "a signature over a different set of values than the page showed is refused",
+        stale.status_code == 409 and seen.count(":") == len(drafted),
+        (stale.status_code, seen.count(":")),
+    )
+    sign = {"csrf": c, "record": no, "password": password, "meaning_ack": "1", "seen": seen}
+    good = crc.post(f"/studies/{TRIAL}/edc/sign", data=sign, follow_redirects=False)
+    sigs = h.bk.study_api("GET", f"/studies/{TRIAL}/edc/trail/{no}")["signatures"]
+    s.check("the signature needs the password again (a wrong one signs nothing) and records name, meaning, time",
+            bad.status_code == 401 and good.status_code == 303 and len(sigs) == 1 and sigs[0]["meaning"] ==
+            "transcribed" and sigs[0]["printed_name"], (bad.status_code, good.status_code, len(sigs)))  # fmt: skip
+    # someone types a birth date in REDCap first: it is never overwritten
+    clash = "brthdat" if "brthdat" in drafted else first
+    rc.import_records([{"record_id": "1", clash: "1901-01-01" if clash == "brthdat" else "9"}])
+    r = crc.post(f"/studies/{TRIAL}/edc/send", data={"csrf": c, "record": no}, follow_redirects=False)
+    loc = r.headers.get("location", "")
+    after = rc.records()[0]
+    sent_ok = all(after.get(k) == v for k, v in drafted.items() if k != clash)
+    s.check("signed values are sent and read back equal; a value entered in REDCap is listed, not overwritten",
+            r.status_code == 303 and "conflict=1" in loc and sent_ok and after.get(clash) in ("1901-01-01", "9"),
+            loc)  # fmt: skip
+    odm = crc.get(f"/studies/{TRIAL}/edc/export.odm.xml")
+    fresh = sim.post("/sim/projects", json={"title": "re-import", "metadata": edc_kit.CRF}).json()
+    imp = sim.post("/api/", data={"token": fresh["token"], "content": "record", "format": "odm", "type": "flat",
+                                  "data": odm.text})  # fmt: skip
+    back = RedcapClient(rc_demo.SIM_URL, fresh["token"]).records()
+    s.check("the ODM 1.3.2 file (audit record, signature, CDASH alias) re-imports into a fresh project equal",
+            odm.status_code == 200 and "<Signature>" in odm.text and 'Context="CDASH"' in odm.text
+            and imp.status_code == 200 and back and all(back[0].get(k) == v for k, v in drafted.items()),
+            imp.text[:120])  # fmt: skip
+    for who in ("viewer", "cra"):
+        cl = ld.sign_in(app, who, password, lang)
+        got = [cl.get(p).status_code for p in (f"/studies/{TRIAL}/edc", f"/studies/{TRIAL}/edc/review/{no}",
+                                               f"/studies/{TRIAL}/edc/export.odm.xml")]  # fmt: skip
+        s.check(f"the {who} account sees no prefill page (403/404)", set(got) <= {403, 404}, got)
+    off = pi.post(f"/studies/{TRIAL}/edc/switch", data={"csrf": csrf(pi, f"/studies/{TRIAL}/edc"), "on": "0",
+                                                        "reason": "e2e"}, follow_redirects=False)  # fmt: skip
+    r = crc.post(f"/studies/{TRIAL}/edc/send", data={"csrf": c})
+    s.check("switched off, nothing more is sent", off.status_code == 303 and r.status_code == 409,
+            (off.status_code, r.status_code))  # fmt: skip
+    ev = [x for x in _audit(box) if str(x.get("event", "")).startswith("edc.")]
+    names = {str(x["event"]) for x in ev}
+    blob = json.dumps([x.get("detail") for x in ev], ensure_ascii=False)
+    s.check("every step is in the audit, without the clinical values, and the chain verifies",
+            {"edc.switch", "edc.dictionary", "edc.map", "edc.drafts", "edc.decide", "edc.sign", "edc.sent",
+             "edc.export"} <= names and (not want.get("brthdat") or want["brthdat"] not in blob)
+            and verify(Path(box.audit_dir)).ok, sorted(names))  # fmt: skip
+    s.seconds = time.perf_counter() - t
+    return s
+
+
 def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     """Run the whole path once in ``work`` (must be empty or absent); return the stages and the timings."""
     from console.i18n import CATALOGUES
@@ -1441,6 +1656,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     stages.append(s)
     # after the re-run: the opt-out it registers must not touch the jobs the re-run reproduces (D-82)
     stages.append(_stage15(res, pi, crc, password, lang, mrns, box))
+    stages.append(_stage16(res, pi, crc, password, lang, box))
 
     total = time.perf_counter() - t0
     budget = Stage("runtime")

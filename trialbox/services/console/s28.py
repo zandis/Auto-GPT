@@ -32,10 +32,13 @@ def has_api(bk: object) -> bool:
     return callable(getattr(bk, "study_api", None))
 
 
-def call(bk: object, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+def call(bk: object, method: str, path: str, body: dict[str, Any] | None = None,
+         headers: dict[str, str] | None = None) -> Any:  # fmt: skip
     fn = getattr(bk, "study_api", None)
     if not callable(fn):
         raise Unavailable("this backend has no study store")
+    if headers:
+        return fn(method, path, body, headers=headers)
     return fn(method, path, body)
 
 

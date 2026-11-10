@@ -164,6 +164,17 @@ def gateway_client(env: dict[str, str], upstream: Any = None) -> Any:
     return GatewayClient("http://tb-gateway/v1", "orchestrator", http=TestClient(create_app(gw)))
 
 
+def weight_pins() -> str:
+    """``real`` when :func:`installed_registry` pins the site's weights (``deploy/models``), else ``synthetic``: the
+    cloud run has no ``deploy/models``, so its weight pins are of synthetic files and only the served-model echo is
+    real (review M-09); the report says so."""
+    from tools import pin_model
+
+    root = ROOT / "deploy" / "models"
+    dirs = [p[3] for p in pin_model.PROFILE_PAIRS["rtxpro6000"]]
+    return "real" if all((root / d).is_dir() for d in dirs) else "synthetic"
+
+
 def installed_registry(work: Path) -> Path:
     """The pins ``install.sh`` makes (``tools/pin_model.py --install rtxpro6000``, D-142 review R-01): the profile's
     pair as champion, from the site's weights in ``deploy/models`` when they are there, else from synthetic weights in
@@ -216,11 +227,14 @@ def models(a: Any, audit_dir: Path) -> tuple[Any, Any]:
         return real_models(a.judge_url, a.verifier_url, os.environ["TB_GPU_KEY"])
     from tb_common.llm import LlmClient
 
+    from tools import pin_model
+
     os.environ.pop("TB_DATA_CLASS", None)  # as install leaves it
     env = installed_env(audit_dir, a.judge_url, a.verifier_url)
     out = []
-    for alias in ("", "v-verifier"):
-        c = LlmClient("http://unused/v1", "", gateway=gateway_client(env))
+    # the gateway picks the build (the client's model is not sent); the name is what the run reports (judging, canary)
+    for alias, served in (("", pin_model.JUDGE_SERVED), ("v-verifier", pin_model.VERIFIER_SERVED)):
+        c = LlmClient("http://unused/v1", served, gateway=gateway_client(env))
         if alias:
             c.gateway.model = alias
         out.append(c)
@@ -895,7 +909,8 @@ def sc_fhir(a: Any, work: Path) -> Result:
         "model_calls": 0,
     }
     screen_stage(s2, w.box, note_truth(dirs, fd.KEY), res.block, a)
-    s0 = (res.block.get("screen") or {}).get("funnel", {}).get("S0", 0)
+    # no funnel when SCREEN itself failed (the model down): FHIR-01 then reports that, not a scope of 0 patients
+    s0 = (res.block.get("screen") or {}).get("funnel", {}).get("S0")
     refs = (
         {r["pr"] for r in lk.query("SELECT DISTINCT practitioner_id AS pr FROM appointment").to_pylist() if r["pr"]}
         if "practitioner_id" in set(lk.query("SELECT * FROM appointment LIMIT 1").column_names)
@@ -905,8 +920,9 @@ def sc_fhir(a: Any, work: Path) -> Result:
     s2.check(
         "FHIR-01: SCREEN has patients in scope on the FHIR path (S0 > 0, as on the SS-MIX2 path): every appointment's "
         "practitioner is in the practitioner table",
-        s0 > 0 and bool(refs) and refs <= staff,
-        f"S0 = {s0}; appointment practitioners found in the practitioner table: {len(refs & staff)} of {len(refs)}",
+        bool(s0) and bool(refs) and refs <= staff,
+        f"S0 = {'none: SCREEN did not finish' if s0 is None else s0}; appointment practitioners found in the "
+        f"practitioner table: {len(refs & staff)} of {len(refs)}",
     )
     s2.seconds = time.perf_counter() - t
     res.stages.append(s2)
@@ -1908,7 +1924,7 @@ def sc_trec(a: Any, work: Path) -> Result:
     from fastapi.testclient import TestClient
     from llm_stub.app import app as stub
 
-    from tools import mlbench, trec_ct_eval
+    from tools import mlbench, pin_model, trec_ct_eval
     from tools.trialgpt_compare import Client
 
     res = Result("public-trec")
@@ -1924,7 +1940,7 @@ def sc_trec(a: Any, work: Path) -> Result:
     cps = trec_ct_eval.criterion_pairs(pick)
     clients: list[tuple[Any, str]] = []
     if a.model == "pair":
-        for url, name in ((a.judge_url, "local/gemma-4-26b-a4b-nvfp4"), (a.verifier_url, "local/qwen3.5-9b-awq")):
+        for url, name in ((a.judge_url, pin_model.JUDGE_SERVED), (a.verifier_url, pin_model.VERIFIER_SERVED)):
             c = Client(url, os.environ.get("TB_GPU_KEY", ""), work / "responses")
             c.http = httpx.Client(timeout=600.0)
             clients.append((c, name))
