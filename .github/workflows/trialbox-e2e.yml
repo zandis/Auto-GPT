@@ -1,7 +1,8 @@
 # TrialBox nightly (D-206, T-007): the longer runs that are not on every pull request. The per-pull-request gate,
 # e2e_simple (SRS FR-OPS-11, D-111) included, is trialbox-ci.yml. Here, each on its own runner, every night and on
 # demand: public_e2e on the public-data site, the backup and restore drill (TB-PLAN-04 step 2, D-126) and the update
-# drill (TB-PLAN-04 step 8, D-138: signed bundles, a failed migration and an unhealthy release roll back).
+# drill (TB-PLAN-04 step 8, D-138: signed bundles, a failed migration and an unhealthy release roll back), and the
+# unit suite in random order (D-201, review §5.2 (3), T-658: an order dependence shows here, not on a pull request).
 name: TrialBox nightly
 
 on:
@@ -31,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        run: [public-e2e, backup-drill, update-drill]
+        run: [public-e2e, backup-drill, update-drill, random-order]
     name: ${{ matrix.run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -69,3 +70,9 @@ jobs:
       - name: Update drill
         if: matrix.run == 'update-drill'
         run: TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.update_drill --dir "$RUNNER_TEMP/update"
+      # the seed is in the log's header ("Using --randomly-seed=..."): `make test-random RANDOM_SEED=<n>` repeats it
+      - name: The unit suite in random order
+        if: matrix.run == 'random-order'
+        env:
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data  # the services' default /data is not writable for the runner user
+        run: make test-random PYTEST_N=auto
