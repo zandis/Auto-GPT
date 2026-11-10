@@ -1,0 +1,160 @@
+# TrialBox nightly quality (T-651, ENG-029; TB-DR-04 §3.2, §3.3): mutation testing of the safety core and the branch
+# coverage of the unit suite. Never on a pull request: the mutation run takes an hour or more, and the pull-request
+# unit job already checks line coverage (trialbox-ci.yml, step "Coverage ratchet"). Every night and on demand.
+#
+# mutation: tools/mutation.py over the targets of tools/mutation.toml, in three shards; the `mutation-score` job adds
+#   them up and fails under the threshold (90 %). The JSON of every mutant is kept as an artifact.
+# branch-coverage: the unit suite with branches measured (the classic tracer: slower, so not on a pull request), then
+#   tools/coverage_ratchet.py with the branch figures: a package more than 0.5 point under its baseline, or a
+#   safety-core file under its floor, fails.
+name: TrialBox nightly quality
+
+on:
+  schedule:
+    - cron: "47 16 * * *"  # 00:47 in Taipei, before the other nightly (03:17), outside both sites' working day
+  workflow_dispatch:
+  push:  # TEMPORARY (T-651 validation run), removed before review
+    branches: [agent/T-651-mutation]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trialbox-nightly-quality
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+    working-directory: trialbox
+
+env:
+  TB_SCRATCH: ${{ github.workspace }}/../tb-scratch
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: engine
+            targets: --target services/matching/cascade/engine.py
+          - shard: evaluate
+            targets: --target services/orchestrator/scenarios/evaluate.py
+          - shard: rules
+            targets: >-
+              --target libs/tb_common/pair.py --target libs/tb_common/quotes.py --target services/matching/coverage.py
+              --target services/matching/proposed.py --target services/matching/cascade/judge.py
+    name: mutation (${{ matrix.shard }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+      - run: make venv
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: JVM dependencies and fonts
+        run: make jvm-deps fonts
+      - name: PostgreSQL server binaries
+        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+      - name: Mutants of the shard
+        env:
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data
+          TARGETS: ${{ matrix.targets }}
+        # the score is judged over all shards in mutation-score; a shard under the threshold alone does not fail
+        run: |
+          # shellcheck disable=SC2086  # TARGETS is a list of flags
+          .venv/bin/python -m tools.mutation $TARGETS --workers "$(nproc)" \
+            --report "$RUNNER_TEMP/mutation-${{ matrix.shard }}.json" 2>&1 | tee "$RUNNER_TEMP/mutation.log" || true
+          test -s "$RUNNER_TEMP/mutation-${{ matrix.shard }}.json"
+      - name: Data-handling scan of the log
+        run: make data-scan SCAN="--log $RUNNER_TEMP/mutation.log"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: mutation-${{ matrix.shard }}
+          path: ${{ runner.temp }}/mutation-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+
+  mutation-score:
+    runs-on: ubuntu-latest
+    needs: mutation
+    if: always()
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: mutation-*
+          path: ${{ runner.temp }}/mutation
+          merge-multiple: true
+      - name: Mutation score of the safety core (threshold in tools/mutation.toml)
+        run: |
+          shopt -s nullglob
+          reports=("$RUNNER_TEMP"/mutation/mutation-*.json)
+          test "${#reports[@]}" -eq 3 || { echo "expected 3 shard reports, found ${#reports[@]}"; exit 1; }
+          python3 -m tools.mutation --merge "${reports[@]}" --report "$RUNNER_TEMP/mutation.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: mutation
+          path: ${{ runner.temp }}/mutation.json
+          if-no-files-found: ignore
+
+  branch-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.13.7"  # the uv of trialbox/uv.lock (tools/supply_chain/lock.py UV_VERSION)
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78  # v6.2.0
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+      - run: make venv
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: JVM dependencies and fonts
+        run: make jvm-deps fonts
+      - name: PostgreSQL server binaries
+        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+      - name: pytest -n auto with branch coverage
+        env:
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data
+          PYTEST_ADDOPTS: --cov --cov-branch --cov-report=json:${{ runner.temp }}/coverage.json
+        run: make test PYTEST_N=auto 2>&1 | tee "$RUNNER_TEMP/unit.log"
+      - name: Data-handling scan of the test log
+        run: make data-scan SCAN="--log $RUNNER_TEMP/unit.log"
+      - name: Coverage ratchet with branches
+        run: .venv/bin/python -m tools.coverage_ratchet "$RUNNER_TEMP/coverage.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: always()
+        with:
+          name: coverage-branch
+          path: ${{ runner.temp }}/coverage.json
+          if-no-files-found: ignore
