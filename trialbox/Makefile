@@ -13,7 +13,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status test-console test-console-e2e site site-preview clean
+.PHONY: rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-unit test-integration test-e2e test-egress images images-multiarch up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status test-console test-console-e2e site site-preview clean
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §12)
 # Every temporary root of a run derives from TB_TEST_ROOT: one per branch, under TB_SCRATCH (an agent's scratchpad;
@@ -85,6 +85,27 @@ test: venv-check $(FONTS)
 # exit 2 on a hit (place and pattern only, never the value). The same scan is the pre-commit hook and a CI job.
 data-scan:
 	$(PY) -m tools.data_scan $(SCAN)
+
+# the CI gate's jobs, in the order of .github/workflows/trialbox-ci.yml (D-205): lint, types, docs, contracts, trace,
+# unit (+ the scan of its log), e2e-simple, goldens, audit (listed, not gating), data-scan, shell, images (if hadolint
+# is installed). Stops at the first failing job.
+CI_LOG ?= $(TB_TEST_ROOT)/unit.log
+ci: venv-check
+	$(PY) -m ruff check . && $(PY) -m ruff format --check .
+	$(PY) -m mypy libs services tools tests
+	$(PY) tools/doclint.py
+	$(MAKE) contracts-check
+	$(PY) tools/gen_traceability.py --check
+	@mkdir -p "$(TB_TEST_ROOT)"
+	set -o pipefail; $(MAKE) test 2>&1 | tee "$(CI_LOG)"
+	$(PY) -m tools.data_scan --log "$(CI_LOG)"
+	$(MAKE) e2e-simple
+	@if $(MAKE) -n goldens-check >/dev/null 2>&1; then $(MAKE) goldens-check; else echo "ci: goldens: no goldens-check target until T-006 lands"; fi
+	-uv export --frozen --group test --extra dev --no-emit-project --no-hashes > "$(TB_TEST_ROOT)/requirements.txt" && \
+		uvx pip-audit@2.9.0 --disable-pip --no-deps -r "$(TB_TEST_ROOT)/requirements.txt"
+	$(MAKE) data-scan
+	git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
+	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile || true; else echo "ci: images: hadolint not installed, skipped"; fi
 
 HL7_ENV := TB_HL7_VALIDATOR_JAR=$(CURDIR)/.cache/jvm/validator_cli.jar TB_FHIR_PACKAGE_HOME=$(CURDIR)/.cache/jvm/fhir-home
 

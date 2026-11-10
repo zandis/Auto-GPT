@@ -131,6 +131,30 @@ scan runs on a log (`python -m tools.data_scan --log make-test.log`), on a suppo
 trialbox/.pre-commit-config.yaml`, from the repository root) and as the `data-scan` CI job. A synthetic value that
 looks real goes into `tools/data_scan_allow.txt` with its reason; a real one is an incident (TB-SITE-03 §1.7).
 
+### Build gate: the CI jobs (D-205)
+
+`.github/workflows/trialbox-ci.yml` runs on every pull request that touches `trialbox/` and on every push to master;
+`make ci` runs the same list locally. Each job has at most 15 minutes; a newer push cancels the older run. The
+required checks on master (set by the owner in GitHub): `unit`, `lint`, `contracts`, `goldens`, `data-scan`,
+`e2e-simple`.
+
+| Job | What it runs | Gates |
+| --- | --- | --- |
+| `lint` | ruff check and format; actionlint on the TrialBox workflows | yes |
+| `types` | mypy strict on libs, services, tools, tests | yes |
+| `docs` | `tools/doclint.py` | yes |
+| `contracts` | `make contracts-check` (no hand-edited generated file) | yes |
+| `trace` | `tools/gen_traceability.py --check` | yes |
+| `unit` | `make test PYTEST_N=auto` against a `postgres:16` service (`TB_TEST_DB_URL`), then the data scan of its log | yes |
+| `e2e-simple` | `make e2e-simple` (D-111) | yes |
+| `goldens` | `make goldens-check` once T-006 adds it; a warning until then | yes |
+| `audit` | pip-audit of `uv.lock` | listed only until T-110 (2026-11-10: no findings on the lock) |
+| `data-scan` | `make data-scan` (D-203) | yes |
+| `shell` | shellcheck: errors gate, warnings listed (2026-11-09: ten in `deploy/`) | errors |
+| `images` | hadolint on the three Dockerfiles | listed only (2026-11-09: first runs to triage) |
+
+`trialbox-e2e.yml` is the nightly (and on demand): `public_e2e`, the backup drill and the update drill.
+
 ## 4. Troubleshooting
 
 | Symptom | Check | Fix |

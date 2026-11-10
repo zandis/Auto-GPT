@@ -1,0 +1,272 @@
+# TrialBox CI gate v1 (D-205, T-007, WS-01.4, WS-12.2, WS-13.8): every pull request that touches trialbox/ and every
+# push to master runs these jobs; `make ci` runs the same list locally. Job names are stable: branch protection on
+# master requires unit, lint, contracts, goldens, data-scan and e2e-simple (the owner sets the list; RUNBOOK §3).
+# The nightly drills are in trialbox-e2e.yml. A job marked continue-on-error carries the date and the reason.
+name: TrialBox CI
+
+on:
+  pull_request:
+    paths:
+      - "trialbox/**"
+      - ".github/workflows/trialbox-*.yml"
+  push:
+    branches: [master]
+    paths:
+      - "trialbox/**"
+      - ".github/workflows/trialbox-*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trialbox-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+    working-directory: trialbox
+
+env:
+  TB_SCRATCH: ${{ github.workspace }}/../tb-scratch
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - name: Python environment (uv.lock, exactly)
+        run: make venv
+      - name: ruff
+        run: .venv/bin/python -m ruff check . && .venv/bin/python -m ruff format --check .
+      - name: actionlint (the workflows themselves)
+        working-directory: .
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color \
+            .github/workflows/trialbox-ci.yml .github/workflows/trialbox-e2e.yml
+
+  types:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: mypy (strict)
+        run: .venv/bin/python -m mypy libs services tools tests
+
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: doclint (the eight documents, links, paths)
+        run: .venv/bin/python tools/doclint.py
+
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: generated contracts are what the schemas generate (no hand edit)
+        run: make contracts-check
+
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: the traceability CSV is the plan's (tools/gen_traceability.py --check)
+        run: .venv/bin/python tools/gen_traceability.py --check
+
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: trialbox
+          POSTGRES_PASSWORD: trialbox
+          POSTGRES_DB: trialbox_wf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U trialbox" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      # one server for every xdist worker; each test has its own schemas (tb_prefix)
+      TB_TEST_DB_URL: postgresql://trialbox:trialbox@localhost:5432/trialbox_wf
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+      - run: make venv
+      - uses: actions/cache@v4
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: JVM dependencies and fonts
+        run: make jvm-deps fonts
+      # a few tests start their own throwaway cluster (tools/pglocal.py: reconnects, the gc)
+      - name: PostgreSQL server binaries
+        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+      # as tools/pglocal.py runs its throwaway clusters: room for every worker's pools, no fsync
+      - name: Tune the test server
+        run: |
+          id=$(docker ps -q --filter ancestor=postgres:16)
+          docker exec "$id" psql -U trialbox -d trialbox_wf -c "ALTER SYSTEM SET max_connections = 300" \
+            -c "ALTER SYSTEM SET fsync = off" -c "ALTER SYSTEM SET synchronous_commit = off"
+          docker restart "$id"
+          for _ in $(seq 1 30); do docker exec "$id" pg_isready -U trialbox && break; sleep 1; done
+      - name: pytest -n auto
+        run: make test PYTEST_N=auto 2>&1 | tee "$RUNNER_TEMP/unit.log"
+      # D-203: the test log carries no identifier either
+      - name: Data-handling scan of the test log
+        run: make data-scan SCAN="--log $RUNNER_TEMP/unit.log"
+
+  e2e-simple:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: trialbox/services/criteria_compiler/compile_cql/translator/pom.xml
+      - run: make venv
+      - uses: actions/cache@v4
+        with:
+          path: |
+            trialbox/.cache/jvm
+            trialbox/.cache/fonts
+          key: tb-deps-${{ hashFiles('trialbox/tools/fetch_jvm_deps.sh', 'trialbox/tools/fetch_fhir_packages.py', 'trialbox/tools/fetch_fonts.py', 'trialbox/services/criteria_compiler/compile_cql/translator/pom.xml') }}
+      - name: JVM dependencies and fonts
+        run: make jvm-deps fonts
+      - name: PostgreSQL server binaries
+        run: ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || (sudo apt-get update && sudo apt-get install -y postgresql)
+      - name: e2e_simple (the build gate of D-111)
+        run: make e2e-simple E2E_DIR="$RUNNER_TEMP/e2e"
+      - name: Keep the check list
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-simple
+          path: ${{ runner.temp }}/e2e.json
+          if-no-files-found: ignore
+
+  goldens:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      # T-006 adds `make goldens-check` (the committed goldens, WS-03.1); until it lands this job says so and passes
+      - name: Goldens identical, or regenerated in the same commit
+        run: |
+          if make -n goldens-check >/dev/null 2>&1; then
+            make goldens-check
+          else
+            echo "::warning title=goldens::T-006 has not landed: no goldens-check target yet (2026-11-09, D-205)"
+          fi
+
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # 2026-11-10 (D-205): listed, not gating, until T-110 (supply chain) sets the policy; the review's findings (pypdf,
+    # pillow) were on the shared venv; against uv.lock pip-audit 2.9.0 reports none today
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - name: pip-audit of the locked dependencies
+        run: |
+          uv export --frozen --group test --extra dev --no-emit-project --no-hashes > "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit@2.9.0 --disable-pip --no-deps -r "$RUNNER_TEMP/requirements.txt"
+
+  data-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: trialbox/uv.lock
+      - run: make venv
+      - name: Data-handling scan (D-203, WS-13.10, TB-SITE-03)
+        run: make data-scan
+
+  shell:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      # gates on errors; the warnings are listed. 2026-11-09 (D-205): ten warnings in deploy/*.sh are open findings
+      - name: shellcheck
+        run: |
+          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=error
+          git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning --format=gcc || true
+
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # 2026-11-09 (D-205): hadolint has not run on these Dockerfiles before; listed, not gating, until its first
+    # findings are triaged
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: hadolint
+        run: |
+          rc=0
+          for f in deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile; do
+            echo "== $f"
+            docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold warning - < "$f" || rc=1
+          done
+          exit "$rc"
