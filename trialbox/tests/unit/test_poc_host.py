@@ -120,8 +120,8 @@ def test_create_and_rebuild_pass_a_digest_to_the_vm(env: dict[str, str]) -> None
         assert "tb-image=asia-east1-docker.pkg.dev/demo-proj/tb-poc/demo@sha256:" in vm
         assert "startup-script=" in vm and vm.count("hosted-demo-startup.sh") == 1
     env["TB_POC_IMAGE"] = "registry.example.org/demo:latest"
-    out = subprocess.run(["bash", str(HOST), "--yes", "rebuild"], env=env, capture_output=True, text=True, check=False)
-    assert out.returncode != 0 and "pinned by digest" in out.stderr  # refused before any call
+    r = subprocess.run(["bash", str(HOST), "--yes", "rebuild"], env=env, capture_output=True, text=True, check=False)
+    assert r.returncode != 0 and "pinned by digest" in r.stderr  # refused before any call
 
 
 # ------------------------------------------------------------------------------------- the front door before /login
