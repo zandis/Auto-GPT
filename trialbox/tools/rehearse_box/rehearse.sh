@@ -105,11 +105,11 @@ preconditions() {
 
 images() {
   if [ "${TB_REHEARSE_SKIP_BUILD:-0}" = 1 ]; then
-    docker image inspect trialbox-py:1.0.0 trialbox-jvm:1.0.0 >/dev/null || return 1
-    echo "ok: TB_REHEARSE_SKIP_BUILD=1: using the built trialbox-py and trialbox-jvm"
+    docker image inspect trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1 >/dev/null || return 1
+    echo "ok: TB_REHEARSE_SKIP_BUILD=1: using the built trialbox-py, trialbox-jvm and trialbox-postgres"
   else
     make images PY="$PY" || return 1
-    echo "ok: trialbox-py and trialbox-jvm built from this checkout"
+    echo "ok: trialbox-py, trialbox-jvm and trialbox-postgres built from this checkout"
   fi
 }
 
@@ -126,8 +126,9 @@ media() (  # a subshell: set -e stops the step, not the run
     printf '{"architectures": ["TrialBoxRehearsalPlaceholder"], "name": "%s"}\n' "$d" > "$W/vendor/models/$d/config.json"
     printf 'box-install rehearsal placeholder for %s: not a model\n' "$d" > "$W/vendor/models/$d/model.safetensors"
   done
-  # the images a box runs without a GPU: the two TrialBox images and the third-party ones of the base compose file
-  local imgs=(trialbox-py:1.0.0 trialbox-jvm:1.0.0) args=() i
+  # the images a box runs without a GPU: the three TrialBox images (the database is built here since D-204) and the
+  # third-party ones of the base compose file
+  local imgs=(trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1) args=() i
   mkdir -p "$W/vendor/cfg" && : > "$W/vendor/cfg/.env"   # compose renders nothing without an env file
   while IFS= read -r i; do case "$i" in trialbox-*) ;; *) imgs+=("$i") ;; esac; done \
     < <(docker compose --project-directory "$W/vendor/cfg" -f deploy/docker-compose.yml config --images | sort -u)
