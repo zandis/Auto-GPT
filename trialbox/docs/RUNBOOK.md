@@ -441,7 +441,8 @@ console at `/data/ops`), and the host's runner runs the command this runbook alr
 `ExecStart=/usr/bin/python3 -m tools.trialbox ops run`, and `trialbox-ops.timer` with `[Timer]`, `OnBootSec=1min`,
 `OnUnitActiveSec=1min`, `[Install]`, `WantedBy=timers.target`; then `systemctl enable --now trialbox-ops.timer`. The
 first run makes the folder (requests writable by the console's user, uid 10001). The page warns when the runner has
-not answered for 15 minutes. `python3 -m tools.trialbox ops status` prints what the page shows. Manual rollback after
+not answered for 15 minutes. A request cut off by a restart shows as interrupted and is not run again; a request
+that waited more than 60 minutes (the runner was off) is not run: ask again. `python3 -m tools.trialbox ops status` prints what the page shows. Manual rollback after
 a good update: apply the previous release's bundle. Restore stays a command with the key in hand (§5).
 
 The in-process box, the demo and the tests run the same runner inside the console (`TB_OPS_RUNNER=inline`). Held by

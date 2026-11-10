@@ -33,6 +33,10 @@ EN: dict[str, str] = {
     "ops.ok": "done",
     "ops.failed": "failed",
     "ops.waiting": "waiting",
+    "ops.running": "running",
+    "ops.state.interrupted": "interrupted",
+    "ops.state.expired": "not run (too old)",
+    "ops.update.failed": "failed",
     "ops.waiting.help": "The box's operations service runs requests once a minute. Open this page again in a minute.",
     "ops.details": "What happened",
     "ops.agent.late": "The box's operations service has not answered for over 15 minutes. Requests wait until it runs "
@@ -127,6 +131,8 @@ EN: dict[str, str] = {
     "dc.done.undo": "REDCap is attached again, as before.",
     "problem.h.dc.undo_none": "Nothing to undo",
     "dc.undo_none": "The detached connection is no longer kept (15 minutes). Attach REDCap again on the form.",
+    "problem.h.dc.undo_attached": "Already attached",
+    "dc.undo_attached": "REDCap is attached again (a connection was attached after the detach). Nothing was changed.",
     "site.scoped": "Your account works on some studies only, so you see their readiness. The charts, facts, codes and "
     "lists of the whole site are the data steward's pages.",
 }
@@ -161,6 +167,10 @@ JA: dict[str, str] = {
     "ops.ok": "完了",
     "ops.failed": "失敗",
     "ops.waiting": "待機中",
+    "ops.running": "実行中",
+    "ops.state.interrupted": "中断",
+    "ops.state.expired": "未実行（古すぎる依頼）",
+    "ops.update.failed": "失敗",
     "ops.waiting.help": "この機器の運用サービスは1分ごとに依頼を実行します。1分後にこのページを開き直してください。",
     "ops.details": "実行内容",
     "ops.agent.late": "この機器の運用サービスが15分以上応答していません。再び動くまで依頼は待機します。trialbox-ops タ"
@@ -257,6 +267,8 @@ JA: dict[str, str] = {
     "dc.done.undo": "REDCap を以前と同じように再接続しました。",
     "problem.h.dc.undo_none": "取り消すものがありません",
     "dc.undo_none": "切り離した接続はもう保持されていません（15分）。フォームから REDCap をもう一度接続してください。",
+    "problem.h.dc.undo_attached": "すでに接続されています",
+    "dc.undo_attached": "REDCap はすでに接続されています（切り離しの後に接続されました）。何も変更していません。",
     "site.scoped": "このアカウントは一部の試験だけを担当するため、それらの準備状況が表示されます。施設全体のカルテ、事"
     "実、コード、一覧はデータ管理者のページです。",
 }
@@ -288,6 +300,10 @@ ZH: dict[str, str] = {
     "ops.ok": "完成",
     "ops.failed": "失敗",
     "ops.waiting": "等待中",
+    "ops.running": "執行中",
+    "ops.state.interrupted": "已中斷",
+    "ops.state.expired": "未執行（請求過舊）",
+    "ops.update.failed": "失敗",
     "ops.waiting.help": "本機的維運服務每分鐘執行一次請求。請一分鐘後重新開啟此頁。",
     "ops.details": "執行內容",
     "ops.agent.late": "本機的維運服務已超過 15 分鐘沒有回應，請求會等到它再次執行。請資訊人員檢查 trialbox-ops 計時器"
@@ -374,6 +390,8 @@ ZH: dict[str, str] = {
     "dc.done.undo": "已依先前設定重新連接 REDCap。",
     "problem.h.dc.undo_none": "沒有可復原的內容",
     "dc.undo_none": "中斷的連線已不再保留（15 分鐘）。請在表單中重新連接 REDCap。",
+    "problem.h.dc.undo_attached": "已經連接",
+    "dc.undo_attached": "REDCap 已重新連接（中斷之後有人連接了）。沒有任何變更。",
     "site.scoped": "您的帳號只負責部分試驗，因此只顯示這些試驗的準備狀態。全院的病歷、資料、代碼與清單屬於資料管理者的"
     "頁面。",
 }

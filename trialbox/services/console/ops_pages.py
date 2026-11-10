@@ -92,6 +92,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         age = _hours_since(newest, now) if newest else None
         seen = _hours_since(str(st.get("at") or ""), now) if st else None
         check = ops.last("backup_check")
+        busy = bool(ops.running())  # a long backup or update: the runner writes the status only after it
         from tb_common import __version__
 
         return {
@@ -104,7 +105,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             "backup_key": bool((st.get("backups") or {}).get("key")),
             "last_check": check,
             "agent_seen_h": seen,
-            "agent_late": not inline and (seen is None or seen > 0.25),
+            "agent_late": not inline and not busy and (seen is None or seen > 0.25),
+            "agent_busy": busy,
             "inline": inline,
         }
 
@@ -130,6 +132,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             sm=summary(),
             history=ops.history(30),
             pending=[r.get("action") for r in ops.pending()],
+            running=[r.get("id") for r in ops.running()],
             mine=mine,
             secrets_rows=secrets_rows,
             sheets=sheets,

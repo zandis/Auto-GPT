@@ -3704,7 +3704,9 @@ the network sheet) wrap the existing commands (`trialbox backup`, the new `trial
 `tools/apply_update.sh`, `trialbox logs`, `tools/network_sheet.py`); none is written again. The console container
 has no docker, so it leaves a request in an operations folder and a host runner (`python3 -m tools.trialbox ops run`,
 every minute) runs it and writes the result back, one runner at a time (a lock; a link or a pipe left in the
-requests folder is skipped, never read); tests and the demo run the same runner in process. Who may is a
+requests folder is skipped, never read). A request that started and was cut off (a restart) is shown
+interrupted and never run again; one that waited over 60 minutes is not run; each result is a `console.ops`
+event in the box's audit chain. Tests and the demo run the same runner in process. Who may is a
 table in `tb_common.authz` (administrator only); a refusal is a `console.denied` audit event, each action a
 `console.ops` event. Confirmations: account reset (no undo, said so), disable (undo: enable again, also from a
 Disabled accounts list), rejecting a fact (undo puts it back to proposed with its old values; confirming and

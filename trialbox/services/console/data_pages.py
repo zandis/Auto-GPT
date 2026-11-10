@@ -316,6 +316,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         cfg = undo_of(sess, rid)
         if cfg is None:
             raise h.problem(409, "dc.undo_none")
+        now_on = [x for x in s28.call(bk, "GET", f"/studies/{rid}/sources").get("sources") or []
+                  if x.get("name") == "redcap"]  # fmt: skip
+        if now_on:  # someone attached a connection since the detach: the undo must not replace it
+            detached.pop((sess.token_sha, rid), None)
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"source": "redcap", "action": "undo_detach", "reason": "attached since"})  # fmt: skip
+            raise h.problem(409, "dc.undo_attached")
         try:
             apply_attach(sess, request.url.path, rid, ApiRedcap(**cfg))
         except (Problem, Unavailable) as exc:

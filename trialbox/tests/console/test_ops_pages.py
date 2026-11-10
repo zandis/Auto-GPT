@@ -347,6 +347,7 @@ def test_the_runner_wraps_the_cli_and_writes_no_secret(tmp_path: Path) -> None:
     rid = ops.submit("update_check", "console:admin", {"bundle": "b-1.tar"})
     bad = ops.submit("update_check", "console:admin", {"bundle": "../../etc/passwd"})
     runner.run_pending()
+    calls[:] = [c for c in calls if "exec" not in c]  # the audit events (tested below)
     assert calls == [["sh", str(tb_ops.ROOT / "tools" / "apply_update.sh"), str(deploy / "updates" / "incoming" /
                                                                                   "b-1.tar"), "--dry-run"]]  # fmt: skip
     good, refused, last = ops.result(rid), ops.result(bad), ops.last("update_check")
@@ -386,6 +387,7 @@ def test_on_a_site_box_the_check_and_the_sheet_run_in_a_container(tmp_path: Path
     a = ops.submit("backup_check", "console:admin")
     b = ops.submit("network_sheet", "console:admin")
     runner.run_pending()
+    calls[:] = [c for c in calls if "exec" not in c]  # the audit events (tested below)
     res_a, res_b = ops.result(a), ops.result(b)
     assert res_a and res_a["ok"] and res_b and res_b["ok"]
     assert calls[0][:4] == ["docker", "run", "--rm", "--network"] and calls[0][-3:] == [
@@ -433,6 +435,65 @@ def test_one_runner_at_a_time_and_no_link_or_pipe_is_read(tmp_path: Path) -> Non
         fcntl.flock(held, fcntl.LOCK_UN)
     assert [r["id"] for r in runner.run_pending()] == [rid]
     assert not (ops.root / "results" / "20261110T000000Z-aaaaaa.json").exists()
+
+
+def test_a_cut_off_or_old_request_is_never_run_again(tmp_path: Path) -> None:
+    """A request that started and was cut off (a reboot during an update) has no result: the next round must not run
+    it again without a new confirmation. A request that waited longer than MAX_AGE_MIN is not run either."""
+    deploy = tmp_path / "deploy"
+    (deploy / "updates" / "incoming").mkdir(parents=True)
+    (deploy / "updates" / "incoming" / "b-1.tar").write_bytes(b"x")
+    calls: list[list[str]] = []
+
+    def fake(argv: Any, timeout: int) -> str:
+        calls.append(list(argv))
+        return "ok\n"
+
+    ops = tb_ops.OpsDir(tmp_path / "ops")
+    runner = tb_ops.OpsRunner(tb_ops.Box("compose", deploy, {}, fake), ops)
+    cut = ops.submit("update_apply", "console:admin", {"bundle": "b-1.tar"})
+    ops.marker(cut).parent.mkdir(parents=True, exist_ok=True)
+    ops.marker(cut).write_text(json.dumps({"id": cut, "started": "2026-11-10T01:00:00+00:00"}), encoding="utf-8")
+    assert [r["id"] for r in ops.running()] == [cut]
+    old = ops.submit("update_check", "console:admin", {"bundle": "b-1.tar"})
+    t = (tmp_path / "ops" / "requests" / f"{old}.json").stat().st_mtime - (tb_ops.MAX_AGE_MIN * 60 + 5)
+    os.utime(tmp_path / "ops" / "requests" / f"{old}.json", (t, t))
+    fresh = ops.submit("update_check", "console:admin", {"bundle": "b-1.tar"})
+    runner.run_pending()
+    r_cut, r_old, r_fresh = ops.result(cut), ops.result(old), ops.result(fresh)
+    assert r_cut and r_cut["state"] == "interrupted" and r_cut["ok"] is False
+    assert r_old and r_old["state"] == "expired" and r_old["ok"] is False
+    assert r_fresh and r_fresh["state"] == "done" and not ops.marker(fresh).exists()
+    applied = [c for c in calls if "apply_update.sh" in " ".join(c)]
+    assert len(applied) == 1 and "--dry-run" in applied[0]  # only the fresh check ran; never the cut-off apply
+    # each finished request is a console.ops event in the box's audit chain, written inside the orchestrator
+    audits = [json.loads(c[-1]) for c in calls if "exec" in c and "orchestrator" in c]
+    assert [(x["request"], x["state"]) for x in audits] == [(cut, "interrupted"), (old, "expired"), (fresh, "done")]
+    runner.run_pending()
+    assert len([c for c in calls if "apply_update.sh" in " ".join(c)]) == 1  # nothing ran again
+
+
+def test_a_stale_target_fails_the_check_and_a_failed_update_says_so(tmp_path: Path) -> None:
+    deploy = tmp_path / "deploy"
+    (deploy / "updates").mkdir(parents=True)
+    nas, usb = tmp_path / "nas", tmp_path / "usb"
+    for t, stamp in ((nas, "20261109T010203Z"), (usb, "20261101T010203Z")):
+        t.mkdir()
+        (t / f"trialbox-CGMH-{stamp}.tbbak").write_bytes(b"x")
+
+    def fake(argv: Any, timeout: int) -> str:
+        return '{"ok": true, "chunks": 1, "bytes": 1, "created_at": "2026-11-09T01:02:03+00:00", "sha256": "ab"}'
+
+    box_ = tb_ops.Box("compose", deploy, {"TB_BACKUP_TARGETS": f"{nas} {usb}"}, fake)
+    ops = tb_ops.OpsDir(tmp_path / "ops")
+    rid = ops.submit("backup_check", "console:admin")
+    tb_ops.OpsRunner(box_, ops).run_pending()
+    res = ops.result(rid)
+    assert res and res["ok"] is False and "missed a backup" in res["summary"]
+    lines = [{"bundle": "b-2", "step": "verify", "ok": True, "at": "2026-11-10T01:00:00+00:00"},
+             {"bundle": "b-2", "step": "load images", "ok": False, "at": "2026-11-10T01:01:00+00:00"}]  # fmt: skip
+    (deploy / "updates" / "history.jsonl").write_text("\n".join(json.dumps(x) for x in lines), encoding="utf-8")
+    assert tb_ops.snapshot(box_)["updates"][0]["outcome"] == "failed"
 
 
 def test_an_outcome_undo_the_registry_refused_is_put_back() -> None:

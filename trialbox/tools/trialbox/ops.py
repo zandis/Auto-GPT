@@ -60,6 +60,7 @@ BUNDLE = re.compile(r"^[A-Za-z0-9][\w.\-]{0,120}\.tar$")
 BACKUP_FILE = re.compile(r"^trialbox-[\w\-]+-(\d{8}T\d{6}Z)\.tbbak$")
 SERVICE_UID = 10001  # the ``tb`` user of the trialbox-py image (svc_secrets.SERVICE_UID)
 STALE_HOURS = 36  # WS-08.5: the backup tile turns red 36 hours after the last backup
+MAX_AGE_MIN = 60  # a request older than this when the runner reaches it is not run: the person asks again
 Runner = Callable[[Sequence[str], int], str]  # (argv, timeout seconds) -> combined output; raises OpsFailed
 
 
@@ -146,7 +147,8 @@ class OpsDir:
             # the id is the file's name, never a field the console wrote: the runner (root on the host) writes
             # ``results/<id>.json``, so an id taken from the content could point outside the folder
             if REQ_ID.match(p.stem) and (r := _read_json(p)) is not None:
-                out.append({**r, "id": p.stem})
+                with contextlib.suppress(OSError):  # the file's own time, not a field: how long it has waited
+                    out.append({**r, "id": p.stem, "queued": p.lstat().st_mtime})
         return sorted(out, key=lambda r: (str(r.get("at")), str(r.get("id"))))  # first in, first out
 
     def result(self, rid: str) -> dict[str, Any] | None:
@@ -154,6 +156,17 @@ class OpsDir:
 
     def pending(self) -> list[dict[str, Any]]:
         return [r for r in self.requests() if self.result(str(r.get("id"))) is None]
+
+    def marker(self, rid: str) -> Path:
+        """``running/<id>.json``: written just before a request runs. A request with a marker and no result was cut
+        off (a reboot, an OOM kill, ``systemctl stop``) and is never run again."""
+        if not REQ_ID.match(rid):
+            raise OpsFailed(f"bad request id {rid[:40]!r}")
+        return self.root / "running" / f"{rid}.json"
+
+    def running(self) -> list[dict[str, Any]]:
+        """The pending requests that have started (one, while the runner works on it)."""
+        return [r for r in self.pending() if self.marker(str(r.get("id"))).is_file()]
 
     def history(self, limit: int = 30) -> list[dict[str, Any]]:
         """Requests, newest first, each with its result when there is one."""
@@ -172,7 +185,11 @@ class OpsDir:
     def status(self) -> dict[str, Any] | None:
         return _read_json(self.root / "status.json")
 
-    def write_result(self, req: Mapping[str, Any], ok: bool, summary: str, lines: Sequence[str], started: str) -> None:
+    def write_result(
+        self, req: Mapping[str, Any], ok: bool, summary: str, lines: Sequence[str], started: str, state: str = ""
+    ) -> None:
+        """``state``: ``done``, ``failed``, ``interrupted`` (it started and was cut off) or ``expired`` (it waited
+        longer than :data:`MAX_AGE_MIN`); the last two never ran to the end and are not run again."""
         if not REQ_ID.match(str(req.get("id"))):
             raise OpsFailed(f"bad request id {str(req.get('id'))[:40]!r}")
         _write_json(
@@ -182,6 +199,7 @@ class OpsDir:
                 "action": req["action"],
                 "by": req.get("by", ""),
                 "ok": ok,
+                "state": state or ("done" if ok else "failed"),
                 "summary": summary[:300],
                 "lines": [str(x)[:300] for x in list(lines)[-40:]],
                 "started": started,
@@ -247,15 +265,57 @@ class OpsRunner:
             except BlockingIOError:
                 return []
             try:
-                done = [self.run_one(req) for req in self.ops.pending()]
+                done = []
+                for req in self.ops.pending():
+                    res = self.close_stale(req) or self.run_one(req)
+                    self.audit(res)
+                    done.append(res)
                 self.write_status()
             finally:
                 fcntl.flock(lock, fcntl.LOCK_UN)
         return done
 
+    def close_stale(self, req: Mapping[str, Any]) -> dict[str, Any] | None:
+        """A request that started and was cut off, or that waited too long, gets a result without running: an
+        update or a backup is never started again without the person asking again (and confirming again)."""
+        rid = str(req.get("id"))
+        if self.ops.marker(rid).is_file():
+            begun = (_read_json(self.ops.marker(rid)) or {}).get("started") or ""
+            msg = "interrupted: the runner stopped while this ran (a restart or a stop); it is not run again"
+            self.ops.write_result(req, False, msg, [], str(begun), state="interrupted")
+        else:
+            queued = req.get("queued")
+            if not isinstance(queued, int | float) or time.time() - queued <= MAX_AGE_MIN * 60:
+                return None
+            msg = f"not run: asked more than {MAX_AGE_MIN} minutes before the runner reached it; ask again"
+            self.ops.write_result(req, False, msg, [], _now(), state="expired")
+        out = self.ops.result(rid)
+        assert out is not None
+        return out
+
+    def audit(self, res: Mapping[str, Any]) -> None:
+        """On a site box, each finished request is a ``console.ops`` event in the box's audit chain, written inside
+        the orchestrator as ``update.py`` does (the console writes the request's event; inline, also the result's).
+        Best effort: the result file stays either way."""
+        if self.box.kind != "compose":
+            return
+        from tools.trialbox.update import ComposeBox
+
+        detail = {"action": f"{res.get('action')}.done", "request": res.get("id"), "ok": bool(res.get("ok")),
+                  "state": res.get("state"), "by": res.get("by")}  # fmt: skip
+        code = (
+            "import json, sys\nfrom tb_common.audit import AuditLog\n"
+            "AuditLog('/data/audit').append('console.ops', actor='trialbox-ops', detail=json.loads(sys.argv[1]))\n"
+        )
+        argv = [*ComposeBox(self.box.deploy).compose, "exec", "-T", "orchestrator", "python", "-c", code,
+                json.dumps(detail)]  # fmt: skip
+        with contextlib.suppress(Exception):
+            self.box.run(argv, 120)
+
     def run_one(self, req: Mapping[str, Any]) -> dict[str, Any]:
         started = _now()
         action = str(req.get("action"))
+        _write_json(self.ops.marker(str(req.get("id"))), {"id": req.get("id"), "action": action, "started": started})
         try:
             if action not in ACTIONS:
                 raise OpsFailed(f"unknown action {action!r}")
@@ -267,6 +327,8 @@ class OpsRunner:
         except Exception as exc:  # every failure is a result the console shows, never a crash of the timer
             summary, lines, ok = f"{type(exc).__name__}: {exc}"[:300], [], False
         self.ops.write_result(req, ok, summary, lines, started)
+        with contextlib.suppress(OSError):
+            self.ops.marker(str(req["id"])).unlink()
         out = self.ops.result(str(req["id"]))
         assert out is not None
         return out
@@ -340,8 +402,8 @@ class OpsRunner:
         names = {n for n, _ in shas}
         if len(names) == 1 and len(shas) > 1:
             bad.append("the copies of the newest backup differ between targets")
-        elif len(names) > 1:
-            lines.append("the targets' newest backups are not the same file (one target missed a backup)")
+        elif len(names) > 1:  # a target that missed the newest backup is stale: the check fails
+            bad.append("the targets' newest backups are not the same file (one target missed a backup)")
         if bad:
             raise OpsFailed("; ".join(bad))
         return f"newest backup {newest_name} complete in every target (content needs the key: backup-verify)", lines
@@ -455,6 +517,10 @@ def snapshot(box: Box) -> dict[str, Any]:
             row["outcome"] = "applied"
         elif h.get("step") == "rollback":
             row["outcome"] = "rolled_back" if h.get("ok") else "rollback_failed"
+        elif not h.get("ok") and row.get("outcome") is None:  # a step failed and no rollback line followed
+            row["outcome"] = "failed"
+        elif h.get("ok") and row.get("outcome") == "failed":  # the bundle was tried again
+            row.pop("outcome")
     points = []
     for pj in sorted(updates.glob("*/rollback/point.json")):
         d = _read_json(pj) or {}
@@ -525,7 +591,7 @@ def snapshot(box: Box) -> dict[str, Any]:
 def prepare(ops: OpsDir, uid: int | None = SERVICE_UID) -> None:
     """The folders; ``requests/`` is writable by the console's user (uid 10001 in the image), the rest only by root.
     As a non-root user (a test, the in-process box) the folders are only made."""
-    for sub, mode in (("requests", 0o770), ("results", 0o755), ("network", 0o755)):
+    for sub, mode in (("requests", 0o770), ("results", 0o755), ("running", 0o755), ("network", 0o755)):
         d = ops.root / sub
         d.mkdir(parents=True, exist_ok=True)
         if hasattr(os, "geteuid") and os.geteuid() == 0:
