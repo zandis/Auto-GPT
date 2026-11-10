@@ -95,6 +95,23 @@ Acknowledge. Each serious AE shows its reporting clock (sponsor, IRB, regulator)
 confirms against its IRB rules and the protocol (`TB_SAE_REPORT_DAYS`); an overdue report is on both home pages and in
 the CRC's mail.
 
+**SAE register (`/sae`, D-191).** TrialBox's one record of each serious AE: onset, the day the site learned of it, the
+due day of every report (sponsor, IRB, regulator), the day each was sent, the receiver's acknowledgement, follow-ups,
+the PI's acknowledgement, and a trail of every entry and change (who, when, old and new dates). Overdue reports come
+first, under an alert, in Japanese, Chinese and English. Dates are entered once, on the AE form: "Record the report
+sent" writes the day to the AE form, so the form, the home pages and the mail show the same date. Deadlines are
+calendar days on the site's date (Asia/Tokyo, Asia/Taipei), counted from the day learned (else the onset); weekends
+and holidays do not move them. The register flags an SAE with no start day, a day learned before the onset, or a day
+learned late, an onset or day learned after today, and a day sent that is after today or before the event (that report
+does not count as sent until the AE form is corrected); a report sent after its due day shows as sent late. A fatal or
+life-threatening SAE gets a follow-up to the regulator due on day 15 from the day learned (7 + 8 days, ICH E2A;
+`TB_SAE_FOLLOWUP_DAYS`), whenever the first report went; add any follow-up a receiver asks for with its due day. An
+SAE the AE form no longer calls serious keeps its open reports on the worklist until each is sent or closed. The CRC records; the PI and the
+administrator read; viewer and CRO accounts see nothing. No AE term, chart number or name is shown, stored in the
+register or written to the audit log; references are letters and digits only. The page names who confirmed the site
+rule (`TB_SAE_RULES_CONFIRMED`) or says that nobody has. The trial office's SAE log and SOP still govern: compare the
+register with it each month, and use the office log when the box is down.
+
 **REDCap or a spreadsheet.** Attach the study's REDCap project on the study's set-up page (guided). Sync runs at night
 and on a button. When TrialBox and REDCap disagree on a field, the Conflicts page lists it; you choose which value
 stays. A spreadsheet with a name column imports with that column dropped.
