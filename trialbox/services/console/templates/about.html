@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ t('about.title') }}{% endblock %}
+{% block content %}
+{# T-617a (STD-044): the third-party notices of NOTICE; the notice texts are the licences' own English #}
+<h1>{{ t('about.title') }}</h1>
+<p class="hint">{{ t('about.intro') }}</p>
+<p><a href="/about/NOTICE.txt" data-testid="about-text">{{ t('about.text') }}</a> · <a href="/">{{ t('about.back') }}</a></p>
+{% if missing %}<p class="error" role="alert" data-testid="about-missing">{{ t('about.missing') }}</p>
+{% else %}<div lang="en" data-testid="about-notice">
+{% for s in sections %}<section class="card">
+{% if s.title %}<h2>{{ s.title }}</h2>{% endif %}
+{% for b in s.blocks %}<p class="mono">{% for line in b %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+{% endfor %}</section>
+{% endfor %}</div>{% endif %}
+{% endblock %}

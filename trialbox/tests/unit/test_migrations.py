@@ -357,7 +357,10 @@ def store_migrations() -> dict[str, list[str]]:
 
 
 #: checksums of versions added after the D-204 baseline, per store (append here; never edit the baseline)
-ADDED: dict[str, tuple[str, ...]] = {}
+ADDED: dict[str, tuple[str, ...]] = {
+    # D-301: migration 3, the one-million block and the vocabulary tables
+    "omop": ("0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",),
+}
 PINNED: dict[str, tuple[str, ...]] = {k: v + ADDED.get(k, ()) for k, v in BASELINE.items()}
 
 #: every file that opens a store and migrates it, covered by :func:`store_migrations` (or not a store of its own)

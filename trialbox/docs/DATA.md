@@ -163,6 +163,37 @@ file, row), the history of every record, and open and resolved conflicts. It is 
   is still `legacy` (flattened from the NDJSON) until the flag flips (WS-03.5). Commands: `python -m omop load
   --lake <lake>`, `python -m omop status` and `python -m omop dqd` (the Data Quality Dashboard-style checks).
 
+### 7.1 Vocabulary
+
+The OMOP vocabulary tables of schema `omop` are the one home of the codes the box reads (D-301; no second schema).
+`services/omop/vocab_load.py` loads, each as a release (name, sha256, version, source in `tb_vocab_release`):
+
+- **the terminology Parquet** the compiler ships (ICD-10-CM, LOINC, ATC, the NHI lists, departments, the
+  groupers): concepts, zh-TW names as `concept_synonym`, NHI drug to ATC and panel links as
+  `concept_relationship`; the compiler's row beside each concept in `tb_concept_attr`;
+- **a code-list release** such as ICD-10-CM FY2027 (`read_code_list`: the CMS order file or `code,display` CSV);
+  codes it no longer lists are marked deleted, never removed;
+- **the refdata pack's terms** (D-140), **the JP masters** a site loaded with `adapter.licensed` (D-137: MEDIS, JLAC10,
+  YJ, each linked to the standard code its file gives; a WHO-only ICD-10 code to its ICD-10-CM category), **edition
+  maps** such as the NHIA ICD-10-CM 2014 to 2023 map (`source_to_concept_map`, relation in `tb_map_relation`; a record
+  before 2025-01-01 gets the 2023 code with a provenance tag, a split or a candidate gives none);
+- **the site's local codes** once a person mapped them (`sitesetup.local_code`): a local concept in the site block and
+  a `source_to_concept_map` row (not a release: a map changes data, not a compiled ruleset).
+
+Ids: reference codes loaded without the Athena bundle take box-local ids 2,010,000,000 to 2,099,999,999; the site's
+local codes take the site block of one million ids from `TB_OMOP_CONCEPT_BLOCK` (default 2,100,000,000; a block that
+would end above 2,147,483,647 is refused). No id at or above 2,000,000,000 is ever `standard_concept = 'S'`.
+
+Loading the same content twice changes nothing. A ruleset records the terminology release it was compiled against
+(`terminology_release` in its manifest). When a release the compiler resolves through loads (the Parquet, ICD-10-CM,
+LOINC, ATC), every approved ruleset is listed in `tb_ruleset_release` with `recompile_needed`, and a run of a ruleset
+compiled against another release is refused until it is recompiled. `TB_TERMINOLOGY_SOURCE=vocab` makes the compiler
+read the vocabulary (default `parquet`: the shipped Parquet, as before; both give the same ValueSets and SQL).
+
+Chart numbers: `TB_CHARTNO_RULE` (`asis`, the default; `digits[:width]`; `hex[:width][:upper|lower]`) is the site's
+chart-number format; `tb_common.chartno.normalise` applies it wherever a chart number becomes a pseudonym, so a
+zero-padded number in a PI's list joins the feed's unpadded one (R-48).
+
 ## 8. Derived scores
 
 A derived score is computed from other rows: eGFR (CKD-EPI 2021 or JSN 2009), BMI, DAS28, BASDAI, ASDAS, CDAI and

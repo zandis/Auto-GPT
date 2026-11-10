@@ -2,6 +2,8 @@
 {# T-008 (D-207, MR-090): the feature flags, administrators only; a change needs a reason and one confirmation. #}
 {% block title %}{{ t('flags.title') }}{% endblock %}
 {% block content %}
+{# ROLE-026 (T-506): the first value's reason is written by the flag store in English; show it in the page's language #}
+{% macro seed_reason(r) %}{% set pre = 'seeded at the first start from ' %}{% if r == pre + 'the default' %}{{ t('flags.reason.seed_default') }}{% elif r and r.startswith(pre) %}{{ t('flags.reason.seed_env', env=r[pre|length:]) }}{% else %}{{ r }}{% endif %}{% endmacro %}
 <h1>{{ t('flags.title') }}</h1>
 <p>{{ t('flags.help') }}</p>
 {% for f in flags %}
@@ -12,7 +14,7 @@
   <dt>{{ t('flags.value') }}</dt>
   <dd data-testid="flag-value" data-value="{{ f.value or '' }}">{% if f.value %}<strong class="mono">{{ f.value }}</strong>{% else %}{{ t('flags.unset') }}{% endif %}</dd>
   {% if f.changed_at %}<dt>{{ t('flags.changed') }}</dt>
-  <dd>{{ f.changed_at.isoformat(timespec='seconds') }} · {{ t('flags.by') }} {{ f.changed_by|who }} · {{ f.reason }}</dd>{% endif %}
+  <dd>{{ f.changed_at|local(19) }} · {{ t('flags.by') }} {{ f.changed_by|who }} · {{ seed_reason(f.reason) }}</dd>{% endif %}
 </dl>
 <form method="post" action="/ops/flags">
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="name" value="{{ f.name }}">
@@ -30,7 +32,7 @@
 {% if events %}
 <table data-testid="flag-history">
 <thead><tr><th scope="col">{{ t('flags.changed') }}</th><th scope="col">{{ t('flags.name') }}</th><th scope="col">{{ t('flags.value') }}</th><th scope="col">{{ t('flags.by') }}</th><th scope="col">{{ t('flags.reason') }}</th></tr></thead>
-<tbody>{% for e in events %}<tr data-kind="{{ e.kind }}"><td>{{ e.at.isoformat(timespec='seconds') }}</td><td class="mono">{{ e.name }}</td><td>{{ t('flags.kind.' + e.kind) }}: {{ e.old_value or '–' }} → <strong>{{ e.new_value }}</strong></td><td>{{ e.actor|who }}</td><td>{{ e.reason }}</td></tr>{% endfor %}</tbody>
+<tbody>{% for e in events %}<tr data-kind="{{ e.kind }}"><td>{{ e.at|local(19) }}</td><td class="mono">{{ e.name }}</td><td>{{ t('flags.kind.' + e.kind) }}: {{ e.old_value or '–' }} → <strong>{{ e.new_value }}</strong></td><td>{{ e.actor|who }}</td><td>{{ seed_reason(e.reason) }}</td></tr>{% endfor %}</tbody>
 </table>
 {% else %}<p>{{ t('flags.history.none') }}</p>{% endif %}
 </section>

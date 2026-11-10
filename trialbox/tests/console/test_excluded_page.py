@@ -1,4 +1,4 @@
-"""Review 2026-11-09 P-04 (D-143): "Excluded patients and why", one page per study. Every patient the latest
+"""Review 2026-11-09 P-04 (D-143): "Criteria not matched" (T-506; "Excluded patients and why" before), one page per study. Every patient the latest
 screening run excluded, with the criterion that excluded them, where the answer came from (the coded records, a
 confirmed fact, the notes with both models agreeing) and the evidence; "This is wrong, send to review" is audited. The
 investigator and the coordinator see it; a viewer and a CRO account do not."""
@@ -51,7 +51,7 @@ def test_the_excluded_list_with_criterion_source_and_evidence(box: dict[str, Any
         box["users"].create(name, role, PW, f"{name}@hospa.test")
     pi, _ = login(box["app"], "pi", PW)
     page = pi.get("/studies/GZQO/excluded").text
-    assert 'data-testid="excluded"' in page and "4 patients excluded" in page
+    assert 'data-testid="excluded"' in page and "criteria not matched for 4 patients" in page
     assert 'data-testid="ex-cccccccc"' in page and "history of breast cancer 2019" in page and "2025-03-01" in page
     assert "the notes, both models agreed" in page and "the coded records" in page and "a confirmed fact" in page
     assert "no research-contact consent" in page and "FHIR Consent" not in page  # a rule, in plain words
@@ -72,7 +72,7 @@ def test_the_excluded_list_with_criterion_source_and_evidence(box: dict[str, Any
     ja, jcsrf = login(box["app"], "pi", PW)
     ja.post("/lang", data={"csrf": jcsrf, "lang": "ja", "back": "/"})
     jp = ja.get("/studies/GZQO/excluded").text
-    assert "除外された患者と理由" in jp and "記録の文章（2 つのモデルが一致）" in jp and "確認に回しました" in jp
+    assert "基準に合致しない患者" in jp and "カルテ記載（2 つのモデルが一致）" in jp and "確認に回しました" in jp
     # roles: a viewer and a CRO account never see it
     viewer, _ = login(box["app"], "viewer", VIEWER_PW)
     assert viewer.get("/studies/GZQO/excluded").status_code == 403

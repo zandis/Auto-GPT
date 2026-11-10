@@ -53,8 +53,9 @@ def test_master_is_clean() -> None:
 def test_master_registry_holds_the_agreed_rows() -> None:
     c = di.load(REPO)
     rows = {(r.first, r.last): r for r in c.rows}
-    assert rows[(271, 272)].state == "reserved" and rows[(274, 289)].state == "reserved"  # the fix groups
-    assert rows[(273, 273)].state == "merged" and "D-273" in rows[(273, 273)].holder
+    assert rows[(271, 271)].state == "merged"  # fix group D-271 (PR #97), a file since the log froze
+    assert rows[(273, 273)].state == "merged" and "D-273" in rows[(273, 273)].holder  # fix group D-273, a file
+    assert rows[(272, 272)].state == "reserved" and rows[(274, 289)].state == "reserved"  # the other fix groups
     assert rows[(152, 159)].state == "unused" and rows[(164, 169)].state == "unused"
     assert rows[(99, 99)].state == "missing"
     for num, card in [(300, "T-101"), (301, "T-105"), (302, "T-102a"), (303, "T-106"), (304, "T-106"),
@@ -67,7 +68,7 @@ def test_master_registry_holds_the_agreed_rows() -> None:
 def test_index_prints_every_number(capsys: pytest.CaptureFixture[str]) -> None:
     assert di.main([]) == 0
     out = capsys.readouterr().out
-    assert "| D-201 | merged | T-003 |" in out and "| D-301 | reserved |" in out and "| D-99 | missing |" in out
+    assert "| D-201 | merged | T-003 |" in out and "| D-302 | reserved |" in out and "| D-99 | missing |" in out
 
 
 def test_two_files_in_different_ranges_pass(tmp_path: Path) -> None:

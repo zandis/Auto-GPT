@@ -880,7 +880,7 @@ def test_case_job_card_renders_counts_in_every_language(box: dict[str, Any]) -> 
     page = c.get(f"/pilot/jobs/{jid}").text
     assert 'data-testid="case-counts"' in page and "met 15" in page and "not met 2" in page and "for a human 3" in page
     assert f"/pilot/jobs/{jid}/view/case_GZQO_ja.html" in page
-    for lang, needle in (("ja", "該当 15"), ("zh-TW", "符合 15")):
+    for lang, needle in (("ja", "満たす 15"), ("zh-TW", "符合 15")):
         c.post("/lang", data={"csrf": csrf, "lang": lang, "back": "/"})
         r = c.get(f"/pilot/jobs/{jid}")
         assert r.status_code == 200 and needle in r.text, lang
@@ -984,10 +984,10 @@ def test_screen_job_page_shows_candidates_and_reveals_a_chart_number_once(box: d
     page = c.get(f"/pilot/jobs/{jid}").text
     assert (
         'data-testid="screen"' in page
-        and "2 patients likely eligible, 1 to review, 58 excluded, of 61 in scope" in page
+        and "2 patients may meet the criteria, 1 to review, criteria not matched for 58, of 61 in scope" in page
     )
     assert 'data-testid="screen-rows"' in page and page.count("<tr data-pid=") == 2  # excluded rows are not listed
-    assert page.index("a" * 12) < page.index("b" * 12)  # likely eligible first
+    assert page.index("a" * 12) < page.index("b" * 12)  # "may meet the criteria" first
     assert "two flares this spring" in page and "Dr Lin" in page and "confirm flare dates" in page
     assert "90 %" not in page  # FR-UI-17 (D-108): no model confidence on a clinical page
     assert "read by j-workhorse alone" in page and f'href="/pilot/registry/GZQO#p-{"a" * 32}"' in page
@@ -1018,7 +1018,7 @@ def test_screen_job_page_shows_candidates_and_reveals_a_chart_number_once(box: d
     assert viewer.post(f"/pilot/jobs/{jid}/reveal", data={"csrf": vcsrf, "pid": "a" * 32}).status_code == 403
     # Japanese
     c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"})
-    assert "適格の可能性が高い 2 名" in c.get(f"/pilot/jobs/{jid}").text
+    assert "条件に合う可能性 2 名" in c.get(f"/pilot/jobs/{jid}").text
 
 
 # ---------------------------------------------------------------------------------------------- models card

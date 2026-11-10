@@ -128,7 +128,7 @@ def test_schema_has_the_cdm_tables_beside_the_extension_tables(db: Any) -> None:
     assert db.schema.endswith("omop")
     assert db.fetchval("SELECT concept_name FROM concept WHERE concept_id = 0") == "No matching concept"
     again = schema.connect(db.url)  # a re-connect migrates nothing
-    assert again.fetchval("SELECT max(version) FROM _schema_version") == 2
+    assert again.fetchval("SELECT max(version) FROM _schema_version") == 3  # D-301 added the vocabulary tables
     again.close()
 
 
@@ -139,7 +139,7 @@ def test_local_concept_block_is_at_least_two_billion(monkeypatch: Any) -> None:
     with pytest.raises(schema.OmopError, match="2,000,000,000"):
         schema.concept_block()
     monkeypatch.setenv("TB_OMOP_CONCEPT_BLOCK", "2140000000")
-    assert schema.concept_block() == (2_140_000_000, schema.INT4_MAX)  # a site block ends at the integer maximum
+    assert schema.concept_block() == (2_140_000_000, 2_140_999_999)  # one million ids per site (D-301)
 
 
 # ------------------------------------------------------------------------------------------------ loader
