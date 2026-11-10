@@ -331,7 +331,7 @@ def store_migrations() -> dict[str, list[str]]:
     from tracestore import store as trace
 
     return {
-        "refdata": [refdata.DDL, refdata.DDL_V2],
+        "refdata": list(refdata.MIGRATIONS),
         "optout": list(optout.MIGRATIONS),
         "wf": list(db_pg.MIGRATIONS),
         "recall": list(ledger.MIGRATIONS),
@@ -358,6 +358,8 @@ def store_migrations() -> dict[str, list[str]]:
 
 #: checksums of versions added after the D-204 baseline, per store (append here; never edit the baseline)
 ADDED: dict[str, tuple[str, ...]] = {
+    # D-317: refdata version 3, the record of withdrawn sources
+    "refdata": ("9e976b5878b8d5a8d1a89e417b61450471874a0e1122e43764d755d11662af83",),
     # D-301: migration 3, the one-million block and the vocabulary tables
     "omop": ("0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",),
 }
