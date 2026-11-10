@@ -3977,11 +3977,11 @@ Source: the owner's follow-up list of 2026-11-09 (task 3), after the cloud-run r
 lived in steps nothing ran off the paid VM (`docs/reviews/2026-11-09-cloud-run-review.md` §5). The same gap existed for
 the box: nothing had run `deploy/install.sh` on a clean host from offline media.
 
-*Decision.* `tools/rehearse_box/rehearse.sh` (`make rehearse-box`, RUNBOOK §15) makes media as the vendor does, removes
+*Decision.* `tools/rehearse_box/rehearse.sh` (`make rehearse-box`, RUNBOOK §16) makes media as the vendor does, removes
 the box images from the Docker host, and runs the real installer (`--tier large`) in a clean Ubuntu 24.04 container
 that uses the host's Docker through its socket. The strict vLLM stand-ins of D-177 take the place of the GPU, given to
 the installer as `TB_COMPOSE_OVERRIDE` (a new, printed hook kept in `COMPOSE_FILE`). The steps and what each proves are
-in RUNBOOK §15: the WSL2 preflight, three media failures, the install, `doctor --live`, the served names, the offline
+in RUNBOOK §16: the WSL2 preflight, three media failures, the install, `doctor --live`, the served names, the offline
 media (images, CQL jars, reference data, no route out), the console, one SCREEN through the gateway, a power loss and
 restart, a wrong served name and a missing key. A FAIL stops the release. It does not replace the site's IQ: a real
 GPU, the egress rules, the host hardening and the mail server are checked there.
@@ -4016,7 +4016,7 @@ GPU, the egress rules, the host hardening and the mail server are checked there.
     rehearsal gives it a plain SMTP sink (`tools/rehearse_box/smtp_sink.py`) as `smtp.hospa.test` and checks that the
     SCREEN mailed something. The real relay is checked at the site's IQ.
 
-*After the independent review* (2026-11-10; RUNBOOK §15):
+*After the independent review* (2026-11-10; RUNBOOK §16):
 12. *Digest pins on the classic image store.* Saved under its tag, a digest-pinned image resolves by its digest again
     only on Docker's containerd image store. The classic `overlay2` store keeps no digests after `docker load`
     (tried: `postgres:16-alpine@sha256:...` is "No such image" after the load), so compose would pull it. The bundle
@@ -4047,7 +4047,7 @@ loads and no pull; the console resolves no outside name). The classic overlay2 s
 with a bundle made on the containerd store: after the load `postgres:16-alpine@sha256:...` is "No such image" and
 `compose up --pull never` fails; after `tools/image_pins.py resolve` the db runs the bundle's image by its id, and
 the daemon's events show two loads and no pull. (A full `make rehearse-box` on an overlay2 daemon needs about 10 GB
-more disk than this machine had free: run it there before a release, RUNBOOK §15.) Unit tests:
+more disk than this machine had free: run it there before a release, RUNBOOK §16.) Unit tests:
 `test_vllm_standin.py`, `test_doctor_serving.py`, `test_model_key.py`, `test_verify_update_stdlib.py`,
 `test_smtp_sink.py`, `test_image_pins.py`, `test_egress_rules.py`.
 
@@ -4101,10 +4101,37 @@ refuses a bad or huge `Content-Length` before reading; an update restarts with `
    must be absolute, three levels deep, not a system folder, and new or the caller's own earlier rehearsal folder.
    The report names the Docker image store.
 
-*Not done.* `trialbox secrets rotate` does not rotate `TB_LLM_API_KEY` yet (RUNBOOK §15 says how to change it by hand).
+*Not done.* `trialbox secrets rotate` does not rotate `TB_LLM_API_KEY` yet (RUNBOOK §16 says how to change it by hand).
 The one-off doctor containers get all of `deploy/.env` and run as root; they should get the `TB_*` values only.
 `llm-stub` (stub mode, where no key is made) still gets `deploy/.env` whole: the secrets overlay lists exactly the
 services with a token. `install.sh` gives `settings.yaml` to gid 10001, which may be a real group on a host.
+**D-178 Operations screens for hospital IT; every destructive action asks first and can be undone where it can.**
+Review J-09 asked for the box's operations on the console, not only on the command line; J-14 asked for a
+confirmation on each destructive action and an undo where one is possible. The administrator's `/admin/ops` page shows
+the version, backups (age, red after 36 hours, the last check), update and rollback history, logs, secrets by name and
+age only, and the network sheet. Its actions (back up, check backups, verify or apply a bundle, collect logs, write
+the network sheet) wrap the existing commands (`trialbox backup`, the new `trialbox backup-check`,
+`tools/apply_update.sh`, `trialbox logs`, `tools/network_sheet.py`); none is written again. The console container
+has no docker, so it leaves a request in an operations folder and a host runner (`python3 -m tools.trialbox ops run`,
+every minute) runs it and writes the result back, one runner at a time (a lock; a link or a pipe left in the
+requests folder is skipped, never read). A request that started and was cut off (a restart) is shown
+interrupted and never run again; one that waited over 60 minutes is not run; each result is a `console.ops`
+event in the box's audit chain. Tests and the demo run the same runner in process. Who may is a
+table in `tb_common.authz` (administrator only); a refusal is a `console.denied` audit event, each action a
+`console.ops` event. Confirmations: account reset (no undo, said so), disable (undo: enable again, also from a
+Disabled accounts list), rejecting a fact (undo puts it back to proposed with its old values; confirming and
+correcting also have undo), a closing contact outcome (undo restores the earlier status; only the person's own latest
+outcome), detaching a source (undo within 15 minutes, in memory). *Evidence:* `tests/console/test_ops_pages.py`, the
+browser walk's admin pages and role refusals. *Not done here:* `deploy/install.sh` does not install the runner's
+timer yet; RUNBOOK §15 says how.
+
+**D-179 The site pages are site-wide; a study-scoped account sees readiness and help only.**
+Review J-06 asked which site pages a study-scoped account sees. The site's facts, mappings and sources describe the
+whole hospital and belong to its data steward, so they stay site-wide: an account with studies listed gets 404 (and a
+`console.denied` event, reason study scope) on every site page except the readiness page, its API and the help page,
+where it sees a note that the page is site-wide and no fix links or start button. Accounts with no study list keep
+today's pages. Per-study site settings, if a study ever needs them, belong in that study's own pages.
+*Evidence:* `tests/console/test_ops_pages.py` (scoped 404s and 200s).
 **D-181 A judge bake-off that gates on wrong exclusions, with the box's own prompt and parser (no GPU yet).** Before
 a GPU run compares the current judge with `google/gemma-4-31B-it`, the comparison has to measure what matters for
 screening, on a fixed set, through any OpenAI-compatible endpoint.
