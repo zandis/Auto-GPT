@@ -1087,6 +1087,11 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     )
     rev = crc.get(f"/studies/{TRIAL}/edc/review/{no}")
     c = fd._csrf(rev.text)
+    s.check("the draft has the free-text item and at least one drafted value to review",
+            "comments" in d and bool(drafted), (r.status_code, sorted(d)))  # fmt: skip
+    if "comments" not in d or not drafted:
+        s.seconds = time.perf_counter() - t
+        return s  # a failed check, not a crash: the rest of the stage needs a draft
     r_cite = crc.post(f"/studies/{TRIAL}/edc/decide/{d['comments']['id']}", data={"csrf": c, "action": "confirm",
                                                                                   "record": no})  # fmt: skip
     first = next(iter(drafted))
