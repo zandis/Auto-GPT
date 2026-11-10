@@ -41,6 +41,7 @@ class CallLabels:
     prompt: str = ""  # prompt_id@version
     step_id: str = ""
     flags: tuple[str, ...] = ()
+    prompt_sha: str = ""  # the registry's sha256 of the prompt text (D-300); the gateway refuses a mismatch
 
     def headers(self, caller: str) -> dict[str, str]:
         missing = [
@@ -62,6 +63,8 @@ class CallLabels:
         }
         if self.prompt:
             h["X-TB-Prompt"] = self.prompt
+        if self.prompt_sha:
+            h["X-TB-Prompt-Sha"] = self.prompt_sha
         if self.step_id:
             h["X-TB-Step"] = self.step_id
         if self.flags:
@@ -203,7 +206,13 @@ _V1_ROLES_PATH = os.path.join(os.path.dirname(__file__), "v1_roles.yaml")
 
 
 def v1_labels(
-    prompt_id: str, version: int, *, phi: bool, study_id: str | None, data_class: str | None = None
+    prompt_id: str,
+    version: int,
+    *,
+    phi: bool,
+    study_id: str | None,
+    data_class: str | None = None,
+    prompt_sha: str = "",
 ) -> CallLabels:
     """Labels for a v1 ``chat_json`` call routed through the gateway (``tb_common.llm`` shim, one milestone)."""
     import yaml
@@ -222,4 +231,5 @@ def v1_labels(
         role=row["role"],
         prompt=f"{prompt_id}@{version}",
         step_id=os.environ.get("TB_STEP_ID", ""),
+        prompt_sha=prompt_sha,
     )

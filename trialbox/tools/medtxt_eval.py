@@ -55,7 +55,7 @@ FILES = {
     "RR": ["MedTxt-RR/MedTxt-RR-{L}-training-pub.xml", "MedTxt-RR/MedTxt-RR-{L}-test-answer-pub.xml"],
 }
 LANGS = ("ja", "en")
-# Candidate amendment to the judge prompt (tested here, not yet in services/orchestrator/prompts/judge_v3.md): a
+# Candidate amendment to the judge prompt (tested here, not yet in libs/tb_llm/prompts/judge_v3.md): a
 # suspected finding is not a confirmed one, so it should go to review rather than exclude the patient.
 SUSPECTED = (
     " A finding the note calls suspected, possible, probable, likely, 'cannot be ruled out' or 'to be ruled out' is "

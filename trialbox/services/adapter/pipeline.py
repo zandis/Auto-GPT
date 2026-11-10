@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from tb_common import feedguard
 from tb_common.audit import AuditLog
 from tb_common.crypto import load_or_create_key, pid_for_mrn, sha256_bytes
 from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
@@ -260,11 +262,39 @@ def run_ingest(
             pm.upsert_identity(identities)
         pm.close()
     # NDJSON snapshot (delta runs merge over the previous snapshot and drop what the source deleted)
-    out_dir = snapshot_dir(cfg.lake_dir, snap)
+    final_dir = out_dir = snapshot_dir(cfg.lake_dir, snap)
+    # D-271: a re-run of a promoted night is written beside it and moved in only when it passes; a held re-run never
+    # touches the NDJSON that CURRENT (or a later delta) was built from
+    rerun = (final_dir / PASSED).exists() or _current(cfg.lake_dir) == snap
+    if rerun:
+        out_dir = cfg.lake_dir / RERUN_DIR / snap
+        shutil.rmtree(out_dir, ignore_errors=True)
     prev = [s for s in list_snapshots(cfg.lake_dir) if s < snap]
-    base = snapshot_dir(cfg.lake_dir, prev[-1]) if (since and prev) else None
+    last_good = merge_base(cfg.lake_dir, snap)  # D-271: never a held night's NDJSON
+    base = snapshot_dir(cfg.lake_dir, last_good) if (since and last_good) else None
+    if since and last_good is None and (prev or _current(cfg.lake_dir)):
+        errors.append("delta night: no earlier snapshot passed validation to merge over; run a full load")
     full_counts = write_snapshot(out_dir, by_type, base, tombstones)
     tombstoned = tombstone_count(out_dir)
+    drop_override = ""
+    if last_good is not None:  # D-271: a night may not remove (nearly) all records of a kind
+        try:
+            pct = feedguard.max_drop_pct()
+            before = _type_counts(snapshot_dir(cfg.lake_dir, last_good))
+            bad = feedguard.drops(before, {t: n - full_counts.get(t, 0) for t, n in before.items()}, pct)
+        except feedguard.FeedGuardError as exc:
+            bad, pct = [str(exc)], 0.0
+        if bad:
+            drop_override = feedguard.override_for(snap)
+            what = f"this night removes {'; '.join(bad)} records of snapshot {last_good} (limit {pct:g} %)"
+            if drop_override:
+                log.warning("%s: loaded under %s: %s", what, feedguard.OVERRIDE_ENV, drop_override)
+                drop_override = f"{what}; override: {drop_override}"
+            else:
+                errors.append(
+                    f"{what}: a missing or broken extract? To load it anyway set "
+                    f"{feedguard.OVERRIDE_ENV}='{snap}: <reason>' (this night only; the reason is audited)"
+                )
     # dataflow review P0-2 (WS-08.1): validate first. fhir-store and the lake are loaded, and CURRENT moves, only for
     # a night that passed; a failed night is *held*: its NDJSON stays for the steward to look at, the box keeps
     # serving the previous snapshot
@@ -306,6 +336,14 @@ def run_ingest(
     held = bool(errors)
     if held:
         errors.append("night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot")
+    elif rerun:  # the re-run passed: it replaces the night's folder
+        old = cfg.lake_dir / RERUN_DIR / f"{snap}.replaced"
+        shutil.rmtree(old, ignore_errors=True)
+        if final_dir.exists():
+            final_dir.rename(old)
+        out_dir.rename(final_dir)
+        shutil.rmtree(old, ignore_errors=True)
+        out_dir = final_dir
     fhir_loaded = fhir_deleted = 0
     if not held and load_fhir and cfg.fhir_base_url:
         try:
@@ -313,7 +351,7 @@ def run_ingest(
                 cfg.fhir_base_url,
                 out_dir,
                 cfg.lake_dir / "fhir_ledger",
-                snapshot_dir(cfg.lake_dir, prev[-1]) if prev else None,
+                snapshot_dir(cfg.lake_dir, last_good) if last_good else None,
             )
         except Exception as exc:
             errors.append(f"fhir-store load failed: {exc}")
@@ -323,7 +361,12 @@ def run_ingest(
             lake_result = cfg.rebuild(snap, out_dir)
         except Exception as exc:
             errors.append(f"lake rebuild failed: {exc}")
+            if type(exc).__name__ in REFUSALS:  # D-271: the lake or the OMOP store refused the data: a held night
+                held = True
+                errors.append("night held: the lake refused the snapshot; CURRENT still names the previous snapshot")
     passed = not errors
+    if passed:  # D-271: the only NDJSON a later delta night may merge over
+        (out_dir / PASSED).write_text(json.dumps({"snapshot": snap}) + "\n", encoding="utf-8")
     report = IngestReport(
         snapshot=date.fromisoformat(snap),
         source=source_kind,
@@ -360,6 +403,7 @@ def run_ingest(
                 "tombstoned": tombstoned,
                 "held": held,
                 "unit_defaults_applied": defaulted,
+                "drop_override": drop_override or None,
             },
         )
     log.info("ingest finished", extra={"snapshot": snap, "passed": passed, "resources": sum(counts.values())})
@@ -386,6 +430,42 @@ def jp_core_check(cfg: AdapterConfig, by_type: dict[str, list[Resource]], out_di
         validator=rep.validator,
         messages=rep.messages(),
     )
+
+
+PASSED = "passed.json"  # written in a snapshot's NDJSON folder when its night passed (D-271)
+RERUN_DIR = "ndjson-rerun"  # a re-run of a promoted night until it passes (D-271)
+# exceptions by which the lake refuses a snapshot (lake.store.RebuildError, omop.schema.OmopError, the HTTP 409)
+REFUSALS = ("RebuildError", "OmopError", "RebuildRefused")
+
+
+class RebuildRefused(RuntimeError):
+    """The lake service answered 409: it refused the snapshot (the detail says why)."""
+
+
+def _current(lake_dir: Path) -> str | None:
+    p = lake_dir / "CURRENT"
+    return p.read_text().strip() or None if p.exists() else None
+
+
+def _type_counts(directory: Path) -> dict[str, int]:
+    """Records per resource type of a snapshot folder (lines, without parsing)."""
+    out = {}
+    for f in directory.glob("*.ndjson"):
+        with f.open("rb") as fh:
+            out[f.stem] = sum(1 for line in fh if line.strip())
+    return out
+
+
+def merge_base(lake_dir: Path, snap: str) -> str | None:
+    """The snapshot a delta night ``snap`` merges over (D-271): the newest earlier one that passed (``passed.json``),
+    or the lake's ``CURRENT`` (folders written before the marker existed). Never a held night's NDJSON: only the
+    delta's own records are validated, so merging over a held folder would promote the records it was held for."""
+    prev = [s for s in list_snapshots(lake_dir) if s < snap]
+    good = [s for s in prev if (snapshot_dir(lake_dir, s) / PASSED).exists()]
+    cur = _current(lake_dir)
+    if cur in prev:
+        good.append(str(cur))
+    return max(good) if good else None
 
 
 def prune_snapshots(cfg: AdapterConfig, today: date) -> list[str]:
