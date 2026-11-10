@@ -1,6 +1,6 @@
 """The only LLM entry point in TrialBox (SPEC §4.7, §7): ``chat_json(prompt_id, variables, schema)``.
 
-* Prompts are registry objects (D-201, :mod:`tb_llm.prompt_registry`): files ``libs/tb_llm/prompts/<id>_v<n>.md``
+* Prompts are registry objects (D-300, :mod:`tb_llm.prompt_registry`): files ``libs/tb_llm/prompts/<id>_v<n>.md``
   with YAML front matter (``PromptMeta``) and ``## system`` / ``## user`` Jinja2 sections, each listed in
   ``registry.yaml`` with its sha256; a file whose bytes differ from the registry is refused. The newest registered
   version is used unless pinned (``"judge_v3"``).
@@ -58,7 +58,7 @@ class Prompt:
     system: str
     user: str
     path: Path
-    sha256: str = ""  # the registry's sha of the file (D-201): sent as X-TB-Prompt-Sha, recorded in the audit
+    sha256: str = ""  # the registry's sha of the file (D-300): sent as X-TB-Prompt-Sha, recorded in the audit
 
 
 @dataclass
@@ -79,7 +79,7 @@ class LlmResult:
 @lru_cache(maxsize=128)
 def load_prompt(prompt_id: str) -> Prompt:
     """``judge`` -> the newest registered version; ``judge_v3`` -> exactly version 3. Resolved through the prompt
-    registry (D-201): an unregistered id or version, or a file whose sha256 differs from the registry, is refused."""
+    registry (D-300): an unregistered id or version, or a file whose sha256 differs from the registry, is refused."""
     from tb_llm.prompt_registry import PromptRegistryError, default_registry
 
     pinned = re.fullmatch(r"(.+)_v(\d+)", prompt_id)

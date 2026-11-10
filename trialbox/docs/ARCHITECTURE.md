@@ -152,7 +152,7 @@ record measured on its own uncapped card (D-124, D-138). Only `large` has one to
 (`deploy/measured/serving_config.rtxpro6000.json`). Held by `tests/unit/test_hardware_profiles.py`,
 `tests/unit/test_install_tiers.py` and `tests/unit/test_model_swap.py`.
 
-Prompts are registry objects (D-201): the texts live in `libs/tb_llm/prompts/` (one file, the EDC prefill prompt,
+Prompts are registry objects (D-300): the texts live in `libs/tb_llm/prompts/` (one file, the EDC prefill prompt,
 is registered at its own path until its folder is free), and `registry.yaml` there lists each version with its
 file, sha256, output schema and the schema's sha256, approver, date and qualification record.
 `libs/tb_llm/prompt_registry.py` resolves `(id, version)` (newest when none is named) and refuses an unknown version,

@@ -1,9 +1,10 @@
-# D-201 Prompts and their output schemas are registry objects, resolved by (id, version)
+# D-300 Prompts and their output schemas are registry objects, resolved by (id, version)
 
 - **Task:** T-101 (WS-02.3; URS-PI-06, RSK-09; TST-MOD-02)
 - **PR:** this branch (`agent/T-101-prompt-registry`)
 - **Date:** 2026-11-10
-- **Status:** proposed (awaiting review)
+- **Status:** accepted
+- **Number:** renumbered from D-201, which master gives to test isolation (TB-PLAN-06 §6.1 rule 3)
 
 ## Context
 

@@ -1,4 +1,4 @@
-"""The prompt registry (WS-02.3, D-201; T-101): prompts and output schemas are registry objects, resolved by
+"""The prompt registry (WS-02.3, D-300; T-101): prompts and output schemas are registry objects, resolved by
 ``(id, version)``; a changed text or schema is refused; PRODUCTION needs a qualification record; the gateway resolves
 the prompt and its trace names ``prompt_id@version``."""
 

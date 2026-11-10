@@ -1,4 +1,4 @@
-"""The prompt registry (WS-02.3, D-201): every prompt TrialBox sends is a registry object, resolved by (id, version).
+"""The prompt registry (WS-02.3, D-300): every prompt TrialBox sends is a registry object, resolved by (id, version).
 
 ``libs/tb_llm/prompts/registry.yaml`` lists one entry per prompt version::
 
@@ -96,9 +96,9 @@ BASELINE: dict[tuple[str, int, str, str], str] = {
     ("ie_locate", 1, "bbff3a9fdf3bb3dc7cb633f5b443abab0336d5f5f81d3669da482c814d78f5a1",
      "7f69f64788b1aea0ed11ce10b340f094f2c6bc3a0f79cd3697a29b430d307188"): "6e11e25",
     ("ir_extract", 1, "a30c810c6998340b0b162f92c8ebd5899b565346f54ee006ccf3599613b8fcb5",
-     "627c08da7bb5a53c96219c897a49fbd99dd218fd718074242277889a853fc671"): "6e11e25",
+     "28fa435ca4df203d489bfd8f4f6d8a09869b2359238c69768c721a4aa3031baf"): "5bfd438",
     ("ir_extract", 2, "bec957be30fc46ab47aafeae5e2666ce187dbfcf4d2d949f00855953abf34674",
-     "627c08da7bb5a53c96219c897a49fbd99dd218fd718074242277889a853fc671"): "6e11e25",
+     "28fa435ca4df203d489bfd8f4f6d8a09869b2359238c69768c721a4aa3031baf"): "5bfd438",
     ("judge", 3, "bfbae7066925ea1de94f4163dd686f0bea3c483f5d48db5c03518d1c52111017",
      "5285acc3d211de370bca9f8b0f8125b31bd41b6a70ce10c0c275f5e0148e21ed"): "6e11e25",
     ("judge", 4, "17db3b50b3f874a2e7253c806942739170f8f7a947d4548aed8e9eafa4cdef6e",
@@ -535,7 +535,7 @@ def default_registry() -> PromptRegistry:
 
 
 def get(prompt_id: str, version: int | None = None, **kw: Any) -> ResolvedPrompt:
-    """``prompt_registry.get(id, version=None)``: text, schema and sha of a registered prompt (D-201)."""
+    """``prompt_registry.get(id, version=None)``: text, schema and sha of a registered prompt (D-300)."""
     return default_registry().get(prompt_id, version, **kw)
 
 

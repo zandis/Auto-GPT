@@ -33,7 +33,7 @@ class JudgeReply:
     reason: str
     call_id: str = ""
     build_sha: str = ""
-    prompt: str = ""  # id@version from the prompt registry (D-201)
+    prompt: str = ""  # id@version from the prompt registry (D-300)
     prompt_sha: str = ""  # the registry's sha256 of that text
     tokens_in: int = 0
     tokens_out: int = 0
@@ -156,7 +156,7 @@ class AgreementJudge:
         answered = second
         mismatch = (first.prompt, first.prompt_sha) != (second.prompt, second.prompt_sha)
         if mismatch:
-            # D-201: the pair agrees only on one registered prompt text; two texts are not two opinions on one question
+            # D-300: the pair agrees only on one registered prompt text; two texts are not two opinions on one question
             second = replace(second, verdict="unknown", confidence=0.0)  # combine() -> unknown (disagree)
         d = combine(_vote(first), _vote(second))  # the one two-model rule (tb_common.pair, D-118)
         if d.disagreement:
@@ -182,7 +182,7 @@ class AgreementJudge:
 
 def _opinion(role: str, r: JudgeReply, prompt_mismatch: bool = False) -> dict[str, Any]:
     o = {"role": role, "verdict": r.verdict, "quote": r.quote, "quote_date": r.quote_date}
-    if prompt_mismatch:  # D-201: why this answer did not count (the reason code stays "disagree", tb_common.reasons)
+    if prompt_mismatch:  # D-300: why this answer did not count (the reason code stays "disagree", tb_common.reasons)
         o["prompt_mismatch"] = f"{r.prompt} sha256 {r.prompt_sha[:12]}"
     return o
 

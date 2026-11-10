@@ -62,7 +62,7 @@ SCHEMA: dict[str, Any] = {
     "required": ["sentences"],
     "additionalProperties": False,
 }
-PROMPT = "profile_summary_v1"  # libs/tb_llm/prompts/profile_summary_v1.md (the prompt registry, D-201)
+PROMPT = "profile_summary_v1"  # libs/tb_llm/prompts/profile_summary_v1.md (the prompt registry, D-300)
 
 
 # ------------------------------------------------------------------------------------------------ the facts

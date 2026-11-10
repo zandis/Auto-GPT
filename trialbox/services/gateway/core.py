@@ -9,7 +9,7 @@ Processing order for ``POST /v1/chat/completions`` (each step passes or refuses;
    precedes any study step), or, with no step confirmer wired, a D3 call the box policy allows (``phi_on_box``,
    D-142: topology A, listed callers, perimeter endpoints only, because the data never leaves the box); a
    schema-constrained ``response_format`` is required except for free-form roles (LLM-22); the prompt is resolved
-   by ``(id, version)`` in the prompt registry (D-201, :mod:`tb_llm.prompt_registry`) and the request is bound to
+   by ``(id, version)`` in the prompt registry (D-300, :mod:`tb_llm.prompt_registry`) and the request is bound to
    it: an unknown version, a registered text or schema whose sha differs from the registry, a version without a
    qualification record in PRODUCTION, a prompt with no schema on a patient route (D2-D4), messages that are not
    the registered template rendered (the literal text between its ``{{ }}`` expressions, in order, anchored at both
@@ -110,7 +110,7 @@ class _Call:
     step: str = ""
     context_of_use: str = ""
     prompt: str = ""  # id@version
-    prompt_sha: str = ""  # the registry's sha256 of that version (D-201)
+    prompt_sha: str = ""  # the registry's sha256 of that version (D-300)
     prompt_registered: bool | None = None
     data_class: str = ""
     rendered_sha: str = ""
@@ -191,7 +191,7 @@ class Gateway:
         self._cache_lock = threading.Lock()  # the HTTP app runs calls in a thread pool
         self.prompts = prompts or default_registry()
         if self.config.environment == Environment.PRODUCTION:
-            # D-201: a changed prompt file, or a version without a qualification record, stops the start
+            # D-300: a changed prompt file, or a version without a qualification record, stops the start
             self.prompts.check(Environment.PRODUCTION.value)
 
     # ------------------------------------------------------------------------------------------------ public
@@ -355,8 +355,8 @@ class Gateway:
     def _resolve_prompt(
         self, call: _Call, h: dict[str, str], label: ClassLabel, messages: Any, response_format: Any, free_form: bool
     ) -> None:
-        """D-201: resolve ``X-TB-Prompt`` (``id@version``) in the prompt registry and bind the request to it, or
-        refuse (module docstring). A free-form role sends no prompt and is not checked here (D-201 records it)."""
+        """D-300: resolve ``X-TB-Prompt`` (``id@version``) in the prompt registry and bind the request to it, or
+        refuse (module docstring). A free-form role sends no prompt and is not checked here (D-300 records it)."""
         if not call.prompt:
             return
         env = self.config.environment
@@ -548,7 +548,7 @@ class Gateway:
                         "tb.role": call.role,
                         "tb.purpose": call.purpose,
                         "tb.study_id": call.study,
-                        # prompt_id@version (D-201); its sha is in the ledger record (the trace redactor reads
+                        # prompt_id@version (D-300); its sha is in the ledger record (the trace redactor reads
                         # long digit runs inside a hex digest as identifiers)
                         "tb.prompt": call.prompt,
                         "tb.prompt_registered": call.prompt_registered,

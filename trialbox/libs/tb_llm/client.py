@@ -41,7 +41,7 @@ class CallLabels:
     prompt: str = ""  # prompt_id@version
     step_id: str = ""
     flags: tuple[str, ...] = ()
-    prompt_sha: str = ""  # the registry's sha256 of the prompt text (D-201); the gateway refuses a mismatch
+    prompt_sha: str = ""  # the registry's sha256 of the prompt text (D-300); the gateway refuses a mismatch
 
     def headers(self, caller: str) -> dict[str, str]:
         missing = [

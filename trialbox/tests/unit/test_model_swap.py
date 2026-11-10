@@ -207,7 +207,7 @@ CHAT_H = H(
     Prompt="classify_intent@1",
 )
 CHAT_BODY = {
-    # the registered template of classify_intent rendered, and its schema (D-201: the gateway refuses others)
+    # the registered template of classify_intent rendered, and its schema (D-300: the gateway refuses others)
     "messages": render(
         load_prompt("classify_intent_v1"),
         {"text": "how many patients for study X?", "attachments": [], "today": "2026-11-10", "language": "en"},

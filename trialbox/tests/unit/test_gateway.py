@@ -66,7 +66,7 @@ def H(**over: str) -> dict[str, str]:
         "X-TB-Study": "STUDY-1",
         "X-TB-Step": "step-1",
         "X-TB-Context-Of-Use": "s3_note_judgement",
-        "X-TB-Prompt": "judge@4",  # the body helpers render the newest judge (D-201: the text must be this version's)
+        "X-TB-Prompt": "judge@4",  # the body helpers render the newest judge (D-300: the text must be this version's)
     }
     for k, v in over.items():
         key = "X-TB-" + k.replace("_", "-")
@@ -74,7 +74,7 @@ def H(**over: str) -> dict[str, str]:
             h.pop(key, None)
         else:
             h[key] = v
-    # a registered prompt carries its registry sha, as tb_llm callers send it (D-201), unless the test sets one
+    # a registered prompt carries its registry sha, as tb_llm callers send it (D-300), unless the test sets one
     pid, _, ver = h.get("X-TB-Prompt", "").partition("@")
     if "Prompt_Sha" not in over and pid in prompt_registry.default_registry().ids and re.fullmatch(r"[1-9]\d*", ver):
         with contextlib.suppress(prompt_registry.PromptRegistryError):
@@ -348,7 +348,7 @@ def _intake(caller: str, role: str, data_class: str = "D3", **over: str) -> dict
 
 
 INTAKE_BODY: dict[str, Any] = {
-    # the registered template rendered and its schema (D-201: the gateway refuses other messages or another schema)
+    # the registered template rendered and its schema (D-300: the gateway refuses other messages or another schema)
     "messages": render(
         load_prompt("classify_intent_v1"),
         {"text": "請問 GZQO 目前收案狀況？", "attachments": [], "today": "2026-11-10", "language": "zh-TW"},

@@ -1,4 +1,4 @@
-# The prompt registry (WS-02.3, D-201; libs/tb_llm/prompt_registry.py). One entry per prompt version. A changed
+# The prompt registry (WS-02.3, D-300; libs/tb_llm/prompt_registry.py). One entry per prompt version. A changed
 # prompt file is refused until it is registered as a new version; in PRODUCTION a version also needs a qualification
 # record ({record: libs/tb_llm/prompts/qualification/<x>.json, sha256: <of that file>}, naming prompt, sha256 and
 # schema_sha256; provisional until T-012). The
@@ -104,19 +104,19 @@ prompts:
     file: ir_extract_v1.md
     sha256: a30c810c6998340b0b162f92c8ebd5899b565346f54ee006ccf3599613b8fcb5
     schema: llm_extract_output
-    schema_sha256: 627c08da7bb5a53c96219c897a49fbd99dd218fd718074242277889a853fc671
+    schema_sha256: 28fa435ca4df203d489bfd8f4f6d8a09869b2359238c69768c721a4aa3031baf
     approved_by: integrator (baseline import, T-101)
     date: 2026-10-04
-    qualification: {baseline: 6e11e25}
+    qualification: {baseline: 5bfd438}  # schema gained cdai, sdai on master (D-189, D-190)
   - id: ir_extract  # moved from services/criteria_compiler/prompts/ir_extract_v2.md
     version: 2
     file: ir_extract_v2.md
     sha256: bec957be30fc46ab47aafeae5e2666ce187dbfcf4d2d949f00855953abf34674
     schema: llm_extract_output
-    schema_sha256: 627c08da7bb5a53c96219c897a49fbd99dd218fd718074242277889a853fc671
+    schema_sha256: 28fa435ca4df203d489bfd8f4f6d8a09869b2359238c69768c721a4aa3031baf
     approved_by: integrator (baseline import, T-101)
     date: 2026-11-05
-    qualification: {baseline: 6e11e25}
+    qualification: {baseline: 5bfd438}  # schema gained cdai, sdai on master (D-189, D-190)
   - id: judge  # moved from services/orchestrator/prompts/judge_v3.md
     version: 3
     file: judge_v3.md
