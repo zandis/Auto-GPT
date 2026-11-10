@@ -53,11 +53,15 @@ from tests.unit.test_mapping_engine import KEY, _mapping
         ("5", "M", "m", Reading(None, None, UNIT_MISMATCH)),  # molar is not metre: bare symbols are not case-folded
         # text that is no number
         ("陰性", "mg/dL", "mg/dL", Reading(None, None, UNKNOWN_VALUE)),
-        ("see note", "mg/L", "mg/dL", Reading(None, None, UNKNOWN_VALUE)),
+        ("see note", "mg/L", "mg/dL", Reading(None, None, UNIT_MISMATCH)),  # the units are judged first
         ("", None, "mg/dL", Reading(None, None, UNKNOWN_VALUE)),
+        ("1.5E1", "mg/dL", "mg/dL", Reading(None, None, UNKNOWN_VALUE)),  # no exponent forms
+        ("NaN", "mg/dL", "mg/dL", Reading(None, None, UNKNOWN_VALUE)),
+        (float("nan"), "mg/dL", "mg/dL", Reading(None, None, UNKNOWN_VALUE)),
+        (float("inf"), None, "mg/dL", Reading(None, None, UNKNOWN_VALUE)),
     ],
 )
-def test_read(text: str, row: str | None, lookup: str | None, expected: Reading) -> None:
+def test_read(text: object, row: str | None, lookup: str | None, expected: Reading) -> None:
     assert read(text, row, lookup) == expected
 
 
@@ -161,9 +165,11 @@ def test_the_two_codes_have_words_in_three_languages() -> None:
     assert code_of("unit mismatch: CRP mg/L vs mg/dL", "unknown") == UNIT_MISMATCH
 
 
-def test_the_pages_render_the_codes_through_reasons() -> None:
-    """The candidate page (``reason_label``, i.e. :func:`tb_common.reasons.label`) and the site set-up patient page
-    (``t_reason``) take their words from reasons.py: the two codes show in the page's language."""
+def test_the_page_renderers_have_words_for_the_codes() -> None:
+    """The two renderers (``reason_label``, i.e. :func:`tb_common.reasons.label`, and the site set-up page's
+    ``t_reason``) would show the codes in the page language. This does **not** show them on a page: the SQL engine
+    does not yet put ``unit_mismatch`` into an unknown value atom's evidence (D-215 "Not done"), so a mismatched row is
+    unknown on the page with the reason ``data_gap`` today."""
     from console.site_pages import t_reason
 
     for code in (UNIT_MISMATCH, UNKNOWN_VALUE):
@@ -252,3 +258,59 @@ def test_coded_answers_are_not_unit_checked(tmp_path: Path) -> None:
     mp, rs = _mapper(tmp_path)
     res = mp.map_row(rs, {"id": "1", "mrn": "M1", "local_code": "HBS", "v": "pos", "u": "mg/L"})
     assert res is not None and res["valueCodeableConcept"]["coding"][0]["code"] == "LA6576-8"
+
+
+@pytest.mark.parametrize("raw", ["1.5E1", "2.0E+03", "5.", "1_5", "5e0", "NaN", "nan", "Infinity", "-inf", "sNaN"])
+def test_a_unit_checked_row_never_takes_a_number_labvalue_cannot_read(tmp_path: Path, raw: str) -> None:
+    """Fable B1: with ``unit_column`` the value is labvalue's reading only; ``Decimal`` forms (exponents, ``5.``,
+    ``1_5``, ``NaN``) stay text, so the engines read them as unknown, in the right unit or not."""
+    mp, rs = _mapper(tmp_path)
+    for code, unit in (("CRP", "mg/dL"), ("CRP10", "mg/dL"), ("CRP", "mg/L")):
+        res = mp.map_row(rs, {"id": "1", "mrn": "M1", "local_code": code, "v": raw, "u": unit})
+        assert res is not None and "valueQuantity" not in res, (raw, code, unit)
+        assert Flattener().observation(res)["value_num"] is None
+
+
+def test_the_factor_applies_only_to_a_checked_reading(tmp_path: Path) -> None:
+    """CRP10 (source mg/dL, factor 10 to mg/L): 1.25 mg/dL is 12.5 mg/L; 1.25E0 is text; 1.25 mg/L is a mismatch."""
+    mp, rs = _mapper(tmp_path)
+    ok = mp.map_row(rs, {"id": "1", "mrn": "M1", "local_code": "CRP10", "v": "1.25", "u": "mg/dL"})
+    assert ok is not None and ok["valueQuantity"]["value"] == 12.5
+    exp = mp.map_row(rs, {"id": "2", "mrn": "M1", "local_code": "CRP10", "v": "1.25E0", "u": "mg/dL"})
+    assert exp is not None and exp.get("valueString") == "1.25E0" and "valueQuantity" not in exp
+    bad = mp.map_row(rs, {"id": "3", "mrn": "M1", "local_code": "CRP10", "v": "1.25E0", "u": "mg/L"})
+    assert bad is not None and bad["dataAbsentReason"]["text"] == UNIT_MISMATCH
+
+
+@pytest.mark.parametrize("raw", ["NaN", "Infinity", "-Infinity"])
+def test_without_unit_column_nan_is_text_not_a_value(tmp_path: Path, raw: str) -> None:
+    mp, rs = _mapper(tmp_path, unit_column=None)
+    res = mp.map_row(rs, {"id": "1", "mrn": "M1", "local_code": "CRP", "v": raw})
+    assert res is not None and res.get("valueString") == raw and "valueQuantity" not in res
+
+
+def test_a_declared_unit_column_the_source_lacks_stops_the_mapping(tmp_path: Path) -> None:
+    """Fable L3: never a silent skip of the unit check."""
+    from adapter.mapping.engine import MappingError
+
+    mp, rs = _mapper(tmp_path)
+    with pytest.raises(MappingError, match="unit_column 'u'"):
+        mp.map_row(rs, {"id": "1", "mrn": "M1", "local_code": "CRP", "v": "5"})
+
+
+def test_the_shipped_mapping_checks_the_row_unit() -> None:
+    """Fable H2: the TW Core demo mapping (which the JP SS-MIX2 and the CSV / CGRD templates extend) names the lab
+    table's ``unit`` column; its lookup declares CRP's source unit (mg/dL, factor 10 to mg/L)."""
+    from adapter.mapping.engine import Mapping
+
+    root = Path(__file__).resolve().parents[2] / "services" / "adapter" / "mapping" / "tw_core" / "demo_his.yaml"
+    m = Mapping.load(root)
+    rs = next(r for r in m.resources if r.type == "Observation" and r.table == "lab")
+    mp = Mapper(m, KEY, "S")
+    row = {"lab_no": "L1", "mrn": "M1", "local_code": "CRP", "item_name": "CRP", "sample_datetime": "2026-03-01 09:00"}
+    ok = mp.map_row(rs, row | {"result_value": "1.25", "unit": "mg/dL"})
+    assert ok is not None and ok["valueQuantity"]["value"] == 12.5 and ok["valueQuantity"]["unit"] == "mg/L"
+    bad = mp.map_row(rs, row | {"result_value": "12.5", "unit": "mg/L"})
+    assert bad is not None and "valueQuantity" not in bad and bad["dataAbsentReason"]["text"] == UNIT_MISMATCH
+    tjc = mp.map_row(rs, row | {"local_code": "TJC28", "result_value": "4", "unit": "{count}"})
+    assert tjc is not None and tjc["valueQuantity"]["value"] == 4

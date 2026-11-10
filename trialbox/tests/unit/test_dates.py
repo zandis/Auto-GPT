@@ -122,6 +122,8 @@ def test_parse_reads(text: str, lang: str | None, expected: date) -> None:
         ("45000", None),  # an Excel serial is the sheet reader's question, not a date
         ("someday", "en"),
         ("2026-03-14 and 2026-03-15", None),  # two dates are not one
+        ("0112/03/15", "zh-TW"),  # Fable M2: a four-digit year outside 1900-2099 is not read
+        ("1120-3-15", None),
     ],
 )
 def test_parse_refuses_what_it_cannot_read_for_certain(text: str, lang: str | None) -> None:

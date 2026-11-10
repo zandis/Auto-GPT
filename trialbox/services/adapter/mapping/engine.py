@@ -383,16 +383,20 @@ class Mapper:
         raw = row.get(args["column"])
         if lk is None or raw is None or str(raw).strip() == "":
             return None
+        checked: labvalue.Reading | None = None
         if args.get("unit_column") and lk.get("value_type") != "coded":
+            column = args["unit_column"]
+            if column not in row:  # a declared unit column the source does not have: stop, never skip the check
+                raise MappingError(f"{rs.type} from {rs.table}: unit_column {column!r} is not a column of the source")
             source_unit = lk.get("source_unit") or (lk.get("ucum") if Decimal(lk.get("factor") or "1") == 1 else None)
-            checked = labvalue.read(raw, row.get(args["unit_column"]), source_unit)
+            checked = labvalue.read(raw, row[column], source_unit)
             if checked.reason == labvalue.UNIT_MISMATCH:  # no value[x]: the engines read no value as unknown (D-130)
                 return {
                     "dataAbsentReason": {
                         "coding": [{"system": DATA_ABSENT, "code": "error"}],
                         "text": labvalue.UNIT_MISMATCH,
                     },
-                    "note": [{"text": f"{str(raw).strip()} {str(row.get(args['unit_column'])).strip()}"}],
+                    "note": [{"text": f"{str(raw).strip()} {str(row[column] or '').strip()}"}],
                 }
         if lk.get("value_type") == "coded":
             answers = dict(a.split(":", 1) for a in (lk.get("answers") or "").split(";") if ":" in a)
@@ -407,15 +411,22 @@ class Mapper:
                 }
             }
         comparator: str | None = None
-        try:
-            num = Decimal(str(raw).strip())
-        except InvalidOperation:
-            # D-142 (review B-01): "75 H" is 75 with a flag, "<0.3" / "0.3未満" is censored (Quantity.comparator);
-            # anything else stays text, which the screening engine reads as unknown, never as a failed test
-            got = labvalue.parse(raw)
-            if got is None:
+        if checked is not None:  # D-215: the unit-checked reading is labvalue's alone (no 1.5E1, no NaN)
+            if checked.value is None:
                 return {"valueString": str(raw)}
-            num, comparator = Decimal(repr(got[0])), got[1]
+            num, comparator = Decimal(repr(checked.value)), checked.comparator
+        else:
+            try:
+                num = Decimal(str(raw).strip())
+            except InvalidOperation:
+                # D-142 (review B-01): "75 H" is 75 with a flag, "<0.3" / "0.3未満" is censored (Quantity.comparator);
+                # anything else stays text, which the screening engine reads as unknown, never as a failed test
+                got = labvalue.parse(raw)
+                if got is None:
+                    return {"valueString": str(raw)}
+                num, comparator = Decimal(repr(got[0])), got[1]
+            if not num.is_finite():  # "NaN", "Infinity": not a result (D-215)
+                return {"valueString": str(raw)}
         factor = Decimal(lk.get("factor") or "1")
         val = num * factor
         unit = lk.get("ucum") or ""

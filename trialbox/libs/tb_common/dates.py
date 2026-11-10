@@ -153,8 +153,9 @@ def parse(text: str | None, lang: str | None = None, era: bool = True) -> date |
     if not s:
         return None
     m = CELL_ISO.match(s)
-    if m:
-        return ymd(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    if m:  # a Gregorian year is 19xx or 20xx here (0112/03/15 or 1120-3-15 is no date anyone wrote; CELL_YMD8 too)
+        y = int(m.group(1))
+        return ymd(y, int(m.group(2)), int(m.group(3))) if 1900 <= y <= 2099 else None
     m = CELL_YMD8.match(s)
     if m:
         return ymd(int(m.group(1)), int(m.group(2)), int(m.group(3)))

@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import io
 import random
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,18 @@ FIXTURES: dict[str, list[tuple[str, str]]] = {
     ],
     # two bytes B6 C5: Shift_JIS ｶﾅ or Big5 債; too little to tell, so refused
     "ambiguous_two_chars.csv": [("ID,kana\r\n1,ｶﾅ\r\n", "cp932")],
+    # Fable review H1: each was read as wrong text by the first detector; now read right or refused
+    "kana_glued_ascii.csv": [("ｶﾙﾃNo,WBC\n1,5.1\n", "cp932")],  # Shift_JIS ｶﾙﾃ or Big5 嗨髁: refused for sheets
+    "big5_one_char.csv": [("ID,職\n", "big5")],  # Big5 C2 BE is also UTF-8 ¾: refused
+    "gb18030_header.csv": [("病人姓名,性别,诊断\n", "gb18030")],  # simplified Chinese: not a candidate, refused
+    "cp932_drug_master.csv": [
+        ("code,name\r\n1,ｱﾑﾛｼﾞﾋﾟﾝOD錠5mg\r\n2,ﾛｷｿﾌﾟﾛﾌｪﾝNa錠60mg\r\n", "cp932")
+    ],  # a licensed master: kana glued to ASCII is read, not refused
+    # Fable review M3: a Big5 line inside a Shift_JIS file that Shift_JIS also decodes (as mojibake)
+    "big5_line_in_cp932.csv": [
+        ("ID,診断,氏名\n1,痛風,山田太郎\n2,高血圧,鈴木花子\n", "cp932"),
+        ("3,病人,姓名,性別,電話\n", "big5"),
+    ],
 }
 
 
@@ -104,6 +117,38 @@ def test_the_ssmix2_note_reads_as_euc_jp() -> None:
 
     text, how = document_text("note.txt", _read("eucjp_note.txt"))
     assert how == "text" and text.startswith("退院時サマリ")
+    with pytest.raises(encoding.EncodingRefused):  # a sheet is not read as EUC-JP, nor as CP932 mojibake of it
+        encoding.detect(_read("eucjp_note.txt"))
+
+
+@pytest.mark.parametrize(
+    "name", ["kana_glued_ascii.csv", "big5_one_char.csv", "gb18030_header.csv", "ambiguous_two_chars.csv"]
+)
+def test_what_two_character_sets_read_alike_is_refused_not_read_wrong(name: str) -> None:
+    """Fable review H1: right text or a refusal, never wrong text."""
+    with pytest.raises(encoding.EncodingRefused) as exc:
+        encoding.decode(_read(name))
+    assert exc.value.code == "FORM-ENCODING"
+
+
+def test_a_licensed_master_with_kana_glued_to_ascii_is_read() -> None:
+    from adapter.licensed import detect_encoding
+
+    assert detect_encoding(_read("cp932_drug_master.csv")) == "cp932"
+    assert (
+        detect_encoding(_read("kana_glued_ascii.csv")) == "cp932"
+    )  # Big5 is not a candidate there and reads no better
+    text, _ = encoding.decode(_read("cp932_drug_master.csv"), ("cp932",))
+    assert "ｱﾑﾛｼﾞﾋﾟﾝOD錠5mg" in text
+
+
+def test_a_big5_line_inside_a_cp932_file_is_refused_with_its_line() -> None:
+    """Fable review M3: Shift_JIS decodes the whole file (the Big5 line as mojibake); the line is caught alone."""
+    data = _read("big5_line_in_cp932.csv")
+    assert data.decode("cp932")  # no error: the first-that-decodes readers would have taken it
+    with pytest.raises(encoding.EncodingRefused) as exc:
+        encoding.decode(data)
+    assert exc.value.line == 4
 
 
 def test_licensed_files_keep_their_codec_names() -> None:
@@ -169,8 +214,10 @@ def test_the_readers_refuse_instead_of_guessing() -> None:
 
 def test_utf8_with_unit_symbols_stays_utf8() -> None:
     """µ (C2 B5) and ° (C2 B0) are valid Big5 bytes too; a UTF-8 lab sheet must not be read as Big5."""
-    for text in ("尿酸,480,µmol/L\n", "体温,37.5,°C\n", "x,1,µ\n", "name\nJosé Müller résumé\n"):
+    for text in ("尿酸,480,µmol/L\n", "体温,37.5,°C\n", "尿酸値 480 µmol/L ± 5\n"):
         assert encoding.detect(text.encode()) == ("utf-8", 1.0), text
+    for text in ("x,1,µ\n", "name\nJosé Müller résumé\n", "ID,¾\n"):  # a few such characters only: weighed
+        _never_wrong(text, "utf-8")
 
 
 def test_ascii_is_utf8() -> None:
@@ -191,12 +238,13 @@ _HW = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈ�
 _HW_FIRST = "".join(c for c in _HW if c not in "ｦｧｨｩｪｫｬｭｮｯｰﾞﾟﾝ")
 
 
-def _sheet(rnd: random.Random, cell: str) -> str:
+def _sheet(rnd: random.Random, cell: Callable[[], str], rows: tuple[int, int] = (1, 4), filled: bool = False) -> str:
+    """A small CSV: the text column holds ``cell()`` in the first row (``filled``: in every row)."""
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\r\n")
     w.writerow(["id", "text", "n"])
-    for i in range(rnd.randint(1, 4)):
-        w.writerow([f"P{i:04d}", cell if i == 0 else "", rnd.randint(1, 999)])
+    for i in range(rnd.randint(*rows)):
+        w.writerow([f"P{i:04d}", cell() if i == 0 or filled else "", rnd.randint(1, 999)])
     return buf.getvalue()
 
 
@@ -211,17 +259,21 @@ def _never_wrong(text: str, codec: str) -> bool:
     return True
 
 
-@pytest.mark.parametrize(("alphabet", "codec", "lo", "most_refused"), [(_JA, "cp932", 1, 0.0), (_ZH, "big5", 2, 0.05)])
-def test_round_trip_sweep(alphabet: str, codec: str, lo: int, most_refused: float) -> None:
-    """A seeded sweep of sheets of common Japanese (CP932) and Traditional Chinese (Big5) text: every one is read back
-    exactly or refused, and refusals are rare."""
+@pytest.mark.parametrize(("alphabet", "codec"), [(_JA, "cp932"), (_ZH, "big5")])
+def test_round_trip_sweep(alphabet: str, codec: str) -> None:
+    """Seeded sweeps of sheets of common Japanese (CP932) and Traditional Chinese (Big5): every one is read back
+    exactly or refused. A sheet with text in every row is almost never refused; one short cell in a sheet often is
+    (two character sets can read a few bytes alike), and that is the right answer."""
     rnd = random.Random(20261109)
     n = 1500
-    read = sum(
-        _never_wrong(_sheet(rnd, "".join(rnd.choice(alphabet) for _ in range(rnd.randint(lo, 10)))), codec)
-        for _ in range(n)
-    )
-    assert read >= n * (1 - most_refused)
+
+    def cell() -> str:
+        return "".join(rnd.choice(alphabet) for _ in range(rnd.randint(2, 8)))
+
+    full = sum(_never_wrong(_sheet(rnd, cell, (3, 8), filled=True), codec) for _ in range(n))
+    assert full >= n * 0.99
+    one = sum(_never_wrong(_sheet(rnd, cell), codec) for _ in range(n))
+    assert one >= n * 0.8
 
 
 def test_half_width_kana_names_round_trip_or_are_refused() -> None:
@@ -231,8 +283,10 @@ def test_half_width_kana_names_round_trip_or_are_refused() -> None:
         return rnd.choice(_HW_FIRST) + "".join(rnd.choice(_HW) for _ in range(rnd.randint(2, 5)))
 
     n = 1500
-    read = sum(_never_wrong(_sheet(rnd, f"{name()} {name()}"), "cp932") for _ in range(n))
-    assert read >= n * 0.85  # one short name in a sheet is often too little to tell from Big5: refused, not guessed
+    full = sum(_never_wrong(_sheet(rnd, lambda: f"{name()} {name()}", (3, 8), filled=True), "cp932") for _ in range(n))
+    assert full >= n * 0.99
+    one = sum(_never_wrong(_sheet(rnd, lambda: f"{name()} {name()}"), "cp932") for _ in range(n))
+    assert one >= n * 0.6  # one short name is often too little to tell from Big5 or EUC-JP: refused, not guessed
 
 
 def test_round_trip_property() -> None:

@@ -26,6 +26,7 @@ unit, as D-149's ``unit_defaults``). Text that is no number is ``unknown_value``
 
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from typing import NamedTuple
@@ -49,7 +50,7 @@ def parse(text: object) -> tuple[float, str | None] | None:
     if text is None or isinstance(text, bool):
         return None
     if isinstance(text, int | float):
-        return float(text), None
+        return (float(text), None) if math.isfinite(text) else None  # NaN and infinity are not results
     s = unicodedata.normalize("NFKC", str(text)).strip()
     if not s:
         return None
@@ -111,6 +112,7 @@ UCUM: dict[str, tuple[str, ...]] = {
     "kg": (),
     "g": (),
     "cm": (),
+    "mm": (),
     "m": (),
     "kg/m2": ("kg/m^2",),
     "mg/g{creat}": ("mg/gCr", "mg/g creatinine", "mg/gCre"),
@@ -152,16 +154,24 @@ class Reading(NamedTuple):
     reason: str | None
 
 
+def units_agree(row_unit: object, lookup_unit: object) -> bool | None:
+    """None when the row names no unit (the site's declared unit applies); True only when both are the same UCUM
+    code (:func:`ucum`); False otherwise, a unit :data:`UCUM` lacks on either side included. Decided on the units
+    alone, before and whatever the result text is."""
+    row = "" if row_unit is None else unicodedata.normalize("NFKC", str(row_unit)).strip()
+    if not row:
+        return None
+    mine, theirs = ucum(row), ucum(lookup_unit)
+    return mine is not None and mine == theirs
+
+
 def read(text: object, row_unit: object, lookup_unit: object) -> Reading:
-    """``text`` (the result as written) with the row's own unit, against the unit the lookup declares. A value comes
-    back only in the lookup's unit and only when no conversion is needed; see the module docstring for the rules."""
+    """``text`` (the result as written) with the row's own unit, against the unit the lookup declares. The units are
+    judged first (:func:`units_agree`): a mismatch is ``unit_mismatch`` whatever the text. Then the text is read by
+    :func:`parse` only (no exponent, no ``NaN``): a value comes back in the lookup's unit, never converted."""
+    if units_agree(row_unit, lookup_unit) is False:
+        return Reading(None, None, UNIT_MISMATCH)
     got = parse(text)
     if got is None:
         return Reading(None, None, UNKNOWN_VALUE)
-    row = "" if row_unit is None else unicodedata.normalize("NFKC", str(row_unit)).strip()
-    if not row:
-        return Reading(got[0], got[1], None)  # the row says nothing: the site's declared unit
-    mine, theirs = ucum(row), ucum(lookup_unit)
-    if mine is None or theirs is None or mine != theirs:
-        return Reading(None, None, UNIT_MISMATCH)
     return Reading(got[0], got[1], None)

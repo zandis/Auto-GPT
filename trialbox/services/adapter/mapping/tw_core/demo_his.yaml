@@ -138,7 +138,7 @@ resources:
       code.coding[2]: {builder: coding, column: local_code, system: lab_local, display_column: item_name}
       subject.reference: {ref: {type: Patient, pid: mrn}}
       effectiveDateTime: {column: sample_datetime, type: datetime}
-      $merge: {builder: lab_value, lookup: lab, key: local_code, column: result_value}
+      $merge: {builder: lab_value, lookup: lab, key: local_code, column: result_value, unit_column: unit}  # R-31, D-215
   - type: Observation
     table: vital
     id: {hid: vital_no, suffix: "-HT"}
