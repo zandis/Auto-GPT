@@ -11,11 +11,13 @@ computes them for the site's local date). The register adds what the AE form doe
   deadline is visible);
 * the receiver's acknowledgement of each report (the sponsor's, the IRB's or the regulator's receipt, its day and
   reference);
-* follow-up reports: the rule's follow-up (ICH E2A: a fatal or life-threatening case's complete report 8 days after
-  the first report to the regulator; ``TB_SAE_FOLLOWUP_DAYS``, same form as ``TB_SAE_REPORT_DAYS``) and any
-  follow-up a receiver asks for by a date;
+* follow-up reports: the rule's follow-up (ICH E2A: a fatal or life-threatening case is completed 8 days after the
+  7-day report, so day 15 from the day learned; ``TB_SAE_FOLLOWUP_DAYS``, same form as ``TB_SAE_REPORT_DAYS``) and
+  any follow-up a receiver asks for by a date;
 * the trail: every create and change, with old and new dates, who and when (``sae_trail``), and the same in the audit
-  log (``console.sae``).
+  log (``console.sae``). What the register reads from the AE form is written as ``system:sync`` with the form's
+  author and time in the body, never as the person whose page view noticed it;
+* a case no longer serious keeps its last clock: its open reports stay on the worklist until sent or closed.
 
 **No patient text.** The register and the trail keep the study, the screening number (``record``), the AE event
 (``ae1`` ...), the pseudonym, dates, parties and short references. Never the AE term, a chart number or a name.
@@ -31,6 +33,7 @@ Stored in the trial database (PostgreSQL ``trialbox_wf``, schema ``sae``; D-126)
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
 
@@ -94,7 +97,10 @@ CREATE TABLE sae_trail (
 );
 CREATE INDEX sae_trail_case ON sae_trail (ruleset, record, event, at)
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1,)
+# version 2 (review of PR #60, H4): an open report of a case no longer serious can be closed
+SCHEMA_V2 = "ALTER TABLE sae_report ADD COLUMN closed_on TEXT"
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2)
+SYNC = "system:sync"  # the actor of every row the register writes from the AE form (never the person viewing)
 
 
 class SaeError(ValueError):
@@ -130,25 +136,50 @@ def followup_rules(override: str = "") -> dict[str, tuple[int, int]]:
     return out
 
 
+def start_of(ae: dict[str, Any]) -> date | None:
+    """Day 0 of the clock, as :func:`lc.report_clock` takes it: the day learned, else the onset."""
+    return day_of(ae.get("ae_aware")) or day_of(ae.get("ae_onset"))
+
+
 def rule_followups(ae: dict[str, Any], today: date, rules: dict[str, tuple[int, int]],
                    sent: dict[str, str]) -> list[dict[str, Any]]:  # fmt: skip
-    """The rule's follow-up per party, on the same clock as the first report (:func:`lc.report_clock`): it starts the
-    day the first report to that party was sent (the AE form's date) and is done when ``sent[party]`` holds a day."""
+    """The rule's follow-up per party, on the same clock as the first report (:func:`lc.report_clock`), counted from
+    the same day 0: the first report's days plus the follow-up days (ICH E2A: 7 + 8 = day 15 for a fatal or
+    life-threatening case to the regulator). It shows as soon as the case qualifies, whether or not the first report
+    has gone, and does not move when the first report is sent late or early: a late first report must not buy a later
+    follow-up, and an early one must not raise a false alarm. Done when ``sent[party]`` holds a day."""
     out: list[dict[str, Any]] = []
+    grave = lc.grave(ae)
     for c in ae.get("clock") or []:
-        party, first = str(c.get("party")), str(c.get("done") or "")
-        if party not in PARTIES or not day_of(first):
+        party = str(c.get("party"))
+        if party not in PARTIES:
             continue
+        extra = rules.get(party, (0, 0))[0 if grave else 1]
+        if extra <= 0:
+            continue
+        total = int(c.get("days") or 0) + extra
         e = {"ae_serious": "1", "ae_outcome": ae.get("ae_outcome", ""), "ae_serious_why": ae.get("ae_serious_why", ""),
-             "ae_aware": first, lc.REPORT_FIELDS[party]: sent.get(party, "")}  # fmt: skip
-        out += [{**f, "origin": "rule"} for f in lc.report_clock(e, today, {party: rules.get(party, (0, 0))})]
+             "ae_aware": ae.get("ae_aware", ""), "ae_onset": ae.get("ae_onset", ""),
+             lc.REPORT_FIELDS[party]: sent.get(party, "")}  # fmt: skip
+        out += [{**f, "origin": "rule"} for f in lc.report_clock(e, today, {party: (total, total)})]
     return out
 
 
-def state_of(due: str, done: str, today: date) -> str:
-    """One report's state on the site's ``today``: sent, overdue, due_today, open, or nostart (no start date)."""
+def state_of(due: str, done: str, today: date, start: date | None = None) -> str:
+    """One report's state on the site's ``today``:
+
+    * ``sent``: sent on or before its due day;
+    * ``sent_late``: sent after its due day (counts as sent, stays in the alert);
+    * ``bad_sent``: the day sent is unreadable, after today, or before the clock's day 0 (the AE form takes any
+      date): it does **not** count as sent and stays in the alert until the form is corrected;
+    * ``overdue``, ``due_today``, ``open``; ``nostart`` when there is no due day (no start date).
+    """
     if done:
-        return "sent"
+        d = day_of(done)
+        if d is None or d > today or (start is not None and d < start):
+            return "bad_sent"
+        due_d = day_of(due)
+        return "sent_late" if due_d is not None and d > due_d else "sent"
     d = day_of(due)
     if d is None:
         return "nostart"
@@ -157,10 +188,11 @@ def state_of(due: str, done: str, today: date) -> str:
     return "due_today" if today == d else "open"
 
 
-def flags_of(ae: dict[str, Any]) -> list[str]:
+def flags_of(ae: dict[str, Any], today: date | None = None) -> list[str]:
     """Checks on the dates the clock starts from (shown on the worklist, never silently fixed):
 
     * ``nostart``: neither the onset nor the day learned: no deadline can be counted; an alert, not a quiet row.
+    * ``future_date``: the onset or the day learned is after today: a typing error; an alert.
     * ``aware_missing``: no day learned: the clock counts from the onset (the earlier day, so never later than due).
     * ``aware_before_onset``: the site cannot learn of an event before it happens; the clock counts from the day
       learned, the earlier and stricter day, until someone corrects the form.
@@ -171,6 +203,8 @@ def flags_of(ae: dict[str, Any]) -> list[str]:
     out: list[str] = []
     if onset is None and aware is None:
         return ["nostart"]
+    if today is not None and any(d is not None and d > today for d in (onset, aware)):
+        out.append("future_date")
     if aware is None:
         out.append("aware_missing")
     elif onset is not None and aware < onset:
@@ -232,9 +266,14 @@ class SaeStore:
         tx.execute("INSERT INTO sae_trail (ruleset, record, event, action, body, by, at) VALUES (?,?,?,?,?,?,?)",
                    (rs, record, event, action, json.dumps(body, sort_keys=True), by, at))  # fmt: skip
 
-    def sync(self, rs: str, ae: dict[str, Any], by: str, at: str) -> list[dict[str, Any]]:
+    def sync(self, rs: str, ae: dict[str, Any], by: str, at: str,
+             source: Callable[[], dict[str, str]] | None = None) -> list[dict[str, Any]]:  # fmt: skip
         """Bring the case of one AE (as the orchestrator's ``/aes`` gives it, with its clock) up to date. Returns the
-        trail rows written (``create``, ``change``, ``report``, ``ack``), empty when nothing changed."""
+        trail rows written (``create``, ``change``, ``report``, ``ack``), empty when nothing changed.
+
+        ``by`` is the register's own actor (:data:`SYNC`), never the person whose page view ran the sync; ``source``
+        is asked only when something changed and gives the AE form's author and time (``form_by``, ``form_at``,
+        from the data core), which go into each trail row's body."""
         record, event = str(ae["record"]), str(ae["event"])
         serious = 1 if ae.get("serious") or ae.get("ae_serious") == "1" else 0
         new: dict[str, Any] = {"onset": str(ae.get("ae_onset") or ""), "aware": str(ae.get("ae_aware") or ""),
@@ -295,16 +334,20 @@ class SaeStore:
                     )  # fmt: skip
                     if not rc:
                         written = []
+            extra = source() if written and source is not None else {}
             for w in written:
+                w["body"].update(extra)
                 self._trail(tx, rs, record, event, w["action"], w["body"], by, at)
         return written
 
-    def no_longer_serious(self, rs: str, record: str, event: str, by: str, at: str) -> list[dict[str, Any]]:
-        """The AE form no longer says serious (or the AE is gone): the case stays, marked, and the trail says so."""
+    def no_longer_serious(self, rs: str, record: str, event: str, by: str, at: str,
+                          source: Callable[[], dict[str, str]] | None = None) -> list[dict[str, Any]]:  # fmt: skip
+        """The AE form no longer says serious (or the AE is gone): the case stays, marked, with its last clock (its
+        open reports stay on the worklist), and the trail says so."""
         old = self.case(rs, record, event)
         if old is None or not old["serious"]:
             return []
-        body = {"serious": {"old": 1, "new": 0}}
+        body: dict[str, Any] = {"serious": {"old": 1, "new": 0}, **(source() if source is not None else {})}
         with self.db.transaction() as tx:
             tx.execute(
                 "UPDATE sae_case SET serious = 0, updated_by = ?, updated_at = ? WHERE ruleset = ? AND record = ? AND"
@@ -313,6 +356,54 @@ class SaeStore:
             )
             self._trail(tx, rs, record, event, "change", body, by, at)
         return [{"action": "change", "body": body}]
+
+    def register_sent(self, rs: str, record: str, event: str, party: str, on: str, ref: str, by: str,
+                      at: str) -> dict[str, Any]:  # fmt: skip
+        """The first report of a case no longer serious was sent: the AE form hides its report fields once the AE is
+        not serious, so the day is kept here (``source`` register). Only for a downgraded case."""
+        if party not in PARTIES:
+            raise SaeError("party")
+        ref = check_ref(ref)
+        row = self._initial(rs, record, event, party)
+        if row is not None and (row.get("sent_on") or row.get("closed_on")):
+            raise SaeError("already")
+        with self.db.transaction() as tx:
+            if row is None:
+                tx.execute(
+                    "INSERT INTO sae_report (ruleset, record, event, party, kind, sent_on, ref, by, at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?)",
+                    (rs, record, event, party, "initial", on, ref or None, by, at),
+                )
+            else:
+                tx.execute("UPDATE sae_report SET sent_on = ?, ref = COALESCE(?, ref), by = ?, at = ? WHERE id = ?",
+                           (on, ref or None, by, at, row["id"]))  # fmt: skip
+            body = {"party": party, "kind": "initial", "sent_on": on, "source": "register", "ref": bool(ref)}
+            self._trail(tx, rs, record, event, "report", body, by, at)
+        return body
+
+    def close_report(self, rs: str, record: str, event: str, party: str, kind: str, report_id: int | None, on: str,
+                     by: str, at: str) -> dict[str, Any]:  # fmt: skip
+        """Close an open report of a case no longer serious (not needed any more), on ``on``; the trail keeps it."""
+        if kind == "initial":
+            if party not in PARTIES:
+                raise SaeError("party")
+            row = self._initial(rs, record, event, party)
+        else:
+            row = self.report(rs, int(report_id or 0))
+            if row is None or row["kind"] != "followup" or (row["record"], row["event"]) != (record, event):
+                raise SaeError("report")
+            party = str(row["party"])
+        if row is not None and (row.get("sent_on") or row.get("closed_on")):
+            raise SaeError("already")
+        with self.db.transaction() as tx:
+            if row is None:
+                tx.execute("INSERT INTO sae_report (ruleset, record, event, party, kind, closed_on, by, at) VALUES "
+                           "(?,?,?,?,?,?,?,?)", (rs, record, event, party, "initial", on, by, at))  # fmt: skip
+            else:
+                tx.execute("UPDATE sae_report SET closed_on = ?, by = ?, at = ? WHERE id = ?", (on, by, at, row["id"]))
+            body = {"party": party, "kind": kind, "closed_on": on}
+            self._trail(tx, rs, record, event, "closed", body, by, at)
+        return body
 
     def initial_ref(self, rs: str, record: str, event: str, party: str, ref: str, by: str, at: str) -> dict[str, Any]:
         """The reference of an initial report (the date itself is on the AE form)."""
@@ -403,7 +494,7 @@ class SaeStore:
             row = self.report(rs, int(report_id))
             if row is None or row["kind"] != "followup" or (row["record"], row["event"]) != (record, event):
                 raise SaeError("report")
-            if row["sent_on"]:
+            if row["sent_on"] or row.get("closed_on"):
                 raise SaeError("already")
             party, origin = str(row["party"]), "request"
         else:
@@ -445,44 +536,89 @@ def _case(row: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------------------------- the worklist
+OPEN = ("overdue", "due_today", "open", "nostart", "bad_sent")  # a report still to send (or whose day is wrong)
+ALERT_FLAGS = ("nostart", "aware_before_onset", "future_date")
+
+
+def _row(party: str, kind: str, origin: str, days: Any, due: str, sent: str, rec: dict[str, Any],
+         start: date | None, today: date, rid: Any = None) -> dict[str, Any]:  # fmt: skip
+    closed = str(rec.get("closed_on") or "")
+    return {"party": party, "kind": kind, "origin": origin, "days": days, "due": due or "", "sent_on": sent or "",
+            "ref": rec.get("ref") or "", "receipt_on": rec.get("receipt_on") or "", "closed_on": closed,
+            "id": None if kind == "initial" else (rid if rid is not None else rec.get("id")),  # initial: by party
+            "state": "closed" if closed and not sent else state_of(due, sent, today, start)}  # fmt: skip
+
+
+def _summary(rows: list[dict[str, Any]], flags: list[str]) -> dict[str, Any]:
+    overdue = sum(1 for r in rows if r["state"] == "overdue")
+    late = sum(1 for r in rows if r["state"] == "sent_late")
+    bad = sum(1 for r in rows if r["state"] == "bad_sent")
+    open_due = sorted(r["due"] for r in rows if r["state"] in ("open", "due_today") and r["due"])
+    return {"overdue": overdue, "late": late, "bad": bad, "open": sum(1 for r in rows if r["state"] in OPEN),
+            "alert": bool(overdue or late or bad or set(ALERT_FLAGS) & set(flags)),
+            "next_due": open_due[0] if open_due else ""}  # fmt: skip
+
+
 def case_view(ae: dict[str, Any], case: dict[str, Any] | None, reports: list[dict[str, Any]], today: date,
               fu_rules: dict[str, tuple[int, int]]) -> dict[str, Any]:  # fmt: skip
-    """One SAE as the worklist shows it: every report (initial and follow-up) with its due day, sent day, receipt and
-    state on the site's ``today``, the date checks, and how many reports are overdue. No AE term."""
+    """One serious AE as the worklist shows it: every report (initial and follow-up) with its due day, sent day,
+    receipt and state on the site's ``today``, the date checks, and the counts the alert needs. No AE term."""
+    start = start_of(ae)
     initial = {r["party"]: r for r in reports if r["kind"] == "initial"}
-    rows: list[dict[str, Any]] = []
-    for c in ae.get("clock") or []:
-        rec = initial.get(c["party"], {})
-        rows.append({"party": c["party"], "kind": "initial", "origin": "rule", "days": c.get("days"),
-                     "due": c.get("due") or "", "sent_on": c.get("done") or "", "ref": rec.get("ref") or "",
-                     "receipt_on": rec.get("receipt_on") or "", "id": None,
-                     "state": state_of(str(c.get("due") or ""), str(c.get("done") or ""), today)})  # fmt: skip
-    rule_rows = {r["party"]: r for r in reports if r["kind"] == "followup" and r["origin"] == "rule"}
-    for f in rule_followups(ae, today, fu_rules, {p: str(r.get("sent_on") or "") for p, r in rule_rows.items()}):
-        rec = rule_rows.get(f["party"], {})
-        rows.append({"party": f["party"], "kind": "followup", "origin": "rule", "days": f["days"], "due": f["due"],
-                     "sent_on": f["done"], "ref": rec.get("ref") or "", "receipt_on": rec.get("receipt_on") or "",
-                     "id": rec.get("id"), "state": state_of(f["due"], f["done"], today)})  # fmt: skip
-    for r in reports:
-        if r["kind"] == "followup" and r["origin"] == "request":
-            rows.append({"party": r["party"], "kind": "followup", "origin": "request", "days": None,
-                         "due": r.get("due") or "", "sent_on": r.get("sent_on") or "", "ref": r.get("ref") or "",
-                         "receipt_on": r.get("receipt_on") or "", "id": r["id"],
-                         "state": state_of(str(r.get("due") or ""), str(r.get("sent_on") or ""), today)})  # fmt: skip
-    flags = flags_of(ae)
-    if ae.get("ae_serious") == "1" and not ae.get("clock"):
-        flags = [*flags, "noclock"] if "nostart" not in flags else flags
-    overdue = sum(1 for r in rows if r["state"] == "overdue")
-    open_due = sorted(r["due"] for r in rows if r["state"] in ("open", "due_today") and r["due"])
+    rows = [_row(c["party"], "initial", "rule", c.get("days"), str(c.get("due") or ""), str(c.get("done") or ""),
+                 initial.get(c["party"], {}), start, today, rid=None)
+            for c in ae.get("clock") or []]  # fmt: skip
+    stored = {r["party"]: r for r in reports if r["kind"] == "followup" and r["origin"] == "rule"}
+    shown: set[str] = set()
+    for f in rule_followups(ae, today, fu_rules, {p: str(r.get("sent_on") or "") for p, r in stored.items()}):
+        shown.add(f["party"])
+        rows.append(_row(f["party"], "followup", "rule", f["days"], f["due"], f["done"], stored.get(f["party"], {}),
+                         start, today))  # fmt: skip
+    for p, r in stored.items():  # a recorded rule follow-up never disappears (a downgrade, a cleared date)
+        if p not in shown:
+            rows.append(_row(p, "followup", "rule", None, str(r.get("due") or ""), str(r.get("sent_on") or ""), r,
+                             start, today))  # fmt: skip
+    rows += [_row(r["party"], "followup", "request", None, str(r.get("due") or ""), str(r.get("sent_on") or ""), r,
+                  start, today)
+             for r in reports if r["kind"] == "followup" and r["origin"] == "request"]  # fmt: skip
+    flags = flags_of(ae, today)
+    if ae.get("ae_serious") == "1" and not ae.get("clock") and "nostart" not in flags:
+        flags.append("noclock")
+    if any(r["state"] == "bad_sent" for r in rows):
+        flags.append("bad_sent")
     return {
         "record": ae["record"], "event": ae["event"], "pid": str(ae.get("pid") or ""),
         "short": str(ae.get("pid") or "")[:8], "onset": ae.get("ae_onset") or "", "aware": ae.get("ae_aware") or "",
-        "grave": lc.grave(ae), "fatal": ae.get("ae_outcome") == "5", "serious": ae.get("ae_serious") == "1",
+        "grave": lc.grave(ae), "fatal": ae.get("ae_outcome") == "5", "serious": True, "downgraded": False,
         "ack_by": ae.get("ack_by") or "", "ack_at": ae.get("ack_at") or "", "needs_ack": bool(ae.get("needs_ack")),
-        "reports": rows, "flags": flags, "overdue": overdue,
-        "alert": overdue > 0 or "nostart" in flags or "aware_before_onset" in flags,
-        "next_due": open_due[0] if open_due else "",
-        "first_seen": (case or {}).get("created_at") or "",
+        "reports": rows, "flags": flags, "first_seen": (case or {}).get("created_at") or "",
+        **_summary(rows, flags),
+    }  # fmt: skip
+
+
+def downgraded_view(case: dict[str, Any], reports: list[dict[str, Any]], today: date) -> dict[str, Any]:
+    """A case the AE form no longer calls serious, drawn from the last clock the register saw (``sae_case.clock``)
+    and the register's own rows: its open reports stay visible until each is sent or closed."""
+    start = day_of(case.get("aware")) or day_of(case.get("onset"))
+    clock = case.get("clock") or {}
+    initial = {r["party"]: r for r in reports if r["kind"] == "initial"}
+    rows = []
+    for p, due in (clock.get("due") or {}).items():
+        rec = initial.get(p, {})
+        sent = str((clock.get("sent") or {}).get(p) or rec.get("sent_on") or "")
+        rows.append(_row(p, "initial", "rule", None, str(due or ""), sent, rec, start, today))
+    rows += [_row(r["party"], "followup", r["origin"], None, str(r.get("due") or ""), str(r.get("sent_on") or ""), r,
+                  start, today)
+             for r in reports if r["kind"] == "followup"]  # fmt: skip
+    flags = ["downgraded"]
+    summary = _summary(rows, flags)
+    summary["alert"] = summary["alert"] or summary["open"] > 0
+    return {
+        "record": case["record"], "event": case["event"], "pid": str(case.get("pid") or ""),
+        "short": str(case.get("pid") or "")[:8], "onset": case.get("onset") or "", "aware": case.get("aware") or "",
+        "grave": bool(case.get("grave")), "fatal": False, "serious": False, "downgraded": True,
+        "ack_by": case.get("pi_ack_by") or "", "ack_at": case.get("pi_ack_at") or "", "needs_ack": False,
+        "reports": rows, "flags": flags, "first_seen": case.get("created_at") or "", **summary,
     }  # fmt: skip
 
 

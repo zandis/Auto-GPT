@@ -112,28 +112,73 @@ def test_no_start_day_is_an_alert_not_a_quiet_row_and_no_aware_counts_from_onset
 
 
 def test_follow_up_deadline_on_the_same_clock() -> None:
-    """ICH E2A: a fatal or life-threatening case, reported to the regulator, is completed 8 days after that report."""
+    """ICH E2A: a fatal or life-threatening case is reported to the regulator in 7 days and completed in 8 more, so
+    the follow-up is due on day 15 from day 0 (the Taiwanese 15-day rule agrees), whenever the first report went."""
     grave = _ae(ae_onset="2026-11-01", ae_aware="2026-11-01", ae_serious_why="1", ae_rep_reg="2026-11-05")
-    v = _view(grave, date(2026, 11, 13))
+    v = _view(grave, date(2026, 11, 16))
     fu = _rep(v, "followup", "regulator")
-    assert fu["due"] == "2026-11-13" and fu["state"] == "due_today" and fu["origin"] == "rule"
-    assert _rep(_view(grave, date(2026, 11, 14)), "followup", "regulator")["state"] == "overdue"
+    assert fu["due"] == "2026-11-16" and fu["state"] == "due_today" and fu["origin"] == "rule"
+    assert _rep(_view(grave, date(2026, 11, 17)), "followup", "regulator")["state"] == "overdue"
     done = [{"kind": "followup", "origin": "rule", "party": "regulator", "sent_on": "2026-11-12", "id": 7}]
     assert _rep(_view(grave, date(2026, 11, 20), reports=done), "followup", "regulator")["state"] == "sent"
-    # not sent yet to the regulator: no follow-up clock; another serious AE: none by default
-    assert not [r for r in _view({**grave, "ae_rep_reg": ""}, date(2026, 11, 3))["reports"] if r["kind"] == "followup"]
+    # an early first report does not pull the follow-up forward (no false alarm on day 10)
+    early = _rep(_view({**grave, "ae_rep_reg": "2026-11-02"}, date(2026, 11, 11)), "followup", "regulator")
+    assert early["due"] == "2026-11-16" and early["state"] == "open"
+    # a late first report does not push it back: sent on 11-20, the follow-up was still due 11-16
+    late = _view({**grave, "ae_rep_reg": "2026-11-20"}, date(2026, 11, 20))
+    assert _rep(late, "initial", "regulator")["state"] == "sent_late"
+    assert _rep(late, "followup", "regulator")["due"] == "2026-11-16"
+    assert _rep(late, "followup", "regulator")["state"] == "overdue" and late["late"] == 1 and late["alert"]
+    # shown as soon as the case is grave, before the first report and after its date is cleared
+    for e in ({**grave, "ae_rep_reg": ""}, _ae(ae_onset="2026-11-01", ae_aware="2026-11-01", ae_serious_why="1")):
+        assert _rep(_view(e, date(2026, 11, 3)), "followup", "regulator")["due"] == "2026-11-16"
+    # another serious AE: none by default; downgraded from grave, a recorded rule follow-up never disappears
     other = {**grave, "ae_serious_why": "3"}
     assert not [r for r in _view(other, date(2026, 11, 20))["reports"] if r["kind"] == "followup"]
-    # the site's override, in TB_SAE_REPORT_DAYS's form
+    kept = [{"kind": "followup", "origin": "rule", "party": "regulator", "due": "2026-11-16", "sent_on": "2026-11-12",
+             "id": 7}]  # fmt: skip
+    row = _rep(_view(other, date(2026, 11, 20), reports=kept), "followup", "regulator")
+    assert row["due"] == "2026-11-16" and row["state"] == "sent" and row["id"] == 7
+    # the site's override, in TB_SAE_REPORT_DAYS's form: other serious, regulator 15 + 10 = day 25
     assert sr.followup_rules("regulator=5/10, sponsor=x, bogus=3") == {"sponsor": (0, 0), "irb": (0, 0),
                                                                         "regulator": (5, 10)}  # fmt: skip
-    fu_other = sr.rule_followups({**other, "clock": lc.report_clock(other, date(2026, 11, 20), TW)},
-                                 date(2026, 11, 20), sr.followup_rules("regulator=5/10"), {})  # fmt: skip
-    assert fu_other[0]["due"] == "2026-11-15" and fu_other[0]["overdue"]
+    fu_other = sr.rule_followups({**other, "clock": lc.report_clock(other, date(2026, 11, 27), TW)},
+                                 date(2026, 11, 27), sr.followup_rules("regulator=5/10"), {})  # fmt: skip
+    assert fu_other[0]["due"] == "2026-11-26" and fu_other[0]["overdue"]
     # a follow-up a receiver asked for: overdue after its own due day
     asked = [{"kind": "followup", "origin": "request", "party": "sponsor", "due": "2026-11-10", "sent_on": None,
               "id": 3}]  # fmt: skip
     assert _rep(_view(grave, date(2026, 11, 11), reports=asked), "followup", "sponsor")["state"] == "overdue"
+
+
+def test_sent_late_future_and_before_start_are_never_quietly_sent() -> None:
+    """Review H1: the AE form takes any date, so the register checks the day sent against the due day, today and
+    day 0, and keeps every doubtful one in the alert."""
+    base = _ae(ae_onset="2026-11-01", ae_aware="2026-11-02")  # sponsor due 11-03
+    on_time = _view({**base, "ae_rep_sponsor": "2026-11-03"}, date(2026, 11, 5))
+    assert _rep(on_time, "initial", "sponsor")["state"] == "sent" and on_time["late"] == 0
+    late = _view({**base, "ae_rep_sponsor": "2026-11-04"}, date(2026, 11, 5))
+    assert _rep(late, "initial", "sponsor")["state"] == "sent_late" and late["late"] == 1 and late["alert"]
+    future = _view({**base, "ae_rep_sponsor": "2026-11-09"}, date(2026, 11, 5))
+    assert _rep(future, "initial", "sponsor")["state"] == "bad_sent" and "bad_sent" in future["flags"]
+    assert future["alert"] and future["open"] >= 1  # not counted as sent
+    before = _view({**base, "ae_rep_sponsor": "2026-11-01"}, date(2026, 11, 5))  # the onset, before the day learned
+    assert _rep(before, "initial", "sponsor")["state"] == "bad_sent" and before["alert"]
+    # an onset or a day learned in the future is a typing error: an alert
+    ahead = _view(_ae(ae_onset="2026-11-01", ae_aware="2026-11-09"), date(2026, 11, 5))
+    assert "future_date" in ahead["flags"] and ahead["alert"]
+
+
+def test_downgraded_case_keeps_its_open_reports() -> None:
+    """Review H4: the last clock the register saw stays; open reports count until sent or closed."""
+    case = {"record": "S-001", "event": "ae1", "pid": "ab" * 16, "onset": "2026-11-01", "aware": "2026-11-01",
+            "grave": 1, "clock": {"due": {"sponsor": "2026-11-02", "irb": "2026-11-08"}, "sent": {"sponsor": "2026-11-02"}},
+            "created_at": "x"}  # fmt: skip
+    v = sr.downgraded_view(case, [], date(2026, 11, 10))
+    assert v["downgraded"] and v["open"] == 1 and v["overdue"] == 1 and v["alert"]
+    closed = [{"kind": "initial", "party": "irb", "closed_on": "2026-11-10", "sent_on": None, "id": 1}]
+    v = sr.downgraded_view(case, closed, date(2026, 11, 10))
+    assert v["open"] == 0 and _rep(v, "initial", "irb")["state"] == "closed" and not v["alert"]
 
 
 def test_worklist_order_overdue_first() -> None:
@@ -210,6 +255,7 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     fatal = {"ae_term": "Myocardial infarction", "ae_onset": "2026-11-08", "ae_aware": "2026-11-09",
              "ae_serious": "1", "ae_serious_why": "1", "ae_severity": "3", "ae_outcome": "5", "ae_related": "9"}  # fmt: skip
     _save(c, csrf, no, "tb_adverse_event", fatal, "ae1", "subject")
+    assert 'href="/sae" data-testid="more-sae"' in c.get("/home").text  # the header's "more" menu
     page = c.get("/sae").text
     row = f'data-testid="sae-row-GZQO-{no}-ae1"'
     assert row in page and "Myocardial" not in page  # never the AE term on the worklist
@@ -252,10 +298,15 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     # a sent day is recorded once here; a correction is made on the AE form, where its history is kept
     r = c.post(f"/studies/GZQO/sae/{no}/ae1/sent", data={"csrf": csrf, "party": "sponsor", "on": "2026-11-11"})
     assert r.status_code == 409 and "Already recorded" in r.text
-    # the regulator's first report: the rule's follow-up appears, 8 days later
+    # the rule's follow-up to the regulator is on the page from the start: day 15 from the day learned (7 + 8)
+    fu_reg = r'data-testid="sae-rep-followup-regulator" data-state="open">.*?2026-11-24'
+    assert re.search(fu_reg, c.get(f"/studies/GZQO/sae/{no}/ae1").text, re.S)
     c.post(f"/studies/GZQO/sae/{no}/ae1/sent", data={"csrf": csrf, "party": "regulator", "on": "2026-11-11"})
     case = c.get(f"/studies/GZQO/sae/{no}/ae1").text
-    assert re.search(r'data-testid="sae-rep-followup-regulator" data-state="open">.*?2026-11-19', case, re.S)
+    assert re.search(fu_reg, case, re.S)  # the first report's day does not move it
+    r = c.post(f"/studies/GZQO/sae/{no}/ae1/close", data={"csrf": csrf, "party": "irb", "kind": "initial",
+                                                          "on": "2026-11-11"})  # fmt: skip
+    assert r.status_code == 409 and "Only a report of an SAE that is no longer serious" in r.text
     # a follow-up the sponsor asked for, then sent
     r = c.post(f"/studies/GZQO/sae/{no}/ae1/followup", data={"csrf": csrf, "party": "sponsor", "due": "2026-11-01"})
     assert r.status_code == 409 and "before the event began" in r.text
@@ -271,6 +322,14 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     # a date changed on the AE form moves the deadlines: a change row with old and new
     _save(c, csrf, no, "tb_adverse_event", {**fatal, "ae_aware": "2026-11-08", "ae_rep_sponsor": "2026-11-10",
                                             "ae_rep_reg": "2026-11-11"}, "ae1")  # fmt: skip
+    # review H3: the PI happens to look first; the change is still the coordinator's, written by the register
+    p, _pcsrf = login(lb["app"], "pi", PW)
+    assert p.get("/sae").status_code == 200
+    from console.saerecord import SYNC, SaeStore
+
+    change = [t for t in SaeStore().trail("GZQO", no, "ae1") if t["action"] == "change"][-1]
+    assert change["by"] == SYNC and change["body"]["form_by"] == "console:crc" and change["body"]["form_at"]
+    assert not [t for t in SaeStore().trail("GZQO", no, "ae1") if t["by"] == "console:pi"]
     case = c.get(f"/studies/GZQO/sae/{no}/ae1").text
     actions = re.findall(r'data-action="(\w+)"', case)
     assert actions[0] == "create" and {"report", "receipt", "followup_add", "followup_sent", "change"} <= set(actions)
@@ -279,10 +338,14 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     au = [x for x in _audit_lines(lb["backend"].audit_dir) if x["event"] == "console.sae"]
     assert {x["detail"]["action"] for x in au} >= {"create", "change", "report", "receipt", "followup_add",
                                                    "followup_sent", "report_ref"}  # fmt: skip
-    assert all(x["actor"] == "console:crc" and x["ruleset"] == "GZQO" for x in au)
+    assert all(x["actor"] in ("console:crc", SYNC) and x["ruleset"] == "GZQO" for x in au)
+    assert not [x for x in au if x["actor"] == "console:pi"]  # a view never writes as the viewer
+    synced = [x for x in au if x["actor"] == SYNC and x["detail"]["action"] in ("create", "change")]
+    assert synced and all(x["detail"].get("form_by") == "console:crc" for x in synced)
+    assert {x["detail"]["action"] for x in au if x["actor"] == "console:crc"} >= {"receipt", "followup_add",
+                                                                                  "followup_sent", "report_ref"}  # fmt: skip
     raw = "".join(f.read_text() for f in lb["backend"].audit_dir.glob("*.jsonl"))
     assert "Myocardial" not in raw and "Mr Tanaka" not in raw
-    from console.saerecord import SaeStore
 
     trail = SaeStore().trail("GZQO", no, "ae1")
     assert "Myocardial" not in json.dumps(trail) and trail[0]["action"] == "create"
@@ -294,16 +357,29 @@ def test_register_worklist_and_trail_on_the_console(taipei: None, lb: dict[str, 
     assert "期限超過の報告：" in page and "SAE 台帳" in page and "Sepsis" not in page
     c.post("/lang", data={"csrf": csrf, "lang": "zh-TW", "back": "/sae"})
     assert "已逾期的通報：" in c.get("/sae").text
-    # no longer serious on the AE form: the case stays in the register, marked, and nothing more is recorded
+    # review H4: downgraded on the AE form with three overdue reports: it stays in the alert with its last clock
     c.post("/lang", data={"csrf": csrf, "lang": "en", "back": "/sae"})
     _save(c, csrf, no, "tb_adverse_event", {**fatal, "ae_term": "Sepsis", "ae_outcome": "1", "ae_onset": "2026-11-01",
                                             "ae_aware": "2026-11-01", "ae_serious": "0", "ae_serious_why": ""}, "ae2")  # fmt: skip
     page = c.get("/sae").text
-    assert f'data-testid="sae-row-GZQO-{no}-ae2"' not in page and f'data-testid="sae-lost-GZQO-{no}-ae2"' in page
+    assert f'data-testid="sae-row-GZQO-{no}-ae2"' in page and f'data-testid="sae-downgraded-{no}-ae2"' in page
+    assert 'data-testid="sae-alert-downgraded"' in page and "No longer serious, with open reports: 1" in page
     case = c.get(f"/studies/GZQO/sae/{no}/ae2").text
     assert 'data-testid="sae-not-serious"' in case and "serious=1→0" in case
-    r = c.post(f"/studies/GZQO/sae/{no}/ae2/followup", data={"csrf": csrf, "party": "sponsor", "due": "2026-11-20"})
-    assert r.status_code == 409 and "not serious on the AE form now" in r.text
+    assert 'data-testid="sae-rep-initial-sponsor" data-state="overdue"' in case
+    # each open report is sent (kept in the register: the form hides the field now) or closed
+    r = c.post(f"/studies/GZQO/sae/{no}/ae2/sent", data={"csrf": csrf, "party": "sponsor", "on": "2026-11-02"},
+               follow_redirects=True)  # fmt: skip
+    assert 'data-testid="sae-rep-initial-sponsor" data-state="sent"' in r.text
+    for party in ("irb", "regulator"):
+        r = c.post(f"/studies/GZQO/sae/{no}/ae2/close", data={"csrf": csrf, "party": party, "kind": "initial",
+                                                              "on": "2026-11-11"}, follow_redirects=True)  # fmt: skip
+        assert f'data-testid="sae-rep-initial-{party}" data-state="closed"' in r.text
+    page = c.get("/sae").text
+    assert f'data-testid="sae-row-GZQO-{no}-ae2"' not in page and f'data-testid="sae-lost-GZQO-{no}-ae2"' in page
+    assert 'data-testid="sae-alert-downgraded"' not in page
+    acts = [t["action"] for t in SaeStore().trail("GZQO", no, "ae2")]
+    assert acts.count("closed") == 2 and "report" in acts
 
 
 def test_sae_register_roles_deny_by_default(lb: dict[str, Any]) -> None:  # noqa: F811
@@ -349,3 +425,19 @@ def test_sae_register_roles_deny_by_default(lb: dict[str, Any]) -> None:  # noqa
     assert c.get(f"/studies/GZQO/sae/{no}/visit1").status_code == 404
     assert c.post(f"/studies/GZQO/sae/{no}/ae1/delete", data={"csrf": csrf}).status_code == 404
     assert c.post(f"/studies/GZQO/sae/{no}/ae1/sent", data={"csrf": "x", "party": "sponsor"}).status_code == 400
+    r = c.post(f"/studies/GZQO/sae/{no}/ae1/receipt", data={"csrf": csrf, "kind": "followup", "id": "1e9", "on": "x"})
+    assert r.status_code == 404  # an id is digits only
+    # the orchestrator down: the case page says so (503), the worklist names the study; nothing silently empty
+    from console.backend import Unavailable
+
+    def down(*_a: Any, **_k: Any) -> Any:
+        raise Unavailable("orchestrator down")
+
+    lb["backend"].study_api = down
+    r = c.get(f"/studies/GZQO/sae/{no}/ae1")
+    assert (
+        r.status_code == 503
+        and 'data-testid="sae-refused"' in r.text
+        and 'data-testid="sae-sent-sponsor"' not in r.text
+    )
+    assert 'data-testid="sae-failed"' in c.get("/sae").text

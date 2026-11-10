@@ -102,8 +102,11 @@ first, under an alert, in Japanese, Chinese and English. Dates are entered once,
 sent" writes the day to the AE form, so the form, the home pages and the mail show the same date. Deadlines are
 calendar days on the site's date (Asia/Tokyo, Asia/Taipei), counted from the day learned (else the onset); weekends
 and holidays do not move them. The register flags an SAE with no start day, a day learned before the onset, or a day
-learned late. A fatal or life-threatening SAE first reported to the regulator gets a follow-up due 8 days later (ICH
-E2A; `TB_SAE_FOLLOWUP_DAYS`); add any follow-up a receiver asks for with its due day. The CRC records; the PI and the
+learned late, an onset or day learned after today, and a day sent that is after today or before the event (that report
+does not count as sent until the AE form is corrected); a report sent after its due day shows as sent late. A fatal or
+life-threatening SAE gets a follow-up to the regulator due on day 15 from the day learned (7 + 8 days, ICH E2A;
+`TB_SAE_FOLLOWUP_DAYS`), whenever the first report went; add any follow-up a receiver asks for with its due day. An
+SAE the AE form no longer calls serious keeps its open reports on the worklist until each is sent or closed. The CRC records; the PI and the
 administrator read; viewer and CRO accounts see nothing. No AE term, chart number or name is shown, stored in the
 register or written to the audit log; references are letters and digits only. The page names who confirmed the site
 rule (`TB_SAE_RULES_CONFIRMED`) or says that nobody has. The trial office's SAE log and SOP still govern: compare the

@@ -3,15 +3,17 @@
    sees, overdue reports first. Pseudonym and screening number, dates and parties only; never the AE term. #}
 {% macro rules_line(rules) %}{% for p, d in rules.items() %}{{ t('life.clock.party.' + p) }} {% if d[0] or d[1] %}{{ d[0] }}/{{ d[1] }}{% else %}–{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}{% endmacro %}
 {% macro report(r) %}<li class="nowrap" data-testid="sae-rep-{{ r.kind }}-{{ r.party }}{% if r.id %}-{{ r.id }}{% endif %}" data-state="{{ r.state }}">{{ t('sae.kind.' + r.kind) }} · {{ t('life.clock.party.' + r.party) }}{% if r.origin == 'request' %} <span class="hint">({{ t('sae.origin.request') }})</span>{% endif %} ·
-{% if r.due %}{{ t('sae.due', day=r.due) }}{% endif %}{% if r.sent_on %} · {{ t('sae.sent', day=r.sent_on) }}{% endif %}{% if r.receipt_on %} · {{ t('sae.receipt', day=r.receipt_on) }}{% endif %}
- <span class="pill{% if r.state == 'overdue' or r.state == 'nostart' %} bad{% elif r.state == 'due_today' %} warn{% endif %}">{{ t('sae.state.' + r.state) }}</span></li>{% endmacro %}
+{% if r.due %}{{ t('sae.due', day=r.due) }}{% endif %}{% if r.sent_on %} · {{ t('sae.sent', day=r.sent_on) }}{% endif %}{% if r.closed_on %} · {{ t('sae.closed', day=r.closed_on) }}{% endif %}{% if r.receipt_on %} · {{ t('sae.receipt', day=r.receipt_on) }}{% endif %}
+ <span class="pill{% if r.state in ('overdue', 'nostart', 'bad_sent') %} bad{% elif r.state in ('due_today', 'sent_late') %} warn{% endif %}">{{ t('sae.state.' + r.state) }}</span></li>{% endmacro %}
 {% block title %}{{ t('sae.title') }}{% endblock %}
 {% block content %}
 <div class="headrow"><h1>{{ t('sae.title') }}</h1></div>
 <p class="hint">{{ t('sae.help') }}</p>
-{% if overdue or dates %}<section class="card attention" role="alert" data-testid="sae-alert">
+{% if overdue or late or dates or downgraded %}<section class="card attention" role="alert" data-testid="sae-alert">
 {% if overdue %}<p data-testid="sae-alert-overdue"><strong>{{ t('sae.alert.overdue', n=overdue) }}</strong></p>{% endif %}
+{% if late %}<p data-testid="sae-alert-late"><strong>{{ t('sae.alert.late', n=late) }}</strong></p>{% endif %}
 {% if dates %}<p data-testid="sae-alert-dates"><strong>{{ t('sae.alert.dates', n=dates) }}</strong></p>{% endif %}
+{% if downgraded %}<p data-testid="sae-alert-downgraded"><strong>{{ t('sae.alert.downgraded', n=downgraded) }}</strong></p>{% endif %}
 </section>{% endif %}
 {% if failed %}<p class="error" role="alert" data-testid="sae-failed">{{ t('sae.unavailable') }} {{ failed|join(', ') }}</p>{% endif %}
 <section class="card" data-testid="sae-rules">
@@ -26,12 +28,13 @@
 <thead><tr><th scope="col">{{ t('sae.col.participant') }}</th><th scope="col">{{ t('sae.col.dates') }}</th><th scope="col">{{ t('sae.col.reports') }}</th><th scope="col">{{ t('sae.col.ack') }}</th></tr></thead>
 <tbody>{% for v in rows %}<tr data-testid="sae-row-{{ v.rs }}-{{ v.record }}-{{ v.event }}"{% if v.alert %} class="attention"{% endif %}>
 <td><b class="mono nowrap">{{ v.record }}</b> <span class="hint mono">{{ v.short }}</span><br><span class="hint">{{ t('sae.study', rs=v.rs) }} · {{ v.event }}</span>
+{% if v.downgraded %}<br><span class="pill warn" data-testid="sae-downgraded-{{ v.record }}-{{ v.event }}">{{ t('sae.downgraded', n=v.open) }}</span>{% endif %}
 {% if v.fatal %}<br><span class="pill bad">{{ t('life.sae.fatal') }}</span>{% elif v.grave %}<br><span class="pill bad">{{ t('sae.grave') }}</span>{% endif %}
 <br><a class="button secondary" href="/studies/{{ v.rs }}/sae/{{ v.record|urlencode }}/{{ v.event }}" data-testid="sae-open-{{ v.record }}-{{ v.event }}">{{ t('sae.open') }}</a></td>
 <td><span class="nowrap">{{ t('sae.dates', onset=v.onset or '–', aware=v.aware or '–') }}</span>
-{% for f in v.flags %}<br><span class="{% if f in ('nostart', 'aware_before_onset') %}error{% else %}hint{% endif %}" data-testid="sae-flag-{{ v.record }}-{{ v.event }}-{{ f }}">{{ t('sae.flag.' + f) }}</span>{% endfor %}</td>
+{% for f in v.flags %}<br><span class="{% if f in ('nostart', 'aware_before_onset', 'future_date', 'bad_sent', 'downgraded') %}error{% else %}hint{% endif %}" data-testid="sae-flag-{{ v.record }}-{{ v.event }}-{{ f }}">{{ t('sae.flag.' + f) }}</span>{% endfor %}</td>
 <td><ul class="plain">{% for r in v.reports %}{{ report(r) }}{% endfor %}</ul></td>
-<td>{% if v.ack_by %}<span class="hint">{{ t('sae.ack.yes', who=v.ack_by|who, at=v.ack_at|local) }}</span>{% else %}<span class="pill warn" data-testid="sae-noack-{{ v.record }}-{{ v.event }}">{{ t('sae.ack.no') }}</span>{% endif %}</td>
+<td>{% if v.downgraded %}–{% elif v.ack_by %}<span class="hint">{{ t('sae.ack.yes', who=v.ack_by|who, at=v.ack_at|local) }}</span>{% else %}<span class="pill warn" data-testid="sae-noack-{{ v.record }}-{{ v.event }}">{{ t('sae.ack.no') }}</span>{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>
 {% endif %}
 {% if lost %}<h2>{{ t('sae.no_longer') }}</h2><ul class="plain">{% for c in lost %}<li data-testid="sae-lost-{{ c.rs }}-{{ c.record }}-{{ c.event }}"><a href="/studies/{{ c.rs }}/sae/{{ c.record|urlencode }}/{{ c.event }}">{{ t('sae.study', rs=c.rs) }} · <span class="mono">{{ c.record }}</span> · {{ c.event }}</a></li>{% endfor %}</ul>{% endif %}

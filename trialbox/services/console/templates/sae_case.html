@@ -16,16 +16,19 @@
 <p>{{ t('sae.study', rs=rs) }} · <b class="mono">{{ record }}</b> <span class="hint mono">{{ one.short }}</span>
 {% if one.fatal %} <span class="pill bad">{{ t('life.sae.fatal') }}</span>{% elif one.grave %} <span class="pill bad">{{ t('sae.grave') }}</span>{% endif %}</p>
 <p>{{ t('sae.dates', onset=one.onset or '–', aware=one.aware or '–') }}</p>
-{% for f in one.flags %}<p class="{% if f in ('nostart', 'aware_before_onset') %}error{% else %}hint{% endif %}" data-testid="sae-flag-{{ f }}">{{ t('sae.flag.' + f) }}</p>{% endfor %}
-<p>{% if one.ack_by %}{{ t('sae.ack.yes', who=one.ack_by|who, at=one.ack_at|local) }}{% else %}<span class="pill warn">{{ t('sae.ack.no') }}</span>{% endif %}</p>
+{% for f in one.flags %}<p class="{% if f in ('nostart', 'aware_before_onset', 'future_date', 'bad_sent', 'downgraded') %}error{% else %}hint{% endif %}" data-testid="sae-flag-{{ f }}">{{ t('sae.flag.' + f) }}</p>{% endfor %}
+<p>{% if one.downgraded %}<span class="pill warn" data-testid="sae-downgraded">{{ t('sae.downgraded', n=one.open) }}</span>{% elif one.ack_by %}{{ t('sae.ack.yes', who=one.ack_by|who, at=one.ack_at|local) }}{% else %}<span class="pill warn">{{ t('sae.ack.no') }}</span>{% endif %}</p>
 <div class="scroll" tabindex="0"><table class="candidates" data-testid="sae-reports">
 <thead><tr><th scope="col">{{ t('sae.col.reports') }}</th><th scope="col">{{ t('sae.form.due') }}</th><th scope="col">{{ t('sae.state.sent') }}</th><th scope="col">{{ t('sae.trail.receipt') }}</th></tr></thead>
 <tbody>{% for r in one.reports %}<tr data-testid="sae-rep-{{ r.kind }}-{{ r.party }}{% if r.id %}-{{ r.id }}{% endif %}" data-state="{{ r.state }}">
 <td>{{ t('sae.kind.' + r.kind) }} · {{ t('life.clock.party.' + r.party) }}{% if r.origin == 'request' %} <span class="hint">({{ t('sae.origin.request') }})</span>{% endif %}
- <span class="pill{% if r.state == 'overdue' or r.state == 'nostart' %} bad{% elif r.state == 'due_today' %} warn{% endif %}">{{ t('sae.state.' + r.state) }}</span></td>
+ <span class="pill{% if r.state in ('overdue', 'nostart', 'bad_sent') %} bad{% elif r.state in ('due_today', 'sent_late') %} warn{% endif %}">{{ t('sae.state.' + r.state) }}</span></td>
 <td class="nowrap">{{ r.due or '–' }}</td>
-<td class="nowrap">{{ r.sent_on or '–' }}{% if r.ref %} <span class="hint">{{ t('sae.ref', ref=r.ref) }}</span>{% endif %}
-{% if editable and not r.sent_on %}{% if r.kind == 'initial' %}
+<td class="nowrap">{{ r.sent_on or '–' }}{% if r.ref %} <span class="hint">{{ t('sae.ref', ref=r.ref) }}</span>{% endif %}{% if r.closed_on %} <span class="hint">{{ t('sae.closed', day=r.closed_on) }}</span>{% endif %}
+{% if editable and one.downgraded and not r.sent_on and not r.closed_on and (r.kind == 'initial' or r.id) %}
+<form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/close" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="party" value="{{ r.party }}"><input type="hidden" name="kind" value="{{ r.kind }}">{% if r.id %}<input type="hidden" name="id" value="{{ r.id }}">{% endif %}<input type="hidden" name="on" value="{{ today }}">
+<button type="submit" class="secondary" data-testid="sae-close-{{ r.kind }}-{{ r.party }}">{{ t('sae.form.close') }}</button></form>{% endif %}
+{% if editable and not r.sent_on and not r.closed_on %}{% if r.kind == 'initial' %}
 <form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/sent" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="party" value="{{ r.party }}">
 <label for="sent-{{ r.party }}">{{ t('sae.form.on') }}</label><input id="sent-{{ r.party }}" name="on" type="date" value="{{ today }}" max="{{ today }}">
 <label for="sref-{{ r.party }}">{{ t('sae.form.ref') }}</label><input id="sref-{{ r.party }}" name="ref" maxlength="60">
@@ -37,7 +40,7 @@
 <button type="submit" data-testid="sae-fu-sent-{{ r.party }}-{{ r.id or 'rule' }}">{{ t('sae.form.fu_sent') }}</button></form>
 {% endif %}{% endif %}</td>
 <td class="nowrap">{{ r.receipt_on or '–' }}
-{% if editable and r.sent_on and not r.receipt_on and (r.kind == 'initial' or r.id) %}
+{% if editable and r.sent_on and r.state != 'bad_sent' and not r.receipt_on and (r.kind == 'initial' or r.id) %}
 <form method="post" action="/studies/{{ rs }}/sae/{{ record|urlencode }}/{{ event }}/receipt" class="stack"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="party" value="{{ r.party }}"><input type="hidden" name="kind" value="{{ r.kind }}">{% if r.id %}<input type="hidden" name="id" value="{{ r.id }}">{% endif %}
 <label for="rc-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}">{{ t('sae.form.on') }}</label><input id="rc-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}" name="on" type="date" value="{{ today }}" max="{{ today }}">
 <label for="rcref-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}">{{ t('sae.form.ref') }}</label><input id="rcref-{{ r.kind }}-{{ r.party }}-{{ r.id or '' }}" name="ref" maxlength="60">
