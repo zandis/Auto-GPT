@@ -1,0 +1,57 @@
+yj_stem7,ingredient_ja,route,atc,name_en
+3962002,メトホルミン塩酸塩,内用,A10BA02,metformin
+3969010,シタグリプチンリン酸塩水和物,内用,A10BH01,sitagliptin
+3969019,ダパグリフロジン,内用,A10BK01,dapagliflozin
+3969023,エンパグリフロジン,内用,A10BK03,empagliflozin
+2499014,セマグルチド（遺伝子組換え）,内用,A10BJ06,semaglutide
+2499418,セマグルチド（遺伝子組換え）,注射,A10BJ06,semaglutide
+3332001,ワルファリンカリウム,内用,B01AA03,warfarin
+3339001,ダビガトランエテキシラートメタンスルホン酸塩,内用,B01AE07,dabigatran etexilate
+3339003,リバーロキサバン,内用,B01AF01,rivaroxaban
+3339004,アピキサバン,内用,B01AF02,apixaban
+3339002,エドキサバントシル酸塩水和物,内用,B01AF03,edoxaban
+3334401,ヘパリンナトリウム,注射,B01AB01,heparin
+3334402,ヘパリンナトリウム,注射,B01AB01,heparin
+3399007,アスピリン,内用 (抗血小板),B01AC06,acetylsalicylic acid
+3399008,クロピドグレル硫酸塩,内用,B01AC04,clopidogrel
+1143001,アスピリン,内用 (解熱鎮痛),N02BA01,acetylsalicylic acid
+1141001,アセトアミノフェン,内用,N02BE01,paracetamol
+1141007,アセトアミノフェン,内用,N02BE01,paracetamol
+1149001,イブプロフェン,内用,M01AE01,ibuprofen
+2189015,アトルバスタチンカルシウム水和物,内用,C10AA05,atorvastatin
+2189017,ロスバスタチンカルシウム,内用,C10AA07,rosuvastatin
+2171022,アムロジピンベシル酸塩,内用,C08CA01,amlodipine
+2149039,ロサルタンカリウム,内用,C09CA01,losartan
+2139005,フロセミド,内用,C03CA01,furosemide
+2133001,スピロノラクトン,内用,C03DA01,spironolactone
+2329022,オメプラゾール,内用,A02BC01,omeprazole
+2329023,ランソプラゾール,内用,A02BC03,lansoprazole
+2431004,レボチロキシンナトリウム水和物,内用,H03AA01,levothyroxine sodium
+2456001,プレドニゾロン,内用,H02AB06,prednisolone
+2456002,プレドニゾロン,内用,H02AB06,prednisolone
+3943001,アロプリノール,内用,M04AA01,allopurinol
+3949003,フェブキソスタット,内用,M04AA03,febuxostat
+3949002,ベンズブロマロン,内用,M04AB03,benzbromarone
+3941001,コルヒチン,内用,M04AC01,colchicine
+3999016,メトトレキサート,内用 (関節リウマチ),L04AX03,methotrexate
+3999468,メトトレキサート,注射 (関節リウマチ),L04AX03,methotrexate
+4222001,メトトレキサート,内用 (抗悪性腫瘍),L01BA01,methotrexate
+4222400,メトトレキサート,注射 (抗悪性腫瘍),L01BA01,methotrexate
+3999038,ヒドロキシクロロキン硫酸塩,内用,P01BA02,hydroxychloroquine
+3999004,シクロスポリン,内用,L04AD01,ciclosporin
+3999406,シクロスポリン,注射,L04AD01,ciclosporin
+3999014,タクロリムス水和物,内用,L04AD02,tacrolimus
+3999416,タクロリムス水和物,注射,L04AD02,tacrolimus
+3999426,アダリムマブ（遺伝子組換え）,注射,L04AB04,adalimumab
+6399421,トシリズマブ（遺伝子組換え）,注射,L04AC07,tocilizumab
+4291401,シスプラチン,注射,L01XA01,cisplatin
+4291403,カルボプラチン,注射,L01XA02,carboplatin
+4291410,オキサリプラチン,注射,L01XA03,oxaliplatin
+4240405,ドセタキセル,注射,L01CD02,docetaxel
+4240406,パクリタキセル,注射,L01CD01,paclitaxel
+4240409,パクリタキセル,注射,L01CD01,paclitaxel
+4291406,トラスツズマブ（遺伝子組換え）,注射,L01FD01,trastuzumab
+4291407,リツキシマブ（遺伝子組換え）,注射,L01FA01,rituximab
+4291413,ベバシズマブ（遺伝子組換え）,注射,L01FG01,bevacizumab
+4291427,ニボルマブ（遺伝子組換え）,注射,L01FF01,nivolumab
+4291435,ペムブロリズマブ（遺伝子組換え）,注射,L01FF02,pembrolizumab

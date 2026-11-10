@@ -3695,6 +3695,358 @@ is the owner's, to settle by G2 before submission. Intended use v0.2: the clinic
 planned (C2); "consultant's opinion" and "authority's written answer" named apart, and the C6 switch needs the
 authority's answer in both countries. WS-06.7 and WS-16.4 of TB-PLAN-05 now leave their patients out of Study A.
 
+**D-170 Reference data items: one registry with version and sha256, and the NHI drug code -> ATC map.** WS-08.8,
+builds on D-140; 2026-11-09. Built in a cloud container with network access through a proxy; tests on committed
+excerpts only. Revised after the independent review of the same day (findings H2, H3, M3, M6, L4, L6). Revised
+again on 2026-11-10 after a second independent review (the map check, the matcher order, the PAS and ICD parsers,
+the licence read, the shared store).
+
+1. *One registry of items.* Every reference data source is one `tb_common.refdata.Item` (the old
+   `tools/refdata_fetch.py` `Source` is now this class): name, kind, distribution (ship, site-fetch, not usable),
+   URL, licence and licence URL, terms, attribution, refresh, size, note, and new fields: `country`, `decision`,
+   `parse` (the item's own loader), `extra_files` (more files of one item, all required), `derived_from` (read
+   another item's download, no second download), `meta_url` (a data.gov.tw dataset API URL read at fetch time),
+   `version` / `version_of`, and `sha256` (the pinned hash of a version-pinned URL). Country modules add their
+   items: `tb_common/refdata_tw.py` holds the Taiwan items, parsers and constants; a Japan module adds its own the
+   same way (`SOURCES = (..., *tw.ITEMS)`).
+2. *Pack format* stays `trialbox-refdata/1` (additive). New kinds `map` (`source_system`, `source_code`,
+   `source_display`, `target_system`, `target_code`, `target_display`, `relation`, `extra`; relation is the FHIR R4
+   ConceptMap equivalence) and `synonym` (`term`, `lang`, `canonical`, `canonical_lang`, `domain`, `curated`,
+   `extra`). Every source in a new pack records `version` (the file's own version, the dataset's modified date, or
+   "downloaded <date>" for a daily list) and `parts` (each downloaded file: name, URL, sha256, bytes);
+   `download_sha256` is the file's sha256, or for several files the sha256 over the parts' sha256s in order (NOTICE
+   and the page then list each part's own sha256). A map or synonym source without a version is refused.
+   `verify` and `build` check every map and synonym record as the box's load does (relation in the R4 set, terms
+   present), so a pack the hospital would refuse fails at the vendor. Older packs still verify and load.
+3. *Fetch and build integrity.* `fetch` writes each part's sha256 to `fetch.json`; `build` re-hashes every part
+   and stops when a file changed or is missing, when an `extra_files` member is missing, or when a version-pinned
+   URL's file differs from its pin (the PAS 1.3.0 package; a sample build skips only the pin). A parser that finds
+   no rows or misses a required column raises; `build` refuses an item with 0 records. For a data.gov.tw item,
+   `fetch` reads the dataset API, keeps its answer (`licence_check`) in `fetch.json` as evidence, and stops when
+   the `license` field is not 1 (OGDL 1.0) or the API does not answer (`--no-licence-check` skips the read and
+   records that in `fetch.json`). The reader and the expected licence belong to the item (`Item.read_meta`,
+   `Item.licence_id`; since the merge with D-173, the item's `licence_reader`), so a `meta_url` without a reader is refused and another portal brings its own reader; the
+   record must also list the URL fetched (D-172, second-review note, item 1).
+4. *Store.* Schema `refdata` version 2 (`DDL_V2`): `source` gains `version` and `download_sha256`; new tables
+   `concept_map` (indexed both ways) and `synonym` (indexed on the matcher's normal form, NFKC and lower case).
+   Queries: `map_targets`, `map_sources`, `synonyms`. A box at version 1 migrates in place; its old rows keep an
+   empty version and sha256 (tested). Lookups made often use one shared store per process (`refdata.shared`); a
+   database that does not answer is not retried for 60 s; a shared store whose query fails is closed and reopened
+   after that pause.
+5. *`in_set_via_map`* (a code read through a map against a list of exact codes; unknown never excludes): `yes` when
+   a target that holds the whole meaning (equivalent, equal, wider, subsumes) is in the list, or every target of a
+   split (narrower, specializes) is; `no` only when every target is equivalent, equal, narrower or specializes and
+   none is in the list; `unknown` otherwise, so inexact and relatedto rows never decide; `unmatched` rows are
+   dropped first. The list's prefix families (`MappingResult.families`) count as inside; a list in
+   another code system than the targets (the HL7 ICD-10-CM URI against the TW 2023 system) never gives `no`. Not
+   called by ingest yet.
+6. *Offline.* Only `tools/refdata_fetch.py fetch` downloads. The box reads the pack loaded from the signed update
+   bundle; the matcher and site set-up read the trial database.
+7. *NHI drug code -> ATC* (`nhi_drug_atc`, kind map, ship). Read from the `nhi_drugs` download (健保用藥品項查詢項目檔,
+   data.gov.tw 23715): the latest validity period per 藥品代號 (a date that cannot be read never wins), its `ATC代碼`
+   as given (D-140 owner decision 5: no WHO ATC/DDD text), relation `wider`, ATC level in `extra`; empty or
+   non-ATC-shaped values give no row. Licence checked at the source today: dataset API `license` = 1, the Open
+   Government Data License 1.0 (use, reproduction, distribution and adaptation, commercial included, with the
+   provider's attribution). Site set-up suggests the ATC code of an NHI drug code with one full ATC code (method
+   `refdata`, 0.90: the class is wider than the product).
+8. *The sources page* (`/admin/notice`) and `NOTICE.md` show each item's version and sha256 (per part for several
+   files); the strings exist in en, ja and zh-TW. Site set-up's new method `refdata` has its label in the three
+   languages ("from a public code map in the reference data (check it)").
+
+*Evidence.* `tests/unit/test_refdata_tw.py` (39 with the relation table), `tests/unit/test_refdata.py`,
+`tests/console/test_refdata_pages.py` (version and sha256 on the page for every item); `e2e_simple` stage 14 checks
+the Taiwan suggestions and the matcher offline. On the real list (the first 33 MB of 97 MB; info.nhi.gov.tw cut the
+transfer from here three times): 13,904 codes, all with an ATC code (13,583 level 5, 307 level 4, 14 level 3),
+0.5 MB in the pack.
+
+**D-171 Taiwan ICD-10-CM/PCS 2014 <-> 2023 map and the NHI lab code -> LOINC map.** WS-08.8; 2026-11-09. Revised
+after the independent review (H3, M4, L2, L3).
+
+1. *ICD 2014 <-> 2023* (`tw_icd_2014_2023`, kind map, ship). NHIA 2014年版與2023年版ICD-10-CM/PCS對應檔, data.gov.tw
+   177508, two CSVs (CM `rId=A21030000I-D20026-007`, PCS `-008`), one item with two parts; both are required.
+   Licence: dataset API `license` = 1 (OGDL 1.0); the attribution also names WHO (ICD-10) and NCHS / CMS. NHI claims
+   moved to the 2023 edition on 2025-01-01, so records before then carry 2014 codes. Systems
+   `urn:tw:nhi:icd-10-cm-2014` -> `urn:tw:nhi:icd-10-cm-2023` (the system of `tw_icd10_zh`), PCS likewise; the
+   reverse direction is `map_sources`. Relation: same code, one target and one source `equivalent`; a 2014 code split
+   into several 2023 codes `narrower`; several 2014 codes merged `wider`; both, or a one-to-one change of code,
+   `inexact`. A mapping NHIA added later for a deleted code (修訂日期 "增列對應", e.g. Z22.51 carrier -> B18.1
+   chronic hepatitis B) is `relatedto` and does not make the other rows a merge (B18.1 -> B18.1 stays
+   `equivalent`); site set-up does not suggest it. The 2014 and 2023 status, the zh names and the revision note go
+   in `extra`. Real files today: CM
+   74,872 rows -> 74,863 pairs (67,637 equivalent, 5,613 narrower, 236 wider, 1,377 inexact); PCS 79,062 rows ->
+   77,892 pairs; 3.5 MB in the pack. Note: 2014 I10 maps to 2023 I10 and I16.0 / I16.1 / I16.9, so a 2014 I10 read
+   against a list holding only I10 is unknown, not yes.
+2. *Site set-up, Taiwan sites only* (the site's country from its time zone, else its locale). A dx code that the
+   2023 edition no longer has and that maps to one 2023 code is suggested (`refdata`, 0.90; e.g. P83.8 -> P83.88);
+   a split gives no suggestion (the coordinator picks); a code still in 2023 (I10) is suggested as itself. A Japan
+   site's suggestions do not change.
+3. *NHI lab code -> LOINC* (`nhi_lab_loinc`, kind map, ship). The ConceptMap `nhi-loinc` of the NHIA PAS IG package
+   `tw.gov.mohw.nhi.pas` 1.3.0 (https://packages.fhir.org/tw.gov.mohw.nhi.pas/1.3.0), pinned to its sha256
+   `1bdc33f3ca30733d0fa911a0de9fd4a2896312bb347c9122ffec3c2c210dcfe3` (read today). Licence: `package.json` says
+   `CC0-1.0` (read today); the parser refuses a package with another licence. 806 rows, 53 NHI codes, every target
+   `relatedto` (candidates: 09026C has 16 LOINC codes). Only LOINC codes are shipped: a LOINC display in a later
+   release is never copied. The terms say the package is CC0 and the LOINC codes stay under the LOINC licence; the
+   attribution carries the LOINC notice; the version names the LOINC version the map states
+   (`tw.gov.mohw.nhi.pas 1.3.0, ConceptMap nhi-loinc 1.3.0, LOINC 2.77`). An R5 `relationship` is turned into the R4
+   equivalence; an unknown relation or an element without a code refuses the package; a no-match
+   target (`unmatched`, `disjoint`) is skipped; only groups from the NHI service code system are read, and a package
+   without one is refused. Site set-up suggests a LOINC code only when the NHI code has exactly one target (0.90, no
+   display: the NHI order's name is not the LOINC name); several candidates (09015C) give none, the coordinator
+   picks (the earlier 0.80 pick of the one candidate in TrialBox's lab table said nothing about the hospital's
+   specimen or method).
+
+**D-172 zh-TW clinical synonyms for the name matcher.** WS-08.8; 2026-11-09. Revised after the independent review
+(H1, M1, M2, M5).
+
+1. *Two synonym items* (kind synonym, ship). `naer_medical_terms`: 國家教育研究院 醫學學術名詞 (data.gov.tw 15460,
+   licence field 1 = OGDL 1.0, read today; 30,797 terms -> 32,083 zh-TW forms after splitting `；`; 0.6 MB). These
+   are academic translations: an English term lists several senses (stroke: 猝發；發作；中風), so they are not
+   curated. `tw_zh_synonyms`: TrialBox's own list (`libs/tb_common/refdata_src/zh_tw_clinical_synonyms.csv`, 42
+   rows): colloquial zh-TW words (類風濕關節炎 without 性, 第2型糖尿病, 減重手術) and the abbreviations of Taiwanese
+   notes (T2DM, NSCLC, SGPT = ALT, CXR), each with a domain. Every row's canonical name resolves in the matcher in
+   its domain (a test checks it); 20 rows whose canonical name the matcher does not know (hypertension, CKD,
+   hemodialysis and others) were dropped rather than mapped to a narrower code. Abbreviations with another meaning
+   in some specialty (RA, MI, CVA, GPT, MTX) carry `review = yes` and are not trusted. The cross-strait list
+   (data.gov.tw 15314, 885 rows) is not added: the medical list covers it.
+2. *Matcher.* `Terminology(name_synonyms=...)`, in this order: exact name; the curated table on the name; **2a** the
+   dictionary's trusted entries (curated, not marked for review) -> the curated table, then the exact names, on
+   their canonical names: method `synonym`, no review; the curated table and the exact names on the model's
+   synonyms (as before); **2c** the dictionary's other entries (NAER, ambiguous abbreviations): method `dictionary`,
+   always `needs_review`; then the LLM. When the exact name hits (心衰竭 is the display of I50.9) and a trusted
+   entry's canonical name gives those codes and more (heart failure, the I50 family), the trusted entry wins. So a NAER sense never pre-empts what the model's synonyms resolve (發作 with
+   the model's "gout" stays gout, not stroke), and a trusted entry that resolves nothing does not hide the others.
+   The note names the sources. The criteria compiler service wires `refdata.synonym_lookup()`; every other
+   `Terminology()` is unchanged. No database or no pack: the steps are skipped. The lookup does not filter by
+   language.
+
+*Licence summary.* All five items allow redistribution (OGDL 1.0, CC0, own work), so none is site-fetch.
+
+*Not done.* The full NHI drug list was not fetched here in one piece (transfers cut off); the vendor runs `fetch
+nhi_drugs` and `build` as for D-140. The mapping of a 2014 code in an old record at ingest (lake, adapter) is not
+wired: `in_set_via_map` is ready for it. The NHI 醫療服務給付項目 list itself (codes and names beyond the 53 lab
+codes) is still open (D-140). A source dropped from a later vendor pack keeps its rows (D-140 behaviour: a pack
+replaces only its own sources); withdrawing a source needs a manual delete for now, left for WS-08.8.
+
+*Second independent review (2026-11-10), further fixes* (beyond the revisions noted in D-170 and D-171 above):
+
+1. *Licence evidence binds the file and belongs to the item* (M4, L5): each item with a dataset record names its
+   reader and licence (first as `Item.read_meta` and `Item.licence_id`; merged with D-173's reader into one
+   mechanism, `Item.licence_reader`, see D-173 item 2; `refdata_tw.datagov_meta` reads data.gov.tw), so the
+   generic fetch knows no portal and a Japan module brings its own. The fetch also stops when the record does not
+   list the URL fetched: 15460 lists the opendata.naer.edu.tw CSV the NAER item downloads, 23715 and 177508 the
+   info.nhi.gov.tw files (checked 2026-11-10). `fetch.json` keeps every item's check (`licence_checks`, the derived
+   `nhi_drug_atc` too), and a vendor build refuses an item with a record but neither a check nor a recorded
+   `--no-licence-check` skip.
+2. *Deleted ICD codes* (M6): a 2014 code with no 2023 code gives one `unmatched` row without a target (the pack
+   allows an empty target for `unmatched` only), and site set-up then makes no suggestion instead of offering the
+   obsolete code as `same`. One-to-one code changes stay `inexact` (unknown in `in_set_via_map`; site set-up still
+   suggests them).
+3. *Site set-up* (M7, L1, L2, L4): see D-171 item 3 (no pick among several LOINC candidates, no NHI name as the
+   LOINC display, no cached LOINC table); site set-up's name matcher reads the synonym dictionary too
+   (dictionary-method answers are reviewed, so `_by_name` still ignores them).
+4. *NHI drug -> ATC* (L3): the ATC code of the newest validity period that states one, when the newest left it
+   empty.
+**D-173 Japan diagnoses: the WHO ICD-10 <-> ICD-10-CM bridge, the MEDIS 病名 loader, and the licence reader on each
+item.** WS-08.8, builds on D-170; 2026-11-10. Licences read at the source on the same day.
+
+1. *Japan module.* `tb_common/refdata_jp.py` holds the Japan items, parsers and constants and is added to the one
+   registry (`SOURCES = (..., *tw.ITEMS, *jp.ITEMS)`), as D-170 set out. Every item records its source, licence,
+   terms, attribution, version and sha256; the shipped ones are on `/admin/notice` and in `NOTICE.md`, and so is a
+   site-fetch item once the hospital loads it. Only `tools/refdata_fetch.py fetch` touches the network.
+2. *Licence reader on `Item`* (D-170 review M4). `Item.licence_reader` reads the item's licence at the source when
+   the vendor fetches it and returns `LicenceRead` (where, what was read, what was expected, ok, and a version
+   when the same answer gives one). `fetch` keeps it in `fetch.json` (`licence_check`, or `licence_checks` for a
+   derived item) and stops when the source does not answer or the licence no longer reads as expected;
+   `--no-licence-check` skips the read and records that. The data.gov.tw reader moved to
+   `refdata_tw.datagov_tw_licence` (set on the three data.gov.tw items); `refdata.page_licence_reader(url, words)`
+   reads a licence stated on a page (used for NCI, D-174). `fetch()` no longer knows any one site.
+   *One mechanism for Taiwan and Japan* (merge with the second review of D-170, M3, M4, L5): the D-170 review's
+   `read_meta` / `licence_id` pair became this reader. It fails closed: no answer, another licence, or a dataset
+   URL without a reader stops the fetch. `LicenceRead.downloads` carries the download URLs the licensed record lists
+   (data.gov.tw: the dataset's `distribution`), and fetch stops when a URL fetched is not among them; a record that
+   lists none (a licence page such as NCI's) binds nothing, so the file must then be pinned by `Item.sha256` (CTCAE
+   is), else the fetch stops. `fetch.json` keeps every item's check (`licence_checks`, derived items too), and a
+   vendor build refuses an item with a reader whose `fetch.json` holds neither a passed check nor a recorded
+   `--no-licence-check` skip.
+3. *WHO ICD-10 <-> ICD-10-CM bridge* (`icd10_who_cm_bridge`, kind map, ship; TrialBox's own work). No official map
+   exists. Built from the ICD-10-CM code list (`derived_from` the `icd10cm` download, U.S. public domain): one row
+   per ICD-10-CM category, WHO category -> the ICD-10-CM category of the same three characters. **The relation is
+   `inexact` (a candidate that never decides) unless the category was checked**; a checked category is `wider`
+   (the ICD-10-CM category holds all of the WHO category's meaning). ICD-10-CM narrowed or moved parts of many
+   categories, so the default cannot be `wider`: WHO A09 holds diarrhoea of unspecified origin (A09.9) but CM A09 is
+   infectious only (unspecified goes to K52.9), so a WHO A09.9 record would have answered "yes" against a CM A09
+   exclusion (review finding of PR #76); likewise WHO M10 holds chronic gout (CM M1A), WHO C categories hold
+   carcinoid tumours (CM C7A, C7B, D3A), WHO E13 holds what CM puts under E08 and E09.
+   *Audit method* (`refdata_src/icd10_who_cm_checked.csv`, one line per category with its reason): a category is
+   listed only when (a) ICD-10-CM's tabular list for it was read and nothing WHO puts in the category is sent
+   elsewhere by a CM "Excludes1" or by a CM category created by splitting it, and (b) it is not in a chapter or
+   block CM restructured (all C and D neoplasm categories, O, U, V to Y, Z) and not a category with a known
+   difference (A09, E13, M10). Where CM is wider by design (CM J45 also holds status asthmaticus, WHO J46; CM G40
+   holds status epilepticus, WHO G41; CM B20 holds all HIV disease, WHO B20 to B24) the WHO category is inside the
+   CM one and is listed. 36 categories are checked today (diabetes types 1 and 2, hypertension, ischaemic heart
+   disease, heart failure, atrial fibrillation, stroke, COPD, asthma, CKD, nephrotic syndrome, RA, SLE, ankylosing
+   spondylitis, psoriasis, IBD, cirrhosis, chronic viral hepatitis, HIV, thyroid, lipids, obesity, MS, epilepsy,
+   Parkinson's, Alzheimer's, schizophrenia, bipolar and depressive disorders); a test refuses the known
+   differences. A category is added only by the same method, with its reason. FY2027: 1,919 rows (36 wider, 1,883
+   inexact). A WHO category ICD-10-CM does not have (E14, B21) has no row. Code strings only, no WHO text (WHO's
+   ICD-10 text needs a WHO licence). `who_icd10_in_list` reads a WHO code by its category against an ICD-10-CM
+   list: `yes` only for a checked category inside the list's prefix family, otherwise `unknown`; the bridge never
+   gives `no` (no row is equivalent or narrower), so a WHO-only code never excludes. Not wired into ingest yet (the
+   SS-MIX2 reader keeps D-137's rule).
+4. *MEDIS 標準病名マスター -> ICD-10* (`medis_byomei_icd10`, kind map, **site-fetch, nothing shipped**). MEDIS-DC's
+   terms page: anyone may download and use the master, but use outside a medical institution or for distribution
+   needs MEDIS-DC's permission (使用許諾申請書); 病名 and HOT are on that list; a modified copy must name MEDIS.
+   TrialBox is a vendor, so the item has a loader only: the hospital downloads its release and runs
+   `tools/refdata_fetch.py site-load medis_byomei_icd10 --file ... [--columns ...] [--version Ver.x]`. A release
+   without a header row takes `--columns` (kept beside the file as `columns.txt`, the file unchanged). Rows:
+   病名交換用コード -> the WHO ICD-10 code the master gives, relation `wider`; a row without an ICD-10-shaped code
+   gives none. The D-137 terminology loader stays for the SS-MIX2 reader and the JP Core check.
+
+5. *A vendor build never packs a site-fetch item* (review finding of PR #76). `site-load` leaves the hospital's file
+   and its `fetch.json` under `<out>/raw`; `build` now builds `ship` items only, leaves site-fetch items out of its
+   default list and refuses one named in `--ids` (MEDIS, JLAC10, JCOG, UMIN-CTR). Only `site_load` builds a
+   site-fetch item, into the hospital's own part (`site=True`). An item with a dataset API URL but no licence
+   reader is refused at fetch (the D-170 guard, kept after the move).
+
+*Evidence.* `tests/unit/test_refdata_jp.py` (bridge relations, the checked list and the known differences, MEDIS
+headerless Shift_JIS file, site-load beside the vendor's pack, a vendor build over a raw directory holding the
+hospital's MEDIS and UMIN files, the licence reader), `tests/unit/test_refdata_tw.py` (the data.gov.tw reader
+through the item), `e2e_simple` stage 14.
+
+**D-174 Japan drugs, labs and adverse events: YJ -> ATC, the JLAC10 -> LOINC loader, CTCAE v5.0 in English and the
+JCOG Japanese loader.** WS-08.8; 2026-11-10.
+
+1. *YJ code -> ATC* (`jp_yj_atc`, kind map, ship; TrialBox's own table). No free public YJ -> ATC table exists (KEGG
+   is paid; CAPS publishes YJ codes without ATC). `refdata_src/jp_yj_atc.csv`: 56 seven-character YJ stems (薬効分類
+   4 + ingredient and route 3: every YJ and 薬価基準 code of that ingredient and route starts with it), each read
+   from MHLW's 薬価基準収載品目リスト of 2026-11 (PDL 1.0, credited as the licence asks) and checked to hold one
+   ingredient, -> its ATC code (diabetes, anticoagulants and antiplatelets, statins, gout, RA and immunosuppressants,
+   platinum, taxanes, antibodies, common analgesics). Where the route or use changes the ATC code the stems are
+   apart (methotrexate 3999016 RA L04AX03 and 4222001 oncology L01BA01; aspirin 3399007 B01AC06 and 1143001
+   N02BA01). Relation `wider`. ATC codes are identifiers only: the WHOCC site forbids commercial copying of the
+   index, and no WHOCC text is shipped (as D-140). Site set-up suggests the ATC code of a YJ code by its stem
+   (`refdata`, 0.90) when the code has the YJ shape (seven digits, then the 剤形 letter: an all-digit hospital code
+   is not read as YJ). A stem not in the table gives nothing (unknown).
+2. *JLAC10 -> LOINC* (`jlac10_loinc`, kind map, **site-fetch, nothing shipped**). No public map was found (MHLW,
+   JSLM, JLAC Center); JSLM's code page states no redistribution terms we could read, and the repository's JP-Core
+   sample rows stay marked `verify`. So TrialBox ships no JLAC10 -> LOINC rows; the hospital loads its own map file
+   (CSV, TSV or XLSX with a JLAC10 column, hyphenated or not, or its five part columns, and a LOINC column) with
+   `site-load`; rows without a JLAC10- or LOINC-shaped code are left out and their count is logged. The file's
+   own R4 equivalence is kept when it has one, else `relatedto`. Site set-up suggests the LOINC code when a JLAC10
+   code has one target (0.90); several, none.
+3. *CTCAE v5.0, English* (`ctcae_v5_en`, kind term, ship). NCI's workbook
+   (`dctd.cancer.gov/.../ctcae-v5.0.xlsx`), pinned to sha256 `2036d4933ee2b768a8d9955ea939439b8a4b9dd432053b244d7529f9826ea047`.
+   Licence: cancer.gov says NCI text is free of copyright and may be reused, crediting NCI (read by the item's
+   licence reader at each fetch); JCOG's page also calls CTCAE v5.0 a public-domain document. 837 terms: system
+   `urn:trialbox:ctcae:5.0`, code and display the English term, `extra` the SOC, the five grade texts ("-" becomes
+   empty), the definition and the navigational note. The MedDRA code column is **not** shipped (MedDRA is
+   licensed by subscription for industry). Grading stays with a person (D-129). Not wired into the AE form yet.
+4. *CTCAE v5.0 日本語訳JCOG版* (`ctcae_v5_ja_jcog`, kind synonym, **site-fetch, nothing shipped**). JCOG's page: JCOG
+   holds the translation's copyright; non-commercial trials may download and use it without permission, citing
+   it; commercial use needs a contract. TrialBox therefore ships only the loader: the hospital downloads the
+   body-only workbook (2025-09-01 edition, MedDRA/J v28.1) and loads it; rows are the Japanese term -> the English
+   term (domain `adverse_event`, system CTCAE, code the English term) with the Japanese SOC, grades and definition.
+   Checked today: all 837 English terms and MedDRA codes of the JCOG edition match NCI's v5.0 workbook, so every
+   Japanese row joins an English term. A zh-TW translation stays ours to write (baseline review).
+
+**D-175 Japanese clinical synonyms for the name matcher.** WS-08.8; 2026-11-10.
+
+1. *One synonym item* (`ja_synonyms`, kind synonym, ship): TrialBox's own list `refdata_src/ja_clinical_synonyms.csv`,
+   70 rows, same columns and rules as the zh-TW list (D-172; the reader is now one shared function,
+   `refdata.curated_synonyms`): Japanese disease, drug, test, procedure and report names (関節リウマチ, 2型糖尿病,
+   脳卒中, メトトレキサート, HbA1c as ヘモグロビンA1c, HBs抗原, 胸部X線) and note abbreviations (INH, MEN2, EGFR-TKI) ->
+   the name the matcher knows, per domain (血清尿酸値 and 尿酸値 both -> serum urate). Every canonical name
+   resolves in its domain and every trusted term maps to the same codes as its canonical name (tests). Ambiguous short forms (RA, AMI, MTX, PSL, GPT) carry
+   `review = yes`: method `dictionary`, always reviewed. Strings that are the same in zh-TW and ja (妊娠, 非小細胞肺癌)
+   are not repeated.
+2. *Public ja dictionaries not added.* Hyakuyaku and MANBYO (NAIST, CC BY 4.0) map surface forms to Japanese
+   generic or 標準病名 names, which the matcher does not know, and MANBYO's ICD-10 and 標準病名 columns derive from
+   the MEDIS master (D-173: not shippable). JMED-DICT mini's code links need NAIST's answer. Left for later.
+
+*Licence summary for D-173 to D-175.* Shipped: the bridge, YJ -> ATC and the ja synonyms (own work; ICD-10-CM U.S.
+public domain; YJ stems from MHLW lists under PDL 1.0; ATC codes as identifiers), CTCAE v5.0 English (NCI, free of
+copyright; no MedDRA codes). Not shipped, loader only: MEDIS 病名 (distribution needs MEDIS-DC's permission),
+JLAC10 -> LOINC (no public map; JSLM terms unknown), the JCOG translation (commercial use needs a contract).
+
+*Not done.* The bridge and the MEDIS map are not read at ingest (the SS-MIX2 reader and the lake keep D-137 and
+D-130); the CTCAE terms are not in the AE form; the MEDIS and JCOG permissions are not requested here (the owner's
+step, baseline review §1 actions 1 and 6); MHLW 一般名処方マスタ and the 薬効分類 -> drug-class table are open.
+
+**D-178 Operations screens for hospital IT; every destructive action asks first and can be undone where it can.**
+Review J-09 asked for the box's operations on the console, not only on the command line; J-14 asked for a
+confirmation on each destructive action and an undo where one is possible. The administrator's `/admin/ops` page shows
+the version, backups (age, red after 36 hours, the last check), update and rollback history, logs, secrets by name and
+age only, and the network sheet. Its actions (back up, check backups, verify or apply a bundle, collect logs, write
+the network sheet) wrap the existing commands (`trialbox backup`, the new `trialbox backup-check`,
+`tools/apply_update.sh`, `trialbox logs`, `tools/network_sheet.py`); none is written again. The console container
+has no docker, so it leaves a request in an operations folder and a host runner (`python3 -m tools.trialbox ops run`,
+every minute) runs it and writes the result back, one runner at a time (a lock; a link or a pipe left in the
+requests folder is skipped, never read). A request that started and was cut off (a restart) is shown
+interrupted and never run again; one that waited over 60 minutes is not run; each result is a `console.ops`
+event in the box's audit chain. Tests and the demo run the same runner in process. Who may is a
+table in `tb_common.authz` (administrator only); a refusal is a `console.denied` audit event, each action a
+`console.ops` event. Confirmations: account reset (no undo, said so), disable (undo: enable again, also from a
+Disabled accounts list), rejecting a fact (undo puts it back to proposed with its old values; confirming and
+correcting also have undo), a closing contact outcome (undo restores the earlier status; only the person's own latest
+outcome), detaching a source (undo within 15 minutes, in memory). *Evidence:* `tests/console/test_ops_pages.py`, the
+browser walk's admin pages and role refusals. *Not done here:* `deploy/install.sh` does not install the runner's
+timer yet; RUNBOOK §15 says how.
+
+**D-179 The site pages are site-wide; a study-scoped account sees readiness and help only.**
+Review J-06 asked which site pages a study-scoped account sees. The site's facts, mappings and sources describe the
+whole hospital and belong to its data steward, so they stay site-wide: an account with studies listed gets 404 (and a
+`console.denied` event, reason study scope) on every site page except the readiness page, its API and the help page,
+where it sees a note that the page is site-wide and no fix links or start button. Accounts with no study list keep
+today's pages. Per-study site settings, if a study ever needs them, belong in that study's own pages.
+*Evidence:* `tests/console/test_ops_pages.py` (scoped 404s and 200s).
+**D-181 A judge bake-off that gates on wrong exclusions, with the box's own prompt and parser (no GPU yet).** Before
+a GPU run compares the current judge with `google/gemma-4-31B-it`, the comparison has to measure what matters for
+screening, on a fixed set, through any OpenAI-compatible endpoint.
+
+1. *The tool.* `tools/judge_bakeoff.py` puts every item through `NoteJudge.judge_excerpts` with one judge and no
+   verifier: the registry prompt `judge` (newest version), `tb_common.llm.chat_json` (structured output, schema check,
+   one retry) and `postprocess` (the quote must be in an excerpt, else unknown), then the product's `eligibility`. No
+   new prompt and no new parser.
+2. *The set.* The synthetic hospital set (`tools/make_judge_set.py`, planted truth, kind from the ruleset IR; 39 of
+   its 300 items have no note in the window and are not put to the model, 100 are `renewal`, scored like an
+   inclusion), MedTxt (`tools/medtxt_eval.py` items, the strict slice, ja and en: positive pass, stated absent fail,
+   suspected and not mentioned unknown) and TREC CT (`tools/trec_ct_eval.py`, NIST-eligible pairs: no criterion
+   should exclude). `--write-set` freezes the set; `--expect-set-sha` refuses another file; `gated` is set from the
+   source, never read from the file; `--compare` exits 1 when sets or prompt versions differ.
+3. *The gate, per gated source* (synthetic and MedTxt each on its own; a pooled rate let the larger set hide a
+   failure on the other): wrong exclusions <= 2 % over the judge's exclusions (Study A's measure, compared exactly),
+   at least 20 exclusions and 50 answers, at most 10 % unanswered (the product's model-down rule, also run-wide);
+   both sources present. Wilson and patient-cluster 95 % intervals are reported (the bootstrap resamples every
+   patient); `--max-upper-ci 0.05` gates the pooled upper bound and the RUNBOOK commands pass it. TREC CT is reported
+   (wrong exclusions, eligible pairs lost) but not gated: its labels are per pair and noisy (`eval/trec_ct/AUDIT.md`).
+   Also reported: precision of "fits", gold-unknown excluded and abstained, citation validity (quote found, dated as
+   an excerpt that holds it), latency per item and per HTTP call, tokens per call (failed attempts included).
+   `product:unknown_never_excludes` is a self-check of the product's mapping, not a model measure.
+4. *Pinning.* `--expect-root` is required for a real endpoint. `/v1/models` must list `--served-name` with that root
+   before the first item (exit 3 otherwise) and unchanged after the last. The root is only vLLM's start name, so
+   `--model-dir` records the weight manifest hash (`tools/pin_model.py` format), `--expect-manifest` refuses other
+   weights and `--revision` records the commit. The per-answer model name only catches a renaming proxy.
+5. *Robustness.* Only transport errors, 429 and 5xx are retried; a 4xx, a schema error or a malformed 200 is no
+   answer (never a crash). Rows are appended as they complete; `--resume` keeps the answered ones.
+6. *Secrets.* The endpoint key comes from the environment variable named by `--key-env` (default
+   `TB_BAKEOFF_API_KEY`), goes only into the Authorization header to `--base-url` (no proxy from the environment;
+   plain http only to loopback), and is never printed or written; results record only the variable's name. Rows carry
+   ids, gold, verdicts, reason codes, latency and tokens: no note text, no quote.
+7. *Relation to `tools/bakeoff.py` and `tools/bakeoff_live.py`.* Those pick a hosted model for the `judge_ml` task
+   through a tb-gateway with the `mlbench` prompt, scored by agreement and cost. This tool is the screening-safety gate
+   for one served model (a local vLLM on a GPU VM) with the box's own judge. It reuses their retry backoff, worker cap
+   and percentile helper, and `tools/trec_ct_eval.py`'s Wilson interval.
+
+*Evidence.* `tests/unit/test_judge_bakeoff.py` (20 tests) against a local stub server on 127.0.0.1 (the
+`services/llm_stub` judge handler, or a test answer): the stub run passes; a judge that says yes to everything fails
+with its interval; invented quotes exclude nobody and cannot pass (0 exclusions); the 2 % boundary (1/50 passes,
+9/449 fails); a 10 % failure on one source hidden in a 1.1 % pooled rate fails; unanswered gated items fail while
+TREC answers; the minimums, required sources and upper bound; a wrong served name or root, a missing
+`--expect-root`, a renaming proxy, a server swapped during the run and a wrong weight manifest are refused or fail;
+4xx not retried, 5xx retried, malformed 200s are no answer; resume; the frozen set checks (sha, `gated`, U+2028); the
+MedTxt and TREC builders; compare; a test key reaches the stub's header and appears in no output, stdout or stderr,
+and is refused over plain http to another host. The GPU procedure is RUNBOOK section 12. No real model or cloud
+endpoint was called.
 **D-185 One hashed lock: `uv.lock`, exported to `deploy/requirements.lock` with sha256 hashes and checked in CI.**
 Source: `docs/reviews/2026-11-09-component-review-layer2-verification.md` row 2 and R-19; master plan WS-14.6. The
 lock was made with `uv pip compile` without hashes, and pip-audit found 60 advisories in it (pillow 12.3.0: 39, pypdf
@@ -3798,6 +4150,55 @@ Source: WS-08.6 and WS-08.5 (the admin tile turns red 36 h after the last backup
 4. *Postgres.* `wal_compression=zstd`, `default_toast_compression=lz4`, data checksums for new clusters. WAL archiving (off by default) goes to pgBackRest: zst, an aes-256-cbc repository, 3 full backups plus 7 differentials, at least two weeks of point-in-time restore. It is turned on per site (RUNBOOK §5); the cipher pass is mounted into db only.
 *Evidence.* `tests/unit/test_backup_schedule.py`; `tools/backup_drill.py`.
 *Not done here.* The docker-side runs; `doctor` failing on a local-only target; `install.sh` installing the cron file; the admin tile (WS-08.5); review items M2, M7, the repo-path half of M8, and the open Lows.
+
+**D-189 Score definitions from the catalogue; CDAI and SDAI in the SQL and CQL engines.**
+Source: `docs/reviews/2026-11-09-dataflow-lifecycle-review.md` §0.4, §4.2; D-149 "Not done here"; WS-04.3.
+1. `tools/gen_score_defs.py` generates `libs/tb_common/score_defs.json` from `catalogue/scores/*.yaml`. A
+   definition is `<score_id>@<version>` with the sha256 of its YAML; a YAML changed under the same version is
+   refused (bump the version). `tb_common.scores` reads it; the same-visit windows of CDAI, SDAI, DAS28-ESR and
+   DAS28-CRP come from it, and a test checks that the hand-written eGFR, JSN and DAS28 constants equal the catalogue's
+   coefficients.
+2. CDAI = TJC28 + SJC28 + PtGA + EvGA and SDAI = CDAI + CRP (mg/dL) are in the Python reference, the SQL generator
+   and the CQL `TB_Common` (`CDAI`, `SDAI`). The globals are LOINC 75844-1 / 75846-6 on a 0-10 scale: a 0-100 mm VAS
+   is divided by 10, a 10 cm VAS is 0-10, and a value outside 0-10 gives no value and `derived_unit` in every
+   engine. The criterion IR (schema 1.2.0) and the extract schema accept `cdai` and `sdai` (calculators
+   `cdai@1.0.0`, `sdai@1.0.0`).
+3. Worked examples (catalogue CDAI 27, 1.5, SDAI 31, 1.2; review CDAI 14.5; CKD-EPI 59.3; JSN 63.1) give the same
+   value in Python, in the compiled SQL on a lake and in the CQL helper text; a missing input or a unit that does not
+   fit is the same reason in each, never FALSE.
+4. An impossible value never raises in the Python reference: a creatinine of 0 or less, a joint count outside 0-28, a
+   negative CRP or ESR, or a value that is not a finite number gives no value and `derived_unit:<input>`; an age of 0
+   or less gives `derived_missing_input:age`. The SQL `egfr_jsn` template has the same creatinine and age guard.
+*Evidence.* `tests/unit/test_derived_definitions.py`.
+*Not done.* The SQL and CQL engines do not yet carry the joint-count, CRP and ESR ranges.
+
+**D-190 Stored derived rows with provenance, recompute on change, derived-vs-documented conflicts.**
+Source: the same review §4.2 (storage, recompute triggers, conflicts); WS-04.3.
+1. `tb_common.derived_store`: schema `derived` with `definition`, `score_row` (value or reason; unit; anchor;
+   definition version and sha; site mapping version; every input with its source table, row id, date, value and unit
+   as recorded, status, and the value and unit used), `input_link` (one per input) and `conflict`. Rows are
+   superseded, never updated in place or deleted. Stored scores: CDAI, SDAI, DAS28-ESR, DAS28-CRP, eGFR CKD-EPI
+   2021 and JSN 2009. Two stores opening at once load a definition once (insert or nothing, then re-read its sha).
+2. A row is written only when its fingerprint (definition version and sha, mapping version, inputs; age and sex for
+   eGFR) changes: an input added, corrected, confirmed or deleted, a new mapping or a new definition version. An
+   anchor gone at the source retires its row. `run_batch` reads the lake's `observation` (never `site_fact`). A
+   patient whose recompute fails is counted in the batch report (`failed`, `failed_pids`) and the batch goes on.
+3. Only rows with status final, amended, corrected, confirmed or signed are inputs: a proposed fact never counts.
+   The lake's `observation` has no status column, so the batch records each lake row's status as `not_recorded`,
+   which counts: the lake holds only feed rows and confirmed facts (a proposed fact stays out of `observation` by
+   its basis tag). An entered-in-error or preliminary feed row is not left out until the lake carries
+   `Observation.status`.
+4. A documented score (proposed or signed) within 7 days of a computed row and beyond the tolerance (CDAI and SDAI
+   0.5, DAS28 0.2, eGFR 5) opens a `derived_vs_documented` conflict; neither value is overwritten, the score reads
+   as unknown until a person chooses keep_derived, keep_documented or both_at_dates.
+5. A recomputed row takes over the conflicts of the row it replaces (`carried_from`), checked against the stored
+   documented value even when the batch is not given the documented scores: a conflict that still differs stays
+   open; one that now agrees is closed. A person's decision stays unless the new value differs from the value it was
+   made against (`resolved_value`) by more than the tolerance; then the conflict opens again. A documented record
+   given again with another value or status is checked as new.
+*Evidence.* `tests/unit/test_derived_store.py`.
+*Not done.* Screening reading stored rows; ruleset pinning of definition versions; scheduling the batch; a
+conflicts page; the eGFR under-18 rule; for the lake owner, `Observation.status` in the lake's `observation` table.
 
 **D-191 The SAE register: one record per serious AE on the one reporting clock (independent plan review PR-17).** The review found that the SAE clock had no system of record and no failure mode in the risk file. TrialBox now keeps an SAE register, schema `sae` of the trial database (`services/console/saerecord.py`), with a worklist at `/sae` and a case page at `/studies/{rs}/sae/{record}/{event}` (`services/console/sae_pages.py`).
 

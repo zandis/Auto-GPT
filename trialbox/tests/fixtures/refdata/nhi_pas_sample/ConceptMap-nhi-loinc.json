@@ -1,0 +1,316 @@
+{
+ "resourceType": "ConceptMap",
+ "id": "nhi-loinc",
+ "url": "https://nhicore.nhi.gov.tw/pas/ConceptMap/nhi-loinc",
+ "version": "1.3.0",
+ "name": "NHILoinc",
+ "title": "臺灣健保署醫療服務給付項目對應LOINC",
+ "status": "active",
+ "experimental": false,
+ "date": "2026-11-04",
+ "publisher": "衛生福利部中央健康保險署",
+ "contact": [
+  {
+   "name": "衛生福利部中央健康保險署",
+   "telecom": [
+    {
+     "system": "url",
+     "value": "https://www.nhi.gov.tw"
+    }
+   ]
+  }
+ ],
+ "description": "此對應表為臺灣健保署醫療服務給付項目對應LOINC，供實作者於撰寫程式以自動化對應或轉代碼時使用。",
+ "sourceUri": "https://twcore.mohw.gov.tw/ig/twcore/ValueSet/laboratory-category-tw",
+ "targetUri": "http://hl7.org/fhir/ValueSet/observation-codes",
+ "group": [
+  {
+   "source": "https://twcore.mohw.gov.tw/ig/twcore/CodeSystem/medical-service-payment-tw",
+   "sourceVersion": "2022-10-07",
+   "target": "http://loinc.org",
+   "targetVersion": "2.77",
+   "element": [
+    {
+     "code": "09015C",
+     "display": "肌酸酐、血",
+     "target": [
+      {
+       "code": "101475-2",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09015C",
+     "display": "肌酸酐、血",
+     "target": [
+      {
+       "code": "14682-9",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09015C",
+     "display": "肌酸酐、血",
+     "target": [
+      {
+       "code": "21232-4",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09015C",
+     "display": "肌酸酐、血",
+     "target": [
+      {
+       "code": "2160-0",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09015C",
+     "display": "肌酸酐、血",
+     "target": [
+      {
+       "code": "38483-4",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09015C",
+     "display": "肌酸酐、血",
+     "target": [
+      {
+       "code": "44784-7",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09015C",
+     "display": "肌酸酐、血",
+     "target": [
+      {
+       "code": "59826-8",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09015C",
+     "display": "肌酸酐、血",
+     "target": [
+      {
+       "code": "77140-2",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09015C",
+     "display": "肌酸酐、血",
+     "target": [
+      {
+       "code": "96590-5",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09015C",
+     "display": "肌酸酐、血",
+     "target": [
+      {
+       "code": "33914-3",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09015C",
+     "display": "肌酸酐、血",
+     "target": [
+      {
+       "code": "45066-8",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "100738-4",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "16324-6",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "16325-3",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "1741-8",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "1742-6",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "1743-4",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "1744-2",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "25302-1",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "44785-4",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "48134-1",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "50168-4",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "54491-6",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "54492-4",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "76625-3",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "77144-4",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "09026C",
+     "display": "血清麩胺酸丙酮酸轉氨基脢",
+     "target": [
+      {
+       "code": "96586-3",
+       "equivalence": "relatedto"
+      }
+     ]
+    },
+    {
+     "code": "12198C",
+     "display": "游離攝護腺特異抗原",
+     "target": [
+      {
+       "code": "83113-1",
+       "equivalence": "relatedto"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

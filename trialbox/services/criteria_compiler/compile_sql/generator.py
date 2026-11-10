@@ -355,6 +355,10 @@ class SqlGenerator:
                     ("esr.oid IS NOT NULL AND esr.conv <= 0", f"{MISSING}:esr"),
                     *checks(["crp"]),
                 ]
+            case "cdai":  # D-189: TJC28 + SJC28 + PtGA (0-10) + EvGA (0-10), one visit (catalogue cdai.yaml)
+                value = f"({v['tjc28']} + {v['sjc28']} + {v['ptga10']} + {v['evga']})"
+            case "sdai":  # D-189: CDAI + CRP in mg/dL (the unit table gives mg/L; sdai.yaml)
+                value = f"({v['tjc28']} + {v['sjc28']} + {v['ptga10']} + {v['evga']} + {v['crp']} / 10.0)"
             case "basdai":
                 q = [v[f"basdai_q{i}"] for i in range(1, 7)]
                 value = f"(({q[0]} + {q[1]} + {q[2]} + {q[3]} + ({q[4]} + {q[5]}) / 2.0) / 5.0)"

@@ -118,6 +118,50 @@ minutes idle or 8 hours; local accounts give a TOTP code after the password ([§
 `docker exec -i trialbox-console-1 python -m console.cli bootstrap-admin|add-user NAME --role ROLE|reset-password
 NAME|disable NAME|list-users`.
 
+### Build gate: the data-handling scan (D-203)
+
+Real patient data never enters the repository, CI, a log or a support bundle (TB-SITE-03). `make data-scan` scans
+every tracked file (patterns in `tools/data_scan_patterns.yaml`) for chart numbers after their label or in an HL7 PID
+segment, Taiwan IDs and マイナンバー with valid check digits, Japanese insurer numbers, Taiwanese and Japanese phone
+numbers, and Chinese, Japanese or katakana names beside a date (western, compact, ROC or wareki; on the same line or
+up to three lines apart). Full-width characters, invisible characters, other dashes and numbers split by spaces,
+dots or hyphens are normalised first; tables (`.csv`, `.tsv`, `.xlsx`, `.parquet`) are also read with each value
+labelled by its column header; archives and office files are read member by member, by content as well as by name;
+other encodings (UTF-16, Big5, Shift-JIS, EUC-JP, GB18030) are decoded. A binary of an unknown kind is reported as
+`unscanned`. A data file type (`.csv`, `.xlsx`, `.ndjson`, `.parquet`, `.duckdb`, `.hl7` ...) outside
+`tests/fixtures/`, `eval/`, `catalogue/`, `refdata/` and the reference tables `.gitattributes` names is refused. Exit
+2 on a hit; the output gives the file, the line, the pattern and at most two characters at each end, never the value.
+The same scan runs on a log (`python -m tools.data_scan --log make-test.log`), on a support bundle or any archive
+(`python -m tools.data_scan bundle.tgz`), as the pre-commit hook (`pre-commit install --config
+trialbox/.pre-commit-config.yaml`, from the repository root) and as the `data-scan` CI job. A synthetic value that
+looks real goes into `tools/data_scan_allow.txt` with its reason; a real one is an incident (TB-SITE-03 §1.7).
+
+### Build gate: the CI jobs (D-206)
+
+`.github/workflows/trialbox-ci.yml` runs on every pull request and every push to master; its first job, `changes`,
+skips the others (reported as skipped, which satisfies a required check) when a pull request touches neither
+`trialbox/` nor a TrialBox workflow. `make ci` runs the same list locally. Each job has at most 15 minutes; a newer
+push to a pull request cancels the older run (pushes to master are never cancelled). The required checks on master
+(set by the owner in GitHub): `unit`, `lint`, `contracts`, `goldens`, `data-scan`, `e2e-simple`.
+
+| Job | What it runs | Gates |
+| --- | --- | --- |
+| `lint` | ruff check and format; actionlint on the TrialBox workflows | yes |
+| `types` | mypy strict on libs, services, tools, tests | yes |
+| `docs` | `tools/doclint.py` | yes |
+| `contracts` | `make contracts-check` (no hand-edited generated file) | yes |
+| `trace` | `tools/gen_traceability.py --check` | yes |
+| `unit` | `make test PYTEST_N=auto` on throwaway clusters from the runner's own PostgreSQL (`tools/pglocal.py`, server and client tools one version), `TB_DATA_DIR` in the runner's temp, then the data scan of its log | yes |
+| `e2e-simple` | `make e2e-simple` (D-111) | yes |
+| `goldens` | `make goldens-check` (T-006, D-205) | yes |
+| `data-scan` | `make data-scan` (D-203) | yes |
+| `shell` | shellcheck: errors gate, warnings listed (2026-11-09: ten in `deploy/`) | errors |
+| `images` | hadolint on the three Dockerfiles | listed only (2026-11-09: first runs to triage) |
+
+`trialbox-e2e.yml` is the nightly (and on demand): `public_e2e`, the backup drill and the update drill. The
+supply-chain gates (lock current, allow-list, pip-audit, licences) are the `lock` job of `trialbox-supply-chain.yml`
+(D-185, D-186), not repeated in `trialbox-ci.yml`.
+
 ## 4. Troubleshooting
 
 | Symptom | Check | Fix |
@@ -557,3 +601,137 @@ The overlay is checked in CI (`.github/workflows/trialbox-identity.yml`: `caddy 
 `docker compose config` of the merged files, and Caddy run in front of a stand-in console: HSTS on 443, identity
 headers stripped, 80 and 8090 closed, no query strings in its log). The whole stack with Authelia has not been started
 on a box yet. Run the four TLS steps and one sign-in of each kind at IQ.
+
+## 13. Working in parallel on one machine (D-201)
+
+For developers and agent sessions that run the suite side by side on one machine; not for a box.
+
+- **One temp root per branch.** `make` sets `TB_TEST_ROOT` to `$TB_SCRATCH/tb-tests-<branch>` (`TB_SCRATCH`: your
+  scratchpad, default `/var/tmp/trialbox-<uid>`; a detached checkout is `detached-<sha>`) and exports it. Under it:
+  pytest's `--basetemp` (`pytest/`), the test `TMPDIR` (`tmp/`, emptied after each run), one PostgreSQL cluster per
+  xdist worker (`pg-gw0` ...), the shared cluster of `e2e_simple` and the drills (`pglocal/`), `e2e-simple/` and
+  `backup-drill/`. `make test` marks the root (`.tb-test-root`) and holds `flock` on it for the whole run: a second
+  run on the same root stops at once and touches nothing. `/`, a top-level directory, `/tmp`, `/var/tmp`, the home
+  directory, a system directory or a folder directly in one, and an existing folder of other files (no marker) are
+  refused as a root; links are resolved first.
+- **One venv per branch, exactly the lock.** `make venv` runs `uv sync --frozen --group test --extra dev`: it
+  installs `uv.lock` and removes anything installed by hand; the venv has no pip. `make test` first checks that the
+  venv still matches the lock (`venv-check`). To change a dependency, edit `pyproject.toml`, run `uv lock`, commit
+  both. The test plugins are pinned in `[dependency-groups] test` (pytest, pytest-timeout, pytest-cov,
+  pytest-xdist); `addopts` blocks `randomly` and the cache provider, and a guard test fails a run in which
+  `-p randomly` brought it back. Random order is a nightly job, not a default (`TB_TEST_RANDOM=1`).
+- **The suite in parallel.** `make test` runs `pytest -n auto` (`PYTEST_N=0` for serial, `PYTEST_N=4` to cap).
+  pytest keeps one basetemp and, of it, only the failed tests' folders; a green run removes it.
+- **Disk.** `make check-disk` first (fails under `TB_MIN_FREE_GB`, default 20 GB; reports the branch root against
+  its 10 GB budget). `make clean-tmp` (`DRY=1` to list only) removes what earlier runs left and nobody uses now:
+  `/tmp/pytest-of-*` run folders without a live `.lock`, stopped `/tmp/tb-pgtest-*` and `/tmp/tb-pglocal-*`
+  clusters, `/tmp/tb-backup-drill*`, `/tmp/tb-drill`, `/tmp/tb-e2e-simple*`, the rehearsal's `runs/` (not while a
+  rehearsal runs), and the `src.tgz`/`results.tgz` of every `.cache/complete-run` run but the two newest by time
+  (reports stay). It never stops a running server, never follows a link, never touches another user's files or a
+  folder a running process names (working directory, open file, command line, environment). The rehearsal keeps the
+  newest two evidence folders per case.
+- **After a crash.** `python -m tools.pglocal --gc` stops and removes every cluster whose `.owner` process is gone (a
+  `kill -9`, a lost session); a cluster without an owner file, an unreadable owner file or a folder that is not a
+  cluster is never touched by it. A server is signalled only when the pid file names the postmaster running in that
+  data directory, so a stale pid file signals nobody.
+- **As root** the throwaway server runs as `postgres`, which must reach the cluster: `pglocal` adds the search bit
+  (`o+x`, never `o+r`) to a parent that lacks it and says so on stderr; a socket path too long for Unix (about 100
+  characters) moves to a short private folder under the scratch root (under `/tmp` only when that root is long
+  too) that `<cluster>/run` links to.
+
+## 14. Judge bake-off: the current judge against Gemma 4 31B (D-181)
+
+`tools/judge_bakeoff.py` runs a labelled set through any OpenAI-compatible endpoint with the box's own judge prompt
+and parser, and gates on wrong exclusions. It needs a GPU only for the real model; a dry run uses its stub:
+`python -m tools.judge_bakeoff --stub --sources synthetic --require-sources synthetic --out /tmp/jb-stub` (no
+network, about 10 s).
+
+**Before the GPU** (on any machine):
+
+1. Fetch the public sets: `python -m tools.medtxt_eval fetch` and `python -m tools.trec_ct_eval fetch` (they stay in
+   `.cache`, never committed).
+2. Freeze one item set for both models: `python -m tools.judge_bakeoff --write-set /tmp/jb-set.jsonl`. It prints the
+   item count and the SHA-256; check that no source was skipped. Copy the file to the VM, never into the repository
+   (it holds MedTxt and TREC text). Both runs pass `--set /tmp/jb-set.jsonl --expect-set-sha <sha>`.
+
+**On the GPU VM** (owner's OK first, section 11 rules: a cap, stopped and `TERMINATED` after). One model at a time on
+the same VM, same set, same `--workers`; every run also takes `--max-upper-ci 0.05` (Study A's bound):
+
+1. The current judge, as the box serves it (the PRO 6000 run serves `nvidia/Gemma-4-26B-A4B-NVFP4` as
+   `local/gemma-4-26b-a4b-nvfp4`):
+   `python -m tools.judge_bakeoff --base-url http://127.0.0.1:8000/v1 --served-name local/gemma-4-26b-a4b-nvfp4
+   --expect-root nvidia/Gemma-4-26B-A4B-NVFP4 --revision <commit> --model-dir <weights folder>
+   --set /tmp/jb-set.jsonl --expect-set-sha <sha> --max-upper-ci 0.05 --out /tmp/jb-current`
+2. The candidate, **official weights only**: the `google/gemma-4-31B-it` repository on Hugging Face, no community
+   quantisation or fine-tune. Download it at a fixed commit into a folder, serve that folder with
+   `vllm serve <folder> --served-model-name gemma-4-31b-it --max-model-len 32768` (the full-record path sends up to
+   28,000 tokens; bf16 weights are about 62 GB, so it fits on the 96 GB card alone), then the same command with
+   `--served-name gemma-4-31b-it --expect-root <folder> --revision <commit> --model-dir <folder>
+   --out /tmp/jb-gemma31`. A run that dies (preempted VM) continues with `--resume` and the same `--out`.
+3. Side by side: `python -m tools.judge_bakeoff --compare /tmp/jb-current /tmp/jb-gemma31` (exit 1 when the sets or
+   prompt versions differ). Copy the two result folders off the VM before it stops.
+
+**Served-name pinning, and what it does not prove.** `--expect-root` is required for a real endpoint. Before the
+first item and again after the last, the tool reads `/v1/models`: the `--served-name` must be listed with `root`
+equal to `--expect-root` (else exit 3, nothing sent), and the entry must be the same at the end (a restart or a swap
+during the run fails the gate). `root` is only the name vLLM was started with. What identifies the weights is the
+manifest hash `--model-dir` writes into `metrics.json` (`tools/pin_model.py` format), with the commit from
+`--revision`; `--expect-manifest <sha>` refuses a folder with other weights. vLLM copies the requested name into each
+answer, so the per-answer name check only catches a proxy that renames. Run nothing else on the port during the run.
+A key, if the endpoint needs one, goes in `TB_BAKEOFF_API_KEY` (or `--key-env`): sent only to `--base-url`, over
+https or to loopback, never printed or written.
+
+**How to read the gate** (`metrics.md`, first lines; exit 0 passed, 1 failed). Each gated set (synthetic hospital,
+MedTxt) is checked on its own, so the larger set cannot hide a failure on the other:
+
+* **wrong exclusions <= 2 %** per set: of the judge's exclusions, the share the label does not exclude (Study A's
+  measure), compared without rounding; the 95 % intervals are beside it, and `--max-upper-ci 0.05` gates the pooled
+  upper bound;
+* **at least 20 exclusions and 50 answers per set, at most 10 % unanswered**: a judge that never decides, or a model
+  that fails on the long records, fails instead of passing on 0 of 0;
+* both sets present, the pin held at the start and the end;
+* `product:unknown_never_excludes` is a check of the product, not of the model: if it fails, stop and report a bug.
+
+Not in the gate, but compare them: precision of "fits", gold-unknown excluded and abstained (a judge that never
+abstains excludes on silence), quote found and dated right (an invalid quote turns the answer into unknown, so a low
+rate costs recall, not safety), latency per call and per item and tokens per call (night window and cost), and TREC
+CT eligible pairs lost (pair labels, about 40 % of the misses are label noise: compare models, do not gate). The
+synthetic set has 300 items, 39 of them without a note in the window (not put to the model), and at most 62 correct
+exclusions, so its upper bound alone cannot reach 5 %: that is why the bound is gated on the pooled sets.
+
+A candidate replaces the judge only if it passes the gate on the same frozen set and is no worse than the current
+judge on wrong exclusions; the change then goes through the full qualify command as a CC1 model change.
+
+## 15. Operations screens (D-178)
+
+The administrator's console has an **Operations** page (`/admin/ops`, also a tile on the health tab): the version and
+the bundle last applied, backups (every target's files, the newest backup's age, red after 36 hours, the last check),
+update and rollback (bundles waiting, each update's result, the rollback points kept), logs (days collected),
+secrets (names, present, age; never a value) and the network sheet (en, ja, zh-TW, to download). Only the
+administrator opens it (`tb_common.authz.admin_allowed`); every other role gets 403.
+
+Each action asks first, in one sentence that names its consequence, and is an audit event (`console.ops`). The
+console does not run the action itself: it leaves a request in the operations folder (deploy/ops on the host, mounted in the
+console at `/data/ops`), and the host's runner runs the command this runbook already names and writes the result:
+
+| Button | What the runner runs |
+| --- | --- |
+| Back up now | `trialbox backup` to `TB_BACKUP_TARGETS` (§5; the services pause a few minutes) |
+| Check the newest backups | `trialbox backup-check` on the newest file of each target, in a trialbox-py container: whole, not cut, the copies equal. The content needs the key: `backup-verify` (§5) |
+| Verify this bundle | `tools/apply_update.sh <bundle> --dry-run` for a bundle copied into `deploy/updates/incoming` |
+| Apply this update | `tools/apply_update.sh <bundle>` (§5: backup first, automatic rollback) |
+| Collect yesterday's logs | `trialbox logs collect` |
+| Write the network sheet again | `tools/network_sheet.py` into the folder's network part |
+
+**Turn the runner on once** (as root, in `/opt/trialbox`): a systemd timer that runs
+`python3 -m tools.trialbox ops run` every minute (it needs only the host's `python3`). Make
+`/etc/systemd/system/trialbox-ops.service` with `[Service]`, `Type=oneshot`, `WorkingDirectory=/opt/trialbox`,
+`ExecStart=/usr/bin/python3 -m tools.trialbox ops run`, and `trialbox-ops.timer` with `[Timer]`, `OnBootSec=1min`,
+`OnUnitActiveSec=1min`, `[Install]`, `WantedBy=timers.target`; then `systemctl enable --now trialbox-ops.timer`. The
+first run makes the folder (requests writable by the console's user, uid 10001). The page warns when the runner has
+not answered for 15 minutes. A request cut off by a restart shows as interrupted and is not run again; a request
+that waited more than 60 minutes (the runner was off) is not run: ask again. `python3 -m tools.trialbox ops status` prints what the page shows. Manual rollback after
+a good update: apply the previous release's bundle. Restore stays a command with the key in hand (§5).
+
+The in-process box, the demo and the tests run the same runner inside the console (`TB_OPS_RUNNER=inline`). Held by
+`tests/console/test_ops_pages.py`.

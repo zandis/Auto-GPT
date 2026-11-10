@@ -32,6 +32,7 @@ from console import s28
 from console import studies as st
 from console.auth import REVEAL_REASONS, Session, reveal_reason
 from console.backend import Refused
+from console.i18n import translate
 from console.sitestore import (
     CAP_VALUES,
     CAPABILITIES_AD,
@@ -47,6 +48,9 @@ from console.sitestore import (
 )
 from console.studies import known_study
 from console.timefmt import local_date, local_today, site_zone
+
+# D-178 (review J-14): the contact outcomes that end the contact; each names its consequence before it is recorded
+CLOSING_OUTCOMES = frozenset({"reached_declined", "not_approached", "lost_contact"})
 
 _PID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -91,6 +95,7 @@ class Helpers:
     may_approve: Callable[..., bool] | None = None
     team_due: Callable[[str], bool] | None = None
     apply_reveal: Callable[..., tuple[dict[str, Any], str]] | None = None  # set by register(): D-143's reveal
+    ops_summary: Callable[[], dict[str, Any]] | None = None  # set by console.ops_pages (D-178): the health tile
 
     def today(self) -> date:
         """The site's calendar date now (site.tz), the one "today" of every console rule (D-270).
@@ -927,11 +932,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not sess.user.can_request:
             au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
             raise h.problem(403, "forbidden")
-        if outcome not in OUTCOMES or not _PID.match(pid):
+        if (outcome not in OUTCOMES and outcome != "undo") or not _PID.match(pid):
             raise h.problem(400, "request.refused", reason="choose one of the contact outcomes")
         wk = week_bundle(sess, rid)
         if wk is None or not any(str(r.get("pid")) == pid for r in (wk["cl"] or {}).get("rows") or []):
             raise h.problem(404, "notfound")
+        if outcome == "undo":
+            return undo_outcome(sess, rid, pid, wk["job"].job_id)
         mk = store.latest_marks(rid).get(pid)
         if mk is None or mk.mark != "approach":
             # D-133 (review F-36): the coordinator calls a patient only after the investigator's "OK to contact";
@@ -966,7 +973,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                 )
             except Refused as exc:
                 raise h.problem(409, "request.refused", reason=str(exc)) from exc
-        store.add_outcome(rid, Outcome(pid, outcome, retry_on, note.strip()[:300] or None, sess.user.username, now))
+        store.add_outcome(rid, Outcome(pid, outcome, retry_on, note.strip()[:300] or None, sess.user.username, now),
+                          prev_status=current)  # fmt: skip
         no = store.assign_screening_no(rid, pid, settings_of(rid), now)  # everyone approached is on the log
         au.append(
             "console.contact_outcome",
@@ -976,6 +984,30 @@ def register(app: FastAPI, h: Helpers) -> None:
             detail={"pid": pid, "action": outcome, "to": status or current or "", "reason": why or "", "run": no},
         )
         return rid, no
+
+    def undo_outcome(sess: Session, rid: str, pid: str, job_id: str) -> tuple[str, str | None]:
+        """D-178 (review J-14): the toast's Undo takes back this person's latest contact outcome of the patient, and
+        the registry status it set goes back to the one before (``candidate`` when the patient had none)."""
+        now = h.clock().isoformat()
+        got = store.undo_outcome(rid, pid, sess.user.username, now)
+        if got is None:
+            raise h.problem(409, "outcome.undo_none")
+        undone, prev = got
+        status, _ = OUTCOMES[undone.outcome]
+        back_to_status = prev or "candidate"
+        if status is not None and status != back_to_status and registry_map(rid).get(pid) == status:
+            from tb_contracts import RegistryUpdate
+
+            try:
+                bk.registry_update(rid, RegistryUpdate(pid=pid, status=cast(Any, back_to_status),
+                                                       reason="contact outcome undone", by=h.actor(sess),
+                                                       source="manual", source_job=job_id))  # fmt: skip
+            except Refused as exc:  # the outcome stays in force: the registry and the outcomes never disagree
+                store.restore_outcome(rid, undone, now)
+                raise h.problem(409, "request.refused", reason=str(exc)) from exc
+        detail = {"pid": pid, "action": "undo", "undo": undone.outcome, "to": back_to_status if status else ""}
+        au.append("console.contact_outcome", job_id=job_id, ruleset=rid, actor=h.actor(sess), detail=detail)
+        return rid, None
 
     @app.post("/studies/{rs}/patients/{pid}/outcome")
     def patient_outcome(
@@ -987,6 +1019,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         retry: str = Form(""),
         note: str = Form(""),
         back: str = Form(""),
+        confirm: str = Form(""),
     ) -> Response:
         """A contact outcome in two taps (FR-SCR-10c, TB-DS-07 §4.1): the coordinator opens the patient and taps
         what happened. The registry status follows the mapping in ``sitestore.OUTCOMES``; "not reached" keeps the
@@ -994,8 +1027,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
+        if outcome in CLOSING_OUTCOMES and confirm != "yes" and h.confirm is not None:
+            # D-178 (review J-14): an outcome that ends the contact names its consequence first
+            rid = study_or_404(sess, rs)
+            text = translate(sess.lang, f"confirm.outcome.{outcome}")
+            return h.confirm(request, sess, text, request.url.path,
+                             {"outcome": outcome, "retry": retry, "note": note, "back": back},
+                             f"/studies/{rid}/patients/{pid}")  # fmt: skip
         rid, _ = apply_outcome(sess, request.url.path, rs, pid, outcome, retry, note)
-        return RedirectResponse(back_to(rid, pid, back, outcome), status_code=303)
+        return RedirectResponse(back_to(rid, pid, back, "outcome_undo" if outcome == "undo" else outcome),
+                                status_code=303)  # fmt: skip
 
     # ------------------------------------------------------------------ /api/v1 (D-125, D-127; review F-07)
     # The same actions as the pages, for the phone and desktop apps and other systems. Sign-in gives a bearer token

@@ -1,0 +1,6 @@
+# PLANTED TEST POSITIVE (D-203, TST-SEC-10): fictional マイナンバー with valid check digits; every other line is a hit.
+4829 1537 0009
+4829-1537-0017
+マイナンバー:482915370009
+個人番号 ４８２９１５３７０００９
+10000099,482915370009,F

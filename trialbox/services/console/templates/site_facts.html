@@ -8,12 +8,14 @@
 <div class="headrow"><h1>{{ t('site.facts.title') }} · {{ ws_name(ws) }}</h1></div>
 {{ site_nav(ws, rs, qs) }}
 <p class="hint">{{ t('site.facts.help') }}</p>
-{% if done %}<p class="ok" role="status" data-testid="fact-done">{{ t('site.fact.done.' + done) }}</p>{% endif %}
+{% if done %}<div class="toastp" role="status" data-testid="fact-done"><span>{{ t('site.fact.done.' + done) }}</span>
+{% if undo_fact and editable %}<form method="post" action="/site/facts/{{ undo_fact }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ws" value="{{ ws }}"><input type="hidden" name="study" value="{{ rs }}"><button type="submit" name="action" value="undo" class="secondary" data-testid="fact-undo">{{ t('mark.undo') }}</button></form>{% endif %}
+</div>{% endif %}
 {% if err %}<p class="error" role="alert" data-testid="fact-err">{{ t_or('site.err.' + err, t('site.err.other')) }}</p>{% endif %}
 <p class="chartlinks hint">{% for s in ('proposed', 'confirmed', 'rejected') %}<a href="/site/facts?{{ qs }}&amp;show={{ s }}"{% if s == show %} aria-current="page"{% endif %} data-testid="show-{{ s }}">{{ t('site.facts.show.' + s) }}</a> {% endfor %}</p>
 <section id="facts" data-testid="facts" data-n="{{ n }}">
 {% if not facts %}<p class="card empty" data-testid="facts-none">{{ t('site.facts.none.' + show) }}</p>{% endif %}
-{% for f in facts %}<article class="card fact" data-testid="fact-{{ f.id }}" data-status="{{ f.status }}">
+{% for f in facts %}<article class="card fact" id="fact-{{ f.id }}" data-testid="fact-{{ f.id }}" data-status="{{ f.status }}">
 <p class="facthead"><span class="mono">{{ f.pid[:8] }}</span> · {{ fact_text(f) }}</p>
 {% if f.quote %}<blockquote class="quote" data-testid="quote-{{ f.id }}">{{ f.quote }}</blockquote>{% endif %}
 {% if f.before %}<p class="hint">{{ t('site.fact.corrected') }}</p>{% endif %}
@@ -31,7 +33,8 @@
 <div><label for="c-{{ f.id }}">{{ t('site.fact.code') }}</label><input id="c-{{ f.id }}" name="code" value="{{ f.code }}"></div>{% endif %}
 <div><button type="submit" data-testid="save-correct-{{ f.id }}">{{ t('site.fact.save_correct') }}</button></div>
 </form></details>
-{% elif f.status != 'proposed' %}<p class="hint">{{ t('site.fact.decided', by=f.decided_by|who, at=(f.decided_at or '')[:16]) }}</p>{% endif %}
+{% elif f.status != 'proposed' %}<p class="hint">{{ t('site.fact.decided', by=f.decided_by|who, at=(f.decided_at or '')[:16]) }}</p>
+{% if editable %}<form method="post" action="/site/facts/{{ f.id }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ws" value="{{ ws }}"><input type="hidden" name="study" value="{{ rs }}"><button type="submit" name="action" value="undo" class="small secondary" data-testid="undo-{{ f.id }}">{{ t('site.fact.undo') }}</button></form>{% endif %}{% endif %}
 </article>{% endfor %}
 </section>
 {% endblock %}
