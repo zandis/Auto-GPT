@@ -375,7 +375,7 @@ ZH: dict[str, str] = {
     "confirm.reset": "要為 {user} 產生新的一次性密碼嗎？目前的密碼會立即失效，並在所有裝置登出。此動作無法復原。",
     "confirm.reject_fact": "要駁回此項資料嗎？它將不計入任何病人。您可以在已駁回的清單中復原。",
     "confirm.outcome.reached_declined": "要記錄病人已拒絕嗎？病人會離開聯絡清單，登錄狀態改為拒絕。之後可立即復原。",
-    "confirm.outcome.not_approached": "要記錄未接觸病人嗎？聯絡任務會關閉。之後可立即復原。",
+    "confirm.outcome.not_approached": "要記錄未邀請病人嗎？聯絡任務會關閉。之後可立即復原。",
     "confirm.outcome.lost_contact": "要記錄已失去聯絡嗎？病人在登錄中會成為篩選失敗。之後可立即復原。",
     "users.done.disabled": "已停用帳號 {user}。",
     "users.done.enabled": "已重新啟用帳號，密碼與先前相同。",

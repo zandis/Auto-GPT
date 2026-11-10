@@ -66,7 +66,7 @@ EN: dict[str, str] = {
 JA: dict[str, str] = {
     "dc.entry.title": "データ入力",
     "dc.entry.help": "1件の記録について1つのフォームを入力します。条件付きの項目は条件を満たしたときに表示されます。非表示の項目は必須にならず、保存もされません。保存するとフォーム全体を確認します。",
-    "dc.entry.readonly": "入力内容は閲覧できます。データを入力するのは研究のコーディネーターだけです。",
+    "dc.entry.readonly": "入力内容は閲覧できます。データを入力するのは研究のCRCだけです。",
     "dc.entry.noforms": "この研究にはまだフォームがありません。次のページで標準フォームを追加するか、REDCap のデータ辞書を取り込んでください:",
     "dc.entry.record": "記録(スクリーニング番号または仮名ID)",
     "dc.entry.record.help": "この研究が患者に付けたスクリーニング番号を使ってください。カルテ番号や氏名は受け付けず、保存もしません。",
@@ -124,7 +124,7 @@ JA: dict[str, str] = {
 ZH: dict[str, str] = {
     "dc.entry.title": "資料輸入",
     "dc.entry.help": "為一筆紀錄填寫一份表單。有條件的欄位在條件成立時才會出現;隱藏的欄位不會是必填,也不會儲存。儲存時會檢查整份表單。",
-    "dc.entry.readonly": "您可以檢視輸入的內容。只有本研究的協調員可以輸入資料。",
+    "dc.entry.readonly": "您可以檢視輸入的內容。只有本研究的研究護理師可以輸入資料。",
     "dc.entry.noforms": "本研究還沒有表單。請在此頁加入內建表單或匯入 REDCap 資料字典:",
     "dc.entry.record": "紀錄(篩選編號或假名編號)",
     "dc.entry.record.help": "請使用本研究給病人的篩選編號。病歷號或姓名會被拒絕,也絕不儲存。",
@@ -156,7 +156,7 @@ ZH: dict[str, str] = {
     "dc.export.csv": "REDCap CSV 格式",
     "dc.export.xlsx": "Excel 活頁簿",
     "dc.builtin.title": "TrialBox 內建表單",
-    "dc.builtin.help": "七份可立即使用的表單,提供日文、繁體中文與英文:篩選紀錄、知情同意、收案、訪視、不良事件、偏差與退出。不良事件依原文記錄,不會自動分級。",
+    "dc.builtin.help": "七份可立即使用的表單,提供日文、繁體中文與英文:篩選紀錄、受試者同意、收案、訪視、不良事件、偏差與退出。不良事件依原文記錄,不會自動分級。",
     "dc.builtin.go": "加入內建表單",
     "dc.builtin.added": "已加入 {n} 份內建表單。",
     "dc.forms.shown_if": "顯示條件",
