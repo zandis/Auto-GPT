@@ -212,3 +212,25 @@ def test_check_split_counts_mixed_criteria() -> None:
     )
     line = check_split(html)
     assert "4 criteria" in line and "**1** by the filter first" in line and "**1** by the model" in line
+
+
+def test_a_null_structured_inclusion_keeps_the_patient_as_a_candidate() -> None:
+    """ENG-018 (TB-DR-04 mutant U02): one structured inclusion NULL, everything else eligible: the v1 filter keeps the
+    patient, the tier is review and the criterion is ``unknown``; never ``excluded`` with no verdict to explain it.
+    The same patient with that inclusion FALSE is excluded."""
+    rs = GZQO
+    eligible: dict[str, bool | None] = {
+        c.id: c.kind == "inclusion" for c in rs.active() if c.class_ in ("structured", "mixed")
+    }
+    target = next(c.id for c in rs.active() if c.class_ == "structured" and c.kind == "inclusion")
+    answers: dict[str, dict[str, bool | None]] = {
+        "null": {**eligible, target: None},
+        "false": {**eligible, target: False},
+    }
+    for pid, vals in answers.items():
+        ev = PatientEvaluation(pid=pid, index_date=INDEX, engine="sql", results=vals)
+        assert structured_candidate(rs, ev) is (pid == "null")
+    res = evaluate_patients(rs, ["null", "false"], INDEX, _Engine(answers), None, 0.75, workers=1)
+    assert res["null"].tier == "review" and res["false"].tier == "excluded"
+    v = next(v for v in res["null"].verdicts if v.id == target)
+    assert v.verdict == "unknown" and v.evidence is not None and v.evidence.reason == "data_gap"
