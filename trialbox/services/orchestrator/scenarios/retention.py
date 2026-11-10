@@ -83,7 +83,9 @@ def run(ctx: Ctx) -> Outcome:
     mail = prune_mail_logs((now - timedelta(days=mail_days)).isoformat(), (now - timedelta(days=mail_days)).date())
     if any(mail.values()):
         ctx.orch.audit.append("retention.mail", job_id=ctx.job.job_id, detail={"days": mail_days, "rows": mail})
-    approved = {rid for rid in list_rulesets(ctx.rulesets_dir) if approved_or_none(ctx, rid, None) is not None}
+    approved = {
+        rid for rid in list_rulesets(ctx.rulesets_dir) if approved_or_none(ctx, rid, None, run=False) is not None
+    }
     cutoff = (now - timedelta(days=round(pool_months * 30.44))).isoformat()
     pools = ctx.orch.db.prune_inactive(approved, cutoff)
     if pools["pool"] or pools["feedback"]:

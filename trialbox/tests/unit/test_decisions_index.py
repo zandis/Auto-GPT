@@ -67,7 +67,7 @@ def test_master_registry_holds_the_agreed_rows() -> None:
 def test_index_prints_every_number(capsys: pytest.CaptureFixture[str]) -> None:
     assert di.main([]) == 0
     out = capsys.readouterr().out
-    assert "| D-201 | merged | T-003 |" in out and "| D-301 | reserved |" in out and "| D-99 | missing |" in out
+    assert "| D-201 | merged | T-003 |" in out and "| D-302 | reserved |" in out and "| D-99 | missing |" in out
 
 
 def test_two_files_in_different_ranges_pass(tmp_path: Path) -> None:
