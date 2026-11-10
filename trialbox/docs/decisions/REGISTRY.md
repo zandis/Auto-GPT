@@ -38,7 +38,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-160..D-163 | merged | EDC prefill, Study A documents | `docs/DECISIONS.md` |
 | D-164..D-169 | unused | — | gap recorded by TB-ASSESS-01 |
 | D-170..D-179 | merged | reference data, rehearsal, IT screens (PRs #66, #68, #76 and earlier) | `docs/DECISIONS.md` |
-| D-180 | reserved | PR #80 | catalogue completion with verified codes; becomes a file at merge (the log is frozen) |
+| D-180 | merged | PR #80 | catalogue completion with verified codes (file) |
 | D-181 | merged | PR #64 | judge bake-off; `docs/DECISIONS.md` |
 | D-182..D-184 | unused | — | held for the sibling session, which was given D-185 to D-193 instead |
 | D-185..D-193 | merged | sibling session | supply chain, backups, derived scores, SAE register, identity, TLS; `docs/DECISIONS.md` |
@@ -116,7 +116,8 @@ master stay); reservations D-208 to D-262 stay valid.
 | --- | --- | --- | --- |
 | D-270 | merged | fix group D-270 (PR #86) | the console's "today" is the site's date; `docs/DECISIONS.md` (its last entry) |
 | D-271 | merged | fix group D-271 (PR #97) | the data pipeline never promotes nothing; `docs/decisions/D-271-data-pipeline-integrity.md` |
-| D-272..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-272 | merged | fix group D-272 (FG-C) | audit integrity: no chart number in the audit chain, a head anchor, an archive that never overwrites (file) |
+| D-273..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-290..D-299 | unused | — | below the new block; never given |
 
 ## New numbers (from D-300)
