@@ -48,7 +48,8 @@
 <main id="main">
 {% block content %}{% endblock %}
 </main>
-<footer>{{ t('footer', env=settings.environment, dc=settings.data_class) }}</footer>
+<footer>{{ t('footer', env=settings.environment, dc=settings.data_class) }}
+<p class="hint" data-testid="intended-use">{{ t('footer.statement') }}</p></footer>
 <script>{{ console_js|safe }}</script>
 </body>
 </html>

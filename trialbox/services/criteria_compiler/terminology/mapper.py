@@ -138,6 +138,21 @@ class Terminology:
                 c = self._concept(key, r)
                 self._by_code[(c.system, c.code)] = c
 
+    _release: str | None = None
+
+    @property
+    def release(self) -> str:
+        """The terminology release these tables are (D-301): the Parquet's own, or the vocabulary's when pinned by
+        ``criteria_compiler.terminology.resolver``. A compiled ruleset records it in its manifest."""
+        if self._release is None:
+            from criteria_compiler.terminology import resolver
+
+            self._release = resolver.parquet_release(self.dir)
+        return self._release
+
+    def pin(self, release: str) -> None:
+        self._release = release
+
     def _concept(self, table: str, r: dict[str, Any]) -> Concept:
         if table == "nhi_drug":
             return Concept(SYSTEMS[table], r["nhi_code"], r["name"])

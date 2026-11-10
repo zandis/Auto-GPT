@@ -1,4 +1,7 @@
-# Render Blueprint: TrialBox role demo (synthetic hospital only, D-104). New > Blueprint > pick this repository.
+# Render Blueprint: TrialBox demo (synthetic hospital only, D-104). New > Blueprint > pick this repository.
+# T-501 (ROLE-003, OPS-005): measured peak 1.8 GB in the demo process plus PostgreSQL, first answer on /login after
+# 3 to 6 minutes (trialbox/demo/README.md). The free plan (512 MB, sleeps after 15 minutes) cannot run it; a 4 GB
+# plan is paid, and the owner has not chosen one, so the plan stays free and the hosted demo runs on the GCP VM.
 services:
   - type: web
     name: trialbox-demo

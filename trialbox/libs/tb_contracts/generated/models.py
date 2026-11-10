@@ -898,7 +898,7 @@ class Precheck(BaseModel):
 
 class PromptMeta(BaseModel):
     """
-    YAML front matter of services/*/prompts/<id>_v<n>.md (SPEC 7). Schema version 1.0.0.
+    YAML front matter of libs/tb_llm/prompts/<id>_v<n>.md, listed in libs/tb_llm/prompts/registry.yaml (SPEC 7, D-300). Schema version 1.0.0.
     """
 
     model_config = ConfigDict(
@@ -2070,6 +2070,10 @@ class RulesetManifest(BaseModel):
     cohort: CohortConfig | None = None
     population: PopulationSpec | None = None
     nct_id: str | None = None
+    terminology_release: str | None = Field(None, pattern="^TR-[0-9a-f]{12}$")
+    """
+    the terminology release the ruleset was compiled against (D-301): a run against another release is refused until it is recompiled
+    """
     source_last_update: str | None = None
 
 

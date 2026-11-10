@@ -116,15 +116,16 @@ master stay); reservations D-208 to D-262 stay valid.
 | Number | State | Holder | Note |
 | --- | --- | --- | --- |
 | D-270 | merged | fix group D-270 (PR #86) | the console's "today" is the site's date; `docs/DECISIONS.md` (its last entry) |
-| D-271..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
+| D-271 | merged | fix group D-271 (PR #97) | the data pipeline never promotes nothing; `docs/decisions/D-271-data-pipeline-integrity.md` |
+| D-272..D-289 | reserved | critical-issues fix groups | TB-REG-01; the fix-group session allocates inside the block |
 | D-290..D-299 | unused | — | below the new block; never given |
 
 ## New numbers (from D-300)
 
 | Number | State | Holder | Note |
 | --- | --- | --- | --- |
-| D-300 | reserved | T-101, PR #75 | prompt registry (renumbered from the PR's D-201) |
-| D-301 | reserved | T-105, PR #82 | vocabulary schema (renumbered from the PR's D-205) |
+| D-300 | merged | T-101 | prompt registry, renumbered from the PR's D-201 (file) |
+| D-301 | merged | T-105, PR #82 | vocabulary schema (renumbered from the PR's D-205) (file) |
 | D-302 | reserved | T-102a | permission matrix |
 | D-303 | reserved | T-106 | OMOP schema name |
 | D-304 | reserved | T-106 | dual write |
