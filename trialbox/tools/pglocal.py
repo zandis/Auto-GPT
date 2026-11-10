@@ -311,7 +311,7 @@ def _size(path: Path) -> int:
 
 
 def _busy_paths() -> set[str]:
-    """Every path a running process names: its working directory, its open files and its command line words."""
+    """Every path a running process names: its working directory, open files, command line words, environment."""
     seen: set[str] = set()
     me = os.getpid()
     for proc in Path("/proc").glob("[0-9]*"):
@@ -320,6 +320,7 @@ def _busy_paths() -> set[str]:
         try:
             seen.add(os.readlink(proc / "cwd"))
             seen.update((proc / "cmdline").read_bytes().decode(errors="replace").split("\0"))
+            seen.update((proc / "environ").read_bytes().decode(errors="replace").split("\0"))  # TB_COMPLETE_DIR=...
             for fd in (proc / "fd").iterdir():
                 seen.add(os.readlink(fd))
         except OSError:
@@ -359,8 +360,8 @@ def clean_tmp(
     (``rehearsal``, default ``TB_REHEARSAL_DIR`` or ``tmp/tb-rehearsal``); the extra ``clusters`` (the branch's shared
     one); in ``repo/.cache/complete-run`` the ``src.tgz`` and ``results.tgz`` of every run but the
     two newest (their reports stay). A path that a running process holds (working directory, open file, command
-    line), a pytest run directory whose ``.lock`` names a live process, and a cluster with an owner alive or a
-    client connected are kept."""
+    line, environment), a pytest run directory whose ``.lock`` names a live process, a cluster with an owner alive
+    or a client connected, and the rehearsal's ``runs`` while a ``rehearse.sh`` runs are kept."""
     out: list[tuple[Path, int]] = []
 
     def drop(path: Path, cluster: bool = False) -> None:
@@ -392,7 +393,9 @@ def clean_tmp(
         if not dry_run and all(p.is_symlink() for p in base.iterdir()):
             shutil.rmtree(base, ignore_errors=True)
     rehearsal = rehearsal or Path(os.environ.get("TB_REHEARSAL_DIR") or tmp / "tb-rehearsal")
-    work = [*tmp.glob("tb-backup-drill*"), tmp / "tb-drill", *tmp.glob("tb-e2e-simple*"), rehearsal / "runs"]
+    work = [*tmp.glob("tb-backup-drill*"), tmp / "tb-drill", *tmp.glob("tb-e2e-simple*")]
+    if not any(s.endswith("rehearse.sh") for s in busy):  # between two cases no process names runs/ itself
+        work.append(rehearsal / "runs")
     for path in sorted(work):
         if path.exists() and not _in_use(path, busy):
             drop(path)
