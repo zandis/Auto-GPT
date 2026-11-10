@@ -140,7 +140,8 @@ def test_every_upload_and_paste_route_is_refused_in_the_readers_language(box: di
     assert len(box["backend"].jobs) == jobs  # nothing was submitted
     refused = _events(box, dg.REFUSED_EVENT)
     assert len(refused) >= len(routes) and all(e["actor"] == "console:admin" for e in refused[: len(routes)])
-    assert not any("4417" in json.dumps(e) for e in refused)  # the path only: never the content
+    # the path only, never the content (the whole planted number: a hash or a time in an event may hold "4417")
+    assert not any(str(4_417_239 * 10 + 1) in json.dumps(e) for e in refused)
 
 
 def test_the_route_guard_call_refuses_on_its_own() -> None:
