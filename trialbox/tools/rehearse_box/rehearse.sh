@@ -15,6 +15,10 @@
 #   offline         every running container's image is one the bundle loaded (third-party ones too: postgres, hapi),
 #                   no image was pulled, the CQL jars = the vendor's and they translate, the reference data pack of
 #                   the media is loaded, ClinicalTrials.gov offline, no route out of the box
+#   egress-override no route out, with the REHEARSAL's internal egress-net (standins.yml); the shipped egress-net and
+#                   deploy/network.sh are not rehearsed (no NET_ADMIN): the site's IQ checks them
+#   guard           on model-net only model-guard answers to the model servers' names: /invocations, /tokenize,
+#                   /collective_rpc, /metrics ... 404 with or without the key, /v1 needs the key (D-177)
 #   console         the console answers /healthz and its sign-in page; it resolves no outside name and reaches nothing
 #                   outside (console-net, D-176)
 #   screen          SCREEN GZQO on synthetic hospital A ends done, through the gateway to both pinned builds
@@ -27,7 +31,7 @@
 #
 # Writes $TB_REHEARSE_DIR/report.md and report.json; exit 0 only when every step passes.
 #
-# Knobs: TB_REHEARSE_DIR (/tmp/tb-rehearse-box; the same path is mounted in the box container, docker-outside-of-
+# Knobs: TB_REHEARSE_DIR (default a fresh mktemp dir; the same path is mounted in the box container, docker-outside-of-
 # docker), TB_REHEARSE_SKIP_BUILD=1 (use the trialbox-py and trialbox-jvm images already built), TB_REHEARSE_KEEP=1
 # (leave the box running and the work dir for inspection), TB_EXTRA_CA (a PEM for apt and pip behind a TLS proxy).
 # Needs: Docker with compose, no other TrialBox stack running on it, port 8090 free, python3 with the repo's venv.
@@ -37,8 +41,23 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT" || exit 2
 PY="${PY:-$ROOT/.venv/bin/python}"
-W="${TB_REHEARSE_DIR:-/tmp/tb-rehearse-box}"
-case "$W" in /*) ;; *) echo "rehearse: TB_REHEARSE_DIR must be absolute" >&2; exit 2 ;; esac
+# The work dir holds box.sh, which runs with the Docker socket: a fresh private dir by default; a given one must be
+# absolute, at least three levels deep, not a system folder, and new or the caller's own earlier rehearsal dir.
+if [ -z "${TB_REHEARSE_DIR:-}" ]; then
+  W="$(mktemp -d "${TMPDIR:-/tmp}/tb-rehearse-box.XXXXXX")" || exit 2
+  touch "$W/.tb-rehearse-box"
+else
+  W="${TB_REHEARSE_DIR%/}"
+  case "$W" in /*) ;; *) echo "rehearse: TB_REHEARSE_DIR must be absolute" >&2; exit 2 ;; esac
+  case "$W" in *..*|*//*) echo "rehearse: TB_REHEARSE_DIR must be a plain path" >&2; exit 2 ;; esac
+  depth="$(printf '%s' "$W" | tr -cd / | wc -c)"
+  case "$W" in /bin*|/boot*|/dev*|/etc*|/lib*|/proc*|/root|/run*|/sbin*|/sys*|/usr*|/var/lib*|/home/*/.*) depth=0 ;; esac
+  [ "$depth" -ge 3 ] || { echo "rehearse: TB_REHEARSE_DIR $W is too shallow or a system folder (e.g. /tmp/<you>/tb-rehearse-box)" >&2; exit 2; }
+  if [ -e "$W" ]; then
+    [ -d "$W" ] && [ ! -L "$W" ] && [ "$(stat -c %u "$W")" = "$(id -u)" ] && [ -e "$W/.tb-rehearse-box" ] \
+      || { echo "rehearse: $W exists and is not this user's earlier rehearsal dir (no .tb-rehearse-box): refusing to delete it" >&2; exit 2; }
+  fi
+fi
 ID="rehearsal-$(date -u +%Y%m%d)"
 MEDIA="$W/media/TRIALBOX-$ID"
 BUNDLE_NAME="trialbox-$ID.tar"
@@ -218,7 +237,7 @@ teardown() {
 }
 
 # ------------------------------------------------------------------------------------------------ run
-rm -rf "$W" && mkdir -p "$LOGS" || exit 2
+find "$W" -mindepth 1 -delete 2>/dev/null; rm -rf "$W"; (umask 077 && mkdir -p "$W") && touch "$W/.tb-rehearse-box" && mkdir -p "$LOGS" || exit 2
 echo "TrialBox box-install rehearsal $ID, work dir $W"
 BLOCKED=""
 step preconditions 1 preconditions
@@ -233,6 +252,8 @@ step install 1 in_box install
 step doctor 0 in_box doctor
 step served 0 in_box served
 step offline 0 in_box offline
+step egress-override 0 in_box egress-override
+step guard 0 in_box guard
 step console 0 in_box console
 step screen 0 in_box screen first
 step power-cycle 1 power_cycle
@@ -251,7 +272,7 @@ for s in "${STATES[@]}"; do [ "$s" = PASS ] || VERDICT=FAIL; done
 {
   echo "# TrialBox box-install rehearsal: $VERDICT"
   echo
-  echo "Media $ID from $(git rev-parse --short HEAD), $(date -u +%FT%TZ), docker $(docker version --format '{{.Server.Version}}' 2>/dev/null)," \
+  echo "Media $ID from $(git rev-parse --short HEAD), $(date -u +%FT%TZ), docker $(docker version --format '{{.Server.Version}}' 2>/dev/null) ($(docker info --format '{{.Driver}}' 2>/dev/null) image store)," \
     "real deploy/install.sh --tier large in Ubuntu 24.04 with the strict vLLM stand-ins (D-176, D-177)."
   echo
   echo "| # | step | result | detail |"

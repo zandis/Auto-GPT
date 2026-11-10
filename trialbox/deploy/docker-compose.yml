@@ -273,10 +273,10 @@ services:
     environment:
       HF_HUB_OFFLINE: "1"
       VLLM_NO_USAGE_STATS: "1"
-      VLLM_API_KEY: "${TB_LLM_API_KEY:-}"   # D-177: the gateway sends it; /v1 calls without it get 401
+      VLLM_API_KEY: "${TB_LLM_API_KEY:-}"   # D-177: vLLM checks it on /v1 only; model-guard checks every call
     volumes: ["${TB_MODELS_DIR:-./models}:/models:ro"]
     ipc: host
-    networks: [model-net]
+    networks: {model-backend-net: {aliases: [llm-service-vllm]}}   # behind model-guard (D-177)
     restart: unless-stopped
     deploy:
       resources:
@@ -289,13 +289,47 @@ services:
       retries: 40
       start_period: 300s
 
+  model-guard:
+    # D-177: the only way to the model servers. vLLM checks its key on /v1 only (/invocations, /tokenize, /metrics
+    # and, in dev mode, /collective_rpc answer without it), so vLLM sits on model-backend-net and this guard answers
+    # to its names on model-net: the key on every call, and only /v1/models, /v1/chat/completions, /v1/completions
+    # (/sleep, /wake_up, /is_sleeping with TB_GUARD_ADMIN=1) and /health. Everything else is 404 (services/model_guard).
+    profiles: [gpu]
+    logging: *logging
+    image: ${TB_IMAGE:-trialbox-py:1.0.0}
+    command: ["python", "-m", "model_guard"]
+    expose: ["8000"]
+    user: "10001:10001"
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    environment:
+      PORT: "8000"
+      TB_LLM_API_KEY: "${TB_LLM_API_KEY:-}"
+      TB_GUARD_ROUTES: "llm-service=llm-service-vllm:8000,llm-verifier=llm-verifier-vllm:8000"
+      TB_GUARD_ADMIN: "${TB_GUARD_ADMIN:-0}"
+    networks:
+      model-net:
+        aliases: [llm-service, llm-verifier]   # the names the gateway calls (models/routing.yaml)
+      model-backend-net: {}
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
 networks:
   trialbox-net:
     name: trialbox-net
     internal: true        # no default route: deny-by-default egress at the compose level
   model-net:
     name: trialbox-model-net
-    internal: true        # gateway <-> llm-service / llm-stub only; no other service joins it
+    internal: true        # gateway <-> model-guard (llm-service, llm-verifier) / llm-stub only
+  model-backend-net:
+    name: trialbox-model-backend
+    internal: true        # model-guard <-> the vLLM servers only (D-177)
   egress-net:
     name: trialbox-egress  # host-level nftables (network.sh) restricts destinations per container
   console-net:

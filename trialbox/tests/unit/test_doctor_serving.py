@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import model_guard
 import pytest
 
 from tools import pin_model
@@ -31,19 +32,45 @@ def _start(handler: type[BaseHTTPRequestHandler]) -> tuple[ThreadingHTTPServer, 
     return srv, f"http://127.0.0.1:{srv.server_address[1]}/v1"
 
 
+def _guarded(name: str, guard: bool = True) -> tuple[list[ThreadingHTTPServer], str]:
+    """A strict stand-in, behind model-guard as on a box (or bare, as vLLM without the guard)."""
+    s, _, _ = vs.build([f"--served-model-name={name}", "--api-key", KEY], {})
+    srv, url = _start(vs.make_handler(s))
+    if not guard:
+        return [srv], url
+    g = model_guard.Guard(KEY, {"127.0.0.1": ("127.0.0.1", srv.server_address[1])})
+    gsrv, gurl = _start(model_guard.make_handler(g))
+    return [srv, gsrv], gurl
+
+
 @pytest.fixture()
 def servers() -> Iterator[dict[str, str]]:
-    """Two strict stand-ins (judge and verifier) with the compose served names and one key."""
+    """Two strict stand-ins (judge and verifier) with the compose served names and one key, each behind model-guard."""
     started = []
     urls: dict[str, str] = {}
     for _, endpoint, name in (JUDGE, VERIFIER):
-        s, _, _ = vs.build([f"--served-model-name={name}", "--api-key", KEY], {})
-        srv, url = _start(vs.make_handler(s))
-        started.append(srv)
+        srvs, url = _guarded(name)
+        started += srvs
         urls[endpoint] = url
     yield urls
     for srv in started:
         srv.shutdown()
+
+
+@pytest.mark.parametrize(("env", "status"), [("PRODUCTION", "FAIL"), ("TEST", "WARN")])
+def test_a_server_without_the_guard_is_reachable_without_the_key(tmp_path: Path, env: str, status: str) -> None:
+    started: list[ThreadingHTTPServer] = []
+    urls: dict[str, str] = {}
+    for _, endpoint, name in (JUDGE, VERIFIER):
+        srvs, urls[endpoint] = _guarded(name, guard=False)
+        started += srvs
+    try:
+        c = doctor.check_serving(_inputs(_pins(tmp_path), urls, env=env))
+        assert c.status == status
+        assert "POST /invocations without the key answered HTTP" in c.detail and "POST /tokenize" in c.detail
+    finally:
+        for srv in started:
+            srv.shutdown()
 
 
 def _pins(tmp_path: Path, served: dict[str, str] | None = None) -> Path:

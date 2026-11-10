@@ -45,16 +45,19 @@ wait_healthy() {  # every running box container healthy, within $1 seconds
   done
 }
 
-standin_stats() {  # the stand-ins' answer counts, asked from the gateway (the one service on model-net with the key)
-  in_svc gateway <<'EOF'
+standin_stats() {  # the stand-ins' answer counts, asked inside each stand-in (model-guard passes no /standin path)
+  local h out="{"
+  for h in llm-service llm-verifier; do
+    out="$out\"$h\": $(in_svc "$h" <<'EOF'
 import json, os, urllib.request
-out = {}
-for host in ("llm-service", "llm-verifier"):
-    req = urllib.request.Request(f"http://{host}:8000/standin/stats",
-                                 headers={"Authorization": f"Bearer {os.environ['TB_LLM_API_KEY']}"})
-    out[host] = json.load(urllib.request.urlopen(req, timeout=10))
-print(json.dumps(out))
+req = urllib.request.Request("http://127.0.0.1:8000/standin/stats",
+                             headers={"Authorization": f"Bearer {os.environ['VLLM_API_KEY']}"})
+print(json.dumps(json.load(urllib.request.urlopen(req, timeout=10))))
 EOF
+)" || return 1
+    [ "$h" = llm-service ] && out="$out, "
+  done
+  echo "$out}"
 }
 
 # gateway_probe <expect: ok|refused>: one judge call per pinned build through the gateway, as the orchestrator
@@ -229,7 +232,12 @@ EOF
   [ "$(envget TB_CTGOV_MODE)" = offline ] || fail "ClinicalTrials.gov is not offline"
   [ -z "$(ls "$BOX/deploy/refdata/pending/" 2>/dev/null)" ] || fail "a reference data pack is still pending"
   ok "reference data $want from the media loaded; ClinicalTrials.gov offline"
-  # 4. no route out: the box reached nothing outside while it installed and runs
+  ;;
+
+# ------------------------------------------------------------------------------------------------ egress override
+egress-override)
+  # Only the REHEARSAL's egress: standins.yml makes egress-net internal. The shipped egress-net (not internal) with
+  # deploy/network.sh's nftables is NOT rehearsed (no NET_ADMIN here); it is checked at the site's IQ (RUNBOOK §12).
   in_svc criteria-compiler <<'EOF' || fail "criteria-compiler can reach the internet"
 import socket
 for host in ("clinicaltrials.gov", "repo1.maven.org", "pypi.org"):
@@ -237,8 +245,44 @@ for host in ("clinicaltrials.gov", "repo1.maven.org", "pypi.org"):
         socket.create_connection((host, 443), timeout=5).close()
         raise SystemExit(f"{host}:443 reachable")
     except OSError as e:
-        print(f"ok: {host}:443 not reachable ({type(e).__name__})")
+        print(f"ok: {host}:443 not reachable with the rehearsal's internal egress-net ({type(e).__name__})")
 EOF
+  ;;
+
+# ------------------------------------------------------------------------------------------------ model-guard
+guard)
+  # D-177: vLLM checks its key on /v1 only. On model-net only model-guard answers to the servers' names: it passes
+  # /v1/models, /v1/chat/completions and /v1/completions with the key and /health, and nothing else. The stand-ins
+  # answer /invocations and /tokenize without a key, as vLLM does, so a box without the guard would show here.
+  in_svc gateway <<'EOF' || fail "model-guard let a call through that it must not"
+import json, os, urllib.error, urllib.request
+key = os.environ["TB_LLM_API_KEY"]
+def call(method, url, k):
+    h = {"Content-Type": "application/json", **({"Authorization": f"Bearer {k}"} if k else {})}
+    body = json.dumps({"messages": [{"role": "user", "content": "x"}], "prompt": "x"}).encode() if method == "POST" else None
+    try:
+        return urllib.request.urlopen(urllib.request.Request(url, data=body, headers=h, method=method), timeout=10).status
+    except urllib.error.HTTPError as e:
+        return e.code
+for host in ("llm-service", "llm-verifier"):
+    base = f"http://{host}:8000"
+    for path in ("/invocations", "/tokenize", "/detokenize", "/pooling", "/collective_rpc", "/sleep"):
+        for k in ("", key):
+            st = call("POST", base + path, k)
+            assert st == 404, f"{host} POST {path} ({'key' if k else 'no key'}): HTTP {st}"
+    for path in ("/metrics", "/server_info", "/standin/stats"):
+        assert call("GET", base + path, key) == 404, f"{host} GET {path}"
+    assert call("GET", base + "/v1/models", "") == 401 and call("GET", base + "/v1/models", key) == 200
+    print(f"ok: {host}: /invocations, /tokenize, /collective_rpc, /metrics ... 404 with or without the key; /v1 needs it")
+EOF
+  stats="$(standin_stats)" || fail "cannot ask the stand-ins"
+  echo "stand-ins: $stats"
+  echo "$stats" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert all(not v.get("open") for v in d.values()), d' \
+    || fail "a call without the key reached a stand-in's open route"
+  ok "the stand-ins' open routes (as vLLM's) were reached by nothing"
+  docker inspect trialbox-llm-service-1 --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' | grep -qx 'trialbox-model-backend ' \
+    || fail "llm-service is on another network than trialbox-model-backend"
+  ok "the model servers are only on trialbox-model-backend"
   ;;
 
 # ------------------------------------------------------------------------------------------------ console
@@ -253,6 +297,17 @@ console)
   # console-net (D-176) carries the published port only: no outside name resolves, nothing outside answers, the box's
   # own names still do. The rehearsal host has no NET_ADMIN, so deploy/network.sh is not applied: the compose file
   # alone must hold.
+  # the host itself from the console: reported, not asserted (deploy/network.sh's input hook drops it at a site; it
+  # is not applied here)
+  gw="$(docker network inspect trialbox-console --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')"
+  in_svc console <<EOF || true
+import socket
+for port in (22, 2375, 5432):
+    try:
+        socket.create_connection(("$gw", port), timeout=3).close(); print(f"note: host $gw:{port} answers the console (network.sh not applied here)")
+    except OSError as e:
+        print(f"note: host $gw:{port} does not answer the console ({type(e).__name__})")
+EOF
   net="$(docker network inspect trialbox-console --format '{{json .Options}} ipv6={{.EnableIPv6}}')"; echo "console-net: $net"
   echo "$net" | grep -q '"com.docker.network.bridge.enable_ip_masquerade":"false"' && echo "$net" | grep -q 'ipv6=false' \
     || fail "console-net is not closed (no NAT out, no IPv6)"

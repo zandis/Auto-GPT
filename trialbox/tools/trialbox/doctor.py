@@ -277,6 +277,23 @@ def _get_models(url: str, key: str, timeout: float = 10.0) -> tuple[int | None, 
         return None, f"{type(e).__name__}: {e}"
 
 
+# vLLM routes outside /v1 that answer without the key (vLLM checks it on /v1, /v2, /inference, /cohere only)
+UNKEYED_PROBES = ("/invocations", "/tokenize")
+
+
+def _post_open(url: str, timeout: float = 10.0) -> int | None:
+    """HTTP status of an empty-keyed POST (a tiny chat body), None when unreachable. Redirects are answers."""
+    body = json.dumps({"messages": [{"role": "user", "content": "doctor probe"}], "prompt": "doctor probe"}).encode()
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
+            return int(r.status)
+    except urllib.error.HTTPError as e:
+        return int(e.code)
+    except (OSError, ValueError):
+        return None
+
+
 def check_serving(inp: DoctorInputs) -> Check:
     from gateway.policy import RoutingPolicy
     from registry.registry import DEFAULT_PATH, Registry
@@ -328,6 +345,14 @@ def check_serving(inp: DoctorInputs) -> Check:
                 )
         if key and _get_models(url, "")[0] == 200:
             (fails if strict else warns).append(f"{ep_name}: the server answers without the key (VLLM_API_KEY unset)")
+        root = url.rstrip("/").removesuffix("/v1")
+        for path in UNKEYED_PROBES:  # vLLM answers these with no key at all: only model-guard keeps them away
+            st = _post_open(root + path)
+            if st is not None and st not in (401, 403, 404, 405, 501):
+                (fails if strict else warns).append(
+                    f"{ep_name}: POST {path} without the key answered HTTP {st}: the model is reachable without "
+                    "the key (model-guard missing in front of the server? docker-compose.yml model-guard, D-177)"
+                )
         good.append(f"{ep_name} serves {', '.join(repr(n) for _, n in builds)}")
     if fails:
         return Check("serving", "FAIL", "; ".join(fails))

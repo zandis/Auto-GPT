@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -453,12 +454,40 @@ class ComposeBox(_DockerImages):
             raise UpdateFailed("pinned images neither on the box nor in the bundle: " + "; ".join(missing))
         image_pins.write_env(self.deploy / ".env", changes)
 
+    def gpu(self) -> bool:
+        return "gpu" in (self.env.get("COMPOSE_PROFILES") or "").replace(",", " ").split()
+
+    def ensure_model_key(self) -> bool:
+        """D-177 on a box installed before the key: make TB_LLM_API_KEY (as install.sh does) so the model servers and
+        model-guard never start open. True when it was made now."""
+        if not self.gpu() or self.env.get("TB_LLM_API_KEY"):
+            return False
+        key = secrets.token_urlsafe(36)
+        image_pins.write_env(self.deploy / ".env", {"TB_LLM_API_KEY": key})
+        self.env["TB_LLM_API_KEY"] = key
+        return True
+
     def restart(self, plan: Plan) -> None:
         # new images: the containers are recreated and every service runs its migrations at start (tb_common.db)
         self.resolve_pins()
+        self.ensure_model_key()
         t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
         pull = os.environ.get("TB_INSTALL_PULL") or "never"  # as install.sh: every image from a bundle (D-176)
+        if pull not in ("never", "missing"):
+            raise UpdateFailed(f"TB_INSTALL_PULL must be never or missing, not {pull!r}")
         self.run(self._c("up", "-d", "--pull", pull, "--wait", "--wait-timeout", t), timeout=int(t) + 120)
+
+    def check_serving(self) -> str:
+        """``trialbox doctor --serving`` on the model network, as install.sh runs it (pinned names, the key, model-guard
+        in front): a FAIL fails the update, which is then rolled back."""
+        if not self.gpu():
+            return ""
+        image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
+        argv = ["docker", "run", "--rm", "--network", "trialbox-model-net", "--env-file", str(self.deploy / ".env"),
+                "-v", f"{self.deploy}:/app/deploy:ro", image,
+                "python", "-m", "tools.trialbox", "doctor", "--serving"]  # fmt: skip
+        self.run(argv, timeout=300)
+        return "; model servers: pinned names and the key (doctor --serving)"
 
     def post_apply(self, plan: Plan) -> list[str]:
         done = []
@@ -480,11 +509,12 @@ class ComposeBox(_DockerImages):
 
     def check(self, plan: Plan) -> str:
         self.run(self._c("up", "-d", "--wait", "--wait-timeout", "300"), timeout=420)  # every service healthy
+        serving = self.check_serving()
         cmd = os.environ.get("TB_UPDATE_CHECK_CMD")
         if cmd:
             self.run(shlex.split(cmd), timeout=3600)
-            return "healthy; " + cmd
-        return "every service healthy"
+            return "healthy; " + cmd + serving
+        return "every service healthy" + serving
 
     def rollback(self, plan: Plan, rb: Path, point: Point) -> None:
         self.run(self._c("stop", *PY_SERVICES, "fhir-store"), timeout=600)  # nobody holds the databases open

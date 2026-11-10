@@ -7,6 +7,9 @@ unchanged, and it is stricter than vLLM where a box goes wrong:
   when none is given, as vLLM). Any other ``model`` gets vLLM's 404 ``NotFoundError``.
 * **Key.** It needs an API key (``--api-key`` or ``VLLM_API_KEY``, as vLLM) and refuses to start without one; every
   ``/v1`` call without ``Authorization: Bearer <key>`` gets 401. ``/health`` is open, as in vLLM.
+* **Open routes, as vLLM.** ``POST /invocations`` (SageMaker: chat) and ``POST /tokenize`` answer without the key,
+  as vLLM v0.32 does (it checks the key on ``/v1``, ``/v2``, ``/inference`` and ``/cohere`` only), so a rehearsal
+  without ``model-guard`` in front would show the hole (``trialbox doctor --serving`` probes them).
 * **Answers.** The deterministic answers of ``services/llm_stub`` (by the ``X-TB-Prompt-Id`` header the gateway
   forwards); the response's ``model`` is the served name, so the gateway's served-model echo check runs for real.
 * **Counts.** ``GET /standin/stats`` (with the key) returns the count of model calls by status (200, 400, 401, 404,
@@ -40,6 +43,7 @@ from typing import Any
 
 _BLOCK = re.compile(r"```json\s*(.*?)```", re.S)
 MAX_BODY = 8 * 1024 * 1024  # bytes of one request body
+OPEN_ROUTES = ("/invocations", "/tokenize")  # vLLM answers these without the key (counted under "open")
 
 
 class Standin:
@@ -55,11 +59,12 @@ class Standin:
         self.ready_at = time.monotonic() + max(0.0, load_delay)
         self.counts: Counter[int] = Counter()  # model calls (POST /v1/chat/completions, /v1/completions) by status
         self.listings: Counter[int] = Counter()  # GET /v1/models by status
+        self.open_calls: Counter[int] = Counter()  # /invocations, /tokenize (no key, as vLLM) by status
         self.lock = threading.Lock()
 
     def count(self, status: int, kind: str = "call") -> None:
         with self.lock:
-            (self.counts if kind == "call" else self.listings)[status] += 1
+            {"call": self.counts, "listing": self.listings, "open": self.open_calls}[kind][status] += 1
 
     def stats(self) -> dict[str, Any]:
         with self.lock:
@@ -67,6 +72,7 @@ class Standin:
                 "served": self.served,
                 "counts": {str(k): v for k, v in sorted(self.counts.items())},
                 "listings": {str(k): v for k, v in sorted(self.listings.items())},
+                "open": {str(k): v for k, v in sorted(self.open_calls.items())},
             }
 
     def authorised(self, header: str | None) -> bool:
@@ -147,6 +153,26 @@ def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
                 return False
             return True
 
+        def _open_route(self, path: str, raw: bytes) -> None:
+            """vLLM's routes outside /v1: they answer without the key, so only model-guard keeps them off model-net."""
+            if time.monotonic() < s.ready_at:
+                self._send(503, _error("the model is loading", "ServiceUnavailableError", 503), "open")
+                return
+            try:
+                body = json.loads(raw or b"{}")
+            except ValueError:
+                body = {}
+            body = body if isinstance(body, dict) else {}
+            if path == "/tokenize":
+                text = str(body.get("prompt") or "")
+                self._send(200, {"count": len(text) // 4, "max_model_len": 32768, "tokens": []}, "open")
+            elif "messages" in body:  # /invocations: SageMaker's chat route
+                status, payload = s.complete({**body, "model": body.get("model") or s.served[0]},
+                                             self.headers.get("X-TB-Prompt-Id", ""))  # fmt: skip
+                self._send(status, payload, "open")
+            else:
+                self._send(400, _error("no messages", "BadRequestError", 400), "open")
+
         def do_GET(self) -> None:
             path = self.path.split("?", 1)[0]
             if path == "/health":
@@ -172,6 +198,9 @@ def make_handler(s: Standin) -> type[BaseHTTPRequestHandler]:
                 self._send(413 if length > MAX_BODY else 400, _error("bad Content-Length", "BadRequestError", 400))
                 return
             raw = self.rfile.read(length) if length else b""
+            if path in OPEN_ROUTES:  # as vLLM: no key on these (vLLM guards /v1, /v2, /inference, /cohere only)
+                self._open_route(path, raw)
+                return
             if path not in ("/v1/chat/completions", "/v1/completions"):
                 self._send(404, {"detail": "Not Found"})
                 return

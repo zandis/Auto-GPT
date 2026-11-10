@@ -16,22 +16,24 @@ Generated from the compose files below by tools/network_sheet.py (D-138). Nothin
 | embed-service | 8014 | not published | trialbox-net | with its own token, only: lake; the administrator on the host (operator token) | always |
 | fhir-store | 8080 | not published | trialbox-net | adapter, orchestrator, criteria-compiler (network only, no token yet) | always |
 | gateway | 8020 | not published | egress-net, model-net, trialbox-net | with its own token, only: console, criteria-compiler, doc-parser, orchestrator; the administrator on the host (operator token) | always |
-| judge-sleep-init | none (one-shot job) | not published | model-net | - | GPU profile (rtx5090) |
-| judge-wake-init | none (one-shot job) | not published | model-net | - | GPU profile (rtx5090) |
+| judge-sleep-init | none (one-shot job) | not published | model-backend-net | - | GPU profile (rtx5090) |
+| judge-wake-init | none (one-shot job) | not published | model-backend-net | - | GPU profile (rtx5090) |
 | lake | 8013 | not published | trialbox-net | with its own token, only: adapter, criteria-compiler, orchestrator; the administrator on the host (operator token) | always |
-| llm-service | 8000 | not published | model-net | gateway only (model-net) | GPU profile |
+| llm-service | 8000 | not published | model-backend-net | model-guard only (model-backend-net; the key on every call, D-177) | GPU profile |
 | llm-stub | 8000 | not published | model-net | gateway only (model-net) | no-GPU profile |
-| llm-verifier | 8000 | not published | model-net | gateway only (model-net) | GPU profile (rtx5090, gb10, rtxpro6000) |
+| llm-verifier | 8000 | not published | model-backend-net | model-guard only (model-backend-net; the key on every call, D-177) | GPU profile (rtx5090, gb10, rtxpro6000) |
 | mail-gateway | 8015 | not published | egress-net, trialbox-net | with its own token, only: console, orchestrator; the administrator on the host (operator token) | always |
-| model-swap-init | none (one-shot job) | not published | model-net | - | GPU profile (rtx5090) |
+| model-guard | 8000 | not published | model-backend-net, model-net | gateway only (model-net) | GPU profile |
+| model-swap-init | none (one-shot job) | not published | model-backend-net | - | GPU profile (rtx5090) |
 | orchestrator | 8010 | not published | egress-net, trialbox-net | with its own token, only: console, mail-gateway; the administrator on the host (operator token) | always |
 
 ## Networks
 
 | Networks |  |
 | --- | --- |
-| trialbox-console | out of the box only to the hosts below (nftables, deploy/network.sh) |
+| trialbox-console | the console's published port only: no NAT out, no outside names; nftables drop the rest (deploy/network.sh) |
 | trialbox-egress | out of the box only to the hosts below (nftables, deploy/network.sh) |
+| trialbox-model-backend | internal: no route out of the box |
 | trialbox-model-net | internal: no route out of the box |
 | trialbox-net | internal: no route out of the box |
 
