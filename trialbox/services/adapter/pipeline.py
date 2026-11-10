@@ -23,7 +23,7 @@ from adapter.load_fhir import sync_snapshot
 from adapter.mapping.engine import Mapper, Mapping, resource_id
 from adapter.ndjson import is_deleted_flag, list_snapshots, snapshot_dir, tombstone_count, write_snapshot
 from adapter.pidmap import PidMap
-from adapter.sources.base import Source, has_table
+from adapter.sources.base import CHANGE_COLUMNS, Source, has_table, quarantine_reason
 from adapter.validate.validator import Hl7Validator, StructuralValidator, missing_required, sample
 
 log = logging.getLogger("adapter")
@@ -53,6 +53,7 @@ class AdapterConfig:
     table_max_drop_pct: float = 10.0
     required_tables: tuple[str, ...] = ()
     optional_tables: tuple[str, ...] = ()
+    source_encoding: str | None = None  # T-615b: settings.data_source.encoding, the csv reader's first candidate
 
     def site_key(self) -> bytes:
         return load_or_create_key(self.secrets_dir / "site_hmac.key")
@@ -61,11 +62,11 @@ class AdapterConfig:
         return PidMap(self.secrets_dir / "pid_map.key", self.db_url)
 
 
-def make_source(kind: str, path: str, db_url: str | None = None) -> Source:
+def make_source(kind: str, path: str, db_url: str | None = None, encoding: str | None = None) -> Source:
     if kind == "csv":
         from adapter.sources.csv.source import CsvSource
 
-        return CsvSource(Path(path))
+        return CsvSource(Path(path), encoding)
     if kind == "cgrd_sql":
         from adapter.sources.cgrd_sql.source import SqlSource
 
@@ -171,6 +172,21 @@ def _undated_order(r: dict[str, Any]) -> bool:
     return not r.get("authoredOn") and not period.get("start")
 
 
+def check_delta(mapping: Mapping, source_kind: str) -> None:
+    """T-615b (DATA-008): on a csv or cgrd_sql delta night every ``delta:`` must name a change-time column
+    (:data:`CHANGE_COLUMNS`), never a clinical date. Raises :class:`ValueError` naming the table."""
+    if source_kind not in ("csv", "cgrd_sql"):
+        return  # SS-MIX2 versions its files itself; a FHIR bulk export carries its own _since
+    for table, tspec in mapping.tables.items():
+        col = tspec.get("delta")
+        if col and col not in CHANGE_COLUMNS:
+            raise ValueError(
+                f"delta night refused: table {table}'s delta column {col!r} is not a change time "
+                f"({', '.join(CHANGE_COLUMNS)}); a corrected or late-entered record keeps its old clinical date and "
+                "would be missed. Map the source's change-time column to updated_at, or run a full night"
+            )
+
+
 def run_ingest(
     cfg: AdapterConfig,
     source_kind: str,
@@ -182,6 +198,57 @@ def run_ingest(
     rebuild_lake: bool = True,
     validate: bool = True,
     validator: Hl7Validator | StructuralValidator | None = None,
+) -> IngestReport:
+    """One night's ingest. Any exception on the way (an unreadable source, a mapping error, a full disk) writes one
+    ``ingest.failed`` audit event with the error's type, the step and the table, then propagates (T-615b, DATA-003).
+    The event holds no message text: a parser's message can quote a cell."""
+    at: dict[str, str | None] = {"step": "start", "table": None}
+    try:
+        return _run_ingest(
+            cfg,
+            source_kind,
+            source_path,
+            at,
+            since=since,
+            snapshot=snapshot,
+            load_fhir=load_fhir,
+            rebuild_lake=rebuild_lake,
+            validate=validate,
+            validator=validator,
+        )
+    except Exception as exc:
+        if cfg.audit_dir:
+            try:
+                AuditLog(cfg.audit_dir, cfg.tz).append(
+                    "ingest.failed",
+                    snapshot=snapshot or datetime.now(ZoneInfo(cfg.tz)).date().isoformat(),
+                    actor="adapter",
+                    detail={
+                        "source": source_kind,
+                        "since": since,
+                        "error": type(exc).__name__,
+                        "step": at["step"],
+                        "table": at["table"],
+                    },
+                )
+            except Exception:  # the audit's own failure must not hide the ingest's
+                log.exception("ingest.failed could not be audited")
+        log.error("ingest failed", extra={"error": type(exc).__name__, "step": at["step"], "table": at["table"]})
+        raise
+
+
+def _run_ingest(
+    cfg: AdapterConfig,
+    source_kind: str,
+    source_path: str,
+    at: dict[str, str | None],
+    *,
+    since: str | None,
+    snapshot: str | None,
+    load_fhir: bool,
+    rebuild_lake: bool,
+    validate: bool,
+    validator: Hl7Validator | StructuralValidator | None,
 ) -> IngestReport:
     zone = ZoneInfo(cfg.tz)
     started = datetime.now(zone)
@@ -195,6 +262,8 @@ def run_ingest(
     source: Source | None = None
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
+    quarantined: dict[str, str] = {}  # T-615b: table -> why its file was quarantined
+    at["step"] = "read"
     if source_kind == "fhir_bulk":
         from adapter.sources.fhir_bulk.source import FhirBulkSource
 
@@ -206,23 +275,33 @@ def run_ingest(
                 tombstones.setdefault(rtype, set()).add(bulk_id(key, rtype, rid))
     else:
         mapping = Mapping.load(cfg.mapping_path)
+        if since:
+            at["step"] = "delta check"
+            check_delta(mapping, source_kind)
+            at["step"] = "read"
         mapper = Mapper(mapping, key, cfg.site_id)
         fhir_profiles = mapping.fhir_profiles
-        source = make_source(source_kind, source_path, cfg.db_url)
+        source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
         for res in mapper.static_resources():
             by_type.setdefault(res["resourceType"], []).append(res)
         for table, tspec in mapping.tables.items():
+            at["table"] = table
             src, src_name = source, tspec["source"]
             if table == "registry" and cfg.registry is not None:
                 kind, where = cfg.registry
                 if kind == "none" or not where:
                     continue
                 if kind == "csv":
-                    src, src_name = make_source("csv", str(Path(where).parent)), Path(where).stem
+                    src = make_source("csv", str(Path(where).parent), encoding=cfg.source_encoding)
+                    src_name = Path(where).stem
                 else:
                     src = make_source("cgrd_sql", where)
             delta = mapping.source_column(table, tspec.get("delta"))
             rows = [mapping.normalize(table, r) for r in src.rows(table, src_name, delta, since)]
+            why = quarantine_reason(src, src_name)
+            if why:  # T-615b: the file is set aside, the night goes on with the other tables and is held
+                quarantined[table] = why
+                errors.append(f"{table}: {why}")
             kcol = tspec.get("key")
             keys = [str(r.get(kcol)) for r in rows] if kcol else []
             tables[table] = {  # T-611 (DATA-017: a duplicate source key is counted; the last row wins)
@@ -254,6 +333,7 @@ def run_ingest(
                     by_type.setdefault(res["resourceType"], []).append(res)
             except ValueError as exc:
                 errors.append(f"{table}: {exc}")
+    at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
     defaulted = apply_unit_defaults(by_type.get("Observation", []), unit_defaults)
     undated = [r for r in by_type.get("MedicationRequest", []) if _undated_order(r)]
@@ -327,6 +407,7 @@ def run_ingest(
     # dataflow review P0-2 (WS-08.1): validate first. fhir-store and the lake are loaded, and CURRENT moves, only for
     # a night that passed; a failed night is *held*: its NDJSON stays for the steward to look at, the box keeps
     # serving the previous snapshot
+    at["step"] = "validate"
     vsum = ValidationSummary(sampled=0, errors=0, error_pct=0.0, validator="skipped", messages=[])
     if validate:
         chosen = validator or Hl7Validator.from_env() or StructuralValidator()
@@ -373,6 +454,7 @@ def run_ingest(
         out_dir.rename(final_dir)
         shutil.rmtree(old, ignore_errors=True)
         out_dir = final_dir
+    at["step"] = "load"
     fhir_loaded = fhir_deleted = 0
     if not held and load_fhir and cfg.fhir_base_url:
         try:
@@ -393,6 +475,7 @@ def run_ingest(
             if type(exc).__name__ in REFUSALS:  # D-271: the lake or the OMOP store refused the data: a held night
                 held = True
                 errors.append("night held: the lake refused the snapshot; CURRENT still names the previous snapshot")
+    at["step"] = "report"
     passed = not errors
     if passed:  # D-271: the only NDJSON a later delta night may merge over
         (out_dir / PASSED).write_text(json.dumps({"snapshot": snap}) + "\n", encoding="utf-8")
@@ -441,6 +524,8 @@ def run_ingest(
                 "incomplete": completeness["problems"] or None,
                 "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
                 "orphans": completeness["orphans"] or None,
+                # T-615b: the tables whose file was set aside (character set or CSV form; no cell text)
+                "quarantined": quarantined or None,
             },
         )
     log.info("ingest finished", extra={"snapshot": snap, "passed": passed, "resources": sum(counts.values())})

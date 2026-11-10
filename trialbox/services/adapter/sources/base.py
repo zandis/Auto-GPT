@@ -23,6 +23,22 @@ def has_table(source: object, source_name: str) -> bool | None:
     return bool(fn(source_name)) if callable(fn) else None
 
 
+# T-615b (DATA-008): the canonical columns a ``delta:`` may name on a csv or cgrd_sql source. A clinical date (a lab's
+# sample time, a diagnosis' record date) is not one: a corrected or late-entered record keeps its old date, and a
+# delta on that date never picks the change up
+CHANGE_COLUMNS: tuple[str, ...] = ("updated_at",)
+
+
+def quarantine_reason(source: object, source_name: str) -> str | None:
+    """Why ``source`` quarantined ``source_name`` on this read (T-615b), or None. An SS-MIX2 source's extended storage
+    is a csv source too."""
+    for s in (source, getattr(source, "extended", None)):
+        fn = getattr(s, "quarantine_reason", None)
+        if callable(fn) and (why := fn(source_name)):
+            return str(why)
+    return None
+
+
 def after(value: Any, since: str | None) -> bool:
     """Lexicographic ISO comparison (``YYYY-MM-DD[ HH:MM:SS]``) used for delta extraction."""
     if since is None:

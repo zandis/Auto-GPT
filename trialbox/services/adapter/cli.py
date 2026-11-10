@@ -99,6 +99,7 @@ def build_config() -> tuple[AdapterConfig, str, str]:
         table_max_drop_pct=float(fc.max_table_drop_pct) if fc else 10.0,
         required_tables=tuple(fc.required_tables) if fc else (),
         optional_tables=tuple(fc.optional_tables) if fc else (),
+        source_encoding=ds.encoding,  # T-615b
     )
     default_path = ds.path or (os.environ.get(ds.dsn_env, "") if ds.dsn_env else "")
     return ac, ds.type, default_path
