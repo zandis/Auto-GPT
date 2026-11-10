@@ -1085,7 +1085,8 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
     drafted = {k: v["value"] for k, v in d.items() if v["state"] == "drafted"}
     s.check("the subject's visit is drafted; every value carries a citation, every unknown a reason",
             r.status_code == 303 and d and all(bool(v["citation"]) == (v["state"] == "drafted") for v in d.values())
-            and all(v["why"] for v in d.values() if v["state"] == "unknown"), sorted(drafted))  # fmt: skip
+            and all(v["why"] for v in d.values() if v["state"] == "unknown"),
+            (r.status_code, _err_codes(r.text), sorted(drafted)))  # fmt: skip
     s.check("the drafted values equal the hospital record (birth date, uric acid)",
             all(drafted.get(k) == v for k, v in want.items()) and all(
                 k in want for k in drafted if k in ("brthdat", "urate")), (want, drafted))  # fmt: skip
