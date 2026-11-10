@@ -136,5 +136,7 @@ master stay); reservations D-208 to D-262 stay valid.
 | D-306 | merged | T-002 | decisions as files, one number registry, CODEOWNERS and CONTRIBUTING (file) |
 | D-307 | reserved | T-508 | the PoC is a product evaluation, not research |
 | D-308 | reserved | T-501 | held for T-501 |
-| D-309..D-311 | reserved | integrator | given to other wave cards; D-311 is PR #109 (no gates) |
+| D-309..D-311 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
 | D-312 | merged | T-611 | feed completeness gate before publish (file) |
+| D-313..D-318 | reserved | the integrator | given to other cards and pull requests; their own rows replace this one as they land |
+| D-319 | merged | T-655 | the review fixes of PR #71: what changes from D-205 and D-207 (file) |

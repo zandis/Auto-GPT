@@ -21,7 +21,9 @@ medicine and lab, demographic facts and a birth-date disagreement), ``public`` (
 MedTxt notes; MedTxt only when fetched) and ``mimic`` (the MIMIC-IV FHIR demo of ``tools/open_data_e2e.py``, when
 fetched). Exit status 0 only when every comparison is identical and something was compared (DI-3: empty stores, no
 ruleset, nothing screened or a skipped data set fail; `--allow-skip` accepts a data set that is not fetched). The run
-writes only to schemas under a random prefix of its own and drops only those. Calls no model, no network.
+writes only to schemas under a random prefix of its own and drops only those. Each lake is built with its source
+forced (``lake.source.force``), so a ``lake.source`` flag seeded in that database cannot build both lakes from one
+source, and each lake's ``source.jsonl`` must name the source it was built from. Calls no model, no network.
 """
 
 from __future__ import annotations
@@ -281,6 +283,7 @@ def mimic(work: Path) -> list[DataSet]:
 # ------------------------------------------------------------------------------------------------ the comparison
 def build_lakes(ds: DataSet, work: Path, omop_url: str) -> dict[str, Path]:
     from embed_service.embedder import HashEmbedder
+    from lake.source import force
     from lake.store import Lake
 
     lakes = {}
@@ -290,7 +293,8 @@ def build_lakes(ds: DataSet, work: Path, omop_url: str) -> dict[str, Path]:
         lake = Lake(d, ds.tz)
         if ds.site:
             lake.put_site(ds.site)
-        with _env(TB_LAKE_SOURCE=source, TB_OMOP_DB_URL=omop_url if source == "omop" else None):
+        # D-207: force the source, so a lake.source flag seeded in this database cannot build both lakes from one
+        with _env(TB_LAKE_SOURCE=source, TB_OMOP_DB_URL=omop_url if source == "omop" else None), force(source):
             lake.rebuild(ds.snapshot, HashEmbedder(), ds.ndjson)
         lakes[source] = d
     return lakes
@@ -470,6 +474,17 @@ def _drop_own(url: str, prefix: str, before: set[str]) -> list[str]:
     return created
 
 
+def recorded_source(lake: Path, snapshot: str) -> str | None:
+    """The source the last rebuild of ``snapshot`` recorded in ``<lake>/source.jsonl`` (``lake.source``); None when
+    it recorded none."""
+    log = lake / "source.jsonl"
+    if not log.exists():
+        return None
+    said = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines() if x.strip()]
+    mine = [str(e.get("source")) for e in said if e.get("snapshot") == snapshot]
+    return mine[-1] if mine else None
+
+
 def failures(entry: dict[str, Any]) -> list[str]:
     """Why a data set's comparison proves nothing (DI-3): two empty stores, or nothing screened, compare equal."""
     out = []
@@ -486,6 +501,9 @@ def failures(entry: dict[str, Any]) -> list[str]:
     for rid, r in entry["screening"].items():
         if not r["patients_evaluated"]:
             out.append(f"{rid}: no patient evaluated")
+    for source, said in (entry.get("recorded_source") or {}).items():
+        if said != source:
+            out.append(f"the {source} lake was meant to come from {source}, its rebuild recorded {said}")
     return out
 
 
@@ -548,6 +566,7 @@ def _one_set(name: str, work: Path, url: str, prefix: str, report: dict[str, Any
             "tables": compare_tables(lakes, ds.snapshot),
             "screening": compare_screening(lakes, ds),
             "omop": omop_summary(omop_url, lakes["omop"]),
+            "recorded_source": {src: recorded_source(d, ds.snapshot) for src, d in lakes.items()},
         }
         entry["failures"] = failures(entry)
         report["failures"].extend(f"{ds.name}: {f}" for f in entry["failures"])
