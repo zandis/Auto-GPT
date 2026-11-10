@@ -1,0 +1,18 @@
+# Build context rules for jvm.Dockerfile only (BuildKit reads <Dockerfile>.dockerignore in place of the root
+# .dockerignore). The root file leaves out the HL7 validator and FHIR packages to keep the demo image small; this image
+# needs them (COPY .cache/jvm/...).
+.venv
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+data
+deploy/.env
+deploy/models
+tests/fixtures/synthetic_patients/site-*
+*.egg-info
+tools/testbench/
+deploy/site
+.cache/trec_ct
+.cache/trialgpt_compare
+.cache/medtxt/responses

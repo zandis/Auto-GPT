@@ -24,8 +24,6 @@ COPY --chown=tb:tb schemas /app/schemas
 COPY --chown=tb:tb libs /app/libs
 COPY --chown=tb:tb services /app/services
 COPY --chown=tb:tb tools /app/tools
-# Hermes pin and contract (channel-relay reads hermes.lock; the plugins themselves are mounted into Hermes only)
-COPY --chown=tb:tb integrations /app/integrations
 COPY --chown=tb:tb rulesets /app/rulesets
 # routing policy, model registry and cards (tb-gateway, model-registry); a site pin is mounted, never baked in
 COPY --chown=tb:tb models /app/models

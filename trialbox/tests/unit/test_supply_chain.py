@@ -887,6 +887,33 @@ def test_dockerfiles_pin_their_bases_by_digest() -> None:
                 assert "@sha256:" in line, f"{path}: {line}"
 
 
+def _copy_sources(dockerfile: Path) -> list[str]:
+    out: list[str] = []
+    for line in dockerfile.read_text(encoding="utf-8").replace("\\\n", " ").splitlines():
+        parts = line.split()
+        if not parts or parts[0] != "COPY" or any(p.startswith("--from") for p in parts):
+            continue
+        out += [p for p in parts[1:-1] if not p.startswith("--")]
+    return out
+
+
+@pytest.mark.parametrize("path", ["deploy/docker/python.Dockerfile", "deploy/docker/jvm.Dockerfile", "demo/Dockerfile"])
+def test_every_copy_source_exists_and_is_in_the_build_context(path: str) -> None:
+    """`make images` copies only what is in the repository (or made by make, under .cache/) and not ignored by the
+    build context rules that apply to that Dockerfile (``<Dockerfile>.dockerignore``, else the root file)."""
+    import fnmatch
+
+    dockerfile = ROOT / path
+    own = dockerfile.parent / (dockerfile.name + ".dockerignore")
+    rules = (own if own.is_file() else ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    patterns = [r.strip().rstrip("/") for r in rules if r.strip() and not r.startswith("#")]
+    for src in _copy_sources(dockerfile):
+        if src != "." and not src.startswith(".cache/"):
+            assert (ROOT / src).exists(), f"{path}: COPY {src}: no such file in the repository"
+        if src != ".":
+            assert not any(fnmatch.fnmatch(src, p) for p in patterns), f"{path}: COPY {src} is ignored by the context"
+
+
 def test_shipped_fixtures_are_small() -> None:
     assert all(p.stat().st_size < 20_000 for p in FIX.iterdir())
 
