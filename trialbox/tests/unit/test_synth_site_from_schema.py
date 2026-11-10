@@ -94,6 +94,9 @@ def test_schema_refuses_what_it_does_not_know() -> None:
     doc = copy.deepcopy(_schema("tw"))
     doc["plants"]["unit_mismatch"][0]["code"] = "NOPE"
     assert any("not in code_lists/lab" in e for e in sss.check_schema(doc))
+    doc = copy.deepcopy(_schema("tw"))
+    doc["tables"]["lab"]["columns"]["unit"] = "Unit Of Measure"
+    assert any("not a canonical column name" in e for e in sss.check_schema(doc))
     doc = copy.deepcopy(_schema("jp"))
     doc["tables"]["lab"] = {"source": "lab", "columns": {"lab_no": "lab_no"}}
     assert any("no header row" in e for e in sss.check_schema(doc))

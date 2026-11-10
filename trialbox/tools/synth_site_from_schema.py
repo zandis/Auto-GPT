@@ -50,6 +50,7 @@ REF = date(2026, 11, 1)  # the synthetic site's "today"
 MAX_PATIENTS = 9999  # chart numbers SYNT-0001 .. SYNT-9999: never five digits in a row (data scan, D-203)
 # keys that would carry a value of a record; a schema file has structure and code lists only
 VALUE_KEYS = {"value", "values", "example", "examples", "sample", "samples", "rows", "data", "default"}
+CANON = re.compile(r"[a-z_][a-z0-9_]*")  # a canonical column name (templates/CANONICAL.md)
 DATE_COLS = {"birth_date", "diag_date", "recorded_date", "order_date", "start_date", "end_date", "death_date"}
 DT_COLS = {"visit_datetime", "appt_datetime", "sample_datetime", "note_datetime"}
 CODECS = {
@@ -117,6 +118,7 @@ def check_schema(doc: Any) -> list[str]:
         cols = list(spec["columns"].values())
         if len(set(cols)) != len(cols):
             errs.append(f"tables/{t}/columns: a canonical column twice")
+        errs += [f"tables/{t}/columns: {c!r} is not a canonical column name" for c in cols if not CANON.fullmatch(c)]
         key = {"patient": "mrn", "lab": "lab_no", "encounter": "enc_no"}.get(t)
         if key and key not in cols:
             errs.append(f"tables/{t}/columns: no column for {key}")

@@ -104,6 +104,25 @@ def lower(label: ClassLabel, transform: str, certificate: str) -> ClassLabel:
 
 # ------------------------------------------------------------------------------------------------ v1 contracts
 _D0 = {"CtgovSearchRequest", "CtgovSearchResult", "CtgovStudy", "TrialSimResult", "TrialSimRow", "TrialSimStep"}
+# T-011: a site schema is structure and code lists from the survey, refused when it carries a value: no patient data
+_D0 |= {
+    "SiteSchema",
+    "SiteFeed",
+    "SiteChartNumber",
+    "SiteIdentifiers",
+    "SiteTable",
+    "SiteSexCodes",
+    "SiteEncounterTypeCodes",
+    "SiteCodeLists",
+    "SiteCode",
+    "SiteLabItem",
+    "SiteDiagnosisCode",
+    "SiteDrugCode",
+    "SiteProvider",
+    "SiteNotes",
+    "SitePlants",
+    "SiteUnitMismatch",
+}
 _D1 = {
     # configuration, rule content, protocol-derived structures, job plumbing without patient data
     "AgeRange",

@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import date as date_aliased
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 
 class AgeRange(BaseModel):
@@ -1430,7 +1430,7 @@ class SiteLabItem(BaseModel):
     range: list[float] | None = Field(None, max_length=2, min_length=2)
 
 
-class Feed(BaseModel):
+class SiteFeed(BaseModel):
     """
     questions 24, 28 and 29: the input, its character set, its date format and its delimiter
     """
@@ -1446,7 +1446,7 @@ class Feed(BaseModel):
     extension: str | None = Field(None, pattern="^\\.[a-z]{2,4}$")
 
 
-class ChartNumber(BaseModel):
+class SiteChartNumber(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
@@ -1456,7 +1456,7 @@ class ChartNumber(BaseModel):
     check: Literal["none", "luhn"] | None = None
 
 
-class Identifiers(BaseModel):
+class SiteIdentifiers(BaseModel):
     """
     the form of the site's chart number (not a number): what the data scan can anchor a bare chart number on
     """
@@ -1465,23 +1465,22 @@ class Identifiers(BaseModel):
         extra="forbid",
         populate_by_name=True,
     )
-    chart_number: ChartNumber | None = None
+    chart_number: SiteChartNumber | None = Field(None, title="SiteChartNumber")
 
 
-class Columns(RootModel[str]):
-    root: str = Field(..., pattern="^[a-z_][a-z0-9_]*$")
-
-
-class Tables(BaseModel):
+class SiteTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
     )
     source: str = Field(..., pattern="^[A-Za-z_][A-Za-z0-9_]*$")
-    columns: dict[str, Columns] = Field(..., min_length=1)
+    columns: dict[str, str] = Field(..., min_length=1)
+    """
+    local header -> canonical column (a lower-case name of templates/CANONICAL.md; the tool checks its form)
+    """
 
 
-class Sex(BaseModel):
+class SiteSexCodes(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
@@ -1490,7 +1489,7 @@ class Sex(BaseModel):
     F: str
 
 
-class EncounterType(BaseModel):
+class SiteEncounterTypeCodes(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
@@ -1500,7 +1499,7 @@ class EncounterType(BaseModel):
     ER: str | None = None
 
 
-class CodeLists(BaseModel):
+class SiteCodeLists(BaseModel):
     """
     questions 28 and 29: the site's code lists (codes and names, not patient data)
     """
@@ -1509,15 +1508,17 @@ class CodeLists(BaseModel):
         extra="forbid",
         populate_by_name=True,
     )
-    sex: Sex | None = None
-    encounter_type: EncounterType | None = None
+    sex: SiteSexCodes | None = Field(None, title="SiteSexCodes")
+    encounter_type: SiteEncounterTypeCodes | None = Field(
+        None, title="SiteEncounterTypeCodes"
+    )
     department: list[SiteCode] | None = Field(None, min_length=1)
     lab: list[SiteLabItem] = Field(..., min_length=1)
     diagnosis: list[SiteDiagnosisCode] | None = None
     drug: list[SiteDrugCode] | None = None
 
 
-class Provider(BaseModel):
+class SiteProvider(BaseModel):
     """
     question 33: the physician per encounter, and a staff directory
     """
@@ -1530,7 +1531,7 @@ class Provider(BaseModel):
     directory: bool | None = None
 
 
-class Notes(BaseModel):
+class SiteNotes(BaseModel):
     """
     question 35: the note types the feed carries (absent: no notes)
     """
@@ -1544,7 +1545,7 @@ class Notes(BaseModel):
     )
 
 
-class UnitMismatchItem(BaseModel):
+class SiteUnitMismatch(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         populate_by_name=True,
@@ -1554,7 +1555,7 @@ class UnitMismatchItem(BaseModel):
     factor: float = Field(..., gt=0.0)
 
 
-class Plants(BaseModel):
+class SitePlants(BaseModel):
     """
     what the synthetic site plants for the mapping to find: lab codes the mapping does not know and results in a unit the lookup does not expect
     """
@@ -1565,7 +1566,7 @@ class Plants(BaseModel):
     )
     share: float | None = Field(None, gt=0.0, le=0.5)
     unmapped_lab: list[SiteLabItem] | None = None
-    unit_mismatch: list[UnitMismatchItem] | None = None
+    unit_mismatch: list[SiteUnitMismatch] | None = None
 
 
 class SiteSchema(BaseModel):
@@ -1592,11 +1593,11 @@ class SiteSchema(BaseModel):
     """
     the survey copy the schema was written from (document id and version)
     """
-    feed: Feed
+    feed: SiteFeed = Field(..., title="SiteFeed")
     """
     questions 24, 28 and 29: the input, its character set, its date format and its delimiter
     """
-    identifiers: Identifiers | None = None
+    identifiers: SiteIdentifiers | None = Field(None, title="SiteIdentifiers")
     """
     the form of the site's chart number (not a number): what the data scan can anchor a bare chart number on
     """
@@ -1611,16 +1612,16 @@ class SiteSchema(BaseModel):
             "medication",
             "note",
         ],
-        Tables,
+        SiteTable,
     ]
     """
     question 29: per canonical table (templates/CANONICAL.md), the site's table or file name and its header row as local header -> canonical column. For ssmix2 only the extended tables (practitioner, appointment, note)
     """
-    code_lists: CodeLists
+    code_lists: SiteCodeLists = Field(..., title="SiteCodeLists")
     """
     questions 28 and 29: the site's code lists (codes and names, not patient data)
     """
-    provider: Provider | None = None
+    provider: SiteProvider | None = Field(None, title="SiteProvider")
     """
     question 33: the physician per encounter, and a staff directory
     """
@@ -1628,11 +1629,11 @@ class SiteSchema(BaseModel):
     """
     question 34: the feed carries future bookings
     """
-    notes: Notes | None = None
+    notes: SiteNotes | None = Field(None, title="SiteNotes")
     """
     question 35: the note types the feed carries (absent: no notes)
     """
-    plants: Plants | None = None
+    plants: SitePlants | None = Field(None, title="SitePlants")
     """
     what the synthetic site plants for the mapping to find: lab codes the mapping does not know and results in a unit the lookup does not expect
     """
