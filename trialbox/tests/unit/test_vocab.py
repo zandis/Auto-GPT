@@ -241,7 +241,7 @@ def test_icd10cm_fy2027_marks_every_approved_ruleset(omop: Any, tmp_path: Path) 
     rs_dir = _rulesets(tmp_path)
     res = vocab_load.load_terminology(omop, TERM_DIR, rulesets_dir=rs_dir)
     approved = sorted(r for r in list_rulesets(rs_dir) if Ruleset.load(rs_dir / r).manifest.status == "approved")
-    assert len(approved) == 5 and sorted(res.marked) == approved  # unpinned rulesets: recompile needed
+    assert len(approved) == 7 and sorted(res.marked) == approved  # unpinned rulesets: recompile needed
     rel_a = vocab_load.terminology_release(omop)
     for rid in approved:  # recompiled against release A
         _pin(rs_dir / rid, rel_a)

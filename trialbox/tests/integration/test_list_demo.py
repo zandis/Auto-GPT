@@ -131,6 +131,6 @@ def test_alzheimers_trial_in_japanese(tmp_path: Path, monkeypatch: pytest.Monkey
         assert not m, m
     s5 = res["patient_html"]
     amyloid = re.findall(r'data-testid="verdict-AD-MAB-INC-05">([^<]+)<', s5)
-    assert amyloid and amyloid[0] in ("不明", "人の確認"), amyloid
+    assert amyloid and (amyloid[0].startswith("不明") or amyloid[0] == "人の確認"), amyloid  # T-506 wording
     assert "対象外" not in res["list_html"]
     assert {m.to[0] for m in res["mails"]} == {"crc1@hospa.test", "pi@hospa.test"}
