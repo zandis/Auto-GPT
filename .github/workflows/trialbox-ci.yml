@@ -102,6 +102,8 @@ jobs:
       - run: make venv
       - name: doclint (the eight documents, links, paths)
         run: .venv/bin/python tools/doclint.py
+      - name: decision numbers (one text per number, every file in the registry; T-002, D-306)
+        run: .venv/bin/python -m tools.decisions_index --check
 
   contracts:
     runs-on: ubuntu-latest
