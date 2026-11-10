@@ -26,9 +26,12 @@ then be the same box.
    WAL with pgBackRest (``compress-type=zst``); a throwaway cluster with these settings archives WAL, takes a base
    backup and is recovered to a point in time between two commits (PITR), with the TOAST column in lz4. pgBackRest
    itself needs its binary in the db image and runs on the box (RUNBOOK §5), not here.
-7. The database extensions of the box's ``db`` image (``vector``, ``pgroonga``, D-204) exist after the restore with
-   the versions they had before it. On a server without them (the local throwaway cluster) that check reports so
-   and passes, unless ``--require-extensions``.
+7. The database extensions of the box's ``db`` image (``vector``, ``pgroonga``, D-204): on a server that offers them
+   (``pg_available_extensions``), they exist after the restore with the versions they had before it, and a scratch
+   database holding both, with a table that uses both, is dumped and restored over itself with the backup's own
+   ``pg_dump`` / ``pg_restore --clean --if-exists --single-transaction`` (``tools.trialbox.backup``) as the drill's
+   role, the extensions included. On a server without them (the local throwaway cluster) both checks say so and pass,
+   unless ``--require-extensions``.
 """
 
 from __future__ import annotations
@@ -187,6 +190,7 @@ def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
                    ", ".join(out["refdata"]["reloaded"])))  # fmt: skip
 
     checks.append(_extensions_check(ext_before, _extensions(), require_extensions))
+    checks.append(_extensions_roundtrip(url, require_extensions))
 
     # 5. a backup in the previous format restores
     rows_now = bk.row_counts(bk.db_sources(env)[0])
@@ -217,17 +221,75 @@ def _extensions() -> dict[str, str | None]:
         return extensions(db)
 
 
+def _available(url: str) -> bool:
+    """The server offers both of the image's extensions (the box's db image does; the local cluster does not)."""
+    from tb_common.db import IMAGE_EXTENSIONS, Database
+
+    with Database.connect(url, "site") as db:
+        n = db.fetchval("SELECT count(*) FROM pg_available_extensions WHERE name = ANY(?)", (list(IMAGE_EXTENSIONS),))
+        return int(n) == len(IMAGE_EXTENSIONS)
+
+
 def _extensions_check(
     before: dict[str, str | None], after: dict[str, str | None], require: bool
 ) -> tuple[str, bool, str]:
-    """Every extension present before the backup (all of them with ``require``) is there after the restore, at the
-    same version."""
+    """On a server that offers them (or with ``require``), both extensions exist before the backup and after the
+    restore, at the same version."""
     name = "restore: the database extensions exist, same versions (D-204)"
-    wanted = [n for n, v in before.items() if v] if not require else list(before)
+    url = os.environ["TB_DB_URL"]
+    wanted = list(before) if require or _available(url) else []
     if not wanted:
-        return (name, True, "none on this server (no db image); --require-extensions makes this a failure")
+        return (name, True, "not offered by this server (no db image); --require-extensions makes this a failure")
     ok = all(after.get(n) and after.get(n) == before.get(n) for n in wanted)
     return (name, ok, ", ".join(f"{n} {before.get(n) or 'missing'} -> {after.get(n) or 'missing'}" for n in wanted))
+
+
+def _extensions_roundtrip(url: str, require: bool) -> tuple[str, bool, str]:
+    """A scratch database with both extensions and a table using both, dumped and restored over itself with the
+    backup's own commands as the drill's role (the restore drops and re-creates the extensions: D-204)."""
+    import secrets as _secrets
+    from urllib.parse import urlsplit, urlunsplit
+
+    import psycopg
+    from tb_common.db import Database, extensions, split_url
+
+    from tools.trialbox import backup as bk
+
+    name = "restore: a database with vector and pgroonga restores over itself as the box's role (D-204)"
+    if not _available(url):
+        ok = not require
+        return (name, ok, "not offered by this server (no db image); --require-extensions makes this a failure")
+    dsn, _ = split_url(url)
+    scratch = f"tbdrill_ext_{_secrets.token_hex(4)}"
+    parts = urlsplit(dsn)
+    sdsn = urlunsplit((parts.scheme, parts.netloc, f"/{scratch}", parts.query, parts.fragment))
+    with psycopg.connect(dsn, autocommit=True) as con:
+        con.execute(f'CREATE DATABASE "{scratch}"')
+    try:
+        with Database.connect(sdsn, "drill") as db:
+            db.execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+            db.execute("CREATE EXTENSION IF NOT EXISTS pgroonga WITH SCHEMA public")
+            db.migrate(["CREATE TABLE doc (id INT PRIMARY KEY, body TEXT, emb public.vector(3)); "
+                        "CREATE INDEX doc_body ON doc USING pgroonga (body)"])  # fmt: skip
+            db.execute("INSERT INTO doc VALUES (1, '肺がん', '[1,0,0]')")
+            before = extensions(db)
+        src = bk.DbSource("trialbox_wf", sdsn, ())
+        dump = Path(os.environ.get("TMPDIR") or "/tmp") / f"{scratch}.dump"
+        try:
+            bk.dump(src, dump, os.environ)
+            bk.restore_db(src, dump, os.environ)
+        finally:
+            dump.unlink(missing_ok=True)
+        with Database.connect(sdsn, "drill") as db:
+            after = extensions(db)
+            hit = db.fetchall("SELECT id FROM doc WHERE body OPERATOR(public.&@~) 'がん'")
+        ok = after == before and all(after.values()) and hit == [(1,)]
+        return (name, ok, ", ".join(f"{n} {v}" for n, v in after.items()))
+    except Exception as e:  # the restore refused (e.g. "must be owner of extension"): the check fails, with why
+        return (name, False, f"{type(e).__name__}: {str(e)[-300:]}")
+    finally:
+        with psycopg.connect(dsn, autocommit=True) as con:
+            con.execute(f'DROP DATABASE IF EXISTS "{scratch}" WITH (FORCE)')
 
 
 def _refdata_rows() -> dict[str, list[tuple[Any, ...]]]:

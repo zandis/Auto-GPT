@@ -81,12 +81,14 @@ screening write-back fills three fields on TrialBox's own instrument (`tb_screen
 store's schema versions are whole scripts, append-only, recorded in the store's own `_schema_version` with the
 script's sha256 and name (`migrate`, and `migrate_dir` for `NNN_<name>.sql` files, in `libs/tb_common/db.py`); a
 changed applied script stops the store at start with `MigrationChanged` naming the store and the version, and a gap
-in the versions is refused. Rows from before D-204 were back-filled once (`backfilled = true`). So a schema change is
-always a new version, never an edit, and `tests/unit/test_migrations.py` pins every store's checksums. The box's
+in the versions is refused. Rows from before D-204 are back-filled once (`backfilled = true`), and only when the code
+still carries the script of the baseline shipped with it (`libs/tb_common/migration_baseline.py`). So a schema change
+is always a new version, never an edit, and `tests/unit/test_migrations.py` pins every store's checksums. The box's
 PostgreSQL is `deploy/docker/db.Dockerfile`: Debian `postgres:16` with pgvector and PGroonga, base digest and package
 versions pinned in `deploy/images.lock`; `deploy/docker/db-init/` creates both extensions in `trialbox_wf` (schema
-`public`, reached as `public.vector`, `OPERATOR(public.&@~)` from a store's schema) on the first start of an empty
-volume. A volume made by the earlier Alpine image is dumped and restored into the new image, not reused (the C
+`public`, owned by `trialbox` so a restore as `trialbox` re-creates them; reached as `public.vector`,
+`OPERATOR(public.&@~)` from a store's schema) on the first start of an empty volume, and `tb-db-check` in the image
+says whether they are there. A volume made by the earlier Alpine image is dumped and restored into the new image, not reused (the C
 library's collation differs).
 
 ## 4. Site set-up and imperfect data
