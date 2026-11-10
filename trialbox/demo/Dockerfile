@@ -4,7 +4,8 @@
 #   docker build -f demo/Dockerfile -t trialbox-demo .        (context = the trialbox/ folder)
 #   docker run -p 8080:8080 -e TB_DEMO_PASSWORD=... trialbox-demo
 # Accounts: admin, crc, pi, smo, cra, viewer; one shared password from TB_DEMO_PASSWORD (else printed in the log).
-FROM python:3.12-slim
+# the same pinned base as deploy/docker/python.Dockerfile (an index digest: amd64 and arm64)
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     MPLBACKEND=Agg MPLCONFIGDIR=/tmp/mpl TB_FONTS_DIR=/app/.cache/fonts \
     TB_DEMO_HOST=0.0.0.0 PORT=8080 TB_DEMO_DIR=/tmp/tb-role-demo TB_CONSOLE_SECURE_COOKIE=1
@@ -12,12 +13,18 @@ RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin tb
 WORKDIR /app
 # PostgreSQL server binaries: since D-126 the demo's trial data lives in a throwaway local cluster (tools/pglocal.py),
 # and the update path backs it up with pg_dump first (D-138)
-RUN apt-get update && apt-get install -y --no-install-recommends postgresql && rm -rf /var/lib/apt/lists/*
+# postgresql comes from the digest-pinned Debian base's release; the release gates scan the built image (D-186)
+# hadolint ignore=DL3008
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends postgresql && rm -rf /var/lib/apt/lists/*  # upgrade: Debian security fixes (D-186)
 COPY deploy/requirements.lock /tmp/requirements.lock
 # Optional build secret "extra_ca" (PEM) is trusted during the build only (corporate TLS proxies).
+# every package is pinned (the lock file, pytest==); $CERT is empty or "--cert <file>" and must split
+# hadolint ignore=DL3013,SC2086
 RUN --mount=type=secret,id=extra_ca,required=false \
     set -eux; CERT=""; if [ -f /run/secrets/extra_ca ]; then CERT="--cert /run/secrets/extra_ca"; fi; \
-    pip install $CERT --only-binary=:all: -r /tmp/requirements.lock "pytest>=8.3"  # pytest: tests/inproc_box.py imports test helpers
+    pip install $CERT --only-binary=:all: -r /tmp/requirements.lock; \
+    pip install $CERT --only-binary=:all: "pytest==9.2.0"  # tests/inproc_box.py imports test helpers; version of uv.lock
 COPY --chown=tb:tb . /app
 RUN --mount=type=secret,id=extra_ca,required=false \
     set -eux; if [ -f /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \

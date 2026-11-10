@@ -1,10 +1,11 @@
 """``python -m tools.trialbox <command>`` (spec v4 §18). Commands: ``doctor``, ``eval``, ``backup-keygen``,
-``backup``, ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``); ``backup-nightly`` and
-``backup-status`` (the schedule and the age alert, D-187, ``backup_schedule.py``); ``secrets`` (per-service tokens,
-D-128 / D-138, ``svc_secrets.py``), ``logs`` (retention, ``logs.py``) and ``update`` (the update path behind
-``tools/apply_update.sh``, ``update.py``); ``exports`` lists the export ledger (D-149, ``tb_common.flowledger``).
-``secrets``, ``logs`` and ``update`` need only the standard library, so they run with the host's ``python3`` from
-the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
+``backup``, ``backup-check`` (D-178), ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``);
+``backup-nightly`` and ``backup-status`` (the schedule and the age alert, D-187, ``backup_schedule.py``); ``secrets``
+(per-service tokens, D-128 / D-138, ``svc_secrets.py``), ``logs`` (retention, ``logs.py``) and ``update`` (the update
+path behind ``tools/apply_update.sh``, ``update.py``); ``exports`` lists the export ledger (D-149,
+``tb_common.flowledger``); ``ops`` runs the console's operations requests and writes their status (D-178, ``ops.py``).
+``secrets``, ``logs``, ``update`` and ``ops`` need only the standard library, so they run with the host's ``python3``
+from the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
 
 from __future__ import annotations
 
@@ -36,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--public", type=Path, default=Path(os.environ.get("TB_BACKUP_PUBKEY", "deploy/secrets/backup.pub")))
     b.add_argument("--dir", action="append", default=[], help="name=path (default: TB_BACKUP_DIRS or the volumes)")
     b.add_argument("--keep", type=int, default=int(os.environ.get("TB_BACKUP_KEEP", "14")))
+    ck = sub.add_parser("backup-check", help="check a backup is whole without the key (D-178; JSON)")
+    ck.add_argument("file", type=Path)
     v = sub.add_parser("backup-verify", help="decrypt a backup and check every hash (needs the private key)")
     v.add_argument("file", type=Path)
     v.add_argument("--key", type=Path, required=True)
@@ -69,6 +72,12 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--target", choices=["compose", "demo"], default=os.environ.get("TB_UPDATE_TARGET", "compose"))
     u.add_argument("--deploy", type=Path, default=deploy)
     u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
+    op = sub.add_parser("ops", help="the console's operations requests: run them, write the status (D-178)")
+    op.add_argument("action", choices=["run", "status"])
+    op.add_argument("--deploy", type=Path, default=deploy)
+    op.add_argument("--ops-dir", type=Path, default=None, help="default: TB_OPS_DIR or deploy/ops")
+    op.add_argument("--local", action="store_true", help="a box in this process (no docker compose)")
+    op.add_argument("--watch", type=int, default=0, help="run again every N seconds (0: once)")
     fl = sub.add_parser("exports", help="the export ledger: every file that left the box (D-149)")
     fl.add_argument("--audit", type=Path, default=Path(os.environ.get("TB_AUDIT_DIR", "/data/audit")))
     fl.add_argument("--days", type=int, default=30)
@@ -78,6 +87,10 @@ def main(argv: list[str] | None = None) -> int:
         return _exports_cmd(a)
     if a.cmd == "secrets":
         return _secrets_cmd(a)
+    if a.cmd == "ops":
+        from tools.trialbox import ops as tb_ops
+
+        return tb_ops.main(a.action, a.deploy, a.ops_dir, a.local, a.watch)
     if a.cmd == "logs":
         from tools.trialbox import logs as tb_logs
 
@@ -92,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "backup-nightly":
             return bsch.main_nightly(a.deploy)
         return bsch.main_status(a.deploy, a.json, a.quiet)
-    if a.cmd in ("backup-keygen", "backup", "backup-verify", "restore"):
+    if a.cmd in ("backup-keygen", "backup", "backup-check", "backup-verify", "restore"):
         return _backup_cmd(a)
     if a.cmd == "doctor":
         from tools.trialbox import doctor
@@ -176,6 +189,9 @@ def _backup_cmd(a: argparse.Namespace) -> int:
             dirs = bk.layout(os.environ, a.dir)
             for f in bk.backup(a.to, a.public, dirs=dirs, keep=a.keep):
                 print(f"wrote {f}")
+            return 0
+        if a.cmd == "backup-check":
+            print(json.dumps(bk.check(a.file), indent=1, ensure_ascii=False))
             return 0
         if a.cmd == "backup-verify":
             print(json.dumps(bk.verify(a.file, a.key), indent=1, ensure_ascii=False))

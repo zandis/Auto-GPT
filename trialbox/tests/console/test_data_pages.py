@@ -180,6 +180,43 @@ def test_forms_sources_sync_conflict_resolve_detach(dcb: dict[str, Any]) -> None
     assert {"console.data_forms", "console.data_source", "console.data_sync", "console.data_resolve"} <= set(events)
 
 
+def test_detach_undo_puts_the_connection_back_but_never_over_a_newer_one(
+    dcb: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-178 (review J-14): Undo after Detach attaches the same connection again, for 15 minutes; when someone
+    attached a connection since, the undo is refused (409) and the newer connection stays."""
+    import time
+
+    a, csrf_a = login(dcb["app"], "crc", PW)
+    _import(a, csrf_a)
+    assert 'data-testid="dc-done"' in _attach(a, csrf_a).text
+
+    def detach() -> None:
+        r = a.post("/studies/GZQO/sources/redcap/detach", data={"csrf": csrf_a, "confirm": "yes"})
+        assert 'data-testid="dc-no-source"' in r.text and 'data-testid="detach-undo"' in r.text
+
+    def redcap() -> list[dict[str, Any]]:
+        out = dcb["oc"].get("/studies/GZQO/sources").json().get("sources") or []
+        return [x for x in out if x.get("name") == "redcap"]
+
+    detach()
+    r = a.post("/studies/GZQO/sources/redcap/undo", data={"csrf": csrf_a})
+    assert r.status_code == 200 and 'data-testid="source-redcap"' in r.text and len(redcap()) == 1
+    # someone else attaches after A's detach: A's undo must not replace that connection
+    detach()
+    b, csrf_b = login(dcb["app"], "crc", PW)
+    assert 'data-testid="dc-done"' in _attach(b, csrf_b).text
+    dcb["calls"].clear()
+    r = a.post("/studies/GZQO/sources/redcap/undo", data={"csrf": csrf_a})
+    assert r.status_code == 409 and not _writes(dcb["calls"]) and len(redcap()) == 1
+    # after 15 minutes the detached connection is no longer kept
+    detach()
+    real = time.monotonic
+    monkeypatch.setattr(time, "monotonic", lambda: real() + 901)
+    r = a.post("/studies/GZQO/sources/redcap/undo", data={"csrf": csrf_a})
+    assert r.status_code == 409 and redcap() == []
+
+
 def test_a_sync_of_an_unknown_source_and_a_bad_dictionary_are_shown_not_raised(dcb: dict[str, Any]) -> None:
     c, csrf = login(dcb["app"], "crc", PW)
     r = c.post("/studies/GZQO/sources/redcap/sync", data={"csrf": csrf})

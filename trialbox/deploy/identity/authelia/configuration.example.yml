@@ -1,0 +1,109 @@
+# Authelia 4.39 for TrialBox (D-192): the hospital account (AD over LDAPS) with a second factor, offered to the
+# console as an OpenID Connect provider. Off by default: used only with `--profile oidc` and TB_OIDC_ENABLED=1.
+#
+# Copy to deploy/site/authelia/configuration.yml (not committed) and replace every value marked SITE. Secrets are never
+# written here: they are files in deploy/secrets/authelia/ (0600, root), named by the *_FILE variables in
+# deploy/docker-compose.identity.yml. RUNBOOK §12 has the steps; the client secret's hash is made with
+#   docker run --rm authelia/authelia:4.39.28 authelia crypto hash generate pbkdf2 --variant sha512 --random \
+#       --random.length 72 --random.charset rfc3986
+# (the plain value goes to deploy/secrets/authelia/oidc_client_secret.txt for the console, the digest below).
+#
+# Authelia's OIDC provider is OpenID Certified but formally beta in 4.39 (component review layer 2, item 1).
+
+theme: auto
+default_2fa_method: totp
+
+server:
+  address: tcp://0.0.0.0:9091/
+
+log:
+  level: info
+
+totp:
+  issuer: TrialBox
+  algorithm: SHA1   # what every authenticator app reads; RFC 6238
+  digits: 6
+  period: 30
+  skew: 1
+
+webauthn:
+  disable: false
+  display_name: TrialBox
+  attestation_conveyance_preference: indirect
+  user_verification: preferred
+
+authentication_backend:
+  password_reset:
+    disable: true          # the hospital directory owns passwords and their policy
+  refresh_interval: 1m     # a disabled AD account or a removed group stops the next sign-in within a minute
+  ldap:
+    implementation: activedirectory
+    address: ldaps://dc01.hospital.example:636                    # SITE: a domain controller, LDAPS only
+    timeout: 5s
+    tls:
+      server_name: dc01.hospital.example                          # SITE
+      minimum_version: TLS1.2
+      skip_verify: false
+    base_dn: DC=hospital,DC=example                               # SITE
+    additional_users_dn: OU=Staff                                 # SITE
+    additional_groups_dn: OU=Groups                               # SITE
+    group_search_mode: memberof
+    user: CN=svc-trialbox,OU=Service Accounts,DC=hospital,DC=example   # SITE: a read-only bind account
+    # its password: AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE (deploy/secrets/authelia/ldap_password)
+
+access_control:
+  default_policy: two_factor
+
+session:
+  cookies:
+    - domain: auth.trialbox.hospital.example                      # SITE: TB_AUTH_HOSTNAME only (no wider cookie)
+      authelia_url: https://auth.trialbox.hospital.example        # SITE: TB_AUTH_HOSTNAME
+      default_redirection_url: https://trialbox.hospital.example  # SITE: TB_TLS_HOSTNAME
+  inactivity: 10m
+  expiration: 8h
+  remember_me: -1          # no "remember me" on shared clinic PCs
+
+regulation:                # the same lock-out as the console's local accounts
+  max_retries: 5
+  find_time: 15m
+  ban_time: 15m
+
+storage:
+  local:
+    path: /data/db.sqlite3
+  # encryption key: AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE
+
+notifier:
+  disable_startup_check: true
+  filesystem:              # SITE: or `smtp:` with the hospital relay, if staff register WebAuthn keys by mail link
+    filename: /data/notification.txt
+
+identity_providers:
+  oidc:
+    # HMAC secret: AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET_FILE
+    jwks:
+      - key_id: trialbox
+        algorithm: RS256
+        use: sig
+        key: {{ secret "/run/authelia/oidc_jwks.pem" | mindent 10 "|" | msquote }}
+    claims_policies:
+      trialbox:
+        id_token: [groups, preferred_username, email]
+    clients:
+      - client_id: trialbox-console
+        client_name: TrialBox console
+        client_secret: "$pbkdf2-sha512$310000$SITE-REPLACE-WITH-THE-DIGEST"
+        public: false
+        authorization_policy: two_factor
+        consent_mode: implicit
+        require_pkce: true
+        pkce_challenge_method: S256
+        redirect_uris:
+          - https://trialbox.hospital.example/auth/oidc/callback  # SITE: https://TB_TLS_HOSTNAME/auth/oidc/callback
+        scopes: [openid, profile, email, groups]
+        response_types: [code]
+        grant_types: [authorization_code]
+        token_endpoint_auth_method: client_secret_basic
+        id_token_signed_response_alg: RS256
+        userinfo_signed_response_alg: none
+        claims_policy: trialbox

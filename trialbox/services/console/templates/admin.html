@@ -42,6 +42,13 @@
     {% else %}<p class="hint" data-testid="refdata-none">{{ t('admin.refdata.none') }}</p>{% endif %}
     <a href="/admin/notice" data-testid="notice-link">{{ t('admin.notice_page') }}</a>
   </section>
+  {% if ops %}<section class="card tile" data-testid="tile-ops">
+    <h2>{{ t('ops.title') }}</h2>
+    <p class="big mono" data-testid="tile-ops-version">{{ ops.version.trialbox or ops.console_version }}</p>
+    <p class="hint">{{ t('ops.version.bundle') }}: <span class="mono">{{ ops.version.bundle or t('ops.version.none') }}</span></p>
+    <p>{{ t('ops.tab.backups') }}: {% if ops.newest_backup %}<span class="pill {{ 'bad' if ops.backup_red else 'ok' }}" data-testid="tile-ops-backup">{{ t('ops.backup.age', h=ops.backup_age_h) }}</span>{% else %}<span class="pill bad" data-testid="tile-ops-backup">{{ t('ops.backup.none') }}</span>{% endif %}</p>
+    <a href="/admin/ops" data-testid="ops-link">{{ t('ops.open') }}</a>
+  </section>{% endif %}
   <section class="card tile" data-testid="tile-accounts">
     <h2>{{ t('admin.accounts') }}</h2>
     <p class="big">{{ users|length }}</p>
