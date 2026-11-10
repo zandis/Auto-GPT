@@ -825,3 +825,64 @@ Data integrity (G):
 - DI-14: other time-zone slips outside the console. `services/omop/dqd.py:128`; `services/omop/load.py:458,974`; `services/orchestrator/scheduler.py:69`; `tools/trialbox/backup_schedule.py:359,649`; `tools/trialbox/update.py:485`; `services/console/home.py:363-364`; `services/console/step4.py:236-237`
 
 Medium items from the PR bodies and decisions that reviewer C listed (PR #60 M3 and M8, PR #61 M1, M3, M6, PR #63 Lows, D-142 CQL censored values, D-143 in-memory rate limits, D-134, D-151 concept-id overflow, D-138 secrets in `deploy/.env`) are in `docs/DECISIONS.md` and the PR bodies and are not repeated here.
+
+## 7. Update 1 (2026-11-10, after PRs #59, #67, #69 and #72 merged)
+
+Master is now at `6506cb2`. The rows above are kept as first written; this section says what changed. Statuses marked "by merge" were taken from the merged PR's own description and checks, not re-verified line by line here.
+
+### 7.1 Status changes
+
+| Row | New status | Why |
+| --- | --- | --- |
+| CR-033 | partly fixed by merge | PR #67 (D-192, D-193): TOTP for local accounts by default, admin-issued enrolment codes, optional OIDC through Authelia, TLS through Caddy. Still open: a forced first password change, step-up, WebAuthn, removing header SSO. These go to FG-J. |
+| CR-039 | fixed by merge | PR #67: header SSO works only in DEV and TEST, never signs in a local or OIDC account, and Caddy strips identity headers. |
+| CR-072 | fixed by merge | PR #72 (branch fix-edc-gw): the routing policy did not list the purpose `data_entry`. `make rehearse` passed all 6 cases on its commit. |
+| CR-073 | fixed by merge | PR #69 (stage-16 date fix). |
+| CR-077 | partly fixed by merge | PR #69 added D-191 to `docs/DECISIONS.md`. The numbering registry is still open. |
+| CR-066 | partly fixed by merge | PR #59 (D-189, D-190): score definitions as data and stored derived rows. Screening still computes scores in SQL and CQL; see CR-115. |
+| CR-034, CR-035, CR-036 | open, owner this session | `services/edc/*` and the PR #67 files are free now. P-1 to P-6 move into FG-J and FG-L (7.3). |
+| CR-016, CR-017, CR-020, CR-021, CR-022 | open, owner this session | The console halves (`app.py`, the site pages) are free now. They move into FG-C (CR-016) and FG-D (CR-017, CR-020, CR-021, CR-022). PX-3, PX-4, PX-5 become those groups' starting points. |
+| CR-023 | open, owner this session | The owner decided OD-5 (7.4). It moves into FG-K. |
+| CR-049 | open, owner this session | `auth.py` and `step4.py` lines move into FG-A; PX-1 and PX-2 are no longer needed as patches. |
+
+### 7.2 New rows
+
+| ID | Severity | Area | Problem | Evidence | Status | Owner | Fix group / note |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| CR-115 | High | safety / derived values | The SQL and CQL screening engines do not apply `derived.DOMAIN`. A joint count over 28, a negative CRP or ESR, or a creatinine of 0 or less gives a number there, while Python gives no value with `derived_unit`. The engines disagree, and garbage input can decide a criterion instead of reading as unknown. Already true for DAS28 on master; PR #59 extended the pattern to CDAI and SDAI. | coordinator message 2026-11-10; `libs/tb_common/derived.py` (DOMAIN); `services/criteria_compiler/compile_sql/generator.py`; `compile_cql` templates | open | this session | FG-F (D-275), added to that group. |
+| CR-116 | Medium | security / identity | Lock-out (5 failures in 15 min) can be used to lock out the administrator; there is no per-IP throttle and failure rows are unbounded. Source: PR #67 review M3. | `services/console/identity.py` | open | this session | FG-J (D-279). Listed here because the coordinator asked; rated Medium by PR #67. |
+| CR-117 | Medium | security / identity | An OIDC session outlives the directory account by up to 8 hours. Source: PR #67 review M5. | `services/console/oidc.py` | open | this session | FG-J (D-279). |
+| CR-118 | Low | security / identity | PR #67 "other Lows": generous AMR set; the first OIDC account gets all studies; `totp.key` sits in the same backup as the database; Caddy's root key is unconstrained; Caddy on `trialbox-net`; HSTS without includeSubDomains; docs drift. | PR #67 body | open | the coordinator | Follow-up list, not in this session's fix phase except the `totp.key` backup point, which FG-E reviews. |
+| CR-119 | Medium | integrity / derived values | Stored derived rows of erased or absent patients are never retired. Source: PR #59 review M8. | `libs/tb_common/derived_store.py` | open | the coordinator | Needs the erasure path (DI-13). |
+| CR-120 | Low | integrity / derived values | PR #59 "other Lows": engine version not in the fingerprint; sha over the whole YAML; the generator guard can be bypassed; `latest()` edge cases; import-time coupling; prompts not updated; version namespaces; migration nits; fallback anchor key. Also its open Mediums M1, M2, M3, M5, M6. | PR #59 body | open | the coordinator | Follow-up list. |
+
+### 7.3 Fix groups added
+
+| Fix group | Decision and name | Rows |
+| --- | --- | --- |
+| FG-J | D-279 identity follow-ups | CR-034 (P-1 forced change after an admin sets or resets a password; P-2 second factor at signing), CR-033 rest, CR-116, CR-117 |
+| FG-K | D-280 data steward and break-glass | CR-023, CR-027 (break-glass), per the owner's decision in 7.4 |
+| FG-L | D-281 EDC signature controls | CR-035, CR-036 (P-3, P-4), SEC-6, SEC-7 (P-5, P-6) |
+
+FG-C now also takes the `app.py` request-line writer of CR-016. FG-D now also takes CR-017 (PV-2), CR-020 (PV-5, both halves), CR-021 (PV-6) and CR-022 (PV-7). FG-F now also takes CR-115.
+
+### 7.4 Owner decision OD-5 (recorded on 2026-11-10)
+
+From `docs/reviews/2026-11-09-owner-decisions-data-and-profile.md` (branch `claude/trialbox-plan-v4-oxn56n`, commit `bf0625a`, coming to master with the coordinator's next PR):
+
+- A separate data-steward role covers sources, conflicts, lake and OMOP quality, opt-outs and exports. The admin role does not.
+- An admin sees patient data only through break-glass: a reason (a fixed list plus free text), one patient or one job at a time, 60 minutes and then access ends by itself.
+- Every view is audited (who, patient pseudonym, reason, time), and the steward and the PI are told.
+- The steward reviews each use; unreviewed uses appear on the steward's worklist.
+- Routine admin pages never show patient-level data.
+
+### 7.5 Counts after update 1
+
+Rows CR-001 to CR-114 are counted with the status changes in 7.1 ("partly fixed" counts as open). New rows CR-115 to CR-120 are listed but only CR-115 is counted, because the register counts Blocker, Critical and High only.
+
+| Severity | open | in progress elsewhere | fixed | Total |
+| --- | --- | --- | --- | --- |
+| Blocker | 18 | 1 | 5 | 24 |
+| Critical | 6 | 0 | 1 | 7 |
+| High | 62 | 7 | 15 | 84 |
+| Total | 86 | 8 | 21 | 115 |
