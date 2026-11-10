@@ -3695,3 +3695,72 @@ is the owner's, to settle by G2 before submission. Intended use v0.2: the clinic
 planned (C2); "consultant's opinion" and "authority's written answer" named apart, and the C6 switch needs the
 authority's answer in both countries. WS-06.7 and WS-16.4 of TB-PLAN-05 now leave their patients out of Study A.
 
+
+**D-185 One hashed lock: `uv.lock`, exported to `deploy/requirements.lock` with sha256 hashes and checked in CI.**
+Source: `docs/reviews/2026-11-09-component-review-layer2-verification.md` row 2 and R-19; master plan WS-14.6. The
+lock was made with `uv pip compile` without hashes, and pip-audit found 60 advisories in it (pillow 12.3.0: 39, pypdf
+6.19.0: 18, brotli, certifi, opentelemetry-api: 1 each).
+1. `uv.lock` (uv 0.11.32) is the one lock: every file of every package with its sha256. `deploy/requirements.lock` is
+   its `uv export` (runtime dependencies only, no extras, no dev, not the project), written by `make lock`; never
+   edited by hand. Every entry carries `--hash=sha256:`, so the images' `pip install -r` runs in hash-checking mode
+   and refuses a file whose bytes differ. pip-audit itself installs from its own hashed lock
+   (`tools/supply_chain/pip-audit.lock`).
+2. `make lock-check` (CI, every pull request) fails when `uv.lock` no longer satisfies `pyproject.toml`
+   (`uv lock --check`), when `deploy/requirements.lock` is not the export of `uv.lock`, or when an entry has no sha256,
+   is not pinned with `==`, is an option (`-e`, an index) or appears twice; when a `uv.lock` package comes from git or
+   a URL or has a file without a hash; and when the pip-audit lock is unhashed or not pip-audit 2.9.0. A unit test
+   compares the export byte for byte, so uv is pinned to 0.11.32 in the workflows.
+3. Floors for the advisories: `pypdf>=6.21.4` in `pyproject.toml`, `pillow>=13` as a uv constraint. pip-audit on the
+   new lock: none.
+4. The base images are pinned by index digest (`python:3.12-slim@sha256:5e2bdb1b…`, amd64 and arm64) in
+   `deploy/docker/python.Dockerfile` and `demo/Dockerfile`; the demo image installs pytest on its own pip line, since
+   hash-checking mode refuses an unpinned extra requirement.
+
+*Evidence.* `tests/unit/test_supply_chain.py` (lock part); `make lock-check` PASS; an environment installed from
+`deploy/requirements.lock` with `--require-hashes` (73 packages on CPython 3.12 Linux).
+
+*Not done here.* `make venv` still resolves from `pyproject.toml` (not `uv sync --frozen`).
+
+**D-186 SBOM per release, pip-audit and offline Trivy as gates on every shipped image, an allow-list with reasons, a
+licence report.** Source: the same review, row 2 and §3; WS-14.6; the independent review of PR #61 (6 High).
+1. **pip-audit** (2.9.0, from its hashed lock, on Python 3.12; build side only) on `deploy/requirements.lock`: every
+   advisory fails unless allow-listed; the audited set must equal the lock's entries for CPython 3.12 on Linux
+   (markers evaluated); a package it could not audit fails; an empty or unreadable report fails.
+2. **Trivy** (0.75.0) with the database loaded first (`make trivy-db`; on the media, `oras pull` of `trivy-db:2` and
+   `trivy-java-db:1`) and the scan offline, with no ignore file, no config file and every `TRIVY_*` setting removed.
+   CRITICAL or HIGH with a fixed version fails unless allow-listed; a missing or odd severity fails; unfixed findings
+   and MEDIUM/LOW are listed. A report must show OS packages and the image's own language packages (Python; jars in
+   the JVM image). The database (and the Java one) may be at most 7 days old.
+3. **Release gates** (`make release-gates`): each image is pinned first, a local one by its image id, a third-party
+   one by its registry digest for the platform, and Trivy and Syft must both name that image. They cover
+   trialbox-py, trialbox-jvm, trialbox-demo and every third-party image compose pulls. `gates.json` and
+   `dist/sbom/index.json` record per image the reference, platform, image id, digests, and the report and SBOM with
+   their sha256. CI (`trialbox-images.yml`) runs them on amd64 and arm64 for pull requests that change what goes into
+   an image, weekly and for a release tag, and for a tag also on both platforms of `make images-multiarch` by digest.
+   `make release-bundle` bundles only images in a passing record at most 7 days old (`tools/make_bundle.sh --gates`).
+4. **SBOM per release**: Syft (1.56.0) CycloneDX JSON per image and platform, and for the lock: Syft over an
+   environment installed from the lock with hashes, so each package carries the licence of its installed metadata;
+   it must name every locked package that installs on the box, at its version.
+5. **Licence report** from the SBOMs (nested components, ids, names, expressions, URLs, full texts searched to the
+   end; Licence and License): flags GPL, LGPL, AGPL, unknown and dual. Only a licence on the known permissive list
+   counts as an `OR` choice; `LicenseRef-*`, `NOASSERTION`, `Proprietary` never do. Each flag of a package needs its
+   own allow-list entry; a dual entry names the branch taken, an unknown entry the licence a person verified.
+   Distro packages of a base image are listed, not gated.
+6. **The allow-list** `deploy/supply-chain-allowlist.yaml`: every entry needs its package, a reason (20 characters or
+   more) and `review_by` at most 180 days ahead; a key given twice or a list given as anything else is refused; after
+   `review_by` every gate fails until the entry is reviewed or removed; there is no date override. It starts with
+   the eight LGPL packages of the review, dulwich under Apache-2.0, six packages whose licence the SBOM cannot read
+   (duckdb, jinja2, kiwisolver, matplotlib, pycryptodomex, reportlab; each read in the wheel; reportlab ships a GPL
+   font as data), the base image's interpreter and pip's Windows launchers, and no vulnerability entries.
+7. Every GitHub action is pinned to a commit; Syft and Trivy are release archives with pinned sha256.
+8. Two faults that broke `make images` before this decision are fixed: `python.Dockerfile` copied `integrations/`,
+   removed in D-121; the root `.dockerignore` left out the JVM image's validator and FHIR packages
+   (`deploy/docker/jvm.Dockerfile.dockerignore` now applies to that build). A test checks every COPY source.
+
+*Evidence.* `tests/unit/test_supply_chain.py` (offline, fixtures trimmed from real Trivy and Syft output);
+`make pip-audit`, `make licences` and `make lock-check` PASS; the gates run for real on the pinned base image, both
+platforms: two HIGH zlib1g findings with a Debian fix (CVE-2026-76844, CVE-2026-85091) fail it, so the image gate
+stays red until the base image is rebuilt or the owner decides.
+
+*Not done here.* `THIRD_PARTY_NOTICES.md`; the SBOMs inside the signed bundle; `--gates` mandatory in
+`tools/make_bundle.sh` (optional with a warning, so the demo VM's update script keeps working).
