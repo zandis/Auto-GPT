@@ -41,8 +41,9 @@ TB and pregnancy criteria could never be decided from Japanese data (STD-022). T
 5. **`unit_defaults` are the lookup's units.** The shipped TW and JP mappings declare them per LOINC analyte, equal
    to the lab lookup's `ucum`, in the file itself (a `fhir_bulk` feed reads them without `extends`). mapping_check
    fails when a line contradicts the lookup.
-6. **The synthetic SS-MIX2 site writes 陽性 and 陰性**, as a Japanese laboratory does. The goldens move in form
-   (the raw text) and not in meaning (the same LOINC answers, the same funnels).
+6. **The synthetic SS-MIX2 site writes 陽性 and 陰性**, as a Japanese laboratory does. They read to the same
+   LOINC answers as POS and NEG did: `python -m tools.goldens --check --profile ci` is IDENTICAL from both lake
+   sources (23 goldens), so no golden is rewritten.
 
 ## Consequences
 
