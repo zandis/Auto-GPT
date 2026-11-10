@@ -1,0 +1,12 @@
+{
+ "schema": "tb-release-images/0-provisional",
+ "provisional": "T-110 owns release.json; until it lands this file is the smallest interface the platform manifests and `trialbox doctor --platform` read (D-211): one entry per image, the repository and its digest. A digest of null means the image is not released yet (built from this checkout): the manifests then carry the tag only and doctor --platform fails in VALIDATION and PRODUCTION.",
+ "release_id": "unreleased",
+ "images": {
+  "trialbox-py": {"image": "trialbox-py:1.0.0", "digest": null},
+  "trialbox-jvm": {"image": "trialbox-jvm:1.0.0", "digest": null},
+  "postgres": {"image": "postgres:16-alpine", "digest": "sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea"},
+  "hapi": {"image": "hapiproject/hapi:v8.12.0-2", "digest": "sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e"},
+  "vllm": {"image": "vllm/vllm-openai:v0.32.0", "digest": null}
+ }
+}

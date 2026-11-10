@@ -1,0 +1,472 @@
+# The TrialBox services (the appliance's compose services, the same images and commands; D-211). Each service
+# runs as uid 10001 with its own token (Secret trialbox-token-<service>, key `token`) and reads the token registry
+# (ConfigMap trialbox-service-tokens: hashes, not secret), as docker-compose.secrets.yml gives them on the appliance.
+# Database passwords, mail passwords and the cloud key reach only the services that use them. Requests are scheduling
+# floors, not measurements; their sum is the quota minimum doctor --platform checks.
+---
+apiVersion: v1
+kind: Service
+metadata: {name: lake, labels: {app.kubernetes.io/component: lake}}
+spec:
+  selector: {app.kubernetes.io/component: lake}
+  ports: [{name: http, port: 8013, targetPort: 8013}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: lake, labels: {app.kubernetes.io/component: lake, trialbox.io/tier: app}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/component: lake}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: lake, trialbox.io/tier: app}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: lake
+          image: trialbox-py
+          command: ["uvicorn", "lake.app:app", "--host", "0.0.0.0", "--port", "8013", "--workers", "2"]
+          envFrom: [{configMapRef: {name: trialbox-env}}]
+          env:
+            - {name: PORT, value: "8013"}
+            - {name: TB_SERVICE_NAME, value: lake}
+            - {name: TB_LAKE_DIR, value: "/data/lake"}
+            - {name: TB_LAKE_EMBEDDER, value: "http"}
+            - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+          ports: [{containerPort: 8013}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8013}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 10}
+          resources: {requests: {cpu: 250m, memory: 1Gi}, limits: {memory: 8Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+            - {name: token, mountPath: /run/secrets/tb_service_token, subPath: token, readOnly: true}
+            - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: lake-data, mountPath: /data/lake}
+      volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
+        - {name: token, secret: {secretName: trialbox-token-lake, defaultMode: 0440}}
+        - {name: token-registry, configMap: {name: trialbox-service-tokens}}
+        - {name: tmp, emptyDir: {}}
+        - {name: lake-data, persistentVolumeClaim: {claimName: lake-data}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: embed-service, labels: {app.kubernetes.io/component: embed-service}}
+spec:
+  selector: {app.kubernetes.io/component: embed-service}
+  ports: [{name: http, port: 8014, targetPort: 8014}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: embed-service, labels: {app.kubernetes.io/component: embed-service, trialbox.io/tier: app}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/component: embed-service}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: embed-service, trialbox.io/tier: app}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: embed-service
+          image: trialbox-py
+          command: ["uvicorn", "embed_service.app:app", "--host", "0.0.0.0", "--port", "8014"]
+          envFrom: [{configMapRef: {name: trialbox-env}}]
+          env:
+            - {name: PORT, value: "8014"}
+            - {name: TB_SERVICE_NAME, value: embed-service}
+            - {name: TB_EMBED_MODEL_PATH, value: "/models/bge-m3"}
+          ports: [{containerPort: 8014}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8014}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 10}
+          resources: {requests: {cpu: 250m, memory: 1Gi}, limits: {memory: 4Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+            - {name: token, mountPath: /run/secrets/tb_service_token, subPath: token, readOnly: true}
+            - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: models-data, mountPath: /models, readOnly: true}
+      volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
+        - {name: token, secret: {secretName: trialbox-token-embed-service, defaultMode: 0440}}
+        - {name: token-registry, configMap: {name: trialbox-service-tokens}}
+        - {name: tmp, emptyDir: {}}
+        - {name: models-data, persistentVolumeClaim: {claimName: models-data}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: doc-parser, labels: {app.kubernetes.io/component: doc-parser}}
+spec:
+  selector: {app.kubernetes.io/component: doc-parser}
+  ports: [{name: http, port: 8011, targetPort: 8011}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: doc-parser, labels: {app.kubernetes.io/component: doc-parser, trialbox.io/tier: app}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/component: doc-parser}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: doc-parser, trialbox.io/tier: app}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: doc-parser
+          image: trialbox-py
+          command: ["uvicorn", "doc_parser.app:app", "--host", "0.0.0.0", "--port", "8011"]
+          envFrom: [{configMapRef: {name: trialbox-env}}]
+          env:
+            - {name: PORT, value: "8011"}
+            - {name: TB_SERVICE_NAME, value: doc-parser}
+          ports: [{containerPort: 8011}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8011}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 10}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 2Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+            - {name: token, mountPath: /run/secrets/tb_service_token, subPath: token, readOnly: true}
+            - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: objects-data, mountPath: /data/objects}
+      volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
+        - {name: token, secret: {secretName: trialbox-token-doc-parser, defaultMode: 0440}}
+        - {name: token-registry, configMap: {name: trialbox-service-tokens}}
+        - {name: tmp, emptyDir: {}}
+        - {name: objects-data, persistentVolumeClaim: {claimName: objects-data}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: criteria-compiler, labels: {app.kubernetes.io/component: criteria-compiler}}
+spec:
+  selector: {app.kubernetes.io/component: criteria-compiler}
+  ports: [{name: http, port: 8012, targetPort: 8012}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: criteria-compiler, labels: {app.kubernetes.io/component: criteria-compiler, trialbox.io/tier: app}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/component: criteria-compiler}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: criteria-compiler, trialbox.io/tier: app}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: criteria-compiler
+          image: trialbox-jvm
+          command: ["uvicorn", "criteria_compiler.app:app", "--host", "0.0.0.0", "--port", "8012"]
+          envFrom: [{configMapRef: {name: trialbox-env}}]
+          env:
+            - {name: PORT, value: "8012"}
+            - {name: TB_SERVICE_NAME, value: criteria-compiler}
+            - {name: TB_RULESETS_DIR, value: "/data/rulesets"}
+            - {name: TB_AUDIT_DIR, value: "/data/audit"}
+            - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+          ports: [{containerPort: 8012}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8012}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 10}
+          resources: {requests: {cpu: 200m, memory: 512Mi}, limits: {memory: 3Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+            - {name: token, mountPath: /run/secrets/tb_service_token, subPath: token, readOnly: true}
+            - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: rulesets-data, mountPath: /data/rulesets}
+            - {name: audit-data, mountPath: /data/audit}
+            - {name: objects-data, mountPath: /data/objects}
+      volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
+        - {name: token, secret: {secretName: trialbox-token-criteria-compiler, defaultMode: 0440}}
+        - {name: token-registry, configMap: {name: trialbox-service-tokens}}
+        - {name: tmp, emptyDir: {}}
+        - {name: rulesets-data, persistentVolumeClaim: {claimName: rulesets-data}}
+        - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
+        - {name: objects-data, persistentVolumeClaim: {claimName: objects-data}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: adapter, labels: {app.kubernetes.io/component: adapter}}
+spec:
+  selector: {app.kubernetes.io/component: adapter}
+  ports: [{name: http, port: 8016, targetPort: 8016}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: adapter, labels: {app.kubernetes.io/component: adapter, trialbox.io/tier: app}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/component: adapter}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: adapter, trialbox.io/tier: app}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: adapter
+          image: trialbox-jvm
+          command: ["uvicorn", "adapter.app:app", "--host", "0.0.0.0", "--port", "8016"]
+          envFrom: [{configMapRef: {name: trialbox-env}}]
+          env:
+            - {name: PORT, value: "8016"}
+            - {name: TB_SERVICE_NAME, value: adapter}
+            - {name: TB_LAKE_DIR, value: "/data/lake"}
+            - {name: TB_ADAPTER_LAKE, value: "http"}
+            - {name: TB_AUDIT_DIR, value: "/data/audit"}
+            - {name: TB_SECRETS_DIR, value: "/run/secrets/trialbox"}
+            - {name: TB_VALIDATOR_XMX, value: "3g"}
+            - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+          ports: [{containerPort: 8016}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8016}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 10}
+          resources: {requests: {cpu: 200m, memory: 1Gi}, limits: {memory: 6Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+            - {name: token, mountPath: /run/secrets/tb_service_token, subPath: token, readOnly: true}
+            - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: source-data, mountPath: /data/source/site-a, readOnly: true}
+            - {name: lake-data, mountPath: /data/lake}
+            - {name: audit-data, mountPath: /data/audit}
+            - {name: tb-secrets, mountPath: /run/secrets/trialbox}
+      volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
+        - {name: token, secret: {secretName: trialbox-token-adapter, defaultMode: 0440}}
+        - {name: token-registry, configMap: {name: trialbox-service-tokens}}
+        - {name: tmp, emptyDir: {}}
+        - {name: source-data, persistentVolumeClaim: {claimName: source-data}}
+        - {name: lake-data, persistentVolumeClaim: {claimName: lake-data}}
+        - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
+        - {name: tb-secrets, persistentVolumeClaim: {claimName: tb-secrets}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: orchestrator, labels: {app.kubernetes.io/component: orchestrator}}
+spec:
+  selector: {app.kubernetes.io/component: orchestrator}
+  ports: [{name: http, port: 8010, targetPort: 8010}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: orchestrator, labels: {app.kubernetes.io/component: orchestrator, trialbox.io/tier: app}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/component: orchestrator}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: orchestrator, trialbox.io/tier: app}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: orchestrator
+          image: trialbox-jvm
+          command: ["uvicorn", "orchestrator.app:app", "--host", "0.0.0.0", "--port", "8010"]
+          envFrom: [{configMapRef: {name: trialbox-env}}]
+          env:
+            - {name: PORT, value: "8010"}
+            - {name: TB_SERVICE_NAME, value: orchestrator}
+            - {name: TB_AUDIT_DIR, value: "/data/audit"}
+            - {name: TB_RULESETS_DIR, value: "/data/rulesets"}
+            - {name: TB_ORCH_DIR, value: "/data/orchestrator"}
+            - {name: TB_SECRETS_DIR, value: "/run/secrets/trialbox"}
+            - {name: TB_ACTOR_KEYS_FILE, value: "/etc/trialbox/actor/keys"}
+            - {name: TB_SELFTEST, value: "on"}
+            - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+          ports: [{containerPort: 8010}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8010}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 10}
+          resources: {requests: {cpu: 200m, memory: 1Gi}, limits: {memory: 4Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+            - {name: token, mountPath: /run/secrets/tb_service_token, subPath: token, readOnly: true}
+            - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: orch-data, mountPath: /data/orchestrator}
+            - {name: audit-data, mountPath: /data/audit}
+            - {name: rulesets-data, mountPath: /data/rulesets, readOnly: true}
+            - {name: objects-data, mountPath: /data/objects}
+            - {name: tb-secrets, mountPath: /run/secrets/trialbox}
+            - {name: actor, mountPath: /etc/trialbox/actor, readOnly: true}
+      volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
+        - {name: token, secret: {secretName: trialbox-token-orchestrator, defaultMode: 0440}}
+        - {name: token-registry, configMap: {name: trialbox-service-tokens}}
+        - {name: tmp, emptyDir: {}}
+        - {name: orch-data, persistentVolumeClaim: {claimName: orch-data}}
+        - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
+        - {name: rulesets-data, persistentVolumeClaim: {claimName: rulesets-data}}
+        - {name: objects-data, persistentVolumeClaim: {claimName: objects-data}}
+        - {name: tb-secrets, persistentVolumeClaim: {claimName: tb-secrets}}
+        - {name: actor, secret: {secretName: trialbox-actor, defaultMode: 0440}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: mail-gateway, labels: {app.kubernetes.io/component: mail-gateway}}
+spec:
+  selector: {app.kubernetes.io/component: mail-gateway}
+  ports: [{name: http, port: 8015, targetPort: 8015}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mail-gateway, labels: {app.kubernetes.io/component: mail-gateway, trialbox.io/tier: app}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/component: mail-gateway}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: mail-gateway, trialbox.io/tier: app}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: mail-gateway
+          image: trialbox-py
+          command: ["uvicorn", "mail_gateway.app:app", "--host", "0.0.0.0", "--port", "8015"]
+          envFrom: [{configMapRef: {name: trialbox-env}}]
+          env:
+            - {name: PORT, value: "8015"}
+            - {name: TB_SERVICE_NAME, value: mail-gateway}
+            - {name: TB_AUDIT_DIR, value: "/data/audit"}
+            - {name: TB_MAIL_DIR, value: "/data/mail"}
+            - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+            - {name: IMAP_USER, valueFrom: {secretKeyRef: {name: trialbox-mail, key: IMAP_USER, optional: true}}}
+            - {name: IMAP_PASS, valueFrom: {secretKeyRef: {name: trialbox-mail, key: IMAP_PASS, optional: true}}}
+            - {name: SMTP_USER, valueFrom: {secretKeyRef: {name: trialbox-mail, key: SMTP_USER, optional: true}}}
+            - {name: SMTP_PASS, valueFrom: {secretKeyRef: {name: trialbox-mail, key: SMTP_PASS, optional: true}}}
+          ports: [{containerPort: 8015}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8015}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 10}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 1Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+            - {name: token, mountPath: /run/secrets/tb_service_token, subPath: token, readOnly: true}
+            - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: audit-data, mountPath: /data/audit}
+            - {name: mail-data, mountPath: /data/mail}
+            - {name: objects-data, mountPath: /data/objects}
+      volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
+        - {name: token, secret: {secretName: trialbox-token-mail-gateway, defaultMode: 0440}}
+        - {name: token-registry, configMap: {name: trialbox-service-tokens}}
+        - {name: tmp, emptyDir: {}}
+        - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
+        - {name: mail-data, persistentVolumeClaim: {claimName: mail-data}}
+        - {name: objects-data, persistentVolumeClaim: {claimName: objects-data}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: gateway, labels: {app.kubernetes.io/component: gateway}}
+spec:
+  selector: {app.kubernetes.io/component: gateway}
+  ports: [{name: http, port: 8020, targetPort: 8020}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: gateway, labels: {app.kubernetes.io/component: gateway, trialbox.io/tier: app}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/component: gateway}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: gateway, trialbox.io/tier: app}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: gateway
+          image: trialbox-py
+          command: ["uvicorn", "--factory", "gateway.app:create_app", "--host", "0.0.0.0", "--port", "8020"]
+          envFrom: [{configMapRef: {name: trialbox-env}}]
+          env:
+            - {name: PORT, value: "8020"}
+            - {name: TB_SERVICE_NAME, value: gateway}
+            - {name: TB_AUDIT_DIR, value: "/data/audit"}
+            - {name: TB_TRACESTORE, value: "on"}
+            - {name: TB_REGISTRY_OVERRIDE, value: "/etc/trialbox/site/registry.site.yaml"}
+            - {name: TB_GATEWAY_INTERACTIVE_TIMEOUT_S, value: "30"}
+            - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+            - {name: CLOUD_LLM_API_KEY, valueFrom: {secretKeyRef: {name: trialbox-cloud, key: CLOUD_LLM_API_KEY, optional: true}}}
+          ports: [{containerPort: 8020}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8020}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 10}
+          resources: {requests: {cpu: 100m, memory: 512Mi}, limits: {memory: 2Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+            - {name: token, mountPath: /run/secrets/tb_service_token, subPath: token, readOnly: true}
+            - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: audit-data, mountPath: /data/audit}
+            - {name: traces-data, mountPath: /data/traces}
+            - {name: site, mountPath: /etc/trialbox/site, readOnly: true}
+      volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
+        - {name: token, secret: {secretName: trialbox-token-gateway, defaultMode: 0440}}
+        - {name: token-registry, configMap: {name: trialbox-service-tokens}}
+        - {name: tmp, emptyDir: {}}
+        - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
+        - {name: traces-data, persistentVolumeClaim: {claimName: traces-data}}
+        - {name: site, configMap: {name: trialbox-site, optional: true}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: console, labels: {app.kubernetes.io/component: console}}
+spec:
+  selector: {app.kubernetes.io/component: console}
+  ports: [{name: http, port: 8090, targetPort: 8090}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: console, labels: {app.kubernetes.io/component: console, trialbox.io/tier: app}}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app.kubernetes.io/component: console}}
+  template:
+    metadata: {labels: {app.kubernetes.io/component: console, trialbox.io/tier: app}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: console
+          image: trialbox-py
+          command: ["uvicorn", "--factory", "console.app:create_app", "--host", "0.0.0.0", "--port", "8090", "--proxy-headers", "--forwarded-allow-ips", "*"]
+          envFrom: [{configMapRef: {name: trialbox-env}}]
+          env:
+            - {name: PORT, value: "8090"}
+            - {name: TB_SERVICE_NAME, value: console}
+            - {name: TB_CONSOLE_DIR, value: "/data/console"}
+            - {name: TB_AUDIT_DIR, value: "/data/audit"}
+            - {name: TB_RULESETS_DIR, value: "/data/rulesets"}
+            - {name: TB_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_DB_URL}}}
+          ports: [{containerPort: 8090}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8090}, periodSeconds: 15, timeoutSeconds: 5, failureThreshold: 10}
+          resources: {requests: {cpu: 100m, memory: 512Mi}, limits: {memory: 2Gi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+          volumeMounts:
+            - {name: settings, mountPath: /etc/trialbox/settings.yaml, subPath: settings.yaml, readOnly: true}
+            - {name: token, mountPath: /run/secrets/tb_service_token, subPath: token, readOnly: true}
+            - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: console-data, mountPath: /data/console}
+            - {name: audit-data, mountPath: /data/audit}
+            - {name: rulesets-data, mountPath: /data/rulesets, readOnly: true}
+            - {name: objects-data, mountPath: /data/objects}
+      volumes:
+        - {name: settings, configMap: {name: trialbox-settings}}
+        - {name: token, secret: {secretName: trialbox-token-console, defaultMode: 0440}}
+        - {name: token-registry, configMap: {name: trialbox-service-tokens}}
+        - {name: tmp, emptyDir: {}}
+        - {name: console-data, persistentVolumeClaim: {claimName: console-data}}
+        - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
+        - {name: rulesets-data, persistentVolumeClaim: {claimName: rulesets-data}}
+        - {name: objects-data, persistentVolumeClaim: {claimName: objects-data}}

@@ -248,6 +248,54 @@ def render(box: Box, allows: list[Allow], resolver: object = resolve) -> tuple[s
     return "\n".join(lines) + "\n", warnings
 
 
+def render_networkpolicy(
+    allows: list[Allow], resolver: object = resolve, *, part_of: str = "trialbox"
+) -> tuple[list[dict[str, object]], list[str]]:
+    """The same allowlist as ``render`` (one source, D-211), as Kubernetes NetworkPolicy objects for a hospital
+    platform (WS-14.8): one ``trialbox-egress-<service>`` policy per service with an allowed host, selecting the pods
+    labelled ``app.kubernetes.io/component=<service>``, one rule per host with its addresses as /32 or /128
+    ``ipBlock``s and the TCP port. A NetworkPolicy cannot name a host, so each rule's host is kept in the policy's
+    ``trialbox.io/egress-hosts`` annotation (``host:port`` list, the same order as the rules); hosts are resolved
+    when this is rendered, as ``render`` resolves them when the nftables table is applied. A host that does not
+    resolve gets no rule and a warning (fail closed). The default deny, DNS and the traffic inside the namespace are
+    the static policies of ``deploy/platform/base/networkpolicy.yaml``; this adds only the allowed destinations."""
+    res = resolver if callable(resolver) else resolve
+    warnings: list[str] = []
+    per_service: dict[str, list[tuple[Allow, list[str]]]] = {}
+    for a in allows:
+        dsts = sorted(res(a.host))
+        if not dsts:
+            warnings.append(f"{a.host}: does not resolve; {a.service} rule skipped")
+            continue
+        per_service.setdefault(a.service, []).append((a, dsts))
+    out: list[dict[str, object]] = []
+    for svc in sorted(per_service):
+        rules: list[dict[str, object]] = []
+        for a, dsts in per_service[svc]:
+            blocks = [{"ipBlock": {"cidr": f"{d}/{128 if _family(d) == 'ip6' else 32}"}} for d in dsts]
+            rules.append({"to": blocks, "ports": [{"protocol": "TCP", "port": a.port}]})
+        out.append(
+            {
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "NetworkPolicy",
+                "metadata": {
+                    "name": f"trialbox-egress-{svc}",
+                    "labels": {"app.kubernetes.io/part-of": part_of, "trialbox.io/policy": "egress-allowlist"},
+                    "annotations": {
+                        "trialbox.io/egress-hosts": ",".join(f"{a.host}:{a.port}" for a, _ in per_service[svc]),
+                        "trialbox.io/egress-why": "; ".join(a.why for a, _ in per_service[svc]),
+                    },
+                },
+                "spec": {
+                    "podSelector": {"matchLabels": {"app.kubernetes.io/component": svc}},
+                    "policyTypes": ["Egress"],
+                    "egress": rules,
+                },
+            }
+        )
+    return out, warnings
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("action", choices=["print", "apply", "flush", "status"])

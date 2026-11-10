@@ -2,7 +2,8 @@
 ``backup``, ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``); ``backup-nightly`` and
 ``backup-status`` (the schedule and the age alert, D-187, ``backup_schedule.py``); ``secrets`` (per-service tokens,
 D-128 / D-138, ``svc_secrets.py``), ``logs`` (retention, ``logs.py``) and ``update`` (the update path behind
-``tools/apply_update.sh``, ``update.py``); ``exports`` lists the export ledger (D-149, ``tb_common.flowledger``).
+``tools/apply_update.sh``, ``update.py``); ``doctor --platform``, ``platform-images`` and ``platform-egress``
+for a hospital platform (D-211, ``platform.py``); ``exports`` lists the export ledger (D-149, ``tb_common.flowledger``).
 ``secrets``, ``logs`` and ``update`` need only the standard library, so they run with the host's ``python3`` from
 the install folder: ``sudo python3 -m tools.trialbox secrets rotate``."""
 
@@ -25,6 +26,20 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--routing", type=Path, default=None)
     d.add_argument("--dataplat-workdir", type=Path, default=None)
     d.add_argument("--json", action="store_true")
+    d.add_argument("--platform", action="store_true", help="the install checks on a hospital platform (D-211)")
+    d.add_argument("--no-gpu", action="store_true", help="--platform: the GPU checks report 'skipped: no device'")
+    d.add_argument("--evidence", type=Path, default=None, help="--platform: write the IQ evidence JSON here")
+    d.add_argument("--release", type=Path, default=None, help="--platform: release.json (default: the provisional one)")
+    d.add_argument("--manifests", type=Path, default=None, help="--platform: rendered manifests instead of the cluster")
+    d.add_argument(
+        "--compose-config", type=Path, default=None, help="--platform: `docker compose config --format json`"
+    )
+    pi = sub.add_parser("platform-images", help="the release-images component from release.json (D-211)")
+    pi.add_argument("--release", type=Path, default=None)
+    pi.add_argument("--check", action="store_true", help="exit 1 when the committed component differs")
+    pi.add_argument("--env", action="store_true", help="print the compose image variables (platform form)")
+    pe = sub.add_parser("platform-egress", help="the egress allowlist as NetworkPolicy YAML (deploy/egress.py, D-211)")
+    pe.add_argument("--env-file", type=Path, default=None)
     e = sub.add_parser("eval", help="run a public evaluation suite and archive the result")
     e.add_argument("suite")
     e.add_argument("--archive", type=Path, default=None)
@@ -94,12 +109,30 @@ def main(argv: list[str] | None = None) -> int:
         return bsch.main_status(a.deploy, a.json, a.quiet)
     if a.cmd in ("backup-keygen", "backup", "backup-verify", "restore"):
         return _backup_cmd(a)
+    if a.cmd in ("platform-images", "platform-egress"):
+        return _platform_cmd(a)
     if a.cmd == "doctor":
         from tools.trialbox import doctor
 
-        checks = doctor.run(
-            doctor.inputs_from(env_file=a.env_file, settings=a.settings, routing=a.routing, dataplat=a.dataplat_workdir)
+        inp = doctor.inputs_from(
+            env_file=a.env_file, settings=a.settings, routing=a.routing, dataplat=a.dataplat_workdir
         )
+        if not a.platform:
+            checks = doctor.run(inp)
+        else:
+            from tools.trialbox import platform as pf
+
+            try:
+                pinp = pf.inputs_from(a, inp.env, inp.routing_path)
+            except (pf.PlatformError, OSError, ValueError) as exc:
+                print(f"doctor --platform: {exc}", file=sys.stderr)
+                return 1
+            inp.env = pinp.env  # the base checks see what the pods see (the rendered ConfigMaps included)
+            checks = doctor.run(inp) + pf.run(pinp)
+            if a.evidence is not None:
+                a.evidence.parent.mkdir(parents=True, exist_ok=True)
+                doc = pf.evidence(checks, pinp)
+                a.evidence.write_text(json.dumps(doc, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         if a.json:
             print(json.dumps([c.__dict__ for c in checks], indent=1, ensure_ascii=False))
         else:
@@ -116,6 +149,41 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps({k: v for k, v in result.items() if k != "datasets"}, indent=1, ensure_ascii=False))
     print(f"archived: {path}")
     return 1 if result.get("passed") is False else 0
+
+
+def _platform_cmd(a: argparse.Namespace) -> int:
+    from tools.trialbox import platform as pf
+
+    if a.cmd == "platform-egress":
+        import yaml
+
+        from tools.trialbox.doctor import _egress, inputs_from
+
+        env = pf.platform_env(inputs_from(env_file=a.env_file, settings=None, routing=None, dataplat=None).env)
+        eg = _egress()
+        pols, warnings = eg.render_networkpolicy(eg.allowlist(env, eg.ROUTING))
+        for w in warnings:
+            print(f"warning: {w}", file=sys.stderr)
+        print(yaml.safe_dump_all(pols, sort_keys=False, allow_unicode=True) if pols else "# no egress allowed", end="")
+        return 0
+    rel = a.release or pf.RELEASE
+    try:
+        if a.env:
+            print("\n".join(pf.compose_env(pf.load_release(rel))))
+            return 0
+        if a.check:
+            same = pf.component_matches(rel)
+            print(
+                f"{pf.COMPONENT.parent}: "
+                + ("matches release.json" if same else "differs from release.json: regenerate")
+            )
+            return 0 if same else 1
+        for f in pf.write_component(rel):
+            print(f"wrote {f}")
+    except pf.PlatformError as exc:
+        print(f"platform-images: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _exports_cmd(a: argparse.Namespace) -> int:

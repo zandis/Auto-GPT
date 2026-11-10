@@ -1,0 +1,102 @@
+# The appliance's network rules as NetworkPolicies the platform enforces (IT pack §A.3, WS-13.9; D-211). The
+# platform's CNI must enforce NetworkPolicy (doctor --platform checks these objects exist; the isolation probe of
+# tests/platform shows they hold). What leaves the namespace is rendered from deploy/egress.py's allowlist, the
+# same source as the appliance's nftables table: `python -m tools.trialbox platform-egress --env-file <site.env>`
+# (one trialbox-egress-<service> policy per service with a host; a site overlay adds the output).
+#
+# 1. default deny: no pod receives or sends anything not allowed below
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-default-deny}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# 2. the services and the stores talk to each other inside the namespace (the appliance's trialbox-net); the model
+#    servers are not part of it
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-intra-namespace}
+spec:
+  podSelector:
+    matchExpressions: [{key: trialbox.io/tier, operator: In, values: [app, data]}]
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions: [{key: trialbox.io/tier, operator: In, values: [app, data]}]
+  egress:
+    - to:
+        - podSelector:
+            matchExpressions: [{key: trialbox.io/tier, operator: In, values: [app, data]}]
+---
+# 3. name resolution through the cluster DNS only
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-dns}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+          podSelector: {matchLabels: {k8s-app: kube-dns}}
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+---
+# 4. only tb-gateway reaches a model server (spec v4 NFR-B9; the appliance's model-net)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-model-isolation}
+spec:
+  podSelector: {matchLabels: {trialbox.io/tier: model}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app.kubernetes.io/component: gateway}}
+      ports: [{protocol: TCP, port: 8000}]
+  egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-gateway-to-models}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: gateway}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {trialbox.io/tier: model}}
+      ports: [{protocol: TCP, port: 8000}]
+---
+# 5. the console from the hospital's TLS proxy or ingress controller only: its namespace carries the label
+#    trialbox.io/console-ingress=true (the platform team sets it; RUNBOOK §14). Nothing else enters.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-console-ingress}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: console}}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {trialbox.io/console-ingress: "true"}}
+      ports: [{protocol: TCP, port: 8090}]
+---
+# 6. the install-check job: the API server (read-only service account), NTP, the directory, the mail relay and
+#    the backup share, to probe what IQ must show. It mounts no patient data.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: trialbox-doctor-egress}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/component: doctor}}
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 6443}
+        - {protocol: UDP, port: 123}
+        - {protocol: TCP, port: 25}
+        - {protocol: TCP, port: 465}
+        - {protocol: TCP, port: 587}
+        - {protocol: TCP, port: 389}
+        - {protocol: TCP, port: 636}
+        - {protocol: TCP, port: 445}
+        - {protocol: TCP, port: 2049}

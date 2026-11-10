@@ -39,7 +39,7 @@ from typing import Any, Literal
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-Status = Literal["PASS", "WARN", "FAIL"]
+Status = Literal["PASS", "WARN", "FAIL", "SKIP"]  # SKIP: doctor --platform --no-gpu (D-211)
 
 
 @dataclass(frozen=True)
