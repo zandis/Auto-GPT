@@ -166,7 +166,14 @@ CREATE TABLE excluded_review (
   PRIMARY KEY (ruleset, pid, job_id)
 )
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2)
+# D-178 (review J-14): a contact outcome can be undone; the row stays (the trail), marked undone, with the registry
+# status it replaced so the undo can put it back
+SCHEMA_V3 = """
+ALTER TABLE contact_outcomes ADD COLUMN prev_status TEXT;
+ALTER TABLE contact_outcomes ADD COLUMN undone_by TEXT;
+ALTER TABLE contact_outcomes ADD COLUMN undone_at TEXT
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
 
 
 @dataclass
@@ -388,16 +395,40 @@ class SiteStore:
         return no
 
     # ------------------------------------------------------------------ contact outcomes (FR-SCR-10c)
-    def add_outcome(self, ruleset: str, o: Outcome) -> None:
+    def add_outcome(self, ruleset: str, o: Outcome, prev_status: str | None = None) -> None:
         if o.outcome not in OUTCOMES:
             raise ValueError(f"outcome must be one of {', '.join(OUTCOMES)}")
         self.db.execute(
-            "INSERT INTO contact_outcomes (ruleset, pid, outcome, retry, note, by, at) VALUES (?,?,?,?,?,?,?)",
-            (ruleset, o.pid, o.outcome, o.retry, o.note, o.by, o.at),
+            "INSERT INTO contact_outcomes (ruleset, pid, outcome, retry, note, by, at, prev_status) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (ruleset, o.pid, o.outcome, o.retry, o.note, o.by, o.at, prev_status),
+        )
+
+    def undo_outcome(self, ruleset: str, pid: str, by: str, at: str) -> tuple[Outcome, str | None] | None:
+        """D-178 (review J-14): mark ``by``'s latest contact outcome of ``pid`` undone, if it is the patient's latest
+        one. Returns that outcome and the registry status it replaced, or None (nothing of this person's to undo)."""
+        with self.db.transaction() as tx:
+            row = tx.fetchone(
+                "SELECT id, pid, outcome, retry, note, by, at, prev_status FROM contact_outcomes WHERE ruleset = ? "
+                "AND pid = ? AND undone_at IS NULL ORDER BY at DESC, id DESC LIMIT 1 FOR UPDATE",
+                (ruleset, pid),
+            )
+            if row is None or row[5] != by:
+                return None
+            tx.execute("UPDATE contact_outcomes SET undone_by = ?, undone_at = ? WHERE id = ?", (by, at, row[0]))
+        return Outcome(*row[1:7]), (str(row[7]) if row[7] is not None else None)
+
+    def restore_outcome(self, ruleset: str, o: Outcome, undone_at: str) -> None:
+        """Put back an outcome :meth:`undo_outcome` marked undone at ``undone_at`` (the registry refused the undo)."""
+        self.db.execute(
+            "UPDATE contact_outcomes SET undone_by = NULL, undone_at = NULL WHERE ruleset = ? AND pid = ? AND by = ? "
+            "AND at = ? AND undone_at = ?",
+            (ruleset, o.pid, o.by, o.at, undone_at),
         )
 
     def outcomes(self, ruleset: str, pid: str | None = None) -> list[Outcome]:
-        q = "SELECT pid, outcome, retry, note, by, at FROM contact_outcomes WHERE ruleset = ?"
+        """The contact outcomes in force (an undone one is left out; it stays in the table and the audit)."""
+        q = "SELECT pid, outcome, retry, note, by, at FROM contact_outcomes WHERE ruleset = ? AND undone_at IS NULL"
         args: tuple[str, ...] = (ruleset,)
         if pid is not None:
             q, args = q + " AND pid = ?", (ruleset, pid)

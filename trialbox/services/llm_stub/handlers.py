@@ -14,6 +14,8 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from tb_common import dates
+
 CASSETTES = Path(__file__).resolve().parent / "cassettes"
 _DATE_ZH = re.compile(r"(\d{4})年(\d{1,2})月(\d{1,2})日")
 
@@ -415,11 +417,7 @@ _STUB_DRUG = (
     (r"コルヒチン|colchicine|秋水仙素", "M04AC01"),
 )
 _NEG = re.compile(r"なし|否定|無し|否認|未見|no (?:history|evidence)|denies|ruled out|家族歴|家族史|family history")
-_DATE_ANY = re.compile(
-    r"(?:(?:令和|平成|昭和|R|H|S)\s?\d{1,2}[./年]\s?\d{1,2}[./月]\s?\d{1,2}日?)"
-    r"|(?:民國\s?\d{2,3}[./年]\s?\d{1,2}[./月]\s?\d{1,2}日?)"
-    r"|(?:(?:19|20)\d{2}[-/.年]\s?\d{1,2}[-/.月]\s?\d{1,2}日?)"
-)
+_DATE_ANY = dates.CHART_SPAN  # 和暦, 民國 or Gregorian (D-215)
 
 
 def chart_facts(inp: dict[str, Any]) -> dict[str, Any]:

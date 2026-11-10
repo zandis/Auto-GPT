@@ -28,6 +28,11 @@ ALLOWED: dict[str, str] = {
     "tests/unit/test_gateway.py": "drives the stub app in-process as the gateway's upstream (no network)",
     "tests/unit/test_pin_model.py": "drives the stub app in-process as the gateway's upstream (no network)",
     "tests/unit/test_no_direct_model_calls.py": "holds the patterns of this check",
+    "tools/vllm_standin.py": "D-177: the box rehearsal's stand-in for a vLLM server: serves the model API, calls none",
+    "tests/unit/test_vllm_standin.py": "drives the vLLM stand-in on a local port (no model, no network)",
+    "services/model_guard/__init__.py": "D-177: the key and path allowlist in front of vLLM: forwards the gateway's calls",
+    "tests/unit/test_model_guard.py": "drives model-guard against a local recording upstream (no model, no network)",
+    "tests/unit/test_doctor_serving.py": "the doctor's serving check against local vLLM stand-ins (no network)",
     "deploy/gcp/gpu-fit-test.sh": "runs on the GPU VM: a one-line smoke prompt (no patient data) to its own servers",
     "tests/unit/test_model_swap.py": "fake vLLM servers behind an httpx.MockTransport (no network)",
     "tools/phi_synth_eval.py": "survey 2026-11-07 PHI check on fictional D0 notes (Z-DEV, OpenRouter); not shipped",
@@ -37,6 +42,8 @@ ALLOWED: dict[str, str] = {
     "tests/unit/test_gpu_prep.py": "drives bench_profile against an in-process stub (no network)",
     "tests/unit/test_served_names.py": "a fake vLLM behind an httpx.MockTransport, strict about the served name "
     "(no network)",
+    "tests/unit/test_gateway_box_phi.py": "an in-process strict vLLM stand-in (served name only) behind the installed "
+    "box's gateway, answering from the stub (no network)",
     "deploy/gcp/complete-run-vm.sh": "D-150 runs on the GPU VM: one smoke prompt (no patient data) to each of its own "
     "servers before READY, to prove the served names and the key",
     "tests/rehearsal/": "D-150 the rehearsal's vLLM stand-in serves the API (the repository stub behind it); "

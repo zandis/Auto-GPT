@@ -42,7 +42,9 @@ trap 'rm -rf "$STAGE"' EXIT INT TERM
 BUNDLE_ABS=$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")
 PUB_ABS=$(cd "$(dirname "$PUBKEY")" && pwd)/$(basename "$PUBKEY")
 
-if [ -z "${TB_VERIFY_IN_DOCKER:-}" ] && PYTHONPATH="$ROOT/libs" python3 -c "import cryptography, tb_contracts" 2>/dev/null; then
+# host python3 with cryptography (a clean site host has it from the media's debs; tools/verify_update.py checks the
+# manifest schema without jsonschema there): on a first install the trialbox-py image is still inside the bundle
+if [ -z "${TB_VERIFY_IN_DOCKER:-}" ] && python3 -c "import cryptography" 2>/dev/null; then
   SUMMARY=$(PYTHONPATH="$ROOT/libs" python3 "$ROOT/tools/verify_update.py" "$BUNDLE_ABS" --pubkey "$PUB_ABS" --stage "$STAGE") \
     || { echo "update REJECTED: $BUNDLE" >&2; exit 1; }
 else

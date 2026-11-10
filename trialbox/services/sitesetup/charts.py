@@ -19,6 +19,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from tb_common import encoding
 from tb_common.quotes import quote_in
 
 from sitesetup import messy
@@ -63,12 +64,10 @@ def clean(text: str) -> str:
 
 
 def _decode(data: bytes) -> str:
-    for enc in ("utf-8-sig", "cp932", "big5"):
-        try:
-            return data.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    raise ChartError("CHART-TEXT", "the file is not UTF-8, Shift_JIS or Big5 text")
+    try:  # D-215: one detector for UTF-8, Shift_JIS and Big5; a file it cannot tell is refused, never guessed
+        return encoding.decode(data)[0]
+    except encoding.EncodingRefused as exc:
+        raise ChartError("CHART-TEXT", str(exc)) from exc
 
 
 def _docx(data: bytes) -> str:

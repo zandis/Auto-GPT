@@ -8,7 +8,7 @@
 # Endpoint zones: perimeter (on box or the attested tenant), tre (Z-TRE), external (vendor model, topology C),
 # dev_public (developer / bake-off endpoints, Z-DEV). Only tb-gateway reads endpoint addresses (LLM-1);
 # deploy/egress.py turns the non-perimeter hosts into egress rules for the gateway container only (NFR-B9).
-version: routing-2026-11-09.1
+version: routing-2026-11-10.1
 
 # MOD-4 sampling the gateway forces on every role except free-form ones (frontdesk_converse)
 sampling: {temperature: 0, top_p: 1, seed: 20261025}
@@ -29,6 +29,7 @@ endpoints:
     zone: perimeter
     url_env: TB_EP_SERVING_URL
     default_url: http://llm-service:8000/v1
+    api_key_env: TB_LLM_API_KEY   # D-177: vLLM's --api-key (VLLM_API_KEY in compose), made by install.sh
     cost: {gpu_second_usd: 0.0001} # (est.) amortised P-GB10 hardware + power per productive GPU-second, §8.11
   verifier:
     # the V build's own serving process (P-GB10: a second vLLM next to the J build, deploy/docker-compose.gb10.yml);
@@ -36,6 +37,7 @@ endpoints:
     zone: perimeter
     url_env: TB_EP_VERIFIER_URL
     default_url: http://llm-verifier:8000/v1
+    api_key_env: TB_LLM_API_KEY
     cost: {gpu_second_usd: 0.0001} # (est.) as serving
   embed:
     zone: perimeter
@@ -69,8 +71,9 @@ endpoints:
       training_use: none
     cost: {usd_per_1k_in: 0.0, usd_per_1k_out: 0.0}
 
+# data_entry: EDC prefill (D-160) reads one subject's notes for one eCRF item (crf_prefill, role abstract_field)
 purposes: [feasibility, validation, evaluation, qa, "prescreen:*", screening, protocol_ingest, intake, documents, ops,
-  development]
+  development, data_entry]
 
 # Role table (§8.15). cacheable: the gateway response cache may serve it (D0/D1 only, §8.12).
 roles:
@@ -109,7 +112,7 @@ callers:
     roles: [judge, second_opinion, registry_match_patient, match_keywords, abstract_field, draft_query_answer,
       s2b_screen, embed, rerank, draft_narrative, summarise_aggregate, draft_document, summarise_external,
       "shadow:*"]
-    purposes: [screening, feasibility, "prescreen:*", qa, validation, documents]
+    purposes: [screening, feasibility, "prescreen:*", qa, validation, documents, data_entry]
   criteria-compiler:
     roles: [match_criterion_library, extract_criteria, concept_select, answer_protocol, propose_mapping,
       map_questionnaire]

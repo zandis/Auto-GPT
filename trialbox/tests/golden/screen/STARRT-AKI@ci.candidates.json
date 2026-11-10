@@ -1,0 +1,366 @@
+{
+ "meta": {
+  "generator": "tools.synth_hospital profile ci + tools.public_site en",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
+  "lake_schema_version": 2,
+  "profile": "ci",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
+  "ref_date": "2026-11-01",
+  "ruleset": "STARRT-AKI",
+  "ruleset_version": "1.0.0",
+  "seed": 42,
+  "written_with_source": "legacy"
+ },
+ "sets": {
+  "public-en": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "bb85d3518ae85fb2a6e253f3cd0a1c64c35240085295623bd8e5b9899e53a493",
+   "patients": 53,
+   "structured_criteria": [
+    "STARRT-AKI-INC-01",
+    "STARRT-AKI-INC-02",
+    "STARRT-AKI-INC-03",
+    "STARRT-AKI-INC-04",
+    "STARRT-AKI-EXC-01",
+    "STARRT-AKI-EXC-02",
+    "STARRT-AKI-EXC-05",
+    "STARRT-AKI-EXC-06",
+    "STARRT-AKI-EXC-07",
+    "STARRT-AKI-EXC-08"
+   ],
+   "verdicts": {
+    "STARRT-AKI-EXC-01": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "STARRT-AKI-EXC-02": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    },
+    "STARRT-AKI-EXC-05": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-06": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-07": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-08": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-01": {
+     "met": 43,
+     "not_met": 9,
+     "unknown": 1
+    },
+    "STARRT-AKI-INC-02": {
+     "met": 0,
+     "not_met": 53,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-03": {
+     "met": 0,
+     "not_met": 3,
+     "unknown": 50
+    },
+    "STARRT-AKI-INC-04": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 53
+    }
+   }
+  },
+  "ssmix2-jp": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "5506ceefab756e59f2553c13336975374808184277b4038eb33cde6e2a4fa50f",
+   "patients": 400,
+   "structured_criteria": [
+    "STARRT-AKI-INC-01",
+    "STARRT-AKI-INC-02",
+    "STARRT-AKI-INC-03",
+    "STARRT-AKI-INC-04",
+    "STARRT-AKI-EXC-01",
+    "STARRT-AKI-EXC-02",
+    "STARRT-AKI-EXC-05",
+    "STARRT-AKI-EXC-06",
+    "STARRT-AKI-EXC-07",
+    "STARRT-AKI-EXC-08"
+   ],
+   "verdicts": {
+    "STARRT-AKI-EXC-01": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 400
+    },
+    "STARRT-AKI-EXC-02": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 400
+    },
+    "STARRT-AKI-EXC-05": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-06": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-07": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-08": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-01": {
+     "met": 381,
+     "not_met": 19,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-02": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-03": {
+     "met": 8,
+     "not_met": 9,
+     "unknown": 383
+    },
+    "STARRT-AKI-INC-04": {
+     "met": 1,
+     "not_met": 16,
+     "unknown": 383
+    }
+   }
+  },
+  "synthetic-jp-a": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "7ec935ce6adcc38b84876e9d9e334d0c1c5a0ddddead5271e4b776df4841965e",
+   "patients": 2500,
+   "structured_criteria": [
+    "STARRT-AKI-INC-01",
+    "STARRT-AKI-INC-02",
+    "STARRT-AKI-INC-03",
+    "STARRT-AKI-INC-04",
+    "STARRT-AKI-EXC-01",
+    "STARRT-AKI-EXC-02",
+    "STARRT-AKI-EXC-05",
+    "STARRT-AKI-EXC-06",
+    "STARRT-AKI-EXC-07",
+    "STARRT-AKI-EXC-08"
+   ],
+   "verdicts": {
+    "STARRT-AKI-EXC-01": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 2500
+    },
+    "STARRT-AKI-EXC-02": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 2500
+    },
+    "STARRT-AKI-EXC-05": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-06": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-07": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-08": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-01": {
+     "met": 2398,
+     "not_met": 78,
+     "unknown": 24
+    },
+    "STARRT-AKI-INC-02": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-03": {
+     "met": 29,
+     "not_met": 63,
+     "unknown": 2408
+    },
+    "STARRT-AKI-INC-04": {
+     "met": 7,
+     "not_met": 85,
+     "unknown": 2408
+    }
+   }
+  },
+  "synthetic-jp-a-deletes": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "1cac2e2487982d033d9daf92286cc343f30e2113fc3253368700a5e2a5345564",
+   "patients": 2500,
+   "structured_criteria": [
+    "STARRT-AKI-INC-01",
+    "STARRT-AKI-INC-02",
+    "STARRT-AKI-INC-03",
+    "STARRT-AKI-INC-04",
+    "STARRT-AKI-EXC-01",
+    "STARRT-AKI-EXC-02",
+    "STARRT-AKI-EXC-05",
+    "STARRT-AKI-EXC-06",
+    "STARRT-AKI-EXC-07",
+    "STARRT-AKI-EXC-08"
+   ],
+   "verdicts": {
+    "STARRT-AKI-EXC-01": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 2500
+    },
+    "STARRT-AKI-EXC-02": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 2500
+    },
+    "STARRT-AKI-EXC-05": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-06": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-07": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-08": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-01": {
+     "met": 2417,
+     "not_met": 79,
+     "unknown": 4
+    },
+    "STARRT-AKI-INC-02": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-03": {
+     "met": 29,
+     "not_met": 52,
+     "unknown": 2419
+    },
+    "STARRT-AKI-INC-04": {
+     "met": 6,
+     "not_met": 75,
+     "unknown": 2419
+    }
+   }
+  },
+  "synthetic-tw-a": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "9e8e42d5e3a7922540960fd3f1c5da182a81a23e6921153cb103e246a85bbbbb",
+   "patients": 2500,
+   "structured_criteria": [
+    "STARRT-AKI-INC-01",
+    "STARRT-AKI-INC-02",
+    "STARRT-AKI-INC-03",
+    "STARRT-AKI-INC-04",
+    "STARRT-AKI-EXC-01",
+    "STARRT-AKI-EXC-02",
+    "STARRT-AKI-EXC-05",
+    "STARRT-AKI-EXC-06",
+    "STARRT-AKI-EXC-07",
+    "STARRT-AKI-EXC-08"
+   ],
+   "verdicts": {
+    "STARRT-AKI-EXC-01": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 2500
+    },
+    "STARRT-AKI-EXC-02": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 2500
+    },
+    "STARRT-AKI-EXC-05": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-06": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-07": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-08": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-01": {
+     "met": 2385,
+     "not_met": 91,
+     "unknown": 24
+    },
+    "STARRT-AKI-INC-02": {
+     "met": 0,
+     "not_met": 2500,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-03": {
+     "met": 34,
+     "not_met": 63,
+     "unknown": 2403
+    },
+    "STARRT-AKI-INC-04": {
+     "met": 7,
+     "not_met": 90,
+     "unknown": 2403
+    }
+   }
+  }
+ }
+}

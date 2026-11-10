@@ -267,6 +267,28 @@ class SetupStore:
         assert out is not None
         return out
 
+    def undecide(self, fid: int) -> dict[str, Any]:
+        """D-178 (review J-14): the undo of a decision. The fact is proposed again, with the model's own values when
+        a person had corrected it; the decisions stay in the audit."""
+        cur = self.fact(fid)
+        if cur is None:
+            raise SetupError("SETUP-FACT", "no such fact")
+        if cur["status"] not in ("confirmed", "rejected"):
+            raise SetupError("SETUP-FACT", "this fact has no decision to undo")
+        restore: dict[str, Any] = {}
+        if cur["before"]:
+            old = json.loads(cur["before"])
+            restore = {k: str(v) for k, v in old.items() if k in ("term", "code", "system", "value", "unit", "day")}
+        sets = "".join(f", {k} = ?" for k in restore)
+        self._db.execute(
+            f"UPDATE fact SET status = 'proposed', decided_by = NULL, decided_at = NULL, before = NULL{sets} "
+            "WHERE id = ?",
+            (*restore.values(), fid),
+        )
+        out = self.fact(fid)
+        assert out is not None
+        return out
+
     # ------------------------------------------------------------------ local codes
     def put_local(self, ws: str, domain: str, system: str, code: str, display: str, suggestion: dict[str, str]) -> None:
         self._db.execute(
