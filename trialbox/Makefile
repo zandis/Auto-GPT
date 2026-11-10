@@ -94,6 +94,7 @@ jvm-deps:
 images: jvm-deps $(FONTS)
 	docker build $(BUILD_ARGS) $(CA_SECRET) -f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
 	docker build -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
+	docker build $(BUILD_ARGS) $(CA_SECRET) -f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1 deploy/docker
 
 # both architectures (x86_64 servers, GB10 aarch64); push to the site registry or export with --output type=oci
 PLATFORMS ?= linux/amd64,linux/arm64
@@ -103,6 +104,8 @@ images-multiarch: jvm-deps $(FONTS)
 		-t $(REGISTRY)/trialbox-py:1.0.0 --push .
 	docker buildx build --platform $(PLATFORMS) --build-arg BASE_IMAGE=$(REGISTRY)/trialbox-py:1.0.0 \
 		-f deploy/docker/jvm.Dockerfile -t $(REGISTRY)/trialbox-jvm:1.0.0 --push .
+	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) -f deploy/docker/db.Dockerfile \
+		-t $(REGISTRY)/trialbox-postgres:16-1 --push deploy/docker
 
 up: deploy/.env
 	$(COMPOSE) --profile stub up -d --wait

@@ -26,6 +26,9 @@ then be the same box.
    WAL with pgBackRest (``compress-type=zst``); a throwaway cluster with these settings archives WAL, takes a base
    backup and is recovered to a point in time between two commits (PITR), with the TOAST column in lz4. pgBackRest
    itself needs its binary in the db image and runs on the box (RUNBOOK §5), not here.
+7. The database extensions of the box's ``db`` image (``vector``, ``pgroonga``, D-204) exist after the restore with
+   the versions they had before it. On a server without them (the local throwaway cluster) that check reports so
+   and passes, unless ``--require-extensions``.
 """
 
 from __future__ import annotations
@@ -54,7 +57,7 @@ DATA_DIRS = ("box", "console", "lake", "sec")  # the work-dir folders that hold 
 DEPLOY = ROOT / "deploy"
 
 
-def run(base: Path) -> dict[str, Any]:
+def run(base: Path, require_extensions: bool = False) -> dict[str, Any]:
     from tb_common import refdata as rd
     from tb_common.audit import verify
 
@@ -86,6 +89,7 @@ def run(base: Path) -> dict[str, Any]:
         packs_before = st.status()
     refrows_before = _refdata_rows()
     omop_before = _omop(work, load=True)
+    ext_before = _extensions()
     charts_before = sorted(str(p.relative_to(work)) for p in (work / "box").rglob("sitesetup/*/inputs/*"))
 
     # 2. the nightly run, as the schedule runs it, with the in-process backup in place of the compose container
@@ -182,6 +186,8 @@ def run(base: Path) -> dict[str, Any]:
                    and _same_pack(packs_after, packs_before) and _refdata_rows() == refrows_before,
                    ", ".join(out["refdata"]["reloaded"])))  # fmt: skip
 
+    checks.append(_extensions_check(ext_before, _extensions(), require_extensions))
+
     # 5. a backup in the previous format restores
     rows_now = bk.row_counts(bk.db_sources(env)[0])
     legacy = write_legacy(base / "legacy", pub, env, dirs, "gzip", datetime.now(UTC))
@@ -201,6 +207,27 @@ def run(base: Path) -> dict[str, Any]:
     ok_pitr, detail = pitr_drill(Path(tempfile.mkdtemp(prefix="tb-pitr-")))
     checks.append(("PITR: WAL archived (zstd), base backup, recovered to a time between two commits", ok_pitr, detail))
     return {"ok": all(c[1] for c in checks), "checks": checks, "seconds": round(time.perf_counter() - t0, 1)}
+
+
+def _extensions() -> dict[str, str | None]:
+    """The ``db`` image's extensions (D-204) in the trial database: ``{name: version or None}``."""
+    from tb_common.db import Database, extensions
+
+    with Database.connect(os.environ["TB_DB_URL"], "site") as db:
+        return extensions(db)
+
+
+def _extensions_check(
+    before: dict[str, str | None], after: dict[str, str | None], require: bool
+) -> tuple[str, bool, str]:
+    """Every extension present before the backup (all of them with ``require``) is there after the restore, at the
+    same version."""
+    name = "restore: the database extensions exist, same versions (D-204)"
+    wanted = [n for n, v in before.items() if v] if not require else list(before)
+    if not wanted:
+        return (name, True, "none on this server (no db image); --require-extensions makes this a failure")
+    ok = all(after.get(n) and after.get(n) == before.get(n) for n in wanted)
+    return (name, ok, ", ".join(f"{n} {before.get(n) or 'missing'} -> {after.get(n) or 'missing'}" for n in wanted))
 
 
 def _refdata_rows() -> dict[str, list[tuple[Any, ...]]]:
@@ -467,6 +494,11 @@ def _admin_signs_in(work: Path, password: str) -> bool:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--dir", type=Path, default=Path(os.environ.get("TB_DRILL_DIR", "/tmp/tb-backup-drill")))
+    ap.add_argument(
+        "--require-extensions",
+        action="store_true",
+        help="fail unless vector and pgroonga exist before and after (a run against the box's db image, D-204)",
+    )
     a = ap.parse_args(argv)
     import logging
 
@@ -474,7 +506,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.dir.exists():
         shutil.rmtree(a.dir)
     a.dir.mkdir(parents=True)
-    out = run(a.dir)
+    out = run(a.dir, require_extensions=a.require_extensions)
     for name, ok, detail in out["checks"]:
         print(f"{'ok  ' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail else ""))
     print(f"backup drill {'PASSED' if out['ok'] else 'FAILED'} in {out['seconds']} s")
