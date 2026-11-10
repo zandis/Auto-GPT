@@ -39,11 +39,27 @@ templates that hold it are not in the card's list); it is reached at `/ops/flags
 (`TB_CONSOLE_WORKSPACE=off`) the console registers no page module and the flags are seeded by the next start that has
 it.
 
-*Evidence.* `tests/unit/test_flags.py` (17): the seed once and the variable ignored after, the default seed, a bad
+*Evidence.* `tests/unit/test_flags.py` (19): the seed once and the variable ignored after, the default seed, a bad
 seed variable refused, one event and one audit event with actor and reason, the refusals, a failed audit rolling the
 change back, undeclared names, the default on any error, the cache, two processes, and the rebuild following the
-flag (no OMOP store before the flip, its persons after, the same rows). `tests/console/test_flags_page.py` (13):
+flag (no OMOP store before the flip, its persons after, the same rows). `tests/console/test_flags_page.py` (14):
 the seeded page, the confirmation and the audit event, 400s, 403 for viewer, coordinator, investigator and cro, the
 start seed, three languages. `tools/e2e_simple.py` PASSED with the default (the flag seeded `legacy`, no OMOP store
 loaded) and with `TB_LAKE_SOURCE=omop` (the flag seeded `omop` from the variable; the OMOP stores hold the 5,000 and
 400 persons). `tools/omop_parity.py` IDENTICAL on all four data sets with the flag code in place.
+
+*Fable adversarial review (2026-11-09, a fresh session on the branch diff), and what changed.* No Blocker. **H1** (a
+flag store that could not be read fell back to `TB_LAKE_SOURCE`, silently undoing a flip): `rebuild_source` now
+reads the row directly and stops the rebuild when a configured store cannot be read; the variable decides only with no
+trial database configured or no row. **M4**: `env_drift` (and so `doctor`) also warns when the variable is set and
+the flag was never seeded. **M6**: `seed` requires an audit log, as `set` does. Lows fixed: the confirmation carries
+the value it showed and the change is refused if the flag moved meanwhile; a reason over 500 characters is a 400
+instead of being cut; an unreadable store on `/ops/flags` is a 400 page, not a 500. Not changed, with reasons:
+**M2** (record the source per snapshot): needs `services/lake/store.py` (`lake_meta.source`), requested for T-202;
+the claim above is narrowed: `sitesetup` can rebuild an existing snapshot in place, so after a flip such a rebuild
+uses the new source, which is safe only because parity and the goldens hold. **M3** (seed in the lake service too):
+its `app.py` is outside this card; until then the lake service follows the variable until the console's first start,
+and `doctor` now says so. **M5** (an audit line can outlive a commit that fails after it): the append stays inside
+the transaction so a full disk refuses the change; a commit failure after a successful append is left as a known gap
+for T-211 (one audit writer). The connection per read and `migrate` on each page view stay (no leak; page views are
+rare).

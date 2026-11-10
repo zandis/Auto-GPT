@@ -22,6 +22,13 @@ EN: dict[str, str] = {
     "flags.kind.seed": "first value",
     "flags.kind.set": "changed",
     "flags.confirm": "Change {flag} from {old} to {new}? Every service uses the new value from its next piece of work (for the lake: the next rebuild). Reason: {reason}",
+    "flags.err.undeclared": "There is no flag called {flag}.",
+    "flags.err.value": "{flag} takes one of these values: {values}.",
+    "flags.err.reason": "Write why the value changes; a change without a reason is not saved.",
+    "flags.err.long": "Keep the reason to {n} characters.",
+    "flags.err.store": "The flags cannot be read just now. Nothing was changed; try again in a minute.",
+    "flags.err.stale": "{flag} was changed by someone else meanwhile (it is now {now}). Nothing was changed; look again before you change it.",
+    "flags.err.same": "{flag} is already {value}. Nothing was changed.",
     "flags.desc.lake.source": "Where the screening lake's rows come from at the next rebuild: legacy (flattened from the hospital's snapshot) or omop (exported from the OMOP store of record).",
 }
 
@@ -43,6 +50,13 @@ JA: dict[str, str] = {
     "flags.kind.seed": "初期値",
     "flags.kind.set": "変更",
     "flags.confirm": "{flag} を {old} から {new} に変更しますか？各サービスは次の処理から新しい値を使います（レイクの場合は次の再構築から）。理由：{reason}",
+    "flags.err.undeclared": "{flag} というフラグはありません。",
+    "flags.err.value": "{flag} に指定できる値は次のいずれかです：{values}。",
+    "flags.err.reason": "値を変える理由を書いてください。理由のない変更は保存されません。",
+    "flags.err.long": "理由は {n} 文字以内にしてください。",
+    "flags.err.store": "いまフラグを読み込めません。変更はしていません。少し待ってからもう一度お試しください。",
+    "flags.err.stale": "{flag} はその間に別の人が変更しました（現在は {now}）。変更はしていません。もう一度確認してから変更してください。",
+    "flags.err.same": "{flag} はすでに {value} です。変更はしていません。",
     "flags.desc.lake.source": "次の再構築でスクリーニング用レイクの行をどこから作るか：legacy（病院のスナップショットを展開）または omop（OMOP の記録用ストアから書き出し）。",
 }
 
@@ -63,6 +77,13 @@ ZH: dict[str, str] = {
     "flags.history.none": "尚無變更。",
     "flags.kind.seed": "初始值",
     "flags.kind.set": "已變更",
-    "flags.confirm": "要將 {flag} 從 {old} 改為 {new} 嗎？各服務會從下一項工作開始使用新值（資料湖：從下一次重建開始）。理由：{reason}",
+    "flags.confirm": "要將 {flag} 從 {old} 改為 {new} 嗎？各服務會從下一次處理開始使用新值（資料湖：從下一次重建開始）。理由：{reason}",
+    "flags.err.undeclared": "沒有名為 {flag} 的旗標。",
+    "flags.err.value": "{flag} 只能設為下列其中之一：{values}。",
+    "flags.err.reason": "請寫下變更的理由；沒有理由的變更不會儲存。",
+    "flags.err.long": "理由請在 {n} 個字以內。",
+    "flags.err.store": "目前無法讀取旗標。未做任何變更，請稍候再試。",
+    "flags.err.stale": "{flag} 在此期間已被他人變更（目前為 {now}）。未做任何變更，請重新確認後再變更。",
+    "flags.err.same": "{flag} 已經是 {value}。未做任何變更。",
     "flags.desc.lake.source": "下一次重建時篩選用資料湖的資料來源：legacy（展開醫院的快照）或 omop（從 OMOP 記錄庫匯出）。",
 }

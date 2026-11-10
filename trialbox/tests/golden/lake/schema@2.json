@@ -38,9 +38,9 @@
   ]
  ],
  "meta": {
-  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
   "lake_schema_version": 2,
-  "reason": "D-205: first goldens",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
   "written_with_source": "legacy"
  },
  "min_readable": 1,

@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006)",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
   "ref_date": "2026-11-01",
   "ruleset": "RA-COH",
   "ruleset_version": "1.0.0",
@@ -195,7 +195,7 @@
     "f9e88c2f493c8ced71f84eab4f9b2a0f"
    ],
    "candidates": 27,
-   "outcomes_sha": "72c7c2f97534d8e4ac57a7285b20d9e2b1ea94141fda28ae61b634e2879a4250",
+   "outcomes_sha": "251cdebd21832bbc7fa7286bec987173b02a116d9ad896c9a27de64b126bd366",
    "patients": 2500,
    "structured_criteria": [
     "RA-COH-INC-01",
@@ -217,13 +217,13 @@
      "unknown": 0
     },
     "RA-COH-INC-03": {
-     "met": 155,
-     "not_met": 177,
+     "met": 156,
+     "not_met": 176,
      "unknown": 2168
     },
     "RA-COH-INC-04": {
-     "met": 66,
-     "not_met": 266,
+     "met": 64,
+     "not_met": 268,
      "unknown": 2168
     },
     "RA-COH-INC-05": {

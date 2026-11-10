@@ -238,6 +238,8 @@ class Flags:
         event each). A flag that has a row keeps it; a seed variable that now says otherwise is logged (doctor
         reports it too). Returns what was seeded."""
         environ = env if env is not None else dict(os.environ)
+        if self.audit is None:
+            raise ValueError("a flag seed must be audited: give Flags an audit log")
         db, close = self._open()
         seeded: list[dict[str, Any]] = []
         try:
@@ -258,9 +260,8 @@ class Flags:
                             "VALUES (?, 'seed', NULL, ?, ?, ?)",
                             (name, value, SEED_ACTOR, reason),
                         )
-                        if self.audit is not None:
-                            self.audit.append("flag.seed", actor=SEED_ACTOR,
-                                              detail={"flag": name, "value": value, "reason": reason})  # fmt: skip
+                        self.audit.append("flag.seed", actor=SEED_ACTOR,
+                                          detail={"flag": name, "value": value, "reason": reason})  # fmt: skip
                         seeded.append({"name": name, "value": value, "origin": origin})
                     else:
                         have = tx.fetchval("SELECT value FROM flag WHERE name = ?", (name,))
@@ -323,13 +324,16 @@ def read(name: str, url: str | None = None) -> str | None:
 
 
 def env_drift(env: dict[str, str], url: str | None = None) -> list[str]:
-    """The seed variables set in ``env`` that disagree with their flag (they are ignored after the first start)."""
+    """The seed variables set in ``env`` that disagree with their flag (ignored since the first start), or whose flag
+    was never seeded (the variable still decides until a service seeds it)."""
     out = []
     for name, d in sorted(DECLARED.items()):
         raw = (env.get(d.seed_env) or "").strip() if d.seed_env else ""
         if not raw:
             continue
         have = Flags(url=url or env.get(DB_URL_ENV)).row(name)
-        if have is not None and have != raw.lower():
+        if have is None:
+            out.append(f"{d.seed_env}={raw} still decides: the flag {name} was never seeded (no console start yet)")
+        elif have != raw.lower():
             out.append(f"{d.seed_env}={raw} is ignored: the flag {name} is {have} (change it on /ops/flags)")
     return out

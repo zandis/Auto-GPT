@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006)",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy"
@@ -77,6 +77,20 @@
      },
      "rows": 53,
      "sha": "ddb96d217201160482e9d7059449c83db2012e0bbc75642c8903d80e4f6ed024"
+    },
+    "document_chunk": {
+     "columns": {
+      "chunk_no": "f0db8d3bd58ab812ffdd6e4e271cf012bc88686fd525f34ea5e25b949fc1cff1",
+      "date": "4e82db1c854cec1bbc0c6de2bd8b2e939c3d4e395107d830767161dad8f49df9",
+      "did": "9f5f99d07f6c9b03dc73d4f49df13ed84729c9c1f11ed9d1e19f06adae4d4f8e",
+      "pid": "9eaa6dd8a0f8641c78de2c998de6e5081f99d74099ca39e2803a4dc111cedbc9",
+      "sha": "4a7569778596bc74400a11b5a08b014fcdfeb9a190ac4da1bff4d71780d1247b",
+      "text": "879e46ea4796df2a1a264526d5197f39372d3fd42f3918ffa95a70647e8cb4dc",
+      "tok": "b99f9bce28efa09d6a036a6cd90b50ec0f9ca07d79e701e8c4489c8ea87d1399",
+      "type": "4c11098808dfd7b265dcbd3dcdde945d286927d7b51d5fd201dfc5afd00554ad"
+     },
+     "rows": 95,
+     "sha": "7f2185bec3318c657df73cf5e1aa9ead1470988c06f5a87adc5277b1b3d6be9e"
     },
     "encounter": {
      "columns": {
@@ -251,6 +265,20 @@
      },
      "rows": 733,
      "sha": "74d08ef5bc054cb8c26804af25cf2e08a42315d5085140c0c798d3fefd14caba"
+    },
+    "document_chunk": {
+     "columns": {
+      "chunk_no": "354f3512ad12f43a6f38b0ac13c411bbd442448ed50d4cf61659d34ed163256f",
+      "date": "5698d83279b4f2a9401ed4b5e81dc415c072e1ca8d6d92c146e7b8c57cd86194",
+      "did": "59250cf903074173d50fb9ad6fab614ad5d09d0be08499f22f82d4f454dfbb2a",
+      "pid": "9b44290bf29745348e18f3aa09148165d4da122eddd012734e57ec63bd3caa64",
+      "sha": "43f1d4b3cb52f6df481b0f3171c029c4fd40603d18fd60254952c853fb898d00",
+      "text": "3ae90afd17dd21a58a3a03d5088c18f731f675d6e0c467e9f7bd4840b4a40778",
+      "tok": "3ab6f6137c3ae8c3399d9ea149706d6f9766b07028e3a8852f8022151a73bf5d",
+      "type": "59fbac7ac4d91ea58d0a0eddeaa4f366cca2cd40a301e7828cd32d2c54208730"
+     },
+     "rows": 900,
+     "sha": "046408f7680a80f2fab7a739c12b830af52c1a81827f5696529145ebe528d217"
     },
     "encounter": {
      "columns": {
@@ -432,6 +460,20 @@
      "rows": 4428,
      "sha": "6701efb53c1258e6698bd8ea4efbc231bf1942c85b9c61cf867a28297d2b294a"
     },
+    "document_chunk": {
+     "columns": {
+      "chunk_no": "4a573ae522bc2134af98ebdf6c02b1b50a2c9603ab25110691dc022151093cbb",
+      "date": "8757c404f0db4bc54b566b58105b90cde1278fc2a210282ede3dd539e884dcfa",
+      "did": "d7ff0518fdd246385c8e5cc65aa190038401bb69187ffd940f9f4f7d99ecc69a",
+      "pid": "094e98efb0e7d5670673106980147de1796b18cebf3333b50938356ccbb8779e",
+      "sha": "0a398bd97afc102d1cfcfbf860497465b7e26bf72392939635f47f19f3f983a0",
+      "text": "1320d672ba7bd7faadf5a86129010a8841b7e1453401cec47c56c4a1be33d2ce",
+      "tok": "e25d60c20813bef1ab6081075f4668a51ce3b0dcabb83564619604540f7249b3",
+      "type": "c1ad61fd196ea5522a68db0a01ca3a66932f8fd958327c5e9942e68f3c61adf5"
+     },
+     "rows": 5740,
+     "sha": "af8113dd7c09b46246806b1ed59688d91f48c343f56c49ecee93083e1aebb4ef"
+    },
     "encounter": {
      "columns": {
       "class": "ef6c680855cd5741cf8a0fdaa3a91426879c0c13ee08dc83c7cd78557a4c6dae",
@@ -612,6 +654,20 @@
      "rows": 3986,
      "sha": "ab66d9c936a323746a9e0c5063d1ec14598faec1821d06fce4706e7930c2900e"
     },
+    "document_chunk": {
+     "columns": {
+      "chunk_no": "356f26daf0a94782dd4e8c5bdf985b5dd2d3c712e40ce623abd4fd00dc6bc299",
+      "date": "dd32264393cffc321f827bb3b64e7c83ecb3fce93a8657683c5b0a265e2fc1bb",
+      "did": "955c66ba240069809adc89650d63e4007a1e5a479551646406ce6f6dda97ff0c",
+      "pid": "c5ec18b46e8de1f39c061bbb85ab846ac2801374f98e4cddb889303a34b5d39c",
+      "sha": "18ec87ff920a7017dbb61e88bbbc5163eecf3f9ebc5530d2485b8d1a10144e10",
+      "text": "445ccca0b13e959943d6323dad9156cbeed3bfbe5bfac98dc3078fefeb4e93a3",
+      "tok": "62dd3cddd45c37c860b4b16c25b2d5f4b84fe5fa3388d80d91928a63bb47a804",
+      "type": "da5143cef663fa8b301177a352638959156e0319eaf7baa00c2ce2e6a2ec7f2b"
+     },
+     "rows": 5171,
+     "sha": "b8f9ba848b94f74026df97385092e1a29f7b2a03e67c0bb1d29a74f8479aac56"
+    },
     "encounter": {
      "columns": {
       "class": "193e052ed2d9425a2ea94c3befa6f1eb9a925a3611e30ef2c18b07f3c10330c9",
@@ -652,10 +708,10 @@
       "unit": "b5c57fd1e32794235808c481dd377eca2489583037050f030cea5fb8a867eb20",
       "value_cmp": "ef984f05deee8c3d4a127420418ecd8c3c082a146ec005b3ec043307f20685aa",
       "value_code": "909cd013ecc4bdccfd3ad6d0c4c66507a063cc4985de22302def45c68c3e90be",
-      "value_num": "8537e69d8c959fffef5d368ec1ae87e1fc2264ba9be6a9504127e2dcbba9eddc"
+      "value_num": "35cd05ba40a89154c8b6f99d83d71895d32805253f97cd5880573a0a628c6274"
      },
      "rows": 19094,
-     "sha": "3b616cb9987ffbd48430cfc1138c0b5f7fa419cb6c83448d17d0abd263bd380a"
+     "sha": "4f5aa97438230cfa0f449a21c03fbe165205bfd971a363f99253547992b558bc"
     },
     "patient": {
      "columns": {
@@ -791,6 +847,20 @@
      },
      "rows": 4461,
      "sha": "fb93adb543865c4bfedda836fca1d4783f5bffb661820a0cb72e4c23135fa569"
+    },
+    "document_chunk": {
+     "columns": {
+      "chunk_no": "f60ee5c497e99e49952bbf40b31d08c539ccbad430cce2da807c7ffbc17cf329",
+      "date": "86e936f7065b3f169c6bca0efdabde0612dc8248366a9b8804b83e1d5eacc685",
+      "did": "c2eda04f2c7bf389ca4456f135a8e68dd15b954cd419d7434ff14369d80b09c7",
+      "pid": "2527f8ee47e3e5560ad82df133013165b16250cf2db7ff8a384e55d5e8dedd4b",
+      "sha": "2fc0f1be813a8bcc1f04c9e4238ffced563e86858e6c78dab9351f063996659c",
+      "text": "4796b45e66507ee3cfd8552ddc28245fbb62e79d12bd59e7a777214cf811480a",
+      "tok": "59d68b8471160730579ceac16052144afdd2734bd208c27ad05c0872c0d223b1",
+      "type": "895fcc4085d756436043cece0f7cf8564bb4accedbd5ea5d4dd173f2b85db8d0"
+     },
+     "rows": 5874,
+     "sha": "b29d3d0fa45b5063e77731f6d8540247298930392dae63a65807fc8406733963"
     },
     "encounter": {
      "columns": {

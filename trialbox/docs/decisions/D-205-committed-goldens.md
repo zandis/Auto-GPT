@@ -11,7 +11,7 @@ is D-205; the card's own "D-194" is superseded by the note). Holistic contradict
   the met / not met / unknown counts and a hash of every patient's verdicts, evidence and reasons). The FEAS basis
   table and the unknown code systems (`feas/basis@ci.json`, D-135, D-130). Every lake table of every data set, rows
   and a hash per column (`lake/tables@ci.json`). The lake schema (`lake/schema@2.json`: `SCHEMAS`, the chunk columns,
-  `schema_sha`). 17 files, 232 KB.
+  `schema_sha`). 17 files, 236 KB.
 * **The data sets** (profile `ci`, about 5,450 patients). `synthetic-jp-a` and `synthetic-tw-a`: the synthetic
   hospital of `tools.synth_hospital` (profile `ci`, seed 42; CSV feeds, Asia/Tokyo and Asia/Taipei) with the planted
   site inputs of `tools.omop_parity` (proposed, confirmed, suspected and refuted diagnoses; a birth-date conflict).
@@ -40,7 +40,7 @@ is D-205; the card's own "D-194" is superseded by the note). Holistic contradict
   two live checks that need no build (the lake schema golden equals the code, and every committed ruleset has its
   funnel and candidate goldens at its current version).
 
-*Evidence.* `make goldens-check` IDENTICAL in about 105 s (legacy) and in about 140 s with `TB_LAKE_SOURCE=omop`.
+*Evidence.* `make goldens-check` IDENTICAL from both sources in 2 min 19 s (legacy 115 s and omop 139 s, side by side).
 Acceptance (2): removing the one row `('VS_URATE_LOWERING_THERAPY', 'http://www.whocc.no/atc', 'M04AA03')` from the
 approved `rulesets/GOUT-COH/sql/GOUT-COH.sql` fails the check (exit 1) on `funnels/GOUT-COH@ci.json`,
 `screen/GOUT-COH@ci.candidates.json` and `feas/basis@ci.json`, with lines such as
@@ -52,3 +52,20 @@ and the duplication is a question for the compiler's owner, not this card.
 *Not done.* The CI job (T-007 owns `.github/workflows/*`; the `goldens-check` target is ready for it). The 50k files
 (after T-004). The MIMIC demo is not a golden data set: it needs a fetch, and a golden must not depend on what a
 machine has downloaded.
+
+*Fable adversarial review (2026-11-09, a fresh session on the branch diff), and what changed.* No Blocker.
+**H2** (a seeded `lake.source` flag in the caller's database would decide the source of the goldens' lakes) and
+**H4** (the clean-up dropped every schema under the caller's `tb_prefix`, all of them with an empty prefix): each
+run now builds in a prefix of its own (`private_url`, derived from the work directory and appended to the caller's
+URL), refuses to build if that prefix holds a `lake.source` flag, sets `TB_LAKE_SOURCE` itself, checks that the
+rebuild used the source asked for, and never drops an empty prefix. **H3** (the default gate never exercised OMOP):
+`make goldens-check` now checks both sources side by side in two processes (2 min 19 s on this 4-core machine);
+`TB_LAKE_SOURCE=omop|legacy` checks one. **M1** (the reported source came from the variable): it is the rebuild's
+own (`rebuild_source`), and `TB_OMOP_DB_URL` points at the private prefix during the run. **M7** (width): the chunk
+table (text, tokens, sha) is hashed too, and the next night also corrects every 25th remaining numeric result in
+place, so OMOP's update path is pinned beside its tombstones. Not changed: the H2 risk in `tools/omop_parity.py`
+itself (a parity run against a database where a console has seeded the flag compares one source with itself); that
+file is outside this card, so it is handed to the integrator with the fix (a private prefix, or assert that the OMOP
+store holds persons, as `tools/goldens.py` does). Lows: `SEED` is the generator's own default (42) and recorded, not
+passed (`omop_parity.synthetic` takes no seed); `--write` does not delete the golden of a removed ruleset (the check
+then fails naming it, which is the intended signal); `REASON_RE` checks the form `D-nnn` only.

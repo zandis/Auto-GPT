@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006)",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
   "ref_date": "2026-11-01",
   "ruleset": "STARRT-AKI",
   "ruleset_version": "1.0.0",
@@ -225,7 +225,7 @@
   "synthetic-jp-a-deletes": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "69017ee533d22f49da808a7cc7084471e5f71e1fda2ab6a125268e86ca1560d5",
+   "outcomes_sha": "1cac2e2487982d033d9daf92286cc343f30e2113fc3253368700a5e2a5345564",
    "patients": 2500,
    "structured_criteria": [
     "STARRT-AKI-INC-01",
@@ -281,8 +281,8 @@
      "unknown": 0
     },
     "STARRT-AKI-INC-03": {
-     "met": 26,
-     "not_met": 55,
+     "met": 29,
+     "not_met": 52,
      "unknown": 2419
     },
     "STARRT-AKI-INC-04": {

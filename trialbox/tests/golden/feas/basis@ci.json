@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006)",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy"
@@ -277,7 +277,7 @@
        "proposed": 19
       },
       "GOUT-COH-INC-05": {
-       "coded": 18,
+       "coded": 19,
        "confirmed": 0,
        "proposed": 20
       },
@@ -515,17 +515,17 @@
        "proposed": 15
       },
       "GZQO-INC-04": {
-       "coded": 178,
+       "coded": 177,
        "confirmed": 1,
        "proposed": 18
       },
       "GZQO-INC-06": {
-       "coded": 83,
+       "coded": 82,
        "confirmed": 0,
        "proposed": 18
       },
       "GZQO-INC-08": {
-       "coded": 52,
+       "coded": 51,
        "confirmed": 0,
        "proposed": 18
       },
@@ -806,37 +806,37 @@
     "synthetic-jp-a-deletes": {
      "basis": {
       "RA-BIO-EXC-01": {
-       "coded": 11,
+       "coded": 12,
        "confirmed": 1,
        "proposed": 20
       },
       "RA-BIO-EXC-02": {
-       "coded": 11,
+       "coded": 12,
        "confirmed": 0,
        "proposed": 20
       },
       "RA-BIO-EXC-03": {
-       "coded": 10,
+       "coded": 11,
        "confirmed": 0,
        "proposed": 20
       },
       "RA-BIO-EXC-04": {
-       "coded": 9,
+       "coded": 10,
        "confirmed": 0,
        "proposed": 20
       },
       "RA-BIO-EXC-05": {
-       "coded": 8,
+       "coded": 9,
        "confirmed": 0,
        "proposed": 20
       },
       "RA-BIO-EXC-06": {
-       "coded": 7,
+       "coded": 8,
        "confirmed": 0,
        "proposed": 20
       },
       "RA-BIO-EXC-07": {
-       "coded": 6,
+       "coded": 7,
        "confirmed": 0,
        "proposed": 20
       },
@@ -866,7 +866,7 @@
        "proposed": 20
       },
       "RA-BIO-INC-06": {
-       "coded": 14,
+       "coded": 15,
        "confirmed": 1,
        "proposed": 20
       }

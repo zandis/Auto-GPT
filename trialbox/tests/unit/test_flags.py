@@ -222,3 +222,26 @@ def test_the_rebuild_follows_the_flag(tmp_path: Path, monkeypatch: Any) -> None:
     omop = lake_rows(feed, {}, tz="Asia/Taipei", snapshot="2026-10-31", lake_dir=lake)
     assert persons() == 1
     assert omop == legacy  # the same rows from either source (D-151)
+
+
+def test_a_seed_must_be_audited_and_doctor_sees_an_unseeded_flag(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="audited"):
+        fl.Flags().seed({})
+    assert fl.Flags().row("lake.source") is None
+    assert fl.env_drift({"TB_LAKE_SOURCE": "omop"}) == [
+        "TB_LAKE_SOURCE=omop still decides: the flag lake.source was never seeded (no console start yet)"
+    ]
+
+
+def test_an_unreadable_flag_store_stops_the_rebuild(monkeypatch: Any) -> None:
+    """Review H1: a configured store that cannot be read never falls back to the variable."""
+    from lake.source import lake_rows, rebuild_source
+
+    monkeypatch.setenv("TB_DB_URL", "postgresql://nobody@/nowhere?host=/nonexistent")
+    monkeypatch.setenv("TB_LAKE_SOURCE", "legacy")
+    with pytest.raises(RuntimeError, match="does not guess"):
+        rebuild_source()
+    with pytest.raises(RuntimeError, match="does not guess"):
+        lake_rows({}, {}, tz="Asia/Taipei", snapshot="2026-10-31")
+    monkeypatch.delenv("TB_DB_URL")
+    assert rebuild_source() == ("legacy", "TB_LAKE_SOURCE (no trial database configured)")

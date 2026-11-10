@@ -16,7 +16,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from tb_common.flags import DECLARED, Flags, check_value
+from tb_common.flags import DECLARED, MAX_REASON, Flags, check_value
 
 from console import i18n_flags
 from console.home import Helpers
@@ -66,27 +66,37 @@ def register(app: FastAPI, h: Helpers) -> None:
         value: str = Form(""),
         reason: str = Form(""),
         confirm: str = Form(""),
+        old: str = Form(""),
     ) -> Response:
         sess = admin(request, csrf)
         if name not in DECLARED:
-            raise h.problem(400, "request.refused", reason=f"undeclared flag {name[:60]!r}")
+            raise h.problem(400, "flags.err.undeclared", flag=name[:60])
         try:
             new = check_value(name, value)
         except ValueError as e:
-            raise h.problem(400, "request.refused", reason=str(e)) from e
+            raise h.problem(400, "flags.err.value", flag=name, values=", ".join(DECLARED[name].values)) from e
         why = " ".join(reason.split())
         if not why:
-            raise h.problem(400, "request.refused", reason="a flag change needs a reason")
+            raise h.problem(400, "flags.err.reason")
+        if len(why) > MAX_REASON:
+            raise h.problem(400, "flags.err.long", n=MAX_REASON)
         store = Flags(audit=h.au)
+        try:
+            current = store.row(name) or ""
+        except Exception as e:  # the store is down: say so, never a 500
+            log.warning("flag store unreadable on /ops/flags (%s)", type(e).__name__)
+            raise h.problem(400, "flags.err.store") from e
         if confirm != "yes":
             lang = sess.lang if sess.lang in LANGS else "en"
-            old = store.row(name) or translate(lang, "flags.unset")
-            text = translate(lang, "flags.confirm", flag=name, old=old, new=new, reason=why)
-            fields = {"name": name, "value": new, "reason": why}
+            text = translate(lang, "flags.confirm", flag=name, old=current or translate(lang, "flags.unset"), new=new,
+                             reason=why)  # fmt: skip
+            fields = {"name": name, "value": new, "reason": why, "old": current}
             assert h.confirm is not None
             return h.confirm(request, sess, text, "/ops/flags", fields, "/ops/flags")
+        if old != current:  # someone changed it after this sheet was shown: confirm again on the new value
+            raise h.problem(400, "flags.err.stale", flag=name, now=current or "-")
         try:
             store.set(name, new, actor=h.actor(sess), reason=why)
-        except ValueError as e:
-            raise h.problem(400, "request.refused", reason=str(e)) from e
+        except ValueError as e:  # the value it already has (the only refusal left after the checks above)
+            raise h.problem(400, "flags.err.same", flag=name, value=new) from e
         return RedirectResponse(f"/ops/flags#flag-{name}", status_code=303)

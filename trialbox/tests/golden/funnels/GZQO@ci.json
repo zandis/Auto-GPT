@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006)",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
   "ref_date": "2026-11-01",
   "ruleset": "GZQO",
   "ruleset_version": "1.0.0",
@@ -208,9 +208,9 @@
     "GZQO-INC-01": 2411,
     "GZQO-INC-02": 678,
     "GZQO-INC-03": 289,
-    "GZQO-INC-04": 179,
-    "GZQO-INC-06": 83,
-    "GZQO-INC-08": 52,
+    "GZQO-INC-04": 178,
+    "GZQO-INC-06": 82,
+    "GZQO-INC-08": 51,
     "GZQO-INC-09": 49
    },
    "start": 2493,
@@ -229,7 +229,7 @@
     "GZQO-INC-01": 4,
     "GZQO-INC-02": 0,
     "GZQO-INC-03": 196,
-    "GZQO-INC-04": 53,
+    "GZQO-INC-04": 54,
     "GZQO-INC-06": 0,
     "GZQO-INC-08": 16,
     "GZQO-INC-09": 0

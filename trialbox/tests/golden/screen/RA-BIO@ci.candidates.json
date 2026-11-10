@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006)",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
   "ref_date": "2026-11-01",
   "ruleset": "RA-BIO",
   "ruleset_version": "1.0.0",
@@ -470,11 +470,12 @@
     "def6491680f4f74fa9e4424f4a6cb4b3",
     "e2f8c55e260e7dc45a9ee6e233cb9105",
     "ef11e7054be08370301b160184a8582a",
+    "f24b31d81fff034c4f7f33e97581c13e",
     "f78306a72ea983aaf75aa3317ceed4df",
     "f98d30f6a9ffe6bfb42a2bc7e5707416"
    ],
-   "candidates": 65,
-   "outcomes_sha": "62179427ef33184e985bad3d37a0f86d1f2dd2e1c13f5fd5b1fe57c85ee247e5",
+   "candidates": 66,
+   "outcomes_sha": "0c76f3d2654397389c358f21c50b90ef99c5001ec07b55c3683cb2367c41bd29",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -568,8 +569,8 @@
      "unknown": 0
     },
     "RA-BIO-INC-05": {
-     "met": 155,
-     "not_met": 177,
+     "met": 156,
+     "not_met": 176,
      "unknown": 2168
     },
     "RA-BIO-INC-06": {

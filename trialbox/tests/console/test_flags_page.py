@@ -52,7 +52,8 @@ def test_a_change_needs_a_reason_and_a_confirmation_and_is_audited(box: dict[str
     assert r.status_code == 200 and 'data-testid="confirm"' in r.text
     assert "lake.source" in r.text and "legacy" in r.text and "omop" in r.text and "the goldens held" in r.text
     assert fl.Flags().row("lake.source") == "legacy"  # nothing changed before Yes
-    r = c.post("/ops/flags", data={**form, "confirm": "yes"}, follow_redirects=False)
+    assert 'name="old" value="legacy"' in r.text  # the sheet carries the value it showed
+    r = c.post("/ops/flags", data={**form, "confirm": "yes", "old": "legacy"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/ops/flags#flag-lake.source"
     assert fl.Flags().row("lake.source") == "omop"
     (ev,) = _events(box, "flag.set")
@@ -61,7 +62,7 @@ def test_a_change_needs_a_reason_and_a_confirmation_and_is_audited(box: dict[str
         "flag": "lake.source", "old": "legacy", "new": "omop", "reason": "D-207 test: the goldens held"}  # fmt: skip
     page = c.get("/ops/flags").text
     assert 'data-value="omop"' in page and 'data-kind="set"' in page and "the goldens held" in page
-    r = c.post("/ops/flags", data={**form, "confirm": "yes"}, follow_redirects=False)
+    r = c.post("/ops/flags", data={**form, "confirm": "yes", "old": "omop"}, follow_redirects=False)
     assert r.status_code == 400  # already omop: not a second event
     assert len(_events(box, "flag.set")) == 1
 
@@ -118,3 +119,15 @@ def test_the_page_in_three_languages() -> None:
     for lang in ("en", "ja", "zh-TW"):
         assert set(i18n_flags.EN) <= set(CATALOGUES[lang]), lang
     assert all(f"flags.desc.{n}" in i18n_flags.EN for n in fl.DECLARED)
+
+
+def test_a_stale_confirmation_or_a_long_reason_is_refused(box: dict[str, Any]) -> None:
+    c, _ = login(box["app"])
+    csrf = _csrf(c.get("/ops/flags").text)
+    form = {"csrf": csrf, "name": "lake.source", "value": "omop", "reason": "r", "confirm": "yes"}
+    r = c.post("/ops/flags", data={**form, "old": "omop"}, follow_redirects=False)  # the sheet showed another value
+    assert r.status_code == 400 and "changed by someone else meanwhile" in r.text
+    r = c.post("/ops/flags", data={**form, "old": "legacy", "reason": "x" * (fl.MAX_REASON + 1)},
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 400
+    assert fl.Flags().row("lake.source") == "legacy" and not _events(box, "flag.set")

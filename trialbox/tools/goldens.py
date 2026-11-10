@@ -1,7 +1,7 @@
 """Committed goldens (T-006, WS-03.1, TST-GOLD-01, D-205): the merge gate for every data-core branch.
 
-    python -m tools.goldens --check                                    # profile ci (5k), exit 0 identical / 1 not
-    TB_LAKE_SOURCE=omop python -m tools.goldens --check                # the same goldens from the OMOP lake
+    python -m tools.goldens --check                                    # profile ci, both lake sources in parallel
+    TB_LAKE_SOURCE=omop python -m tools.goldens --check                # one source (or --source legacy|omop)
     python -m tools.goldens --write --reason "D-2xx: why the numbers move"
     python -m tools.goldens --write --profile 50k --from-report <run-5 report.json> --reason "D-2xx: run 5"
     python -m tools.goldens --check --profile 50k --from-report <report.json>   # a later run against the golden
@@ -32,9 +32,10 @@ A golden is JSON sorted by key; its ``meta`` names the generator and its seed, t
 version, the git HEAD that wrote it and the reason. ``--check`` compares everything but ``meta.head`` and
 ``meta.reason`` and prints, per file, the changed values by path (``synthetic-jp-a.remaining.GOUT-COH-INC-03: 371 ->
 370``) and a unified diff. A deliberate change regenerates the goldens in the same pull request with ``--write
---reason "D-nnn: ..."``; ``--write`` without a reason naming a decision is refused. The lake source is the one the
-lake rebuild uses (``TB_LAKE_SOURCE``, or the ``lake.source`` flag once T-008 is in); the check verifies that the
-lakes really came from that source (the OMOP store holds the persons, or no OMOP store exists).
+--reason "D-nnn: ..."``; ``--write`` without a reason naming a decision is refused. Each run builds in a database
+prefix of its own (``private_url``: no seeded ``lake.source`` flag there, so ``TB_LAKE_SOURCE`` set by the run decides,
+and the clean-up drops only that prefix); the check verifies that the lakes really came from the source asked for
+(the OMOP store holds the persons and, for the deletes set, tombstones; or no OMOP store exists).
 """
 
 from __future__ import annotations
@@ -126,13 +127,18 @@ def _drop(rows: list[dict[str, Any]], every: int) -> list[dict[str, Any]]:
 
 
 def next_night(ndjson: Path, out: Path) -> None:
-    """The next night's feed: the same snapshot with a tenth of the clinical records gone (deleted at the source).
+    """The next night's feed: the same snapshot with a tenth of the clinical records gone (deleted at the source)
+    and every 25th remaining numeric result corrected in place (the OMOP store updates it, with its before-image).
     Patients stay (removing a person is the opt-out path's job, never a feed delta's)."""
     out.mkdir(parents=True, exist_ok=True)
     for f in sorted(ndjson.glob("*.ndjson")):
         rows = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
         if f.stem != "Patient":
             rows = _drop(rows, 10)
+        if f.stem == "Observation":
+            numeric = [r for r in rows if isinstance((r.get("valueQuantity") or {}).get("value"), int | float)]
+            for r in numeric[::25]:
+                r["valueQuantity"]["value"] = round(r["valueQuantity"]["value"] + 1, 4)
         (out / f.name).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
 
 
@@ -206,6 +212,18 @@ def table_digest(lake: Path, snapshot: str) -> dict[str, Any]:
         t = pq.read_table(lake / "parquet" / f"snapshot={snapshot}" / f"{name}.parquet")
         cols = {c: sha(t.column(c).to_pylist()) for c in t.column_names}
         out[name] = {"rows": t.num_rows, "sha": sha(t.to_pylist()), "columns": cols}
+    # the chunker's output (text, token count, sha) of the DuckDB file: a chunking or tokenizer change shows here
+    import duckdb
+
+    con = duckdb.connect(str(lake / "db" / f"{snapshot}.duckdb"), read_only=True)
+    try:
+        rows = con.execute("SELECT did, chunk_no, pid, date, type, text, tok, sha FROM document_chunk "
+                           "ORDER BY did, chunk_no").fetchall()  # fmt: skip
+    finally:
+        con.close()
+    names = ("did", "chunk_no", "pid", "date", "type", "text", "tok", "sha")
+    out["document_chunk"] = {"rows": len(rows), "sha": sha(rows),
+                             "columns": {c: sha([r[i] for r in rows]) for i, c in enumerate(names)}}  # fmt: skip
     return out
 
 
@@ -418,9 +436,24 @@ def write(golden_dir: Path, computed: dict[str, dict[str, Any]], reason: str, so
 
 # ------------------------------------------------------------------------------------------------ the lake source
 def source_in_force() -> str:
-    from lake.source import lake_source
+    """The source the lake rebuild will use now (the ``lake.source`` flag, else ``TB_LAKE_SOURCE``): D-207."""
+    from lake.source import rebuild_source
 
-    return lake_source()
+    return rebuild_source()[0]
+
+
+def private_url(work: Path) -> str:
+    """A database URL of this run's own: the caller's ``TB_DB_URL`` (or the shared throwaway cluster) with a
+    ``tb_prefix`` derived from the work directory appended, so the run never sees a seeded flag and its clean-up
+    drops only its own schemas (review H2, H4)."""
+    from tb_common.db import split_url
+
+    from tools import pglocal
+
+    base = os.environ.get("TB_DB_URL") or pglocal.ensure(pglocal.SHARED)
+    dsn, prefix = split_url(base)
+    own = f"{prefix}gold{hashlib.sha1(str(work.resolve()).encode(), usedforsecurity=False).hexdigest()[:10]}_"
+    return f"{dsn}{'&' if '?' in dsn else '?'}tb_prefix={own}"
 
 
 def omop_store(url: str, lake: Path) -> dict[str, int] | None:
@@ -474,20 +507,55 @@ def workdir(given: Path | None, keep: bool) -> Iterator[Path]:
             shutil.rmtree(path, ignore_errors=True)
 
 
-def run_ci(work: Path) -> tuple[dict[str, dict[str, Any]], str, list[str]]:
+def run_ci(work: Path, source: str) -> tuple[dict[str, dict[str, Any]], str, list[str]]:
+    """Build and compute every ``ci`` golden from ``source`` in a database prefix of the run's own."""
     from tb_common.db import split_url
+    from tb_common.flags import read
 
     from tools import pglocal
 
-    url = pglocal.for_work(work)
-    source = source_in_force()
+    url = private_url(work)
+    own = split_url(url)[1]
+    keep = {k: os.environ.get(k) for k in ("TB_DB_URL", "TB_OMOP_DB_URL", "TB_LAKE_SOURCE")}
+    os.environ.update({"TB_DB_URL": url, "TB_OMOP_DB_URL": url, "TB_LAKE_SOURCE": source})
     try:
+        pglocal.drop_prefix(url, own)  # a fresh prefix: no flag row, so the source asked for is the one used
+        if read("lake.source") is not None:
+            raise RuntimeError("the run's own database holds a lake.source flag: refusing to build")
+        used = source_in_force()
         computed, built = compute(work)
-        problems = check_source(source, url, built)
+        problems = check_source(used, url, built)
+        if used != source:
+            problems.insert(0, f"FAIL source: asked for {source}, the rebuild used {used}")
     finally:
-        with contextlib.suppress(Exception):
-            pglocal.drop_prefix(url, split_url(url)[1])
-    return computed, source, problems
+        for k, v in keep.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        if own:  # never an empty prefix: that would match every schema
+            with contextlib.suppress(Exception):
+                pglocal.drop_prefix(url, own)
+    return computed, used, problems
+
+
+def check_both(argv: list[str]) -> int:
+    """``--source both``: the legacy and the OMOP check side by side (two processes); 0 only when both pass."""
+    procs = {
+        src: subprocess.Popen(
+            [sys.executable, "-m", "tools.goldens", *argv, "--source", src],
+            cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        for src in ("legacy", "omop")
+    }  # fmt: skip
+    rc = 0
+    for src, p in procs.items():
+        out, _ = p.communicate()
+        print(f"--- lake source {src} (exit {p.returncode})")
+        print(out.rstrip())
+        rc = rc or p.returncode
+    print("IDENTICAL from both lake sources" if rc == 0 else "DIFFERENT (see above)")
+    return rc
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -501,7 +569,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--golden-dir", type=Path, default=GOLDEN_DIR)
     ap.add_argument("--dir", type=Path, help="work directory (default: a new temporary one, removed at the end)")
     ap.add_argument("--keep", action="store_true", help="keep the work directory")
+    ap.add_argument(
+        "--source",
+        choices=("legacy", "omop", "both"),
+        help="lake source (default: TB_LAKE_SOURCE when set; else both for --check, legacy for --write)",
+    )
     a = ap.parse_args(argv)
+    env_source = (os.environ.get("TB_LAKE_SOURCE") or "").strip().lower() or None
+    source = a.source or env_source or ("both" if a.check and a.profile == "ci" else "legacy")
+    if source == "both" and a.profile == "ci":
+        if a.write or a.dir is not None:
+            print("refused: --source both is for --check without --dir; write from one source")
+            return 2
+        return check_both(
+            ["--check", "--profile", "ci", "--golden-dir", str(a.golden_dir), *(["--keep"] if a.keep else [])]
+        )
     if a.write and not REASON_RE.search(a.reason or ""):
         print('refused: --write needs --reason naming the decision that moves the numbers ("D-nnn: why")')
         return 2
@@ -529,7 +611,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(res.lines) or "50k goldens: identical")
         return 0 if res.ok else 1
     with workdir(a.dir, a.keep) as work:
-        computed, source, problems = run_ci(work)
+        computed, source, problems = run_ci(work, source)
     took = time.perf_counter() - t0
     if a.write:
         if problems:

@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006)",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
@@ -185,7 +185,7 @@
     "d591edeb5920715e0bd200fdec855805"
    ],
    "candidates": 6,
-   "outcomes_sha": "3a25bf9322717c1e7c62a307393460ca65e4cc7165a4e2c7df8f4b407082e1d0",
+   "outcomes_sha": "745962e829ca5cf86ce062577749a833ba7f796eb8bf3ef1dfa51bd8acd5e012",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -203,8 +203,8 @@
      "unknown": 8
     },
     "GOUT-COH-INC-02": {
-     "met": 508,
-     "not_met": 144,
+     "met": 509,
+     "not_met": 143,
      "unknown": 1848
     },
     "GOUT-COH-INC-03": {
@@ -218,13 +218,13 @@
      "unknown": 10
     },
     "GOUT-COH-INC-05": {
-     "met": 452,
-     "not_met": 695,
+     "met": 478,
+     "not_met": 669,
      "unknown": 1353
     },
     "GOUT-COH-INC-06": {
-     "met": 451,
-     "not_met": 572,
+     "met": 450,
+     "not_met": 573,
      "unknown": 1477
     },
     "GOUT-COH-INC-07": {

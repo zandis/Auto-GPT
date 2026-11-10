@@ -45,12 +45,19 @@ def lake_source() -> str:
 
 def rebuild_source() -> tuple[str, str]:
     """The source of a rebuild that starts now, and where it came from: the ``lake.source`` flag of the trial
-    database; ``TB_LAKE_SOURCE`` only while the flag has never been seeded there (or cannot be read: logged)."""
-    from tb_common.flags import read
+    database; ``TB_LAKE_SOURCE`` only when no trial database is configured or the flag has never been seeded there.
+    A flag store that is configured but cannot be read stops the rebuild (fail closed): falling back to the variable
+    would silently build from a source the operator switched away from (review H1)."""
+    from tb_common.flags import Flags, check_value
 
-    value = read("lake.source")
+    try:
+        value = Flags().row("lake.source")
+    except LookupError:  # no TB_DB_URL: a tool or a test without a trial database
+        return lake_source(), "TB_LAKE_SOURCE (no trial database configured)"
+    except Exception as e:
+        raise RuntimeError(f"lake.source flag unreadable ({type(e).__name__}): the rebuild does not guess") from e
     if value is not None:
-        return value, "flag lake.source"
+        return check_value("lake.source", value), "flag lake.source"
     return lake_source(), "TB_LAKE_SOURCE (no lake.source flag in this database)"
 
 

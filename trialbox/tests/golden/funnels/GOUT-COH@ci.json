@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006)",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
@@ -110,7 +110,7 @@
     "GOUT-COH-INC-02": 504,
     "GOUT-COH-INC-03": 342,
     "GOUT-COH-INC-04": 100,
-    "GOUT-COH-INC-05": 18,
+    "GOUT-COH-INC-05": 19,
     "GOUT-COH-INC-06": 8,
     "GOUT-COH-INC-07": 3
    },
@@ -121,7 +121,7 @@
     "GOUT-COH-INC-03": 0,
     "GOUT-COH-INC-04": 0,
     "GOUT-COH-INC-05": 41,
-    "GOUT-COH-INC-06": 4,
+    "GOUT-COH-INC-06": 5,
     "GOUT-COH-INC-07": 0
    },
    "variants": {

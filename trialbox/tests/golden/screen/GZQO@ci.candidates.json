@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "6e11e2589790ff3a8874d84328bc087b7e34542a",
+  "head": "fbe5f92e2ffaace5934833e3d89297ebf943e96e",
   "lake_schema_version": 2,
   "profile": "ci",
-  "reason": "D-205: the first committed goldens (T-006)",
+  "reason": "D-205: the first committed goldens (T-006), widened after the Fable review",
   "ref_date": "2026-11-01",
   "ruleset": "GZQO",
   "ruleset_version": "1.0.0",
@@ -472,7 +472,7 @@
     "ffd49b25f1d323069cb65e0fdab23958"
    ],
    "candidates": 49,
-   "outcomes_sha": "bb7273705238fcf924c666c5636380e660ffe032d5b2c561a3f96b5d9e85410c",
+   "outcomes_sha": "abfe9daeff5f47355fdaeeb1b2cdae6674739c5718edbe9037c1fbe97036c74e",
    "patients": 2500,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -521,8 +521,8 @@
      "unknown": 0
     },
     "GZQO-EXC-06": {
-     "met": 293,
-     "not_met": 588,
+     "met": 296,
+     "not_met": 585,
      "unknown": 1619
     },
     "GZQO-EXC-07": {
@@ -561,13 +561,13 @@
      "unknown": 8
     },
     "GZQO-INC-03": {
-     "met": 451,
-     "not_met": 572,
+     "met": 450,
+     "not_met": 573,
      "unknown": 1477
     },
     "GZQO-INC-04": {
-     "met": 500,
-     "not_met": 152,
+     "met": 501,
+     "not_met": 151,
      "unknown": 1848
     },
     "GZQO-INC-06": {
@@ -576,8 +576,8 @@
      "unknown": 7
     },
     "GZQO-INC-08": {
-     "met": 902,
-     "not_met": 245,
+     "met": 898,
+     "not_met": 249,
      "unknown": 1353
     },
     "GZQO-INC-09": {

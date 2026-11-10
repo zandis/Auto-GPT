@@ -53,7 +53,8 @@ e2e-simple:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.e2e_simple --dir $(E2E_DIR) --json $(E2E_DIR).json
 
 # the committed goldens (T-006, D-205): the merge gate for every data-core branch. Profile ci (5,450 synthetic and
-# public patients, fixed site key), about 2 minutes; TB_LAKE_SOURCE=omop checks the same goldens from the OMOP lake.
+# public patients, fixed site key): both lake sources side by side, about 2.5 minutes; TB_LAKE_SOURCE=omop (or legacy)
+# checks one source only.
 # A deliberate change: make goldens REASON="D-nnn: why the numbers move" in the same pull request.
 goldens-check:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.goldens --check --profile ci

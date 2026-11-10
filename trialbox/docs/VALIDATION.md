@@ -30,11 +30,12 @@ data-core branch: the FEAS funnel and the SCREEN candidate set (after the coded 
 the FEAS basis table, a per-column hash of every lake table and the lake schema, computed from fixed inputs (the
 synthetic hospital of profile `ci` with planted site inputs, its next night with a tenth of the records deleted, an
 SS-MIX2 storage and the SIGIR public notes; Asia/Tokyo and Asia/Taipei; a fixed synthetic site key) and compared with the committed JSON;
-any difference fails with the changed values by path and a unified diff. The same goldens hold for both lake sources
-(`TB_LAKE_SOURCE=omop make goldens-check`), so they also pin the OMOP parity, tombstones included. A deliberate
+any difference fails with the changed values by path and a unified diff. The same goldens hold for both lake sources,
+and `make goldens-check` checks both side by side (`TB_LAKE_SOURCE=omop` checks one), so they also pin the OMOP
+parity, tombstones and in-place updates included. A deliberate
 change regenerates them in the same pull request (`make goldens REASON="D-nnn: ..."`); the 50k funnels are written
-only from the report of a paid run (`--from-report`). Last result: identical from either source, 17 goldens, about
-100 s (D-205). `tests/unit/test_goldens.py` keeps the schema golden and the one-golden-per-ruleset rule in every
+only from the report of a paid run (`--from-report`). Last result: identical from both sources, 17 goldens, 139 s
+(D-205). `tests/unit/test_goldens.py` keeps the schema golden and the one-golden-per-ruleset rule in every
 `make test`.
 
 ## 2. What `e2e_simple` proves
