@@ -8,8 +8,9 @@ plan is TB-PLAN-06 (`docs/plan/28-master-plan-v6.md`); its §6.1 holds the full 
 
 * A card of the plan is one pull request and one session. The branch is `agent/<card id>-<slug>`, cut from the
   current `origin/master`.
-* Touch only the files in the card's "Files it touches" column. If another file must change, say which and why in
-  the pull request under "Files outside the card", or ask the integrator first.
+* Keep to the files in the card's "Files it touches" column where you can; it avoids conflicts. If another file
+  must change, change it and say which and why in the pull request under "Files outside the card" (guidance, not a
+  stop; D-311).
 * Open the pull request as a draft. The integrator merges; nobody merges their own card.
 * Plain English and short sentences in commits and pull requests.
 
@@ -17,12 +18,11 @@ plan is TB-PLAN-06 (`docs/plan/28-master-plan-v6.md`); its §6.1 holds the full 
 
 * One decision is one file: `docs/decisions/D-<nnn>-<slug>.md`. Its first line names the number (`**D-nnn Title.**`
   or `# D-nnn Title`) and its first lines name the card (`T-nnn`).
-* The number comes from `docs/decisions/REGISTRY.md`. The integrator writes the row before the branch is cut. New
-  numbers start at D-300. A pull request never edits the registry.
+* Take the next free number from `docs/decisions/REGISTRY.md` (new numbers start at D-300) and add its row, or
+  write "decision number needed" in the pull request. No need to wait for the integrator (D-311).
 * `docs/DECISIONS.md` is frozen: it keeps D-01 to D-270 as they are and takes no new entry.
-* `python -m tools.decisions_index --check` (CI job `docs`) fails on a number written twice, a decision file with no
-  registry row, a new entry in the frozen log, or a number no row covers. `python -m tools.decisions_index` prints
-  the index.
+* `python -m tools.decisions_index --check` (CI job `docs`) fails only on a number written twice; registry
+  bookkeeping is printed as notes. `python -m tools.decisions_index` prints the index.
 
 ## Generated files are regenerated, never hand-merged
 
@@ -31,8 +31,8 @@ These files are written by a tool. Never edit them by hand and never resolve a m
 | File | Generator | Checked in CI job |
 | --- | --- | --- |
 | `libs/tb_contracts/generated/models.py` | `make contracts` (`tools/gen_contracts.py`) | `contracts` (`make contracts-check`) |
-| `docs/plan/25-traceability.csv` | `tools/gen_traceability.py` | `trace` (`--check`) |
-| the goldens under `tests/golden/` | `make goldens REASON="D-nnn: why the numbers move"` (`tools/goldens.py`) | `goldens` (`make goldens-check`) |
+| `docs/plan/25-traceability.csv` | `tools/gen_traceability.py` | `trace` (`--check`, warnings only) |
+| the goldens under `tests/golden/` | `make goldens REASON="why the numbers move"` (`tools/goldens.py`) | `goldens` (`make goldens-check`) |
 | the decisions index | `python -m tools.decisions_index` (printed, never committed) | `docs` (`--check`) |
 
 On a conflict in one of them: take master's copy, run the generator, commit the result. CI fails when the committed
@@ -48,8 +48,8 @@ line; it does not rewrite other sections. RUNBOOK section numbers are given by t
 ## The safety core
 
 Matching, the criteria engines, the guard, `authz` and the prefill path are the safety core. `.github/CODEOWNERS`
-lists their paths. A change there needs the named human safety-core reviewer (owner action OD-9; until that person
-is named, the owner alone) and only one safety-core pull request is in review at a time.
+lists their paths, for information. A change there merges on green CI (including the property, mutation and
+engine-agreement tests) and one automated adversarial review; no named human reviewer is required (D-311).
 
 ## Data and secrets
 
@@ -71,6 +71,12 @@ TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m pytest <the tests you 
 ```
 
 The full suite (`make test`) is run by CI and the integrator, one run at a time on the shared machine.
+
+## Development gates (D-311)
+
+Building, testing, deploying and sharing the software need no IRB, ethics, conflict-of-interest or hospital review
+step, because development uses synthetic or public data only. Rules that apply only when real patient data is read
+are in `docs/decisions/D-311-no-development-gates.md`.
 
 ## Licence
 

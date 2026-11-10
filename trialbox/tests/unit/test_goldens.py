@@ -158,7 +158,7 @@ def test_goldens_are_small() -> None:
 # ---------------------------------------------------------------- the write rule
 def test_write_without_a_reason_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert g.main(["--write", "--golden-dir", str(tmp_path)]) == 2
-    assert g.main(["--write", "--reason", "numbers moved", "--golden-dir", str(tmp_path)]) == 2
+    assert g.main(["--write", "--reason", "  ", "--golden-dir", str(tmp_path)]) == 2
     assert "refused" in capsys.readouterr().out
     assert not list(tmp_path.iterdir())
     with pytest.raises(ValueError, match="reason"):
