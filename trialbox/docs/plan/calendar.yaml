@@ -23,11 +23,6 @@ sites:
   JP: Japan
 
 milestones:
-  - date: 2026-11-27
-    day: Fri
-    id: GP-0
-    what: PoC build freeze, tag poc-1
-    sites: [TW, JP]
   - date: 2026-12-04
     day: Fri
     id: G1

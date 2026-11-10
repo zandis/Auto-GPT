@@ -44,7 +44,6 @@ def test_committed_calendar_is_clean_and_every_year_is_sourced() -> None:
 def test_committed_milestones_are_the_build_milestones_only() -> None:
     c = gc.load()
     assert [(m.id, str(m.date)) for m in c.milestones] == [
-        ("GP-0", "2026-11-27"),
         ("G1", "2026-12-04"),
         ("G1b", "2026-12-11"),
         ("G2", "2027-01-08"),
